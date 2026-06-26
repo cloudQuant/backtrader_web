@@ -258,6 +258,9 @@ class AIStrategyResearchTaskResponse(BaseModel):
     iteration_count: int = 0
     max_iterations: int | None = None
     latest_iteration: dict[str, Any] | None = None
+    current_backtest_task_id: str | None = None
+    cancelled_backtest_task_id: str | None = None
+    child_cancelled: bool = False
     error: str | None = None
     message: str = ""
     result: AIStrategyResearchRunResponse | None = None

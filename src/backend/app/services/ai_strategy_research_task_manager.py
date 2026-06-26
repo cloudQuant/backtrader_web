@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -29,9 +30,10 @@ class _ResearchTaskState:
 class AIStrategyResearchTaskManager:
     """Track in-process AI research loop tasks for API polling."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, backtest_service_factory: Callable[[], Any] | None = None) -> None:
         self._tasks: dict[str, _ResearchTaskState] = {}
         self._lock = asyncio.Lock()
+        self._backtest_service_factory = backtest_service_factory
 
     async def submit(
         self,
@@ -80,6 +82,7 @@ class AIStrategyResearchTaskManager:
         task_id: str,
     ) -> AIStrategyResearchTaskResponse | None:
         background_task: asyncio.Task[None] | None = None
+        child_task_id: str | None = None
         async with self._lock:
             state = self._tasks.get(task_id)
             if state is None or state.user_id != user_id:
@@ -87,6 +90,7 @@ class AIStrategyResearchTaskManager:
             if state.response.status in {"completed", "failed", "cancelled"}:
                 return state.response.model_copy(deep=True)
             background_task = state.background_task
+            child_task_id = state.response.current_backtest_task_id
             state.response = state.response.model_copy(
                 update={
                     "status": "cancelled",
@@ -96,9 +100,18 @@ class AIStrategyResearchTaskManager:
                 }
             )
             response = state.response.model_copy(deep=True)
+        child_cancelled = False
+        if child_task_id:
+            child_cancelled = await self._cancel_child_backtest(child_task_id, user_id)
+            await self._update_task(
+                task_id,
+                cancelled_backtest_task_id=child_task_id,
+                child_cancelled=child_cancelled,
+            )
         if background_task is not None and not background_task.done():
             background_task.cancel()
-        return response
+        latest = await self.get_task(user_id, task_id)
+        return latest or response
 
     async def _run_task(
         self,
@@ -153,6 +166,7 @@ class AIStrategyResearchTaskManager:
                 iteration_count=len(result.iterations),
                 max_iterations=request.max_iterations,
                 latest_iteration=latest_iteration,
+                current_backtest_task_id=None,
                 result=result,
                 message=result.message,
             )
@@ -179,7 +193,23 @@ class AIStrategyResearchTaskManager:
             state = self._tasks.get(task_id)
             if state is None:
                 return
+            if (
+                state.response.status in {"completed", "failed", "cancelled"}
+                and updates.get("status") == "running"
+            ):
+                return
             state.response = state.response.model_copy(update=updates)
+
+    async def _cancel_child_backtest(self, task_id: str, user_id: str) -> bool:
+        try:
+            service = self._backtest_service_factory() if self._backtest_service_factory else None
+            if service is None:
+                from app.services.backtest.service import BacktestService
+
+                service = BacktestService()
+            return bool(await service.cancel_task(task_id, user_id))
+        except Exception:
+            return False
 
 
 _manager: AIStrategyResearchTaskManager | None = None

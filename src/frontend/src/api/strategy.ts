@@ -309,6 +309,9 @@ export interface AIStrategyResearchTaskResponse {
   iteration_count: number
   max_iterations?: number | null
   latest_iteration?: Record<string, unknown> | null
+  current_backtest_task_id?: string | null
+  cancelled_backtest_task_id?: string | null
+  child_cancelled?: boolean
   error?: string | null
   message: string
   result?: AIStrategyResearchRunResponse | null

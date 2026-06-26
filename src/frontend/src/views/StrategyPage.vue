@@ -235,6 +235,9 @@
                   <template v-if="aiResearchTaskIteration">
                     第 {{ aiResearchTaskIteration }} 轮
                   </template>
+                  <template v-if="aiResearchBacktestTaskId">
+                    回测 {{ aiResearchBacktestTaskId }}
+                  </template>
                 </el-tag>
               </div>
             </el-form>
@@ -810,6 +813,8 @@ const aiResearchTaskStatus = ref('')
 const aiResearchTaskStage = ref('')
 const aiResearchTaskProgress = ref(0)
 const aiResearchTaskIteration = ref<number | null>(null)
+const aiResearchBacktestTaskId = ref('')
+const aiResearchCancelledBacktestTaskId = ref('')
 const aiResearchCancelling = ref(false)
 const aiResearchCancelRequested = ref(false)
 const aiResearchPaperStartingRunId = ref('')
@@ -1157,6 +1162,8 @@ function applyAIResearchTaskStatus(task: AIStrategyResearchTaskResponse) {
   aiResearchTaskStage.value = task.current_stage || task.status
   aiResearchTaskProgress.value = Number(task.progress || 0)
   aiResearchTaskIteration.value = task.current_iteration ?? task.iteration_count ?? null
+  aiResearchBacktestTaskId.value = task.current_backtest_task_id || ''
+  aiResearchCancelledBacktestTaskId.value = task.cancelled_backtest_task_id || ''
 }
 
 async function runAIResearchRequest(
@@ -1204,7 +1211,11 @@ async function cancelAIResearchTask() {
     const task = await cancelTask(taskId)
     applyAIResearchTaskStatus(task)
     aiResearchRunning.value = false
-    ElMessage.success('AI投研任务已取消')
+    ElMessage.success(
+      task.child_cancelled && task.cancelled_backtest_task_id
+        ? 'AI投研任务已取消，当前回测任务已同步取消'
+        : 'AI投研任务已取消'
+    )
   } catch {
     ElMessage.error(t('strategy.aiResearchRunFailed'))
   } finally {
@@ -1230,6 +1241,8 @@ async function runAIResearchLoop() {
   aiResearchTaskStage.value = ''
   aiResearchTaskProgress.value = 0
   aiResearchTaskIteration.value = null
+  aiResearchBacktestTaskId.value = ''
+  aiResearchCancelledBacktestTaskId.value = ''
   aiResearchCancelRequested.value = false
   try {
     aiResearchResult.value = await runAIResearchRequest(buildAIResearchRequest(prompt, symbol))

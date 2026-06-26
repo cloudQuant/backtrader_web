@@ -380,6 +380,21 @@ class AIStrategyResearchService:
             )
             if backtest_response is None:
                 raise ValueError("Research workspace or generated strategy was not found")
+            await _emit_research_progress(
+                progress_callback,
+                {
+                    "current_stage": "backtesting",
+                    "progress": min(
+                        _research_loop_progress(iteration - 1, request.max_iterations) + 4.0,
+                        80.0,
+                    ),
+                    "current_iteration": iteration,
+                    "iteration_count": len(iterations),
+                    "max_iterations": request.max_iterations,
+                    "current_backtest_task_id": backtest_response.run_result.task_id,
+                    "message": f"Backtest task submitted for iteration {iteration}",
+                },
+            )
 
             unit_status, failure_reason = await self._wait_for_unit_status(
                 research_workspace.id,

@@ -721,6 +721,10 @@ async def test_research_loop_emits_progress_snapshots():
     stages = [item["current_stage"] for item in events]
     assert stages[:3] == ["initializing", "drafting", "backtesting"]
     assert "evaluating" in stages
+    submitted = next(
+        item for item in events if item.get("message") == "Backtest task submitted for iteration 1"
+    )
+    assert submitted["current_backtest_task_id"] == "task-1"
     evaluating = next(item for item in events if item["current_stage"] == "evaluating")
     assert evaluating["current_iteration"] == 1
     assert evaluating["iteration_count"] == 1
@@ -1569,11 +1573,21 @@ class SlowResearchAPIService:
                     "current_iteration": 1,
                     "iteration_count": 0,
                     "max_iterations": request.max_iterations,
+                    "current_backtest_task_id": "child-backtest-task",
                     "message": "slow fake backtest",
                 }
             )
         await asyncio.sleep(60)
         raise AssertionError("slow research task should have been cancelled")
+
+
+class FakeBacktestCancelService:
+    def __init__(self) -> None:
+        self.cancelled: list[tuple[str, str]] = []
+
+    async def cancel_task(self, task_id: str, user_id: str) -> bool:
+        self.cancelled.append((task_id, user_id))
+        return True
 
 
 @pytest.mark.asyncio
@@ -1610,7 +1624,8 @@ async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
 
 @pytest.mark.asyncio
 async def test_ai_strategy_research_task_manager_cancels_running_task():
-    manager = AIStrategyResearchTaskManager()
+    backtest_service = FakeBacktestCancelService()
+    manager = AIStrategyResearchTaskManager(backtest_service_factory=lambda: backtest_service)
     submitted = await manager.submit(
         "user-1",
         AIStrategyResearchRunRequest(prompt="生成趋势策略", symbol="000001.SZ"),
@@ -1627,11 +1642,15 @@ async def test_ai_strategy_research_task_manager_cancels_running_task():
     assert running is not None
     assert running.status == "running"
     assert running.progress == pytest.approx(25.0)
+    assert running.current_backtest_task_id == "child-backtest-task"
 
     cancelled = await manager.cancel_task("user-1", submitted.task_id)
     assert cancelled is not None
     assert cancelled.status == "cancelled"
     assert cancelled.current_stage == "cancelled"
+    assert cancelled.cancelled_backtest_task_id == "child-backtest-task"
+    assert cancelled.child_cancelled is True
+    assert backtest_service.cancelled == [("child-backtest-task", "user-1")]
     assert await manager.cancel_task("other-user", submitted.task_id) is None
 
     final = None
@@ -1676,7 +1695,8 @@ async def test_ai_strategy_research_task_api_endpoint(
     client: AsyncClient,
     auth_headers: dict,
 ):
-    task_manager = AIStrategyResearchTaskManager()
+    backtest_service = FakeBacktestCancelService()
+    task_manager = AIStrategyResearchTaskManager(backtest_service_factory=lambda: backtest_service)
     app.dependency_overrides[get_ai_strategy_research_service] = lambda: FakeResearchAPIService()
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
     try:
@@ -1724,7 +1744,8 @@ async def test_ai_strategy_research_task_cancel_endpoint(
     client: AsyncClient,
     auth_headers: dict,
 ):
-    task_manager = AIStrategyResearchTaskManager()
+    backtest_service = FakeBacktestCancelService()
+    task_manager = AIStrategyResearchTaskManager(backtest_service_factory=lambda: backtest_service)
     app.dependency_overrides[get_ai_strategy_research_service] = lambda: SlowResearchAPIService()
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
     try:
@@ -1762,7 +1783,12 @@ async def test_ai_strategy_research_task_cancel_endpoint(
     payload = cancel_response.json()
     assert payload["status"] == "cancelled"
     assert payload["current_stage"] == "cancelled"
+    assert payload["cancelled_backtest_task_id"] == "child-backtest-task"
+    assert payload["child_cancelled"] is True
     assert payload["completed_at"]
+    assert backtest_service.cancelled
+    assert backtest_service.cancelled[0][0] == "child-backtest-task"
+    assert backtest_service.cancelled[0][1]
 
 
 @pytest.mark.asyncio
