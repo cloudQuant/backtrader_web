@@ -325,6 +325,18 @@ vi.mock('@/api/strategy', () => ({
       handoff: {
         run_id: 'history-run',
         paper_task_id: 'paper-task',
+        backtest_environment: {
+          initial_cash: 100000,
+          commission: 0.002,
+          multiplier: 300,
+          margin: 0.1,
+          annual_days: 244,
+          calc_method: 'simple',
+          weight_mode: 'equal',
+          asset_spec_source: 'local_futures_commission',
+          start_date: '2024-01-01',
+          end_date: '2024-12-31',
+        },
         paper_monitoring_plan: [
           {
             key: 'rolling_sharpe',
@@ -562,6 +574,11 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchResult.run_record.paper_trading_started).toBe(true)
     expect(vm.aiResearchRuns[0].run_id).toBe('run-1')
     expect(vm.aiResearchRuns[0].paper_trading_started).toBe(true)
+    const currentPaperEnv = wrapper.find('[data-test="ai-research-current-paper-env"]').text()
+    expect(currentPaperEnv).toContain('模拟环境')
+    expect(currentPaperEnv).toContain('手续费 0.002000')
+    expect(currentPaperEnv).toContain('合约乘数 300.00')
+    expect(currentPaperEnv).toContain('资产来源 local_futures_commission')
     const currentReviewButton = wrapper.findAll('button').find(
       button => button.text().includes('复核模拟')
     )
@@ -1050,6 +1067,14 @@ describe('StrategyPage', () => {
           paper_workspace_id: 'paper-ws',
           paper_unit_id: 'paper-unit',
           paper_trading_started: true,
+          paper_handoff: {
+            backtest_environment: {
+              initial_cash: 200000,
+              commission: 0.0015,
+              multiplier: 100,
+              asset_spec_source: 'paper_gateway',
+            },
+          },
           pipeline: {
             current_stage: 'paper_trading',
             status: 'achieved',
@@ -1071,6 +1096,11 @@ describe('StrategyPage', () => {
     await wrapper.vm.$nextTick()
     expect(vm.canReviewPaperFromRecord(vm.aiResearchRuns[0])).toBe(true)
     expect(wrapper.text()).toContain('阶段 paper_trading')
+    const historyPaperEnv = wrapper.find('[data-test="ai-research-history-paper-env"]').text()
+    expect(historyPaperEnv).toContain('模拟环境')
+    expect(historyPaperEnv).toContain('初始资金 200000.00')
+    expect(historyPaperEnv).toContain('手续费 0.001500')
+    expect(historyPaperEnv).toContain('资产来源 paper_gateway')
     const reviewButton = wrapper.findAll('button').find(button => button.text().includes('复核模拟'))
     expect(reviewButton).toBeTruthy()
     await reviewButton!.trigger('click')

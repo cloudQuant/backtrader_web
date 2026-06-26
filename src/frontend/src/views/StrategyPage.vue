@@ -442,6 +442,20 @@
               </div>
 
               <div
+                v-if="aiResearchCurrentPaperEnvironment.length"
+                class="ai-research-paper-env"
+                data-test="ai-research-current-paper-env"
+              >
+                <strong>模拟环境</strong>
+                <span
+                  v-for="item in aiResearchCurrentPaperEnvironment"
+                  :key="item.key"
+                >
+                  {{ item.label }} {{ item.value }}
+                </span>
+              </div>
+
+              <div
                 v-if="aiResearchCurrentPaperReview"
                 class="ai-research-paper-review ai-research-current-paper-review"
                 data-test="ai-research-current-paper-review"
@@ -788,6 +802,19 @@
                     </el-icon>
                     继续改进
                   </el-button>
+                  <div
+                    v-if="hasPaperEnvironment(record.paper_handoff)"
+                    class="ai-research-paper-env"
+                    data-test="ai-research-history-paper-env"
+                  >
+                    <strong>模拟环境</strong>
+                    <span
+                      v-for="item in paperEnvironmentItems(record.paper_handoff)"
+                      :key="item.key"
+                    >
+                      {{ item.label }} {{ item.value }}
+                    </span>
+                  </div>
                   <div
                     v-if="aiResearchPaperReviews[record.run_id]"
                     class="ai-research-paper-review"
@@ -1212,6 +1239,11 @@ const aiResearchCurrentPaperReview = computed(() => {
     next_actions: record.paper_review_next_actions ?? [],
   } satisfies AIStrategyPaperTradingReview
 })
+const aiResearchCurrentPaperEnvironment = computed(() => {
+  const result = aiResearchResult.value
+  if (!result) return []
+  return paperEnvironmentItems(result.paper_trading?.handoff ?? result.run_record?.paper_handoff)
+})
 const aiResearchBestGateEvaluations = computed(
   () => aiResearchResult.value?.best_quality_gate_evaluations ?? []
 )
@@ -1331,6 +1363,52 @@ function outOfSampleValidationFromHandoff(
       : [],
     failure_reason: typeof payload.failure_reason === 'string' ? payload.failure_reason : null,
   }
+}
+
+type PaperEnvironmentItem = {
+  key: string
+  label: string
+  value: string
+}
+
+function hasPaperEnvironment(handoff: Record<string, unknown> | null | undefined) {
+  return paperEnvironmentItems(handoff).length > 0
+}
+
+function paperEnvironmentItems(
+  handoff: Record<string, unknown> | null | undefined
+): PaperEnvironmentItem[] {
+  if (!isRecord(handoff) || !isRecord(handoff.backtest_environment)) return []
+  const environment = handoff.backtest_environment
+  const items: PaperEnvironmentItem[] = []
+  const appendNumber = (key: string, label: string, digits = 2) => {
+    const value = environment[key]
+    if (value === undefined || value === null || value === '') return
+    items.push({ key, label, value: formatMetric(value, digits) })
+  }
+  const appendText = (key: string, label: string) => {
+    const value = environment[key]
+    if (value === undefined || value === null || value === '') return
+    items.push({ key, label, value: String(value) })
+  }
+  const startDate = environment.start_date
+  const endDate = environment.end_date
+  if (startDate || endDate) {
+    items.push({
+      key: 'date_range',
+      label: '区间',
+      value: `${startDate || '-'} 至 ${endDate || '-'}`,
+    })
+  }
+  appendNumber('initial_cash', '初始资金', 2)
+  appendNumber('commission', '手续费', 6)
+  appendNumber('multiplier', '合约乘数', 2)
+  appendNumber('margin', '保证金', 4)
+  appendNumber('annual_days', '年化天数', 0)
+  appendText('calc_method', '收益')
+  appendText('weight_mode', '权重')
+  appendText('asset_spec_source', '资产来源')
+  return items
 }
 
 function iterationOutOfSampleValidation(
@@ -2251,6 +2329,23 @@ onMounted(async () => {
 
 .ai-research-current-paper-review-action {
   margin-top: 8px;
+}
+
+.ai-research-paper-env {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding-top: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.ai-research-paper-env strong {
+  color: var(--el-text-color-primary);
+  font-size: 12px;
 }
 
 .ai-research-paper-review-head,
