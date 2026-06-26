@@ -3406,6 +3406,73 @@ async def test_build_positions_response_revalues_gross_pnl_rows_without_explicit
 
 
 @pytest.mark.asyncio
+async def test_build_positions_response_exposes_separate_long_short_market_values(
+    monkeypatch,
+):
+    service = TradingWorkspaceService()
+    unit = SimpleNamespace(
+        id="unit-hedged",
+        strategy_name="IF Hedge",
+        strategy_id="simulate/gateway_dual_ma",
+        symbol="IF2609",
+        symbol_name="沪深300",
+        trading_mode="live",
+        unit_settings={},
+        params={},
+        data_config={},
+        gateway_config={},
+        trading_snapshot={
+            "positions": [
+                {
+                    "data_name": "IF2609",
+                    "direction": "long",
+                    "size": 1,
+                    "price": 5000.0,
+                    "current_price": 5001.0,
+                    "market_value": 1_500_300.0,
+                    "multiplier": 300,
+                    "position_pnl": 300.0,
+                    "position_source": "gateway",
+                },
+                {
+                    "data_name": "IF2609",
+                    "direction": "short",
+                    "size": -1,
+                    "price": 5015.0,
+                    "current_price": 5010.0,
+                    "market_value": 1_503_000.0,
+                    "multiplier": 300,
+                    "position_pnl": 1_500.0,
+                    "position_source": "gateway",
+                },
+            ],
+            "position_source": "gateway",
+            "long_position": 1.0,
+            "short_position": 1.0,
+            "long_market_value": 1_500_300.0,
+            "short_market_value": 1_503_000.0,
+            "position_pnl": 1_800.0,
+        },
+    )
+
+    async def fail_hydrate(_units, _user_id):
+        raise AssertionError("hydrate_units should not run when hydrate=False")
+
+    monkeypatch.setattr(service, "hydrate_units", fail_hydrate)
+
+    result = await service.build_positions_response([unit], "user-1", hydrate=False)
+    row = result.positions[0]
+
+    assert row.long_position == 1.0
+    assert row.short_position == 1.0
+    assert row.market_value == pytest.approx(3_003_300.0)
+    assert row.long_market_value == pytest.approx(1_500_300.0)
+    assert row.short_market_value == pytest.approx(1_503_000.0)
+    assert result.total_long_value == pytest.approx(1_500_300.0)
+    assert result.total_short_value == pytest.approx(1_503_000.0)
+
+
+@pytest.mark.asyncio
 async def test_build_positions_response_skips_zero_position_rows_even_with_stale_snapshot():
     service = TradingWorkspaceService()
     unit = SimpleNamespace(

@@ -303,7 +303,9 @@ describe('PortfolioPage', () => {
           avg_price: 5000,
           latest_price: 5010,
           position_pnl: 120,
-          market_value: 1_002_000,
+          market_value: 1_002_600,
+          long_market_value: 501_000,
+          short_market_value: 501_600,
           margin_value: 120_240,
           multiplier: 300,
           margin_rate: 0.12,
@@ -317,7 +319,7 @@ describe('PortfolioPage', () => {
         },
       ],
       total_long_value: 501_000,
-      total_short_value: 501_000,
+      total_short_value: 501_600,
       total_pnl: 120,
     })
     vi.mocked(portfolioApi.getTrades).mockResolvedValueOnce({ total: 0, trades: [] })
@@ -332,8 +334,8 @@ describe('PortfolioPage', () => {
     expect(vm.directionLabel('hedged')).toBe('双向')
     expect(vm.positionSummary.long_count).toBe(1)
     expect(vm.positionSummary.short_count).toBe(1)
-    expect(vm.positionSummary.gross_market_value).toBe(1_002_000)
-    expect(vm.positionSummary.net_market_value).toBe(0)
+    expect(vm.positionSummary.gross_market_value).toBe(1_002_600)
+    expect(vm.positionSummary.net_market_value).toBe(-600)
   })
 
   it('loadTabData loads selected workspace trade records', async () => {

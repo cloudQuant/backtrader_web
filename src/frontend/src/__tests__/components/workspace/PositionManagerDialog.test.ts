@@ -70,6 +70,8 @@ describe('PositionManagerDialog', () => {
           latest_price: 5001,
           position_pnl: 265.5,
           market_value: 1500300,
+          long_market_value: 1500400,
+          short_market_value: 0,
           margin_value: 150030,
           multiplier: 300,
           margin_rate: 0.1,
@@ -92,7 +94,7 @@ describe('PositionManagerDialog', () => {
 
     expect(vm.positions).toHaveLength(1)
     expect(vm.positions[0].unit_id).toBe('unit-active')
-    expect(vm.summary.total_long_value).toBe(1500300)
+    expect(vm.summary.total_long_value).toBe(1500400)
     expect(vm.summary.total_short_value).toBe(0)
     expect(vm.summary.total_pnl).toBe(265.5)
   })

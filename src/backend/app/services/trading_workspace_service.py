@@ -1980,6 +1980,8 @@ class TradingWorkspaceService:
                     ),
                     "position_pnl": round(position_pnl, 2),
                     "market_value": market_value,
+                    "long_market_value": round(long_market_value, 2),
+                    "short_market_value": round(short_market_value, 2),
                     "margin_value": round(margin_value, 2) if active_position_rows else None,
                     "multiplier": _unique_number(
                         [

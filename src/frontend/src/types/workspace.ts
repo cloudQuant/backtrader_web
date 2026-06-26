@@ -191,6 +191,8 @@ export interface TradingPositionManagerItem {
   latest_price: number | null
   position_pnl: number
   market_value: number
+  long_market_value?: number
+  short_market_value?: number
   margin_value?: number | null
   multiplier?: number | null
   margin_rate?: number | null

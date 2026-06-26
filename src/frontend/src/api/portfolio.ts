@@ -43,6 +43,8 @@ export interface PositionItem {
   latest_price?: number | null
   market_value: number
   signed_market_value?: number
+  long_market_value?: number
+  short_market_value?: number
   position_pnl?: number
   gross_pnl?: number
   commission?: number

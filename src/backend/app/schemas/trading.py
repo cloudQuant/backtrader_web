@@ -141,6 +141,8 @@ class PositionManagerItem(BaseModel):
     latest_price: float | None = None
     position_pnl: float = 0.0
     market_value: float = 0.0
+    long_market_value: float = 0.0
+    short_market_value: float = 0.0
     margin_value: float | None = None
     multiplier: float | None = None
     margin_rate: float | None = None

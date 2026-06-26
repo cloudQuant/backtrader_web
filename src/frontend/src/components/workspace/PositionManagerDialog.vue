@@ -272,6 +272,14 @@ async function loadPositions() {
 
 function buildVisiblePositionSummary(rows: TradingPositionManagerItem[]) {
   const totals = rows.reduce((sum, item) => {
+    const longMarketValue = Number(item.long_market_value)
+    const shortMarketValue = Number(item.short_market_value)
+    if (Number.isFinite(longMarketValue) || Number.isFinite(shortMarketValue)) {
+      sum.total_long_value += Number.isFinite(longMarketValue) ? Math.max(longMarketValue, 0) : 0
+      sum.total_short_value += Number.isFinite(shortMarketValue) ? Math.max(shortMarketValue, 0) : 0
+      sum.total_pnl += Number(item.position_pnl || 0)
+      return sum
+    }
     const longPosition = Math.max(Number(item.long_position || 0), 0)
     const shortPosition = Math.max(Number(item.short_position || 0), 0)
     const marketValue = Math.abs(Number(item.market_value || 0))

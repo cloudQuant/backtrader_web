@@ -768,6 +768,14 @@ async function loadWorkspaceAggregates() {
 
 function buildWorkspacePositionSummary(rows: PositionItem[]): PositionSummary {
   const exposure = rows.reduce((sum, item) => {
+    const longMarketValue = Number(item.long_market_value)
+    const shortMarketValue = Number(item.short_market_value)
+    if (Number.isFinite(longMarketValue) || Number.isFinite(shortMarketValue)) {
+      sum.long += Number.isFinite(longMarketValue) ? Math.max(longMarketValue, 0) : 0
+      sum.short += Number.isFinite(shortMarketValue) ? Math.max(shortMarketValue, 0) : 0
+      sum.pnl += Number(item.position_pnl || 0)
+      return sum
+    }
     const longPosition = Math.max(Number(item.long_position || 0), 0)
     const shortPosition = Math.max(Number(item.short_position || 0), 0)
     const marketValue = Math.abs(Number(item.market_value || 0))
@@ -824,6 +832,8 @@ function mapWorkspacePosition(
     latest_price: latestPrice,
     market_value: Number(item.market_value ?? 0),
     margin_value: item.margin_value == null ? undefined : Number(item.margin_value),
+    long_market_value: item.long_market_value == null ? undefined : Number(item.long_market_value),
+    short_market_value: item.short_market_value == null ? undefined : Number(item.short_market_value),
     position_pnl: Number(item.position_pnl || 0),
     gross_pnl: item.gross_pnl == null ? undefined : Number(item.gross_pnl),
     commission: item.commission == null ? undefined : Number(item.commission),
