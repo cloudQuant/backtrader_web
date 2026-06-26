@@ -47,6 +47,8 @@ _COMMISSION_FIELD_KEYS = (
     "comm",
     "fee",
     "fees",
+    "execFee",
+    "exec_fee",
     "open_commission",
     "position_fee",
     "position_commission",
@@ -58,15 +60,21 @@ _COMMISSION_FIELD_KEYS = (
 _GROSS_PNL_FIELD_KEYS = (
     "gross_pnl",
     "position_unrealized_pnl",
+    "position_unrealised_pnl",
     "position_profit",
     "PositionProfit",
     "unrealized_profit",
+    "unrealised_profit",
     "unRealizedProfit",
     "UnrealizedPnL",
     "unrealizedPnl",
+    "unrealisedPnl",
     "unrealized_pnl",
+    "unrealised_pnl",
     "unrealizedPNL",
+    "unrealisedPNL",
     "unrealizedpnl",
+    "unrealisedpnl",
     "floating_pnl",
     "profit",
     "upl",
@@ -725,6 +733,7 @@ def _snapshot_positions_for_portfolio(snapshot: dict[str, Any] | None) -> list[d
             "last_price",
             "mark_price",
             "markPrice",
+            "markPx",
             "market_price",
             "lastPrice",
             "LastPrice",
@@ -738,7 +747,13 @@ def _snapshot_positions_for_portfolio(snapshot: dict[str, Any] | None) -> list[d
             "settlement_price",
         )
         explicit_market_value = _first_number(
-            row, "market_value", "marketValue", "mktValue", "value"
+            row,
+            "market_value",
+            "marketValue",
+            "mktValue",
+            "positionValue",
+            "position_value",
+            "value",
         )
         market_value = (
             explicit_market_value if explicit_market_value is not None else abs(size) * price

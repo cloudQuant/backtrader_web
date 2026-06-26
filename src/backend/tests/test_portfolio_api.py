@@ -678,6 +678,86 @@ async def test_portfolio_positions_use_live_gateway_positions_without_log_dir():
 
 
 @pytest.mark.asyncio
+async def test_portfolio_positions_value_bybit_v5_short_with_real_execution_fee():
+    """Bybit v5 raw side/exec fields should value shorts and real fees correctly."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    instance = {
+        **_INSTANCE_A,
+        "params": {"trading_mode": "live", "symbol": "BTCUSDT"},
+    }
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "Sell",
+                    "size": "0.1",
+                    "avgPrice": "60000",
+                    "markPrice": "59000",
+                    "positionValue": "5900",
+                    "positionIM": "590",
+                    "unrealisedPnl": "100",
+                    "leverage": "10",
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "BTCUSDT" in symbols
+            return {
+                "BTCUSDT": {
+                    "symbol": "BTCUSDT",
+                    "contract_size": 1,
+                    "quote_asset": "USDT",
+                    "commission_rate": 0.0004,
+                    "source": "bybit_gateway",
+                }
+            }
+
+        def query_instance_gateway_trades(self, instance_id, *, symbol=None, limit=100):
+            assert instance_id == "inst-a"
+            assert symbol == "BTCUSDT"
+            return [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "Sell",
+                    "execQty": "0.1",
+                    "execPrice": "60000",
+                    "execFee": "3",
+                    "feeCurrency": "USDT",
+                    "execTime": "1",
+                }
+            ]
+
+    mgr = GatewayManager([instance])
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["data_name"] == "BTCUSDT"
+    assert row["size"] == pytest.approx(-0.1)
+    assert row["direction"] == "short"
+    assert row["market_value"] == 5900.0
+    assert row["signed_market_value"] == -5900.0
+    assert row["margin_value"] == 590.0
+    assert row["commission"] == 3.0
+    assert row["gross_pnl"] == 100.0
+    assert row["position_pnl"] == 97.0
+    assert row["asset_spec_source"] == "bybit_gateway"
+    assert result["summary"]["total_short_value"] == 5900.0
+    assert result["summary"]["net_market_value"] == -5900.0
+    assert result["summary"]["total_pnl"] == 97.0
+
+
+@pytest.mark.asyncio
 async def test_portfolio_positions_use_runtime_config_asset_specs_when_gateway_specs_empty(
     tmp_path,
 ):

@@ -18,6 +18,8 @@ COMMISSION_FIELD_KEYS = (
     "comm",
     "fee",
     "fees",
+    "execFee",
+    "exec_fee",
     "open_commission",
     "position_fee",
     "position_commission",
@@ -935,6 +937,8 @@ def _row_size(row: dict[str, Any]) -> float:
         "positionSide",
         "PositionSide",
         "posSide",
+        "positionIdx",
+        "position_idx",
         "trade_action",
         "position_type",
         "type",
@@ -959,6 +963,8 @@ def _row_size(row: dict[str, Any]) -> float:
     if direction_key in {"trade_action", "position_type", "type"} and code == 1:
         return -abs(size)
     if direction_key in {"PosiDirection", "posi_direction", "position_direction"} and code == 3:
+        return -abs(size)
+    if direction_key in {"positionIdx", "position_idx"} and code == 2:
         return -abs(size)
     return size
 
@@ -1307,6 +1313,7 @@ def _row_fee_currency(row: dict[str, Any]) -> str:
             row.get("trade_fee_currency"),
             row.get("commissionAsset"),
             row.get("commission_asset"),
+            row.get("feeCurrency"),
             row.get("fillFeeCcy"),
             row.get("fill_fee_currency"),
             row.get("feeCcy"),
@@ -1407,6 +1414,8 @@ def _fee_conversion_rate(
             row.get("fee_price"),
             row.get("fillPx"),
             row.get("fill_price"),
+            row.get("execPrice"),
+            row.get("exec_price"),
             row.get("price"),
             row.get("avgPx"),
             row.get("avg_price"),
@@ -1492,6 +1501,10 @@ def _row_margin_value(
         row.get("use_margin"),
         row.get("initial_margin"),
         row.get("maintain_margin"),
+        row.get("positionIM"),
+        row.get("positionIMByMp"),
+        row.get("positionMM"),
+        row.get("positionMMByMp"),
         row.get("isolatedMargin"),
         row.get("isolated_margin"),
         row.get("imr"),
@@ -1544,6 +1557,8 @@ def _row_explicit_market_value(row: dict[str, Any]) -> float | None:
         row.get("marketValue"),
         row.get("MarketValue"),
         row.get("mktValue"),
+        row.get("positionValue"),
+        row.get("position_value"),
         row.get("notionalUsd"),
         row.get("notional_usd"),
         row.get("notional"),
@@ -1566,6 +1581,8 @@ def _row_explicit_market_value(row: dict[str, Any]) -> float | None:
     value = _first_number(
         row.get("market_value"),
         row.get("mktValue"),
+        row.get("positionValue"),
+        row.get("position_value"),
         row.get("notionalUsd"),
         row.get("notional_usd"),
         row.get("notional"),
@@ -1620,6 +1637,8 @@ def _current_price(
             row.get("market_value"),
             row.get("marketValue"),
             row.get("mktValue"),
+            row.get("positionValue"),
+            row.get("position_value"),
             row.get("notionalUsd"),
             row.get("notional_usd"),
             row.get("notional"),
@@ -1746,13 +1765,19 @@ def value_position(
     explicit_gross_pnl = _first_number(
         row.get("gross_pnl"),
         row.get("position_unrealized_pnl"),
+        row.get("position_unrealised_pnl"),
         row.get("unrealized_profit"),
+        row.get("unrealised_profit"),
         row.get("unRealizedProfit"),
         row.get("UnrealizedPnL"),
         row.get("unrealizedPnl"),
+        row.get("unrealisedPnl"),
         row.get("unrealized_pnl"),
+        row.get("unrealised_pnl"),
         row.get("unrealizedPNL"),
+        row.get("unrealisedPNL"),
         row.get("unrealizedpnl"),
+        row.get("unrealisedpnl"),
         row.get("floating_pnl"),
         row.get("upl"),
         row.get("up"),

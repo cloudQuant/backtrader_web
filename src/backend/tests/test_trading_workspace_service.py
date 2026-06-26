@@ -14,6 +14,7 @@ from app.services.trading_asset_info_service import (
     persist_asset_specs,
     query_gateway_asset_spec,
     query_gateway_last_price,
+    signed_gateway_size,
     symbol_aliases,
     symbols_for_instance,
 )
@@ -1702,6 +1703,64 @@ def test_normalize_gateway_position_replays_trade_fees_for_current_open_position
     assert valued is not None
     assert valued.commission == pytest.approx(0.5)
     assert valued.pnl == pytest.approx(19.5)
+
+
+def test_normalize_gateway_position_understands_bybit_v5_position_and_execution_fields():
+    spec = normalize_asset_spec(
+        {
+            "symbol": "BTCUSDT",
+            "contract_size": 1,
+            "quote_asset": "USDT",
+            "commission_rate": 0.0004,
+        },
+        source="bybit_gateway",
+    )
+
+    row = normalize_gateway_position(
+        {
+            "symbol": "BTCUSDT",
+            "side": "Sell",
+            "size": "0.1",
+            "avgPrice": "60000",
+            "markPrice": "59000",
+            "positionValue": "5900",
+            "positionIM": "590",
+            "unrealisedPnl": "100",
+            "leverage": "10",
+        },
+        asset_spec=spec,
+        recent_trades=[
+            {
+                "symbol": "BTCUSDT",
+                "side": "Sell",
+                "execQty": "0.1",
+                "execPrice": "60000",
+                "execFee": "3",
+                "feeCurrency": "USDT",
+                "execTime": "1",
+            }
+        ],
+    )
+
+    valued = value_position(
+        row,
+        spec=contract_spec_for("BTCUSDT", {"contract_metadata": {"BTCUSDT": spec}}),
+    )
+
+    assert signed_gateway_size({"symbol": "BTCUSDT", "positionIdx": "2", "size": "1"}) == -1
+    assert row["size"] == pytest.approx(-0.1)
+    assert row["market_value"] == pytest.approx(5900.0)
+    assert row["margin_value"] == pytest.approx(590.0)
+    assert row["commission"] == pytest.approx(3.0)
+    assert row["commission_source"] == "gateway.trades"
+    assert row["gross_pnl"] == pytest.approx(100.0)
+    assert row["position_pnl"] == pytest.approx(97.0)
+    assert valued is not None
+    assert valued.direction == "short"
+    assert valued.market_value == pytest.approx(5900.0)
+    assert valued.margin_value == pytest.approx(590.0)
+    assert valued.commission == pytest.approx(3.0)
+    assert valued.pnl == pytest.approx(97.0)
 
 
 def test_normalize_gateway_position_does_not_use_trade_fee_in_other_currency():
