@@ -687,6 +687,47 @@ class TestDirectOrderServiceBuildOrderPayload:
         ) == (True, None)
         assert DirectOrderService._gateway_order_result_ok("live-123") == (True, None)
 
+    def test_gateway_order_result_accepts_bybit_v5_ret_code_success(self):
+        assert DirectOrderService._gateway_order_result_ok(
+            {
+                "retCode": 0,
+                "retMsg": "OK",
+                "result": {"orderId": "bybit-123", "orderLinkId": "client-123"},
+            }
+        ) == (True, None)
+        assert DirectOrderService._gateway_order_result_ok(
+            {
+                "status": "ok",
+                "data": {
+                    "retCode": "0",
+                    "retMsg": "OK",
+                    "result": {"orderId": "bybit-456"},
+                },
+            }
+        ) == (True, None)
+
+    def test_gateway_order_result_rejects_bybit_v5_ret_code_error(self):
+        assert DirectOrderService._gateway_order_result_ok(
+            {
+                "retCode": 10001,
+                "retMsg": "position idx not match position mode",
+                "result": {},
+            }
+        ) == (False, "position idx not match position mode")
+        assert (
+            DirectOrderService._gateway_result_error_message(
+                {
+                    "status": "ok",
+                    "data": {
+                        "retCode": 10001,
+                        "retMsg": "request parameter error",
+                        "result": {},
+                    },
+                }
+            )
+            == "request parameter error"
+        )
+
     def test_gateway_order_result_accepts_okx_order_aliases(self):
         assert DirectOrderService._gateway_order_result_ok(
             {"ordId": "okx-123", "clOrdId": "client-123", "sCode": "0"}

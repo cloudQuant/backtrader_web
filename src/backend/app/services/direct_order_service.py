@@ -652,12 +652,19 @@ class DirectOrderService:
         if status in lifecycle_success_statuses:
             return True, None
 
-        retcode = result.get("retcode") or result.get("ret_code")
+        retcode = DirectOrderService._first_present(
+            result,
+            "retcode",
+            "ret_code",
+            "retCode",
+        )
         if retcode not in (None, ""):
             try:
                 retcode_int = int(retcode)
             except (TypeError, ValueError):
                 retcode_int = None
+            if retcode_int == 0:
+                return True, None
             if retcode_int in {10008, 10009, 10010}:
                 return True, None
             if retcode_int in {
@@ -673,9 +680,11 @@ class DirectOrderService:
                 10019,
                 10030,
                 10031,
-            }:
+            } or retcode_int not in (None, 0):
                 ret_message = (
                     result.get("retcode_external")
+                    or result.get("retMsg")
+                    or result.get("ret_msg")
                     or result.get("comment")
                     or result.get("message")
                     or result.get("error")
@@ -761,6 +770,14 @@ class DirectOrderService:
         return False
 
     @staticmethod
+    def _first_present(row: dict[str, Any], *keys: str) -> Any:
+        for key in keys:
+            value = row.get(key)
+            if value not in (None, ""):
+                return value
+        return None
+
+    @staticmethod
     def _unwrap_gateway_result(result: Any) -> Any:
         current = result
         for _ in range(5):
@@ -799,7 +816,29 @@ class DirectOrderService:
             "canceled",
             "expired",
         }:
-            return None
+            retcode = DirectOrderService._first_present(
+                current,
+                "retcode",
+                "ret_code",
+                "retCode",
+            )
+            if retcode in (None, ""):
+                return None
+            try:
+                retcode_int = int(retcode)
+            except (TypeError, ValueError):
+                retcode_int = None
+            if retcode_int in {0, 10008, 10009, 10010}:
+                return None
+            return str(
+                current.get("retcode_external")
+                or current.get("retMsg")
+                or current.get("ret_msg")
+                or current.get("comment")
+                or current.get("message")
+                or current.get("error")
+                or f"gateway retcode: {retcode}"
+            )
         return str(
             current.get("error")
             or current.get("message")
