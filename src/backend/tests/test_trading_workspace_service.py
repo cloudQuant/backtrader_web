@@ -1905,6 +1905,7 @@ def test_normalize_gateway_position_converts_base_currency_position_fee_to_quote
             "avgPx": "50000",
             "markPx": "60000",
             "upl": "20",
+            "pnlCcy": "USD",
             "fee": "-0.00005",
             "feeCcy": "BTC",
             "source": "okx_gateway",
@@ -1948,6 +1949,7 @@ def test_normalize_gateway_position_converts_base_currency_trade_fee_to_quote_va
             "avgPx": "50000",
             "markPx": "60000",
             "upl": "20",
+            "pnlCcy": "USD",
             "source": "okx_gateway",
         },
         asset_spec=spec,
@@ -2112,6 +2114,7 @@ def test_value_position_converts_base_currency_fee_to_quote_value():
             "avgPx": 50000.0,
             "markPx": 60000.0,
             "upl": 20.0,
+            "pnlCcy": "USD",
             "fee": "-0.00005",
             "feeCcy": "BTC",
             "source": "okx_gateway",
@@ -2242,6 +2245,50 @@ def test_raw_okx_contract_value_keeps_swap_notional_and_pnl_correct():
     assert valued.commission == pytest.approx(0.5)
     assert valued.gross_pnl == pytest.approx(100.0)
     assert valued.pnl == pytest.approx(99.5)
+
+
+def test_inverse_contract_gateway_upl_settlement_currency_converts_to_quote_value():
+    spec = normalize_asset_spec(
+        {
+            "instId": "BTC-USD-SWAP",
+            "instType": "SWAP",
+            "ctType": "inverse",
+            "ctVal": "100",
+            "ctValCcy": "USD",
+            "baseCcy": "BTC",
+            "quoteCcy": "USD",
+            "settleCcy": "BTC",
+            "taker_commission_rate": "0.0005",
+            "source": "okx_get_instruments",
+        },
+        symbol="BTC-USD-SWAP",
+        source="okx_gateway",
+    )
+    row = normalize_gateway_position(
+        {
+            "instId": "BTC-USD-SWAP",
+            "posSide": "long",
+            "pos": "2",
+            "avgPx": "50000",
+            "markPx": "55000",
+            "upl": "0.0003636363636363636",
+            "ccy": "BTC",
+            "source": "okx_gateway",
+        },
+        asset_spec=spec,
+    )
+
+    valued = value_position(
+        row,
+        spec=contract_spec_for("BTC-USD-SWAP", {"contract_metadata": {"BTC-USD-SWAP": spec}}),
+    )
+
+    assert row["gross_pnl"] == pytest.approx(20.0)
+    assert valued is not None
+    assert valued.market_value == pytest.approx(200.0)
+    assert valued.gross_pnl == pytest.approx(20.0)
+    assert valued.commission == pytest.approx(0.2)
+    assert valued.pnl == pytest.approx(19.8)
 
 
 def test_okx_position_notional_usd_alias_is_explicit_market_value():

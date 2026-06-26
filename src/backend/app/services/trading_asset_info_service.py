@@ -1099,6 +1099,49 @@ def _trade_price(row: dict[str, Any]) -> float | None:
     )
 
 
+_RAW_EXCHANGE_GROSS_PNL_KEYS = frozenset(
+    {
+        "position_unrealized_pnl",
+        "position_unrealised_pnl",
+        "unrealized_profit",
+        "unrealised_profit",
+        "unRealizedProfit",
+        "UnrealizedPnL",
+        "unrealizedPnl",
+        "unrealisedPnl",
+        "unrealized_pnl",
+        "unrealised_pnl",
+        "unrealizedPNL",
+        "unrealisedPNL",
+        "unrealizedpnl",
+        "unrealisedpnl",
+        "floating_pnl",
+        "upl",
+        "up",
+        "position_profit",
+        "PositionProfit",
+    }
+)
+
+
+def _pnl_currency(row: dict[str, Any]) -> str:
+    return _currency_code(
+        _first_value(
+            row,
+            "pnl_currency",
+            "pnlCurrency",
+            "pnlCcy",
+            "uplCcy",
+            "unrealizedPnlCurrency",
+            "unrealisedPnlCurrency",
+            "profit_currency",
+            "profitCurrency",
+            "currency",
+            "ccy",
+        )
+    )
+
+
 def _quote_currency_candidates(symbol: str, asset_spec: dict[str, Any] | None = None) -> set[str]:
     spec = asset_spec or {}
     candidates = {
@@ -1164,6 +1207,77 @@ def _fee_valuation_conversion_rate(
         if price and price > 0:
             return price
     return None
+
+
+def _pnl_valuation_conversion_rate(
+    row: dict[str, Any],
+    symbol: str,
+    asset_spec: dict[str, Any] | None = None,
+    *,
+    current_price: float | None = None,
+    inverse_contract: bool = False,
+    field_key: str | None = None,
+) -> float | None:
+    currency = _pnl_currency(row)
+    if currency:
+        if currency in _quote_currency_candidates(symbol, asset_spec):
+            return 1.0
+        if currency in _base_currency_candidates(symbol, asset_spec):
+            price = current_price or _trade_price(row) or _price_from_payload(row)
+            if price and price > 0:
+                return price
+            return None
+        return 1.0
+
+    if inverse_contract and str(field_key or "") in _RAW_EXCHANGE_GROSS_PNL_KEYS:
+        settlement_currency = _currency_code(
+            _first_value(
+                row,
+                "settle_currency",
+                "settleCcy",
+                "settleCoin",
+            )
+        )
+        if not settlement_currency and isinstance(asset_spec, dict):
+            settlement_currency = _currency_code(
+                _first_value(asset_spec, "settle_currency", "settleCcy", "settleCoin")
+            )
+        if settlement_currency and settlement_currency in _quote_currency_candidates(
+            symbol,
+            asset_spec,
+        ):
+            return 1.0
+        price = current_price or _trade_price(row) or _price_from_payload(row)
+        if price and price > 0:
+            return price
+        return None
+    return 1.0
+
+
+def _normalized_pnl_amount(
+    row: dict[str, Any],
+    symbol: str,
+    asset_spec: dict[str, Any] | None = None,
+    *,
+    field_key: str | None = None,
+    value: Any = None,
+    current_price: float | None = None,
+    inverse_contract: bool = False,
+) -> float | None:
+    amount = _safe_float(value)
+    if amount is None:
+        return None
+    conversion_rate = _pnl_valuation_conversion_rate(
+        row,
+        symbol,
+        asset_spec,
+        current_price=current_price,
+        inverse_contract=inverse_contract,
+        field_key=field_key,
+    )
+    if conversion_rate is None:
+        return None
+    return amount * conversion_rate
 
 
 def _valuation_currency_candidates(
@@ -1448,14 +1562,14 @@ def normalize_gateway_position(
         elif trade_unconfirmed_reason:
             commission_unconfirmed_reason = trade_unconfirmed_reason
     swap = _safe_float(_first_value(row, "swap", "storage"), 0.0) or 0.0
-    explicit_net_pnl_value = _first_value(
+    explicit_net_pnl_key, explicit_net_pnl_value = _first_value_with_key(
         row,
         "pnlcomm",
         "net_pnl",
         "netPnl",
         "netPNL",
     )
-    gross_pnl_value = _first_value(
+    gross_pnl_key, gross_pnl_value = _first_value_with_key(
         row,
         "gross_pnl",
         "position_unrealized_pnl",
@@ -1482,9 +1596,31 @@ def normalize_gateway_position(
         "pnl",
     )
     explicit_net_pnl = (
-        _safe_float(explicit_net_pnl_value) if explicit_net_pnl_value is not None else None
+        _normalized_pnl_amount(
+            row,
+            symbol,
+            asset_spec,
+            field_key=explicit_net_pnl_key,
+            value=explicit_net_pnl_value,
+            current_price=current_price_number,
+            inverse_contract=inverse_contract,
+        )
+        if explicit_net_pnl_value is not None
+        else None
     )
-    gross_pnl = _safe_float(gross_pnl_value) if gross_pnl_value is not None else None
+    gross_pnl = (
+        _normalized_pnl_amount(
+            row,
+            symbol,
+            asset_spec,
+            field_key=gross_pnl_key,
+            value=gross_pnl_value,
+            current_price=current_price_number,
+            inverse_contract=inverse_contract,
+        )
+        if gross_pnl_value is not None
+        else None
+    )
     net_pnl = None
     if explicit_net_pnl is not None:
         net_pnl = explicit_net_pnl

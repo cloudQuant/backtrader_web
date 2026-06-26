@@ -1326,6 +1326,48 @@ def _row_fee_currency(row: dict[str, Any]) -> str:
     )
 
 
+_RAW_EXCHANGE_GROSS_PNL_KEYS = frozenset(
+    {
+        "position_unrealized_pnl",
+        "position_unrealised_pnl",
+        "unrealized_profit",
+        "unrealised_profit",
+        "unRealizedProfit",
+        "UnrealizedPnL",
+        "unrealizedPnl",
+        "unrealisedPnl",
+        "unrealized_pnl",
+        "unrealised_pnl",
+        "unrealizedPNL",
+        "unrealisedPNL",
+        "unrealizedpnl",
+        "unrealisedpnl",
+        "floating_pnl",
+        "upl",
+        "up",
+        "position_profit",
+        "PositionProfit",
+    }
+)
+
+
+def _row_pnl_currency(row: dict[str, Any]) -> str:
+    return _currency_code(
+        _first_text(
+            row.get("pnl_currency"),
+            row.get("pnlCurrency"),
+            row.get("pnlCcy"),
+            row.get("uplCcy"),
+            row.get("unrealizedPnlCurrency"),
+            row.get("unrealisedPnlCurrency"),
+            row.get("profit_currency"),
+            row.get("profitCurrency"),
+            row.get("currency"),
+            row.get("ccy"),
+        )
+    )
+
+
 def _quote_currency_candidates(
     row: dict[str, Any],
     spec: PositionSpec,
@@ -1430,6 +1472,91 @@ def _fee_conversion_rate(
         if price is not None and price > EPSILON:
             return price
     return None
+
+
+def _pnl_valuation_conversion_rate(
+    row: dict[str, Any],
+    spec: PositionSpec,
+    *,
+    current_price: float | None = None,
+    inverse_contract: bool = False,
+    field_key: str | None = None,
+) -> float | None:
+    pnl_currency = _row_pnl_currency(row)
+    if pnl_currency:
+        if pnl_currency in _quote_currency_candidates(
+            row,
+            spec,
+            inverse_contract=inverse_contract,
+        ):
+            return 1.0
+        if pnl_currency in _base_currency_candidates(
+            row,
+            spec,
+            inverse_contract=inverse_contract,
+        ):
+            price = current_price or _first_number(
+                row.get("markPx"),
+                row.get("mark_price"),
+                row.get("current_price"),
+                row.get("last_price"),
+                row.get("lastPrice"),
+            )
+            if price and price > EPSILON:
+                return price
+            return None
+        return 1.0
+
+    if inverse_contract and str(field_key or "") in _RAW_EXCHANGE_GROSS_PNL_KEYS:
+        settlement_currency = _currency_code(
+            _first_text(
+                row.get("settle_currency"),
+                row.get("settleCcy"),
+                row.get("settleCoin"),
+                spec.settle_currency,
+            )
+        )
+        if settlement_currency and settlement_currency in _quote_currency_candidates(
+            row,
+            spec,
+            inverse_contract=inverse_contract,
+        ):
+            return 1.0
+        price = current_price or _first_number(
+            row.get("markPx"),
+            row.get("mark_price"),
+            row.get("current_price"),
+            row.get("last_price"),
+            row.get("lastPrice"),
+        )
+        if price and price > EPSILON:
+            return price
+        return None
+    return 1.0
+
+
+def _normalized_pnl_amount(
+    row: dict[str, Any],
+    spec: PositionSpec,
+    *,
+    field_key: str | None,
+    value: Any,
+    current_price: float | None = None,
+    inverse_contract: bool = False,
+) -> float | None:
+    amount = safe_float(value, None)
+    if amount is None:
+        return None
+    conversion_rate = _pnl_valuation_conversion_rate(
+        row,
+        spec,
+        current_price=current_price,
+        inverse_contract=inverse_contract,
+        field_key=field_key,
+    )
+    if conversion_rate is None:
+        return None
+    return amount * conversion_rate
 
 
 def _row_commission(
@@ -1760,36 +1887,66 @@ def value_position(
     margin_value = _row_margin_value(row, row_spec, market_value, margin_rate, size)
     direction = "long" if size > 0 else "short"
 
-    explicit_net_pnl = _first_number(
-        row.get("pnlcomm"),
-        row.get("net_pnl"),
-        row.get("netPnl"),
-        row.get("netPNL"),
+    explicit_net_pnl_key, explicit_net_pnl_value = _first_number_with_key(
+        row,
+        (
+            "pnlcomm",
+            "net_pnl",
+            "netPnl",
+            "netPNL",
+        ),
     )
-    explicit_gross_pnl = _first_number(
-        row.get("gross_pnl"),
-        row.get("position_unrealized_pnl"),
-        row.get("position_unrealised_pnl"),
-        row.get("unrealized_profit"),
-        row.get("unrealised_profit"),
-        row.get("unRealizedProfit"),
-        row.get("UnrealizedPnL"),
-        row.get("unrealizedPnl"),
-        row.get("unrealisedPnl"),
-        row.get("unrealized_pnl"),
-        row.get("unrealised_pnl"),
-        row.get("unrealizedPNL"),
-        row.get("unrealisedPNL"),
-        row.get("unrealizedpnl"),
-        row.get("unrealisedpnl"),
-        row.get("floating_pnl"),
-        row.get("upl"),
-        row.get("up"),
-        row.get("position_profit"),
-        row.get("PositionProfit"),
-        row.get("position_pnl"),
-        row.get("profit"),
-        row.get("pnl"),
+    explicit_net_pnl = (
+        _normalized_pnl_amount(
+            row,
+            row_spec,
+            field_key=explicit_net_pnl_key,
+            value=explicit_net_pnl_value,
+            current_price=current_price,
+            inverse_contract=inverse_contract,
+        )
+        if explicit_net_pnl_value is not None
+        else None
+    )
+    explicit_gross_pnl_key, explicit_gross_pnl_value = _first_number_with_key(
+        row,
+        (
+            "gross_pnl",
+            "position_unrealized_pnl",
+            "position_unrealised_pnl",
+            "unrealized_profit",
+            "unrealised_profit",
+            "unRealizedProfit",
+            "UnrealizedPnL",
+            "unrealizedPnl",
+            "unrealisedPnl",
+            "unrealized_pnl",
+            "unrealised_pnl",
+            "unrealizedPNL",
+            "unrealisedPNL",
+            "unrealizedpnl",
+            "unrealisedpnl",
+            "floating_pnl",
+            "upl",
+            "up",
+            "position_profit",
+            "PositionProfit",
+            "position_pnl",
+            "profit",
+            "pnl",
+        ),
+    )
+    explicit_gross_pnl = (
+        _normalized_pnl_amount(
+            row,
+            row_spec,
+            field_key=explicit_gross_pnl_key,
+            value=explicit_gross_pnl_value,
+            current_price=current_price,
+            inverse_contract=inverse_contract,
+        )
+        if explicit_gross_pnl_value is not None
+        else None
     )
     gross_pnl = (
         explicit_gross_pnl

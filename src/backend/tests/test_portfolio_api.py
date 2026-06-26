@@ -3340,6 +3340,72 @@ async def test_portfolio_positions_use_explicit_inverse_flag_without_cttype():
 
 
 @pytest.mark.asyncio
+async def test_portfolio_positions_convert_inverse_exchange_upl_to_quote_value():
+    """Inverse exchange UPL is settled in base coin and must be valued in quote currency."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "symbol": "BTCUSD",
+                    "side": "Buy",
+                    "size": "2",
+                    "avgPrice": "50000",
+                    "markPrice": "55000",
+                    "unrealisedPnl": "0.0003636363636363636",
+                    "settleCoin": "BTC",
+                    "category": "inverse",
+                    "source": "bybit_gateway",
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "BTCUSD" in symbols
+            return {
+                "BTCUSD": {
+                    "source": "gateway.get_symbol_info",
+                    "instType": "SWAP",
+                    "contractType": "InversePerpetual",
+                    "ctVal": 100,
+                    "ctValCcy": "USD",
+                    "baseCcy": "BTC",
+                    "quoteCcy": "USD",
+                    "settleCcy": "BTC",
+                    "taker_commission_rate": 0.0005,
+                    "margin_rate": 0.1,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "BTCUSD",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["market_value"] == pytest.approx(200.0)
+    assert row["gross_pnl"] == pytest.approx(20.0)
+    assert row["commission"] == pytest.approx(0.2)
+    assert row["position_pnl"] == pytest.approx(19.8)
+    assert result["summary"]["total_pnl"] == pytest.approx(19.8)
+
+
+@pytest.mark.asyncio
 async def test_portfolio_positions_handle_raw_mt5_numeric_short_type():
     """Raw MT5 type=1 positions are shorts, not long exposure."""
     from app.api.portfolio_api import get_portfolio_positions
