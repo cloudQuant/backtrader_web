@@ -521,6 +521,8 @@ describe('StrategyPage', () => {
       min_out_of_sample_sharpe: 0.8,
       min_out_of_sample_trades: 2,
     }))
+    const researchCalls = vi.mocked(strategyApi.runAIResearchLoop).mock.calls
+    expect(researchCalls[researchCalls.length - 1]?.[0]).not.toHaveProperty('commission')
     expect(vm.aiResearchResult.achieved).toBe(true)
     expect(vm.aiResearchRuns[0].run_id).toBe('run-1')
     await wrapper.vm.$nextTick()
@@ -795,6 +797,13 @@ describe('StrategyPage', () => {
       symbol_name: '浦发银行',
       timeframe: '1h',
       timeframe_n: 1,
+      start_date: '2024-01-01',
+      end_date: '2024-12-31',
+      initial_cash: 250000,
+      commission: 0.000023,
+      annual_days: 244,
+      calc_method: 'log',
+      weight_mode: 'value',
       knowledge_base_id: 'kb-history',
       thinking_mode: true,
       status: 'achieved',
@@ -831,6 +840,11 @@ describe('StrategyPage', () => {
     })
     expect(vm.aiResearchForm.prompt).toBe('历史趋势策略')
     expect(vm.aiResearchForm.symbol).toBe('600000.SH')
+    expect(vm.aiResearchForm.start_date).toBe('2024-01-01')
+    expect(vm.aiResearchForm.end_date).toBe('2024-12-31')
+    expect(vm.aiResearchForm.initial_cash).toBe(250000)
+    expect(vm.aiResearchForm.use_manual_commission).toBe(true)
+    expect(vm.aiResearchForm.commission).toBe(0.000023)
     expect(vm.aiResearchForm.knowledge_base_id).toBe('kb-history')
     expect(vm.aiResearchForm.thinking_mode).toBe(true)
     expect(vm.aiResearchForm.target_sharpe).toBe(1.5)

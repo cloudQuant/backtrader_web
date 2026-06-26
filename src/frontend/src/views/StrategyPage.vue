@@ -179,13 +179,21 @@
                   />
                 </el-form-item>
                 <el-form-item :label="t('strategy.aiResearchCommission')">
-                  <el-input-number
-                    v-model="aiResearchForm.commission"
-                    :min="0"
-                    :max="0.1"
-                    :step="0.0001"
-                    class="w-full"
-                  />
+                  <div class="ai-research-gate-control">
+                    <el-checkbox
+                      v-model="aiResearchForm.use_manual_commission"
+                      data-test="ai-research-manual-commission"
+                    />
+                    <el-input-number
+                      v-model="aiResearchForm.commission"
+                      :disabled="!aiResearchForm.use_manual_commission"
+                      :min="0"
+                      :max="0.1"
+                      :step="0.0001"
+                      class="w-full"
+                      data-test="ai-research-commission"
+                    />
+                  </div>
                 </el-form-item>
                 <el-form-item :label="t('strategy.aiResearchStartDate')">
                   <el-input
@@ -1118,6 +1126,7 @@ const aiResearchForm = reactive({
   use_min_out_of_sample_trades: false,
   min_out_of_sample_trades: 1,
   initial_cash: 100000,
+  use_manual_commission: false,
   commission: 0.001,
   research_workspace_id: '',
   seed_strategy_id: '',
@@ -1395,6 +1404,17 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.symbol_name = record.symbol_name || ''
   aiResearchForm.timeframe = record.timeframe || '1d'
   aiResearchForm.timeframe_n = record.timeframe_n || 1
+  aiResearchForm.start_date = record.start_date || ''
+  aiResearchForm.end_date = record.end_date || ''
+  if (typeof record.initial_cash === 'number') {
+    aiResearchForm.initial_cash = record.initial_cash
+  }
+  if (typeof record.commission === 'number') {
+    aiResearchForm.use_manual_commission = true
+    aiResearchForm.commission = record.commission
+  } else {
+    aiResearchForm.use_manual_commission = false
+  }
   aiResearchForm.knowledge_base_id = record.knowledge_base_id || ''
   aiResearchForm.thinking_mode = Boolean(record.thinking_mode)
   aiResearchForm.target_sharpe = record.target_sharpe
@@ -1605,7 +1625,7 @@ async function continueResearchFromPaperReview(record: AIStrategyResearchRunReco
 }
 
 function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResearchRunRequest {
-  return {
+  const request: AIStrategyResearchRunRequest = {
     prompt,
     symbol,
     symbol_name: aiResearchForm.symbol_name.trim(),
@@ -1647,7 +1667,6 @@ function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResea
         )
       : null,
     initial_cash: aiResearchForm.initial_cash,
-    commission: aiResearchForm.commission,
     research_workspace_id: aiResearchForm.research_workspace_id || null,
     seed_strategy_id: aiResearchForm.seed_strategy_id || null,
     continue_from_run_id: aiResearchForm.continue_from_run_id || null,
@@ -1655,6 +1674,10 @@ function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResea
     knowledge_base_id: aiResearchForm.knowledge_base_id.trim() || null,
     thinking_mode: aiResearchForm.thinking_mode,
   }
+  if (aiResearchForm.use_manual_commission) {
+    request.commission = aiResearchForm.commission
+  }
+  return request
 }
 
 function isAIResearchTaskTerminal(task: AIStrategyResearchTaskResponse) {

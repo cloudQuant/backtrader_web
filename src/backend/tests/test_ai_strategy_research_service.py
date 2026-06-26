@@ -278,7 +278,13 @@ class FakeStrategyService:
         self.submitted_backtest_requests.append(request)
         strategy = _strategy(f"strategy-{round_index + 1}", request.strategy_draft)
         metrics = self.metrics_by_round[round_index]
-        unit = _unit(f"unit-{round_index + 1}", workspace_id, strategy, metrics=metrics)
+        unit = _unit(f"unit-{round_index + 1}", workspace_id, strategy, metrics=metrics).model_copy(
+            update={
+                "data_config": request.data_config,
+                "unit_settings": request.unit_settings,
+                "optimization_config": request.optimization_config,
+            }
+        )
         self.workspace_service.units[unit.id] = unit
         self.workspace_service.statuses[unit.id] = UnitStatusResponse(
             id=unit.id,
@@ -813,7 +819,7 @@ async def test_research_loop_enriches_backtest_with_asset_specs(monkeypatch):
         sleep=_noop_sleep,
     )
 
-    await service.run(
+    result = await service.run(
         "user-1",
         AIStrategyResearchRunRequest(
             prompt="请生成一个股指期货趋势策略",
@@ -834,6 +840,8 @@ async def test_research_loop_enriches_backtest_with_asset_specs(monkeypatch):
     assert backtest_request.unit_settings["margin"] == pytest.approx(0.1)
     assert backtest_request.unit_settings["commission"] == pytest.approx(0.000023)
     assert backtest_request.unit_settings["asset_spec_source"] == "local_futures_commission"
+    assert result.run_record is not None
+    assert result.run_record.commission == pytest.approx(0.000023)
 
 
 @pytest.mark.asyncio
@@ -1152,17 +1160,25 @@ async def test_research_loop_can_start_from_seed_strategy_without_regenerating()
 @pytest.mark.asyncio
 async def test_research_loop_can_continue_from_previous_run_best_strategy():
     workspace_service = FakeWorkspaceService()
+    previous_record = {
+        **_run_record(
+            "previous-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+        "initial_cash": 250000.0,
+        "commission": 0.000023,
+        "annual_days": 244,
+        "calc_method": "log",
+        "weight_mode": "value",
+    }
     workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
         update={
             "settings": {
                 "ai_research": {
-                    "runs": [
-                        _run_record(
-                            "previous-run",
-                            workspace_id="research-ws",
-                            completed_at="2026-01-01T00:01:00+00:00",
-                        )
-                    ]
+                    "runs": [previous_record]
                 }
             }
         }
@@ -1191,6 +1207,7 @@ async def test_research_loop_can_continue_from_previous_run_best_strategy():
             target_sharpe=1.0,
             continue_from_run_id="previous-run",
             start_paper_trading=False,
+            out_of_sample_validation=False,
             max_iterations=1,
             poll_interval_seconds=0.1,
         ),
@@ -1200,9 +1217,19 @@ async def test_research_loop_can_continue_from_previous_run_best_strategy():
     assert result.research_workspace.id == "research-ws"
     assert strategy_service.generated == 0
     assert strategy_service.submitted_drafts[0].name == "历史最佳策略"
+    backtest_request = strategy_service.submitted_backtest_requests[0]
+    assert backtest_request.data_config["start_date"] == "2024-01-01"
+    assert backtest_request.data_config["end_date"] == "2024-12-31"
+    assert backtest_request.unit_settings["initial_cash"] == pytest.approx(250000.0)
+    assert backtest_request.unit_settings["commission"] == pytest.approx(0.000023)
+    assert backtest_request.unit_settings["annual_days"] == 244
+    assert backtest_request.unit_settings["calc_method"] == "log"
+    assert backtest_request.unit_settings["weight_mode"] == "value"
     assert result.run_record is not None
     assert result.run_record.seed_strategy_id == "strategy-2"
     assert result.run_record.continued_from_run_id == "previous-run"
+    assert result.run_record.start_date == "2024-01-01"
+    assert result.run_record.commission == pytest.approx(0.000023)
 
 
 @pytest.mark.asyncio

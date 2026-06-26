@@ -940,6 +940,7 @@ class AIStrategyResearchService:
     ) -> tuple[AIStrategyResearchRunRequest, AIStrategyDraft | None]:
         seed_strategy_id = request.seed_strategy_id
         update: dict[str, Any] = {}
+        explicit_fields = _request_explicit_fields(request)
         if request.continue_from_run_id:
             record = await self._find_research_run_record(
                 user_id,
@@ -958,7 +959,21 @@ class AIStrategyResearchService:
                 update["symbol_name"] = record.symbol_name
             if not request.knowledge_base_id and record.knowledge_base_id:
                 update["knowledge_base_id"] = record.knowledge_base_id
-            if record.thinking_mode and "thinking_mode" not in request.model_fields_set:
+            if "start_date" not in explicit_fields and record.start_date:
+                update["start_date"] = record.start_date
+            if "end_date" not in explicit_fields and record.end_date:
+                update["end_date"] = record.end_date
+            if "initial_cash" not in explicit_fields:
+                update["initial_cash"] = record.initial_cash
+            if "commission" not in explicit_fields:
+                update["commission"] = record.commission
+            if "annual_days" not in explicit_fields:
+                update["annual_days"] = record.annual_days
+            if "calc_method" not in explicit_fields and record.calc_method:
+                update["calc_method"] = record.calc_method
+            if "weight_mode" not in explicit_fields and record.weight_mode:
+                update["weight_mode"] = record.weight_mode
+            if record.thinking_mode and "thinking_mode" not in explicit_fields:
                 update["thinking_mode"] = record.thinking_mode
             continuation_context = _continuation_context_from_record(record)
             if continuation_context:
@@ -1485,12 +1500,16 @@ def _apply_primary_asset_spec_settings(
 
 
 def _request_has_explicit_commission(request: AIStrategyResearchRunRequest) -> bool:
-    fields_set = set(
+    fields_set = _request_explicit_fields(request)
+    return "commission" in fields_set or "commission" in (request.unit_settings or {})
+
+
+def _request_explicit_fields(request: AIStrategyResearchRunRequest) -> set[str]:
+    return set(
         getattr(request, "model_fields_set", None)
         or getattr(request, "__fields_set__", set())
         or set()
     )
-    return "commission" in fields_set or "commission" in (request.unit_settings or {})
 
 
 def _first_asset_spec_number(spec: dict[str, Any], *keys: str) -> float | None:
@@ -2218,6 +2237,13 @@ def _paper_start_request_from_record(
         symbol_name=record.symbol_name,
         timeframe=record.timeframe,
         timeframe_n=record.timeframe_n,
+        start_date=record.start_date,
+        end_date=record.end_date,
+        initial_cash=record.initial_cash,
+        commission=record.commission,
+        annual_days=record.annual_days,
+        calc_method=record.calc_method,
+        weight_mode=record.weight_mode,
         knowledge_base_id=record.knowledge_base_id,
         thinking_mode=record.thinking_mode,
         target_sharpe=record.target_sharpe,
@@ -2313,6 +2339,23 @@ def _optional_gate_int(value: Any) -> int | None:
         return None
 
 
+def _runtime_text(value: Any, fallback: str | None) -> str | None:
+    text = str(value or "").strip()
+    if text:
+        return text
+    return fallback
+
+
+def _runtime_float(value: Any, fallback: float) -> float:
+    parsed = _optional_gate_number(value)
+    return float(parsed) if parsed is not None else fallback
+
+
+def _runtime_int(value: Any, fallback: int) -> int:
+    parsed = _optional_gate_int(value)
+    return int(parsed) if parsed is not None else fallback
+
+
 def _continuation_context_from_record(
     record: AIStrategyResearchRunRecord,
 ) -> dict[str, Any]:
@@ -2381,6 +2424,8 @@ def _build_research_run_record(
             (item for item in response.iterations if item.iteration == response.best_iteration),
             None,
         )
+    unit_settings = dict(best_iteration.unit.unit_settings or {}) if best_iteration else {}
+    data_config = dict(best_iteration.unit.data_config or {}) if best_iteration else {}
     best_strategy = response.best_strategy
     paper = response.paper_trading
     return AIStrategyResearchRunRecord(
@@ -2390,6 +2435,13 @@ def _build_research_run_record(
         symbol_name=request.symbol_name or request.symbol,
         timeframe=request.timeframe,
         timeframe_n=request.timeframe_n,
+        start_date=_runtime_text(data_config.get("start_date"), request.start_date),
+        end_date=_runtime_text(data_config.get("end_date"), request.end_date),
+        initial_cash=_runtime_float(unit_settings.get("initial_cash"), request.initial_cash),
+        commission=_runtime_float(unit_settings.get("commission"), request.commission),
+        annual_days=_runtime_int(unit_settings.get("annual_days"), request.annual_days),
+        calc_method=_runtime_text(unit_settings.get("calc_method"), request.calc_method),
+        weight_mode=_runtime_text(unit_settings.get("weight_mode"), request.weight_mode),
         knowledge_base_id=request.knowledge_base_id,
         thinking_mode=request.thinking_mode,
         status=response.status,

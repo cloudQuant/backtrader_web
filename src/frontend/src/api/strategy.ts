@@ -256,6 +256,13 @@ export interface AIStrategyResearchRunRecord {
   symbol_name: string
   timeframe: string
   timeframe_n: number
+  start_date?: string | null
+  end_date?: string | null
+  initial_cash?: number
+  commission?: number
+  annual_days?: number
+  calc_method?: string
+  weight_mode?: string
   knowledge_base_id?: string | null
   thinking_mode?: boolean
   status: string

@@ -204,6 +204,13 @@ class AIStrategyResearchRunRecord(BaseModel):
     symbol_name: str = ""
     timeframe: str = "1d"
     timeframe_n: int = 1
+    start_date: str | None = None
+    end_date: str | None = None
+    initial_cash: float = 100000.0
+    commission: float = 0.001
+    annual_days: int = 252
+    calc_method: str = "simple"
+    weight_mode: str = "equal"
     knowledge_base_id: str | None = None
     thinking_mode: bool = False
     status: str
