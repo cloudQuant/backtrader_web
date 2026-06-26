@@ -898,6 +898,56 @@ class TestProcessOrder:
         assert mock_pos.await_args.kwargs["current_position"] is open_position
         mock_acct.assert_awaited_once()
 
+    async def test_process_order_matches_alias_position_when_reducing(self):
+        """Reducing BTC/USDT must find an existing BTCUSDT paper position."""
+        service = PaperTradingService()
+
+        mock_order = Mock()
+        mock_order.id = "order_alias_reduce"
+        mock_order.account_id = "acc_123"
+        mock_order.symbol = "BTC/USDT"
+        mock_order.side = OrderSide.SELL
+        mock_order.size = 0.1
+        mock_order.order_type = "market"
+        mock_order.status = OrderStatus.PENDING
+
+        mock_account = Mock()
+        mock_account.id = "acc_123"
+        mock_account.slippage_rate = 0.0
+        mock_account.current_cash = 10.0
+        mock_account.commission_rate = 0.001
+
+        open_position = Mock()
+        open_position.id = "pos_btcusdt"
+        open_position.symbol = "BTCUSDT"
+        open_position.size = 0.25
+        open_position.avg_price = 50000.0
+
+        service.order_repo = AsyncMock()
+        service.order_repo.get_by_id = AsyncMock(return_value=mock_order)
+        service.position_repo = AsyncMock()
+        service.position_repo.list = AsyncMock(side_effect=[[], [open_position]])
+
+        with patch.object(service, "_get_simulated_price", return_value=50000.0):
+            with patch.object(service, "_reject_order", new_callable=AsyncMock) as mock_reject:
+                with patch.object(service, "_fill_order", new_callable=AsyncMock) as mock_fill:
+                    with patch.object(service, "_update_position", new_callable=AsyncMock) as mock_pos:
+                        with patch.object(
+                            service,
+                            "_update_account",
+                            new_callable=AsyncMock,
+                        ) as mock_acct:
+                            await service._process_order(
+                                "order_alias_reduce",
+                                "acc_123",
+                                mock_account,
+                            )
+
+        mock_reject.assert_not_awaited()
+        mock_fill.assert_awaited_once()
+        assert mock_pos.await_args.kwargs["current_position"] is open_position
+        mock_acct.assert_awaited_once()
+
     async def test_process_order_spot_sell_long_uses_sale_proceeds_for_commission(self):
         """Closing a cash position should be allowed even when idle cash is zero."""
         service = PaperTradingService()
@@ -2661,6 +2711,38 @@ class TestHelperFunctions:
         result = await service._get_position("acc_123", "BTC/USDT")
 
         assert result is flat_position
+
+    async def test_get_position_prefers_alias_open_position_over_exact_flat_row(self):
+        """A BTCUSDT open row should beat a stale flat BTC/USDT row."""
+        service = PaperTradingService()
+
+        flat_position = Mock()
+        flat_position.id = "pos_flat"
+        flat_position.symbol = "BTC/USDT"
+        flat_position.size = 0
+        open_position = Mock()
+        open_position.id = "pos_open_alias"
+        open_position.symbol = "BTCUSDT"
+        open_position.size = 0.25
+
+        service.position_repo = AsyncMock()
+        service.position_repo.list = AsyncMock(
+            side_effect=[
+                [flat_position],
+                [flat_position, open_position],
+            ]
+        )
+
+        result = await service._get_position("acc_123", "BTC/USDT")
+
+        assert result is open_position
+        assert service.position_repo.list.await_args_list[0].kwargs["filters"] == {
+            "account_id": "acc_123",
+            "symbol": "BTC/USDT",
+        }
+        assert service.position_repo.list.await_args_list[1].kwargs["filters"] == {
+            "account_id": "acc_123"
+        }
 
     async def test_get_position_not_exists(self):
         """Test retrieving non-existent position returns None."""

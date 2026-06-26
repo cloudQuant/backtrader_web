@@ -23,7 +23,7 @@ from app.models.paper_trading import (
     Position,
 )
 from app.services.position_valuation import PositionSpec, contract_spec_for
-from app.services.trading_asset_info_service import query_local_asset_spec
+from app.services.trading_asset_info_service import query_local_asset_spec, symbol_aliases
 from app.utils.tracing import business_span
 from app.websocket_manager import MessageType
 from app.websocket_manager import manager as ws_manager
@@ -724,6 +724,23 @@ class PaperTradingService:
         return abs(cls._safe_float(getattr(position, "size", 0.0), 0.0)) > 1e-12
 
     @classmethod
+    def _first_open_position(cls, positions: list[object]) -> object | None:
+        for position in positions:
+            if cls._is_open_position(position):
+                return position
+        return None
+
+    @staticmethod
+    def _position_symbol_aliases(symbol: object) -> set[str]:
+        return {str(item).upper() for item in symbol_aliases(str(symbol or "")) if item}
+
+    @classmethod
+    def _symbol_matches(cls, left: object, right: object) -> bool:
+        left_aliases = cls._position_symbol_aliases(left)
+        right_aliases = cls._position_symbol_aliases(right)
+        return bool(left_aliases and right_aliases and left_aliases & right_aliases)
+
+    @classmethod
     def _merge_position_snapshot(
         cls,
         positions: list[object],
@@ -1157,10 +1174,27 @@ class PaperTradingService:
             sort_order="desc",
         )
 
-        for position in positions:
-            if self._is_open_position(position):
-                return position
-        return positions[0] if positions else None
+        exact_open = self._first_open_position(positions)
+        if exact_open is not None:
+            return exact_open
+
+        account_positions = await position_repo.list(
+            filters={"account_id": account_id},
+            limit=200,
+            sort_by="updated_at",
+            sort_order="desc",
+        )
+        alias_positions = [
+            position
+            for position in account_positions
+            if self._symbol_matches(getattr(position, "symbol", ""), symbol)
+        ]
+        alias_open = self._first_open_position(alias_positions)
+        if alias_open is not None:
+            return alias_open
+        if positions:
+            return positions[0]
+        return alias_positions[0] if alias_positions else None
 
     async def _update_position(
         self,
