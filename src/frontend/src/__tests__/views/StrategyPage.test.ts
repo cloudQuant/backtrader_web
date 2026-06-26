@@ -1106,6 +1106,82 @@ describe('StrategyPage', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已启动')
   })
 
+  it('refreshes run record when starting paper trading from history fails', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    await flushPromises()
+    vi.mocked(strategyApi.listAIResearchRuns).mockClear()
+    vi.mocked(strategyApi.startAIResearchPaperTrading).mockRejectedValueOnce(
+      new Error('Failed to create paper trading unit')
+    )
+
+    const record = {
+      ...vm.aiResearchRuns[0],
+      run_id: 'history-run',
+      paper_trading_started: false,
+      paper_workspace_id: null,
+      paper_unit_id: null,
+      pipeline: {
+        current_stage: 'quality_achieved',
+        status: 'achieved',
+        progress: 60,
+        ready_for_live: false,
+        paper_trading_error: null,
+        steps: [],
+      },
+      next_actions: [],
+    }
+    const failedPipeline = {
+      current_stage: 'paper_trading_failed',
+      status: 'achieved',
+      progress: 60,
+      ready_for_live: false,
+      paper_trading_error: 'Failed to create paper trading unit',
+      steps: [
+        {
+          key: 'paper_trading',
+          label: '模拟交易',
+          status: 'failed',
+          error: 'Failed to create paper trading unit',
+        },
+      ],
+    }
+    const failedRecord = {
+      ...record,
+      pipeline: failedPipeline,
+      next_actions: ['模拟交易启动错误：Failed to create paper trading unit'],
+    }
+    vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({
+      total: 1,
+      items: [failedRecord],
+    })
+    vm.aiResearchRuns = [record]
+    vm.aiResearchResult = {
+      ...baseResult,
+      run_id: 'history-run',
+      paper_trading: null,
+      pipeline: record.pipeline,
+      next_actions: [],
+      run_record: record,
+    }
+
+    await vm.startPaperFromResearchRecord(record)
+    await flushPromises()
+
+    expect(strategyApi.startAIResearchPaperTrading).toHaveBeenCalledWith('history-run', {
+      research_workspace_id: 'research-ws',
+    })
+    expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith('research-ws', 20)
+    expect(vm.aiResearchRuns[0].pipeline.current_stage).toBe('paper_trading_failed')
+    expect(vm.aiResearchResult.pipeline.current_stage).toBe('paper_trading_failed')
+    expect(vm.aiResearchResult.next_actions[0]).toContain('模拟交易启动错误')
+    expect(vm.canContinueResearchFromPaperIssue(vm.aiResearchRuns[0])).toBe(true)
+    expect(ElMessage.error).toHaveBeenCalledWith('AI投研流程失败')
+  })
+
   it('reviews paper trading from an achieved history record', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const { ElMessage } = await import('element-plus')

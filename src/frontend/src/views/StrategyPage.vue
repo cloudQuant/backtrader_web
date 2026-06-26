@@ -1513,6 +1513,18 @@ function upsertAIResearchRunRecord(record: AIStrategyResearchRunRecord) {
   ].slice(0, 10)
 }
 
+async function refreshAIResearchRunRecord(
+  runId: string,
+  researchWorkspaceId?: string | null
+) {
+  const response = await strategyApi.listAIResearchRuns(researchWorkspaceId || undefined, 20)
+  const record = response.items.find(item => item.run_id === runId)
+  if (!record) return null
+  upsertAIResearchRunRecord(record)
+  applyResearchRunRecordToCurrentResult(record)
+  return record
+}
+
 function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   const gates = record.quality_gates || {}
   aiResearchForm.prompt = record.prompt
@@ -1650,6 +1662,18 @@ function applyPaperStartToCurrentResult(
   }
 }
 
+function applyResearchRunRecordToCurrentResult(runRecord: AIStrategyResearchRunRecord) {
+  const current = aiResearchResult.value
+  if (!current || current.run_id !== runRecord.run_id) return
+  aiResearchResult.value = {
+    ...current,
+    run_record: runRecord,
+    pipeline: runRecord.pipeline ?? current.pipeline,
+    next_actions: runRecord.next_actions ?? current.next_actions,
+    paper_monitoring_plan: runRecord.paper_monitoring_plan ?? current.paper_monitoring_plan,
+  }
+}
+
 function reviewedRunRecord(
   record: AIStrategyResearchRunRecord,
   review: AIStrategyPaperTradingReview
@@ -1689,6 +1713,11 @@ async function startPaperFromResearchRecord(record: AIStrategyResearchRunRecord)
     applyPaperStartToCurrentResult(record.run_id, paper, updatedRecord)
     ElMessage.success('模拟交易已启动')
   } catch {
+    try {
+      await refreshAIResearchRunRecord(record.run_id, record.research_workspace_id)
+    } catch {
+      // Keep the original start failure visible even if history refresh fails.
+    }
     ElMessage.error(t('strategy.aiResearchRunFailed'))
   } finally {
     aiResearchPaperStartingRunId.value = ''

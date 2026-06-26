@@ -857,13 +857,17 @@ class AIStrategyResearchService:
             unit=unit,
             payload=iteration_payload,
         )
-        paper_trading = await self._start_paper_trading(
-            user_id,
-            run_request,
-            iteration,
-            run_id=record.run_id,
-            research_workspace_id=record.research_workspace_id,
-        )
+        try:
+            paper_trading = await self._start_paper_trading(
+                user_id,
+                run_request,
+                iteration,
+                run_id=record.run_id,
+                research_workspace_id=record.research_workspace_id,
+            )
+        except Exception as exc:
+            await self._mark_run_record_paper_start_failed(user_id, record, str(exc))
+            raise ValueError(str(exc)) from exc
         await self._mark_run_record_paper_started(user_id, record, paper_trading)
         return paper_trading
 
@@ -1340,6 +1344,43 @@ class AIStrategyResearchService:
                 "next_actions": [
                     "已从历史投研结果启动模拟交易，下一步跟踪模拟账户成交、持仓和风控指标。",
                     "保留研究工作区记录，用于后续继续投研或样本外验证。",
+                ],
+            }
+        )
+        return await self._persist_research_run_record(user_id, workspace, updated_record)
+
+    async def _mark_run_record_paper_start_failed(
+        self,
+        user_id: str,
+        record: AIStrategyResearchRunRecord,
+        error: str,
+    ) -> WorkspaceResponse | None:
+        workspace = await self.workspace_service.get_workspace(record.research_workspace_id, user_id)
+        if workspace is None:
+            return None
+        paper_trading_error = str(error or "Paper trading start failed").strip()
+        updated_record = record.model_copy(
+            update={
+                "paper_trading_started": False,
+                "paper_review_status": None,
+                "paper_review_ready_for_live": False,
+                "paper_reviewed_at": None,
+                "paper_review_evaluations": [],
+                "paper_review_next_actions": [],
+                "pipeline": _pipeline_summary(
+                    status=record.status,
+                    achieved=record.achieved,
+                    iteration_count=record.iteration_count,
+                    max_iterations=record.max_iterations,
+                    paper_trading_started=False,
+                    paper_trading_error=paper_trading_error,
+                    paper_review_status=None,
+                    paper_review_ready_for_live=False,
+                ),
+                "next_actions": [
+                    f"模拟交易启动错误：{paper_trading_error}",
+                    "检查交易工作区、网关配置、策略脚本依赖和资产参数后可重试模拟。",
+                    "如果启动问题来自策略脚本或交易环境假设，可从该记录继续投研。",
                 ],
             }
         )
@@ -2073,6 +2114,7 @@ def _pipeline_summary_from_record(
     record: AIStrategyResearchRunRecord,
     *,
     paper_trading_started: bool | None = None,
+    paper_trading_error: str | None = None,
     paper_review_status: str | None = None,
     paper_review_ready_for_live: bool | None = None,
 ) -> dict[str, Any]:
@@ -2084,7 +2126,7 @@ def _pipeline_summary_from_record(
         paper_trading_started=record.paper_trading_started
         if paper_trading_started is None
         else paper_trading_started,
-        paper_trading_error=None,
+        paper_trading_error=paper_trading_error,
         paper_review_status=paper_review_status
         if paper_review_status is not None
         else record.paper_review_status,
