@@ -100,6 +100,38 @@ YESTERDAY_POSITION_FIELD_KEYS = (
     "historyPos",
     "historyVol",
 )
+LONG_POSITION_FIELD_KEYS = (
+    "long_position",
+    "longPosition",
+    "long_pos",
+    "longPos",
+    "long_size",
+    "longSize",
+    "long_qty",
+    "longQty",
+    "long_volume",
+    "longVolume",
+    "LongPosition",
+    "LongVolume",
+    "buy_position",
+    "buyPosition",
+)
+SHORT_POSITION_FIELD_KEYS = (
+    "short_position",
+    "shortPosition",
+    "short_pos",
+    "shortPos",
+    "short_size",
+    "shortSize",
+    "short_qty",
+    "shortQty",
+    "short_volume",
+    "shortVolume",
+    "ShortPosition",
+    "ShortVolume",
+    "sell_position",
+    "sellPosition",
+)
 OKX_SIGNED_FEE_FIELD_KEYS = frozenset(
     {
         "fee",
@@ -964,6 +996,8 @@ def _position_side(row: dict[str, Any], signed_size: float | None = None) -> str
 
 
 def signed_gateway_size(row: dict[str, Any]) -> float:
+    long_position = _first_number(*(row.get(key) for key in LONG_POSITION_FIELD_KEYS))
+    short_position = _first_number(*(row.get(key) for key in SHORT_POSITION_FIELD_KEYS))
     raw_size = (
         _first_number(
             _first_value(row, "size", "volume", "position", "qty", "quantity", "trade_volume"),
@@ -983,6 +1017,11 @@ def signed_gateway_size(row: dict[str, Any]) -> float:
         )
         or 0.0
     )
+    if abs(raw_size) <= 1e-12 and (long_position is not None or short_position is not None):
+        long_size = max(long_position or 0.0, 0.0)
+        short_size = max(short_position or 0.0, 0.0)
+        if long_size > 1e-12 or short_size > 1e-12:
+            return long_size - short_size
     direction = _position_side(row)
     if direction == "short":
         return -abs(raw_size)

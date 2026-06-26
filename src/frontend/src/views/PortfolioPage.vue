@@ -550,6 +550,7 @@ const allocationItems = ref<AllocationItem[]>([])
 const runningWorkspaces = ref<Workspace[]>([])
 const selectedWorkspaceIds = ref<string[]>([])
 const positionSummary = ref<PositionSummary>(emptyPositionSummary())
+const POSITION_EPSILON = 1e-12
 
 // Chart refs
 const equityChartRef = ref<HTMLElement | null>(null)
@@ -791,8 +792,8 @@ function buildWorkspacePositionSummary(rows: PositionItem[]): PositionSummary {
     gross_market_value: roundMoney(totalLong + totalShort),
     net_market_value: roundMoney(totalLong - totalShort),
     total_pnl: roundMoney(totalPnl),
-    long_count: rows.filter(item => Number(item.long_position || 0) > 0 || Number(item.size || 0) > 0).length,
-    short_count: rows.filter(item => Number(item.short_position || 0) > 0 || Number(item.size || 0) < 0).length,
+    long_count: rows.filter(item => Number(item.long_position || 0) > POSITION_EPSILON || Number(item.size || 0) > POSITION_EPSILON).length,
+    short_count: rows.filter(item => Number(item.short_position || 0) > POSITION_EPSILON || Number(item.size || 0) < -POSITION_EPSILON).length,
     flat_count: rows.filter(item => !hasOpenPosition(item)).length,
   }
 }
@@ -844,9 +845,9 @@ function mapWorkspacePosition(
 
 function hasOpenPosition(item: PositionItem) {
   return (
-    Math.abs(Number(item.size || 0)) > 0
-    || Number(item.long_position || 0) > 0
-    || Number(item.short_position || 0) > 0
+    Math.abs(Number(item.size || 0)) > POSITION_EPSILON
+    || Number(item.long_position || 0) > POSITION_EPSILON
+    || Number(item.short_position || 0) > POSITION_EPSILON
   )
 }
 

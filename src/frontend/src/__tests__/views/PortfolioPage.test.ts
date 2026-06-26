@@ -235,6 +235,12 @@ describe('PortfolioPage', () => {
     expect(vm.formatPositionSize(0)).toBe('--')
   })
 
+  it('hasOpenPosition ignores zero residuals but keeps hedged positions', () => {
+    const vm = doMount().vm as any
+    expect(vm.hasOpenPosition({ size: 1e-13, long_position: 0, short_position: 0 })).toBe(false)
+    expect(vm.hasOpenPosition({ size: 0, long_position: 1, short_position: 1 })).toBe(true)
+  })
+
   it('loadData loads dashboard and running trading workspaces', async () => {
     const vm = doMount().vm as any
     await vm.loadData()

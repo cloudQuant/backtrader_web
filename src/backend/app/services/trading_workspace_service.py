@@ -25,6 +25,8 @@ from app.services.log_parser_service import (
 )
 from app.services.position_valuation import EPSILON, contract_spec_for, value_position
 from app.services.trading_asset_info_service import (
+    LONG_POSITION_FIELD_KEYS,
+    SHORT_POSITION_FIELD_KEYS,
     gateway_position_symbol,
     normalize_gateway_position,
     symbol_aliases,
@@ -111,6 +113,8 @@ _POSITION_SIZE_ALIAS_KEYS = (
     "Volume",
     "Qty",
     "Quantity",
+    *LONG_POSITION_FIELD_KEYS,
+    *SHORT_POSITION_FIELD_KEYS,
 )
 _POSITION_RESPONSE_REVALUE_KEYS = (
     "instrument",
@@ -1601,6 +1605,15 @@ class TradingWorkspaceService:
         return None
 
     @classmethod
+    def _position_row_open_size(cls, row: dict[str, Any]) -> float:
+        size = abs(_safe_float(row.get("size")))
+        if size > EPSILON:
+            return size
+        long_position = cls._first_row_number(row, *LONG_POSITION_FIELD_KEYS)
+        short_position = cls._first_row_number(row, *SHORT_POSITION_FIELD_KEYS)
+        return max(long_position or 0.0, 0.0) + max(short_position or 0.0, 0.0)
+
+    @classmethod
     def _position_row_needs_response_valuation(cls, row: dict[str, Any]) -> bool:
         if abs(_safe_float(row.get("size"))) <= EPSILON and cls._has_any(
             row, *_POSITION_SIZE_ALIAS_KEYS
@@ -1701,7 +1714,7 @@ class TradingWorkspaceService:
             active_position_rows = [
                 row
                 for row in position_rows
-                if isinstance(row, dict) and abs(_safe_float(row.get("size"))) > EPSILON
+                if isinstance(row, dict) and self._position_row_open_size(row) > EPSILON
             ]
             if position_rows and not active_position_rows:
                 continue
@@ -1719,7 +1732,29 @@ class TradingWorkspaceService:
                 row_pnl_values: list[float] = []
                 for row in active_position_rows:
                     size = abs(_safe_float(row.get("size")))
-                    if size <= EPSILON:
+                    long_size = self._first_row_number(row, *LONG_POSITION_FIELD_KEYS)
+                    short_size = self._first_row_number(row, *SHORT_POSITION_FIELD_KEYS)
+                    if size <= EPSILON and (
+                        (long_size or 0.0) > EPSILON or (short_size or 0.0) > EPSILON
+                    ):
+                        row_long = max(long_size or 0.0, 0.0)
+                        row_short = max(short_size or 0.0, 0.0)
+                        derived_long_position += row_long
+                        derived_short_position += row_short
+                        row_market_value = self._first_row_number(row, "market_value")
+                        if row_market_value is not None:
+                            has_row_market_value = True
+                            row_total = row_long + row_short
+                            if row_total > EPSILON:
+                                derived_long_market_value += abs(row_market_value) * (
+                                    row_long / row_total
+                                )
+                                derived_short_market_value += abs(row_market_value) * (
+                                    row_short / row_total
+                                )
+                        row_pnl = self._first_row_number(row, *_PNL_FIELD_KEYS)
+                        if row_pnl is not None:
+                            row_pnl_values.append(row_pnl)
                         continue
                     is_short = self._position_row_direction(row) == "short"
                     if is_short:

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.services.trading_asset_info_service import (
+    LONG_POSITION_FIELD_KEYS,
+    SHORT_POSITION_FIELD_KEYS,
     TODAY_POSITION_FIELD_KEYS,
     YESTERDAY_POSITION_FIELD_KEYS,
     symbol_aliases,
@@ -1063,6 +1065,8 @@ def _row_multiplier(
 
 
 def _row_size(row: dict[str, Any]) -> float:
+    long_position = _first_number(*(row.get(key) for key in LONG_POSITION_FIELD_KEYS))
+    short_position = _first_number(*(row.get(key) for key in SHORT_POSITION_FIELD_KEYS))
     size = safe_float(
         _first_number(
             row.get("size"),
@@ -1082,6 +1086,11 @@ def _row_size(row: dict[str, Any]) -> float:
         ),
         0.0,
     )
+    if abs(size) <= EPSILON and (long_position is not None or short_position is not None):
+        long_size = max(long_position or 0.0, 0.0)
+        short_size = max(short_position or 0.0, 0.0)
+        if long_size > EPSILON or short_size > EPSILON:
+            return long_size - short_size
     direction_key = ""
     direction_value = ""
     for key in (
