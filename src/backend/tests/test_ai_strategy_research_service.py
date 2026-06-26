@@ -220,7 +220,13 @@ class FakeWorkspaceService:
             update={
                 "data_config": data.data_config,
                 "unit_settings": data.unit_settings,
-                "gateway_config": data.gateway_config,
+                "optimization_config": data.optimization_config,
+                "gateway_config": data.gateway_config.model_dump(
+                    mode="python",
+                    exclude_none=True,
+                )
+                if hasattr(data.gateway_config, "model_dump")
+                else data.gateway_config,
             }
         )
         self.units[unit.id] = unit
@@ -1005,6 +1011,10 @@ async def test_research_loop_enriches_backtest_with_asset_specs(monkeypatch):
     )
     assert result.run_record is not None
     assert result.run_record.commission == pytest.approx(0.000023)
+    unit_snapshot = result.run_record.iterations[0]["unit_snapshot"]
+    assert unit_snapshot["data_config"]["contract_metadata"]["IF2609"]["multiplier"] == 300
+    assert unit_snapshot["unit_settings"]["commission"] == pytest.approx(0.000023)
+    assert unit_snapshot["unit_settings"]["asset_spec_source"] == "local_futures_commission"
 
 
 @pytest.mark.asyncio
@@ -1954,6 +1964,134 @@ async def test_start_paper_trading_from_achieved_research_run_record():
     assert updated_run["paper_monitoring_plan"][0]["key"] == "rolling_sharpe"
     assert updated_run["paper_handoff"]["paper_task_id"] == "paper-task"
     assert updated_run["pipeline"]["current_stage"] == "paper_trading"
+
+
+@pytest.mark.asyncio
+async def test_start_paper_trading_from_history_uses_iteration_unit_snapshot():
+    workspace_service = FakeWorkspaceService()
+    seed_draft = build_ai_strategy_draft("请生成一个股指期货趋势策略").model_copy(
+        update={"name": "历史期货策略"}
+    )
+    strategy = _strategy("strategy-2", seed_draft)
+    unit_snapshot = {
+        "id": "missing-research-unit",
+        "workspace_id": "research-ws",
+        "group_name": "历史期货策略",
+        "strategy_id": strategy.id,
+        "strategy_name": strategy.name,
+        "symbol": "IF2609",
+        "symbol_name": "沪深300股指期货",
+        "timeframe": "1d",
+        "timeframe_n": 1,
+        "category": strategy.category,
+        "data_config": {
+            "symbol": "IF2609",
+            "contract_metadata": {
+                "IF2609": {
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                }
+            },
+        },
+        "unit_settings": {
+            "initial_cash": 250000.0,
+            "commission": 0.000023,
+            "annual_days": 244,
+            "calc_method": "log",
+            "weight_mode": "value",
+            "multiplier": 300,
+            "margin": 0.1,
+            "asset_spec_source": "local_futures_commission",
+        },
+        "params": {},
+        "optimization_config": {"enabled": False},
+        "gateway_config": {"name": "paper_gateway"},
+        "trading_mode": "paper",
+    }
+    record = {
+        **_run_record(
+            "previous-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "symbol": "IF2609",
+        "symbol_name": "沪深300股指期货",
+        "initial_cash": 250000.0,
+        "commission": 0.000023,
+        "annual_days": 244,
+        "calc_method": "log",
+        "weight_mode": "value",
+        "best_strategy_id": strategy.id,
+        "best_strategy_name": strategy.name,
+        "paper_workspace_id": None,
+        "paper_unit_id": None,
+        "paper_trading_started": False,
+        "iterations": [
+            {
+                "iteration": 2,
+                "strategy_id": strategy.id,
+                "strategy_name": strategy.name,
+                "unit_id": "missing-research-unit",
+                "unit_snapshot": unit_snapshot,
+                "task_id": "task-2",
+                "run_status": "completed",
+                "metrics": {"sharpe_ratio": 1.21, "total_trades": 5},
+                "sharpe_ratio": 1.21,
+                "total_trades": 5,
+                "quality_score": 100.0,
+                "quality_gate_evaluations": [
+                    {
+                        "key": "sharpe",
+                        "label": "Sharpe",
+                        "actual": 1.21,
+                        "target": 1.0,
+                        "direction": "min",
+                        "passed": True,
+                        "score": 1.0,
+                    }
+                ],
+                "passed": True,
+                "quality_gate_failures": [],
+                "improvement_notes": [],
+                "next_actions": [],
+            }
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [record]}}}
+    )
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [],
+        strategies={strategy.id: strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.start_paper_trading_from_run(
+        "user-1",
+        "previous-run",
+        AIStrategyPaperTradingStartRequest(research_workspace_id="research-ws"),
+    )
+
+    assert result.started is True
+    created_unit = workspace_service.created_units[-1]
+    assert created_unit.data_config["contract_metadata"]["IF2609"]["multiplier"] == 300
+    assert created_unit.unit_settings["commission"] == pytest.approx(0.000023)
+    assert created_unit.unit_settings["multiplier"] == 300
+    assert created_unit.unit_settings["margin"] == pytest.approx(0.1)
+    assert created_unit.unit_settings["asset_spec_source"] == "local_futures_commission"
+    assert created_unit.optimization_config == {"enabled": False}
+    assert created_unit.gateway_config == {"name": "paper_gateway", "params": {}}
+    assert result.handoff["backtest_environment"]["commission"] == pytest.approx(0.000023)
+    assert result.handoff["backtest_environment"]["multiplier"] == 300
+    assert result.handoff["backtest_environment"]["asset_spec_source"] == (
+        "local_futures_commission"
+    )
 
 
 @pytest.mark.asyncio

@@ -859,10 +859,21 @@ class AIStrategyResearchService:
         if strategy is None:
             raise ValueError("Best strategy not found")
 
-        unit_id = str(iteration_payload.get("unit_id") or "").strip()
+        unit_snapshot = (
+            dict(iteration_payload.get("unit_snapshot"))
+            if isinstance(iteration_payload.get("unit_snapshot"), dict)
+            else {}
+        )
+        unit_id = str(iteration_payload.get("unit_id") or unit_snapshot.get("id") or "").strip()
         if not unit_id:
             raise ValueError("AI research run record has no research unit to promote")
         unit = await self.workspace_service.get_unit(record.research_workspace_id, unit_id, user_id)
+        if unit is None:
+            unit = _unit_from_iteration_snapshot(
+                record,
+                strategy=strategy,
+                payload=iteration_payload,
+            )
         if unit is None:
             raise ValueError("Research unit not found")
 
@@ -1216,7 +1227,7 @@ class AIStrategyResearchService:
             params=best_iteration.unit.params,
             optimization_config=best_iteration.unit.optimization_config,
             trading_mode="paper",
-            gateway_config=request.gateway_config,
+            gateway_config=request.gateway_config or best_iteration.unit.gateway_config,
             lock_trading=False,
             lock_running=False,
         )
@@ -2513,6 +2524,47 @@ def _paper_start_request_from_record(
     )
 
 
+def _unit_from_iteration_snapshot(
+    record: AIStrategyResearchRunRecord,
+    *,
+    strategy: StrategyResponse,
+    payload: dict[str, Any],
+) -> StrategyUnitResponse | None:
+    snapshot = payload.get("unit_snapshot")
+    if not isinstance(snapshot, dict):
+        return None
+    unit_id = str(payload.get("unit_id") or snapshot.get("id") or "").strip()
+    if not unit_id:
+        return None
+    now = datetime.now(timezone.utc)
+    return StrategyUnitResponse(
+        id=unit_id,
+        workspace_id=str(snapshot.get("workspace_id") or record.research_workspace_id),
+        group_name=str(snapshot.get("group_name") or strategy.name),
+        strategy_id=str(snapshot.get("strategy_id") or strategy.id),
+        strategy_name=str(snapshot.get("strategy_name") or strategy.name),
+        symbol=str(snapshot.get("symbol") or record.symbol),
+        symbol_name=str(snapshot.get("symbol_name") or record.symbol_name or record.symbol),
+        timeframe=str(snapshot.get("timeframe") or record.timeframe),
+        timeframe_n=_runtime_int(snapshot.get("timeframe_n"), record.timeframe_n),
+        category=str(snapshot.get("category") or strategy.category),
+        data_config=dict(snapshot.get("data_config") or {}),
+        unit_settings=dict(snapshot.get("unit_settings") or {}),
+        params=dict(snapshot.get("params") or {}),
+        optimization_config=dict(snapshot.get("optimization_config") or {}),
+        gateway_config=dict(snapshot.get("gateway_config") or {}),
+        trading_mode=str(snapshot.get("trading_mode") or "paper"),
+        lock_trading=bool(snapshot.get("lock_trading", False)),
+        lock_running=bool(snapshot.get("lock_running", False)),
+        run_status=str(payload.get("run_status") or "completed"),
+        run_count=1,
+        last_task_id=str(payload.get("task_id") or "") or None,
+        metrics_snapshot=dict(payload.get("metrics") or record.best_metrics or {}),
+        created_at=now,
+        updated_at=now,
+    )
+
+
 def _iteration_from_record_payload(
     record: AIStrategyResearchRunRecord,
     *,
@@ -2856,6 +2908,7 @@ def _compact_research_iteration(item: AIStrategyResearchIteration) -> dict[str, 
         "strategy_id": item.strategy.id,
         "strategy_name": item.strategy.name,
         "unit_id": item.unit.id,
+        "unit_snapshot": _compact_unit_snapshot(item.unit),
         "task_id": item.run_result.task_id,
         "run_status": unit_status or item.run_result.status,
         "metrics": item.metrics,
@@ -2884,6 +2937,40 @@ def _compact_research_iteration(item: AIStrategyResearchIteration) -> dict[str, 
         "improvement_notes": item.improvement_notes,
         "next_actions": item.next_actions,
     }
+
+
+def _compact_unit_snapshot(unit: StrategyUnitResponse) -> dict[str, Any]:
+    return {
+        "id": unit.id,
+        "workspace_id": unit.workspace_id,
+        "group_name": unit.group_name,
+        "strategy_id": unit.strategy_id,
+        "strategy_name": unit.strategy_name,
+        "symbol": unit.symbol,
+        "symbol_name": unit.symbol_name,
+        "timeframe": unit.timeframe,
+        "timeframe_n": unit.timeframe_n,
+        "category": unit.category,
+        "data_config": dict(unit.data_config or {}),
+        "unit_settings": dict(unit.unit_settings or {}),
+        "params": dict(unit.params or {}),
+        "optimization_config": dict(unit.optimization_config or {}),
+        "gateway_config": _dict_payload(unit.gateway_config),
+        "trading_mode": unit.trading_mode,
+        "lock_trading": unit.lock_trading,
+        "lock_running": unit.lock_running,
+    }
+
+
+def _dict_payload(value: Any) -> dict[str, Any]:
+    if value in (None, ""):
+        return {}
+    if hasattr(value, "model_dump"):
+        payload = value.model_dump(mode="python", exclude_none=True)
+        return dict(payload) if isinstance(payload, dict) else {}
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
 
 
 def _iteration_diagnostics(
