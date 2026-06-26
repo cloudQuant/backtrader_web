@@ -1882,6 +1882,64 @@ async def test_portfolio_positions_use_contract_multiplier_and_commission():
 
 
 @pytest.mark.asyncio
+async def test_portfolio_positions_use_local_mt5_forex_contract_size_when_log_fallback(
+    tmp_path,
+):
+    """MT5 forex log fallback must use contract size before calculating PnL."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "current_position.json").write_text(
+        json.dumps(
+            [
+                {
+                    "data_name": "NZDUSD",
+                    "size": 0.01,
+                    "price": 0.5649913,
+                    "current_price": 0.56501,
+                    "market_value": 0.0056501,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    mgr = _MockManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "NZDUSD",
+                    "data": {"exchange": "MT5", "asset_type": "forex"},
+                    "unit_settings": {"commission": 0.00007},
+                },
+            }
+        ]
+    )
+
+    with (
+        patch("app.api.portfolio_api.get_strategy_dir", return_value=str(tmp_path)),
+        patch("app.api.portfolio_api.find_latest_log_dir", return_value=str(log_dir)),
+        patch("app.api.portfolio_api.load_runtime_config", return_value={}),
+    ):
+        result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["data_name"] == "NZDUSD"
+    assert row["market_value"] == pytest.approx(565.01)
+    assert row["signed_market_value"] == pytest.approx(565.01)
+    assert row["multiplier"] == pytest.approx(100000.0)
+    assert row["asset_spec_source"] == "local_mt5_defaults"
+    assert row["gross_pnl"] == pytest.approx(0.01)
+    assert row["commission"] == pytest.approx(0.0395)
+    assert row["position_pnl"] == pytest.approx(-0.03)
+    assert result["summary"]["total_long_value"] == pytest.approx(565.01)
+    assert result["summary"]["total_pnl"] == pytest.approx(-0.03)
+
+
+@pytest.mark.asyncio
 async def test_portfolio_positions_value_gateway_current_position_fallback(tmp_path):
     """Raw gateway fields in current_position.json still produce signed, fee-aware PnL."""
     from app.api.portfolio_api import get_portfolio_positions

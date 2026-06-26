@@ -1091,6 +1091,35 @@ def test_position_valuation_uses_mt5_margin_initial_per_lot():
     assert valued.gross_pnl == pytest.approx(2.0)
 
 
+def test_position_valuation_uses_local_mt5_forex_contract_size_when_specs_missing():
+    """MT5 forex log fallback must not value one lot as one currency unit."""
+    contract_spec = contract_spec_for(
+        "NZDUSD",
+        {
+            "data": {"exchange": "MT5", "asset_type": "forex"},
+            "unit_settings": {"commission": 0.00007},
+        },
+    )
+    valued = value_position(
+        {
+            "data_name": "NZDUSD",
+            "size": 0.01,
+            "price": 0.5649913,
+            "current_price": 0.56501,
+            "market_value": 0.0056501,
+        },
+        spec=contract_spec,
+    )
+
+    assert contract_spec.multiplier == pytest.approx(100000.0)
+    assert contract_spec.source == "local_mt5_defaults"
+    assert valued is not None
+    assert valued.market_value == pytest.approx(565.01)
+    assert valued.gross_pnl == pytest.approx(0.0187)
+    assert valued.commission == pytest.approx(0.039549391)
+    assert valued.pnl == pytest.approx(-0.020849391)
+
+
 def test_normalize_gateway_position_handles_raw_mt5_position_side_values():
     long_row = normalize_gateway_position(
         {

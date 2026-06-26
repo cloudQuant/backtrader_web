@@ -22,6 +22,34 @@ _COMMON_QUOTE_SUFFIXES = (
     "BTC",
     "ETH",
 )
+_FIAT_CURRENCIES = frozenset(
+    {
+        "AUD",
+        "CAD",
+        "CHF",
+        "CNH",
+        "CNY",
+        "EUR",
+        "GBP",
+        "HKD",
+        "JPY",
+        "MXN",
+        "NOK",
+        "NZD",
+        "SEK",
+        "SGD",
+        "TRY",
+        "USD",
+        "ZAR",
+    }
+)
+_MT5_METAL_CONTRACT_SIZES = {
+    "XAUUSD": 100.0,
+    "XAGUSD": 5000.0,
+    "XPTUSD": 100.0,
+    "XPDUSD": 100.0,
+}
+_MT5_FOREX_CONTRACT_SIZE = 100000.0
 COMMISSION_FIELD_KEYS = (
     "commission",
     "comm",
@@ -665,6 +693,44 @@ def _query_symbol_keys(symbol: Any) -> list[str]:
 def _product_code(symbol: Any) -> str:
     match = re.match(r"([A-Za-z]+)", _normalize_symbol(symbol))
     return match.group(1).upper() if match else ""
+
+
+def _compact_underlying_symbol(symbol: Any) -> str:
+    compact = _compact_symbol_text(_normalize_symbol(symbol))
+    if len(compact) >= 6:
+        head = compact[:6]
+        if head in _MT5_METAL_CONTRACT_SIZES:
+            return head
+        if head[:3] in _FIAT_CURRENCIES and head[3:6] in _FIAT_CURRENCIES:
+            return head
+    return compact
+
+
+def _query_local_otc_spec(symbol: str) -> dict[str, Any]:
+    compact = _compact_underlying_symbol(symbol)
+    if compact in _MT5_METAL_CONTRACT_SIZES:
+        return normalize_asset_spec(
+            {
+                "symbol": symbol,
+                "asset_type": "commodity",
+                "exchange": "MT5",
+                "contract_size": _MT5_METAL_CONTRACT_SIZES[compact],
+            },
+            symbol=symbol,
+            source="local_mt5_defaults",
+        )
+    if len(compact) == 6 and compact[:3] in _FIAT_CURRENCIES and compact[3:] in _FIAT_CURRENCIES:
+        return normalize_asset_spec(
+            {
+                "symbol": symbol,
+                "asset_type": "forex",
+                "exchange": "MT5",
+                "contract_size": _MT5_FOREX_CONTRACT_SIZE,
+            },
+            symbol=symbol,
+            source="local_mt5_defaults",
+        )
+    return {}
 
 
 def _object_get(obj: Any, *names: str) -> Any:
@@ -2311,7 +2377,7 @@ def _query_local_futures_spec(symbol: str) -> dict[str, Any]:
 
 def query_local_asset_spec(symbol: str) -> dict[str, Any]:
     """Return locally stored asset metadata for a symbol when available."""
-    return _query_local_futures_spec(symbol)
+    return _query_local_futures_spec(symbol) or _query_local_otc_spec(symbol)
 
 
 def _runtime_adapter(gateway: dict[str, Any] | None) -> Any:

@@ -61,6 +61,34 @@ _COMMON_QUOTE_SUFFIXES = (
     "BTC",
     "ETH",
 )
+_FIAT_CURRENCIES = frozenset(
+    {
+        "AUD",
+        "CAD",
+        "CHF",
+        "CNH",
+        "CNY",
+        "EUR",
+        "GBP",
+        "HKD",
+        "JPY",
+        "MXN",
+        "NOK",
+        "NZD",
+        "SEK",
+        "SGD",
+        "TRY",
+        "USD",
+        "ZAR",
+    }
+)
+_MT5_METAL_CONTRACT_SIZES = {
+    "XAUUSD": 100.0,
+    "XAGUSD": 5000.0,
+    "XPTUSD": 100.0,
+    "XPDUSD": 100.0,
+}
+_MT5_FOREX_CONTRACT_SIZE = 100000.0
 
 
 def safe_float(value: Any, default: float | None = 0.0) -> float | None:
@@ -251,6 +279,72 @@ def _symbol_keys(symbol: str) -> set[str]:
     return set(symbol_aliases(symbol))
 
 
+def _compact_symbol_text(value: str) -> str:
+    return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
+
+
+def _compact_underlying_symbol(symbol: str) -> str:
+    compact = _compact_symbol_text(symbol)
+    if len(compact) >= 6:
+        head = compact[:6]
+        if head in _MT5_METAL_CONTRACT_SIZES:
+            return head
+        if head[:3] in _FIAT_CURRENCIES and head[3:6] in _FIAT_CURRENCIES:
+            return head
+    return compact
+
+
+def _local_default_contract_spec(symbol: str) -> dict[str, Any]:
+    compact = _compact_underlying_symbol(symbol)
+    if compact in _MT5_METAL_CONTRACT_SIZES:
+        return {
+            "multiplier": _MT5_METAL_CONTRACT_SIZES[compact],
+            "asset_type": "commodity",
+            "source": "local_mt5_defaults",
+        }
+    if len(compact) == 6 and compact[:3] in _FIAT_CURRENCIES and compact[3:] in _FIAT_CURRENCIES:
+        return {
+            "multiplier": _MT5_FOREX_CONTRACT_SIZE,
+            "asset_type": "forex",
+            "source": "local_mt5_defaults",
+        }
+    return {}
+
+
+def _allows_local_otc_default(config: dict[str, Any]) -> bool:
+    asset_type_text = _first_text(
+        config.get("asset_type"),
+        config.get("assetClass"),
+        config.get("category"),
+        config.get("product_type"),
+    ).lower()
+    if asset_type_text in {
+        "forex",
+        "fx",
+        "currency",
+        "commodity",
+        "metal",
+        "metals",
+        "cfd",
+    }:
+        return True
+
+    context_text = " ".join(
+        str(config.get(key) or "").strip().lower()
+        for key in (
+            "exchange",
+            "exchange_id",
+            "exchange_name",
+            "gateway",
+            "broker",
+            "broker_type",
+            "source",
+            "asset_spec_source",
+        )
+    )
+    return "mt5" in context_text or "metatrader" in context_text
+
+
 def _contract_metadata(config: dict[str, Any], symbol: str) -> dict[str, Any]:
     keys = _symbol_keys(symbol)
     for container_key in ("contract_metadata", "contracts", "contract_specs", "instrument_specs"):
@@ -429,8 +523,11 @@ def contract_spec_for(
     has_margin_rate = False
     has_margin_amount = False
     has_commission = False
+    allow_local_otc_default = False
 
     for config in _iter_configs(configs):
+        if _allows_local_otc_default(config):
+            allow_local_otc_default = True
         nested = [
             config,
             _as_dict(config.get("unit_settings")),
@@ -447,6 +544,8 @@ def contract_spec_for(
         for subconfig in nested:
             if not subconfig:
                 continue
+            if _allows_local_otc_default(subconfig):
+                allow_local_otc_default = True
             subconfig_source = str(subconfig.get("source") or "").strip()
             if not asset_type:
                 asset_type = _first_text(subconfig.get("asset_type"), subconfig.get("instType"))
@@ -808,6 +907,16 @@ def contract_spec_for(
                     has_commission = True
                     if subconfig_source and not source:
                         source = subconfig_source
+
+    if multiplier is None and allow_local_otc_default:
+        local_default = _local_default_contract_spec(symbol)
+        if local_default:
+            multiplier = _first_number(local_default.get("multiplier"))
+            has_multiplier = multiplier is not None
+            if not asset_type:
+                asset_type = _first_text(local_default.get("asset_type"))
+            if not source:
+                source = _first_text(local_default.get("source"))
 
     if commission_rate is None and taker_commission_rate is not None:
         commission_rate = taker_commission_rate
