@@ -531,6 +531,60 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('restores an active AI research task on mount', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    ;(strategyApi as any).listAIResearchTasks = vi.fn().mockResolvedValue({
+      total: 1,
+      items: [
+        {
+          task_id: 'restore-task-1',
+          status: 'running',
+          submitted_at: '2026-06-27T00:00:00Z',
+          current_stage: 'backtesting',
+          progress: 42,
+          current_iteration: 2,
+          iteration_count: 1,
+          max_iterations: 3,
+          current_backtest_task_id: 'bt-task-1',
+          message: 'running',
+        },
+      ],
+    })
+    ;(strategyApi as any).getAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'restore-task-1',
+      status: 'completed',
+      submitted_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      run_id: 'run-1',
+      current_stage: 'paper_trading',
+      progress: 100,
+      current_iteration: 2,
+      iteration_count: 2,
+      max_iterations: 3,
+      current_backtest_task_id: null,
+      message: 'done',
+      result: baseResult,
+    })
+    try {
+      const wrapper = doMount()
+      await flushPromises()
+      await flushPromises()
+      const vm = wrapper.vm as any
+
+      expect((strategyApi as any).listAIResearchTasks).toHaveBeenCalledWith(true, 5)
+      expect((strategyApi as any).getAIResearchTask).toHaveBeenCalledWith('restore-task-1')
+      expect(vm.aiResearchTaskId).toBe('restore-task-1')
+      expect(vm.aiResearchTaskStatus).toBe('completed')
+      expect(vm.aiResearchTaskStage).toBe('paper_trading')
+      expect(vm.aiResearchResult.achieved).toBe(true)
+    } finally {
+      delete (strategyApi as any).listAIResearchTasks
+      delete (strategyApi as any).getAIResearchTask
+    }
+  })
+
   it('cancels a running AI research task', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const { ElMessage } = await import('element-plus')

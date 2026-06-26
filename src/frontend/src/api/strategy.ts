@@ -317,6 +317,11 @@ export interface AIStrategyResearchTaskResponse {
   result?: AIStrategyResearchRunResponse | null
 }
 
+export interface AIStrategyResearchTaskListResponse {
+  total: number
+  items: AIStrategyResearchTaskResponse[]
+}
+
 export interface AIStrategyPaperTradingReview {
   run_id: string
   research_workspace_id: string
@@ -527,6 +532,12 @@ export const strategyApi = {
 
   async getAIResearchTask(taskId: string): Promise<AIStrategyResearchTaskResponse> {
     return api.get<AIStrategyResearchTaskResponse>(`/strategy/ai-research/tasks/${taskId}`)
+  },
+
+  async listAIResearchTasks(activeOnly = false, limit = 20): Promise<AIStrategyResearchTaskListResponse> {
+    return api.get<AIStrategyResearchTaskListResponse>('/strategy/ai-research/tasks', {
+      params: { active_only: activeOnly, limit },
+    })
   },
 
   async cancelAIResearchTask(taskId: string): Promise<AIStrategyResearchTaskResponse> {

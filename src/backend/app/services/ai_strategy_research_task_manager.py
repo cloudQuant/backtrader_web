@@ -76,6 +76,24 @@ class AIStrategyResearchTaskManager:
                 return None
             return state.response.model_copy(deep=True)
 
+    async def list_tasks(
+        self,
+        user_id: str,
+        *,
+        active_only: bool = False,
+        limit: int = 20,
+    ) -> list[AIStrategyResearchTaskResponse]:
+        terminal_statuses = {"completed", "failed", "cancelled"}
+        async with self._lock:
+            items = [
+                state.response.model_copy(deep=True)
+                for state in self._tasks.values()
+                if state.user_id == user_id
+                and (not active_only or state.response.status not in terminal_statuses)
+            ]
+        items.sort(key=lambda item: item.submitted_at, reverse=True)
+        return items[: max(limit, 0)]
+
     async def cancel_task(
         self,
         user_id: str,

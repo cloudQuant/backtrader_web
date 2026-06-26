@@ -1621,6 +1621,10 @@ async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
     assert task.result.achieved is True
     assert await manager.get_task("other-user", submitted.task_id) is None
 
+    tasks = await manager.list_tasks("user-1")
+    assert [item.task_id for item in tasks] == [submitted.task_id]
+    assert await manager.list_tasks("user-1", active_only=True) == []
+
 
 @pytest.mark.asyncio
 async def test_ai_strategy_research_task_manager_cancels_running_task():
@@ -1712,6 +1716,15 @@ async def test_ai_strategy_research_task_api_endpoint(
         )
         assert response.status_code == 202
         task_id = response.json()["task_id"]
+        list_response = await client.get(
+            "/api/v1/strategy/ai-research/tasks",
+            headers=auth_headers,
+            params={"active_only": False, "limit": 5},
+        )
+        assert list_response.status_code == 200
+        list_payload = list_response.json()
+        assert list_payload["total"] == 1
+        assert list_payload["items"][0]["task_id"] == task_id
         payload = None
         for _ in range(20):
             status_response = await client.get(

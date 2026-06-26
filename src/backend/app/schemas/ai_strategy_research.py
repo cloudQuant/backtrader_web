@@ -264,3 +264,10 @@ class AIStrategyResearchTaskResponse(BaseModel):
     error: str | None = None
     message: str = ""
     result: AIStrategyResearchRunResponse | None = None
+
+
+class AIStrategyResearchTaskListResponse(BaseModel):
+    """Current AI strategy research tasks for the authenticated user."""
+
+    total: int
+    items: list[AIStrategyResearchTaskResponse] = Field(default_factory=list)

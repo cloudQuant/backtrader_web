@@ -15,6 +15,7 @@ from app.schemas.ai_strategy_research import (
     AIStrategyResearchRunListResponse,
     AIStrategyResearchRunRequest,
     AIStrategyResearchRunResponse,
+    AIStrategyResearchTaskListResponse,
     AIStrategyResearchTaskResponse,
 )
 from app.schemas.strategy import (
@@ -266,6 +267,26 @@ async def submit_ai_strategy_research_task(
         return await task_manager.submit(current_user.sub, data, service=service)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/ai-research/tasks",
+    response_model=AIStrategyResearchTaskListResponse,
+    summary="List AI strategy research tasks",
+)
+async def list_ai_strategy_research_tasks(
+    current_user=Depends(get_current_user),
+    task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
+    active_only: bool = Query(False, description="Only return non-terminal tasks"),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """List in-process AI research tasks for the authenticated user."""
+    items = await task_manager.list_tasks(
+        current_user.sub,
+        active_only=active_only,
+        limit=limit,
+    )
+    return AIStrategyResearchTaskListResponse(total=len(items), items=items)
 
 
 @router.get(

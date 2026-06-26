@@ -1181,6 +1181,18 @@ async function runAIResearchRequest(
   }
 
   let task = await apiWithTasks.submitAIResearchTask(payload)
+  return pollAIResearchTask(task)
+}
+
+async function pollAIResearchTask(
+  task: AIStrategyResearchTaskResponse
+): Promise<AIStrategyResearchRunResponse> {
+  const apiWithTasks = strategyApi as typeof strategyApi & {
+    getAIResearchTask?: typeof strategyApi.getAIResearchTask
+  }
+  if (typeof apiWithTasks.getAIResearchTask !== 'function') {
+    throw new Error('AI research task polling is unavailable')
+  }
   applyAIResearchTaskStatus(task)
   for (let attempt = 0; attempt < 240; attempt += 1) {
     if (task.status === 'completed' && task.result) {
@@ -1199,6 +1211,30 @@ async function runAIResearchRequest(
     }
   }
   throw new Error('AI research task polling timed out')
+}
+
+async function restoreActiveAIResearchTask() {
+  const apiWithTasks = strategyApi as typeof strategyApi & {
+    listAIResearchTasks?: typeof strategyApi.listAIResearchTasks
+  }
+  if (aiResearchRunning.value || typeof apiWithTasks.listAIResearchTasks !== 'function') return
+  try {
+    const response = await apiWithTasks.listAIResearchTasks(true, 5)
+    const task = response.items.find(item => !isAIResearchTaskTerminal(item))
+    if (!task) return
+    aiResearchRunning.value = true
+    aiResearchResult.value = await pollAIResearchTask(task)
+    if (aiResearchResult.value.run_record) {
+      upsertAIResearchRunRecord(aiResearchResult.value.run_record)
+    } else {
+      await loadAIResearchRuns()
+    }
+    ElMessage.success(t('strategy.aiResearchRunSuccess'))
+  } catch {
+    ElMessage.error(t('strategy.aiResearchRunFailed'))
+  } finally {
+    aiResearchRunning.value = false
+  }
 }
 
 async function cancelAIResearchTask() {
@@ -1353,6 +1389,7 @@ onMounted(async () => {
       strategyStore.fetchTemplates(),
       loadAIResearchRuns(),
     ])
+    void restoreActiveAIResearchTask()
   } catch {
     ElMessage.error(t('strategy.loadFailed'))
   }
