@@ -1973,6 +1973,8 @@ class TestDirectOrderServiceLiveTrade:
         assert [payload["size"] for payload in close_payloads] == [500, 500, 200]
         assert all(payload["order_type"] == "market" for payload in close_payloads)
         assert all(payload["offset"] == "close" for payload in close_payloads)
+        assert all(payload["posSide"] == "long" for payload in close_payloads)
+        assert all(payload["position_side"] == "long" for payload in close_payloads)
 
     @pytest.mark.asyncio
     async def test_live_close_aggregates_same_direction_contract_rows(self):

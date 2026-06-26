@@ -1069,6 +1069,23 @@ class DirectOrderService:
                 return value
         return None
 
+    @staticmethod
+    def _position_side_value(row: dict[str, Any]) -> str | None:
+        for key in (
+            "posSide",
+            "positionSide",
+            "position_side",
+            "PositionSide",
+            "holdSide",
+        ):
+            value = row.get(key)
+            if value in (None, ""):
+                continue
+            text = str(value).strip().lower()
+            if text in {"long", "short"}:
+                return text
+        return None
+
     @classmethod
     def _is_ctp_close_context(
         cls,
@@ -1123,15 +1140,18 @@ class DirectOrderService:
 
         direction = cls._position_direction(matches[0])
         side = "sell" if direction == "long" else "buy"
-        return [
-            {
-                "symbol": cls._position_symbol(matches[0]) or intent.symbol or "",
-                "exchange_id": cls._row_exchange_id(matches[0]) or None,
-                "side": side,
-                "size": target_size,
-                "offset": "close",
-            }
-        ]
+        plan = {
+            "symbol": cls._position_symbol(matches[0]) or intent.symbol or "",
+            "exchange_id": cls._row_exchange_id(matches[0]) or None,
+            "side": side,
+            "size": target_size,
+            "offset": "close",
+        }
+        position_side = cls._position_side_value(matches[0])
+        if position_side:
+            plan["position_side"] = position_side
+            plan["posSide"] = position_side
+        return [plan]
 
     @classmethod
     def _ctp_close_position_plans(
@@ -1446,6 +1466,12 @@ class DirectOrderService:
                     payload["exchange_id"] = split_plan["exchange_id"]
                 if split_plan.get("position_id") not in (None, ""):
                     payload["position_id"] = split_plan["position_id"]
+                if split_plan.get("position_side") in {"long", "short"}:
+                    payload["position_side"] = split_plan["position_side"]
+                    payload["posSide"] = split_plan["position_side"]
+                elif split_plan.get("posSide") in {"long", "short"}:
+                    payload["position_side"] = split_plan["posSide"]
+                    payload["posSide"] = split_plan["posSide"]
 
                 result = self._send_gateway_command(command_endpoint, "place_order", payload)
                 success, error_message = self._gateway_order_result_ok(result)
