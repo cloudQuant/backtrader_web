@@ -186,9 +186,19 @@
               </div>
 
               <div class="ai-research-actions">
-                <el-checkbox v-model="aiResearchForm.start_paper_trading">
-                  {{ t('strategy.aiResearchPaper') }}
-                </el-checkbox>
+                <div class="ai-research-action-options">
+                  <el-checkbox v-model="aiResearchForm.start_paper_trading">
+                    {{ t('strategy.aiResearchPaper') }}
+                  </el-checkbox>
+                  <el-tag
+                    v-if="aiResearchContinuationEnabled"
+                    closable
+                    type="info"
+                    @close="clearAIResearchContinuation"
+                  >
+                    从历史最佳策略继续
+                  </el-tag>
+                </div>
                 <el-button
                   type="primary"
                   :loading="aiResearchRunning"
@@ -680,6 +690,9 @@ const aiResearchForm = reactive({
   max_iterations: 3,
   initial_cash: 100000,
   commission: 0.001,
+  research_workspace_id: '',
+  seed_strategy_id: '',
+  continue_from_run_id: '',
   start_paper_trading: true,
 })
 
@@ -718,6 +731,9 @@ const aiBestSharpe = computed(() => {
 })
 
 const aiResearchNextActions = computed(() => aiResearchResult.value?.next_actions ?? [])
+const aiResearchContinuationEnabled = computed(() =>
+  Boolean(aiResearchForm.seed_strategy_id || aiResearchForm.continue_from_run_id)
+)
 
 const paramTableData = computed(() => {
   if (!detailTemplate.value) return []
@@ -799,6 +815,9 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.use_min_win_rate = typeof gates.min_win_rate === 'number'
   aiResearchForm.min_win_rate = Number(gates.min_win_rate ?? 50)
   aiResearchForm.max_iterations = record.max_iterations || 3
+  aiResearchForm.research_workspace_id = record.research_workspace_id || ''
+  aiResearchForm.seed_strategy_id = record.best_strategy_id || ''
+  aiResearchForm.continue_from_run_id = record.best_strategy_id ? record.run_id : ''
 }
 
 function enabledQualityGate(enabled: boolean, value: number) {
@@ -807,6 +826,12 @@ function enabledQualityGate(enabled: boolean, value: number) {
 
 function researchIterationNextActions(item: AIStrategyResearchRunResponse['iterations'][number]) {
   return item.next_actions ?? []
+}
+
+function clearAIResearchContinuation() {
+  aiResearchForm.research_workspace_id = ''
+  aiResearchForm.seed_strategy_id = ''
+  aiResearchForm.continue_from_run_id = ''
 }
 
 async function runAIResearchLoop() {
@@ -852,6 +877,9 @@ async function runAIResearchLoop() {
       max_iterations: aiResearchForm.max_iterations,
       initial_cash: aiResearchForm.initial_cash,
       commission: aiResearchForm.commission,
+      research_workspace_id: aiResearchForm.research_workspace_id || null,
+      seed_strategy_id: aiResearchForm.seed_strategy_id || null,
+      continue_from_run_id: aiResearchForm.continue_from_run_id || null,
       start_paper_trading: aiResearchForm.start_paper_trading,
     })
     if (aiResearchResult.value.run_record) {
@@ -987,6 +1015,14 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 16px;
   margin-top: 8px;
+}
+
+.ai-research-action-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .ai-research-gate-control {

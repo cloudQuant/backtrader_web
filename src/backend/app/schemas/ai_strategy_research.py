@@ -57,6 +57,14 @@ class AIStrategyResearchRunRequest(BaseModel):
 
     research_workspace_id: str | None = Field(None, description="Existing research workspace")
     trading_workspace_id: str | None = Field(None, description="Existing trading workspace")
+    seed_strategy_id: str | None = Field(
+        None,
+        description="Optional existing strategy ID to continue research from",
+    )
+    continue_from_run_id: str | None = Field(
+        None,
+        description="Optional previous AI research run ID whose best strategy should seed this run",
+    )
     start_paper_trading: bool = Field(True, description="Start paper trading after success")
     paper_workspace_name: str | None = Field(None, description="Name for generated paper workspace")
 
@@ -122,6 +130,8 @@ class AIStrategyResearchRunRecord(BaseModel):
     best_strategy_id: str | None = None
     best_strategy_name: str | None = None
     research_workspace_id: str
+    seed_strategy_id: str | None = None
+    continued_from_run_id: str | None = None
     paper_workspace_id: str | None = None
     paper_unit_id: str | None = None
     paper_trading_started: bool = False

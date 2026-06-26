@@ -66,6 +66,8 @@ vi.mock('@/api/strategy', () => ({
           best_strategy_id: 's1',
           best_strategy_name: 'AI策略',
           research_workspace_id: 'research-ws',
+          seed_strategy_id: null,
+          continued_from_run_id: null,
           paper_workspace_id: null,
           paper_unit_id: null,
           paper_trading_started: false,
@@ -169,6 +171,8 @@ vi.mock('@/api/strategy', () => ({
         best_strategy_id: 's1',
         best_strategy_name: 'AI策略',
         research_workspace_id: 'research-ws',
+        seed_strategy_id: null,
+        continued_from_run_id: null,
         paper_workspace_id: null,
         paper_unit_id: null,
         paper_trading_started: false,
@@ -343,7 +347,11 @@ describe('StrategyPage', () => {
       best_iteration: 2,
       best_sharpe: 1.6,
       best_metrics: {},
+      best_strategy_id: 'best-strategy',
+      best_strategy_name: '历史最佳策略',
       research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
       paper_trading_started: false,
       next_actions: [],
       started_at: '2026-06-27T00:00:00Z',
@@ -357,6 +365,54 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.max_drawdown_limit).toBe(15)
     expect(vm.aiResearchForm.use_min_win_rate).toBe(true)
     expect(vm.aiResearchForm.min_win_rate).toBe(55)
+    expect(vm.aiResearchForm.research_workspace_id).toBe('research-ws')
+    expect(vm.aiResearchForm.seed_strategy_id).toBe('best-strategy')
+    expect(vm.aiResearchForm.continue_from_run_id).toBe('history-run')
+  })
+
+  it('runs AI research continuation from selected history record', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.useAIResearchRecord({
+      run_id: 'history-run',
+      prompt: '历史趋势策略',
+      symbol: '600000.SH',
+      symbol_name: '浦发银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      status: 'max_iterations_reached',
+      achieved: false,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 3,
+      best_iteration: 3,
+      best_sharpe: 0.8,
+      best_metrics: {},
+      best_strategy_id: 'best-strategy',
+      best_strategy_name: '历史最佳策略',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_trading_started: false,
+      next_actions: [],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [],
+    })
+
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('从历史最佳策略继续')
+    await vm.runAIResearchLoop()
+    expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: '历史趋势策略',
+      symbol: '600000.SH',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: 'best-strategy',
+      continue_from_run_id: 'history-run',
+    }))
   })
 
   it('saveStrategy warns when name/code empty', async () => {

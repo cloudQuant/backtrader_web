@@ -23,11 +23,15 @@ from app.schemas.ai_strategy_research import (
     AIStrategyResearchRunResponse,
 )
 from app.schemas.strategy import (
+    AIStrategyBacktestSpec,
+    AIStrategyDataSourceSpec,
     AIStrategyDraft,
+    AIStrategyExecutionPlan,
     ParamSpec,
     StrategyCopilotBacktestRequest,
     StrategyCopilotDraftRequest,
     StrategyCopilotRunResult,
+    StrategyResponse,
 )
 from app.schemas.workspace import (
     StrategyUnitCreate,
@@ -287,16 +291,18 @@ class AIStrategyResearchService:
     ) -> AIStrategyResearchRunResponse:
         run_id = str(uuid.uuid4())
         started_at = _utc_iso_now()
+        request, draft = await self._prepare_initial_draft(user_id, request)
         research_workspace = await self._ensure_research_workspace(user_id, request)
-        draft_response = await self.strategy_service.generate_copilot_draft(
-            user_id,
-            StrategyCopilotDraftRequest(
-                prompt=request.prompt,
-                knowledge_base_id=request.knowledge_base_id,
-                thinking_mode=request.thinking_mode,
-            ),
-        )
-        draft = draft_response.strategy_draft
+        if draft is None:
+            draft_response = await self.strategy_service.generate_copilot_draft(
+                user_id,
+                StrategyCopilotDraftRequest(
+                    prompt=request.prompt,
+                    knowledge_base_id=request.knowledge_base_id,
+                    thinking_mode=request.thinking_mode,
+                ),
+            )
+            draft = draft_response.strategy_draft
 
         iterations: list[AIStrategyResearchIteration] = []
         best_iteration: AIStrategyResearchIteration | None = None
@@ -496,6 +502,55 @@ class AIStrategyResearchService:
                 workspace_type="research",
             ),
         )
+
+    async def _prepare_initial_draft(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+    ) -> tuple[AIStrategyResearchRunRequest, AIStrategyDraft | None]:
+        seed_strategy_id = request.seed_strategy_id
+        update: dict[str, Any] = {}
+        if request.continue_from_run_id:
+            record = await self._find_research_run_record(
+                user_id,
+                request.continue_from_run_id,
+                research_workspace_id=request.research_workspace_id,
+            )
+            if record is None:
+                raise ValueError("AI research run record not found")
+            if not seed_strategy_id:
+                seed_strategy_id = record.best_strategy_id
+            if not seed_strategy_id:
+                raise ValueError("AI research run record has no best strategy to continue")
+            if not request.research_workspace_id:
+                update["research_workspace_id"] = record.research_workspace_id
+            if not request.symbol_name and record.symbol_name:
+                update["symbol_name"] = record.symbol_name
+
+        if seed_strategy_id:
+            update["seed_strategy_id"] = seed_strategy_id
+            effective_request = request.model_copy(update=update) if update else request
+            strategy = await self.strategy_service.get_strategy(seed_strategy_id, user_id)
+            if strategy is None:
+                raise ValueError("Seed strategy not found")
+            return effective_request, _draft_from_strategy(strategy, effective_request)
+
+        effective_request = request.model_copy(update=update) if update else request
+        return effective_request, None
+
+    async def _find_research_run_record(
+        self,
+        user_id: str,
+        run_id: str,
+        *,
+        research_workspace_id: str | None = None,
+    ) -> AIStrategyResearchRunRecord | None:
+        records = await self.list_run_records(
+            user_id,
+            research_workspace_id=research_workspace_id,
+            limit=100,
+        )
+        return next((item for item in records.items if item.run_id == run_id), None)
 
     def _build_backtest_request(
         self,
@@ -959,6 +1014,53 @@ def _utc_iso_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _draft_from_strategy(
+    strategy: StrategyResponse,
+    request: AIStrategyResearchRunRequest,
+) -> AIStrategyDraft:
+    return AIStrategyDraft(
+        name=strategy.name,
+        description=strategy.description or f"继续投研已有策略 {strategy.name}",
+        code=strategy.code,
+        params=strategy.params,
+        category=strategy.category,
+        assumptions=[
+            "本轮从已有策略继续自动投研，保留上一版策略代码作为初始候选。",
+        ],
+        risk_points=[
+            "继续投研会复用上一版策略结构，仍需关注样本内过拟合和样本外稳定性。",
+        ],
+        data_source=AIStrategyDataSourceSpec(
+            type="workspace",
+            symbol=request.symbol,
+            symbol_name=request.symbol_name or request.symbol,
+            timeframe=request.timeframe,
+            timeframe_n=request.timeframe_n,
+            start_date=request.start_date,
+            end_date=request.end_date,
+        ),
+        backtest_defaults=AIStrategyBacktestSpec(
+            initial_cash=request.initial_cash,
+            commission=request.commission,
+            annual_days=request.annual_days,
+            calc_method=request.calc_method,
+            weight_mode=request.weight_mode,
+        ),
+        execution_plan=AIStrategyExecutionPlan(
+            workspace_type="research",
+            group_name=request.group_name or strategy.name,
+            run_parallel=False,
+        ),
+        rationale=f"Seeded from strategy {strategy.id}",
+        next_steps=[
+            "先回测上一版最佳策略作为 continuation baseline",
+            "如未通过质量门槛，再基于失败原因继续自动改稿",
+        ],
+        suggested_symbol=request.symbol,
+        suggested_timeframe=request.timeframe,
+    )
+
+
 def _build_research_run_record(
     *,
     run_id: str,
@@ -997,6 +1099,8 @@ def _build_research_run_record(
         best_strategy_id=best_strategy.id if best_strategy else None,
         best_strategy_name=best_strategy.name if best_strategy else None,
         research_workspace_id=response.research_workspace.id,
+        seed_strategy_id=request.seed_strategy_id,
+        continued_from_run_id=request.continue_from_run_id,
         paper_workspace_id=paper.workspace.id if paper else None,
         paper_unit_id=paper.unit.id if paper else None,
         paper_trading_started=bool(paper.started) if paper else False,
@@ -1022,6 +1126,8 @@ def _build_paper_trading_handoff(
         "research_unit_id": best_iteration.unit.id,
         "research_strategy_id": best_iteration.strategy.id,
         "research_strategy_name": best_iteration.strategy.name,
+        "seed_strategy_id": request.seed_strategy_id,
+        "continued_from_run_id": request.continue_from_run_id,
         "selected_iteration": best_iteration.iteration,
         "target_sharpe": request.target_sharpe,
         "quality_gates": _quality_gates_payload(request),

@@ -204,9 +204,16 @@ class FakeWorkspaceService:
 
 
 class FakeStrategyService:
-    def __init__(self, workspace_service: FakeWorkspaceService, metrics_by_round: list[dict[str, Any]]):
+    def __init__(
+        self,
+        workspace_service: FakeWorkspaceService,
+        metrics_by_round: list[dict[str, Any]],
+        *,
+        strategies: dict[str, StrategyResponse] | None = None,
+    ):
         self.workspace_service = workspace_service
         self.metrics_by_round = metrics_by_round
+        self.strategies = strategies or {}
         self.generated = 0
         self.submitted_drafts: list[AIStrategyDraft] = []
 
@@ -251,6 +258,9 @@ class FakeStrategyService:
             report_ready=False,
             report=None,
         )
+
+    async def get_strategy(self, strategy_id: str, user_id: str):
+        return self.strategies.get(strategy_id)
 
 
 class FakeInvalidDraftStrategyService:
@@ -560,6 +570,103 @@ async def test_research_loop_stops_after_max_iterations_without_paper():
     assert result.run_record is not None
     assert result.run_record.next_actions == result.next_actions
     assert workspace_service.started_units == []
+
+
+@pytest.mark.asyncio
+async def test_research_loop_can_start_from_seed_strategy_without_regenerating():
+    workspace_service = FakeWorkspaceService()
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "上一轮最佳策略"}
+    )
+    seed_strategy = _strategy("seed-strategy", seed_draft)
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.12, "total_trades": 6}],
+        strategies={"seed-strategy": seed_strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续优化上一轮最佳策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            seed_strategy_id="seed-strategy",
+            start_paper_trading=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert strategy_service.generated == 0
+    assert strategy_service.submitted_drafts[0].name == "上一轮最佳策略"
+    assert strategy_service.submitted_drafts[0].rationale == "Seeded from strategy seed-strategy"
+    assert result.run_record is not None
+    assert result.run_record.seed_strategy_id == "seed-strategy"
+    assert result.run_record.continued_from_run_id is None
+
+
+@pytest.mark.asyncio
+async def test_research_loop_can_continue_from_previous_run_best_strategy():
+    workspace_service = FakeWorkspaceService()
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={
+            "settings": {
+                "ai_research": {
+                    "runs": [
+                        _run_record(
+                            "previous-run",
+                            workspace_id="research-ws",
+                            completed_at="2026-01-01T00:01:00+00:00",
+                        )
+                    ]
+                }
+            }
+        }
+    )
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "历史最佳策略"}
+    )
+    seed_strategy = _strategy("strategy-2", seed_draft)
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.18, "total_trades": 7}],
+        strategies={"strategy-2": seed_strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续上一轮未完成投研",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            continue_from_run_id="previous-run",
+            start_paper_trading=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert result.research_workspace.id == "research-ws"
+    assert strategy_service.generated == 0
+    assert strategy_service.submitted_drafts[0].name == "历史最佳策略"
+    assert result.run_record is not None
+    assert result.run_record.seed_strategy_id == "strategy-2"
+    assert result.run_record.continued_from_run_id == "previous-run"
 
 
 @pytest.mark.asyncio

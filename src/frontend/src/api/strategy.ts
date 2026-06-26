@@ -141,6 +141,8 @@ export interface AIStrategyResearchRunRequest {
   weight_mode?: string
   research_workspace_id?: string | null
   trading_workspace_id?: string | null
+  seed_strategy_id?: string | null
+  continue_from_run_id?: string | null
   start_paper_trading?: boolean
   paper_workspace_name?: string | null
   group_name?: string | null
@@ -196,6 +198,8 @@ export interface AIStrategyResearchRunRecord {
   best_strategy_id?: string | null
   best_strategy_name?: string | null
   research_workspace_id: string
+  seed_strategy_id?: string | null
+  continued_from_run_id?: string | null
   paper_workspace_id?: string | null
   paper_unit_id?: string | null
   paper_trading_started: boolean
