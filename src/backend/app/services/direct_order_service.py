@@ -374,6 +374,7 @@ class DirectOrderService:
             asset_spec.get("min_qty"),
             asset_spec.get("minQty"),
             asset_spec.get("minSz"),
+            asset_spec.get("minOrderQty"),
             asset_spec.get("min_volume"),
             asset_spec.get("volume_min"),
             asset_spec.get("min_lot"),
@@ -399,6 +400,7 @@ class DirectOrderService:
             asset_spec.get("lot_step"),
             asset_spec.get("step_size"),
             asset_spec.get("stepSize"),
+            asset_spec.get("qtyStep"),
             asset_spec.get("lotSz"),
             asset_spec.get("SYMBOL_VOLUME_STEP"),
         )
@@ -416,19 +418,22 @@ class DirectOrderService:
     ) -> float | None:
         order_type_text = str(order_type or "").strip().lower()
         max_order_size = None
-        if order_type_text == "market":
+        if order_type_text in {"market", "stop"}:
             max_order_size = cls._first_number(
                 asset_spec.get("market_max_order_size"),
                 asset_spec.get("max_market_order_size"),
                 asset_spec.get("max_mkt_order_size"),
                 asset_spec.get("maxMktSz"),
+                asset_spec.get("maxMktOrderQty"),
+                asset_spec.get("maxMarketOrderQty"),
             )
-        elif order_type_text == "limit":
+        elif order_type_text in {"limit", "stop_limit"}:
             max_order_size = cls._first_number(
                 asset_spec.get("limit_max_order_size"),
                 asset_spec.get("max_limit_order_size"),
                 asset_spec.get("max_lmt_order_size"),
                 asset_spec.get("maxLmtSz"),
+                asset_spec.get("maxLimitOrderQty"),
             )
         if max_order_size is not None:
             return max_order_size
@@ -438,6 +443,7 @@ class DirectOrderService:
             asset_spec.get("max_size"),
             asset_spec.get("max_qty"),
             asset_spec.get("maxQty"),
+            asset_spec.get("maxOrderQty"),
             asset_spec.get("max_volume"),
             asset_spec.get("volume_max"),
             asset_spec.get("max_lot"),
@@ -478,6 +484,9 @@ class DirectOrderService:
             asset_spec.get("tick_size"),
             asset_spec.get("price_unit"),
             asset_spec.get("tickSize"),
+            asset_spec.get("tickSz"),
+            asset_spec.get("PriceTick"),
+            asset_spec.get("MIN_PRICE_CHANGE"),
         )
         if not tick or tick <= 0:
             return

@@ -361,6 +361,62 @@ class TestDirectOrderServiceBuildOrderPayload:
             with pytest.raises(ValueError, match="maximum allowed size 500"):
                 service._build_order_payload(intent, gateway_id="gw1")
 
+    def test_live_order_size_validation_accepts_raw_bybit_v5_aliases(self):
+        asset_spec = {
+            "symbol": "BTCUSDT",
+            "minOrderQty": "0.001",
+            "maxOrderQty": "100",
+            "maxMktOrderQty": "50",
+            "qtyStep": "0.001",
+        }
+
+        with pytest.raises(ValueError, match="minimum allowed size 0.001"):
+            DirectOrderService._validate_live_order_size(
+                0.0005,
+                asset_spec,
+                order_type="market",
+            )
+        with pytest.raises(ValueError, match="size step 0.001"):
+            DirectOrderService._validate_live_order_size(
+                0.0015,
+                asset_spec,
+                order_type="market",
+            )
+        with pytest.raises(ValueError, match="maximum allowed size 50.0"):
+            DirectOrderService._validate_live_order_size(
+                60,
+                asset_spec,
+                order_type="market",
+            )
+
+    def test_stop_limit_order_uses_limit_specific_max_size(self):
+        service = DirectOrderService()
+        intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="AAPL",
+            quantity=150,
+            price=189.5,
+            order_type=OrderType.STOP_LIMIT,
+            stop_loss=190.0,
+            confidence=0.9,
+        )
+        gateways = {
+            "manual:IB_WEB:demo": {
+                "config": {
+                    "contract_metadata": {
+                        "AAPL": {
+                            "limit_max_order_size": 100,
+                            "max_order_size": 200,
+                        }
+                    }
+                }
+            }
+        }
+
+        with patch.object(service, "_get_gateways_dict", return_value=gateways):
+            with pytest.raises(ValueError, match="maximum allowed size 100"):
+                service._build_order_payload(intent, gateway_id="manual:IB_WEB:demo")
+
     def test_live_order_uses_raw_okx_min_size_and_lot_step(self):
         service = DirectOrderService()
         intent = TradingIntent(
