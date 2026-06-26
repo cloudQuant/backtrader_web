@@ -95,6 +95,14 @@ describe('strategyApi', () => {
     })
   })
 
+  it('listAIResearchRuns', async () => {
+    vi.mocked(api.get).mockResolvedValue({ total: 1, items: [] })
+    await strategyApi.listAIResearchRuns('research-ws', 5)
+    expect(api.get).toHaveBeenCalledWith('/strategy/ai-research/runs', {
+      params: { research_workspace_id: 'research-ws', limit: 5 },
+    })
+  })
+
   it('createOverfittingTask', async () => {
     vi.mocked(api.post).mockResolvedValue({ task_id: 'ot-1' })
     await strategyApi.createOverfittingTask('t1', { methods: ['monte_carlo'] })

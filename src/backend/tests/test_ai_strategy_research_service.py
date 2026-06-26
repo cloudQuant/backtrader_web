@@ -9,6 +9,8 @@ from httpx import AsyncClient
 from app.api.strategy.base import get_ai_strategy_research_service
 from app.main import app
 from app.schemas.ai_strategy_research import (
+    AIStrategyResearchRunListResponse,
+    AIStrategyResearchRunRecord,
     AIStrategyResearchRunRequest,
     AIStrategyResearchRunResponse,
 )
@@ -48,6 +50,35 @@ def _workspace(workspace_id: str, workspace_type: str) -> WorkspaceResponse:
         created_at=_now(),
         updated_at=_now(),
     )
+
+
+def _run_record(run_id: str, *, workspace_id: str, completed_at: str):
+    return {
+        "run_id": run_id,
+        "prompt": "生成趋势策略",
+        "symbol": "000001.SZ",
+        "symbol_name": "平安银行",
+        "timeframe": "1d",
+        "timeframe_n": 1,
+        "status": "achieved",
+        "achieved": True,
+        "target_sharpe": 1.0,
+        "min_total_trades": 1,
+        "max_iterations": 3,
+        "iteration_count": 2,
+        "best_iteration": 2,
+        "best_sharpe": 1.21,
+        "best_metrics": {"sharpe_ratio": 1.21, "total_trades": 5},
+        "best_strategy_id": "strategy-2",
+        "best_strategy_name": "AI趋势策略",
+        "research_workspace_id": workspace_id,
+        "paper_workspace_id": "paper-ws",
+        "paper_unit_id": "paper-unit",
+        "paper_trading_started": True,
+        "started_at": completed_at,
+        "completed_at": completed_at,
+        "iterations": [],
+    }
 
 
 def _strategy(strategy_id: str, draft: AIStrategyDraft) -> StrategyResponse:
@@ -112,6 +143,20 @@ class FakeWorkspaceService:
 
     async def get_workspace(self, workspace_id: str, user_id: str):
         return self.workspaces.get(workspace_id)
+
+    async def list_workspaces(
+        self,
+        user_id: str,
+        skip: int = 0,
+        limit: int = 50,
+        workspace_type: str | None = None,
+    ):
+        items = [
+            workspace
+            for workspace in self.workspaces.values()
+            if workspace_type is None or workspace.workspace_type == workspace_type
+        ]
+        return len(items), items[skip : skip + limit]
 
     async def update_workspace(self, workspace_id: str, user_id: str, data):
         workspace = self.workspaces.get(workspace_id)
@@ -391,6 +436,61 @@ async def test_research_loop_stops_after_max_iterations_without_paper():
     assert workspace_service.started_units == []
 
 
+@pytest.mark.asyncio
+async def test_list_research_run_records_reads_workspace_history():
+    workspace_service = FakeWorkspaceService()
+    workspace_service.workspaces["research-a"] = _workspace("research-a", "research").model_copy(
+        update={
+            "settings": {
+                "ai_research": {
+                    "runs": [
+                        _run_record(
+                            "older-run",
+                            workspace_id="research-a",
+                            completed_at="2026-01-01T00:00:00+00:00",
+                        )
+                    ]
+                }
+            }
+        }
+    )
+    workspace_service.workspaces["research-b"] = _workspace("research-b", "research").model_copy(
+        update={
+            "settings": {
+                "ai_research": {
+                    "runs": [
+                        _run_record(
+                            "newer-run",
+                            workspace_id="research-b",
+                            completed_at="2026-01-02T00:00:00+00:00",
+                        )
+                    ]
+                }
+            }
+        }
+    )
+    workspace_service.workspaces["paper-ws"] = _workspace("paper-ws", "trading")
+    service = AIStrategyResearchService(
+        strategy_service=FakeStrategyService(workspace_service, []),
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.list_run_records("user-1", limit=1)
+
+    assert result.total == 2
+    assert [item.run_id for item in result.items] == ["newer-run"]
+
+    scoped = await service.list_run_records(
+        "user-1",
+        research_workspace_id="research-a",
+        limit=20,
+    )
+    assert scoped.total == 1
+    assert scoped.items[0].run_id == "older-run"
+
+
 class FakeResearchAPIService:
     async def run(self, user_id: str, request: AIStrategyResearchRunRequest):
         workspace = _workspace("research-api-ws", "research")
@@ -438,6 +538,26 @@ class FakeResearchAPIService:
             message="Target Sharpe 1.000 achieved",
         )
 
+    async def list_run_records(
+        self,
+        user_id: str,
+        *,
+        research_workspace_id: str | None = None,
+        limit: int = 20,
+    ):
+        return AIStrategyResearchRunListResponse(
+            total=1,
+            items=[
+                AIStrategyResearchRunRecord.model_validate(
+                    _run_record(
+                        "api-history-run",
+                        workspace_id=research_workspace_id or "research-api-ws",
+                        completed_at="2026-01-01T00:01:00+00:00",
+                    )
+                )
+            ],
+        )
+
 
 @pytest.mark.asyncio
 async def test_ai_strategy_research_api_endpoint(client: AsyncClient, auth_headers: dict):
@@ -462,3 +582,25 @@ async def test_ai_strategy_research_api_endpoint(client: AsyncClient, auth_heade
     assert payload["run_id"] == "api-run"
     assert payload["research_workspace"]["id"] == "research-api-ws"
     assert payload["iterations"][0]["sharpe_ratio"] == 1.05
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_run_history_endpoint(
+    client: AsyncClient,
+    auth_headers: dict,
+):
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: FakeResearchAPIService()
+    try:
+        response = await client.get(
+            "/api/v1/strategy/ai-research/runs",
+            headers=auth_headers,
+            params={"research_workspace_id": "research-api-ws", "limit": 5},
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["run_id"] == "api-history-run"
+    assert payload["items"][0]["research_workspace_id"] == "research-api-ws"

@@ -16,6 +16,7 @@ from app.config import get_settings
 from app.schemas.ai_strategy_research import (
     AIStrategyPaperTradingStart,
     AIStrategyResearchIteration,
+    AIStrategyResearchRunListResponse,
     AIStrategyResearchRunRecord,
     AIStrategyResearchRunRequest,
     AIStrategyResearchRunResponse,
@@ -409,6 +410,33 @@ class AIStrategyResearchService:
             }
         )
 
+    async def list_run_records(
+        self,
+        user_id: str,
+        *,
+        research_workspace_id: str | None = None,
+        limit: int = 20,
+    ) -> AIStrategyResearchRunListResponse:
+        limit = max(min(int(limit or 20), 100), 1)
+        if research_workspace_id:
+            workspace = await self.workspace_service.get_workspace(research_workspace_id, user_id)
+            if workspace is None:
+                raise ValueError("Research workspace not found")
+            records = _research_run_records_from_workspace(workspace)
+            return AIStrategyResearchRunListResponse(total=len(records), items=records[:limit])
+
+        _, workspaces = await self.workspace_service.list_workspaces(
+            user_id,
+            skip=0,
+            limit=100,
+            workspace_type="research",
+        )
+        records: list[AIStrategyResearchRunRecord] = []
+        for workspace in workspaces:
+            records.extend(_research_run_records_from_workspace(workspace))
+        records.sort(key=lambda item: item.completed_at, reverse=True)
+        return AIStrategyResearchRunListResponse(total=len(records), items=records[:limit])
+
     async def _ensure_research_workspace(
         self,
         user_id: str,
@@ -624,6 +652,44 @@ def _find_unit_status(items: list[Any], unit_id: str) -> UnitStatusResponse | No
         if status is not None and status.id == unit_id:
             return status
     return None
+
+
+def _research_run_records_from_workspace(
+    workspace: WorkspaceResponse,
+) -> list[AIStrategyResearchRunRecord]:
+    settings = dict(workspace.settings or {})
+    ai_research = settings.get("ai_research")
+    if not isinstance(ai_research, dict):
+        return []
+
+    raw_runs = ai_research.get("runs")
+    runs = raw_runs if isinstance(raw_runs, list) else []
+    records: list[AIStrategyResearchRunRecord] = []
+    seen: set[str] = set()
+    for raw in runs:
+        record = _coerce_research_run_record(raw)
+        if record is None or record.run_id in seen:
+            continue
+        seen.add(record.run_id)
+        records.append(record)
+
+    if not records:
+        record = _coerce_research_run_record(ai_research.get("last_run"))
+        if record is not None:
+            records.append(record)
+    records.sort(key=lambda item: item.completed_at, reverse=True)
+    return records
+
+
+def _coerce_research_run_record(value: Any) -> AIStrategyResearchRunRecord | None:
+    if isinstance(value, AIStrategyResearchRunRecord):
+        return value
+    if not isinstance(value, dict):
+        return None
+    try:
+        return AIStrategyResearchRunRecord.model_validate(value)
+    except Exception:
+        return None
 
 
 def _utc_iso_now() -> str:

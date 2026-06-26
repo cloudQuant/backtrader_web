@@ -108,6 +108,13 @@ class AIStrategyResearchRunRecord(BaseModel):
     iterations: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class AIStrategyResearchRunListResponse(BaseModel):
+    """Recent AI strategy research run records."""
+
+    total: int
+    items: list[AIStrategyResearchRunRecord] = Field(default_factory=list)
+
+
 class AIStrategyResearchRunResponse(BaseModel):
     """Result of the AI strategy research loop."""
 

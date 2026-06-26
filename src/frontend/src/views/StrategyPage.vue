@@ -265,6 +265,67 @@
               v-else
               :description="t('strategy.aiResearchNoResult')"
             />
+
+            <div
+              class="ai-research-history"
+              data-test="ai-research-history"
+            >
+              <div class="ai-research-summary ai-research-history-head">
+                <div>
+                  <span class="ai-research-kicker">{{ t('strategy.aiResearchResult') }}</span>
+                  <h3 class="ai-research-history-title">
+                    {{ t('strategy.aiResearchIterations') }}
+                  </h3>
+                </div>
+                <el-tag
+                  size="small"
+                  type="info"
+                >
+                  {{ aiResearchRuns.length }}
+                </el-tag>
+              </div>
+
+              <div
+                v-if="aiResearchRunsLoading"
+                class="ai-research-history-empty"
+              >
+                {{ t('common.loading') }}
+              </div>
+              <div
+                v-else-if="aiResearchRuns.length"
+                class="ai-research-history-list"
+              >
+                <button
+                  v-for="record in aiResearchRuns"
+                  :key="record.run_id"
+                  type="button"
+                  class="ai-research-history-item"
+                  @click="useAIResearchRecord(record)"
+                >
+                  <span class="ai-research-history-main">
+                    <strong>{{ record.prompt }}</strong>
+                    <el-tag
+                      size="small"
+                      :type="record.achieved ? 'success' : 'warning'"
+                    >
+                      {{ record.status }}
+                    </el-tag>
+                  </span>
+                  <span class="ai-research-history-meta">
+                    <span>{{ record.symbol }}</span>
+                    <span>{{ t('strategy.aiResearchBestSharpe') }} {{ formatMetric(record.best_sharpe) }}</span>
+                    <span>{{ t('strategy.aiResearchIterations') }} {{ record.iteration_count }}</span>
+                    <span>{{ formatDateTime(record.completed_at) }}</span>
+                  </span>
+                </button>
+              </div>
+              <div
+                v-else
+                class="ai-research-history-empty"
+              >
+                {{ t('strategy.aiResearchNoResult') }}
+              </div>
+            </div>
           </section>
         </div>
       </el-tab-pane>
@@ -483,7 +544,7 @@ import StrategyEditDialog from './strategy-components/StrategyEditDialog.vue'
 import StrategyDetailDialog from './strategy-components/StrategyDetailDialog.vue'
 import StrategyTemplateCard from './strategy-components/StrategyTemplateCard.vue'
 import type { ParamSpec, Strategy, StrategyTemplate } from '@/types'
-import type { AIStrategyResearchRunResponse } from '@/api/strategy'
+import type { AIStrategyResearchRunRecord, AIStrategyResearchRunResponse } from '@/api/strategy'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -508,6 +569,8 @@ const readmeContent = ref('')
 const readmeLoading = ref(false)
 const aiResearchRunning = ref(false)
 const aiResearchResult = ref<AIStrategyResearchRunResponse | null>(null)
+const aiResearchRunsLoading = ref(false)
+const aiResearchRuns = ref<AIStrategyResearchRunRecord[]>([])
 
 const form = reactive({
   name: '',
@@ -604,6 +667,41 @@ function formatMetric(value: unknown, digits = 2) {
   return number.toFixed(digits)
 }
 
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
+async function loadAIResearchRuns() {
+  aiResearchRunsLoading.value = true
+  try {
+    const response = await strategyApi.listAIResearchRuns(undefined, 10)
+    aiResearchRuns.value = response.items
+  } finally {
+    aiResearchRunsLoading.value = false
+  }
+}
+
+function upsertAIResearchRunRecord(record: AIStrategyResearchRunRecord) {
+  aiResearchRuns.value = [
+    record,
+    ...aiResearchRuns.value.filter(item => item.run_id !== record.run_id),
+  ].slice(0, 10)
+}
+
+function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
+  aiResearchForm.prompt = record.prompt
+  aiResearchForm.symbol = record.symbol
+  aiResearchForm.symbol_name = record.symbol_name || ''
+  aiResearchForm.timeframe = record.timeframe || '1d'
+  aiResearchForm.timeframe_n = record.timeframe_n || 1
+  aiResearchForm.target_sharpe = record.target_sharpe
+  aiResearchForm.min_total_trades = record.min_total_trades
+  aiResearchForm.max_iterations = record.max_iterations || 3
+}
+
 async function runAIResearchLoop() {
   const prompt = aiResearchForm.prompt.trim()
   const symbol = aiResearchForm.symbol.trim()
@@ -633,6 +731,11 @@ async function runAIResearchLoop() {
       commission: aiResearchForm.commission,
       start_paper_trading: aiResearchForm.start_paper_trading,
     })
+    if (aiResearchResult.value.run_record) {
+      upsertAIResearchRunRecord(aiResearchResult.value.run_record)
+    } else {
+      await loadAIResearchRuns()
+    }
     ElMessage.success(t('strategy.aiResearchRunSuccess'))
   } catch {
     ElMessage.error(t('strategy.aiResearchRunFailed'))
@@ -726,6 +829,7 @@ onMounted(async () => {
     await Promise.all([
       strategyStore.fetchStrategies(),
       strategyStore.fetchTemplates(),
+      loadAIResearchRuns(),
     ])
   } catch {
     ElMessage.error(t('strategy.loadFailed'))
@@ -861,6 +965,74 @@ onMounted(async () => {
   padding-left: 18px;
   color: var(--el-text-color-secondary);
   font-size: 13px;
+}
+
+.ai-research-history {
+  margin-top: 18px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding-top: 16px;
+}
+
+.ai-research-history-head {
+  margin-bottom: 10px;
+}
+
+.ai-research-history-title {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.3;
+  color: var(--el-text-color-primary);
+}
+
+.ai-research-history-list {
+  display: grid;
+  gap: 8px;
+}
+
+.ai-research-history-item {
+  width: 100%;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--el-bg-color);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-research-history-item:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+
+.ai-research-history-main,
+.ai-research-history-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-research-history-main {
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.ai-research-history-main strong {
+  min-width: 0;
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.ai-research-history-meta {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.ai-research-history-empty {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  padding: 8px 0;
 }
 
 @media (max-width: 1024px) {

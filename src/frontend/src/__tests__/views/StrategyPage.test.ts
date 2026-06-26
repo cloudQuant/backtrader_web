@@ -43,10 +43,44 @@ vi.mock('@/api/strategy', () => ({
   strategyApi: {
     getTemplateReadme: vi.fn().mockResolvedValue({ content: '# README' }),
     getTemplateConfig: vi.fn().mockResolvedValue({}),
+    listAIResearchRuns: vi.fn().mockResolvedValue({
+      total: 1,
+      items: [
+        {
+          run_id: 'history-run',
+          prompt: '历史趋势策略',
+          symbol: '000001.SZ',
+          symbol_name: '平安银行',
+          timeframe: '1d',
+          timeframe_n: 1,
+          status: 'achieved',
+          achieved: true,
+          target_sharpe: 1,
+          min_total_trades: 1,
+          max_iterations: 3,
+          iteration_count: 2,
+          best_iteration: 2,
+          best_sharpe: 1.2,
+          best_metrics: { sharpe_ratio: 1.2 },
+          best_strategy_id: 's1',
+          best_strategy_name: 'AI策略',
+          research_workspace_id: 'research-ws',
+          paper_workspace_id: null,
+          paper_unit_id: null,
+          paper_trading_started: false,
+          started_at: '2026-06-27T00:00:00Z',
+          completed_at: '2026-06-27T00:01:00Z',
+          iterations: [],
+        },
+      ],
+    }),
     runAIResearchLoop: vi.fn().mockResolvedValue({
+      run_id: 'run-1',
       status: 'achieved',
       achieved: true,
       target_sharpe: 1,
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
       best_iteration: 1,
       best_metrics: { sharpe_ratio: 1.2 },
       research_workspace: {
@@ -110,6 +144,32 @@ vi.mock('@/api/strategy', () => ({
       ],
       best_strategy: { id: 's1', name: 'AI策略', description: 'd', code: 'code', category: 'trend', params: {} },
       paper_trading: null,
+      run_record: {
+        run_id: 'run-1',
+        prompt: '生成一个趋势策略',
+        symbol: '000001.SZ',
+        symbol_name: '',
+        timeframe: '1d',
+        timeframe_n: 1,
+        status: 'achieved',
+        achieved: true,
+        target_sharpe: 1,
+        min_total_trades: 1,
+        max_iterations: 3,
+        iteration_count: 1,
+        best_iteration: 1,
+        best_sharpe: 1.2,
+        best_metrics: { sharpe_ratio: 1.2 },
+        best_strategy_id: 's1',
+        best_strategy_name: 'AI策略',
+        research_workspace_id: 'research-ws',
+        paper_workspace_id: null,
+        paper_unit_id: null,
+        paper_trading_started: false,
+        started_at: '2026-06-27T00:00:00Z',
+        completed_at: '2026-06-27T00:01:00Z',
+        iterations: [],
+      },
       message: 'ok',
     }),
   },
@@ -237,7 +297,37 @@ describe('StrategyPage', () => {
       target_sharpe: 1,
     }))
     expect(vm.aiResearchResult.achieved).toBe(true)
+    expect(vm.aiResearchRuns[0].run_id).toBe('run-1')
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
+  })
+
+  it('uses AI research run history to refill the form', () => {
+    const vm = doMount().vm as any
+    vm.useAIResearchRecord({
+      run_id: 'history-run',
+      prompt: '历史趋势策略',
+      symbol: '600000.SH',
+      symbol_name: '浦发银行',
+      timeframe: '1h',
+      timeframe_n: 1,
+      status: 'achieved',
+      achieved: true,
+      target_sharpe: 1.5,
+      min_total_trades: 3,
+      max_iterations: 4,
+      iteration_count: 2,
+      best_iteration: 2,
+      best_sharpe: 1.6,
+      best_metrics: {},
+      research_workspace_id: 'research-ws',
+      paper_trading_started: false,
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [],
+    })
+    expect(vm.aiResearchForm.prompt).toBe('历史趋势策略')
+    expect(vm.aiResearchForm.symbol).toBe('600000.SH')
+    expect(vm.aiResearchForm.target_sharpe).toBe(1.5)
   })
 
   it('saveStrategy warns when name/code empty', async () => {

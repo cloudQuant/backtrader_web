@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.api.deps import get_current_user
 from app.schemas.ai_strategy_research import (
+    AIStrategyResearchRunListResponse,
     AIStrategyResearchRunRequest,
     AIStrategyResearchRunResponse,
 )
@@ -231,6 +232,28 @@ async def run_ai_strategy_research_loop(
     """Generate, backtest, improve, and optionally start paper trading."""
     try:
         return await service.run(current_user.sub, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/ai-research/runs",
+    response_model=AIStrategyResearchRunListResponse,
+    summary="List AI strategy research runs",
+)
+async def list_ai_strategy_research_runs(
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+    research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """List persisted AI strategy research run records."""
+    try:
+        return await service.list_run_records(
+            current_user.sub,
+            research_workspace_id=research_workspace_id,
+            limit=limit,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

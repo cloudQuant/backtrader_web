@@ -196,6 +196,11 @@ export interface AIStrategyResearchRunRecord {
   iterations: Record<string, unknown>[]
 }
 
+export interface AIStrategyResearchRunListResponse {
+  total: number
+  items: AIStrategyResearchRunRecord[]
+}
+
 export interface AIStrategyResearchRunResponse {
   run_id: string
   status: string
@@ -375,6 +380,15 @@ export const strategyApi = {
       '/strategy/ai-research/run',
       data
     )
+  },
+
+  async listAIResearchRuns(
+    researchWorkspaceId?: string | null,
+    limit = 20
+  ): Promise<AIStrategyResearchRunListResponse> {
+    return api.get<AIStrategyResearchRunListResponse>('/strategy/ai-research/runs', {
+      params: { research_workspace_id: researchWorkspaceId || undefined, limit },
+    })
   },
 
   async createScore(data: StrategyScoreRequest): Promise<StrategyScoreResponse> {
