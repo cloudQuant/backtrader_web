@@ -2746,6 +2746,72 @@ def test_query_gateway_asset_spec_uses_symbol_aliases_for_exchange_methods():
     assert spec["fee_source"] == "gateway.get_fee"
 
 
+def test_query_gateway_asset_spec_merges_ctp_trader_client_contract_margin_and_fee():
+    """CTP-style trader clients expose contract, margin and commission separately."""
+
+    class FakeTrader:
+        def __init__(self):
+            self.instrument_calls = []
+            self.margin_calls = []
+            self.commission_calls = []
+
+        def query_instrument(self, instrument_id, exchange_id="", timeout=5):
+            self.instrument_calls.append((instrument_id, exchange_id, timeout))
+            if instrument_id != "IF2609" or exchange_id != "CFFEX":
+                raise ValueError("unknown instrument")
+            return SimpleNamespace(
+                InstrumentID="IF2609",
+                ExchangeID="CFFEX",
+                VolumeMultiple=300,
+                PriceTick=0.2,
+            )
+
+        def query_instrument_margin_rate(self, instrument_id, exchange_id="", timeout=5):
+            self.margin_calls.append((instrument_id, exchange_id, timeout))
+            if instrument_id != "IF2609" or exchange_id != "CFFEX":
+                raise ValueError("unknown instrument")
+            return SimpleNamespace(
+                InstrumentID="IF2609",
+                ExchangeID="CFFEX",
+                LongMarginRatioByMoney=0.12,
+                ShortMarginRatioByMoney=0.13,
+            )
+
+        def query_instrument_commission_rate(self, instrument_id, exchange_id="", timeout=5):
+            self.commission_calls.append((instrument_id, exchange_id, timeout))
+            if instrument_id != "IF2609" or exchange_id != "CFFEX":
+                raise ValueError("unknown instrument")
+            return SimpleNamespace(
+                InstrumentID="IF2609",
+                ExchangeID="CFFEX",
+                OpenRatioByMoney=0.23,
+                CloseRatioByMoney=0.23,
+                CloseTodayRatioByMoney=3.45,
+            )
+
+    trader = FakeTrader()
+    gateway = {
+        "runtime": SimpleNamespace(
+            adapter=SimpleNamespace(feed=SimpleNamespace(trader_client=trader))
+        )
+    }
+
+    spec = query_gateway_asset_spec(gateway, "CFFEX.IF2609")
+
+    assert trader.instrument_calls[0] == ("IF2609", "CFFEX", 2)
+    assert trader.margin_calls[0] == ("IF2609", "CFFEX", 2)
+    assert trader.commission_calls[0] == ("IF2609", "CFFEX", 2)
+    assert spec["multiplier"] == pytest.approx(300)
+    assert spec["long_margin_rate"] == pytest.approx(0.12)
+    assert spec["short_margin_rate"] == pytest.approx(0.13)
+    assert spec["commission_rate"] == pytest.approx(0.000023)
+    assert spec["close_commission_rate"] == pytest.approx(0.000023)
+    assert spec["close_today_commission_rate"] == pytest.approx(0.000345)
+    assert spec["source"] == "gateway.feed.trader_client.query_instrument"
+    assert spec["margin_source"] == "gateway.feed.trader_client.query_instrument_margin_rate"
+    assert spec["fee_source"] == "gateway.feed.trader_client.query_instrument_commission_rate"
+
+
 def test_query_gateway_last_price_uses_symbol_aliases_for_exchange_methods():
     class FakeAdapter:
         def __init__(self):

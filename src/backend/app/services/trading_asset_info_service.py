@@ -2431,9 +2431,20 @@ def _gateway_asset_query_targets(adapter: Any) -> list[tuple[str, Any]]:
     feed = _safe_getattr(adapter, "feed")
     if feed is not None:
         candidates.append(("gateway.feed", feed))
+    trader_client = _safe_getattr(adapter, "trader_client")
+    if trader_client is not None:
+        candidates.append(("gateway.trader_client", trader_client))
+    feed_trader_client = _safe_getattr(feed, "trader_client") if feed is not None else None
+    if feed_trader_client is not None:
+        candidates.append(("gateway.feed.trader_client", feed_trader_client))
     client_feed = _safe_getattr(client, "feed") if client is not None else None
     if client_feed is not None:
         candidates.append(("gateway.client.feed", client_feed))
+    client_feed_trader_client = (
+        _safe_getattr(client_feed, "trader_client") if client_feed is not None else None
+    )
+    if client_feed_trader_client is not None:
+        candidates.append(("gateway.client.feed.trader_client", client_feed_trader_client))
 
     result: list[tuple[str, Any]] = []
     seen: set[int] = set()
@@ -2495,6 +2506,7 @@ def _has_asset_metadata(spec: dict[str, Any]) -> bool:
 
 
 def _query_gateway_fee_spec(adapter: Any, symbol: str) -> dict[str, Any]:
+    exchange_scoped_methods = {"query_instrument_commission_rate"}
     for target_label, target in _gateway_asset_query_targets(adapter):
         for method_name in (
             "get_fee",
@@ -2503,13 +2515,40 @@ def _query_gateway_fee_spec(adapter: Any, symbol: str) -> dict[str, Any]:
             "fetch_fee_rate",
             "get_commission_rate",
             "fetch_commission_rate",
+            "query_instrument_commission_rate",
         ):
             method = _safe_getattr(target, method_name)
             if not callable(method):
                 continue
-            for query_symbol in _query_symbol_keys(symbol):
+            query_symbols = _query_symbol_keys(symbol)
+            if method_name not in exchange_scoped_methods:
+                for query_symbol in query_symbols:
+                    try:
+                        payload = method(query_symbol)
+                    except Exception:
+                        continue
+                    spec = normalize_asset_spec(
+                        payload,
+                        symbol=symbol,
+                        source=f"{target_label}.{method_name}",
+                    )
+                    if _has_fee_spec(spec):
+                        return spec
+            attempts: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+            for query_symbol in query_symbols:
+                attempts.extend(
+                    _gateway_asset_method_attempts(method_name, query_symbol, target, adapter)
+                )
+            attempted = {
+                repr(((query_symbol,), {}))
+                for query_symbol in query_symbols
+                if method_name not in exchange_scoped_methods
+            }
+            for args, kwargs in attempts:
+                if repr((args, kwargs)) in attempted:
+                    continue
                 try:
-                    payload = method(query_symbol)
+                    payload = method(*args, **kwargs)
                 except Exception:
                     continue
                 spec = normalize_asset_spec(
@@ -2539,6 +2578,46 @@ def _merge_fee_spec(spec: dict[str, Any], fee_spec: dict[str, Any]) -> dict[str,
     return merged
 
 
+def _merge_margin_spec(spec: dict[str, Any], margin_spec: dict[str, Any]) -> dict[str, Any]:
+    if not margin_spec:
+        return spec
+    merged = dict(spec)
+    source = str(merged.get("source") or "").strip()
+    margin_source = str(margin_spec.get("source") or "").strip()
+    for key, value in margin_spec.items():
+        if key == "source":
+            continue
+        merged[key] = value
+    if margin_source:
+        merged["margin_source"] = margin_source
+    if source:
+        merged["source"] = source
+    return merged
+
+
+def _has_margin_spec(spec: dict[str, Any]) -> bool:
+    return any(
+        spec.get(key) not in (None, "")
+        for key in (
+            "margin",
+            "margin_rate",
+            "margin_ratio",
+            "long_margin_rate",
+            "short_margin_rate",
+            "margin_amount",
+            "long_margin_amount",
+            "short_margin_amount",
+            "initial_margin_per_lot",
+            "margin_initial",
+            "initial_margin_amount",
+            "LongMarginRatioByMoney",
+            "ShortMarginRatioByMoney",
+            "LongMarginRatioByVolume",
+            "ShortMarginRatioByVolume",
+        )
+    )
+
+
 def _gateway_asset_method_attempts(
     method_name: str,
     query_symbol: str,
@@ -2558,7 +2637,27 @@ def _gateway_asset_method_attempts(
         "get_public_instruments",
         "fetch_public_instruments",
     }
+    exchange_scoped_method = method_name in {
+        "query_instrument",
+        "query_instrument_margin_rate",
+        "query_instrument_commission_rate",
+        "get_instrument_margin_rate",
+        "fetch_instrument_margin_rate",
+    }
     if query_symbol:
+        instrument, exchange_id = _split_symbol_exchange(query_symbol)
+        if exchange_scoped_method and instrument and exchange_id:
+            attempts.extend(
+                (
+                    ((instrument,), {"exchange_id": exchange_id, "timeout": 2}),
+                    ((instrument,), {"exchange_id": exchange_id}),
+                    (
+                        (),
+                        {"instrument_id": instrument, "exchange_id": exchange_id, "timeout": 2},
+                    ),
+                    ((), {"instrument_id": instrument, "exchange_id": exchange_id}),
+                )
+            )
         if instrument_method and asset_type:
             attempts.append(((), {"asset_type": asset_type, "inst_id": query_symbol}))
         if instrument_method:
@@ -2567,6 +2666,7 @@ def _gateway_asset_method_attempts(
                     ((), {"inst_id": query_symbol}),
                     ((), {"instId": query_symbol}),
                     ((), {"instrument": query_symbol}),
+                    ((), {"instrument_id": query_symbol}),
                 )
             )
         attempts.extend(
@@ -2576,6 +2676,7 @@ def _gateway_asset_method_attempts(
                 ((), {"inst_id": query_symbol}),
                 ((), {"instId": query_symbol}),
                 ((), {"instrument": query_symbol}),
+                ((), {"instrument_id": query_symbol}),
             )
         )
     if include_empty_call:
@@ -2594,10 +2695,45 @@ def _gateway_asset_method_attempts(
     return result
 
 
+def _query_gateway_margin_spec(adapter: Any, symbol: str) -> dict[str, Any]:
+    for target_label, target in _gateway_asset_query_targets(adapter):
+        for method_name in (
+            "get_margin",
+            "fetch_margin",
+            "get_margin_rate",
+            "fetch_margin_rate",
+            "get_instrument_margin_rate",
+            "fetch_instrument_margin_rate",
+            "query_instrument_margin_rate",
+        ):
+            method = _safe_getattr(target, method_name)
+            if not callable(method):
+                continue
+            attempts: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+            for query_symbol in _query_symbol_keys(symbol):
+                attempts.extend(
+                    _gateway_asset_method_attempts(method_name, query_symbol, target, adapter)
+                )
+            for args, kwargs in attempts:
+                try:
+                    payload = method(*args, **kwargs)
+                except Exception:
+                    continue
+                spec = normalize_asset_spec(
+                    payload,
+                    symbol=symbol,
+                    source=f"{target_label}.{method_name}",
+                )
+                if _has_margin_spec(spec):
+                    return spec
+    return {}
+
+
 def _query_gateway_common_asset_spec(
     adapter: Any,
     symbol: str,
     fee_spec: dict[str, Any],
+    margin_spec: dict[str, Any],
 ) -> dict[str, Any]:
     method_names = (
         "get_exchange_info",
@@ -2609,6 +2745,7 @@ def _query_gateway_common_asset_spec(
         "get_contract",
         "fetch_contract",
         "query_symbol",
+        "query_instrument",
         "get_market",
         "fetch_market",
     )
@@ -2647,7 +2784,7 @@ def _query_gateway_common_asset_spec(
                     source=f"{target_label}.{method_name}",
                 )
                 if _has_asset_metadata(spec):
-                    return _merge_fee_spec(spec, fee_spec)
+                    return _merge_fee_spec(_merge_margin_spec(spec, margin_spec), fee_spec)
     return {}
 
 
@@ -2657,6 +2794,7 @@ def query_gateway_asset_spec(gateway: dict[str, Any] | None, symbol: str) -> dic
         return {}
 
     fee_spec = _query_gateway_fee_spec(adapter, symbol)
+    margin_spec = _query_gateway_margin_spec(adapter, symbol)
     for target_label, target in _gateway_asset_query_targets(adapter):
         for method_name in ("get_symbol_info", "fetch_symbol_info"):
             method = _safe_getattr(target, method_name)
@@ -2673,7 +2811,10 @@ def query_gateway_asset_spec(gateway: dict[str, Any] | None, symbol: str) -> dic
                             source=f"{target_label}.{method_name}",
                         )
                         if _has_asset_metadata(spec):
-                            return _merge_fee_spec(spec, fee_spec)
+                            return _merge_fee_spec(
+                                _merge_margin_spec(spec, margin_spec),
+                                fee_spec,
+                            )
 
     specs = getattr(adapter, "_symbol_specs", None)
     if isinstance(specs, dict):
@@ -2681,9 +2822,9 @@ def query_gateway_asset_spec(gateway: dict[str, Any] | None, symbol: str) -> dic
             item = specs.get(key)
             if isinstance(item, dict) and item:
                 spec = normalize_asset_spec(item, symbol=symbol, source="gateway.symbol_cache")
-                return _merge_fee_spec(spec, fee_spec)
+                return _merge_fee_spec(_merge_margin_spec(spec, margin_spec), fee_spec)
 
-    spec = _query_gateway_common_asset_spec(adapter, symbol, fee_spec)
+    spec = _query_gateway_common_asset_spec(adapter, symbol, fee_spec, margin_spec)
     if spec:
         return spec
 
@@ -2696,7 +2837,7 @@ def query_gateway_asset_spec(gateway: dict[str, Any] | None, symbol: str) -> dic
             info = None
         spec = normalize_asset_spec(info, symbol=symbol, source="gateway.query_instrument")
         if spec:
-            return _merge_fee_spec(spec, fee_spec)
+            return _merge_fee_spec(_merge_margin_spec(spec, margin_spec), fee_spec)
 
     price_ticks = getattr(adapter, "_price_ticks", None)
     if isinstance(price_ticks, dict):
@@ -2709,9 +2850,9 @@ def query_gateway_asset_spec(gateway: dict[str, Any] | None, symbol: str) -> dic
                     "tick_size": tick,
                     "source": "gateway.price_tick_cache",
                 }
-                return _merge_fee_spec(spec, fee_spec)
+                return _merge_fee_spec(_merge_margin_spec(spec, margin_spec), fee_spec)
 
-    return fee_spec
+    return _merge_fee_spec(margin_spec, fee_spec)
 
 
 def query_gateway_last_price(gateway: dict[str, Any] | None, symbol: str) -> float | None:
