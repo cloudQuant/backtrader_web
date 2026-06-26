@@ -7,8 +7,10 @@ Provides a Backtrader-based paper trading environment.
 import asyncio
 import logging
 import math
-from datetime import datetime, timezone
+import os
+from datetime import date, datetime, timedelta, timezone, tzinfo
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.db.sql_repository import SQLRepository
 from app.models.paper_trading import (
@@ -94,6 +96,9 @@ _PRICE_TICK_KEYS = (
     "PriceTick",
     "MIN_PRICE_CHANGE",
 )
+
+_DEFAULT_TRADING_TIMEZONE = "Asia/Shanghai"
+_DEFAULT_TRADING_DAY_ROLLOVER_HOUR = 21
 
 
 class PaperTradingService:
@@ -476,17 +481,48 @@ class PaperTradingService:
             abs_size * cls._commission_amount_for_role(spec, role)
         )
 
+    @staticmethod
+    def _trading_day_timezone() -> tzinfo:
+        tz_name = (
+            os.getenv("PAPER_TRADING_TIMEZONE")
+            or os.getenv("BT_STORE_LOCAL_TIMEZONE")
+            or _DEFAULT_TRADING_TIMEZONE
+        )
+        try:
+            return ZoneInfo(str(tz_name))
+        except (ZoneInfoNotFoundError, ValueError):
+            return timezone(timedelta(hours=8))
+
+    @staticmethod
+    def _trading_day_rollover_hour() -> int:
+        try:
+            hour = int(os.getenv("PAPER_TRADING_DAY_ROLLOVER_HOUR", ""))
+        except (TypeError, ValueError):
+            hour = _DEFAULT_TRADING_DAY_ROLLOVER_HOUR
+        return min(max(hour, 0), 24)
+
     @classmethod
-    def _close_commission_role_for_position(cls, position: Position | None) -> str:
+    def _local_trading_day(cls, value: datetime) -> date:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        local_value = value.astimezone(cls._trading_day_timezone())
+        trading_day = local_value.date()
+        rollover_hour = cls._trading_day_rollover_hour()
+        if rollover_hour < 24 and local_value.hour >= rollover_hour:
+            trading_day += timedelta(days=1)
+        return trading_day
+
+    @classmethod
+    def _close_commission_role_for_position(
+        cls,
+        position: Position | None,
+        *,
+        as_of: datetime | None = None,
+    ) -> str:
         entry_time = getattr(position, "entry_time", None) if position is not None else None
         if isinstance(entry_time, datetime):
-            now = datetime.now(timezone.utc)
-            entry_date = (
-                entry_time.astimezone(timezone.utc).date()
-                if entry_time.tzinfo
-                else entry_time.date()
-            )
-            if entry_date == now.date():
+            fill_time = as_of or datetime.now(timezone.utc)
+            if cls._local_trading_day(entry_time) == cls._local_trading_day(fill_time):
                 return "close_today"
         return "close"
 
@@ -497,10 +533,12 @@ class PaperTradingService:
         signed_fill_size: float,
         price: float,
         spec: PositionSpec,
+        *,
+        as_of: datetime | None = None,
     ) -> dict[str, float | str]:
         old_size = cls._safe_float(getattr(position, "size", 0.0), 0.0) if position else 0.0
         closed_size, opening_signed_size = cls._split_fill(old_size, signed_fill_size)
-        close_role = cls._close_commission_role_for_position(position)
+        close_role = cls._close_commission_role_for_position(position, as_of=as_of)
         closing_commission = (
             cls._commission_value(closed_size, price, spec, role=close_role)
             if closed_size > 1e-12
@@ -950,11 +988,13 @@ class PaperTradingService:
         fill_size = float(order.size or 0.0)
         side_value = side
         signed_fill_size = fill_size if side_value == OrderSide.BUY.value else -fill_size
+        fill_time = datetime.now(timezone.utc)
         commission_breakdown = self._fill_commission_breakdown(
             position,
             signed_fill_size,
             fill_price,
             spec,
+            as_of=fill_time,
         )
         commission = float(commission_breakdown["total_commission"] or 0.0)
         if self._uses_margin_accounting(spec):
@@ -978,7 +1018,7 @@ class PaperTradingService:
             return
 
         # Execute fill
-        await self._fill_order(order, fill_price, commission)
+        await self._fill_order(order, fill_price, commission, filled_at=fill_time)
 
         # Update position
         position_event = await self._update_position(
@@ -989,6 +1029,7 @@ class PaperTradingService:
             spec=spec,
             current_position=position,
             commission_breakdown=commission_breakdown,
+            fill_time=fill_time,
         )
 
         # Update account
@@ -1009,6 +1050,7 @@ class PaperTradingService:
         price: float,
         commission: float,
         *,
+        filled_at: datetime | None = None,
         order_repo: SQLRepository[Order] | None = None,
         trade_repo: SQLRepository[PaperTrade] | None = None,
     ) -> None:
@@ -1030,7 +1072,7 @@ class PaperTradingService:
             order.filled_size = order.size
             order.avg_fill_price = price
             order.commission = commission
-            order.filled_at = datetime.now(timezone.utc)
+            order.filled_at = filled_at or datetime.now(timezone.utc)
 
             order_repo = order_repo or self.order_repo
             trade_repo = trade_repo or self.trade_repo
@@ -1124,6 +1166,7 @@ class PaperTradingService:
         spec: PositionSpec | None = None,
         current_position: Position | None = None,
         commission_breakdown: dict[str, float | str] | None = None,
+        fill_time: datetime | None = None,
         position_repo: SQLRepository[Position] | None = None,
         trade_repo: SQLRepository[PaperTrade] | None = None,
     ) -> dict[str, object]:
@@ -1187,6 +1230,7 @@ class PaperTradingService:
         if not position:
             position_size = signed_fill_size
             final_margin_value = self._margin_value(position_size, price, spec)
+            now = fill_time or datetime.now(timezone.utc)
             # Create new position
             position = Position(
                 account_id=account.id,
@@ -1202,7 +1246,7 @@ class PaperTradingService:
                 unrealized_pnl=0.0,
                 unrealized_pnl_pct=0.0,
                 entry_price=price,
-                entry_time=datetime.now(timezone.utc),
+                entry_time=now,
             )
 
             await position_repo.create(position)
@@ -1243,7 +1287,7 @@ class PaperTradingService:
                 else 0
             )
 
-            now = datetime.now(timezone.utc)
+            now = fill_time or datetime.now(timezone.utc)
             position_update = {
                 "size": new_size,
                 "avg_price": new_avg_price,

@@ -1078,6 +1078,24 @@ class TestProcessOrder:
         assert kwargs["commission_breakdown"]["close_role"] == "close_today"
         mock_acct.assert_awaited_once()
 
+    async def test_close_today_fee_uses_local_trading_day_across_midnight(self):
+        """Night-session futures closes after midnight remain close-today."""
+        service = PaperTradingService()
+        position = Mock()
+        position.entry_time = datetime(2026, 6, 25, 15, 30, tzinfo=timezone.utc)
+        fill_time = datetime(2026, 6, 26, 0, 30, tzinfo=timezone.utc)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "BT_STORE_LOCAL_TIMEZONE": "Asia/Shanghai",
+                "PAPER_TRADING_DAY_ROLLOVER_HOUR": "21",
+            },
+        ):
+            role = service._close_commission_role_for_position(position, as_of=fill_time)
+
+        assert role == "close_today"
+
 
 @pytest.mark.asyncio
 class TestFillOrder:
@@ -1133,6 +1151,28 @@ class TestFillOrder:
         assert mock_order.filled_size == pytest.approx(0.25)
         created_trade = service.trade_repo.create.await_args.args[0]
         assert created_trade.size == pytest.approx(0.25)
+
+    async def test_fill_order_uses_supplied_fill_time(self):
+        """Order filled_at should use the same timestamp used for fee accounting."""
+        service = PaperTradingService()
+
+        mock_order = Mock()
+        mock_order.id = "order_123"
+        mock_order.account_id = "acc_123"
+        mock_order.symbol = "BTCUSDT"
+        mock_order.side = OrderSide.BUY
+        mock_order.size = 1.0
+        filled_at = datetime(2026, 6, 26, 0, 30, tzinfo=timezone.utc)
+
+        service.order_repo = AsyncMock()
+        service.order_repo.update = AsyncMock()
+        service.trade_repo = AsyncMock()
+        service.trade_repo.create = AsyncMock()
+
+        await service._fill_order(mock_order, 50000.0, 50.0, filled_at=filled_at)
+
+        _order_id, order_update = service.order_repo.update.await_args.args
+        assert order_update["filled_at"] == filled_at
 
 
 @pytest.mark.asyncio
@@ -1367,6 +1407,36 @@ class TestUpdatePosition:
         assert position.margin_rate == pytest.approx(0.1)
         assert position.commission_rate == pytest.approx(0.000023)
         assert event["cash_delta"] == pytest.approx(-150_034.5)
+
+    async def test_update_position_new_long_uses_fill_time_as_entry_time(self):
+        """Paper positions should store the fill timestamp used for commission roles."""
+        service = PaperTradingService()
+
+        mock_account = Mock()
+        mock_account.id = "acc_123"
+        mock_account.commission_rate = 0.001
+
+        mock_order = Mock()
+        mock_order.id = "order_123"
+        mock_order.symbol = "BTCUSDT"
+        mock_order.side = OrderSide.BUY
+        mock_order.size = 1
+
+        fill_time = datetime(2026, 6, 26, 0, 30, tzinfo=timezone.utc)
+        service.position_repo = AsyncMock()
+        service.position_repo.list = AsyncMock(return_value=[])
+        service.position_repo.create = AsyncMock()
+
+        await service._update_position(
+            mock_account,
+            mock_order,
+            50000.0,
+            50.0,
+            fill_time=fill_time,
+        )
+
+        position = service.position_repo.create.await_args.args[0]
+        assert position.entry_time == fill_time
 
     async def test_update_position_closing_futures_releases_margin_and_realizes_pnl(self):
         """Closing futures should realize multiplier PnL and release reserved margin."""
