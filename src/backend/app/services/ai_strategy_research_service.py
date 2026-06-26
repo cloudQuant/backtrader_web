@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from app.config import get_settings
 from app.schemas.ai_strategy_research import (
     AIStrategyPaperTradingStart,
     AIStrategyResearchIteration,
@@ -29,6 +31,11 @@ from app.schemas.workspace import (
     WorkspaceCreate,
     WorkspaceResponse,
 )
+from app.services.ai_router.preferences import (
+    AIModelPreferenceService,
+    ResolvedAIModelPreference,
+)
+from app.services.ai_router.router import AIChatRouter, get_ai_chat_router
 from app.services.strategy.inference import render_param_default
 from app.services.strategy_service import StrategyService
 from app.services.workspace_service import WorkspaceService
@@ -58,6 +65,8 @@ class LocalStrategyImprover:
         iteration: int,
         metrics: dict[str, Any],
         target_sharpe: float,
+        user_id: str | None = None,
+        request: AIStrategyResearchRunRequest | None = None,
     ) -> StrategyImprovement:
         improved = draft.model_copy(deep=True)
         notes: list[str] = []
@@ -134,6 +143,110 @@ class LocalStrategyImprover:
         return StrategyImprovement(draft=improved, notes=notes)
 
 
+class AIStrategyImprover:
+    """Use configured AI models to improve strategy drafts, with local fallback."""
+
+    def __init__(
+        self,
+        *,
+        local_improver: LocalStrategyImprover | None = None,
+        ai_router: AIChatRouter | None = None,
+        preference_service: AIModelPreferenceService | None = None,
+        settings: Any | None = None,
+    ) -> None:
+        self.local_improver = local_improver or LocalStrategyImprover()
+        self.ai_router = ai_router or get_ai_chat_router()
+        self.preference_service = preference_service or AIModelPreferenceService()
+        self.settings = settings or get_settings()
+
+    async def improve(
+        self,
+        draft: AIStrategyDraft,
+        *,
+        iteration: int,
+        metrics: dict[str, Any],
+        target_sharpe: float,
+        user_id: str | None = None,
+        request: AIStrategyResearchRunRequest | None = None,
+    ) -> StrategyImprovement:
+        preference = await self._resolve_preference(user_id)
+        if preference is None:
+            return await self.local_improver.improve(
+                draft,
+                iteration=iteration,
+                metrics=metrics,
+                target_sharpe=target_sharpe,
+                user_id=user_id,
+                request=request,
+            )
+
+        try:
+            response = await self.ai_router.chat_completion(
+                messages=_build_improvement_messages(
+                    draft,
+                    iteration=iteration,
+                    metrics=metrics,
+                    target_sharpe=target_sharpe,
+                    request=request,
+                ),
+                model=preference.model,
+                provider=preference.provider,
+                base_url=preference.base_url,
+                api_key=preference.api_key,
+                timeout=float(getattr(self.settings, "AI_CHAT_TIMEOUT", 120.0) or 120.0),
+                temperature=min(
+                    float(getattr(self.settings, "AI_CHAT_TEMPERATURE", 0.2) or 0.2),
+                    0.3,
+                ),
+            )
+            improved = _merge_ai_improvement(
+                draft,
+                _parse_ai_improvement_payload(response.content),
+                iteration=iteration,
+                model_id=response.model,
+            )
+            return improved
+        except Exception as exc:
+            fallback = await self.local_improver.improve(
+                draft,
+                iteration=iteration,
+                metrics=metrics,
+                target_sharpe=target_sharpe,
+                user_id=user_id,
+                request=request,
+            )
+            return StrategyImprovement(
+                draft=fallback.draft,
+                notes=[
+                    f"AI模型改稿不可用，已使用本地规则回退：{exc}",
+                    *fallback.notes,
+                ],
+            )
+
+    async def _resolve_preference(
+        self,
+        user_id: str | None,
+    ) -> ResolvedAIModelPreference | None:
+        preference = await self.preference_service.resolve_for_user(user_id)
+        if preference is not None:
+            return preference if preference.configured else None
+
+        if not bool(getattr(self.settings, "AI_CHAT_ENABLED", False)):
+            return None
+        model = str(getattr(self.settings, "AI_CHAT_MODEL", "") or "").strip()
+        base_url = str(getattr(self.settings, "AI_CHAT_BASE_URL", "") or "").strip()
+        api_key = str(getattr(self.settings, "AI_CHAT_API_KEY", "") or "").strip()
+        if not (model and base_url and api_key):
+            return None
+        return ResolvedAIModelPreference(
+            provider="openai_compatible",
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+            configured=True,
+        )
+
+
 class AIStrategyResearchService:
     """Orchestrate generate -> backtest -> improve -> paper trading."""
 
@@ -142,12 +255,12 @@ class AIStrategyResearchService:
         *,
         strategy_service: StrategyService | None = None,
         workspace_service: WorkspaceService | None = None,
-        improver: LocalStrategyImprover | None = None,
+        improver: Any | None = None,
         sleep: Callable[[float], Awaitable[None]] | None = None,
     ) -> None:
         self.strategy_service = strategy_service or StrategyService()
         self.workspace_service = workspace_service or WorkspaceService()
-        self.improver = improver or LocalStrategyImprover()
+        self.improver = improver or AIStrategyImprover()
         self.sleep = sleep or asyncio.sleep
 
     async def run(
@@ -235,6 +348,8 @@ class AIStrategyResearchService:
                     iteration=iteration,
                     metrics=metrics,
                     target_sharpe=request.target_sharpe,
+                    user_id=user_id,
+                    request=request,
                 )
                 draft = improvement.draft
                 pending_improvement_notes = improvement.notes
@@ -445,6 +560,154 @@ def _find_unit_status(items: list[Any], unit_id: str) -> UnitStatusResponse | No
         if status is not None and status.id == unit_id:
             return status
     return None
+
+
+def _build_improvement_messages(
+    draft: AIStrategyDraft,
+    *,
+    iteration: int,
+    metrics: dict[str, Any],
+    target_sharpe: float,
+    request: AIStrategyResearchRunRequest | None,
+) -> list[dict[str, str]]:
+    objective = request.prompt if request is not None else ""
+    symbol = request.symbol if request is not None else draft.suggested_symbol or ""
+    timeframe = request.timeframe if request is not None else draft.suggested_timeframe or ""
+    return [
+        {
+            "role": "system",
+            "content": (
+                "你是 AI for Trader 的量化策略研究员。你只输出 JSON，不输出 Markdown。"
+                "你需要基于上一轮回测指标改进 Backtrader 策略脚本，目标是提高样本内 Sharpe，"
+                "同时降低过拟合和不可执行风险。返回字段必须是："
+                "name, description, code, params, category, assumptions, risk_points, "
+                "next_steps, notes。code 必须是完整 Python Backtrader 策略代码。"
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "objective": objective,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "iteration_to_create": iteration + 1,
+                    "target_sharpe": target_sharpe,
+                    "previous_metrics": metrics,
+                    "current_draft": draft.model_dump(mode="json"),
+                    "rules": [
+                        "不要删除风控逻辑；如果调整参数，请同步 params 和 code 中 params 默认值。",
+                        "如果新增指标或状态变量，必须保证 Backtrader Strategy 类可独立运行。",
+                        "notes 用中文说明具体改动和为什么可能改善 Sharpe/回撤/交易次数。",
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+
+
+def _parse_ai_improvement_payload(content: str) -> dict[str, Any]:
+    text = str(content or "").strip()
+    if not text:
+        raise ValueError("AI provider returned empty strategy improvement")
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text)
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        raise ValueError("AI provider did not return a JSON object")
+    payload = json.loads(text[start : end + 1])
+    if not isinstance(payload, dict):
+        raise ValueError("AI strategy improvement payload is not an object")
+    return payload
+
+
+def _merge_ai_improvement(
+    draft: AIStrategyDraft,
+    payload: dict[str, Any],
+    *,
+    iteration: int,
+    model_id: str,
+) -> StrategyImprovement:
+    improved = draft.model_copy(deep=True)
+    name = _optional_text(payload.get("name"))
+    if name:
+        improved.name = _bounded_name(name, 100)
+    else:
+        base_name = re.sub(r"\s+v\d+$", "", improved.name).strip()
+        improved.name = f"{base_name} v{iteration + 1}"[:100]
+
+    description = _optional_text(payload.get("description"))
+    if description:
+        improved.description = description
+
+    code = _optional_text(payload.get("code"))
+    if code:
+        if "bt.Strategy" not in code and "backtrader" not in code:
+            raise ValueError("AI strategy code does not look like a Backtrader strategy")
+        improved.code = code
+
+    params = _coerce_param_specs(payload.get("params"))
+    if params:
+        improved.params = params
+        improved.code = _rewrite_code_param_defaults(improved.code, improved.params)
+
+    category = _optional_text(payload.get("category"))
+    if category:
+        improved.category = category
+
+    assumptions = _coerce_text_list(payload.get("assumptions"))
+    if assumptions:
+        improved.assumptions = assumptions
+
+    risk_points = _coerce_text_list(payload.get("risk_points"))
+    if risk_points:
+        improved.risk_points = risk_points
+
+    next_steps = _coerce_text_list(payload.get("next_steps"))
+    if next_steps:
+        improved.next_steps = next_steps
+
+    notes = _coerce_text_list(payload.get("notes"))
+    if not notes:
+        notes = [f"AI模型 {model_id} 已生成第 {iteration + 1} 版策略改稿"]
+    else:
+        notes = [f"AI模型 {model_id} 改稿", *notes]
+    return StrategyImprovement(draft=improved, notes=notes)
+
+
+def _coerce_param_specs(value: Any) -> dict[str, ParamSpec]:
+    if not isinstance(value, dict):
+        return {}
+    params: dict[str, ParamSpec] = {}
+    for name, raw in value.items():
+        key = str(name or "").strip()
+        if not key:
+            continue
+        if isinstance(raw, ParamSpec):
+            params[key] = raw
+        elif isinstance(raw, dict):
+            try:
+                params[key] = ParamSpec.model_validate(raw)
+            except Exception:
+                if "default" in raw:
+                    params[key] = ParamSpec(default=raw.get("default"))
+        else:
+            params[key] = ParamSpec(default=raw)
+    return params
+
+
+def _coerce_text_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item or "").strip()]
+
+
+def _optional_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
 
 
 def _metric_float(metrics: dict[str, Any], *keys: str, default: float = 0.0) -> float:

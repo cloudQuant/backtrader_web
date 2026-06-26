@@ -20,7 +20,13 @@ from app.schemas.strategy import (
     StrategyResponse,
 )
 from app.schemas.workspace import StrategyUnitResponse, UnitStatusResponse, WorkspaceResponse
-from app.services.ai_strategy_research_service import AIStrategyResearchService
+from app.services.ai_router.preferences import ResolvedAIModelPreference
+from app.services.ai_router.router import ChatCompletionResponse
+from app.services.ai_strategy_research_service import (
+    AIStrategyImprover,
+    AIStrategyResearchService,
+    LocalStrategyImprover,
+)
 from app.services.strategy.ai_draft import build_ai_strategy_draft, render_ai_strategy_draft_answer
 
 
@@ -184,6 +190,107 @@ async def _noop_sleep(_: float) -> None:
     return None
 
 
+class FakePreferenceService:
+    async def resolve_for_user(self, user_id: str | None):
+        return ResolvedAIModelPreference(
+            provider="openai_compatible",
+            model="research-model",
+            base_url="http://local-ai",
+            api_key="test-key",
+            configured=True,
+        )
+
+
+class FakeAISettings:
+    AI_CHAT_ENABLED = False
+    AI_CHAT_TIMEOUT = 10.0
+    AI_CHAT_TEMPERATURE = 0.2
+    AI_CHAT_MODEL = ""
+    AI_CHAT_BASE_URL = ""
+    AI_CHAT_API_KEY = ""
+
+
+class FakeAIChatRouter:
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.calls: list[dict[str, Any]] = []
+
+    async def chat_completion(self, **kwargs):
+        self.calls.append(kwargs)
+        return ChatCompletionResponse(
+            content=self.content,
+            model="research-model",
+            provider="fake",
+            total_tokens=123,
+        )
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_improver_uses_model_json_to_rewrite_strategy():
+    draft = build_ai_strategy_draft("请生成一个均线趋势策略")
+    router = FakeAIChatRouter(
+        """
+        {
+          "name": "AI改进趋势策略",
+          "description": "AI revised strategy",
+          "code": "import backtrader as bt\\nclass ImprovedStrategy(bt.Strategy):\\n    params = (('risk_pct', 0.01),)\\n    def next(self):\\n        pass\\n",
+          "params": {
+            "risk_pct": {"type": "float", "default": 0.01, "min": 0.001, "max": 0.05, "description": "risk"}
+          },
+          "category": "trend",
+          "assumptions": ["使用日线趋势过滤"],
+          "risk_points": ["需要样本外验证"],
+          "next_steps": ["继续回测"],
+          "notes": ["重写了策略结构"]
+        }
+        """
+    )
+    improver = AIStrategyImprover(
+        ai_router=router,
+        preference_service=FakePreferenceService(),
+        settings=FakeAISettings(),
+    )
+
+    result = await improver.improve(
+        draft,
+        iteration=1,
+        metrics={"sharpe_ratio": 0.2, "total_trades": 3},
+        target_sharpe=1.0,
+        user_id="user-1",
+        request=AIStrategyResearchRunRequest(prompt="均线趋势", symbol="000001.SZ"),
+    )
+
+    assert router.calls
+    assert result.draft.name == "AI改进趋势策略"
+    assert "class ImprovedStrategy" in result.draft.code
+    assert result.draft.params["risk_pct"].default == 0.01
+    assert result.notes[0] == "AI模型 research-model 改稿"
+    assert "重写了策略结构" in result.notes
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_improver_falls_back_when_model_payload_is_invalid():
+    draft = build_ai_strategy_draft("请生成一个均线趋势策略")
+    improver = AIStrategyImprover(
+        ai_router=FakeAIChatRouter("not json"),
+        preference_service=FakePreferenceService(),
+        settings=FakeAISettings(),
+    )
+
+    result = await improver.improve(
+        draft,
+        iteration=1,
+        metrics={"sharpe_ratio": 0.2, "total_trades": 0},
+        target_sharpe=1.0,
+        user_id="user-1",
+        request=AIStrategyResearchRunRequest(prompt="均线趋势", symbol="000001.SZ"),
+    )
+
+    assert result.draft.name.endswith("v2")
+    assert result.notes[0].startswith("AI模型改稿不可用，已使用本地规则回退")
+    assert any("调整均线窗口" in note for note in result.notes)
+
+
 @pytest.mark.asyncio
 async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     workspace_service = FakeWorkspaceService()
@@ -197,6 +304,7 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     service = AIStrategyResearchService(
         strategy_service=strategy_service,
         workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
         sleep=_noop_sleep,
     )
 
@@ -239,6 +347,7 @@ async def test_research_loop_stops_after_max_iterations_without_paper():
     service = AIStrategyResearchService(
         strategy_service=strategy_service,
         workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
         sleep=_noop_sleep,
     )
 
