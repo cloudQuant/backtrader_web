@@ -40,6 +40,21 @@ class _FakeTradeAdapter:
         return self.payload
 
 
+class _FakePrivateTradeAdapter(_FakeTradeAdapter):
+    def __init__(self, public_payload, private_payload):
+        super().__init__(public_payload)
+        self.private_payload = private_payload
+        self.calls = []
+
+    def get_trades(self, **_kwargs):
+        self.calls.append("get_trades")
+        return self.payload
+
+    def get_deals(self, **_kwargs):
+        self.calls.append("get_deals")
+        return self.private_payload
+
+
 class _FakeBalanceAdapter:
     def __init__(self, payload):
         self.payload = payload
@@ -400,6 +415,50 @@ class TestManualGatewayPositions:
 
 
 class TestManualGatewayTrades:
+    def test_query_gateway_trades_prefers_private_deals_over_public_trades(self):
+        adapter = _FakePrivateTradeAdapter(
+            public_payload=[
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "Buy",
+                    "qty": "1",
+                    "price": "1",
+                }
+            ],
+            private_payload=[
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "Sell",
+                    "execQty": "0.1",
+                    "execPrice": "60000",
+                    "execFee": "3",
+                    "feeCurrency": "USDT",
+                    "execTime": "1672282722429",
+                }
+            ],
+        )
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
+
+        rows = manual_gateway_service.query_gateway_trades(
+            gateways,
+            "gw-1",
+            symbol="BTCUSDT",
+            strict=True,
+        )
+
+        assert adapter.calls == ["get_deals"]
+        assert rows == [
+            {
+                "symbol": "BTCUSDT",
+                "side": "Sell",
+                "execQty": "0.1",
+                "execPrice": "60000",
+                "execFee": "3",
+                "feeCurrency": "USDT",
+                "execTime": "1672282722429",
+            }
+        ]
+
     def test_query_gateway_trades_unwraps_bybit_v5_result_list(self):
         adapter = _FakeTradeAdapter(
             {

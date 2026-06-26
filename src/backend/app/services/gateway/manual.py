@@ -2110,8 +2110,25 @@ def query_gateway_trades(
             except TypeError:
                 return _rows_from_raw(method())
 
+    private_trade_methods = (
+        "get_deals",
+        "deals",
+        "fetch_deals",
+        "get_fills",
+        "fills",
+        "fetch_fills",
+        "get_executions",
+        "executions",
+        "fetch_executions",
+        "get_trade_history",
+        "fetch_trade_history",
+        "get_user_trades",
+        "fetch_user_trades",
+    )
+    public_trade_methods = ("get_trades", "trades", "fetch_trades", "get_recent_trades")
+
     try:
-        for method_name in ("get_trades", "trades", "fetch_trades", "get_recent_trades"):
+        for method_name in (*private_trade_methods, *public_trade_methods):
             method = getattr(runtime, method_name, None)
             if callable(method):
                 rows = _call(method)
@@ -2119,7 +2136,7 @@ def query_gateway_trades(
                     return rows[:limit]
         adapter = _runtime_adapter(runtime)
         if adapter is not None:
-            for method_name in ("get_trades", "fetch_trades", "get_recent_trades"):
+            for method_name in (*private_trade_methods, *public_trade_methods):
                 method = getattr(adapter, method_name, None)
                 if callable(method):
                     rows = _call(method)
