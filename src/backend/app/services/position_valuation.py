@@ -1047,6 +1047,8 @@ def _is_inverse_contract(row: dict[str, Any], spec: PositionSpec) -> bool:
     contract_type = _first_text(
         row.get("contract_type"),
         row.get("ctType"),
+        row.get("contractType"),
+        row.get("category"),
         spec.contract_type,
     ).lower()
     if "inverse" in contract_type:

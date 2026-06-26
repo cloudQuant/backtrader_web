@@ -408,19 +408,134 @@ def _normalize_exchange_commission_rate(
     return rate
 
 
-def _unwrap_payload_dict(raw: dict[str, Any]) -> dict[str, Any]:
-    for key in ("data", "result"):
-        payload = raw.get(key)
-        row: dict[str, Any] | None = None
-        if isinstance(payload, dict):
-            row = payload
-        elif isinstance(payload, list):
-            row = next((item for item in payload if isinstance(item, dict)), None)
-        if row is not None:
-            base = {item_key: item_value for item_key, item_value in raw.items() if item_key != key}
+_ASSET_SPEC_CONTAINER_KEYS = (
+    "data",
+    "result",
+    "payload",
+    "list",
+    "rows",
+    "items",
+    "symbols",
+    "instruments",
+    "contracts",
+    "markets",
+)
+_ASSET_SPEC_NESTED_DICT_KEYS = (
+    "priceFilter",
+    "price_filter",
+    "lotSizeFilter",
+    "lot_size_filter",
+    "leverageFilter",
+    "leverage_filter",
+    "fee",
+    "fees",
+)
+
+
+def _compact_symbol_text(value: Any) -> str:
+    return re.sub(r"[^0-9A-Za-z]", "", str(value or "")).upper()
+
+
+def _payload_symbol_values(row: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    for key in (
+        "symbol",
+        "data_name",
+        "symbol_name",
+        "instId",
+        "instrument",
+        "instrument_id",
+        "InstrumentID",
+        "REFERENCE_CODE",
+        "localSymbol",
+        "local_symbol",
+        "pair",
+        "id",
+        "name",
+        "contract",
+        "contract_code",
+        "contractCode",
+    ):
+        value = row.get(key)
+        if value not in (None, ""):
+            values.append(str(value).strip())
+    return values
+
+
+def _payload_matches_symbol(row: dict[str, Any], symbol: str) -> bool:
+    if not symbol:
+        return True
+    aliases = _symbol_keys(symbol)
+    candidates = {str(item or "").strip().upper() for item in aliases if str(item or "").strip()}
+    candidates.update(_compact_symbol_text(item) for item in aliases if str(item or "").strip())
+    for value in _payload_symbol_values(row):
+        text = str(value or "").strip()
+        if not text:
+            continue
+        if text.upper() in candidates or _compact_symbol_text(text) in candidates:
+            return True
+    return False
+
+
+def _select_payload_row(payload: Any, symbol: str) -> dict[str, Any] | None:
+    if not isinstance(payload, (list, tuple, set)):
+        return None
+    rows = [item for item in payload if isinstance(item, dict)]
+    if not rows:
+        return None
+    if symbol:
+        for row in rows:
+            if _payload_matches_symbol(row, symbol):
+                return row
+        if len(rows) > 1:
+            return None
+    return rows[0]
+
+
+def _flatten_asset_spec_payload(data: dict[str, Any]) -> dict[str, Any]:
+    flattened = dict(data)
+    for key in _ASSET_SPEC_NESTED_DICT_KEYS:
+        nested = flattened.get(key)
+        if isinstance(nested, dict):
+            for nested_key, nested_value in nested.items():
+                flattened.setdefault(str(nested_key), nested_value)
+
+    filters = flattened.get("filters")
+    if isinstance(filters, (list, tuple, set)):
+        for item in filters:
+            if not isinstance(item, dict):
+                continue
+            filter_type = str(item.get("filterType") or item.get("filter_type") or "").strip()
+            for nested_key, nested_value in item.items():
+                if nested_key in {"filterType", "filter_type"}:
+                    continue
+                flattened.setdefault(str(nested_key), nested_value)
+                if filter_type:
+                    flattened.setdefault(f"{filter_type}_{nested_key}", nested_value)
+    return flattened
+
+
+def _unwrap_payload_dict(raw: dict[str, Any], *, symbol: str = "") -> dict[str, Any]:
+    data = dict(raw)
+    for _ in range(10):
+        for key in _ASSET_SPEC_CONTAINER_KEYS:
+            payload = data.get(key)
+            row: dict[str, Any] | None = None
+            if isinstance(payload, dict):
+                row = payload
+            else:
+                row = _select_payload_row(payload, symbol)
+            if row is None:
+                continue
+            base = {item_key: item_value for item_key, item_value in data.items() if item_key != key}
             base.update(row)
-            return base
-    return raw
+            if base == data:
+                return _flatten_asset_spec_payload(data)
+            data = base
+            break
+        else:
+            break
+    return _flatten_asset_spec_payload(data)
 
 
 def _normalize_ctp_commission_rate(value: Any) -> float | None:
@@ -887,8 +1002,12 @@ def _is_inverse_contract_spec(
     contract_type = _first_text(
         row.get("contract_type"),
         row.get("ctType"),
+        row.get("contractType"),
+        row.get("category"),
         spec.get("contract_type"),
         spec.get("ctType"),
+        spec.get("contractType"),
+        spec.get("category"),
     ).lower()
     if "inverse" in contract_type:
         return True
@@ -1472,6 +1591,22 @@ def normalize_asset_spec(
     """Normalize exchange/local contract metadata to portfolio valuation fields."""
     if raw is None:
         return {}
+    if isinstance(raw, (list, tuple, set)):
+        selected = _select_payload_row(raw, symbol)
+        if selected is None:
+            return {}
+        raw = selected
+    if not isinstance(raw, dict):
+        for method_name in ("get_data", "to_dict", "as_dict", "dict", "model_dump"):
+            payload = _call_or_value(getattr(raw, method_name, None))
+            if payload not in (None, "") and payload is not raw:
+                raw = payload
+                break
+    if isinstance(raw, (list, tuple, set)):
+        selected = _select_payload_row(raw, symbol)
+        if selected is None:
+            return {}
+        raw = selected
     if not isinstance(raw, dict):
         raw = {
             name: _call_or_value(getattr(raw, name))
@@ -1479,7 +1614,7 @@ def normalize_asset_spec(
             if not name.startswith("_")
         }
 
-    data = _unwrap_payload_dict(dict(raw))
+    data = _unwrap_payload_dict(dict(raw), symbol=symbol)
     normalized_symbol = _first_text(
         symbol,
         data.get("symbol"),
@@ -1494,18 +1629,26 @@ def normalize_asset_spec(
         data.get("description"),
     )
 
-    asset_type_text = _first_text(data.get("asset_type"), data.get("instType"))
-    contract_type_text = _first_text(data.get("contract_type"), data.get("ctType"))
+    asset_type_text = _first_text(data.get("asset_type"), data.get("instType"), data.get("category"))
+    contract_type_text = _first_text(
+        data.get("contract_type"),
+        data.get("ctType"),
+        data.get("contractType"),
+    )
     contract_value_currency = _first_text(
         data.get("contract_value_currency"),
         data.get("contract_value_ccy"),
         data.get("ctValCcy"),
         data.get("contractValueCurrency"),
     )
-    base_asset = _first_text(data.get("base_asset"), data.get("baseCcy"))
-    quote_asset = _first_text(data.get("quote_asset"), data.get("quoteCcy"))
-    settle_currency = _first_text(data.get("settle_currency"), data.get("settleCcy"))
-    fee_currency = _first_text(data.get("fee_currency"), data.get("feeCcy"))
+    base_asset = _first_text(data.get("base_asset"), data.get("baseCcy"), data.get("baseCoin"))
+    quote_asset = _first_text(data.get("quote_asset"), data.get("quoteCcy"), data.get("quoteCoin"))
+    settle_currency = _first_text(
+        data.get("settle_currency"),
+        data.get("settleCcy"),
+        data.get("settleCoin"),
+    )
+    fee_currency = _first_text(data.get("fee_currency"), data.get("feeCcy"), data.get("feeCoin"))
     okx_contract_value = _first_number(
         data.get("contract_value"),
         data.get("contractValue"),
@@ -1519,7 +1662,17 @@ def normalize_asset_spec(
         data.get("contract_multiplier"),
         data.get("ctMult"),
     )
-    is_derivative = asset_type_text.upper() in {"SWAP", "FUTURES", "FUTURE", "OPTION"}
+    is_derivative = asset_type_text.upper() in {
+        "SWAP",
+        "FUTURES",
+        "FUTURE",
+        "OPTION",
+        "LINEAR",
+        "INVERSE",
+    } or any(
+        token in contract_type_text.upper()
+        for token in ("PERP", "PERPETUAL", "FUTURE", "FUTURES", "SWAP", "OPTION")
+    )
     is_inverse = _is_inverse_contract_spec(data, data)
     if is_inverse:
         multiplier = _first_number(
@@ -1550,6 +1703,10 @@ def normalize_asset_spec(
                     okx_contract_value,
                 )
             )
+        if multiplier is None and is_derivative and "linear" in (
+            f"{asset_type_text} {contract_type_text}".lower()
+        ):
+            multiplier = 1.0
     price_tick = _first_number(
         data.get("price_tick"),
         data.get("tick_size"),
@@ -1563,6 +1720,7 @@ def normalize_asset_spec(
     min_order_size = _first_number(
         data.get("min_order_size"),
         data.get("min_order_qty"),
+        data.get("minOrderQty"),
         data.get("min_size"),
         data.get("min_qty"),
         data.get("minQty"),
@@ -1576,6 +1734,7 @@ def normalize_asset_spec(
     max_order_size = _first_number(
         data.get("max_order_size"),
         data.get("max_order_qty"),
+        data.get("maxOrderQty"),
         data.get("max_size"),
         data.get("max_qty"),
         data.get("maxQty"),
@@ -1591,11 +1750,14 @@ def normalize_asset_spec(
         data.get("max_market_order_size"),
         data.get("max_mkt_order_size"),
         data.get("maxMktSz"),
+        data.get("maxMktOrderQty"),
+        data.get("maxMarketOrderQty"),
     )
     order_size_step = _first_number(
         data.get("order_size_step"),
         data.get("size_step"),
         data.get("qty_step"),
+        data.get("qtyStep"),
         data.get("qty_unit"),
         data.get("quantity_step"),
         data.get("volume_step"),
@@ -1638,6 +1800,7 @@ def normalize_asset_spec(
         data.get("leverage"),
         data.get("lever"),
         data.get("max_leverage"),
+        data.get("maxLeverage"),
     )
     if margin_rate is None:
         margin_rate = (
@@ -2012,6 +2175,38 @@ def _runtime_adapter(gateway: dict[str, Any] | None) -> Any:
     return getattr(runtime, "adapter", None) if runtime is not None else None
 
 
+def _safe_getattr(obj: Any, name: str) -> Any:
+    try:
+        return getattr(obj, name, None)
+    except Exception:
+        return None
+
+
+def _gateway_asset_query_targets(adapter: Any) -> list[tuple[str, Any]]:
+    candidates: list[tuple[str, Any]] = [("gateway", adapter)]
+    client = _safe_getattr(adapter, "client")
+    if client is not None:
+        candidates.append(("gateway.client", client))
+    feed = _safe_getattr(adapter, "feed")
+    if feed is not None:
+        candidates.append(("gateway.feed", feed))
+    client_feed = _safe_getattr(client, "feed") if client is not None else None
+    if client_feed is not None:
+        candidates.append(("gateway.client.feed", client_feed))
+
+    result: list[tuple[str, Any]] = []
+    seen: set[int] = set()
+    for label, target in candidates:
+        if target is None:
+            continue
+        marker = id(target)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        result.append((label, target))
+    return result
+
+
 _FEE_SPEC_KEYS = (
     "commission_rate",
     "open_commission_rate",
@@ -2032,26 +2227,57 @@ def _has_fee_spec(spec: dict[str, Any]) -> bool:
     return any(spec.get(key) not in (None, "") for key in _FEE_SPEC_KEYS)
 
 
+_ASSET_SPEC_METADATA_KEYS = tuple(
+    dict.fromkeys(
+        (
+            *RAW_ASSET_SPEC_FIELD_KEYS,
+            *_FEE_SPEC_KEYS,
+            "price_tick",
+            "tick_size",
+            "min_order_size",
+            "max_order_size",
+            "market_max_order_size",
+            "order_size_step",
+            "baseCoin",
+            "quoteCoin",
+            "settleCoin",
+            "contractType",
+            "category",
+            "maxLeverage",
+        )
+    )
+)
+
+
+def _has_asset_metadata(spec: dict[str, Any]) -> bool:
+    return any(spec.get(key) not in (None, "") for key in _ASSET_SPEC_METADATA_KEYS)
+
+
 def _query_gateway_fee_spec(adapter: Any, symbol: str) -> dict[str, Any]:
-    for method_name in (
-        "get_fee",
-        "fetch_fee",
-        "get_fee_rate",
-        "fetch_fee_rate",
-        "get_commission_rate",
-        "fetch_commission_rate",
-    ):
-        method = getattr(adapter, method_name, None)
-        if not callable(method):
-            continue
-        for query_symbol in _query_symbol_keys(symbol):
-            try:
-                payload = method(query_symbol)
-            except Exception:
+    for target_label, target in _gateway_asset_query_targets(adapter):
+        for method_name in (
+            "get_fee",
+            "fetch_fee",
+            "get_fee_rate",
+            "fetch_fee_rate",
+            "get_commission_rate",
+            "fetch_commission_rate",
+        ):
+            method = _safe_getattr(target, method_name)
+            if not callable(method):
                 continue
-            spec = normalize_asset_spec(payload, symbol=symbol, source=f"gateway.{method_name}")
-            if _has_fee_spec(spec):
-                return spec
+            for query_symbol in _query_symbol_keys(symbol):
+                try:
+                    payload = method(query_symbol)
+                except Exception:
+                    continue
+                spec = normalize_asset_spec(
+                    payload,
+                    symbol=symbol,
+                    source=f"{target_label}.{method_name}",
+                )
+                if _has_fee_spec(spec):
+                    return spec
     return {}
 
 
@@ -2072,27 +2298,141 @@ def _merge_fee_spec(spec: dict[str, Any], fee_spec: dict[str, Any]) -> dict[str,
     return merged
 
 
+def _gateway_asset_method_attempts(
+    method_name: str,
+    query_symbol: str,
+    target: Any,
+    adapter: Any,
+    *,
+    include_empty_call: bool = False,
+) -> list[tuple[tuple[Any, ...], dict[str, Any]]]:
+    asset_type = _first_text(
+        _safe_getattr(target, "asset_type"),
+        _safe_getattr(adapter, "asset_type"),
+    )
+    attempts: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    instrument_method = method_name in {
+        "get_instruments",
+        "fetch_instruments",
+        "get_public_instruments",
+        "fetch_public_instruments",
+    }
+    if query_symbol:
+        if instrument_method and asset_type:
+            attempts.append(((), {"asset_type": asset_type, "inst_id": query_symbol}))
+        if instrument_method:
+            attempts.extend(
+                (
+                    ((), {"inst_id": query_symbol}),
+                    ((), {"instId": query_symbol}),
+                    ((), {"instrument": query_symbol}),
+                )
+            )
+        attempts.extend(
+            (
+                ((query_symbol,), {}),
+                ((), {"symbol": query_symbol}),
+                ((), {"inst_id": query_symbol}),
+                ((), {"instId": query_symbol}),
+                ((), {"instrument": query_symbol}),
+            )
+        )
+    if include_empty_call:
+        if instrument_method and asset_type:
+            attempts.append(((), {"asset_type": asset_type}))
+        attempts.append(((), {}))
+
+    result: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    seen: set[str] = set()
+    for args, kwargs in attempts:
+        marker = repr((args, sorted(kwargs.items())))
+        if marker in seen:
+            continue
+        seen.add(marker)
+        result.append((args, kwargs))
+    return result
+
+
+def _query_gateway_common_asset_spec(
+    adapter: Any,
+    symbol: str,
+    fee_spec: dict[str, Any],
+) -> dict[str, Any]:
+    method_names = (
+        "get_exchange_info",
+        "fetch_exchange_info",
+        "get_instruments",
+        "fetch_instruments",
+        "get_public_instruments",
+        "fetch_public_instruments",
+        "get_contract",
+        "fetch_contract",
+        "query_symbol",
+        "get_market",
+        "fetch_market",
+    )
+    for target_label, target in _gateway_asset_query_targets(adapter):
+        for method_name in method_names:
+            method = _safe_getattr(target, method_name)
+            if not callable(method):
+                continue
+            attempts: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+            for query_symbol in _query_symbol_keys(symbol):
+                attempts.extend(
+                    _gateway_asset_method_attempts(
+                        method_name,
+                        query_symbol,
+                        target,
+                        adapter,
+                    )
+                )
+            attempts.extend(
+                _gateway_asset_method_attempts(
+                    method_name,
+                    "",
+                    target,
+                    adapter,
+                    include_empty_call=True,
+                )
+            )
+            for args, kwargs in attempts:
+                try:
+                    payload = method(*args, **kwargs)
+                except Exception:
+                    continue
+                spec = normalize_asset_spec(
+                    payload,
+                    symbol=symbol,
+                    source=f"{target_label}.{method_name}",
+                )
+                if _has_asset_metadata(spec):
+                    return _merge_fee_spec(spec, fee_spec)
+    return {}
+
+
 def query_gateway_asset_spec(gateway: dict[str, Any] | None, symbol: str) -> dict[str, Any]:
     adapter = _runtime_adapter(gateway)
     if adapter is None:
         return {}
 
     fee_spec = _query_gateway_fee_spec(adapter, symbol)
-    for method_name in ("get_symbol_info", "fetch_symbol_info"):
-        method = getattr(adapter, method_name, None)
-        if callable(method):
-            for query_symbol in _query_symbol_keys(symbol):
-                try:
-                    info = method(query_symbol)
-                except Exception:
-                    info = None
-                if isinstance(info, dict) and info:
-                    spec = normalize_asset_spec(
-                        info,
-                        symbol=symbol,
-                        source=f"gateway.{method_name}",
-                    )
-                    return _merge_fee_spec(spec, fee_spec)
+    for target_label, target in _gateway_asset_query_targets(adapter):
+        for method_name in ("get_symbol_info", "fetch_symbol_info"):
+            method = _safe_getattr(target, method_name)
+            if callable(method):
+                for query_symbol in _query_symbol_keys(symbol):
+                    try:
+                        info = method(query_symbol)
+                    except Exception:
+                        info = None
+                    if info:
+                        spec = normalize_asset_spec(
+                            info,
+                            symbol=symbol,
+                            source=f"{target_label}.{method_name}",
+                        )
+                        if _has_asset_metadata(spec):
+                            return _merge_fee_spec(spec, fee_spec)
 
     specs = getattr(adapter, "_symbol_specs", None)
     if isinstance(specs, dict):
@@ -2101,6 +2441,10 @@ def query_gateway_asset_spec(gateway: dict[str, Any] | None, symbol: str) -> dic
             if isinstance(item, dict) and item:
                 spec = normalize_asset_spec(item, symbol=symbol, source="gateway.symbol_cache")
                 return _merge_fee_spec(spec, fee_spec)
+
+    spec = _query_gateway_common_asset_spec(adapter, symbol, fee_spec)
+    if spec:
+        return spec
 
     trader = getattr(getattr(adapter, "feed", None), "trader_client", None)
     query_instrument = getattr(trader, "query_instrument", None)

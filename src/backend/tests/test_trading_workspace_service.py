@@ -2346,6 +2346,53 @@ def test_normalize_asset_spec_accepts_raw_okx_fee_sign_payload():
     assert spec["commission_rate"] == pytest.approx(0.0005)
 
 
+def test_normalize_asset_spec_accepts_raw_bybit_v5_instrument_payload():
+    spec = normalize_asset_spec(
+        {
+            "retCode": 0,
+            "result": {
+                "category": "linear",
+                "list": [
+                    {
+                        "symbol": "ETHUSDT",
+                        "contractType": "LinearPerpetual",
+                        "priceFilter": {"tickSize": "0.01"},
+                    },
+                    {
+                        "symbol": "BTCUSDT",
+                        "contractType": "LinearPerpetual",
+                        "baseCoin": "BTC",
+                        "quoteCoin": "USDT",
+                        "settleCoin": "USDT",
+                        "priceFilter": {"tickSize": "0.10"},
+                        "lotSizeFilter": {
+                            "minOrderQty": "0.001",
+                            "maxOrderQty": "100",
+                            "qtyStep": "0.001",
+                        },
+                        "leverageFilter": {"maxLeverage": "100"},
+                    },
+                ],
+            },
+        },
+        symbol="BTCUSDT",
+        source="bybit_get_exchange_info",
+    )
+
+    assert spec["symbol"] == "BTCUSDT"
+    assert spec["contract_type"] == "LinearPerpetual"
+    assert spec["asset_type"] == "linear"
+    assert spec["base_asset"] == "BTC"
+    assert spec["quote_asset"] == "USDT"
+    assert spec["settle_currency"] == "USDT"
+    assert spec["multiplier"] == pytest.approx(1.0)
+    assert spec["margin_rate"] == pytest.approx(0.01)
+    assert spec["tick_size"] == pytest.approx(0.1)
+    assert spec["min_order_size"] == pytest.approx(0.001)
+    assert spec["max_order_size"] == pytest.approx(100)
+    assert spec["order_size_step"] == pytest.approx(0.001)
+
+
 def test_query_gateway_asset_spec_merges_adapter_fee_method():
     class FakeAdapter:
         def get_symbol_info(self, symbol):
@@ -2369,6 +2416,69 @@ def test_query_gateway_asset_spec_merges_adapter_fee_method():
     assert spec["commission_rate"] == pytest.approx(0.0004)
     assert spec["source"] == "gateway.get_symbol_info"
     assert spec["fee_source"] == "gateway.get_fee"
+
+
+def test_query_gateway_asset_spec_falls_back_to_feed_exchange_info():
+    class FakeRequestData:
+        def __init__(self, data):
+            self._data = data
+
+        def get_data(self):
+            return self._data
+
+    class FakeFeed:
+        asset_type = "SWAP"
+
+        def __init__(self):
+            self.info_calls = []
+            self.fee_calls = []
+
+        def get_exchange_info(self, symbol=None):
+            self.info_calls.append(symbol)
+            return FakeRequestData(
+                {
+                    "retCode": 0,
+                    "result": {
+                        "category": "linear",
+                        "list": [
+                            {"symbol": "ETHUSDT", "priceFilter": {"tickSize": "0.01"}},
+                            {
+                                "symbol": "BTCUSDT",
+                                "contractType": "LinearPerpetual",
+                                "baseCoin": "BTC",
+                                "quoteCoin": "USDT",
+                                "settleCoin": "USDT",
+                                "priceFilter": {"tickSize": "0.10"},
+                                "lotSizeFilter": {"minOrderQty": "0.001", "qtyStep": "0.001"},
+                                "leverageFilter": {"maxLeverage": "50"},
+                            },
+                        ],
+                    },
+                }
+            )
+
+        def get_fee(self, symbol):
+            self.fee_calls.append(symbol)
+            if symbol != "BTCUSDT":
+                raise ValueError("unknown symbol")
+            return {"makerCommissionRate": "0.0002", "takerCommissionRate": "0.0006"}
+
+    feed = FakeFeed()
+    gateway = {"runtime": SimpleNamespace(adapter=SimpleNamespace(feed=feed))}
+
+    spec = query_gateway_asset_spec(gateway, "BTCUSDT")
+
+    assert feed.info_calls[0] == "BTCUSDT"
+    assert feed.fee_calls[0] == "BTCUSDT"
+    assert spec["symbol"] == "BTCUSDT"
+    assert spec["multiplier"] == pytest.approx(1.0)
+    assert spec["margin_rate"] == pytest.approx(0.02)
+    assert spec["tick_size"] == pytest.approx(0.1)
+    assert spec["min_order_size"] == pytest.approx(0.001)
+    assert spec["order_size_step"] == pytest.approx(0.001)
+    assert spec["commission_rate"] == pytest.approx(0.0006)
+    assert spec["source"] == "gateway.feed.get_exchange_info"
+    assert spec["fee_source"] == "gateway.feed.get_fee"
 
 
 def test_query_gateway_asset_spec_uses_symbol_aliases_for_exchange_methods():
