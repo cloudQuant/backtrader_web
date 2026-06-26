@@ -57,7 +57,8 @@ _COMMISSION_FIELD_KEYS = (
     "commission_amount",
     "Commission",
 )
-_PNL_FIELD_KEYS = ("pnlcomm", "net_pnl", "netPnl", "netPNL", "position_pnl", "pnl")
+_EXPLICIT_NET_PNL_FIELD_KEYS = ("pnlcomm", "net_pnl", "netPnl", "netPNL")
+_PNL_FIELD_KEYS = (*_EXPLICIT_NET_PNL_FIELD_KEYS, "position_pnl", "pnl")
 _GROSS_PNL_FIELD_KEYS = (
     "gross_pnl",
     "position_unrealized_pnl",
@@ -1401,6 +1402,13 @@ class TradingWorkspaceService:
     def _position_row_needs_response_valuation(cls, row: dict[str, Any]) -> bool:
         if abs(_safe_float(row.get("size"))) <= EPSILON and cls._has_any(
             row, *_POSITION_SIZE_ALIAS_KEYS
+        ):
+            return True
+        if (
+            abs(_safe_float(row.get("size"))) > EPSILON
+            and not cls._has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS)
+            and cls._has_any(row, *_GROSS_PNL_FIELD_KEYS)
+            and cls._has_any(row, *_COMMISSION_FIELD_KEYS)
         ):
             return True
         return cls._has_any(row, *_POSITION_RESPONSE_REVALUE_KEYS)

@@ -3058,6 +3058,66 @@ async def test_build_positions_response_prefers_net_pnl_fields_in_snapshot_rows(
 
 
 @pytest.mark.asyncio
+async def test_build_positions_response_revalues_gross_pnl_rows_without_explicit_net_pnl(
+    monkeypatch,
+):
+    service = TradingWorkspaceService()
+    unit = SimpleNamespace(
+        id="unit-1",
+        strategy_name="Unit One",
+        strategy_id="simulate/gateway_dual_ma",
+        symbol="BTC-USDT-SWAP",
+        symbol_name="BTC swap",
+        trading_mode="live",
+        unit_settings={},
+        params={},
+        data_config={},
+        gateway_config={},
+        trading_snapshot={
+            "positions": [
+                {
+                    "data_name": "BTC-USDT-SWAP",
+                    "direction": "long",
+                    "size": 1,
+                    "price": 60000.0,
+                    "current_price": 60005.0,
+                    "market_value": 60005.0,
+                    "margin_value": 3000.25,
+                    "multiplier": 1,
+                    "margin_rate": 0.05,
+                    "gross_pnl": 5.0,
+                    "position_pnl": 5.0,
+                    "commission": 0.25,
+                    "commission_signed": True,
+                    "position_source": "gateway",
+                    "asset_spec_source": "snapshot",
+                    "updated_at": "2026-06-25 09:00:00",
+                }
+            ],
+            "position_pnl": 5.0,
+            "long_position": 1.0,
+            "short_position": 0.0,
+            "long_market_value": 60005.0,
+            "short_market_value": 0.0,
+            "position_source": "gateway",
+        },
+    )
+
+    async def fail_hydrate(_units, _user_id):
+        raise AssertionError("hydrate_units should not run when hydrate=False")
+
+    monkeypatch.setattr(service, "hydrate_units", fail_hydrate)
+
+    result = await service.build_positions_response([unit], "user-1", hydrate=False)
+    row = result.positions[0]
+
+    assert row.gross_pnl == pytest.approx(5.0)
+    assert row.commission == pytest.approx(0.25)
+    assert row.position_pnl == pytest.approx(4.75)
+    assert result.total_pnl == pytest.approx(4.75)
+
+
+@pytest.mark.asyncio
 async def test_build_positions_response_skips_zero_position_rows_even_with_stale_snapshot():
     service = TradingWorkspaceService()
     unit = SimpleNamespace(
