@@ -56,6 +56,7 @@ vi.mock('@/api/strategy', () => ({
           status: 'achieved',
           achieved: true,
           target_sharpe: 1,
+          quality_gates: { target_sharpe: 1, min_total_trades: 1 },
           min_total_trades: 1,
           max_iterations: 3,
           iteration_count: 2,
@@ -139,6 +140,7 @@ vi.mock('@/api/strategy', () => ({
           sharpe_ratio: 1.2,
           total_trades: 4,
           passed: true,
+          quality_gate_failures: [],
           improvement_notes: [],
         },
       ],
@@ -154,6 +156,7 @@ vi.mock('@/api/strategy', () => ({
         status: 'achieved',
         achieved: true,
         target_sharpe: 1,
+        quality_gates: { target_sharpe: 1, min_total_trades: 1 },
         min_total_trades: 1,
         max_iterations: 3,
         iteration_count: 1,
@@ -290,11 +293,19 @@ describe('StrategyPage', () => {
     const vm = doMount().vm as any
     vm.aiResearchForm.prompt = '生成一个趋势策略'
     vm.aiResearchForm.symbol = '000001.SZ'
+    vm.aiResearchForm.use_max_drawdown_limit = true
+    vm.aiResearchForm.max_drawdown_limit = 12
+    vm.aiResearchForm.use_min_total_return = true
+    vm.aiResearchForm.min_total_return = 8
     await vm.runAIResearchLoop()
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
       prompt: '生成一个趋势策略',
       symbol: '000001.SZ',
       target_sharpe: 1,
+      max_drawdown_limit: 12,
+      min_total_return: 8,
+      min_annual_return: null,
+      min_win_rate: null,
     }))
     expect(vm.aiResearchResult.achieved).toBe(true)
     expect(vm.aiResearchRuns[0].run_id).toBe('run-1')
@@ -313,6 +324,12 @@ describe('StrategyPage', () => {
       status: 'achieved',
       achieved: true,
       target_sharpe: 1.5,
+      quality_gates: {
+        target_sharpe: 1.5,
+        min_total_trades: 3,
+        max_drawdown_limit: 15,
+        min_win_rate: 55,
+      },
       min_total_trades: 3,
       max_iterations: 4,
       iteration_count: 2,
@@ -328,6 +345,10 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.prompt).toBe('历史趋势策略')
     expect(vm.aiResearchForm.symbol).toBe('600000.SH')
     expect(vm.aiResearchForm.target_sharpe).toBe(1.5)
+    expect(vm.aiResearchForm.use_max_drawdown_limit).toBe(true)
+    expect(vm.aiResearchForm.max_drawdown_limit).toBe(15)
+    expect(vm.aiResearchForm.use_min_win_rate).toBe(true)
+    expect(vm.aiResearchForm.min_win_rate).toBe(55)
   })
 
   it('saveStrategy warns when name/code empty', async () => {

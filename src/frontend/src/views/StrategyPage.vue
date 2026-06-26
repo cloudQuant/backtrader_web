@@ -101,6 +101,59 @@
                     class="w-full"
                   />
                 </el-form-item>
+                <el-form-item label="最大回撤上限 %">
+                  <div class="ai-research-gate-control">
+                    <el-checkbox v-model="aiResearchForm.use_max_drawdown_limit" />
+                    <el-input-number
+                      v-model="aiResearchForm.max_drawdown_limit"
+                      :disabled="!aiResearchForm.use_max_drawdown_limit"
+                      :min="0"
+                      :max="100"
+                      :step="1"
+                      class="w-full"
+                      data-test="ai-research-max-drawdown"
+                    />
+                  </div>
+                </el-form-item>
+                <el-form-item label="最小总收益 %">
+                  <div class="ai-research-gate-control">
+                    <el-checkbox v-model="aiResearchForm.use_min_total_return" />
+                    <el-input-number
+                      v-model="aiResearchForm.min_total_return"
+                      :disabled="!aiResearchForm.use_min_total_return"
+                      :min="-100"
+                      :max="1000"
+                      :step="1"
+                      class="w-full"
+                    />
+                  </div>
+                </el-form-item>
+                <el-form-item label="最小年化收益 %">
+                  <div class="ai-research-gate-control">
+                    <el-checkbox v-model="aiResearchForm.use_min_annual_return" />
+                    <el-input-number
+                      v-model="aiResearchForm.min_annual_return"
+                      :disabled="!aiResearchForm.use_min_annual_return"
+                      :min="-100"
+                      :max="1000"
+                      :step="1"
+                      class="w-full"
+                    />
+                  </div>
+                </el-form-item>
+                <el-form-item label="最小胜率 %">
+                  <div class="ai-research-gate-control">
+                    <el-checkbox v-model="aiResearchForm.use_min_win_rate" />
+                    <el-input-number
+                      v-model="aiResearchForm.min_win_rate"
+                      :disabled="!aiResearchForm.use_min_win_rate"
+                      :min="0"
+                      :max="100"
+                      :step="1"
+                      class="w-full"
+                    />
+                  </div>
+                </el-form-item>
                 <el-form-item :label="t('strategy.aiResearchInitialCash')">
                   <el-input-number
                     v-model="aiResearchForm.initial_cash"
@@ -589,6 +642,14 @@ const aiResearchForm = reactive({
   end_date: '',
   target_sharpe: 1.0,
   min_total_trades: 1,
+  use_max_drawdown_limit: false,
+  max_drawdown_limit: 20,
+  use_min_total_return: false,
+  min_total_return: 0,
+  use_min_annual_return: false,
+  min_annual_return: 0,
+  use_min_win_rate: false,
+  min_win_rate: 50,
   max_iterations: 3,
   initial_cash: 100000,
   commission: 0.001,
@@ -692,6 +753,7 @@ function upsertAIResearchRunRecord(record: AIStrategyResearchRunRecord) {
 }
 
 function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
+  const gates = record.quality_gates || {}
   aiResearchForm.prompt = record.prompt
   aiResearchForm.symbol = record.symbol
   aiResearchForm.symbol_name = record.symbol_name || ''
@@ -699,7 +761,19 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.timeframe_n = record.timeframe_n || 1
   aiResearchForm.target_sharpe = record.target_sharpe
   aiResearchForm.min_total_trades = record.min_total_trades
+  aiResearchForm.use_max_drawdown_limit = typeof gates.max_drawdown_limit === 'number'
+  aiResearchForm.max_drawdown_limit = Number(gates.max_drawdown_limit ?? 20)
+  aiResearchForm.use_min_total_return = typeof gates.min_total_return === 'number'
+  aiResearchForm.min_total_return = Number(gates.min_total_return ?? 0)
+  aiResearchForm.use_min_annual_return = typeof gates.min_annual_return === 'number'
+  aiResearchForm.min_annual_return = Number(gates.min_annual_return ?? 0)
+  aiResearchForm.use_min_win_rate = typeof gates.min_win_rate === 'number'
+  aiResearchForm.min_win_rate = Number(gates.min_win_rate ?? 50)
   aiResearchForm.max_iterations = record.max_iterations || 3
+}
+
+function enabledQualityGate(enabled: boolean, value: number) {
+  return enabled ? value : null
 }
 
 async function runAIResearchLoop() {
@@ -726,6 +800,22 @@ async function runAIResearchLoop() {
       end_date: aiResearchForm.end_date || null,
       target_sharpe: aiResearchForm.target_sharpe,
       min_total_trades: aiResearchForm.min_total_trades,
+      max_drawdown_limit: enabledQualityGate(
+        aiResearchForm.use_max_drawdown_limit,
+        aiResearchForm.max_drawdown_limit
+      ),
+      min_total_return: enabledQualityGate(
+        aiResearchForm.use_min_total_return,
+        aiResearchForm.min_total_return
+      ),
+      min_annual_return: enabledQualityGate(
+        aiResearchForm.use_min_annual_return,
+        aiResearchForm.min_annual_return
+      ),
+      min_win_rate: enabledQualityGate(
+        aiResearchForm.use_min_win_rate,
+        aiResearchForm.min_win_rate
+      ),
       max_iterations: aiResearchForm.max_iterations,
       initial_cash: aiResearchForm.initial_cash,
       commission: aiResearchForm.commission,
@@ -864,6 +954,13 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 16px;
   margin-top: 8px;
+}
+
+.ai-research-gate-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
 }
 
 .ai-research-summary {
