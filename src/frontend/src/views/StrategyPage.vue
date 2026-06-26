@@ -1909,6 +1909,37 @@ function sleep(ms: number) {
   return new Promise(resolve => window.setTimeout(resolve, ms))
 }
 
+const AI_RESEARCH_TASK_POLL_INTERVAL_MS = 1500
+const AI_RESEARCH_TASK_MIN_TIMEOUT_MS = 10 * 60 * 1000
+const AI_RESEARCH_TASK_MAX_TIMEOUT_MS = 8 * 60 * 60 * 1000
+
+function boundedNumber(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(parsed, min), max)
+}
+
+function aiResearchTaskPollTimeoutMs(
+  payload?: AIStrategyResearchRunRequest,
+  task?: AIStrategyResearchTaskResponse
+) {
+  const maxIterations = boundedNumber(
+    payload?.max_iterations ?? task?.max_iterations ?? aiResearchForm.max_iterations,
+    3,
+    1,
+    8
+  )
+  const backtestTimeoutSeconds = boundedNumber(payload?.backtest_timeout_seconds, 600, 1, 3600)
+  const validationFactor = payload?.out_of_sample_validation === false ? 1 : 2
+  const estimatedSeconds = maxIterations * validationFactor * backtestTimeoutSeconds + 240
+  return boundedNumber(
+    estimatedSeconds * 1000,
+    AI_RESEARCH_TASK_MIN_TIMEOUT_MS,
+    AI_RESEARCH_TASK_MIN_TIMEOUT_MS,
+    AI_RESEARCH_TASK_MAX_TIMEOUT_MS
+  )
+}
+
 function applyAIResearchTaskStatus(task: AIStrategyResearchTaskResponse) {
   aiResearchTaskId.value = task.task_id
   aiResearchTaskStatus.value = task.status
@@ -1934,11 +1965,12 @@ async function runAIResearchRequest(
   }
 
   const task = await apiWithTasks.submitAIResearchTask(payload)
-  return pollAIResearchTask(task)
+  return pollAIResearchTask(task, aiResearchTaskPollTimeoutMs(payload, task))
 }
 
 async function pollAIResearchTask(
-  task: AIStrategyResearchTaskResponse
+  task: AIStrategyResearchTaskResponse,
+  timeoutMs = aiResearchTaskPollTimeoutMs(undefined, task)
 ): Promise<AIStrategyResearchRunResponse> {
   const apiWithTasks = strategyApi as typeof strategyApi & {
     getAIResearchTask?: typeof strategyApi.getAIResearchTask
@@ -1947,7 +1979,12 @@ async function pollAIResearchTask(
     throw new Error('AI research task polling is unavailable')
   }
   applyAIResearchTaskStatus(task)
-  for (let attempt = 0; attempt < 240; attempt += 1) {
+  const deadline = Date.now() + timeoutMs
+  const maxPolls = Math.max(
+    240,
+    Math.ceil(timeoutMs / AI_RESEARCH_TASK_POLL_INTERVAL_MS) + 2
+  )
+  for (let attempt = 0; attempt < maxPolls; attempt += 1) {
     if (task.status === 'completed' && task.result) {
       return task.result
     }
@@ -1957,13 +1994,16 @@ async function pollAIResearchTask(
     if (isAIResearchTaskTerminal(task)) {
       throw new Error(task.error || task.message || 'AI research task failed')
     }
+    if (Date.now() > deadline) {
+      break
+    }
     task = await apiWithTasks.getAIResearchTask(task.task_id)
     applyAIResearchTaskStatus(task)
     if (!isAIResearchTaskTerminal(task)) {
-      await sleep(1500)
+      await sleep(AI_RESEARCH_TASK_POLL_INTERVAL_MS)
     }
   }
-  throw new Error('AI research task polling timed out')
+  throw new Error(`AI research task polling timed out after ${Math.round(timeoutMs / 1000)}s`)
 }
 
 async function restoreActiveAIResearchTask() {

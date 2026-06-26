@@ -723,6 +723,75 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('keeps polling long async AI research tasks beyond the old fixed attempt cap', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(((handler: TimerHandler) => {
+      if (typeof handler === 'function') handler()
+      return 0
+    }) as typeof window.setTimeout)
+    ;(strategyApi as any).submitAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'long-research-task',
+      status: 'running',
+      submitted_at: '2026-06-27T00:00:00Z',
+      current_stage: 'backtesting',
+      progress: 12,
+      current_iteration: 1,
+      iteration_count: 0,
+      max_iterations: 8,
+      message: 'submitted',
+    })
+    let polls = 0
+    ;(strategyApi as any).getAIResearchTask = vi.fn().mockImplementation(async () => {
+      polls += 1
+      if (polls < 245) {
+        return {
+          task_id: 'long-research-task',
+          status: 'running',
+          submitted_at: '2026-06-27T00:00:00Z',
+          current_stage: 'backtesting',
+          progress: 12 + Math.min(polls, 80) / 2,
+          current_iteration: 1,
+          iteration_count: 0,
+          max_iterations: 8,
+          message: 'running',
+        }
+      }
+      return {
+        task_id: 'long-research-task',
+        status: 'completed',
+        submitted_at: '2026-06-27T00:00:00Z',
+        completed_at: '2026-06-27T00:30:00Z',
+        run_id: 'run-1',
+        current_stage: 'paper_trading',
+        progress: 100,
+        current_iteration: 2,
+        iteration_count: 2,
+        max_iterations: 8,
+        message: 'done',
+        result: baseResult,
+      }
+    })
+    try {
+      const wrapper = doMount()
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.prompt = '生成一个趋势策略'
+      vm.aiResearchForm.symbol = '000001.SZ'
+      vm.aiResearchForm.max_iterations = 8
+      await vm.runAIResearchLoop()
+
+      expect((strategyApi as any).getAIResearchTask).toHaveBeenCalledTimes(245)
+      expect(vm.aiResearchTaskStatus).toBe('completed')
+      expect(vm.aiResearchResult.achieved).toBe(true)
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+    } finally {
+      setTimeoutSpy.mockRestore()
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
+    }
+  })
+
   it('continues research from current result when paper review fails', async () => {
     const { strategyApi } = await import('@/api/strategy')
     vi.mocked(strategyApi.reviewAIResearchPaperTrading).mockResolvedValueOnce({
