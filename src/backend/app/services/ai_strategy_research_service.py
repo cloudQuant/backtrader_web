@@ -6,14 +6,17 @@ import asyncio
 import json
 import re
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from app.config import get_settings
 from app.schemas.ai_strategy_research import (
     AIStrategyPaperTradingStart,
     AIStrategyResearchIteration,
+    AIStrategyResearchRunRecord,
     AIStrategyResearchRunRequest,
     AIStrategyResearchRunResponse,
 )
@@ -30,6 +33,7 @@ from app.schemas.workspace import (
     UnitStatusResponse,
     WorkspaceCreate,
     WorkspaceResponse,
+    WorkspaceUpdate,
 )
 from app.services.ai_router.preferences import (
     AIModelPreferenceService,
@@ -268,6 +272,8 @@ class AIStrategyResearchService:
         user_id: str,
         request: AIStrategyResearchRunRequest,
     ) -> AIStrategyResearchRunResponse:
+        run_id = str(uuid.uuid4())
+        started_at = _utc_iso_now()
         research_workspace = await self._ensure_research_workspace(user_id, request)
         draft_response = await self.strategy_service.generate_copilot_draft(
             user_id,
@@ -368,10 +374,14 @@ class AIStrategyResearchService:
             if achieved
             else f"Target Sharpe {request.target_sharpe:.3f} not achieved"
         )
-        return AIStrategyResearchRunResponse(
+        completed_at = _utc_iso_now()
+        response = AIStrategyResearchRunResponse(
+            run_id=run_id,
             status=status,
             achieved=achieved,
             target_sharpe=request.target_sharpe,
+            started_at=started_at,
+            completed_at=completed_at,
             best_iteration=result_iteration.iteration if result_iteration else None,
             best_metrics=best_metrics,
             research_workspace=research_workspace,
@@ -379,6 +389,24 @@ class AIStrategyResearchService:
             best_strategy=result_iteration.strategy if result_iteration else None,
             paper_trading=paper_trading,
             message=message,
+        )
+        run_record = _build_research_run_record(
+            run_id=run_id,
+            request=request,
+            response=response,
+            started_at=started_at,
+            completed_at=completed_at,
+        )
+        research_workspace = await self._persist_research_run_record(
+            user_id,
+            research_workspace,
+            run_record,
+        )
+        return response.model_copy(
+            update={
+                "research_workspace": research_workspace,
+                "run_record": run_record,
+            }
         )
 
     async def _ensure_research_workspace(
@@ -543,6 +571,42 @@ class AIStrategyResearchService:
             started=run_result is not None and run_result.status not in {"failed", "cancelled"},
         )
 
+    async def _persist_research_run_record(
+        self,
+        user_id: str,
+        research_workspace: WorkspaceResponse,
+        run_record: AIStrategyResearchRunRecord,
+    ) -> WorkspaceResponse:
+        settings = dict(research_workspace.settings or {})
+        ai_research = dict(settings.get("ai_research") or {})
+        record_payload = run_record.model_dump(mode="json")
+
+        existing_runs: list[dict[str, Any]] = []
+        raw_runs = ai_research.get("runs")
+        if isinstance(raw_runs, list):
+            existing_runs = [dict(item) for item in raw_runs if isinstance(item, dict)]
+        runs = [
+            record_payload,
+            *[
+                item
+                for item in existing_runs
+                if str(item.get("run_id") or "") != run_record.run_id
+            ],
+        ][:20]
+        ai_research["last_run"] = record_payload
+        ai_research["runs"] = runs
+
+        updated_workspace = await self.workspace_service.update_workspace(
+            research_workspace.id,
+            user_id,
+            WorkspaceUpdate(settings={"ai_research": ai_research}),
+        )
+        if updated_workspace is not None:
+            return updated_workspace
+
+        settings["ai_research"] = ai_research
+        return research_workspace.model_copy(update={"settings": settings})
+
 
 def _coerce_unit_status(value: Any) -> UnitStatusResponse | None:
     if value is None:
@@ -560,6 +624,74 @@ def _find_unit_status(items: list[Any], unit_id: str) -> UnitStatusResponse | No
         if status is not None and status.id == unit_id:
             return status
     return None
+
+
+def _utc_iso_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _build_research_run_record(
+    *,
+    run_id: str,
+    request: AIStrategyResearchRunRequest,
+    response: AIStrategyResearchRunResponse,
+    started_at: str,
+    completed_at: str,
+) -> AIStrategyResearchRunRecord:
+    best_iteration = None
+    if response.best_iteration is not None:
+        best_iteration = next(
+            (item for item in response.iterations if item.iteration == response.best_iteration),
+            None,
+        )
+    best_strategy = response.best_strategy
+    paper = response.paper_trading
+    return AIStrategyResearchRunRecord(
+        run_id=run_id,
+        prompt=request.prompt,
+        symbol=request.symbol,
+        symbol_name=request.symbol_name or request.symbol,
+        timeframe=request.timeframe,
+        timeframe_n=request.timeframe_n,
+        status=response.status,
+        achieved=response.achieved,
+        target_sharpe=response.target_sharpe,
+        min_total_trades=request.min_total_trades,
+        max_iterations=request.max_iterations,
+        iteration_count=len(response.iterations),
+        best_iteration=response.best_iteration,
+        best_sharpe=best_iteration.sharpe_ratio
+        if best_iteration is not None
+        else _metric_float(response.best_metrics, "sharpe_ratio", "sharpe", "sharpeRatio"),
+        best_metrics=response.best_metrics,
+        best_strategy_id=best_strategy.id if best_strategy else None,
+        best_strategy_name=best_strategy.name if best_strategy else None,
+        research_workspace_id=response.research_workspace.id,
+        paper_workspace_id=paper.workspace.id if paper else None,
+        paper_unit_id=paper.unit.id if paper else None,
+        paper_trading_started=bool(paper.started) if paper else False,
+        started_at=started_at,
+        completed_at=completed_at,
+        iterations=[_compact_research_iteration(item) for item in response.iterations],
+    )
+
+
+def _compact_research_iteration(item: AIStrategyResearchIteration) -> dict[str, Any]:
+    unit_status = item.unit_status.run_status if item.unit_status is not None else None
+    return {
+        "iteration": item.iteration,
+        "strategy_id": item.strategy.id,
+        "strategy_name": item.strategy.name,
+        "unit_id": item.unit.id,
+        "task_id": item.run_result.task_id,
+        "run_status": unit_status or item.run_result.status,
+        "metrics": item.metrics,
+        "sharpe_ratio": item.sharpe_ratio,
+        "total_trades": item.total_trades,
+        "passed": item.passed,
+        "failure_reason": item.failure_reason,
+        "improvement_notes": item.improvement_notes,
+    }
 
 
 def _build_improvement_messages(

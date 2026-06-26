@@ -79,16 +79,49 @@ class AIStrategyPaperTradingStart(BaseModel):
     started: bool = False
 
 
-class AIStrategyResearchRunResponse(BaseModel):
-    """Result of the AI strategy research loop."""
+class AIStrategyResearchRunRecord(BaseModel):
+    """Compact persisted summary for one AI strategy research run."""
 
+    run_id: str
+    prompt: str
+    symbol: str
+    symbol_name: str = ""
+    timeframe: str = "1d"
+    timeframe_n: int = 1
     status: str
     achieved: bool
     target_sharpe: float
+    min_total_trades: int = 0
+    max_iterations: int = 0
+    iteration_count: int = 0
+    best_iteration: int | None = None
+    best_sharpe: float = 0.0
+    best_metrics: dict[str, Any] = Field(default_factory=dict)
+    best_strategy_id: str | None = None
+    best_strategy_name: str | None = None
+    research_workspace_id: str
+    paper_workspace_id: str | None = None
+    paper_unit_id: str | None = None
+    paper_trading_started: bool = False
+    started_at: str
+    completed_at: str
+    iterations: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AIStrategyResearchRunResponse(BaseModel):
+    """Result of the AI strategy research loop."""
+
+    run_id: str
+    status: str
+    achieved: bool
+    target_sharpe: float
+    started_at: str
+    completed_at: str
     best_iteration: int | None = None
     best_metrics: dict[str, Any] = Field(default_factory=dict)
     research_workspace: WorkspaceResponse
     iterations: list[AIStrategyResearchIteration] = Field(default_factory=list)
     best_strategy: StrategyResponse | None = None
     paper_trading: AIStrategyPaperTradingStart | None = None
+    run_record: AIStrategyResearchRunRecord | None = None
     message: str

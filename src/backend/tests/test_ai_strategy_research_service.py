@@ -102,6 +102,7 @@ class FakeWorkspaceService:
         self.statuses: dict[str, UnitStatusResponse] = {}
         self.created_units: list[StrategyUnitResponse] = []
         self.started_units: list[tuple[str, list[str]]] = []
+        self.updated_workspaces: list[WorkspaceResponse] = []
 
     async def create_workspace(self, user_id: str, data):
         workspace_id = "paper-ws" if data.workspace_type == "trading" else "research-ws"
@@ -111,6 +112,19 @@ class FakeWorkspaceService:
 
     async def get_workspace(self, workspace_id: str, user_id: str):
         return self.workspaces.get(workspace_id)
+
+    async def update_workspace(self, workspace_id: str, user_id: str, data):
+        workspace = self.workspaces.get(workspace_id)
+        if workspace is None:
+            return None
+        settings = dict(workspace.settings or {})
+        payload = data.model_dump(exclude_unset=True)
+        if isinstance(payload.get("settings"), dict):
+            settings.update(payload["settings"])
+        workspace = workspace.model_copy(update={"settings": settings})
+        self.workspaces[workspace.id] = workspace
+        self.updated_workspaces.append(workspace)
+        return workspace
 
     async def get_units_status(self, workspace_id: str, user_id: str):
         return list(self.statuses.values())
@@ -332,6 +346,15 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.paper_trading is not None
     assert result.paper_trading.started is True
     assert workspace_service.started_units == [("paper-ws", ["paper-unit"])]
+    assert result.run_id
+    assert result.run_record is not None
+    assert result.run_record.best_strategy_id == "strategy-2"
+    assert result.run_record.paper_trading_started is True
+    assert result.research_workspace.settings["ai_research"]["last_run"]["run_id"] == result.run_id
+    assert result.research_workspace.settings["ai_research"]["runs"][0]["run_id"] == result.run_id
+    assert result.research_workspace.settings["ai_research"]["runs"][0]["iterations"][0][
+        "failure_reason"
+    ] == "Only 0 trades, below minimum 1"
 
 
 @pytest.mark.asyncio
@@ -380,9 +403,12 @@ class FakeResearchAPIService:
             metrics={"sharpe_ratio": 1.05, "total_trades": 4},
         )
         return AIStrategyResearchRunResponse(
+            run_id="api-run",
             status="achieved",
             achieved=True,
             target_sharpe=request.target_sharpe,
+            started_at="2026-01-01T00:00:00+00:00",
+            completed_at="2026-01-01T00:01:00+00:00",
             best_iteration=1,
             best_metrics={"sharpe_ratio": 1.05, "total_trades": 4},
             research_workspace=workspace,
@@ -433,5 +459,6 @@ async def test_ai_strategy_research_api_endpoint(client: AsyncClient, auth_heade
     assert response.status_code == 200
     payload = response.json()
     assert payload["achieved"] is True
+    assert payload["run_id"] == "api-run"
     assert payload["research_workspace"]["id"] == "research-api-ws"
     assert payload["iterations"][0]["sharpe_ratio"] == 1.05

@@ -169,16 +169,47 @@ export interface AIStrategyPaperTradingStart {
   started: boolean
 }
 
-export interface AIStrategyResearchRunResponse {
+export interface AIStrategyResearchRunRecord {
+  run_id: string
+  prompt: string
+  symbol: string
+  symbol_name: string
+  timeframe: string
+  timeframe_n: number
   status: string
   achieved: boolean
   target_sharpe: number
+  min_total_trades: number
+  max_iterations: number
+  iteration_count: number
+  best_iteration?: number | null
+  best_sharpe: number
+  best_metrics: Record<string, unknown>
+  best_strategy_id?: string | null
+  best_strategy_name?: string | null
+  research_workspace_id: string
+  paper_workspace_id?: string | null
+  paper_unit_id?: string | null
+  paper_trading_started: boolean
+  started_at: string
+  completed_at: string
+  iterations: Record<string, unknown>[]
+}
+
+export interface AIStrategyResearchRunResponse {
+  run_id: string
+  status: string
+  achieved: boolean
+  target_sharpe: number
+  started_at: string
+  completed_at: string
   best_iteration?: number | null
   best_metrics: Record<string, unknown>
   research_workspace: Workspace
   iterations: AIStrategyResearchIteration[]
   best_strategy?: Strategy | null
   paper_trading?: AIStrategyPaperTradingStart | null
+  run_record?: AIStrategyResearchRunRecord | null
   message: string
 }
 
