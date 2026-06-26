@@ -252,6 +252,12 @@ class AIStrategyResearchTaskResponse(BaseModel):
     started_at: str | None = None
     completed_at: str | None = None
     run_id: str | None = None
+    current_stage: str = "queued"
+    progress: float = 0.0
+    current_iteration: int | None = None
+    iteration_count: int = 0
+    max_iterations: int | None = None
+    latest_iteration: dict[str, Any] | None = None
     error: str | None = None
     message: str = ""
     result: AIStrategyResearchRunResponse | None = None

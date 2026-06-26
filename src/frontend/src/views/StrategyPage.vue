@@ -222,7 +222,11 @@
                   size="small"
                   type="info"
                 >
-                  任务 {{ aiResearchTaskStatus || aiResearchTaskId }}
+                  任务 {{ aiResearchTaskStage || aiResearchTaskStatus }}
+                  {{ formatTaskProgress(aiResearchTaskProgress) }}
+                  <template v-if="aiResearchTaskIteration">
+                    第 {{ aiResearchTaskIteration }} 轮
+                  </template>
                 </el-tag>
               </div>
             </el-form>
@@ -795,6 +799,9 @@ const aiResearchRunsLoading = ref(false)
 const aiResearchRuns = ref<AIStrategyResearchRunRecord[]>([])
 const aiResearchTaskId = ref('')
 const aiResearchTaskStatus = ref('')
+const aiResearchTaskStage = ref('')
+const aiResearchTaskProgress = ref(0)
+const aiResearchTaskIteration = ref<number | null>(null)
 const aiResearchPaperStartingRunId = ref('')
 const aiResearchPaperReviewingRunId = ref('')
 const aiResearchPaperReviews = reactive<Record<string, AIStrategyPaperTradingReview>>({})
@@ -912,6 +919,12 @@ function formatMetric(value: unknown, digits = 2) {
   const number = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(number)) return '-'
   return number.toFixed(digits)
+}
+
+function formatTaskProgress(value: unknown) {
+  const number = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(number) || number <= 0) return ''
+  return `${Math.round(number)}%`
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -1119,6 +1132,14 @@ function sleep(ms: number) {
   return new Promise(resolve => window.setTimeout(resolve, ms))
 }
 
+function applyAIResearchTaskStatus(task: AIStrategyResearchTaskResponse) {
+  aiResearchTaskId.value = task.task_id
+  aiResearchTaskStatus.value = task.status
+  aiResearchTaskStage.value = task.current_stage || task.status
+  aiResearchTaskProgress.value = Number(task.progress || 0)
+  aiResearchTaskIteration.value = task.current_iteration ?? task.iteration_count ?? null
+}
+
 async function runAIResearchRequest(
   payload: AIStrategyResearchRunRequest
 ): Promise<AIStrategyResearchRunResponse> {
@@ -1134,8 +1155,7 @@ async function runAIResearchRequest(
   }
 
   let task = await apiWithTasks.submitAIResearchTask(payload)
-  aiResearchTaskId.value = task.task_id
-  aiResearchTaskStatus.value = task.status
+  applyAIResearchTaskStatus(task)
   for (let attempt = 0; attempt < 240; attempt += 1) {
     if (task.status === 'completed' && task.result) {
       return task.result
@@ -1144,7 +1164,7 @@ async function runAIResearchRequest(
       throw new Error(task.error || task.message || 'AI research task failed')
     }
     task = await apiWithTasks.getAIResearchTask(task.task_id)
-    aiResearchTaskStatus.value = task.status
+    applyAIResearchTaskStatus(task)
     if (!isAIResearchTaskTerminal(task)) {
       await sleep(1500)
     }
@@ -1167,6 +1187,9 @@ async function runAIResearchLoop() {
   aiResearchRunning.value = true
   aiResearchTaskId.value = ''
   aiResearchTaskStatus.value = ''
+  aiResearchTaskStage.value = ''
+  aiResearchTaskProgress.value = 0
+  aiResearchTaskIteration.value = null
   try {
     aiResearchResult.value = await runAIResearchRequest(buildAIResearchRequest(prompt, symbol))
     if (aiResearchResult.value.run_record) {

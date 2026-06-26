@@ -484,6 +484,11 @@ describe('StrategyPage', () => {
       task_id: 'research-task-1',
       status: 'running',
       submitted_at: '2026-06-27T00:00:00Z',
+      current_stage: 'backtesting',
+      progress: 35,
+      current_iteration: 1,
+      iteration_count: 0,
+      max_iterations: 3,
       message: 'submitted',
     })
     ;(strategyApi as any).getAIResearchTask = vi.fn().mockResolvedValue({
@@ -492,6 +497,12 @@ describe('StrategyPage', () => {
       submitted_at: '2026-06-27T00:00:00Z',
       completed_at: '2026-06-27T00:01:00Z',
       run_id: 'run-1',
+      current_stage: 'paper_trading',
+      progress: 100,
+      current_iteration: 1,
+      iteration_count: 1,
+      max_iterations: 3,
+      latest_iteration: { iteration: 1, sharpe_ratio: 1.2 },
       message: 'done',
       result: baseResult,
     })
@@ -510,6 +521,9 @@ describe('StrategyPage', () => {
       expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
       expect(vm.aiResearchTaskId).toBe('research-task-1')
       expect(vm.aiResearchTaskStatus).toBe('completed')
+      expect(vm.aiResearchTaskStage).toBe('paper_trading')
+      expect(vm.aiResearchTaskProgress).toBe(100)
+      expect(vm.aiResearchTaskIteration).toBe(1)
       expect(vm.aiResearchResult.achieved).toBe(true)
     } finally {
       delete (strategyApi as any).submitAIResearchTask

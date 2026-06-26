@@ -689,6 +689,47 @@ async def test_research_loop_enriches_backtest_with_asset_specs(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_research_loop_emits_progress_snapshots():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {"sharpe_ratio": 1.2, "total_trades": 5, "max_drawdown": -3.0},
+        ],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+    events: list[dict[str, Any]] = []
+
+    await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            max_iterations=2,
+            start_paper_trading=False,
+            poll_interval_seconds=0.1,
+        ),
+        progress_callback=events.append,
+    )
+
+    stages = [item["current_stage"] for item in events]
+    assert stages[:3] == ["initializing", "drafting", "backtesting"]
+    assert "evaluating" in stages
+    evaluating = next(item for item in events if item["current_stage"] == "evaluating")
+    assert evaluating["current_iteration"] == 1
+    assert evaluating["iteration_count"] == 1
+    assert evaluating["max_iterations"] == 2
+    assert evaluating["latest_iteration"]["sharpe_ratio"] == pytest.approx(1.2)
+    assert evaluating["progress"] > 10
+
+
+@pytest.mark.asyncio
 async def test_review_paper_trading_run_evaluates_monitoring_plan():
     workspace_service = FakeWorkspaceService()
     strategy_service = FakeStrategyService(
@@ -1533,6 +1574,12 @@ async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
     assert task is not None
     assert task.status == "completed"
     assert task.run_id == "api-run"
+    assert task.progress == 100.0
+    assert task.current_stage == "completed"
+    assert task.iteration_count == 1
+    assert task.max_iterations == 3
+    assert task.latest_iteration is not None
+    assert task.latest_iteration["iteration"] == 1
     assert task.result is not None
     assert task.result.achieved is True
     assert await manager.get_task("other-user", submitted.task_id) is None
@@ -1603,6 +1650,11 @@ async def test_ai_strategy_research_task_api_endpoint(
     assert payload is not None
     assert payload["status"] == "completed"
     assert payload["run_id"] == "api-run"
+    assert payload["progress"] == 100.0
+    assert payload["current_stage"] == "completed"
+    assert payload["iteration_count"] == 1
+    assert payload["max_iterations"] == 2
+    assert payload["latest_iteration"]["iteration"] == 1
     assert payload["result"]["achieved"] is True
     assert payload["result"]["research_workspace"]["id"] == "research-api-ws"
 

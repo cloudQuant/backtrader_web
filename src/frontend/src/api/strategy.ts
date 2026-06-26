@@ -303,6 +303,12 @@ export interface AIStrategyResearchTaskResponse {
   started_at?: string | null
   completed_at?: string | null
   run_id?: string | null
+  current_stage: string
+  progress: number
+  current_iteration?: number | null
+  iteration_count: number
+  max_iterations?: number | null
+  latest_iteration?: Record<string, unknown> | null
   error?: string | null
   message: string
   result?: AIStrategyResearchRunResponse | null

@@ -294,12 +294,34 @@ class AIStrategyResearchService:
         self,
         user_id: str,
         request: AIStrategyResearchRunRequest,
+        *,
+        progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
     ) -> AIStrategyResearchRunResponse:
         run_id = str(uuid.uuid4())
         started_at = _utc_iso_now()
+        await _emit_research_progress(
+            progress_callback,
+            {
+                "current_stage": "initializing",
+                "progress": 2.0,
+                "iteration_count": 0,
+                "max_iterations": request.max_iterations,
+                "message": "AI research loop is initializing",
+            },
+        )
         request, draft = await self._prepare_initial_draft(user_id, request)
         research_workspace = await self._ensure_research_workspace(user_id, request)
         if draft is None:
+            await _emit_research_progress(
+                progress_callback,
+                {
+                    "current_stage": "drafting",
+                    "progress": 5.0,
+                    "iteration_count": 0,
+                    "max_iterations": request.max_iterations,
+                    "message": "Generating initial strategy draft",
+                },
+            )
             draft_response = await self.strategy_service.generate_copilot_draft(
                 user_id,
                 StrategyCopilotDraftRequest(
@@ -333,6 +355,17 @@ class AIStrategyResearchService:
         achieved = False
 
         for iteration in range(1, request.max_iterations + 1):
+            await _emit_research_progress(
+                progress_callback,
+                {
+                    "current_stage": "backtesting",
+                    "progress": _research_loop_progress(iteration - 1, request.max_iterations),
+                    "current_iteration": iteration,
+                    "iteration_count": len(iterations),
+                    "max_iterations": request.max_iterations,
+                    "message": f"Running AI research backtest iteration {iteration}",
+                },
+            )
             try:
                 _validate_strategy_code_draft(draft.code)
             except ValueError as exc:
@@ -417,6 +450,18 @@ class AIStrategyResearchService:
                 ),
             )
             iterations.append(item)
+            await _emit_research_progress(
+                progress_callback,
+                {
+                    "current_stage": "evaluating",
+                    "progress": _research_loop_progress(iteration, request.max_iterations),
+                    "current_iteration": iteration,
+                    "iteration_count": len(iterations),
+                    "max_iterations": request.max_iterations,
+                    "latest_iteration": _compact_research_iteration(item),
+                    "message": f"Completed AI research iteration {iteration}",
+                },
+            )
             if best_iteration is None or _is_better_research_candidate(item, best_iteration):
                 best_iteration = item
             if passed:
@@ -425,6 +470,21 @@ class AIStrategyResearchService:
                 break
 
             if iteration < request.max_iterations:
+                await _emit_research_progress(
+                    progress_callback,
+                    {
+                        "current_stage": "improving",
+                        "progress": min(
+                            _research_loop_progress(iteration, request.max_iterations) + 2.0,
+                            82.0,
+                        ),
+                        "current_iteration": iteration + 1,
+                        "iteration_count": len(iterations),
+                        "max_iterations": request.max_iterations,
+                        "latest_iteration": _compact_research_iteration(item),
+                        "message": f"Improving strategy for iteration {iteration + 1}",
+                    },
+                )
                 improvement = await self.improver.improve(
                     draft,
                     iteration=iteration,
@@ -440,6 +500,17 @@ class AIStrategyResearchService:
         paper_trading = None
         result_iteration = selected_iteration or best_iteration
         if achieved and request.start_paper_trading and result_iteration is not None:
+            await _emit_research_progress(
+                progress_callback,
+                {
+                    "current_stage": "paper_trading",
+                    "progress": 88.0,
+                    "iteration_count": len(iterations),
+                    "max_iterations": request.max_iterations,
+                    "latest_iteration": _compact_research_iteration(result_iteration),
+                    "message": "Starting paper trading for achieved strategy",
+                },
+            )
             paper_trading = await self._start_paper_trading(
                 user_id,
                 request,
@@ -1082,6 +1153,23 @@ def _coerce_unit_status(value: Any) -> UnitStatusResponse | None:
     if isinstance(value, dict):
         return UnitStatusResponse.model_validate(value)
     return None
+
+
+async def _emit_research_progress(
+    progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
+    payload: dict[str, Any],
+) -> None:
+    if progress_callback is None:
+        return
+    result = progress_callback(payload)
+    if result is not None:
+        await result
+
+
+def _research_loop_progress(iteration_count: int, max_iterations: int) -> float:
+    if max_iterations <= 0:
+        return 12.0
+    return round(10.0 + (min(iteration_count, max_iterations) / max_iterations) * 72.0, 2)
 
 
 def _find_unit_status(items: list[Any], unit_id: str) -> UnitStatusResponse | None:

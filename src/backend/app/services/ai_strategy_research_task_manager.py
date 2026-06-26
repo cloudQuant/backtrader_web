@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -43,6 +44,9 @@ class AIStrategyResearchTaskManager:
             task_id=task_id,
             status="pending",
             submitted_at=_utc_iso_now(),
+            current_stage="queued",
+            progress=0.0,
+            max_iterations=request.max_iterations,
             message="AI research task submitted",
         )
         async with self._lock:
@@ -75,6 +79,9 @@ class AIStrategyResearchTaskManager:
             task_id,
             status="running",
             started_at=_utc_iso_now(),
+            current_stage="starting",
+            progress=1.0,
+            max_iterations=request.max_iterations,
             message="AI research task is running",
         )
         try:
@@ -83,12 +90,36 @@ class AIStrategyResearchTaskManager:
                 from app.services.ai_strategy_research_service import AIStrategyResearchService
 
                 runner = AIStrategyResearchService()
-            result = await runner.run(user_id, request)
+
+            async def progress_callback(payload: dict[str, Any]) -> None:
+                await self._update_task(
+                    task_id,
+                    status="running",
+                    **payload,
+                )
+
+            if _runner_accepts_progress_callback(runner):
+                result = await runner.run(
+                    user_id,
+                    request,
+                    progress_callback=progress_callback,
+                )
+            else:
+                result = await runner.run(user_id, request)
+
+            latest_iteration = (
+                result.iterations[-1].model_dump(mode="json") if result.iterations else None
+            )
             await self._update_task(
                 task_id,
                 status="completed",
                 completed_at=_utc_iso_now(),
                 run_id=result.run_id,
+                current_stage=str((result.pipeline or {}).get("current_stage") or "completed"),
+                progress=100.0,
+                iteration_count=len(result.iterations),
+                max_iterations=request.max_iterations,
+                latest_iteration=latest_iteration,
                 result=result,
                 message=result.message,
             )
@@ -97,6 +128,7 @@ class AIStrategyResearchTaskManager:
                 task_id,
                 status="failed",
                 completed_at=_utc_iso_now(),
+                current_stage="failed",
                 error=str(exc),
                 message="AI research task failed",
             )
@@ -117,3 +149,14 @@ def get_ai_strategy_research_task_manager() -> AIStrategyResearchTaskManager:
     if _manager is None:
         _manager = AIStrategyResearchTaskManager()
     return _manager
+
+
+def _runner_accepts_progress_callback(runner: Any) -> bool:
+    try:
+        signature = inspect.signature(runner.run)
+    except (TypeError, ValueError):
+        return False
+    return any(
+        name == "progress_callback" or param.kind == inspect.Parameter.VAR_KEYWORD
+        for name, param in signature.parameters.items()
+    )
