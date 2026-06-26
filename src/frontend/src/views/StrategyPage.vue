@@ -276,11 +276,7 @@
                     type="info"
                     @close="clearAIResearchContinuation"
                   >
-                    {{
-                      aiResearchForm.continuation_source === 'paper_review'
-                        ? '从模拟复核反馈继续'
-                        : '从历史最佳策略继续'
-                    }}
+                    {{ aiResearchContinuationLabel }}
                   </el-tag>
                 </div>
                 <el-button
@@ -438,6 +434,23 @@
                     <MagicStick />
                   </el-icon>
                   复核模拟
+                </el-button>
+                <el-button
+                  v-if="canContinueResearchFromCurrentPaperIssue && !aiResearchCurrentPaperReview"
+                  size="small"
+                  type="warning"
+                  plain
+                  :loading="aiResearchRunning && aiResearchForm.continue_from_run_id === aiResearchResult.run_id"
+                  data-test="ai-research-current-continue-paper-issue"
+                  @click="continueResearchFromCurrentPaperReview"
+                >
+                  <el-icon
+                    class="mr-1"
+                    aria-hidden="true"
+                  >
+                    <MagicStick />
+                  </el-icon>
+                  继续改进
                 </el-button>
               </div>
 
@@ -1216,6 +1229,11 @@ const aiResearchPaperStatusText = computed(() => {
 const aiResearchContinuationEnabled = computed(() =>
   Boolean(aiResearchForm.seed_strategy_id || aiResearchForm.continue_from_run_id)
 )
+const aiResearchContinuationLabel = computed(() => {
+  if (aiResearchForm.continuation_source === 'paper_review') return '从模拟复核反馈继续'
+  if (aiResearchForm.continuation_source === 'paper_trading_failed') return '从模拟启动失败继续'
+  return '从历史最佳策略继续'
+})
 const canCancelAIResearchTask = computed(() =>
   aiResearchRunning.value
   && Boolean(aiResearchTaskId.value)
@@ -1232,6 +1250,10 @@ const canReviewPaperFromCurrentResult = computed(() => {
 const canContinueResearchFromCurrentPaperReview = computed(() => {
   const record = aiResearchResult.value?.run_record
   return Boolean(record && canContinueResearchFromPaperReview(record))
+})
+const canContinueResearchFromCurrentPaperIssue = computed(() => {
+  const record = aiResearchResult.value?.run_record
+  return Boolean(record && canContinueResearchFromPaperIssue(record))
 })
 const aiResearchCurrentPaperReview = computed(() => {
   const result = aiResearchResult.value
@@ -1533,8 +1555,7 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.research_workspace_id = record.research_workspace_id || ''
   aiResearchForm.seed_strategy_id = record.best_strategy_id || ''
   aiResearchForm.continue_from_run_id = record.best_strategy_id ? record.run_id : ''
-  aiResearchForm.continuation_source =
-    record.paper_review_status && !record.paper_review_ready_for_live ? 'paper_review' : ''
+  aiResearchForm.continuation_source = continuationSourceForRecord(record)
 }
 
 function enabledQualityGate(enabled: boolean, value: number) {
@@ -1556,10 +1577,28 @@ function canReviewPaperFromRecord(record: AIStrategyResearchRunRecord) {
 }
 
 function canContinueResearchFromPaperReview(record: AIStrategyResearchRunRecord) {
+  return canContinueResearchFromPaperIssue(record)
+}
+
+function canContinueResearchFromPaperIssue(record: AIStrategyResearchRunRecord) {
   return Boolean(
     record.best_strategy_id &&
-    record.paper_review_status === 'needs_research_review' &&
-    !record.paper_review_ready_for_live
+    continuationSourceForRecord(record)
+  )
+}
+
+function continuationSourceForRecord(record: AIStrategyResearchRunRecord) {
+  if (record.paper_review_status === 'needs_research_review' && !record.paper_review_ready_for_live) {
+    return 'paper_review'
+  }
+  if (isPaperTradingStartFailure(record)) return 'paper_trading_failed'
+  return ''
+}
+
+function isPaperTradingStartFailure(record: AIStrategyResearchRunRecord) {
+  return Boolean(
+    record.pipeline?.current_stage === 'paper_trading_failed'
+    || record.pipeline?.paper_trading_error
   )
 }
 

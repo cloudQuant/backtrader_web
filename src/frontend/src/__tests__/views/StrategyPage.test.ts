@@ -649,6 +649,23 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchRuns[0].pipeline.paper_trading_error).toBe(
       'Failed to create paper trading unit'
     )
+
+    const continueButton = wrapper.findAll('button').find(
+      button => button.text().includes('继续改进')
+    )
+    expect(continueButton).toBeTruthy()
+    await continueButton!.trigger('click')
+    await flushPromises()
+
+    expect(vm.aiResearchForm.continuation_source).toBe('paper_trading_failed')
+    expect(wrapper.text()).toContain('从模拟启动失败继续')
+    expect(strategyApi.runAIResearchLoop).toHaveBeenLastCalledWith(expect.objectContaining({
+      prompt: '生成一个趋势策略',
+      symbol: '000001.SZ',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: 's1',
+      continue_from_run_id: 'run-1',
+    }))
   })
 
   it('runs AI research through async task polling when task API is available', async () => {

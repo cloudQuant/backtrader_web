@@ -368,8 +368,14 @@ class AIStrategyResearchService:
                 request=request,
             )
             draft = _normalize_research_draft(improvement.draft, request)
+            continuation_source = str(request.continuation_context.get("source") or "")
+            continuation_note = (
+                "基于上一轮模拟交易启动失败原因生成 continuation 改进版。"
+                if continuation_source == "paper_trading_failed"
+                else "基于上一轮模拟交易复核结果生成 continuation 改进版。"
+            )
             pending_improvement_notes = [
-                "基于上一轮模拟交易复核结果生成 continuation 改进版。",
+                continuation_note,
                 *improvement.notes,
             ]
         achieved = False
@@ -2497,7 +2503,21 @@ def _continuation_context_from_record(
         if isinstance(item, dict) and str(item.get("status") or "") == "failed"
     ]
     if not failed_evaluations and record.paper_review_status != "needs_research_review":
-        return {}
+        paper_trading_error = _paper_trading_start_failure_from_record(record)
+        if not paper_trading_error:
+            return {}
+        failure = "模拟交易启动失败"
+        if paper_trading_error:
+            failure = f"{failure}：{paper_trading_error}"
+        return {
+            "source": "paper_trading_failed",
+            "run_id": record.run_id,
+            "paper_trading_error": paper_trading_error,
+            "quality_gate_failures": [failure],
+            "pipeline": dict(record.pipeline or {}),
+            "next_actions": list(record.next_actions or []),
+            "metrics": dict(record.best_metrics or {}),
+        }
 
     failures = [_paper_review_failure_text(item) for item in failed_evaluations]
     if not failures and record.paper_review_status:
@@ -2519,6 +2539,28 @@ def _continuation_context_from_record(
         "paper_review_next_actions": list(record.paper_review_next_actions or []),
         "metrics": metrics,
     }
+
+
+def _paper_trading_start_failure_from_record(record: AIStrategyResearchRunRecord) -> str:
+    pipeline = record.pipeline if isinstance(record.pipeline, dict) else {}
+    error = str(pipeline.get("paper_trading_error") or "").strip()
+    if error:
+        return error
+
+    steps = pipeline.get("steps")
+    if isinstance(steps, list):
+        for item in steps:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key") or "").strip()
+            status = str(item.get("status") or "").strip()
+            if key != "paper_trading" or status != "failed":
+                continue
+            return str(item.get("error") or item.get("message") or "").strip()
+
+    if str(pipeline.get("current_stage") or "").strip() == "paper_trading_failed":
+        return "unknown paper trading start failure"
+    return ""
 
 
 def _paper_review_failure_text(item: dict[str, Any]) -> str:
@@ -2787,7 +2829,9 @@ def _failure_categories(
         categories.append("backtest_runtime")
     for failure in quality_gate_failures:
         lowered = failure.lower()
-        if "sharpe" in lowered:
+        if _is_paper_trading_start_failure(failure):
+            categories.append("paper_trading_start")
+        elif "sharpe" in lowered:
             categories.append("sharpe")
         elif "trade" in lowered or "trades" in lowered or "交易" in failure:
             categories.append("trade_count")
@@ -2804,6 +2848,15 @@ def _failure_categories(
     if not categories and failure_reason:
         categories.append("unknown")
     return list(dict.fromkeys(categories))
+
+
+def _is_paper_trading_start_failure(failure: str) -> bool:
+    lowered = failure.lower()
+    return (
+        "paper trading start" in lowered
+        or "paper_trading_failed" in lowered
+        or "模拟交易启动" in failure
+    )
 
 
 def _gate_strengths(evaluations: list[dict[str, Any]]) -> list[str]:
@@ -2867,6 +2920,8 @@ def _improvement_plan_from_failures(
     categories = set(failure_categories)
     if "backtest_runtime" in categories:
         plan.append("先修复策略运行错误、数据源缺口或超时问题，再继续生成下一版。")
+    if "paper_trading_start" in categories:
+        plan.append("优先复核模拟交易单元创建、网关配置、策略脚本依赖和资产参数后再重试。")
     if "trade_count" in categories:
         plan.append("放宽入场过滤、缩短慢速指标窗口或降低确认条件，优先提高有效交易样本数。")
     if "sharpe" in categories:
@@ -3325,6 +3380,8 @@ def _iteration_next_actions(
         lowered = failure.lower()
         if "sharpe" in lowered:
             actions.append("提高信号质量和盈亏比，优先减少低胜率或低收益质量的入场。")
+        elif _is_paper_trading_start_failure(failure):
+            actions.append("优先复核模拟交易单元创建、网关配置、策略脚本依赖和资产参数。")
         elif "trade" in lowered or "trades" in lowered or "交易" in failure:
             actions.append("放宽入场过滤或缩短信号窗口，先保证样本内有足够交易次数。")
         elif "drawdown" in lowered or "回撤" in failure:

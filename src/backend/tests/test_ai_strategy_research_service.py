@@ -1489,6 +1489,77 @@ async def test_research_loop_continuation_uses_failed_paper_review_before_backte
 
 
 @pytest.mark.asyncio
+async def test_research_loop_continuation_uses_paper_start_failure_before_backtest():
+    workspace_service = FakeWorkspaceService()
+    pipeline = {
+        "current_stage": "paper_trading_failed",
+        "status": "achieved",
+        "progress": 60,
+        "ready_for_live": False,
+        "paper_trading_error": "Failed to create paper trading unit",
+        "steps": [
+            {
+                "key": "paper_trading",
+                "label": "启动模拟交易",
+                "status": "failed",
+                "error": "Failed to create paper trading unit",
+            }
+        ],
+    }
+    record = {
+        **_run_record(
+            "paper-start-failed-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "paper_trading_started": False,
+        "paper_workspace_id": None,
+        "paper_unit_id": None,
+        "pipeline": pipeline,
+        "next_actions": ["模拟交易启动错误：Failed to create paper trading unit"],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [record]}}}
+    )
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "模拟启动失败策略"}
+    )
+    seed_strategy = _strategy("strategy-2", seed_draft)
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.18, "total_trades": 6, "max_drawdown": -4.0}],
+        strategies={"strategy-2": seed_strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续模拟启动失败后的策略投研",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            continue_from_run_id="paper-start-failed-run",
+            start_paper_trading=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert strategy_service.generated == 0
+    assert strategy_service.submitted_drafts[0].name == "模拟启动失败策略 v1"
+    assert "基于上一轮模拟交易启动失败原因" in result.iterations[0].improvement_notes[0]
+    assert any("模拟交易启动失败：Failed to create paper trading unit" in note for note in result.iterations[0].improvement_notes)
+    assert result.run_record is not None
+    assert result.run_record.continued_from_run_id == "paper-start-failed-run"
+
+
+@pytest.mark.asyncio
 async def test_research_loop_falls_back_when_initial_generated_strategy_is_invalid():
     workspace_service = FakeWorkspaceService()
     strategy_service = FakeInvalidDraftStrategyService(workspace_service)
