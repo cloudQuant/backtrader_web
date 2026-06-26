@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
+from app.services.gateway import runtime as gateway_runtime_service
 from app.services.live_trading_manager import (
     _PROJECT_ROOT,
     LiveTradingManager,
@@ -354,6 +355,106 @@ def test_query_instance_asset_specs_merges_runtime_config_gateway_and_last_price
     assert spec["price_tick"] == pytest.approx(0.2)
     assert spec["current_price"] == pytest.approx(5001.0)
     assert spec["source"] == "gateway.get_symbol_info"
+
+
+def _runtime_gateway(exchange_type: str = "CTP", asset_type: str = "FUTURE", adapter=None):
+    return {
+        "runtime": SimpleNamespace(adapter=adapter),
+        "config": SimpleNamespace(
+            exchange_type=exchange_type,
+            asset_type=asset_type,
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+            account_id="acc-1",
+            startup_timeout_sec=1,
+            command_timeout_sec=1,
+        ),
+    }
+
+
+def test_build_subprocess_env_rejects_derivative_spec_missing_margin_and_fee(tmp_path):
+    strategy_dir = tmp_path / "runtime"
+    strategy_dir.mkdir()
+    (strategy_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
+
+    class FakeAdapter:
+        def get_symbol_info(self, symbol):
+            assert symbol == "IF2609"
+            return {"symbol": symbol, "asset_type": "future", "contract_size": 300}
+
+    gateway = _runtime_gateway(adapter=FakeAdapter())
+    instance = {
+        "id": "inst-a",
+        "strategy_id": "demo",
+        "params": {"symbol": "IF2609"},
+    }
+
+    with patch(
+        "app.services.gateway.runtime.wait_gateway_runtime_ready",
+        return_value=None,
+    ), patch(
+        "app.services.trading_asset_info_service._query_local_futures_spec",
+        return_value={},
+    ):
+        with pytest.raises(RuntimeError) as exc_info:
+            gateway_runtime_service.build_subprocess_env(
+                instance_id="inst-a",
+                instance=instance,
+                strategy_dir=strategy_dir,
+                acquire_gateway_for_instance=lambda *_args, **_kwargs: gateway,
+                os_environ={},
+                bt_api_py_dir=tmp_path,
+                backtrader_dir=None,
+            )
+
+    message = str(exc_info.value)
+    assert "missing margin/leverage metadata" in message
+    assert "missing commission/fee metadata" in message
+
+
+def test_build_subprocess_env_accepts_explicit_zero_commission_metadata(tmp_path):
+    strategy_dir = tmp_path / "runtime"
+    strategy_dir.mkdir()
+    (strategy_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
+
+    class FakeAdapter:
+        def get_symbol_info(self, symbol):
+            assert symbol == "IF2609"
+            return {
+                "symbol": symbol,
+                "asset_type": "future",
+                "contract_size": 300,
+                "margin_rate": 0.1,
+                "commission_rate": 0.0,
+            }
+
+    gateway = _runtime_gateway(adapter=FakeAdapter())
+    instance = {
+        "id": "inst-a",
+        "strategy_id": "demo",
+        "params": {"symbol": "IF2609"},
+    }
+
+    with patch(
+        "app.services.gateway.runtime.wait_gateway_runtime_ready",
+        return_value=None,
+    ):
+        env = gateway_runtime_service.build_subprocess_env(
+            instance_id="inst-a",
+            instance=instance,
+            strategy_dir=strategy_dir,
+            acquire_gateway_for_instance=lambda *_args, **_kwargs: gateway,
+            os_environ={},
+            bt_api_py_dir=tmp_path,
+            backtrader_dir=None,
+        )
+
+    assert env["BT_GATEWAY_ASSET_TYPE"] == "FUTURE"
+    metadata = instance["params"]["contract_metadata"]["IF2609"]
+    assert metadata["contract_size"] == pytest.approx(300.0)
+    assert metadata["margin_rate"] == pytest.approx(0.1)
+    assert metadata["commission_rate"] == pytest.approx(0.0)
 
 
 def test_query_instance_gateway_positions_reads_runtime_adapter_positions():

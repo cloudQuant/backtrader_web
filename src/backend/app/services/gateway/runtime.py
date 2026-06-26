@@ -174,6 +174,67 @@ _CONTRACT_SPEC_KEYS = (
     "ctVal",
     "VolumeMultiple",
 )
+_MARGIN_SPEC_KEYS = (
+    "margin",
+    "margin_rate",
+    "long_margin_rate",
+    "short_margin_rate",
+    "margin_ratio",
+    "margin_initial",
+    "initial_margin",
+    "margin_amount",
+    "initial_margin_per_lot",
+    "margin_initial_per_lot",
+    "margin_value",
+    "use_margin",
+    "imr",
+    "mmr",
+    "positionIM",
+    "positionIMByMp",
+    "MARGIN_PER_LOT",
+    "LONG_MARGIN_AMOUNT",
+    "SHORT_MARGIN_AMOUNT",
+    "LongMarginRatioByMoney",
+    "ShortMarginRatioByMoney",
+    "LongMarginRatioByVolume",
+    "ShortMarginRatioByVolume",
+    "longMarginRatioByMoney",
+    "shortMarginRatioByMoney",
+    "leverage",
+    "lever",
+    "max_leverage",
+    "maxLeverage",
+)
+_FEE_SPEC_KEYS = (
+    "commission_rate",
+    "open_commission_rate",
+    "close_commission_rate",
+    "close_today_commission_rate",
+    "close_yesterday_commission_rate",
+    "maker_commission_rate",
+    "taker_commission_rate",
+    "commission_amount",
+    "open_commission_amount",
+    "close_commission_amount",
+    "close_today_commission_amount",
+    "close_yesterday_commission_amount",
+    "OpenRatioByMoney",
+    "CloseRatioByMoney",
+    "CloseTodayRatioByMoney",
+    "CloseYesterdayRatioByMoney",
+    "OpenRatioByVolume",
+    "CloseRatioByVolume",
+    "CloseTodayRatioByVolume",
+    "CloseYesterdayRatioByVolume",
+    "COMMISSION_OPEN_RATIO",
+    "COMMISSION_CLOSE_RATIO",
+    "COMMISSION_CLOSE_TODAY_RATIO",
+    "COMMISSION_CLOSE_YESTERDAY_RATIO",
+    "COMMISSION_OPEN_AMOUNT",
+    "COMMISSION_CLOSE_AMOUNT",
+    "COMMISSION_CLOSE_TODAY_AMOUNT",
+    "COMMISSION_CLOSE_YESTERDAY_AMOUNT",
+)
 _CONTRACT_ASSET_TYPES = {
     "CFD",
     "COIN-M",
@@ -213,6 +274,10 @@ def _positive_spec_number(spec: dict[str, Any], *keys: str) -> bool:
         except (TypeError, ValueError):
             continue
     return False
+
+
+def _has_spec_value(spec: dict[str, Any], *keys: str) -> bool:
+    return any(spec.get(key) not in (None, "") for key in keys)
 
 
 def _asset_type_requires_contract_spec(gateway: dict[str, Any] | None, spec: dict[str, Any]) -> bool:
@@ -287,10 +352,13 @@ def _validate_runtime_asset_specs(
         if not spec:
             missing.append(symbol)
             continue
-        if _asset_type_requires_contract_spec(gateway, spec) and not _positive_spec_number(
-            spec, *_CONTRACT_SPEC_KEYS
-        ):
-            incomplete.append(f"{symbol}: missing contract multiplier/value")
+        if _asset_type_requires_contract_spec(gateway, spec):
+            if not _positive_spec_number(spec, *_CONTRACT_SPEC_KEYS):
+                incomplete.append(f"{symbol}: missing contract multiplier/value")
+            if not _positive_spec_number(spec, *_MARGIN_SPEC_KEYS):
+                incomplete.append(f"{symbol}: missing margin/leverage metadata")
+            if not _has_spec_value(spec, *_FEE_SPEC_KEYS):
+                incomplete.append(f"{symbol}: missing commission/fee metadata")
 
     if missing:
         raise RuntimeError(
