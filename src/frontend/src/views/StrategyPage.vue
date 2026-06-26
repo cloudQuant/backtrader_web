@@ -410,30 +410,50 @@
                 v-else-if="aiResearchRuns.length"
                 class="ai-research-history-list"
               >
-                <button
+                <div
                   v-for="record in aiResearchRuns"
                   :key="record.run_id"
-                  type="button"
                   class="ai-research-history-item"
-                  @click="useAIResearchRecord(record)"
                 >
-                  <span class="ai-research-history-main">
-                    <strong>{{ record.prompt }}</strong>
-                    <el-tag
-                      size="small"
-                      :type="record.achieved ? 'success' : 'warning'"
+                  <button
+                    type="button"
+                    class="ai-research-history-select"
+                    @click="useAIResearchRecord(record)"
+                  >
+                    <span class="ai-research-history-main">
+                      <strong>{{ record.prompt }}</strong>
+                      <el-tag
+                        size="small"
+                        :type="record.achieved ? 'success' : 'warning'"
+                      >
+                        {{ record.status }}
+                      </el-tag>
+                    </span>
+                    <span class="ai-research-history-meta">
+                      <span>{{ record.symbol }}</span>
+                      <span>{{ t('strategy.aiResearchBestSharpe') }} {{ formatMetric(record.best_sharpe) }}</span>
+                      <span>质量分 {{ formatMetric(record.best_quality_score) }}</span>
+                      <span>{{ t('strategy.aiResearchIterations') }} {{ record.iteration_count }}</span>
+                      <span>{{ formatDateTime(record.completed_at) }}</span>
+                    </span>
+                  </button>
+                  <el-button
+                    v-if="canStartPaperFromRecord(record)"
+                    size="small"
+                    type="success"
+                    :loading="aiResearchPaperStartingRunId === record.run_id"
+                    data-test="ai-research-history-start-paper"
+                    @click="startPaperFromResearchRecord(record)"
+                  >
+                    <el-icon
+                      class="mr-1"
+                      aria-hidden="true"
                     >
-                      {{ record.status }}
-                    </el-tag>
-                  </span>
-                  <span class="ai-research-history-meta">
-                    <span>{{ record.symbol }}</span>
-                    <span>{{ t('strategy.aiResearchBestSharpe') }} {{ formatMetric(record.best_sharpe) }}</span>
-                    <span>质量分 {{ formatMetric(record.best_quality_score) }}</span>
-                    <span>{{ t('strategy.aiResearchIterations') }} {{ record.iteration_count }}</span>
-                    <span>{{ formatDateTime(record.completed_at) }}</span>
-                  </span>
-                </button>
+                      <VideoPlay />
+                    </el-icon>
+                    启动模拟
+                  </el-button>
+                </div>
               </div>
               <div
                 v-else
@@ -687,6 +707,7 @@ const aiResearchRunning = ref(false)
 const aiResearchResult = ref<AIStrategyResearchRunResponse | null>(null)
 const aiResearchRunsLoading = ref(false)
 const aiResearchRuns = ref<AIStrategyResearchRunRecord[]>([])
+const aiResearchPaperStartingRunId = ref('')
 
 const form = reactive({
   name: '',
@@ -857,10 +878,38 @@ function researchIterationNextActions(item: AIStrategyResearchRunResponse['itera
   return item.next_actions ?? []
 }
 
+function canStartPaperFromRecord(record: AIStrategyResearchRunRecord) {
+  return Boolean(record.achieved && !record.paper_trading_started && record.best_strategy_id)
+}
+
 function clearAIResearchContinuation() {
   aiResearchForm.research_workspace_id = ''
   aiResearchForm.seed_strategy_id = ''
   aiResearchForm.continue_from_run_id = ''
+}
+
+async function startPaperFromResearchRecord(record: AIStrategyResearchRunRecord) {
+  aiResearchPaperStartingRunId.value = record.run_id
+  try {
+    const paper = await strategyApi.startAIResearchPaperTrading(record.run_id, {
+      research_workspace_id: record.research_workspace_id,
+    })
+    aiResearchRuns.value = aiResearchRuns.value.map(item =>
+      item.run_id === record.run_id
+        ? {
+            ...item,
+            paper_trading_started: paper.started,
+            paper_workspace_id: paper.workspace.id,
+            paper_unit_id: paper.unit.id,
+          }
+        : item
+    )
+    ElMessage.success('模拟交易已启动')
+  } catch {
+    ElMessage.error(t('strategy.aiResearchRunFailed'))
+  } finally {
+    aiResearchPaperStartingRunId.value = ''
+  }
 }
 
 async function runAIResearchLoop() {
@@ -1233,11 +1282,23 @@ onMounted(async () => {
   border-radius: 8px;
   padding: 10px 12px;
   background: var(--el-bg-color);
-  text-align: left;
-  cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.ai-research-history-item:focus-visible {
+.ai-research-history-select {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-research-history-select:focus-visible {
   outline: 2px solid var(--el-color-primary);
   outline-offset: 2px;
 }

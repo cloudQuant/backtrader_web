@@ -16,6 +16,7 @@ from typing import Any
 from app.config import get_settings
 from app.schemas.ai_strategy_research import (
     AIStrategyPaperTradingStart,
+    AIStrategyPaperTradingStartRequest,
     AIStrategyResearchIteration,
     AIStrategyResearchRunListResponse,
     AIStrategyResearchRunRecord,
@@ -497,6 +498,58 @@ class AIStrategyResearchService:
         records.sort(key=lambda item: item.completed_at, reverse=True)
         return AIStrategyResearchRunListResponse(total=len(records), items=records[:limit])
 
+    async def start_paper_trading_from_run(
+        self,
+        user_id: str,
+        run_id: str,
+        request: AIStrategyPaperTradingStartRequest,
+    ) -> AIStrategyPaperTradingStart:
+        record = await self._find_research_run_record(
+            user_id,
+            run_id,
+            research_workspace_id=request.research_workspace_id,
+        )
+        if record is None:
+            raise ValueError("AI research run record not found")
+        if not record.achieved:
+            raise ValueError("AI research run has not achieved its quality gates")
+        if record.paper_trading_started:
+            raise ValueError("AI research run has already started paper trading")
+
+        iteration_payload = _best_iteration_payload(record)
+        if iteration_payload is None:
+            raise ValueError("AI research run record has no best iteration to promote")
+        if not record.best_strategy_id:
+            raise ValueError("AI research run record has no best strategy to promote")
+
+        strategy = await self.strategy_service.get_strategy(record.best_strategy_id, user_id)
+        if strategy is None:
+            raise ValueError("Best strategy not found")
+
+        unit_id = str(iteration_payload.get("unit_id") or "").strip()
+        if not unit_id:
+            raise ValueError("AI research run record has no research unit to promote")
+        unit = await self.workspace_service.get_unit(record.research_workspace_id, unit_id, user_id)
+        if unit is None:
+            raise ValueError("Research unit not found")
+
+        run_request = _paper_start_request_from_record(record, request)
+        iteration = _iteration_from_record_payload(
+            record,
+            strategy=strategy,
+            unit=unit,
+            payload=iteration_payload,
+        )
+        paper_trading = await self._start_paper_trading(
+            user_id,
+            run_request,
+            iteration,
+            run_id=record.run_id,
+            research_workspace_id=record.research_workspace_id,
+        )
+        await self._mark_run_record_paper_started(user_id, record, paper_trading)
+        return paper_trading
+
     async def _ensure_research_workspace(
         self,
         user_id: str,
@@ -820,6 +873,28 @@ class AIStrategyResearchService:
 
         settings["ai_research"] = ai_research
         return research_workspace.model_copy(update={"settings": settings})
+
+    async def _mark_run_record_paper_started(
+        self,
+        user_id: str,
+        record: AIStrategyResearchRunRecord,
+        paper_trading: AIStrategyPaperTradingStart,
+    ) -> WorkspaceResponse | None:
+        workspace = await self.workspace_service.get_workspace(record.research_workspace_id, user_id)
+        if workspace is None:
+            return None
+        updated_record = record.model_copy(
+            update={
+                "paper_workspace_id": paper_trading.workspace.id,
+                "paper_unit_id": paper_trading.unit.id,
+                "paper_trading_started": paper_trading.started,
+                "next_actions": [
+                    "已从历史投研结果启动模拟交易，下一步跟踪模拟账户成交、持仓和风控指标。",
+                    "保留研究工作区记录，用于后续继续投研或样本外验证。",
+                ],
+            }
+        )
+        return await self._persist_research_run_record(user_id, workspace, updated_record)
 
 
 def _coerce_unit_status(value: Any) -> UnitStatusResponse | None:
@@ -1253,6 +1328,96 @@ def _draft_from_strategy(
         suggested_symbol=request.symbol,
         suggested_timeframe=request.timeframe,
     )
+
+
+def _best_iteration_payload(record: AIStrategyResearchRunRecord) -> dict[str, Any] | None:
+    for item in record.iterations:
+        if int(item.get("iteration") or 0) == int(record.best_iteration or 0):
+            return dict(item)
+    if record.iterations:
+        return dict(record.iterations[0])
+    return None
+
+
+def _paper_start_request_from_record(
+    record: AIStrategyResearchRunRecord,
+    request: AIStrategyPaperTradingStartRequest,
+) -> AIStrategyResearchRunRequest:
+    gates = dict(record.quality_gates or {})
+    return AIStrategyResearchRunRequest(
+        prompt=record.prompt,
+        symbol=record.symbol,
+        symbol_name=record.symbol_name,
+        timeframe=record.timeframe,
+        timeframe_n=record.timeframe_n,
+        target_sharpe=record.target_sharpe,
+        min_total_trades=record.min_total_trades,
+        max_drawdown_limit=_optional_gate_number(gates.get("max_drawdown_limit")),
+        min_total_return=_optional_gate_number(gates.get("min_total_return")),
+        min_annual_return=_optional_gate_number(gates.get("min_annual_return")),
+        min_win_rate=_optional_gate_number(gates.get("min_win_rate")),
+        max_iterations=max(int(record.max_iterations or 1), 1),
+        research_workspace_id=record.research_workspace_id,
+        trading_workspace_id=request.trading_workspace_id,
+        seed_strategy_id=record.best_strategy_id,
+        continue_from_run_id=record.run_id,
+        start_paper_trading=True,
+        paper_workspace_name=request.paper_workspace_name,
+        gateway_config=request.gateway_config,
+    )
+
+
+def _iteration_from_record_payload(
+    record: AIStrategyResearchRunRecord,
+    *,
+    strategy: StrategyResponse,
+    unit: StrategyUnitResponse,
+    payload: dict[str, Any],
+) -> AIStrategyResearchIteration:
+    metrics = dict(payload.get("metrics") or record.best_metrics or {})
+    run_status = str(payload.get("run_status") or "completed")
+    task_id = payload.get("task_id")
+    return AIStrategyResearchIteration(
+        iteration=int(payload.get("iteration") or record.best_iteration or 1),
+        strategy=strategy,
+        unit=unit,
+        run_result=StrategyCopilotRunResult(
+            unit_id=unit.id,
+            task_id=str(task_id) if task_id else None,
+            status=run_status,
+        ),
+        unit_status=UnitStatusResponse(
+            id=unit.id,
+            run_status=run_status,
+            last_task_id=str(task_id) if task_id else None,
+            metrics_snapshot=metrics,
+            run_count=unit.run_count,
+            trading_mode=unit.trading_mode,
+        ),
+        metrics=metrics,
+        sharpe_ratio=_metric_float(metrics, "sharpe_ratio", "sharpe", "sharpeRatio"),
+        total_trades=_metric_int(metrics, "total_trades", "totalTrades", "trades"),
+        quality_score=float(payload.get("quality_score") or record.best_quality_score or 0.0),
+        quality_gate_evaluations=list(
+            payload.get("quality_gate_evaluations")
+            or record.best_quality_gate_evaluations
+            or []
+        ),
+        passed=bool(payload.get("passed", record.achieved)),
+        failure_reason=payload.get("failure_reason"),
+        quality_gate_failures=list(payload.get("quality_gate_failures") or []),
+        improvement_notes=list(payload.get("improvement_notes") or []),
+        next_actions=list(payload.get("next_actions") or []),
+    )
+
+
+def _optional_gate_number(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _build_research_run_record(

@@ -190,6 +190,13 @@ export interface AIStrategyPaperTradingStart {
   handoff?: Record<string, unknown> | null
 }
 
+export interface AIStrategyPaperTradingStartRequest {
+  research_workspace_id?: string | null
+  trading_workspace_id?: string | null
+  paper_workspace_name?: string | null
+  gateway_config?: Record<string, unknown>
+}
+
 export interface AIStrategyResearchRunRecord {
   run_id: string
   prompt: string
@@ -419,6 +426,16 @@ export const strategyApi = {
     return api.get<AIStrategyResearchRunListResponse>('/strategy/ai-research/runs', {
       params: { research_workspace_id: researchWorkspaceId || undefined, limit },
     })
+  },
+
+  async startAIResearchPaperTrading(
+    runId: string,
+    data: AIStrategyPaperTradingStartRequest
+  ): Promise<AIStrategyPaperTradingStart> {
+    return api.post<AIStrategyPaperTradingStart, AIStrategyPaperTradingStartRequest>(
+      `/strategy/ai-research/runs/${runId}/paper-trading`,
+      data
+    )
   },
 
   async createScore(data: StrategyScoreRequest): Promise<StrategyScoreResponse> {

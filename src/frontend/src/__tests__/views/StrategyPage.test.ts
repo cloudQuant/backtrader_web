@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import StrategyPage from '@/views/StrategyPage.vue'
 import { stripStrategyMeta, getStrategyParamCount } from '@/constants/strategy'
@@ -207,6 +207,57 @@ vi.mock('@/api/strategy', () => ({
         iterations: [],
       },
       message: 'ok',
+    }),
+    startAIResearchPaperTrading: vi.fn().mockResolvedValue({
+      workspace: {
+        id: 'paper-ws',
+        user_id: 'u1',
+        name: 'AI模拟交易',
+        description: null,
+        workspace_type: 'trading',
+        settings: {},
+        trading_config: {},
+        unit_count: 1,
+        completed_count: 0,
+        status: 'running',
+        created_at: '2026-06-27T00:00:00Z',
+        updated_at: '2026-06-27T00:00:00Z',
+      },
+      unit: {
+        id: 'paper-unit',
+        workspace_id: 'paper-ws',
+        group_name: 'AI策略',
+        strategy_id: 's1',
+        strategy_name: 'AI策略',
+        symbol: '000001.SZ',
+        symbol_name: '平安银行',
+        timeframe: '1d',
+        timeframe_n: 1,
+        category: 'trend',
+        sort_order: 1,
+        data_config: {},
+        unit_settings: {},
+        params: {},
+        optimization_config: {},
+        trading_mode: 'paper',
+        gateway_config: {},
+        lock_trading: false,
+        lock_running: false,
+        trading_instance_id: null,
+        trading_snapshot: {},
+        run_status: 'running',
+        run_count: 1,
+        last_run_time: null,
+        last_task_id: 'paper-task',
+        last_optimization_task_id: null,
+        bar_count: null,
+        metrics_snapshot: {},
+        created_at: '2026-06-27T00:00:00Z',
+        updated_at: '2026-06-27T00:00:00Z',
+      },
+      run_result: { unit_id: 'paper-unit', task_id: 'paper-task', status: 'running' },
+      started: true,
+      handoff: { run_id: 'history-run' },
     }),
   },
 }))
@@ -446,6 +497,60 @@ describe('StrategyPage', () => {
       seed_strategy_id: 'best-strategy',
       continue_from_run_id: 'history-run',
     }))
+  })
+
+  it('starts paper trading from an achieved history record', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchRuns = [
+      {
+        run_id: 'history-run',
+        prompt: '历史趋势策略',
+        symbol: '000001.SZ',
+        symbol_name: '平安银行',
+        timeframe: '1d',
+        timeframe_n: 1,
+        status: 'achieved',
+        achieved: true,
+        target_sharpe: 1,
+        quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+        min_total_trades: 1,
+        max_iterations: 3,
+        iteration_count: 2,
+        best_iteration: 2,
+        best_sharpe: 1.2,
+        best_quality_score: 100,
+        best_quality_gate_evaluations: [],
+        best_metrics: { sharpe_ratio: 1.2 },
+        best_strategy_id: 's1',
+        best_strategy_name: 'AI策略',
+        research_workspace_id: 'research-ws',
+        seed_strategy_id: null,
+        continued_from_run_id: null,
+        paper_workspace_id: null,
+        paper_unit_id: null,
+        paper_trading_started: false,
+        next_actions: [],
+        started_at: '2026-06-27T00:00:00Z',
+        completed_at: '2026-06-27T00:01:00Z',
+        iterations: [],
+      },
+    ]
+
+    await wrapper.vm.$nextTick()
+    expect(vm.canStartPaperFromRecord(vm.aiResearchRuns[0])).toBe(true)
+    await vm.startPaperFromResearchRecord(vm.aiResearchRuns[0])
+    await flushPromises()
+
+    expect(strategyApi.startAIResearchPaperTrading).toHaveBeenCalledWith('history-run', {
+      research_workspace_id: 'research-ws',
+    })
+    expect(vm.aiResearchRuns[0].paper_trading_started).toBe(true)
+    expect(vm.aiResearchRuns[0].paper_workspace_id).toBe('paper-ws')
+    expect(vm.aiResearchRuns[0].paper_unit_id).toBe('paper-unit')
+    expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已启动')
   })
 
   it('saveStrategy warns when name/code empty', async () => {

@@ -110,6 +110,15 @@ class AIStrategyPaperTradingStart(BaseModel):
     handoff: dict[str, Any] | None = None
 
 
+class AIStrategyPaperTradingStartRequest(BaseModel):
+    """Request to promote an existing AI research run into paper trading."""
+
+    research_workspace_id: str | None = Field(None, description="Workspace that stores the run")
+    trading_workspace_id: str | None = Field(None, description="Existing trading workspace")
+    paper_workspace_name: str | None = Field(None, description="Name for generated paper workspace")
+    gateway_config: dict[str, Any] = Field(default_factory=dict, description="Paper gateway config")
+
+
 class AIStrategyResearchRunRecord(BaseModel):
     """Compact persisted summary for one AI strategy research run."""
 

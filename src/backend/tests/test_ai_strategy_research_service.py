@@ -10,6 +10,8 @@ from httpx import AsyncClient
 from app.api.strategy.base import get_ai_strategy_research_service
 from app.main import app
 from app.schemas.ai_strategy_research import (
+    AIStrategyPaperTradingStart,
+    AIStrategyPaperTradingStartRequest,
     AIStrategyResearchRunListResponse,
     AIStrategyResearchRunRecord,
     AIStrategyResearchRunRequest,
@@ -145,6 +147,7 @@ class FakeWorkspaceService:
     def __init__(self) -> None:
         self.workspaces: dict[str, WorkspaceResponse] = {}
         self.statuses: dict[str, UnitStatusResponse] = {}
+        self.units: dict[str, StrategyUnitResponse] = {}
         self.created_units: list[StrategyUnitResponse] = []
         self.started_units: list[tuple[str, list[str]]] = []
         self.updated_workspaces: list[WorkspaceResponse] = []
@@ -188,6 +191,12 @@ class FakeWorkspaceService:
     async def get_units_status(self, workspace_id: str, user_id: str):
         return list(self.statuses.values())
 
+    async def get_unit(self, workspace_id: str, unit_id: str, user_id: str):
+        unit = self.units.get(unit_id)
+        if unit is None or unit.workspace_id != workspace_id:
+            return None
+        return unit
+
     async def create_unit(self, workspace_id: str, user_id: str, data):
         strategy = StrategyResponse(
             id=data.strategy_id or "strategy-paper",
@@ -207,6 +216,7 @@ class FakeWorkspaceService:
                 "gateway_config": data.gateway_config,
             }
         )
+        self.units[unit.id] = unit
         self.created_units.append(unit)
         return unit.model_dump(mode="python")
 
@@ -248,6 +258,7 @@ class FakeStrategyService:
         strategy = _strategy(f"strategy-{round_index + 1}", request.strategy_draft)
         metrics = self.metrics_by_round[round_index]
         unit = _unit(f"unit-{round_index + 1}", workspace_id, strategy, metrics=metrics)
+        self.workspace_service.units[unit.id] = unit
         self.workspace_service.statuses[unit.id] = UnitStatusResponse(
             id=unit.id,
             run_status="completed",
@@ -862,6 +873,93 @@ async def test_research_loop_quality_gates_accept_ratio_metrics():
 
 
 @pytest.mark.asyncio
+async def test_start_paper_trading_from_achieved_research_run_record():
+    workspace_service = FakeWorkspaceService()
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "历史最佳策略"}
+    )
+    strategy = _strategy("strategy-2", seed_draft)
+    research_unit = _unit(
+        "unit-2",
+        "research-ws",
+        strategy,
+        metrics={"sharpe_ratio": 1.21, "total_trades": 5},
+    )
+    workspace_service.units[research_unit.id] = research_unit
+    record = {
+        **_run_record(
+            "previous-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "paper_workspace_id": None,
+        "paper_unit_id": None,
+        "paper_trading_started": False,
+        "iterations": [
+            {
+                "iteration": 2,
+                "strategy_id": strategy.id,
+                "strategy_name": strategy.name,
+                "unit_id": research_unit.id,
+                "task_id": "task-2",
+                "run_status": "completed",
+                "metrics": {"sharpe_ratio": 1.21, "total_trades": 5},
+                "sharpe_ratio": 1.21,
+                "total_trades": 5,
+                "quality_score": 100.0,
+                "quality_gate_evaluations": [
+                    {
+                        "key": "sharpe",
+                        "label": "Sharpe",
+                        "actual": 1.21,
+                        "target": 1.0,
+                        "direction": "min",
+                        "passed": True,
+                        "score": 1.0,
+                    }
+                ],
+                "passed": True,
+                "quality_gate_failures": [],
+                "improvement_notes": [],
+                "next_actions": [],
+            }
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [record]}}}
+    )
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [],
+        strategies={strategy.id: strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.start_paper_trading_from_run(
+        "user-1",
+        "previous-run",
+        AIStrategyPaperTradingStartRequest(research_workspace_id="research-ws"),
+    )
+
+    assert result.started is True
+    assert result.handoff is not None
+    assert result.handoff["run_id"] == "previous-run"
+    assert result.handoff["research_strategy_id"] == strategy.id
+    assert result.handoff["achieved_quality_gate_evaluations"][0]["key"] == "sharpe"
+    assert workspace_service.started_units == [("paper-ws", ["paper-unit"])]
+    updated_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert updated_run["run_id"] == "previous-run"
+    assert updated_run["paper_trading_started"] is True
+    assert updated_run["paper_workspace_id"] == "paper-ws"
+    assert updated_run["paper_unit_id"] == "paper-unit"
+
+
+@pytest.mark.asyncio
 async def test_list_research_run_records_reads_workspace_history():
     workspace_service = FakeWorkspaceService()
     workspace_service.workspaces["research-a"] = _workspace("research-a", "research").model_copy(
@@ -983,6 +1081,33 @@ class FakeResearchAPIService:
             ],
         )
 
+    async def start_paper_trading_from_run(
+        self,
+        user_id: str,
+        run_id: str,
+        request: AIStrategyPaperTradingStartRequest,
+    ):
+        workspace = _workspace("paper-api-ws", "trading")
+        draft = build_ai_strategy_draft("生成一个均线策略")
+        strategy = _strategy("strategy-api", draft)
+        unit = _unit("paper-api-unit", workspace.id, strategy)
+        return AIStrategyPaperTradingStart(
+            workspace=workspace,
+            unit=unit,
+            run_result=StrategyCopilotRunResult(
+                unit_id=unit.id,
+                task_id="paper-api-task",
+                status="running",
+            ),
+            started=True,
+            handoff={
+                "run_id": run_id,
+                "research_workspace_id": request.research_workspace_id,
+                "paper_workspace_id": workspace.id,
+                "paper_unit_id": unit.id,
+            },
+        )
+
 
 @pytest.mark.asyncio
 async def test_ai_strategy_research_api_endpoint(client: AsyncClient, auth_headers: dict):
@@ -1030,3 +1155,26 @@ async def test_ai_strategy_research_run_history_endpoint(
     assert payload["total"] == 1
     assert payload["items"][0]["run_id"] == "api-history-run"
     assert payload["items"][0]["research_workspace_id"] == "research-api-ws"
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_start_paper_from_history_endpoint(
+    client: AsyncClient,
+    auth_headers: dict,
+):
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: FakeResearchAPIService()
+    try:
+        response = await client.post(
+            "/api/v1/strategy/ai-research/runs/api-history-run/paper-trading",
+            headers=auth_headers,
+            json={"research_workspace_id": "research-api-ws"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["started"] is True
+    assert payload["workspace"]["id"] == "paper-api-ws"
+    assert payload["unit"]["id"] == "paper-api-unit"
+    assert payload["handoff"]["run_id"] == "api-history-run"
