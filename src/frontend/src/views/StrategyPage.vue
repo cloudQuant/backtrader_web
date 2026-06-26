@@ -183,6 +183,62 @@
                     placeholder="2026-01-01"
                   />
                 </el-form-item>
+                <el-form-item label="样本外比例 %">
+                  <div class="ai-research-gate-control">
+                    <el-checkbox
+                      v-model="aiResearchForm.out_of_sample_validation"
+                      data-test="ai-research-oos-enabled"
+                    />
+                    <el-input-number
+                      v-model="aiResearchForm.out_of_sample_ratio_pct"
+                      :disabled="!aiResearchForm.out_of_sample_validation"
+                      :min="5"
+                      :max="50"
+                      :step="5"
+                      class="w-full"
+                      data-test="ai-research-oos-ratio"
+                    />
+                  </div>
+                </el-form-item>
+                <el-form-item label="样本外最小 Sharpe">
+                  <div class="ai-research-gate-control">
+                    <el-checkbox
+                      v-model="aiResearchForm.use_min_out_of_sample_sharpe"
+                      :disabled="!aiResearchForm.out_of_sample_validation"
+                    />
+                    <el-input-number
+                      v-model="aiResearchForm.min_out_of_sample_sharpe"
+                      :disabled="
+                        !aiResearchForm.out_of_sample_validation
+                          || !aiResearchForm.use_min_out_of_sample_sharpe
+                      "
+                      :min="-5"
+                      :max="10"
+                      :step="0.1"
+                      class="w-full"
+                      data-test="ai-research-oos-sharpe"
+                    />
+                  </div>
+                </el-form-item>
+                <el-form-item label="样本外最少交易">
+                  <div class="ai-research-gate-control">
+                    <el-checkbox
+                      v-model="aiResearchForm.use_min_out_of_sample_trades"
+                      :disabled="!aiResearchForm.out_of_sample_validation"
+                    />
+                    <el-input-number
+                      v-model="aiResearchForm.min_out_of_sample_trades"
+                      :disabled="
+                        !aiResearchForm.out_of_sample_validation
+                          || !aiResearchForm.use_min_out_of_sample_trades
+                      "
+                      :min="0"
+                      :max="9999"
+                      class="w-full"
+                      data-test="ai-research-oos-trades"
+                    />
+                  </div>
+                </el-form-item>
               </div>
 
               <div class="ai-research-actions">
@@ -350,6 +406,40 @@
                 </span>
               </div>
 
+              <div
+                v-if="aiResearchOutOfSampleValidation"
+                class="ai-research-oos-summary"
+                data-test="ai-research-oos-summary"
+              >
+                <div class="ai-research-oos-head">
+                  <strong>样本外验证</strong>
+                  <el-tag
+                    size="small"
+                    :type="outOfSampleTagType(aiResearchOutOfSampleValidation.status)"
+                  >
+                    {{ aiResearchOutOfSampleValidation.status || 'not_required' }}
+                  </el-tag>
+                </div>
+                <div class="ai-research-oos-details">
+                  <span v-if="formatOutOfSampleWindow(aiResearchOutOfSampleValidation.window)">
+                    {{ formatOutOfSampleWindow(aiResearchOutOfSampleValidation.window) }}
+                  </span>
+                  <span
+                    v-for="gate in aiResearchOutOfSampleValidation.gate_evaluations || []"
+                    :key="gate.key"
+                  >
+                    {{ gate.label }} {{ formatMetric(gate.actual) }} / {{ formatMetric(gate.target) }}
+                  </span>
+                  <span
+                    v-for="failure in aiResearchOutOfSampleValidation.failures || []"
+                    :key="failure"
+                    class="ai-research-warning-text"
+                  >
+                    {{ failure }}
+                  </span>
+                </div>
+              </div>
+
               <div class="ai-research-iterations">
                 <div
                   v-for="item in aiResearchResult.iterations"
@@ -377,6 +467,39 @@
                   >
                     {{ item.failure_reason }}
                   </p>
+                  <div
+                    v-if="iterationOutOfSampleValidation(item)"
+                    class="ai-research-oos-summary ai-research-oos-summary-compact"
+                    data-test="ai-research-iteration-oos"
+                  >
+                    <div class="ai-research-oos-head">
+                      <strong>样本外验证</strong>
+                      <el-tag
+                        size="small"
+                        :type="outOfSampleTagType(iterationOutOfSampleValidation(item)?.status)"
+                      >
+                        {{ iterationOutOfSampleValidation(item)?.status || 'not_required' }}
+                      </el-tag>
+                    </div>
+                    <div class="ai-research-oos-details">
+                      <span v-if="formatOutOfSampleWindow(iterationOutOfSampleValidation(item)?.window)">
+                        {{ formatOutOfSampleWindow(iterationOutOfSampleValidation(item)?.window) }}
+                      </span>
+                      <span
+                        v-for="gate in iterationOutOfSampleValidation(item)?.gate_evaluations || []"
+                        :key="gate.key"
+                      >
+                        {{ gate.label }} {{ formatMetric(gate.actual) }} / {{ formatMetric(gate.target) }}
+                      </span>
+                      <span
+                        v-for="failure in iterationOutOfSampleValidation(item)?.failures || []"
+                        :key="failure"
+                        class="ai-research-warning-text"
+                      >
+                        {{ failure }}
+                      </span>
+                    </div>
+                  </div>
                   <ul
                     v-if="item.improvement_notes.length"
                     class="ai-research-notes"
@@ -461,6 +584,9 @@
                       <span>质量分 {{ formatMetric(record.best_quality_score) }}</span>
                       <span v-if="pipelineStage(record)">
                         阶段 {{ pipelineStage(record) }}
+                      </span>
+                      <span v-if="recordOutOfSampleSummary(record)">
+                        {{ recordOutOfSampleSummary(record) }}
                       </span>
                       <span>{{ t('strategy.aiResearchIterations') }} {{ record.iteration_count }}</span>
                       <span v-if="record.paper_review_status">
@@ -775,8 +901,10 @@ import StrategyDetailDialog from './strategy-components/StrategyDetailDialog.vue
 import StrategyTemplateCard from './strategy-components/StrategyTemplateCard.vue'
 import type { ParamSpec, Strategy, StrategyTemplate } from '@/types'
 import type {
+  AIStrategyOutOfSampleValidation,
   AIStrategyPaperMonitoringRule,
   AIStrategyPaperTradingReview,
+  AIStrategyQualityGateEvaluation,
   AIStrategyResearchRunRequest,
   AIStrategyResearchRunRecord,
   AIStrategyResearchRunResponse,
@@ -847,6 +975,12 @@ const aiResearchForm = reactive({
   use_min_win_rate: false,
   min_win_rate: 50,
   max_iterations: 3,
+  out_of_sample_validation: true,
+  out_of_sample_ratio_pct: 25,
+  use_min_out_of_sample_sharpe: false,
+  min_out_of_sample_sharpe: 0.6,
+  use_min_out_of_sample_trades: false,
+  min_out_of_sample_trades: 1,
   initial_cash: 100000,
   commission: 0.001,
   research_workspace_id: '',
@@ -902,6 +1036,16 @@ const canCancelAIResearchTask = computed(() =>
 const aiResearchBestGateEvaluations = computed(
   () => aiResearchResult.value?.best_quality_gate_evaluations ?? []
 )
+const aiResearchOutOfSampleValidation = computed(() => {
+  const result = aiResearchResult.value
+  if (!result) return null
+  const handoffValidation = outOfSampleValidationFromHandoff(result.paper_trading?.handoff)
+  if (handoffValidation) return handoffValidation
+  const bestIteration = result.iterations.find(item => item.iteration === result.best_iteration)
+    ?? result.iterations.find(item => item.passed)
+    ?? result.iterations[result.iterations.length - 1]
+  return bestIteration ? iterationOutOfSampleValidation(bestIteration) : null
+})
 
 const paramTableData = computed(() => {
   if (!detailTemplate.value) return []
@@ -954,6 +1098,109 @@ function formatDateTime(value: string | null | undefined) {
   return date.toLocaleString()
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function optionalNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const number = Number(value)
+    return Number.isFinite(number) ? number : null
+  }
+  return null
+}
+
+function optionalBoolean(value: unknown, fallback = false) {
+  if (typeof value === 'boolean') return value
+  return fallback
+}
+
+function outOfSampleRatioPct(value: unknown) {
+  const ratio = optionalNumber(value)
+  if (ratio === null) return 25
+  return ratio <= 1 ? Math.round(ratio * 100) : ratio
+}
+
+function outOfSampleRatioValue() {
+  const ratio = Number(aiResearchForm.out_of_sample_ratio_pct || 25) / 100
+  return Number(ratio.toFixed(4))
+}
+
+function validationWindowFromUnknown(value: unknown): Record<string, string> | null {
+  if (!isRecord(value)) return null
+  const entries = Object.entries(value)
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  return entries.length ? Object.fromEntries(entries) : null
+}
+
+function outOfSampleValidationFromHandoff(
+  handoff: Record<string, unknown> | null | undefined
+): AIStrategyOutOfSampleValidation | null {
+  if (!isRecord(handoff)) return null
+  const payload = handoff.out_of_sample_validation
+  if (!isRecord(payload)) return null
+  return {
+    status: typeof payload.status === 'string' ? payload.status : null,
+    window: validationWindowFromUnknown(payload.window),
+    metrics: isRecord(payload.metrics) ? payload.metrics : {},
+    gate_evaluations: Array.isArray(payload.gate_evaluations)
+      ? payload.gate_evaluations as AIStrategyQualityGateEvaluation[]
+      : [],
+    failures: Array.isArray(payload.failures)
+      ? payload.failures.filter((item): item is string => typeof item === 'string')
+      : [],
+    failure_reason: typeof payload.failure_reason === 'string' ? payload.failure_reason : null,
+  }
+}
+
+function iterationOutOfSampleValidation(
+  item: AIStrategyResearchRunResponse['iterations'][number]
+): AIStrategyOutOfSampleValidation | null {
+  const hasWindow = Boolean(item.validation_window)
+  const hasMetrics = Boolean(Object.keys(item.validation_metrics || {}).length)
+  const hasGates = Boolean((item.validation_gate_evaluations || []).length)
+  const hasFailures = Boolean((item.validation_failures || []).length)
+  if (!item.validation_status && !hasWindow && !hasMetrics && !hasGates && !hasFailures) {
+    return null
+  }
+  return {
+    status: item.validation_status ?? null,
+    window: item.validation_window ?? null,
+    metrics: item.validation_metrics ?? {},
+    gate_evaluations: item.validation_gate_evaluations ?? [],
+    failures: item.validation_failures ?? [],
+    failure_reason: item.validation_failure_reason ?? null,
+  }
+}
+
+function formatOutOfSampleWindow(window: Record<string, string> | null | undefined) {
+  if (!window) return ''
+  const trainStart = window.train_start
+  const trainEnd = window.train_end
+  const validationStart = window.validation_start
+  const validationEnd = window.validation_end
+  if (!trainStart || !trainEnd || !validationStart || !validationEnd) return ''
+  return `训练 ${trainStart} - ${trainEnd}；样本外 ${validationStart} - ${validationEnd}`
+}
+
+function outOfSampleTagType(status: string | null | undefined) {
+  if (status === 'passed') return 'success'
+  if (status === 'failed') return 'danger'
+  if (status === 'skipped') return 'info'
+  return 'warning'
+}
+
+function recordOutOfSampleSummary(record: AIStrategyResearchRunRecord) {
+  const handoffValidation = outOfSampleValidationFromHandoff(record.paper_handoff)
+  if (handoffValidation?.status) return `样本外 ${handoffValidation.status}`
+  const gates = record.quality_gates || {}
+  if (optionalBoolean(gates.out_of_sample_validation, false)) {
+    return `样本外 ${formatMetric(outOfSampleRatioPct(gates.out_of_sample_ratio), 0)}%`
+  }
+  return ''
+}
+
 async function loadAIResearchRuns() {
   aiResearchRunsLoading.value = true
   try {
@@ -989,6 +1236,14 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.use_min_win_rate = typeof gates.min_win_rate === 'number'
   aiResearchForm.min_win_rate = Number(gates.min_win_rate ?? 50)
   aiResearchForm.max_iterations = record.max_iterations || 3
+  aiResearchForm.out_of_sample_validation = optionalBoolean(gates.out_of_sample_validation, true)
+  aiResearchForm.out_of_sample_ratio_pct = outOfSampleRatioPct(gates.out_of_sample_ratio)
+  aiResearchForm.use_min_out_of_sample_sharpe =
+    optionalNumber(gates.min_out_of_sample_sharpe) !== null
+  aiResearchForm.min_out_of_sample_sharpe = Number(gates.min_out_of_sample_sharpe ?? 0.6)
+  aiResearchForm.use_min_out_of_sample_trades =
+    optionalNumber(gates.min_out_of_sample_trades) !== null
+  aiResearchForm.min_out_of_sample_trades = Number(gates.min_out_of_sample_trades ?? 1)
   aiResearchForm.research_workspace_id = record.research_workspace_id || ''
   aiResearchForm.seed_strategy_id = record.best_strategy_id || ''
   aiResearchForm.continue_from_run_id = record.best_strategy_id ? record.run_id : ''
@@ -1135,6 +1390,20 @@ function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResea
       aiResearchForm.min_win_rate
     ),
     max_iterations: aiResearchForm.max_iterations,
+    out_of_sample_validation: aiResearchForm.out_of_sample_validation,
+    out_of_sample_ratio: outOfSampleRatioValue(),
+    min_out_of_sample_sharpe: aiResearchForm.out_of_sample_validation
+      ? enabledQualityGate(
+          aiResearchForm.use_min_out_of_sample_sharpe,
+          aiResearchForm.min_out_of_sample_sharpe
+        )
+      : null,
+    min_out_of_sample_trades: aiResearchForm.out_of_sample_validation
+      ? enabledQualityGate(
+          aiResearchForm.use_min_out_of_sample_trades,
+          aiResearchForm.min_out_of_sample_trades
+        )
+      : null,
     initial_cash: aiResearchForm.initial_cash,
     commission: aiResearchForm.commission,
     research_workspace_id: aiResearchForm.research_workspace_id || null,
@@ -1180,7 +1449,7 @@ async function runAIResearchRequest(
     return strategyApi.runAIResearchLoop(payload)
   }
 
-  let task = await apiWithTasks.submitAIResearchTask(payload)
+  const task = await apiWithTasks.submitAIResearchTask(payload)
   return pollAIResearchTask(task)
 }
 
@@ -1535,6 +1804,42 @@ onMounted(async () => {
   gap: 6px;
   color: var(--el-text-color-regular);
   font-size: 13px;
+}
+
+.ai-research-oos-summary {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  background: var(--el-fill-color-lighter);
+}
+
+.ai-research-oos-summary-compact {
+  margin: 10px 0 0;
+}
+
+.ai-research-oos-head,
+.ai-research-oos-details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-research-oos-head {
+  justify-content: space-between;
+  margin-bottom: 6px;
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+}
+
+.ai-research-oos-details {
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+}
+
+.ai-research-warning-text {
+  color: var(--el-color-warning);
 }
 
 .ai-research-iterations {

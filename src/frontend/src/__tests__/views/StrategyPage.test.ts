@@ -56,7 +56,12 @@ vi.mock('@/api/strategy', () => ({
           status: 'achieved',
           achieved: true,
           target_sharpe: 1,
-          quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+          quality_gates: {
+            target_sharpe: 1,
+            min_total_trades: 1,
+            out_of_sample_validation: true,
+            out_of_sample_ratio: 0.25,
+          },
           min_total_trades: 1,
           max_iterations: 3,
           iteration_count: 2,
@@ -172,6 +177,27 @@ vi.mock('@/api/strategy', () => ({
           metrics: { sharpe_ratio: 1.2 },
           sharpe_ratio: 1.2,
           total_trades: 4,
+          validation_status: 'passed',
+          validation_window: {
+            train_start: '2024-01-01',
+            train_end: '2024-01-15',
+            validation_start: '2024-01-16',
+            validation_end: '2024-01-20',
+          },
+          validation_metrics: { sharpe_ratio: 0.92, total_trades: 3 },
+          validation_gate_evaluations: [
+            {
+              key: 'out_of_sample_sharpe',
+              label: 'Out-of-sample Sharpe',
+              actual: 0.92,
+              target: 0.8,
+              direction: 'min',
+              passed: true,
+              score: 1,
+            },
+          ],
+          validation_failures: [],
+          validation_failure_reason: null,
           quality_score: 100,
           quality_gate_evaluations: [
             { key: 'sharpe', label: 'Sharpe', actual: 1.2, target: 1, direction: 'min', passed: true, score: 1 },
@@ -201,7 +227,14 @@ vi.mock('@/api/strategy', () => ({
         status: 'achieved',
         achieved: true,
         target_sharpe: 1,
-        quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+        quality_gates: {
+          target_sharpe: 1,
+          min_total_trades: 1,
+          out_of_sample_validation: true,
+          out_of_sample_ratio: 0.25,
+          min_out_of_sample_sharpe: 0.8,
+          min_out_of_sample_trades: 2,
+        },
         min_total_trades: 1,
         max_iterations: 3,
         iteration_count: 1,
@@ -454,6 +487,11 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.max_drawdown_limit = 12
     vm.aiResearchForm.use_min_total_return = true
     vm.aiResearchForm.min_total_return = 8
+    vm.aiResearchForm.out_of_sample_ratio_pct = 25
+    vm.aiResearchForm.use_min_out_of_sample_sharpe = true
+    vm.aiResearchForm.min_out_of_sample_sharpe = 0.8
+    vm.aiResearchForm.use_min_out_of_sample_trades = true
+    vm.aiResearchForm.min_out_of_sample_trades = 2
     await vm.runAIResearchLoop()
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
       prompt: '生成一个趋势策略',
@@ -463,6 +501,10 @@ describe('StrategyPage', () => {
       min_total_return: 8,
       min_annual_return: null,
       min_win_rate: null,
+      out_of_sample_validation: true,
+      out_of_sample_ratio: 0.25,
+      min_out_of_sample_sharpe: 0.8,
+      min_out_of_sample_trades: 2,
     }))
     expect(vm.aiResearchResult.achieved).toBe(true)
     expect(vm.aiResearchRuns[0].run_id).toBe('run-1')
@@ -471,6 +513,10 @@ describe('StrategyPage', () => {
     expect(wrapper.text()).toContain('100.00')
     expect(wrapper.find('[data-test="ai-research-gate-summary"]').text()).toContain('Sharpe')
     expect(wrapper.find('[data-test="ai-research-gate-summary"]').text()).toContain('1.20 / 1.00')
+    expect(wrapper.find('[data-test="ai-research-oos-summary"]').text()).toContain('样本外验证')
+    expect(wrapper.find('[data-test="ai-research-oos-summary"]').text()).toContain('passed')
+    expect(wrapper.find('[data-test="ai-research-oos-summary"]').text()).toContain('2024-01-16')
+    expect(wrapper.find('[data-test="ai-research-oos-summary"]').text()).toContain('0.92 / 0.80')
     expect(wrapper.find('[data-test="ai-research-next-actions"]').text()).toContain('策略已通过验收')
     expect(wrapper.text()).toContain('进入模拟交易后优先验证成交、滑点、费用和样本外收益稳定性')
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
@@ -633,6 +679,10 @@ describe('StrategyPage', () => {
         min_total_trades: 3,
         max_drawdown_limit: 15,
         min_win_rate: 55,
+        out_of_sample_validation: true,
+        out_of_sample_ratio: 0.3,
+        min_out_of_sample_sharpe: 0.9,
+        min_out_of_sample_trades: 4,
       },
       min_total_trades: 3,
       max_iterations: 4,
@@ -660,6 +710,12 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.max_drawdown_limit).toBe(15)
     expect(vm.aiResearchForm.use_min_win_rate).toBe(true)
     expect(vm.aiResearchForm.min_win_rate).toBe(55)
+    expect(vm.aiResearchForm.out_of_sample_validation).toBe(true)
+    expect(vm.aiResearchForm.out_of_sample_ratio_pct).toBe(30)
+    expect(vm.aiResearchForm.use_min_out_of_sample_sharpe).toBe(true)
+    expect(vm.aiResearchForm.min_out_of_sample_sharpe).toBe(0.9)
+    expect(vm.aiResearchForm.use_min_out_of_sample_trades).toBe(true)
+    expect(vm.aiResearchForm.min_out_of_sample_trades).toBe(4)
     expect(vm.aiResearchForm.research_workspace_id).toBe('research-ws')
     expect(vm.aiResearchForm.seed_strategy_id).toBe('best-strategy')
     expect(vm.aiResearchForm.continue_from_run_id).toBe('history-run')
