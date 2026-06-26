@@ -69,6 +69,7 @@ def _run_record(run_id: str, *, workspace_id: str, completed_at: str):
         "iteration_count": 2,
         "best_iteration": 2,
         "best_sharpe": 1.21,
+        "best_quality_score": 100.0,
         "best_metrics": {"sharpe_ratio": 1.21, "total_trades": 5},
         "best_strategy_id": "strategy-2",
         "best_strategy_name": "AI趋势策略",
@@ -515,6 +516,7 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.run_record is not None
     assert result.run_record.best_strategy_id == "strategy-2"
     assert result.run_record.paper_trading_started is True
+    assert result.run_record.best_quality_score == 100.0
     assert result.next_actions == [
         "策略已通过验收并进入模拟交易，下一步跟踪模拟账户成交、持仓和风控指标。",
         "保留当前研究工作区，后续用样本外区间复核策略稳定性。",
@@ -570,6 +572,46 @@ async def test_research_loop_stops_after_max_iterations_without_paper():
     assert result.run_record is not None
     assert result.run_record.next_actions == result.next_actions
     assert workspace_service.started_units == []
+
+
+@pytest.mark.asyncio
+async def test_research_loop_selects_quality_scored_best_candidate():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {"sharpe_ratio": 1.4, "total_trades": 0},
+            {"sharpe_ratio": 0.9, "total_trades": 5},
+        ],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个趋势策略并继续优化",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            min_total_trades=1,
+            max_iterations=2,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is False
+    assert result.best_iteration == 2
+    assert result.best_strategy is not None
+    assert result.best_strategy.id == "strategy-2"
+    assert result.iterations[0].quality_score == 50.0
+    assert result.iterations[1].quality_score == 95.0
+    assert result.best_quality_score == 95.0
+    assert result.run_record is not None
+    assert result.run_record.best_quality_score == 95.0
 
 
 @pytest.mark.asyncio

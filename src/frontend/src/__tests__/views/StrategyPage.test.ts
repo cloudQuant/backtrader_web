@@ -62,6 +62,7 @@ vi.mock('@/api/strategy', () => ({
           iteration_count: 2,
           best_iteration: 2,
           best_sharpe: 1.2,
+          best_quality_score: 100,
           best_metrics: { sharpe_ratio: 1.2 },
           best_strategy_id: 's1',
           best_strategy_name: 'AI策略',
@@ -86,6 +87,7 @@ vi.mock('@/api/strategy', () => ({
       started_at: '2026-06-27T00:00:00Z',
       completed_at: '2026-06-27T00:01:00Z',
       best_iteration: 1,
+      best_quality_score: 100,
       best_metrics: { sharpe_ratio: 1.2 },
       research_workspace: {
         id: 'research-ws',
@@ -142,6 +144,7 @@ vi.mock('@/api/strategy', () => ({
           metrics: { sharpe_ratio: 1.2 },
           sharpe_ratio: 1.2,
           total_trades: 4,
+          quality_score: 100,
           passed: true,
           quality_gate_failures: [],
           improvement_notes: [],
@@ -167,6 +170,7 @@ vi.mock('@/api/strategy', () => ({
         iteration_count: 1,
         best_iteration: 1,
         best_sharpe: 1.2,
+        best_quality_score: 100,
         best_metrics: { sharpe_ratio: 1.2 },
         best_strategy_id: 's1',
         best_strategy_name: 'AI策略',
@@ -319,6 +323,8 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchResult.achieved).toBe(true)
     expect(vm.aiResearchRuns[0].run_id).toBe('run-1')
     await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('质量分')
+    expect(wrapper.text()).toContain('100.00')
     expect(wrapper.find('[data-test="ai-research-next-actions"]').text()).toContain('策略已通过验收')
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
   })
@@ -346,6 +352,7 @@ describe('StrategyPage', () => {
       iteration_count: 2,
       best_iteration: 2,
       best_sharpe: 1.6,
+      best_quality_score: 98,
       best_metrics: {},
       best_strategy_id: 'best-strategy',
       best_strategy_name: '历史最佳策略',
@@ -390,6 +397,7 @@ describe('StrategyPage', () => {
       iteration_count: 3,
       best_iteration: 3,
       best_sharpe: 0.8,
+      best_quality_score: 90,
       best_metrics: {},
       best_strategy_id: 'best-strategy',
       best_strategy_name: '历史最佳策略',

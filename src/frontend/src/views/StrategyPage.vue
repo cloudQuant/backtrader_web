@@ -240,6 +240,10 @@
                   <strong>{{ formatMetric(aiBestSharpe) }}</strong>
                 </div>
                 <div>
+                  <span>质量分</span>
+                  <strong>{{ formatMetric(aiResearchResult.best_quality_score) }}</strong>
+                </div>
+                <div>
                   <span>{{ t('strategy.aiResearchBestIteration') }}</span>
                   <strong>{{ aiResearchResult.best_iteration ?? '-' }}</strong>
                 </div>
@@ -318,6 +322,7 @@
                   <div class="ai-research-iteration-metrics">
                     <span>{{ t('strategy.aiResearchStrategy') }}: {{ item.strategy.name }}</span>
                     <span>{{ t('strategy.aiResearchSharpe') }}: {{ formatMetric(item.sharpe_ratio) }}</span>
+                    <span>质量分: {{ formatMetric(item.quality_score) }}</span>
                     <span>{{ t('strategy.aiResearchTrades') }}: {{ item.total_trades }}</span>
                   </div>
                   <p
@@ -404,6 +409,7 @@
                   <span class="ai-research-history-meta">
                     <span>{{ record.symbol }}</span>
                     <span>{{ t('strategy.aiResearchBestSharpe') }} {{ formatMetric(record.best_sharpe) }}</span>
+                    <span>质量分 {{ formatMetric(record.best_quality_score) }}</span>
                     <span>{{ t('strategy.aiResearchIterations') }} {{ record.iteration_count }}</span>
                     <span>{{ formatDateTime(record.completed_at) }}</span>
                   </span>
@@ -1058,7 +1064,7 @@ onMounted(async () => {
 
 .ai-research-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }

@@ -163,6 +163,7 @@ export interface AIStrategyResearchIteration {
   metrics: Record<string, unknown>
   sharpe_ratio: number
   total_trades: number
+  quality_score: number
   passed: boolean
   failure_reason?: string | null
   quality_gate_failures: string[]
@@ -194,6 +195,7 @@ export interface AIStrategyResearchRunRecord {
   iteration_count: number
   best_iteration?: number | null
   best_sharpe: number
+  best_quality_score: number
   best_metrics: Record<string, unknown>
   best_strategy_id?: string | null
   best_strategy_name?: string | null
@@ -222,6 +224,7 @@ export interface AIStrategyResearchRunResponse {
   started_at: string
   completed_at: string
   best_iteration?: number | null
+  best_quality_score: number
   best_metrics: Record<string, unknown>
   research_workspace: Workspace
   iterations: AIStrategyResearchIteration[]
