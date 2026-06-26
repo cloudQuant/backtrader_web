@@ -8,6 +8,10 @@ from functools import lru_cache
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.api.deps import get_current_user
+from app.schemas.ai_strategy_research import (
+    AIStrategyResearchRunRequest,
+    AIStrategyResearchRunResponse,
+)
 from app.schemas.strategy import (
     StrategyCopilotBacktestRequest,
     StrategyCopilotBacktestResponse,
@@ -20,6 +24,7 @@ from app.schemas.strategy import (
     StrategyResponse,
     StrategyUpdate,
 )
+from app.services.ai_strategy_research_service import AIStrategyResearchService
 from app.services.strategy_service import (
     StrategyService,
     get_strategy_dir,
@@ -36,6 +41,11 @@ router = APIRouter()
 @lru_cache
 def get_strategy_service():
     return StrategyService()
+
+
+@lru_cache
+def get_ai_strategy_research_service():
+    return AIStrategyResearchService()
 
 
 @router.post("/", response_model=StrategyResponse, summary="Create strategy")
@@ -206,6 +216,23 @@ async def generate_strategy_copilot_draft(
 ):
     """Generate a structured strategy draft from natural language input."""
     return await service.generate_copilot_draft(current_user.sub, data)
+
+
+@router.post(
+    "/ai-research/run",
+    response_model=AIStrategyResearchRunResponse,
+    summary="Run AI strategy research loop",
+)
+async def run_ai_strategy_research_loop(
+    data: AIStrategyResearchRunRequest,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+):
+    """Generate, backtest, improve, and optionally start paper trading."""
+    try:
+        return await service.run(current_user.sub, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post(

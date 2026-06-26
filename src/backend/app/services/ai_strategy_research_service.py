@@ -1,0 +1,503 @@
+"""AI-driven strategy research loop orchestration."""
+
+from __future__ import annotations
+
+import asyncio
+import re
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Any
+
+from app.schemas.ai_strategy_research import (
+    AIStrategyPaperTradingStart,
+    AIStrategyResearchIteration,
+    AIStrategyResearchRunRequest,
+    AIStrategyResearchRunResponse,
+)
+from app.schemas.strategy import (
+    AIStrategyDraft,
+    ParamSpec,
+    StrategyCopilotBacktestRequest,
+    StrategyCopilotDraftRequest,
+    StrategyCopilotRunResult,
+)
+from app.schemas.workspace import (
+    StrategyUnitCreate,
+    StrategyUnitResponse,
+    UnitStatusResponse,
+    WorkspaceCreate,
+    WorkspaceResponse,
+)
+from app.services.strategy.inference import render_param_default
+from app.services.strategy_service import StrategyService
+from app.services.workspace_service import WorkspaceService
+
+_TERMINAL_UNIT_STATUSES = {"completed", "failed", "cancelled", "timeout"}
+
+
+@dataclass(frozen=True)
+class StrategyImprovement:
+    draft: AIStrategyDraft
+    notes: list[str]
+
+
+class LocalStrategyImprover:
+    """Deterministic fallback strategy improver.
+
+    The research loop must be runnable in local/test environments without an
+    external model. This improver keeps the contract AI-ready while providing a
+    conservative baseline: react to weak backtest metrics by adjusting common
+    Backtrader parameters that the existing copilot generator emits.
+    """
+
+    async def improve(
+        self,
+        draft: AIStrategyDraft,
+        *,
+        iteration: int,
+        metrics: dict[str, Any],
+        target_sharpe: float,
+    ) -> StrategyImprovement:
+        improved = draft.model_copy(deep=True)
+        notes: list[str] = []
+        sharpe = _metric_float(metrics, "sharpe_ratio", "sharpe", "sharpeRatio")
+        max_drawdown = _metric_float(metrics, "max_drawdown", "maxDrawdown", default=0.0)
+        total_trades = _metric_int(metrics, "total_trades", "totalTrades", "trades")
+
+        suffix = f" v{iteration + 1}"
+        base_name = re.sub(r"\s+v\d+$", "", improved.name).strip()
+        improved.name = f"{base_name}{suffix}"[:100]
+        improved.description = (
+            f"{improved.description or ''}\n"
+            f"AI research revision {iteration + 1}: previous Sharpe {sharpe:.3f}, "
+            f"target {target_sharpe:.3f}."
+        ).strip()
+
+        params = improved.params
+        if "risk_pct" in params:
+            current = _param_float(params["risk_pct"], 0.01)
+            next_value = max(round(current * 0.8, 5), 0.001)
+            _set_param_default(params, "risk_pct", next_value)
+            notes.append(f"将单笔风险从 {current:g} 下调到 {next_value:g}")
+
+        if "stop_loss_pct" in params and max_drawdown < -10:
+            current = _param_float(params["stop_loss_pct"], 0.05)
+            next_value = max(round(current * 0.8, 4), 0.01)
+            _set_param_default(params, "stop_loss_pct", next_value)
+            notes.append(f"最大回撤偏大，止损比例从 {current:g} 收紧到 {next_value:g}")
+
+        if "take_profit_pct" in params and sharpe < target_sharpe:
+            current = _param_float(params["take_profit_pct"], 0.1)
+            next_value = round(current * 1.1, 4)
+            _set_param_default(params, "take_profit_pct", next_value)
+            notes.append(f"盈亏比不足，止盈比例从 {current:g} 提高到 {next_value:g}")
+
+        if "atr_stop_multiplier" in params:
+            current = _param_float(params["atr_stop_multiplier"], 2.0)
+            next_value = round(max(current * 0.9, 1.0), 3)
+            _set_param_default(params, "atr_stop_multiplier", next_value)
+            notes.append(f"ATR 止损倍数从 {current:g} 调整到 {next_value:g}")
+
+        if "fast_period" in params and "slow_period" in params:
+            fast = _param_int(params["fast_period"], 10)
+            slow = _param_int(params["slow_period"], 30)
+            next_fast = max(fast - 1, 2) if total_trades < 3 else fast
+            next_slow = max(slow + 2, next_fast + 2)
+            if next_fast != fast or next_slow != slow:
+                _set_param_default(params, "fast_period", next_fast)
+                _set_param_default(params, "slow_period", next_slow)
+                notes.append(f"调整均线窗口为 fast={next_fast}, slow={next_slow}")
+
+        if "rsi_period" in params and sharpe < target_sharpe:
+            current = _param_int(params["rsi_period"], 14)
+            next_value = max(current - 1, 5) if total_trades < 3 else current + 1
+            _set_param_default(params, "rsi_period", next_value)
+            notes.append(f"RSI 周期从 {current} 调整到 {next_value}")
+
+        if not notes:
+            notes.append("上一轮指标未达标，保留策略结构并创建新版本继续验证")
+
+        improved.code = _rewrite_code_param_defaults(improved.code, improved.params)
+        improved.risk_points = list(
+            dict.fromkeys(
+                [
+                    *improved.risk_points,
+                    "该版本由自动投研循环基于上一轮回测指标生成，需要继续做样本外验证。",
+                ]
+            )
+        )
+        improved.next_steps = [
+            "继续回测新版本并比较 Sharpe、回撤和交易次数",
+            "达标后进入 paper 模拟交易并观察实盘风控指标",
+        ]
+        return StrategyImprovement(draft=improved, notes=notes)
+
+
+class AIStrategyResearchService:
+    """Orchestrate generate -> backtest -> improve -> paper trading."""
+
+    def __init__(
+        self,
+        *,
+        strategy_service: StrategyService | None = None,
+        workspace_service: WorkspaceService | None = None,
+        improver: LocalStrategyImprover | None = None,
+        sleep: Callable[[float], Awaitable[None]] | None = None,
+    ) -> None:
+        self.strategy_service = strategy_service or StrategyService()
+        self.workspace_service = workspace_service or WorkspaceService()
+        self.improver = improver or LocalStrategyImprover()
+        self.sleep = sleep or asyncio.sleep
+
+    async def run(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+    ) -> AIStrategyResearchRunResponse:
+        research_workspace = await self._ensure_research_workspace(user_id, request)
+        draft_response = await self.strategy_service.generate_copilot_draft(
+            user_id,
+            StrategyCopilotDraftRequest(
+                prompt=request.prompt,
+                knowledge_base_id=request.knowledge_base_id,
+                thinking_mode=request.thinking_mode,
+            ),
+        )
+        draft = draft_response.strategy_draft
+
+        iterations: list[AIStrategyResearchIteration] = []
+        best_iteration: AIStrategyResearchIteration | None = None
+        selected_iteration: AIStrategyResearchIteration | None = None
+        pending_improvement_notes: list[str] = []
+        achieved = False
+
+        for iteration in range(1, request.max_iterations + 1):
+            backtest_request = self._build_backtest_request(draft, request)
+            backtest_response = await self.strategy_service.backtest_copilot_draft(
+                user_id,
+                research_workspace.id,
+                backtest_request,
+            )
+            if backtest_response is None:
+                raise ValueError("Research workspace or generated strategy was not found")
+
+            unit_status, failure_reason = await self._wait_for_unit_status(
+                research_workspace.id,
+                user_id,
+                backtest_response.unit.id,
+                initial_status=backtest_response.unit_status,
+                timeout_seconds=request.backtest_timeout_seconds,
+                poll_interval_seconds=request.poll_interval_seconds,
+            )
+            metrics = dict(unit_status.metrics_snapshot if unit_status else {})
+            sharpe = _metric_float(metrics, "sharpe_ratio", "sharpe", "sharpeRatio")
+            total_trades = _metric_int(metrics, "total_trades", "totalTrades", "trades")
+            passed = (
+                unit_status is not None
+                and unit_status.run_status == "completed"
+                and sharpe >= request.target_sharpe
+                and total_trades >= request.min_total_trades
+            )
+            if not failure_reason and unit_status is not None and unit_status.run_status != "completed":
+                failure_reason = f"Backtest finished with status {unit_status.run_status}"
+            if not failure_reason and total_trades < request.min_total_trades:
+                failure_reason = (
+                    f"Only {total_trades} trades, below minimum {request.min_total_trades}"
+                )
+            if not failure_reason and sharpe < request.target_sharpe:
+                failure_reason = f"Sharpe {sharpe:.3f} below target {request.target_sharpe:.3f}"
+
+            item = AIStrategyResearchIteration(
+                iteration=iteration,
+                strategy=backtest_response.strategy,
+                unit=backtest_response.unit,
+                run_result=backtest_response.run_result,
+                unit_status=unit_status,
+                metrics=metrics,
+                sharpe_ratio=sharpe,
+                total_trades=total_trades,
+                passed=passed,
+                failure_reason=None if passed else failure_reason,
+                improvement_notes=pending_improvement_notes,
+            )
+            iterations.append(item)
+            if best_iteration is None or item.sharpe_ratio > best_iteration.sharpe_ratio:
+                best_iteration = item
+            if passed:
+                achieved = True
+                selected_iteration = item
+                break
+
+            if iteration < request.max_iterations:
+                improvement = await self.improver.improve(
+                    draft,
+                    iteration=iteration,
+                    metrics=metrics,
+                    target_sharpe=request.target_sharpe,
+                )
+                draft = improvement.draft
+                pending_improvement_notes = improvement.notes
+
+        paper_trading = None
+        result_iteration = selected_iteration or best_iteration
+        if achieved and request.start_paper_trading and result_iteration is not None:
+            paper_trading = await self._start_paper_trading(user_id, request, result_iteration)
+
+        status = "achieved" if achieved else "max_iterations_reached"
+        if iterations and iterations[-1].unit_status and iterations[-1].unit_status.run_status == "timeout":
+            status = "timeout"
+        best_metrics = dict(result_iteration.metrics) if result_iteration else {}
+        message = (
+            f"Target Sharpe {request.target_sharpe:.3f} achieved"
+            if achieved
+            else f"Target Sharpe {request.target_sharpe:.3f} not achieved"
+        )
+        return AIStrategyResearchRunResponse(
+            status=status,
+            achieved=achieved,
+            target_sharpe=request.target_sharpe,
+            best_iteration=result_iteration.iteration if result_iteration else None,
+            best_metrics=best_metrics,
+            research_workspace=research_workspace,
+            iterations=iterations,
+            best_strategy=result_iteration.strategy if result_iteration else None,
+            paper_trading=paper_trading,
+            message=message,
+        )
+
+    async def _ensure_research_workspace(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+    ) -> WorkspaceResponse:
+        if request.research_workspace_id:
+            workspace = await self.workspace_service.get_workspace(
+                request.research_workspace_id, user_id
+            )
+            if workspace is None:
+                raise ValueError("Research workspace not found")
+            return workspace
+        name = _bounded_name(f"AI投研 - {request.symbol} - {request.prompt}", 200)
+        return await self.workspace_service.create_workspace(
+            user_id,
+            WorkspaceCreate(
+                name=name,
+                description="AI generated strategy research loop",
+                workspace_type="research",
+            ),
+        )
+
+    def _build_backtest_request(
+        self,
+        draft: AIStrategyDraft,
+        request: AIStrategyResearchRunRequest,
+    ) -> StrategyCopilotBacktestRequest:
+        data_config = {
+            **request.data_config,
+            "symbol": request.symbol,
+            "symbol_name": request.symbol_name or request.symbol,
+            "timeframe": request.timeframe,
+            "timeframe_n": request.timeframe_n,
+        }
+        if request.start_date:
+            data_config["start_date"] = request.start_date
+        if request.end_date:
+            data_config["end_date"] = request.end_date
+
+        unit_settings = {
+            **request.unit_settings,
+            "initial_cash": request.initial_cash,
+            "commission": request.commission,
+            "annual_days": request.annual_days,
+            "calc_method": request.calc_method,
+            "weight_mode": request.weight_mode,
+        }
+
+        return StrategyCopilotBacktestRequest(
+            strategy_draft=draft,
+            symbol=request.symbol,
+            symbol_name=request.symbol_name or request.symbol,
+            timeframe=request.timeframe,
+            timeframe_n=request.timeframe_n,
+            group_name=request.group_name or draft.execution_plan.group_name or draft.name,
+            data_config=data_config,
+            unit_settings=unit_settings,
+            optimization_config=request.optimization_config,
+            parallel=False,
+            report_config=None,
+        )
+
+    async def _wait_for_unit_status(
+        self,
+        workspace_id: str,
+        user_id: str,
+        unit_id: str,
+        *,
+        initial_status: UnitStatusResponse | None,
+        timeout_seconds: float,
+        poll_interval_seconds: float,
+    ) -> tuple[UnitStatusResponse | None, str | None]:
+        status = _coerce_unit_status(initial_status)
+        if status is not None and status.run_status in _TERMINAL_UNIT_STATUSES:
+            return status, None if status.run_status == "completed" else status.run_status
+
+        deadline = time.monotonic() + timeout_seconds
+        last_status = status
+        while time.monotonic() < deadline:
+            statuses = await self.workspace_service.get_units_status(workspace_id, user_id)
+            matched = _find_unit_status(statuses or [], unit_id)
+            if matched is not None:
+                last_status = matched
+                if matched.run_status in _TERMINAL_UNIT_STATUSES:
+                    return matched, None if matched.run_status == "completed" else matched.run_status
+            await self.sleep(poll_interval_seconds)
+
+        timeout_status = UnitStatusResponse(
+            id=unit_id,
+            run_status="timeout",
+            last_task_id=last_status.last_task_id if last_status else None,
+            metrics_snapshot=dict(last_status.metrics_snapshot if last_status else {}),
+            run_count=last_status.run_count if last_status else 0,
+            last_run_time=last_status.last_run_time if last_status else None,
+            bar_count=last_status.bar_count if last_status else None,
+            trading_instance_id=last_status.trading_instance_id if last_status else None,
+            trading_snapshot=dict(last_status.trading_snapshot if last_status else {}),
+            trading_mode=last_status.trading_mode if last_status else "paper",
+            lock_trading=last_status.lock_trading if last_status else False,
+            lock_running=last_status.lock_running if last_status else False,
+        )
+        return timeout_status, "Backtest timed out"
+
+    async def _start_paper_trading(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+        best_iteration: AIStrategyResearchIteration,
+    ) -> AIStrategyPaperTradingStart:
+        workspace = None
+        if request.trading_workspace_id:
+            workspace = await self.workspace_service.get_workspace(request.trading_workspace_id, user_id)
+            if workspace is None:
+                raise ValueError("Trading workspace not found")
+        if workspace is None:
+            workspace = await self.workspace_service.create_workspace(
+                user_id,
+                WorkspaceCreate(
+                    name=request.paper_workspace_name
+                    or _bounded_name(f"AI模拟交易 - {best_iteration.strategy.name}", 200),
+                    description="AI research loop paper trading workspace",
+                    workspace_type="trading",
+                ),
+            )
+
+        unit_payload = StrategyUnitCreate(
+            group_name=best_iteration.unit.group_name or best_iteration.strategy.name,
+            strategy_id=best_iteration.strategy.id,
+            strategy_name=best_iteration.strategy.name,
+            symbol=request.symbol,
+            symbol_name=request.symbol_name or request.symbol,
+            timeframe=request.timeframe,
+            timeframe_n=request.timeframe_n,
+            category=best_iteration.strategy.category,
+            data_config=best_iteration.unit.data_config,
+            unit_settings=best_iteration.unit.unit_settings,
+            params=best_iteration.unit.params,
+            optimization_config=best_iteration.unit.optimization_config,
+            trading_mode="paper",
+            gateway_config=request.gateway_config,
+            lock_trading=False,
+            lock_running=False,
+        )
+        created_unit = await self.workspace_service.create_unit(workspace.id, user_id, unit_payload)
+        if created_unit is None:
+            raise ValueError("Failed to create paper trading unit")
+        unit = StrategyUnitResponse.model_validate(created_unit)
+
+        run_result = None
+        run_results = await self.workspace_service.run_units(
+            workspace.id, user_id, [unit.id], parallel=False
+        )
+        if run_results:
+            run_result = StrategyCopilotRunResult.model_validate(run_results[0])
+
+        return AIStrategyPaperTradingStart(
+            workspace=workspace,
+            unit=unit,
+            run_result=run_result,
+            started=run_result is not None and run_result.status not in {"failed", "cancelled"},
+        )
+
+
+def _coerce_unit_status(value: Any) -> UnitStatusResponse | None:
+    if value is None:
+        return None
+    if isinstance(value, UnitStatusResponse):
+        return value
+    if isinstance(value, dict):
+        return UnitStatusResponse.model_validate(value)
+    return None
+
+
+def _find_unit_status(items: list[Any], unit_id: str) -> UnitStatusResponse | None:
+    for item in items:
+        status = _coerce_unit_status(item)
+        if status is not None and status.id == unit_id:
+            return status
+    return None
+
+
+def _metric_float(metrics: dict[str, Any], *keys: str, default: float = 0.0) -> float:
+    for key in keys:
+        if key in metrics and metrics[key] not in (None, ""):
+            try:
+                return float(metrics[key])
+            except (TypeError, ValueError):
+                continue
+    return default
+
+
+def _metric_int(metrics: dict[str, Any], *keys: str, default: int = 0) -> int:
+    for key in keys:
+        if key in metrics and metrics[key] not in (None, ""):
+            try:
+                return int(float(metrics[key]))
+            except (TypeError, ValueError):
+                continue
+    return default
+
+
+def _param_float(spec: ParamSpec, default: float) -> float:
+    try:
+        return float(spec.default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _param_int(spec: ParamSpec, default: int) -> int:
+    try:
+        return int(float(spec.default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _set_param_default(params: dict[str, ParamSpec], key: str, value: Any) -> None:
+    spec = params.get(key)
+    if spec is not None:
+        spec.default = value
+
+
+def _rewrite_code_param_defaults(code: str, params: dict[str, ParamSpec]) -> str:
+    text = str(code or "")
+    for key, spec in params.items():
+        rendered = render_param_default(spec.default)
+        pattern = re.compile(rf"\('{re.escape(key)}'\s*,\s*[^)]+\)")
+        text = pattern.sub(f"('{key}', {rendered})", text)
+    return text
+
+
+def _bounded_name(value: str, max_length: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= max_length:
+        return text or "AI策略投研"
+    return text[: max_length - 1].rstrip() + "…"

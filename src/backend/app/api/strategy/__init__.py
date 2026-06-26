@@ -6,6 +6,7 @@ from app.api.strategy.base import (
     create_strategy,
     delete_strategy,
     generate_strategy_copilot_draft,
+    get_ai_strategy_research_service,
     get_strategy,
     get_strategy_service,
     get_template_config,
@@ -13,6 +14,7 @@ from app.api.strategy.base import (
     get_template_readme,
     get_templates,
     list_strategies,
+    run_ai_strategy_research_loop,
     update_strategy,
 )
 from app.api.strategy.base import (
@@ -32,6 +34,7 @@ __all__ = [
     "delete_strategy",
     "backtest_strategy_copilot_draft",
     "generate_strategy_copilot_draft",
+    "get_ai_strategy_research_service",
     "get_strategy",
     "get_strategy_service",
     "get_template_config",
@@ -40,5 +43,6 @@ __all__ = [
     "get_templates",
     "list_strategies",
     "router",
+    "run_ai_strategy_research_loop",
     "update_strategy",
 ]
