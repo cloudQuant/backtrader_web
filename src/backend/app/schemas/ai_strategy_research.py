@@ -204,6 +204,8 @@ class AIStrategyResearchRunRecord(BaseModel):
     symbol_name: str = ""
     timeframe: str = "1d"
     timeframe_n: int = 1
+    knowledge_base_id: str | None = None
+    thinking_mode: bool = False
     status: str
     achieved: bool
     target_sharpe: float

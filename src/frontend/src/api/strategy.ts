@@ -256,6 +256,8 @@ export interface AIStrategyResearchRunRecord {
   symbol_name: string
   timeframe: string
   timeframe_n: number
+  knowledge_base_id?: string | null
+  thinking_mode?: boolean
   status: string
   achieved: boolean
   target_sharpe: number

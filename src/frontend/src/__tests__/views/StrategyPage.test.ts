@@ -795,6 +795,8 @@ describe('StrategyPage', () => {
       symbol_name: '浦发银行',
       timeframe: '1h',
       timeframe_n: 1,
+      knowledge_base_id: 'kb-history',
+      thinking_mode: true,
       status: 'achieved',
       achieved: true,
       target_sharpe: 1.5,
@@ -829,6 +831,8 @@ describe('StrategyPage', () => {
     })
     expect(vm.aiResearchForm.prompt).toBe('历史趋势策略')
     expect(vm.aiResearchForm.symbol).toBe('600000.SH')
+    expect(vm.aiResearchForm.knowledge_base_id).toBe('kb-history')
+    expect(vm.aiResearchForm.thinking_mode).toBe(true)
     expect(vm.aiResearchForm.target_sharpe).toBe(1.5)
     expect(vm.aiResearchForm.use_max_drawdown_limit).toBe(true)
     expect(vm.aiResearchForm.max_drawdown_limit).toBe(15)

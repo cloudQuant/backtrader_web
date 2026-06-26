@@ -956,6 +956,10 @@ class AIStrategyResearchService:
                 update["research_workspace_id"] = record.research_workspace_id
             if not request.symbol_name and record.symbol_name:
                 update["symbol_name"] = record.symbol_name
+            if not request.knowledge_base_id and record.knowledge_base_id:
+                update["knowledge_base_id"] = record.knowledge_base_id
+            if record.thinking_mode and "thinking_mode" not in request.model_fields_set:
+                update["thinking_mode"] = record.thinking_mode
             continuation_context = _continuation_context_from_record(record)
             if continuation_context:
                 update["continuation_context"] = {
@@ -2214,6 +2218,8 @@ def _paper_start_request_from_record(
         symbol_name=record.symbol_name,
         timeframe=record.timeframe,
         timeframe_n=record.timeframe_n,
+        knowledge_base_id=record.knowledge_base_id,
+        thinking_mode=record.thinking_mode,
         target_sharpe=record.target_sharpe,
         min_total_trades=record.min_total_trades,
         max_drawdown_limit=_optional_gate_number(gates.get("max_drawdown_limit")),
@@ -2384,6 +2390,8 @@ def _build_research_run_record(
         symbol_name=request.symbol_name or request.symbol,
         timeframe=request.timeframe,
         timeframe_n=request.timeframe_n,
+        knowledge_base_id=request.knowledge_base_id,
+        thinking_mode=request.thinking_mode,
         status=response.status,
         achieved=response.achieved,
         target_sharpe=response.target_sharpe,

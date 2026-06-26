@@ -254,10 +254,12 @@ class FakeStrategyService:
         self.metrics_by_round = metrics_by_round
         self.strategies = strategies or {}
         self.generated = 0
+        self.generate_requests: list[Any] = []
         self.submitted_drafts: list[AIStrategyDraft] = []
         self.submitted_backtest_requests: list[Any] = []
 
     async def generate_copilot_draft(self, user_id: str, request):
+        self.generate_requests.append(request)
         draft = build_ai_strategy_draft(request.prompt)
         self.generated += 1
         return StrategyCopilotDraftResponse(
@@ -527,6 +529,8 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
             prompt="请生成一个双均线趋势策略，目标夏普率 1.0",
             symbol="000001.SZ",
             symbol_name="平安银行",
+            knowledge_base_id="kb-quant",
+            thinking_mode=True,
             target_sharpe=1.0,
             max_iterations=3,
             poll_interval_seconds=0.1,
@@ -538,6 +542,8 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.best_iteration == 2
     assert result.best_strategy is not None
     assert result.best_strategy.id == "strategy-2"
+    assert strategy_service.generate_requests[0].knowledge_base_id == "kb-quant"
+    assert strategy_service.generate_requests[0].thinking_mode is True
     assert len(result.iterations) == 2
     assert result.iterations[1].improvement_notes
     assert len(strategy_service.submitted_drafts) == 2
@@ -571,6 +577,8 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.best_diagnostics["promotion_ready"] is True
     assert result.paper_monitoring_plan[0]["threshold"] == 0.6
     assert result.run_record is not None
+    assert result.run_record.knowledge_base_id == "kb-quant"
+    assert result.run_record.thinking_mode is True
     assert result.run_record.best_strategy_id == "strategy-2"
     assert result.run_record.paper_trading_started is True
     assert result.run_record.best_quality_score == 100.0

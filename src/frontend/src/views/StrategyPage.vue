@@ -1395,6 +1395,8 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.symbol_name = record.symbol_name || ''
   aiResearchForm.timeframe = record.timeframe || '1d'
   aiResearchForm.timeframe_n = record.timeframe_n || 1
+  aiResearchForm.knowledge_base_id = record.knowledge_base_id || ''
+  aiResearchForm.thinking_mode = Boolean(record.thinking_mode)
   aiResearchForm.target_sharpe = record.target_sharpe
   aiResearchForm.min_total_trades = record.min_total_trades
   aiResearchForm.use_max_drawdown_limit = typeof gates.max_drawdown_limit === 'number'
