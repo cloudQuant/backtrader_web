@@ -247,6 +247,12 @@ class FakePaperStartFailingWorkspaceService(FakeWorkspaceService):
         return None
 
 
+class FakePaperRunFailingWorkspaceService(FakeWorkspaceService):
+    async def run_units(self, workspace_id: str, user_id: str, unit_ids: list[str], parallel=False):
+        self.started_units.append((workspace_id, unit_ids))
+        return [{"unit_id": unit_ids[0], "task_id": "paper-task", "status": "failed"}]
+
+
 class FakeStrategyService:
     def __init__(
         self,
@@ -719,6 +725,56 @@ async def test_research_loop_persists_achieved_run_when_paper_start_fails():
     assert persisted_run["run_id"] == result.run_id
     assert persisted_run["achieved"] is True
     assert persisted_run["paper_trading_started"] is False
+
+
+@pytest.mark.asyncio
+async def test_research_loop_persists_achieved_run_when_paper_run_fails():
+    workspace_service = FakePaperRunFailingWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.18, "total_trades": 6, "max_drawdown": -4.0}],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert result.status == "achieved"
+    assert result.paper_trading is not None
+    assert result.paper_trading.started is False
+    assert result.paper_trading.run_result is not None
+    assert result.paper_trading.run_result.status == "failed"
+    assert result.pipeline["current_stage"] == "paper_trading_failed"
+    assert result.pipeline["paper_trading_error"] == "Paper trading run finished with status failed"
+    assert result.pipeline["steps"][3]["status"] == "failed"
+    assert any("模拟交易启动错误" in item for item in result.next_actions)
+    assert result.run_record is not None
+    assert result.run_record.paper_trading_started is False
+    assert result.run_record.paper_workspace_id == "paper-ws"
+    assert result.run_record.paper_unit_id == "paper-unit"
+    assert result.run_record.paper_handoff["paper_run_status"] == "failed"
+    assert result.run_record.pipeline["current_stage"] == "paper_trading_failed"
+    persisted_run = result.research_workspace.settings["ai_research"]["runs"][0]
+    assert persisted_run["run_id"] == result.run_id
+    assert persisted_run["paper_trading_started"] is False
+    assert persisted_run["paper_workspace_id"] == "paper-ws"
+    assert persisted_run["paper_unit_id"] == "paper-unit"
+    assert persisted_run["paper_handoff"]["paper_run_status"] == "failed"
+    assert persisted_run["pipeline"]["current_stage"] == "paper_trading_failed"
 
 
 @pytest.mark.asyncio
@@ -1973,6 +2029,99 @@ async def test_start_paper_trading_from_history_persists_start_failure():
     assert updated_run["pipeline"]["steps"][3]["status"] == "failed"
     assert "模拟交易启动错误" in updated_run["next_actions"][0]
     assert "继续投研" in updated_run["next_actions"][-1]
+
+
+@pytest.mark.asyncio
+async def test_start_paper_trading_from_history_persists_run_failure():
+    workspace_service = FakePaperRunFailingWorkspaceService()
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "历史最佳策略"}
+    )
+    strategy = _strategy("strategy-2", seed_draft)
+    research_unit = _unit(
+        "unit-2",
+        "research-ws",
+        strategy,
+        metrics={"sharpe_ratio": 1.21, "total_trades": 5},
+    )
+    workspace_service.units[research_unit.id] = research_unit
+    record = {
+        **_run_record(
+            "previous-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "paper_workspace_id": None,
+        "paper_unit_id": None,
+        "paper_trading_started": False,
+        "iterations": [
+            {
+                "iteration": 2,
+                "strategy_id": strategy.id,
+                "strategy_name": strategy.name,
+                "unit_id": research_unit.id,
+                "task_id": "task-2",
+                "run_status": "completed",
+                "metrics": {"sharpe_ratio": 1.21, "total_trades": 5},
+                "sharpe_ratio": 1.21,
+                "total_trades": 5,
+                "quality_score": 100.0,
+                "quality_gate_evaluations": [
+                    {
+                        "key": "sharpe",
+                        "label": "Sharpe",
+                        "actual": 1.21,
+                        "target": 1.0,
+                        "direction": "min",
+                        "passed": True,
+                        "score": 1.0,
+                    }
+                ],
+                "passed": True,
+                "quality_gate_failures": [],
+                "improvement_notes": [],
+                "next_actions": [],
+            }
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [record]}}}
+    )
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [],
+        strategies={strategy.id: strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.start_paper_trading_from_run(
+        "user-1",
+        "previous-run",
+        AIStrategyPaperTradingStartRequest(research_workspace_id="research-ws"),
+    )
+
+    assert result.started is False
+    assert result.run_result is not None
+    assert result.run_result.status == "failed"
+    assert workspace_service.started_units == [("paper-ws", ["paper-unit"])]
+    updated_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert updated_run["run_id"] == "previous-run"
+    assert updated_run["paper_trading_started"] is False
+    assert updated_run["paper_workspace_id"] == "paper-ws"
+    assert updated_run["paper_unit_id"] == "paper-unit"
+    assert updated_run["paper_handoff"]["paper_run_status"] == "failed"
+    assert updated_run["pipeline"]["current_stage"] == "paper_trading_failed"
+    assert (
+        updated_run["pipeline"]["paper_trading_error"]
+        == "Paper trading run finished with status failed"
+    )
+    assert updated_run["pipeline"]["steps"][3]["status"] == "failed"
+    assert "模拟交易启动错误" in updated_run["next_actions"][0]
 
 
 @pytest.mark.asyncio

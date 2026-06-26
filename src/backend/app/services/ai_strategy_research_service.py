@@ -702,6 +702,19 @@ class AIStrategyResearchService:
                     run_id=run_id,
                     research_workspace_id=research_workspace.id,
                 )
+                paper_trading_error = _paper_trading_start_error(paper_trading)
+                if paper_trading_error:
+                    await _emit_research_progress(
+                        progress_callback,
+                        {
+                            "current_stage": "paper_trading_failed",
+                            "progress": 92.0,
+                            "iteration_count": len(iterations),
+                            "max_iterations": request.max_iterations,
+                            "latest_iteration": _compact_research_iteration(result_iteration),
+                            "message": f"Paper trading start failed: {paper_trading_error}",
+                        },
+                    )
             except Exception as exc:
                 paper_trading_error = str(exc)
                 await _emit_research_progress(
@@ -871,6 +884,15 @@ class AIStrategyResearchService:
         except Exception as exc:
             await self._mark_run_record_paper_start_failed(user_id, record, str(exc))
             raise ValueError(str(exc)) from exc
+        paper_trading_error = _paper_trading_start_error(paper_trading)
+        if paper_trading_error:
+            await self._mark_run_record_paper_start_failed(
+                user_id,
+                record,
+                paper_trading_error,
+                paper_trading=paper_trading,
+            )
+            return paper_trading
         await self._mark_run_record_paper_started(user_id, record, paper_trading)
         return paper_trading
 
@@ -1357,6 +1379,8 @@ class AIStrategyResearchService:
         user_id: str,
         record: AIStrategyResearchRunRecord,
         error: str,
+        *,
+        paper_trading: AIStrategyPaperTradingStart | None = None,
     ) -> WorkspaceResponse | None:
         workspace = await self.workspace_service.get_workspace(record.research_workspace_id, user_id)
         if workspace is None:
@@ -1370,6 +1394,12 @@ class AIStrategyResearchService:
                 "paper_reviewed_at": None,
                 "paper_review_evaluations": [],
                 "paper_review_next_actions": [],
+                "paper_workspace_id": paper_trading.workspace.id if paper_trading else None,
+                "paper_unit_id": paper_trading.unit.id if paper_trading else None,
+                "paper_monitoring_plan": _paper_monitoring_plan_from_handoff(
+                    paper_trading.handoff if paper_trading else None
+                ),
+                "paper_handoff": dict(paper_trading.handoff or {}) if paper_trading else {},
                 "pipeline": _pipeline_summary(
                     status=record.status,
                     achieved=record.achieved,
@@ -2228,6 +2258,15 @@ def _pipeline_current_stage(
     if status == "timeout":
         return "backtest_timeout"
     return "research_iteration"
+
+
+def _paper_trading_start_error(paper_trading: AIStrategyPaperTradingStart | None) -> str | None:
+    if paper_trading is None or paper_trading.started:
+        return None
+    run_status = str(paper_trading.run_result.status if paper_trading.run_result else "").strip()
+    if run_status:
+        return f"Paper trading run finished with status {run_status}"
+    return "Paper trading run did not return a runnable task"
 
 
 def _quality_metric(metrics: dict[str, Any], *keys: str) -> float | None:

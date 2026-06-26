@@ -1691,6 +1691,57 @@ function paperStartedRunRecord(
   }
 }
 
+function paperTradingStartError(paper: AIStrategyPaperTradingStart) {
+  const status = String(paper.run_result?.status || '').trim()
+  if (status) return `Paper trading run finished with status ${status}`
+  return 'Paper trading run did not return a runnable task'
+}
+
+function paperStartFailedRunRecord(
+  record: AIStrategyResearchRunRecord,
+  paper: AIStrategyPaperTradingStart
+): AIStrategyResearchRunRecord {
+  const error = paperTradingStartError(paper)
+  const previousSteps = record.pipeline?.steps ?? []
+  const steps = previousSteps.some(step => step.key === 'paper_trading')
+    ? previousSteps.map(step =>
+        step.key === 'paper_trading'
+          ? { ...step, status: 'failed', error }
+          : step
+      )
+    : [
+        ...previousSteps,
+        {
+          key: 'paper_trading',
+          label: '模拟交易',
+          status: 'failed',
+          error,
+        },
+      ]
+  return {
+    ...paperStartedRunRecord(record, paper),
+    paper_trading_started: false,
+    paper_review_status: null,
+    paper_review_ready_for_live: false,
+    paper_reviewed_at: null,
+    paper_review_evaluations: [],
+    paper_review_next_actions: [],
+    pipeline: {
+      current_stage: 'paper_trading_failed',
+      status: record.status,
+      progress: record.pipeline?.progress ?? 92,
+      ready_for_live: false,
+      paper_trading_error: error,
+      steps,
+    },
+    next_actions: [
+      `模拟交易启动错误：${error}`,
+      '检查交易工作区、网关配置、策略脚本依赖和资产参数后可重试模拟。',
+      '如果启动问题来自策略脚本或交易环境假设，可从该记录继续投研。',
+    ],
+  }
+}
+
 function applyPaperStartToCurrentResult(
   runId: string,
   paper: AIStrategyPaperTradingStart,
@@ -1703,6 +1754,8 @@ function applyPaperStartToCurrentResult(
     paper_trading: paper,
     paper_monitoring_plan:
       paperMonitoringPlanFromHandoff(paper.handoff) ?? current.paper_monitoring_plan,
+    pipeline: runRecord.pipeline ?? current.pipeline,
+    next_actions: runRecord.next_actions ?? current.next_actions,
     run_record: runRecord,
   }
 }
@@ -1753,6 +1806,18 @@ async function startPaperFromResearchRecord(record: AIStrategyResearchRunRecord)
     const paper = await strategyApi.startAIResearchPaperTrading(record.run_id, {
       research_workspace_id: record.research_workspace_id,
     })
+    if (!paper.started) {
+      const failedRecord = paperStartFailedRunRecord(record, paper)
+      upsertAIResearchRunRecord(failedRecord)
+      applyPaperStartToCurrentResult(record.run_id, paper, failedRecord)
+      try {
+        await refreshAIResearchRunRecord(record.run_id, record.research_workspace_id)
+      } catch {
+        // Keep the local failed start state visible even if history refresh fails.
+      }
+      ElMessage.error('模拟交易启动失败')
+      return
+    }
     const updatedRecord = paperStartedRunRecord(record, paper)
     upsertAIResearchRunRecord(updatedRecord)
     applyPaperStartToCurrentResult(record.run_id, paper, updatedRecord)
