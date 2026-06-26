@@ -1735,7 +1735,7 @@ def test_normalize_gateway_position_understands_bybit_v5_position_and_execution_
                 "side": "Sell",
                 "execQty": "0.1",
                 "execPrice": "60000",
-                "execFee": "3",
+                "execFeeV2": "3",
                 "feeCurrency": "USDT",
                 "execTime": "1",
             }

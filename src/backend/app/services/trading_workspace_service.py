@@ -47,6 +47,8 @@ _COMMISSION_FIELD_KEYS = (
     "fees",
     "execFee",
     "exec_fee",
+    "execFeeV2",
+    "exec_fee_v2",
     "open_commission",
     "position_fee",
     "position_commission",
