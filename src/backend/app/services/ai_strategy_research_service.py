@@ -1599,6 +1599,7 @@ def _apply_primary_asset_spec_settings(
     if override_commission:
         commission = _first_asset_spec_number(
             primary,
+            "commission",
             "commission_rate",
             "open_commission_rate",
             "taker_commission_rate",
@@ -1606,7 +1607,9 @@ def _apply_primary_asset_spec_settings(
         )
         if commission is not None:
             unit_settings["commission"] = max(commission, 0.0)
-    source = str(primary.get("source") or primary.get("fee_source") or "").strip()
+    source = str(
+        primary.get("source") or primary.get("fee_source") or primary.get("asset_spec_source") or ""
+    ).strip()
     if source and not unit_settings.get("asset_spec_source"):
         unit_settings["asset_spec_source"] = source
 
@@ -1630,6 +1633,113 @@ def _first_asset_spec_number(spec: dict[str, Any], *keys: str) -> float | None:
         if value is not None:
             return value
     return None
+
+
+def _asset_specs_from_unit(unit: StrategyUnitResponse | None) -> dict[str, dict[str, Any]]:
+    if unit is None:
+        return {}
+    specs: dict[str, dict[str, Any]] = {}
+    for source in (
+        dict(unit.data_config or {}),
+        dict(unit.unit_settings or {}),
+        dict(unit.params or {}),
+        _dict_payload(unit.gateway_config),
+    ):
+        specs.update(_asset_specs_from_mapping(source))
+
+    symbol = str(unit.symbol or "").strip()
+    primary = next((dict(item) for item in specs.values() if isinstance(item, dict)), None)
+    unit_settings = dict(unit.unit_settings or {})
+    unit_setting_spec = {
+        key: unit_settings[key]
+        for key in (
+            "multiplier",
+            "margin",
+            "margin_rate",
+            "commission",
+            "commission_rate",
+            "asset_spec_source",
+        )
+        if unit_settings.get(key) not in (None, "")
+    }
+    if symbol:
+        merged = dict(specs.get(symbol) or primary or {})
+        merged.update(unit_setting_spec)
+        if merged:
+            specs[symbol] = merged
+    return _summarize_asset_specs_for_prompt(specs)
+
+
+def _asset_specs_from_mapping(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    specs: dict[str, dict[str, Any]] = {}
+    for key in ("contract_metadata", "contracts", "contract_specs", "instrument_specs"):
+        value = payload.get(key)
+        if not isinstance(value, dict):
+            continue
+        for symbol, spec in value.items():
+            if not isinstance(spec, dict):
+                continue
+            text = str(symbol or "").strip()
+            if not text:
+                continue
+            merged = dict(specs.get(text) or {})
+            merged.update(dict(spec))
+            specs[text] = merged
+    return specs
+
+
+def _request_backtest_environment(
+    request: AIStrategyResearchRunRequest,
+    asset_specs: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    specs = asset_specs or _resolve_research_asset_specs(request)
+    commission = request.commission
+    primary = next((value for value in specs.values() if isinstance(value, dict)), None)
+    if primary and not _request_has_explicit_commission(request):
+        asset_commission = _first_asset_spec_number(
+            primary,
+            "commission",
+            "commission_rate",
+            "open_commission_rate",
+            "taker_commission_rate",
+            "maker_commission_rate",
+        )
+        if asset_commission is not None:
+            commission = max(asset_commission, 0.0)
+    environment: dict[str, Any] = {
+        "initial_cash": request.initial_cash,
+        "commission": commission,
+        "commission_source": "user_override"
+        if _request_has_explicit_commission(request)
+        else "asset_specs_or_default",
+        "annual_days": request.annual_days,
+        "calc_method": request.calc_method,
+        "weight_mode": request.weight_mode,
+        "start_date": request.start_date,
+        "end_date": request.end_date,
+    }
+    if primary:
+        multiplier = _optional_gate_number(primary.get("multiplier"))
+        margin = _first_asset_spec_number(
+            primary,
+            "margin_rate",
+            "margin",
+            "long_margin_rate",
+            "short_margin_rate",
+        )
+        source = str(
+            primary.get("source")
+            or primary.get("fee_source")
+            or primary.get("asset_spec_source")
+            or ""
+        ).strip()
+        if multiplier is not None:
+            environment["multiplier"] = multiplier
+        if margin is not None:
+            environment["margin"] = margin
+        if source:
+            environment["asset_spec_source"] = source
+    return {key: value for key, value in environment.items() if value not in (None, "")}
 
 
 def _research_run_records_from_workspace(
@@ -2459,6 +2569,7 @@ def _research_backtest_defaults(request: AIStrategyResearchRunRequest) -> AIStra
         if primary:
             asset_commission = _first_asset_spec_number(
                 primary,
+                "commission",
                 "commission_rate",
                 "open_commission_rate",
                 "taker_commission_rate",
@@ -2489,6 +2600,21 @@ def _paper_start_request_from_record(
     request: AIStrategyPaperTradingStartRequest,
 ) -> AIStrategyResearchRunRequest:
     gates = dict(record.quality_gates or {})
+    iteration_payload = _best_iteration_payload(record) or {}
+    unit_snapshot = (
+        dict(iteration_payload.get("unit_snapshot"))
+        if isinstance(iteration_payload.get("unit_snapshot"), dict)
+        else {}
+    )
+    data_config = dict(unit_snapshot.get("data_config") or {})
+    unit_settings = dict(unit_snapshot.get("unit_settings") or {})
+    if record.asset_specs:
+        _merge_contract_metadata(data_config, record.asset_specs)
+        _merge_contract_metadata(unit_settings, record.asset_specs)
+    if record.backtest_environment:
+        for key in ("multiplier", "margin", "asset_spec_source"):
+            if key not in unit_settings and record.backtest_environment.get(key) not in (None, ""):
+                unit_settings[key] = record.backtest_environment[key]
     return AIStrategyResearchRunRequest(
         prompt=record.prompt,
         symbol=record.symbol,
@@ -2522,6 +2648,8 @@ def _paper_start_request_from_record(
         start_paper_trading=True,
         paper_workspace_name=request.paper_workspace_name,
         gateway_config=request.gateway_config,
+        data_config=data_config,
+        unit_settings=unit_settings,
     )
 
 
@@ -2658,6 +2786,7 @@ def _runtime_int(value: Any, fallback: int) -> int:
 def _continuation_context_from_record(
     record: AIStrategyResearchRunRecord,
 ) -> dict[str, Any]:
+    runtime_context = _record_runtime_context(record)
     failed_evaluations = [
         dict(item)
         for item in record.paper_review_evaluations
@@ -2678,6 +2807,7 @@ def _continuation_context_from_record(
             "pipeline": dict(record.pipeline or {}),
             "next_actions": list(record.next_actions or []),
             "metrics": dict(record.best_metrics or {}),
+            **runtime_context,
         }
 
     failures = [_paper_review_failure_text(item) for item in failed_evaluations]
@@ -2699,7 +2829,24 @@ def _continuation_context_from_record(
         "paper_review_evaluations": failed_evaluations,
         "paper_review_next_actions": list(record.paper_review_next_actions or []),
         "metrics": metrics,
+        **runtime_context,
     }
+
+
+def _record_runtime_context(record: AIStrategyResearchRunRecord) -> dict[str, Any]:
+    context: dict[str, Any] = {}
+    if record.asset_specs:
+        context["asset_specs"] = dict(record.asset_specs)
+    if record.backtest_environment:
+        context["backtest_environment"] = dict(record.backtest_environment)
+    if record.paper_handoff:
+        paper_asset_specs = record.paper_handoff.get("asset_specs")
+        if isinstance(paper_asset_specs, dict) and "asset_specs" not in context:
+            context["asset_specs"] = dict(paper_asset_specs)
+        paper_environment = record.paper_handoff.get("backtest_environment")
+        if isinstance(paper_environment, dict) and "backtest_environment" not in context:
+            context["backtest_environment"] = dict(paper_environment)
+    return context
 
 
 def _research_failure_context_from_record(
@@ -2743,6 +2890,7 @@ def _research_failure_context_from_record(
         "diagnostics": dict(payload.get("diagnostics") or {}),
         "improvement_plan": list(payload.get("improvement_plan") or []),
         "next_actions": list(record.next_actions or []),
+        **_record_runtime_context(record),
     }
 
 
@@ -2805,6 +2953,16 @@ def _build_research_run_record(
         )
     unit_settings = dict(best_iteration.unit.unit_settings or {}) if best_iteration else {}
     data_config = dict(best_iteration.unit.data_config or {}) if best_iteration else {}
+    asset_specs = (
+        _asset_specs_from_unit(best_iteration.unit)
+        if best_iteration is not None
+        else _summarize_asset_specs_for_prompt(_resolve_research_asset_specs(request))
+    )
+    backtest_environment = (
+        _paper_backtest_environment(request, best_iteration)
+        if best_iteration is not None
+        else _request_backtest_environment(request, asset_specs)
+    )
     best_strategy = response.best_strategy
     paper = response.paper_trading
     return AIStrategyResearchRunRecord(
@@ -2821,6 +2979,8 @@ def _build_research_run_record(
         annual_days=_runtime_int(unit_settings.get("annual_days"), request.annual_days),
         calc_method=_runtime_text(unit_settings.get("calc_method"), request.calc_method),
         weight_mode=_runtime_text(unit_settings.get("weight_mode"), request.weight_mode),
+        asset_specs=asset_specs,
+        backtest_environment=backtest_environment,
         knowledge_base_id=request.knowledge_base_id,
         thinking_mode=request.thinking_mode,
         status=response.status,
@@ -2866,6 +3026,7 @@ def _build_paper_trading_handoff(
     best_iteration: AIStrategyResearchIteration,
     promoted_at: str,
 ) -> dict[str, Any]:
+    asset_specs = _asset_specs_from_unit(best_iteration.unit)
     return {
         "run_id": run_id,
         "source": "ai_strategy_research",
@@ -2885,6 +3046,7 @@ def _build_paper_trading_handoff(
         "total_trades": best_iteration.total_trades,
         "best_metrics": best_iteration.metrics,
         "backtest_environment": _paper_backtest_environment(request, best_iteration),
+        "asset_specs": asset_specs,
         "out_of_sample_validation": {
             "status": best_iteration.validation_status,
             "window": best_iteration.validation_window,
@@ -3509,10 +3671,12 @@ def _contract_metadata_has_asset_specs(metadata: dict[str, Any]) -> bool:
                 "contract_multiplier",
                 "contract_size",
                 "margin_rate",
+                "commission",
                 "commission_rate",
                 "open_commission_rate",
                 "close_commission_rate",
                 "commission_amount",
+                "asset_spec_source",
                 "source",
             )
         ):
@@ -3704,16 +3868,7 @@ def _build_research_draft_prompt(request: AIStrategyResearchRunRequest) -> str:
             "out_of_sample_ratio": request.out_of_sample_ratio,
         },
         "quality_gates": _quality_gates_payload(request),
-        "backtest_environment": {
-            "initial_cash": request.initial_cash,
-            "commission": request.commission,
-            "commission_source": "user_override"
-            if _request_has_explicit_commission(request)
-            else "asset_specs_or_default",
-            "annual_days": request.annual_days,
-            "calc_method": request.calc_method,
-            "weight_mode": request.weight_mode,
-        },
+        "backtest_environment": _request_backtest_environment(request, asset_specs),
         "asset_specs": _summarize_asset_specs_for_prompt(asset_specs),
         "paper_trading_handoff": {
             "enabled_after_success": request.start_paper_trading,
@@ -3749,21 +3904,43 @@ def _summarize_asset_specs_for_prompt(
     keys = (
         "symbol",
         "exchange",
+        "asset_type",
+        "instrument_type",
         "product",
         "multiplier",
         "contract_multiplier",
         "contract_size",
+        "contract_value",
+        "ctVal",
+        "ctMult",
         "margin_rate",
         "margin",
         "long_margin_rate",
         "short_margin_rate",
+        "margin_initial",
+        "margin_maintenance",
+        "leverage",
+        "max_leverage",
         "commission_rate",
+        "commission",
         "open_commission_rate",
         "close_commission_rate",
         "close_today_commission_rate",
         "commission_amount",
+        "maker_commission_rate",
+        "taker_commission_rate",
+        "tick_size",
+        "lot_size",
+        "min_order_size",
+        "base_asset",
+        "quote_asset",
+        "last_price",
+        "latest_price",
+        "settlement_price",
+        "asset_spec_source",
         "source",
         "fee_source",
+        "margin_source",
     )
     for symbol, spec in asset_specs.items():
         if not isinstance(spec, dict):
@@ -3787,6 +3964,7 @@ def _build_improvement_messages(
     symbol = request.symbol if request is not None else draft.suggested_symbol or ""
     timeframe = request.timeframe if request is not None else draft.suggested_timeframe or ""
     failures = [str(item) for item in quality_gate_failures or []]
+    asset_specs = _resolve_research_asset_specs(request) if request is not None else {}
     return [
         {
             "role": "system",
@@ -3809,6 +3987,10 @@ def _build_improvement_messages(
                     "target_sharpe": target_sharpe,
                     "quality_gates": _quality_gates_payload(request) if request else {},
                     "quality_gate_failures": failures,
+                    "asset_specs": _summarize_asset_specs_for_prompt(asset_specs),
+                    "backtest_environment": _request_backtest_environment(request, asset_specs)
+                    if request is not None
+                    else {},
                     "continuation_context": dict(request.continuation_context or {})
                     if request is not None
                     else {},
@@ -3828,6 +4010,7 @@ def _build_improvement_messages(
                         "如果新增指标或状态变量，必须保证 Backtrader Strategy 类可独立运行。",
                         "优先执行 suggested_improvement_plan 中的具体改进方向。",
                         "优先针对 quality_gate_failures 中列出的失败原因改进策略。",
+                        "若 asset_specs 包含合约乘数、保证金、杠杆或手续费，改稿必须保留这些交易约束。",
                         "notes 用中文说明具体改动和为什么可能改善 Sharpe/回撤/交易次数。",
                     ],
                 },

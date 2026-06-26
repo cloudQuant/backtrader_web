@@ -211,6 +211,14 @@ class AIStrategyResearchRunRecord(BaseModel):
     annual_days: int = 252
     calc_method: str = "simple"
     weight_mode: str = "equal"
+    asset_specs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Resolved exchange/local asset specs used for backtest, paper handoff and valuation",
+    )
+    backtest_environment: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Effective cash, commission, multiplier and margin assumptions used by the run",
+    )
     knowledge_base_id: str | None = None
     thinking_mode: bool = False
     status: str

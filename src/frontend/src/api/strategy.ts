@@ -263,6 +263,8 @@ export interface AIStrategyResearchRunRecord {
   annual_days?: number
   calc_method?: string
   weight_mode?: string
+  asset_specs?: Record<string, Record<string, unknown>>
+  backtest_environment?: Record<string, unknown>
   knowledge_base_id?: string | null
   thinking_mode?: boolean
   status: string

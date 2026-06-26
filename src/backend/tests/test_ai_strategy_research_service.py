@@ -435,7 +435,22 @@ def test_ai_strategy_draft_class_name_is_valid_with_numeric_goal():
 
 
 @pytest.mark.asyncio
-async def test_ai_strategy_improver_uses_model_json_to_rewrite_strategy():
+async def test_ai_strategy_improver_uses_model_json_to_rewrite_strategy(monkeypatch):
+    def fake_resolve_asset_specs(instance, strategy_dir, gateway=None, symbols=None):
+        assert "IF2609" in symbols
+        return {
+            "IF2609": {
+                "multiplier": 300,
+                "margin_rate": 0.1,
+                "commission_rate": 0.000023,
+                "source": "test_contract_metadata",
+            }
+        }
+
+    monkeypatch.setattr(
+        "app.services.ai_strategy_research_service.resolve_asset_specs",
+        fake_resolve_asset_specs,
+    )
     draft = build_ai_strategy_draft("请生成一个均线趋势策略")
     router = FakeAIChatRouter(
         """
@@ -469,8 +484,18 @@ async def test_ai_strategy_improver_uses_model_json_to_rewrite_strategy():
         user_id="user-1",
         request=AIStrategyResearchRunRequest(
             prompt="均线趋势",
-            symbol="000001.SZ",
+            symbol="IF2609",
             max_drawdown_limit=10.0,
+            data_config={
+                "contract_metadata": {
+                    "IF2609": {
+                        "multiplier": 300,
+                        "margin_rate": 0.1,
+                        "commission_rate": 0.000023,
+                        "source": "test_contract_metadata",
+                    }
+                }
+            },
         ),
     )
 
@@ -478,6 +503,10 @@ async def test_ai_strategy_improver_uses_model_json_to_rewrite_strategy():
     payload = json.loads(router.calls[0]["messages"][1]["content"])
     assert payload["quality_gate_failures"] == ["Max drawdown 18.000 exceeds limit 10.000"]
     assert payload["quality_gates"]["max_drawdown_limit"] == 10.0
+    assert payload["asset_specs"]["IF2609"]["multiplier"] == 300
+    assert payload["asset_specs"]["IF2609"]["commission_rate"] == pytest.approx(0.000023)
+    assert payload["backtest_environment"]["commission"] == pytest.approx(0.000023)
+    assert payload["backtest_environment"]["multiplier"] == 300
     assert "suggested_improvement_plan" in payload
     assert any("止损" in item for item in payload["suggested_improvement_plan"])
     assert result.draft.name == "AI改进趋势策略"
@@ -1011,10 +1040,21 @@ async def test_research_loop_enriches_backtest_with_asset_specs(monkeypatch):
     )
     assert result.run_record is not None
     assert result.run_record.commission == pytest.approx(0.000023)
+    assert result.run_record.asset_specs["IF2609"]["multiplier"] == 300
+    assert result.run_record.asset_specs["IF2609"]["commission_rate"] == pytest.approx(0.000023)
+    assert result.run_record.backtest_environment["commission"] == pytest.approx(0.000023)
+    assert result.run_record.backtest_environment["multiplier"] == 300
+    assert result.run_record.backtest_environment["margin"] == pytest.approx(0.1)
+    assert result.run_record.backtest_environment["asset_spec_source"] == (
+        "local_futures_commission"
+    )
     unit_snapshot = result.run_record.iterations[0]["unit_snapshot"]
     assert unit_snapshot["data_config"]["contract_metadata"]["IF2609"]["multiplier"] == 300
     assert unit_snapshot["unit_settings"]["commission"] == pytest.approx(0.000023)
     assert unit_snapshot["unit_settings"]["asset_spec_source"] == "local_futures_commission"
+    persisted_run = result.research_workspace.settings["ai_research"]["runs"][0]
+    assert persisted_run["asset_specs"]["IF2609"]["margin_rate"] == pytest.approx(0.1)
+    assert persisted_run["backtest_environment"]["commission"] == pytest.approx(0.000023)
 
 
 @pytest.mark.asyncio
@@ -1239,6 +1279,15 @@ async def test_review_paper_trading_confirms_valuation_from_unit_asset_specs(mon
         0.002
     )
     assert result.paper_trading.handoff["backtest_environment"]["asset_spec_source"] == (
+        "local_futures_commission"
+    )
+    assert result.paper_trading.handoff["asset_specs"]["IF2609"]["multiplier"] == 300
+    assert result.paper_trading.handoff["asset_specs"]["IF2609"]["commission_rate"] == pytest.approx(
+        0.002
+    )
+    assert result.run_record is not None
+    assert result.run_record.asset_specs["IF2609"]["margin_rate"] == pytest.approx(0.1)
+    assert result.run_record.paper_handoff["asset_specs"]["IF2609"]["source"] == (
         "local_futures_commission"
     )
     execution_cost_rule = next(
@@ -2091,6 +2140,11 @@ async def test_start_paper_trading_from_history_uses_iteration_unit_snapshot():
     assert result.handoff["backtest_environment"]["commission"] == pytest.approx(0.000023)
     assert result.handoff["backtest_environment"]["multiplier"] == 300
     assert result.handoff["backtest_environment"]["asset_spec_source"] == (
+        "local_futures_commission"
+    )
+    assert result.handoff["asset_specs"]["IF2609"]["multiplier"] == 300
+    assert result.handoff["asset_specs"]["IF2609"]["commission"] == pytest.approx(0.000023)
+    assert result.handoff["asset_specs"]["IF2609"]["asset_spec_source"] == (
         "local_futures_commission"
     )
 
