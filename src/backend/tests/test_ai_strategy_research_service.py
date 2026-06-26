@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -351,11 +352,19 @@ async def test_ai_strategy_improver_uses_model_json_to_rewrite_strategy():
         iteration=1,
         metrics={"sharpe_ratio": 0.2, "total_trades": 3},
         target_sharpe=1.0,
+        quality_gate_failures=["Max drawdown 18.000 exceeds limit 10.000"],
         user_id="user-1",
-        request=AIStrategyResearchRunRequest(prompt="均线趋势", symbol="000001.SZ"),
+        request=AIStrategyResearchRunRequest(
+            prompt="均线趋势",
+            symbol="000001.SZ",
+            max_drawdown_limit=10.0,
+        ),
     )
 
     assert router.calls
+    payload = json.loads(router.calls[0]["messages"][1]["content"])
+    assert payload["quality_gate_failures"] == ["Max drawdown 18.000 exceeds limit 10.000"]
+    assert payload["quality_gates"]["max_drawdown_limit"] == 10.0
     assert result.draft.name == "AI改进趋势策略"
     assert "class ImprovedStrategy" in result.draft.code
     assert result.draft.params["risk_pct"].default == 0.01
@@ -417,6 +426,27 @@ async def test_ai_strategy_improver_falls_back_when_model_code_is_not_strategy()
     assert "not_a_strategy" not in result.draft.code
     assert result.notes[0].startswith("AI模型改稿不可用，已使用本地规则回退")
     assert "must define a class inheriting from bt.Strategy" in result.notes[0]
+
+
+@pytest.mark.asyncio
+async def test_local_strategy_improver_uses_quality_gate_failures():
+    draft = build_ai_strategy_draft("请生成一个均线趋势策略")
+
+    result = await LocalStrategyImprover().improve(
+        draft,
+        iteration=1,
+        metrics={"sharpe_ratio": 1.2, "total_trades": 5, "max_drawdown": -0.18},
+        target_sharpe=1.0,
+        quality_gate_failures=["Max drawdown 18.000 exceeds limit 10.000"],
+        request=AIStrategyResearchRunRequest(
+            prompt="均线趋势",
+            symbol="000001.SZ",
+            max_drawdown_limit=10.0,
+        ),
+    )
+
+    assert result.draft.params["stop_loss_pct"].default == 0.024
+    assert any("本轮未通过验收门槛" in note for note in result.notes)
 
 
 @pytest.mark.asyncio

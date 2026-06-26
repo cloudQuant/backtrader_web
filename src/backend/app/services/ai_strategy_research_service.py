@@ -72,14 +72,17 @@ class LocalStrategyImprover:
         iteration: int,
         metrics: dict[str, Any],
         target_sharpe: float,
+        quality_gate_failures: list[str] | None = None,
         user_id: str | None = None,
         request: AIStrategyResearchRunRequest | None = None,
     ) -> StrategyImprovement:
         improved = draft.model_copy(deep=True)
         notes: list[str] = []
+        failures = [str(item) for item in quality_gate_failures or []]
         sharpe = _metric_float(metrics, "sharpe_ratio", "sharpe", "sharpeRatio")
         max_drawdown = _metric_float(metrics, "max_drawdown", "maxDrawdown", default=0.0)
         total_trades = _metric_int(metrics, "total_trades", "totalTrades", "trades")
+        drawdown_failed = any("drawdown" in item.lower() or "回撤" in item for item in failures)
 
         suffix = f" v{iteration + 1}"
         base_name = re.sub(r"\s+v\d+$", "", improved.name).strip()
@@ -97,7 +100,7 @@ class LocalStrategyImprover:
             _set_param_default(params, "risk_pct", next_value)
             notes.append(f"将单笔风险从 {current:g} 下调到 {next_value:g}")
 
-        if "stop_loss_pct" in params and max_drawdown < -10:
+        if "stop_loss_pct" in params and (max_drawdown < -10 or drawdown_failed):
             current = _param_float(params["stop_loss_pct"], 0.05)
             next_value = max(round(current * 0.8, 4), 0.01)
             _set_param_default(params, "stop_loss_pct", next_value)
@@ -130,6 +133,9 @@ class LocalStrategyImprover:
             next_value = max(current - 1, 5) if total_trades < 3 else current + 1
             _set_param_default(params, "rsi_period", next_value)
             notes.append(f"RSI 周期从 {current} 调整到 {next_value}")
+
+        if failures:
+            notes.append("本轮未通过验收门槛：" + "；".join(failures))
 
         if not notes:
             notes.append("上一轮指标未达标，保留策略结构并创建新版本继续验证")
@@ -173,6 +179,7 @@ class AIStrategyImprover:
         iteration: int,
         metrics: dict[str, Any],
         target_sharpe: float,
+        quality_gate_failures: list[str] | None = None,
         user_id: str | None = None,
         request: AIStrategyResearchRunRequest | None = None,
     ) -> StrategyImprovement:
@@ -183,6 +190,7 @@ class AIStrategyImprover:
                 iteration=iteration,
                 metrics=metrics,
                 target_sharpe=target_sharpe,
+                quality_gate_failures=quality_gate_failures,
                 user_id=user_id,
                 request=request,
             )
@@ -194,6 +202,7 @@ class AIStrategyImprover:
                     iteration=iteration,
                     metrics=metrics,
                     target_sharpe=target_sharpe,
+                    quality_gate_failures=quality_gate_failures,
                     request=request,
                 ),
                 model=preference.model,
@@ -219,6 +228,7 @@ class AIStrategyImprover:
                 iteration=iteration,
                 metrics=metrics,
                 target_sharpe=target_sharpe,
+                quality_gate_failures=quality_gate_failures,
                 user_id=user_id,
                 request=request,
             )
@@ -360,6 +370,7 @@ class AIStrategyResearchService:
                     iteration=iteration,
                     metrics=metrics,
                     target_sharpe=request.target_sharpe,
+                    quality_gate_failures=quality_gate_failures,
                     user_id=user_id,
                     request=request,
                 )
@@ -1033,11 +1044,13 @@ def _build_improvement_messages(
     iteration: int,
     metrics: dict[str, Any],
     target_sharpe: float,
+    quality_gate_failures: list[str] | None,
     request: AIStrategyResearchRunRequest | None,
 ) -> list[dict[str, str]]:
     objective = request.prompt if request is not None else ""
     symbol = request.symbol if request is not None else draft.suggested_symbol or ""
     timeframe = request.timeframe if request is not None else draft.suggested_timeframe or ""
+    failures = [str(item) for item in quality_gate_failures or []]
     return [
         {
             "role": "system",
@@ -1058,11 +1071,14 @@ def _build_improvement_messages(
                     "timeframe": timeframe,
                     "iteration_to_create": iteration + 1,
                     "target_sharpe": target_sharpe,
+                    "quality_gates": _quality_gates_payload(request) if request else {},
+                    "quality_gate_failures": failures,
                     "previous_metrics": metrics,
                     "current_draft": draft.model_dump(mode="json"),
                     "rules": [
                         "不要删除风控逻辑；如果调整参数，请同步 params 和 code 中 params 默认值。",
                         "如果新增指标或状态变量，必须保证 Backtrader Strategy 类可独立运行。",
+                        "优先针对 quality_gate_failures 中列出的失败原因改进策略。",
                         "notes 用中文说明具体改动和为什么可能改善 Sharpe/回撤/交易次数。",
                     ],
                 },
