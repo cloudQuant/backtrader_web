@@ -82,9 +82,9 @@ describe('PositionManagerDialog', () => {
           valuation_warnings: [],
         },
       ],
-      total_long_value: 1500300,
-      total_short_value: 0,
-      total_pnl: 265.5,
+      total_long_value: 999999,
+      total_short_value: 888888,
+      total_pnl: 777,
     })
     const vm = mountDialog().vm as any
 
@@ -92,6 +92,8 @@ describe('PositionManagerDialog', () => {
 
     expect(vm.positions).toHaveLength(1)
     expect(vm.positions[0].unit_id).toBe('unit-active')
+    expect(vm.summary.total_long_value).toBe(1500300)
+    expect(vm.summary.total_short_value).toBe(0)
     expect(vm.summary.total_pnl).toBe(265.5)
   })
 })

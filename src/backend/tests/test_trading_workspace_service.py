@@ -2536,6 +2536,58 @@ def test_gateway_position_pnl_alias_is_gross_until_explicitly_net():
     assert direct.pnl == pytest.approx(2965.5)
 
 
+def test_gateway_position_pnl_flagged_as_net_is_not_charged_twice():
+    spec = normalize_asset_spec(
+        {
+            "symbol": "BTCUSDT",
+            "contract_size": 1,
+            "commission_rate": 0.0004,
+        },
+        symbol="BTCUSDT",
+        source="exchange_gateway",
+    )
+    contract_spec = contract_spec_for("BTCUSDT", {"contract_metadata": {"BTCUSDT": spec}})
+
+    row = normalize_gateway_position(
+        {
+            "symbol": "BTCUSDT",
+            "side": "Buy",
+            "size": "0.1",
+            "avgPrice": "60000",
+            "markPrice": "61000",
+            "position_pnl": "97",
+            "position_pnl_is_net": True,
+            "commission": "3",
+        },
+        asset_spec=spec,
+    )
+    valued = value_position(row, spec=contract_spec)
+    direct = value_position(
+        {
+            "data_name": "BTCUSDT",
+            "side": "Buy",
+            "size": 0.1,
+            "price": 60000.0,
+            "current_price": 61000.0,
+            "position_pnl": 97.0,
+            "position_pnl_is_net": True,
+            "commission": 3.0,
+        },
+        spec=contract_spec,
+    )
+
+    assert row["pnlcomm"] == pytest.approx(97.0)
+    assert "gross_pnl" not in row
+    assert valued is not None
+    assert valued.gross_pnl == pytest.approx(100.0)
+    assert valued.commission == pytest.approx(3.0)
+    assert valued.pnl == pytest.approx(97.0)
+    assert direct is not None
+    assert direct.gross_pnl == pytest.approx(100.0)
+    assert direct.commission == pytest.approx(3.0)
+    assert direct.pnl == pytest.approx(97.0)
+
+
 def test_normalize_asset_spec_accepts_raw_binance_fee_payload():
     spec = normalize_asset_spec(
         {

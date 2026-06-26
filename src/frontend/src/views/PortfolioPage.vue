@@ -529,7 +529,6 @@ import type {
 } from '@/api/portfolio'
 import type {
   TradingPositionManagerItem,
-  TradingPositionManagerResponse,
   Workspace,
 } from '@/types/workspace'
 import { PORTFOLIO_DRAWDOWN_AREA_COLOR, PORTFOLIO_DRAWDOWN_COLOR, PORTFOLIO_EQUITY_COLOR } from '@/constants/chartColors'
@@ -758,7 +757,7 @@ async function loadWorkspaceAggregates() {
     result.positions.map(item => mapWorkspacePosition(workspaces[index], item))
   )).filter(item => hasOpenPosition(item))
   positions.value = nextPositions
-  positionSummary.value = buildWorkspacePositionSummary(positionResults, nextPositions)
+  positionSummary.value = buildWorkspacePositionSummary(nextPositions)
   trades.value = tradeResults
     .flatMap((result, index) => (
       result.trades.filter(item => isTradeInSelectedWorkspaces(item, [workspaces[index]]))
@@ -766,13 +765,26 @@ async function loadWorkspaceAggregates() {
     .sort((a, b) => tradeSortKey(b).localeCompare(tradeSortKey(a)))
 }
 
-function buildWorkspacePositionSummary(
-  positionResults: TradingPositionManagerResponse[],
-  rows: PositionItem[],
-): PositionSummary {
-  const totalLong = positionResults.reduce((sum, item) => sum + Number(item.total_long_value || 0), 0)
-  const totalShort = positionResults.reduce((sum, item) => sum + Number(item.total_short_value || 0), 0)
-  const totalPnl = positionResults.reduce((sum, item) => sum + Number(item.total_pnl || 0), 0)
+function buildWorkspacePositionSummary(rows: PositionItem[]): PositionSummary {
+  const exposure = rows.reduce((sum, item) => {
+    const longPosition = Math.max(Number(item.long_position || 0), 0)
+    const shortPosition = Math.max(Number(item.short_position || 0), 0)
+    const marketValue = Math.abs(Number(item.market_value || 0))
+    const totalPosition = longPosition + shortPosition
+    if (totalPosition > 0) {
+      sum.long += marketValue * (longPosition / totalPosition)
+      sum.short += marketValue * (shortPosition / totalPosition)
+    } else if (Number(item.size || 0) > 0) {
+      sum.long += marketValue
+    } else if (Number(item.size || 0) < 0) {
+      sum.short += marketValue
+    }
+    sum.pnl += Number(item.position_pnl || 0)
+    return sum
+  }, { long: 0, short: 0, pnl: 0 })
+  const totalLong = exposure.long
+  const totalShort = exposure.short
+  const totalPnl = exposure.pnl
   return {
     total_long_value: roundMoney(totalLong),
     total_short_value: roundMoney(totalShort),

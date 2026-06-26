@@ -43,6 +43,45 @@ OKX_SIGNED_FEE_FIELD_KEYS = frozenset(
         "fill_fee",
     }
 )
+EXPLICIT_NET_PNL_FIELD_KEYS = (
+    "pnlcomm",
+    "net_pnl",
+    "netPnl",
+    "netPNL",
+    "net_position_pnl",
+    "netPositionPnl",
+    "netPositionPNL",
+    "net_unrealized_pnl",
+    "netUnrealizedPnl",
+    "netUnrealizedPNL",
+    "unrealized_pnl_after_fee",
+    "unrealizedPnlAfterFee",
+    "position_pnl_after_fee",
+    "positionPnlAfterFee",
+)
+MARKABLE_NET_PNL_FIELD_KEYS = ("position_pnl", "pnl", "profit")
+NET_PNL_FLAG_KEYS = (
+    "position_pnl_is_net",
+    "positionPnlIsNet",
+    "pnl_is_net",
+    "pnlIsNet",
+    "profit_is_net",
+    "profitIsNet",
+    "position_pnl_includes_fee",
+    "positionPnlIncludesFee",
+    "pnl_includes_fee",
+    "pnlIncludesFee",
+    "profit_includes_fee",
+    "profitIncludesFee",
+    "position_pnl_includes_commission",
+    "positionPnlIncludesCommission",
+    "pnl_includes_commission",
+    "pnlIncludesCommission",
+    "profit_includes_commission",
+    "profitIncludesCommission",
+    "is_net_pnl",
+    "isNetPnl",
+)
 INVERSE_CONTRACT_FLAG_KEYS = (
     "inverse",
     "is_inverse",
@@ -128,6 +167,10 @@ def _truthy(value: Any) -> bool:
     if isinstance(value, (int, float)):
         return value != 0
     return str(value or "").strip().lower() in {"1", "true", "yes", "y", "signed"}
+
+
+def _row_marks_pnl_as_net(row: dict[str, Any]) -> bool:
+    return any(_truthy(row.get(key)) for key in NET_PNL_FLAG_KEYS)
 
 
 def _explicit_inverse_flag(config: dict[str, Any]) -> bool | None:
@@ -2103,13 +2146,13 @@ def value_position(
 
     explicit_net_pnl_key, explicit_net_pnl_value = _first_number_with_key(
         row,
-        (
-            "pnlcomm",
-            "net_pnl",
-            "netPnl",
-            "netPNL",
-        ),
+        EXPLICIT_NET_PNL_FIELD_KEYS,
     )
+    if explicit_net_pnl_value is None and _row_marks_pnl_as_net(row):
+        explicit_net_pnl_key, explicit_net_pnl_value = _first_number_with_key(
+            row,
+            MARKABLE_NET_PNL_FIELD_KEYS,
+        )
     explicit_net_pnl = (
         _normalized_pnl_amount(
             row,
@@ -2162,6 +2205,11 @@ def value_position(
         if explicit_gross_pnl_value is not None
         else None
     )
+    if explicit_net_pnl is not None and (
+        explicit_net_pnl_key == explicit_gross_pnl_key
+        or explicit_gross_pnl_key in MARKABLE_NET_PNL_FIELD_KEYS
+    ):
+        explicit_gross_pnl = None
     gross_pnl = (
         explicit_gross_pnl
         if explicit_gross_pnl is not None

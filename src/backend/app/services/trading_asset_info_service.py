@@ -111,6 +111,45 @@ OKX_SIGNED_FEE_FIELD_KEYS = frozenset(
         "fill_fee",
     }
 )
+EXPLICIT_NET_PNL_FIELD_KEYS = (
+    "pnlcomm",
+    "net_pnl",
+    "netPnl",
+    "netPNL",
+    "net_position_pnl",
+    "netPositionPnl",
+    "netPositionPNL",
+    "net_unrealized_pnl",
+    "netUnrealizedPnl",
+    "netUnrealizedPNL",
+    "unrealized_pnl_after_fee",
+    "unrealizedPnlAfterFee",
+    "position_pnl_after_fee",
+    "positionPnlAfterFee",
+)
+MARKABLE_NET_PNL_FIELD_KEYS = ("position_pnl", "pnl", "profit")
+NET_PNL_FLAG_KEYS = (
+    "position_pnl_is_net",
+    "positionPnlIsNet",
+    "pnl_is_net",
+    "pnlIsNet",
+    "profit_is_net",
+    "profitIsNet",
+    "position_pnl_includes_fee",
+    "positionPnlIncludesFee",
+    "pnl_includes_fee",
+    "pnlIncludesFee",
+    "profit_includes_fee",
+    "profitIncludesFee",
+    "position_pnl_includes_commission",
+    "positionPnlIncludesCommission",
+    "pnl_includes_commission",
+    "pnlIncludesCommission",
+    "profit_includes_commission",
+    "profitIncludesCommission",
+    "is_net_pnl",
+    "isNetPnl",
+)
 INVERSE_CONTRACT_FLAG_KEYS = (
     "inverse",
     "is_inverse",
@@ -381,6 +420,18 @@ def _uses_okx_fee_sign(row: dict[str, Any], asset_spec: dict[str, Any] | None = 
         )
     )
     return "okx" in text
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "signed"}
+
+
+def _row_marks_pnl_as_net(row: dict[str, Any]) -> bool:
+    return any(_truthy(row.get(key)) for key in NET_PNL_FLAG_KEYS)
 
 
 def _internal_commission_from_exchange_fee(
@@ -1620,11 +1671,13 @@ def normalize_gateway_position(
 
     explicit_net_pnl_key, explicit_net_pnl_value = _first_value_with_key(
         row,
-        "pnlcomm",
-        "net_pnl",
-        "netPnl",
-        "netPNL",
+        *EXPLICIT_NET_PNL_FIELD_KEYS,
     )
+    if explicit_net_pnl_value in (None, "") and _row_marks_pnl_as_net(row):
+        explicit_net_pnl_key, explicit_net_pnl_value = _first_value_with_key(
+            row,
+            *MARKABLE_NET_PNL_FIELD_KEYS,
+        )
     commission_key, commission_value = _first_value_with_key(row, *COMMISSION_FIELD_KEYS)
     has_commission = commission_value not in (None, "")
     has_swap = any(key in row and row.get(key) not in (None, "") for key in ("swap", "storage"))
@@ -1718,6 +1771,8 @@ def normalize_gateway_position(
         if gross_pnl_value is not None
         else None
     )
+    if explicit_net_pnl_key and explicit_net_pnl_key == gross_pnl_key:
+        gross_pnl = None
     net_pnl = None
     if explicit_net_pnl is not None:
         net_pnl = explicit_net_pnl

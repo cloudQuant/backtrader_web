@@ -259,14 +259,43 @@ async function loadPositions() {
       Math.abs(Number(position.long_position || 0)) > 0
       || Math.abs(Number(position.short_position || 0)) > 0
     ))
-    summary.total_long_value = response.total_long_value
-    summary.total_short_value = response.total_short_value
-    summary.total_pnl = response.total_pnl
+    const nextSummary = buildVisiblePositionSummary(positions.value)
+    summary.total_long_value = nextSummary.total_long_value
+    summary.total_short_value = nextSummary.total_short_value
+    summary.total_pnl = nextSummary.total_pnl
   } catch (error: unknown) {
     ElMessage.error(getErrorMessage(error, t('workspaceDialogs.pmLoadFailed')))
   } finally {
     loading.value = false
   }
+}
+
+function buildVisiblePositionSummary(rows: TradingPositionManagerItem[]) {
+  const totals = rows.reduce((sum, item) => {
+    const longPosition = Math.max(Number(item.long_position || 0), 0)
+    const shortPosition = Math.max(Number(item.short_position || 0), 0)
+    const marketValue = Math.abs(Number(item.market_value || 0))
+    const totalPosition = longPosition + shortPosition
+    if (totalPosition > 0) {
+      sum.total_long_value += marketValue * (longPosition / totalPosition)
+      sum.total_short_value += marketValue * (shortPosition / totalPosition)
+    }
+    sum.total_pnl += Number(item.position_pnl || 0)
+    return sum
+  }, {
+    total_long_value: 0,
+    total_short_value: 0,
+    total_pnl: 0,
+  })
+  return {
+    total_long_value: roundAmount(totals.total_long_value),
+    total_short_value: roundAmount(totals.total_short_value),
+    total_pnl: roundAmount(totals.total_pnl),
+  }
+}
+
+function roundAmount(value: number) {
+  return Math.round((Number(value) || 0) * 100) / 100
 }
 
 watch(

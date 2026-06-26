@@ -185,9 +185,9 @@ vi.mock('@/api/workspace', () => ({
           market_value: 0,
         },
       ],
-      total_long_value: 7200,
-      total_short_value: 0,
-      total_pnl: 200,
+      total_long_value: 999999,
+      total_short_value: 888888,
+      total_pnl: 777,
     }),
     getTradingDailySummary: vi.fn().mockResolvedValue({
       summaries: [

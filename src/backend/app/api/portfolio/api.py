@@ -83,7 +83,22 @@ _GROSS_PNL_FIELD_KEYS = (
     "upl",
     "up",
 )
-_EXPLICIT_NET_PNL_FIELD_KEYS = ("pnlcomm", "net_pnl", "netPnl", "netPNL")
+_EXPLICIT_NET_PNL_FIELD_KEYS = (
+    "pnlcomm",
+    "net_pnl",
+    "netPnl",
+    "netPNL",
+    "net_position_pnl",
+    "netPositionPnl",
+    "netPositionPNL",
+    "net_unrealized_pnl",
+    "netUnrealizedPnl",
+    "netUnrealizedPNL",
+    "unrealized_pnl_after_fee",
+    "unrealizedPnlAfterFee",
+    "position_pnl_after_fee",
+    "positionPnlAfterFee",
+)
 
 
 @dataclass
