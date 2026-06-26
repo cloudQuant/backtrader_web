@@ -127,6 +127,10 @@ export interface AIStrategyResearchRunRequest {
   end_date?: string | null
   target_sharpe?: number
   min_total_trades?: number
+  max_drawdown_limit?: number | null
+  min_total_return?: number | null
+  min_annual_return?: number | null
+  min_win_rate?: number | null
   max_iterations?: number
   backtest_timeout_seconds?: number
   poll_interval_seconds?: number
@@ -159,6 +163,7 @@ export interface AIStrategyResearchIteration {
   total_trades: number
   passed: boolean
   failure_reason?: string | null
+  quality_gate_failures: string[]
   improvement_notes: string[]
 }
 
@@ -180,6 +185,7 @@ export interface AIStrategyResearchRunRecord {
   status: string
   achieved: boolean
   target_sharpe: number
+  quality_gates: Record<string, unknown>
   min_total_trades: number
   max_iterations: number
   iteration_count: number

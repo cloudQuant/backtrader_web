@@ -313,20 +313,16 @@ class AIStrategyResearchService:
             metrics = dict(unit_status.metrics_snapshot if unit_status else {})
             sharpe = _metric_float(metrics, "sharpe_ratio", "sharpe", "sharpeRatio")
             total_trades = _metric_int(metrics, "total_trades", "totalTrades", "trades")
+            quality_gate_failures = _quality_gate_failures(request, metrics)
             passed = (
                 unit_status is not None
                 and unit_status.run_status == "completed"
-                and sharpe >= request.target_sharpe
-                and total_trades >= request.min_total_trades
+                and not quality_gate_failures
             )
             if not failure_reason and unit_status is not None and unit_status.run_status != "completed":
                 failure_reason = f"Backtest finished with status {unit_status.run_status}"
-            if not failure_reason and total_trades < request.min_total_trades:
-                failure_reason = (
-                    f"Only {total_trades} trades, below minimum {request.min_total_trades}"
-                )
-            if not failure_reason and sharpe < request.target_sharpe:
-                failure_reason = f"Sharpe {sharpe:.3f} below target {request.target_sharpe:.3f}"
+            if not failure_reason and quality_gate_failures:
+                failure_reason = "; ".join(quality_gate_failures)
 
             item = AIStrategyResearchIteration(
                 iteration=iteration,
@@ -339,6 +335,7 @@ class AIStrategyResearchService:
                 total_trades=total_trades,
                 passed=passed,
                 failure_reason=None if passed else failure_reason,
+                quality_gate_failures=quality_gate_failures,
                 improvement_notes=pending_improvement_notes,
             )
             iterations.append(item)
@@ -775,6 +772,113 @@ def _coerce_research_run_record(value: Any) -> AIStrategyResearchRunRecord | Non
         return None
 
 
+def _quality_gate_failures(
+    request: AIStrategyResearchRunRequest,
+    metrics: dict[str, Any],
+) -> list[str]:
+    failures: list[str] = []
+    sharpe = _quality_metric(metrics, "sharpe_ratio", "sharpe", "sharpeRatio")
+    total_trades = _metric_int(metrics, "total_trades", "totalTrades", "trades")
+    if sharpe is None:
+        failures.append("Sharpe metric unavailable")
+    elif sharpe < request.target_sharpe:
+        failures.append(f"Sharpe {sharpe:.3f} below target {request.target_sharpe:.3f}")
+    if total_trades < request.min_total_trades:
+        failures.append(f"Only {total_trades} trades, below minimum {request.min_total_trades}")
+
+    if request.max_drawdown_limit is not None:
+        max_drawdown = _quality_metric(
+            metrics,
+            "max_drawdown",
+            "maxDrawdown",
+            "drawdown",
+            "max_dd",
+            "maxDD",
+        )
+        if max_drawdown is None:
+            failures.append("Max drawdown metric unavailable")
+        else:
+            comparable = abs(_align_metric_scale(max_drawdown, request.max_drawdown_limit))
+            if comparable > abs(request.max_drawdown_limit):
+                failures.append(
+                    f"Max drawdown {comparable:.3f} exceeds limit "
+                    f"{abs(request.max_drawdown_limit):.3f}"
+                )
+
+    if request.min_total_return is not None:
+        total_return = _quality_metric(metrics, "total_return", "totalReturn", "return")
+        if total_return is None:
+            failures.append("Total return metric unavailable")
+        else:
+            comparable = _align_metric_scale(total_return, request.min_total_return)
+            if comparable < request.min_total_return:
+                failures.append(
+                    f"Total return {comparable:.3f} below minimum "
+                    f"{request.min_total_return:.3f}"
+                )
+
+    if request.min_annual_return is not None:
+        annual_return = _quality_metric(metrics, "annual_return", "annualReturn")
+        if annual_return is None:
+            failures.append("Annual return metric unavailable")
+        else:
+            comparable = _align_metric_scale(annual_return, request.min_annual_return)
+            if comparable < request.min_annual_return:
+                failures.append(
+                    f"Annual return {comparable:.3f} below minimum "
+                    f"{request.min_annual_return:.3f}"
+                )
+
+    if request.min_win_rate is not None:
+        win_rate = _quality_metric(metrics, "win_rate", "winRate")
+        if win_rate is None:
+            failures.append("Win rate metric unavailable")
+        else:
+            comparable = _align_metric_scale(win_rate, request.min_win_rate)
+            if comparable < request.min_win_rate:
+                failures.append(
+                    f"Win rate {comparable:.3f} below minimum {request.min_win_rate:.3f}"
+                )
+
+    return failures
+
+
+def _quality_gates_payload(request: AIStrategyResearchRunRequest) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "target_sharpe": request.target_sharpe,
+        "min_total_trades": request.min_total_trades,
+    }
+    for key in (
+        "max_drawdown_limit",
+        "min_total_return",
+        "min_annual_return",
+        "min_win_rate",
+    ):
+        value = getattr(request, key)
+        if value is not None:
+            payload[key] = value
+    return payload
+
+
+def _quality_metric(metrics: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        if key not in metrics or metrics[key] in (None, ""):
+            continue
+        try:
+            return float(metrics[key])
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _align_metric_scale(value: float, threshold: float) -> float:
+    if abs(threshold) <= 1 and abs(value) > 1:
+        return value / 100
+    if abs(threshold) > 1 and abs(value) <= 1:
+        return value * 100
+    return value
+
+
 def _utc_iso_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -805,6 +909,7 @@ def _build_research_run_record(
         status=response.status,
         achieved=response.achieved,
         target_sharpe=response.target_sharpe,
+        quality_gates=_quality_gates_payload(request),
         min_total_trades=request.min_total_trades,
         max_iterations=request.max_iterations,
         iteration_count=len(response.iterations),
@@ -842,6 +947,7 @@ def _build_paper_trading_handoff(
         "research_strategy_name": best_iteration.strategy.name,
         "selected_iteration": best_iteration.iteration,
         "target_sharpe": request.target_sharpe,
+        "quality_gates": _quality_gates_payload(request),
         "achieved_sharpe": best_iteration.sharpe_ratio,
         "total_trades": best_iteration.total_trades,
         "best_metrics": best_iteration.metrics,
@@ -867,6 +973,7 @@ def _compact_research_iteration(item: AIStrategyResearchIteration) -> dict[str, 
         "total_trades": item.total_trades,
         "passed": item.passed,
         "failure_reason": item.failure_reason,
+        "quality_gate_failures": item.quality_gate_failures,
         "improvement_notes": item.improvement_notes,
     }
 

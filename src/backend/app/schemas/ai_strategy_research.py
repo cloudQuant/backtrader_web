@@ -23,6 +23,24 @@ class AIStrategyResearchRunRequest(BaseModel):
 
     target_sharpe: float = Field(1.0, description="Target Sharpe ratio")
     min_total_trades: int = Field(1, ge=0, description="Minimum completed trades")
+    max_drawdown_limit: float | None = Field(
+        None,
+        ge=0,
+        description="Optional maximum allowed drawdown magnitude, ratio or percent",
+    )
+    min_total_return: float | None = Field(
+        None,
+        description="Optional minimum total return, ratio or percent",
+    )
+    min_annual_return: float | None = Field(
+        None,
+        description="Optional minimum annualized return, ratio or percent",
+    )
+    min_win_rate: float | None = Field(
+        None,
+        ge=0,
+        description="Optional minimum win rate, ratio or percent",
+    )
     max_iterations: int = Field(3, ge=1, le=8, description="Maximum improvement rounds")
     backtest_timeout_seconds: float = Field(
         600.0, ge=1.0, le=3600.0, description="Per-round backtest wait timeout"
@@ -67,6 +85,7 @@ class AIStrategyResearchIteration(BaseModel):
     total_trades: int = 0
     passed: bool = False
     failure_reason: str | None = None
+    quality_gate_failures: list[str] = Field(default_factory=list)
     improvement_notes: list[str] = Field(default_factory=list)
 
 
@@ -92,6 +111,7 @@ class AIStrategyResearchRunRecord(BaseModel):
     status: str
     achieved: bool
     target_sharpe: float
+    quality_gates: dict[str, Any] = Field(default_factory=dict)
     min_total_trades: int = 0
     max_iterations: int = 0
     iteration_count: int = 0

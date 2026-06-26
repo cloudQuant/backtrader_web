@@ -411,6 +411,11 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.run_record is not None
     assert result.run_record.best_strategy_id == "strategy-2"
     assert result.run_record.paper_trading_started is True
+    assert result.run_record.quality_gates == {
+        "target_sharpe": 1.0,
+        "min_total_trades": 1,
+    }
+    assert result.paper_trading.handoff["quality_gates"] == result.run_record.quality_gates
     assert result.research_workspace.settings["ai_research"]["last_run"]["run_id"] == result.run_id
     assert result.research_workspace.settings["ai_research"]["runs"][0]["run_id"] == result.run_id
     assert result.research_workspace.settings["ai_research"]["runs"][0]["iterations"][0][
@@ -450,6 +455,97 @@ async def test_research_loop_stops_after_max_iterations_without_paper():
     assert result.status == "max_iterations_reached"
     assert result.paper_trading is None
     assert workspace_service.started_units == []
+
+
+@pytest.mark.asyncio
+async def test_research_loop_blocks_paper_when_quality_gate_fails():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {
+                "sharpe_ratio": 1.42,
+                "total_trades": 5,
+                "max_drawdown": -25.0,
+                "total_return": 12.0,
+                "win_rate": 60.0,
+            },
+        ],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个双均线趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            max_drawdown_limit=10.0,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is False
+    assert result.paper_trading is None
+    assert result.iterations[0].passed is False
+    assert result.iterations[0].quality_gate_failures == [
+        "Max drawdown 25.000 exceeds limit 10.000"
+    ]
+    assert result.iterations[0].failure_reason == "Max drawdown 25.000 exceeds limit 10.000"
+    assert workspace_service.started_units == []
+
+
+@pytest.mark.asyncio
+async def test_research_loop_quality_gates_accept_ratio_metrics():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {
+                "sharpe_ratio": 1.42,
+                "total_trades": 5,
+                "max_drawdown": -0.08,
+                "total_return": 0.15,
+                "annual_return": 0.12,
+                "win_rate": 0.62,
+            },
+        ],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个双均线趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            max_drawdown_limit=10.0,
+            min_total_return=10.0,
+            min_annual_return=8.0,
+            min_win_rate=50.0,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert result.paper_trading is not None
+    assert result.iterations[0].quality_gate_failures == []
+    assert result.run_record is not None
+    assert result.run_record.quality_gates["max_drawdown_limit"] == 10.0
+    assert result.paper_trading.handoff is not None
+    assert result.paper_trading.handoff["quality_gates"] == result.run_record.quality_gates
 
 
 @pytest.mark.asyncio
