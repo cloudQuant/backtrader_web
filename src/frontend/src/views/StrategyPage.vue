@@ -22,6 +22,253 @@
       v-model="activeTab"
       type="border-card"
     >
+      <!-- ========== AI Research Loop ========== -->
+      <el-tab-pane
+        :label="t('strategy.aiResearch')"
+        name="aiResearch"
+      >
+        <div class="ai-research-grid">
+          <section class="ai-research-panel">
+            <el-form
+              label-position="top"
+              :model="aiResearchForm"
+            >
+              <el-form-item :label="t('strategy.aiResearchPrompt')">
+                <el-input
+                  v-model="aiResearchForm.prompt"
+                  type="textarea"
+                  :rows="5"
+                  :placeholder="t('strategy.aiResearchPromptPlaceholder')"
+                  data-test="ai-research-prompt"
+                />
+              </el-form-item>
+
+              <div class="ai-research-form-grid">
+                <el-form-item :label="t('strategy.aiResearchSymbol')">
+                  <el-input
+                    v-model="aiResearchForm.symbol"
+                    data-test="ai-research-symbol"
+                  />
+                </el-form-item>
+                <el-form-item :label="t('strategy.aiResearchSymbolName')">
+                  <el-input v-model="aiResearchForm.symbol_name" />
+                </el-form-item>
+                <el-form-item :label="t('strategy.aiResearchTimeframe')">
+                  <el-select
+                    v-model="aiResearchForm.timeframe"
+                    class="w-full"
+                  >
+                    <el-option
+                      label="1d"
+                      value="1d"
+                    />
+                    <el-option
+                      label="1h"
+                      value="1h"
+                    />
+                    <el-option
+                      label="30m"
+                      value="30m"
+                    />
+                    <el-option
+                      label="5m"
+                      value="5m"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item :label="t('strategy.aiResearchTargetSharpe')">
+                  <el-input-number
+                    v-model="aiResearchForm.target_sharpe"
+                    :min="-5"
+                    :max="10"
+                    :step="0.1"
+                    class="w-full"
+                  />
+                </el-form-item>
+                <el-form-item :label="t('strategy.aiResearchMaxIterations')">
+                  <el-input-number
+                    v-model="aiResearchForm.max_iterations"
+                    :min="1"
+                    :max="8"
+                    class="w-full"
+                  />
+                </el-form-item>
+                <el-form-item :label="t('strategy.aiResearchMinTrades')">
+                  <el-input-number
+                    v-model="aiResearchForm.min_total_trades"
+                    :min="0"
+                    :max="9999"
+                    class="w-full"
+                  />
+                </el-form-item>
+                <el-form-item :label="t('strategy.aiResearchInitialCash')">
+                  <el-input-number
+                    v-model="aiResearchForm.initial_cash"
+                    :min="1"
+                    :step="10000"
+                    class="w-full"
+                  />
+                </el-form-item>
+                <el-form-item :label="t('strategy.aiResearchCommission')">
+                  <el-input-number
+                    v-model="aiResearchForm.commission"
+                    :min="0"
+                    :max="0.1"
+                    :step="0.0001"
+                    class="w-full"
+                  />
+                </el-form-item>
+                <el-form-item :label="t('strategy.aiResearchStartDate')">
+                  <el-input
+                    v-model="aiResearchForm.start_date"
+                    placeholder="2020-01-01"
+                  />
+                </el-form-item>
+                <el-form-item :label="t('strategy.aiResearchEndDate')">
+                  <el-input
+                    v-model="aiResearchForm.end_date"
+                    placeholder="2026-01-01"
+                  />
+                </el-form-item>
+              </div>
+
+              <div class="ai-research-actions">
+                <el-checkbox v-model="aiResearchForm.start_paper_trading">
+                  {{ t('strategy.aiResearchPaper') }}
+                </el-checkbox>
+                <el-button
+                  type="primary"
+                  :loading="aiResearchRunning"
+                  data-test="ai-research-run"
+                  @click="runAIResearchLoop"
+                >
+                  <el-icon
+                    class="mr-1"
+                    aria-hidden="true"
+                  >
+                    <MagicStick />
+                  </el-icon>
+                  {{ aiResearchRunning ? t('strategy.aiResearchRunning') : t('strategy.aiResearchRun') }}
+                </el-button>
+              </div>
+            </el-form>
+          </section>
+
+          <section class="ai-research-panel ai-research-result">
+            <div
+              v-if="aiResearchResult"
+              data-test="ai-research-result"
+            >
+              <div class="ai-research-summary">
+                <div>
+                  <span class="ai-research-kicker">{{ t('strategy.aiResearchResult') }}</span>
+                  <h2 class="ai-research-title">
+                    {{ aiResearchResult.achieved ? t('strategy.aiResearchAchieved') : t('strategy.aiResearchNotAchieved') }}
+                  </h2>
+                </div>
+                <el-tag :type="aiResearchResult.achieved ? 'success' : 'warning'">
+                  {{ aiResearchResult.status }}
+                </el-tag>
+              </div>
+
+              <div class="ai-research-metrics">
+                <div>
+                  <span>{{ t('strategy.aiResearchBestSharpe') }}</span>
+                  <strong>{{ formatMetric(aiBestSharpe) }}</strong>
+                </div>
+                <div>
+                  <span>{{ t('strategy.aiResearchBestIteration') }}</span>
+                  <strong>{{ aiResearchResult.best_iteration ?? '-' }}</strong>
+                </div>
+                <div>
+                  <span>{{ t('strategy.aiResearchIterations') }}</span>
+                  <strong>{{ aiResearchResult.iterations.length }}</strong>
+                </div>
+                <div>
+                  <span>{{ t('strategy.aiResearchPaperStatus') }}</span>
+                  <strong>
+                    {{ aiResearchResult.paper_trading?.started ? t('strategy.aiResearchPaperStarted') : t('strategy.aiResearchPaperNotStarted') }}
+                  </strong>
+                </div>
+              </div>
+
+              <div class="ai-research-links">
+                <el-button
+                  size="small"
+                  @click="openResearchWorkspace"
+                >
+                  <el-icon
+                    class="mr-1"
+                    aria-hidden="true"
+                  >
+                    <Link />
+                  </el-icon>
+                  {{ t('strategy.aiResearchOpenResearch') }}
+                </el-button>
+                <el-button
+                  v-if="aiResearchResult.paper_trading"
+                  size="small"
+                  type="success"
+                  @click="openPaperWorkspace"
+                >
+                  <el-icon
+                    class="mr-1"
+                    aria-hidden="true"
+                  >
+                    <VideoPlay />
+                  </el-icon>
+                  {{ t('strategy.aiResearchOpenPaper') }}
+                </el-button>
+              </div>
+
+              <div class="ai-research-iterations">
+                <div
+                  v-for="item in aiResearchResult.iterations"
+                  :key="item.iteration"
+                  class="ai-research-iteration"
+                >
+                  <div class="ai-research-iteration-head">
+                    <strong>{{ t('strategy.aiResearchIteration') }} {{ item.iteration }}</strong>
+                    <el-tag
+                      size="small"
+                      :type="item.passed ? 'success' : 'info'"
+                    >
+                      {{ item.unit_status?.run_status || item.run_result.status }}
+                    </el-tag>
+                  </div>
+                  <div class="ai-research-iteration-metrics">
+                    <span>{{ t('strategy.aiResearchStrategy') }}: {{ item.strategy.name }}</span>
+                    <span>{{ t('strategy.aiResearchSharpe') }}: {{ formatMetric(item.sharpe_ratio) }}</span>
+                    <span>{{ t('strategy.aiResearchTrades') }}: {{ item.total_trades }}</span>
+                  </div>
+                  <p
+                    v-if="item.failure_reason"
+                    class="ai-research-warning"
+                  >
+                    {{ item.failure_reason }}
+                  </p>
+                  <ul
+                    v-if="item.improvement_notes.length"
+                    class="ai-research-notes"
+                  >
+                    <li
+                      v-for="note in item.improvement_notes"
+                      :key="note"
+                    >
+                      {{ note }}
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+            <el-empty
+              v-else
+              :description="t('strategy.aiResearchNoResult')"
+            />
+          </section>
+        </div>
+      </el-tab-pane>
+
       <!-- ========== Gallery ========== -->
       <el-tab-pane
         :label="t('strategy.gallery')"
@@ -225,7 +472,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus } from '@element-plus/icons-vue'
+import { Link, MagicStick, Plus, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '@/stores/strategy'
@@ -236,13 +483,14 @@ import StrategyEditDialog from './strategy-components/StrategyEditDialog.vue'
 import StrategyDetailDialog from './strategy-components/StrategyDetailDialog.vue'
 import StrategyTemplateCard from './strategy-components/StrategyTemplateCard.vue'
 import type { ParamSpec, Strategy, StrategyTemplate } from '@/types'
+import type { AIStrategyResearchRunResponse } from '@/api/strategy'
 
 const { t } = useI18n()
 const router = useRouter()
 const strategyStore = useStrategyStore()
 
 // ---- State ----
-const activeTab = ref('gallery')
+const activeTab = ref('aiResearch')
 const searchKeyword = ref('')
 const categoryFilter = ref('')
 
@@ -258,12 +506,30 @@ const detailTemplate = ref<StrategyTemplate | null>(null)
 const detailTab = ref('readme')
 const readmeContent = ref('')
 const readmeLoading = ref(false)
+const aiResearchRunning = ref(false)
+const aiResearchResult = ref<AIStrategyResearchRunResponse | null>(null)
 
 const form = reactive({
   name: '',
   description: '',
   code: '',
   category: 'custom',
+})
+
+const aiResearchForm = reactive({
+  prompt: '',
+  symbol: '000001.SZ',
+  symbol_name: '',
+  timeframe: '1d',
+  timeframe_n: 1,
+  start_date: '',
+  end_date: '',
+  target_sharpe: 1.0,
+  min_total_trades: 1,
+  max_iterations: 3,
+  initial_cash: 100000,
+  commission: 0.001,
+  start_paper_trading: true,
 })
 
 // ---- Computed ----
@@ -288,6 +554,17 @@ const filteredTemplates = computed(() => {
 })
 
 const displayedTemplates = computed(() => filteredTemplates.value)
+
+const aiBestSharpe = computed(() => {
+  const metrics = aiResearchResult.value?.best_metrics
+  const raw = metrics?.sharpe_ratio ?? metrics?.sharpe ?? null
+  if (typeof raw === 'number') return raw
+  if (typeof raw === 'string' && raw.trim()) return Number(raw)
+  const bestIteration = aiResearchResult.value?.iterations.find(
+    item => item.iteration === aiResearchResult.value?.best_iteration
+  )
+  return bestIteration?.sharpe_ratio ?? null
+})
 
 const paramTableData = computed(() => {
   if (!detailTemplate.value) return []
@@ -319,6 +596,61 @@ async function openTemplateDetail(t: StrategyTemplate) {
 function goBacktest(t: StrategyTemplate) {
   detailVisible.value = false
   router.push({ path: '/backtest/legacy', query: { strategy: t.id } })
+}
+
+function formatMetric(value: unknown, digits = 2) {
+  const number = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(number)) return '-'
+  return number.toFixed(digits)
+}
+
+async function runAIResearchLoop() {
+  const prompt = aiResearchForm.prompt.trim()
+  const symbol = aiResearchForm.symbol.trim()
+  if (!prompt) {
+    ElMessage.warning(t('strategy.aiResearchPromptRequired'))
+    return
+  }
+  if (!symbol) {
+    ElMessage.warning(t('strategy.aiResearchSymbolRequired'))
+    return
+  }
+
+  aiResearchRunning.value = true
+  try {
+    aiResearchResult.value = await strategyApi.runAIResearchLoop({
+      prompt,
+      symbol,
+      symbol_name: aiResearchForm.symbol_name.trim(),
+      timeframe: aiResearchForm.timeframe,
+      timeframe_n: aiResearchForm.timeframe_n,
+      start_date: aiResearchForm.start_date || null,
+      end_date: aiResearchForm.end_date || null,
+      target_sharpe: aiResearchForm.target_sharpe,
+      min_total_trades: aiResearchForm.min_total_trades,
+      max_iterations: aiResearchForm.max_iterations,
+      initial_cash: aiResearchForm.initial_cash,
+      commission: aiResearchForm.commission,
+      start_paper_trading: aiResearchForm.start_paper_trading,
+    })
+    ElMessage.success(t('strategy.aiResearchRunSuccess'))
+  } catch {
+    ElMessage.error(t('strategy.aiResearchRunFailed'))
+  } finally {
+    aiResearchRunning.value = false
+  }
+}
+
+function openResearchWorkspace() {
+  const workspaceId = aiResearchResult.value?.research_workspace.id
+  if (!workspaceId) return
+  router.push({ name: 'ResearchWorkspaceDetail', params: { id: workspaceId } })
+}
+
+function openPaperWorkspace() {
+  const workspaceId = aiResearchResult.value?.paper_trading?.workspace.id
+  if (!workspaceId) return
+  router.push({ name: 'TradingWorkspaceDetail', params: { id: workspaceId } })
 }
 
 function showCreateDialog() {
@@ -402,6 +734,143 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.ai-research-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.95fr) minmax(360px, 1.05fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.ai-research-panel {
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
+  padding: 20px;
+  background: var(--el-bg-color);
+}
+
+.ai-research-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.ai-research-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.ai-research-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.ai-research-kicker {
+  display: block;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.2;
+  margin-bottom: 4px;
+}
+
+.ai-research-title {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0;
+  color: var(--el-text-color-primary);
+}
+
+.ai-research-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.ai-research-metrics > div {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 10px;
+  min-width: 0;
+}
+
+.ai-research-metrics span {
+  display: block;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.ai-research-metrics strong {
+  display: block;
+  color: var(--el-text-color-primary);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.ai-research-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.ai-research-iterations {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-research-iteration {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.ai-research-iteration-head,
+.ai-research-iteration-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.ai-research-iteration-head {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.ai-research-iteration-metrics {
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+}
+
+.ai-research-warning {
+  margin: 8px 0 0;
+  color: var(--el-color-warning);
+  font-size: 13px;
+}
+
+.ai-research-notes {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+@media (max-width: 1024px) {
+  .ai-research-grid,
+  .ai-research-form-grid,
+  .ai-research-metrics {
+    grid-template-columns: 1fr;
+  }
+}
+
 .strategy-card {
   transition: transform 0.15s, box-shadow 0.15s;
 }

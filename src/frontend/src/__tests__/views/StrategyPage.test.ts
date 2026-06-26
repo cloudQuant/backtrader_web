@@ -43,6 +43,75 @@ vi.mock('@/api/strategy', () => ({
   strategyApi: {
     getTemplateReadme: vi.fn().mockResolvedValue({ content: '# README' }),
     getTemplateConfig: vi.fn().mockResolvedValue({}),
+    runAIResearchLoop: vi.fn().mockResolvedValue({
+      status: 'achieved',
+      achieved: true,
+      target_sharpe: 1,
+      best_iteration: 1,
+      best_metrics: { sharpe_ratio: 1.2 },
+      research_workspace: {
+        id: 'research-ws',
+        user_id: 'u1',
+        name: 'AI投研',
+        description: null,
+        workspace_type: 'research',
+        settings: {},
+        trading_config: {},
+        unit_count: 1,
+        completed_count: 1,
+        status: 'completed',
+        created_at: '2026-06-27T00:00:00Z',
+        updated_at: '2026-06-27T00:00:00Z',
+      },
+      iterations: [
+        {
+          iteration: 1,
+          strategy: { id: 's1', name: 'AI策略', description: 'd', code: 'code', category: 'trend', params: {} },
+          unit: {
+            id: 'u1',
+            workspace_id: 'research-ws',
+            group_name: 'AI策略',
+            strategy_id: 's1',
+            strategy_name: 'AI策略',
+            symbol: '000001.SZ',
+            symbol_name: '平安银行',
+            timeframe: '1d',
+            timeframe_n: 1,
+            category: 'trend',
+            sort_order: 1,
+            data_config: {},
+            unit_settings: {},
+            params: {},
+            optimization_config: {},
+            trading_mode: 'paper',
+            gateway_config: {},
+            lock_trading: false,
+            lock_running: false,
+            trading_instance_id: null,
+            trading_snapshot: {},
+            run_status: 'completed',
+            run_count: 1,
+            last_run_time: null,
+            last_task_id: 'task-1',
+            last_optimization_task_id: null,
+            bar_count: 100,
+            metrics_snapshot: { sharpe_ratio: 1.2 },
+            created_at: '2026-06-27T00:00:00Z',
+            updated_at: '2026-06-27T00:00:00Z',
+          },
+          run_result: { unit_id: 'u1', task_id: 'task-1', status: 'completed' },
+          unit_status: { id: 'u1', run_status: 'completed', metrics_snapshot: { sharpe_ratio: 1.2 } },
+          metrics: { sharpe_ratio: 1.2 },
+          sharpe_ratio: 1.2,
+          total_trades: 4,
+          passed: true,
+          improvement_notes: [],
+        },
+      ],
+      best_strategy: { id: 's1', name: 'AI策略', description: 'd', code: 'code', category: 'trend', params: {} },
+      paper_trading: null,
+      message: 'ok',
+    }),
   },
 }))
 
@@ -153,6 +222,22 @@ describe('StrategyPage', () => {
     expect(vm.dialogVisible).toBe(true)
     expect(vm.form.name).toBe('SMA (副本)')
     expect(vm.form.code).toBe('code')
+  })
+
+  it('runs AI research loop from form input', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    const vm = doMount().vm as any
+    vm.aiResearchForm.prompt = '生成一个趋势策略'
+    vm.aiResearchForm.symbol = '000001.SZ'
+    await vm.runAIResearchLoop()
+    expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: '生成一个趋势策略',
+      symbol: '000001.SZ',
+      target_sharpe: 1,
+    }))
+    expect(vm.aiResearchResult.achieved).toBe(true)
+    expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
   })
 
   it('saveStrategy warns when name/code empty', async () => {

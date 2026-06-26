@@ -3,7 +3,7 @@
  * Iteration 124 - Strategy Research feature.
  */
 
-export type UnitRunStatus = 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type UnitRunStatus = 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'timeout'
 export type WorkspaceStatus = 'idle' | 'running' | 'completed' | 'error'
 export type ViewMode = 'card' | 'table'
 export type WorkspaceDataSourceType = 'csv' | 'mysql' | 'postgresql' | 'mongodb'

@@ -81,6 +81,20 @@ describe('strategyApi', () => {
     expect(api.get).toHaveBeenCalledWith('/strategy/score/t1')
   })
 
+  it('runAIResearchLoop', async () => {
+    vi.mocked(api.post).mockResolvedValue({ achieved: true })
+    await strategyApi.runAIResearchLoop({
+      prompt: 'build a trend strategy',
+      symbol: '000001.SZ',
+      target_sharpe: 1,
+    })
+    expect(api.post).toHaveBeenCalledWith('/strategy/ai-research/run', {
+      prompt: 'build a trend strategy',
+      symbol: '000001.SZ',
+      target_sharpe: 1,
+    })
+  })
+
   it('createOverfittingTask', async () => {
     vi.mocked(api.post).mockResolvedValue({ task_id: 'ot-1' })
     await strategyApi.createOverfittingTask('t1', { methods: ['monte_carlo'] })

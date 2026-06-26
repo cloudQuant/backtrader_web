@@ -11,6 +11,7 @@ import type {
 import type {
   StrategyUnit,
   UnitStatusResponse,
+  Workspace,
   WorkspaceReportCreateRequest,
   WorkspaceReportResponse,
 } from '@/types/workspace'
@@ -114,6 +115,71 @@ export interface StrategyCopilotBacktestResponse {
   unit_status?: UnitStatusResponse | null
   report_ready: boolean
   report?: WorkspaceReportResponse | null
+}
+
+export interface AIStrategyResearchRunRequest {
+  prompt: string
+  symbol: string
+  symbol_name?: string
+  timeframe?: string
+  timeframe_n?: number
+  start_date?: string | null
+  end_date?: string | null
+  target_sharpe?: number
+  min_total_trades?: number
+  max_iterations?: number
+  backtest_timeout_seconds?: number
+  poll_interval_seconds?: number
+  initial_cash?: number
+  commission?: number
+  annual_days?: number
+  calc_method?: string
+  weight_mode?: string
+  research_workspace_id?: string | null
+  trading_workspace_id?: string | null
+  start_paper_trading?: boolean
+  paper_workspace_name?: string | null
+  group_name?: string | null
+  knowledge_base_id?: string | null
+  thinking_mode?: boolean
+  data_config?: Record<string, unknown>
+  unit_settings?: Record<string, unknown>
+  optimization_config?: Record<string, unknown>
+  gateway_config?: Record<string, unknown>
+}
+
+export interface AIStrategyResearchIteration {
+  iteration: number
+  strategy: Strategy
+  unit: StrategyUnit
+  run_result: StrategyCopilotRunResult
+  unit_status?: UnitStatusResponse | null
+  metrics: Record<string, unknown>
+  sharpe_ratio: number
+  total_trades: number
+  passed: boolean
+  failure_reason?: string | null
+  improvement_notes: string[]
+}
+
+export interface AIStrategyPaperTradingStart {
+  workspace: Workspace
+  unit: StrategyUnit
+  run_result?: StrategyCopilotRunResult | null
+  started: boolean
+}
+
+export interface AIStrategyResearchRunResponse {
+  status: string
+  achieved: boolean
+  target_sharpe: number
+  best_iteration?: number | null
+  best_metrics: Record<string, unknown>
+  research_workspace: Workspace
+  iterations: AIStrategyResearchIteration[]
+  best_strategy?: Strategy | null
+  paper_trading?: AIStrategyPaperTradingStart | null
+  message: string
 }
 
 export interface StrategyScoreDimension {
@@ -267,6 +333,15 @@ export const strategyApi = {
   ): Promise<StrategyCopilotBacktestResponse> {
     return api.post<StrategyCopilotBacktestResponse, StrategyCopilotBacktestRequest>(
       `/strategy/copilot/workspaces/${workspaceId}/backtest`,
+      data
+    )
+  },
+
+  async runAIResearchLoop(
+    data: AIStrategyResearchRunRequest
+  ): Promise<AIStrategyResearchRunResponse> {
+    return api.post<AIStrategyResearchRunResponse, AIStrategyResearchRunRequest>(
+      '/strategy/ai-research/run',
       data
     )
   },
