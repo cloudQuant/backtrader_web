@@ -50,6 +50,34 @@ class TestPositionLimit:
         assert alert.level == RiskAlertLevel.WARNING
         assert "BTCUSDT" in alert.message
 
+    async def test_rejects_single_position_with_existing_same_symbol_exposure(
+        self, strict_svc: RiskControlService
+    ):
+        ok, alert = await strict_svc.check_position_limit(
+            INSTANCE_ID,
+            "BTCUSDT",
+            3000,
+            100000,
+            {"BTC/USDT": 8000},
+        )
+        assert ok is False
+        assert alert is not None
+        assert alert.details["position_pct"] == pytest.approx(11.0)
+        assert alert.details["projected_position"] == pytest.approx(11000.0)
+
+    async def test_allows_reducing_existing_same_symbol_exposure(
+        self, strict_svc: RiskControlService
+    ):
+        ok, alert = await strict_svc.check_position_limit(
+            INSTANCE_ID,
+            "BTCUSDT",
+            -6000,
+            100000,
+            {"BTC/USDT": 15000},
+        )
+        assert ok is True
+        assert alert is None
+
     async def test_rejects_total_position_over_limit(self, strict_svc: RiskControlService):
         existing = {"ETHUSDT": 30000, "SOLUSDT": 15000}
         ok, alert = await strict_svc.check_position_limit(
@@ -57,6 +85,26 @@ class TestPositionLimit:
         )
         assert ok is False
         assert alert.details["total_position_pct"] > 50.0
+
+    async def test_total_position_uses_absolute_exposure_for_shorts(
+        self, strict_svc: RiskControlService
+    ):
+        existing = {"ETHUSDT": 40000, "SOLUSDT": -20000}
+        ok, alert = await strict_svc.check_position_limit(
+            INSTANCE_ID, "BTCUSDT", 0, 100000, existing
+        )
+        assert ok is False
+        assert alert is not None
+        assert alert.details["total_position"] == pytest.approx(60000.0)
+        assert alert.details["total_position_pct"] == pytest.approx(60.0)
+
+    async def test_zero_account_balance_rejected(self, strict_svc: RiskControlService):
+        ok, alert = await strict_svc.check_position_limit(
+            INSTANCE_ID, "BTCUSDT", 1000, 0, {}
+        )
+        assert ok is False
+        assert alert is not None
+        assert alert.level == RiskAlertLevel.CRITICAL
 
     async def test_skipped_when_disabled(self, svc: RiskControlService):
         svc.config.enable_position_limit = False
