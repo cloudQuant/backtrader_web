@@ -671,6 +671,7 @@ class AIStrategyResearchService:
                 pending_improvement_notes = improvement.notes
 
         paper_trading = None
+        paper_trading_error = None
         result_iteration = selected_iteration or best_iteration
         if achieved and request.start_paper_trading and result_iteration is not None:
             await _emit_research_progress(
@@ -684,13 +685,27 @@ class AIStrategyResearchService:
                     "message": "Starting paper trading for achieved strategy",
                 },
             )
-            paper_trading = await self._start_paper_trading(
-                user_id,
-                request,
-                result_iteration,
-                run_id=run_id,
-                research_workspace_id=research_workspace.id,
-            )
+            try:
+                paper_trading = await self._start_paper_trading(
+                    user_id,
+                    request,
+                    result_iteration,
+                    run_id=run_id,
+                    research_workspace_id=research_workspace.id,
+                )
+            except Exception as exc:
+                paper_trading_error = str(exc)
+                await _emit_research_progress(
+                    progress_callback,
+                    {
+                        "current_stage": "paper_trading_failed",
+                        "progress": 92.0,
+                        "iteration_count": len(iterations),
+                        "max_iterations": request.max_iterations,
+                        "latest_iteration": _compact_research_iteration(result_iteration),
+                        "message": f"Paper trading start failed: {paper_trading_error}",
+                    },
+                )
 
         status = "achieved" if achieved else "max_iterations_reached"
         if iterations and iterations[-1].unit_status and iterations[-1].unit_status.run_status == "timeout":
@@ -713,6 +728,7 @@ class AIStrategyResearchService:
             request=request,
             result_iteration=result_iteration,
             paper_trading=paper_trading,
+            paper_trading_error=paper_trading_error,
         )
         pipeline = _pipeline_summary(
             status=status,
@@ -720,6 +736,7 @@ class AIStrategyResearchService:
             iteration_count=len(iterations),
             max_iterations=request.max_iterations,
             paper_trading_started=bool(paper_trading.started) if paper_trading else False,
+            paper_trading_error=paper_trading_error,
             paper_review_status=None,
             paper_review_ready_for_live=False,
         )
@@ -2061,6 +2078,7 @@ def _pipeline_summary_from_record(
         paper_trading_started=record.paper_trading_started
         if paper_trading_started is None
         else paper_trading_started,
+        paper_trading_error=None,
         paper_review_status=paper_review_status
         if paper_review_status is not None
         else record.paper_review_status,
@@ -2077,13 +2095,14 @@ def _pipeline_summary(
     iteration_count: int,
     max_iterations: int,
     paper_trading_started: bool,
+    paper_trading_error: str | None,
     paper_review_status: str | None,
     paper_review_ready_for_live: bool,
 ) -> dict[str, Any]:
     draft_status = "completed"
     backtest_status = "completed" if iteration_count > 0 else "pending"
     gate_status = "completed" if achieved else "failed" if iteration_count >= max_iterations else "running"
-    paper_status = "completed" if paper_trading_started else "pending"
+    paper_status = "completed" if paper_trading_started else "failed" if paper_trading_error else "pending"
     review_status = (
         "completed"
         if paper_review_ready_for_live
@@ -2104,7 +2123,12 @@ def _pipeline_summary(
             "max_iterations": max_iterations,
         },
         {"key": "quality_gate", "label": "质量门槛", "status": gate_status},
-        {"key": "paper_trading", "label": "模拟交易", "status": paper_status},
+        {
+            "key": "paper_trading",
+            "label": "模拟交易",
+            "status": paper_status,
+            "error": paper_trading_error,
+        },
         {
             "key": "paper_review",
             "label": "模拟复核",
@@ -2115,6 +2139,7 @@ def _pipeline_summary(
     current_stage = _pipeline_current_stage(
         achieved=achieved,
         paper_trading_started=paper_trading_started,
+        paper_trading_error=paper_trading_error,
         paper_review_status=paper_review_status,
         paper_review_ready_for_live=paper_review_ready_for_live,
         status=status,
@@ -2125,6 +2150,7 @@ def _pipeline_summary(
         "status": status,
         "progress": round(completed_count / len(steps) * 100, 2),
         "ready_for_live": paper_review_ready_for_live,
+        "paper_trading_error": paper_trading_error,
         "steps": steps,
     }
 
@@ -2133,6 +2159,7 @@ def _pipeline_current_stage(
     *,
     achieved: bool,
     paper_trading_started: bool,
+    paper_trading_error: str | None,
     paper_review_status: str | None,
     paper_review_ready_for_live: bool,
     status: str,
@@ -2143,6 +2170,8 @@ def _pipeline_current_stage(
         return "paper_review"
     if paper_trading_started:
         return "paper_trading"
+    if paper_trading_error:
+        return "paper_trading_failed"
     if achieved:
         return "quality_achieved"
     if status == "timeout":
@@ -3325,6 +3354,7 @@ def _run_next_actions(
     request: AIStrategyResearchRunRequest,
     result_iteration: AIStrategyResearchIteration | None,
     paper_trading: AIStrategyPaperTradingStart | None,
+    paper_trading_error: str | None = None,
 ) -> list[str]:
     if status == "timeout":
         return [
@@ -3339,10 +3369,13 @@ def _run_next_actions(
                 "保留当前研究工作区，后续用样本外区间复核策略稳定性。",
             ]
         if request.start_paper_trading:
-            return [
+            actions = [
                 "策略已通过验收，但模拟交易未成功启动，先检查交易工作区和网关配置。",
                 "修复启动问题后，可从本次最佳策略手动创建模拟交易单元。",
             ]
+            if paper_trading_error:
+                actions.append(f"模拟交易启动错误：{paper_trading_error}")
+            return actions
         return [
             "策略已通过验收，可手动进入模拟交易或安排样本外验证。",
             "进入模拟交易前确认标的、周期、手续费和网关配置。",

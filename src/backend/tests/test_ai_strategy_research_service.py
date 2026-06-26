@@ -242,6 +242,11 @@ class FakeWorkspaceService:
         return [{"unit_id": unit_ids[0], "task_id": "paper-task", "status": "running"}]
 
 
+class FakePaperStartFailingWorkspaceService(FakeWorkspaceService):
+    async def create_unit(self, workspace_id: str, user_id: str, data):
+        return None
+
+
 class FakeStrategyService:
     def __init__(
         self,
@@ -672,6 +677,48 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert "系统将基于本轮失败原因生成下一版策略" in result.research_workspace.settings[
         "ai_research"
     ]["runs"][0]["iterations"][0]["next_actions"][-1]
+
+
+@pytest.mark.asyncio
+async def test_research_loop_persists_achieved_run_when_paper_start_fails():
+    workspace_service = FakePaperStartFailingWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.18, "total_trades": 6, "max_drawdown": -4.0}],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert result.status == "achieved"
+    assert result.paper_trading is None
+    assert result.pipeline["current_stage"] == "paper_trading_failed"
+    assert result.pipeline["paper_trading_error"] == "Failed to create paper trading unit"
+    assert result.pipeline["steps"][3]["status"] == "failed"
+    assert any("模拟交易启动错误" in item for item in result.next_actions)
+    assert result.run_record is not None
+    assert result.run_record.achieved is True
+    assert result.run_record.paper_trading_started is False
+    assert result.run_record.pipeline["current_stage"] == "paper_trading_failed"
+    persisted_run = result.research_workspace.settings["ai_research"]["runs"][0]
+    assert persisted_run["run_id"] == result.run_id
+    assert persisted_run["achieved"] is True
+    assert persisted_run["paper_trading_started"] is False
 
 
 @pytest.mark.asyncio
