@@ -811,6 +811,70 @@ class TestDirectOrderServicePaperTrade:
             assert result["type"] == "query"
 
     @pytest.mark.asyncio
+    async def test_query_action_uses_paper_service_limit_offset_signature(self):
+        """Direct paper queries must call the real PaperTradingService signature."""
+        service = DirectOrderService()
+        intent = TradingIntent(action=TradeAction.QUERY, confidence=0.9)
+
+        class StrictPaperService:
+            async def list_accounts(self, user_id, limit=20, offset=0):
+                assert user_id == "user1"
+                assert limit == 1
+                assert offset == 0
+                return [SimpleNamespace(id="acc1")], 1
+
+            async def list_positions(self, filters, limit=20, offset=0):
+                assert filters == {"account_id": "acc1"}
+                assert limit == 50
+                assert offset == 0
+                return [
+                    SimpleNamespace(
+                        symbol="BTCUSDT",
+                        size=0.25,
+                        avg_price=50000.0,
+                        unrealized_pnl=125.0,
+                    )
+                ], 1
+
+        with patch(
+            "app.services.paper_trading_service.PaperTradingService",
+            return_value=StrictPaperService(),
+        ):
+            result = await service.execute_paper_trade(intent, user_id="user1")
+
+        assert result["success"] is True
+        assert result["positions"] == [
+            {
+                "symbol": "BTCUSDT",
+                "size": 0.25,
+                "avg_price": 50000.0,
+                "unrealized_pnl": 125.0,
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_query_action_reports_paper_position_query_error(self):
+        service = DirectOrderService()
+        intent = TradingIntent(action=TradeAction.QUERY, confidence=0.9)
+
+        class FailingPaperService:
+            async def list_accounts(self, user_id, limit=20, offset=0):
+                return [SimpleNamespace(id="acc1")], 1
+
+            async def list_positions(self, filters, limit=20, offset=0):
+                raise RuntimeError("paper db unavailable")
+
+        with patch(
+            "app.services.paper_trading_service.PaperTradingService",
+            return_value=FailingPaperService(),
+        ):
+            result = await service.execute_paper_trade(intent, user_id="user1")
+
+        assert result["success"] is False
+        assert result["error"] == "paper db unavailable"
+        assert result["positions"] == []
+
+    @pytest.mark.asyncio
     async def test_unsupported_action(self):
         """Unsupported actions return error."""
         service = DirectOrderService()
@@ -1026,6 +1090,52 @@ class TestDirectOrderServicePaperTrade:
             assert result["type"] == "close_position"
             assert result["side"] == "sell"
             assert result["size"] == 10
+
+    @pytest.mark.asyncio
+    async def test_close_position_uses_paper_service_limit_offset_signature(self):
+        """Direct paper closes must use the real list_positions arguments."""
+        service = DirectOrderService()
+        intent = TradingIntent(
+            action=TradeAction.CLOSE,
+            symbol="BTC/USDT",
+            quantity=0.1,
+            confidence=0.9,
+        )
+        submitted: dict[str, object] = {}
+
+        class StrictPaperService:
+            async def list_accounts(self, user_id, limit=20, offset=0):
+                assert user_id == "user1"
+                assert limit == 1
+                assert offset == 0
+                return [SimpleNamespace(id="acc1")], 1
+
+            async def list_positions(self, filters, limit=20, offset=0):
+                assert filters == {"account_id": "acc1"}
+                assert limit == 50
+                assert offset == 0
+                return [SimpleNamespace(symbol="BTCUSDT", size=0.25)], 1
+
+            async def submit_order(self, **kwargs):
+                submitted.update(kwargs)
+                return SimpleNamespace(id="close_order")
+
+        with patch(
+            "app.services.paper_trading_service.PaperTradingService",
+            return_value=StrictPaperService(),
+        ):
+            result = await service.execute_paper_trade(intent, user_id="user1")
+
+        assert result["success"] is True
+        assert result["side"] == "sell"
+        assert result["size"] == pytest.approx(0.1)
+        assert submitted == {
+            "account_id": "acc1",
+            "symbol": "BTCUSDT",
+            "order_type": "market",
+            "side": "sell",
+            "size": 0.1,
+        }
 
     @pytest.mark.asyncio
     async def test_close_position_respects_explicit_quantity(self):

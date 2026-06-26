@@ -1689,9 +1689,9 @@ class DirectOrderService:
 
         # Try to find user's first active account
         accounts, _ = await service.list_accounts(
-            filters={"user_id": user_id, "is_active": True},
-            page=1,
-            page_size=1,
+            user_id=user_id,
+            limit=1,
+            offset=0,
         )
         if accounts:
             return accounts[0].id
@@ -1711,8 +1711,8 @@ class DirectOrderService:
         try:
             positions, _ = await service.list_positions(
                 filters={"account_id": account_id},
-                page=1,
-                page_size=50,
+                limit=50,
+                offset=0,
             )
             position_list = [
                 {
@@ -1733,7 +1733,13 @@ class DirectOrderService:
                 ),
             }
         except Exception as e:
-            return {"success": True, "type": "query", "positions": [], "message": f"查询持仓: {e}"}
+            return {
+                "success": False,
+                "type": "query",
+                "positions": [],
+                "error": str(e),
+                "message": f"查询持仓失败: {e}",
+            }
 
     async def _close_position(
         self, service: Any, account_id: str, intent: TradingIntent
@@ -1742,8 +1748,8 @@ class DirectOrderService:
         try:
             positions, _ = await service.list_positions(
                 filters={"account_id": account_id},
-                page=1,
-                page_size=50,
+                limit=50,
+                offset=0,
             )
             target = None
             requested = self._symbol_candidates(intent.symbol)
