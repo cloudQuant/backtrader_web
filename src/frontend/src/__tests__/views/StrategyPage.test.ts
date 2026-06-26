@@ -723,6 +723,109 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('restores completed async task result from persisted run history when result is missing', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    ;(strategyApi as any).submitAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'research-task-without-result',
+      status: 'running',
+      submitted_at: '2026-06-27T00:00:00Z',
+      current_stage: 'backtesting',
+      progress: 35,
+      current_iteration: 1,
+      iteration_count: 0,
+      max_iterations: 3,
+      message: 'submitted',
+    })
+    ;(strategyApi as any).getAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'research-task-without-result',
+      status: 'completed',
+      submitted_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      run_id: 'restored-run',
+      current_stage: 'paper_trading',
+      progress: 100,
+      current_iteration: 1,
+      iteration_count: 1,
+      max_iterations: 3,
+      latest_iteration: { iteration: 1, sharpe_ratio: 1.2 },
+      message: 'done',
+      result: null,
+    })
+    const restoredRecord = {
+      run_id: 'restored-run',
+      prompt: '恢复的趋势策略',
+      symbol: '000001.SZ',
+      symbol_name: '平安银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      status: 'achieved',
+      achieved: true,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 1,
+      best_iteration: 1,
+      best_sharpe: 1.2,
+      best_quality_score: 100,
+      best_quality_gate_evaluations: [
+        { key: 'sharpe', label: 'Sharpe', actual: 1.2, target: 1, direction: 'min', passed: true, score: 1 },
+      ],
+      best_metrics: { sharpe_ratio: 1.2 },
+      best_strategy_id: 's1',
+      best_strategy_name: 'AI策略',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      paper_monitoring_plan: [],
+      paper_handoff: {
+        paper_workspace_id: 'paper-ws',
+        paper_unit_id: 'paper-unit',
+        backtest_environment: { initial_cash: 100000, commission: 0.001 },
+      },
+      pipeline: {
+        current_stage: 'paper_trading',
+        status: 'achieved',
+        progress: 90,
+        ready_for_live: false,
+        steps: [],
+      },
+      next_actions: ['继续跟踪模拟交易'],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [],
+    }
+    try {
+      const wrapper = doMount()
+      await flushPromises()
+      vi.mocked(strategyApi.listAIResearchRuns).mockClear()
+      vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({
+        total: 1,
+        items: [restoredRecord],
+      } as any)
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.prompt = '恢复的趋势策略'
+      vm.aiResearchForm.symbol = '000001.SZ'
+      await vm.runAIResearchLoop()
+
+      expect((strategyApi as any).getAIResearchTask).toHaveBeenCalledWith('research-task-without-result')
+      expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith(undefined, 100)
+      expect(vm.aiResearchResult.run_id).toBe('restored-run')
+      expect(vm.aiResearchResult.research_workspace.id).toBe('research-ws')
+      expect(vm.aiResearchResult.run_record.paper_trading_started).toBe(true)
+      expect(vm.aiResearchPaperStatusText).toBe('已启动')
+      expect(vm.aiResearchCurrentPaperEnvironment[0].key).toBe('initial_cash')
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+    } finally {
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
+    }
+  })
+
   it('keeps polling long async AI research tasks beyond the old fixed attempt cap', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })

@@ -1128,6 +1128,7 @@ import type {
   AIStrategyResearchRunResponse,
   AIStrategyResearchTaskResponse,
 } from '@/api/strategy'
+import type { Workspace } from '@/types/workspace'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -1257,6 +1258,7 @@ const aiResearchCurrentPaperFailed = computed(() => {
 const aiResearchPaperStatusText = computed(() => {
   if (aiResearchCurrentPaperFailed.value) return '模拟启动失败'
   return aiResearchResult.value?.paper_trading?.started
+    || aiResearchResult.value?.run_record?.paper_trading_started
     ? t('strategy.aiResearchPaperStarted')
     : t('strategy.aiResearchPaperNotStarted')
 })
@@ -1772,6 +1774,65 @@ function applyResearchRunRecordToCurrentResult(runRecord: AIStrategyResearchRunR
   }
 }
 
+function workspaceFromResearchRunRecord(record: AIStrategyResearchRunRecord): Workspace {
+  return {
+    id: record.research_workspace_id,
+    user_id: '',
+    name: `AI投研 - ${record.symbol}`,
+    description: null,
+    workspace_type: 'research',
+    settings: { ai_research: { runs: [record] } },
+    trading_config: {},
+    unit_count: 0,
+    completed_count: record.iteration_count,
+    status: 'completed',
+    created_at: record.started_at,
+    updated_at: record.completed_at,
+  }
+}
+
+function researchResultFromRunRecord(
+  record: AIStrategyResearchRunRecord
+): AIStrategyResearchRunResponse {
+  return {
+    run_id: record.run_id,
+    status: record.status,
+    achieved: record.achieved,
+    target_sharpe: record.target_sharpe,
+    started_at: record.started_at,
+    completed_at: record.completed_at,
+    best_iteration: record.best_iteration,
+    best_quality_score: record.best_quality_score,
+    best_quality_gate_evaluations: record.best_quality_gate_evaluations ?? [],
+    best_diagnostics: record.best_diagnostics ?? {},
+    best_metrics: record.best_metrics ?? {},
+    research_workspace: workspaceFromResearchRunRecord(record),
+    iterations: [],
+    best_strategy: null,
+    paper_trading: null,
+    paper_monitoring_plan: record.paper_monitoring_plan ?? [],
+    pipeline: record.pipeline,
+    run_record: record,
+    next_actions: record.next_actions ?? [],
+    message: 'AI research result restored from run history',
+  }
+}
+
+async function restoreAIResearchResultFromTask(
+  task: AIStrategyResearchTaskResponse
+): Promise<AIStrategyResearchRunResponse | null> {
+  if (!task.run_id) return null
+  try {
+    const response = await strategyApi.listAIResearchRuns(undefined, 100)
+    const record = response.items.find(item => item.run_id === task.run_id)
+    if (!record) return null
+    upsertAIResearchRunRecord(record)
+    return researchResultFromRunRecord(record)
+  } catch {
+    return null
+  }
+}
+
 function reviewedRunRecord(
   record: AIStrategyResearchRunRecord,
   review: AIStrategyPaperTradingReview
@@ -2050,8 +2111,11 @@ async function pollAIResearchTask(
     Math.ceil(timeoutMs / AI_RESEARCH_TASK_POLL_INTERVAL_MS) + 2
   )
   for (let attempt = 0; attempt < maxPolls; attempt += 1) {
-    if (task.status === 'completed' && task.result) {
-      return task.result
+    if (task.status === 'completed') {
+      if (task.result) return task.result
+      const restoredResult = await restoreAIResearchResultFromTask(task)
+      if (restoredResult) return restoredResult
+      throw new Error('AI research task completed without a result')
     }
     if (isAIResearchTaskCancelled(task)) {
       throw new Error('AI_RESEARCH_CANCELLED')
@@ -2168,6 +2232,7 @@ function openResearchWorkspace() {
 
 function openPaperWorkspace() {
   const workspaceId = aiResearchResult.value?.paper_trading?.workspace.id
+    || aiResearchResult.value?.run_record?.paper_workspace_id
   if (!workspaceId) return
   router.push({ name: 'TradingWorkspaceDetail', params: { id: workspaceId } })
 }
