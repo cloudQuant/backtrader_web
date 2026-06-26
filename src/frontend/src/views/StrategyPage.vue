@@ -343,6 +343,20 @@
 
               <div class="ai-research-links">
                 <el-button
+                  v-if="aiResearchResult.best_strategy"
+                  size="small"
+                  data-test="ai-research-view-best-strategy"
+                  @click="viewStrategy(aiResearchResult.best_strategy)"
+                >
+                  <el-icon
+                    class="mr-1"
+                    aria-hidden="true"
+                  >
+                    <Link />
+                  </el-icon>
+                  查看最佳脚本
+                </el-button>
+                <el-button
                   size="small"
                   @click="openResearchWorkspace"
                 >
@@ -448,12 +462,21 @@
                 >
                   <div class="ai-research-iteration-head">
                     <strong>{{ t('strategy.aiResearchIteration') }} {{ item.iteration }}</strong>
-                    <el-tag
-                      size="small"
-                      :type="item.passed ? 'success' : 'info'"
-                    >
-                      {{ item.unit_status?.run_status || item.run_result.status }}
-                    </el-tag>
+                    <span class="ai-research-iteration-actions">
+                      <el-button
+                        size="small"
+                        data-test="ai-research-view-iteration-strategy"
+                        @click="viewStrategy(item.strategy)"
+                      >
+                        查看脚本
+                      </el-button>
+                      <el-tag
+                        size="small"
+                        :type="item.passed ? 'success' : 'info'"
+                      >
+                        {{ item.unit_status?.run_status || item.run_result.status }}
+                      </el-tag>
+                    </span>
                   </div>
                   <div class="ai-research-iteration-metrics">
                     <span>{{ t('strategy.aiResearchStrategy') }}: {{ item.strategy.name }}</span>
@@ -1864,6 +1887,14 @@ onMounted(async () => {
 .ai-research-iteration-head {
   justify-content: space-between;
   margin-bottom: 8px;
+}
+
+.ai-research-iteration-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .ai-research-iteration-metrics {

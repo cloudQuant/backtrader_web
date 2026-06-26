@@ -519,6 +519,19 @@ describe('StrategyPage', () => {
     expect(wrapper.find('[data-test="ai-research-oos-summary"]').text()).toContain('0.92 / 0.80')
     expect(wrapper.find('[data-test="ai-research-next-actions"]').text()).toContain('策略已通过验收')
     expect(wrapper.text()).toContain('进入模拟交易后优先验证成交、滑点、费用和样本外收益稳定性')
+    const bestScriptButton = wrapper.findAll('button').find(
+      button => button.text().includes('查看最佳脚本')
+    )
+    expect(bestScriptButton).toBeTruthy()
+    await bestScriptButton!.trigger('click')
+    expect(vm.viewDialogVisible).toBe(true)
+    expect(vm.currentStrategy.id).toBe('s1')
+    const iterationScriptButton = wrapper.findAll('button').find(
+      button => button.text().trim() === '查看脚本'
+    )
+    expect(iterationScriptButton).toBeTruthy()
+    await iterationScriptButton!.trigger('click')
+    expect(vm.currentStrategy.name).toBe('AI策略')
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
   })
 
