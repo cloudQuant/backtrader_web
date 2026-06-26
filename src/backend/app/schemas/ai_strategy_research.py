@@ -92,6 +92,7 @@ class AIStrategyResearchIteration(BaseModel):
     sharpe_ratio: float = 0.0
     total_trades: int = 0
     quality_score: float = 0.0
+    quality_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
     passed: bool = False
     failure_reason: str | None = None
     quality_gate_failures: list[str] = Field(default_factory=list)
@@ -128,6 +129,7 @@ class AIStrategyResearchRunRecord(BaseModel):
     best_iteration: int | None = None
     best_sharpe: float = 0.0
     best_quality_score: float = 0.0
+    best_quality_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
     best_metrics: dict[str, Any] = Field(default_factory=dict)
     best_strategy_id: str | None = None
     best_strategy_name: str | None = None
@@ -161,6 +163,7 @@ class AIStrategyResearchRunResponse(BaseModel):
     completed_at: str
     best_iteration: int | None = None
     best_quality_score: float = 0.0
+    best_quality_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
     best_metrics: dict[str, Any] = Field(default_factory=dict)
     research_workspace: WorkspaceResponse
     iterations: list[AIStrategyResearchIteration] = Field(default_factory=list)

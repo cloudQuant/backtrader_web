@@ -348,6 +348,11 @@ class AIStrategyResearchService:
                 metrics,
                 run_status=unit_status.run_status if unit_status else None,
             )
+            quality_gate_evaluations = _quality_gate_evaluations(
+                request,
+                metrics,
+                run_status=unit_status.run_status if unit_status else None,
+            )
             if not failure_reason and unit_status is not None and unit_status.run_status != "completed":
                 failure_reason = f"Backtest finished with status {unit_status.run_status}"
             if not failure_reason and quality_gate_failures:
@@ -363,6 +368,7 @@ class AIStrategyResearchService:
                 sharpe_ratio=sharpe,
                 total_trades=total_trades,
                 quality_score=quality_score,
+                quality_gate_evaluations=quality_gate_evaluations,
                 passed=passed,
                 failure_reason=None if passed else failure_reason,
                 quality_gate_failures=quality_gate_failures,
@@ -434,6 +440,9 @@ class AIStrategyResearchService:
             completed_at=completed_at,
             best_iteration=result_iteration.iteration if result_iteration else None,
             best_quality_score=result_iteration.quality_score if result_iteration else 0.0,
+            best_quality_gate_evaluations=result_iteration.quality_gate_evaluations
+            if result_iteration
+            else [],
             best_metrics=best_metrics,
             research_workspace=research_workspace,
             iterations=iterations,
@@ -1008,15 +1017,41 @@ def _quality_score(
     *,
     run_status: str | None,
 ) -> float:
-    if run_status != "completed":
+    evaluations = _quality_gate_evaluations(request, metrics, run_status=run_status)
+    if not evaluations:
         return 0.0
+    return round(
+        sum(float(item.get("score", 0.0) or 0.0) for item in evaluations)
+        / len(evaluations)
+        * 100,
+        3,
+    )
 
-    scores: list[float] = []
+
+def _quality_gate_evaluations(
+    request: AIStrategyResearchRunRequest,
+    metrics: dict[str, Any],
+    *,
+    run_status: str | None,
+) -> list[dict[str, Any]]:
+    if run_status != "completed":
+        return []
+
+    evaluations: list[dict[str, Any]] = []
     sharpe = _quality_metric(metrics, "sharpe_ratio", "sharpe", "sharpeRatio")
-    scores.append(_minimum_gate_score(sharpe, request.target_sharpe))
+    evaluations.append(
+        _minimum_gate_evaluation("sharpe", "Sharpe", sharpe, request.target_sharpe)
+    )
 
     total_trades = _metric_int(metrics, "total_trades", "totalTrades", "trades")
-    scores.append(_minimum_gate_score(float(total_trades), float(request.min_total_trades)))
+    evaluations.append(
+        _minimum_gate_evaluation(
+            "total_trades",
+            "Total trades",
+            float(total_trades),
+            float(request.min_total_trades),
+        )
+    )
 
     if request.max_drawdown_limit is not None:
         max_drawdown = _quality_metric(
@@ -1027,12 +1062,19 @@ def _quality_score(
             "max_dd",
             "maxDD",
         )
-        if max_drawdown is None:
-            scores.append(0.0)
-        else:
-            comparable = abs(_align_metric_scale(max_drawdown, request.max_drawdown_limit))
-            limit = abs(request.max_drawdown_limit)
-            scores.append(1.0 if comparable <= limit else max(min(limit / comparable, 1.0), 0.0))
+        comparable = (
+            abs(_align_metric_scale(max_drawdown, request.max_drawdown_limit))
+            if max_drawdown is not None
+            else None
+        )
+        evaluations.append(
+            _maximum_gate_evaluation(
+                "max_drawdown",
+                "Max drawdown",
+                comparable,
+                abs(request.max_drawdown_limit),
+            )
+        )
 
     if request.min_total_return is not None:
         total_return = _quality_metric(metrics, "total_return", "totalReturn", "return")
@@ -1041,7 +1083,14 @@ def _quality_score(
             if total_return is not None
             else None
         )
-        scores.append(_minimum_gate_score(comparable, request.min_total_return))
+        evaluations.append(
+            _minimum_gate_evaluation(
+                "total_return",
+                "Total return",
+                comparable,
+                request.min_total_return,
+            )
+        )
 
     if request.min_annual_return is not None:
         annual_return = _quality_metric(metrics, "annual_return", "annualReturn")
@@ -1050,18 +1099,65 @@ def _quality_score(
             if annual_return is not None
             else None
         )
-        scores.append(_minimum_gate_score(comparable, request.min_annual_return))
+        evaluations.append(
+            _minimum_gate_evaluation(
+                "annual_return",
+                "Annual return",
+                comparable,
+                request.min_annual_return,
+            )
+        )
 
     if request.min_win_rate is not None:
         win_rate = _quality_metric(metrics, "win_rate", "winRate")
         comparable = (
             _align_metric_scale(win_rate, request.min_win_rate) if win_rate is not None else None
         )
-        scores.append(_minimum_gate_score(comparable, request.min_win_rate))
+        evaluations.append(
+            _minimum_gate_evaluation(
+                "win_rate",
+                "Win rate",
+                comparable,
+                request.min_win_rate,
+            )
+        )
 
-    if not scores:
-        return 0.0
-    return round(sum(scores) / len(scores) * 100, 3)
+    return evaluations
+
+
+def _minimum_gate_evaluation(
+    key: str,
+    label: str,
+    actual: float | None,
+    target: float,
+) -> dict[str, Any]:
+    return {
+        "key": key,
+        "label": label,
+        "actual": actual,
+        "target": target,
+        "direction": "min",
+        "passed": actual is not None and _minimum_gate_score(actual, target) >= 1.0,
+        "score": _minimum_gate_score(actual, target),
+    }
+
+
+def _maximum_gate_evaluation(
+    key: str,
+    label: str,
+    actual: float | None,
+    target: float,
+) -> dict[str, Any]:
+    score = 0.0 if actual is None else 1.0 if actual <= target else max(min(target / actual, 1.0), 0.0)
+    return {
+        "key": key,
+        "label": label,
+        "actual": actual,
+        "target": target,
+        "direction": "max",
+        "passed": actual is not None and actual <= target,
+        "score": score,
+    }
 
 
 def _minimum_gate_score(value: float | None, threshold: float) -> float:
@@ -1194,6 +1290,9 @@ def _build_research_run_record(
         if best_iteration is not None
         else _metric_float(response.best_metrics, "sharpe_ratio", "sharpe", "sharpeRatio"),
         best_quality_score=best_iteration.quality_score if best_iteration is not None else 0.0,
+        best_quality_gate_evaluations=best_iteration.quality_gate_evaluations
+        if best_iteration is not None
+        else [],
         best_metrics=response.best_metrics,
         best_strategy_id=best_strategy.id if best_strategy else None,
         best_strategy_name=best_strategy.name if best_strategy else None,
@@ -1232,6 +1331,7 @@ def _build_paper_trading_handoff(
         "quality_gates": _quality_gates_payload(request),
         "achieved_sharpe": best_iteration.sharpe_ratio,
         "achieved_quality_score": best_iteration.quality_score,
+        "achieved_quality_gate_evaluations": best_iteration.quality_gate_evaluations,
         "total_trades": best_iteration.total_trades,
         "best_metrics": best_iteration.metrics,
         "symbol": request.symbol,
@@ -1255,6 +1355,7 @@ def _compact_research_iteration(item: AIStrategyResearchIteration) -> dict[str, 
         "sharpe_ratio": item.sharpe_ratio,
         "total_trades": item.total_trades,
         "quality_score": item.quality_score,
+        "quality_gate_evaluations": item.quality_gate_evaluations,
         "passed": item.passed,
         "failure_reason": item.failure_reason,
         "quality_gate_failures": item.quality_gate_failures,

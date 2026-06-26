@@ -70,6 +70,17 @@ def _run_record(run_id: str, *, workspace_id: str, completed_at: str):
         "best_iteration": 2,
         "best_sharpe": 1.21,
         "best_quality_score": 100.0,
+        "best_quality_gate_evaluations": [
+            {
+                "key": "sharpe",
+                "label": "Sharpe",
+                "actual": 1.21,
+                "target": 1.0,
+                "direction": "min",
+                "passed": True,
+                "score": 1.0,
+            }
+        ],
         "best_metrics": {"sharpe_ratio": 1.21, "total_trades": 5},
         "best_strategy_id": "strategy-2",
         "best_strategy_name": "AI趋势策略",
@@ -517,6 +528,7 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.run_record.best_strategy_id == "strategy-2"
     assert result.run_record.paper_trading_started is True
     assert result.run_record.best_quality_score == 100.0
+    assert result.run_record.best_quality_gate_evaluations[0]["key"] == "sharpe"
     assert result.next_actions == [
         "策略已通过验收并进入模拟交易，下一步跟踪模拟账户成交、持仓和风控指标。",
         "保留当前研究工作区，后续用样本外区间复核策略稳定性。",
@@ -609,9 +621,30 @@ async def test_research_loop_selects_quality_scored_best_candidate():
     assert result.best_strategy.id == "strategy-2"
     assert result.iterations[0].quality_score == 50.0
     assert result.iterations[1].quality_score == 95.0
+    assert result.iterations[1].quality_gate_evaluations == [
+        {
+            "key": "sharpe",
+            "label": "Sharpe",
+            "actual": 0.9,
+            "target": 1.0,
+            "direction": "min",
+            "passed": False,
+            "score": 0.9,
+        },
+        {
+            "key": "total_trades",
+            "label": "Total trades",
+            "actual": 5.0,
+            "target": 1.0,
+            "direction": "min",
+            "passed": True,
+            "score": 1.0,
+        },
+    ]
     assert result.best_quality_score == 95.0
     assert result.run_record is not None
     assert result.run_record.best_quality_score == 95.0
+    assert result.run_record.best_quality_gate_evaluations == result.iterations[1].quality_gate_evaluations
 
 
 @pytest.mark.asyncio

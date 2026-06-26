@@ -304,6 +304,26 @@
                 </ul>
               </div>
 
+              <div
+                v-if="aiResearchBestGateEvaluations.length"
+                class="ai-research-gate-summary"
+                data-test="ai-research-gate-summary"
+              >
+                <span
+                  v-for="gate in aiResearchBestGateEvaluations"
+                  :key="gate.key"
+                  class="ai-research-gate-summary-item"
+                >
+                  <el-tag
+                    size="small"
+                    :type="gate.passed ? 'success' : 'warning'"
+                  >
+                    {{ gate.label }}
+                  </el-tag>
+                  <span>{{ formatMetric(gate.actual) }} / {{ formatMetric(gate.target) }}</span>
+                </span>
+              </div>
+
               <div class="ai-research-iterations">
                 <div
                   v-for="item in aiResearchResult.iterations"
@@ -740,6 +760,9 @@ const aiResearchNextActions = computed(() => aiResearchResult.value?.next_action
 const aiResearchContinuationEnabled = computed(() =>
   Boolean(aiResearchForm.seed_strategy_id || aiResearchForm.continue_from_run_id)
 )
+const aiResearchBestGateEvaluations = computed(
+  () => aiResearchResult.value?.best_quality_gate_evaluations ?? []
+)
 
 const paramTableData = computed(() => {
   if (!detailTemplate.value) return []
@@ -1116,6 +1139,21 @@ onMounted(async () => {
 .ai-research-next-actions {
   margin: 0;
   padding-left: 18px;
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+}
+
+.ai-research-gate-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.ai-research-gate-summary-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--el-text-color-regular);
   font-size: 13px;
 }

@@ -154,6 +154,16 @@ export interface AIStrategyResearchRunRequest {
   gateway_config?: Record<string, unknown>
 }
 
+export interface AIStrategyQualityGateEvaluation {
+  key: string
+  label: string
+  actual?: number | null
+  target: number
+  direction: 'min' | 'max'
+  passed: boolean
+  score: number
+}
+
 export interface AIStrategyResearchIteration {
   iteration: number
   strategy: Strategy
@@ -164,6 +174,7 @@ export interface AIStrategyResearchIteration {
   sharpe_ratio: number
   total_trades: number
   quality_score: number
+  quality_gate_evaluations: AIStrategyQualityGateEvaluation[]
   passed: boolean
   failure_reason?: string | null
   quality_gate_failures: string[]
@@ -196,6 +207,7 @@ export interface AIStrategyResearchRunRecord {
   best_iteration?: number | null
   best_sharpe: number
   best_quality_score: number
+  best_quality_gate_evaluations: AIStrategyQualityGateEvaluation[]
   best_metrics: Record<string, unknown>
   best_strategy_id?: string | null
   best_strategy_name?: string | null
@@ -225,6 +237,7 @@ export interface AIStrategyResearchRunResponse {
   completed_at: string
   best_iteration?: number | null
   best_quality_score: number
+  best_quality_gate_evaluations: AIStrategyQualityGateEvaluation[]
   best_metrics: Record<string, unknown>
   research_workspace: Workspace
   iterations: AIStrategyResearchIteration[]

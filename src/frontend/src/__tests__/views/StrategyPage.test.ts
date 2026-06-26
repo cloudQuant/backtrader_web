@@ -63,6 +63,9 @@ vi.mock('@/api/strategy', () => ({
           best_iteration: 2,
           best_sharpe: 1.2,
           best_quality_score: 100,
+          best_quality_gate_evaluations: [
+            { key: 'sharpe', label: 'Sharpe', actual: 1.2, target: 1, direction: 'min', passed: true, score: 1 },
+          ],
           best_metrics: { sharpe_ratio: 1.2 },
           best_strategy_id: 's1',
           best_strategy_name: 'AI策略',
@@ -88,6 +91,18 @@ vi.mock('@/api/strategy', () => ({
       completed_at: '2026-06-27T00:01:00Z',
       best_iteration: 1,
       best_quality_score: 100,
+      best_quality_gate_evaluations: [
+        { key: 'sharpe', label: 'Sharpe', actual: 1.2, target: 1, direction: 'min', passed: true, score: 1 },
+        {
+          key: 'total_trades',
+          label: 'Total trades',
+          actual: 4,
+          target: 1,
+          direction: 'min',
+          passed: true,
+          score: 1,
+        },
+      ],
       best_metrics: { sharpe_ratio: 1.2 },
       research_workspace: {
         id: 'research-ws',
@@ -145,6 +160,9 @@ vi.mock('@/api/strategy', () => ({
           sharpe_ratio: 1.2,
           total_trades: 4,
           quality_score: 100,
+          quality_gate_evaluations: [
+            { key: 'sharpe', label: 'Sharpe', actual: 1.2, target: 1, direction: 'min', passed: true, score: 1 },
+          ],
           passed: true,
           quality_gate_failures: [],
           improvement_notes: [],
@@ -171,6 +189,9 @@ vi.mock('@/api/strategy', () => ({
         best_iteration: 1,
         best_sharpe: 1.2,
         best_quality_score: 100,
+        best_quality_gate_evaluations: [
+          { key: 'sharpe', label: 'Sharpe', actual: 1.2, target: 1, direction: 'min', passed: true, score: 1 },
+        ],
         best_metrics: { sharpe_ratio: 1.2 },
         best_strategy_id: 's1',
         best_strategy_name: 'AI策略',
@@ -325,6 +346,8 @@ describe('StrategyPage', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('质量分')
     expect(wrapper.text()).toContain('100.00')
+    expect(wrapper.find('[data-test="ai-research-gate-summary"]').text()).toContain('Sharpe')
+    expect(wrapper.find('[data-test="ai-research-gate-summary"]').text()).toContain('1.20 / 1.00')
     expect(wrapper.find('[data-test="ai-research-next-actions"]').text()).toContain('策略已通过验收')
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
   })
@@ -353,6 +376,7 @@ describe('StrategyPage', () => {
       best_iteration: 2,
       best_sharpe: 1.6,
       best_quality_score: 98,
+      best_quality_gate_evaluations: [],
       best_metrics: {},
       best_strategy_id: 'best-strategy',
       best_strategy_name: '历史最佳策略',
@@ -398,6 +422,7 @@ describe('StrategyPage', () => {
       best_iteration: 3,
       best_sharpe: 0.8,
       best_quality_score: 90,
+      best_quality_gate_evaluations: [],
       best_metrics: {},
       best_strategy_id: 'best-strategy',
       best_strategy_name: '历史最佳策略',
