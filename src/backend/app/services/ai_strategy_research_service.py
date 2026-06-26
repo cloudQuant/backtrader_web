@@ -364,7 +364,13 @@ class AIStrategyResearchService:
         paper_trading = None
         result_iteration = selected_iteration or best_iteration
         if achieved and request.start_paper_trading and result_iteration is not None:
-            paper_trading = await self._start_paper_trading(user_id, request, result_iteration)
+            paper_trading = await self._start_paper_trading(
+                user_id,
+                request,
+                result_iteration,
+                run_id=run_id,
+                research_workspace_id=research_workspace.id,
+            )
 
         status = "achieved" if achieved else "max_iterations_reached"
         if iterations and iterations[-1].unit_status and iterations[-1].unit_status.run_status == "timeout":
@@ -545,6 +551,9 @@ class AIStrategyResearchService:
         user_id: str,
         request: AIStrategyResearchRunRequest,
         best_iteration: AIStrategyResearchIteration,
+        *,
+        run_id: str,
+        research_workspace_id: str,
     ) -> AIStrategyPaperTradingStart:
         workspace = None
         if request.trading_workspace_id:
@@ -562,6 +571,22 @@ class AIStrategyResearchService:
                 ),
             )
 
+        handoff = _build_paper_trading_handoff(
+            run_id=run_id,
+            research_workspace_id=research_workspace_id,
+            request=request,
+            best_iteration=best_iteration,
+            promoted_at=_utc_iso_now(),
+        )
+        unit_data_config = {
+            **best_iteration.unit.data_config,
+            "ai_research_run_id": run_id,
+            "ai_research_workspace_id": research_workspace_id,
+        }
+        unit_settings = {
+            **best_iteration.unit.unit_settings,
+            "ai_research_handoff": handoff,
+        }
         unit_payload = StrategyUnitCreate(
             group_name=best_iteration.unit.group_name or best_iteration.strategy.name,
             strategy_id=best_iteration.strategy.id,
@@ -571,8 +596,8 @@ class AIStrategyResearchService:
             timeframe=request.timeframe,
             timeframe_n=request.timeframe_n,
             category=best_iteration.strategy.category,
-            data_config=best_iteration.unit.data_config,
-            unit_settings=best_iteration.unit.unit_settings,
+            data_config=unit_data_config,
+            unit_settings=unit_settings,
             params=best_iteration.unit.params,
             optimization_config=best_iteration.unit.optimization_config,
             trading_mode="paper",
@@ -592,12 +617,70 @@ class AIStrategyResearchService:
         if run_results:
             run_result = StrategyCopilotRunResult.model_validate(run_results[0])
 
+        handoff = {
+            **handoff,
+            "paper_workspace_id": workspace.id,
+            "paper_unit_id": unit.id,
+            "paper_task_id": run_result.task_id if run_result else None,
+            "paper_run_status": run_result.status if run_result else None,
+        }
+        unit = unit.model_copy(
+            update={
+                "data_config": {
+                    **unit.data_config,
+                    "ai_research_run_id": run_id,
+                    "ai_research_workspace_id": research_workspace_id,
+                },
+                "unit_settings": {
+                    **unit.unit_settings,
+                    "ai_research_handoff": handoff,
+                },
+            }
+        )
+        workspace = await self._persist_paper_trading_handoff(user_id, workspace, handoff)
+
         return AIStrategyPaperTradingStart(
             workspace=workspace,
             unit=unit,
             run_result=run_result,
             started=run_result is not None and run_result.status not in {"failed", "cancelled"},
+            handoff=handoff,
         )
+
+    async def _persist_paper_trading_handoff(
+        self,
+        user_id: str,
+        workspace: WorkspaceResponse,
+        handoff: dict[str, Any],
+    ) -> WorkspaceResponse:
+        settings = dict(workspace.settings or {})
+        ai_handoff = dict(settings.get("ai_research_handoff") or {})
+        handoff_payload = dict(handoff)
+
+        existing: list[dict[str, Any]] = []
+        raw_handoffs = ai_handoff.get("handoffs")
+        if isinstance(raw_handoffs, list):
+            existing = [dict(item) for item in raw_handoffs if isinstance(item, dict)]
+        ai_handoff["last_handoff"] = handoff_payload
+        ai_handoff["handoffs"] = [
+            handoff_payload,
+            *[
+                item
+                for item in existing
+                if str(item.get("run_id") or "") != str(handoff_payload.get("run_id") or "")
+            ],
+        ][:20]
+
+        updated = await self.workspace_service.update_workspace(
+            workspace.id,
+            user_id,
+            WorkspaceUpdate(settings={"ai_research_handoff": ai_handoff}),
+        )
+        if updated is not None:
+            return updated
+
+        settings["ai_research_handoff"] = ai_handoff
+        return workspace.model_copy(update={"settings": settings})
 
     async def _persist_research_run_record(
         self,
@@ -740,6 +823,34 @@ def _build_research_run_record(
         completed_at=completed_at,
         iterations=[_compact_research_iteration(item) for item in response.iterations],
     )
+
+
+def _build_paper_trading_handoff(
+    *,
+    run_id: str,
+    research_workspace_id: str,
+    request: AIStrategyResearchRunRequest,
+    best_iteration: AIStrategyResearchIteration,
+    promoted_at: str,
+) -> dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "source": "ai_strategy_research",
+        "research_workspace_id": research_workspace_id,
+        "research_unit_id": best_iteration.unit.id,
+        "research_strategy_id": best_iteration.strategy.id,
+        "research_strategy_name": best_iteration.strategy.name,
+        "selected_iteration": best_iteration.iteration,
+        "target_sharpe": request.target_sharpe,
+        "achieved_sharpe": best_iteration.sharpe_ratio,
+        "total_trades": best_iteration.total_trades,
+        "best_metrics": best_iteration.metrics,
+        "symbol": request.symbol,
+        "symbol_name": request.symbol_name or request.symbol,
+        "timeframe": request.timeframe,
+        "timeframe_n": request.timeframe_n,
+        "promoted_at": promoted_at,
+    }
 
 
 def _compact_research_iteration(item: AIStrategyResearchIteration) -> dict[str, Any]:

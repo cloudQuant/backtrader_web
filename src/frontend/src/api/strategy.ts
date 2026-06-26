@@ -167,6 +167,7 @@ export interface AIStrategyPaperTradingStart {
   unit: StrategyUnit
   run_result?: StrategyCopilotRunResult | null
   started: boolean
+  handoff?: Record<string, unknown> | null
 }
 
 export interface AIStrategyResearchRunRecord {

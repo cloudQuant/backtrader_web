@@ -186,7 +186,13 @@ class FakeWorkspaceService:
             created_at=_now(),
             updated_at=_now(),
         )
-        unit = _unit("paper-unit", workspace_id, strategy)
+        unit = _unit("paper-unit", workspace_id, strategy).model_copy(
+            update={
+                "data_config": data.data_config,
+                "unit_settings": data.unit_settings,
+                "gateway_config": data.gateway_config,
+            }
+        )
         self.created_units.append(unit)
         return unit.model_dump(mode="python")
 
@@ -390,6 +396,16 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert strategy_service.submitted_drafts[1].name.endswith("v2")
     assert result.paper_trading is not None
     assert result.paper_trading.started is True
+    assert result.paper_trading.handoff is not None
+    assert result.paper_trading.handoff["run_id"] == result.run_id
+    assert result.paper_trading.handoff["research_strategy_id"] == "strategy-2"
+    assert result.paper_trading.handoff["paper_unit_id"] == "paper-unit"
+    assert result.paper_trading.unit.unit_settings["ai_research_handoff"]["run_id"] == result.run_id
+    assert result.paper_trading.unit.data_config["ai_research_run_id"] == result.run_id
+    assert (
+        result.paper_trading.workspace.settings["ai_research_handoff"]["last_handoff"]["run_id"]
+        == result.run_id
+    )
     assert workspace_service.started_units == [("paper-ws", ["paper-unit"])]
     assert result.run_id
     assert result.run_record is not None

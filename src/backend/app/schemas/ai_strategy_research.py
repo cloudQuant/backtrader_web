@@ -77,6 +77,7 @@ class AIStrategyPaperTradingStart(BaseModel):
     unit: StrategyUnitResponse
     run_result: StrategyCopilotRunResult | None = None
     started: bool = False
+    handoff: dict[str, Any] | None = None
 
 
 class AIStrategyResearchRunRecord(BaseModel):
