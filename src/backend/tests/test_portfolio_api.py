@@ -961,6 +961,51 @@ async def test_portfolio_overview_reads_crypto_account_balance_aliases():
 
 
 @pytest.mark.asyncio
+async def test_portfolio_overview_reads_okx_account_balance_aliases():
+    """OKX account aliases should contribute value, available cash, and margin."""
+    from app.api.portfolio_api import get_portfolio_overview
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            return []
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            return {}
+
+        def query_instance_gateway_account(self, instance_id):
+            assert instance_id == "inst-a"
+            return {
+                "gateway_key": "manual:OKX:main",
+                "account_source": "adapter.get_balance",
+                "totalEq": "2,500.0",
+                "availEq": "2,100.0",
+                "imr": "400.0",
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {"trading_mode": "live", "symbol": "BTC-USDT-SWAP"},
+            }
+        ]
+    )
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_overview(current_user=_USER, mgr=mgr)
+
+    assert result["total_assets"] == 2500.0
+    assert result["total_cash"] == 2100.0
+    assert result["total_initial_capital"] == 2500.0
+    assert result["strategies"][0]["total_assets"] == 2500.0
+    assert result["strategies"][0]["account_counted_in_totals"] is True
+
+
+@pytest.mark.asyncio
 async def test_portfolio_overview_derives_cash_from_equity_minus_margin_before_balance():
     """Balance must not be treated as available cash when margin is in use."""
     from app.api.portfolio_api import get_portfolio_overview

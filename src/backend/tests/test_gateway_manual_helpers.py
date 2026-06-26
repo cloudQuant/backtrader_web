@@ -40,6 +40,22 @@ class _FakeTradeAdapter:
         return self.payload
 
 
+class _FakeBalanceAdapter:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def get_balance(self):
+        return self.payload
+
+
+class _FakeBalanceContainer:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def get_all_data(self):
+        return self.payload
+
+
 class TestManualPorts:
     def test_parse_base_url_endpoint_defaults_https_port(self):
         assert manual_ports.parse_base_url_endpoint("https://LOCALHOST/v1/api") == (
@@ -217,6 +233,108 @@ class TestCtpTunnel:
         assert b"Host: 182.254.243.31:40011\r\n" in request
         assert b"Proxy-Authorization: Basic abc123\r\n" in request
         assert request.endswith(b"\r\n\r\n")
+
+
+class TestManualGatewayAccount:
+    def test_query_gateway_account_unwraps_bybit_v5_wallet_balance(self):
+        adapter = _FakeBalanceAdapter(
+            {
+                "retCode": 0,
+                "retMsg": "OK",
+                "result": {
+                    "list": [
+                        {
+                            "accountType": "UNIFIED",
+                            "totalEquity": "1,250.5",
+                            "totalWalletBalance": "1,200.0",
+                            "totalAvailableBalance": "950.25",
+                            "totalInitialMargin": "300.25",
+                            "coin": [
+                                {
+                                    "coin": "USDT",
+                                    "walletBalance": "1200",
+                                    "equity": "1250.5",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            }
+        )
+        gateways = {
+            "gw-1": {
+                "runtime": SimpleNamespace(adapter=adapter),
+                "exchange_type": "BYBIT",
+                "account_id": "unified",
+            }
+        }
+
+        account = manual_gateway_service.query_gateway_account(gateways, "gw-1", strict=True)
+
+        assert account["value"] == 1250.5
+        assert account["equity"] == 1250.5
+        assert account["cash"] == 950.25
+        assert account["margin"] == 300.25
+        assert account["accountType"] == "UNIFIED"
+        assert account["account_source"] == "adapter.get_balance"
+
+    def test_query_gateway_account_unwraps_okx_balance_data(self):
+        adapter = _FakeBalanceAdapter(
+            {
+                "code": "0",
+                "msg": "",
+                "data": [
+                    {
+                        "uTime": "1760000000000",
+                        "totalEq": "2500",
+                        "availEq": "2100",
+                        "imr": "400",
+                        "details": [{"ccy": "USDT", "eq": "2500"}],
+                    }
+                ],
+            }
+        )
+        gateways = {
+            "gw-1": {
+                "runtime": SimpleNamespace(adapter=adapter),
+                "exchange_type": "OKX",
+                "account_id": "main",
+            }
+        }
+
+        account = manual_gateway_service.query_gateway_account(gateways, "gw-1", strict=True)
+
+        assert account["value"] == 2500.0
+        assert account["equity"] == 2500.0
+        assert account["cash"] == 2100.0
+        assert account["margin"] == 400.0
+        assert account["account_source"] == "adapter.get_balance"
+
+    def test_query_gateway_account_reads_balance_container(self):
+        adapter = _FakeBalanceAdapter(
+            _FakeBalanceContainer(
+                {
+                    "exchange_name": "OKX",
+                    "total_margin": "2500",
+                    "total_used_margin": "400",
+                    "total_wallet_balance": "2500",
+                }
+            )
+        )
+        gateways = {
+            "gw-1": {
+                "runtime": SimpleNamespace(adapter=adapter),
+                "exchange_type": "OKX",
+                "account_id": "main",
+            }
+        }
+
+        account = manual_gateway_service.query_gateway_account(gateways, "gw-1", strict=True)
+
+        assert account["value"] == 2500.0
+        assert account["cash"] == 2100.0
+        assert account["margin"] == 400.0
+        assert account["account_source"] == "adapter.get_balance"
 
 
 class TestManualGatewayPositions:

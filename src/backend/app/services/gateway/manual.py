@@ -1609,6 +1609,109 @@ def connect_mt5_gateway(
         }
 
 
+_ACCOUNT_CASH_KEYS = (
+    "cash",
+    "available_cash",
+    "available",
+    "Available",
+    "available_funds",
+    "AvailableFunds",
+    "availablefunds",
+    "available_balance",
+    "availableBalance",
+    "available_bal",
+    "availableBal",
+    "available_equity",
+    "availableEquity",
+    "avail_eq",
+    "availEq",
+    "avail_bal",
+    "availBal",
+    "total_available_balance",
+    "totalAvailableBalance",
+    "total_available_margin",
+    "totalAvailableMargin",
+    "free_collateral",
+    "freeCollateral",
+    "free_margin",
+    "freeMargin",
+    "marginFree",
+    "margin_free",
+    "withdraw_available",
+    "withdrawAvailable",
+    "available_to_withdraw",
+    "availableToWithdraw",
+)
+
+_ACCOUNT_VALUE_KEYS = (
+    "value",
+    "equity",
+    "Equity",
+    "eq",
+    "total_eq",
+    "totalEq",
+    "total_equity",
+    "totalEquity",
+    "account_value",
+    "accountValue",
+    "net_liquidation",
+    "NetLiquidation",
+    "netliquidation",
+    "NetLiquidationValue",
+    "total_margin",
+    "totalMargin",
+    "total_margin_balance",
+    "totalMarginBalance",
+    "margin_balance",
+    "marginBalance",
+    "total_wallet_balance",
+    "totalWalletBalance",
+    "wallet_balance",
+    "walletBalance",
+    "balance",
+    "Balance",
+)
+
+_ACCOUNT_MARGIN_KEYS = (
+    "margin",
+    "used_margin",
+    "usedMargin",
+    "margin_used",
+    "marginUsed",
+    "curr_margin",
+    "CurrMargin",
+    "initial_margin",
+    "initialMargin",
+    "initial_margin_requirement",
+    "initialMarginRequirement",
+    "total_initial_margin",
+    "totalInitialMargin",
+    "total_used_margin",
+    "totalUsedMargin",
+    "total_position_initial_margin",
+    "totalPositionInitialMargin",
+    "total_open_order_initial_margin",
+    "totalOpenOrderInitialMargin",
+    "imr",
+    "maintain_margin",
+    "maintenance_margin",
+    "maintMargin",
+)
+
+_ACCOUNT_WRAPPER_KEYS = (
+    "account",
+    "accounts",
+    "balance",
+    "wallet",
+    "data",
+    "result",
+    "list",
+    "items",
+    "rows",
+    "payload",
+)
+
+
 def _account_number(row: dict[str, Any], *keys: str) -> float | None:
     for key in keys:
         value = row.get(key)
@@ -1633,89 +1736,105 @@ def _account_number(row: dict[str, Any], *keys: str) -> float | None:
     return None
 
 
-def _normalize_account_balance(raw: Any) -> dict[str, Any]:
-    if not isinstance(raw, dict):
-        return {}
-    status = str(raw.get("status") or "").strip().lower()
-    if status == "error":
-        message = str(raw.get("message") or raw.get("error") or "account query failed")
-        raise RuntimeError(message)
+def _account_materialize(raw: Any) -> Any:
+    for method_name in ("get_all_data", "get_data"):
+        method = getattr(raw, method_name, None)
+        if callable(method):
+            try:
+                return method()
+            except Exception:
+                return raw
+    return raw
 
-    payload = dict(raw)
-    cash = _account_number(
-        payload,
-        "cash",
-        "available_cash",
-        "available",
-        "Available",
-        "available_funds",
-        "AvailableFunds",
-        "availablefunds",
-        "available_balance",
-        "availableBalance",
-        "total_available_balance",
-        "totalAvailableBalance",
-        "free_margin",
-        "freeMargin",
-        "marginFree",
-        "margin_free",
-        "withdraw_available",
-        "withdrawAvailable",
-        "available_to_withdraw",
-        "availableToWithdraw",
-    )
-    value = _account_number(
-        payload,
-        "value",
-        "equity",
-        "Equity",
-        "total_equity",
-        "totalEquity",
-        "account_value",
-        "accountValue",
-        "net_liquidation",
-        "NetLiquidation",
-        "netliquidation",
-        "NetLiquidationValue",
-        "total_margin_balance",
-        "totalMarginBalance",
-        "margin_balance",
-        "marginBalance",
-        "total_wallet_balance",
-        "totalWalletBalance",
-        "wallet_balance",
-        "walletBalance",
-        "balance",
-        "Balance",
-    )
-    margin = _account_number(
-        payload,
-        "margin",
-        "used_margin",
-        "margin_used",
-        "curr_margin",
-        "CurrMargin",
-        "initial_margin",
-        "initialMargin",
-        "total_initial_margin",
-        "totalInitialMargin",
-        "maintain_margin",
-        "maintenance_margin",
-        "maintMargin",
-    )
+
+def _account_error_message(row: dict[str, Any]) -> str | None:
+    status = str(row.get("status") or "").strip().lower()
+    if status == "error":
+        return str(row.get("message") or row.get("error") or "account query failed")
+
+    if "retCode" in row:
+        ret_code = str(row.get("retCode") or "").strip()
+        if ret_code and ret_code != "0":
+            return str(
+                row.get("retMsg")
+                or row.get("message")
+                or row.get("error")
+                or f"account query failed: retCode={ret_code}"
+            )
+
+    if "code" in row and any(key in row for key in ("msg", "message", "data")):
+        code = str(row.get("code") or "").strip()
+        if code and code not in {"0", "200", "00000"}:
+            return str(
+                row.get("msg")
+                or row.get("message")
+                or row.get("error")
+                or f"account query failed: code={code}"
+            )
+
+    return None
+
+
+def _account_payload_candidates(raw: Any, *, depth: int = 0) -> list[dict[str, Any]]:
+    if depth > 8:
+        return []
+
+    raw = _account_materialize(raw)
+    if isinstance(raw, dict):
+        message = _account_error_message(raw)
+        if message:
+            raise RuntimeError(message)
+
+        candidates = [raw]
+        for key in _ACCOUNT_WRAPPER_KEYS:
+            if key not in raw:
+                continue
+            value = raw.get(key)
+            if key == "accounts" and isinstance(value, dict):
+                for item in value.values():
+                    candidates.extend(_account_payload_candidates(item, depth=depth + 1))
+            else:
+                candidates.extend(_account_payload_candidates(value, depth=depth + 1))
+        return candidates
+
+    if isinstance(raw, (list, tuple)):
+        candidates: list[dict[str, Any]] = []
+        for item in raw:
+            candidates.extend(_account_payload_candidates(item, depth=depth + 1))
+        return candidates
+
+    return []
+
+
+def _normalized_account_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    cash = _account_number(payload, *_ACCOUNT_CASH_KEYS)
+    value = _account_number(payload, *_ACCOUNT_VALUE_KEYS)
+    margin = _account_number(payload, *_ACCOUNT_MARGIN_KEYS)
+    if cash is None and value is None and margin is None:
+        return None
     if cash is None and value is not None and margin is not None:
         cash = value - margin
+
+    normalized = dict(payload)
     if cash is not None:
-        payload["cash"] = cash
+        normalized["cash"] = cash
     if value is not None:
-        payload["value"] = value
-        payload.setdefault("equity", value)
+        normalized["value"] = value
+        normalized.setdefault("equity", value)
     elif cash is not None:
-        payload["value"] = cash
-        payload.setdefault("equity", cash)
+        normalized["value"] = cash
+        normalized.setdefault("equity", cash)
     if margin is not None:
-        payload["margin"] = margin
-    return payload
+        normalized["margin"] = margin
+    return normalized
+
+
+def _normalize_account_balance(raw: Any) -> dict[str, Any]:
+    for payload in _account_payload_candidates(raw):
+        normalized = _normalized_account_payload(payload)
+        if normalized is not None:
+            return normalized
+    return {}
 
 
 def query_gateway_account(
