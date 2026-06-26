@@ -274,6 +274,22 @@
                 </el-button>
               </div>
 
+              <div
+                v-if="aiResearchNextActions.length"
+                class="ai-research-action-plan"
+                data-test="ai-research-next-actions"
+              >
+                <strong>下一步动作</strong>
+                <ul>
+                  <li
+                    v-for="action in aiResearchNextActions"
+                    :key="action"
+                  >
+                    {{ action }}
+                  </li>
+                </ul>
+              </div>
+
               <div class="ai-research-iterations">
                 <div
                   v-for="item in aiResearchResult.iterations"
@@ -309,6 +325,17 @@
                       :key="note"
                     >
                       {{ note }}
+                    </li>
+                  </ul>
+                  <ul
+                    v-if="researchIterationNextActions(item).length"
+                    class="ai-research-next-actions"
+                  >
+                    <li
+                      v-for="action in researchIterationNextActions(item)"
+                      :key="action"
+                    >
+                      {{ action }}
                     </li>
                   </ul>
                 </div>
@@ -690,6 +717,8 @@ const aiBestSharpe = computed(() => {
   return bestIteration?.sharpe_ratio ?? null
 })
 
+const aiResearchNextActions = computed(() => aiResearchResult.value?.next_actions ?? [])
+
 const paramTableData = computed(() => {
   if (!detailTemplate.value) return []
   return Object.entries(detailTemplate.value.params).map(([name, spec]: [string, ParamSpec]) => ({
@@ -774,6 +803,10 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
 
 function enabledQualityGate(enabled: boolean, value: number) {
   return enabled ? value : null
+}
+
+function researchIterationNextActions(item: AIStrategyResearchRunResponse['iterations'][number]) {
+  return item.next_actions ?? []
 }
 
 async function runAIResearchLoop() {
@@ -1022,6 +1055,29 @@ onMounted(async () => {
   margin-bottom: 16px;
 }
 
+.ai-research-action-plan {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+  background: var(--el-fill-color-light);
+}
+
+.ai-research-action-plan strong {
+  display: block;
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.ai-research-action-plan ul,
+.ai-research-next-actions {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+}
+
 .ai-research-iterations {
   display: grid;
   gap: 10px;
@@ -1062,6 +1118,11 @@ onMounted(async () => {
   padding-left: 18px;
   color: var(--el-text-color-secondary);
   font-size: 13px;
+}
+
+.ai-research-next-actions {
+  margin-top: 8px;
+  color: var(--el-color-primary);
 }
 
 .ai-research-history {

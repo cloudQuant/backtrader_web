@@ -87,6 +87,7 @@ class AIStrategyResearchIteration(BaseModel):
     failure_reason: str | None = None
     quality_gate_failures: list[str] = Field(default_factory=list)
     improvement_notes: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
 
 
 class AIStrategyPaperTradingStart(BaseModel):
@@ -124,6 +125,7 @@ class AIStrategyResearchRunRecord(BaseModel):
     paper_workspace_id: str | None = None
     paper_unit_id: str | None = None
     paper_trading_started: bool = False
+    next_actions: list[str] = Field(default_factory=list)
     started_at: str
     completed_at: str
     iterations: list[dict[str, Any]] = Field(default_factory=list)
@@ -152,4 +154,5 @@ class AIStrategyResearchRunResponse(BaseModel):
     best_strategy: StrategyResponse | None = None
     paper_trading: AIStrategyPaperTradingStart | None = None
     run_record: AIStrategyResearchRunRecord | None = None
+    next_actions: list[str] = Field(default_factory=list)
     message: str

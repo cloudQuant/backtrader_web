@@ -355,6 +355,14 @@ class AIStrategyResearchService:
                 failure_reason=None if passed else failure_reason,
                 quality_gate_failures=quality_gate_failures,
                 improvement_notes=pending_improvement_notes,
+                next_actions=_iteration_next_actions(
+                    iteration=iteration,
+                    max_iterations=request.max_iterations,
+                    passed=passed,
+                    run_status=unit_status.run_status if unit_status else None,
+                    quality_gate_failures=quality_gate_failures,
+                    failure_reason=failure_reason,
+                ),
             )
             iterations.append(item)
             if best_iteration is None or item.sharpe_ratio > best_iteration.sharpe_ratio:
@@ -398,6 +406,13 @@ class AIStrategyResearchService:
             else f"Target Sharpe {request.target_sharpe:.3f} not achieved"
         )
         completed_at = _utc_iso_now()
+        next_actions = _run_next_actions(
+            status=status,
+            achieved=achieved,
+            request=request,
+            result_iteration=result_iteration,
+            paper_trading=paper_trading,
+        )
         response = AIStrategyResearchRunResponse(
             run_id=run_id,
             status=status,
@@ -411,6 +426,7 @@ class AIStrategyResearchService:
             iterations=iterations,
             best_strategy=result_iteration.strategy if result_iteration else None,
             paper_trading=paper_trading,
+            next_actions=next_actions,
             message=message,
         )
         run_record = _build_research_run_record(
@@ -984,6 +1000,7 @@ def _build_research_run_record(
         paper_workspace_id=paper.workspace.id if paper else None,
         paper_unit_id=paper.unit.id if paper else None,
         paper_trading_started=bool(paper.started) if paper else False,
+        next_actions=response.next_actions,
         started_at=started_at,
         completed_at=completed_at,
         iterations=[_compact_research_iteration(item) for item in response.iterations],
@@ -1035,7 +1052,89 @@ def _compact_research_iteration(item: AIStrategyResearchIteration) -> dict[str, 
         "failure_reason": item.failure_reason,
         "quality_gate_failures": item.quality_gate_failures,
         "improvement_notes": item.improvement_notes,
+        "next_actions": item.next_actions,
     }
+
+
+def _iteration_next_actions(
+    *,
+    iteration: int,
+    max_iterations: int,
+    passed: bool,
+    run_status: str | None,
+    quality_gate_failures: list[str],
+    failure_reason: str | None,
+) -> list[str]:
+    if passed:
+        return ["该轮已通过全部验收门槛，可作为进入模拟交易的候选版本。"]
+
+    actions: list[str] = []
+    status = str(run_status or "").strip()
+    if status and status != "completed":
+        actions.append(f"先处理本轮回测状态 {status}，确认任务日志、数据源和策略运行错误。")
+
+    failures = [str(item).strip() for item in quality_gate_failures if str(item or "").strip()]
+    for failure in failures:
+        lowered = failure.lower()
+        if "sharpe" in lowered:
+            actions.append("提高信号质量和盈亏比，优先减少低胜率或低收益质量的入场。")
+        elif "trade" in lowered or "trades" in lowered or "交易" in failure:
+            actions.append("放宽入场过滤或缩短信号窗口，先保证样本内有足够交易次数。")
+        elif "drawdown" in lowered or "回撤" in failure:
+            actions.append("收紧止损、单笔风险和仓位暴露，优先压低最大回撤。")
+        elif "return" in lowered or "收益" in failure:
+            actions.append("优化出场和持仓周期，提升总收益或年化收益。")
+        elif "win rate" in lowered or "胜率" in failure:
+            actions.append("增加趋势/波动过滤，减少低质量信号以提升胜率。")
+
+    if failure_reason and not failures:
+        actions.append(f"复核失败原因：{failure_reason}")
+
+    if iteration < max_iterations:
+        actions.append("系统将基于本轮失败原因生成下一版策略，并继续回测验证。")
+    else:
+        actions.append("已达到最大迭代次数，建议复用本次记录继续投研或人工复核策略逻辑。")
+
+    return list(dict.fromkeys(actions))
+
+
+def _run_next_actions(
+    *,
+    status: str,
+    achieved: bool,
+    request: AIStrategyResearchRunRequest,
+    result_iteration: AIStrategyResearchIteration | None,
+    paper_trading: AIStrategyPaperTradingStart | None,
+) -> list[str]:
+    if status == "timeout":
+        return [
+            "回测等待超时，先打开研究工作区查看任务是否仍在运行。",
+            "如数据量较大，可提高 backtest_timeout_seconds 后继续投研。",
+        ]
+
+    if achieved:
+        if paper_trading is not None and paper_trading.started:
+            return [
+                "策略已通过验收并进入模拟交易，下一步跟踪模拟账户成交、持仓和风控指标。",
+                "保留当前研究工作区，后续用样本外区间复核策略稳定性。",
+            ]
+        if request.start_paper_trading:
+            return [
+                "策略已通过验收，但模拟交易未成功启动，先检查交易工作区和网关配置。",
+                "修复启动问题后，可从本次最佳策略手动创建模拟交易单元。",
+            ]
+        return [
+            "策略已通过验收，可手动进入模拟交易或安排样本外验证。",
+            "进入模拟交易前确认标的、周期、手续费和网关配置。",
+        ]
+
+    actions = [
+        "目标未达成，优先查看最后一轮质量门槛失败原因和改稿说明。",
+        "可增加 max_iterations 或调整样本区间后继续自动投研。",
+    ]
+    if result_iteration is not None and result_iteration.quality_gate_failures:
+        actions.append("下一轮改稿应直接针对：" + "；".join(result_iteration.quality_gate_failures))
+    return actions
 
 
 def _build_improvement_messages(

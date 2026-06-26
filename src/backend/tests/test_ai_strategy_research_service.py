@@ -76,6 +76,7 @@ def _run_record(run_id: str, *, workspace_id: str, completed_at: str):
         "paper_workspace_id": "paper-ws",
         "paper_unit_id": "paper-unit",
         "paper_trading_started": True,
+        "next_actions": ["继续跟踪模拟交易"],
         "started_at": completed_at,
         "completed_at": completed_at,
         "iterations": [],
@@ -504,6 +505,11 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.run_record is not None
     assert result.run_record.best_strategy_id == "strategy-2"
     assert result.run_record.paper_trading_started is True
+    assert result.next_actions == [
+        "策略已通过验收并进入模拟交易，下一步跟踪模拟账户成交、持仓和风控指标。",
+        "保留当前研究工作区，后续用样本外区间复核策略稳定性。",
+    ]
+    assert result.run_record.next_actions == result.next_actions
     assert result.run_record.quality_gates == {
         "target_sharpe": 1.0,
         "min_total_trades": 1,
@@ -514,6 +520,9 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.research_workspace.settings["ai_research"]["runs"][0]["iterations"][0][
         "failure_reason"
     ] == "Only 0 trades, below minimum 1"
+    assert "系统将基于本轮失败原因生成下一版策略" in result.research_workspace.settings[
+        "ai_research"
+    ]["runs"][0]["iterations"][0]["next_actions"][-1]
 
 
 @pytest.mark.asyncio
@@ -547,6 +556,9 @@ async def test_research_loop_stops_after_max_iterations_without_paper():
     assert result.achieved is False
     assert result.status == "max_iterations_reached"
     assert result.paper_trading is None
+    assert result.next_actions[0] == "目标未达成，优先查看最后一轮质量门槛失败原因和改稿说明。"
+    assert result.run_record is not None
+    assert result.run_record.next_actions == result.next_actions
     assert workspace_service.started_units == []
 
 
@@ -616,6 +628,7 @@ async def test_research_loop_blocks_paper_when_quality_gate_fails():
         "Max drawdown 25.000 exceeds limit 10.000"
     ]
     assert result.iterations[0].failure_reason == "Max drawdown 25.000 exceeds limit 10.000"
+    assert "收紧止损、单笔风险和仓位暴露" in result.iterations[0].next_actions[0]
     assert workspace_service.started_units == []
 
 
@@ -812,6 +825,7 @@ async def test_ai_strategy_research_api_endpoint(client: AsyncClient, auth_heade
     assert payload["run_id"] == "api-run"
     assert payload["research_workspace"]["id"] == "research-api-ws"
     assert payload["iterations"][0]["sharpe_ratio"] == 1.05
+    assert payload["next_actions"] == []
 
 
 @pytest.mark.asyncio

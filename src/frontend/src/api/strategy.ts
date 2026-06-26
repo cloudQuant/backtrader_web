@@ -165,6 +165,7 @@ export interface AIStrategyResearchIteration {
   failure_reason?: string | null
   quality_gate_failures: string[]
   improvement_notes: string[]
+  next_actions: string[]
 }
 
 export interface AIStrategyPaperTradingStart {
@@ -198,6 +199,7 @@ export interface AIStrategyResearchRunRecord {
   paper_workspace_id?: string | null
   paper_unit_id?: string | null
   paper_trading_started: boolean
+  next_actions: string[]
   started_at: string
   completed_at: string
   iterations: Record<string, unknown>[]
@@ -222,6 +224,7 @@ export interface AIStrategyResearchRunResponse {
   best_strategy?: Strategy | null
   paper_trading?: AIStrategyPaperTradingStart | null
   run_record?: AIStrategyResearchRunRecord | null
+  next_actions: string[]
   message: string
 }
 

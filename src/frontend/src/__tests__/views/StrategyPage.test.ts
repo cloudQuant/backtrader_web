@@ -69,6 +69,7 @@ vi.mock('@/api/strategy', () => ({
           paper_workspace_id: null,
           paper_unit_id: null,
           paper_trading_started: false,
+          next_actions: ['继续跟踪模拟交易'],
           started_at: '2026-06-27T00:00:00Z',
           completed_at: '2026-06-27T00:01:00Z',
           iterations: [],
@@ -142,10 +143,12 @@ vi.mock('@/api/strategy', () => ({
           passed: true,
           quality_gate_failures: [],
           improvement_notes: [],
+          next_actions: ['该轮已通过全部验收门槛，可作为进入模拟交易的候选版本。'],
         },
       ],
       best_strategy: { id: 's1', name: 'AI策略', description: 'd', code: 'code', category: 'trend', params: {} },
       paper_trading: null,
+      next_actions: ['策略已通过验收，可手动进入模拟交易或安排样本外验证。'],
       run_record: {
         run_id: 'run-1',
         prompt: '生成一个趋势策略',
@@ -169,6 +172,7 @@ vi.mock('@/api/strategy', () => ({
         paper_workspace_id: null,
         paper_unit_id: null,
         paper_trading_started: false,
+        next_actions: ['策略已通过验收，可手动进入模拟交易或安排样本外验证。'],
         started_at: '2026-06-27T00:00:00Z',
         completed_at: '2026-06-27T00:01:00Z',
         iterations: [],
@@ -290,7 +294,8 @@ describe('StrategyPage', () => {
   it('runs AI research loop from form input', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const { ElMessage } = await import('element-plus')
-    const vm = doMount().vm as any
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
     vm.aiResearchForm.prompt = '生成一个趋势策略'
     vm.aiResearchForm.symbol = '000001.SZ'
     vm.aiResearchForm.use_max_drawdown_limit = true
@@ -309,6 +314,8 @@ describe('StrategyPage', () => {
     }))
     expect(vm.aiResearchResult.achieved).toBe(true)
     expect(vm.aiResearchRuns[0].run_id).toBe('run-1')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-test="ai-research-next-actions"]').text()).toContain('策略已通过验收')
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
   })
 
@@ -338,6 +345,7 @@ describe('StrategyPage', () => {
       best_metrics: {},
       research_workspace_id: 'research-ws',
       paper_trading_started: false,
+      next_actions: [],
       started_at: '2026-06-27T00:00:00Z',
       completed_at: '2026-06-27T00:01:00Z',
       iterations: [],
