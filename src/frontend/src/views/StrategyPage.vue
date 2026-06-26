@@ -363,10 +363,11 @@
 
               <div class="ai-research-links">
                 <el-button
-                  v-if="aiResearchResult.best_strategy"
+                  v-if="canViewBestStrategyFromCurrentResult"
                   size="small"
+                  :loading="aiResearchStrategyViewingRunId === aiResearchResult.run_id"
                   data-test="ai-research-view-best-strategy"
-                  @click="viewStrategy(aiResearchResult.best_strategy)"
+                  @click="viewBestStrategyFromCurrentResult"
                 >
                   <el-icon
                     class="mr-1"
@@ -405,9 +406,10 @@
                   {{ aiResearchCurrentPaperFailed ? '重试模拟' : '启动模拟' }}
                 </el-button>
                 <el-button
-                  v-if="aiResearchResult.paper_trading?.started"
+                  v-if="canOpenPaperFromCurrentResult"
                   size="small"
                   type="success"
+                  data-test="ai-research-current-open-paper"
                   @click="openPaperWorkspace"
                 >
                   <el-icon
@@ -1276,10 +1278,22 @@ const canCancelAIResearchTask = computed(() =>
   && Boolean(aiResearchTaskId.value)
   && typeof (strategyApi as { cancelAIResearchTask?: unknown }).cancelAIResearchTask === 'function'
 )
+const canViewBestStrategyFromCurrentResult = computed(() =>
+  Boolean(aiResearchResult.value?.best_strategy || aiResearchResult.value?.run_record?.best_strategy_id)
+)
 const canStartPaperFromCurrentResult = computed(() => {
   const record = aiResearchResult.value?.run_record
   return Boolean(record && canStartPaperFromRecord(record))
 })
+const canOpenPaperFromCurrentResult = computed(() =>
+  Boolean(
+    aiResearchResult.value?.paper_trading?.started
+    || (
+      aiResearchResult.value?.run_record?.paper_trading_started
+      && aiResearchResult.value?.run_record?.paper_workspace_id
+    )
+  )
+)
 const canReviewPaperFromCurrentResult = computed(() => {
   const record = aiResearchResult.value?.run_record
   return Boolean(record && canReviewPaperFromRecord(record))
@@ -1899,6 +1913,18 @@ async function startPaperFromCurrentResult() {
   const record = aiResearchResult.value?.run_record
   if (!record) return
   await startPaperFromResearchRecord(record)
+}
+
+async function viewBestStrategyFromCurrentResult() {
+  const result = aiResearchResult.value
+  if (!result) return
+  if (result.best_strategy) {
+    viewStrategy(result.best_strategy)
+    return
+  }
+  const record = result.run_record
+  if (!record) return
+  await viewStrategyFromResearchRecord(record)
 }
 
 async function viewStrategyFromResearchRecord(record: AIStrategyResearchRunRecord) {

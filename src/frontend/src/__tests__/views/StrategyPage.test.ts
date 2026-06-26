@@ -819,6 +819,14 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchResult.run_record.paper_trading_started).toBe(true)
       expect(vm.aiResearchPaperStatusText).toBe('已启动')
       expect(vm.aiResearchCurrentPaperEnvironment[0].key).toBe('initial_cash')
+      expect(vm.canOpenPaperFromCurrentResult).toBe(true)
+      expect(vm.canViewBestStrategyFromCurrentResult).toBe(true)
+      vi.mocked(strategyApi.get).mockClear()
+      await vm.viewBestStrategyFromCurrentResult()
+      await flushPromises()
+      expect(strategyApi.get).toHaveBeenCalledWith('s1')
+      expect(vm.viewDialogVisible).toBe(true)
+      expect(vm.currentStrategy.id).toBe('s1')
       expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
     } finally {
       delete (strategyApi as any).submitAIResearchTask
