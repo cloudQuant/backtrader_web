@@ -175,10 +175,15 @@ class TradingRiskGuard:
 
         # Rule 11: Position ratio check
         if account_balance > 0 and trade_value:
-            position_ratio = trade_value / account_balance
+            projected_position_value = self._projected_symbol_position_value(
+                intent,
+                current_positions,
+                trade_value,
+            )
+            position_ratio = (projected_position_value or trade_value) / account_balance
             if position_ratio > self.config.max_position_ratio:
                 warnings.append(
-                    f"本次交易占账户比例 ({position_ratio:.1%}) "
+                    f"预计品种持仓占账户比例 ({position_ratio:.1%}) "
                     f"超过建议上限 ({self.config.max_position_ratio:.1%})"
                 )
                 requires_confirmation = True
@@ -253,6 +258,41 @@ class TradingRiskGuard:
             return loss_per_unit * abs(intent.quantity or 1) * multiplier
         # Without stop loss, estimate 5% max loss
         return trade_value * 0.05
+
+    def _projected_symbol_position_value(
+        self,
+        intent: TradingIntent,
+        current_positions: list[dict[str, Any]] | None,
+        trade_value: float,
+    ) -> float | None:
+        """Estimate same-symbol exposure after the order."""
+        if (
+            intent.action not in (TradeAction.BUY, TradeAction.SELL)
+            or not intent.symbol
+            or intent.quantity is None
+        ):
+            return trade_value
+
+        current_size = 0.0
+        for pos in current_positions or []:
+            symbol = str(pos.get("symbol") or pos.get("data_name") or "").strip()
+            if not self._symbols_match(symbol, intent.symbol):
+                continue
+            current_size += self._coerce_float(pos.get("size"), 0.0)
+
+        order_size = abs(intent.quantity)
+        if intent.action == TradeAction.SELL:
+            order_size = -order_size
+        projected_size = current_size + order_size
+
+        multiplier = self._contract_multiplier(intent)
+        if self._is_inverse_contract(intent):
+            return abs(projected_size) * multiplier
+
+        reference_price = self._reference_price(intent)
+        if not reference_price or reference_price <= 0:
+            return trade_value
+        return abs(projected_size) * reference_price * multiplier
 
     def _determine_risk_level(
         self,

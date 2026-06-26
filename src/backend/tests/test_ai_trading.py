@@ -178,6 +178,64 @@ class TestTradingRiskGuard:
         assert any("单笔交易金额" in reason for reason in result.blocked_reasons)
         assert result.max_loss_estimate == pytest.approx(75_000.0)
 
+    def test_position_ratio_uses_projected_same_symbol_exposure(self):
+        guard = TradingRiskGuard(
+            TradingRiskConfig(
+                max_single_trade_amount=100000,
+                max_position_ratio=0.3,
+                require_confirmation_above=100000,
+                min_confidence_threshold=0.3,
+            )
+        )
+        intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="BTCUSDT",
+            quantity=0.1,
+            price=100000,
+            order_type=OrderType.LIMIT,
+            confidence=0.8,
+            risk_level=RiskLevel.LOW,
+        )
+
+        result = guard.assess(
+            intent,
+            account_balance=100000,
+            current_positions=[{"symbol": "BTCUSDT", "size": 0.25}],
+        )
+
+        assert result.approved is True
+        assert result.requires_confirmation is True
+        assert any("预计品种持仓占账户比例 (35.0%)" in item for item in result.warnings)
+
+    def test_position_ratio_uses_projected_exposure_after_reducing_trade(self):
+        guard = TradingRiskGuard(
+            TradingRiskConfig(
+                max_single_trade_amount=100000,
+                max_position_ratio=0.3,
+                require_confirmation_above=100000,
+                min_confidence_threshold=0.3,
+            )
+        )
+        intent = TradingIntent(
+            action=TradeAction.SELL,
+            symbol="BTCUSDT",
+            quantity=0.1,
+            price=100000,
+            order_type=OrderType.LIMIT,
+            confidence=0.8,
+            risk_level=RiskLevel.LOW,
+        )
+
+        result = guard.assess(
+            intent,
+            account_balance=100000,
+            current_positions=[{"symbol": "BTC/USDT", "size": 0.35}],
+        )
+
+        assert result.approved is True
+        assert result.requires_confirmation is False
+        assert not any("预计品种持仓占账户比例" in item for item in result.warnings)
+
     def test_no_stop_loss_warning(self):
         intent = TradingIntent(
             action=TradeAction.BUY,
