@@ -441,6 +441,24 @@
                     {{ rule.label }} {{ formatMetric(rule.actual) }} / {{ formatMetric(rule.threshold) }}
                   </span>
                 </div>
+                <el-button
+                  v-if="canContinueResearchFromCurrentPaperReview"
+                  size="small"
+                  type="warning"
+                  plain
+                  :loading="aiResearchRunning && aiResearchForm.continue_from_run_id === aiResearchResult.run_id"
+                  class="ai-research-current-paper-review-action"
+                  data-test="ai-research-current-continue-paper-review"
+                  @click="continueResearchFromCurrentPaperReview"
+                >
+                  <el-icon
+                    class="mr-1"
+                    aria-hidden="true"
+                  >
+                    <MagicStick />
+                  </el-icon>
+                  继续改进
+                </el-button>
               </div>
 
               <div
@@ -1141,6 +1159,10 @@ const canReviewPaperFromCurrentResult = computed(() => {
   const record = aiResearchResult.value?.run_record
   return Boolean(record && canReviewPaperFromRecord(record))
 })
+const canContinueResearchFromCurrentPaperReview = computed(() => {
+  const record = aiResearchResult.value?.run_record
+  return Boolean(record && canContinueResearchFromPaperReview(record))
+})
 const aiResearchCurrentPaperReview = computed(() => {
   const result = aiResearchResult.value
   const record = result?.run_record
@@ -1549,6 +1571,12 @@ async function reviewPaperFromCurrentResult() {
   const record = aiResearchResult.value?.run_record
   if (!record) return
   await reviewPaperFromResearchRecord(record)
+}
+
+async function continueResearchFromCurrentPaperReview() {
+  const record = aiResearchResult.value?.run_record
+  if (!record) return
+  await continueResearchFromPaperReview(record)
 }
 
 async function continueResearchFromPaperReview(record: AIStrategyResearchRunRecord) {
@@ -2174,6 +2202,10 @@ onMounted(async () => {
 
 .ai-research-current-paper-review {
   margin-bottom: 16px;
+}
+
+.ai-research-current-paper-review-action {
+  margin-top: 8px;
 }
 
 .ai-research-paper-review-head,

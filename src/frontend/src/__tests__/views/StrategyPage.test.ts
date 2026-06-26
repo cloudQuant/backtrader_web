@@ -628,6 +628,75 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('continues research from current result when paper review fails', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    vi.mocked(strategyApi.reviewAIResearchPaperTrading).mockResolvedValueOnce({
+      run_id: 'run-1',
+      research_workspace_id: 'research-ws',
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      monitoring_plan: [],
+      evaluations: [
+        {
+          key: 'rolling_sharpe',
+          label: '模拟交易滚动 Sharpe',
+          metric: 'rolling_sharpe',
+          window: '30 trading days',
+          direction: 'min',
+          threshold: 0.6,
+          actual: 0.2,
+          source: 'unit_status.metrics_snapshot',
+          status: 'failed',
+          passed: false,
+          action: '回到研究工作区降低过拟合并收紧风险预算',
+        },
+      ],
+      ready_for_live: false,
+      status: 'needs_research_review',
+      reviewed_at: '2026-06-27T00:02:00Z',
+      pipeline: {
+        current_stage: 'paper_review',
+        status: 'needs_review',
+        progress: 80,
+        ready_for_live: false,
+        steps: [],
+      },
+      next_actions: ['回到研究工作区降低过拟合并收紧风险预算'],
+    })
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.prompt = '生成一个趋势策略'
+    vm.aiResearchForm.symbol = '000001.SZ'
+    await vm.runAIResearchLoop()
+    const startPaperButton = wrapper.findAll('button').find(button => button.text().includes('启动模拟'))
+    expect(startPaperButton).toBeTruthy()
+    await startPaperButton!.trigger('click')
+    await flushPromises()
+    const reviewButton = wrapper.findAll('button').find(button => button.text().includes('复核模拟'))
+    expect(reviewButton).toBeTruthy()
+    await reviewButton!.trigger('click')
+    await flushPromises()
+
+    expect(vm.aiResearchResult.run_record.paper_review_status).toBe('needs_research_review')
+    expect(wrapper.find('[data-test="ai-research-current-paper-review"]').text()).toContain(
+      'needs_research_review'
+    )
+    const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续改进'))
+    expect(continueButton).toBeTruthy()
+    await continueButton!.trigger('click')
+    await flushPromises()
+
+    expect(vm.aiResearchForm.continuation_source).toBe('paper_review')
+    expect(strategyApi.runAIResearchLoop).toHaveBeenLastCalledWith(expect.objectContaining({
+      prompt: '生成一个趋势策略',
+      symbol: '000001.SZ',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: 's1',
+      continue_from_run_id: 'run-1',
+    }))
+  })
+
   it('restores an active AI research task on mount', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
