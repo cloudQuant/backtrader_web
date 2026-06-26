@@ -236,6 +236,41 @@ class TestTradingRiskGuard:
         assert result.requires_confirmation is False
         assert not any("预计品种持仓占账户比例" in item for item in result.warnings)
 
+    def test_position_ratio_uses_gross_exposure_for_hedged_same_symbol(self):
+        guard = TradingRiskGuard(
+            TradingRiskConfig(
+                max_single_trade_amount=100000,
+                max_position_ratio=0.49,
+                require_confirmation_above=100000,
+                min_confidence_threshold=0.3,
+            )
+        )
+        current_positions = [
+            {"symbol": "BTCUSDT", "size": 0.25},
+            {"symbol": "BTC/USDT", "size": -0.20},
+        ]
+
+        for action in (TradeAction.BUY, TradeAction.SELL):
+            intent = TradingIntent(
+                action=action,
+                symbol="BTCUSDT",
+                quantity=0.05,
+                price=100000,
+                order_type=OrderType.LIMIT,
+                confidence=0.8,
+                risk_level=RiskLevel.LOW,
+            )
+
+            result = guard.assess(
+                intent,
+                account_balance=100000,
+                current_positions=current_positions,
+            )
+
+            assert result.approved is True
+            assert result.requires_confirmation is True
+            assert any("预计品种持仓占账户比例 (50.0%)" in item for item in result.warnings)
+
     def test_no_stop_loss_warning(self):
         intent = TradingIntent(
             action=TradeAction.BUY,

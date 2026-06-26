@@ -273,26 +273,50 @@ class TradingRiskGuard:
         ):
             return trade_value
 
-        current_size = 0.0
+        current_long_size = 0.0
+        current_short_size = 0.0
         for pos in current_positions or []:
             symbol = str(pos.get("symbol") or pos.get("data_name") or "").strip()
             if not self._symbols_match(symbol, intent.symbol):
                 continue
-            current_size += self._coerce_float(pos.get("size"), 0.0)
+            size = self._coerce_float(pos.get("size"), 0.0)
+            if size > 0:
+                current_long_size += size
+            elif size < 0:
+                current_short_size += abs(size)
 
         order_size = abs(intent.quantity)
         if intent.action == TradeAction.SELL:
-            order_size = -order_size
-        projected_size = current_size + order_size
+            if current_long_size > 1e-12 and current_short_size > 1e-12:
+                projected_long_size = current_long_size
+                projected_short_size = current_short_size + order_size
+            elif current_long_size > 1e-12:
+                projected_long_size = max(current_long_size - order_size, 0.0)
+                projected_short_size = max(order_size - current_long_size, 0.0)
+            else:
+                projected_long_size = 0.0
+                projected_short_size = current_short_size + order_size
+        else:
+            if current_long_size > 1e-12 and current_short_size > 1e-12:
+                projected_long_size = current_long_size + order_size
+                projected_short_size = current_short_size
+            elif current_short_size > 1e-12:
+                projected_short_size = max(current_short_size - order_size, 0.0)
+                projected_long_size = max(order_size - current_short_size, 0.0)
+            else:
+                projected_long_size = current_long_size + order_size
+                projected_short_size = 0.0
+
+        projected_gross_size = projected_long_size + projected_short_size
 
         multiplier = self._contract_multiplier(intent)
         if self._is_inverse_contract(intent):
-            return abs(projected_size) * multiplier
+            return projected_gross_size * multiplier
 
         reference_price = self._reference_price(intent)
         if not reference_price or reference_price <= 0:
             return trade_value
-        return abs(projected_size) * reference_price * multiplier
+        return projected_gross_size * reference_price * multiplier
 
     def _determine_risk_level(
         self,
