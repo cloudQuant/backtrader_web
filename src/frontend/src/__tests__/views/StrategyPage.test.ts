@@ -532,7 +532,21 @@ describe('StrategyPage', () => {
     expect(iterationScriptButton).toBeTruthy()
     await iterationScriptButton!.trigger('click')
     expect(vm.currentStrategy.name).toBe('AI策略')
+    const currentStartPaperButton = wrapper.findAll('button').find(
+      button => button.text().includes('启动模拟')
+    )
+    expect(currentStartPaperButton).toBeTruthy()
+    await currentStartPaperButton!.trigger('click')
+    await flushPromises()
+    expect(strategyApi.startAIResearchPaperTrading).toHaveBeenCalledWith('run-1', {
+      research_workspace_id: 'research-ws',
+    })
+    expect(vm.aiResearchResult.paper_trading.started).toBe(true)
+    expect(vm.aiResearchResult.run_record.paper_trading_started).toBe(true)
+    expect(vm.aiResearchRuns[0].run_id).toBe('run-1')
+    expect(vm.aiResearchRuns[0].paper_trading_started).toBe(true)
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
+    expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已启动')
   })
 
   it('runs AI research through async task polling when task API is available', async () => {

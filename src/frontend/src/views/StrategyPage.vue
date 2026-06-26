@@ -369,7 +369,23 @@
                   {{ t('strategy.aiResearchOpenResearch') }}
                 </el-button>
                 <el-button
-                  v-if="aiResearchResult.paper_trading"
+                  v-if="canStartPaperFromCurrentResult"
+                  size="small"
+                  type="success"
+                  :loading="aiResearchPaperStartingRunId === aiResearchResult.run_id"
+                  data-test="ai-research-current-start-paper"
+                  @click="startPaperFromCurrentResult"
+                >
+                  <el-icon
+                    class="mr-1"
+                    aria-hidden="true"
+                  >
+                    <VideoPlay />
+                  </el-icon>
+                  启动模拟
+                </el-button>
+                <el-button
+                  v-if="aiResearchResult.paper_trading?.started"
                   size="small"
                   type="success"
                   @click="openPaperWorkspace"
@@ -926,6 +942,7 @@ import type { ParamSpec, Strategy, StrategyTemplate } from '@/types'
 import type {
   AIStrategyOutOfSampleValidation,
   AIStrategyPaperMonitoringRule,
+  AIStrategyPaperTradingStart,
   AIStrategyPaperTradingReview,
   AIStrategyQualityGateEvaluation,
   AIStrategyResearchRunRequest,
@@ -1056,6 +1073,10 @@ const canCancelAIResearchTask = computed(() =>
   && Boolean(aiResearchTaskId.value)
   && typeof (strategyApi as { cancelAIResearchTask?: unknown }).cancelAIResearchTask === 'function'
 )
+const canStartPaperFromCurrentResult = computed(() => {
+  const record = aiResearchResult.value?.run_record
+  return Boolean(record && canStartPaperFromRecord(record))
+})
 const aiResearchBestGateEvaluations = computed(
   () => aiResearchResult.value?.best_quality_gate_evaluations ?? []
 )
@@ -1303,8 +1324,8 @@ function canContinueResearchFromPaperReview(record: AIStrategyResearchRunRecord)
 function pipelineStage(record: AIStrategyResearchRunRecord) {
   if (record.paper_review_ready_for_live) return 'live_candidate'
   if (record.paper_review_status) return 'paper_review'
-  if (record.pipeline?.current_stage) return record.pipeline.current_stage
   if (record.paper_trading_started) return 'paper_trading'
+  if (record.pipeline?.current_stage) return record.pipeline.current_stage
   if (record.achieved) return 'quality_achieved'
   if (record.status === 'timeout') return 'backtest_timeout'
   return record.iteration_count > 0 ? 'research_iteration' : ''
@@ -1317,31 +1338,58 @@ function clearAIResearchContinuation() {
   aiResearchForm.continuation_source = ''
 }
 
+function paperStartedRunRecord(
+  record: AIStrategyResearchRunRecord,
+  paper: AIStrategyPaperTradingStart
+): AIStrategyResearchRunRecord {
+  return {
+    ...record,
+    paper_trading_started: paper.started,
+    paper_workspace_id: paper.workspace.id,
+    paper_unit_id: paper.unit.id,
+    paper_handoff: paper.handoff ?? {},
+    paper_monitoring_plan:
+      paperMonitoringPlanFromHandoff(paper.handoff) ?? record.paper_monitoring_plan,
+  }
+}
+
+function applyPaperStartToCurrentResult(
+  runId: string,
+  paper: AIStrategyPaperTradingStart,
+  runRecord: AIStrategyResearchRunRecord
+) {
+  const current = aiResearchResult.value
+  if (!current || current.run_id !== runId) return
+  aiResearchResult.value = {
+    ...current,
+    paper_trading: paper,
+    paper_monitoring_plan:
+      paperMonitoringPlanFromHandoff(paper.handoff) ?? current.paper_monitoring_plan,
+    run_record: runRecord,
+  }
+}
+
 async function startPaperFromResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchPaperStartingRunId.value = record.run_id
   try {
     const paper = await strategyApi.startAIResearchPaperTrading(record.run_id, {
       research_workspace_id: record.research_workspace_id,
     })
-    aiResearchRuns.value = aiResearchRuns.value.map(item =>
-      item.run_id === record.run_id
-        ? {
-            ...item,
-            paper_trading_started: paper.started,
-            paper_workspace_id: paper.workspace.id,
-            paper_unit_id: paper.unit.id,
-            paper_handoff: paper.handoff ?? {},
-            paper_monitoring_plan:
-              paperMonitoringPlanFromHandoff(paper.handoff) ?? item.paper_monitoring_plan,
-          }
-        : item
-    )
+    const updatedRecord = paperStartedRunRecord(record, paper)
+    upsertAIResearchRunRecord(updatedRecord)
+    applyPaperStartToCurrentResult(record.run_id, paper, updatedRecord)
     ElMessage.success('模拟交易已启动')
   } catch {
     ElMessage.error(t('strategy.aiResearchRunFailed'))
   } finally {
     aiResearchPaperStartingRunId.value = ''
   }
+}
+
+async function startPaperFromCurrentResult() {
+  const record = aiResearchResult.value?.run_record
+  if (!record) return
+  await startPaperFromResearchRecord(record)
 }
 
 function paperMonitoringPlanFromHandoff(
