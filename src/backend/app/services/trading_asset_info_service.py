@@ -1058,6 +1058,31 @@ def _trade_commission(row: dict[str, Any], asset_spec: dict[str, Any] | None = N
     return commission * conversion_rate
 
 
+def _asset_spec_has_nonzero_fee(asset_spec: dict[str, Any] | None) -> bool:
+    if not isinstance(asset_spec, dict):
+        return False
+    for key in (
+        "commission_rate",
+        "open_commission_rate",
+        "close_commission_rate",
+        "close_today_commission_rate",
+        "close_yesterday_commission_rate",
+        "maker_commission_rate",
+        "maker_fee_rate",
+        "taker_commission_rate",
+        "taker_fee_rate",
+        "commission_amount",
+        "open_commission_amount",
+        "close_commission_amount",
+        "close_today_commission_amount",
+        "close_yesterday_commission_amount",
+    ):
+        number = _safe_float(asset_spec.get(key))
+        if number is not None and abs(number) > 1e-12:
+            return True
+    return False
+
+
 def _currency_code(value: Any) -> str:
     return re.sub(r"[^0-9A-Za-z]", "", str(value or "")).upper()
 
@@ -1593,6 +1618,13 @@ def normalize_gateway_position(
     if current_price_number is not None:
         current_price = current_price_number
 
+    explicit_net_pnl_key, explicit_net_pnl_value = _first_value_with_key(
+        row,
+        "pnlcomm",
+        "net_pnl",
+        "netPnl",
+        "netPNL",
+    )
     commission_key, commission_value = _first_value_with_key(row, *COMMISSION_FIELD_KEYS)
     has_commission = commission_value not in (None, "")
     has_swap = any(key in row and row.get(key) not in (None, "") for key in ("swap", "storage"))
@@ -1612,6 +1644,12 @@ def normalize_gateway_position(
             commission_unconfirmed_reason = "commission_currency_mismatch"
         else:
             commission = raw_commission * conversion_rate
+            if (
+                abs(commission) <= 1e-12
+                and explicit_net_pnl_value in (None, "")
+                and _asset_spec_has_nonzero_fee(asset_spec)
+            ):
+                has_commission = False
     if not has_commission:
         actual_commission, trade_unconfirmed_reason = _open_trade_commission_for_position(
             symbol=symbol,
@@ -1628,13 +1666,6 @@ def normalize_gateway_position(
         elif trade_unconfirmed_reason:
             commission_unconfirmed_reason = trade_unconfirmed_reason
     swap = _safe_float(_first_value(row, "swap", "storage"), 0.0) or 0.0
-    explicit_net_pnl_key, explicit_net_pnl_value = _first_value_with_key(
-        row,
-        "pnlcomm",
-        "net_pnl",
-        "netPnl",
-        "netPNL",
-    )
     gross_pnl_key, gross_pnl_value = _first_value_with_key(
         row,
         "gross_pnl",

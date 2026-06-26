@@ -3581,6 +3581,65 @@ async def test_portfolio_positions_estimate_mt5_fee_when_position_commission_mis
 
 
 @pytest.mark.asyncio
+async def test_portfolio_positions_estimate_fee_when_gateway_commission_is_zero():
+    """Gateway position commission=0 should not hide configured exchange fees."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "instrument": "XAUUSD",
+                    "direction": "buy",
+                    "volume": 0.02,
+                    "price": 2330.0,
+                    "current_price": 2331.0,
+                    "profit": 2.0,
+                    "swap": -0.1,
+                    "commission": 0.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "XAUUSD" in symbols
+            return {
+                "XAUUSD": {
+                    "source": "mt5_gateway",
+                    "contract_size": 100,
+                    "margin_initial": 1950.0,
+                    "commission_rate": 0.001,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "XAUUSD",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["commission"] == pytest.approx(4.66)
+    assert row["position_pnl"] == pytest.approx(-2.76)
+    assert row["valuation_status"] == "estimated"
+    assert any("按资产费率估算" in item for item in row["valuation_warnings"])
+    assert result["summary"]["total_pnl"] == pytest.approx(-2.76)
+
+
+@pytest.mark.asyncio
 async def test_portfolio_positions_use_mt5_margin_initial_per_lot():
     """MT5 margin_initial is fixed per lot, not a full-notional margin rate."""
     from app.api.portfolio_api import get_portfolio_positions

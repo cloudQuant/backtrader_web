@@ -1682,21 +1682,30 @@ def _row_commission(
 ) -> float:
     explicit_key, explicit = _first_number_with_key(row, COMMISSION_FIELD_KEYS)
     if explicit is not None:
+        explicit_commission: float | None = None
         if _truthy(row.get("commission_signed")):
-            return explicit
-        conversion_rate = _fee_conversion_rate(
+            explicit_commission = explicit
+        else:
+            conversion_rate = _fee_conversion_rate(
+                row,
+                spec,
+                entry_price=entry_price,
+                current_price=current_price,
+                inverse_contract=inverse_contract,
+            )
+            if conversion_rate is not None:
+                if explicit_key in OKX_SIGNED_FEE_FIELD_KEYS and _uses_okx_fee_sign(row):
+                    explicit_commission = -explicit * conversion_rate
+                else:
+                    explicit_commission = abs(explicit) * conversion_rate
+        if explicit_commission is not None and not _zero_commission_needs_estimate(
             row,
             spec,
-            entry_price=entry_price,
-            current_price=current_price,
-            inverse_contract=inverse_contract,
-        )
-        if conversion_rate is not None:
-            if explicit_key in OKX_SIGNED_FEE_FIELD_KEYS and _uses_okx_fee_sign(row):
-                return -explicit * conversion_rate
-            return abs(explicit) * conversion_rate
-        # Incompatible fee currency, e.g. BNB against a USDT valuation view.
-        # Fall back to a local estimate instead of subtracting the raw token amount.
+            explicit_commission,
+        ):
+            return explicit_commission
+        # Incompatible fee currency, or an unconfirmed zero fee on an open
+        # position. Fall back to a local asset-spec estimate.
     effective_multiplier = max(multiplier or spec.multiplier, EPSILON)
     if inverse_contract:
         effective_entry_price = float(entry_price or 0.0)
@@ -1787,6 +1796,102 @@ def _row_margin_value(
     if spec.margin_amount > 0:
         return abs(size) * spec.margin_amount
     return market_value * margin_rate
+
+
+def _spec_has_nonzero_commission(spec: PositionSpec) -> bool:
+    for value in (
+        spec.commission_rate,
+        spec.commission_amount,
+        spec.open_commission_rate,
+        spec.close_commission_rate,
+        spec.close_today_commission_rate,
+        spec.close_yesterday_commission_rate,
+        spec.maker_commission_rate,
+        spec.taker_commission_rate,
+        spec.open_commission_amount,
+        spec.close_commission_amount,
+        spec.close_today_commission_amount,
+        spec.close_yesterday_commission_amount,
+    ):
+        if value is not None and abs(float(value or 0.0)) > EPSILON:
+            return True
+    return False
+
+
+def _zero_commission_needs_estimate(
+    row: dict[str, Any],
+    spec: PositionSpec,
+    explicit_commission: float,
+) -> bool:
+    if abs(explicit_commission) > EPSILON:
+        return False
+    if str(row.get("commission_source") or "").strip().lower() == "gateway.trades":
+        return False
+    if _has_explicit_net_pnl(row):
+        return False
+    if not _spec_has_nonzero_commission(spec):
+        return False
+    return _has_any_gross_pnl(row) or _has_any_price(row)
+
+
+def _has_explicit_net_pnl(row: dict[str, Any]) -> bool:
+    return any(row.get(key) not in (None, "") for key in ("pnlcomm", "net_pnl", "netPnl", "netPNL"))
+
+
+def _has_any_gross_pnl(row: dict[str, Any]) -> bool:
+    return any(
+        row.get(key) not in (None, "")
+        for key in (
+            "gross_pnl",
+            "position_unrealized_pnl",
+            "position_unrealised_pnl",
+            "unrealized_profit",
+            "unrealised_profit",
+            "unRealizedProfit",
+            "UnrealizedPnL",
+            "unrealizedPnl",
+            "unrealisedPnl",
+            "unrealized_pnl",
+            "unrealised_pnl",
+            "unrealizedPNL",
+            "unrealisedPNL",
+            "unrealizedpnl",
+            "unrealisedpnl",
+            "floating_pnl",
+            "upl",
+            "up",
+            "position_profit",
+            "PositionProfit",
+            "position_pnl",
+            "profit",
+            "pnl",
+        )
+    )
+
+
+def _has_any_price(row: dict[str, Any]) -> bool:
+    return any(
+        row.get(key) not in (None, "")
+        for key in (
+            "price",
+            "avg_price",
+            "average_price",
+            "price_open",
+            "avgCost",
+            "avgPrice",
+            "avgPx",
+            "entryPrice",
+            "current_price",
+            "latest_price",
+            "last_price",
+            "mark_price",
+            "markPrice",
+            "markPx",
+            "market_price",
+            "lastPrice",
+            "LastPrice",
+        )
+    )
 
 
 def _row_explicit_market_value(row: dict[str, Any]) -> float | None:

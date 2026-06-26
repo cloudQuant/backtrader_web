@@ -2381,6 +2381,81 @@ def test_normalize_gateway_position_keeps_fee_estimation_when_only_swap_is_prese
     assert valued.pnl == pytest.approx(-2.76)
 
 
+def test_normalize_gateway_position_estimates_fee_when_position_commission_is_zero():
+    """A position-row commission=0 is often a placeholder, not the real open fee."""
+    spec = normalize_asset_spec(
+        {
+            "symbol": "XAUUSD",
+            "contract_size": 100,
+            "commission_rate": 0.001,
+        },
+        source="mt5_gateway",
+    )
+    row = normalize_gateway_position(
+        {
+            "instrument": "XAUUSD",
+            "direction": "buy",
+            "volume": 0.02,
+            "price": 2330.0,
+            "current_price": 2331.0,
+            "profit": 2.0,
+            "swap": -0.1,
+            "commission": 0.0,
+        },
+        asset_spec=spec,
+    )
+
+    assert "commission" not in row
+    assert "position_pnl" not in row
+    assert row["gross_pnl"] == pytest.approx(2.0)
+
+    valued = value_position(
+        row,
+        spec=contract_spec_for("XAUUSD", {"contract_metadata": {"XAUUSD": spec}}),
+    )
+
+    assert valued is not None
+    assert valued.commission == pytest.approx(4.66)
+    assert valued.pnl == pytest.approx(-2.76)
+
+
+def test_normalize_gateway_position_zero_commission_does_not_block_trade_fees():
+    spec = normalize_asset_spec(
+        {
+            "symbol": "BTCUSDT",
+            "contract_size": 1,
+            "commission_rate": 0.0004,
+        },
+        source="binance_gateway",
+    )
+    row = normalize_gateway_position(
+        {
+            "symbol": "BTCUSDT",
+            "positionSide": "LONG",
+            "positionAmt": "0.1",
+            "entryPrice": "60000",
+            "markPrice": "60200",
+            "unRealizedProfit": "20",
+            "commission": "0",
+        },
+        asset_spec=spec,
+        recent_trades=[
+            {
+                "symbol": "BTCUSDT",
+                "side": "BUY",
+                "qty": "0.1",
+                "price": "60000",
+                "commission": "0.5",
+                "commissionAsset": "USDT",
+            }
+        ],
+    )
+
+    assert row["commission"] == pytest.approx(0.5)
+    assert row["commission_source"] == "gateway.trades"
+    assert row["position_pnl"] == pytest.approx(19.5)
+
+
 def test_position_valuation_treats_profit_alias_as_gross_pnl():
     valued = value_position(
         {
