@@ -360,6 +360,7 @@ class AIStrategyResearchService:
         pending_improvement_notes: list[str] = initial_draft_notes
         continuation_failures = _continuation_quality_gate_failures(request.continuation_context)
         validation_window = _out_of_sample_window(request)
+        run_failures: list[str] = []
         if continuation_failures:
             improvement = await self.improver.improve(
                 draft,
@@ -412,13 +413,63 @@ class AIStrategyResearchService:
                 end_date=validation_window.train_end if validation_window else None,
                 group_name_suffix=" 训练样本" if validation_window else "",
             )
-            backtest_response = await self.strategy_service.backtest_copilot_draft(
-                user_id,
-                research_workspace.id,
-                backtest_request,
-            )
-            if backtest_response is None:
-                raise ValueError("Research workspace or generated strategy was not found")
+            try:
+                backtest_response = await self.strategy_service.backtest_copilot_draft(
+                    user_id,
+                    research_workspace.id,
+                    backtest_request,
+                )
+                if backtest_response is None:
+                    raise ValueError("Research workspace or generated strategy was not found")
+            except Exception as exc:
+                failure_reason = f"Backtest submission failed before iteration {iteration}: {exc}"
+                run_failures.append(failure_reason)
+                await _emit_research_progress(
+                    progress_callback,
+                    {
+                        "current_stage": "backtest_submission_failed",
+                        "progress": _research_loop_progress(iteration - 1, request.max_iterations),
+                        "current_iteration": iteration,
+                        "iteration_count": len(iterations),
+                        "max_iterations": request.max_iterations,
+                        "current_backtest_task_id": None,
+                        "message": failure_reason,
+                    },
+                )
+                if iteration < request.max_iterations:
+                    await _emit_research_progress(
+                        progress_callback,
+                        {
+                            "current_stage": "improving",
+                            "progress": min(
+                                _research_loop_progress(iteration, request.max_iterations) + 2.0,
+                                82.0,
+                            ),
+                            "current_iteration": iteration + 1,
+                            "iteration_count": len(iterations),
+                            "max_iterations": request.max_iterations,
+                            "message": f"Improving strategy for iteration {iteration + 1}",
+                        },
+                    )
+                    improvement = await self.improver.improve(
+                        draft,
+                        iteration=iteration,
+                        metrics={
+                            "backtest_submission_failed": True,
+                            "backtest_submission_failure_count": len(run_failures),
+                        },
+                        target_sharpe=request.target_sharpe,
+                        quality_gate_failures=[failure_reason],
+                        user_id=user_id,
+                        request=request,
+                    )
+                    draft = _normalize_research_draft(improvement.draft, request)
+                    pending_improvement_notes = [
+                        f"第 {iteration} 轮回测提交失败，已基于失败原因生成下一版策略：{failure_reason}",
+                        *improvement.notes,
+                    ]
+                    continue
+                break
             await _emit_research_progress(
                 progress_callback,
                 {
@@ -752,7 +803,10 @@ class AIStrategyResearchService:
         status = "achieved" if achieved else "max_iterations_reached"
         if iterations and iterations[-1].unit_status and iterations[-1].unit_status.run_status == "timeout":
             status = "timeout"
+        if not iterations and run_failures and not achieved:
+            status = "backtest_submission_failed"
         best_metrics = dict(result_iteration.metrics) if result_iteration else {}
+        run_failure_diagnostics = _run_failure_diagnostics(run_failures)
         paper_monitoring_plan = (
             _paper_monitoring_plan(request, result_iteration)
             if achieved and result_iteration is not None
@@ -771,6 +825,7 @@ class AIStrategyResearchService:
             result_iteration=result_iteration,
             paper_trading=paper_trading,
             paper_trading_error=paper_trading_error,
+            run_failures=run_failures,
         )
         pipeline = _pipeline_summary(
             status=status,
@@ -794,7 +849,9 @@ class AIStrategyResearchService:
             best_quality_gate_evaluations=result_iteration.quality_gate_evaluations
             if result_iteration
             else [],
-            best_diagnostics=result_iteration.diagnostics if result_iteration else {},
+            best_diagnostics=result_iteration.diagnostics
+            if result_iteration
+            else run_failure_diagnostics,
             best_metrics=best_metrics,
             research_workspace=research_workspace,
             iterations=iterations,
@@ -2395,7 +2452,13 @@ def _pipeline_summary(
     paper_review_ready_for_live: bool,
 ) -> dict[str, Any]:
     draft_status = "completed"
-    backtest_status = "completed" if iteration_count > 0 else "pending"
+    backtest_status = (
+        "failed"
+        if status == "backtest_submission_failed"
+        else "completed"
+        if iteration_count > 0
+        else "pending"
+    )
     gate_status = "completed" if achieved else "failed" if iteration_count >= max_iterations else "running"
     paper_status = "completed" if paper_trading_started else "failed" if paper_trading_error else "pending"
     review_status = (
@@ -2471,6 +2534,8 @@ def _pipeline_current_stage(
         return "quality_achieved"
     if status == "timeout":
         return "backtest_timeout"
+    if status == "backtest_submission_failed":
+        return "backtest_failed"
     return "research_iteration"
 
 
@@ -3090,7 +3155,9 @@ def _build_research_run_record(
         best_quality_gate_evaluations=best_iteration.quality_gate_evaluations
         if best_iteration is not None
         else [],
-        best_diagnostics=best_iteration.diagnostics if best_iteration is not None else {},
+        best_diagnostics=best_iteration.diagnostics
+        if best_iteration is not None
+        else response.best_diagnostics,
         best_metrics=response.best_metrics,
         best_strategy_id=best_strategy.id if best_strategy else None,
         best_strategy_name=best_strategy.name if best_strategy else None,
@@ -3908,12 +3975,22 @@ def _run_next_actions(
     result_iteration: AIStrategyResearchIteration | None,
     paper_trading: AIStrategyPaperTradingStart | None,
     paper_trading_error: str | None = None,
+    run_failures: list[str] | None = None,
 ) -> list[str]:
     if status == "timeout":
         return [
             "回测等待超时，先打开研究工作区查看任务是否仍在运行。",
             "如数据量较大，可提高 backtest_timeout_seconds 后继续投研。",
         ]
+    if status == "backtest_submission_failed":
+        actions = [
+            "回测任务未能成功提交，先检查研究工作区、策略脚本保存、数据源和任务队列配置。",
+            "修复提交问题后，可从本次记录继续自动投研。",
+        ]
+        failures = [str(item).strip() for item in run_failures or [] if str(item or "").strip()]
+        if failures:
+            actions.append("最近一次提交失败：" + failures[-1])
+        return actions
 
     if achieved:
         if paper_trading is not None and paper_trading.started:
@@ -3940,7 +4017,26 @@ def _run_next_actions(
     ]
     if result_iteration is not None and result_iteration.quality_gate_failures:
         actions.append("下一轮改稿应直接针对：" + "；".join(result_iteration.quality_gate_failures))
+    failures = [str(item).strip() for item in run_failures or [] if str(item or "").strip()]
+    if failures:
+        actions.append("最近一次回测提交失败：" + failures[-1])
     return actions
+
+
+def _run_failure_diagnostics(run_failures: list[str]) -> dict[str, Any]:
+    failures = [str(item).strip() for item in run_failures if str(item or "").strip()]
+    if not failures:
+        return {}
+    return {
+        "summary": "投研循环在提交回测任务时失败，尚未产生可评估的回测结果。",
+        "failure_categories": ["backtest_submission"],
+        "weaknesses": failures,
+        "improvement_plan": [
+            "检查研究工作区是否可用，确认策略脚本保存、数据源和回测任务队列配置。",
+            "修复提交问题后，从该记录继续投研，让系统重新提交回测并进入质量门槛评估。",
+        ],
+        "promotion_ready": False,
+    }
 
 
 def _build_research_draft_prompt(request: AIStrategyResearchRunRequest) -> str:

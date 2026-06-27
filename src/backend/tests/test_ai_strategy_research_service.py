@@ -397,6 +397,24 @@ class FakeValidationSubmitFailingStrategyService(FakeStrategyService):
         return await super().backtest_copilot_draft(user_id, workspace_id, request)
 
 
+class FakeBacktestSubmitFailingStrategyService(FakeStrategyService):
+    def __init__(
+        self,
+        workspace_service: FakeWorkspaceService,
+        metrics_by_round: list[dict[str, Any]],
+        *,
+        fail_count: int,
+    ) -> None:
+        super().__init__(workspace_service, metrics_by_round)
+        self.fail_count = fail_count
+
+    async def backtest_copilot_draft(self, user_id: str, workspace_id: str, request):
+        if len(self.submitted_backtest_requests) < self.fail_count:
+            self.submitted_backtest_requests.append(request)
+            return None
+        return await super().backtest_copilot_draft(user_id, workspace_id, request)
+
+
 class InvalidThenRepairingImprover:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
@@ -818,6 +836,96 @@ async def test_research_loop_repairs_invalid_improved_strategy_before_backtest()
     )
     assert result.run_record is not None
     assert result.run_record.status == "achieved"
+
+
+@pytest.mark.asyncio
+async def test_research_loop_continues_after_backtest_submission_failure():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeBacktestSubmitFailingStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.2, "total_trades": 6, "max_drawdown": -3.0}],
+        fail_count=1,
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+    progress_events: list[dict[str, Any]] = []
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个双均线趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            start_paper_trading=False,
+            out_of_sample_validation=False,
+            max_iterations=2,
+            poll_interval_seconds=0.1,
+        ),
+        progress_callback=progress_events.append,
+    )
+
+    assert result.achieved is True
+    assert result.status == "achieved"
+    assert result.best_iteration == 2
+    assert len(result.iterations) == 1
+    assert result.iterations[0].iteration == 2
+    assert len(strategy_service.submitted_backtest_requests) == 2
+    assert any(
+        event["current_stage"] == "backtest_submission_failed" for event in progress_events
+    )
+    assert any(
+        "第 1 轮回测提交失败" in note for note in result.iterations[0].improvement_notes
+    )
+    assert result.run_record is not None
+    assert result.run_record.status == "achieved"
+
+
+@pytest.mark.asyncio
+async def test_research_loop_persists_when_all_backtest_submissions_fail():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeBacktestSubmitFailingStrategyService(
+        workspace_service,
+        [],
+        fail_count=2,
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个双均线趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            start_paper_trading=False,
+            out_of_sample_validation=False,
+            max_iterations=2,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is False
+    assert result.status == "backtest_submission_failed"
+    assert result.iterations == []
+    assert result.best_diagnostics["failure_categories"] == ["backtest_submission"]
+    assert result.pipeline["current_stage"] == "backtest_failed"
+    assert result.pipeline["steps"][1]["status"] == "failed"
+    assert "最近一次提交失败" in result.next_actions[-1]
+    assert result.run_record is not None
+    assert result.run_record.status == "backtest_submission_failed"
+    assert result.run_record.best_diagnostics["promotion_ready"] is False
+    persisted_run = result.research_workspace.settings["ai_research"]["runs"][0]
+    assert persisted_run["run_id"] == result.run_id
+    assert persisted_run["status"] == "backtest_submission_failed"
+    assert persisted_run["best_diagnostics"]["failure_categories"] == ["backtest_submission"]
 
 
 @pytest.mark.asyncio
