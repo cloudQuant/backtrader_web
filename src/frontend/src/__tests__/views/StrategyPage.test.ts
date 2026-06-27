@@ -2720,6 +2720,7 @@ describe('StrategyPage', () => {
       research_workspace_id: 'research-ws',
       seed_strategy_id: null,
       continued_from_run_id: null,
+      paper_workspace_id: 'paper-history-ws',
       paper_workspace_name: '历史模拟工作区',
       paper_trading_started: false,
       next_actions: [],
@@ -2755,6 +2756,7 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.backtest_timeout_seconds).toBe(1200)
     expect(vm.aiResearchForm.poll_interval_seconds).toBe(3)
     expect(vm.aiResearchForm.paper_workspace_name).toBe('历史模拟工作区')
+    expect(vm.aiResearchForm.trading_workspace_id).toBe('paper-history-ws')
     expect(JSON.parse(vm.aiResearchForm.gateway_config_json)).toEqual({
       name: 'paper_gateway',
       params: { exchange: 'CFFEX' },
@@ -2772,6 +2774,7 @@ describe('StrategyPage', () => {
 
   it('refills gateway config from paper handoff when iteration snapshot is missing', () => {
     const vm = doMount().vm as any
+    vm.aiResearchForm.trading_workspace_id = 'stale-paper-ws'
     vm.useAIResearchRecord({
       run_id: 'handoff-gateway-run',
       prompt: '历史期货策略',
@@ -2831,6 +2834,7 @@ describe('StrategyPage', () => {
       name: 'paper_gateway',
       params: { exchange: 'CFFEX', asset_type: 'future' },
     })
+    expect(vm.aiResearchForm.trading_workspace_id).toBe('paper-ws')
     expect(vm.aiResearchForm.seed_strategy_id).toBe('futures-strategy')
     expect(vm.aiResearchForm.continue_from_run_id).toBe('handoff-gateway-run')
   })
@@ -2838,6 +2842,7 @@ describe('StrategyPage', () => {
   it('does not refill gateway config from redacted paper handoff credentials', () => {
     const vm = doMount().vm as any
     vm.aiResearchForm.gateway_config_json = '{"name":"previous","params":{"exchange":"old"}}'
+    vm.aiResearchForm.trading_workspace_id = 'stale-paper-ws'
     vm.useAIResearchRecord({
       run_id: 'redacted-handoff-run',
       prompt: '历史期货策略',
@@ -2862,7 +2867,7 @@ describe('StrategyPage', () => {
       research_workspace_id: 'research-ws',
       seed_strategy_id: null,
       continued_from_run_id: null,
-      paper_workspace_id: 'paper-ws',
+      paper_workspace_id: null,
       paper_workspace_name: '期货模拟',
       paper_unit_id: 'paper-unit',
       paper_trading_started: true,
@@ -2899,6 +2904,7 @@ describe('StrategyPage', () => {
     } as AIStrategyResearchRunRecord)
 
     expect(vm.aiResearchForm.gateway_config_json).toBe('')
+    expect(vm.aiResearchForm.trading_workspace_id).toBe('')
     expect(vm.aiResearchForm.seed_strategy_id).toBe('futures-strategy')
     expect(vm.aiResearchForm.continue_from_run_id).toBe('redacted-handoff-run')
   })

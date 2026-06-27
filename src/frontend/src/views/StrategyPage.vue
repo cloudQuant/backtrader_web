@@ -2597,6 +2597,7 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.knowledge_base_id = record.knowledge_base_id || ''
   aiResearchForm.thinking_mode = Boolean(record.thinking_mode)
   aiResearchForm.paper_workspace_name = record.paper_workspace_name || ''
+  aiResearchForm.trading_workspace_id = record.paper_workspace_id || ''
   aiResearchForm.gateway_config_json = gatewayConfigJsonFromRunRecord(record)
   aiResearchForm.target_sharpe = record.target_sharpe
   aiResearchForm.min_total_trades = record.min_total_trades
