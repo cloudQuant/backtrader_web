@@ -3846,21 +3846,46 @@ async def test_start_paper_trading_from_achieved_run_without_iteration_snapshot(
         "asset_specs": {
             "IF2609": {
                 "symbol": "IF2609",
-                "source": "exchange_specs",
-                "multiplier": 300,
-                "margin_rate": 0.1,
-                "commission_rate": 0.000023,
+                "source": "stale_local_defaults",
+                "multiplier": 200,
+                "margin_rate": 0.2,
+                "commission_rate": 0.001,
             }
         },
         "backtest_environment": {
-            "initial_cash": 250000.0,
-            "commission": 0.000023,
-            "annual_days": 244,
-            "calc_method": "log",
-            "weight_mode": "value",
-            "multiplier": 300,
-            "margin": 0.1,
-            "asset_spec_source": "exchange_specs",
+            "initial_cash": 100000.0,
+            "commission": 0.001,
+            "annual_days": 252,
+            "calc_method": "simple",
+            "weight_mode": "equal",
+            "multiplier": 200,
+            "margin": 0.2,
+            "asset_spec_source": "stale_local_defaults",
+        },
+        "paper_handoff": {
+            "asset_specs": {
+                "IF2609": {
+                    "symbol": "IF2609",
+                    "source": "paper_handoff_exchange_specs",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                }
+            },
+            "backtest_environment": {
+                "initial_cash": 250000.0,
+                "commission": 0.000023,
+                "annual_days": 244,
+                "calc_method": "log",
+                "weight_mode": "value",
+                "multiplier": 300,
+                "margin": 0.1,
+                "asset_spec_source": "paper_handoff_exchange_specs",
+            },
+            "gateway_config": {
+                "name": "paper_gateway",
+                "params": {"exchange": "CFFEX", "asset_type": "future"},
+            },
         },
         "paper_workspace_id": None,
         "paper_workspace_name": "AI模拟-紧凑历史",
@@ -3894,13 +3919,20 @@ async def test_start_paper_trading_from_achieved_run_without_iteration_snapshot(
     assert created_unit.strategy_id == strategy.id
     assert created_unit.data_config["symbol"] == "IF2609"
     assert created_unit.data_config["contract_metadata"]["IF2609"]["multiplier"] == 300
+    assert created_unit.data_config["contract_metadata"]["IF2609"]["source"] == (
+        "paper_handoff_exchange_specs"
+    )
     assert created_unit.unit_settings["commission"] == pytest.approx(0.000023)
     assert created_unit.unit_settings["annual_days"] == 244
     assert created_unit.unit_settings["calc_method"] == "log"
+    assert created_unit.gateway_config["params"]["exchange"] == "CFFEX"
     assert result.handoff["research_unit_id"] == "compact-achieved-run-unit"
     assert result.handoff["best_metrics"]["sharpe_ratio"] == pytest.approx(1.21)
     assert result.handoff["best_metrics"]["total_pnl"] == pytest.approx(3200.0)
-    assert result.handoff["asset_specs"]["IF2609"]["source"] == "exchange_specs"
+    assert result.handoff["asset_specs"]["IF2609"]["source"] == (
+        "paper_handoff_exchange_specs"
+    )
+    assert result.handoff["gateway_config"]["params"]["exchange"] == "CFFEX"
     updated_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
     assert updated_run["paper_trading_started"] is True
     assert updated_run["paper_unit_id"] == "paper-unit"
