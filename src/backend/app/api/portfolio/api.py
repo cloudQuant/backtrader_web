@@ -1030,8 +1030,6 @@ def _position_row_should_recalculate_local_pnl(
 ) -> bool:
     if str(position_source or "").strip().lower() == "gateway":
         return False
-    if _has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS):
-        return False
     if not (
         getattr(spec, "has_multiplier", False)
         or getattr(spec, "has_commission", False)
@@ -1071,7 +1069,7 @@ def _position_row_should_recalculate_local_pnl(
         "value",
     ):
         return False
-    return _has_any(row, *_GROSS_PNL_FIELD_KEYS, "pnl")
+    return _has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS, *_GROSS_PNL_FIELD_KEYS, "pnl")
 
 
 def _position_row_for_valuation(
@@ -1087,7 +1085,7 @@ def _position_row_for_valuation(
         position_source=position_source,
     ):
         return item
-    for key in (*_GROSS_PNL_FIELD_KEYS, "pnl"):
+    for key in (*_EXPLICIT_NET_PNL_FIELD_KEYS, *_GROSS_PNL_FIELD_KEYS, "pnl"):
         item.pop(key, None)
     item["recalculated_position_pnl"] = True
     return item

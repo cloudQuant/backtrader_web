@@ -874,6 +874,60 @@ async def test_portfolio_positions_use_runtime_config_asset_specs_when_gateway_s
 
 
 @pytest.mark.asyncio
+async def test_portfolio_positions_recalculate_stale_local_net_pnl_with_asset_specs(tmp_path):
+    """Local position snapshots with stale net PnL must be revalued with asset metadata."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "current_position.json").write_text(
+        json.dumps(
+            [
+                {
+                    "data_name": "IF2609",
+                    "size": 1,
+                    "price": 5000.0,
+                    "current_price": 5001.0,
+                    "gross_pnl": 1.0,
+                    "position_pnl": 1.0,
+                    "pnlcomm": 1.0,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    instance = {
+        **_INSTANCE_A,
+        "log_dir": str(log_dir),
+        "params": {
+            "trading_mode": "paper",
+            "symbol": "IF2609",
+            "contract_metadata": {
+                "IF2609": {
+                    "source": "runtime_config",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                }
+            },
+        },
+    }
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=_MockManager([instance]))
+
+    row = result["positions"][0]
+    assert row["market_value"] == 1_500_300.0
+    assert row["margin_value"] == 150_030.0
+    assert row["gross_pnl"] == 300.0
+    assert row["commission"] == 34.5
+    assert row["position_pnl"] == 265.5
+    assert row["asset_spec_source"] == "runtime_config"
+    assert row["valuation_status"] == "estimated"
+    assert any("重新计算" in item for item in row["valuation_warnings"])
+    assert result["summary"]["total_pnl"] == 265.5
+
+
+@pytest.mark.asyncio
 async def test_portfolio_positions_warn_when_bound_gateway_position_query_fails():
     """A bound gateway query failure must not be reported as confirmed flat."""
     from app.api.portfolio_api import get_portfolio_positions

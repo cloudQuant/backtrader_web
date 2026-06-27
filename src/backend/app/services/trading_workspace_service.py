@@ -978,8 +978,6 @@ class TradingWorkspaceService:
     ) -> bool:
         if str(position_source or "").strip().lower() == "gateway":
             return False
-        if cls._has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS):
-            return False
         if not (
             getattr(spec, "has_multiplier", False)
             or getattr(spec, "has_commission", False)
@@ -1011,7 +1009,7 @@ class TradingWorkspaceService:
             "value",
         ):
             return False
-        return cls._has_any(row, *_GROSS_PNL_FIELD_KEYS, "pnl")
+        return cls._has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS, *_GROSS_PNL_FIELD_KEYS, "pnl")
 
     @classmethod
     def _position_row_for_valuation(
@@ -1028,7 +1026,7 @@ class TradingWorkspaceService:
             position_source=position_source,
         ):
             return item
-        for key in (*_GROSS_PNL_FIELD_KEYS, "pnl"):
+        for key in (*_EXPLICIT_NET_PNL_FIELD_KEYS, *_GROSS_PNL_FIELD_KEYS, "pnl"):
             item.pop(key, None)
         item["recalculated_position_pnl"] = True
         return item
