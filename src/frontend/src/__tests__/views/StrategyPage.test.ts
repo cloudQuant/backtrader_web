@@ -3619,6 +3619,100 @@ describe('StrategyPage', () => {
     expect(vm.canReviewPaperFromRecord(updatedRecord)).toBe(true)
   })
 
+  it('syncs current result when refreshed run record starts paper trading', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    await flushPromises()
+    const baseRecord: AIStrategyResearchRunRecord = {
+      ...baseResult.run_record!,
+      run_id: 'refresh-current-run',
+      paper_workspace_id: null,
+      paper_workspace_name: null,
+      paper_unit_id: null,
+      paper_trading_started: false,
+      paper_handoff: {},
+      paper_monitoring_plan: [],
+      pipeline: {
+        current_stage: 'quality_achieved',
+        status: 'achieved',
+        progress: 60,
+        ready_for_live: false,
+        steps: [],
+      },
+      next_actions: ['策略已通过验收，可进入模拟交易。'],
+    }
+    vm.aiResearchResult = {
+      ...baseResult,
+      run_id: 'refresh-current-run',
+      paper_trading: null,
+      pipeline: baseRecord.pipeline,
+      next_actions: baseRecord.next_actions,
+      run_record: baseRecord,
+    }
+
+    const refreshedRecord: AIStrategyResearchRunRecord = {
+      ...baseRecord,
+      paper_workspace_id: 'paper-ws-refresh',
+      paper_workspace_name: '刷新模拟工作区',
+      paper_unit_id: 'paper-unit-refresh',
+      paper_trading_started: true,
+      paper_monitoring_plan: [
+        {
+          key: 'rolling_sharpe',
+          label: '模拟交易滚动 Sharpe',
+          metric: 'rolling_sharpe',
+          window: '30 trading days',
+          direction: 'min',
+          threshold: 0.6,
+          action: '低于阈值时暂停放大资金',
+        },
+      ],
+      paper_handoff: {
+        run_id: 'refresh-current-run',
+        paper_workspace_id: 'paper-ws-refresh',
+        paper_workspace_name: '刷新模拟工作区',
+        paper_unit_id: 'paper-unit-refresh',
+        paper_task_id: 'paper-task-refresh',
+        paper_run_status: 'running',
+        backtest_environment: {
+          initial_cash: 100000,
+          commission: 0.0005,
+          asset_spec_source: 'refresh_gateway',
+        },
+      },
+      pipeline: {
+        current_stage: 'paper_review',
+        status: 'achieved',
+        progress: 80,
+        ready_for_live: false,
+        steps: [
+          { key: 'paper_trading', label: '模拟交易', status: 'completed' },
+          { key: 'paper_review', label: '模拟复核', status: 'pending' },
+        ],
+      },
+      next_actions: ['继续收集模拟交易数据'],
+    }
+
+    vm.applyResearchRunRecordToCurrentResult(refreshedRecord)
+    await wrapper.vm.$nextTick()
+
+    expect(vm.aiResearchResult.paper_trading.started).toBe(true)
+    expect(vm.aiResearchResult.paper_trading.workspace.id).toBe('paper-ws-refresh')
+    expect(vm.aiResearchResult.paper_trading.workspace.name).toBe('刷新模拟工作区')
+    expect(vm.aiResearchResult.paper_trading.unit.id).toBe('paper-unit-refresh')
+    expect(vm.aiResearchResult.paper_trading.run_result.task_id).toBe('paper-task-refresh')
+    expect(vm.aiResearchResult.paper_trading.handoff.backtest_environment.commission).toBe(0.0005)
+    expect(vm.aiResearchResult.run_record.paper_trading_started).toBe(true)
+    expect(vm.aiResearchResult.pipeline.current_stage).toBe('paper_review')
+    expect(vm.aiResearchResult.next_actions[0]).toBe('继续收集模拟交易数据')
+    expect(vm.aiResearchResult.best_strategy.id).toBe('s1')
+    expect(vm.canOpenPaperFromCurrentResult).toBe(true)
+    expect(vm.canReviewPaperFromCurrentResult).toBe(true)
+    expect(vm.canStartPaperFromCurrentResult).toBe(false)
+  })
+
   it('refreshes run record when starting paper trading from history fails', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const { ElMessage } = await import('element-plus')

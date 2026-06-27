@@ -3066,12 +3066,21 @@ function applyPaperStartToCurrentResult(
 function applyResearchRunRecordToCurrentResult(runRecord: AIStrategyResearchRunRecord) {
   const current = aiResearchResult.value
   if (!current || current.run_id !== runRecord.run_id) return
+  hydrateLiveHandoffFromRunRecord(runRecord)
+  const restored = researchResultFromRunRecord(runRecord)
+  const keepLocalFailedPaper = Boolean(
+    !restored.paper_trading
+    && isPaperTradingStartFailure(runRecord)
+    && current.paper_trading?.started === false
+  )
   aiResearchResult.value = {
     ...current,
-    run_record: runRecord,
-    pipeline: runRecord.pipeline ?? current.pipeline,
-    next_actions: runRecord.next_actions ?? current.next_actions,
-    paper_monitoring_plan: runRecord.paper_monitoring_plan ?? current.paper_monitoring_plan,
+    ...restored,
+    research_workspace: current.research_workspace ?? restored.research_workspace,
+    iterations: restored.iterations.length ? restored.iterations : current.iterations,
+    best_strategy: current.best_strategy ?? restored.best_strategy,
+    paper_trading: restored.paper_trading ?? (keepLocalFailedPaper ? current.paper_trading : null),
+    message: current.message,
   }
 }
 
