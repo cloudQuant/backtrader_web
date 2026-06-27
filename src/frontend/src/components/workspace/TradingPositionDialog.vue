@@ -100,8 +100,12 @@ defineEmits<{
   'update:modelValue': [value: boolean]
 }>()
 
+const POSITION_EPSILON = 1e-12
+
 const positions = computed(() => (
-  (props.unit?.trading_snapshot?.positions ?? []).filter(position => Number(position.size || 0) !== 0)
+  (props.unit?.trading_snapshot?.positions ?? []).filter(position => (
+    Math.abs(Number(position.size || 0)) > POSITION_EPSILON
+  ))
 ))
 
 function formatNumber(value: number | null | undefined, digits = 2) {
@@ -125,7 +129,7 @@ function formatSignedAmount(value: number | null | undefined) {
 }
 
 function positionPnl(row: Record<string, unknown>) {
-  for (const key of ['pnlcomm', 'pnl', 'position_pnl', 'gross_pnl']) {
+  for (const key of ['pnlcomm', 'position_pnl', 'net_pnl', 'pnl', 'gross_pnl']) {
     const value = row[key]
     if (value == null || value === '') continue
     const number = Number(value)

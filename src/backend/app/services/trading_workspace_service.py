@@ -910,6 +910,65 @@ class TradingWorkspaceService:
         return True
 
     @classmethod
+    def _unit_asset_spec_symbols(
+        cls,
+        unit: StrategyUnit,
+        instance: dict[str, Any] | None,
+    ) -> list[str]:
+        candidates: list[str] = []
+        _append_symbol_candidate(candidates, getattr(unit, "symbol", None))
+        for config in (
+            _safe_dict(getattr(unit, "params", None)),
+            _safe_dict(getattr(unit, "data_config", None)),
+            _safe_dict(getattr(unit, "unit_settings", None)),
+            _safe_dict(getattr(unit, "gateway_config", None)),
+            _safe_dict((instance or {}).get("params")),
+        ):
+            _append_config_symbols(candidates, config)
+
+        symbols: list[str] = []
+        seen: set[str] = set()
+        for symbol in candidates:
+            text = str(symbol or "").strip()
+            key = text.upper()
+            if not text or key in seen:
+                continue
+            symbols.append(text)
+            seen.add(key)
+        return symbols
+
+    @classmethod
+    def _refresh_unit_asset_specs_from_manager(
+        cls,
+        manager: Any,
+        unit: StrategyUnit,
+        instance: dict[str, Any] | None,
+    ) -> bool:
+        instance_id = str((instance or {}).get("id") or unit.trading_instance_id or "").strip()
+        if not instance_id:
+            return False
+        query_specs = getattr(manager, "query_instance_asset_specs", None)
+        if not callable(query_specs):
+            return False
+        symbols = cls._unit_asset_spec_symbols(unit, instance)
+        if not symbols:
+            return False
+        try:
+            raw_specs = query_specs(instance_id, symbols)
+        except Exception:
+            return False
+        if not isinstance(raw_specs, dict):
+            return False
+        asset_specs = {
+            str(key): dict(value)
+            for key, value in raw_specs.items()
+            if isinstance(value, dict) and value
+        }
+        if not asset_specs:
+            return False
+        return cls._sync_unit_contract_metadata_from_specs(unit, asset_specs)
+
+    @classmethod
     def _position_row_should_recalculate_local_pnl(
         cls,
         row: dict[str, Any],
@@ -1563,6 +1622,7 @@ class TradingWorkspaceService:
                         already_running = True
 
                 self._sync_unit_contract_metadata_from_instance(unit, started)
+                self._refresh_unit_asset_specs_from_manager(manager, unit, started)
                 unit.run_status = "running"
                 if not already_running:
                     unit.run_count = int(unit.run_count or 0) + 1

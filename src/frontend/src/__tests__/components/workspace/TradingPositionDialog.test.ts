@@ -100,7 +100,8 @@ describe('TradingPositionDialog', () => {
     const vm = mountDialog().vm as any
 
     expect(vm.positionPnl({ pnlcomm: 1.2, pnl: 2.3, position_pnl: 3.4 })).toBe(1.2)
-    expect(vm.positionPnl({ pnl: 2.3, position_pnl: 3.4 })).toBe(2.3)
+    expect(vm.positionPnl({ pnl: 2.3, position_pnl: 3.4 })).toBe(3.4)
+    expect(vm.positionPnl({ pnl: 2.3, net_pnl: 3.5 })).toBe(3.5)
     expect(vm.positionPnl({ position_pnl: 3.4 })).toBe(3.4)
     expect(vm.positionPnl({ gross_pnl: 4.5 })).toBe(4.5)
   })

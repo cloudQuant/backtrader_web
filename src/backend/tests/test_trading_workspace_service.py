@@ -4012,6 +4012,113 @@ async def test_start_units_syncs_runtime_contract_metadata_to_unit(tmp_path, mon
 
 
 @pytest.mark.asyncio
+async def test_start_units_queries_asset_specs_after_start(tmp_path, monkeypatch):
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir(parents=True)
+    unit = SimpleNamespace(
+        id="unit-asset-query",
+        workspace_id="ws-1",
+        group_name="压测",
+        strategy_id="simulate/gateway_dual_ma",
+        strategy_name="CTP压测02",
+        symbol="IF2609",
+        symbol_name="沪深300",
+        timeframe="1m",
+        timeframe_n=1,
+        category="future",
+        data_config={},
+        unit_settings={},
+        params={},
+        optimization_config={},
+        gateway_config={
+            "params": {
+                "gateway": {
+                    "enabled": True,
+                    "provider": "ctp_gateway",
+                    "exchange_type": "CTP",
+                    "asset_type": "FUTURE",
+                    "account_id": "SIM001",
+                }
+            }
+        },
+        trading_mode="live",
+        lock_running=False,
+        lock_trading=False,
+        trading_instance_id=None,
+        run_status="idle",
+        run_count=0,
+        trading_snapshot={},
+        metrics_snapshot={},
+        bar_count=None,
+        last_run_time=None,
+    )
+
+    monkeypatch.setattr(
+        workspace_unit_runtime,
+        "sync_trading_unit_runtime",
+        lambda *_args, **_kwargs: runtime_dir,
+    )
+
+    class FakeManager:
+        def __init__(self):
+            self.instances = {}
+            self.queried_symbols: list[str] = []
+
+        def add_instance(self, strategy_id, params, user_id=None, runtime_dir=None):
+            instance = {
+                "id": "inst-asset-query",
+                "strategy_id": strategy_id,
+                "status": "stopped",
+                "params": dict(params or {}),
+                "runtime_dir": runtime_dir,
+                "log_dir": None,
+            }
+            self.instances["inst-asset-query"] = instance
+            return instance
+
+        def get_instance(self, instance_id, user_id=None):
+            return self.instances.get(instance_id)
+
+        async def start_instance(self, instance_id):
+            instance = self.instances[instance_id]
+            instance["status"] = "running"
+            return instance
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-asset-query"
+            self.queried_symbols = list(symbols)
+            return {
+                "IF2609": {
+                    "symbol": "IF2609",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                    "source": "gateway.query_instrument",
+                }
+            }
+
+        def remove_instance(self, *_args, **_kwargs):
+            raise AssertionError("remove_instance should not be called")
+
+    manager = FakeManager()
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "get_live_trading_manager",
+        lambda: manager,
+    )
+
+    results = await TradingWorkspaceService().start_units([unit], user_id="user-1")
+
+    assert results[0]["status"] == "running"
+    assert "IF2609" in manager.queried_symbols
+    metadata = unit.params["contract_metadata"]["IF2609"]
+    assert metadata["multiplier"] == 300
+    assert metadata["margin_rate"] == 0.1
+    assert metadata["commission_rate"] == 0.000023
+    assert metadata["source"] == "gateway.query_instrument"
+
+
+@pytest.mark.asyncio
 async def test_hydrate_units_marks_changed_when_asset_metadata_is_refreshed(monkeypatch):
     unit = SimpleNamespace(
         id="unit-asset-refresh",
