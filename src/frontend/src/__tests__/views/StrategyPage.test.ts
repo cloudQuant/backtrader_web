@@ -578,6 +578,8 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.backtest_timeout_seconds = 900
     vm.aiResearchForm.poll_interval_seconds = 2.5
     vm.aiResearchForm.paper_workspace_name = 'AI模拟-趋势'
+    vm.aiResearchForm.trading_workspace_id = 'paper-ws-existing'
+    vm.aiResearchForm.gateway_config_json = '{"name":"paper_gateway","params":{"exchange":"sim"}}'
     await vm.runAIResearchLoop()
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
       prompt: '生成一个趋势策略',
@@ -596,6 +598,11 @@ describe('StrategyPage', () => {
       backtest_timeout_seconds: 900,
       poll_interval_seconds: 2.5,
       paper_workspace_name: 'AI模拟-趋势',
+      trading_workspace_id: 'paper-ws-existing',
+      gateway_config: {
+        name: 'paper_gateway',
+        params: { exchange: 'sim' },
+      },
     }))
     const researchCalls = vi.mocked(strategyApi.runAIResearchLoop).mock.calls
     expect(researchCalls[researchCalls.length - 1]?.[0]).not.toHaveProperty('commission')
@@ -638,6 +645,11 @@ describe('StrategyPage', () => {
     expect(strategyApi.startAIResearchPaperTrading).toHaveBeenCalledWith('run-1', {
       research_workspace_id: 'research-ws',
       paper_workspace_name: 'AI模拟-趋势',
+      trading_workspace_id: 'paper-ws-existing',
+      gateway_config: {
+        name: 'paper_gateway',
+        params: { exchange: 'sim' },
+      },
     })
     expect(vm.aiResearchResult.paper_trading.started).toBe(true)
     expect(vm.aiResearchResult.run_record.paper_trading_started).toBe(true)
@@ -2259,12 +2271,19 @@ describe('StrategyPage', () => {
     expect(strategyApi.get).toHaveBeenCalledWith('s1')
     expect(vm.viewDialogVisible).toBe(true)
     expect(vm.currentStrategy.code).toContain('HistoryStrategy')
+    vm.aiResearchForm.trading_workspace_id = 'paper-ws-existing'
+    vm.aiResearchForm.gateway_config_json = '{"name":"paper_gateway","params":{"exchange":"history"}}'
     await vm.startPaperFromResearchRecord(record)
     await flushPromises()
 
     expect(strategyApi.startAIResearchPaperTrading).toHaveBeenCalledWith('history-run', {
       research_workspace_id: 'research-ws',
+      trading_workspace_id: 'paper-ws-existing',
       paper_workspace_name: '历史模拟工作区',
+      gateway_config: {
+        name: 'paper_gateway',
+        params: { exchange: 'history' },
+      },
     })
     expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith('research-ws', 20)
     expect(vm.aiResearchRuns[0].paper_trading_started).toBe(true)

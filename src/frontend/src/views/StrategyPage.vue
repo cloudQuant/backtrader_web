@@ -223,6 +223,23 @@
                     data-test="ai-research-paper-workspace-name"
                   />
                 </el-form-item>
+                <el-form-item label="模拟工作区 ID">
+                  <el-input
+                    v-model="aiResearchForm.trading_workspace_id"
+                    clearable
+                    placeholder="可选，复用已有模拟工作区"
+                    data-test="ai-research-trading-workspace-id"
+                  />
+                </el-form-item>
+                <el-form-item label="模拟网关配置 JSON">
+                  <el-input
+                    v-model="aiResearchForm.gateway_config_json"
+                    type="textarea"
+                    :rows="3"
+                    placeholder='{"name":"paper_gateway","params":{}}'
+                    data-test="ai-research-gateway-config"
+                  />
+                </el-form-item>
                 <el-form-item :label="t('strategy.aiResearchStartDate')">
                   <el-input
                     v-model="aiResearchForm.start_date"
@@ -1463,6 +1480,8 @@ const aiResearchForm = reactive({
   continuation_source: '',
   start_paper_trading: true,
   paper_workspace_name: '',
+  trading_workspace_id: '',
+  gateway_config_json: '',
 })
 
 // ---- Computed ----
@@ -2972,6 +2991,7 @@ async function continueResearchFromRecord(record: AIStrategyResearchRunRecord) {
 
 function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResearchRunRequest {
   const paperWorkspaceName = aiResearchPaperWorkspaceName()
+  const gatewayConfig = parseAIResearchGatewayConfig()
   const request: AIStrategyResearchRunRequest = {
     prompt,
     symbol,
@@ -3018,6 +3038,7 @@ function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResea
     seed_strategy_id: aiResearchForm.seed_strategy_id || null,
     continue_from_run_id: aiResearchForm.continue_from_run_id || null,
     start_paper_trading: aiResearchForm.start_paper_trading,
+    trading_workspace_id: aiResearchForm.trading_workspace_id.trim() || null,
     paper_workspace_name: aiResearchForm.start_paper_trading
       ? paperWorkspaceName
       : null,
@@ -3029,6 +3050,9 @@ function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResea
   if (aiResearchForm.use_manual_commission) {
     request.commission = aiResearchForm.commission
   }
+  if (gatewayConfig) {
+    request.gateway_config = gatewayConfig
+  }
   return request
 }
 
@@ -3036,18 +3060,43 @@ function aiResearchPaperWorkspaceName() {
   return aiResearchForm.paper_workspace_name.trim() || null
 }
 
+function parseAIResearchGatewayConfig() {
+  const raw = aiResearchForm.gateway_config_json.trim()
+  if (!raw) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error('模拟网关配置必须是合法 JSON')
+  }
+  if (!isRecord(parsed) || Array.isArray(parsed)) {
+    throw new Error('模拟网关配置必须是 JSON 对象')
+  }
+  return parsed
+}
+
 function aiResearchPaperStartRequest(record: AIStrategyResearchRunRecord) {
+  const gatewayConfig = parseAIResearchGatewayConfig()
   const request = {
     research_workspace_id: record.research_workspace_id,
   } as {
     research_workspace_id: string
+    trading_workspace_id?: string
     paper_workspace_name?: string
+    gateway_config?: Record<string, unknown>
+  }
+  const tradingWorkspaceId = aiResearchForm.trading_workspace_id.trim()
+  if (tradingWorkspaceId) {
+    request.trading_workspace_id = tradingWorkspaceId
   }
   const paperWorkspaceName = aiResearchPaperWorkspaceName()
     || record.paper_workspace_name?.trim()
     || null
   if (paperWorkspaceName) {
     request.paper_workspace_name = paperWorkspaceName
+  }
+  if (gatewayConfig) {
+    request.gateway_config = gatewayConfig
   }
   return request
 }
