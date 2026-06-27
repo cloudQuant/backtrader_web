@@ -10,8 +10,6 @@ from app.services.trading_asset_info_service import (
     LONG_POSITION_FIELD_KEYS,
     POSITION_SIZE_FIELD_KEYS,
     SHORT_POSITION_FIELD_KEYS,
-    TODAY_POSITION_FIELD_KEYS,
-    YESTERDAY_POSITION_FIELD_KEYS,
     symbol_aliases,
 )
 
@@ -1349,97 +1347,6 @@ def _estimate_commission_for_role(
     )
 
 
-def _has_explicit_exit_commission(spec: PositionSpec) -> bool:
-    return any(
-        value is not None
-        for value in (
-            spec.close_commission_rate,
-            spec.close_today_commission_rate,
-            spec.close_yesterday_commission_rate,
-            spec.taker_commission_rate,
-            spec.close_commission_amount,
-            spec.close_today_commission_amount,
-            spec.close_yesterday_commission_amount,
-        )
-    )
-
-
-def _row_today_size(row: dict[str, Any], size: float) -> float | None:
-    value = _first_number(*(row.get(key) for key in TODAY_POSITION_FIELD_KEYS))
-    if value is None:
-        return None
-    return min(abs(value), abs(size))
-
-
-def _row_yesterday_size(row: dict[str, Any], size: float) -> float | None:
-    value = _first_number(*(row.get(key) for key in YESTERDAY_POSITION_FIELD_KEYS))
-    if value is None:
-        return None
-    return min(abs(value), abs(size))
-
-
-def _estimated_exit_commission(
-    row: dict[str, Any],
-    spec: PositionSpec,
-    *,
-    size: float,
-    current_price: float,
-    multiplier: float,
-    inverse_contract: bool = False,
-) -> float:
-    abs_size = abs(size)
-    if abs_size <= EPSILON:
-        return 0.0
-
-    today_size = _row_today_size(row, size)
-    yesterday_size = _row_yesterday_size(row, size)
-    if today_size is None and yesterday_size is None:
-        return _estimate_commission_for_role(
-            size=abs_size,
-            price=current_price,
-            multiplier=multiplier,
-            spec=spec,
-            role="close",
-            inverse_contract=inverse_contract,
-        )
-
-    used_size = 0.0
-    commission = 0.0
-    if today_size is not None and today_size > EPSILON:
-        close_today_size = min(today_size, abs_size)
-        commission += _estimate_commission_for_role(
-            size=close_today_size,
-            price=current_price,
-            multiplier=multiplier,
-            spec=spec,
-            role="close_today",
-            inverse_contract=inverse_contract,
-        )
-        used_size += close_today_size
-    if yesterday_size is not None and yesterday_size > EPSILON:
-        close_yesterday_size = min(yesterday_size, max(abs_size - used_size, 0.0))
-        commission += _estimate_commission_for_role(
-            size=close_yesterday_size,
-            price=current_price,
-            multiplier=multiplier,
-            spec=spec,
-            role="close_yesterday",
-            inverse_contract=inverse_contract,
-        )
-        used_size += close_yesterday_size
-    remaining = max(abs_size - used_size, 0.0)
-    if remaining > EPSILON:
-        commission += _estimate_commission_for_role(
-            size=remaining,
-            price=current_price,
-            multiplier=multiplier,
-            spec=spec,
-            role="close",
-            inverse_contract=inverse_contract,
-        )
-    return commission
-
-
 def _compact_symbol(value: Any) -> str:
     return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
 
@@ -1777,31 +1684,17 @@ def _row_commission(
     effective_multiplier = max(multiplier or spec.multiplier, EPSILON)
     if inverse_contract:
         effective_entry_price = float(entry_price or 0.0)
-        effective_current_price = float(current_price or effective_entry_price or 0.0)
     else:
         fee_base = entry_market_value if entry_market_value and entry_market_value > 0 else market_value
         effective_entry_price = (
             fee_base / (abs(size) * effective_multiplier) if abs(size) > EPSILON else 0.0
         )
-        effective_current_price = (
-            market_value / (abs(size) * effective_multiplier) if abs(size) > EPSILON else 0.0
-        )
-    entry_commission = _estimate_commission_for_role(
+    return _estimate_commission_for_role(
         size=size,
         price=effective_entry_price,
         multiplier=effective_multiplier,
         spec=spec,
         role="open",
-        inverse_contract=inverse_contract,
-    )
-    if not _has_explicit_exit_commission(spec):
-        return entry_commission
-    return entry_commission + _estimated_exit_commission(
-        row,
-        spec,
-        size=size,
-        current_price=effective_current_price,
-        multiplier=effective_multiplier,
         inverse_contract=inverse_contract,
     )
 

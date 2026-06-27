@@ -927,7 +927,7 @@ def test_position_valuation_uses_normalized_local_futures_metadata():
     assert valued.pnl == pytest.approx(265.5)
 
 
-def test_position_valuation_includes_close_today_fee_when_position_is_today():
+def test_position_valuation_excludes_future_close_today_fee_from_open_pnl():
     spec = normalize_asset_spec(
         {
             "InstrumentID": "IF2609",
@@ -956,8 +956,8 @@ def test_position_valuation_includes_close_today_fee_when_position_is_today():
     assert valued is not None
     assert contract_spec.close_today_commission_rate == pytest.approx(0.000345)
     assert valued.gross_pnl == pytest.approx(300.0)
-    assert valued.commission == pytest.approx(552.1035)
-    assert valued.pnl == pytest.approx(-252.1035)
+    assert valued.commission == pytest.approx(34.5)
+    assert valued.pnl == pytest.approx(265.5)
 
 
 def test_position_valuation_keeps_ctp_decimal_commission_rate():
@@ -1014,8 +1014,8 @@ def test_position_valuation_uses_taker_rate_when_only_maker_taker_available():
     assert valued is not None
     assert valued.multiplier == pytest.approx(0.01)
     assert valued.gross_pnl == pytest.approx(2.0)
-    assert valued.commission == pytest.approx(1.0809)
-    assert valued.pnl == pytest.approx(0.9191)
+    assert valued.commission == pytest.approx(0.54)
+    assert valued.pnl == pytest.approx(1.46)
 
 
 def test_position_valuation_uses_fee_cost_dict_as_real_commission():
@@ -1722,8 +1722,8 @@ def test_inverse_okx_contract_uses_contract_value_for_quote_valuation():
     assert row["multiplier"] == pytest.approx(100.0)
     assert valued.market_value == pytest.approx(10_000.0)
     assert valued.gross_pnl == pytest.approx(1_000.0)
-    assert valued.commission == pytest.approx(10.0)
-    assert valued.pnl == pytest.approx(990.0)
+    assert valued.commission == pytest.approx(5.0)
+    assert valued.pnl == pytest.approx(995.0)
 
 
 def test_inverse_raw_metadata_prefers_ctval_over_multiplier_aliases():
@@ -1770,8 +1770,8 @@ def test_inverse_raw_metadata_prefers_ctval_over_multiplier_aliases():
     assert valued.multiplier == pytest.approx(100.0)
     assert valued.market_value == pytest.approx(10_000.0)
     assert valued.gross_pnl == pytest.approx(1_000.0)
-    assert valued.commission == pytest.approx(10.0)
-    assert valued.pnl == pytest.approx(990.0)
+    assert valued.commission == pytest.approx(5.0)
+    assert valued.pnl == pytest.approx(995.0)
 
 
 def test_explicit_inverse_flag_drives_contract_valuation_without_cttype():
@@ -1814,8 +1814,8 @@ def test_explicit_inverse_flag_drives_contract_valuation_without_cttype():
     assert valued.market_value == pytest.approx(200.0)
     assert valued.margin_value == pytest.approx(20.0)
     assert valued.gross_pnl == pytest.approx(20.0)
-    assert valued.commission == pytest.approx(0.2)
-    assert valued.pnl == pytest.approx(19.8)
+    assert valued.commission == pytest.approx(0.1)
+    assert valued.pnl == pytest.approx(19.9)
 
 
 def test_normalize_gateway_position_does_not_double_subtract_explicit_net_pnl():
@@ -2500,8 +2500,8 @@ def test_inverse_contract_gateway_upl_settlement_currency_converts_to_quote_valu
     assert valued is not None
     assert valued.market_value == pytest.approx(200.0)
     assert valued.gross_pnl == pytest.approx(20.0)
-    assert valued.commission == pytest.approx(0.2)
-    assert valued.pnl == pytest.approx(19.8)
+    assert valued.commission == pytest.approx(0.1)
+    assert valued.pnl == pytest.approx(19.9)
 
 
 def test_okx_position_notional_usd_alias_is_explicit_market_value():

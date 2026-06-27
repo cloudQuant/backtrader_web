@@ -2600,8 +2600,8 @@ async def test_portfolio_positions_estimate_fee_when_gateway_returns_gross_pnl_w
 
 
 @pytest.mark.asyncio
-async def test_portfolio_positions_split_today_history_aliases_for_exit_fee():
-    """Gateway today/history aliases must drive close-today/close-yesterday fees."""
+async def test_portfolio_positions_exclude_future_exit_fee_from_open_pnl():
+    """Gateway exit fee metadata must not be pre-deducted from open position PnL."""
     from app.api.portfolio_api import get_portfolio_positions
 
     class GatewayManager(_MockManager):
@@ -2653,9 +2653,9 @@ async def test_portfolio_positions_split_today_history_aliases_for_exit_fee():
 
     row = result["positions"][0]
     assert row["gross_pnl"] == 600.0
-    assert row["commission"] == pytest.approx(631.6125)
-    assert row["position_pnl"] == pytest.approx(-31.61)
-    assert result["summary"]["total_pnl"] == pytest.approx(-31.61)
+    assert row["commission"] == pytest.approx(69.0)
+    assert row["position_pnl"] == pytest.approx(531.0)
+    assert result["summary"]["total_pnl"] == pytest.approx(531.0)
 
 
 @pytest.mark.asyncio
@@ -3787,10 +3787,10 @@ async def test_portfolio_positions_use_explicit_inverse_flag_without_cttype():
     assert row["market_value"] == pytest.approx(200.0)
     assert row["margin_value"] == pytest.approx(20.0)
     assert row["gross_pnl"] == pytest.approx(20.0)
-    assert row["commission"] == pytest.approx(0.2)
-    assert row["position_pnl"] == pytest.approx(19.8)
+    assert row["commission"] == pytest.approx(0.1)
+    assert row["position_pnl"] == pytest.approx(19.9)
     assert result["summary"]["gross_market_value"] == pytest.approx(200.0)
-    assert result["summary"]["total_pnl"] == pytest.approx(19.8)
+    assert result["summary"]["total_pnl"] == pytest.approx(19.9)
 
 
 @pytest.mark.asyncio
@@ -3854,9 +3854,9 @@ async def test_portfolio_positions_convert_inverse_exchange_upl_to_quote_value()
     row = result["positions"][0]
     assert row["market_value"] == pytest.approx(200.0)
     assert row["gross_pnl"] == pytest.approx(20.0)
-    assert row["commission"] == pytest.approx(0.2)
-    assert row["position_pnl"] == pytest.approx(19.8)
-    assert result["summary"]["total_pnl"] == pytest.approx(19.8)
+    assert row["commission"] == pytest.approx(0.1)
+    assert row["position_pnl"] == pytest.approx(19.9)
+    assert result["summary"]["total_pnl"] == pytest.approx(19.9)
 
 
 @pytest.mark.asyncio
