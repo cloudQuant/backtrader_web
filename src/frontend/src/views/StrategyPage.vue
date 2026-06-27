@@ -2725,6 +2725,12 @@ function gatewayConfigJsonFromRunRecord(record: AIStrategyResearchRunRecord) {
   return isRecord(gatewayConfig) ? JSON.stringify(gatewayConfig) : ''
 }
 
+function gatewayConfigJsonFromTaskSnapshot(snapshot: Record<string, unknown>) {
+  const gatewayConfig = snapshot.gateway_config
+  if (!isRecord(gatewayConfig) || containsRedactedSecret(gatewayConfig)) return ''
+  return JSON.stringify(gatewayConfig)
+}
+
 function liveGatewayConfigJsonFromRunRecord(record: AIStrategyResearchRunRecord) {
   const handoffPayload = record.live_handoff?.handoff
   const gatewayConfig = isRecord(handoffPayload?.gateway_config)
@@ -4798,6 +4804,9 @@ function applyAIResearchTaskSnapshotToForm(task: AIStrategyResearchTaskResponse)
   aiResearchForm.continue_from_run_id = stringFromUnknown(snapshot.continue_from_run_id)
   aiResearchForm.start_paper_trading = optionalBoolean(snapshot.start_paper_trading, true)
   aiResearchForm.paper_workspace_name = stringFromUnknown(snapshot.paper_workspace_name)
+  if (snapshot.gateway_config !== undefined) {
+    aiResearchForm.gateway_config_json = gatewayConfigJsonFromTaskSnapshot(snapshot)
+  }
   const maxDrawdownLimit = optionalNumber(snapshot.max_drawdown_limit)
   aiResearchForm.use_max_drawdown_limit = maxDrawdownLimit !== null
   aiResearchForm.max_drawdown_limit = maxDrawdownLimit ?? aiResearchForm.max_drawdown_limit

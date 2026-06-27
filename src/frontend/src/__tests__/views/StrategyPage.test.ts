@@ -2882,6 +2882,10 @@ describe('StrategyPage', () => {
             poll_interval_seconds: 3,
             paper_workspace_name: '恢复模拟工作区',
             start_paper_trading: true,
+            gateway_config: {
+              name: 'paper_gateway',
+              params: { broker_id: '9999', exchange: 'CFFEX' },
+            },
           },
           current_stage: 'backtesting',
           progress: 42,
@@ -2954,6 +2958,10 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchForm.backtest_timeout_seconds).toBe(1200)
       expect(vm.aiResearchForm.poll_interval_seconds).toBe(3)
       expect(vm.aiResearchForm.paper_workspace_name).toBe('恢复模拟工作区')
+      expect(JSON.parse(vm.aiResearchForm.gateway_config_json)).toEqual({
+        name: 'paper_gateway',
+        params: { broker_id: '9999', exchange: 'CFFEX' },
+      })
     } finally {
       delete (strategyApi as any).listAIResearchTasks
       delete (strategyApi as any).getAIResearchTask
