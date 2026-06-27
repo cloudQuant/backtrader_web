@@ -14,6 +14,7 @@ from app.schemas.ai_strategy_research import (
     AIStrategyLiveHandoffApprovalRecord,
     AIStrategyLiveHandoffApprovalRequest,
     AIStrategyLiveHandoffPackage,
+    AIStrategyLiveTradingPrepare,
     AIStrategyLiveTradingPrepareRequest,
     AIStrategyPaperTradingReview,
     AIStrategyPaperTradingRuleEvaluation,
@@ -6588,6 +6589,66 @@ class FakeResearchAPIService:
             }
         )
 
+    async def prepare_live_trading_from_run(
+        self,
+        user_id: str,
+        run_id: str,
+        request: AIStrategyLiveTradingPrepareRequest,
+    ):
+        draft = build_ai_strategy_draft("生成一个均线策略")
+        strategy = _strategy("strategy-api", draft)
+        workspace = _workspace(request.trading_workspace_id or "live-api-ws", "trading").model_copy(
+            update={"name": request.live_workspace_name or "AI实盘准备"}
+        )
+        gateway_config = dict(request.gateway_config or {})
+        unit = _unit("live-api-unit", workspace.id, strategy).model_copy(
+            update={
+                "trading_mode": "live",
+                "gateway_config": gateway_config,
+                "lock_trading": True,
+                "lock_running": True,
+                "data_config": {
+                    "symbol": "000001.SZ",
+                    "ai_research_run_id": run_id,
+                    "ai_research_workspace_id": request.research_workspace_id,
+                    "ai_research_live_handoff_status": "approved_for_live",
+                },
+                "unit_settings": {
+                    "initial_cash": 100000.0,
+                    "commission": 0.001,
+                    "ai_research_live_handoff": {
+                        "run_id": run_id,
+                        "research_workspace_id": request.research_workspace_id,
+                        "live_handoff_status": "approved_for_live",
+                    },
+                },
+            }
+        )
+        handoff = {
+            "run_id": run_id,
+            "research_workspace_id": request.research_workspace_id,
+            "live_handoff_status": "approved_for_live",
+            "live_trading_prepared_at": "2026-01-01T00:05:00+00:00",
+            "live_workspace_id": workspace.id,
+            "live_workspace_name": workspace.name,
+            "live_unit_id": unit.id,
+            "live_unit_locked": True,
+            "gateway_config": gateway_config,
+            "next_actions": [
+                "已创建锁定的实盘交易单元，需人工核对网关凭据、账户权限和风控限额后再解锁运行。"
+            ],
+        }
+        return AIStrategyLiveTradingPrepare(
+            workspace=workspace,
+            unit=unit,
+            prepared=True,
+            handoff=handoff,
+            next_actions=[
+                "已创建锁定的实盘交易单元，需人工核对网关凭据、账户权限和风控限额后再解锁运行。",
+                "实盘单元 live-api-unit 当前默认锁定交易/运行，不会自动下单。",
+            ],
+        )
+
 
 class FakeResearchAPIPaperService(FakeResearchAPIService):
     async def run(
@@ -8147,3 +8208,49 @@ async def test_ai_strategy_research_live_handoff_approval_endpoint(
     assert payload["pipeline"]["steps"][-1]["status"] == "completed"
     assert payload["approval"]["deployment_window"] == "2026-01-03 09:30"
     assert payload["handoff"]["gateway_config"]["api_key"] == "***"
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_live_trading_prepare_endpoint(
+    client: AsyncClient,
+    auth_headers: dict,
+):
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: FakeResearchAPIService()
+    try:
+        response = await client.post(
+            "/api/v1/strategy/ai-research/runs/api-history-run/live-trading/prepare",
+            headers=auth_headers,
+            json={
+                "research_workspace_id": "research-api-ws",
+                "trading_workspace_id": "live-api-ws",
+                "live_workspace_name": "AI实盘准备",
+                "gateway_config": {
+                    "name": "ctp_live",
+                    "params": {"broker_id": "9999", "exchange": "sim-live"},
+                },
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["prepared"] is True
+    assert payload["workspace"]["id"] == "live-api-ws"
+    assert payload["workspace"]["name"] == "AI实盘准备"
+    assert payload["unit"]["id"] == "live-api-unit"
+    assert payload["unit"]["trading_mode"] == "live"
+    assert payload["unit"]["lock_trading"] is True
+    assert payload["unit"]["lock_running"] is True
+    assert payload["unit"]["gateway_config"]["name"] == "ctp_live"
+    assert payload["unit"]["gateway_config"]["params"]["exchange"] == "sim-live"
+    assert payload["unit"]["data_config"]["ai_research_run_id"] == "api-history-run"
+    assert payload["unit"]["unit_settings"]["ai_research_live_handoff"]["run_id"] == (
+        "api-history-run"
+    )
+    assert payload["handoff"]["research_workspace_id"] == "research-api-ws"
+    assert payload["handoff"]["live_workspace_id"] == "live-api-ws"
+    assert payload["handoff"]["live_unit_id"] == "live-api-unit"
+    assert payload["handoff"]["live_unit_locked"] is True
+    assert payload["handoff"]["gateway_config"]["params"]["broker_id"] == "9999"
+    assert payload["next_actions"][0].startswith("已创建锁定的实盘交易单元")
