@@ -573,6 +573,9 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.min_out_of_sample_sharpe = 0.8
     vm.aiResearchForm.use_min_out_of_sample_trades = true
     vm.aiResearchForm.min_out_of_sample_trades = 2
+    vm.aiResearchForm.backtest_timeout_seconds = 900
+    vm.aiResearchForm.poll_interval_seconds = 2.5
+    vm.aiResearchForm.paper_workspace_name = 'AI模拟-趋势'
     await vm.runAIResearchLoop()
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
       prompt: '生成一个趋势策略',
@@ -588,6 +591,9 @@ describe('StrategyPage', () => {
       out_of_sample_ratio: 0.25,
       min_out_of_sample_sharpe: 0.8,
       min_out_of_sample_trades: 2,
+      backtest_timeout_seconds: 900,
+      poll_interval_seconds: 2.5,
+      paper_workspace_name: 'AI模拟-趋势',
     }))
     const researchCalls = vi.mocked(strategyApi.runAIResearchLoop).mock.calls
     expect(researchCalls[researchCalls.length - 1]?.[0]).not.toHaveProperty('commission')
@@ -629,6 +635,7 @@ describe('StrategyPage', () => {
     await flushPromises()
     expect(strategyApi.startAIResearchPaperTrading).toHaveBeenCalledWith('run-1', {
       research_workspace_id: 'research-ws',
+      paper_workspace_name: 'AI模拟-趋势',
     })
     expect(vm.aiResearchResult.paper_trading.started).toBe(true)
     expect(vm.aiResearchResult.run_record.paper_trading_started).toBe(true)

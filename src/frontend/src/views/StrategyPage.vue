@@ -195,6 +195,34 @@
                     />
                   </div>
                 </el-form-item>
+                <el-form-item label="单轮回测超时(秒)">
+                  <el-input-number
+                    v-model="aiResearchForm.backtest_timeout_seconds"
+                    :min="1"
+                    :max="3600"
+                    :step="60"
+                    class="w-full"
+                    data-test="ai-research-backtest-timeout"
+                  />
+                </el-form-item>
+                <el-form-item label="回测轮询间隔(秒)">
+                  <el-input-number
+                    v-model="aiResearchForm.poll_interval_seconds"
+                    :min="0.1"
+                    :max="30"
+                    :step="0.5"
+                    class="w-full"
+                    data-test="ai-research-poll-interval"
+                  />
+                </el-form-item>
+                <el-form-item label="模拟工作区名称">
+                  <el-input
+                    v-model="aiResearchForm.paper_workspace_name"
+                    clearable
+                    placeholder="自动命名"
+                    data-test="ai-research-paper-workspace-name"
+                  />
+                </el-form-item>
                 <el-form-item :label="t('strategy.aiResearchStartDate')">
                   <el-input
                     v-model="aiResearchForm.start_date"
@@ -1424,11 +1452,14 @@ const aiResearchForm = reactive({
   initial_cash: 100000,
   use_manual_commission: false,
   commission: 0.001,
+  backtest_timeout_seconds: 600,
+  poll_interval_seconds: 2,
   research_workspace_id: '',
   seed_strategy_id: '',
   continue_from_run_id: '',
   continuation_source: '',
   start_paper_trading: true,
+  paper_workspace_name: '',
 })
 
 // ---- Computed ----
@@ -2784,9 +2815,10 @@ function applyPaperReviewToCurrentResult(
 async function startPaperFromResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchPaperStartingRunId.value = record.run_id
   try {
-    const paper = await strategyApi.startAIResearchPaperTrading(record.run_id, {
-      research_workspace_id: record.research_workspace_id,
-    })
+    const paper = await strategyApi.startAIResearchPaperTrading(
+      record.run_id,
+      aiResearchPaperStartRequest(record)
+    )
     if (!paper.started) {
       const failedRecord = paperStartFailedRunRecord(record, paper)
       upsertAIResearchRunRecord(failedRecord)
@@ -2928,6 +2960,7 @@ async function continueResearchFromRecord(record: AIStrategyResearchRunRecord) {
 }
 
 function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResearchRunRequest {
+  const paperWorkspaceName = aiResearchPaperWorkspaceName()
   const request: AIStrategyResearchRunRequest = {
     prompt,
     symbol,
@@ -2974,11 +3007,34 @@ function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResea
     seed_strategy_id: aiResearchForm.seed_strategy_id || null,
     continue_from_run_id: aiResearchForm.continue_from_run_id || null,
     start_paper_trading: aiResearchForm.start_paper_trading,
+    paper_workspace_name: aiResearchForm.start_paper_trading
+      ? paperWorkspaceName
+      : null,
+    backtest_timeout_seconds: aiResearchForm.backtest_timeout_seconds,
+    poll_interval_seconds: aiResearchForm.poll_interval_seconds,
     knowledge_base_id: aiResearchForm.knowledge_base_id.trim() || null,
     thinking_mode: aiResearchForm.thinking_mode,
   }
   if (aiResearchForm.use_manual_commission) {
     request.commission = aiResearchForm.commission
+  }
+  return request
+}
+
+function aiResearchPaperWorkspaceName() {
+  return aiResearchForm.paper_workspace_name.trim() || null
+}
+
+function aiResearchPaperStartRequest(record: AIStrategyResearchRunRecord) {
+  const request = {
+    research_workspace_id: record.research_workspace_id,
+  } as {
+    research_workspace_id: string
+    paper_workspace_name?: string
+  }
+  const paperWorkspaceName = aiResearchPaperWorkspaceName()
+  if (paperWorkspaceName) {
+    request.paper_workspace_name = paperWorkspaceName
   }
   return request
 }
