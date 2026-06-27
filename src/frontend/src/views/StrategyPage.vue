@@ -4254,6 +4254,25 @@ function aiResearchErrorMessage(error: unknown) {
   return message || t('strategy.aiResearchRunFailed')
 }
 
+function notifyAIResearchResult(result: AIStrategyResearchRunResponse) {
+  const status = String(result.status || '').toLowerCase()
+  if (status === 'cancelled') {
+    if (!aiResearchCancelRequested.value) {
+      ElMessage.success('AI投研任务已取消')
+    }
+    return
+  }
+  if (result.achieved || status === 'achieved') {
+    ElMessage.success(t('strategy.aiResearchRunSuccess'))
+    return
+  }
+  if (status === 'timeout' || result.pipeline?.current_stage === 'backtest_timeout') {
+    ElMessage.warning('AI投研回测超时，已保存结果，可继续投研')
+    return
+  }
+  ElMessage.warning('AI投研未达标，已保存结果，可继续投研')
+}
+
 async function runAIResearchRequest(
   payload: AIStrategyResearchRunRequest
 ): Promise<AIStrategyResearchRunResponse> {
@@ -4332,13 +4351,7 @@ async function restoreActiveAIResearchTask() {
     } else {
       await loadAIResearchRuns()
     }
-    if (String(aiResearchResult.value.status || '').toLowerCase() === 'cancelled') {
-      if (!aiResearchCancelRequested.value) {
-        ElMessage.success('AI投研任务已取消')
-      }
-    } else {
-      ElMessage.success(t('strategy.aiResearchRunSuccess'))
-    }
+    notifyAIResearchResult(aiResearchResult.value)
   } catch (error) {
     aiResearchTaskError.value = aiResearchErrorMessage(error)
     ElMessage.error(t('strategy.aiResearchRunFailed'))
@@ -4416,13 +4429,7 @@ async function runAIResearchLoop() {
     } else {
       await loadAIResearchRuns()
     }
-    if (String(aiResearchResult.value.status || '').toLowerCase() === 'cancelled') {
-      if (!aiResearchCancelRequested.value) {
-        ElMessage.success('AI投研任务已取消')
-      }
-    } else {
-      ElMessage.success(t('strategy.aiResearchRunSuccess'))
-    }
+    notifyAIResearchResult(aiResearchResult.value)
   } catch (error) {
     if (
       error instanceof Error

@@ -1201,6 +1201,103 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('shows timeout-cancelled backtest from async task summary', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    vi.mocked(strategyApi.listAIResearchRuns).mockClear()
+    vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({ total: 0, items: [] })
+    ;(strategyApi as any).submitAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'timeout-research-task',
+      status: 'running',
+      submitted_at: '2026-06-27T00:00:00Z',
+      request_snapshot: {
+        prompt: '生成一个趋势策略',
+        symbol: '000001.SZ',
+        target_sharpe: 1,
+        min_total_trades: 1,
+        max_iterations: 3,
+        backtest_timeout_seconds: 600,
+      },
+      current_stage: 'backtesting',
+      progress: 35,
+      current_iteration: 1,
+      iteration_count: 0,
+      max_iterations: 3,
+      message: 'running',
+    })
+    ;(strategyApi as any).getAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'timeout-research-task',
+      status: 'completed',
+      submitted_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:10:00Z',
+      run_id: 'timeout-run',
+      research_workspace_id: 'research-ws',
+      current_stage: 'backtest_timeout',
+      run_status: 'timeout',
+      achieved: false,
+      progress: 100,
+      current_iteration: 1,
+      iteration_count: 1,
+      max_iterations: 3,
+      best_iteration: 1,
+      best_sharpe: 0,
+      best_quality_score: 0,
+      best_metrics: { sharpe_ratio: 0, total_trades: 0 },
+      best_strategy_id: 'strategy-timeout',
+      best_strategy_name: '超时策略',
+      cancelled_backtest_task_id: 'timeout-backtest-task',
+      child_cancelled: true,
+      latest_iteration: {
+        iteration: 1,
+        sharpe_ratio: 0,
+        total_trades: 0,
+        unit_status: {
+          id: 'unit-timeout',
+          run_status: 'timeout',
+          trading_snapshot: {
+            backtest_timeout_task_id: 'timeout-backtest-task',
+            backtest_timeout_cancel_requested: true,
+          },
+        },
+      },
+      pipeline: {
+        current_stage: 'backtest_timeout',
+        status: 'timeout',
+        progress: 100,
+        ready_for_live: false,
+        steps: [
+          { key: 'draft', label: '策略生成', status: 'completed' },
+          { key: 'backtest_loop', label: '自动回测迭代', status: 'failed' },
+        ],
+      },
+      next_actions: ['回测等待超时，可提高 backtest_timeout_seconds 后继续投研。'],
+      message: 'Backtest timed out',
+    })
+    try {
+      const wrapper = doMount()
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.prompt = '生成一个趋势策略'
+      vm.aiResearchForm.symbol = '000001.SZ'
+      await vm.runAIResearchLoop()
+      await wrapper.vm.$nextTick()
+
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith('research-ws', 100)
+      expect(vm.aiResearchTaskStatus).toBe('completed')
+      expect(vm.aiResearchTaskStage).toBe('backtest_timeout')
+      expect(vm.aiResearchResult.status).toBe('timeout')
+      expect(vm.aiResearchCancelledBacktestTaskId).toBe('timeout-backtest-task')
+      expect(wrapper.find('[data-test="ai-research-task-progress"]').text()).toContain(
+        '已取消回测 timeout-backtest-task'
+      )
+      expect(ElMessage.warning).toHaveBeenCalledWith('AI投研回测超时，已保存结果，可继续投研')
+    } finally {
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
+    }
+  })
+
   it('restores cancelled async task result from persisted run history', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const { ElMessage } = await import('element-plus')
