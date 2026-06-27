@@ -316,6 +316,14 @@
                   </template>
                 </el-tag>
               </div>
+              <div
+                v-if="aiResearchTaskError"
+                class="ai-research-task-error"
+                data-test="ai-research-task-error"
+              >
+                <strong>任务异常</strong>
+                <span>{{ aiResearchTaskError }}</span>
+              </div>
             </el-form>
           </section>
 
@@ -1215,6 +1223,7 @@ const aiResearchTaskProgress = ref(0)
 const aiResearchTaskIteration = ref<number | null>(null)
 const aiResearchBacktestTaskId = ref('')
 const aiResearchCancelledBacktestTaskId = ref('')
+const aiResearchTaskError = ref('')
 const aiResearchCancelling = ref(false)
 const aiResearchCancelRequested = ref(false)
 const aiResearchPaperStartingRunId = ref('')
@@ -2242,6 +2251,19 @@ function applyAIResearchTaskStatus(task: AIStrategyResearchTaskResponse) {
   aiResearchTaskIteration.value = task.current_iteration ?? task.iteration_count ?? null
   aiResearchBacktestTaskId.value = task.current_backtest_task_id || ''
   aiResearchCancelledBacktestTaskId.value = task.cancelled_backtest_task_id || ''
+  aiResearchTaskError.value = aiResearchTaskFailureMessage(task)
+}
+
+function aiResearchTaskFailureMessage(task: AIStrategyResearchTaskResponse) {
+  if (isAIResearchTaskCancelled(task)) return ''
+  if (String(task.status || '').toLowerCase() !== 'failed') return ''
+  return String(task.error || task.message || 'AI research task failed').trim()
+}
+
+function aiResearchErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) return error.message.trim()
+  const message = String(error || '').trim()
+  return message || t('strategy.aiResearchRunFailed')
 }
 
 async function runAIResearchRequest(
@@ -2320,7 +2342,8 @@ async function restoreActiveAIResearchTask() {
       await loadAIResearchRuns()
     }
     ElMessage.success(t('strategy.aiResearchRunSuccess'))
-  } catch {
+  } catch (error) {
+    aiResearchTaskError.value = aiResearchErrorMessage(error)
     ElMessage.error(t('strategy.aiResearchRunFailed'))
   } finally {
     aiResearchRunning.value = false
@@ -2336,6 +2359,7 @@ async function cancelAIResearchTask() {
   try {
     const task = await cancelTask(taskId)
     applyAIResearchTaskStatus(task)
+    aiResearchTaskError.value = ''
     aiResearchRunning.value = false
     ElMessage.success(
       task.child_cancelled && task.cancelled_backtest_task_id
@@ -2369,6 +2393,7 @@ async function runAIResearchLoop() {
   aiResearchTaskIteration.value = null
   aiResearchBacktestTaskId.value = ''
   aiResearchCancelledBacktestTaskId.value = ''
+  aiResearchTaskError.value = ''
   aiResearchCancelRequested.value = false
   try {
     aiResearchResult.value = await runAIResearchRequest(buildAIResearchRequest(prompt, symbol))
@@ -2384,8 +2409,10 @@ async function runAIResearchLoop() {
       && error.message === 'AI_RESEARCH_CANCELLED'
       && aiResearchCancelRequested.value
     ) {
+      aiResearchTaskError.value = ''
       return
     }
+    aiResearchTaskError.value = aiResearchErrorMessage(error)
     ElMessage.error(t('strategy.aiResearchRunFailed'))
   } finally {
     aiResearchRunning.value = false
