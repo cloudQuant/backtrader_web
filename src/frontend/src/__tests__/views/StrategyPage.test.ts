@@ -1816,6 +1816,71 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.continue_from_run_id).toBe('history-run')
   })
 
+  it('refills gateway config from paper handoff when iteration snapshot is missing', () => {
+    const vm = doMount().vm as any
+    vm.useAIResearchRecord({
+      run_id: 'handoff-gateway-run',
+      prompt: '历史期货策略',
+      symbol: 'IF2409.CFE',
+      symbol_name: '沪深300期货',
+      timeframe: '1m',
+      timeframe_n: 1,
+      status: 'achieved',
+      achieved: true,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 1,
+      best_iteration: 1,
+      best_sharpe: 1.2,
+      best_quality_score: 100,
+      best_quality_gate_evaluations: [],
+      best_metrics: { sharpe_ratio: 1.2 },
+      best_strategy_id: 'futures-strategy',
+      best_strategy_name: '期货趋势策略',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_workspace_id: 'paper-ws',
+      paper_workspace_name: '期货模拟',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      paper_monitoring_plan: [],
+      paper_handoff: {
+        gateway_config: {
+          name: 'paper_gateway',
+          params: { exchange: 'CFFEX', asset_type: 'future' },
+        },
+      },
+      paper_review_status: null,
+      paper_review_ready_for_live: false,
+      paper_reviewed_at: null,
+      paper_review_evaluations: [],
+      paper_review_next_actions: [],
+      live_readiness_checklist: [],
+      live_readiness_expires_at: null,
+      pipeline: {
+        current_stage: 'paper_trading',
+        status: 'achieved',
+        progress: 90,
+        ready_for_live: false,
+        steps: [],
+      },
+      next_actions: [],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [],
+    } as AIStrategyResearchRunRecord)
+
+    expect(JSON.parse(vm.aiResearchForm.gateway_config_json)).toEqual({
+      name: 'paper_gateway',
+      params: { exchange: 'CFFEX', asset_type: 'future' },
+    })
+    expect(vm.aiResearchForm.seed_strategy_id).toBe('futures-strategy')
+    expect(vm.aiResearchForm.continue_from_run_id).toBe('handoff-gateway-run')
+  })
+
   it('continues AI research from a strategy snapshot when best strategy id is missing', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const wrapper = doMount()

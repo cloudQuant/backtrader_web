@@ -2020,7 +2020,10 @@ function bestStrategyIdForRecord(record: AIStrategyResearchRunRecord) {
 function gatewayConfigJsonFromRunRecord(record: AIStrategyResearchRunRecord) {
   const payload = bestIterationPayloadForRecord(record)
   const snapshot = payload && isRecord(payload.unit_snapshot) ? payload.unit_snapshot : {}
-  const gatewayConfig = isRecord(snapshot.gateway_config) ? snapshot.gateway_config : null
+  const handoff = isRecord(record.paper_handoff) ? record.paper_handoff : {}
+  const gatewayConfig = isRecord(snapshot.gateway_config)
+    ? snapshot.gateway_config
+    : isRecord(handoff.gateway_config) ? handoff.gateway_config : null
   if (!gatewayConfig || !Object.keys(gatewayConfig).length) return ''
   return JSON.stringify(gatewayConfig)
 }
@@ -2687,6 +2690,11 @@ function paperUnitFromRunRecord(
     },
     run_status: runStatus,
     last_task_id: taskId,
+    gateway_config: Object.keys(researchUnit.gateway_config || {}).length
+      ? researchUnit.gateway_config
+      : isRecord(handoff.gateway_config)
+        ? handoff.gateway_config as StrategyUnit['gateway_config']
+        : {},
     updated_at: record.completed_at,
   }
 }

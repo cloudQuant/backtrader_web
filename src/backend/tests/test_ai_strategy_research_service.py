@@ -897,6 +897,10 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
             max_iterations=3,
             backtest_timeout_seconds=1200,
             poll_interval_seconds=0.1,
+            gateway_config={
+                "name": "paper_gateway",
+                "params": {"exchange": "sim"},
+            },
         ),
     )
 
@@ -934,6 +938,10 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.paper_trading.handoff["run_id"] == result.run_id
     assert result.paper_trading.handoff["research_strategy_id"] == "strategy-2"
     assert result.paper_trading.handoff["paper_unit_id"] == "paper-unit"
+    assert result.paper_trading.handoff["gateway_config"] == {
+        "name": "paper_gateway",
+        "params": {"exchange": "sim"},
+    }
     assert result.paper_trading.handoff["achieved_diagnostics"]["promotion_ready"] is True
     assert result.paper_trading.handoff["paper_monitoring_plan"][0]["key"] == "rolling_sharpe"
     assert result.paper_trading.unit.unit_settings["ai_research_handoff"]["run_id"] == result.run_id
@@ -967,6 +975,7 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.run_record.best_diagnostics["promotion_ready"] is True
     assert result.run_record.paper_monitoring_plan == result.paper_monitoring_plan
     assert result.run_record.paper_handoff["paper_task_id"] == "paper-task"
+    assert result.run_record.paper_handoff["gateway_config"]["params"]["exchange"] == "sim"
     assert result.run_record.paper_handoff["paper_monitoring_plan"][0]["key"] == "rolling_sharpe"
     assert result.run_record.paper_review_status == "monitoring"
     assert result.run_record.paper_review_ready_for_live is False
@@ -2176,6 +2185,10 @@ async def test_research_loop_continuation_restores_paper_handoff_runtime_metadat
                 "multiplier": 300,
                 "margin": 0.1,
                 "asset_spec_source": "paper_handoff_exchange_specs",
+            },
+            "gateway_config": {
+                "name": "paper_gateway",
+                "params": {"exchange": "CFFEX", "asset_type": "future"},
             },
         },
         "iterations": [
@@ -4015,6 +4028,7 @@ async def test_start_paper_trading_from_history_uses_iteration_unit_snapshot():
     assert created_unit.unit_settings["asset_spec_source"] == "local_futures_commission"
     assert created_unit.optimization_config == {"enabled": False}
     assert created_unit.gateway_config == {"name": "paper_gateway", "params": {}}
+    assert result.handoff["gateway_config"] == {"name": "paper_gateway"}
     assert result.handoff["backtest_environment"]["commission"] == pytest.approx(0.000023)
     assert result.handoff["backtest_environment"]["multiplier"] == 300
     assert result.handoff["backtest_environment"]["asset_spec_source"] == (
@@ -4073,6 +4087,10 @@ async def test_start_paper_trading_from_history_restores_paper_handoff_runtime_m
                 "multiplier": 300,
                 "margin": 0.1,
                 "asset_spec_source": "paper_handoff_exchange_specs",
+            },
+            "gateway_config": {
+                "name": "paper_gateway",
+                "params": {"exchange": "CFFEX", "asset_type": "future"},
             },
         },
         "iterations": [
@@ -4145,8 +4163,13 @@ async def test_start_paper_trading_from_history_restores_paper_handoff_runtime_m
     assert created_unit.unit_settings["multiplier"] == 300
     assert created_unit.unit_settings["margin"] == pytest.approx(0.1)
     assert created_unit.unit_settings["asset_spec_source"] == "paper_handoff_exchange_specs"
+    assert created_unit.gateway_config == {
+        "name": "paper_gateway",
+        "params": {"exchange": "CFFEX", "asset_type": "future"},
+    }
     assert result.handoff["backtest_environment"]["commission"] == pytest.approx(0.000023)
     assert result.handoff["asset_specs"]["IF2609"]["source"] == "paper_handoff_exchange_specs"
+    assert result.handoff["gateway_config"]["params"]["exchange"] == "CFFEX"
 
 
 @pytest.mark.asyncio

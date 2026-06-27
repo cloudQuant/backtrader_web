@@ -3604,6 +3604,7 @@ def _continuation_runtime_updates(
 
     if "gateway_config" not in explicit_fields:
         gateway_config = _dict_payload(unit_snapshot.get("gateway_config"))
+        gateway_config.update(_dict_payload(runtime_context.get("gateway_config")))
         gateway_config.update(_dict_payload(request.gateway_config))
         if gateway_config:
             updates["gateway_config"] = gateway_config
@@ -3711,6 +3712,9 @@ def _paper_start_request_from_record(
         ):
             if backtest_environment.get(key) not in (None, ""):
                 unit_settings[key] = backtest_environment[key]
+    gateway_config = _dict_payload(unit_snapshot.get("gateway_config"))
+    gateway_config.update(_dict_payload(runtime_context.get("gateway_config")))
+    gateway_config.update(_dict_payload(request.gateway_config))
     return AIStrategyResearchRunRequest(
         prompt=record.prompt,
         symbol=record.symbol,
@@ -3746,7 +3750,7 @@ def _paper_start_request_from_record(
         continue_from_run_id=record.run_id,
         start_paper_trading=True,
         paper_workspace_name=request.paper_workspace_name or record.paper_workspace_name,
-        gateway_config=request.gateway_config,
+        gateway_config=gateway_config,
         data_config=data_config,
         unit_settings=unit_settings,
     )
@@ -3780,7 +3784,12 @@ def _unit_from_iteration_snapshot(
         unit_settings=dict(snapshot.get("unit_settings") or {}),
         params=dict(snapshot.get("params") or {}),
         optimization_config=dict(snapshot.get("optimization_config") or {}),
-        gateway_config=dict(snapshot.get("gateway_config") or {}),
+        gateway_config=(
+            dict(snapshot.get("gateway_config") or {})
+            or _dict_payload(
+                record.paper_handoff.get("gateway_config") if record.paper_handoff else None
+            )
+        ),
         trading_mode=str(snapshot.get("trading_mode") or "paper"),
         lock_trading=bool(snapshot.get("lock_trading", False)),
         lock_running=bool(snapshot.get("lock_running", False)),
@@ -3962,6 +3971,7 @@ def _paper_review_status_failures(record: AIStrategyResearchRunRecord) -> list[s
 def _record_runtime_context(record: AIStrategyResearchRunRecord) -> dict[str, Any]:
     asset_specs: dict[str, Any] = {}
     backtest_environment: dict[str, Any] = {}
+    gateway_config: dict[str, Any] = {}
     if record.asset_specs:
         asset_specs = _merge_runtime_context_mapping(asset_specs, record.asset_specs)
     if record.backtest_environment:
@@ -3977,11 +3987,14 @@ def _record_runtime_context(record: AIStrategyResearchRunRecord) -> dict[str, An
             backtest_environment,
             paper_environment,
         )
+        gateway_config.update(_dict_payload(record.paper_handoff.get("gateway_config")))
     context: dict[str, Any] = {}
     if asset_specs:
         context["asset_specs"] = asset_specs
     if backtest_environment:
         context["backtest_environment"] = backtest_environment
+    if gateway_config:
+        context["gateway_config"] = gateway_config
     return context
 
 
@@ -4287,6 +4300,8 @@ def _build_paper_trading_handoff(
         _dict_payload(request.gateway_config),
     ):
         _merge_asset_spec_maps(asset_specs, _asset_specs_from_mapping(source))
+    gateway_config = _dict_payload(best_iteration.unit.gateway_config)
+    gateway_config.update(_dict_payload(request.gateway_config))
     return {
         "run_id": run_id,
         "source": "ai_strategy_research",
@@ -4309,6 +4324,7 @@ def _build_paper_trading_handoff(
         "best_metrics": best_iteration.metrics,
         "backtest_environment": _paper_backtest_environment(request, best_iteration),
         "asset_specs": asset_specs,
+        "gateway_config": gateway_config,
         "out_of_sample_validation": {
             "status": best_iteration.validation_status,
             "window": best_iteration.validation_window,
