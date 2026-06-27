@@ -428,7 +428,7 @@ describe('StrategyPage', () => {
     const wrapper = doMount()
     await flushPromises()
     expect(wrapper.exists()).toBe(true)
-    expect(wrapper.text()).toContain('阶段 quality_achieved')
+    expect(wrapper.text()).toContain('阶段 质量达标')
   })
 
   it('getCategoryLabel returns correct labels', () => {
@@ -621,7 +621,7 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchResult.run_record.paper_review_status).toBe('ready_for_live_candidate')
     expect(vm.aiResearchRuns[0].paper_review_status).toBe('ready_for_live_candidate')
     expect(wrapper.find('[data-test="ai-research-current-paper-review"]').text()).toContain(
-      'ready_for_live_candidate'
+      '实盘候选'
     )
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已启动')
@@ -690,7 +690,6 @@ describe('StrategyPage', () => {
 
     const review = wrapper.find('[data-test="ai-research-current-paper-review"]')
     expect(review.exists()).toBe(true)
-    expect(review.text()).toContain('monitoring')
     expect(review.text()).toContain('继续观察')
     expect(review.text()).toContain('模拟交易滚动 Sharpe')
     expect(wrapper.find('[data-test="ai-research-current-paper-review-actions"]').text()).toContain(
@@ -748,7 +747,7 @@ describe('StrategyPage', () => {
     expect(wrapper.find('[data-test="ai-research-next-actions"]').text()).toContain(
       '模拟交易启动错误：Failed to create paper trading unit'
     )
-    expect(wrapper.text()).toContain('阶段 paper_trading_failed')
+    expect(wrapper.text()).toContain('阶段 模拟启动失败')
     expect(wrapper.text()).toContain('模拟错误 Failed to create paper trading unit')
     expect(vm.aiResearchRuns[0].pipeline.paper_trading_error).toBe(
       'Failed to create paper trading unit'
@@ -1060,7 +1059,7 @@ describe('StrategyPage', () => {
 
     expect(vm.aiResearchResult.run_record.paper_review_status).toBe('needs_research_review')
     expect(wrapper.find('[data-test="ai-research-current-paper-review"]').text()).toContain(
-      'needs_research_review'
+      '需要重新投研'
     )
     expect(vm.aiResearchResult.next_actions[0]).toBe('回到研究工作区降低过拟合并收紧风险预算')
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续改进'))
@@ -1342,7 +1341,7 @@ describe('StrategyPage', () => {
 
     await wrapper.vm.$nextTick()
     expect(vm.canContinueResearchFromRunRecord(record)).toBe(true)
-    expect(wrapper.text()).toContain('阶段 cancelled')
+    expect(wrapper.text()).toContain('阶段 已取消')
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续投研'))
     expect(continueButton).toBeTruthy()
     await continueButton!.trigger('click')
@@ -1799,7 +1798,7 @@ describe('StrategyPage', () => {
 
     await wrapper.vm.$nextTick()
     expect(vm.canReviewPaperFromRecord(vm.aiResearchRuns[0])).toBe(true)
-    expect(wrapper.text()).toContain('阶段 paper_trading')
+    expect(wrapper.text()).toContain('阶段 模拟交易')
     const historyRuntimeEnv = wrapper.find('[data-test="ai-research-history-runtime-env"]').text()
     expect(historyRuntimeEnv).toContain('回测环境')
     expect(historyRuntimeEnv).toContain('资产 IF2609')
@@ -1821,13 +1820,13 @@ describe('StrategyPage', () => {
       'research-ws'
     )
     expect(wrapper.find('[data-test="ai-research-paper-review"]').text()).toContain(
-      'ready_for_live_candidate'
+      '实盘候选'
     )
     expect(wrapper.find('[data-test="ai-research-paper-review-actions"]').text()).toContain(
       '模拟交易监控计划已全部通过'
     )
     expect(wrapper.text()).toContain('实盘候选')
-    expect(wrapper.text()).toContain('复核 ready_for_live_candidate')
+    expect(wrapper.text()).toContain('复核 实盘候选')
     expect(wrapper.text()).toContain('模拟交易滚动 Sharpe')
     expect(vm.aiResearchRuns[0].paper_review_status).toBe('ready_for_live_candidate')
     expect(vm.aiResearchRuns[0].paper_review_ready_for_live).toBe(true)
@@ -1835,7 +1834,7 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchRuns[0].paper_review_evaluations[0].key).toBe('rolling_sharpe')
     expect(vm.aiResearchRuns[0].next_actions[0]).toContain('模拟交易监控计划已全部通过')
     expect(vm.aiResearchRuns[0].pipeline.current_stage).toBe('live_candidate')
-    expect(wrapper.text()).toContain('阶段 live_candidate')
+    expect(wrapper.text()).toContain('阶段 实盘候选')
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已满足实盘候选条件')
   })
 
@@ -1911,7 +1910,7 @@ describe('StrategyPage', () => {
 
     expect(strategyApi.reviewAIResearchPaperTrading).not.toHaveBeenCalled()
     expect(wrapper.find('[data-test="ai-research-paper-review"]').text()).toContain(
-      'ready_for_live_candidate'
+      '实盘候选'
     )
     expect(wrapper.find('[data-test="ai-research-paper-review"]').text()).toContain(
       '模拟交易滚动 Sharpe'
@@ -1919,7 +1918,7 @@ describe('StrategyPage', () => {
     expect(wrapper.find('[data-test="ai-research-paper-review-actions"]').text()).toContain(
       '模拟交易监控计划已全部通过'
     )
-    expect(wrapper.text()).toContain('阶段 live_candidate')
+    expect(wrapper.text()).toContain('阶段 实盘候选')
     expect(wrapper.text()).toContain('实盘候选')
   })
 

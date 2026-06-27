@@ -306,7 +306,7 @@
                   size="small"
                   type="info"
                 >
-                  任务 {{ aiResearchTaskStage || aiResearchTaskStatus }}
+                  任务 {{ aiResearchTaskStageLabel }}
                   {{ formatTaskProgress(aiResearchTaskProgress) }}
                   <template v-if="aiResearchTaskIteration">
                     第 {{ aiResearchTaskIteration }} 轮
@@ -519,7 +519,7 @@
                     size="small"
                     :type="aiResearchCurrentPaperReview.ready_for_live ? 'success' : 'warning'"
                   >
-                    {{ aiResearchCurrentPaperReview.status }}
+                    {{ paperReviewStatusLabel(aiResearchCurrentPaperReview.status) }}
                   </el-tag>
                   <span>
                     {{ aiResearchCurrentPaperReview.ready_for_live ? '实盘候选' : '继续观察' }}
@@ -779,7 +779,7 @@
                         size="small"
                         :type="record.achieved ? 'success' : 'warning'"
                       >
-                        {{ record.status }}
+                        {{ aiResearchRunStatusLabel(record.status) }}
                       </el-tag>
                     </span>
                     <span class="ai-research-history-meta">
@@ -787,7 +787,7 @@
                       <span>{{ t('strategy.aiResearchBestSharpe') }} {{ formatMetric(record.best_sharpe) }}</span>
                       <span>质量分 {{ formatMetric(record.best_quality_score) }}</span>
                       <span v-if="pipelineStage(record)">
-                        阶段 {{ pipelineStage(record) }}
+                        阶段 {{ pipelineStageLabel(record) }}
                       </span>
                       <span v-if="record.pipeline?.paper_trading_error">
                         模拟错误 {{ record.pipeline.paper_trading_error }}
@@ -797,7 +797,7 @@
                       </span>
                       <span>{{ t('strategy.aiResearchIterations') }} {{ record.iteration_count }}</span>
                       <span v-if="record.paper_review_status">
-                        复核 {{ record.paper_review_status }}
+                        复核 {{ paperReviewStatusLabel(record.paper_review_status) }}
                       </span>
                       <span v-if="record.paper_reviewed_at">
                         复核时间 {{ formatDateTime(record.paper_reviewed_at) }}
@@ -924,7 +924,7 @@
                         size="small"
                         :type="paperReviewForRecord(record)?.ready_for_live ? 'success' : 'warning'"
                       >
-                        {{ paperReviewForRecord(record)?.status }}
+                        {{ paperReviewStatusLabel(paperReviewForRecord(record)?.status) }}
                       </el-tag>
                       <span>
                         {{ paperReviewForRecord(record)?.ready_for_live ? '实盘候选' : '继续观察' }}
@@ -1231,6 +1231,49 @@ const aiResearchPaperReviewingRunId = ref('')
 const aiResearchStrategyViewingRunId = ref('')
 const aiResearchPaperReviews = reactive<Record<string, AIStrategyPaperTradingReview>>({})
 
+const AI_RESEARCH_STAGE_LABELS: Record<string, string> = {
+  queued: '排队中',
+  starting: '启动中',
+  running: '运行中',
+  initializing: '初始化',
+  workspace_ready: '工作区已就绪',
+  drafting: '生成策略脚本',
+  draft_generation_failed: '脚本生成失败',
+  repairing_code: '修复策略脚本',
+  backtesting: '运行回测',
+  backtest_failed: '回测失败',
+  backtest_submission_failed: '回测提交失败',
+  backtest_timeout: '回测超时',
+  improving: '改进策略',
+  validating: '样本外验证',
+  evaluating: '评估策略',
+  quality_achieved: '质量达标',
+  paper_trading: '模拟交易',
+  paper_trading_failed: '模拟启动失败',
+  paper_review: '模拟复核',
+  live_candidate: '实盘候选',
+  research_iteration: '投研迭代',
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+  timeout: '超时',
+}
+
+const AI_RESEARCH_RUN_STATUS_LABELS: Record<string, string> = {
+  achieved: '已达标',
+  completed: '已完成',
+  failed: '未达标',
+  cancelled: '已取消',
+  timeout: '超时',
+  backtest_submission_failed: '回测提交失败',
+}
+
+const AI_RESEARCH_PAPER_REVIEW_STATUS_LABELS: Record<string, string> = {
+  ready_for_live_candidate: '实盘候选',
+  monitoring: '继续观察',
+  needs_research_review: '需要重新投研',
+}
+
 const form = reactive({
   name: '',
   description: '',
@@ -1324,6 +1367,9 @@ const aiResearchPaperStatusText = computed(() => {
     ? t('strategy.aiResearchPaperStarted')
     : t('strategy.aiResearchPaperNotStarted')
 })
+const aiResearchTaskStageLabel = computed(() =>
+  aiResearchStageLabel(aiResearchTaskStage.value || aiResearchTaskStatus.value)
+)
 const aiResearchContinuationEnabled = computed(() =>
   Boolean(aiResearchForm.seed_strategy_id || aiResearchForm.continue_from_run_id)
 )
@@ -1828,6 +1874,28 @@ function pipelineStage(record: AIStrategyResearchRunRecord) {
   if (record.status === 'timeout') return 'backtest_timeout'
   if (record.status === 'cancelled') return 'cancelled'
   return record.iteration_count > 0 ? 'research_iteration' : ''
+}
+
+function pipelineStageLabel(record: AIStrategyResearchRunRecord) {
+  return aiResearchStageLabel(pipelineStage(record))
+}
+
+function aiResearchRunStatusLabel(status?: string | null) {
+  const normalized = String(status || '').trim()
+  if (!normalized) return ''
+  return AI_RESEARCH_RUN_STATUS_LABELS[normalized] ?? aiResearchStageLabel(normalized)
+}
+
+function paperReviewStatusLabel(status?: string | null) {
+  const normalized = String(status || '').trim()
+  if (!normalized) return ''
+  return AI_RESEARCH_PAPER_REVIEW_STATUS_LABELS[normalized] ?? aiResearchStageLabel(normalized)
+}
+
+function aiResearchStageLabel(stage?: string | null) {
+  const normalized = String(stage || '').trim()
+  if (!normalized) return ''
+  return AI_RESEARCH_STAGE_LABELS[normalized] ?? normalized.replace(/_/g, ' ')
 }
 
 function clearAIResearchContinuation() {
