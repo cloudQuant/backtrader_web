@@ -1485,9 +1485,12 @@ class TradingWorkspaceService:
                 except Exception:
                     raw_trades = []
                 if isinstance(raw_trades, list):
-                    recent_trades.extend(
-                        dict(item) for item in raw_trades if isinstance(item, dict)
-                    )
+                    for item in raw_trades:
+                        if not isinstance(item, dict):
+                            continue
+                        trade = dict(item)
+                        trade.setdefault("__query_symbol", symbol)
+                        recent_trades.append(trade)
 
         rows: list[dict[str, Any]] = []
         for item in matched_positions:
@@ -2287,7 +2290,6 @@ class TradingWorkspaceService:
             if (
                 abs(long_position) <= EPSILON
                 and abs(short_position) <= EPSILON
-                and abs(market_value) <= EPSILON
                 and not active_position_rows
             ):
                 continue

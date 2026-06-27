@@ -2600,6 +2600,77 @@ async def test_portfolio_positions_estimate_fee_when_gateway_returns_gross_pnl_w
 
 
 @pytest.mark.asyncio
+async def test_portfolio_positions_use_symbol_scoped_trade_fee_without_trade_symbol():
+    """Symbol-scoped trade queries may return rows without a symbol field."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "InstrumentID": "IF2609",
+                    "PosiDirection": "2",
+                    "Position": 1,
+                    "Price": 5000.0,
+                    "LastPrice": 5010.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "IF2609" in symbols
+            return {
+                "IF2609": {
+                    "source": "ctp_gateway",
+                    "VolumeMultiple": 300,
+                    "LongMarginRatioByMoney": 0.1,
+                    "OpenRatioByMoney": 0.23,
+                    "quote_asset": "CNY",
+                    "fee_currency": "CNY",
+                }
+            }
+
+        def query_instance_gateway_trades(self, instance_id, *, symbol=None, limit=100):
+            assert instance_id == "inst-a"
+            assert symbol == "IF2609"
+            assert limit == 500
+            return [
+                {
+                    "direction": "buy",
+                    "TradeVolume": 1,
+                    "Price": 5000.0,
+                    "Commission": 34.5,
+                }
+            ]
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "IF2609",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["gross_pnl"] == pytest.approx(3000.0)
+    assert row["commission"] == pytest.approx(34.5)
+    assert row["commission_source"] == "gateway.trades"
+    assert row["position_pnl"] == pytest.approx(2965.5)
+    assert result["summary"]["total_pnl"] == pytest.approx(2965.5)
+
+
+@pytest.mark.asyncio
 async def test_portfolio_positions_exclude_future_exit_fee_from_open_pnl():
     """Gateway exit fee metadata must not be pre-deducted from open position PnL."""
     from app.api.portfolio_api import get_portfolio_positions

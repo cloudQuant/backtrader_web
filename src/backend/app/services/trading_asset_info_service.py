@@ -1349,6 +1349,8 @@ def _trade_symbol(row: dict[str, Any], fallback: str = "") -> str:
     return str(
         _first_value(
             row,
+            "__query_symbol",
+            "query_symbol",
             "data_name",
             "symbol",
             "instrument",
@@ -1368,7 +1370,8 @@ def _trade_matches_symbol(row: dict[str, Any], symbol: str) -> bool:
     expected = {item for item in expected if item}
     if not expected:
         return True
-    return _compact_symbol(_trade_symbol(row)) in expected
+    trade_symbol = _compact_symbol(_trade_symbol(row))
+    return not trade_symbol or trade_symbol in expected
 
 
 def _trade_position_side(row: dict[str, Any]) -> str | None:

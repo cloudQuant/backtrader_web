@@ -1894,6 +1894,50 @@ def test_normalize_gateway_position_uses_position_fee_as_real_commission():
     assert valued.pnl == pytest.approx(4.75)
 
 
+def test_normalize_gateway_position_uses_query_symbol_for_symbol_scoped_trade_fee():
+    spec = normalize_asset_spec(
+        {
+            "InstrumentID": "IF2609",
+            "VolumeMultiple": 300,
+            "OpenRatioByMoney": 0.23,
+            "quote_asset": "CNY",
+            "fee_currency": "CNY",
+        },
+        symbol="IF2609",
+        source="ctp_gateway",
+    )
+    row = normalize_gateway_position(
+        {
+            "InstrumentID": "IF2609",
+            "PosiDirection": "2",
+            "Position": 1,
+            "Price": 5000.0,
+            "LastPrice": 5010.0,
+        },
+        asset_spec=spec,
+        recent_trades=[
+            {
+                "__query_symbol": "IF2609",
+                "direction": "buy",
+                "TradeVolume": 1,
+                "Price": 5000.0,
+                "Commission": 34.5,
+            }
+        ],
+    )
+
+    valued = value_position(
+        row,
+        spec=contract_spec_for("IF2609", {"contract_metadata": {"IF2609": spec}}),
+    )
+
+    assert row["commission"] == pytest.approx(34.5)
+    assert row["commission_source"] == "gateway.trades"
+    assert valued is not None
+    assert valued.commission == pytest.approx(34.5)
+    assert valued.pnl == pytest.approx(2965.5)
+
+
 def test_normalize_gateway_position_prefers_okx_upl_over_position_pnl():
     """OKX position pnl is not the current unrealized PnL for open-position risk."""
     spec = normalize_asset_spec(
@@ -3683,6 +3727,36 @@ async def test_build_positions_response_skips_zero_position_rows_even_with_stale
 
     assert result.positions == []
     assert result.total_long_value == 0.0
+    assert result.total_pnl == 0.0
+
+
+@pytest.mark.asyncio
+async def test_build_positions_response_skips_zero_position_snapshot_with_stale_value():
+    service = TradingWorkspaceService()
+    unit = SimpleNamespace(
+        id="unit-zero-stale-value",
+        strategy_name="Zero Stale Value Unit",
+        strategy_id="simulate/gateway_dual_ma",
+        symbol="IF2609",
+        symbol_name="沪深300",
+        trading_mode="live",
+        trading_snapshot={
+            "positions": [],
+            "long_position": 0.0,
+            "short_position": 0.0,
+            "position_pnl": 999.0,
+            "long_market_value": 1_500_000.0,
+            "short_market_value": 0.0,
+            "position_source": "gateway",
+            "valuation_status": "confirmed",
+        },
+    )
+
+    result = await service.build_positions_response([unit], "user-1", hydrate=False)
+
+    assert result.positions == []
+    assert result.total_long_value == 0.0
+    assert result.total_short_value == 0.0
     assert result.total_pnl == 0.0
 
 
