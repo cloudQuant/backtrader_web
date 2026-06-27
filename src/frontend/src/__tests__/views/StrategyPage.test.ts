@@ -1367,6 +1367,120 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('restores cancelled AI research record after task cancellation', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const cancelledRecord: AIStrategyResearchRunRecord = {
+      run_id: 'cancelled-run',
+      prompt: '取消中的趋势策略',
+      symbol: '000001.SZ',
+      symbol_name: '平安银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      status: 'cancelled',
+      achieved: false,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 0,
+      best_iteration: null,
+      best_sharpe: 0,
+      best_quality_score: 0,
+      best_quality_gate_evaluations: [],
+      best_diagnostics: {
+        summary: 'AI投研任务在首轮回测产生结果前取消，已保存待回测策略草案。',
+        failure_categories: ['cancelled', 'draft_only'],
+        promotion_ready: false,
+      },
+      best_metrics: {},
+      asset_specs: {},
+      backtest_environment: { initial_cash: 100000, commission: 0.001 },
+      best_strategy_id: 'saved-strategy-1',
+      best_strategy_name: '待回测策略',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_workspace_id: null,
+      paper_unit_id: null,
+      paper_trading_started: false,
+      paper_monitoring_plan: [],
+      paper_handoff: {},
+      paper_review_status: null,
+      paper_review_ready_for_live: false,
+      paper_reviewed_at: null,
+      paper_review_evaluations: [],
+      paper_review_next_actions: [],
+      live_readiness_checklist: [],
+      live_readiness_expires_at: null,
+      pipeline: {
+        current_stage: 'cancelled',
+        status: 'cancelled',
+        progress: 20,
+        ready_for_live: false,
+        paper_trading_error: null,
+        live_readiness_checklist: [],
+        live_readiness_expires_at: null,
+        steps: [
+          { key: 'draft', label: '策略生成', status: 'completed' },
+          {
+            key: 'backtest_loop',
+            label: '自动回测迭代',
+            status: 'cancelled',
+            iteration_count: 0,
+            max_iterations: 3,
+          },
+        ],
+      },
+      next_actions: ['AI投研任务已取消，已保存当前待回测策略草案。'],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [],
+    }
+    ;(strategyApi as any).cancelAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'research-task-1',
+      status: 'cancelled',
+      submitted_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      run_id: 'cancelled-run',
+      research_workspace_id: 'research-ws',
+      current_stage: 'cancelled',
+      progress: 35,
+      current_iteration: 1,
+      iteration_count: 0,
+      max_iterations: 3,
+      message: 'cancelled',
+    })
+    try {
+      const wrapper = doMount()
+      const vm = wrapper.vm as any
+      vm.aiResearchRunning = true
+      vm.aiResearchTaskId = 'research-task-1'
+      vi.mocked(strategyApi.listAIResearchRuns).mockClear()
+      vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({
+        total: 1,
+        items: [cancelledRecord],
+      })
+      await vm.cancelAIResearchTask()
+      await flushPromises()
+
+      expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith('research-ws', 20)
+      expect(vm.aiResearchResult.run_id).toBe('cancelled-run')
+      expect(vm.aiResearchResult.status).toBe('cancelled')
+      expect(vm.aiResearchResult.run_record.best_strategy_id).toBe('saved-strategy-1')
+      expect(vm.aiResearchRuns[0].run_id).toBe('cancelled-run')
+      expect(vm.canContinueResearchFromCurrentRunRecord).toBe(true)
+      await vm.continueResearchFromCurrentRunRecord()
+      await flushPromises()
+      expect(vm.aiResearchForm.continuation_source).toBe('research_cancelled')
+      expect(strategyApi.runAIResearchLoop).toHaveBeenLastCalledWith(expect.objectContaining({
+        continue_from_run_id: 'cancelled-run',
+        seed_strategy_id: 'saved-strategy-1',
+      }))
+    } finally {
+      delete (strategyApi as any).cancelAIResearchTask
+    }
+  })
+
   it('uses AI research run history to refill the form', () => {
     const vm = doMount().vm as any
     vm.useAIResearchRecord({

@@ -3148,7 +3148,10 @@ async function cancelAIResearchTask() {
     aiResearchRunning.value = false
     if (task.run_id) {
       try {
-        await refreshAIResearchRunRecord(task.run_id, task.research_workspace_id)
+        const record = await refreshAIResearchRunRecord(task.run_id, task.research_workspace_id)
+        if (record) {
+          aiResearchResult.value = researchResultFromRunRecord(record)
+        }
       } catch {
         await loadAIResearchRuns()
       }
