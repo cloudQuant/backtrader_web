@@ -1601,6 +1601,9 @@ _RAW_EXCHANGE_GROSS_PNL_KEYS = frozenset(
         "PositionProfit",
     }
 )
+_RECALCULABLE_POSITION_PNL_KEYS = _RAW_EXCHANGE_GROSS_PNL_KEYS | frozenset(
+    (*MARKABLE_NET_PNL_FIELD_KEYS, "gross_pnl")
+)
 
 
 def _pnl_currency(row: dict[str, Any]) -> str:
@@ -1769,10 +1772,13 @@ def _should_recalculate_generic_pnl(
     entry_price: float,
     current_price: Any,
     multiplier: float,
+    has_multiplier: bool,
 ) -> bool:
-    if explicit_net_pnl_value is not None:
+    if explicit_net_pnl_value not in (None, ""):
         return False
-    if field_key not in MARKABLE_NET_PNL_FIELD_KEYS:
+    if field_key not in _RECALCULABLE_POSITION_PNL_KEYS:
+        return False
+    if not has_multiplier:
         return False
     current_price_number = _safe_float(current_price)
     return (
@@ -1948,14 +1954,12 @@ def normalize_gateway_position(
             "CONTRACT_MULTIPLIER",
         )
     )
-    multiplier = (
-        _first_number(
-            _first_value(asset_spec or {}, *multiplier_keys),
-            _first_value(row, *multiplier_keys),
-            default=1.0,
-        )
-        or 1.0
+    multiplier_value = _first_number(
+        _first_value(asset_spec or {}, *multiplier_keys),
+        _first_value(row, *multiplier_keys),
     )
+    has_multiplier = multiplier_value is not None
+    multiplier = multiplier_value or 1.0
     price = (
         _safe_float(
             _first_value(
@@ -2137,6 +2141,7 @@ def normalize_gateway_position(
         entry_price=price,
         current_price=current_price,
         multiplier=multiplier,
+        has_multiplier=has_multiplier,
     )
     if generic_pnl_recalculated:
         gross_pnl = None

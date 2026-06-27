@@ -1510,6 +1510,9 @@ _RAW_EXCHANGE_GROSS_PNL_KEYS = frozenset(
         "PositionProfit",
     }
 )
+_RECALCULABLE_POSITION_PNL_KEYS = _RAW_EXCHANGE_GROSS_PNL_KEYS | frozenset(
+    (*MARKABLE_NET_PNL_FIELD_KEYS, "gross_pnl")
+)
 
 
 def _row_pnl_currency(row: dict[str, Any]) -> str:
@@ -1728,10 +1731,13 @@ def _should_recalculate_generic_pnl(
     entry_price: float,
     current_price: float,
     multiplier: float,
+    has_multiplier: bool,
 ) -> bool:
-    if explicit_net_pnl_value is not None:
+    if explicit_net_pnl_value not in (None, ""):
         return False
-    if field_key not in MARKABLE_NET_PNL_FIELD_KEYS:
+    if field_key not in _RECALCULABLE_POSITION_PNL_KEYS:
+        return False
+    if not has_multiplier:
         return False
     return (
         abs(size) > EPSILON
@@ -2108,6 +2114,40 @@ def value_position(
 
     row_spec = spec or PositionSpec()
     inverse_contract = _is_inverse_contract(row, row_spec)
+    multiplier_keys = (
+        (
+            row.get("contract_value"),
+            row.get("contractValue"),
+            row.get("contract_value_amount"),
+            row.get("contractValueAmount"),
+            row.get("contract_notional_value"),
+            row.get("okx_contract_value"),
+            row.get("ctVal"),
+            row.get("multiplier"),
+            row.get("mult"),
+            row.get("contract_size"),
+            row.get("trade_contract_size"),
+            row.get("contract_multiplier"),
+            row.get("ctMult"),
+            row.get("VolumeMultiple"),
+            row.get("CONTRACT_MULTIPLIER"),
+        )
+        if inverse_contract
+        else (
+            row.get("multiplier"),
+            row.get("mult"),
+            row.get("contract_size"),
+            row.get("trade_contract_size"),
+            row.get("contract_notional_value"),
+            row.get("okx_contract_value"),
+            row.get("contract_multiplier"),
+            row.get("ctVal"),
+            row.get("ctMult"),
+            row.get("VolumeMultiple"),
+            row.get("CONTRACT_MULTIPLIER"),
+        )
+    )
+    has_multiplier = row_spec.has_multiplier or _first_number(*multiplier_keys) is not None
     multiplier = _row_multiplier(row, row_spec, inverse_contract=inverse_contract)
     margin_rate = _row_margin_rate(row, row_spec, size)
     entry_price = safe_float(
@@ -2254,6 +2294,7 @@ def value_position(
         entry_price=entry_price,
         current_price=current_price,
         multiplier=multiplier,
+        has_multiplier=has_multiplier,
     ):
         explicit_gross_pnl = None
     gross_pnl = (

@@ -3198,6 +3198,79 @@ async def test_portfolio_positions_value_gateway_long_short_aliases_with_real_fe
 
 
 @pytest.mark.asyncio
+async def test_portfolio_positions_recalculate_gateway_exchange_pnl_with_contract_multiplier():
+    """Gateway gross PnL fields must not bypass contract multiplier valuation."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "InstrumentID": "IF2609",
+                    "long_position": "2",
+                    "short_position": "0",
+                    "avg_price": "5000",
+                    "last_price": "5001",
+                    "PositionProfit": "2",
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "IF2609" in symbols
+            return {
+                "IF2609": {
+                    "source": "ctp_gateway",
+                    "VolumeMultiple": 300,
+                    "LongMarginRatioByMoney": 0.1,
+                    "OpenRatioByMoney": 0.23,
+                }
+            }
+
+        def query_instance_gateway_trades(self, instance_id, *, symbol=None, limit=100):
+            assert instance_id == "inst-a"
+            assert symbol == "IF2609"
+            assert limit == 500
+            return [
+                {
+                    "InstrumentID": "IF2609",
+                    "direction": "buy",
+                    "TradeVolume": 2,
+                    "Commission": 46.0,
+                    "trade_time": 1710000000000,
+                }
+            ]
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "IF2609",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+    row = result["positions"][0]
+
+    assert row["market_value"] == pytest.approx(3_000_600.0)
+    assert row["margin_value"] == pytest.approx(300_060.0)
+    assert row["multiplier"] == pytest.approx(300.0)
+    assert row["commission"] == pytest.approx(46.0)
+    assert row["gross_pnl"] == pytest.approx(600.0)
+    assert row["position_pnl"] == pytest.approx(554.0)
+    assert result["summary"]["total_pnl"] == pytest.approx(554.0)
+
+
+@pytest.mark.asyncio
 async def test_portfolio_positions_hide_gateway_long_short_zero_aliases():
     """Gateway rows with explicit zero long/short positions must not display."""
     from app.api.portfolio_api import get_portfolio_positions
