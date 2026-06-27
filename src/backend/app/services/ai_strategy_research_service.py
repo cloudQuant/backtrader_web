@@ -61,6 +61,7 @@ from app.utils.sandbox import StrategySandbox
 
 _TERMINAL_UNIT_STATUSES = {"completed", "failed", "cancelled", "timeout"}
 _MAX_CODE_REPAIR_ATTEMPTS = 2
+_PAPER_TRADING_STARTED_STATUSES = {"running", "submitted", "queued", "pending", "completed"}
 
 
 @dataclass(frozen=True)
@@ -1482,7 +1483,7 @@ class AIStrategyResearchService:
             workspace=workspace,
             unit=unit,
             run_result=run_result,
-            started=run_result is not None and run_result.status not in {"failed", "cancelled"},
+            started=_paper_trading_run_started(run_result),
             handoff=handoff,
         )
 
@@ -2599,6 +2600,13 @@ def _paper_trading_start_error(paper_trading: AIStrategyPaperTradingStart | None
     if run_status:
         return f"Paper trading run finished with status {run_status}"
     return "Paper trading run did not return a runnable task"
+
+
+def _paper_trading_run_started(run_result: StrategyCopilotRunResult | None) -> bool:
+    if run_result is None:
+        return False
+    status = str(run_result.status or "").strip().lower()
+    return status in _PAPER_TRADING_STARTED_STATUSES
 
 
 def _quality_metric(metrics: dict[str, Any], *keys: str) -> float | None:

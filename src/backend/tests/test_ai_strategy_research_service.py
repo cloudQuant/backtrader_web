@@ -260,6 +260,12 @@ class FakePaperRunFailingWorkspaceService(FakeWorkspaceService):
         return [{"unit_id": unit_ids[0], "task_id": "paper-task", "status": "failed"}]
 
 
+class FakePaperRunTimeoutWorkspaceService(FakeWorkspaceService):
+    async def run_units(self, workspace_id: str, user_id: str, unit_ids: list[str], parallel=False):
+        self.started_units.append((workspace_id, unit_ids))
+        return [{"unit_id": unit_ids[0], "task_id": "paper-task", "status": "timeout"}]
+
+
 class FakeStrategyService:
     def __init__(
         self,
@@ -1163,6 +1169,44 @@ async def test_research_loop_persists_achieved_run_when_paper_run_fails():
     assert persisted_run["paper_unit_id"] == "paper-unit"
     assert persisted_run["paper_handoff"]["paper_run_status"] == "failed"
     assert persisted_run["pipeline"]["current_stage"] == "paper_trading_failed"
+
+
+@pytest.mark.asyncio
+async def test_research_loop_treats_timeout_paper_run_as_start_failure():
+    workspace_service = FakePaperRunTimeoutWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.18, "total_trades": 6, "max_drawdown": -4.0}],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert result.paper_trading is not None
+    assert result.paper_trading.started is False
+    assert result.paper_trading.run_result is not None
+    assert result.paper_trading.run_result.status == "timeout"
+    assert result.pipeline["current_stage"] == "paper_trading_failed"
+    assert result.pipeline["paper_trading_error"] == "Paper trading run finished with status timeout"
+    assert result.run_record is not None
+    assert result.run_record.paper_trading_started is False
+    assert result.run_record.paper_handoff["paper_run_status"] == "timeout"
+    assert result.run_record.pipeline["current_stage"] == "paper_trading_failed"
 
 
 @pytest.mark.asyncio
