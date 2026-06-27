@@ -3745,7 +3745,7 @@ def _paper_start_request_from_record(
         or _strategy_id_from_iteration_payload(iteration_payload),
         continue_from_run_id=record.run_id,
         start_paper_trading=True,
-        paper_workspace_name=request.paper_workspace_name,
+        paper_workspace_name=request.paper_workspace_name or record.paper_workspace_name,
         gateway_config=request.gateway_config,
         data_config=data_config,
         unit_settings=unit_settings,

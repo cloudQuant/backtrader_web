@@ -3572,6 +3572,7 @@ async def test_start_paper_trading_from_achieved_research_run_record():
             completed_at="2026-01-01T00:01:00+00:00",
         ),
         "paper_workspace_id": None,
+        "paper_workspace_name": "AI模拟-历史最佳",
         "paper_unit_id": None,
         "paper_trading_started": False,
         "iterations": [
@@ -3622,10 +3623,7 @@ async def test_start_paper_trading_from_achieved_research_run_record():
     result = await service.start_paper_trading_from_run(
         "user-1",
         "previous-run",
-        AIStrategyPaperTradingStartRequest(
-            research_workspace_id="research-ws",
-            paper_workspace_name="AI模拟-历史最佳",
-        ),
+        AIStrategyPaperTradingStartRequest(research_workspace_id="research-ws"),
     )
 
     assert result.started is True
