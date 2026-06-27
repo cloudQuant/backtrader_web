@@ -68,6 +68,7 @@ class AIStrategyResearchTaskManager:
         service: Any | None = None,
     ) -> AIStrategyResearchTaskResponse:
         task_id = str(uuid.uuid4())
+        runtime_updates = _research_request_runtime_task_updates(request)
         response = AIStrategyResearchTaskResponse(
             task_id=task_id,
             status="pending",
@@ -77,13 +78,20 @@ class AIStrategyResearchTaskManager:
             progress=0.0,
             max_iterations=request.max_iterations,
             message="AI research task submitted",
+            **runtime_updates,
         )
         async with self._lock:
             self._tasks[task_id] = _ResearchTaskState(user_id=user_id, response=response)
 
         loop = asyncio.get_running_loop()
         background_task = loop.create_task(
-            self._run_task(task_id, user_id, request, service=service)
+            self._run_task(
+                task_id,
+                user_id,
+                request,
+                service=service,
+                runtime_updates=runtime_updates,
+            )
         )
         background_task.add_done_callback(
             lambda _: loop.create_task(self._prune_terminal_tasks(user_id))
@@ -167,6 +175,7 @@ class AIStrategyResearchTaskManager:
         request: AIStrategyResearchRunRequest,
         *,
         service: Any | None,
+        runtime_updates: dict[str, Any],
     ) -> None:
         await self._update_task(
             task_id,
@@ -180,6 +189,7 @@ class AIStrategyResearchTaskManager:
                     "message": "AI research task is running",
                 },
                 request,
+                runtime_updates=runtime_updates,
             ),
         )
         try:
@@ -193,7 +203,11 @@ class AIStrategyResearchTaskManager:
                 await self._update_task(
                     task_id,
                     status="running",
-                    **_research_progress_task_updates(payload, request),
+                    **_research_progress_task_updates(
+                        payload,
+                        request,
+                        runtime_updates=runtime_updates,
+                    ),
                 )
 
             if _runner_accepts_progress_callback(runner):
@@ -336,11 +350,51 @@ def _runner_accepts_progress_callback(runner: Any) -> bool:
 def _research_progress_task_updates(
     payload: dict[str, Any],
     request: AIStrategyResearchRunRequest,
+    *,
+    runtime_updates: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     updates = dict(payload)
+    for key, value in (runtime_updates or {}).items():
+        if isinstance(updates.get(key), dict) and updates[key]:
+            continue
+        if isinstance(value, dict) and value:
+            updates[key] = dict(value)
     if not isinstance(updates.get("pipeline"), dict):
         updates["pipeline"] = _research_progress_pipeline(updates, request)
     return updates
+
+
+def _research_request_runtime_task_updates(
+    request: AIStrategyResearchRunRequest,
+) -> dict[str, Any]:
+    try:
+        from app.services.ai_strategy_research_service import (
+            _request_backtest_environment,
+            _resolve_research_asset_specs,
+            _summarize_asset_specs_for_prompt,
+        )
+
+        asset_specs = _resolve_research_asset_specs(request)
+        backtest_environment = _request_backtest_environment(request, asset_specs)
+        updates: dict[str, Any] = {}
+        if asset_specs:
+            updates["asset_specs"] = _summarize_asset_specs_for_prompt(asset_specs)
+        if backtest_environment:
+            updates["backtest_environment"] = backtest_environment
+        return updates
+    except Exception:
+        return {
+            "backtest_environment": {
+                "initial_cash": request.initial_cash,
+                "commission": request.commission,
+                "commission_source": "request_default",
+                "annual_days": request.annual_days,
+                "calc_method": request.calc_method,
+                "weight_mode": request.weight_mode,
+                **({"start_date": request.start_date} if request.start_date else {}),
+                **({"end_date": request.end_date} if request.end_date else {}),
+            }
+        }
 
 
 def _research_progress_pipeline(

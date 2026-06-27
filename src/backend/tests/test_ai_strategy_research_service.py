@@ -6705,6 +6705,63 @@ async def test_ai_strategy_research_task_manager_exposes_timeout_cancelled_backt
 
 
 @pytest.mark.asyncio
+async def test_ai_strategy_research_task_manager_exposes_runtime_context_while_running(
+    monkeypatch,
+):
+    def fake_resolve_asset_specs(instance, strategy_dir, gateway=None, symbols=None):
+        return {
+            "IF2409.CFE": {
+                "symbol": "IF2409.CFE",
+                "source": "running_task_exchange_specs",
+                "asset_type": "FUTURE",
+                "multiplier": 300,
+                "margin_rate": 0.1,
+                "commission_rate": 0.000023,
+            }
+        }
+
+    monkeypatch.setattr(
+        "app.services.ai_strategy_research_service.resolve_asset_specs",
+        fake_resolve_asset_specs,
+    )
+    manager = AIStrategyResearchTaskManager()
+
+    submitted = await manager.submit(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="生成股指期货趋势策略",
+            symbol="IF2409.CFE",
+            target_sharpe=1.0,
+            max_iterations=3,
+        ),
+        service=SlowResearchAPIService(),
+    )
+    assert submitted.asset_specs["IF2409.CFE"]["multiplier"] == 300
+    assert submitted.backtest_environment["commission"] == pytest.approx(0.000023)
+    assert submitted.backtest_environment["commission_source"] == "asset_specs_or_default"
+    assert submitted.backtest_environment["asset_spec_source"] == "running_task_exchange_specs"
+
+    task = None
+    for _ in range(20):
+        task = await manager.get_task("user-1", submitted.task_id)
+        if task is not None and task.current_stage == "backtesting":
+            break
+        await asyncio.sleep(0.01)
+
+    assert task is not None
+    assert task.status == "running"
+    assert task.current_stage == "backtesting"
+    assert task.asset_specs["IF2409.CFE"]["asset_type"] == "FUTURE"
+    assert task.asset_specs["IF2409.CFE"]["margin_rate"] == pytest.approx(0.1)
+    assert task.backtest_environment["commission"] == pytest.approx(0.000023)
+    assert task.backtest_environment["multiplier"] == 300
+    assert task.backtest_environment["margin"] == pytest.approx(0.1)
+    assert task.backtest_environment["asset_spec_source"] == "running_task_exchange_specs"
+
+    await manager.cancel_task("user-1", submitted.task_id)
+
+
+@pytest.mark.asyncio
 async def test_ai_strategy_research_task_manager_exposes_paper_handoff_summary():
     manager = AIStrategyResearchTaskManager()
 
