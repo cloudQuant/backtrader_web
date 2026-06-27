@@ -3115,27 +3115,41 @@ def _pipeline_with_live_trading_prepared(
         if isinstance(raw_steps, list)
         else []
     )
-    live_step = {
+    live_handoff_step = {
         "key": "live_handoff",
         "label": "实盘交接",
         "status": "completed",
         "handoff_status": "approved_for_live",
+    }
+    live_prepare_step = {
+        "key": "live_trading_prepare",
+        "label": "实盘准备",
+        "status": "completed",
         "live_trading_prepared": True,
         "live_workspace_id": workspace.id,
         "live_unit_id": unit.id,
+        "live_unit_locked": bool(unit.lock_trading or unit.lock_running),
         "prepared_at": prepared_at,
     }
     replaced = False
     for index, step in enumerate(steps):
         if str(step.get("key") or "") == "live_handoff":
-            steps[index] = {**step, **live_step}
+            steps[index] = {**step, **live_handoff_step}
             replaced = True
             break
     if not replaced:
-        steps.append(live_step)
+        steps.append(live_handoff_step)
+    replaced = False
+    for index, step in enumerate(steps):
+        if str(step.get("key") or "") == "live_trading_prepare":
+            steps[index] = {**step, **live_prepare_step}
+            replaced = True
+            break
+    if not replaced:
+        steps.append(live_prepare_step)
     updated.update(
         {
-            "current_stage": "live_handoff",
+            "current_stage": "live_trading_prepare",
             "live_trading_prepared": True,
             "live_trading_prepared_at": prepared_at,
             "live_workspace_id": workspace.id,

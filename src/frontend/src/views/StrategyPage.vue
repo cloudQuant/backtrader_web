@@ -1888,6 +1888,7 @@ const AI_RESEARCH_STAGE_LABELS: Record<string, string> = {
   paper_review: '模拟复核',
   live_candidate: '实盘候选',
   live_handoff: '实盘交接',
+  live_trading_prepare: '实盘准备',
   research_iteration: '投研迭代',
   completed: '已完成',
   failed: '失败',
@@ -3002,6 +3003,9 @@ function isPaperTradingStartFailure(record: AIStrategyResearchRunRecord) {
 }
 
 function pipelineStage(record: AIStrategyResearchRunRecord) {
+  if (record.live_trading_prepared || record.pipeline?.current_stage === 'live_trading_prepare') {
+    return 'live_trading_prepare'
+  }
   if (record.live_handoff || record.pipeline?.current_stage === 'live_handoff') return 'live_handoff'
   if (record.paper_review_ready_for_live) return 'live_candidate'
   if (record.paper_review_status) return 'paper_review'
@@ -4333,31 +4337,23 @@ function liveTradingPreparedRunRecord(
     new Date().toISOString()
   )
   const previousSteps = record.pipeline?.steps ?? []
-  const nextSteps = previousSteps.some(step => step.key === 'live_handoff')
-    ? previousSteps.map(step =>
-        step.key === 'live_handoff'
-          ? {
-              ...step,
-              status: 'completed',
-              live_trading_prepared: prepared.prepared,
-              live_workspace_id: prepared.workspace.id,
-              live_unit_id: prepared.unit.id,
-              prepared_at: preparedAt,
-            }
-          : step
-      )
-    : [
-        ...previousSteps,
-        {
-          key: 'live_handoff',
-          label: '实盘交接',
-          status: 'completed',
-          live_trading_prepared: prepared.prepared,
-          live_workspace_id: prepared.workspace.id,
-          live_unit_id: prepared.unit.id,
-          prepared_at: preparedAt,
-        },
-      ]
+  const nextSteps = upsertPipelineStep(
+    upsertPipelineStep(previousSteps, {
+      key: 'live_handoff',
+      label: '实盘交接',
+      status: 'completed',
+    }),
+    {
+      key: 'live_trading_prepare',
+      label: '实盘准备',
+      status: 'completed',
+      live_trading_prepared: prepared.prepared,
+      live_workspace_id: prepared.workspace.id,
+      live_unit_id: prepared.unit.id,
+      live_unit_locked: Boolean(prepared.unit.lock_trading || prepared.unit.lock_running),
+      prepared_at: preparedAt,
+    }
+  )
   const liveHandoff = record.live_handoff
     ? {
         ...record.live_handoff,
@@ -4378,7 +4374,7 @@ function liveTradingPreparedRunRecord(
     live_trading_prepared_at: preparedAt,
     pipeline: {
       ...(record.pipeline ?? {}),
-      current_stage: 'live_handoff',
+      current_stage: 'live_trading_prepare',
       status: record.pipeline?.status ?? record.live_handoff?.status ?? record.status,
       progress: record.pipeline?.progress ?? 100,
       ready_for_live: record.pipeline?.ready_for_live ?? true,
@@ -4391,6 +4387,17 @@ function liveTradingPreparedRunRecord(
     },
     next_actions: prepared.next_actions?.length ? prepared.next_actions : record.next_actions,
   }
+}
+
+function upsertPipelineStep(
+  steps: AIStrategyPipelineStep[],
+  nextStep: AIStrategyPipelineStep
+): AIStrategyPipelineStep[] {
+  const index = steps.findIndex(step => step.key === nextStep.key)
+  if (index < 0) return [...steps, nextStep]
+  return steps.map((step, currentIndex) =>
+    currentIndex === index ? { ...step, ...nextStep } : step
+  )
 }
 
 async function continueResearchFromCurrentPaperReview() {

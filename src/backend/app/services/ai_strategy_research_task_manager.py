@@ -425,6 +425,12 @@ def _research_progress_pipeline(
             "error": paper_trading_error,
         },
         {"key": "paper_review", "label": "模拟复核", "status": _review_step_status(stage)},
+        {"key": "live_handoff", "label": "实盘交接", "status": _live_handoff_step_status(stage)},
+        {
+            "key": "live_trading_prepare",
+            "label": "实盘准备",
+            "status": _live_prepare_step_status(stage),
+        },
     ]
     return {
         "current_stage": stage,
@@ -457,6 +463,7 @@ def _backtest_step_status(stage: str) -> str:
         "paper_review",
         "live_candidate",
         "live_handoff",
+        "live_trading_prepare",
         "completed",
     }:
         return "completed"
@@ -470,6 +477,7 @@ def _quality_step_status(stage: str) -> str:
         "paper_review",
         "live_candidate",
         "live_handoff",
+        "live_trading_prepare",
         "completed",
     }:
         return "completed"
@@ -485,7 +493,13 @@ def _paper_step_status(stage: str) -> str:
         return "failed"
     if stage == "paper_trading":
         return "running"
-    if stage in {"paper_review", "live_candidate", "live_handoff", "completed"}:
+    if stage in {
+        "paper_review",
+        "live_candidate",
+        "live_handoff",
+        "live_trading_prepare",
+        "completed",
+    }:
         return "completed"
     return "pending"
 
@@ -493,7 +507,21 @@ def _paper_step_status(stage: str) -> str:
 def _review_step_status(stage: str) -> str:
     if stage == "paper_review":
         return "running"
-    if stage in {"live_candidate", "live_handoff"}:
+    if stage in {"live_candidate", "live_handoff", "live_trading_prepare"}:
+        return "completed"
+    return "pending"
+
+
+def _live_handoff_step_status(stage: str) -> str:
+    if stage == "live_handoff":
+        return "running"
+    if stage == "live_trading_prepare":
+        return "completed"
+    return "pending"
+
+
+def _live_prepare_step_status(stage: str) -> str:
+    if stage == "live_trading_prepare":
         return "completed"
     return "pending"
 

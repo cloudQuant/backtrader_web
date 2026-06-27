@@ -541,6 +541,11 @@ export interface AIStrategyPipelineStep {
   iteration_count?: number
   max_iterations?: number
   review_status?: string | null
+  live_trading_prepared?: boolean
+  live_workspace_id?: string | null
+  live_unit_id?: string | null
+  live_unit_locked?: boolean
+  prepared_at?: string | null
 }
 
 export interface AIStrategyPipelineSummary {

@@ -1013,6 +1013,8 @@ describe('StrategyPage', () => {
     })
     expect(vm.aiResearchResult.run_record.live_trading_prepared).toBe(true)
     expect(vm.aiResearchResult.run_record.live_unit_id).toBe('live-unit')
+    expect(vm.aiResearchResult.run_record.pipeline.current_stage).toBe('live_trading_prepare')
+    expect(vm.aiResearchResult.run_record.pipeline.steps.at(-1)?.key).toBe('live_trading_prepare')
     expect(wrapper.find('[data-test="ai-research-current-live-prepare-status"]').text()).toContain(
       'live-unit 已准备，默认锁定'
     )
@@ -1026,6 +1028,7 @@ describe('StrategyPage', () => {
       params: { id: 'live-ws' },
     })
     expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('实盘交接')
+    expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('实盘准备')
     expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('已完成')
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已启动')

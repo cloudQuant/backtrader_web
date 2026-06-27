@@ -3140,8 +3140,11 @@ async def test_prepare_live_trading_from_approved_handoff_creates_locked_live_un
     assert persisted_run["live_workspace_id"] == "live-ws"
     assert persisted_run["live_unit_id"] == "live-unit"
     assert persisted_run["live_trading_prepared"] is True
+    assert persisted_run["pipeline"]["current_stage"] == "live_trading_prepare"
     assert persisted_run["pipeline"]["live_trading_prepared"] is True
     assert persisted_run["pipeline"]["live_unit_locked"] is True
+    assert persisted_run["pipeline"]["steps"][-1]["key"] == "live_trading_prepare"
+    assert persisted_run["pipeline"]["steps"][-1]["status"] == "completed"
     assert persisted_run["live_handoff"]["handoff"]["live_trading_prepare"][
         "live_unit_id"
     ] == "live-unit"
@@ -6935,6 +6938,79 @@ class FakeResearchAPILiveHandoffService(FakeResearchAPIPaperService):
         )
 
 
+class FakeResearchAPILivePreparedService(FakeResearchAPILiveHandoffService):
+    async def run(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+        *,
+        progress_callback=None,
+    ):
+        result = await super().run(user_id, request, progress_callback=progress_callback)
+        record = result.run_record
+        assert record is not None
+        assert result.best_strategy is not None
+        live_workspace = _workspace("live-api-ws", "trading").model_copy(
+            update={"name": "AI实盘准备"}
+        )
+        live_unit = _unit("live-api-unit", live_workspace.id, result.best_strategy).model_copy(
+            update={
+                "trading_mode": "live",
+                "lock_trading": True,
+                "lock_running": True,
+            }
+        )
+        prepared_at = "2099-01-01T00:05:00+00:00"
+        pipeline = {
+            **dict(record.pipeline or {}),
+            "current_stage": "live_trading_prepare",
+            "live_trading_prepared": True,
+            "live_trading_prepared_at": prepared_at,
+            "live_workspace_id": live_workspace.id,
+            "live_unit_id": live_unit.id,
+            "live_unit_locked": True,
+            "steps": [
+                {
+                    "key": "live_handoff",
+                    "label": "实盘交接",
+                    "status": "completed",
+                    "handoff_status": "approved_for_live",
+                },
+                {
+                    "key": "live_trading_prepare",
+                    "label": "实盘准备",
+                    "status": "completed",
+                    "live_trading_prepared": True,
+                    "live_workspace_id": live_workspace.id,
+                    "live_unit_id": live_unit.id,
+                    "live_unit_locked": True,
+                    "prepared_at": prepared_at,
+                },
+            ],
+        }
+        record = record.model_copy(
+            update={
+                "live_workspace_id": live_workspace.id,
+                "live_workspace_name": live_workspace.name,
+                "live_unit_id": live_unit.id,
+                "live_trading_prepared": True,
+                "live_trading_prepared_at": prepared_at,
+                "pipeline": pipeline,
+                "next_actions": [
+                    "已创建锁定的实盘交易单元，需人工核对网关凭据、账户权限和风控限额后再解锁运行。",
+                    "实盘单元 live-api-unit 当前默认锁定交易/运行，不会自动下单。",
+                ],
+            }
+        )
+        return result.model_copy(
+            update={
+                "run_record": record,
+                "pipeline": pipeline,
+                "next_actions": record.next_actions,
+            }
+        )
+
+
 class FakeResearchAPITimeoutCancelService(FakeResearchAPIService):
     async def run(
         self,
@@ -7388,6 +7464,47 @@ async def test_ai_strategy_research_task_manager_exposes_live_handoff_summary():
     assert listed[0].live_handoff.status == "approved_for_live"
     assert listed[0].live_handoff_approval is not None
     assert listed[0].live_handoff_approval.decision == "approved"
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_task_manager_exposes_live_prepared_summary():
+    manager = AIStrategyResearchTaskManager()
+
+    submitted = await manager.submit(
+        "user-1",
+        AIStrategyResearchRunRequest(prompt="生成趋势策略", symbol="IF2409.CFE"),
+        service=FakeResearchAPILivePreparedService(),
+    )
+
+    task = None
+    for _ in range(20):
+        task = await manager.get_task("user-1", submitted.task_id)
+        if task is not None and task.status == "completed":
+            break
+        await asyncio.sleep(0.01)
+
+    assert task is not None
+    assert task.status == "completed"
+    assert task.current_stage == "live_trading_prepare"
+    assert task.live_workspace_id == "live-api-ws"
+    assert task.live_workspace_name == "AI实盘准备"
+    assert task.live_unit_id == "live-api-unit"
+    assert task.live_trading_prepared is True
+    assert task.live_trading_prepared_at == "2099-01-01T00:05:00+00:00"
+    assert task.pipeline["current_stage"] == "live_trading_prepare"
+    assert task.pipeline["live_trading_prepared"] is True
+    assert task.pipeline["live_unit_locked"] is True
+    assert task.pipeline["steps"][-1]["key"] == "live_trading_prepare"
+    assert task.pipeline["steps"][-1]["status"] == "completed"
+    assert task.next_actions[0].startswith("已创建锁定的实盘交易单元")
+    assert task.result is not None
+    assert task.result.run_record is not None
+    assert task.result.run_record.live_workspace_id == "live-api-ws"
+    assert task.result.run_record.pipeline["steps"][-1]["key"] == "live_trading_prepare"
+
+    listed = await manager.list_tasks("user-1", active_only=False)
+    assert listed[0].live_trading_prepared is True
+    assert listed[0].pipeline["current_stage"] == "live_trading_prepare"
 
 
 @pytest.mark.asyncio
