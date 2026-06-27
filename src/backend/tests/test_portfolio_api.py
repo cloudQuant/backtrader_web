@@ -194,8 +194,31 @@ def test_parse_positions_for_portfolio_flat_log_clears_stale_position(monkeypatc
 
     result = portfolio_api._parse_positions_for_portfolio(tmp_path)
 
-    assert len(result) == 1
-    assert result[0]["size"] == 0
+    assert result == []
+
+
+def test_parse_positions_for_portfolio_flat_log_does_not_fallback_to_stale_snapshot(
+    monkeypatch, tmp_path
+):
+    """A log-confirmed flat position is authoritative over stale snapshots."""
+    from app.api import portfolio_api
+
+    stale_snapshot = [{"data_name": "IF2609", "size": 1, "price": 5000.0}]
+    flat_log = [
+        {
+            "datetime": "2026-06-24 11:02:00",
+            "data_name": "IF2609",
+            "size": 0,
+            "price": 0.0,
+        },
+    ]
+
+    monkeypatch.setattr(portfolio_api, "parse_current_position", lambda _log_dir: stale_snapshot)
+    monkeypatch.setattr(portfolio_api, "parse_position_log", lambda _log_dir: flat_log)
+
+    result = portfolio_api._parse_positions_for_portfolio(tmp_path)
+
+    assert result == []
 
 
 def test_parse_positions_for_portfolio_directional_flat_keeps_opposite_side(
@@ -234,12 +257,9 @@ def test_parse_positions_for_portfolio_directional_flat_keeps_opposite_side(
     result = portfolio_api._parse_positions_for_portfolio(tmp_path)
 
     nonflat = [row for row in result if abs(float(row.get("size") or 0.0)) > 0]
-    flat = [row for row in result if abs(float(row.get("size") or 0.0)) == 0]
     assert len(nonflat) == 1
     assert nonflat[0]["direction"] == "short"
     assert nonflat[0]["price"] == 5010.0
-    assert len(flat) == 1
-    assert flat[0]["direction"] == "long"
 
 
 def test_snapshot_positions_for_portfolio_preserves_explicit_margin_value():

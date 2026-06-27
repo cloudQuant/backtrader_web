@@ -1167,10 +1167,18 @@ def _latest_position_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _parse_positions_for_portfolio(log_dir: Path) -> list[dict[str, Any]]:
-    positions = _latest_position_rows(parse_position_log(log_dir))
-    if positions:
-        return positions
-    return parse_current_position(log_dir)
+    position_log_rows = parse_position_log(log_dir)
+    if position_log_rows:
+        return [
+            row
+            for row in _latest_position_rows(position_log_rows)
+            if abs(_safe_float(row.get("size"), 0.0)) > EPSILON
+        ]
+    return [
+        row
+        for row in parse_current_position(log_dir)
+        if abs(_safe_float(row.get("size"), 0.0)) > EPSILON
+    ]
 
 
 def _snapshot_positions_for_portfolio(snapshot: dict[str, Any] | None) -> list[dict[str, Any]]:

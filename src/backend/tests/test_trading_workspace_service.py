@@ -2584,6 +2584,49 @@ def test_normalize_asset_spec_accepts_raw_okx_instrument_fields():
     assert spec["margin_rate"] == pytest.approx(0.05)
 
 
+def test_normalize_asset_spec_accepts_common_ctp_gateway_aliases_for_valuation():
+    """Raw gateway field aliases should still drive futures valuation."""
+    spec = normalize_asset_spec(
+        {
+            "instrument": "IF2609",
+            "exchange": "CFFEX",
+            "volume_multiple": "300",
+            "priceTick": "0.2",
+            "longMarginRatioByMoney": "0.1",
+            "openRatioByMoney": "0.23",
+            "closeTodayRatioByMoney": "3.45",
+        },
+        symbol="IF2609",
+        source="ctp_gateway",
+    )
+    row = normalize_gateway_position(
+        {
+            "InstrumentID": "IF2609",
+            "PosiDirection": "2",
+            "Position": 1,
+            "Price": 5000.0,
+            "LastPrice": 5010.0,
+            "position_pnl": 10.0,
+        },
+        asset_spec=spec,
+    )
+    valued = value_position(
+        row,
+        spec=contract_spec_for("IF2609", {"contract_metadata": {"IF2609": spec}}),
+    )
+
+    assert spec["multiplier"] == pytest.approx(300.0)
+    assert spec["price_tick"] == pytest.approx(0.2)
+    assert spec["long_margin_rate"] == pytest.approx(0.1)
+    assert spec["commission_rate"] == pytest.approx(0.000023)
+    assert spec["close_today_commission_rate"] == pytest.approx(0.000345)
+    assert valued is not None
+    assert valued.market_value == pytest.approx(1_503_000.0)
+    assert valued.margin_value == pytest.approx(150_300.0)
+    assert valued.commission == pytest.approx(34.5)
+    assert valued.pnl == pytest.approx(2965.5)
+
+
 def test_raw_okx_contract_value_keeps_swap_notional_and_pnl_correct():
     spec = normalize_asset_spec(
         {
