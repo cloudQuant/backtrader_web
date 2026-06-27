@@ -560,18 +560,26 @@ class AIStrategyResearchService:
                     poll_interval_seconds=request.poll_interval_seconds,
                 )
             except asyncio.CancelledError:
-                if iterations:
-                    await self._persist_cancelled_research_run(
-                        user_id=user_id,
+                cancelled_iterations = [
+                    *iterations,
+                    _cancelled_submitted_iteration(
                         request=request,
-                        research_workspace=research_workspace,
-                        run_id=run_id,
-                        started_at=started_at,
-                        iterations=iterations,
-                        best_iteration=best_iteration,
-                        selected_iteration=selected_iteration,
-                        run_failures=run_failures,
-                    )
+                        iteration=iteration,
+                        backtest_response=backtest_response,
+                        pending_improvement_notes=pending_improvement_notes,
+                    ),
+                ]
+                await self._persist_cancelled_research_run(
+                    user_id=user_id,
+                    request=request,
+                    research_workspace=research_workspace,
+                    run_id=run_id,
+                    started_at=started_at,
+                    iterations=cancelled_iterations,
+                    best_iteration=best_iteration,
+                    selected_iteration=selected_iteration,
+                    run_failures=run_failures,
+                )
                 raise
             metrics = dict(unit_status.metrics_snapshot if unit_status else {})
             sharpe = _metric_float(metrics, "sharpe_ratio", "sharpe", "sharpeRatio")
@@ -2024,6 +2032,72 @@ def _coerce_unit_status(value: Any) -> UnitStatusResponse | None:
     if isinstance(value, dict):
         return UnitStatusResponse.model_validate(value)
     return None
+
+
+def _cancelled_submitted_iteration(
+    *,
+    request: AIStrategyResearchRunRequest,
+    iteration: int,
+    backtest_response: Any,
+    pending_improvement_notes: list[str],
+) -> AIStrategyResearchIteration:
+    failure_reason = f"AI research cancelled while waiting for backtest iteration {iteration}"
+    run_result = backtest_response.run_result
+    if hasattr(run_result, "model_copy"):
+        run_result = run_result.model_copy(update={"status": "cancelled"})
+    unit_status = UnitStatusResponse(
+        id=backtest_response.unit.id,
+        run_status="cancelled",
+        last_task_id=backtest_response.run_result.task_id,
+        metrics_snapshot={},
+        run_count=0,
+        trading_mode="paper",
+    )
+    quality_gate_failures = [failure_reason]
+    quality_gate_evaluations = _quality_gate_evaluations(
+        request,
+        {},
+        run_status=unit_status.run_status,
+    )
+    diagnostics = _iteration_diagnostics(
+        request,
+        iteration=iteration,
+        metrics={},
+        run_status=unit_status.run_status,
+        quality_gate_failures=quality_gate_failures,
+        quality_gate_evaluations=quality_gate_evaluations,
+        failure_reason=failure_reason,
+    )
+    improvement_notes = [
+        "任务取消时已保存当前已提交的回测策略，后续可从该策略继续投研。",
+        *pending_improvement_notes,
+    ]
+    return AIStrategyResearchIteration(
+        iteration=iteration,
+        strategy=backtest_response.strategy,
+        unit=backtest_response.unit,
+        run_result=run_result,
+        unit_status=unit_status,
+        metrics={},
+        sharpe_ratio=0.0,
+        total_trades=0,
+        quality_score=0.0,
+        quality_gate_evaluations=quality_gate_evaluations,
+        passed=False,
+        failure_reason=failure_reason,
+        quality_gate_failures=quality_gate_failures,
+        diagnostics=diagnostics,
+        improvement_plan=list(diagnostics.get("improvement_plan") or []),
+        improvement_notes=improvement_notes,
+        next_actions=_iteration_next_actions(
+            iteration=iteration,
+            max_iterations=request.max_iterations,
+            passed=False,
+            run_status=unit_status.run_status,
+            quality_gate_failures=quality_gate_failures,
+            failure_reason=failure_reason,
+        ),
+    )
 
 
 async def _emit_research_progress(
