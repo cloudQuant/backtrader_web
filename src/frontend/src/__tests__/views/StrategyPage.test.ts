@@ -1183,6 +1183,100 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('restores paper trading context from run history without iteration snapshots', async () => {
+    const wrapper = doMount()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    const restoredRecord: AIStrategyResearchRunRecord = {
+      run_id: 'paper-only-run',
+      prompt: '恢复模拟交易状态',
+      symbol: 'IF2409.CFE',
+      symbol_name: '沪深300期货',
+      timeframe: '1m',
+      timeframe_n: 1,
+      status: 'achieved',
+      achieved: true,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 1,
+      best_iteration: 1,
+      best_sharpe: 1.18,
+      best_quality_score: 96,
+      best_quality_gate_evaluations: [],
+      best_metrics: { sharpe_ratio: 1.18, total_pnl: 3200 },
+      best_strategy_id: 'futures-strategy',
+      best_strategy_name: '期货趋势策略',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_workspace_id: 'paper-ws',
+      paper_workspace_name: '期货模拟',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      paper_monitoring_plan: [],
+      paper_handoff: {
+        paper_task_id: 'paper-task',
+        paper_run_status: 'completed',
+        asset_specs: {
+          'IF2409.CFE': {
+            symbol: 'IF2409.CFE',
+            multiplier: 300,
+            margin_rate: 0.12,
+            commission_rate: 0.000023,
+            source: 'exchange',
+          },
+        },
+        backtest_environment: {
+          initial_cash: 500000,
+          commission: 0.000023,
+          multiplier: 300,
+          margin: 0.12,
+          asset_spec_source: 'exchange',
+        },
+        gateway_config: {
+          gateway_type: 'ctp',
+          params: { broker_id: '9999' },
+        },
+      },
+      paper_review_status: null,
+      paper_review_ready_for_live: false,
+      paper_reviewed_at: null,
+      paper_review_evaluations: [],
+      paper_review_next_actions: [],
+      live_readiness_checklist: [],
+      live_readiness_expires_at: null,
+      pipeline: {
+        current_stage: 'paper_trading',
+        status: 'achieved',
+        progress: 90,
+        ready_for_live: false,
+        steps: [],
+      },
+      next_actions: ['继续跟踪模拟交易'],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [],
+    }
+
+    const result = vm.researchResultFromRunRecord(restoredRecord)
+
+    expect(result.iterations).toHaveLength(0)
+    expect(result.paper_trading.started).toBe(true)
+    expect(result.paper_trading.workspace.id).toBe('paper-ws')
+    expect(result.paper_trading.unit.id).toBe('paper-unit')
+    expect(result.paper_trading.unit.strategy_id).toBe('futures-strategy')
+    expect(result.paper_trading.unit.run_status).toBe('completed')
+    expect(result.paper_trading.run_result.task_id).toBe('paper-task')
+    expect(result.paper_trading.unit.data_config.ai_research_run_id).toBe('paper-only-run')
+    expect(result.paper_trading.unit.data_config.asset_specs['IF2409.CFE'].multiplier).toBe(300)
+    expect(result.paper_trading.unit.unit_settings.commission).toBe(0.000023)
+    expect(result.paper_trading.unit.unit_settings.asset_specs['IF2409.CFE'].margin_rate).toBe(0.12)
+    expect(result.paper_trading.unit.gateway_config.params.broker_id).toBe('9999')
+    expect(result.paper_trading.unit.metrics_snapshot.total_pnl).toBe(3200)
+  })
+
   it('keeps polling long async AI research tasks beyond the old fixed attempt cap', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })

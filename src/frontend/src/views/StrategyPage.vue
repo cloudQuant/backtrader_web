@@ -2639,8 +2639,29 @@ function paperTradingFromRunRecord(
   if (!record.paper_trading_started || !record.paper_workspace_id || !record.paper_unit_id) {
     return null
   }
+  const handoff = isRecord(record.paper_handoff) ? record.paper_handoff : {}
+  const paperUnit = paperUnitFromRunRecord(record, handoff)
+  const runStatus = paperUnit.run_status
+  const taskId = paperUnit.last_task_id
+  return {
+    workspace: paperWorkspaceFromRunRecord(record),
+    unit: paperUnit,
+    run_result: {
+      unit_id: paperUnit.id,
+      task_id: taskId,
+      status: runStatus,
+    },
+    started: Boolean(record.paper_trading_started),
+    handoff,
+  }
+}
+
+function paperUnitFromRunRecord(
+  record: AIStrategyResearchRunRecord,
+  handoff: Record<string, unknown>
+): StrategyUnit {
   const payload = bestIterationPayloadForRecord(record)
-  if (!payload) return null
+  if (!payload) return fallbackPaperUnitFromRunRecord(record, handoff)
   const iteration = Math.max(
     Math.trunc(optionalNumber(payload.iteration) ?? record.best_iteration ?? 1),
     1
@@ -2648,16 +2669,12 @@ function paperTradingFromRunRecord(
   const metrics = isRecord(payload.metrics) ? payload.metrics : record.best_metrics ?? {}
   const strategy = strategyFromIterationRecord(record, payload, iteration)
   const researchUnit = unitFromIterationRecord(record, payload, strategy, metrics)
-  const handoff = isRecord(record.paper_handoff) ? record.paper_handoff : {}
-  const runStatus = stringFromUnknown(
-    handoff.paper_run_status,
-    record.paper_trading_started ? 'running' : 'idle'
-  ) as StrategyUnit['run_status']
+  const runStatus = paperRunStatusFromHandoff(handoff, 'running')
   const taskId = nullableString(handoff.paper_task_id) ?? researchUnit.last_task_id
-  const paperUnit: StrategyUnit = {
+  return {
     ...researchUnit,
-    id: record.paper_unit_id,
-    workspace_id: record.paper_workspace_id,
+    id: record.paper_unit_id || researchUnit.id,
+    workspace_id: record.paper_workspace_id || researchUnit.workspace_id,
     trading_mode: 'paper',
     data_config: {
       ...researchUnit.data_config,
@@ -2671,17 +2688,6 @@ function paperTradingFromRunRecord(
     run_status: runStatus,
     last_task_id: taskId,
     updated_at: record.completed_at,
-  }
-  return {
-    workspace: paperWorkspaceFromRunRecord(record),
-    unit: paperUnit,
-    run_result: {
-      unit_id: paperUnit.id,
-      task_id: taskId,
-      status: runStatus,
-    },
-    started: Boolean(record.paper_trading_started),
-    handoff,
   }
 }
 
@@ -2704,6 +2710,87 @@ function paperWorkspaceFromRunRecord(record: AIStrategyResearchRunRecord): Works
     created_at: record.completed_at,
     updated_at: record.completed_at,
   }
+}
+
+function fallbackPaperUnitFromRunRecord(
+  record: AIStrategyResearchRunRecord,
+  handoff: Record<string, unknown>
+): StrategyUnit {
+  const assetSpecs = runtimeAssetSpecsPayload(record, handoff)
+  const environment = runtimeEnvironmentPayload(record, handoff)
+  const dataConfig: Record<string, unknown> = {
+    symbol: record.symbol,
+    ai_research_run_id: record.run_id,
+    ai_research_workspace_id: record.research_workspace_id,
+  }
+  if (Object.keys(assetSpecs).length) dataConfig.asset_specs = assetSpecs
+  if (Object.keys(environment).length) dataConfig.backtest_environment = environment
+  const unitSettings: Record<string, unknown> = {
+    ...environment,
+    ai_research_handoff: handoff,
+  }
+  if (Object.keys(assetSpecs).length) unitSettings.asset_specs = assetSpecs
+  return {
+    id: record.paper_unit_id || `${record.run_id}-paper-unit`,
+    workspace_id: record.paper_workspace_id || '',
+    group_name: record.best_strategy_name || 'AI策略',
+    strategy_id: record.best_strategy_id || null,
+    strategy_name: record.best_strategy_name || 'AI策略',
+    symbol: record.symbol,
+    symbol_name: record.symbol_name || record.symbol,
+    timeframe: record.timeframe,
+    timeframe_n: record.timeframe_n,
+    category: 'custom',
+    sort_order: 0,
+    data_config: dataConfig,
+    unit_settings: unitSettings,
+    params: {},
+    optimization_config: {},
+    trading_mode: 'paper',
+    gateway_config: isRecord(handoff.gateway_config)
+      ? handoff.gateway_config as StrategyUnit['gateway_config']
+      : {},
+    lock_trading: false,
+    lock_running: false,
+    trading_instance_id: null,
+    trading_snapshot: emptyTradingSnapshot('paper'),
+    run_status: paperRunStatusFromHandoff(handoff, 'running'),
+    run_count: 1,
+    last_run_time: null,
+    last_task_id: nullableString(handoff.paper_task_id),
+    last_optimization_task_id: null,
+    bar_count: null,
+    metrics_snapshot: record.best_metrics ?? {},
+    created_at: record.started_at,
+    updated_at: record.completed_at,
+  }
+}
+
+function runtimeAssetSpecsPayload(
+  record: AIStrategyResearchRunRecord | null | undefined,
+  handoff?: Record<string, unknown> | null
+) {
+  const specs: Record<string, unknown> = {}
+  const merge = (source: unknown) => {
+    if (!isRecord(source)) return
+    for (const [symbol, spec] of Object.entries(source)) {
+      if (isRecord(spec)) specs[symbol] = spec
+    }
+  }
+  merge(record?.asset_specs)
+  merge(handoff?.asset_specs)
+  if (isRecord(record?.paper_handoff)) merge(record.paper_handoff.asset_specs)
+  return specs
+}
+
+function paperRunStatusFromHandoff(
+  handoff: Record<string, unknown>,
+  fallback: StrategyUnit['run_status']
+): StrategyUnit['run_status'] {
+  const status = stringFromUnknown(handoff.paper_run_status, fallback)
+  return ['idle', 'queued', 'running', 'completed', 'failed', 'cancelled', 'timeout'].includes(status)
+    ? status as StrategyUnit['run_status']
+    : fallback
 }
 
 function unitFromIterationRecord(
