@@ -1912,8 +1912,8 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
     aiResearchForm.initial_cash = record.initial_cash
   }
   if (typeof record.commission === 'number') {
-    aiResearchForm.use_manual_commission = true
     aiResearchForm.commission = record.commission
+    aiResearchForm.use_manual_commission = researchRecordUsesManualCommission(record)
   } else {
     aiResearchForm.use_manual_commission = false
   }
@@ -1942,6 +1942,12 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.seed_strategy_id = record.best_strategy_id || ''
   aiResearchForm.continue_from_run_id = record.best_strategy_id ? record.run_id : ''
   aiResearchForm.continuation_source = continuationSourceForRecord(record)
+}
+
+function researchRecordUsesManualCommission(record: AIStrategyResearchRunRecord) {
+  const environment = record.backtest_environment
+  if (!isRecord(environment)) return false
+  return String(environment.commission_source || '').trim() === 'user_override'
 }
 
 function enabledQualityGate(enabled: boolean, value: number) {

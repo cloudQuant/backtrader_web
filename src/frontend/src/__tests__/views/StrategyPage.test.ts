@@ -1236,6 +1236,11 @@ describe('StrategyPage', () => {
       annual_days: 244,
       calc_method: 'log',
       weight_mode: 'value',
+      backtest_environment: {
+        initial_cash: 250000,
+        commission: 0.000023,
+        commission_source: 'user_override',
+      },
       knowledge_base_id: 'kb-history',
       thinking_mode: true,
       status: 'achieved',
@@ -1318,6 +1323,11 @@ describe('StrategyPage', () => {
       best_quality_score: 90,
       best_quality_gate_evaluations: [],
       best_metrics: {},
+      commission: 0.000023,
+      backtest_environment: {
+        commission: 0.000023,
+        commission_source: 'asset_specs_or_default',
+      },
       best_strategy_id: 'best-strategy',
       best_strategy_name: '历史最佳策略',
       research_workspace_id: 'research-ws',
@@ -1346,6 +1356,8 @@ describe('StrategyPage', () => {
       seed_strategy_id: 'best-strategy',
       continue_from_run_id: 'history-run',
     }))
+    const call = vi.mocked(strategyApi.runAIResearchLoop).mock.calls.at(-1)?.[0]
+    expect(call).not.toHaveProperty('commission')
   })
 
   it('continues AI research from a cancelled run with completed iterations', async () => {

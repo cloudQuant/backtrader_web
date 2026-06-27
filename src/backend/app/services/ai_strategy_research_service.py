@@ -1256,6 +1256,7 @@ class AIStrategyResearchService:
                 update["weight_mode"] = record.weight_mode
             if record.thinking_mode and "thinking_mode" not in explicit_fields:
                 update["thinking_mode"] = record.thinking_mode
+            update.update(_continuation_runtime_updates(record, request, explicit_fields))
             continuation_context = _continuation_context_from_record(record)
             if continuation_context:
                 update["continuation_context"] = {
@@ -3128,6 +3129,62 @@ def _best_iteration_payload(record: AIStrategyResearchRunRecord) -> dict[str, An
     if record.iterations:
         return dict(record.iterations[0])
     return None
+
+
+def _continuation_runtime_updates(
+    record: AIStrategyResearchRunRecord,
+    request: AIStrategyResearchRunRequest,
+    explicit_fields: set[str],
+) -> dict[str, Any]:
+    """Restore runtime assumptions from a previous run unless the caller overrides them."""
+
+    payload = _best_iteration_payload(record) or {}
+    unit_snapshot = (
+        dict(payload.get("unit_snapshot"))
+        if isinstance(payload.get("unit_snapshot"), dict)
+        else {}
+    )
+    updates: dict[str, Any] = {}
+
+    if "data_config" not in explicit_fields:
+        data_config = _runtime_mapping_from_snapshot(unit_snapshot, "data_config")
+        data_config.update(dict(request.data_config or {}))
+        if record.asset_specs:
+            _merge_contract_metadata(data_config, record.asset_specs)
+        if data_config:
+            updates["data_config"] = data_config
+
+    if "unit_settings" not in explicit_fields:
+        unit_settings = _runtime_mapping_from_snapshot(unit_snapshot, "unit_settings")
+        unit_settings.update(dict(request.unit_settings or {}))
+        if record.asset_specs:
+            _merge_contract_metadata(unit_settings, record.asset_specs)
+        if record.backtest_environment:
+            for key in ("multiplier", "margin", "asset_spec_source"):
+                value = record.backtest_environment.get(key)
+                if key not in unit_settings and value not in (None, ""):
+                    unit_settings[key] = value
+        if unit_settings:
+            updates["unit_settings"] = unit_settings
+
+    if "optimization_config" not in explicit_fields:
+        optimization_config = _runtime_mapping_from_snapshot(unit_snapshot, "optimization_config")
+        optimization_config.update(dict(request.optimization_config or {}))
+        if optimization_config:
+            updates["optimization_config"] = optimization_config
+
+    if "gateway_config" not in explicit_fields:
+        gateway_config = _dict_payload(unit_snapshot.get("gateway_config"))
+        gateway_config.update(_dict_payload(request.gateway_config))
+        if gateway_config:
+            updates["gateway_config"] = gateway_config
+
+    return updates
+
+
+def _runtime_mapping_from_snapshot(unit_snapshot: dict[str, Any], key: str) -> dict[str, Any]:
+    value = unit_snapshot.get(key)
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _paper_start_request_from_record(
