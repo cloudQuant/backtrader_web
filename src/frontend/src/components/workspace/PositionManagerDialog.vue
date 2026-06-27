@@ -245,6 +245,7 @@ const visible = computed({
 
 const loading = ref(false)
 const positions = ref<TradingPositionManagerItem[]>([])
+const POSITION_EPSILON = 1e-12
 const summary = reactive({
   total_long_value: 0,
   total_short_value: 0,
@@ -256,8 +257,8 @@ async function loadPositions() {
   try {
     const response = await workspaceApi.getTradingPositions(props.workspaceId, props.unitIds)
     positions.value = response.positions.filter(position => (
-      Math.abs(Number(position.long_position || 0)) > 0
-      || Math.abs(Number(position.short_position || 0)) > 0
+      Math.abs(Number(position.long_position || 0)) > POSITION_EPSILON
+      || Math.abs(Number(position.short_position || 0)) > POSITION_EPSILON
     ))
     const nextSummary = buildVisiblePositionSummary(positions.value)
     summary.total_long_value = nextSummary.total_long_value

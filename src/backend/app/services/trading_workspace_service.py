@@ -1492,6 +1492,8 @@ class TradingWorkspaceService:
         rows: list[dict[str, Any]] = []
         for item in matched_positions:
             for side_item in split_bidirectional_position_row(item):
+                if abs(signed_gateway_size(side_item)) <= EPSILON:
+                    continue
                 symbol = gateway_position_symbol(side_item, fallback_symbol)
                 rows.append(
                     normalize_gateway_position(
@@ -2121,25 +2123,40 @@ class TradingWorkspaceService:
             return False
         if not cls._unit_has_asset_valuation_config(unit):
             return False
-        if cls._has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS):
+        if (
+            cls._has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS)
+            and cls._position_source_for_row(row, None).lower() == "gateway"
+        ):
             return False
-        if cls._has_any(row, *_GROSS_PNL_FIELD_KEYS, "pnl") and cls._has_any(
-            row,
-            "price",
-            "avg_price",
-            "average_price",
-            "price_open",
-            "entry_price",
-            "avgCost",
-            "avgPrice",
-            "avgPx",
-            "avg_entry_price",
-            "avgEntryPrice",
-            "entryPrice",
-            "open_avg_price",
-            "openAvgPrice",
-            "Price",
-            "AveragePrice",
+        if (
+            cls._has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS, *_GROSS_PNL_FIELD_KEYS, "pnl")
+            and cls._has_any(
+                row,
+                "price",
+                "avg_price",
+                "average_price",
+                "price_open",
+                "entry_price",
+                "avgCost",
+                "avgPrice",
+                "avgPx",
+                "avg_entry_price",
+                "avgEntryPrice",
+                "entryPrice",
+                "open_avg_price",
+                "openAvgPrice",
+                "Price",
+                "AveragePrice",
+            )
+            and cls._has_any(
+                row,
+                *_CURRENT_PRICE_FIELD_KEYS,
+                "market_value",
+                "marketValue",
+                "positionValue",
+                "position_value",
+                "value",
+            )
         ):
             return True
         return not cls._has_any(row, "multiplier", "margin_rate", "margin_value")

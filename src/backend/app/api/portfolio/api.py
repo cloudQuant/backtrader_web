@@ -862,6 +862,8 @@ def _live_positions_for_source(
     positions: list[dict[str, Any]] = []
     for item in matched_positions:
         for side_item in split_bidirectional_position_row(item):
+            if abs(signed_gateway_size(side_item)) <= EPSILON:
+                continue
             symbol = gateway_position_symbol(side_item, source.symbol)
             positions.append(
                 normalize_gateway_position(
