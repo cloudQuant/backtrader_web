@@ -3268,7 +3268,7 @@ function researchIterationFromRunRecord(
       task_id: taskId,
       status: runStatus,
     },
-    unit_status: unitStatusFromIterationRecord(unit, runStatus, taskId, metrics),
+    unit_status: unitStatusFromIterationRecord(unit, payload, runStatus, taskId, metrics),
     metrics,
     sharpe_ratio: optionalNumber(payload.sharpe_ratio) ?? metricFromPayload(metrics, 'sharpe_ratio', 'sharpe') ?? 0,
     total_trades: optionalNumber(payload.total_trades) ?? metricFromPayload(metrics, 'total_trades', 'trades') ?? 0,
@@ -3566,31 +3566,46 @@ function iterationRunResultPayload(payload: Record<string, unknown>) {
   return isRecord(payload.run_result) ? payload.run_result : {}
 }
 
+function iterationUnitStatusPayload(payload: Record<string, unknown>) {
+  return isRecord(payload.unit_status) ? payload.unit_status : {}
+}
+
 function unitStatusFromIterationRecord(
   unit: StrategyUnit,
+  payload: Record<string, unknown>,
   runStatus: string,
   taskId: string | null,
   metrics: Record<string, unknown>
 ): UnitStatusResponse {
+  const status = iterationUnitStatusPayload(payload)
+  const statusRunStatus = stringFromUnknown(status.run_status, runStatus)
+  const statusTaskId = nullableString(status.last_task_id) ?? taskId
+  const statusMetrics = isRecord(status.metrics_snapshot) ? status.metrics_snapshot : metrics
+  const tradingSnapshot = isRecord(status.trading_snapshot)
+    ? {
+        ...emptyTradingSnapshot(unit.trading_mode),
+        ...status.trading_snapshot,
+      } as TradingSnapshot
+    : emptyTradingSnapshot(unit.trading_mode)
   return {
-    id: unit.id,
-    run_status: runStatus as UnitStatusResponse['run_status'],
-    last_task_id: taskId,
-    metrics_snapshot: metrics,
-    run_count: unit.run_count,
-    last_run_time: unit.last_run_time,
-    bar_count: unit.bar_count,
-    trading_instance_id: unit.trading_instance_id,
-    trading_snapshot: emptyTradingSnapshot(unit.trading_mode),
-    trading_mode: unit.trading_mode,
-    lock_trading: unit.lock_trading,
-    lock_running: unit.lock_running,
-    opt_status: null,
-    opt_total: null,
-    opt_completed: null,
-    opt_progress: null,
-    opt_elapsed_time: null,
-    opt_remaining_time: null,
+    id: stringFromUnknown(status.id, unit.id),
+    run_status: statusRunStatus as UnitStatusResponse['run_status'],
+    last_task_id: statusTaskId,
+    metrics_snapshot: statusMetrics,
+    run_count: optionalNumber(status.run_count) ?? unit.run_count,
+    last_run_time: optionalNumber(status.last_run_time) ?? unit.last_run_time,
+    bar_count: optionalNumber(status.bar_count) ?? unit.bar_count,
+    trading_instance_id: nullableString(status.trading_instance_id) ?? unit.trading_instance_id,
+    trading_snapshot: tradingSnapshot,
+    trading_mode: stringFromUnknown(status.trading_mode, unit.trading_mode) as UnitStatusResponse['trading_mode'],
+    lock_trading: optionalBoolean(status.lock_trading, unit.lock_trading),
+    lock_running: optionalBoolean(status.lock_running, unit.lock_running),
+    opt_status: nullableString(status.opt_status),
+    opt_total: optionalNumber(status.opt_total),
+    opt_completed: optionalNumber(status.opt_completed),
+    opt_progress: optionalNumber(status.opt_progress),
+    opt_elapsed_time: optionalNumber(status.opt_elapsed_time),
+    opt_remaining_time: optionalNumber(status.opt_remaining_time),
   }
 }
 

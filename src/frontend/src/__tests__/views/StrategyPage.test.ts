@@ -1333,6 +1333,10 @@ describe('StrategyPage', () => {
         unit_status: {
           id: 'unit-timeout',
           run_status: 'timeout',
+          last_task_id: 'timeout-backtest-task',
+          metrics_snapshot: { sharpe_ratio: 0, total_trades: 0 },
+          run_count: 1,
+          trading_mode: 'paper',
           trading_snapshot: {
             backtest_timeout_task_id: 'timeout-backtest-task',
             backtest_timeout_cancel_requested: true,
@@ -1371,6 +1375,14 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchResult.iterations[0].strategy.code).toContain('TimeoutStrategy')
       expect(vm.aiResearchResult.iterations[0].unit.id).toBe('unit-timeout')
       expect(vm.aiResearchResult.iterations[0].run_result.task_id).toBe('timeout-backtest-task')
+      expect(vm.aiResearchResult.iterations[0].unit_status.run_status).toBe('timeout')
+      expect(vm.aiResearchResult.iterations[0].unit_status.last_task_id).toBe(
+        'timeout-backtest-task'
+      )
+      expect(
+        vm.aiResearchResult.iterations[0].unit_status.trading_snapshot
+          .backtest_timeout_task_id
+      ).toBe('timeout-backtest-task')
       expect(wrapper.find('[data-test="ai-research-task-progress"]').text()).toContain(
         '已取消回测 timeout-backtest-task'
       )
