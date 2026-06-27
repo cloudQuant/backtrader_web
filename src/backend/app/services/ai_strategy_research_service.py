@@ -3960,19 +3960,46 @@ def _paper_review_status_failures(record: AIStrategyResearchRunRecord) -> list[s
 
 
 def _record_runtime_context(record: AIStrategyResearchRunRecord) -> dict[str, Any]:
-    context: dict[str, Any] = {}
+    asset_specs: dict[str, Any] = {}
+    backtest_environment: dict[str, Any] = {}
     if record.asset_specs:
-        context["asset_specs"] = dict(record.asset_specs)
+        asset_specs = _merge_runtime_context_mapping(asset_specs, record.asset_specs)
     if record.backtest_environment:
-        context["backtest_environment"] = dict(record.backtest_environment)
+        backtest_environment = _merge_runtime_context_mapping(
+            backtest_environment,
+            record.backtest_environment,
+        )
     if record.paper_handoff:
         paper_asset_specs = record.paper_handoff.get("asset_specs")
-        if isinstance(paper_asset_specs, dict) and "asset_specs" not in context:
-            context["asset_specs"] = dict(paper_asset_specs)
+        asset_specs = _merge_runtime_context_mapping(asset_specs, paper_asset_specs)
         paper_environment = record.paper_handoff.get("backtest_environment")
-        if isinstance(paper_environment, dict) and "backtest_environment" not in context:
-            context["backtest_environment"] = dict(paper_environment)
+        backtest_environment = _merge_runtime_context_mapping(
+            backtest_environment,
+            paper_environment,
+        )
+    context: dict[str, Any] = {}
+    if asset_specs:
+        context["asset_specs"] = asset_specs
+    if backtest_environment:
+        context["backtest_environment"] = backtest_environment
     return context
+
+
+def _merge_runtime_context_mapping(
+    base: dict[str, Any],
+    override: Any,
+) -> dict[str, Any]:
+    if not isinstance(override, dict):
+        return base
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            nested = dict(merged[key])
+            nested.update(value)
+            merged[key] = nested
+        else:
+            merged[key] = value
+    return merged
 
 
 def _research_failure_context_from_record(

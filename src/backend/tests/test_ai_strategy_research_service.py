@@ -2078,8 +2078,25 @@ async def test_research_loop_continuation_restores_paper_handoff_runtime_metadat
         "weight_mode": "equal",
         "best_strategy_id": seed_strategy.id,
         "best_strategy_name": seed_strategy.name,
-        "asset_specs": {},
-        "backtest_environment": {},
+        "asset_specs": {
+            "IF2609": {
+                "symbol": "IF2609",
+                "source": "stale_local_defaults",
+                "multiplier": 200,
+                "margin_rate": 0.2,
+                "commission_rate": 0.001,
+            }
+        },
+        "backtest_environment": {
+            "initial_cash": 100000.0,
+            "commission": 0.001,
+            "annual_days": 252,
+            "calc_method": "simple",
+            "weight_mode": "equal",
+            "multiplier": 200,
+            "margin": 0.2,
+            "asset_spec_source": "stale_local_defaults",
+        },
         "paper_handoff": {
             "asset_specs": {
                 "IF2609": {
