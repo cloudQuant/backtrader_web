@@ -909,6 +909,12 @@ class AIStrategyResearchService:
             started_at=started_at,
             completed_at=completed_at,
         )
+        run_record = _apply_initial_paper_review_to_run_record(
+            run_record,
+            paper_trading=paper_trading,
+        )
+        if run_record.pipeline != response.pipeline:
+            response = response.model_copy(update={"pipeline": run_record.pipeline})
         research_workspace = await self._persist_research_run_record(
             user_id,
             research_workspace,
@@ -1628,15 +1634,15 @@ class AIStrategyResearchService:
                     paper_trading.handoff
                 ),
                 "paper_handoff": dict(paper_trading.handoff or {}),
-                "pipeline": _pipeline_summary_from_record(
-                    record,
-                    paper_trading_started=paper_trading.started,
-                ),
                 "next_actions": [
                     "已从历史投研结果启动模拟交易，下一步跟踪模拟账户成交、持仓和风控指标。",
                     "保留研究工作区记录，用于后续继续投研或样本外验证。",
                 ],
             }
+        )
+        updated_record = _apply_initial_paper_review_to_run_record(
+            updated_record,
+            paper_trading=paper_trading,
         )
         return await self._persist_research_run_record(user_id, workspace, updated_record)
 
@@ -3310,6 +3316,53 @@ def _build_research_run_record(
         started_at=started_at,
         completed_at=completed_at,
         iterations=[_compact_research_iteration(item) for item in response.iterations],
+    )
+
+
+def _apply_initial_paper_review_to_run_record(
+    record: AIStrategyResearchRunRecord,
+    *,
+    paper_trading: AIStrategyPaperTradingStart | None,
+) -> AIStrategyResearchRunRecord:
+    if paper_trading is None or not paper_trading.started:
+        return record
+
+    monitoring_plan = _resolve_paper_monitoring_plan(record, paper_trading.unit)
+    evaluations = _evaluate_paper_monitoring_plan(
+        monitoring_plan,
+        unit=paper_trading.unit,
+        unit_status=None,
+    )
+    ready_for_live = bool(evaluations) and all(item.passed for item in evaluations)
+    review_status = _paper_review_status(
+        record,
+        workspace=paper_trading.workspace,
+        unit=paper_trading.unit,
+        evaluations=evaluations,
+        ready_for_live=ready_for_live,
+    )
+    pipeline = _pipeline_summary_from_record(
+        record,
+        paper_trading_started=record.paper_trading_started,
+        paper_review_status=review_status,
+        paper_review_ready_for_live=ready_for_live,
+    )
+    return record.model_copy(
+        update={
+            "paper_monitoring_plan": monitoring_plan,
+            "paper_review_status": review_status,
+            "paper_review_ready_for_live": ready_for_live,
+            "paper_reviewed_at": _utc_iso_now(),
+            "paper_review_evaluations": [
+                item.model_dump(mode="json") for item in evaluations
+            ],
+            "paper_review_next_actions": _paper_review_next_actions(
+                review_status,
+                evaluations=evaluations,
+                monitoring_plan=monitoring_plan,
+            ),
+            "pipeline": pipeline,
+        }
     )
 
 

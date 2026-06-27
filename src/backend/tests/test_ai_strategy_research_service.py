@@ -807,8 +807,16 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.run_record.paper_monitoring_plan == result.paper_monitoring_plan
     assert result.run_record.paper_handoff["paper_task_id"] == "paper-task"
     assert result.run_record.paper_handoff["paper_monitoring_plan"][0]["key"] == "rolling_sharpe"
-    assert result.run_record.pipeline["current_stage"] == "paper_trading"
+    assert result.run_record.paper_review_status == "monitoring"
+    assert result.run_record.paper_review_ready_for_live is False
+    assert result.run_record.paper_reviewed_at
+    assert result.run_record.paper_review_evaluations[0]["key"] == "rolling_sharpe"
+    assert result.run_record.paper_review_evaluations[0]["status"] == "pending"
+    assert "继续收集模拟交易数据" in result.run_record.paper_review_next_actions[0]
+    assert result.pipeline["current_stage"] == "paper_review"
+    assert result.run_record.pipeline["current_stage"] == "paper_review"
     assert result.run_record.pipeline["steps"][3]["key"] == "paper_trading"
+    assert result.run_record.pipeline["steps"][4]["review_status"] == "monitoring"
     assert result.run_record.best_quality_gate_evaluations[0]["key"] == "sharpe"
     assert result.next_actions == [
         "策略已通过验收并进入模拟交易，下一步跟踪模拟账户成交、持仓和风控指标。",
@@ -826,6 +834,10 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.paper_trading.handoff["quality_gates"] == result.run_record.quality_gates
     assert result.research_workspace.settings["ai_research"]["last_run"]["run_id"] == result.run_id
     assert result.research_workspace.settings["ai_research"]["runs"][0]["run_id"] == result.run_id
+    assert (
+        result.research_workspace.settings["ai_research"]["runs"][0]["paper_review_status"]
+        == "monitoring"
+    )
     assert result.research_workspace.settings["ai_research"]["runs"][0]["iterations"][0][
         "failure_reason"
     ] == "Only 0 trades, below minimum 1"
@@ -2535,7 +2547,9 @@ async def test_start_paper_trading_from_achieved_research_run_record():
     assert updated_run["paper_unit_id"] == "paper-unit"
     assert updated_run["paper_monitoring_plan"][0]["key"] == "rolling_sharpe"
     assert updated_run["paper_handoff"]["paper_task_id"] == "paper-task"
-    assert updated_run["pipeline"]["current_stage"] == "paper_trading"
+    assert updated_run["paper_review_status"] == "monitoring"
+    assert updated_run["paper_review_evaluations"][0]["status"] == "pending"
+    assert updated_run["pipeline"]["current_stage"] == "paper_review"
 
 
 @pytest.mark.asyncio

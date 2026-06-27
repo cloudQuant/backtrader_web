@@ -628,6 +628,78 @@ describe('StrategyPage', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已满足实盘候选条件')
   })
 
+  it('shows initial paper monitoring review from completed AI research run', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    const monitoredPipeline = {
+      current_stage: 'paper_review',
+      status: 'achieved',
+      progress: 80,
+      ready_for_live: false,
+      paper_trading_error: null,
+      steps: [
+        {
+          key: 'paper_review',
+          label: '模拟复核',
+          status: 'running',
+          review_status: 'monitoring',
+        },
+      ],
+    }
+    vi.mocked(strategyApi.runAIResearchLoop).mockResolvedValueOnce({
+      ...baseResult,
+      pipeline: monitoredPipeline,
+      run_record: {
+        ...baseResult.run_record!,
+        paper_workspace_id: 'paper-ws',
+        paper_unit_id: 'paper-unit',
+        paper_trading_started: true,
+        paper_monitoring_plan: baseResult.paper_monitoring_plan,
+        paper_review_status: 'monitoring',
+        paper_review_ready_for_live: false,
+        paper_reviewed_at: '2026-06-27T00:02:00Z',
+        paper_review_evaluations: [
+          {
+            key: 'rolling_sharpe',
+            label: '模拟交易滚动 Sharpe',
+            metric: 'rolling_sharpe',
+            window: '30 trading days',
+            direction: 'min',
+            threshold: 0.6,
+            actual: null,
+            source: null,
+            status: 'pending',
+            passed: false,
+            action: '低于阈值时暂停放大资金',
+          },
+        ],
+        paper_review_next_actions: [
+          '继续收集模拟交易数据，等待以下指标形成有效样本：模拟交易滚动 Sharpe',
+        ],
+        pipeline: monitoredPipeline,
+      },
+    } as any)
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.prompt = '生成一个趋势策略'
+    vm.aiResearchForm.symbol = '000001.SZ'
+
+    await vm.runAIResearchLoop()
+    await flushPromises()
+
+    const review = wrapper.find('[data-test="ai-research-current-paper-review"]')
+    expect(review.exists()).toBe(true)
+    expect(review.text()).toContain('monitoring')
+    expect(review.text()).toContain('继续观察')
+    expect(review.text()).toContain('模拟交易滚动 Sharpe')
+    expect(wrapper.find('[data-test="ai-research-current-paper-review-actions"]').text()).toContain(
+      '继续收集模拟交易数据'
+    )
+    expect(vm.aiResearchResult.run_record.paper_review_status).toBe('monitoring')
+    expect(vm.aiResearchRuns[0].paper_review_status).toBe('monitoring')
+  })
+
   it('shows paper trading start failure as retryable current result', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
