@@ -62,6 +62,7 @@ from app.utils.sandbox import StrategySandbox
 _TERMINAL_UNIT_STATUSES = {"completed", "failed", "cancelled", "timeout"}
 _MAX_CODE_REPAIR_ATTEMPTS = 2
 _PAPER_TRADING_STARTED_STATUSES = {"running", "submitted", "queued", "pending", "completed"}
+_LIVE_READINESS_VALID_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -1143,12 +1144,18 @@ class AIStrategyResearchService:
             ready_for_live=ready_for_live,
         )
         reviewed_at = _utc_iso_now()
+        live_readiness_expires_at = (
+            _utc_iso_add_days(reviewed_at, _LIVE_READINESS_VALID_DAYS)
+            if ready_for_live
+            else None
+        )
         live_readiness_checklist = _live_readiness_checklist(
             record,
             status=review_status,
             evaluations=evaluations,
             monitoring_plan=monitoring_plan,
             reviewed_at=reviewed_at,
+            expires_at=live_readiness_expires_at,
         )
         pipeline = _pipeline_summary_from_record(
             record,
@@ -1156,6 +1163,7 @@ class AIStrategyResearchService:
             paper_review_status=review_status,
             paper_review_ready_for_live=ready_for_live,
             live_readiness_checklist=live_readiness_checklist,
+            live_readiness_expires_at=live_readiness_expires_at,
         )
         review = AIStrategyPaperTradingReview(
             run_id=record.run_id,
@@ -1172,11 +1180,13 @@ class AIStrategyResearchService:
             status=review_status,
             reviewed_at=reviewed_at,
             live_readiness_checklist=live_readiness_checklist,
+            live_readiness_expires_at=live_readiness_expires_at,
             pipeline=pipeline,
             next_actions=_paper_review_next_actions(
                 review_status,
                 evaluations=evaluations,
                 monitoring_plan=monitoring_plan,
+                live_readiness_expires_at=live_readiness_expires_at,
             ),
         )
         await self._mark_run_record_paper_reviewed(user_id, record, review)
@@ -1784,6 +1794,7 @@ class AIStrategyResearchService:
                 ),
                 "paper_handoff": dict(paper_trading.handoff or {}),
                 "live_readiness_checklist": [],
+                "live_readiness_expires_at": None,
                 "next_actions": [
                     "已从历史投研结果启动模拟交易，下一步跟踪模拟账户成交、持仓和风控指标。",
                     "保留研究工作区记录，用于后续继续投研或样本外验证。",
@@ -1817,6 +1828,7 @@ class AIStrategyResearchService:
                 "paper_review_evaluations": [],
                 "paper_review_next_actions": [],
                 "live_readiness_checklist": [],
+                "live_readiness_expires_at": None,
                 "paper_workspace_id": paper_trading.workspace.id if paper_trading else None,
                 "paper_unit_id": paper_trading.unit.id if paper_trading else None,
                 "paper_monitoring_plan": _paper_monitoring_plan_from_handoff(
@@ -1854,6 +1866,7 @@ class AIStrategyResearchService:
         paper_handoff = _paper_handoff_with_live_readiness(
             record.paper_handoff,
             review.live_readiness_checklist,
+            expires_at=review.live_readiness_expires_at,
         )
         updated_record = record.model_copy(
             update={
@@ -1865,6 +1878,7 @@ class AIStrategyResearchService:
                 ],
                 "paper_review_next_actions": review.next_actions,
                 "live_readiness_checklist": review.live_readiness_checklist,
+                "live_readiness_expires_at": review.live_readiness_expires_at,
                 "paper_handoff": paper_handoff,
                 "pipeline": review.pipeline,
                 "next_actions": review.next_actions,
@@ -2201,9 +2215,53 @@ def _coerce_research_run_record(value: Any) -> AIStrategyResearchRunRecord | Non
 def _research_run_record_with_pipeline(
     record: AIStrategyResearchRunRecord,
 ) -> AIStrategyResearchRunRecord:
+    record = _research_run_record_with_live_readiness_freshness(record)
     if record.pipeline:
         return record
     return record.model_copy(update={"pipeline": _pipeline_summary_from_record(record)})
+
+
+def _research_run_record_with_live_readiness_freshness(
+    record: AIStrategyResearchRunRecord,
+) -> AIStrategyResearchRunRecord:
+    if (
+        not record.paper_review_ready_for_live
+        or record.paper_review_status != "ready_for_live_candidate"
+        or not record.live_readiness_expires_at
+    ):
+        return record
+
+    expires_at = _parse_utc_datetime(record.live_readiness_expires_at)
+    if expires_at is None or expires_at > datetime.now(timezone.utc):
+        return record
+
+    checklist = _expired_live_readiness_checklist(record)
+    next_actions = [
+        "实盘候选复核已过期，重新复核模拟交易指标后再进入实盘审批。",
+        "过期不会删除历史模拟交易证据，但不能直接作为当前实盘候选使用。",
+    ]
+    pipeline = _pipeline_summary_from_record(
+        record,
+        paper_review_status="live_readiness_expired",
+        paper_review_ready_for_live=False,
+        live_readiness_checklist=checklist,
+        live_readiness_expires_at=record.live_readiness_expires_at,
+    )
+    paper_handoff = _paper_handoff_with_live_readiness(
+        record.paper_handoff,
+        checklist,
+        expires_at=record.live_readiness_expires_at,
+    )
+    return record.model_copy(
+        update={
+            "paper_review_status": "live_readiness_expired",
+            "paper_review_ready_for_live": False,
+            "live_readiness_checklist": checklist,
+            "paper_handoff": paper_handoff,
+            "pipeline": pipeline,
+            "next_actions": next_actions,
+        }
+    )
 
 
 def _validate_strategy_code_draft(code: str) -> None:
@@ -2691,6 +2749,7 @@ def _pipeline_summary_from_record(
     paper_review_status: str | None = None,
     paper_review_ready_for_live: bool | None = None,
     live_readiness_checklist: list[dict[str, Any]] | None = None,
+    live_readiness_expires_at: str | None = None,
 ) -> dict[str, Any]:
     return _pipeline_summary(
         status=record.status,
@@ -2710,6 +2769,9 @@ def _pipeline_summary_from_record(
         live_readiness_checklist=record.live_readiness_checklist
         if live_readiness_checklist is None
         else live_readiness_checklist,
+        live_readiness_expires_at=record.live_readiness_expires_at
+        if live_readiness_expires_at is None
+        else live_readiness_expires_at,
     )
 
 
@@ -2724,6 +2786,7 @@ def _pipeline_summary(
     paper_review_status: str | None,
     paper_review_ready_for_live: bool,
     live_readiness_checklist: list[dict[str, Any]] | None = None,
+    live_readiness_expires_at: str | None = None,
 ) -> dict[str, Any]:
     draft_status = "completed"
     backtest_status = (
@@ -2749,7 +2812,7 @@ def _pipeline_summary(
         "completed"
         if paper_review_ready_for_live
         else "failed"
-        if paper_review_status == "needs_research_review"
+        if paper_review_status in {"needs_research_review", "live_readiness_expired"}
         else "running"
         if paper_review_status
         else "pending"
@@ -2794,6 +2857,7 @@ def _pipeline_summary(
         "ready_for_live": paper_review_ready_for_live,
         "paper_trading_error": paper_trading_error,
         "live_readiness_checklist": list(live_readiness_checklist or []),
+        "live_readiness_expires_at": live_readiness_expires_at,
         "steps": steps,
     }
 
@@ -2863,6 +2927,26 @@ def _align_metric_scale(value: float, threshold: float) -> float:
 
 def _utc_iso_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _utc_iso_add_days(value: str, days: int) -> str:
+    base = _parse_utc_datetime(value) or datetime.now(timezone.utc).replace(microsecond=0)
+    return (base + timedelta(days=days)).replace(microsecond=0).isoformat()
+
+
+def _parse_utc_datetime(value: str | None) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _draft_from_strategy(
@@ -3518,12 +3602,18 @@ def _apply_initial_paper_review_to_run_record(
         ready_for_live=ready_for_live,
     )
     reviewed_at = _utc_iso_now()
+    live_readiness_expires_at = (
+        _utc_iso_add_days(reviewed_at, _LIVE_READINESS_VALID_DAYS)
+        if ready_for_live
+        else None
+    )
     live_readiness_checklist = _live_readiness_checklist(
         record,
         status=review_status,
         evaluations=evaluations,
         monitoring_plan=monitoring_plan,
         reviewed_at=reviewed_at,
+        expires_at=live_readiness_expires_at,
     )
     pipeline = _pipeline_summary_from_record(
         record,
@@ -3531,10 +3621,12 @@ def _apply_initial_paper_review_to_run_record(
         paper_review_status=review_status,
         paper_review_ready_for_live=ready_for_live,
         live_readiness_checklist=live_readiness_checklist,
+        live_readiness_expires_at=live_readiness_expires_at,
     )
     paper_handoff = _paper_handoff_with_live_readiness(
         record.paper_handoff,
         live_readiness_checklist,
+        expires_at=live_readiness_expires_at,
     )
     return record.model_copy(
         update={
@@ -3549,8 +3641,10 @@ def _apply_initial_paper_review_to_run_record(
                 review_status,
                 evaluations=evaluations,
                 monitoring_plan=monitoring_plan,
+                live_readiness_expires_at=live_readiness_expires_at,
             ),
             "live_readiness_checklist": live_readiness_checklist,
+            "live_readiness_expires_at": live_readiness_expires_at,
             "paper_handoff": paper_handoff,
             "pipeline": pipeline,
         }
@@ -4293,6 +4387,7 @@ def _paper_review_next_actions(
     *,
     evaluations: list[AIStrategyPaperTradingRuleEvaluation],
     monitoring_plan: list[dict[str, Any]],
+    live_readiness_expires_at: str | None = None,
 ) -> list[str]:
     if status == "paper_not_started":
         return ["该投研结果尚未启动模拟交易，先从历史记录发起 paper 运行。"]
@@ -4302,11 +4397,16 @@ def _paper_review_next_actions(
         return ["未找到模拟交易单元，检查是否被删除，必要时重新从投研结果启动模拟交易。"]
     if status == "monitoring_plan_missing" or not monitoring_plan:
         return ["缺少模拟交易监控计划，重新保存投研 run record 或用当前最佳策略重启 paper。"]
+    if status == "live_readiness_expired":
+        return ["实盘候选复核已过期，重新复核模拟交易指标后再进入实盘审批。"]
     if status == "ready_for_live_candidate":
-        return [
+        actions = [
             "模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。",
             "实盘前仍需确认账户权限、合约乘数、手续费、滑点和最大风险预算。",
         ]
+        if live_readiness_expires_at:
+            actions.append(f"实盘候选有效期至 {live_readiness_expires_at}，过期后需重新复核模拟交易。")
+        return actions
 
     failed = [item for item in evaluations if item.status == "failed"]
     if failed:
@@ -4327,6 +4427,7 @@ def _live_readiness_checklist(
     evaluations: list[AIStrategyPaperTradingRuleEvaluation],
     monitoring_plan: list[dict[str, Any]],
     reviewed_at: str,
+    expires_at: str | None,
 ) -> list[dict[str, Any]]:
     if status != "ready_for_live_candidate":
         return []
@@ -4353,6 +4454,7 @@ def _live_readiness_checklist(
             "action": "保留模拟监控计划，进入人工实盘复核前继续监控同一组指标。",
             "details": {
                 "reviewed_at": reviewed_at,
+                "expires_at": expires_at,
                 "monitoring_rule_count": len(monitoring_plan),
                 "passed_rules": passed_rules,
             },
@@ -4406,13 +4508,17 @@ def _live_readiness_checklist(
             "key": "human_approval_required",
             "label": "人工实盘审批",
             "status": "pending_manual_confirmation",
-            "evidence": f"模拟复核已在 {reviewed_at} 达到实盘候选状态。",
+            "evidence": (
+                f"模拟复核已在 {reviewed_at} 达到实盘候选状态"
+                + (f"，有效期至 {expires_at}。" if expires_at else "。")
+            ),
             "action": "由负责人确认账户权限、交易时段、实盘资金、应急预案和上线窗口后再切换实盘。",
             "details": {
                 "run_id": record.run_id,
                 "research_workspace_id": record.research_workspace_id,
                 "paper_workspace_id": record.paper_workspace_id,
                 "paper_unit_id": record.paper_unit_id,
+                "expires_at": expires_at,
             },
         },
     ]
@@ -4447,15 +4553,40 @@ def _format_live_readiness_value(value: Any) -> str:
     return str(value)
 
 
+def _expired_live_readiness_checklist(record: AIStrategyResearchRunRecord) -> list[dict[str, Any]]:
+    items = [dict(item) for item in record.live_readiness_checklist if isinstance(item, dict)]
+    items = [item for item in items if item.get("key") != "live_candidate_expired"]
+    items.append(
+        {
+            "key": "live_candidate_expired",
+            "label": "候选有效期",
+            "status": "expired",
+            "evidence": f"实盘候选有效期已在 {record.live_readiness_expires_at} 截止。",
+            "action": "重新复核模拟交易，生成新的实盘候选有效期后再进入人工审批。",
+            "details": {
+                "expires_at": record.live_readiness_expires_at,
+                "reviewed_at": record.paper_reviewed_at,
+            },
+        }
+    )
+    return items
+
+
 def _paper_handoff_with_live_readiness(
     handoff: dict[str, Any] | None,
     checklist: list[dict[str, Any]],
+    *,
+    expires_at: str | None = None,
 ) -> dict[str, Any]:
     payload = dict(handoff or {})
     if checklist:
         payload["live_readiness_checklist"] = [dict(item) for item in checklist]
     else:
         payload.pop("live_readiness_checklist", None)
+    if expires_at:
+        payload["live_readiness_expires_at"] = expires_at
+    else:
+        payload.pop("live_readiness_expires_at", None)
     return payload
 
 

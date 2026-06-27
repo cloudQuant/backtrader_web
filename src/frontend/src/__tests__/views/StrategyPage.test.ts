@@ -403,6 +403,7 @@ vi.mock('@/api/strategy', () => ({
       ready_for_live: true,
       status: 'ready_for_live_candidate',
       reviewed_at: '2026-06-27T00:02:00Z',
+      live_readiness_expires_at: '2026-07-04T00:02:00Z',
       live_readiness_checklist: [
         {
           key: 'paper_monitoring_passed',
@@ -424,6 +425,7 @@ vi.mock('@/api/strategy', () => ({
         status: 'achieved',
         progress: 100,
         ready_for_live: true,
+        live_readiness_expires_at: '2026-07-04T00:02:00Z',
         live_readiness_checklist: [
           {
             key: 'paper_monitoring_passed',
@@ -647,6 +649,9 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchRuns[0].paper_review_status).toBe('ready_for_live_candidate')
     expect(wrapper.find('[data-test="ai-research-current-paper-review"]').text()).toContain(
       '实盘候选'
+    )
+    expect(wrapper.find('[data-test="ai-research-current-paper-review"]').text()).toContain(
+      '候选有效期'
     )
     expect(wrapper.find('[data-test="ai-research-current-live-readiness"]').text()).toContain(
       '人工实盘审批 待人工确认'
@@ -1385,6 +1390,88 @@ describe('StrategyPage', () => {
     }))
   })
 
+  it('shows expired live candidate records as requiring paper review', async () => {
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchRuns = [{
+      run_id: 'expired-live-run',
+      prompt: '历史趋势策略',
+      symbol: '600000.SH',
+      symbol_name: '浦发银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      status: 'achieved',
+      achieved: true,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 2,
+      best_iteration: 2,
+      best_sharpe: 1.2,
+      best_quality_score: 100,
+      best_quality_gate_evaluations: [],
+      best_metrics: { sharpe_ratio: 1.2 },
+      best_strategy_id: 'best-strategy',
+      best_strategy_name: '最佳策略',
+      research_workspace_id: 'research-ws',
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      paper_review_status: 'live_readiness_expired',
+      paper_review_ready_for_live: false,
+      paper_reviewed_at: '2026-06-20T00:02:00Z',
+      paper_review_evaluations: [
+        {
+          key: 'rolling_sharpe',
+          label: '模拟交易滚动 Sharpe',
+          metric: 'rolling_sharpe',
+          window: '30 trading days',
+          direction: 'min',
+          threshold: 0.6,
+          actual: 0.8,
+          source: 'unit_status.metrics_snapshot',
+          status: 'passed',
+          passed: true,
+          action: '继续观察',
+        },
+      ],
+      live_readiness_checklist: [
+        {
+          key: 'live_candidate_expired',
+          label: '候选有效期',
+          status: 'expired',
+          evidence: '实盘候选有效期已在 2026-06-27T00:02:00Z 截止。',
+          action: '重新复核模拟交易。',
+        },
+      ],
+      live_readiness_expires_at: '2026-06-27T00:02:00Z',
+      paper_review_next_actions: ['实盘候选复核已过期，重新复核模拟交易指标后再进入实盘审批。'],
+      pipeline: {
+        current_stage: 'paper_review',
+        status: 'achieved',
+        progress: 80,
+        ready_for_live: false,
+        live_readiness_expires_at: '2026-06-27T00:02:00Z',
+        steps: [],
+      },
+      next_actions: ['实盘候选复核已过期，重新复核模拟交易指标后再进入实盘审批。'],
+      started_at: '2026-06-20T00:00:00Z',
+      completed_at: '2026-06-20T00:01:00Z',
+      iterations: [],
+    }]
+    vm.aiResearchRunsLoading = false
+
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('复核 实盘候选已过期')
+    expect(wrapper.text()).toContain('候选有效期')
+    expect(wrapper.find('[data-test="ai-research-live-readiness"]').text()).toContain(
+      '候选有效期 已过期'
+    )
+    expect(wrapper.findAll('button').some(button => button.text().includes('复核模拟'))).toBe(true)
+  })
+
   it('continues AI research from a saved draft after backtest submission failed', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const wrapper = doMount()
@@ -1906,6 +1993,7 @@ describe('StrategyPage', () => {
           paper_review_status: 'ready_for_live_candidate',
           paper_review_ready_for_live: true,
           paper_reviewed_at: '2026-06-27T00:02:00Z',
+          live_readiness_expires_at: '2026-07-04T00:02:00Z',
           paper_review_evaluations: [
             {
               key: 'rolling_sharpe',
@@ -1935,6 +2023,7 @@ describe('StrategyPage', () => {
             status: 'achieved',
             progress: 100,
             ready_for_live: true,
+            live_readiness_expires_at: '2026-07-04T00:02:00Z',
             live_readiness_checklist: [
               {
                 key: 'human_approval_required',
@@ -1963,6 +2052,9 @@ describe('StrategyPage', () => {
     )
     expect(wrapper.find('[data-test="ai-research-paper-review"]').text()).toContain(
       '模拟交易滚动 Sharpe'
+    )
+    expect(wrapper.find('[data-test="ai-research-paper-review"]').text()).toContain(
+      '候选有效期'
     )
     expect(wrapper.find('[data-test="ai-research-live-readiness"]').text()).toContain(
       '人工实盘审批 待人工确认'

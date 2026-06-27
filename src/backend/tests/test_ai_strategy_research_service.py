@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -1756,6 +1756,10 @@ async def test_review_paper_trading_run_evaluates_monitoring_plan():
     assert review.paper_workspace_id == "paper-ws"
     assert review.paper_unit_id == "paper-unit"
     assert review.reviewed_at
+    assert review.live_readiness_expires_at
+    reviewed_at = datetime.fromisoformat(review.reviewed_at)
+    expires_at = datetime.fromisoformat(review.live_readiness_expires_at)
+    assert expires_at - reviewed_at == timedelta(days=7)
     assert review.pipeline["current_stage"] == "live_candidate"
     assert review.pipeline["ready_for_live"] is True
     assert [item.status for item in review.evaluations] == [
@@ -1777,6 +1781,7 @@ async def test_review_paper_trading_run_evaluates_monitoring_plan():
     assert updated_run["paper_review_status"] == "ready_for_live_candidate"
     assert updated_run["paper_review_ready_for_live"] is True
     assert updated_run["paper_reviewed_at"] == review.reviewed_at
+    assert updated_run["live_readiness_expires_at"] == review.live_readiness_expires_at
     assert updated_run["paper_review_evaluations"][0]["key"] == "rolling_sharpe"
     assert "实盘候选" in updated_run["paper_review_next_actions"][0]
     assert updated_run["next_actions"] == updated_run["paper_review_next_actions"]
@@ -1785,9 +1790,14 @@ async def test_review_paper_trading_run_evaluates_monitoring_plan():
         updated_run["paper_handoff"]["live_readiness_checklist"]
         == review.live_readiness_checklist
     )
+    assert (
+        updated_run["paper_handoff"]["live_readiness_expires_at"]
+        == review.live_readiness_expires_at
+    )
     assert updated_run["pipeline"]["current_stage"] == "live_candidate"
     assert updated_run["pipeline"]["ready_for_live"] is True
     assert updated_run["pipeline"]["live_readiness_checklist"] == review.live_readiness_checklist
+    assert updated_run["pipeline"]["live_readiness_expires_at"] == review.live_readiness_expires_at
 
 
 @pytest.mark.asyncio
@@ -3131,6 +3141,80 @@ async def test_list_research_run_records_reads_workspace_history():
     assert scoped.items[0].pipeline["current_stage"] == "paper_trading"
 
 
+@pytest.mark.asyncio
+async def test_list_research_run_records_marks_expired_live_candidate_for_review():
+    workspace_service = FakeWorkspaceService()
+    expired_run = {
+        **_run_record(
+            "expired-live-run",
+            workspace_id="research-expired",
+            completed_at="2026-01-02T00:00:00+00:00",
+        ),
+        "paper_review_status": "ready_for_live_candidate",
+        "paper_review_ready_for_live": True,
+        "paper_reviewed_at": "2000-01-01T00:00:00+00:00",
+        "paper_review_evaluations": [
+            {
+                "key": "rolling_sharpe",
+                "label": "模拟交易滚动 Sharpe",
+                "metric": "rolling_sharpe",
+                "window": "30 trading days",
+                "direction": "min",
+                "threshold": 0.6,
+                "actual": 0.8,
+                "source": "unit_status.metrics_snapshot",
+                "status": "passed",
+                "passed": True,
+                "action": "继续观察",
+            }
+        ],
+        "paper_review_next_actions": ["模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。"],
+        "live_readiness_checklist": [
+            {
+                "key": "human_approval_required",
+                "label": "人工实盘审批",
+                "status": "pending_manual_confirmation",
+                "evidence": "模拟复核已达到实盘候选状态。",
+                "action": "确认账户权限和上线窗口后再切换实盘。",
+            }
+        ],
+        "live_readiness_expires_at": "2000-01-08T00:00:00+00:00",
+        "pipeline": {
+            "current_stage": "live_candidate",
+            "status": "achieved",
+            "progress": 100,
+            "ready_for_live": True,
+            "live_readiness_expires_at": "2000-01-08T00:00:00+00:00",
+            "steps": [],
+        },
+    }
+    workspace_service.workspaces["research-expired"] = _workspace(
+        "research-expired",
+        "research",
+    ).model_copy(
+        update={"settings": {"ai_research": {"runs": [expired_run]}}},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=FakeStrategyService(workspace_service, []),
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.list_run_records("user-1", limit=20)
+
+    record = result.items[0]
+    assert record.run_id == "expired-live-run"
+    assert record.paper_review_status == "live_readiness_expired"
+    assert record.paper_review_ready_for_live is False
+    assert record.pipeline["current_stage"] == "paper_review"
+    assert record.pipeline["ready_for_live"] is False
+    assert record.pipeline["live_readiness_expires_at"] == "2000-01-08T00:00:00+00:00"
+    assert record.live_readiness_checklist[-1]["key"] == "live_candidate_expired"
+    assert record.live_readiness_checklist[-1]["status"] == "expired"
+    assert "重新复核模拟交易" in record.next_actions[0]
+
+
 class FakeResearchAPIService:
     async def run(
         self,
@@ -3297,6 +3381,7 @@ class FakeResearchAPIService:
             ready_for_live=True,
             status="ready_for_live_candidate",
             reviewed_at="2026-01-01T00:02:00+00:00",
+            live_readiness_expires_at="2026-01-08T00:02:00+00:00",
             live_readiness_checklist=[
                 {
                     "key": "paper_monitoring_passed",
@@ -3327,6 +3412,7 @@ class FakeResearchAPIService:
                         "action": "继续监控同一组指标。",
                     },
                 ],
+                "live_readiness_expires_at": "2026-01-08T00:02:00+00:00",
                 "steps": [],
             },
             next_actions=["模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。"],
@@ -3658,3 +3744,4 @@ async def test_ai_strategy_research_paper_review_endpoint(
     assert payload["evaluations"][0]["status"] == "passed"
     assert payload["live_readiness_checklist"][0]["key"] == "paper_monitoring_passed"
     assert payload["live_readiness_checklist"][-1]["status"] == "pending_manual_confirmation"
+    assert payload["live_readiness_expires_at"] == "2026-01-08T00:02:00+00:00"

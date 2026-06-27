@@ -532,6 +532,9 @@
                   >
                     {{ rule.label }} {{ formatMetric(rule.actual) }} / {{ formatMetric(rule.threshold) }}
                   </span>
+                  <span v-if="aiResearchCurrentPaperReview.live_readiness_expires_at">
+                    候选有效期 {{ formatDateTime(aiResearchCurrentPaperReview.live_readiness_expires_at) }}
+                  </span>
                 </div>
                 <div
                   v-if="liveReadinessChecklistForReview(aiResearchCurrentPaperReview).length"
@@ -815,6 +818,9 @@
                       <span v-if="record.paper_reviewed_at">
                         复核时间 {{ formatDateTime(record.paper_reviewed_at) }}
                       </span>
+                      <span v-if="record.live_readiness_expires_at">
+                        候选有效期 {{ formatDateTime(record.live_readiness_expires_at) }}
+                      </span>
                       <span>{{ formatDateTime(record.completed_at) }}</span>
                     </span>
                   </button>
@@ -949,6 +955,9 @@
                         :key="rule.key"
                       >
                         {{ rule.label }} {{ formatMetric(rule.actual) }} / {{ formatMetric(rule.threshold) }}
+                      </span>
+                      <span v-if="paperReviewForRecord(record)?.live_readiness_expires_at">
+                        候选有效期 {{ formatDateTime(paperReviewForRecord(record)?.live_readiness_expires_at) }}
                       </span>
                     </div>
                     <div
@@ -1297,6 +1306,7 @@ const AI_RESEARCH_RUN_STATUS_LABELS: Record<string, string> = {
 
 const AI_RESEARCH_PAPER_REVIEW_STATUS_LABELS: Record<string, string> = {
   ready_for_live_candidate: '实盘候选',
+  live_readiness_expired: '实盘候选已过期',
   monitoring: '继续观察',
   needs_research_review: '需要重新投研',
 }
@@ -1305,6 +1315,7 @@ const AI_RESEARCH_LIVE_READINESS_STATUS_LABELS: Record<string, string> = {
   passed: '已通过',
   pending: '待确认',
   pending_manual_confirmation: '待人工确认',
+  expired: '已过期',
   failed: '未通过',
 }
 
@@ -1960,6 +1971,17 @@ function liveReadinessChecklistForRecord(
   return []
 }
 
+function liveReadinessExpiresAtForRecord(record: AIStrategyResearchRunRecord): string | null {
+  if (record.live_readiness_expires_at) return record.live_readiness_expires_at
+  if (typeof record.pipeline?.live_readiness_expires_at === 'string') {
+    return record.pipeline.live_readiness_expires_at
+  }
+  if (isRecord(record.paper_handoff) && typeof record.paper_handoff.live_readiness_expires_at === 'string') {
+    return record.paper_handoff.live_readiness_expires_at
+  }
+  return null
+}
+
 function liveReadinessChecklistFromPayload(payload: unknown): AIStrategyLiveReadinessItem[] {
   if (!Array.isArray(payload)) return []
   return payload.filter(isRecord).map((item, index) => ({
@@ -1992,6 +2014,7 @@ function paperStartedRunRecord(
     paper_monitoring_plan:
       paperMonitoringPlanFromHandoff(paper.handoff) ?? record.paper_monitoring_plan,
     live_readiness_checklist: [],
+    live_readiness_expires_at: null,
   }
 }
 
@@ -2031,6 +2054,7 @@ function paperStartFailedRunRecord(
     paper_review_evaluations: [],
     paper_review_next_actions: [],
     live_readiness_checklist: [],
+    live_readiness_expires_at: null,
     pipeline: {
       current_stage: 'paper_trading_failed',
       status: record.status,
@@ -2038,6 +2062,7 @@ function paperStartFailedRunRecord(
       ready_for_live: false,
       paper_trading_error: error,
       live_readiness_checklist: [],
+      live_readiness_expires_at: null,
       steps,
     },
     next_actions: [
@@ -2151,6 +2176,11 @@ function reviewedRunRecord(
   } else {
     delete paperHandoff.live_readiness_checklist
   }
+  if (review.live_readiness_expires_at) {
+    paperHandoff.live_readiness_expires_at = review.live_readiness_expires_at
+  } else {
+    delete paperHandoff.live_readiness_expires_at
+  }
   return {
     ...record,
     paper_review_status: review.status,
@@ -2159,6 +2189,7 @@ function reviewedRunRecord(
     paper_review_evaluations: review.evaluations,
     paper_review_next_actions: review.next_actions,
     live_readiness_checklist: liveReadinessChecklist,
+    live_readiness_expires_at: review.live_readiness_expires_at ?? null,
     paper_handoff: paperHandoff,
     pipeline: review.pipeline ?? record.pipeline,
     next_actions: review.next_actions,
@@ -2183,6 +2214,7 @@ function paperReviewForRecord(
     status: record.paper_review_status,
     reviewed_at: record.paper_reviewed_at,
     live_readiness_checklist: liveReadinessChecklistForRecord(record),
+    live_readiness_expires_at: liveReadinessExpiresAtForRecord(record),
     pipeline: record.pipeline,
     next_actions: record.paper_review_next_actions ?? [],
   } satisfies AIStrategyPaperTradingReview
