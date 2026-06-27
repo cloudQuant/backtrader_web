@@ -4405,6 +4405,60 @@ async def test_portfolio_positions_use_mt5_margin_initial_per_lot():
 
 
 @pytest.mark.asyncio
+async def test_portfolio_positions_hide_explicit_zero_gateway_position():
+    """A gateway row with an explicit zero size must not revive stale side fields."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "InstrumentID": "IF2609",
+                    "Position": 0,
+                    "long_position": 1,
+                    "Price": 5000,
+                    "LastPrice": 5010,
+                    "PositionProfit": 10,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "IF2609" in symbols
+            return {
+                "IF2609": {
+                    "source": "gateway.query_instrument",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "open_commission_rate": 0.000023,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "IF2609",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    assert result["total"] == 0
+    assert result["positions"] == []
+    assert result["summary"] == _EMPTY_POSITION_SUMMARY
+
+
+@pytest.mark.asyncio
 async def test_portfolio_prefers_active_workspace_units_when_manager_is_empty(
     tmp_path,
     monkeypatch,

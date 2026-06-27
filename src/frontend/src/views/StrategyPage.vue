@@ -41,6 +41,22 @@
                   :placeholder="t('strategy.aiResearchPromptPlaceholder')"
                   data-test="ai-research-prompt"
                 />
+                <div class="ai-research-prompt-tools">
+                  <el-button
+                    size="small"
+                    type="primary"
+                    data-test="ai-research-generate-prompt"
+                    @click="generateAIResearchPrompt"
+                  >
+                    <el-icon
+                      class="mr-1"
+                      aria-hidden="true"
+                    >
+                      <MagicStick />
+                    </el-icon>
+                    {{ t('strategy.aiResearchGeneratePrompt') }}
+                  </el-button>
+                </div>
               </el-form-item>
 
               <div class="ai-research-form-grid">
@@ -294,6 +310,15 @@
                     />
                   </div>
                 </el-form-item>
+                <el-form-item label="晋级必须通过样本外">
+                  <el-checkbox
+                    v-model="aiResearchForm.require_out_of_sample_validation"
+                    :disabled="!aiResearchForm.out_of_sample_validation"
+                    data-test="ai-research-oos-required"
+                  >
+                    达标后先完成样本外验证
+                  </el-checkbox>
+                </el-form-item>
                 <el-form-item label="样本外最小 Sharpe">
                   <div class="ai-research-gate-control">
                     <el-checkbox
@@ -332,6 +357,16 @@
                       data-test="ai-research-oos-trades"
                     />
                   </div>
+                </el-form-item>
+                <el-form-item label="最少模拟观察天数">
+                  <el-input-number
+                    v-model="aiResearchForm.min_paper_trading_days"
+                    :min="0"
+                    :max="365"
+                    :step="1"
+                    class="w-full"
+                    data-test="ai-research-min-paper-days"
+                  />
                 </el-form-item>
               </div>
 
@@ -854,7 +889,8 @@
                     v-for="rule in aiResearchCurrentPaperReview.evaluations"
                     :key="rule.key"
                   >
-                    {{ rule.label }} {{ formatMetric(rule.actual) }} / {{ formatMetric(rule.threshold) }}
+                    {{ rule.label }} {{ paperReviewRuleStatusLabel(rule.status) }}
+                    {{ formatMetric(rule.actual) }} / {{ formatMetric(rule.threshold) }}
                   </span>
                   <span v-if="aiResearchCurrentPaperReview.live_readiness_expires_at">
                     候选有效期 {{ formatDateTime(aiResearchCurrentPaperReview.live_readiness_expires_at) }}
@@ -1045,7 +1081,7 @@
                     size="small"
                     :type="outOfSampleTagType(aiResearchOutOfSampleValidation.status)"
                   >
-                    {{ aiResearchOutOfSampleValidation.status || 'not_required' }}
+                    {{ outOfSampleStatusLabel(aiResearchOutOfSampleValidation.status) }}
                   </el-tag>
                 </div>
                 <div class="ai-research-oos-details">
@@ -1139,7 +1175,7 @@
                         size="small"
                         :type="outOfSampleTagType(iterationOutOfSampleValidation(item)?.status)"
                       >
-                        {{ iterationOutOfSampleValidation(item)?.status || 'not_required' }}
+                        {{ outOfSampleStatusLabel(iterationOutOfSampleValidation(item)?.status) }}
                       </el-tag>
                     </div>
                     <div class="ai-research-oos-details">
@@ -1415,7 +1451,8 @@
                         v-for="rule in paperReviewForRecord(record)?.evaluations ?? []"
                         :key="rule.key"
                       >
-                        {{ rule.label }} {{ formatMetric(rule.actual) }} / {{ formatMetric(rule.threshold) }}
+                        {{ rule.label }} {{ paperReviewRuleStatusLabel(rule.status) }}
+                        {{ formatMetric(rule.actual) }} / {{ formatMetric(rule.threshold) }}
                       </span>
                       <span v-if="paperReviewForRecord(record)?.live_readiness_expires_at">
                         候选有效期 {{ formatDateTime(paperReviewForRecord(record)?.live_readiness_expires_at) }}
@@ -1801,7 +1838,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Link, MagicStick, Plus, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1862,6 +1899,9 @@ const aiResearchRunning = ref(false)
 const aiResearchResult = ref<AIStrategyResearchRunResponse | null>(null)
 const aiResearchRunsLoading = ref(false)
 const aiResearchRuns = ref<AIStrategyResearchRunRecord[]>([])
+const AI_RESEARCH_RUNS_AUTO_REFRESH_MS = 30_000
+let aiResearchRunsAutoRefreshTimer: ReturnType<typeof setTimeout> | null = null
+let aiResearchRunsAutoRefreshActive = false
 const aiResearchTaskId = ref('')
 const aiResearchTaskStatus = ref('')
 const aiResearchTaskStage = ref('')
@@ -1899,6 +1939,7 @@ const AI_RESEARCH_STAGE_LABELS: Record<string, string> = {
   running: '运行中',
   initializing: '初始化',
   workspace_ready: '工作区已就绪',
+  configuration_invalid: '配置无效',
   drafting: '生成策略脚本',
   draft_generation_failed: '脚本生成失败',
   repairing_code: '修复策略脚本',
@@ -1930,6 +1971,7 @@ const AI_RESEARCH_RUN_STATUS_LABELS: Record<string, string> = {
   cancelled: '已取消',
   timeout: '超时',
   backtest_submission_failed: '回测提交失败',
+  configuration_invalid: '配置无效',
 }
 
 const AI_RESEARCH_PAPER_REVIEW_STATUS_LABELS: Record<string, string> = {
@@ -1942,10 +1984,17 @@ const AI_RESEARCH_PAPER_REVIEW_STATUS_LABELS: Record<string, string> = {
   monitoring_plan_missing: '监控计划缺失',
 }
 
+const AI_RESEARCH_PAPER_RULE_STATUS_LABELS: Record<string, string> = {
+  passed: '已通过',
+  pending: '继续观察',
+  failed: '未通过',
+}
+
 const AI_RESEARCH_LIVE_READINESS_STATUS_LABELS: Record<string, string> = {
   passed: '已通过',
   pending: '待确认',
   pending_manual_confirmation: '待人工确认',
+  skipped: '已跳过',
   expired: '已过期',
   failed: '未通过',
 }
@@ -1963,7 +2012,28 @@ const AI_RESEARCH_PIPELINE_STEP_STATUS_LABELS: Record<string, string> = {
   completed: '已完成',
   failed: '失败',
   cancelled: '已取消',
+  skipped: '已跳过',
 }
+
+const DEFAULT_AI_RESEARCH_START_DATE = '2020-01-01'
+const DEFAULT_AI_RESEARCH_END_DATE = '2026-01-01'
+const DEFAULT_AI_RESEARCH_MIN_PAPER_TRADING_DAYS = 7
+
+class AIResearchConfigError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AIResearchConfigError'
+  }
+}
+
+const AI_RESEARCH_CONFIG_ERROR_MESSAGES = new Set([
+  '模拟网关配置必须是合法 JSON',
+  '模拟网关配置必须是 JSON 对象',
+  '模拟网关配置包含脱敏凭据，请重新输入真实网关配置',
+  '实盘网关配置必须是合法 JSON',
+  '实盘网关配置必须是 JSON 对象',
+  '实盘网关配置包含脱敏凭据，请重新输入真实网关配置',
+])
 
 const form = reactive({
   name: '',
@@ -1978,8 +2048,8 @@ const aiResearchForm = reactive({
   symbol_name: '',
   timeframe: '1d',
   timeframe_n: 1,
-  start_date: '',
-  end_date: '',
+  start_date: DEFAULT_AI_RESEARCH_START_DATE,
+  end_date: DEFAULT_AI_RESEARCH_END_DATE,
   knowledge_base_id: '',
   thinking_mode: false,
   target_sharpe: 1.0,
@@ -1994,6 +2064,7 @@ const aiResearchForm = reactive({
   min_win_rate: 50,
   max_iterations: 3,
   out_of_sample_validation: true,
+  require_out_of_sample_validation: true,
   out_of_sample_ratio_pct: 25,
   use_min_out_of_sample_sharpe: false,
   min_out_of_sample_sharpe: 0.6,
@@ -2009,6 +2080,7 @@ const aiResearchForm = reactive({
   continue_from_run_id: '',
   continuation_source: '',
   start_paper_trading: true,
+  min_paper_trading_days: DEFAULT_AI_RESEARCH_MIN_PAPER_TRADING_DAYS,
   paper_workspace_name: '',
   trading_workspace_id: '',
   gateway_config_json: '',
@@ -2261,7 +2333,7 @@ const canBuildLiveHandoffFromCurrentResult = computed(() => {
 const aiResearchCurrentLiveHandoff = computed(() => {
   const result = aiResearchResult.value
   if (!result) return null
-  return liveHandoffForRunId(result.run_id)
+  return result.run_record ? liveHandoffForRecord(result.run_record) : liveHandoffForRunId(result.run_id)
 })
 const aiResearchCurrentPaperEnvironment = computed(() => {
   const result = aiResearchResult.value
@@ -2323,6 +2395,7 @@ function goBacktest(t: StrategyTemplate) {
 }
 
 function formatMetric(value: unknown, digits = 2) {
+  if (value === null || value === undefined || value === '') return '-'
   const number = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(number)) return '-'
   return number.toFixed(digits)
@@ -2433,6 +2506,131 @@ function outOfSampleRatioPct(value: unknown) {
 function outOfSampleRatioValue() {
   const ratio = Number(aiResearchForm.out_of_sample_ratio_pct || 25) / 100
   return Number(ratio.toFixed(4))
+}
+
+function parseResearchDate(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const date = new Date(`${trimmed}T00:00:00Z`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function requiredOutOfSampleValidationError() {
+  if (
+    !aiResearchForm.out_of_sample_validation
+    || !aiResearchForm.require_out_of_sample_validation
+  ) {
+    return ''
+  }
+  const startDate = parseResearchDate(aiResearchForm.start_date)
+  const endDate = parseResearchDate(aiResearchForm.end_date)
+  if (!startDate || !endDate || endDate <= startDate) {
+    return '强制样本外验证需要填写合法的开始日期和结束日期'
+  }
+  const totalDays = Math.floor((endDate.getTime() - startDate.getTime()) / 86400000) + 1
+  if (totalDays < 8) {
+    return '强制样本外验证至少需要 8 天以上的回测区间'
+  }
+  return ''
+}
+
+function aiResearchSymbolLabel() {
+  const symbol = aiResearchForm.symbol.trim() || '待研究标的'
+  const symbolName = aiResearchForm.symbol_name.trim()
+  return symbolName ? `${symbolName}（${symbol}）` : symbol
+}
+
+function aiResearchAssetConstraintLine() {
+  const symbol = aiResearchForm.symbol.trim().toUpperCase()
+  if (
+    /\.(CFE|CFFEX|SHFE|INE|DCE|CZCE|GFEX)$/.test(symbol)
+    || /^(IF|IC|IH|IM|TF|T|TS|AU|AG|CU|AL|ZN|RB|HC|SC|FU|RU|MA|TA|M|Y|P|A|C|I|J|JM|SR|CF|OI|RM)\d+/.test(symbol)
+  ) {
+    return '按期货/合约资产处理，必须使用交易所或本地资产规格中的合约乘数、保证金、杠杆、最小变动价位和真实手续费估算仓位与风险。'
+  }
+  if (/(USDT|USDC|PERP|SWAP|BTC|ETH)/.test(symbol)) {
+    return '按数字资产或永续合约处理，必须显式考虑资金费率、杠杆、滑点、交易费率和保证金约束。'
+  }
+  if (/\.(SZ|SH|BJ)$/.test(symbol)) {
+    return '按股票资产处理，必须控制单票仓位、换手率、手续费和不可成交假设，避免过度交易。'
+  }
+  return '必须从交易所或本地资产规格读取手续费、合约乘数、保证金、价格精度和最小下单量，并在仓位 sizing 中使用这些约束。'
+}
+
+function aiResearchQualityGateLines() {
+  const lines = [
+    `目标 Sharpe 不低于 ${formatMetric(aiResearchForm.target_sharpe)}。`,
+    `至少产生 ${formatMetric(aiResearchForm.min_total_trades, 0)} 笔有效交易，避免只靠少数交易达标。`,
+  ]
+  if (aiResearchForm.use_max_drawdown_limit) {
+    lines.push(`最大回撤控制在 ${formatMetric(aiResearchForm.max_drawdown_limit, 0)}% 以内。`)
+  }
+  if (aiResearchForm.use_min_total_return) {
+    lines.push(`总收益率不低于 ${formatMetric(aiResearchForm.min_total_return, 0)}%。`)
+  }
+  if (aiResearchForm.use_min_annual_return) {
+    lines.push(`年化收益率不低于 ${formatMetric(aiResearchForm.min_annual_return, 0)}%。`)
+  }
+  if (aiResearchForm.use_min_win_rate) {
+    lines.push(`胜率不低于 ${formatMetric(aiResearchForm.min_win_rate, 0)}%。`)
+  }
+  return lines
+}
+
+function aiResearchValidationLines() {
+  const lines = [
+    `回测区间：${aiResearchForm.start_date || '可用历史数据起点'} 至 ${aiResearchForm.end_date || '最新可得数据'}。`,
+  ]
+  if (aiResearchForm.out_of_sample_validation) {
+    const requirements = [
+      `保留 ${formatMetric(aiResearchForm.out_of_sample_ratio_pct, 0)}% 数据做样本外验证`,
+    ]
+    if (aiResearchForm.require_out_of_sample_validation) {
+      requirements.push('达标后必须通过样本外验证才能进入模拟交易')
+    }
+    if (aiResearchForm.use_min_out_of_sample_sharpe) {
+      requirements.push(`样本外 Sharpe 不低于 ${formatMetric(aiResearchForm.min_out_of_sample_sharpe)}`)
+    }
+    if (aiResearchForm.use_min_out_of_sample_trades) {
+      requirements.push(`样本外交易数不少于 ${formatMetric(aiResearchForm.min_out_of_sample_trades, 0)}`)
+    }
+    lines.push(`${requirements.join('，')}。`)
+  } else {
+    lines.push('暂不启用样本外验证，但策略说明中必须提示过拟合风险。')
+  }
+  if (aiResearchForm.start_paper_trading) {
+    lines.push(
+      `质量门槛达成后进入模拟交易，至少观察 ${formatMetric(aiResearchForm.min_paper_trading_days, 0)} 天，重点复核真实手续费、滑点、估值置信度、回撤和滚动 Sharpe。`
+    )
+  } else {
+    lines.push('本轮只完成研究和回测，不自动启动模拟交易。')
+  }
+  return lines
+}
+
+function buildGeneratedAIResearchPrompt() {
+  const signalFamilies = '趋势跟随、均值回归、波动率过滤、突破确认和风险预算'
+  return [
+    `请为 ${aiResearchSymbolLabel()} 生成一套 ${aiResearchForm.timeframe} 级别的可执行 Backtrader 策略，并自动迭代回测直到达到质量门槛。`,
+    '',
+    '研究方向：',
+    `1. 先比较 ${signalFamilies} 等候选逻辑，再选择最适合该标的的可执行方案。`,
+    '2. 策略必须包含明确的入场、出场、止损/止盈、仓位 sizing 和异常行情保护。',
+    `3. ${aiResearchAssetConstraintLine()}`,
+    '',
+    '质量门槛：',
+    ...aiResearchQualityGateLines().map((line, index) => `${index + 1}. ${line}`),
+    '',
+    '验证与晋级：',
+    ...aiResearchValidationLines().map((line, index) => `${index + 1}. ${line}`),
+    '',
+    '输出要求：生成完整可运行的 Backtrader Strategy 脚本，参数默认值要便于自动改稿；每轮改进都应解释为什么可能改善 Sharpe、回撤、交易次数或实盘可执行性。',
+  ].join('\n')
+}
+
+function generateAIResearchPrompt() {
+  aiResearchForm.prompt = buildGeneratedAIResearchPrompt()
+  ElMessage.success(t('strategy.aiResearchPromptGenerated'))
 }
 
 function validationWindowFromUnknown(value: unknown): Record<string, string> | null {
@@ -2712,9 +2910,22 @@ function outOfSampleTagType(status: string | null | undefined) {
   return 'warning'
 }
 
+function outOfSampleStatusLabel(status: string | null | undefined) {
+  const normalized = String(status || '').trim()
+  const labels: Record<string, string> = {
+    passed: '已通过',
+    failed: '未通过',
+    skipped: '已跳过',
+    not_required: '无需验证',
+    pending: '待验证',
+    running: '验证中',
+  }
+  return labels[normalized] ?? aiResearchStageLabel(normalized || 'not_required')
+}
+
 function recordOutOfSampleSummary(record: AIStrategyResearchRunRecord) {
   const handoffValidation = outOfSampleValidationFromHandoff(record.paper_handoff)
-  if (handoffValidation?.status) return `样本外 ${handoffValidation.status}`
+  if (handoffValidation?.status) return `样本外 ${outOfSampleStatusLabel(handoffValidation.status)}`
   const gates = record.quality_gates || {}
   if (optionalBoolean(gates.out_of_sample_validation, false)) {
     return `样本外 ${formatMetric(outOfSampleRatioPct(gates.out_of_sample_ratio), 0)}%`
@@ -2842,14 +3053,71 @@ function bestStrategyFromRunRecord(record: AIStrategyResearchRunRecord): Strateg
   return strategyFromIterationRecord(record, payload, fallbackIteration)
 }
 
-async function loadAIResearchRuns() {
-  aiResearchRunsLoading.value = true
+function aiResearchRunNeedsAutoRefresh(record: AIStrategyResearchRunRecord) {
+  if (!record.paper_trading_started || isLiveTradingPreparedForRecord(record)) return false
+  if (isPaperTradingStartFailure(record) || isPaperTradingTargetMissing(record)) return false
+  if (liveHandoffLocksPaperActions(record)) return false
+  const handoffStatus = liveHandoffStatusForRecord(record)
+  if (handoffStatus === 'blocked') return false
+  return true
+}
+
+function shouldAutoRefreshAIResearchRuns() {
+  return (
+    aiResearchRunsAutoRefreshActive
+    && activeTab.value === 'aiResearch'
+    && !aiResearchRunsLoading.value
+    && !aiResearchRunning.value
+    && aiResearchRuns.value.some(aiResearchRunNeedsAutoRefresh)
+  )
+}
+
+function clearAIResearchRunsAutoRefresh() {
+  if (!aiResearchRunsAutoRefreshTimer) return
+  clearTimeout(aiResearchRunsAutoRefreshTimer)
+  aiResearchRunsAutoRefreshTimer = null
+}
+
+function unrefTimer(timer: ReturnType<typeof setTimeout>) {
+  if (typeof timer !== 'object' || timer === null || !('unref' in timer)) return
+  const maybeUnref = (timer as { unref?: () => void }).unref
+  if (typeof maybeUnref === 'function') maybeUnref.call(timer)
+}
+
+function scheduleAIResearchRunsAutoRefresh() {
+  clearAIResearchRunsAutoRefresh()
+  if (!shouldAutoRefreshAIResearchRuns()) return
+  const timer = setTimeout(() => {
+    aiResearchRunsAutoRefreshTimer = null
+    void refreshAIResearchRunsSilently()
+  }, AI_RESEARCH_RUNS_AUTO_REFRESH_MS)
+  aiResearchRunsAutoRefreshTimer = timer
+  unrefTimer(timer)
+}
+
+async function refreshAIResearchRunsSilently() {
+  if (!shouldAutoRefreshAIResearchRuns()) return
+  try {
+    await loadAIResearchRuns({ showLoading: false })
+  } catch {
+    scheduleAIResearchRunsAutoRefresh()
+  }
+}
+
+async function loadAIResearchRuns(options: { showLoading?: boolean } = {}) {
+  if (aiResearchRunsLoading.value) {
+    scheduleAIResearchRunsAutoRefresh()
+    return
+  }
+  const showLoading = options.showLoading ?? true
+  if (showLoading) aiResearchRunsLoading.value = true
   try {
     const response = await strategyApi.listAIResearchRuns(undefined, 10)
     aiResearchRuns.value = response.items
     response.items.forEach(hydrateLiveHandoffFromRunRecord)
   } finally {
-    aiResearchRunsLoading.value = false
+    if (showLoading) aiResearchRunsLoading.value = false
+    scheduleAIResearchRunsAutoRefresh()
   }
 }
 
@@ -2859,6 +3127,7 @@ function upsertAIResearchRunRecord(record: AIStrategyResearchRunRecord) {
     record,
     ...aiResearchRuns.value.filter(item => item.run_id !== record.run_id),
   ].slice(0, 10)
+  scheduleAIResearchRunsAutoRefresh()
 }
 
 function hydrateLiveHandoffFromRunRecord(record: AIStrategyResearchRunRecord) {
@@ -2929,6 +3198,10 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
     aiResearchForm.poll_interval_seconds = record.poll_interval_seconds
   }
   aiResearchForm.out_of_sample_validation = optionalBoolean(gates.out_of_sample_validation, true)
+  aiResearchForm.require_out_of_sample_validation = optionalBoolean(
+    gates.require_out_of_sample_validation,
+    false
+  )
   aiResearchForm.out_of_sample_ratio_pct = outOfSampleRatioPct(gates.out_of_sample_ratio)
   aiResearchForm.use_min_out_of_sample_sharpe =
     optionalNumber(gates.min_out_of_sample_sharpe) !== null
@@ -2936,6 +3209,10 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.use_min_out_of_sample_trades =
     optionalNumber(gates.min_out_of_sample_trades) !== null
   aiResearchForm.min_out_of_sample_trades = Number(gates.min_out_of_sample_trades ?? 1)
+  aiResearchForm.min_paper_trading_days = Math.max(
+    0,
+    Number(gates.min_paper_trading_days ?? aiResearchForm.min_paper_trading_days)
+  )
   aiResearchForm.research_workspace_id = record.research_workspace_id || ''
   const bestStrategyId = bestStrategyIdForRecord(record)
   aiResearchForm.seed_strategy_id = bestStrategyId
@@ -3007,6 +3284,7 @@ function canReviewPaperFromRecord(record: AIStrategyResearchRunRecord) {
     && record.paper_workspace_id
     && record.paper_unit_id
     && !isPaperTradingTargetMissing(record)
+    && !liveHandoffLocksPaperActions(record)
   )
 }
 
@@ -3016,6 +3294,7 @@ function canBuildLiveHandoffFromRecord(record: AIStrategyResearchRunRecord) {
     record.paper_trading_started
     && review?.ready_for_live
     && review.status === 'ready_for_live_candidate'
+    && !liveHandoffLocksPaperActions(record)
   )
 }
 
@@ -3026,7 +3305,21 @@ function liveHandoffForRunId(runId: string): AIStrategyLiveHandoffPackage | null
 function liveHandoffForRecord(
   record: AIStrategyResearchRunRecord
 ): AIStrategyLiveHandoffPackage | null {
-  return liveHandoffForRunId(record.run_id)
+  return liveHandoffForRunId(record.run_id) ?? record.live_handoff ?? null
+}
+
+function liveHandoffStatusForRecord(record: AIStrategyResearchRunRecord) {
+  const handoff = liveHandoffForRecord(record)
+  return String(handoff?.status || record.pipeline?.live_handoff_status || '').trim()
+}
+
+function liveHandoffLocksPaperActions(record: AIStrategyResearchRunRecord) {
+  const status = liveHandoffStatusForRecord(record)
+  return Boolean(
+    isLiveTradingPreparedForRecord(record)
+    || record.live_handoff_approval
+    || ['ready_for_approval', 'approved_for_live', 'approval_rejected'].includes(status)
+  )
 }
 
 function canApproveLiveHandoff(handoff: AIStrategyLiveHandoffPackage | null | undefined) {
@@ -3202,6 +3495,12 @@ function paperReviewStatusLabel(status?: string | null) {
   return AI_RESEARCH_PAPER_REVIEW_STATUS_LABELS[normalized] ?? aiResearchStageLabel(normalized)
 }
 
+function paperReviewRuleStatusLabel(status?: string | null) {
+  const normalized = String(status || '').trim()
+  if (!normalized) return ''
+  return AI_RESEARCH_PAPER_RULE_STATUS_LABELS[normalized] ?? liveReadinessStatusLabel(normalized)
+}
+
 function paperReviewDispositionLabel(review: AIStrategyPaperTradingReview | null | undefined) {
   const status = String(review?.status || '').trim()
   if (review?.ready_for_live) return '实盘候选'
@@ -3256,6 +3555,9 @@ function pipelineStepDetailText(
   const details: string[] = []
   const iteration = pipelineStepIterationText(step)
   if (iteration) details.push(iteration)
+  if (step.key === 'validation' && step.validation_status) {
+    details.push(`样本外 ${outOfSampleStatusLabel(step.validation_status)}`)
+  }
   if (step.review_status) details.push(`复核 ${paperReviewStatusLabel(step.review_status)}`)
   if (step.key === 'live_handoff') {
     const handoffStatus = stringFromUnknown(pipeline?.live_handoff_status)
@@ -3657,9 +3959,15 @@ function researchResultFromTaskSummary(
       min_annual_return: optionalNumber(request.min_annual_return),
       min_win_rate: optionalNumber(request.min_win_rate),
       out_of_sample_validation: optionalBoolean(request.out_of_sample_validation, true),
+      require_out_of_sample_validation: optionalBoolean(
+        request.require_out_of_sample_validation,
+        false
+      ),
       out_of_sample_ratio: optionalNumber(request.out_of_sample_ratio) ?? 0.25,
       min_out_of_sample_sharpe: optionalNumber(request.min_out_of_sample_sharpe),
       min_out_of_sample_trades: optionalNumber(request.min_out_of_sample_trades),
+      min_paper_trading_days:
+        optionalNumber(request.min_paper_trading_days) ?? DEFAULT_AI_RESEARCH_MIN_PAPER_TRADING_DAYS,
     },
     min_total_trades: optionalNumber(request.min_total_trades) ?? 0,
     max_iterations: optionalNumber(task.max_iterations) ?? optionalNumber(request.max_iterations) ?? 0,
@@ -4276,7 +4584,8 @@ async function startPaperFromResearchRecord(record: AIStrategyResearchRunRecord)
       // Keep the local started state visible even if history refresh fails.
     }
     ElMessage.success('模拟交易已启动')
-  } catch {
+  } catch (error) {
+    if (notifyAIResearchConfigError(error)) return
     try {
       await refreshAIResearchRunRecord(record.run_id, record.research_workspace_id)
     } catch {
@@ -4489,7 +4798,8 @@ async function prepareLiveTradingFromResearchRecord(record: AIStrategyResearchRu
     upsertAIResearchRunRecord(updatedRecord)
     applyResearchRunRecordToCurrentResult(updatedRecord)
     ElMessage.success('实盘交易单元已准备，默认锁定等待人工上线')
-  } catch {
+  } catch (error) {
+    if (notifyAIResearchConfigError(error)) return
     ElMessage.error(t('strategy.aiResearchRunFailed'))
   } finally {
     aiResearchLiveTradingPreparingRunId.value = ''
@@ -4662,6 +4972,10 @@ function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResea
     ),
     max_iterations: aiResearchForm.max_iterations,
     out_of_sample_validation: aiResearchForm.out_of_sample_validation,
+    require_out_of_sample_validation: Boolean(
+      aiResearchForm.out_of_sample_validation
+        && aiResearchForm.require_out_of_sample_validation
+    ),
     out_of_sample_ratio: outOfSampleRatioValue(),
     min_out_of_sample_sharpe: aiResearchForm.out_of_sample_validation
       ? enabledQualityGate(
@@ -4680,6 +4994,7 @@ function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResea
     seed_strategy_id: aiResearchForm.seed_strategy_id || null,
     continue_from_run_id: aiResearchForm.continue_from_run_id || null,
     start_paper_trading: aiResearchForm.start_paper_trading,
+    min_paper_trading_days: Math.max(0, aiResearchForm.min_paper_trading_days),
     trading_workspace_id: aiResearchForm.trading_workspace_id.trim() || null,
     paper_workspace_name: aiResearchForm.start_paper_trading
       ? paperWorkspaceName
@@ -4706,7 +5021,8 @@ function parseAIResearchGatewayConfig() {
   return parseGatewayConfigJson(
     aiResearchForm.gateway_config_json,
     '模拟网关配置必须是合法 JSON',
-    '模拟网关配置必须是 JSON 对象'
+    '模拟网关配置必须是 JSON 对象',
+    '模拟网关配置包含脱敏凭据，请重新输入真实网关配置'
   )
 }
 
@@ -4714,14 +5030,16 @@ function parseAIResearchLiveGatewayConfig() {
   return parseGatewayConfigJson(
     aiResearchForm.live_gateway_config_json,
     '实盘网关配置必须是合法 JSON',
-    '实盘网关配置必须是 JSON 对象'
+    '实盘网关配置必须是 JSON 对象',
+    '实盘网关配置包含脱敏凭据，请重新输入真实网关配置'
   )
 }
 
 function parseGatewayConfigJson(
   rawValue: string,
   parseErrorMessage: string,
-  objectErrorMessage: string
+  objectErrorMessage: string,
+  redactedErrorMessage: string
 ): Record<string, unknown> | undefined {
   const raw = rawValue.trim()
   if (!raw) return undefined
@@ -4729,12 +5047,26 @@ function parseGatewayConfigJson(
   try {
     parsed = JSON.parse(raw)
   } catch {
-    throw new Error(parseErrorMessage)
+    throw new AIResearchConfigError(parseErrorMessage)
   }
   if (!isRecord(parsed) || Array.isArray(parsed)) {
-    throw new Error(objectErrorMessage)
+    throw new AIResearchConfigError(objectErrorMessage)
+  }
+  if (containsRedactedSecret(parsed)) {
+    throw new AIResearchConfigError(redactedErrorMessage)
   }
   return parsed
+}
+
+function notifyAIResearchConfigError(error: unknown) {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === 'string'
+      ? error
+      : ''
+  if (!AI_RESEARCH_CONFIG_ERROR_MESSAGES.has(message)) return false
+  ElMessage.warning(message)
+  return true
 }
 
 function aiResearchPaperStartRequest(record: AIStrategyResearchRunRecord) {
@@ -4929,6 +5261,10 @@ function applyAIResearchTaskSnapshotToForm(task: AIStrategyResearchTaskResponse)
   aiResearchForm.min_win_rate = minWinRate ?? aiResearchForm.min_win_rate
   aiResearchForm.out_of_sample_validation =
     optionalBoolean(snapshot.out_of_sample_validation, aiResearchForm.out_of_sample_validation)
+  aiResearchForm.require_out_of_sample_validation = optionalBoolean(
+    snapshot.require_out_of_sample_validation,
+    false
+  )
   const outOfSampleRatio = optionalNumber(snapshot.out_of_sample_ratio)
   if (outOfSampleRatio !== null) aiResearchForm.out_of_sample_ratio_pct = outOfSampleRatio * 100
   const minOutOfSampleSharpe = optionalNumber(snapshot.min_out_of_sample_sharpe)
@@ -4939,6 +5275,10 @@ function applyAIResearchTaskSnapshotToForm(task: AIStrategyResearchTaskResponse)
   aiResearchForm.use_min_out_of_sample_trades = minOutOfSampleTrades !== null
   aiResearchForm.min_out_of_sample_trades =
     minOutOfSampleTrades ?? aiResearchForm.min_out_of_sample_trades
+  const minPaperTradingDays = optionalNumber(snapshot.min_paper_trading_days)
+  if (minPaperTradingDays !== null) {
+    aiResearchForm.min_paper_trading_days = Math.max(0, minPaperTradingDays)
+  }
 }
 
 function aiResearchTaskFailureMessage(task: AIStrategyResearchTaskResponse) {
@@ -4967,6 +5307,11 @@ function notifyAIResearchResult(result: AIStrategyResearchRunResponse) {
   }
   if (status === 'timeout' || result.pipeline?.current_stage === 'backtest_timeout') {
     ElMessage.warning('AI投研回测超时，已保存结果，可继续投研')
+    return
+  }
+  if (status === 'configuration_invalid' || result.pipeline?.current_stage === 'configuration_invalid') {
+    const message = String(result.message || result.next_actions?.[0] || '').trim()
+    ElMessage.warning(message ? `AI投研配置未通过：${message}` : 'AI投研配置未通过，请调整参数后重新启动')
     return
   }
   ElMessage.warning('AI投研未达标，已保存结果，可继续投研')
@@ -5056,6 +5401,7 @@ async function restoreActiveAIResearchTask() {
     ElMessage.error(t('strategy.aiResearchRunFailed'))
   } finally {
     aiResearchRunning.value = false
+    scheduleAIResearchRunsAutoRefresh()
   }
 }
 
@@ -5093,14 +5439,19 @@ async function cancelAIResearchTask() {
 }
 
 async function runAIResearchLoop() {
-  const prompt = aiResearchForm.prompt.trim()
+  let prompt = aiResearchForm.prompt.trim()
   const symbol = aiResearchForm.symbol.trim()
-  if (!prompt) {
-    ElMessage.warning(t('strategy.aiResearchPromptRequired'))
-    return
-  }
   if (!symbol) {
     ElMessage.warning(t('strategy.aiResearchSymbolRequired'))
+    return
+  }
+  if (!prompt) {
+    aiResearchForm.prompt = buildGeneratedAIResearchPrompt()
+    prompt = aiResearchForm.prompt.trim()
+  }
+  const outOfSampleError = requiredOutOfSampleValidationError()
+  if (outOfSampleError) {
+    ElMessage.warning(outOfSampleError)
     return
   }
 
@@ -5143,10 +5494,15 @@ async function runAIResearchLoop() {
       aiResearchTaskError.value = ''
       return
     }
+    if (notifyAIResearchConfigError(error)) {
+      aiResearchTaskError.value = ''
+      return
+    }
     aiResearchTaskError.value = aiResearchErrorMessage(error)
     ElMessage.error(t('strategy.aiResearchRunFailed'))
   } finally {
     aiResearchRunning.value = false
+    scheduleAIResearchRunsAutoRefresh()
   }
 }
 
@@ -5244,6 +5600,7 @@ async function deleteStrategy(id: string) {
 }
 
 onMounted(async () => {
+  aiResearchRunsAutoRefreshActive = true
   try {
     await Promise.all([
       strategyStore.fetchStrategies(),
@@ -5254,6 +5611,19 @@ onMounted(async () => {
   } catch {
     ElMessage.error(t('strategy.loadFailed'))
   }
+})
+
+watch(activeTab, tab => {
+  if (tab === 'aiResearch') {
+    scheduleAIResearchRunsAutoRefresh()
+  } else {
+    clearAIResearchRunsAutoRefresh()
+  }
+})
+
+onUnmounted(() => {
+  aiResearchRunsAutoRefreshActive = false
+  clearAIResearchRunsAutoRefresh()
 })
 </script>
 
@@ -5276,6 +5646,12 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px 16px;
+}
+
+.ai-research-prompt-tools {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
 }
 
 .ai-research-actions {

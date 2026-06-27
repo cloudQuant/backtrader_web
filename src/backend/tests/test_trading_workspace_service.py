@@ -17,6 +17,7 @@ from app.services.trading_asset_info_service import (
     query_gateway_last_price,
     resolve_asset_specs,
     signed_gateway_size,
+    split_bidirectional_position_row,
     symbol_aliases,
     symbols_for_instance,
 )
@@ -2775,6 +2776,73 @@ def test_normalize_gateway_position_keeps_fee_estimation_when_only_swap_is_prese
     assert valued is not None
     assert valued.commission == pytest.approx(4.66)
     assert valued.pnl == pytest.approx(-2.76)
+
+
+def test_normalize_gateway_position_counts_funding_fee_as_signed_carry_pnl():
+    spec = normalize_asset_spec(
+        {
+            "symbol": "XAUUSD",
+            "contract_size": 100,
+            "commission_rate": 0.001,
+        },
+        source="mt5_gateway",
+    )
+    row = normalize_gateway_position(
+        {
+            "instrument": "XAUUSD",
+            "direction": "buy",
+            "volume": 0.02,
+            "price": 2330.0,
+            "current_price": 2331.0,
+            "profit": 2.0,
+            "fundingFee": -0.25,
+        },
+        asset_spec=spec,
+    )
+
+    assert row["swap"] == pytest.approx(-0.25)
+    valued = value_position(
+        row,
+        spec=contract_spec_for("XAUUSD", {"contract_metadata": {"XAUUSD": spec}}),
+    )
+
+    assert valued is not None
+    assert valued.commission == pytest.approx(4.66)
+    assert valued.pnl == pytest.approx(-2.91)
+
+
+def test_split_bidirectional_position_allocates_aggregate_carry_pnl_once():
+    spec = normalize_asset_spec(
+        {
+            "symbol": "IF2609",
+            "multiplier": 300,
+            "margin_rate": 0.1,
+        },
+        source="ctp_gateway",
+    )
+    rows = split_bidirectional_position_row(
+        {
+            "InstrumentID": "IF2609",
+            "long_position": 1,
+            "short_position": 1,
+            "avgPrice": 5000,
+            "LastPrice": 5000,
+            "fundingFee": -10.0,
+        }
+    )
+
+    assert len(rows) == 2
+    assert sum(row.get("swap", 0.0) for row in rows) == pytest.approx(-10.0)
+    valued = [
+        value_position(
+            normalize_gateway_position(row, asset_spec=spec),
+            spec=contract_spec_for("IF2609", {"contract_metadata": {"IF2609": spec}}),
+        )
+        for row in rows
+    ]
+
+    assert all(item is not None for item in valued)
+    assert sum(item.pnl for item in valued if item is not None) == pytest.approx(-10.0)
 
 
 def test_normalize_gateway_position_estimates_fee_when_position_commission_is_zero():

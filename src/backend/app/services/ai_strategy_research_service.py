@@ -436,6 +436,79 @@ class AIStrategyResearchService:
                 "message": "AI research workspace is ready",
             },
         )
+        configuration_failure = _required_out_of_sample_validation_failure(request)
+        if configuration_failure:
+            await _emit_research_progress(
+                progress_callback,
+                {
+                    "run_id": run_id,
+                    "research_workspace_id": research_workspace.id,
+                    "current_stage": "configuration_invalid",
+                    "progress": 100.0,
+                    "iteration_count": 0,
+                    "max_iterations": request.max_iterations,
+                    "message": configuration_failure,
+                },
+            )
+            completed_at = _utc_iso_now()
+            pipeline = _pipeline_summary(
+                status="configuration_invalid",
+                achieved=False,
+                iteration_count=0,
+                max_iterations=request.max_iterations,
+                out_of_sample_validation=request.out_of_sample_validation,
+                validation_status=None,
+                paper_trading_started=False,
+                paper_trading_error=None,
+                paper_review_status=None,
+                paper_review_ready_for_live=False,
+            )
+            response = AIStrategyResearchRunResponse(
+                run_id=run_id,
+                status="configuration_invalid",
+                achieved=False,
+                target_sharpe=request.target_sharpe,
+                started_at=started_at,
+                completed_at=completed_at,
+                best_iteration=None,
+                best_quality_score=0.0,
+                best_quality_gate_evaluations=[],
+                best_diagnostics=_configuration_failure_diagnostics(configuration_failure),
+                best_metrics={},
+                research_workspace=research_workspace,
+                iterations=[],
+                best_strategy=None,
+                paper_trading=None,
+                paper_monitoring_plan=[],
+                pipeline=pipeline,
+                next_actions=_run_next_actions(
+                    status="configuration_invalid",
+                    achieved=False,
+                    request=request,
+                    result_iteration=None,
+                    paper_trading=None,
+                    run_failures=[configuration_failure],
+                ),
+                message=configuration_failure,
+            )
+            run_record = _build_research_run_record(
+                run_id=run_id,
+                request=request,
+                response=response,
+                started_at=started_at,
+                completed_at=completed_at,
+            )
+            research_workspace = await self._persist_research_run_record(
+                user_id,
+                research_workspace,
+                run_record,
+            )
+            return response.model_copy(
+                update={
+                    "research_workspace": research_workspace,
+                    "run_record": run_record,
+                }
+            )
         initial_draft_notes: list[str] = []
         iterations: list[AIStrategyResearchIteration] = []
         best_iteration: AIStrategyResearchIteration | None = None
@@ -778,6 +851,11 @@ class AIStrategyResearchService:
                         "Out-of-sample validation skipped because start_date/end_date "
                         "do not define a splittable range"
                     )
+                    if request.require_out_of_sample_validation:
+                        validation_failures = [validation_failure_reason]
+                        quality_gate_failures = [*quality_gate_failures, validation_failure_reason]
+                        failure_reason = validation_failure_reason
+                        passed = False
                 else:
                     await _emit_research_progress(
                         progress_callback,
@@ -1141,6 +1219,8 @@ class AIStrategyResearchService:
             achieved=achieved,
             iteration_count=len(iterations),
             max_iterations=request.max_iterations,
+            out_of_sample_validation=request.out_of_sample_validation,
+            validation_status=result_iteration.validation_status if result_iteration else None,
             paper_trading_started=bool(paper_trading.started) if paper_trading else False,
             paper_trading_error=paper_trading_error,
             paper_review_status=None,
@@ -1154,8 +1234,8 @@ class AIStrategyResearchService:
             started_at=started_at,
             completed_at=completed_at,
             best_iteration=result_iteration.iteration if result_iteration else None,
-            best_quality_score=result_iteration.quality_score if result_iteration else 0.0,
-            best_quality_gate_evaluations=result_iteration.quality_gate_evaluations
+            best_quality_score=_promotion_quality_score(result_iteration),
+            best_quality_gate_evaluations=_promotion_gate_evaluations(result_iteration)
             if result_iteration
             else [],
             best_diagnostics=result_iteration.diagnostics
@@ -1291,6 +1371,7 @@ class AIStrategyResearchService:
         monitoring_plan = _resolve_paper_monitoring_plan(record, unit)
         evaluations = _evaluate_paper_monitoring_plan(
             monitoring_plan,
+            record=record,
             unit=unit,
             unit_status=unit_status,
         )
@@ -1524,6 +1605,7 @@ class AIStrategyResearchService:
         monitoring_plan = _resolve_paper_monitoring_plan(record, unit)
         evaluations = _evaluate_paper_monitoring_plan(
             monitoring_plan,
+            record=record,
             unit=unit,
             unit_status=unit_status,
         )
@@ -2336,6 +2418,8 @@ class AIStrategyResearchService:
                 achieved=False,
                 iteration_count=0,
                 max_iterations=request.max_iterations,
+                out_of_sample_validation=request.out_of_sample_validation,
+                validation_status=None,
                 paper_trading_started=False,
                 paper_trading_error=None,
                 paper_review_status=None,
@@ -2387,6 +2471,8 @@ class AIStrategyResearchService:
             achieved=False,
             iteration_count=len(iterations),
             max_iterations=request.max_iterations,
+            out_of_sample_validation=request.out_of_sample_validation,
+            validation_status=result_iteration.validation_status,
             paper_trading_started=False,
             paper_trading_error=None,
             paper_review_status=None,
@@ -2400,8 +2486,8 @@ class AIStrategyResearchService:
             started_at=started_at,
             completed_at=completed_at,
             best_iteration=result_iteration.iteration,
-            best_quality_score=result_iteration.quality_score,
-            best_quality_gate_evaluations=result_iteration.quality_gate_evaluations,
+            best_quality_score=_promotion_quality_score(result_iteration),
+            best_quality_gate_evaluations=_promotion_gate_evaluations(result_iteration),
             best_diagnostics=result_iteration.diagnostics,
             best_metrics=best_metrics,
             research_workspace=research_workspace,
@@ -2615,6 +2701,7 @@ class AIStrategyResearchService:
             "paper_unit_id": unit.id,
             "paper_task_id": run_result.task_id if run_result else None,
             "paper_run_status": run_result.status if run_result else None,
+            "paper_started_at": _utc_iso_now() if _paper_trading_run_started(run_result) else None,
         }
         unit = unit.model_copy(
             update={
@@ -2857,6 +2944,10 @@ class AIStrategyResearchService:
                     achieved=record.achieved,
                     iteration_count=record.iteration_count,
                     max_iterations=record.max_iterations,
+                    out_of_sample_validation=bool(
+                        (record.quality_gates or {}).get("out_of_sample_validation", False)
+                    ),
+                    validation_status=_record_best_validation_status(record),
                     paper_trading_started=False,
                     paper_trading_error=paper_trading_error,
                     paper_review_status=None,
@@ -2999,6 +3090,10 @@ def _run_record_with_live_handoff(
     return record.model_copy(
         update={
             "live_handoff": package,
+            "live_readiness_checklist": [
+                dict(item) for item in package.live_readiness_checklist if isinstance(item, dict)
+            ],
+            "live_readiness_expires_at": package.expires_at,
             "pipeline": pipeline,
             "next_actions": next_actions,
         }
@@ -3088,6 +3183,12 @@ def _pipeline_with_live_handoff_step(
             "live_handoff_ready_for_live": package.ready_for_live,
             "live_handoff_approval_required": package.approval_required,
             "live_handoff_blocker_count": len(package.deployment_blockers),
+            "live_readiness_checklist": [
+                dict(item)
+                for item in package.live_readiness_checklist
+                if isinstance(item, dict)
+            ],
+            "live_readiness_expires_at": package.expires_at,
             "steps": steps,
         }
     )
@@ -3261,19 +3362,11 @@ def _build_live_handoff_approval_record(
 def _research_run_record_without_sensitive_handoff(
     record: AIStrategyResearchRunRecord,
 ) -> AIStrategyResearchRunRecord:
-    updates: dict[str, Any] = {}
-    paper_handoff = _research_record_handoff_payload(record.paper_handoff)
-    if paper_handoff != record.paper_handoff:
-        updates["paper_handoff"] = paper_handoff
-
-    if record.live_handoff is not None:
-        live_handoff = record.live_handoff.model_copy(
-            update={"handoff": _research_record_handoff_payload(record.live_handoff.handoff)}
-        )
-        if live_handoff != record.live_handoff:
-            updates["live_handoff"] = live_handoff
-
-    return record.model_copy(update=updates) if updates else record
+    redacted = _redact_sensitive_handoff(record.model_dump(mode="python"))
+    try:
+        return AIStrategyResearchRunRecord.model_validate(redacted)
+    except Exception:
+        return record
 
 
 def _research_record_handoff_payload(handoff: Any) -> dict[str, Any]:
@@ -4104,6 +4197,23 @@ def _out_of_sample_window(request: AIStrategyResearchRunRequest) -> OutOfSampleW
     )
 
 
+def _required_out_of_sample_validation_failure(
+    request: AIStrategyResearchRunRequest,
+) -> str | None:
+    if not request.require_out_of_sample_validation:
+        return None
+    if not request.out_of_sample_validation:
+        return (
+            "Required out-of-sample validation is enabled but out_of_sample_validation is false"
+        )
+    if _out_of_sample_window(request) is not None:
+        return None
+    return (
+        "Required out-of-sample validation needs valid start_date/end_date "
+        "with at least 8 calendar days"
+    )
+
+
 def _out_of_sample_min_sharpe(request: AIStrategyResearchRunRequest) -> float:
     if request.min_out_of_sample_sharpe is not None:
         return request.min_out_of_sample_sharpe
@@ -4283,19 +4393,76 @@ def _is_better_research_candidate(
 ) -> bool:
     candidate_key = (
         1 if candidate.passed else 0,
-        candidate.quality_score,
+        _promotion_quality_score(candidate),
         candidate.sharpe_ratio,
         candidate.total_trades,
         -candidate.iteration,
     )
     current_key = (
         1 if current.passed else 0,
-        current.quality_score,
+        _promotion_quality_score(current),
         current.sharpe_ratio,
         current.total_trades,
         -current.iteration,
     )
     return candidate_key > current_key
+
+
+def _promotion_gate_evaluations(
+    iteration: AIStrategyResearchIteration | None,
+) -> list[dict[str, Any]]:
+    if iteration is None:
+        return []
+
+    evaluations = [
+        dict(item)
+        for item in iteration.quality_gate_evaluations
+        if isinstance(item, dict)
+    ]
+    seen = {str(item.get("key") or "") for item in evaluations}
+    for item in iteration.validation_gate_evaluations:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip()
+        if key and key in seen:
+            continue
+        evaluations.append(dict(item))
+        if key:
+            seen.add(key)
+
+    if (
+        iteration.validation_status == "failed"
+        and not iteration.validation_gate_evaluations
+        and "out_of_sample_validation" not in seen
+    ):
+        evaluations.append(
+            {
+                "key": "out_of_sample_validation",
+                "label": "Out-of-sample validation",
+                "actual": 0.0,
+                "target": 1.0,
+                "direction": "min",
+                "passed": False,
+                "score": 0.0,
+                "failure_reason": iteration.validation_failure_reason
+                or "; ".join(iteration.validation_failures),
+            }
+    )
+    return evaluations
+
+
+def _promotion_quality_score(iteration: AIStrategyResearchIteration | None) -> float:
+    if iteration is None:
+        return 0.0
+    evaluations = _promotion_gate_evaluations(iteration)
+    if not evaluations:
+        return round(float(iteration.quality_score or 0.0), 3)
+    return round(
+        sum(float(item.get("score", 0.0) or 0.0) for item in evaluations)
+        / len(evaluations)
+        * 100,
+        3,
+    )
 
 
 def _quality_score(
@@ -4460,7 +4627,9 @@ def _quality_gates_payload(request: AIStrategyResearchRunRequest) -> dict[str, A
         "target_sharpe": request.target_sharpe,
         "min_total_trades": request.min_total_trades,
         "out_of_sample_validation": request.out_of_sample_validation,
+        "require_out_of_sample_validation": request.require_out_of_sample_validation,
         "out_of_sample_ratio": request.out_of_sample_ratio,
+        "min_paper_trading_days": request.min_paper_trading_days,
     }
     if request.out_of_sample_validation:
         payload["min_out_of_sample_sharpe"] = _out_of_sample_min_sharpe(request)
@@ -4494,6 +4663,10 @@ def _pipeline_summary_from_record(
         achieved=record.achieved,
         iteration_count=record.iteration_count,
         max_iterations=record.max_iterations,
+        out_of_sample_validation=bool(
+            (record.quality_gates or {}).get("out_of_sample_validation", False)
+        ),
+        validation_status=_record_best_validation_status(record),
         paper_trading_started=record.paper_trading_started
         if paper_trading_started is None
         else paper_trading_started,
@@ -4519,6 +4692,8 @@ def _pipeline_summary(
     achieved: bool,
     iteration_count: int,
     max_iterations: int,
+    out_of_sample_validation: bool,
+    validation_status: str | None,
     paper_trading_started: bool,
     paper_trading_error: str | None,
     paper_review_status: str | None,
@@ -4526,25 +4701,35 @@ def _pipeline_summary(
     live_readiness_checklist: list[dict[str, Any]] | None = None,
     live_readiness_expires_at: str | None = None,
 ) -> dict[str, Any]:
-    draft_status = "completed"
-    backtest_status = (
-        "cancelled"
-        if status == "cancelled"
-        else "failed"
-        if status == "backtest_submission_failed"
-        else "completed"
-        if iteration_count > 0
-        else "pending"
+    configuration_invalid = status == "configuration_invalid"
+    draft_status = "pending" if configuration_invalid else "completed"
+    if configuration_invalid:
+        backtest_status = "pending"
+    elif status == "cancelled":
+        backtest_status = "cancelled"
+    elif status == "backtest_submission_failed":
+        backtest_status = "failed"
+    elif iteration_count > 0:
+        backtest_status = "completed"
+    else:
+        backtest_status = "pending"
+    validation_step_status = _validation_step_status(
+        status=status,
+        out_of_sample_validation=out_of_sample_validation,
+        validation_status=validation_status,
+        iteration_count=iteration_count,
     )
-    gate_status = (
-        "cancelled"
-        if status == "cancelled"
-        else "completed"
-        if achieved
-        else "failed"
-        if iteration_count >= max_iterations
-        else "running"
-    )
+
+    if configuration_invalid:
+        gate_status = "failed"
+    elif status == "cancelled":
+        gate_status = "cancelled"
+    elif achieved:
+        gate_status = "completed"
+    elif iteration_count >= max_iterations:
+        gate_status = "failed"
+    else:
+        gate_status = "running"
     paper_status = "completed" if paper_trading_started else "failed" if paper_trading_error else "pending"
     review_status = (
         "completed"
@@ -4564,6 +4749,12 @@ def _pipeline_summary(
             "status": backtest_status,
             "iteration_count": iteration_count,
             "max_iterations": max_iterations,
+        },
+        {
+            "key": "validation",
+            "label": "样本外验证",
+            "status": validation_step_status,
+            "validation_status": validation_status,
         },
         {"key": "quality_gate", "label": "质量门槛", "status": gate_status},
         {
@@ -4587,7 +4778,7 @@ def _pipeline_summary(
         paper_review_ready_for_live=paper_review_ready_for_live,
         status=status,
     )
-    completed_count = sum(1 for item in steps if item["status"] == "completed")
+    completed_count = sum(1 for item in steps if item["status"] in {"completed", "skipped"})
     return {
         "current_stage": current_stage,
         "status": status,
@@ -4600,6 +4791,39 @@ def _pipeline_summary(
     }
 
 
+def _record_best_validation_status(record: AIStrategyResearchRunRecord) -> str | None:
+    payload = _best_iteration_payload(record)
+    if not isinstance(payload, dict):
+        return None
+    status = str(payload.get("validation_status") or "").strip()
+    return status or None
+
+
+def _validation_step_status(
+    *,
+    status: str,
+    out_of_sample_validation: bool,
+    validation_status: str | None,
+    iteration_count: int,
+) -> str:
+    if not out_of_sample_validation:
+        return "skipped"
+    normalized = str(validation_status or "").strip()
+    if normalized == "passed":
+        return "completed"
+    if normalized == "failed":
+        return "failed"
+    if normalized in {"skipped", "not_required"}:
+        return "skipped"
+    if status == "configuration_invalid":
+        return "failed"
+    if status == "cancelled":
+        return "cancelled"
+    if iteration_count <= 0 or status == "backtest_submission_failed":
+        return "pending"
+    return "pending"
+
+
 def _pipeline_current_stage(
     *,
     achieved: bool,
@@ -4609,6 +4833,8 @@ def _pipeline_current_stage(
     paper_review_ready_for_live: bool,
     status: str,
 ) -> str:
+    if status == "configuration_invalid":
+        return "configuration_invalid"
     if status == "cancelled":
         return "cancelled"
     if paper_review_ready_for_live:
@@ -5032,7 +5258,7 @@ def _continuation_runtime_updates(
             updates["optimization_config"] = optimization_config
 
     if "gateway_config" not in explicit_fields:
-        gateway_config = _dict_payload(unit_snapshot.get("gateway_config"))
+        gateway_config = _dict_payload(_omit_sensitive_handoff(unit_snapshot.get("gateway_config")))
         gateway_config.update(_dict_payload(runtime_context.get("gateway_config")))
         gateway_config.update(_dict_payload(request.gateway_config))
         if gateway_config:
@@ -5145,7 +5371,7 @@ def _paper_start_request_from_record(
         ):
             if backtest_environment.get(key) not in (None, ""):
                 unit_settings[key] = backtest_environment[key]
-    gateway_config = _dict_payload(unit_snapshot.get("gateway_config"))
+    gateway_config = _dict_payload(_omit_sensitive_handoff(unit_snapshot.get("gateway_config")))
     gateway_config.update(_dict_payload(runtime_context.get("gateway_config")))
     gateway_config.update(_dict_payload(request.gateway_config))
     return AIStrategyResearchRunRequest(
@@ -5170,6 +5396,9 @@ def _paper_start_request_from_record(
         min_annual_return=_optional_gate_number(gates.get("min_annual_return")),
         min_win_rate=_optional_gate_number(gates.get("min_win_rate")),
         out_of_sample_validation=bool(gates.get("out_of_sample_validation", True)),
+        require_out_of_sample_validation=bool(
+            gates.get("require_out_of_sample_validation", False)
+        ),
         out_of_sample_ratio=float(gates.get("out_of_sample_ratio") or 0.25),
         min_out_of_sample_sharpe=_optional_gate_number(gates.get("min_out_of_sample_sharpe")),
         min_out_of_sample_trades=_optional_gate_int(gates.get("min_out_of_sample_trades")),
@@ -5187,6 +5416,7 @@ def _paper_start_request_from_record(
         ),
         continue_from_run_id=record.run_id,
         start_paper_trading=True,
+        min_paper_trading_days=max(int(gates.get("min_paper_trading_days") or 0), 0),
         paper_workspace_name=request.paper_workspace_name or record.paper_workspace_name,
         gateway_config=gateway_config,
         data_config=data_config,
@@ -5333,9 +5563,11 @@ def _unit_from_iteration_snapshot(
         params=dict(snapshot.get("params") or {}),
         optimization_config=dict(snapshot.get("optimization_config") or {}),
         gateway_config=(
-            dict(snapshot.get("gateway_config") or {})
+            _dict_payload(_omit_sensitive_handoff(snapshot.get("gateway_config")))
             or _dict_payload(
-                record.paper_handoff.get("gateway_config") if record.paper_handoff else None
+                _omit_sensitive_handoff(
+                    record.paper_handoff.get("gateway_config") if record.paper_handoff else None
+                )
             )
         ),
         trading_mode=str(snapshot.get("trading_mode") or "paper"),
@@ -5923,7 +6155,7 @@ def _build_research_run_record(
     )
     best_strategy = response.best_strategy
     paper = response.paper_trading
-    return AIStrategyResearchRunRecord(
+    record = AIStrategyResearchRunRecord(
         run_id=run_id,
         prompt=request.prompt,
         symbol=request.symbol,
@@ -5954,10 +6186,8 @@ def _build_research_run_record(
         best_sharpe=best_iteration.sharpe_ratio
         if best_iteration is not None
         else _metric_float(response.best_metrics, "sharpe_ratio", "sharpe", "sharpeRatio"),
-        best_quality_score=best_iteration.quality_score if best_iteration is not None else 0.0,
-        best_quality_gate_evaluations=best_iteration.quality_gate_evaluations
-        if best_iteration is not None
-        else [],
+        best_quality_score=_promotion_quality_score(best_iteration),
+        best_quality_gate_evaluations=_promotion_gate_evaluations(best_iteration),
         best_diagnostics=best_iteration.diagnostics
         if best_iteration is not None
         else response.best_diagnostics,
@@ -5979,6 +6209,7 @@ def _build_research_run_record(
         completed_at=completed_at,
         iterations=[_compact_research_iteration(item) for item in response.iterations],
     )
+    return _research_run_record_without_sensitive_handoff(record)
 
 
 def _apply_initial_paper_review_to_run_record(
@@ -5992,6 +6223,7 @@ def _apply_initial_paper_review_to_run_record(
     monitoring_plan = _resolve_paper_monitoring_plan(record, paper_trading.unit)
     evaluations = _evaluate_paper_monitoring_plan(
         monitoring_plan,
+        record=record,
         unit=paper_trading.unit,
         unit_status=None,
     )
@@ -6102,8 +6334,8 @@ def _build_paper_trading_handoff(
         "backtest_timeout_seconds": request.backtest_timeout_seconds,
         "poll_interval_seconds": request.poll_interval_seconds,
         "achieved_sharpe": best_iteration.sharpe_ratio,
-        "achieved_quality_score": best_iteration.quality_score,
-        "achieved_quality_gate_evaluations": best_iteration.quality_gate_evaluations,
+        "achieved_quality_score": _promotion_quality_score(best_iteration),
+        "achieved_quality_gate_evaluations": _promotion_gate_evaluations(best_iteration),
         "achieved_diagnostics": best_iteration.diagnostics,
         "total_trades": best_iteration.total_trades,
         "best_metrics": best_iteration.metrics,
@@ -6564,7 +6796,7 @@ def _paper_monitoring_plan_from_metrics(
 ) -> list[dict[str, Any]]:
     drawdown_limit = _paper_drawdown_limit(request, metrics)
     execution_commission = request.commission if commission is None else commission
-    return [
+    plan = [
         {
             "key": "rolling_sharpe",
             "label": "模拟交易滚动 Sharpe",
@@ -6611,6 +6843,19 @@ def _paper_monitoring_plan_from_metrics(
             "action": "持仓估值、合约乘数、保证金或手续费未确认时，先修正交易所/本地资产信息后再复核。",
         },
     ]
+    if request.min_paper_trading_days > 0:
+        plan.append(
+            {
+                "key": "paper_observation_period",
+                "label": "最小模拟观察期",
+                "metric": "paper_elapsed_days",
+                "window": "since paper start",
+                "direction": "min",
+                "threshold": float(request.min_paper_trading_days),
+                "action": "模拟运行观察期不足时继续 paper，不进入实盘交接。",
+            }
+        )
+    return plan
 
 
 def _paper_effective_commission(
@@ -6705,6 +6950,7 @@ def _unit_ai_research_handoff(unit: StrategyUnitResponse | None) -> dict[str, An
 def _evaluate_paper_monitoring_plan(
     monitoring_plan: list[dict[str, Any]],
     *,
+    record: AIStrategyResearchRunRecord | None = None,
     unit: StrategyUnitResponse | None,
     unit_status: UnitStatusResponse | None,
 ) -> list[AIStrategyPaperTradingRuleEvaluation]:
@@ -6714,7 +6960,12 @@ def _evaluate_paper_monitoring_plan(
         threshold = _optional_gate_number(raw_rule.get("threshold"))
         if not metric or threshold is None:
             continue
-        actual, source = _lookup_paper_metric(metric, unit=unit, unit_status=unit_status)
+        actual, source = _lookup_paper_metric(
+            metric,
+            record=record,
+            unit=unit,
+            unit_status=unit_status,
+        )
         actual = _normalize_paper_metric_value(metric, actual, float(threshold))
         direction = str(raw_rule.get("direction") or "min").strip().lower()
         passed = _paper_rule_passed(actual, threshold, direction)
@@ -6763,7 +7014,7 @@ def _paper_rule_status(
         return "pending"
     if passed:
         return "passed"
-    if key == "trade_sample":
+    if key in {"trade_sample", "paper_observation_period"}:
         return "pending"
     return "failed"
 
@@ -6781,14 +7032,61 @@ _PAPER_METRIC_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+_EXECUTION_COST_RATE_ALIASES = (
+    "actual_slippage_and_commission_rate",
+    "slippage_and_commission_rate",
+    "actual_execution_cost_rate",
+    "execution_cost_rate",
+    "actual_cost_rate",
+    "cost_rate",
+)
+_COMMISSION_RATE_ALIASES = (
+    "actual_commission_rate",
+    "actual_fee_rate",
+    "commission_rate",
+    "fee_rate",
+    "taker_commission_rate",
+    "taker_fee_rate",
+)
+_SLIPPAGE_RATE_ALIASES = (
+    "actual_slippage_rate",
+    "slippage_rate",
+    "slippage",
+)
+_EXPECTED_EXECUTION_COST_RATE_ALIASES = (
+    "expected_slippage_and_commission_rate",
+    "expected_execution_cost_rate",
+    "backtest_execution_cost_rate",
+    "assumed_execution_cost_rate",
+)
+_EXPECTED_COMMISSION_RATE_ALIASES = (
+    "expected_commission_rate",
+    "backtest_commission_rate",
+    "assumed_commission_rate",
+    "commission_assumption",
+)
+_EXPECTED_SLIPPAGE_RATE_ALIASES = (
+    "expected_slippage_rate",
+    "backtest_slippage_rate",
+    "assumed_slippage_rate",
+)
+
+
 def _lookup_paper_metric(
     metric: str,
     *,
+    record: AIStrategyResearchRunRecord | None = None,
     unit: StrategyUnitResponse | None,
     unit_status: UnitStatusResponse | None,
 ) -> tuple[float | None, str | None]:
     if metric == "valuation_confidence":
-        return _lookup_paper_valuation_confidence(unit=unit, unit_status=unit_status)
+        return _lookup_paper_valuation_confidence(
+            record=record,
+            unit=unit,
+            unit_status=unit_status,
+        )
+    if metric == "paper_elapsed_days":
+        return _lookup_paper_elapsed_days(record=record, unit=unit, unit_status=unit_status)
 
     aliases = _PAPER_METRIC_ALIASES.get(metric, (metric,))
     sources: list[tuple[str, dict[str, Any]]] = []
@@ -6811,11 +7109,152 @@ def _lookup_paper_metric(
         value = _lookup_nested_metric(payload, aliases)
         if value is not None:
             return value, source_name
+    if metric == "slippage_and_commission_delta":
+        return _lookup_paper_execution_cost_delta(record=record, sources=sources)
+    return None, None
+
+
+def _lookup_paper_execution_cost_delta(
+    *,
+    record: AIStrategyResearchRunRecord | None,
+    sources: list[tuple[str, dict[str, Any]]],
+) -> tuple[float | None, str | None]:
+    expected_total = _expected_execution_cost_rate(record)
+    if expected_total is None:
+        return None, None
+
+    for source_name, payload in sources:
+        actual_total, actual_source = _actual_execution_cost_rate(payload)
+        if actual_total is None:
+            continue
+        expected_from_payload = _execution_cost_rate_from_payload(
+            payload,
+            total_aliases=_EXPECTED_EXECUTION_COST_RATE_ALIASES,
+            commission_aliases=_EXPECTED_COMMISSION_RATE_ALIASES,
+            slippage_aliases=_EXPECTED_SLIPPAGE_RATE_ALIASES,
+        )
+        baseline = expected_from_payload if expected_from_payload is not None else expected_total
+        return round(abs(actual_total - baseline), 8), f"{source_name}.{actual_source}"
+    return None, None
+
+
+def _expected_execution_cost_rate(
+    record: AIStrategyResearchRunRecord | None,
+) -> float | None:
+    if record is None:
+        return None
+    environment = dict(record.backtest_environment or {})
+    expected = _execution_cost_rate_from_payload(
+        environment,
+        total_aliases=_EXPECTED_EXECUTION_COST_RATE_ALIASES,
+        commission_aliases=_EXPECTED_COMMISSION_RATE_ALIASES,
+        slippage_aliases=_EXPECTED_SLIPPAGE_RATE_ALIASES,
+    )
+    if expected is not None:
+        return expected
+    commission = _optional_gate_number(environment.get("commission"))
+    if commission is None:
+        commission = _optional_gate_number(record.commission)
+    slippage = _optional_gate_number(environment.get("slippage"))
+    return float(commission or 0.0) + float(slippage or 0.0)
+
+
+def _actual_execution_cost_rate(payload: dict[str, Any]) -> tuple[float | None, str | None]:
+    actual_total = _lookup_nested_metric(payload, _EXECUTION_COST_RATE_ALIASES)
+    if actual_total is not None:
+        return actual_total, "execution_cost_rate"
+    commission = _lookup_nested_metric(payload, _COMMISSION_RATE_ALIASES)
+    slippage = _lookup_nested_metric(payload, _SLIPPAGE_RATE_ALIASES)
+    if commission is None and slippage is None:
+        return None, None
+    parts = []
+    if commission is not None:
+        parts.append("commission_rate")
+    if slippage is not None:
+        parts.append("slippage_rate")
+    return float(commission or 0.0) + float(slippage or 0.0), "+".join(parts)
+
+
+def _execution_cost_rate_from_payload(
+    payload: dict[str, Any],
+    *,
+    total_aliases: tuple[str, ...],
+    commission_aliases: tuple[str, ...],
+    slippage_aliases: tuple[str, ...],
+) -> float | None:
+    total = _lookup_nested_metric(payload, total_aliases)
+    if total is not None:
+        return total
+    commission = _lookup_nested_metric(payload, commission_aliases)
+    slippage = _lookup_nested_metric(payload, slippage_aliases)
+    if commission is None and slippage is None:
+        return None
+    return float(commission or 0.0) + float(slippage or 0.0)
+
+
+def _lookup_paper_elapsed_days(
+    *,
+    record: AIStrategyResearchRunRecord | None,
+    unit: StrategyUnitResponse | None,
+    unit_status: UnitStatusResponse | None,
+) -> tuple[float | None, str | None]:
+    candidates: list[tuple[str, Any]] = []
+    if record is not None:
+        candidates.extend(
+            [
+                ("record.paper_handoff.paper_started_at", record.paper_handoff.get("paper_started_at")),
+                ("record.paper_handoff.promoted_at", record.paper_handoff.get("promoted_at")),
+            ]
+        )
+    if unit_status is not None:
+        trading_snapshot = dict(unit_status.trading_snapshot or {})
+        handoff = _dict_payload(trading_snapshot.get("ai_research_handoff"))
+        candidates.extend(
+            [
+                ("unit_status.trading_snapshot.paper_started_at", trading_snapshot.get("paper_started_at")),
+                (
+                    "unit_status.trading_snapshot.ai_research_handoff.paper_started_at",
+                    handoff.get("paper_started_at"),
+                ),
+                (
+                    "unit_status.trading_snapshot.ai_research_handoff.promoted_at",
+                    handoff.get("promoted_at"),
+                ),
+            ]
+        )
+    if unit is not None:
+        unit_handoff = _unit_ai_research_handoff(unit)
+        trading_snapshot = dict(unit.trading_snapshot or {})
+        snapshot_handoff = _dict_payload(trading_snapshot.get("ai_research_handoff"))
+        candidates.extend(
+            [
+                ("unit.unit_settings.ai_research_handoff.paper_started_at", unit_handoff.get("paper_started_at")),
+                ("unit.unit_settings.ai_research_handoff.promoted_at", unit_handoff.get("promoted_at")),
+                ("unit.trading_snapshot.paper_started_at", trading_snapshot.get("paper_started_at")),
+                (
+                    "unit.trading_snapshot.ai_research_handoff.paper_started_at",
+                    snapshot_handoff.get("paper_started_at"),
+                ),
+                (
+                    "unit.trading_snapshot.ai_research_handoff.promoted_at",
+                    snapshot_handoff.get("promoted_at"),
+                ),
+            ]
+        )
+
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    for source, value in candidates:
+        started_at = _parse_utc_datetime(str(value)) if value not in (None, "") else None
+        if started_at is None:
+            continue
+        elapsed_days = max((now - started_at).total_seconds() / 86400.0, 0.0)
+        return round(elapsed_days, 6), source
     return None, None
 
 
 def _lookup_paper_valuation_confidence(
     *,
+    record: AIStrategyResearchRunRecord | None,
     unit: StrategyUnitResponse | None,
     unit_status: UnitStatusResponse | None,
 ) -> tuple[float | None, str | None]:
@@ -6850,7 +7289,30 @@ def _lookup_paper_valuation_confidence(
         if source:
             return 1.0, source
 
+    if record is not None:
+        source = _record_asset_specs_source(record)
+        if source:
+            return 1.0, source
+
     return None, None
+
+
+def _record_asset_specs_source(record: AIStrategyResearchRunRecord) -> str | None:
+    if _contract_metadata_has_asset_specs(dict(record.asset_specs or {})):
+        return "record.asset_specs"
+    paper_handoff = dict(record.paper_handoff or {})
+    handoff_specs = paper_handoff.get("asset_specs")
+    if isinstance(handoff_specs, dict) and _contract_metadata_has_asset_specs(handoff_specs):
+        return "record.paper_handoff.asset_specs"
+    backtest_environment = dict(record.backtest_environment or {})
+    if _payload_has_asset_spec_fields(backtest_environment):
+        return "record.backtest_environment"
+    handoff_environment = paper_handoff.get("backtest_environment")
+    if isinstance(handoff_environment, dict) and _payload_has_asset_spec_fields(
+        handoff_environment
+    ):
+        return "record.paper_handoff.backtest_environment"
+    return None
 
 
 def _paper_valuation_warnings(payload: dict[str, Any]) -> list[str]:
@@ -6904,24 +7366,45 @@ def _contract_metadata_has_asset_specs(metadata: dict[str, Any]) -> bool:
     for value in metadata.values():
         if not isinstance(value, dict):
             continue
-        if any(
-            value.get(key) not in (None, "")
-            for key in (
-                "multiplier",
-                "contract_multiplier",
-                "contract_size",
-                "margin_rate",
-                "commission",
-                "commission_rate",
-                "open_commission_rate",
-                "close_commission_rate",
-                "commission_amount",
-                "asset_spec_source",
-                "source",
-            )
-        ):
+        if _payload_has_asset_spec_fields(value):
             return True
     return False
+
+
+def _payload_has_asset_spec_fields(payload: dict[str, Any]) -> bool:
+    return any(
+        payload.get(key) not in (None, "")
+        for key in (
+            "multiplier",
+            "contract_multiplier",
+            "contract_size",
+            "contract_value",
+            "ctVal",
+            "ctMult",
+            "margin_rate",
+            "margin",
+            "long_margin_rate",
+            "short_margin_rate",
+            "margin_initial",
+            "margin_maintenance",
+            "leverage",
+            "max_leverage",
+            "commission",
+            "commission_rate",
+            "open_commission_rate",
+            "close_commission_rate",
+            "close_today_commission_rate",
+            "commission_amount",
+            "maker_commission_rate",
+            "taker_commission_rate",
+            "maker_fee_rate",
+            "taker_fee_rate",
+            "fee_rate",
+            "tick_size",
+            "lot_size",
+            "min_order_size",
+        )
+    )
 
 
 def _lookup_nested_metric(payload: dict[str, Any], aliases: tuple[str, ...]) -> float | None:
@@ -7024,6 +7507,9 @@ def _build_live_handoff_package(
             for item in record.paper_handoff.get("live_readiness_checklist") or []
             if isinstance(item, dict)
         ]
+    if not checklist:
+        checklist = _live_readiness_checklist_from_record_review(record)
+    checklist = _ensure_live_readiness_research_evidence(record, checklist)
 
     approvals_required = [
         item
@@ -7110,10 +7596,19 @@ def _live_handoff_deployment_blockers(
         blockers.append(f"模拟交易复核状态为 {status}，尚未达到实盘候选。")
     if not record.paper_review_ready_for_live:
         blockers.append("模拟交易监控计划尚未全部通过。")
+    if (
+        not checklist
+        and record.paper_review_status == "ready_for_live_candidate"
+        and record.paper_review_ready_for_live
+    ):
+        blockers.append("实盘交接检查清单缺失，需要重新复核模拟交易并生成审批证据。")
 
     for item in checklist:
+        key = str(item.get("key") or "").strip()
         status = str(item.get("status") or "").strip()
         if status in {"passed", "pending_manual_confirmation"}:
+            continue
+        if key == "out_of_sample_validation_confirmed" and status == "skipped":
             continue
         label = str(item.get("label") or item.get("key") or "实盘检查项")
         evidence = str(item.get("evidence") or item.get("action") or "").strip()
@@ -7122,6 +7617,18 @@ def _live_handoff_deployment_blockers(
     if not blockers and not record.paper_review_ready_for_live:
         blockers.extend(str(item).strip() for item in record.next_actions if str(item).strip())
     return list(dict.fromkeys(blockers))
+
+
+def redact_ai_strategy_research_payload(value: Any) -> Any:
+    """Return an API-safe copy of AI research payloads without credentials."""
+    if hasattr(value, "model_dump"):
+        payload = value.model_dump(mode="python")
+        redacted = _redact_sensitive_handoff(payload)
+        try:
+            return value.__class__.model_validate(redacted)
+        except Exception:
+            return redacted
+    return _redact_sensitive_handoff(value)
 
 
 def _redact_sensitive_handoff(value: Any) -> Any:
@@ -7182,7 +7689,7 @@ def _live_readiness_checklist(
     passed_rules = [item.key for item in evaluations if item.passed]
     performance_items = [
         item
-        for key in ("rolling_sharpe", "trade_sample")
+        for key in ("rolling_sharpe", "trade_sample", "paper_observation_period")
         if (item := by_key.get(key)) is not None
     ]
     performance_evidence = "；".join(
@@ -7191,7 +7698,7 @@ def _live_readiness_checklist(
     if not performance_evidence:
         performance_evidence = f"{len(passed_rules)}/{len(evaluations)} 项模拟监控规则已通过"
 
-    return [
+    checklist = [
         {
             "key": "paper_monitoring_passed",
             "label": "模拟监控通过",
@@ -7205,6 +7712,7 @@ def _live_readiness_checklist(
                 "passed_rules": passed_rules,
             },
         },
+        _live_readiness_research_quality_item(record),
         {
             "key": "valuation_confirmed",
             "label": "估值与资产参数确认",
@@ -7268,6 +7776,225 @@ def _live_readiness_checklist(
             },
         },
     ]
+    out_of_sample_item = _live_readiness_out_of_sample_item(record)
+    if out_of_sample_item is not None:
+        checklist.insert(2, out_of_sample_item)
+    return checklist
+
+
+def _live_readiness_checklist_from_record_review(
+    record: AIStrategyResearchRunRecord,
+) -> list[dict[str, Any]]:
+    if record.paper_review_status != "ready_for_live_candidate":
+        return []
+
+    evaluations: list[AIStrategyPaperTradingRuleEvaluation] = []
+    for item in record.paper_review_evaluations:
+        if not isinstance(item, dict):
+            continue
+        try:
+            evaluations.append(AIStrategyPaperTradingRuleEvaluation.model_validate(item))
+        except Exception:
+            continue
+    if not evaluations:
+        return []
+
+    return _live_readiness_checklist(
+        record,
+        status=record.paper_review_status,
+        evaluations=evaluations,
+        monitoring_plan=[
+            dict(item) for item in record.paper_monitoring_plan if isinstance(item, dict)
+        ],
+        reviewed_at=record.paper_reviewed_at or _utc_iso_now(),
+        expires_at=record.live_readiness_expires_at,
+    )
+
+
+def _ensure_live_readiness_research_evidence(
+    record: AIStrategyResearchRunRecord,
+    checklist: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not checklist:
+        return checklist
+
+    existing_keys = {str(item.get("key") or "").strip() for item in checklist}
+    additions: list[dict[str, Any]] = []
+    if "research_quality_confirmed" not in existing_keys:
+        additions.append(_live_readiness_research_quality_item(record))
+    if "out_of_sample_validation_confirmed" not in existing_keys:
+        out_of_sample_item = _live_readiness_out_of_sample_item(record)
+        if out_of_sample_item is not None:
+            additions.append(out_of_sample_item)
+    if not additions:
+        return checklist
+
+    enriched: list[dict[str, Any]] = []
+    inserted = False
+    for item in checklist:
+        enriched.append(item)
+        if not inserted and str(item.get("key") or "").strip() == "paper_monitoring_passed":
+            enriched.extend(additions)
+            inserted = True
+    if inserted:
+        return enriched
+    return [*additions, *checklist]
+
+
+def _live_readiness_research_quality_item(
+    record: AIStrategyResearchRunRecord,
+) -> dict[str, Any]:
+    gate_evaluations = [
+        dict(item) for item in record.best_quality_gate_evaluations if isinstance(item, dict)
+    ]
+    passed_gate_count = sum(1 for item in gate_evaluations if bool(item.get("passed")))
+    total_gate_count = len(gate_evaluations)
+    gate_text = (
+        f"，{passed_gate_count}/{total_gate_count} 项质量门槛通过"
+        if total_gate_count
+        else ""
+    )
+    best_iteration = record.best_iteration if record.best_iteration is not None else "-"
+    evidence = (
+        f"最佳第 {best_iteration} 轮 Sharpe "
+        f"{_format_live_readiness_value(record.best_sharpe)} / 目标 "
+        f"{_format_live_readiness_value(record.target_sharpe)}，质量分 "
+        f"{_format_live_readiness_value(record.best_quality_score)}{gate_text}。"
+    )
+    return {
+        "key": "research_quality_confirmed",
+        "label": "投研质量达标",
+        "status": "passed" if record.achieved else "failed",
+        "evidence": evidence,
+        "action": "保留最佳策略、质量门槛、回测环境和参数快照，实盘前不要绕过投研验收结论。",
+        "details": {
+            "run_id": record.run_id,
+            "best_iteration": record.best_iteration,
+            "target_sharpe": record.target_sharpe,
+            "best_sharpe": record.best_sharpe,
+            "best_quality_score": record.best_quality_score,
+            "quality_gate_evaluations": gate_evaluations,
+            "best_metrics": record.best_metrics,
+        },
+    }
+
+
+def _live_readiness_out_of_sample_item(
+    record: AIStrategyResearchRunRecord,
+) -> dict[str, Any] | None:
+    payload = _record_out_of_sample_validation_payload(record)
+    gates = dict(record.quality_gates or {})
+    enabled = bool(gates.get("out_of_sample_validation")) or bool(payload)
+    required = bool(gates.get("require_out_of_sample_validation"))
+    if not enabled:
+        return None
+
+    raw_status = str(payload.get("status") or "").strip() if payload else ""
+    normalized = raw_status or "pending"
+    if normalized == "passed":
+        status = "passed"
+    elif normalized in {"skipped", "not_required"} and not required:
+        status = "skipped"
+    elif normalized == "failed" or required:
+        status = "failed"
+    else:
+        status = "pending"
+
+    evidence = _live_readiness_out_of_sample_evidence(
+        normalized,
+        payload=payload,
+        gates=gates,
+    )
+    return {
+        "key": "out_of_sample_validation_confirmed",
+        "label": "样本外验证",
+        "status": status,
+        "evidence": evidence,
+        "action": (
+            "样本外未通过或缺少证据时，先回到研究工作区补跑样本外验证或继续自动改稿。"
+            if status not in {"passed", "skipped"}
+            else "保留样本外验证窗口、指标和失败阈值，作为实盘审批证据。"
+        ),
+        "details": {
+            "required": required,
+            "quality_gates": gates,
+            "validation": payload,
+        },
+    }
+
+
+def _record_out_of_sample_validation_payload(
+    record: AIStrategyResearchRunRecord,
+) -> dict[str, Any]:
+    handoff_validation = record.paper_handoff.get("out_of_sample_validation")
+    if isinstance(handoff_validation, dict) and handoff_validation:
+        return dict(handoff_validation)
+
+    diagnostics = dict(record.best_diagnostics or {})
+    diagnostics_validation = diagnostics.get("out_of_sample_validation")
+    if isinstance(diagnostics_validation, dict) and diagnostics_validation:
+        return dict(diagnostics_validation)
+
+    payload = _best_iteration_payload(record)
+    if not payload:
+        return {}
+    status = payload.get("validation_status")
+    window = payload.get("validation_window")
+    metrics = payload.get("validation_metrics")
+    gate_evaluations = payload.get("validation_gate_evaluations")
+    failures = payload.get("validation_failures")
+    failure_reason = payload.get("validation_failure_reason")
+    if not any(value not in (None, "", [], {}) for value in (
+        status,
+        window,
+        metrics,
+        gate_evaluations,
+        failures,
+        failure_reason,
+    )):
+        return {}
+    return {
+        "status": status,
+        "window": dict(window) if isinstance(window, dict) else window,
+        "metrics": dict(metrics) if isinstance(metrics, dict) else {},
+        "gate_evaluations": list(gate_evaluations) if isinstance(gate_evaluations, list) else [],
+        "failures": list(failures) if isinstance(failures, list) else [],
+        "failure_reason": failure_reason,
+    }
+
+
+def _live_readiness_out_of_sample_evidence(
+    status: str,
+    *,
+    payload: dict[str, Any],
+    gates: dict[str, Any],
+) -> str:
+    parts = [f"状态 {status or 'pending'}"]
+    window = payload.get("window") if isinstance(payload, dict) else None
+    if isinstance(window, dict):
+        validation_start = str(window.get("validation_start") or "").strip()
+        validation_end = str(window.get("validation_end") or "").strip()
+        if validation_start or validation_end:
+            parts.append(f"样本外区间 {validation_start or '?'} - {validation_end or '?'}")
+    metrics = dict(payload.get("metrics") or {}) if isinstance(payload, dict) else {}
+    sharpe = _metric_float(metrics, "sharpe_ratio", "sharpe", "sharpeRatio")
+    if sharpe is not None:
+        threshold = _optional_gate_number(gates.get("min_out_of_sample_sharpe"))
+        if threshold is None:
+            target = _optional_gate_number(gates.get("target_sharpe"))
+            threshold = max(float(target or 0.0) * 0.6, 0.3)
+        parts.append(
+            "Sharpe "
+            f"{_format_live_readiness_value(sharpe)} / "
+            f"{_format_live_readiness_value(threshold)}"
+        )
+    failures = [str(item).strip() for item in payload.get("failures") or [] if str(item).strip()]
+    failure_reason = str(payload.get("failure_reason") or "").strip()
+    if failure_reason and failure_reason not in failures:
+        failures.append(failure_reason)
+    if failures:
+        parts.append("失败原因：" + "；".join(failures))
+    return "；".join(parts)
 
 
 def _live_readiness_status_from_evaluation(
@@ -7406,6 +8133,15 @@ def _run_next_actions(
     paper_trading_error: str | None = None,
     run_failures: list[str] | None = None,
 ) -> list[str]:
+    if status == "configuration_invalid":
+        actions = [
+            "投研请求配置未通过，尚未生成策略或提交回测。",
+            "填写可切分的开始/结束日期，或关闭“晋级必须通过样本外”后重新启动。",
+        ]
+        failures = [str(item).strip() for item in run_failures or [] if str(item or "").strip()]
+        if failures:
+            actions.append("配置问题：" + failures[-1])
+        return actions
     if status == "timeout":
         return [
             "回测等待超时，先打开研究工作区查看任务是否仍在运行。",
@@ -7463,6 +8199,19 @@ def _run_failure_diagnostics(run_failures: list[str]) -> dict[str, Any]:
         "improvement_plan": [
             "检查研究工作区是否可用，确认策略脚本保存、数据源和回测任务队列配置。",
             "修复提交问题后，从该记录继续投研，让系统重新提交回测并进入质量门槛评估。",
+        ],
+        "promotion_ready": False,
+    }
+
+
+def _configuration_failure_diagnostics(failure: str) -> dict[str, Any]:
+    return {
+        "summary": "投研请求配置未通过，尚未生成策略或提交回测。",
+        "failure_categories": ["configuration", "out_of_sample"],
+        "weaknesses": [failure],
+        "improvement_plan": [
+            "填写至少 8 天以上、可切分训练/样本外区间的开始日期和结束日期。",
+            "如果只是快速试跑，可关闭强制样本外验证，但进入模拟交易前仍建议补跑样本外验证。",
         ],
         "promotion_ready": False,
     }

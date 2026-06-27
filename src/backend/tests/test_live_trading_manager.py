@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+import yaml
 
 from app.services.gateway import runtime as gateway_runtime_service
 from app.services.live_trading_manager import (
@@ -320,6 +321,54 @@ def test_query_instance_asset_specs_reads_gateway_ticker_payload():
     assert spec["last_price"] == pytest.approx(3200.25)
 
 
+def test_query_instance_asset_specs_reads_ccxt_market_and_trading_fee():
+    class FakeAdapter:
+        markets = {
+            "BTC/USDT:USDT": {
+                "symbol": "BTC/USDT:USDT",
+                "type": "swap",
+                "base": "BTC",
+                "quote": "USDT",
+                "settle": "USDT",
+                "linear": True,
+                "contractSize": 0.001,
+            }
+        }
+
+        def market(self, symbol):
+            assert symbol == "BTC/USDT:USDT"
+            return self.markets[symbol]
+
+        def fetch_trading_fee(self, symbol):
+            assert symbol == "BTC/USDT:USDT"
+            return {"symbol": symbol, "maker": 0.0002, "taker": 0.0004}
+
+        def fetch_leverage(self, symbol):
+            assert symbol == "BTC/USDT:USDT"
+            return {"symbol": symbol, "maxLeverage": 20}
+
+    manager = LiveTradingManager()
+    manager._gateways["manual:BINANCE:demo"] = {
+        "runtime": SimpleNamespace(adapter=FakeAdapter()),
+        "instances": {"inst-a"},
+    }
+    manager._instance_gateways["inst-a"] = "manual:BINANCE:demo"
+
+    specs = manager.query_instance_asset_specs("inst-a", ["BTC/USDT:USDT"])
+
+    spec = specs["BTC/USDT:USDT"]
+    assert spec["asset_type"] == "swap"
+    assert spec["contract_type"] == "linear"
+    assert spec["base_asset"] == "BTC"
+    assert spec["quote_asset"] == "USDT"
+    assert spec["settle_currency"] == "USDT"
+    assert spec["contract_size"] == pytest.approx(0.001)
+    assert spec["margin_rate"] == pytest.approx(0.05)
+    assert spec["maker_commission_rate"] == pytest.approx(0.0002)
+    assert spec["taker_commission_rate"] == pytest.approx(0.0004)
+    assert spec["commission_rate"] == pytest.approx(0.0004)
+
+
 def test_query_instance_asset_specs_merges_runtime_config_gateway_and_last_price(tmp_path):
     runtime_dir = tmp_path / "runtime"
     runtime_dir.mkdir()
@@ -347,18 +396,30 @@ def test_query_instance_asset_specs_merges_runtime_config_gateway_and_last_price
         "instances": {"inst-a"},
     }
     manager._instance_gateways["inst-a"] = "manual:CTP:demo"
+    instance_store = {
+        "inst-a": {
+            "id": "inst-a",
+            "strategy_id": "demo",
+            "runtime_dir": str(runtime_dir),
+            "params": {"symbol": "IF2609"},
+        }
+    }
+
+    def fake_load_instances():
+        return json.loads(json.dumps(instance_store))
+
+    def fake_save_instances(data):
+        instance_store.clear()
+        instance_store.update(json.loads(json.dumps(data)))
 
     with (
         patch(
             "app.services.live_trading_manager._load_instances",
-            return_value={
-                "inst-a": {
-                    "id": "inst-a",
-                    "strategy_id": "demo",
-                    "runtime_dir": str(runtime_dir),
-                    "params": {"symbol": "IF2609"},
-                }
-            },
+            side_effect=fake_load_instances,
+        ),
+        patch(
+            "app.services.live_trading_manager._save_instances",
+            side_effect=fake_save_instances,
         ),
         patch(
             "app.services.trading_asset_info_service._query_local_futures_spec",
@@ -374,6 +435,13 @@ def test_query_instance_asset_specs_merges_runtime_config_gateway_and_last_price
     assert spec["price_tick"] == pytest.approx(0.2)
     assert spec["current_price"] == pytest.approx(5001.0)
     assert spec["source"] == "gateway.get_symbol_info"
+    config = yaml.safe_load((runtime_dir / "config.yaml").read_text("utf-8"))
+    runtime_spec = config["contract_metadata"]["IF2609"]
+    assert runtime_spec["price_tick"] == pytest.approx(0.2)
+    assert runtime_spec["current_price"] == pytest.approx(5001.0)
+    stored_spec = instance_store["inst-a"]["params"]["contract_metadata"]["IF2609"]
+    assert stored_spec["price_tick"] == pytest.approx(0.2)
+    assert stored_spec["current_price"] == pytest.approx(5001.0)
 
 
 def _runtime_gateway(exchange_type: str = "CTP", asset_type: str = "FUTURE", adapter=None):

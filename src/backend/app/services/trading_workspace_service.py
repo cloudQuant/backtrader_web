@@ -51,17 +51,28 @@ _LIGHT_HYDRATE_PRESERVE_KEYS = (
 _COMMISSION_FIELD_KEYS = (
     "commission",
     "comm",
+    "commissionAmount",
     "fee",
     "fees",
+    "feeAmount",
     "execFee",
     "exec_fee",
     "execFeeV2",
     "exec_fee_v2",
+    "execCommission",
+    "exec_commission",
+    "open_fee",
+    "openFee",
     "open_commission",
+    "openCommission",
+    "positionCommission",
     "position_fee",
     "position_commission",
+    "tradeFee",
     "trade_fee",
     "trade_commission",
+    "broker_commission",
+    "brokerCommission",
     "commission_amount",
     "Commission",
 )
@@ -2120,9 +2131,12 @@ class TradingWorkspaceService:
 
     @classmethod
     def _position_row_open_size(cls, row: dict[str, Any]) -> float:
-        size = abs(_safe_float(row.get("size")))
+        size_value = row.get("size")
+        size = abs(_safe_float(size_value))
         if size > EPSILON:
             return size
+        if size_value not in (None, ""):
+            return 0.0
         long_position = cls._first_row_number(row, *LONG_POSITION_FIELD_KEYS)
         short_position = cls._first_row_number(row, *SHORT_POSITION_FIELD_KEYS)
         return max(long_position or 0.0, 0.0) + max(short_position or 0.0, 0.0)

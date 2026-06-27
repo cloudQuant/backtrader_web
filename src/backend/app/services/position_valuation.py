@@ -17,21 +17,46 @@ EPSILON = 1e-12
 COMMISSION_FIELD_KEYS = (
     "commission",
     "comm",
+    "commissionAmount",
     "fee",
     "fees",
+    "feeAmount",
     "execFee",
     "exec_fee",
     "execFeeV2",
     "exec_fee_v2",
+    "execCommission",
+    "exec_commission",
+    "open_fee",
+    "openFee",
     "open_commission",
+    "openCommission",
+    "positionCommission",
     "position_fee",
     "position_commission",
+    "tradeFee",
     "trade_fee",
     "trade_commission",
+    "broker_commission",
+    "brokerCommission",
     "commission_amount",
     "Commission",
     "fillFee",
     "fill_fee",
+)
+CARRY_PNL_FIELD_KEYS = (
+    "swap",
+    "storage",
+    "funding",
+    "funding_fee",
+    "fundingFee",
+    "funding_fee_amount",
+    "fundingFeeAmount",
+    "interest",
+    "borrow_interest",
+    "borrowInterest",
+    "financing_fee",
+    "financingFee",
 )
 OKX_SIGNED_FEE_FIELD_KEYS = frozenset(
     {
@@ -228,6 +253,22 @@ def _first_number_with_key(
         if number is not None:
             return key, number
     return None, None
+
+
+def _sum_signed_amounts(row: dict[str, Any], keys: Iterable[str]) -> float:
+    total = 0.0
+    seen: set[str] = set()
+    for key in keys:
+        if key in seen:
+            continue
+        seen.add(key)
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        amount = safe_float(value, None)
+        if amount is not None:
+            total += amount
+    return total
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -1066,11 +1107,21 @@ def _row_multiplier(
 def _row_size(row: dict[str, Any]) -> float:
     long_position = _first_number(*(row.get(key) for key in LONG_POSITION_FIELD_KEYS))
     short_position = _first_number(*(row.get(key) for key in SHORT_POSITION_FIELD_KEYS))
-    size = safe_float(
-        _first_number(*(row.get(key) for key in POSITION_SIZE_FIELD_KEYS), default=0.0),
-        0.0,
-    )
-    if abs(size) <= EPSILON and (long_position is not None or short_position is not None):
+    size_value = None
+    for key in POSITION_SIZE_FIELD_KEYS:
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        size_value = value
+        break
+    size_number = _first_number(size_value)
+    has_explicit_size = size_value not in (None, "") and size_number is not None
+    size = safe_float(size_number, 0.0) or 0.0
+    if (
+        not has_explicit_size
+        and abs(size) <= EPSILON
+        and (long_position is not None or short_position is not None)
+    ):
         long_size = max(long_position or 0.0, 0.0)
         short_size = max(short_position or 0.0, 0.0)
         if long_size > EPSILON or short_size > EPSILON:
@@ -1372,9 +1423,12 @@ def _row_fee_currency(row: dict[str, Any]) -> str:
         row.get("commission"),
         row.get("comm"),
         row.get("Commission"),
+        row.get("commissionAmount"),
         row.get("trade_fee"),
+        row.get("tradeFee"),
         row.get("fillFee"),
         row.get("execFee"),
+        row.get("execCommission"),
     )
     return _currency_code(
         _first_text(
@@ -2300,7 +2354,7 @@ def value_position(
         current_price=current_price,
         inverse_contract=inverse_contract,
     )
-    swap = _first_number(row.get("swap"), row.get("storage"), default=0.0) or 0.0
+    swap = _sum_signed_amounts(row, CARRY_PNL_FIELD_KEYS)
     net_pnl = explicit_net_pnl if explicit_net_pnl is not None else gross_pnl + swap - commission
 
     return ValuedPosition(

@@ -680,6 +680,46 @@ class LiveTradingManager:
                 except Exception:
                     strategy_dir = None
 
+        def _persist_resolved_specs(current_specs: dict[str, dict[str, Any]]) -> None:
+            if strategy_dir is None or not current_specs:
+                return
+            try:
+                persist_asset_specs(strategy_dir, instance, current_specs)
+                with _instance_store_lock():
+                    latest = _load_instances()
+                    latest_instance = latest.get(str(instance_id))
+                    if not isinstance(latest_instance, dict):
+                        return
+                    params = (
+                        dict(latest_instance.get("params") or {})
+                        if isinstance(latest_instance.get("params"), dict)
+                        else {}
+                    )
+                    metadata = (
+                        dict(params.get("contract_metadata") or {})
+                        if isinstance(params.get("contract_metadata"), dict)
+                        else {}
+                    )
+                    instance_params = (
+                        instance.get("params") if isinstance(instance.get("params"), dict) else {}
+                    )
+                    resolved_metadata = instance_params.get("contract_metadata")
+                    if isinstance(resolved_metadata, dict):
+                        for key, value in resolved_metadata.items():
+                            if isinstance(value, dict):
+                                metadata[str(key)] = dict(value)
+                    if metadata:
+                        params["contract_metadata"] = metadata
+                        latest_instance["params"] = params
+                        latest[str(instance_id)] = latest_instance
+                        _save_instances(latest)
+            except Exception:
+                logger.debug(
+                    "Failed to persist queried asset specs for instance %s",
+                    instance_id,
+                    exc_info=True,
+                )
+
         specs: dict[str, dict[str, Any]] = {}
         if strategy_dir is not None:
             try:
@@ -692,43 +732,7 @@ class LiveTradingManager:
             except Exception:
                 specs = {}
             if specs:
-                try:
-                    persist_asset_specs(strategy_dir, instance, specs)
-                    with _instance_store_lock():
-                        latest = _load_instances()
-                        latest_instance = latest.get(str(instance_id))
-                        if isinstance(latest_instance, dict):
-                            params = (
-                                dict(latest_instance.get("params") or {})
-                                if isinstance(latest_instance.get("params"), dict)
-                                else {}
-                            )
-                            metadata = (
-                                dict(params.get("contract_metadata") or {})
-                                if isinstance(params.get("contract_metadata"), dict)
-                                else {}
-                            )
-                            instance_params = (
-                                instance.get("params")
-                                if isinstance(instance.get("params"), dict)
-                                else {}
-                            )
-                            resolved_metadata = instance_params.get("contract_metadata")
-                            if isinstance(resolved_metadata, dict):
-                                for key, value in resolved_metadata.items():
-                                    if isinstance(value, dict):
-                                        metadata[str(key)] = dict(value)
-                            if metadata:
-                                params["contract_metadata"] = metadata
-                                latest_instance["params"] = params
-                                latest[str(instance_id)] = latest_instance
-                                _save_instances(latest)
-                except Exception:
-                    logger.debug(
-                        "Failed to persist queried asset specs for instance %s",
-                        instance_id,
-                        exc_info=True,
-                    )
+                _persist_resolved_specs(specs)
 
         if not specs:
             for symbol in requested_symbols:
@@ -739,6 +743,7 @@ class LiveTradingManager:
                     specs[str(key)] = dict(local_spec)
 
         if not gateway:
+            _persist_resolved_specs(specs)
             return specs
 
         for symbol in requested_symbols:
@@ -768,6 +773,7 @@ class LiveTradingManager:
                 if normalized_spec:
                     for key in symbol_aliases(symbol):
                         specs[str(key)] = dict(normalized_spec)
+        _persist_resolved_specs(specs)
         return specs
 
     def list_connected_gateways(self) -> list[GatewayData]:

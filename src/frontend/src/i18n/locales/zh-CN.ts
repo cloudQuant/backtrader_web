@@ -224,6 +224,8 @@ export default {
     aiResearchInitialCash: '初始资金',
     aiResearchCommission: '手续费率',
     aiResearchPaper: '达标后启动模拟交易',
+    aiResearchGeneratePrompt: '生成研究目标',
+    aiResearchPromptGenerated: '已生成策略研究目标',
     aiResearchRun: '运行AI投研',
     aiResearchRunning: '运行中',
     aiResearchResult: '投研结果',

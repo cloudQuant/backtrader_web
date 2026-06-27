@@ -53,21 +53,46 @@ _MT5_FOREX_CONTRACT_SIZE = 100000.0
 COMMISSION_FIELD_KEYS = (
     "commission",
     "comm",
+    "commissionAmount",
     "fee",
     "fees",
+    "feeAmount",
     "execFee",
     "exec_fee",
     "execFeeV2",
     "exec_fee_v2",
+    "execCommission",
+    "exec_commission",
+    "open_fee",
+    "openFee",
     "open_commission",
+    "openCommission",
+    "positionCommission",
     "position_fee",
     "position_commission",
+    "tradeFee",
     "trade_fee",
     "trade_commission",
+    "broker_commission",
+    "brokerCommission",
     "commission_amount",
     "Commission",
     "fillFee",
     "fill_fee",
+)
+CARRY_PNL_FIELD_KEYS = (
+    "swap",
+    "storage",
+    "funding",
+    "funding_fee",
+    "fundingFee",
+    "funding_fee_amount",
+    "fundingFeeAmount",
+    "interest",
+    "borrow_interest",
+    "borrowInterest",
+    "financing_fee",
+    "financingFee",
 )
 TODAY_POSITION_FIELD_KEYS = (
     "today_position",
@@ -215,12 +240,18 @@ RAW_ASSET_SPEC_FIELD_KEYS = (
     "instType",
     "contract_type",
     "ctType",
+    "type",
+    "contract",
+    "linear",
     "base_asset",
     "baseCcy",
+    "base",
     "quote_asset",
     "quoteCcy",
+    "quote",
     "settle_currency",
     "settleCcy",
+    "settle",
     "fee_currency",
     "feeCcy",
     "VolumeMultiple",
@@ -511,6 +542,22 @@ def _first_value_with_key(row: dict[str, Any], *keys: str) -> tuple[str | None, 
     return None, None
 
 
+def _sum_signed_amounts(row: dict[str, Any], keys: Iterable[str]) -> float:
+    total = 0.0
+    seen: set[str] = set()
+    for key in keys:
+        if key in seen:
+            continue
+        seen.add(key)
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        amount = _safe_float(value)
+        if amount is not None:
+            total += amount
+    return total
+
+
 def _uses_okx_fee_sign(row: dict[str, Any], asset_spec: dict[str, Any] | None = None) -> bool:
     spec = asset_spec or {}
     text = " ".join(
@@ -686,6 +733,31 @@ def _select_payload_row(payload: Any, symbol: str) -> dict[str, Any] | None:
     return rows[0]
 
 
+def _select_symbol_keyed_payload(payload: Any, symbol: str) -> dict[str, Any] | None:
+    if not isinstance(payload, dict) or not symbol:
+        return None
+    aliases = _symbol_keys(symbol)
+    compact_aliases = {_compact_symbol_text(alias) for alias in aliases}
+    for alias in aliases:
+        item = payload.get(alias)
+        if isinstance(item, dict):
+            return dict(item)
+    for key, item in payload.items():
+        if not isinstance(item, dict):
+            continue
+        key_text = str(key or "").strip()
+        if key_text in aliases or _compact_symbol_text(key_text) in compact_aliases:
+            selected = dict(item)
+            selected.setdefault("symbol", key_text)
+            return selected
+    return None
+
+
+def _looks_like_symbol_keyed_payload(payload: dict[str, Any]) -> bool:
+    dict_values = [value for value in payload.values() if isinstance(value, dict)]
+    return len(dict_values) > 1 and len(dict_values) == len(payload)
+
+
 def _flatten_asset_spec_payload(data: dict[str, Any]) -> dict[str, Any]:
     flattened = dict(data)
     for key in _ASSET_SPEC_NESTED_DICT_KEYS:
@@ -716,7 +788,11 @@ def _unwrap_payload_dict(raw: dict[str, Any], *, symbol: str = "") -> dict[str, 
             payload = data.get(key)
             row: dict[str, Any] | None = None
             if isinstance(payload, dict):
-                row = payload
+                row = _select_symbol_keyed_payload(payload, symbol)
+                if row is None:
+                    if symbol and _looks_like_symbol_keyed_payload(payload):
+                        continue
+                    row = payload
             else:
                 row = _select_payload_row(payload, symbol)
             if row is None:
@@ -1085,11 +1161,15 @@ def _position_side(row: dict[str, Any], signed_size: float | None = None) -> str
 def signed_gateway_size(row: dict[str, Any]) -> float:
     long_position = _first_number(*(row.get(key) for key in LONG_POSITION_FIELD_KEYS))
     short_position = _first_number(*(row.get(key) for key in SHORT_POSITION_FIELD_KEYS))
-    raw_size = (
-        _first_number(_first_value(row, *POSITION_SIZE_FIELD_KEYS), default=0.0)
-        or 0.0
-    )
-    if abs(raw_size) <= 1e-12 and (long_position is not None or short_position is not None):
+    raw_size_value = _first_value(row, *POSITION_SIZE_FIELD_KEYS)
+    raw_size_number = _first_number(raw_size_value)
+    has_explicit_size = raw_size_value not in (None, "") and raw_size_number is not None
+    raw_size = raw_size_number or 0.0
+    if (
+        not has_explicit_size
+        and abs(raw_size) <= 1e-12
+        and (long_position is not None or short_position is not None)
+    ):
         long_size = max(long_position or 0.0, 0.0)
         short_size = max(short_position or 0.0, 0.0)
         if long_size > 1e-12 or short_size > 1e-12:
@@ -1275,6 +1355,7 @@ _POSITION_SPLIT_DROP_KEYS = (
     "Commission",
     "commission_source",
     "commission_signed",
+    *CARRY_PNL_FIELD_KEYS,
 )
 
 
@@ -1324,6 +1405,18 @@ def _copy_first_number(
         item[target] = value
 
 
+def _copy_allocated_signed_amount(
+    item: dict[str, Any],
+    row: dict[str, Any],
+    keys: tuple[str, ...],
+    target: str,
+    ratio: float,
+) -> None:
+    if not any(key in row and row.get(key) not in (None, "") for key in keys):
+        return
+    item[target] = _sum_signed_amounts(row, keys) * ratio
+
+
 def _clear_split_aggregate_fields(item: dict[str, Any]) -> None:
     for key in _POSITION_SPLIT_DROP_KEYS:
         item.pop(key, None)
@@ -1366,6 +1459,8 @@ def split_bidirectional_position_row(row: dict[str, Any]) -> list[dict[str, Any]
     ):
         side_row = dict(item)
         _clear_split_aggregate_fields(side_row)
+        total_side_size = max(long_size + short_size, 1e-12)
+        side_ratio = side_size / total_side_size
         _set_position_side_fields(
             side_row,
             side=side,
@@ -1381,6 +1476,13 @@ def split_bidirectional_position_row(row: dict[str, Any]) -> list[dict[str, Any]
         )
         _copy_first_number(side_row, item, price_keys, _PRICE_FIELD_KEYS)
         _copy_first_number(side_row, item, pnl_keys, ("gross_pnl",))
+        _copy_allocated_signed_amount(
+            side_row,
+            item,
+            CARRY_PNL_FIELD_KEYS,
+            "swap",
+            side_ratio,
+        )
         split_rows.append(side_row)
 
     return split_rows
@@ -1493,16 +1595,24 @@ def _trade_commission(
     key, value = _first_value_with_key(
         row,
         "trade_commission",
+        "tradeCommission",
+        "tradeFee",
         "trade_fee",
+        "broker_commission",
+        "brokerCommission",
         "fillFee",
         "fill_fee",
         "execFee",
         "exec_fee",
         "execFeeV2",
         "exec_fee_v2",
+        "execCommission",
+        "exec_commission",
         "fee",
+        "feeAmount",
         "commission",
         "comm",
+        "commissionAmount",
         "Commission",
     )
     if value in (None, ""):
@@ -1620,9 +1730,12 @@ def _trade_fee_currency(row: dict[str, Any]) -> str:
         row.get("commission"),
         row.get("comm"),
         row.get("Commission"),
+        row.get("commissionAmount"),
         row.get("trade_fee"),
+        row.get("tradeFee"),
         row.get("fillFee"),
         row.get("execFee"),
+        row.get("execCommission"),
     )
     return _currency_code(
         _first_value(
@@ -2020,16 +2133,24 @@ def _open_trade_commission_for_position(
             _first_value(row, key) not in (None, "")
             for key in (
                 "trade_commission",
+                "tradeCommission",
+                "tradeFee",
                 "trade_fee",
+                "broker_commission",
+                "brokerCommission",
                 "fillFee",
                 "fill_fee",
                 "execFee",
                 "exec_fee",
                 "execFeeV2",
                 "exec_fee_v2",
+                "execCommission",
+                "exec_commission",
                 "fee",
+                "feeAmount",
                 "commission",
                 "comm",
+                "commissionAmount",
                 "Commission",
             )
         )
@@ -2208,7 +2329,10 @@ def normalize_gateway_position(
         )
     commission_key, commission_value = _first_value_with_key(row, *COMMISSION_FIELD_KEYS)
     has_commission = commission_value not in (None, "")
-    has_swap = any(key in row and row.get(key) not in (None, "") for key in ("swap", "storage"))
+    carry_pnl = _sum_signed_amounts(row, CARRY_PNL_FIELD_KEYS)
+    has_carry_pnl = any(
+        key in row and row.get(key) not in (None, "") for key in CARRY_PNL_FIELD_KEYS
+    )
     commission_source = None
     commission_unconfirmed_reason = None
     commission = 0.0
@@ -2246,7 +2370,6 @@ def normalize_gateway_position(
             commission_unconfirmed_reason = None
         elif trade_unconfirmed_reason:
             commission_unconfirmed_reason = trade_unconfirmed_reason
-    swap = _safe_float(_first_value(row, "swap", "storage"), 0.0) or 0.0
     gross_pnl_key, gross_pnl_value = _first_value_with_key(
         row,
         "gross_pnl",
@@ -2329,7 +2452,7 @@ def normalize_gateway_position(
     if explicit_net_pnl is not None:
         net_pnl = explicit_net_pnl
     elif gross_pnl is not None and has_commission:
-        net_pnl = gross_pnl + swap - commission
+        net_pnl = gross_pnl + carry_pnl - commission
     explicit_margin = _safe_float(
         _first_value(
             row,
@@ -2421,8 +2544,8 @@ def normalize_gateway_position(
             normalized["commission_source"] = commission_source
     if commission_unconfirmed_reason == "commission_currency_mismatch":
         normalized["commission_currency_mismatch"] = True
-    if has_swap:
-        normalized["swap"] = swap
+    if has_carry_pnl:
+        normalized["swap"] = carry_pnl
     realized_pnl = _first_value(
         row, "realized_pnl", "position_realized_pnl", "realizedPnl", "realised_pnl"
     )
@@ -2503,6 +2626,10 @@ def normalize_asset_spec(
             for name in dir(raw)
             if not name.startswith("_")
         }
+    if isinstance(raw, dict):
+        selected = _select_symbol_keyed_payload(raw, symbol)
+        if selected is not None:
+            raw = selected
 
     data = _unwrap_payload_dict(dict(raw), symbol=symbol)
     normalized_symbol = _first_text(
@@ -2520,25 +2647,35 @@ def normalize_asset_spec(
     )
 
     asset_type_text = _first_text(
-        data.get("asset_type"), data.get("instType"), data.get("category")
+        data.get("asset_type"), data.get("instType"), data.get("category"), data.get("type")
     )
     contract_type_text = _first_text(
         data.get("contract_type"),
         data.get("ctType"),
         data.get("contractType"),
     )
+    if not contract_type_text:
+        if _truthy(data.get("inverse")):
+            contract_type_text = "inverse"
+        elif _truthy(data.get("linear")):
+            contract_type_text = "linear"
     contract_value_currency = _first_text(
         data.get("contract_value_currency"),
         data.get("contract_value_ccy"),
         data.get("ctValCcy"),
         data.get("contractValueCurrency"),
     )
-    base_asset = _first_text(data.get("base_asset"), data.get("baseCcy"), data.get("baseCoin"))
-    quote_asset = _first_text(data.get("quote_asset"), data.get("quoteCcy"), data.get("quoteCoin"))
+    base_asset = _first_text(
+        data.get("base_asset"), data.get("baseCcy"), data.get("baseCoin"), data.get("base")
+    )
+    quote_asset = _first_text(
+        data.get("quote_asset"), data.get("quoteCcy"), data.get("quoteCoin"), data.get("quote")
+    )
     settle_currency = _first_text(
         data.get("settle_currency"),
         data.get("settleCcy"),
         data.get("settleCoin"),
+        data.get("settle"),
     )
     fee_currency = _first_text(data.get("fee_currency"), data.get("feeCcy"), data.get("feeCoin"))
     okx_contract_value = _first_number(
@@ -3212,6 +3349,7 @@ def _has_asset_metadata(spec: dict[str, Any]) -> bool:
 
 def _query_gateway_fee_spec(adapter: Any, symbol: str) -> dict[str, Any]:
     exchange_scoped_methods = {"query_instrument_commission_rate"}
+    plural_fee_methods = {"get_trading_fees", "fetch_trading_fees"}
     for target_label, target in _gateway_asset_query_targets(adapter):
         for method_name in (
             "get_fee",
@@ -3220,6 +3358,10 @@ def _query_gateway_fee_spec(adapter: Any, symbol: str) -> dict[str, Any]:
             "fetch_fee_rate",
             "get_commission_rate",
             "fetch_commission_rate",
+            "get_trading_fee",
+            "fetch_trading_fee",
+            "get_trading_fees",
+            "fetch_trading_fees",
             "query_instrument_commission_rate",
         ):
             method = _safe_getattr(target, method_name)
@@ -3242,7 +3384,13 @@ def _query_gateway_fee_spec(adapter: Any, symbol: str) -> dict[str, Any]:
             attempts: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
             for query_symbol in query_symbols:
                 attempts.extend(
-                    _gateway_asset_method_attempts(method_name, query_symbol, target, adapter)
+                    _gateway_asset_method_attempts(
+                        method_name,
+                        query_symbol,
+                        target,
+                        adapter,
+                        include_empty_call=method_name in plural_fee_methods,
+                    )
                 )
             attempted = {
                 repr(((query_symbol,), {}))
@@ -3319,6 +3467,10 @@ def _has_margin_spec(spec: dict[str, Any]) -> bool:
             "ShortMarginRatioByMoney",
             "LongMarginRatioByVolume",
             "ShortMarginRatioByVolume",
+            "leverage",
+            "lever",
+            "max_leverage",
+            "maxLeverage",
         )
     )
 
@@ -3407,6 +3559,11 @@ def _query_gateway_margin_spec(adapter: Any, symbol: str) -> dict[str, Any]:
             "fetch_margin",
             "get_margin_rate",
             "fetch_margin_rate",
+            "get_leverage",
+            "fetch_leverage",
+            "get_leverage_tiers",
+            "fetch_leverage_tiers",
+            "fetch_market_leverage_tiers",
             "get_instrument_margin_rate",
             "fetch_instrument_margin_rate",
             "query_instrument_margin_rate",
@@ -3451,8 +3608,10 @@ def _query_gateway_common_asset_spec(
         "fetch_contract",
         "query_symbol",
         "query_instrument",
+        "market",
         "get_market",
         "fetch_market",
+        "load_markets",
     )
     for target_label, target in _gateway_asset_query_targets(adapter):
         for method_name in method_names:
@@ -3490,6 +3649,17 @@ def _query_gateway_common_asset_spec(
                 )
                 if _has_asset_metadata(spec):
                     return _merge_fee_spec(_merge_margin_spec(spec, margin_spec), fee_spec)
+        for attr_name in ("markets", "_markets", "market_cache", "_market_cache"):
+            payload = _safe_getattr(target, attr_name)
+            if not isinstance(payload, dict):
+                continue
+            spec = normalize_asset_spec(
+                payload,
+                symbol=symbol,
+                source=f"{target_label}.{attr_name}",
+            )
+            if _has_asset_metadata(spec):
+                return _merge_fee_spec(_merge_margin_spec(spec, margin_spec), fee_spec)
     return {}
 
 

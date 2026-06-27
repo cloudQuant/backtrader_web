@@ -224,6 +224,8 @@ export default {
     aiResearchInitialCash: 'Initial cash',
     aiResearchCommission: 'Commission rate',
     aiResearchPaper: 'Start paper trading after pass',
+    aiResearchGeneratePrompt: 'Generate objective',
+    aiResearchPromptGenerated: 'Strategy research objective generated',
     aiResearchRun: 'Run AI research',
     aiResearchRunning: 'Running',
     aiResearchResult: 'Research result',

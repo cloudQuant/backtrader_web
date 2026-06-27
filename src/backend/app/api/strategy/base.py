@@ -34,7 +34,10 @@ from app.schemas.strategy import (
     StrategyResponse,
     StrategyUpdate,
 )
-from app.services.ai_strategy_research_service import AIStrategyResearchService
+from app.services.ai_strategy_research_service import (
+    AIStrategyResearchService,
+    redact_ai_strategy_research_payload,
+)
 from app.services.ai_strategy_research_task_manager import (
     AIStrategyResearchTaskManager,
     get_ai_strategy_research_task_manager,
@@ -249,7 +252,7 @@ async def run_ai_strategy_research_loop(
 ):
     """Generate, backtest, improve, and optionally start paper trading."""
     try:
-        return await service.run(current_user.sub, data)
+        return redact_ai_strategy_research_payload(await service.run(current_user.sub, data))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -362,7 +365,9 @@ async def start_ai_strategy_research_paper_trading(
 ):
     """Promote an achieved AI research run into paper trading."""
     try:
-        return await service.start_paper_trading_from_run(current_user.sub, run_id, data)
+        return redact_ai_strategy_research_payload(
+            await service.start_paper_trading_from_run(current_user.sub, run_id, data)
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -380,10 +385,12 @@ async def review_ai_strategy_research_paper_trading(
 ):
     """Evaluate a promoted paper trading unit against its AI monitoring plan."""
     try:
-        return await service.review_paper_trading_run(
-            current_user.sub,
-            run_id,
-            research_workspace_id=research_workspace_id,
+        return redact_ai_strategy_research_payload(
+            await service.review_paper_trading_run(
+                current_user.sub,
+                run_id,
+                research_workspace_id=research_workspace_id,
+            )
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -402,10 +409,12 @@ async def build_ai_strategy_research_live_handoff(
 ):
     """Build a manual-approval package for a paper-trading live candidate."""
     try:
-        return await service.build_live_handoff_package(
-            current_user.sub,
-            run_id,
-            research_workspace_id=research_workspace_id,
+        return redact_ai_strategy_research_payload(
+            await service.build_live_handoff_package(
+                current_user.sub,
+                run_id,
+                research_workspace_id=research_workspace_id,
+            )
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -425,11 +434,13 @@ async def approve_ai_strategy_research_live_handoff(
 ):
     """Persist a human approval or rejection decision for a live handoff package."""
     try:
-        return await service.record_live_handoff_approval(
-            current_user.sub,
-            run_id,
-            data,
-            research_workspace_id=research_workspace_id,
+        return redact_ai_strategy_research_payload(
+            await service.record_live_handoff_approval(
+                current_user.sub,
+                run_id,
+                data,
+                research_workspace_id=research_workspace_id,
+            )
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -448,7 +459,9 @@ async def prepare_ai_strategy_research_live_trading(
 ):
     """Create a locked live trading unit after live handoff approval."""
     try:
-        return await service.prepare_live_trading_from_run(current_user.sub, run_id, data)
+        return redact_ai_strategy_research_payload(
+            await service.prepare_live_trading_from_run(current_user.sub, run_id, data)
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

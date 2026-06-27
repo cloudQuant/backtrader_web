@@ -250,6 +250,20 @@ vi.mock('@/api/strategy', () => ({
       best_strategy: { id: 's1', name: 'AI策略', description: 'd', code: 'code', category: 'trend', params: {} },
       paper_trading: null,
       next_actions: ['策略已通过验收，可手动进入模拟交易或安排样本外验证。'],
+      pipeline: {
+        current_stage: 'validation',
+        status: 'achieved',
+        progress: 100,
+        ready_for_live: false,
+        steps: [
+          {
+            key: 'validation',
+            label: '样本外验证',
+            status: 'completed',
+            validation_status: 'passed',
+          },
+        ],
+      },
       run_record: {
         run_id: 'run-1',
         prompt: '生成一个趋势策略',
@@ -304,6 +318,20 @@ vi.mock('@/api/strategy', () => ({
         paper_trading_started: false,
         paper_monitoring_plan: [],
         next_actions: ['策略已通过验收，可手动进入模拟交易或安排样本外验证。'],
+        pipeline: {
+          current_stage: 'validation',
+          status: 'achieved',
+          progress: 100,
+          ready_for_live: false,
+          steps: [
+            {
+              key: 'validation',
+              label: '样本外验证',
+              status: 'completed',
+              validation_status: 'passed',
+            },
+          ],
+        },
         started_at: '2026-06-27T00:00:00Z',
         completed_at: '2026-06-27T00:01:00Z',
         iterations: [],
@@ -870,6 +898,84 @@ describe('StrategyPage', () => {
     expect(diagnostics).toContain('下一步 系统将基于本轮失败原因生成下一版策略。')
   })
 
+  it('generates an AI research objective from current controls and submits it', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.prompt = ''
+    vm.aiResearchForm.symbol = 'IF2409.CFE'
+    vm.aiResearchForm.symbol_name = '沪深300股指期货'
+    vm.aiResearchForm.timeframe = '1h'
+    vm.aiResearchForm.target_sharpe = 1.2
+    vm.aiResearchForm.min_total_trades = 8
+    vm.aiResearchForm.use_max_drawdown_limit = true
+    vm.aiResearchForm.max_drawdown_limit = 10
+    vm.aiResearchForm.use_min_total_return = true
+    vm.aiResearchForm.min_total_return = 6
+    vm.aiResearchForm.use_min_out_of_sample_sharpe = true
+    vm.aiResearchForm.min_out_of_sample_sharpe = 0.75
+    vm.aiResearchForm.use_min_out_of_sample_trades = true
+    vm.aiResearchForm.min_out_of_sample_trades = 3
+    vm.aiResearchForm.min_paper_trading_days = 14
+
+    vm.generateAIResearchPrompt()
+
+    expect(vm.aiResearchForm.prompt).toContain('请为 沪深300股指期货（IF2409.CFE）')
+    expect(vm.aiResearchForm.prompt).toContain('1h 级别的可执行 Backtrader 策略')
+    expect(vm.aiResearchForm.prompt).toContain('目标 Sharpe 不低于 1.20')
+    expect(vm.aiResearchForm.prompt).toContain('至少产生 8 笔有效交易')
+    expect(vm.aiResearchForm.prompt).toContain('最大回撤控制在 10% 以内')
+    expect(vm.aiResearchForm.prompt).toContain('总收益率不低于 6%')
+    expect(vm.aiResearchForm.prompt).toContain('按期货/合约资产处理')
+    expect(vm.aiResearchForm.prompt).toContain('保留 25% 数据做样本外验证')
+    expect(vm.aiResearchForm.prompt).toContain('样本外 Sharpe 不低于 0.75')
+    expect(vm.aiResearchForm.prompt).toContain('样本外交易数不少于 3')
+    expect(vm.aiResearchForm.prompt).toContain('至少观察 14 天')
+    expect(ElMessage.success).toHaveBeenCalledWith('已生成策略研究目标')
+
+    await vm.runAIResearchLoop()
+
+    expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining('按期货/合约资产处理'),
+      symbol: 'IF2409.CFE',
+      symbol_name: '沪深300股指期货',
+      target_sharpe: 1.2,
+      min_total_trades: 8,
+      max_drawdown_limit: 10,
+      min_total_return: 6,
+      min_out_of_sample_sharpe: 0.75,
+      min_out_of_sample_trades: 3,
+      min_paper_trading_days: 14,
+    }))
+  })
+
+  it('auto-generates the AI research objective when running with an empty prompt', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.prompt = ''
+    vm.aiResearchForm.symbol = 'IF2409.CFE'
+    vm.aiResearchForm.symbol_name = '沪深300股指期货'
+    vm.aiResearchForm.timeframe = '1h'
+    vm.aiResearchForm.target_sharpe = 1.1
+    vi.mocked(ElMessage.warning).mockClear()
+
+    await vm.runAIResearchLoop()
+
+    expect(vm.aiResearchForm.prompt).toContain('请为 沪深300股指期货（IF2409.CFE）')
+    expect(vm.aiResearchForm.prompt).toContain('目标 Sharpe 不低于 1.10')
+    expect(vm.aiResearchForm.prompt).toContain('按期货/合约资产处理')
+    expect(ElMessage.warning).not.toHaveBeenCalledWith('请填写策略目标')
+    expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining('完整可运行的 Backtrader Strategy 脚本'),
+      symbol: 'IF2409.CFE',
+      timeframe: '1h',
+      target_sharpe: 1.1,
+    }))
+  })
+
   it('runs AI research loop from form input', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const { ElMessage } = await import('element-plus')
@@ -910,9 +1016,11 @@ describe('StrategyPage', () => {
       min_annual_return: null,
       min_win_rate: null,
       out_of_sample_validation: true,
+      require_out_of_sample_validation: true,
       out_of_sample_ratio: 0.25,
       min_out_of_sample_sharpe: 0.8,
       min_out_of_sample_trades: 2,
+      min_paper_trading_days: 7,
       backtest_timeout_seconds: 900,
       poll_interval_seconds: 2.5,
       paper_workspace_name: 'AI模拟-趋势',
@@ -936,9 +1044,11 @@ describe('StrategyPage', () => {
     expect(wrapper.find('[data-test="ai-research-gate-summary"]').text()).toContain('Sharpe')
     expect(wrapper.find('[data-test="ai-research-gate-summary"]').text()).toContain('1.20 / 1.00')
     expect(wrapper.find('[data-test="ai-research-oos-summary"]').text()).toContain('样本外验证')
-    expect(wrapper.find('[data-test="ai-research-oos-summary"]').text()).toContain('passed')
+    expect(wrapper.find('[data-test="ai-research-oos-summary"]').text()).toContain('已通过')
     expect(wrapper.find('[data-test="ai-research-oos-summary"]').text()).toContain('2024-01-16')
     expect(wrapper.find('[data-test="ai-research-oos-summary"]').text()).toContain('0.92 / 0.80')
+    expect(wrapper.find('[data-test="ai-research-iteration-oos"]').text()).toContain('已通过')
+    expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('样本外 已通过')
     expect(wrapper.find('[data-test="ai-research-next-actions"]').text()).toContain('策略已通过验收')
     expect(wrapper.text()).toContain('进入模拟交易后优先验证成交、滑点、费用和样本外收益稳定性')
     const currentRuntimeEnv = wrapper.find('[data-test="ai-research-current-runtime-env"]').text()
@@ -1076,6 +1186,138 @@ describe('StrategyPage', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('实盘交接包已生成')
     expect(ElMessage.success).toHaveBeenCalledWith('实盘交接已审批通过')
     expect(ElMessage.success).toHaveBeenCalledWith('实盘交易单元已准备，默认锁定等待人工上线')
+  })
+
+  it('blocks AI research start when gateway config contains redacted credentials', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.prompt = '生成一个趋势策略'
+    vm.aiResearchForm.symbol = '000001.SZ'
+    vm.aiResearchForm.gateway_config_json = JSON.stringify({
+      name: 'paper_gateway',
+      api_key: '***',
+      params: { exchange: 'sim', secret_key: '***' },
+    })
+
+    await vm.runAIResearchLoop()
+
+    expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+    expect(ElMessage.warning).toHaveBeenCalledWith(
+      '模拟网关配置包含脱敏凭据，请重新输入真实网关配置'
+    )
+    expect(vm.aiResearchRunning).toBe(false)
+  })
+
+  it('blocks AI research start when required out-of-sample dates are missing', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.prompt = '生成一个趋势策略'
+    vm.aiResearchForm.symbol = '000001.SZ'
+    vm.aiResearchForm.out_of_sample_validation = true
+    vm.aiResearchForm.require_out_of_sample_validation = true
+    vm.aiResearchForm.start_date = ''
+    vm.aiResearchForm.end_date = ''
+
+    await vm.runAIResearchLoop()
+
+    expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+    expect(ElMessage.warning).toHaveBeenCalledWith(
+      '强制样本外验证需要填写合法的开始日期和结束日期'
+    )
+  })
+
+  it('shows configuration feedback when AI research request is invalid', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const baseRecord = baseResult.run_record!
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    vi.mocked(strategyApi.runAIResearchLoop).mockResolvedValueOnce({
+      ...baseResult,
+      status: 'configuration_invalid',
+      achieved: false,
+      best_iteration: null,
+      best_quality_score: 0,
+      best_quality_gate_evaluations: [],
+      best_diagnostics: {
+        summary: '投研请求配置未通过，尚未生成策略或提交回测。',
+        failure_categories: ['configuration', 'out_of_sample'],
+        promotion_ready: false,
+      },
+      best_metrics: {},
+      iterations: [],
+      best_strategy: null,
+      paper_trading: null,
+      next_actions: ['投研请求配置未通过，尚未生成策略或提交回测。'],
+      message: 'Required out-of-sample validation needs valid start_date/end_date with at least 8 calendar days',
+      pipeline: {
+        current_stage: 'configuration_invalid',
+        status: 'configuration_invalid',
+        progress: 0,
+        ready_for_live: false,
+        steps: [
+          { key: 'draft', label: '策略生成', status: 'pending' },
+          { key: 'backtest_loop', label: '自动回测迭代', status: 'pending' },
+          { key: 'quality_gate', label: '质量门槛', status: 'failed' },
+        ],
+      },
+      run_record: {
+        ...baseRecord,
+        status: 'configuration_invalid',
+        achieved: false,
+        iteration_count: 0,
+        best_iteration: null,
+        best_sharpe: 0,
+        best_quality_score: 0,
+        best_quality_gate_evaluations: [],
+        best_diagnostics: {
+          summary: '投研请求配置未通过，尚未生成策略或提交回测。',
+          failure_categories: ['configuration', 'out_of_sample'],
+          promotion_ready: false,
+        },
+        best_metrics: {},
+        best_strategy_id: null,
+        best_strategy_name: null,
+        paper_trading_started: false,
+        paper_monitoring_plan: [],
+        paper_review_status: null,
+        paper_review_ready_for_live: false,
+        pipeline: {
+          current_stage: 'configuration_invalid',
+          status: 'configuration_invalid',
+          progress: 0,
+          ready_for_live: false,
+          steps: [
+            { key: 'draft', label: '策略生成', status: 'pending' },
+            { key: 'backtest_loop', label: '自动回测迭代', status: 'pending' },
+            { key: 'quality_gate', label: '质量门槛', status: 'failed' },
+          ],
+        },
+        next_actions: ['投研请求配置未通过，尚未生成策略或提交回测。'],
+        iterations: [],
+      },
+    } as any)
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.prompt = '生成一个趋势策略'
+    vm.aiResearchForm.symbol = '000001.SZ'
+
+    await vm.runAIResearchLoop()
+    await wrapper.vm.$nextTick()
+
+    expect(vm.aiResearchResult.status).toBe('configuration_invalid')
+    expect(vm.canContinueResearchFromCurrentRunRecord).toBe(false)
+    expect(wrapper.text()).toContain('配置无效')
+    expect(wrapper.text()).not.toContain('继续投研')
+    expect(ElMessage.warning).toHaveBeenCalledWith(
+      'AI投研配置未通过：Required out-of-sample validation needs valid start_date/end_date with at least 8 calendar days'
+    )
   })
 
   it('warns and keeps continuation available when AI research misses target', async () => {
@@ -1241,7 +1483,7 @@ describe('StrategyPage', () => {
     const review = wrapper.find('[data-test="ai-research-current-paper-review"]')
     expect(review.exists()).toBe(true)
     expect(review.text()).toContain('继续观察')
-    expect(review.text()).toContain('模拟交易滚动 Sharpe')
+    expect(review.text()).toContain('模拟交易滚动 Sharpe 继续观察 - / 0.60')
     const pipeline = wrapper.find('[data-test="ai-research-pipeline"]')
     expect(pipeline.text()).toContain('AI投研流水线')
     expect(pipeline.text()).toContain('模拟复核')
@@ -1837,6 +2079,176 @@ describe('StrategyPage', () => {
       const taskProgress = wrapper.find('[data-test="ai-research-task-progress"]').text()
       expect(taskProgress).toContain('实盘已准备')
       expect(taskProgress).toContain('实盘单元 live-unit')
+    } finally {
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
+    }
+  })
+
+  it('shows live handoff approval actions from async task result', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const baseReadyHandoff = await strategyApi.buildAIResearchLiveHandoff(
+      'async-live-handoff-run',
+      'research-ws'
+    )
+    const readyHandoff = {
+      ...baseReadyHandoff,
+      symbol: 'IF2409.CFE',
+      symbol_name: '沪深300股指期货',
+      timeframe: '1h',
+      asset_specs: {
+        'IF2409.CFE': {
+          symbol: 'IF2409.CFE',
+          asset_type: 'future',
+          multiplier: 300,
+          margin_rate: 0.12,
+          leverage: 8.3333,
+          commission_rate: 0.000023,
+          fee_model: 'notional_rate',
+        },
+      },
+      backtest_environment: {
+        initial_cash: 100000,
+        commission: 0.000023,
+        asset_specs_source: 'exchange',
+      },
+    }
+    const readyRecord = {
+      ...baseResult.run_record!,
+      run_id: 'async-live-handoff-run',
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      paper_review_status: 'ready_for_live_candidate',
+      paper_review_ready_for_live: true,
+      paper_reviewed_at: '2026-06-27T00:02:00Z',
+      live_handoff: readyHandoff,
+      pipeline: readyHandoff.pipeline,
+      next_actions: readyHandoff.next_actions,
+    }
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    let submittedPayload: Record<string, unknown> | null = null
+    ;(strategyApi as any).submitAIResearchTask = vi.fn().mockImplementation((payload: Record<string, unknown>) => {
+      submittedPayload = payload
+      return Promise.resolve({
+        task_id: 'async-live-handoff-task',
+        status: 'running',
+        submitted_at: '2026-06-27T00:00:00Z',
+        research_workspace_id: 'research-ws',
+        request_snapshot: payload,
+        current_stage: 'live_handoff',
+        progress: 95,
+        current_iteration: 1,
+        iteration_count: 1,
+        max_iterations: 1,
+        paper_workspace_id: 'paper-ws',
+        paper_unit_id: 'paper-unit',
+        paper_trading_started: true,
+        paper_review_status: 'ready_for_live_candidate',
+        paper_review_ready_for_live: true,
+        live_handoff: readyHandoff,
+        pipeline: readyHandoff.pipeline,
+        message: 'handoff ready',
+      })
+    })
+    ;(strategyApi as any).getAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'async-live-handoff-task',
+      status: 'completed',
+      submitted_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:05:00Z',
+      run_id: 'async-live-handoff-run',
+      research_workspace_id: 'research-ws',
+      request_snapshot: submittedPayload ?? {
+        prompt: '',
+        symbol: 'IF2409.CFE',
+        symbol_name: '沪深300股指期货',
+        timeframe: '1h',
+        target_sharpe: 1,
+      },
+      current_stage: 'live_handoff',
+      run_status: 'achieved',
+      achieved: true,
+      progress: 100,
+      current_iteration: 1,
+      iteration_count: 1,
+      max_iterations: 1,
+      target_sharpe: 1,
+      best_iteration: 1,
+      best_sharpe: 1.2,
+      best_quality_score: 100,
+      best_metrics: { sharpe_ratio: 1.2, total_trades: 12 },
+      best_strategy_id: 's1',
+      best_strategy_name: 'AI策略',
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      paper_review_status: 'ready_for_live_candidate',
+      paper_review_ready_for_live: true,
+      live_handoff: readyHandoff,
+      pipeline: readyHandoff.pipeline,
+      next_actions: readyHandoff.next_actions,
+      result: {
+        ...baseResult,
+        run_id: 'async-live-handoff-run',
+        pipeline: readyHandoff.pipeline,
+        next_actions: readyHandoff.next_actions,
+        run_record: readyRecord,
+      },
+      message: 'handoff ready',
+    })
+    try {
+      const wrapper = doMount()
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.prompt = ''
+      vm.aiResearchForm.symbol = 'IF2409.CFE'
+      vm.aiResearchForm.symbol_name = '沪深300股指期货'
+      vm.aiResearchForm.timeframe = '1h'
+      vm.aiResearchForm.target_sharpe = 1
+      await vm.runAIResearchLoop()
+      await wrapper.vm.$nextTick()
+
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect((strategyApi as any).submitAIResearchTask).toHaveBeenCalledWith(expect.objectContaining({
+        prompt: expect.stringContaining('按期货/合约资产处理'),
+        symbol: 'IF2409.CFE',
+        symbol_name: '沪深300股指期货',
+        timeframe: '1h',
+        target_sharpe: 1,
+      }))
+      const submittedRequest = (strategyApi as any).submitAIResearchTask.mock.calls[0]?.[0] as Record<string, unknown>
+      expect(String(submittedRequest.prompt)).toContain('请为 沪深300股指期货（IF2409.CFE）')
+      expect(String(submittedRequest.prompt)).toContain('按期货/合约资产处理')
+      expect(String(submittedRequest.prompt)).toContain('合约乘数、保证金、杠杆、最小变动价位和真实手续费')
+      expect(vm.aiResearchForm.prompt).toBe(submittedRequest.prompt)
+      expect(vm.aiResearchResult.run_record.live_handoff.status).toBe('ready_for_approval')
+      expect(vm.aiResearchRuns[0].live_handoff.status).toBe('ready_for_approval')
+      const taskProgress = wrapper.find('[data-test="ai-research-task-progress"]').text()
+      expect(taskProgress).toContain('标的 IF2409.CFE 沪深300股指期货')
+      expect(taskProgress).toContain('阶段 实盘交接')
+      expect(wrapper.find('[data-test="ai-research-task-pipeline"]').text()).toContain('实盘交接')
+      expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('实盘交接')
+      expect(wrapper.find('[data-test="ai-research-current-live-handoff"]').text()).toContain(
+        '可提交审批'
+      )
+      const actions = wrapper.find('[data-test="ai-research-current-live-handoff-actions"]')
+      expect(actions.exists()).toBe(true)
+      const approveButton = wrapper.findAll('button').find(
+        button => button.text().includes('批准交接')
+      )
+      expect(approveButton).toBeTruthy()
+      await approveButton!.trigger('click')
+      await flushPromises()
+      expect(strategyApi.approveAIResearchLiveHandoff).toHaveBeenCalledWith(
+        'async-live-handoff-run',
+        expect.objectContaining({
+          decision: 'approved',
+          account_confirmed: true,
+          risk_limit_confirmed: true,
+        }),
+        'research-ws'
+      )
     } finally {
       delete (strategyApi as any).submitAIResearchTask
       delete (strategyApi as any).getAIResearchTask
@@ -2742,6 +3154,7 @@ describe('StrategyPage', () => {
         'task_summary_exchange_specs'
       )
       expect(vm.aiResearchResult.run_record.min_total_trades).toBe(4)
+      expect(vm.aiResearchResult.run_record.quality_gates.min_paper_trading_days).toBe(7)
       expect(vm.aiResearchResult.run_record.paper_workspace_name).toBe('任务摘要模拟工作区')
       expect(vm.aiResearchResult.best_iteration).toBe(2)
       expect(vm.aiResearchResult.best_metrics.sharpe_ratio).toBe(1.18)
@@ -2783,7 +3196,7 @@ describe('StrategyPage', () => {
       expect(runtimeEnvironment).toContain('资产来源 task_summary_exchange_specs')
       const paperReview = wrapper.find('[data-test="ai-research-current-paper-review"]').text()
       expect(paperReview).toContain('实盘候选')
-      expect(paperReview).toContain('模拟交易滚动 Sharpe 0.82 / 0.60')
+      expect(paperReview).toContain('模拟交易滚动 Sharpe 已通过 0.82 / 0.60')
       expect(paperReview).toContain('候选有效期')
       expect(wrapper.find('[data-test="ai-research-current-live-readiness"]').text()).toContain(
         '人工实盘审批 待人工确认'
@@ -2997,6 +3410,7 @@ describe('StrategyPage', () => {
             max_drawdown_limit: 12,
             max_iterations: 6,
             out_of_sample_validation: true,
+            require_out_of_sample_validation: true,
             out_of_sample_ratio: 0.3,
             min_out_of_sample_sharpe: 0.8,
             min_out_of_sample_trades: 2,
@@ -3004,6 +3418,7 @@ describe('StrategyPage', () => {
             commission: 0.000023,
             backtest_timeout_seconds: 1200,
             poll_interval_seconds: 3,
+            min_paper_trading_days: 14,
             paper_workspace_name: '恢复模拟工作区',
             start_paper_trading: true,
             gateway_config: {
@@ -3073,6 +3488,7 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchForm.use_max_drawdown_limit).toBe(true)
       expect(vm.aiResearchForm.max_drawdown_limit).toBe(12)
       expect(vm.aiResearchForm.max_iterations).toBe(6)
+      expect(vm.aiResearchForm.require_out_of_sample_validation).toBe(true)
       expect(vm.aiResearchForm.out_of_sample_ratio_pct).toBe(30)
       expect(vm.aiResearchForm.use_min_out_of_sample_sharpe).toBe(true)
       expect(vm.aiResearchForm.use_min_out_of_sample_trades).toBe(true)
@@ -3081,6 +3497,7 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchForm.commission).toBe(0.000023)
       expect(vm.aiResearchForm.backtest_timeout_seconds).toBe(1200)
       expect(vm.aiResearchForm.poll_interval_seconds).toBe(3)
+      expect(vm.aiResearchForm.min_paper_trading_days).toBe(14)
       expect(vm.aiResearchForm.paper_workspace_name).toBe('恢复模拟工作区')
       expect(JSON.parse(vm.aiResearchForm.gateway_config_json)).toEqual({
         name: 'paper_gateway',
@@ -4901,6 +5318,177 @@ describe('StrategyPage', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('实盘交接包已生成')
   })
 
+  it('locks paper review and handoff rebuild actions after live handoff approval', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const readyHandoff = await strategyApi.buildAIResearchLiveHandoff(
+      'approved-actions-run',
+      'research-ws'
+    )
+    const approval = {
+      run_id: 'approved-actions-run',
+      research_workspace_id: 'research-ws',
+      decision: 'approved',
+      approved: true,
+      decided_at: '2026-06-27T00:04:00Z',
+      decided_by: 'risk-manager',
+      comment: '批准小资金实盘验证',
+      account_confirmed: true,
+      risk_limit_confirmed: true,
+      deployment_window: '2026-06-28 09:30',
+      handoff_status_at_decision: 'ready_for_approval',
+      blockers: [],
+    }
+    const approvedHandoff = {
+      ...readyHandoff,
+      status: 'approved_for_live',
+      approval_status: 'approved',
+      approval,
+      pipeline: {
+        ...readyHandoff.pipeline,
+        status: 'approved_for_live',
+        live_handoff_status: 'approved_for_live',
+        live_handoff_approval_status: 'approved',
+        live_handoff_approved: true,
+      },
+      next_actions: ['实盘交接包已通过人工审批。'],
+    }
+
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    await flushPromises()
+    const approvedRecord = {
+      ...vm.aiResearchRuns[0],
+      run_id: 'approved-actions-run',
+      achieved: true,
+      best_strategy_id: 's1',
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      paper_review_status: 'ready_for_live_candidate',
+      paper_review_ready_for_live: true,
+      live_handoff: approvedHandoff,
+      live_handoff_approval: approval,
+      pipeline: approvedHandoff.pipeline,
+    }
+    const preparedRecord = {
+      ...approvedRecord,
+      live_trading_prepared: true,
+      live_workspace_id: 'live-ws',
+      live_unit_id: 'live-unit',
+      pipeline: {
+        ...approvedHandoff.pipeline,
+        current_stage: 'live_trading_prepare',
+        live_trading_prepared: true,
+      },
+    }
+    const blockedRecord = {
+      ...approvedRecord,
+      run_id: 'blocked-actions-run',
+      live_handoff_approval: null,
+      live_handoff: {
+        ...readyHandoff,
+        run_id: 'blocked-actions-run',
+        ready_for_live: false,
+        status: 'blocked',
+        approval_status: null,
+        approval: null,
+        deployment_blockers: ['实盘交接检查清单缺失，需要重新复核模拟交易并生成审批证据。'],
+        pipeline: {
+          ...readyHandoff.pipeline,
+          status: 'blocked',
+          live_handoff_status: 'blocked',
+          live_handoff_ready_for_live: false,
+          live_handoff_blocker_count: 1,
+        },
+      },
+      pipeline: {
+        ...readyHandoff.pipeline,
+        status: 'blocked',
+        live_handoff_status: 'blocked',
+        live_handoff_ready_for_live: false,
+        live_handoff_blocker_count: 1,
+      },
+    }
+
+    expect(vm.liveHandoffForRecord(approvedRecord).status).toBe('approved_for_live')
+    expect(vm.canReviewPaperFromRecord(approvedRecord)).toBe(false)
+    expect(vm.canBuildLiveHandoffFromRecord(approvedRecord)).toBe(false)
+    expect(vm.canPrepareLiveTradingFromRecord(approvedRecord)).toBe(true)
+    expect(vm.canReviewPaperFromRecord(preparedRecord)).toBe(false)
+    expect(vm.canBuildLiveHandoffFromRecord(preparedRecord)).toBe(false)
+    expect(vm.canPrepareLiveTradingFromRecord(preparedRecord)).toBe(false)
+    expect(vm.canReviewPaperFromRecord(blockedRecord)).toBe(true)
+    expect(vm.canBuildLiveHandoffFromRecord(blockedRecord)).toBe(true)
+  })
+
+  it('blocks live preparation when live gateway config contains redacted credentials', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    vi.mocked(strategyApi.prepareAIResearchLiveTrading).mockClear()
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    await flushPromises()
+    const readyHandoff = await strategyApi.buildAIResearchLiveHandoff(
+      'redacted-live-gateway-run',
+      'research-ws'
+    )
+    const approval = {
+      run_id: 'redacted-live-gateway-run',
+      research_workspace_id: 'research-ws',
+      decision: 'approved',
+      approved: true,
+      decided_at: '2026-06-27T00:04:00Z',
+      decided_by: 'risk-manager',
+      account_confirmed: true,
+      risk_limit_confirmed: true,
+      handoff_status_at_decision: 'ready_for_approval',
+      blockers: [],
+    }
+    const record = {
+      ...vm.aiResearchRuns[0],
+      run_id: 'redacted-live-gateway-run',
+      achieved: true,
+      best_strategy_id: 's1',
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      paper_review_status: 'ready_for_live_candidate',
+      paper_review_ready_for_live: true,
+      live_handoff_approval: approval,
+      live_handoff: {
+        ...readyHandoff,
+        ready_for_live: true,
+        status: 'approved_for_live',
+        approval_status: 'approved',
+        approval,
+        pipeline: {
+          ...readyHandoff.pipeline,
+          status: 'approved_for_live',
+          live_handoff_status: 'approved_for_live',
+        },
+      },
+      pipeline: {
+        ...readyHandoff.pipeline,
+        status: 'approved_for_live',
+        live_handoff_status: 'approved_for_live',
+      },
+    } as AIStrategyResearchRunRecord
+    vm.aiResearchForm.live_gateway_config_json = JSON.stringify({
+      name: 'ctp_live',
+      api_key: '***',
+      params: { exchange: 'sim-live', secret_key: '***' },
+    })
+
+    expect(vm.canPrepareLiveTradingFromRecord(record)).toBe(true)
+    await vm.prepareLiveTradingFromResearchRecord(record)
+
+    expect(strategyApi.prepareAIResearchLiveTrading).not.toHaveBeenCalled()
+    expect(ElMessage.warning).toHaveBeenCalledWith(
+      '实盘网关配置包含脱敏凭据，请重新输入真实网关配置'
+    )
+    expect(vm.aiResearchLiveTradingPreparingRunId).toBe('')
+  })
+
   it('shows persisted paper trading review from run history after reload', async () => {
     const { strategyApi } = await import('@/api/strategy')
     vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({
@@ -5283,6 +5871,185 @@ describe('StrategyPage', () => {
       seed_strategy_id: 's1',
       continue_from_run_id: 'live-rejected-run',
     }))
+  })
+
+  it('auto-refreshes monitored AI research history with paper review progress', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    vi.useFakeTimers()
+    const monitoredRecord: AIStrategyResearchRunRecord = {
+      run_id: 'auto-refresh-run',
+      prompt: '自动刷新模拟复核',
+      symbol: 'IF2409.CFE',
+      symbol_name: '沪深300股指期货',
+      timeframe: '1h',
+      timeframe_n: 1,
+      status: 'achieved',
+      achieved: true,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 2,
+      best_iteration: 2,
+      best_sharpe: 1.15,
+      best_quality_score: 100,
+      best_quality_gate_evaluations: [],
+      best_metrics: { sharpe_ratio: 1.15, total_trades: 12 },
+      best_strategy_id: 's1',
+      best_strategy_name: 'AI策略',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_workspace_id: 'paper-ws',
+      paper_workspace_name: 'AI模拟交易',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      paper_monitoring_plan: [
+        {
+          key: 'rolling_sharpe',
+          label: '模拟交易滚动 Sharpe',
+          metric: 'rolling_sharpe',
+          window: '30 trading days',
+          direction: 'min',
+          threshold: 0.6,
+          action: '继续观察',
+        },
+      ],
+      paper_handoff: {},
+      paper_review_status: 'monitoring',
+      paper_review_ready_for_live: false,
+      paper_reviewed_at: '2026-06-27T00:02:00Z',
+      paper_review_evaluations: [],
+      paper_review_next_actions: ['继续收集模拟交易数据。'],
+      live_readiness_checklist: [],
+      live_readiness_expires_at: null,
+      live_handoff: null,
+      live_handoff_approval: null,
+      live_workspace_id: null,
+      live_workspace_name: null,
+      live_unit_id: null,
+      live_trading_prepared: false,
+      live_trading_prepared_at: null,
+      pipeline: {
+        current_stage: 'paper_review',
+        status: 'achieved',
+        progress: 80,
+        ready_for_live: false,
+        steps: [],
+      },
+      next_actions: ['继续收集模拟交易数据。'],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [],
+    }
+    const refreshedRecord: AIStrategyResearchRunRecord = {
+      ...monitoredRecord,
+      paper_review_status: 'ready_for_live_candidate',
+      paper_review_ready_for_live: true,
+      paper_reviewed_at: '2026-06-27T00:35:00Z',
+      paper_review_evaluations: [
+        {
+          key: 'rolling_sharpe',
+          label: '模拟交易滚动 Sharpe',
+          metric: 'rolling_sharpe',
+          window: '30 trading days',
+          direction: 'min',
+          threshold: 0.6,
+          action: '继续观察',
+          actual: 0.82,
+          source: 'unit_status.metrics_snapshot',
+          status: 'passed',
+          passed: true,
+        },
+      ],
+      live_readiness_checklist: [
+        {
+          key: 'paper_monitoring_passed',
+          label: '模拟监控通过',
+          status: 'passed',
+          evidence: '模拟交易滚动 Sharpe 0.82 / 0.60',
+          action: '继续监控同一组指标。',
+        },
+      ],
+      live_readiness_expires_at: '2026-07-04T00:35:00Z',
+      live_handoff: {
+        run_id: 'auto-refresh-run',
+        research_workspace_id: 'research-ws',
+        generated_at: '2026-06-27T00:35:00Z',
+        ready_for_live: true,
+        status: 'ready_for_approval',
+        approval_required: true,
+        expires_at: '2026-07-04T00:35:00Z',
+        paper_workspace_id: 'paper-ws',
+        paper_unit_id: 'paper-unit',
+        best_strategy_id: 's1',
+        best_strategy_name: 'AI策略',
+        symbol: 'IF2409.CFE',
+        symbol_name: '沪深300股指期货',
+        timeframe: '1h',
+        timeframe_n: 1,
+        target_sharpe: 1,
+        best_sharpe: 1.15,
+        best_metrics: { sharpe_ratio: 1.15, total_trades: 12 },
+        asset_specs: {},
+        backtest_environment: {},
+        paper_review_status: 'ready_for_live_candidate',
+        paper_reviewed_at: '2026-06-27T00:35:00Z',
+        paper_review_evaluations: [],
+        paper_monitoring_plan: monitoredRecord.paper_monitoring_plan ?? [],
+        live_readiness_checklist: [],
+        approvals_required: [],
+        deployment_blockers: [],
+        handoff: {},
+        pipeline: {
+          current_stage: 'live_handoff',
+          status: 'ready_for_approval',
+          progress: 100,
+          ready_for_live: true,
+          live_handoff_status: 'ready_for_approval',
+          steps: [],
+        },
+        next_actions: ['提交人工实盘审批。'],
+      },
+      pipeline: {
+        current_stage: 'live_handoff',
+        status: 'ready_for_approval',
+        progress: 100,
+        ready_for_live: true,
+        live_handoff_status: 'ready_for_approval',
+        live_handoff_ready_for_live: true,
+        live_handoff_approval_required: true,
+        steps: [],
+      },
+      next_actions: ['提交人工实盘审批。'],
+    }
+    let wrapper: ReturnType<typeof doMount> | null = null
+    try {
+      vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({
+        total: 1,
+        items: [monitoredRecord],
+      })
+      wrapper = doMount()
+      await flushPromises()
+      const vm = wrapper.vm as any
+      expect(vm.aiResearchRuns[0].paper_review_status).toBe('monitoring')
+
+      vi.mocked(strategyApi.listAIResearchRuns).mockClear()
+      vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({
+        total: 1,
+        items: [refreshedRecord],
+      })
+      await vi.advanceTimersByTimeAsync(30_000)
+      await flushPromises()
+
+      expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith(undefined, 10)
+      expect(vm.aiResearchRuns[0].paper_review_status).toBe('ready_for_live_candidate')
+      expect(vm.aiResearchRuns[0].live_handoff?.status).toBe('ready_for_approval')
+      expect(vm.aiResearchLiveHandoffs['auto-refresh-run'].status).toBe('ready_for_approval')
+    } finally {
+      wrapper?.unmount()
+      vi.useRealTimers()
+    }
   })
 
   it('saveStrategy warns when name/code empty', async () => {

@@ -4,16 +4,158 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.strategy import StrategyCopilotRunResult, StrategyResponse
 from app.schemas.workspace import StrategyUnitResponse, UnitStatusResponse, WorkspaceResponse
 
 
+def _format_research_number(value: float | int | None, digits: int = 2) -> str:
+    if value is None:
+        return "-"
+    number = float(value)
+    if not number.is_integer():
+        return f"{number:.{digits}f}"
+    if digits <= 0:
+        return str(int(number))
+    return f"{number:.{digits}f}"
+
+
+def _research_symbol_label(request: "AIStrategyResearchRunRequest") -> str:
+    symbol = request.symbol.strip() or "待研究标的"
+    symbol_name = request.symbol_name.strip()
+    return f"{symbol_name}（{symbol}）" if symbol_name else symbol
+
+
+def _research_asset_constraint_line(symbol: str) -> str:
+    normalized = symbol.strip().upper()
+    futures_suffixes = (".CFE", ".CFFEX", ".SHFE", ".INE", ".DCE", ".CZCE", ".GFEX")
+    futures_prefixes = (
+        "IF",
+        "IC",
+        "IH",
+        "IM",
+        "TF",
+        "TS",
+        "AU",
+        "AG",
+        "CU",
+        "AL",
+        "ZN",
+        "RB",
+        "HC",
+        "SC",
+        "FU",
+        "RU",
+        "MA",
+        "TA",
+        "SR",
+        "CF",
+        "OI",
+        "RM",
+    )
+    if normalized.endswith(futures_suffixes) or any(
+        normalized.startswith(prefix) and any(ch.isdigit() for ch in normalized[len(prefix) :])
+        for prefix in futures_prefixes
+    ):
+        return (
+            "按期货/合约资产处理，必须使用交易所或本地资产规格中的合约乘数、"
+            "保证金、杠杆、最小变动价位和真实手续费估算仓位与风险。"
+        )
+    if any(token in normalized for token in ("USDT", "USDC", "PERP", "SWAP", "BTC", "ETH")):
+        return "按数字资产或永续合约处理，必须显式考虑资金费率、杠杆、滑点、交易费率和保证金约束。"
+    if normalized.endswith((".SZ", ".SH", ".BJ")):
+        return "按股票资产处理，必须控制单票仓位、换手率、手续费和不可成交假设，避免过度交易。"
+    return "必须从交易所或本地资产规格读取手续费、合约乘数、保证金、价格精度和最小下单量，并在仓位 sizing 中使用这些约束。"
+
+
+def _build_default_ai_research_prompt(request: "AIStrategyResearchRunRequest") -> str:
+    quality_lines = [
+        f"目标 Sharpe 不低于 {_format_research_number(request.target_sharpe)}。",
+        f"至少产生 {_format_research_number(request.min_total_trades, 0)} 笔有效交易，避免只靠少数交易达标。",
+    ]
+    if request.max_drawdown_limit is not None:
+        quality_lines.append(
+            f"最大回撤控制在 {_format_research_number(request.max_drawdown_limit, 0)}% 以内。"
+        )
+    if request.min_total_return is not None:
+        quality_lines.append(
+            f"总收益率不低于 {_format_research_number(request.min_total_return, 0)}%。"
+        )
+    if request.min_annual_return is not None:
+        quality_lines.append(
+            f"年化收益率不低于 {_format_research_number(request.min_annual_return, 0)}%。"
+        )
+    if request.min_win_rate is not None:
+        quality_lines.append(f"胜率不低于 {_format_research_number(request.min_win_rate, 0)}%。")
+
+    validation_lines = [
+        f"回测区间：{request.start_date or '可用历史数据起点'} 至 {request.end_date or '最新可得数据'}。"
+    ]
+    if request.out_of_sample_validation:
+        requirements = [
+            f"保留 {_format_research_number(request.out_of_sample_ratio * 100, 0)}% 数据做样本外验证"
+        ]
+        if request.require_out_of_sample_validation:
+            requirements.append("达标后必须通过样本外验证才能进入模拟交易")
+        if request.min_out_of_sample_sharpe is not None:
+            requirements.append(
+                f"样本外 Sharpe 不低于 {_format_research_number(request.min_out_of_sample_sharpe)}"
+            )
+        if request.min_out_of_sample_trades is not None:
+            requirements.append(
+                f"样本外交易数不少于 {_format_research_number(request.min_out_of_sample_trades, 0)}"
+            )
+        validation_lines.append(f"{'，'.join(requirements)}。")
+    else:
+        validation_lines.append("暂不启用样本外验证，但策略说明中必须提示过拟合风险。")
+
+    if request.start_paper_trading:
+        validation_lines.append(
+            "质量门槛达成后进入模拟交易，至少观察 "
+            f"{_format_research_number(request.min_paper_trading_days, 0)} 天，"
+            "重点复核真实手续费、滑点、估值置信度、回撤和滚动 Sharpe。"
+        )
+    else:
+        validation_lines.append("本轮只完成研究和回测，不自动启动模拟交易。")
+
+    signal_families = "趋势跟随、均值回归、波动率过滤、突破确认和风险预算"
+    return "\n".join(
+        [
+            (
+                f"请为 {_research_symbol_label(request)} 生成一套 {request.timeframe} "
+                "级别的可执行 Backtrader 策略，并自动迭代回测直到达到质量门槛。"
+            ),
+            "",
+            "研究方向：",
+            f"1. 先比较 {signal_families} 等候选逻辑，再选择最适合该标的的可执行方案。",
+            "2. 策略必须包含明确的入场、出场、止损/止盈、仓位 sizing 和异常行情保护。",
+            f"3. {_research_asset_constraint_line(request.symbol)}",
+            "",
+            "质量门槛：",
+            *[f"{index + 1}. {line}" for index, line in enumerate(quality_lines)],
+            "",
+            "验证与晋级：",
+            *[f"{index + 1}. {line}" for index, line in enumerate(validation_lines)],
+            "",
+            (
+                "输出要求：生成完整可运行的 Backtrader Strategy 脚本，参数默认值要便于自动改稿；"
+                "每轮改进都应解释为什么可能改善 Sharpe、回撤、交易次数或实盘可执行性。"
+            ),
+        ]
+    )
+
+
 class AIStrategyResearchRunRequest(BaseModel):
     """Request to run an AI strategy generate/backtest/improve loop."""
 
-    prompt: str = Field(..., min_length=1, description="Natural language strategy objective")
+    prompt: str = Field(
+        "",
+        description=(
+            "Natural language strategy objective. When omitted, the platform generates "
+            "a structured objective from symbol, timeframe, quality gates, and promotion settings."
+        ),
+    )
     symbol: str = Field(..., min_length=1, max_length=50, description="Backtest/trading symbol")
     symbol_name: str = Field("", max_length=200, description="Symbol display name")
     timeframe: str = Field("1d", max_length=10, description="K-line timeframe")
@@ -45,6 +187,13 @@ class AIStrategyResearchRunRequest(BaseModel):
     out_of_sample_validation: bool = Field(
         True,
         description="Run an out-of-sample validation backtest before paper trading when dates allow",
+    )
+    require_out_of_sample_validation: bool = Field(
+        False,
+        description=(
+            "When enabled, an achieved training backtest cannot be promoted to paper trading "
+            "unless out-of-sample validation runs and passes"
+        ),
     )
     out_of_sample_ratio: float = Field(
         0.25,
@@ -85,6 +234,12 @@ class AIStrategyResearchRunRequest(BaseModel):
         description="Optional previous AI research run ID whose best strategy should seed this run",
     )
     start_paper_trading: bool = Field(True, description="Start paper trading after success")
+    min_paper_trading_days: int = Field(
+        7,
+        ge=0,
+        le=365,
+        description="Minimum paper-trading observation days before live handoff eligibility",
+    )
     paper_workspace_name: str | None = Field(None, description="Name for generated paper workspace")
 
     group_name: str | None = Field(None, max_length=200, description="Research unit group name")
@@ -101,6 +256,14 @@ class AIStrategyResearchRunRequest(BaseModel):
         default_factory=dict,
         description="Internal context carried from a previous research/paper review run",
     )
+
+    @model_validator(mode="after")
+    def fill_generated_prompt(self) -> "AIStrategyResearchRunRequest":
+        if self.prompt.strip():
+            self.prompt = self.prompt.strip()
+            return self
+        self.prompt = _build_default_ai_research_prompt(self)
+        return self
 
 
 class AIStrategyResearchIteration(BaseModel):

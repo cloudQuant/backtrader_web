@@ -221,9 +221,7 @@ class AIStrategyResearchTaskManager:
                 result = await runner.run(user_id, request)
             result = _freshened_research_result_for_task(result)
 
-            latest_iteration = (
-                result.iterations[-1].model_dump(mode="json") if result.iterations else None
-            )
+            latest_iteration = _latest_iteration_for_task(result)
             paper_updates = _research_result_task_updates(result)
             task_result = _redacted_research_result_for_task(result)
             await self._update_task(
@@ -362,7 +360,8 @@ def _research_progress_task_updates(
             updates[key] = dict(value)
     if not isinstance(updates.get("pipeline"), dict):
         updates["pipeline"] = _research_progress_pipeline(updates, request)
-    return updates
+    redacted = _redact_sensitive_values(updates)
+    return dict(redacted) if isinstance(redacted, dict) else updates
 
 
 def _research_request_runtime_task_updates(
@@ -408,6 +407,7 @@ def _research_progress_pipeline(
     current_iteration = _optional_int(payload.get("current_iteration"))
     max_iterations = _optional_int(payload.get("max_iterations")) or request.max_iterations
     paper_trading_error = _paper_trading_error_from_progress(payload)
+    validation_status = _progress_validation_status(payload)
     steps = [
         {"key": "draft", "label": "策略生成", "status": _draft_step_status(stage)},
         {
@@ -417,6 +417,17 @@ def _research_progress_pipeline(
             "iteration_count": iteration_count,
             "current_iteration": current_iteration,
             "max_iterations": max_iterations,
+        },
+        {
+            "key": "validation",
+            "label": "样本外验证",
+            "status": _validation_step_status(
+                stage,
+                request=request,
+                validation_status=validation_status,
+                iteration_count=iteration_count,
+            ),
+            "validation_status": validation_status,
         },
         {"key": "quality_gate", "label": "质量门槛", "status": _quality_step_status(stage)},
         {
@@ -435,11 +446,19 @@ def _research_progress_pipeline(
     ]
     return {
         "current_stage": stage,
-        "status": "running",
+        "status": "configuration_invalid" if stage == "configuration_invalid" else "running",
         "progress": progress,
         "paper_trading_error": paper_trading_error,
         "steps": steps,
     }
+
+
+def _progress_validation_status(payload: dict[str, Any]) -> str | None:
+    latest = payload.get("latest_iteration")
+    if not isinstance(latest, dict):
+        return None
+    status = str(latest.get("validation_status") or "").strip()
+    return status or None
 
 
 def _draft_step_status(stage: str) -> str:
@@ -447,7 +466,7 @@ def _draft_step_status(stage: str) -> str:
         return "failed"
     if stage in {"drafting", "repairing_code"}:
         return "running"
-    if stage in {"queued", "starting", "initializing", "workspace_ready"}:
+    if stage in {"queued", "starting", "initializing", "workspace_ready", "configuration_invalid"}:
         return "pending"
     return "completed"
 
@@ -471,7 +490,36 @@ def _backtest_step_status(stage: str) -> str:
     return "pending"
 
 
+def _validation_step_status(
+    stage: str,
+    *,
+    request: AIStrategyResearchRunRequest,
+    validation_status: str | None,
+    iteration_count: int,
+) -> str:
+    if not request.out_of_sample_validation:
+        return "skipped"
+    normalized = str(validation_status or "").strip()
+    if normalized == "passed":
+        return "completed"
+    if normalized == "failed":
+        return "failed"
+    if normalized in {"skipped", "not_required"}:
+        return "skipped"
+    if stage == "configuration_invalid":
+        return "failed"
+    if stage == "validating":
+        return "running"
+    if stage == "cancelled":
+        return "cancelled"
+    if iteration_count <= 0 or stage in {"queued", "starting", "initializing", "workspace_ready"}:
+        return "pending"
+    return "pending"
+
+
 def _quality_step_status(stage: str) -> str:
+    if stage == "configuration_invalid":
+        return "failed"
     if stage in {
         "quality_achieved",
         "paper_trading",
@@ -667,6 +715,14 @@ def _research_result_task_updates(result: Any) -> dict[str, Any]:
     }
     updates.update(timeout_cancel_updates)
     return updates
+
+
+def _latest_iteration_for_task(result: AIStrategyResearchRunResponse) -> dict[str, Any] | None:
+    if not result.iterations:
+        return None
+    payload = result.iterations[-1].model_dump(mode="json")
+    redacted = _redact_sensitive_values(payload)
+    return dict(redacted) if isinstance(redacted, dict) else None
 
 
 def _backtest_timeout_cancel_task_updates(record: Any, result: Any) -> dict[str, Any]:

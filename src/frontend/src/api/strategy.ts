@@ -118,7 +118,7 @@ export interface StrategyCopilotBacktestResponse {
 }
 
 export interface AIStrategyResearchRunRequest {
-  prompt: string
+  prompt?: string
   symbol: string
   symbol_name?: string
   timeframe?: string
@@ -133,6 +133,7 @@ export interface AIStrategyResearchRunRequest {
   min_win_rate?: number | null
   max_iterations?: number
   out_of_sample_validation?: boolean
+  require_out_of_sample_validation?: boolean
   out_of_sample_ratio?: number
   min_out_of_sample_sharpe?: number | null
   min_out_of_sample_trades?: number | null
@@ -148,6 +149,7 @@ export interface AIStrategyResearchRunRequest {
   seed_strategy_id?: string | null
   continue_from_run_id?: string | null
   start_paper_trading?: boolean
+  min_paper_trading_days?: number
   paper_workspace_name?: string | null
   group_name?: string | null
   knowledge_base_id?: string | null
@@ -542,6 +544,7 @@ export interface AIStrategyPipelineStep {
   iteration_count?: number
   max_iterations?: number
   review_status?: string | null
+  validation_status?: string | null
   live_trading_prepared?: boolean
   live_workspace_id?: string | null
   live_unit_id?: string | null

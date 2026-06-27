@@ -191,6 +191,21 @@ class _FakeAutoTradingScheduler:
         ]
 
 
+def test_trading_workspace_position_open_size_honors_explicit_zero():
+    from app.services.trading_workspace_service import TradingWorkspaceService
+
+    assert (
+        TradingWorkspaceService._position_row_open_size(
+            {"size": 0, "long_position": 1, "short_position": 0}
+        )
+        == 0.0
+    )
+    assert (
+        TradingWorkspaceService._position_row_open_size({"long_position": 1, "short_position": 0})
+        == 1.0
+    )
+
+
 @pytest.mark.asyncio
 async def test_trading_workspace_run_and_status_use_trading_runtime_branch(
     client: AsyncClient,
