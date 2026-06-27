@@ -912,6 +912,57 @@ describe('StrategyPage', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('实盘交接已审批通过')
   })
 
+  it('warns and keeps continuation available when AI research misses target', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const baseRecord = baseResult.run_record!
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    vi.mocked(strategyApi.runAIResearchLoop).mockResolvedValueOnce({
+      ...baseResult,
+      status: 'max_iterations_reached',
+      achieved: false,
+      best_quality_score: 72,
+      best_diagnostics: {
+        summary: '第 1 轮未达到目标 Sharpe，需要继续改进。',
+        promotion_ready: false,
+        improvement_plan: ['继续降低回撤并提高收益稳定性。'],
+      },
+      best_metrics: { sharpe_ratio: 0.72, total_trades: 4 },
+      next_actions: ['下一轮改稿应直接针对：Sharpe 0.720 below target 1.000'],
+      run_record: {
+        ...baseRecord,
+        status: 'max_iterations_reached',
+        achieved: false,
+        best_sharpe: 0.72,
+        best_quality_score: 72,
+        best_diagnostics: {
+          summary: '第 1 轮未达到目标 Sharpe，需要继续改进。',
+          promotion_ready: false,
+          improvement_plan: ['继续降低回撤并提高收益稳定性。'],
+        },
+        best_metrics: { sharpe_ratio: 0.72, total_trades: 4 },
+        next_actions: ['下一轮改稿应直接针对：Sharpe 0.720 below target 1.000'],
+      },
+    })
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.prompt = '生成一个趋势策略'
+    vm.aiResearchForm.symbol = '000001.SZ'
+    await vm.runAIResearchLoop()
+    await wrapper.vm.$nextTick()
+
+    expect(vm.aiResearchResult.achieved).toBe(false)
+    expect(vm.aiResearchResult.status).toBe('max_iterations_reached')
+    expect(vm.canContinueResearchFromCurrentRunRecord).toBe(true)
+    expect(wrapper.text()).toContain('继续投研')
+    expect(wrapper.find('[data-test="ai-research-next-actions"]').text()).toContain(
+      '下一轮改稿应直接针对'
+    )
+    expect(ElMessage.warning).toHaveBeenCalledWith('AI投研未达标，已保存结果，可继续投研')
+    expect(ElMessage.success).not.toHaveBeenCalledWith('AI投研流程已完成')
+  })
+
   it('shows iteration progress regression details', async () => {
     const wrapper = doMount()
     const vm = wrapper.vm as any
