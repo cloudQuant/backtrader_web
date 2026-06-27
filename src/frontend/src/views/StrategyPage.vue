@@ -1940,6 +1940,9 @@ const AI_RESEARCH_PAPER_REVIEW_STATUS_LABELS: Record<string, string> = {
   live_readiness_expired: '实盘候选已过期',
   monitoring: '继续观察',
   needs_research_review: '需要重新投研',
+  paper_workspace_missing: '模拟工作区缺失',
+  paper_unit_missing: '模拟单元缺失',
+  monitoring_plan_missing: '监控计划缺失',
 }
 
 const AI_RESEARCH_LIVE_READINESS_STATUS_LABELS: Record<string, string> = {
@@ -3207,6 +3210,9 @@ function paperReviewDispositionLabel(review: AIStrategyPaperTradingReview | null
   if (review?.ready_for_live) return '实盘候选'
   if (status === 'live_readiness_expired') return '重新复核'
   if (status === 'needs_research_review') return '需要重新投研'
+  if (['paper_workspace_missing', 'paper_unit_missing', 'monitoring_plan_missing'].includes(status)) {
+    return '检查模拟'
+  }
   if (status === 'monitoring') return '继续观察'
   return '待处理'
 }
@@ -4194,7 +4200,7 @@ function paperReviewForRecord(
 ): AIStrategyPaperTradingReview | null {
   const review = aiResearchPaperReviews[record.run_id]
   if (review) return review
-  if (!record.paper_review_status || !record.paper_review_evaluations?.length) return null
+  if (!record.paper_review_status) return null
   return {
     run_id: record.run_id,
     research_workspace_id: record.research_workspace_id,
@@ -4202,7 +4208,7 @@ function paperReviewForRecord(
     paper_unit_id: record.paper_unit_id,
     paper_trading_started: record.paper_trading_started,
     monitoring_plan: record.paper_monitoring_plan ?? [],
-    evaluations: record.paper_review_evaluations,
+    evaluations: record.paper_review_evaluations ?? [],
     ready_for_live: Boolean(record.paper_review_ready_for_live),
     status: record.paper_review_status,
     reviewed_at: record.paper_reviewed_at,

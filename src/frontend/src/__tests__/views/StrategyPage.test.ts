@@ -1230,6 +1230,66 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchRuns[0].paper_review_status).toBe('monitoring')
   })
 
+  it('shows paper review status and actions even when monitoring evaluations are missing', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    const missingUnitPipeline = {
+      current_stage: 'paper_review',
+      status: 'achieved',
+      progress: 80,
+      ready_for_live: false,
+      paper_trading_error: null,
+      steps: [
+        {
+          key: 'paper_review',
+          label: '模拟复核',
+          status: 'running',
+          review_status: 'paper_unit_missing',
+        },
+      ],
+    }
+    const nextActions = [
+      '未找到模拟交易单元，检查是否被删除，必要时重新从投研结果启动模拟交易。',
+    ]
+    vi.mocked(strategyApi.runAIResearchLoop).mockResolvedValueOnce({
+      ...baseResult,
+      pipeline: missingUnitPipeline,
+      next_actions: nextActions,
+      run_record: {
+        ...baseResult.run_record!,
+        paper_workspace_id: 'paper-ws',
+        paper_unit_id: 'deleted-paper-unit',
+        paper_trading_started: true,
+        paper_monitoring_plan: [],
+        paper_review_status: 'paper_unit_missing',
+        paper_review_ready_for_live: false,
+        paper_reviewed_at: '2026-06-27T00:02:00Z',
+        paper_review_evaluations: [],
+        paper_review_next_actions: nextActions,
+        pipeline: missingUnitPipeline,
+        next_actions: nextActions,
+      },
+    } as any)
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.prompt = '生成一个趋势策略'
+    vm.aiResearchForm.symbol = '000001.SZ'
+
+    await vm.runAIResearchLoop()
+    await flushPromises()
+
+    const review = wrapper.find('[data-test="ai-research-current-paper-review"]')
+    expect(review.exists()).toBe(true)
+    expect(review.text()).toContain('模拟单元缺失')
+    expect(review.text()).toContain('检查模拟')
+    expect(wrapper.find('[data-test="ai-research-current-paper-review-actions"]').text()).toContain(
+      '未找到模拟交易单元'
+    )
+    expect(vm.aiResearchResult.run_record.paper_review_status).toBe('paper_unit_missing')
+    expect(vm.aiResearchResult.run_record.paper_review_evaluations).toEqual([])
+  })
+
   it('shows paper trading start failure as retryable current result', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
