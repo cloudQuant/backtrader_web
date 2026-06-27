@@ -746,7 +746,7 @@
                   </el-button>
                 </div>
                 <div
-                  v-if="aiResearchResult.run_record?.live_trading_prepared"
+                  v-if="isLiveTradingPreparedForRecord(aiResearchResult.run_record)"
                   class="ai-research-live-readiness"
                   data-test="ai-research-current-live-prepare-status"
                 >
@@ -1532,7 +1532,7 @@
                       </el-button>
                     </div>
                     <div
-                      v-if="record.live_trading_prepared"
+                      v-if="isLiveTradingPreparedForRecord(record)"
                       class="ai-research-live-readiness"
                       data-test="ai-research-history-live-prepare-status"
                     >
@@ -2913,8 +2913,7 @@ function canPrepareLiveTradingFromRecord(record: AIStrategyResearchRunRecord) {
     && handoff.ready_for_live
     && handoff.status === 'approved_for_live'
     && handoff.approval?.approved
-    && !record.live_trading_prepared
-    && !record.pipeline?.live_trading_prepared
+    && !isLiveTradingPreparedForRecord(record)
   )
 }
 
@@ -2929,9 +2928,28 @@ function liveHandoffApprovalLabel(handoff: AIStrategyLiveHandoffPackage | null |
 function liveTradingPrepareSummary(record: AIStrategyResearchRunRecord | null | undefined) {
   if (!record) return ''
   const unitId = record.live_unit_id || record.pipeline?.live_unit_id || '实盘单元'
-  const preparedAt = record.live_trading_prepared_at || record.pipeline?.live_trading_prepared_at
+  const preparedAt = record.live_trading_prepared_at
+    || record.pipeline?.live_trading_prepared_at
+    || liveTradingPreparedAtFromPipeline(record.pipeline)
   const lockText = record.pipeline?.live_unit_locked === false ? '待确认锁定' : '默认锁定'
   return `${unitId} 已准备，${lockText}${preparedAt ? `，${formatDateTime(preparedAt)}` : ''}`
+}
+
+function isLiveTradingPreparedForRecord(record: AIStrategyResearchRunRecord | null | undefined) {
+  return Boolean(
+    record?.live_trading_prepared
+    || record?.pipeline?.live_trading_prepared
+    || record?.pipeline?.current_stage === 'live_trading_prepare'
+  )
+}
+
+function liveTradingPreparedAtFromPipeline(
+  pipeline: AIStrategyPipelineSummary | null | undefined
+) {
+  const step = [...(pipeline?.steps ?? [])]
+    .reverse()
+    .find(item => item.key === 'live_trading_prepare')
+  return stringFromUnknown(step?.prepared_at)
 }
 
 function isPaperTradingTargetMissing(record: AIStrategyResearchRunRecord) {
@@ -3440,6 +3458,25 @@ function researchResultFromTaskSummary(
     : isRecord(paperHandoff.backtest_environment)
       ? paperHandoff.backtest_environment
       : {}
+  const taskPipeline = task.pipeline ?? {
+    current_stage: task.current_stage || 'completed',
+    status: task.run_status || task.status || 'completed',
+    progress: task.progress ?? 100,
+    ready_for_live: Boolean(task.paper_review_ready_for_live),
+    steps: [],
+  }
+  const liveWorkspaceId = task.live_workspace_id ?? taskPipeline.live_workspace_id ?? null
+  const liveWorkspaceName = task.live_workspace_name ?? null
+  const liveUnitId = task.live_unit_id ?? taskPipeline.live_unit_id ?? null
+  const liveTradingPrepared = Boolean(
+    task.live_trading_prepared
+    || taskPipeline.live_trading_prepared
+    || taskPipeline.current_stage === 'live_trading_prepare'
+  )
+  const liveTradingPreparedAt = task.live_trading_prepared_at
+    ?? taskPipeline.live_trading_prepared_at
+    ?? liveTradingPreparedAtFromPipeline(taskPipeline)
+    ?? null
   const record: AIStrategyResearchRunRecord = {
     run_id: task.run_id,
     prompt: stringFromUnknown(request.prompt),
@@ -3503,12 +3540,12 @@ function researchResultFromTaskSummary(
     live_readiness_expires_at: task.live_readiness_expires_at ?? null,
     live_handoff: task.live_handoff ?? null,
     live_handoff_approval: task.live_handoff_approval ?? null,
-    live_workspace_id: task.live_workspace_id ?? null,
-    live_workspace_name: task.live_workspace_name ?? null,
-    live_unit_id: task.live_unit_id ?? null,
-    live_trading_prepared: Boolean(task.live_trading_prepared),
-    live_trading_prepared_at: task.live_trading_prepared_at ?? null,
-    pipeline: task.pipeline,
+    live_workspace_id: liveWorkspaceId,
+    live_workspace_name: liveWorkspaceName,
+    live_unit_id: liveUnitId,
+    live_trading_prepared: liveTradingPrepared,
+    live_trading_prepared_at: liveTradingPreparedAt,
+    pipeline: taskPipeline,
     next_actions: task.next_actions ?? [],
     started_at: task.started_at ?? task.submitted_at,
     completed_at: task.completed_at ?? task.started_at ?? task.submitted_at,

@@ -1517,6 +1517,192 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('restores live trading preparation from task pipeline summary when history lookup fails', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const livePipeline = {
+      current_stage: 'live_trading_prepare',
+      status: 'approved_for_live',
+      progress: 100,
+      ready_for_live: true,
+      live_trading_prepared: true,
+      live_workspace_id: 'live-ws',
+      live_unit_id: 'live-unit',
+      live_unit_locked: true,
+      steps: [
+        { key: 'live_handoff', label: '实盘交接', status: 'completed' },
+        {
+          key: 'live_trading_prepare',
+          label: '实盘准备',
+          status: 'completed',
+          live_trading_prepared: true,
+          live_workspace_id: 'live-ws',
+          live_unit_id: 'live-unit',
+          live_unit_locked: true,
+          prepared_at: '2026-06-27T00:05:00Z',
+        },
+      ],
+    }
+    const approval = {
+      run_id: 'pipeline-summary-run',
+      research_workspace_id: 'research-ws',
+      decision: 'approved',
+      approved: true,
+      decided_at: '2026-06-27T00:04:00Z',
+      decided_by: 'risk-manager',
+      comment: '批准小资金实盘验证',
+      account_confirmed: true,
+      risk_limit_confirmed: true,
+      deployment_window: '2026-06-28 09:30',
+      handoff_status_at_decision: 'ready_for_approval',
+      blockers: [],
+    }
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    ;(strategyApi as any).submitAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'pipeline-summary-task',
+      status: 'running',
+      submitted_at: '2026-06-27T00:00:00Z',
+      research_workspace_id: 'research-ws',
+      request_snapshot: {
+        prompt: '生成一个趋势策略',
+        symbol: 'IF2409.CFE',
+        symbol_name: '沪深300股指期货',
+        timeframe: '1h',
+        timeframe_n: 1,
+        target_sharpe: 1,
+      },
+      current_stage: 'live_handoff',
+      progress: 95,
+      current_iteration: 2,
+      iteration_count: 2,
+      max_iterations: 3,
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      message: 'handoff',
+    })
+    ;(strategyApi as any).getAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'pipeline-summary-task',
+      status: 'completed',
+      submitted_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:05:00Z',
+      run_id: 'pipeline-summary-run',
+      research_workspace_id: 'research-ws',
+      request_snapshot: {
+        prompt: '生成一个趋势策略',
+        symbol: 'IF2409.CFE',
+        symbol_name: '沪深300股指期货',
+        timeframe: '1h',
+        timeframe_n: 1,
+        target_sharpe: 1,
+      },
+      current_stage: 'live_trading_prepare',
+      progress: 100,
+      current_iteration: 2,
+      iteration_count: 2,
+      max_iterations: 3,
+      run_status: 'achieved',
+      achieved: true,
+      target_sharpe: 1,
+      best_iteration: 2,
+      best_sharpe: 1.09,
+      best_quality_score: 100,
+      best_metrics: { sharpe_ratio: 1.09, total_trades: 12 },
+      best_strategy_id: 'pipeline-strategy',
+      best_strategy_name: 'Pipeline恢复策略',
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      paper_review_status: 'ready_for_live_candidate',
+      paper_review_ready_for_live: true,
+      live_handoff_approval: approval,
+      live_handoff: {
+        run_id: 'pipeline-summary-run',
+        research_workspace_id: 'research-ws',
+        generated_at: '2026-06-27T00:03:00Z',
+        ready_for_live: true,
+        status: 'approved_for_live',
+        approval_required: true,
+        expires_at: '2026-07-04T00:03:00Z',
+        paper_workspace_id: 'paper-ws',
+        paper_unit_id: 'paper-unit',
+        best_strategy_id: 'pipeline-strategy',
+        best_strategy_name: 'Pipeline恢复策略',
+        symbol: 'IF2409.CFE',
+        symbol_name: '沪深300股指期货',
+        timeframe: '1h',
+        timeframe_n: 1,
+        target_sharpe: 1,
+        best_sharpe: 1.09,
+        best_metrics: { sharpe_ratio: 1.09, total_trades: 12 },
+        asset_specs: {},
+        backtest_environment: {},
+        paper_review_status: 'ready_for_live_candidate',
+        paper_reviewed_at: '2026-06-27T00:02:00Z',
+        paper_review_evaluations: [],
+        paper_monitoring_plan: [],
+        live_readiness_checklist: [],
+        approvals_required: [],
+        deployment_blockers: [],
+        approval_status: 'approved',
+        approval,
+        handoff: {},
+        pipeline: livePipeline,
+        next_actions: ['实盘交易单元已准备，默认锁定等待人工上线。'],
+      },
+      pipeline: livePipeline,
+      next_actions: ['实盘交易单元已准备，默认锁定等待人工上线。'],
+      latest_iteration: {
+        iteration: 2,
+        strategy_snapshot: {
+          id: 'pipeline-strategy',
+          name: 'Pipeline恢复策略',
+          description: '从任务 pipeline 摘要恢复的策略脚本',
+          code: 'import backtrader as bt\nclass PipelineRestoredStrategy(bt.Strategy):\n    pass\n',
+          params: {},
+          category: 'trend',
+          created_at: '2026-06-27T00:00:10Z',
+          updated_at: '2026-06-27T00:05:00Z',
+        },
+        metrics: { sharpe_ratio: 1.09, total_trades: 12 },
+        sharpe_ratio: 1.09,
+        total_trades: 12,
+        passed: true,
+      },
+      message: 'live prepared',
+    })
+    try {
+      const wrapper = doMount()
+      await flushPromises()
+      vi.mocked(strategyApi.listAIResearchRuns).mockRejectedValueOnce(new Error('history unavailable'))
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.prompt = '生成一个趋势策略'
+      vm.aiResearchForm.symbol = 'IF2409.CFE'
+      await vm.runAIResearchLoop()
+
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect(vm.aiResearchResult.run_id).toBe('pipeline-summary-run')
+      expect(vm.aiResearchResult.run_record.live_workspace_id).toBe('live-ws')
+      expect(vm.aiResearchResult.run_record.live_unit_id).toBe('live-unit')
+      expect(vm.aiResearchResult.run_record.live_trading_prepared).toBe(true)
+      expect(vm.aiResearchResult.run_record.live_trading_prepared_at).toBe(
+        '2026-06-27T00:05:00Z'
+      )
+      expect(vm.aiResearchResult.run_record.live_handoff.status).toBe('approved_for_live')
+      expect(wrapper.find('[data-test="ai-research-current-live-prepare-status"]').text()).toContain(
+        'live-unit 已准备'
+      )
+      expect(wrapper.find('[data-test="ai-research-current-live-prepare-actions"]').exists()).toBe(
+        false
+      )
+      const taskProgress = wrapper.find('[data-test="ai-research-task-progress"]').text()
+      expect(taskProgress).toContain('实盘已准备')
+      expect(taskProgress).toContain('实盘单元 live-unit')
+    } finally {
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
+    }
+  })
+
   it('shows timeout-cancelled backtest from async task summary', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const { ElMessage } = await import('element-plus')
