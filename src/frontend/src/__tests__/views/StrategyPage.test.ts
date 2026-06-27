@@ -2313,6 +2313,19 @@ describe('StrategyPage', () => {
         status: 'needs_review',
         progress: 80,
         ready_for_live: false,
+        paper_unit_locked: true,
+        paper_unit_stopped: true,
+        paper_review_lock: {
+          run_id: 'run-1',
+          research_workspace_id: 'research-ws',
+          paper_workspace_id: 'paper-ws',
+          paper_unit_id: 'paper-unit',
+          status: 'needs_research_review',
+          reviewed_at: '2026-06-27T00:02:00Z',
+          stop_results: [{ unit_id: 'paper-unit', cancelled: true }],
+          next_actions: ['回到研究工作区降低过拟合并收紧风险预算'],
+          reason: 'AI paper review failed; trading and running are locked until research review.',
+        },
         steps: [],
       },
       next_actions: ['回到研究工作区降低过拟合并收紧风险预算'],
@@ -2334,6 +2347,13 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchResult.run_record.paper_review_status).toBe('needs_research_review')
     expect(wrapper.find('[data-test="ai-research-current-paper-review"]').text()).toContain(
       '需要重新投研'
+    )
+    const lockPanel = wrapper.find('[data-test="ai-research-current-paper-review-lock"]')
+    expect(lockPanel.text()).toContain('模拟单元保护')
+    expect(lockPanel.text()).toContain('paper-unit 需要重新投研，已自动停止并锁定')
+    expect(lockPanel.text()).toContain('停止结果 paper-unit 已取消')
+    expect(vm.aiResearchResult.run_record.paper_handoff.paper_review_lock.paper_unit_id).toBe(
+      'paper-unit'
     )
     expect(vm.aiResearchResult.next_actions[0]).toBe('回到研究工作区降低过拟合并收紧风险预算')
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续改进'))
@@ -4452,6 +4472,18 @@ describe('StrategyPage', () => {
             status: 'needs_review',
             progress: 80,
             ready_for_live: false,
+            paper_unit_locked: true,
+            paper_unit_stopped: true,
+            paper_review_lock: {
+              run_id: 'paper-failed-run',
+              research_workspace_id: 'research-ws',
+              paper_workspace_id: 'paper-ws',
+              paper_unit_id: 'paper-unit',
+              status: 'needs_research_review',
+              reviewed_at: '2026-06-27T00:02:00Z',
+              stop_results: [{ unit_id: 'paper-unit', cancelled: true }],
+              next_actions: ['回到研究工作区降低过拟合并收紧风险预算'],
+            },
             steps: [],
           },
           next_actions: ['回到研究工作区降低过拟合并收紧风险预算'],
@@ -4466,6 +4498,10 @@ describe('StrategyPage', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('继续改进')
+    const lockPanel = wrapper.find('[data-test="ai-research-paper-review-lock"]')
+    expect(lockPanel.text()).toContain('模拟单元保护')
+    expect(lockPanel.text()).toContain('paper-unit 需要重新投研，已自动停止并锁定')
+    expect(lockPanel.text()).toContain('停止结果 paper-unit 已取消')
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续改进'))
     expect(continueButton).toBeTruthy()
     await continueButton!.trigger('click')

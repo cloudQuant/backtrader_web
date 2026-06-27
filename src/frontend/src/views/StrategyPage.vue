@@ -814,6 +814,20 @@
                   </span>
                 </div>
                 <div
+                  v-if="aiResearchCurrentPaperReviewLock"
+                  class="ai-research-live-readiness"
+                  data-test="ai-research-current-paper-review-lock"
+                >
+                  <strong>模拟单元保护</strong>
+                  <span>{{ paperReviewLockSummary(aiResearchCurrentPaperReviewLock) }}</span>
+                  <span v-if="aiResearchCurrentPaperReviewLock.reviewed_at">
+                    复核时间 {{ formatDateTime(aiResearchCurrentPaperReviewLock.reviewed_at) }}
+                  </span>
+                  <span v-if="paperReviewLockStopResultText(aiResearchCurrentPaperReviewLock)">
+                    停止结果 {{ paperReviewLockStopResultText(aiResearchCurrentPaperReviewLock) }}
+                  </span>
+                </div>
+                <div
                   v-if="aiResearchCurrentPaperReview.next_actions?.length"
                   class="ai-research-paper-review-actions"
                   data-test="ai-research-current-paper-review-actions"
@@ -1364,6 +1378,20 @@
                       </span>
                     </div>
                     <div
+                      v-if="paperReviewLockForRecord(record)"
+                      class="ai-research-live-readiness"
+                      data-test="ai-research-paper-review-lock"
+                    >
+                      <strong>模拟单元保护</strong>
+                      <span>{{ paperReviewLockSummary(paperReviewLockForRecord(record)) }}</span>
+                      <span v-if="paperReviewLockForRecord(record)?.reviewed_at">
+                        复核时间 {{ formatDateTime(paperReviewLockForRecord(record)?.reviewed_at) }}
+                      </span>
+                      <span v-if="paperReviewLockStopResultText(paperReviewLockForRecord(record))">
+                        停止结果 {{ paperReviewLockStopResultText(paperReviewLockForRecord(record)) }}
+                      </span>
+                    </div>
+                    <div
                       v-if="paperReviewForRecord(record)?.next_actions?.length"
                       class="ai-research-paper-review-actions"
                       data-test="ai-research-paper-review-actions"
@@ -1702,7 +1730,9 @@ import type {
   AIStrategyLiveHandoffPackage,
   AIStrategyIterationProgress,
   AIStrategyOutOfSampleValidation,
+  AIStrategyPaperReviewLock,
   AIStrategyPaperMonitoringRule,
+  AIStrategyPaperTradingRuleEvaluation,
   AIStrategyPaperTradingStart,
   AIStrategyPaperTradingReview,
   AIStrategyPipelineSummary,
@@ -2103,6 +2133,10 @@ const aiResearchCurrentPaperReview = computed(() => {
   const record = result?.run_record
   if (!result || !record) return null
   return paperReviewForRecord(record)
+})
+const aiResearchCurrentPaperReviewLock = computed(() => {
+  const record = aiResearchResult.value?.run_record
+  return record ? paperReviewLockForRecord(record) : null
 })
 const canBuildLiveHandoffFromCurrentResult = computed(() => {
   const record = aiResearchResult.value?.run_record
@@ -2990,6 +3024,48 @@ function liveReadinessExpiresAtForRecord(record: AIStrategyResearchRunRecord): s
   return null
 }
 
+function paperReviewLockFromPayload(payload: unknown): AIStrategyPaperReviewLock | null {
+  if (!isRecord(payload)) return null
+  if (!payload.status && !payload.paper_unit_id && !payload.stop_results) return null
+  return {
+    ...payload,
+    failed_rules: arrayFromUnknown<AIStrategyPaperTradingRuleEvaluation>(payload.failed_rules),
+    stop_results: arrayFromUnknown<Record<string, unknown>>(payload.stop_results),
+    next_actions: stringArrayFromUnknown(payload.next_actions),
+  } as AIStrategyPaperReviewLock
+}
+
+function paperReviewLockForRecord(
+  record: AIStrategyResearchRunRecord | null | undefined
+): AIStrategyPaperReviewLock | null {
+  if (!record) return null
+  return paperReviewLockFromPayload(record.pipeline?.paper_review_lock)
+    ?? paperReviewLockFromPayload(
+      isRecord(record.paper_handoff) ? record.paper_handoff.paper_review_lock : null
+    )
+}
+
+function paperReviewLockSummary(lock: AIStrategyPaperReviewLock | null | undefined) {
+  if (!lock) return ''
+  const unitId = stringFromUnknown(lock.paper_unit_id, '模拟单元')
+  const status = paperReviewStatusLabel(lock.status)
+  return `${unitId} ${status || '复核未通过'}，已自动停止并锁定`
+}
+
+function paperReviewLockStopResultText(lock: AIStrategyPaperReviewLock | null | undefined) {
+  const results = lock?.stop_results ?? []
+  if (!results.length) return ''
+  return results
+    .map(item => {
+      const unitId = stringFromUnknown(item.unit_id, stringFromUnknown(lock?.paper_unit_id, '模拟单元'))
+      if (item.cancelled === true) return `${unitId} 已取消`
+      const status = stringFromUnknown(item.status)
+      if (status) return `${unitId} ${status}`
+      return unitId
+    })
+    .join('；')
+}
+
 function liveReadinessChecklistFromPayload(payload: unknown): AIStrategyLiveReadinessItem[] {
   if (!Array.isArray(payload)) return []
   return payload.filter(isRecord).map((item, index) => ({
@@ -3806,6 +3882,12 @@ function reviewedRunRecord(
     paperHandoff.live_readiness_expires_at = review.live_readiness_expires_at
   } else {
     delete paperHandoff.live_readiness_expires_at
+  }
+  const reviewLock = paperReviewLockFromPayload(review.pipeline?.paper_review_lock)
+  if (reviewLock) {
+    paperHandoff.paper_review_lock = reviewLock
+  } else {
+    delete paperHandoff.paper_review_lock
   }
   return {
     ...record,

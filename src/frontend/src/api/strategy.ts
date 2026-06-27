@@ -436,6 +436,19 @@ export interface AIStrategyPaperTradingReview {
   live_handoff?: AIStrategyLiveHandoffPackage | null
 }
 
+export interface AIStrategyPaperReviewLock {
+  run_id?: string | null
+  research_workspace_id?: string | null
+  paper_workspace_id?: string | null
+  paper_unit_id?: string | null
+  status?: string | null
+  reviewed_at?: string | null
+  failed_rules?: AIStrategyPaperTradingRuleEvaluation[]
+  stop_results?: Record<string, unknown>[]
+  next_actions?: string[]
+  reason?: string | null
+}
+
 export interface AIStrategyLiveHandoffApprovalRequest {
   decision: 'approved' | 'rejected'
   approver?: string | null
@@ -522,6 +535,9 @@ export interface AIStrategyPipelineSummary {
   live_handoff_approved?: boolean | null
   live_handoff_approved_at?: string | null
   live_handoff_rejected_at?: string | null
+  paper_review_lock?: AIStrategyPaperReviewLock | null
+  paper_unit_locked?: boolean
+  paper_unit_stopped?: boolean
   steps: AIStrategyPipelineStep[]
 }
 
