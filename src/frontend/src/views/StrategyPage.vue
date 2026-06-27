@@ -910,7 +910,7 @@
                     复核模拟
                   </el-button>
                   <el-button
-                    v-if="record.best_strategy_id"
+                    v-if="bestStrategyIdForRecord(record)"
                     size="small"
                     plain
                     :loading="aiResearchStrategyViewingRunId === record.run_id"
@@ -1509,7 +1509,13 @@ const canCancelAIResearchTask = computed(() =>
   && typeof (strategyApi as { cancelAIResearchTask?: unknown }).cancelAIResearchTask === 'function'
 )
 const canViewBestStrategyFromCurrentResult = computed(() =>
-  Boolean(aiResearchResult.value?.best_strategy || aiResearchResult.value?.run_record?.best_strategy_id)
+  Boolean(
+    aiResearchResult.value?.best_strategy
+    || (
+      aiResearchResult.value?.run_record
+      && bestStrategyIdForRecord(aiResearchResult.value.run_record)
+    )
+  )
 )
 const canStartPaperFromCurrentResult = computed(() => {
   const record = aiResearchResult.value?.run_record
@@ -1871,6 +1877,46 @@ function recordOutOfSampleSummary(record: AIStrategyResearchRunRecord) {
   return ''
 }
 
+function strategyIdFromIterationPayload(payload: Record<string, unknown>) {
+  const strategySnapshot = isRecord(payload.strategy_snapshot) ? payload.strategy_snapshot : {}
+  return stringFromUnknown(strategySnapshot.id ?? payload.strategy_id, '').trim()
+}
+
+function bestIterationPayloadForRecord(record: AIStrategyResearchRunRecord) {
+  const iterations = (record.iterations || []).filter(isRecord)
+  if (!iterations.length) return null
+  const bestIteration = optionalNumber(record.best_iteration)
+  if (bestIteration !== null) {
+    const matched = iterations.find(
+      payload => optionalNumber(payload.iteration) === bestIteration
+    )
+    if (matched) return matched
+  }
+  return [...iterations].reverse().find(strategyIdFromIterationPayload) || null
+}
+
+function bestStrategyIdForRecord(record: AIStrategyResearchRunRecord) {
+  const direct = stringFromUnknown(record.best_strategy_id, '').trim()
+  if (direct) return direct
+  const payload = bestIterationPayloadForRecord(record)
+  return payload ? strategyIdFromIterationPayload(payload) : ''
+}
+
+function bestStrategyFromRunRecord(record: AIStrategyResearchRunRecord): Strategy | null {
+  const payload = bestIterationPayloadForRecord(record)
+  if (!payload) return null
+  const fallbackIteration = Math.max(
+    Math.trunc(
+      optionalNumber(payload.iteration)
+      ?? optionalNumber(record.best_iteration)
+      ?? record.iteration_count
+      ?? 1
+    ),
+    1
+  )
+  return strategyFromIterationRecord(record, payload, fallbackIteration)
+}
+
 async function loadAIResearchRuns() {
   aiResearchRunsLoading.value = true
   try {
@@ -1940,8 +1986,9 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
     optionalNumber(gates.min_out_of_sample_trades) !== null
   aiResearchForm.min_out_of_sample_trades = Number(gates.min_out_of_sample_trades ?? 1)
   aiResearchForm.research_workspace_id = record.research_workspace_id || ''
-  aiResearchForm.seed_strategy_id = record.best_strategy_id || ''
-  aiResearchForm.continue_from_run_id = record.best_strategy_id ? record.run_id : ''
+  const bestStrategyId = bestStrategyIdForRecord(record)
+  aiResearchForm.seed_strategy_id = bestStrategyId
+  aiResearchForm.continue_from_run_id = bestStrategyId ? record.run_id : ''
   aiResearchForm.continuation_source = continuationSourceForRecord(record)
 }
 
@@ -1962,7 +2009,7 @@ function researchIterationNextActions(item: AIStrategyResearchRunResponse['itera
 }
 
 function canStartPaperFromRecord(record: AIStrategyResearchRunRecord) {
-  return Boolean(record.achieved && !record.paper_trading_started && record.best_strategy_id)
+  return Boolean(record.achieved && !record.paper_trading_started && bestStrategyIdForRecord(record))
 }
 
 function canReviewPaperFromRecord(record: AIStrategyResearchRunRecord) {
@@ -1976,14 +2023,14 @@ function canContinueResearchFromPaperReview(record: AIStrategyResearchRunRecord)
 function canContinueResearchFromPaperIssue(record: AIStrategyResearchRunRecord) {
   const source = continuationSourceForRecord(record)
   return Boolean(
-    record.best_strategy_id &&
+    bestStrategyIdForRecord(record) &&
     (source === 'paper_review' || source === 'paper_trading_failed')
   )
 }
 
 function canContinueResearchFromRunRecord(record: AIStrategyResearchRunRecord) {
   return Boolean(
-    record.best_strategy_id
+    bestStrategyIdForRecord(record)
     && !record.achieved
     && (
       record.iteration_count > 0
@@ -2662,10 +2709,16 @@ async function viewResearchIterationStrategy(item: AIStrategyResearchIteration) 
 }
 
 async function viewStrategyFromResearchRecord(record: AIStrategyResearchRunRecord) {
-  if (!record.best_strategy_id) return
+  const snapshotStrategy = bestStrategyFromRunRecord(record)
+  if (snapshotStrategy?.code?.trim()) {
+    viewStrategy(snapshotStrategy)
+    return
+  }
+  const strategyId = bestStrategyIdForRecord(record)
+  if (!strategyId) return
   aiResearchStrategyViewingRunId.value = record.run_id
   try {
-    const strategy = await strategyApi.get(record.best_strategy_id)
+    const strategy = await strategyApi.get(strategyId)
     viewStrategy(strategy)
   } catch {
     ElMessage.error(t('strategy.aiResearchRunFailed'))

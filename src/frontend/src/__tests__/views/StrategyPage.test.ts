@@ -1031,9 +1031,10 @@ describe('StrategyPage', () => {
       expect(vm.currentStrategy.code).toContain('SnapshotStrategy')
       await vm.viewBestStrategyFromCurrentResult()
       await flushPromises()
-      expect(strategyApi.get).toHaveBeenCalledWith('s1')
+      expect(strategyApi.get).not.toHaveBeenCalled()
       expect(vm.viewDialogVisible).toBe(true)
       expect(vm.currentStrategy.id).toBe('s1')
+      expect(vm.currentStrategy.code).toContain('SnapshotStrategy')
       expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
     } finally {
       delete (strategyApi as any).submitAIResearchTask
@@ -1361,6 +1362,73 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.research_workspace_id).toBe('research-ws')
     expect(vm.aiResearchForm.seed_strategy_id).toBe('best-strategy')
     expect(vm.aiResearchForm.continue_from_run_id).toBe('history-run')
+  })
+
+  it('continues AI research from a strategy snapshot when best strategy id is missing', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    const record = {
+      run_id: 'snapshot-run',
+      prompt: '历史快照策略',
+      symbol: '600000.SH',
+      symbol_name: '浦发银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      status: 'max_iterations_reached',
+      achieved: false,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 1,
+      best_iteration: 1,
+      best_sharpe: 0.8,
+      best_quality_score: 80,
+      best_quality_gate_evaluations: [],
+      best_metrics: {},
+      best_strategy_id: null,
+      best_strategy_name: '历史快照策略',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_trading_started: false,
+      next_actions: [],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [
+        {
+          iteration: 1,
+          strategy_id: 'snapshot-strategy',
+          strategy_snapshot: {
+            id: 'snapshot-strategy',
+            name: '历史快照策略',
+            code: 'class AIGeneratedStrategy(bt.Strategy):\n    pass\n',
+            params: {},
+            category: 'custom',
+          },
+          metrics: { sharpe_ratio: 0.8, total_trades: 2 },
+        },
+      ],
+    }
+    vm.aiResearchRuns = [record]
+    vm.aiResearchRunsLoading = false
+
+    await wrapper.vm.$nextTick()
+    expect(vm.canContinueResearchFromRunRecord(record)).toBe(true)
+    vm.useAIResearchRecord(record)
+    expect(vm.aiResearchForm.seed_strategy_id).toBe('snapshot-strategy')
+    expect(vm.aiResearchForm.continue_from_run_id).toBe('snapshot-run')
+
+    await vm.continueResearchFromRecord(record)
+    await flushPromises()
+    expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: '历史快照策略',
+      symbol: '600000.SH',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: 'snapshot-strategy',
+      continue_from_run_id: 'snapshot-run',
+    }))
   })
 
   it('runs AI research continuation from selected history record', async () => {

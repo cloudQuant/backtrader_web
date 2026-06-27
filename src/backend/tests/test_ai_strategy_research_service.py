@@ -2406,6 +2406,92 @@ async def test_research_loop_can_continue_from_previous_run_best_strategy():
 
 
 @pytest.mark.asyncio
+async def test_research_loop_can_continue_from_strategy_snapshot_when_seed_missing():
+    workspace_service = FakeWorkspaceService()
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "历史快照策略"}
+    )
+    snapshot_strategy = _strategy("snapshot-strategy", seed_draft)
+    previous_record = {
+        **_run_record(
+            "snapshot-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "best_strategy_id": "snapshot-strategy",
+        "best_strategy_name": "历史快照策略",
+        "iterations": [
+            {
+                "iteration": 2,
+                "strategy_id": "snapshot-strategy",
+                "strategy_name": "历史快照策略",
+                "strategy_snapshot": {
+                    "id": snapshot_strategy.id,
+                    "name": snapshot_strategy.name,
+                    "description": snapshot_strategy.description,
+                    "code": snapshot_strategy.code,
+                    "params": {
+                        key: value.model_dump(mode="json")
+                        for key, value in snapshot_strategy.params.items()
+                    },
+                    "category": snapshot_strategy.category,
+                    "created_at": snapshot_strategy.created_at.isoformat(),
+                    "updated_at": snapshot_strategy.updated_at.isoformat(),
+                },
+                "unit_id": "unit-2",
+                "task_id": "task-2",
+                "run_status": "completed",
+                "metrics": {"sharpe_ratio": 0.88, "total_trades": 4},
+                "sharpe_ratio": 0.88,
+                "total_trades": 4,
+                "quality_score": 88.0,
+                "quality_gate_evaluations": [],
+                "passed": False,
+                "quality_gate_failures": ["Sharpe 0.880 below target 1.000"],
+                "improvement_notes": [],
+                "next_actions": [],
+            }
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [previous_record]}}}
+    )
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.14, "total_trades": 7}],
+        strategies={},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续历史快照投研",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            continue_from_run_id="snapshot-run",
+            start_paper_trading=False,
+            out_of_sample_validation=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert strategy_service.generated == 0
+    assert strategy_service.submitted_drafts[0].name == "历史快照策略"
+    assert strategy_service.submitted_drafts[0].code.strip() == snapshot_strategy.code.strip()
+    assert result.run_record is not None
+    assert result.run_record.seed_strategy_id == "snapshot-strategy"
+    assert result.run_record.continued_from_run_id == "snapshot-run"
+
+
+@pytest.mark.asyncio
 async def test_research_loop_continuation_improves_failed_research_before_backtest():
     workspace_service = FakeWorkspaceService()
     previous_record = {

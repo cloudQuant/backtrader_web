@@ -1228,6 +1228,8 @@ class AIStrategyResearchService:
         request: AIStrategyResearchRunRequest,
     ) -> tuple[AIStrategyResearchRunRequest, AIStrategyDraft | None]:
         seed_strategy_id = request.seed_strategy_id
+        seed_record: AIStrategyResearchRunRecord | None = None
+        seed_iteration_payload: dict[str, Any] | None = None
         update: dict[str, Any] = {}
         explicit_fields = _request_explicit_fields(request)
         if request.continue_from_run_id:
@@ -1238,8 +1240,12 @@ class AIStrategyResearchService:
             )
             if record is None:
                 raise ValueError("AI research run record not found")
+            seed_record = record
+            seed_iteration_payload = _best_iteration_payload(record)
             if not seed_strategy_id:
-                seed_strategy_id = record.best_strategy_id
+                seed_strategy_id = record.best_strategy_id or _strategy_id_from_iteration_payload(
+                    seed_iteration_payload or {}
+                )
             if not seed_strategy_id:
                 raise ValueError("AI research run record has no best strategy to continue")
             if not request.research_workspace_id:
@@ -1276,8 +1282,14 @@ class AIStrategyResearchService:
             update["seed_strategy_id"] = seed_strategy_id
             effective_request = request.model_copy(update=update) if update else request
             strategy = await self.strategy_service.get_strategy(seed_strategy_id, user_id)
+            if strategy is None and seed_record is not None and seed_iteration_payload is not None:
+                strategy = _strategy_from_iteration_snapshot(
+                    seed_record,
+                    seed_iteration_payload,
+                    user_id=user_id,
+                )
             if strategy is None:
-                raise ValueError("Seed strategy not found")
+                raise ValueError("Seed strategy not found and run record has no strategy snapshot")
             return effective_request, _draft_from_strategy(strategy, effective_request)
 
         effective_request = request.model_copy(update=update) if update else request
