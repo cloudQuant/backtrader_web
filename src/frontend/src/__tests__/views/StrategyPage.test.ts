@@ -1655,6 +1655,7 @@ describe('StrategyPage', () => {
       research_workspace_id: 'research-ws',
       seed_strategy_id: null,
       continued_from_run_id: null,
+      paper_workspace_name: '历史模拟工作区',
       paper_trading_started: false,
       next_actions: [],
       started_at: '2026-06-27T00:00:00Z',
@@ -1677,6 +1678,7 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.min_win_rate).toBe(55)
     expect(vm.aiResearchForm.backtest_timeout_seconds).toBe(1200)
     expect(vm.aiResearchForm.poll_interval_seconds).toBe(3)
+    expect(vm.aiResearchForm.paper_workspace_name).toBe('历史模拟工作区')
     expect(vm.aiResearchForm.out_of_sample_validation).toBe(true)
     expect(vm.aiResearchForm.out_of_sample_ratio_pct).toBe(30)
     expect(vm.aiResearchForm.use_min_out_of_sample_sharpe).toBe(true)
@@ -2176,6 +2178,7 @@ describe('StrategyPage', () => {
       seed_strategy_id: null,
       continued_from_run_id: null,
       paper_workspace_id: null,
+      paper_workspace_name: '历史模拟工作区',
       paper_unit_id: null,
       paper_trading_started: false,
       next_actions: [],
@@ -2256,11 +2259,12 @@ describe('StrategyPage', () => {
     expect(strategyApi.get).toHaveBeenCalledWith('s1')
     expect(vm.viewDialogVisible).toBe(true)
     expect(vm.currentStrategy.code).toContain('HistoryStrategy')
-    await vm.startPaperFromResearchRecord(vm.aiResearchRuns[0])
+    await vm.startPaperFromResearchRecord(record)
     await flushPromises()
 
     expect(strategyApi.startAIResearchPaperTrading).toHaveBeenCalledWith('history-run', {
       research_workspace_id: 'research-ws',
+      paper_workspace_name: '历史模拟工作区',
     })
     expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith('research-ws', 20)
     expect(vm.aiResearchRuns[0].paper_trading_started).toBe(true)

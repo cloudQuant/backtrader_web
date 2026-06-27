@@ -2062,6 +2062,7 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   }
   aiResearchForm.knowledge_base_id = record.knowledge_base_id || ''
   aiResearchForm.thinking_mode = Boolean(record.thinking_mode)
+  aiResearchForm.paper_workspace_name = record.paper_workspace_name || ''
   aiResearchForm.target_sharpe = record.target_sharpe
   aiResearchForm.min_total_trades = record.min_total_trades
   aiResearchForm.use_max_drawdown_limit = typeof gates.max_drawdown_limit === 'number'
@@ -3043,6 +3044,8 @@ function aiResearchPaperStartRequest(record: AIStrategyResearchRunRecord) {
     paper_workspace_name?: string
   }
   const paperWorkspaceName = aiResearchPaperWorkspaceName()
+    || record.paper_workspace_name?.trim()
+    || null
   if (paperWorkspaceName) {
     request.paper_workspace_name = paperWorkspaceName
   }
