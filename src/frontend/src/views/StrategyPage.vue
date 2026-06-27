@@ -2090,7 +2090,12 @@ function canContinueResearchFromRunRecord(record: AIStrategyResearchRunRecord) {
 }
 
 function continuationSourceForRecord(record: AIStrategyResearchRunRecord) {
-  if (record.paper_review_status === 'needs_research_review' && !record.paper_review_ready_for_live) {
+  if (
+    ['needs_research_review', 'live_readiness_expired'].includes(
+      String(record.paper_review_status || '')
+    )
+    && !record.paper_review_ready_for_live
+  ) {
     return 'paper_review'
   }
   if (isPaperTradingStartFailure(record)) return 'paper_trading_failed'

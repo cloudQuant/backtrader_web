@@ -3027,6 +3027,86 @@ async def test_research_loop_continuation_uses_failed_paper_review_before_backte
 
 
 @pytest.mark.asyncio
+async def test_research_loop_continuation_uses_expired_live_candidate_before_backtest():
+    workspace_service = FakeWorkspaceService()
+    record = {
+        **_run_record(
+            "expired-live-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "paper_trading_started": True,
+        "paper_review_status": "live_readiness_expired",
+        "paper_review_ready_for_live": False,
+        "paper_reviewed_at": "2026-01-02T00:00:00+00:00",
+        "paper_review_evaluations": [
+            {
+                "key": "rolling_sharpe",
+                "label": "模拟交易滚动 Sharpe",
+                "metric": "rolling_sharpe",
+                "window": "30 trading days",
+                "direction": "min",
+                "threshold": 0.6,
+                "actual": 0.82,
+                "source": "unit_status.metrics_snapshot",
+                "status": "passed",
+                "passed": True,
+                "action": "继续监控。",
+            }
+        ],
+        "paper_review_next_actions": ["实盘候选复核已过期，重新复核模拟交易指标后再进入实盘审批。"],
+        "live_readiness_checklist": [
+            {
+                "key": "live_candidate_expired",
+                "label": "候选有效期",
+                "status": "expired",
+                "evidence": "实盘候选有效期已截止。",
+                "action": "重新复核模拟交易。",
+            }
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [record]}}}
+    )
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "过期候选策略"}
+    )
+    seed_strategy = _strategy("strategy-2", seed_draft)
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.16, "total_trades": 6, "max_drawdown": -8.0}],
+        strategies={"strategy-2": seed_strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续过期实盘候选的策略投研",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            continue_from_run_id="expired-live-run",
+            start_paper_trading=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert strategy_service.generated == 0
+    assert strategy_service.submitted_drafts[0].name == "过期候选策略 v1"
+    assert "基于上一轮模拟交易复核结果" in result.iterations[0].improvement_notes[0]
+    assert any("实盘候选复核已过期" in note for note in result.iterations[0].improvement_notes)
+    assert result.run_record is not None
+    assert result.run_record.continued_from_run_id == "expired-live-run"
+
+
+@pytest.mark.asyncio
 async def test_research_loop_continuation_uses_paper_start_failure_before_backtest():
     workspace_service = FakeWorkspaceService()
     pipeline = {

@@ -1713,6 +1713,12 @@ describe('StrategyPage', () => {
       '候选有效期 已过期'
     )
     expect(wrapper.findAll('button').some(button => button.text().includes('复核模拟'))).toBe(true)
+    expect(vm.canContinueResearchFromPaperIssue(vm.aiResearchRuns[0])).toBe(true)
+    vm.useAIResearchRecord(vm.aiResearchRuns[0])
+    expect(vm.aiResearchForm.continuation_source).toBe('paper_review')
+    expect(vm.aiResearchForm.seed_strategy_id).toBe('best-strategy')
+    expect(vm.aiResearchForm.continue_from_run_id).toBe('expired-live-run')
+    expect(wrapper.findAll('button').some(button => button.text().includes('继续改进'))).toBe(true)
   })
 
   it('continues AI research from a saved draft after backtest submission failed', async () => {

@@ -3574,12 +3574,14 @@ def _continuation_context_from_record(
     record: AIStrategyResearchRunRecord,
 ) -> dict[str, Any]:
     runtime_context = _record_runtime_context(record)
-    failed_evaluations = [
-        dict(item)
-        for item in record.paper_review_evaluations
-        if isinstance(item, dict) and str(item.get("status") or "") == "failed"
+    paper_review_requires_research = _paper_review_requires_research(record)
+    review_evaluations = [
+        dict(item) for item in record.paper_review_evaluations if isinstance(item, dict)
     ]
-    if not failed_evaluations and record.paper_review_status != "needs_research_review":
+    failed_evaluations = [
+        dict(item) for item in review_evaluations if str(item.get("status") or "") == "failed"
+    ]
+    if not failed_evaluations and not paper_review_requires_research:
         paper_trading_error = _paper_trading_start_failure_from_record(record)
         if not paper_trading_error:
             return _research_failure_context_from_record(record)
@@ -3597,11 +3599,12 @@ def _continuation_context_from_record(
             **runtime_context,
         }
 
+    context_evaluations = failed_evaluations or review_evaluations
     failures = [_paper_review_failure_text(item) for item in failed_evaluations]
-    if not failures and record.paper_review_status:
-        failures = [f"Paper review status {record.paper_review_status} requires research review"]
+    if not failures:
+        failures = _paper_review_status_failures(record)
     metrics = dict(record.best_metrics or {})
-    for item in failed_evaluations:
+    for item in context_evaluations:
         metric = str(item.get("metric") or item.get("key") or "").strip()
         actual = _optional_gate_number(item.get("actual"))
         if metric and actual is not None:
@@ -3613,11 +3616,35 @@ def _continuation_context_from_record(
         "paper_review_status": record.paper_review_status,
         "paper_reviewed_at": record.paper_reviewed_at,
         "quality_gate_failures": failures,
-        "paper_review_evaluations": failed_evaluations,
+        "paper_review_evaluations": context_evaluations,
         "paper_review_next_actions": list(record.paper_review_next_actions or []),
         "metrics": metrics,
         **runtime_context,
     }
+
+
+def _paper_review_requires_research(record: AIStrategyResearchRunRecord) -> bool:
+    return (
+        str(record.paper_review_status or "")
+        in {"needs_research_review", "live_readiness_expired"}
+        and not record.paper_review_ready_for_live
+    )
+
+
+def _paper_review_status_failures(record: AIStrategyResearchRunRecord) -> list[str]:
+    status = str(record.paper_review_status or "").strip()
+    if status == "live_readiness_expired":
+        failures = ["实盘候选复核已过期，需要重新复核模拟交易并刷新投研假设。"]
+        failures.extend(str(item).strip() for item in record.paper_review_next_actions or [])
+        failures.extend(
+            str(item.get("action") or item.get("evidence") or "").strip()
+            for item in record.live_readiness_checklist
+            if isinstance(item, dict)
+        )
+        return list(dict.fromkeys(item for item in failures if item))
+    if status:
+        return [f"Paper review status {status} requires research review"]
+    return ["Paper review requires research review"]
 
 
 def _record_runtime_context(record: AIStrategyResearchRunRecord) -> dict[str, Any]:
