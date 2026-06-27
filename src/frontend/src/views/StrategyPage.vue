@@ -2292,8 +2292,57 @@ function paperStartedRunRecord(
     paper_handoff: paper.handoff ?? {},
     paper_monitoring_plan:
       paperMonitoringPlanFromHandoff(paper.handoff) ?? record.paper_monitoring_plan,
+    paper_review_status: null,
+    paper_review_ready_for_live: false,
+    paper_reviewed_at: null,
+    paper_review_evaluations: [],
+    paper_review_next_actions: [],
     live_readiness_checklist: [],
     live_readiness_expires_at: null,
+    pipeline: paperStartedPipeline(record),
+    next_actions: [
+      '模拟交易已启动，正在等待后端同步模拟复核状态。',
+      '如果同步暂不可用，可稍后手动复核模拟交易监控指标。',
+    ],
+  }
+}
+
+function paperStartedPipeline(record: AIStrategyResearchRunRecord) {
+  return {
+    current_stage: 'paper_trading',
+    status: record.status,
+    progress: 80,
+    ready_for_live: false,
+    paper_trading_error: null,
+    live_readiness_checklist: [],
+    live_readiness_expires_at: null,
+    steps: [
+      { key: 'draft', label: '策略生成', status: 'completed' },
+      {
+        key: 'backtest_loop',
+        label: '自动回测迭代',
+        status: record.iteration_count > 0 ? 'completed' : 'pending',
+        iteration_count: record.iteration_count,
+        max_iterations: record.max_iterations,
+      },
+      {
+        key: 'quality_gate',
+        label: '质量门槛',
+        status: record.achieved ? 'completed' : 'running',
+      },
+      {
+        key: 'paper_trading',
+        label: '模拟交易',
+        status: 'completed',
+        error: null,
+      },
+      {
+        key: 'paper_review',
+        label: '模拟复核',
+        status: 'pending',
+        review_status: null,
+      },
+    ],
   }
 }
 

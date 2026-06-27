@@ -2137,6 +2137,83 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchRuns[0].paper_handoff.paper_task_id).toBe('paper-task')
   })
 
+  it('keeps a usable local paper state when history refresh fails after restart', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    const record: AIStrategyResearchRunRecord = {
+      run_id: 'history-run',
+      prompt: '历史趋势策略',
+      symbol: '000001.SZ',
+      symbol_name: '平安银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      status: 'achieved',
+      achieved: true,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 2,
+      best_iteration: 2,
+      best_sharpe: 1.2,
+      best_quality_score: 100,
+      best_quality_gate_evaluations: [],
+      best_metrics: { sharpe_ratio: 1.2 },
+      best_strategy_id: 's1',
+      best_strategy_name: 'AI策略',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'deleted-paper-unit',
+      paper_trading_started: true,
+      paper_review_status: 'paper_unit_missing',
+      paper_review_ready_for_live: false,
+      paper_review_next_actions: [
+        '未找到模拟交易单元，检查是否被删除，必要时重新从投研结果启动模拟交易。',
+      ],
+      pipeline: {
+        current_stage: 'paper_review',
+        status: 'achieved',
+        progress: 80,
+        ready_for_live: false,
+        paper_trading_error: null,
+        steps: [],
+      },
+      next_actions: [
+        '未找到模拟交易单元，检查是否被删除，必要时重新从投研结果启动模拟交易。',
+      ],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [],
+    }
+    vm.aiResearchRuns = [record]
+    vm.aiResearchRunsLoading = false
+    vi.mocked(strategyApi.listAIResearchRuns).mockClear()
+    vi.mocked(strategyApi.listAIResearchRuns).mockRejectedValueOnce(
+      new Error('history unavailable')
+    )
+
+    await vm.startPaperFromResearchRecord(record)
+    await flushPromises()
+
+    expect(strategyApi.startAIResearchPaperTrading).toHaveBeenCalledWith('history-run', {
+      research_workspace_id: 'research-ws',
+    })
+    expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith('research-ws', 20)
+    const updatedRecord = vm.aiResearchRuns[0]
+    expect(updatedRecord.paper_trading_started).toBe(true)
+    expect(updatedRecord.paper_workspace_id).toBe('paper-ws')
+    expect(updatedRecord.paper_unit_id).toBe('paper-unit')
+    expect(updatedRecord.paper_review_status).toBeNull()
+    expect(updatedRecord.paper_review_evaluations).toEqual([])
+    expect(updatedRecord.pipeline.current_stage).toBe('paper_trading')
+    expect(updatedRecord.pipeline.steps.find((step: any) => step.key === 'paper_review').status).toBe('pending')
+    expect(vm.canStartPaperFromRecord(updatedRecord)).toBe(false)
+    expect(vm.canReviewPaperFromRecord(updatedRecord)).toBe(true)
+  })
+
   it('refreshes run record when starting paper trading from history fails', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const { ElMessage } = await import('element-plus')
