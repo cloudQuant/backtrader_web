@@ -97,9 +97,35 @@ async def test_trading_workspace_unit_roundtrip_exposes_trading_fields(
 class _FakeTradingManager:
     def __init__(self) -> None:
         self.instances: dict[str, dict] = {}
+        self.gateway_instances: set[str] = set()
+        self.gateway_positions: dict[str, list[dict]] = {}
+        self.gateway_asset_specs: dict[str, dict[str, dict]] = {}
+        self.gateway_trades: dict[str, list[dict]] = {}
 
     def get_instance(self, instance_id: str, user_id: str | None = None):
         return self.instances.get(instance_id)
+
+    def has_instance_gateway(self, instance_id: str) -> bool:
+        return instance_id in self.gateway_instances
+
+    def query_instance_gateway_positions(self, instance_id: str):
+        return self.gateway_positions.get(instance_id, [])
+
+    def query_instance_asset_specs(self, instance_id: str, symbols: list[str]):
+        specs = self.gateway_asset_specs.get(instance_id, {})
+        return {symbol: specs.get(symbol, {}) for symbol in symbols}
+
+    def query_instance_gateway_trades(
+        self,
+        instance_id: str,
+        *,
+        symbol: str | None = None,
+        limit: int = 100,
+    ):
+        rows = self.gateway_trades.get(instance_id, [])
+        if symbol:
+            rows = [row for row in rows if row.get("symbol") == symbol]
+        return rows[-limit:]
 
     def add_instance(
         self,
@@ -475,6 +501,157 @@ async def test_trading_workspace_positions_hide_idle_units_by_default(
     assert explicit_payload["positions"][0]["unit_id"] == unit_id
     assert explicit_payload["positions"][0]["long_position"] == 3.0
     assert explicit_payload["positions"][0]["updated_at"] == "2026-04-13 09:32:00"
+
+
+@pytest.mark.asyncio
+async def test_trading_workspace_positions_value_live_futures_hedged_gateway_rows(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+    from app.services import trading_workspace_service
+
+    manager = _FakeTradingManager()
+    monkeypatch.setattr(
+        trading_workspace_service,
+        "get_live_trading_manager",
+        lambda: manager,
+    )
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "期货双向持仓测试", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={
+            "group_name": "交易组",
+            "strategy_id": "simulate/gateway_dual_ma",
+            "strategy_name": "IF Hedge Strategy",
+            "symbol": "IF2609",
+            "symbol_name": "沪深300期货",
+            "trading_mode": "live",
+            "gateway_config": {
+                "preset_id": "ctp_futures_gateway",
+                "name": "CTP Futures Gateway",
+                "params": {
+                    "gateway": {
+                        "enabled": True,
+                        "exchange_type": "CTP",
+                        "asset_type": "FUTURE",
+                        "account_id": "SIM001",
+                    }
+                },
+            },
+        },
+    )
+    unit_id = unit_response.json()["id"]
+
+    instance_id = "inst-if-hedge"
+    manager.instances[instance_id] = {
+        "id": instance_id,
+        "strategy_id": "simulate/gateway_dual_ma",
+        "strategy_name": "IF Hedge Strategy",
+        "status": "running",
+        "error": None,
+        "params": {"symbol": "IF2609", "trading_mode": "live"},
+        "created_at": "2026-04-13 10:00:00",
+        "started_at": "2026-04-13 10:01:00",
+        "stopped_at": None,
+        "log_dir": None,
+        "runtime_dir": None,
+    }
+    manager.gateway_instances.add(instance_id)
+    manager.gateway_positions[instance_id] = [
+        {
+            "InstrumentID": "IF2609",
+            "long_position": 1,
+            "short_position": 1,
+            "avgPrice": 5000,
+            "LastPrice": 5010,
+            "updated_at": "2026-04-13 10:05:00",
+        },
+        {
+            "InstrumentID": "IF2609",
+            "long_position": 0,
+            "short_position": 0,
+            "avgPrice": 5000,
+            "LastPrice": 5010,
+        },
+    ]
+    manager.gateway_asset_specs[instance_id] = {
+        "IF2609": {
+            "symbol": "IF2609",
+            "multiplier": 300,
+            "margin_rate": 0.1,
+            "open_commission_rate": 0.000023,
+            "quote_asset": "CNY",
+            "fee_currency": "CNY",
+            "source": "gateway.query_instrument",
+        }
+    }
+    manager.gateway_trades[instance_id] = [
+        {
+            "symbol": "IF2609",
+            "side": "buy",
+            "position_side": "long",
+            "size": 1,
+            "price": 5000,
+            "fee": 34.5,
+            "fee_currency": "CNY",
+            "trade_time": 1,
+        },
+        {
+            "symbol": "IF2609",
+            "side": "sell",
+            "position_side": "short",
+            "size": 1,
+            "price": 5000,
+            "fee": 34.5,
+            "fee_currency": "CNY",
+            "trade_time": 2,
+        },
+    ]
+
+    async with async_session_maker() as session:
+        unit = await session.get(StrategyUnit, unit_id)
+        assert unit is not None
+        unit.trading_instance_id = instance_id
+        unit.run_status = "running"
+        unit.trading_mode = "live"
+        await session.commit()
+
+    response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/trading/positions",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert len(payload["positions"]) == 1
+    position = payload["positions"][0]
+    assert position["unit_id"] == unit_id
+    assert position["long_position"] == 1.0
+    assert position["short_position"] == 1.0
+    assert position["long_market_value"] == 1503000.0
+    assert position["short_market_value"] == 1503000.0
+    assert position["margin_value"] == 300600.0
+    assert position["multiplier"] == 300.0
+    assert position["margin_rate"] == 0.1
+    assert position["commission"] == 69.0
+    assert position["commission_source"] == "gateway.trades"
+    assert position["gross_pnl"] == 0.0
+    assert position["position_pnl"] == -69.0
+    assert position["position_source"] == "gateway"
+    assert position["asset_spec_source"] == "gateway.query_instrument"
+    assert position["valuation_status"] == "confirmed"
+    assert payload["total_pnl"] == -69.0
 
 
 @pytest.mark.asyncio

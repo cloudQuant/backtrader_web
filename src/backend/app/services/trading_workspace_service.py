@@ -30,6 +30,7 @@ from app.services.trading_asset_info_service import (
     gateway_position_symbol,
     normalize_gateway_position,
     query_local_asset_spec,
+    split_bidirectional_position_row,
     symbol_aliases,
 )
 
@@ -785,13 +786,13 @@ class TradingWorkspaceService:
 
     @staticmethod
     def _position_source_for_row(row: dict[str, Any], fallback: str | None = None) -> str:
-        return str(
-            row.get("position_source") or row.get("source") or fallback or "local"
-        ).strip()
+        return str(row.get("position_source") or row.get("source") or fallback or "local").strip()
 
     @staticmethod
     def _asset_spec_source_for_row(row: dict[str, Any], spec: Any) -> str | None:
-        return str(row.get("asset_spec_source") or getattr(spec, "source", "") or "").strip() or None
+        return (
+            str(row.get("asset_spec_source") or getattr(spec, "source", "") or "").strip() or None
+        )
 
     @staticmethod
     def _asset_spec_config_for_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -1144,15 +1145,16 @@ class TradingWorkspaceService:
 
         rows: list[dict[str, Any]] = []
         for item in matched_positions:
-            symbol = gateway_position_symbol(item, fallback_symbol)
-            rows.append(
-                normalize_gateway_position(
-                    item,
-                    fallback_symbol=fallback_symbol,
-                    asset_spec=_asset_spec_for_symbol(asset_specs, symbol),
-                    recent_trades=recent_trades,
+            for side_item in split_bidirectional_position_row(item):
+                symbol = gateway_position_symbol(side_item, fallback_symbol)
+                rows.append(
+                    normalize_gateway_position(
+                        side_item,
+                        fallback_symbol=fallback_symbol,
+                        asset_spec=_asset_spec_for_symbol(asset_specs, symbol),
+                        recent_trades=recent_trades,
+                    )
                 )
-            )
         return rows
 
     @classmethod
@@ -1178,85 +1180,87 @@ class TradingWorkspaceService:
 
         fallback_symbol = str(unit.symbol or unit.symbol_name or unit.strategy_name or "")
 
-        for item in positions:
-            data_name = gateway_position_symbol(item, fallback_symbol)
-            spec = cls._contract_spec(
-                unit,
-                data_name,
-                instance,
-                cls._asset_spec_config_for_row(_safe_dict(item)),
-            )
-            position_source = cls._position_source_for_row(item, fallback_position_source)
-            valuation_item = cls._position_row_for_valuation(
-                _safe_dict(item),
-                spec,
-                position_source=position_source,
-            )
-            valued = value_position(valuation_item, spec=spec)
-            if valued is None:
-                continue
-            asset_spec_source = cls._asset_spec_source_for_row(item, spec)
-            row_warnings = cls._position_valuation_warnings(
-                unit,
-                valuation_item,
-                spec,
-                position_source=position_source,
-            )
-            if valuation_item.get("recalculated_position_pnl"):
-                row_warnings.append("本地/快照持仓盈亏已按最新资产乘数、保证金和手续费设置重新计算")
-            _append_unique(valuation_warnings, row_warnings)
-            position_sources.append(position_source)
-            if asset_spec_source:
-                asset_spec_sources.append(asset_spec_source)
+        for raw_item in positions:
+            for item in split_bidirectional_position_row(_safe_dict(raw_item)):
+                data_name = gateway_position_symbol(item, fallback_symbol)
+                spec = cls._contract_spec(
+                    unit,
+                    data_name,
+                    instance,
+                    cls._asset_spec_config_for_row(_safe_dict(item)),
+                )
+                position_source = cls._position_source_for_row(item, fallback_position_source)
+                valuation_item = cls._position_row_for_valuation(
+                    _safe_dict(item),
+                    spec,
+                    position_source=position_source,
+                )
+                valued = value_position(valuation_item, spec=spec)
+                if valued is None:
+                    continue
+                asset_spec_source = cls._asset_spec_source_for_row(item, spec)
+                row_warnings = cls._position_valuation_warnings(
+                    unit,
+                    valuation_item,
+                    spec,
+                    position_source=position_source,
+                )
+                if valuation_item.get("recalculated_position_pnl"):
+                    row_warnings.append(
+                        "本地/快照持仓盈亏已按最新资产乘数、保证金和手续费设置重新计算"
+                    )
+                _append_unique(valuation_warnings, row_warnings)
+                position_sources.append(position_source)
+                if asset_spec_source:
+                    asset_spec_sources.append(asset_spec_source)
 
-            if valued.size > 0:
-                long_position += abs(valued.size)
-                long_market_value += valued.market_value
-            else:
-                short_position += abs(valued.size)
-                short_market_value += valued.market_value
+                if valued.size > 0:
+                    long_position += abs(valued.size)
+                    long_market_value += valued.market_value
+                else:
+                    short_position += abs(valued.size)
+                    short_market_value += valued.market_value
 
-            position_pnl += valued.pnl
-            latest_price = valued.current_price
-            position_updated_at = cls._position_updated_at(item)
-            position_data_time = cls._position_data_time(item)
-            if position_updated_at and (
-                latest_position_updated_at is None
-                or position_updated_at > latest_position_updated_at
-            ):
-                latest_position_updated_at = position_updated_at
-            detail_positions.append(
-                {
-                    "data_name": valued.data_name or data_name,
-                    "direction": valued.direction,
-                    "size": _round_quantity(abs(valued.size)),
-                    "price": round(valued.entry_price, 4) if valued.entry_price else None,
-                    "current_price": round(valued.current_price, 4)
-                    if valued.current_price
-                    else None,
-                    "market_value": round(valued.market_value, 2),
-                    "margin_value": round(valued.margin_value, 2),
-                    "multiplier": round(valued.multiplier, 8),
-                    "margin_rate": round(valued.margin_rate, 8),
-                    "leverage": _leverage_from_margin_rate(valued.margin_rate),
-                    "commission": round(valued.commission, 4),
-                    "commission_source": valuation_item.get("commission_source")
-                    or item.get("commission_source"),
-                    "commission_signed": True,
-                    "gross_pnl": round(valued.gross_pnl, 2),
-                    "pnl": round(valued.pnl, 2),
-                    "pnlcomm": round(valued.pnl, 2),
-                    "position_pnl": round(valued.pnl, 2),
-                    "updated_at": position_updated_at,
-                    "data_time": position_data_time,
-                    "source": position_source,
-                    "position_source": position_source,
-                    "asset_spec_source": asset_spec_source,
-                    "valuation_status": "estimated" if row_warnings else "confirmed",
-                    "valuation_warnings": row_warnings,
-                }
-            )
-
+                position_pnl += valued.pnl
+                latest_price = valued.current_price
+                position_updated_at = cls._position_updated_at(item)
+                position_data_time = cls._position_data_time(item)
+                if position_updated_at and (
+                    latest_position_updated_at is None
+                    or position_updated_at > latest_position_updated_at
+                ):
+                    latest_position_updated_at = position_updated_at
+                detail_positions.append(
+                    {
+                        "data_name": valued.data_name or data_name,
+                        "direction": valued.direction,
+                        "size": _round_quantity(abs(valued.size)),
+                        "price": round(valued.entry_price, 4) if valued.entry_price else None,
+                        "current_price": round(valued.current_price, 4)
+                        if valued.current_price
+                        else None,
+                        "market_value": round(valued.market_value, 2),
+                        "margin_value": round(valued.margin_value, 2),
+                        "multiplier": round(valued.multiplier, 8),
+                        "margin_rate": round(valued.margin_rate, 8),
+                        "leverage": _leverage_from_margin_rate(valued.margin_rate),
+                        "commission": round(valued.commission, 4),
+                        "commission_source": valuation_item.get("commission_source")
+                        or item.get("commission_source"),
+                        "commission_signed": True,
+                        "gross_pnl": round(valued.gross_pnl, 2),
+                        "pnl": round(valued.pnl, 2),
+                        "pnlcomm": round(valued.pnl, 2),
+                        "position_pnl": round(valued.pnl, 2),
+                        "updated_at": position_updated_at,
+                        "data_time": position_data_time,
+                        "source": position_source,
+                        "position_source": position_source,
+                        "asset_spec_source": asset_spec_source,
+                        "valuation_status": "estimated" if row_warnings else "confirmed",
+                        "valuation_warnings": row_warnings,
+                    }
+                )
         snapshot["positions"] = detail_positions
         if not position_sources and fallback_position_source:
             position_sources.append(fallback_position_source)
@@ -1792,9 +1796,10 @@ class TradingWorkspaceService:
         valued_rows: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
-            if latest_price not in (None, "") and cls._first_row_number(
-                item, *_CURRENT_PRICE_FIELD_KEYS
-            ) is None:
+            if (
+                latest_price not in (None, "")
+                and cls._first_row_number(item, *_CURRENT_PRICE_FIELD_KEYS) is None
+            ):
                 item["latest_price"] = latest_price
             if updated_at not in (None, "") and not cls._position_updated_at(item):
                 item["updated_at"] = updated_at
@@ -1915,7 +1920,11 @@ class TradingWorkspaceService:
             )
             data_time = self._latest_position_data_time(active_position_rows)
             data_name = (
-                str(active_position_rows[0].get("data_name") or active_position_rows[0].get("symbol") or "")
+                str(
+                    active_position_rows[0].get("data_name")
+                    or active_position_rows[0].get("symbol")
+                    or ""
+                )
                 if len(active_position_rows) == 1
                 else ""
             )
@@ -1956,9 +1965,7 @@ class TradingWorkspaceService:
                 if isinstance(row, dict) and row.get("gross_pnl") not in (None, "")
             ]
             gross_pnl = (
-                sum(_safe_float(value) for value in gross_pnl_values)
-                if gross_pnl_values
-                else None
+                sum(_safe_float(value) for value in gross_pnl_values) if gross_pnl_values else None
             )
             total_long_value += long_market_value
             total_short_value += short_market_value
@@ -2001,7 +2008,8 @@ class TradingWorkspaceService:
                     ),
                     "leverage": _unique_number(
                         [
-                            row.get("leverage") or _leverage_from_margin_rate(row.get("margin_rate"))
+                            row.get("leverage")
+                            or _leverage_from_margin_rate(row.get("margin_rate"))
                             for row in active_position_rows
                             if isinstance(row, dict)
                         ]

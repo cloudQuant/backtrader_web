@@ -37,6 +37,7 @@ from app.services.trading_asset_info_service import (
     normalize_gateway_position,
     query_local_asset_spec,
     signed_gateway_size,
+    split_bidirectional_position_row,
     symbol_aliases,
 )
 
@@ -505,7 +506,12 @@ def _source_symbol_aliases(source: _PortfolioSource) -> set[str]:
         if isinstance(data_config, dict):
             for key in ("symbol", "symbols", "symbol_list", "instrument", "InstrumentID"):
                 _append_symbol_candidate(candidates, data_config.get(key))
-        for container_key in ("contract_metadata", "contracts", "contract_specs", "instrument_specs"):
+        for container_key in (
+            "contract_metadata",
+            "contracts",
+            "contract_specs",
+            "instrument_specs",
+        ):
             container = config.get(container_key)
             if not isinstance(container, dict):
                 continue
@@ -642,15 +648,16 @@ def _live_positions_for_source(
 
     positions: list[dict[str, Any]] = []
     for item in matched_positions:
-        symbol = gateway_position_symbol(item, source.symbol)
-        positions.append(
-            normalize_gateway_position(
-                item,
-                fallback_symbol=source.symbol,
-                asset_spec=_asset_spec_for_symbol(asset_specs, symbol),
-                recent_trades=recent_trades,
+        for side_item in split_bidirectional_position_row(item):
+            symbol = gateway_position_symbol(side_item, source.symbol)
+            positions.append(
+                normalize_gateway_position(
+                    side_item,
+                    fallback_symbol=source.symbol,
+                    asset_spec=_asset_spec_for_symbol(asset_specs, symbol),
+                    recent_trades=recent_trades,
+                )
             )
-        )
     source.position_source = "gateway"
     return positions
 
@@ -670,23 +677,31 @@ def _live_account_for_source(
                 return None
         except Exception:
             if is_live:
-                _append_unique(source.valuation_warnings, "检查策略网关绑定失败，账户权益将回落到日志")
+                _append_unique(
+                    source.valuation_warnings, "检查策略网关绑定失败，账户权益将回落到日志"
+                )
             return None
 
     query_account = getattr(mgr, "query_instance_gateway_account", None)
     if not callable(query_account):
         if is_live:
-            _append_unique(source.valuation_warnings, "当前管理器不支持实时网关账户查询，账户权益将回落到日志")
+            _append_unique(
+                source.valuation_warnings, "当前管理器不支持实时网关账户查询，账户权益将回落到日志"
+            )
         return None
     try:
         account = query_account(source.id)
     except Exception:
         if is_live:
-            _append_unique(source.valuation_warnings, "交易所网关账户查询失败，账户权益将回落到日志")
+            _append_unique(
+                source.valuation_warnings, "交易所网关账户查询失败，账户权益将回落到日志"
+            )
         return None
     if not isinstance(account, dict):
         if is_live:
-            _append_unique(source.valuation_warnings, "交易所网关账户返回格式异常，账户权益将回落到日志")
+            _append_unique(
+                source.valuation_warnings, "交易所网关账户返回格式异常，账户权益将回落到日志"
+            )
         return None
     source.account_source = str(account.get("account_source") or "gateway").strip() or "gateway"
     return account
@@ -842,90 +857,94 @@ def _parse_positions_for_portfolio(log_dir: Path) -> list[dict[str, Any]]:
 def _snapshot_positions_for_portfolio(snapshot: dict[str, Any] | None) -> list[dict[str, Any]]:
     rows = list((snapshot or {}).get("positions") or [])
     positions: list[dict[str, Any]] = []
-    for row in rows:
-        if not isinstance(row, dict):
+    for raw_row in rows:
+        if not isinstance(raw_row, dict):
             continue
-        size = signed_gateway_size(row)
-        if abs(size) <= EPSILON:
-            continue
-        price = _first_number(
-            row,
-            "price",
-            "avg_price",
-            "average_price",
-            "price_open",
-            "avgCost",
-            "avgPrice",
-            "entryPrice",
-            "ep",
-            "averageCost",
-            "Price",
-            "AveragePrice",
-        ) or 0.0
-        current_price = _first_number(
-            row,
-            "current_price",
-            "latest_price",
-            "last_price",
-            "mark_price",
-            "markPrice",
-            "markPx",
-            "market_price",
-            "lastPrice",
-            "LastPrice",
-            "price_current",
-            "marketPrice",
-            "mktPrice",
-            "mp",
-            "PriceCurrent",
-            "CurrentPrice",
-            "SettlementPrice",
-            "settlement_price",
-        )
-        explicit_market_value = _first_number(
-            row,
-            "market_value",
-            "marketValue",
-            "mktValue",
-            "positionValue",
-            "position_value",
-            "value",
-        )
-        market_value = (
-            explicit_market_value if explicit_market_value is not None else abs(size) * price
-        )
-        position = {
-            **row,
-            "data_name": gateway_position_symbol(row),
-            "size": size,
-            "price": price,
-            "current_price": current_price,
-            "market_value": market_value,
-            "value": market_value,
-            "position_pnl": row.get("position_pnl"),
-            "pnl": row.get("pnl"),
-            "pnlcomm": row.get("pnlcomm"),
-            "gross_pnl": row.get("gross_pnl"),
-            "commission": row.get("commission"),
-            "commission_signed": row.get("commission_signed"),
-            "multiplier": row.get("multiplier"),
-            "margin_rate": row.get("margin_rate"),
-            "margin": row.get("margin"),
-            "margin_value": row.get("margin_value"),
-            "use_margin": row.get("use_margin"),
-            "initial_margin": row.get("initial_margin"),
-            "maintain_margin": row.get("maintain_margin"),
-            "updated_at": _position_updated_at(row),
-            "data_time": _position_data_time(row),
-            "source": row.get("source"),
-            "position_source": row.get("position_source"),
-            "asset_spec_source": row.get("asset_spec_source"),
-            "valuation_status": row.get("valuation_status"),
-            "valuation_warnings": list(row.get("valuation_warnings") or []),
-        }
-        if explicit_market_value is None:
-            position["market_value_estimated"] = True
-        positions.append(position)
+        for row in split_bidirectional_position_row(raw_row):
+            size = signed_gateway_size(row)
+            if abs(size) <= EPSILON:
+                continue
+            price = (
+                _first_number(
+                    row,
+                    "price",
+                    "avg_price",
+                    "average_price",
+                    "price_open",
+                    "avgCost",
+                    "avgPrice",
+                    "entryPrice",
+                    "ep",
+                    "averageCost",
+                    "Price",
+                    "AveragePrice",
+                )
+                or 0.0
+            )
+            current_price = _first_number(
+                row,
+                "current_price",
+                "latest_price",
+                "last_price",
+                "mark_price",
+                "markPrice",
+                "markPx",
+                "market_price",
+                "lastPrice",
+                "LastPrice",
+                "price_current",
+                "marketPrice",
+                "mktPrice",
+                "mp",
+                "PriceCurrent",
+                "CurrentPrice",
+                "SettlementPrice",
+                "settlement_price",
+            )
+            explicit_market_value = _first_number(
+                row,
+                "market_value",
+                "marketValue",
+                "mktValue",
+                "positionValue",
+                "position_value",
+                "value",
+            )
+            market_value = (
+                explicit_market_value if explicit_market_value is not None else abs(size) * price
+            )
+            position = {
+                **row,
+                "data_name": gateway_position_symbol(row),
+                "size": size,
+                "price": price,
+                "current_price": current_price,
+                "market_value": market_value,
+                "value": market_value,
+                "position_pnl": row.get("position_pnl"),
+                "pnl": row.get("pnl"),
+                "pnlcomm": row.get("pnlcomm"),
+                "gross_pnl": row.get("gross_pnl"),
+                "commission": row.get("commission"),
+                "commission_signed": row.get("commission_signed"),
+                "multiplier": row.get("multiplier"),
+                "margin_rate": row.get("margin_rate"),
+                "margin": row.get("margin"),
+                "margin_value": row.get("margin_value"),
+                "use_margin": row.get("use_margin"),
+                "initial_margin": row.get("initial_margin"),
+                "maintain_margin": row.get("maintain_margin"),
+                "updated_at": _position_updated_at(row),
+                "data_time": _position_data_time(row),
+                "source": row.get("source"),
+                "position_source": row.get("position_source"),
+                "asset_spec_source": row.get("asset_spec_source"),
+                "valuation_status": row.get("valuation_status"),
+                "valuation_warnings": list(row.get("valuation_warnings") or []),
+            }
+            if explicit_market_value is None:
+                position["market_value_estimated"] = True
+            positions.append(position)
     return positions
 
 
@@ -1076,64 +1095,64 @@ def _position_row_for_valuation(
 
 def _valued_source_positions(source: _PortfolioSource) -> list[dict[str, Any]]:
     positions: list[dict[str, Any]] = []
-    for row in _source_positions(source):
-        symbol = str(row.get("data_name") or row.get("symbol") or "")
-        spec = contract_spec_for(symbol, row, source.snapshot or {}, *source.valuation_configs)
-        position_source = str(
-            row.get("position_source")
-            or row.get("source")
-            or source.position_source
-            or "local"
-        ).strip()
-        valuation_row = _position_row_for_valuation(
-            row,
-            spec,
-            position_source=position_source,
-        )
-        valued = value_position(valuation_row, spec=spec)
-        if valued is None:
-            continue
-        asset_spec_source = str(
-            row.get("asset_spec_source") or getattr(spec, "source", "") or ""
-        ).strip()
-        row_warnings = _position_valuation_warnings(
-            source,
-            valuation_row,
-            spec,
-            position_source=position_source,
-        )
-        if valuation_row.get("recalculated_position_pnl"):
-            row_warnings.append("本地/快照持仓盈亏已按最新资产乘数、保证金和手续费设置重新计算")
-        _append_unique(source.valuation_warnings, row_warnings)
-        if asset_spec_source:
-            source.asset_spec_source = _unique_text([source.asset_spec_source, asset_spec_source])
-        source.valuation_status = "estimated" if source.valuation_warnings else "confirmed"
-        positions.append(
-            {
-                "data_name": valued.data_name or symbol,
-                "size": valued.size,
-                "price": valued.entry_price,
-                "latest_price": valued.current_price,
-                "market_value": valued.market_value,
-                "signed_market_value": _signed_market_value(valued.size, valued.market_value),
-                "position_pnl": valued.pnl,
-                "gross_pnl": valued.gross_pnl,
-                "commission": valued.commission,
-                "commission_source": valuation_row.get("commission_source")
-                or row.get("commission_source"),
-                "multiplier": valued.multiplier,
-                "margin_rate": valued.margin_rate,
-                "leverage": _leverage_from_margin_rate(valued.margin_rate),
-                "margin_value": valued.margin_value,
-                "updated_at": _position_updated_at(row),
-                "data_time": _position_data_time(row),
-                "direction": valued.direction,
-                "position_source": position_source,
-                "asset_spec_source": asset_spec_source or None,
-                "valuation_status": "estimated" if row_warnings else "confirmed",
-                "valuation_warnings": row_warnings,
-            }
-        )
+    for raw_row in _source_positions(source):
+        for row in split_bidirectional_position_row(raw_row):
+            symbol = str(row.get("data_name") or row.get("symbol") or "")
+            spec = contract_spec_for(symbol, row, source.snapshot or {}, *source.valuation_configs)
+            position_source = str(
+                row.get("position_source") or row.get("source") or source.position_source or "local"
+            ).strip()
+            valuation_row = _position_row_for_valuation(
+                row,
+                spec,
+                position_source=position_source,
+            )
+            valued = value_position(valuation_row, spec=spec)
+            if valued is None:
+                continue
+            asset_spec_source = str(
+                row.get("asset_spec_source") or getattr(spec, "source", "") or ""
+            ).strip()
+            row_warnings = _position_valuation_warnings(
+                source,
+                valuation_row,
+                spec,
+                position_source=position_source,
+            )
+            if valuation_row.get("recalculated_position_pnl"):
+                row_warnings.append("本地/快照持仓盈亏已按最新资产乘数、保证金和手续费设置重新计算")
+            _append_unique(source.valuation_warnings, row_warnings)
+            if asset_spec_source:
+                source.asset_spec_source = _unique_text(
+                    [source.asset_spec_source, asset_spec_source]
+                )
+            source.valuation_status = "estimated" if source.valuation_warnings else "confirmed"
+            positions.append(
+                {
+                    "data_name": valued.data_name or symbol,
+                    "size": valued.size,
+                    "price": valued.entry_price,
+                    "latest_price": valued.current_price,
+                    "market_value": valued.market_value,
+                    "signed_market_value": _signed_market_value(valued.size, valued.market_value),
+                    "position_pnl": valued.pnl,
+                    "gross_pnl": valued.gross_pnl,
+                    "commission": valued.commission,
+                    "commission_source": valuation_row.get("commission_source")
+                    or row.get("commission_source"),
+                    "multiplier": valued.multiplier,
+                    "margin_rate": valued.margin_rate,
+                    "leverage": _leverage_from_margin_rate(valued.margin_rate),
+                    "margin_value": valued.margin_value,
+                    "updated_at": _position_updated_at(row),
+                    "data_time": _position_data_time(row),
+                    "direction": valued.direction,
+                    "position_source": position_source,
+                    "asset_spec_source": asset_spec_source or None,
+                    "valuation_status": "estimated" if row_warnings else "confirmed",
+                    "valuation_warnings": row_warnings,
+                }
+            )
     if not positions and source.position_source == "gateway":
         source.valuation_status = "confirmed"
     elif not positions and source.valuation_warnings:

@@ -640,7 +640,9 @@ def _unwrap_payload_dict(raw: dict[str, Any], *, symbol: str = "") -> dict[str, 
                 row = _select_payload_row(payload, symbol)
             if row is None:
                 continue
-            base = {item_key: item_value for item_key, item_value in data.items() if item_key != key}
+            base = {
+                item_key: item_value for item_key, item_value in data.items() if item_key != key
+            }
             base.update(row)
             if base == data:
                 return _flatten_asset_spec_payload(data)
@@ -891,8 +893,12 @@ def _price_from_payload(payload: Any) -> float | None:
         price = _positive_price(_call_or_value(getattr(payload, name, None)))
         if price is not None:
             return price
-    bid = _positive_price(_call_or_value(_object_get(payload, *BID_PRICE_FIELD_KEYS, "get_bid_price")))
-    ask = _positive_price(_call_or_value(_object_get(payload, *ASK_PRICE_FIELD_KEYS, "get_ask_price")))
+    bid = _positive_price(
+        _call_or_value(_object_get(payload, *BID_PRICE_FIELD_KEYS, "get_bid_price"))
+    )
+    ask = _positive_price(
+        _call_or_value(_object_get(payload, *ASK_PRICE_FIELD_KEYS, "get_ask_price"))
+    )
     if bid is not None and ask is not None:
         return (bid + ask) / 2.0
     return None
@@ -1028,6 +1034,287 @@ def signed_gateway_size(row: dict[str, Any]) -> float:
     return raw_size
 
 
+_LONG_MARKET_VALUE_FIELD_KEYS = (
+    "long_market_value",
+    "longMarketValue",
+    "long_position_value",
+    "longPositionValue",
+    "long_notional",
+    "longNotional",
+)
+_SHORT_MARKET_VALUE_FIELD_KEYS = (
+    "short_market_value",
+    "shortMarketValue",
+    "short_position_value",
+    "shortPositionValue",
+    "short_notional",
+    "shortNotional",
+)
+_MARKET_VALUE_FIELD_KEYS = (
+    "market_value",
+    "marketValue",
+    "MarketValue",
+    "mktValue",
+    "positionValue",
+    "position_value",
+    "notionalUsd",
+    "notional_usd",
+    "notional",
+    "notionalValue",
+    "notional_value",
+    "position_notional_usd",
+    "position_notional",
+    "positionNotional",
+    "value",
+)
+_LONG_PRICE_FIELD_KEYS = (
+    "long_price",
+    "longPrice",
+    "long_avg_price",
+    "longAvgPrice",
+    "long_avgPx",
+    "longAvgPx",
+    "long_entry_price",
+    "longEntryPrice",
+    "long_open_price",
+    "longOpenPrice",
+    "long_average_price",
+    "longAveragePrice",
+    "long_avg_cost",
+    "longAvgCost",
+)
+_SHORT_PRICE_FIELD_KEYS = (
+    "short_price",
+    "shortPrice",
+    "short_avg_price",
+    "shortAvgPrice",
+    "short_avgPx",
+    "shortAvgPx",
+    "short_entry_price",
+    "shortEntryPrice",
+    "short_open_price",
+    "shortOpenPrice",
+    "short_average_price",
+    "shortAveragePrice",
+    "short_avg_cost",
+    "shortAvgCost",
+)
+_PRICE_FIELD_KEYS = (
+    "price",
+    "avg_price",
+    "average_price",
+    "price_open",
+    "avgCost",
+    "avgPrice",
+    "avgPx",
+    "entryPrice",
+    "ep",
+    "Price",
+    "AveragePrice",
+)
+_LONG_PNL_FIELD_KEYS = (
+    "long_pnl",
+    "longPnl",
+    "longPNL",
+    "long_position_pnl",
+    "longPositionPnl",
+    "longPositionPNL",
+    "long_unrealized_pnl",
+    "longUnrealizedPnl",
+    "longUnrealizedPNL",
+    "long_unrealized_profit",
+    "longUnrealizedProfit",
+    "long_profit",
+    "longProfit",
+)
+_SHORT_PNL_FIELD_KEYS = (
+    "short_pnl",
+    "shortPnl",
+    "shortPNL",
+    "short_position_pnl",
+    "shortPositionPnl",
+    "shortPositionPNL",
+    "short_unrealized_pnl",
+    "shortUnrealizedPnl",
+    "shortUnrealizedPNL",
+    "short_unrealized_profit",
+    "shortUnrealizedProfit",
+    "short_profit",
+    "shortProfit",
+)
+_POSITION_SPLIT_DROP_KEYS = (
+    *_MARKET_VALUE_FIELD_KEYS,
+    *_LONG_MARKET_VALUE_FIELD_KEYS,
+    *_SHORT_MARKET_VALUE_FIELD_KEYS,
+    *_LONG_PRICE_FIELD_KEYS,
+    *_SHORT_PRICE_FIELD_KEYS,
+    *_LONG_PNL_FIELD_KEYS,
+    *_SHORT_PNL_FIELD_KEYS,
+    "gross_pnl",
+    "position_unrealized_pnl",
+    "position_unrealised_pnl",
+    "position_profit",
+    "PositionProfit",
+    "unrealized_profit",
+    "unrealised_profit",
+    "unRealizedProfit",
+    "UnrealizedPnL",
+    "unrealizedPnl",
+    "unrealisedPnl",
+    "unrealized_pnl",
+    "unrealised_pnl",
+    "unrealizedPNL",
+    "unrealisedPNL",
+    "unrealizedpnl",
+    "unrealisedpnl",
+    "floating_pnl",
+    "profit",
+    "upl",
+    "up",
+    "position_pnl",
+    "pnl",
+    "pnlcomm",
+    "net_pnl",
+    "netPnl",
+    "netPNL",
+    "net_position_pnl",
+    "netPositionPnl",
+    "netPositionPNL",
+    "net_unrealized_pnl",
+    "netUnrealizedPnl",
+    "netUnrealizedPNL",
+    "unrealized_pnl_after_fee",
+    "unrealizedPnlAfterFee",
+    "position_pnl_after_fee",
+    "positionPnlAfterFee",
+    "commission",
+    "comm",
+    "fee",
+    "fees",
+    "execFee",
+    "exec_fee",
+    "execFeeV2",
+    "exec_fee_v2",
+    "open_commission",
+    "position_fee",
+    "position_commission",
+    "trade_fee",
+    "trade_commission",
+    "commission_amount",
+    "Commission",
+    "commission_source",
+    "commission_signed",
+)
+
+
+def _set_position_side_fields(
+    item: dict[str, Any],
+    *,
+    side: str,
+    signed_size: float,
+) -> None:
+    item["size"] = signed_size
+    item["direction"] = side
+    item["side"] = side
+    item["posSide"] = side
+    item["positionSide"] = side
+    item["position_side"] = side
+    item["PositionSide"] = side
+    item["holdSide"] = side
+
+
+def _set_side_position_sizes(
+    item: dict[str, Any],
+    *,
+    side: str,
+    size: float,
+) -> None:
+    own_keys = LONG_POSITION_FIELD_KEYS if side == "long" else SHORT_POSITION_FIELD_KEYS
+    other_keys = SHORT_POSITION_FIELD_KEYS if side == "long" else LONG_POSITION_FIELD_KEYS
+    for key in own_keys:
+        item[key] = size
+    for key in other_keys:
+        item[key] = 0.0
+
+
+def _copy_first_number(
+    item: dict[str, Any],
+    row: dict[str, Any],
+    keys: tuple[str, ...],
+    targets: tuple[str, ...],
+    *,
+    absolute: bool = False,
+) -> None:
+    value = _first_number(*(row.get(key) for key in keys))
+    if value is None:
+        return
+    value = abs(value) if absolute else value
+    for target in targets:
+        item[target] = value
+
+
+def _clear_split_aggregate_fields(item: dict[str, Any]) -> None:
+    for key in _POSITION_SPLIT_DROP_KEYS:
+        item.pop(key, None)
+
+
+def split_bidirectional_position_row(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Split a single exchange hedge-mode row into side-specific rows.
+
+    Some gateways expose one row containing both long and short quantities for
+    the same instrument. Valuation must run per side; netting that row to zero
+    hides the position and loses the side-specific commission and PnL.
+    """
+    if not isinstance(row, dict):
+        return []
+
+    item = dict(row)
+    long_position = _first_number(*(item.get(key) for key in LONG_POSITION_FIELD_KEYS))
+    short_position = _first_number(*(item.get(key) for key in SHORT_POSITION_FIELD_KEYS))
+    long_size = max(long_position or 0.0, 0.0)
+    short_size = max(short_position or 0.0, 0.0)
+    if long_size <= 1e-12 or short_size <= 1e-12:
+        return [item]
+
+    split_rows: list[dict[str, Any]] = []
+    for side, side_size, market_keys, price_keys, pnl_keys in (
+        (
+            "long",
+            long_size,
+            _LONG_MARKET_VALUE_FIELD_KEYS,
+            _LONG_PRICE_FIELD_KEYS,
+            _LONG_PNL_FIELD_KEYS,
+        ),
+        (
+            "short",
+            short_size,
+            _SHORT_MARKET_VALUE_FIELD_KEYS,
+            _SHORT_PRICE_FIELD_KEYS,
+            _SHORT_PNL_FIELD_KEYS,
+        ),
+    ):
+        side_row = dict(item)
+        _clear_split_aggregate_fields(side_row)
+        _set_position_side_fields(
+            side_row,
+            side=side,
+            signed_size=side_size if side == "long" else -side_size,
+        )
+        _set_side_position_sizes(side_row, side=side, size=side_size)
+        _copy_first_number(
+            side_row,
+            item,
+            market_keys,
+            ("market_value", "position_value", "value"),
+            absolute=True,
+        )
+        _copy_first_number(side_row, item, price_keys, _PRICE_FIELD_KEYS)
+        _copy_first_number(side_row, item, pnl_keys, ("gross_pnl",))
+        split_rows.append(side_row)
+
+    return split_rows
+
+
 def _compact_symbol(value: Any) -> str:
     return re.sub(r"[^0-9A-Za-z]", "", str(value or "")).upper()
 
@@ -1083,35 +1370,42 @@ def _trade_matches_position_side(row: dict[str, Any], position_side: str | None)
 
 
 def _trade_signed_size(row: dict[str, Any]) -> float:
-    raw_size = _first_number(
-        _first_value(
-            row,
-            "size",
-            "volume",
-            "qty",
-            "quantity",
-            "fillSz",
-            "fill_size",
-            "execQty",
-            "exec_qty",
-            "trade_volume",
-            "TradeVolume",
-        ),
-        default=0.0,
-    ) or 0.0
+    raw_size = (
+        _first_number(
+            _first_value(
+                row,
+                "size",
+                "volume",
+                "qty",
+                "quantity",
+                "fillSz",
+                "fill_size",
+                "execQty",
+                "exec_qty",
+                "trade_volume",
+                "TradeVolume",
+            ),
+            default=0.0,
+        )
+        or 0.0
+    )
     if raw_size < 0:
         return raw_size
-    side = str(
-        _first_value(
-            row,
-            "side",
-            "trade_side",
-            "direction",
-            "action",
-            "S",
+    side = (
+        str(
+            _first_value(
+                row,
+                "side",
+                "trade_side",
+                "direction",
+                "action",
+                "S",
+            )
+            or ""
         )
-        or ""
-    ).strip().lower()
+        .strip()
+        .lower()
+    )
     if side in {"sell", "short", "s"}:
         return -abs(raw_size)
     if side in {"buy", "long", "b"}:
@@ -1119,7 +1413,9 @@ def _trade_signed_size(row: dict[str, Any]) -> float:
     return raw_size
 
 
-def _trade_commission(row: dict[str, Any], asset_spec: dict[str, Any] | None = None) -> float | None:
+def _trade_commission(
+    row: dict[str, Any], asset_spec: dict[str, Any] | None = None
+) -> float | None:
     key, value = _first_value_with_key(
         row,
         "trade_commission",
@@ -1214,7 +1510,9 @@ def _is_inverse_contract_spec(
     if not contract_ccy:
         return False
     base_ccy = _currency_code(
-        _first_text(row.get("base_asset"), row.get("baseCcy"), spec.get("base_asset"), spec.get("baseCcy"))
+        _first_text(
+            row.get("base_asset"), row.get("baseCcy"), spec.get("base_asset"), spec.get("baseCcy")
+        )
     )
     quote_ccy = _currency_code(
         _first_text(
@@ -1384,7 +1682,9 @@ def _fee_valuation_conversion_rate(
     if fee_currency in _quote_currency_candidates(symbol, asset_spec):
         return 1.0
     if fee_currency in _base_currency_candidates(symbol, asset_spec):
-        price = _trade_price(row) or _price_from_payload(row) or _price_from_payload(asset_spec or {})
+        price = (
+            _trade_price(row) or _price_from_payload(row) or _price_from_payload(asset_spec or {})
+        )
         if price and price > 0:
             return price
     return None
@@ -1676,12 +1976,7 @@ def normalize_gateway_position(
         )
         or 0.0
     )
-    if (
-        price <= 0
-        and abs(size) > 0
-        and multiplier > 0
-        and not inverse_contract
-    ):
+    if price <= 0 and abs(size) > 0 and multiplier > 0 and not inverse_contract:
         position_cost = _safe_float(
             _first_value(
                 row,
@@ -1900,6 +2195,38 @@ def normalize_gateway_position(
     yesterday_position = _first_number(*(row.get(key) for key in YESTERDAY_POSITION_FIELD_KEYS))
     if yesterday_position is not None:
         normalized["yesterday_position"] = yesterday_position
+    long_position = _first_number(*(row.get(key) for key in LONG_POSITION_FIELD_KEYS))
+    if long_position is not None and long_position > 0:
+        normalized["long_position"] = long_position
+    short_position = _first_number(*(row.get(key) for key in SHORT_POSITION_FIELD_KEYS))
+    if short_position is not None and short_position > 0:
+        normalized["short_position"] = short_position
+    long_market_value = _first_number(
+        _first_value(
+            row,
+            "long_market_value",
+            "longMarketValue",
+            "long_position_value",
+            "longPositionValue",
+            "long_notional",
+            "longNotional",
+        )
+    )
+    if long_market_value is not None:
+        normalized["long_market_value"] = abs(long_market_value)
+    short_market_value = _first_number(
+        _first_value(
+            row,
+            "short_market_value",
+            "shortMarketValue",
+            "short_position_value",
+            "shortPositionValue",
+            "short_notional",
+            "shortNotional",
+        )
+    )
+    if short_market_value is not None:
+        normalized["short_market_value"] = abs(short_market_value)
     if has_commission:
         normalized["commission"] = commission
         normalized["commission_signed"] = True
@@ -1909,7 +2236,9 @@ def normalize_gateway_position(
         normalized["commission_currency_mismatch"] = True
     if has_swap:
         normalized["swap"] = swap
-    realized_pnl = _first_value(row, "realized_pnl", "position_realized_pnl", "realizedPnl", "realised_pnl")
+    realized_pnl = _first_value(
+        row, "realized_pnl", "position_realized_pnl", "realizedPnl", "realised_pnl"
+    )
     if realized_pnl not in (None, ""):
         normalized["realized_pnl"] = realized_pnl
     leverage = _first_value(row, "leverage", "lever", "max_leverage")
@@ -1945,7 +2274,9 @@ def normalize_gateway_position(
     )
     if market_value not in (None, ""):
         market_value_number = _safe_float(market_value)
-        normalized["market_value"] = market_value_number if market_value_number is not None else market_value
+        normalized["market_value"] = (
+            market_value_number if market_value_number is not None else market_value
+        )
     if explicit_margin is not None:
         normalized["margin_value"] = abs(explicit_margin)
         normalized["use_margin"] = abs(explicit_margin)
@@ -1999,7 +2330,9 @@ def normalize_asset_spec(
         data.get("description"),
     )
 
-    asset_type_text = _first_text(data.get("asset_type"), data.get("instType"), data.get("category"))
+    asset_type_text = _first_text(
+        data.get("asset_type"), data.get("instType"), data.get("category")
+    )
     contract_type_text = _first_text(
         data.get("contract_type"),
         data.get("ctType"),
@@ -2073,8 +2406,10 @@ def normalize_asset_spec(
                     okx_contract_value,
                 )
             )
-        if multiplier is None and is_derivative and "linear" in (
-            f"{asset_type_text} {contract_type_text}".lower()
+        if (
+            multiplier is None
+            and is_derivative
+            and "linear" in (f"{asset_type_text} {contract_type_text}".lower())
         ):
             multiplier = 1.0
     price_tick = _first_number(
@@ -2174,9 +2509,7 @@ def normalize_asset_spec(
     )
     if margin_rate is None:
         margin_rate = (
-            (1.0 / leverage)
-            if leverage and leverage > 0
-            else long_margin_rate or short_margin_rate
+            (1.0 / leverage) if leverage and leverage > 0 else long_margin_rate or short_margin_rate
         )
     margin_amount = _first_number(
         data.get("margin_amount"),
@@ -2288,9 +2621,7 @@ def normalize_asset_spec(
     )
     if commission_rate is None:
         commission_rate = (
-            taker_commission_rate
-            if taker_commission_rate is not None
-            else maker_commission_rate
+            taker_commission_rate if taker_commission_rate is not None else maker_commission_rate
         )
     commission_amount_key, commission_amount_raw = _first_value_with_key(
         data,
@@ -2425,10 +2756,13 @@ def normalize_asset_spec(
     if short_margin_rate is not None:
         spec["short_margin_rate"] = short_margin_rate
     if commission_rate is not None:
-        normalized_commission_rate = _normalize_role_commission_rate(
-            commission_rate_key,
-            commission_rate,
-        ) or 0.0
+        normalized_commission_rate = (
+            _normalize_role_commission_rate(
+                commission_rate_key,
+                commission_rate,
+            )
+            or 0.0
+        )
         if commission_rate_key == "COMMISSION_OPEN_RATIO" and data.get("commission_method") is None:
             spec["commission_method"] = "percent_10k"
         spec["commission_rate"] = normalized_commission_rate
@@ -3084,7 +3418,12 @@ def symbols_for_instance(instance: dict[str, Any], strategy_dir: Path) -> list[s
         if isinstance(value, (list, tuple, set)):
             candidates.extend(value)
     for source in (config, params, _as_dict(config.get("params")), _as_dict(config.get("live"))):
-        for container_key in ("contract_metadata", "contracts", "contract_specs", "instrument_specs"):
+        for container_key in (
+            "contract_metadata",
+            "contracts",
+            "contract_specs",
+            "instrument_specs",
+        ):
             container = source.get(container_key) if isinstance(source, dict) else None
             if not isinstance(container, dict):
                 continue
