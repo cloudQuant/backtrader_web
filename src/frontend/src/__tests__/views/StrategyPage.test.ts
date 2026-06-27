@@ -946,6 +946,16 @@ describe('StrategyPage', () => {
           iteration: 1,
           strategy_id: 's1',
           strategy_name: 'AI策略',
+          strategy_snapshot: {
+            id: 's1',
+            name: 'AI策略快照',
+            description: '历史快照脚本',
+            code: 'import backtrader as bt\nclass SnapshotStrategy(bt.Strategy):\n    pass\n',
+            params: {},
+            category: 'trend',
+            created_at: '2026-06-27T00:00:00Z',
+            updated_at: '2026-06-27T00:01:00Z',
+          },
           unit_id: 'unit-1',
           unit_snapshot: {
             id: 'unit-1',
@@ -1001,6 +1011,7 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchResult.run_record.paper_trading_started).toBe(true)
       expect(vm.aiResearchResult.iterations).toHaveLength(1)
       expect(vm.aiResearchResult.iterations[0].strategy.id).toBe('s1')
+      expect(vm.aiResearchResult.iterations[0].strategy.name).toBe('AI策略快照')
       expect(vm.aiResearchResult.iterations[0].unit.id).toBe('unit-1')
       expect(vm.aiResearchResult.iterations[0].sharpe_ratio).toBe(1.2)
       expect(vm.aiResearchPaperStatusText).toBe('已启动')
@@ -1015,8 +1026,9 @@ describe('StrategyPage', () => {
       expect(iterationScriptButton).toBeTruthy()
       await iterationScriptButton!.trigger('click')
       await flushPromises()
-      expect(strategyApi.get).toHaveBeenCalledWith('s1')
-      vi.mocked(strategyApi.get).mockClear()
+      expect(strategyApi.get).not.toHaveBeenCalled()
+      expect(vm.currentStrategy.name).toBe('AI策略快照')
+      expect(vm.currentStrategy.code).toContain('SnapshotStrategy')
       await vm.viewBestStrategyFromCurrentResult()
       await flushPromises()
       expect(strategyApi.get).toHaveBeenCalledWith('s1')

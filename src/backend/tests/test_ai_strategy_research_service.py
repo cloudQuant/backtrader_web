@@ -1647,11 +1647,17 @@ async def test_research_loop_enriches_backtest_with_asset_specs(monkeypatch):
     assert result.run_record.backtest_environment["asset_spec_source"] == (
         "local_futures_commission"
     )
+    strategy_snapshot = result.run_record.iterations[0]["strategy_snapshot"]
+    assert strategy_snapshot["id"] == result.iterations[0].strategy.id
+    assert strategy_snapshot["name"] == result.iterations[0].strategy.name
+    assert "bt.Strategy" in strategy_snapshot["code"]
+    assert isinstance(strategy_snapshot["params"], dict)
     unit_snapshot = result.run_record.iterations[0]["unit_snapshot"]
     assert unit_snapshot["data_config"]["contract_metadata"]["IF2609"]["multiplier"] == 300
     assert unit_snapshot["unit_settings"]["commission"] == pytest.approx(0.000023)
     assert unit_snapshot["unit_settings"]["asset_spec_source"] == "local_futures_commission"
     persisted_run = result.research_workspace.settings["ai_research"]["runs"][0]
+    assert "bt.Strategy" in persisted_run["iterations"][0]["strategy_snapshot"]["code"]
     assert persisted_run["asset_specs"]["IF2609"]["margin_rate"] == pytest.approx(0.1)
     assert persisted_run["backtest_environment"]["commission"] == pytest.approx(0.000023)
 

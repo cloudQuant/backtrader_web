@@ -2349,12 +2349,13 @@ function strategyFromIterationRecord(
   iteration: number
 ): Strategy {
   const snapshot = isRecord(payload.unit_snapshot) ? payload.unit_snapshot : {}
+  const strategySnapshot = isRecord(payload.strategy_snapshot) ? payload.strategy_snapshot : {}
   const strategyId = stringFromUnknown(
-    payload.strategy_id,
+    strategySnapshot.id ?? payload.strategy_id,
     record.best_strategy_id || `${record.run_id}-iteration-${iteration}`
   )
   const strategyName = stringFromUnknown(
-    payload.strategy_name,
+    strategySnapshot.name ?? payload.strategy_name,
     record.best_strategy_name || `AI策略 第${iteration}轮`
   )
   const diagnostics = isRecord(payload.diagnostics) ? payload.diagnostics : {}
@@ -2362,12 +2363,14 @@ function strategyFromIterationRecord(
     id: strategyId,
     user_id: '',
     name: strategyName,
-    description: stringFromUnknown(diagnostics.summary, record.prompt),
-    code: stringFromUnknown(payload.strategy_code, stringFromUnknown(payload.code, '')),
-    params: isRecord(snapshot.params) ? snapshot.params as Strategy['params'] : {},
-    category: stringFromUnknown(snapshot.category, 'custom'),
-    created_at: record.started_at,
-    updated_at: record.completed_at,
+    description: stringFromUnknown(strategySnapshot.description, stringFromUnknown(diagnostics.summary, record.prompt)),
+    code: stringFromUnknown(strategySnapshot.code, stringFromUnknown(payload.strategy_code, stringFromUnknown(payload.code, ''))),
+    params: isRecord(strategySnapshot.params)
+      ? strategySnapshot.params as Strategy['params']
+      : isRecord(snapshot.params) ? snapshot.params as Strategy['params'] : {},
+    category: stringFromUnknown(strategySnapshot.category, stringFromUnknown(snapshot.category, 'custom')),
+    created_at: stringFromUnknown(strategySnapshot.created_at, record.started_at),
+    updated_at: stringFromUnknown(strategySnapshot.updated_at, record.completed_at),
   }
 }
 

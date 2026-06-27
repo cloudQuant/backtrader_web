@@ -3760,6 +3760,7 @@ def _compact_research_iteration(item: AIStrategyResearchIteration) -> dict[str, 
         "iteration": item.iteration,
         "strategy_id": item.strategy.id,
         "strategy_name": item.strategy.name,
+        "strategy_snapshot": _compact_strategy_snapshot(item.strategy),
         "unit_id": item.unit.id,
         "unit_snapshot": _compact_unit_snapshot(item.unit),
         "task_id": item.run_result.task_id,
@@ -3789,6 +3790,26 @@ def _compact_research_iteration(item: AIStrategyResearchIteration) -> dict[str, 
         "improvement_plan": item.improvement_plan,
         "improvement_notes": item.improvement_notes,
         "next_actions": item.next_actions,
+    }
+
+
+def _compact_strategy_snapshot(strategy: StrategyResponse) -> dict[str, Any]:
+    return {
+        "id": strategy.id,
+        "name": strategy.name,
+        "description": strategy.description,
+        "code": strategy.code,
+        "params": {
+            key: value.model_dump(mode="json") if hasattr(value, "model_dump") else value
+            for key, value in dict(strategy.params or {}).items()
+        },
+        "category": strategy.category,
+        "created_at": strategy.created_at.isoformat()
+        if hasattr(strategy.created_at, "isoformat")
+        else strategy.created_at,
+        "updated_at": strategy.updated_at.isoformat()
+        if hasattr(strategy.updated_at, "isoformat")
+        else strategy.updated_at,
     }
 
 
