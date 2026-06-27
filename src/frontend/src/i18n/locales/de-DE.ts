@@ -52,7 +52,6 @@ export default buildLocale({
     portfolio: 'Portfolio',
     brokers: 'Broker-Konfiguration',
     portfolioLedger: 'Portfolio-Buch',
-    equityResearch: 'Aktienanalyse',
     newsIntelligence: 'News-Intelligence',
     stockAnalysis: 'Aktienanalyse',
     optionsChain: 'Optionskette',

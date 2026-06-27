@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.api.deps import get_current_user
 from app.schemas.ai_strategy_research import (
+    AIStrategyLiveHandoffApprovalRequest,
+    AIStrategyLiveHandoffPackage,
     AIStrategyPaperTradingReview,
     AIStrategyPaperTradingStart,
     AIStrategyPaperTradingStartRequest,
@@ -379,6 +381,52 @@ async def review_ai_strategy_research_paper_trading(
         return await service.review_paper_trading_run(
             current_user.sub,
             run_id,
+            research_workspace_id=research_workspace_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/ai-research/runs/{run_id}/live-handoff",
+    response_model=AIStrategyLiveHandoffPackage,
+    summary="Build live handoff package for an AI strategy research run",
+)
+async def build_ai_strategy_research_live_handoff(
+    run_id: str,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+    research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
+):
+    """Build a manual-approval package for a paper-trading live candidate."""
+    try:
+        return await service.build_live_handoff_package(
+            current_user.sub,
+            run_id,
+            research_workspace_id=research_workspace_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/ai-research/runs/{run_id}/live-handoff/approval",
+    response_model=AIStrategyLiveHandoffPackage,
+    summary="Record manual approval for an AI strategy live handoff package",
+)
+async def approve_ai_strategy_research_live_handoff(
+    run_id: str,
+    data: AIStrategyLiveHandoffApprovalRequest,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+    research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
+):
+    """Persist a human approval or rejection decision for a live handoff package."""
+    try:
+        return await service.record_live_handoff_approval(
+            current_user.sub,
+            run_id,
+            data,
             research_workspace_id=research_workspace_id,
         )
     except ValueError as exc:

@@ -144,7 +144,7 @@ AI for Trader 的投资人叙事不应停留在“我们做了很多功能”，
 | AI 可观测 | 已预置 3 条成功调用和 1 条失败诊断，累计 Token 11070 |
 | 新闻情报 | 已预置 4 条新闻和情绪/事件分析 |
 | 中文默认语言 | `DEFAULT_LOCALE = 'zh-CN'` |
-| 截图与审计资产 | 32 张截图和 `playwright-investor-audit.json` 均存在 |
+| 截图与审计资产 | 31 张截图和 `playwright-investor-audit.json` 均存在 |
 
 本轮代码级验收命令已通过：
 
@@ -431,12 +431,6 @@ AI + 量化讲法：
 ![数据表浏览](assets/screenshots/09-data-tables.png)
 
 *数据与市场情报 / 数据表浏览：浏览结构化数据表，支撑策略研究和回测数据核验。*
-
-#### 图 10：个股研究
-
-![个股研究](assets/screenshots/10-equity-research.png)
-
-*市场智能 / 个股研究：沉淀个股研究信息，让 AI 辅助总结公司和标的机会。*
 
 #### 图 11：新闻情报
 

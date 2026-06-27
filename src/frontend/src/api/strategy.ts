@@ -171,12 +171,23 @@ export interface AIStrategyQualityGateEvaluation {
 export interface AIStrategyResearchDiagnostics {
   summary?: string
   metric_snapshot?: Record<string, number | null>
+  iteration_progress?: AIStrategyIterationProgress
   failure_categories?: string[]
   strengths?: string[]
   weaknesses?: string[]
   improvement_plan?: string[]
   promotion_ready?: boolean
   out_of_sample_validation?: AIStrategyOutOfSampleValidation
+}
+
+export interface AIStrategyIterationProgress {
+  status?: 'baseline' | 'improved' | 'regressed' | 'stalled' | string
+  previous_iteration?: number | null
+  quality_score_delta?: number | null
+  sharpe_delta?: number | null
+  total_trades_delta?: number | null
+  max_drawdown_delta?: number | null
+  summary?: string
 }
 
 export interface AIStrategyPaperMonitoringRule {
@@ -309,6 +320,8 @@ export interface AIStrategyResearchRunRecord {
   paper_review_next_actions?: string[]
   live_readiness_checklist?: AIStrategyLiveReadinessItem[]
   live_readiness_expires_at?: string | null
+  live_handoff?: AIStrategyLiveHandoffPackage | null
+  live_handoff_approval?: AIStrategyLiveHandoffApprovalRecord | null
   pipeline?: AIStrategyPipelineSummary
   next_actions: string[]
   started_at: string
@@ -352,12 +365,43 @@ export interface AIStrategyResearchTaskResponse {
   completed_at?: string | null
   run_id?: string | null
   research_workspace_id?: string | null
+  request_snapshot?: AIStrategyResearchRunRequest & Record<string, unknown>
   current_stage: string
   progress: number
   current_iteration?: number | null
   iteration_count: number
   max_iterations?: number | null
   latest_iteration?: Record<string, unknown> | null
+  run_status?: string | null
+  achieved?: boolean | null
+  target_sharpe?: number | null
+  best_iteration?: number | null
+  best_sharpe?: number | null
+  best_quality_score?: number | null
+  best_quality_gate_evaluations?: AIStrategyQualityGateEvaluation[]
+  best_diagnostics?: AIStrategyResearchDiagnostics
+  best_metrics?: Record<string, unknown>
+  best_strategy_id?: string | null
+  best_strategy_name?: string | null
+  asset_specs?: Record<string, Record<string, unknown>>
+  backtest_environment?: Record<string, unknown>
+  paper_workspace_id?: string | null
+  paper_workspace_name?: string | null
+  paper_unit_id?: string | null
+  paper_trading_started?: boolean
+  paper_monitoring_plan?: AIStrategyPaperMonitoringRule[]
+  paper_handoff?: Record<string, unknown>
+  paper_review_status?: string | null
+  paper_review_ready_for_live?: boolean
+  paper_reviewed_at?: string | null
+  paper_review_evaluations?: AIStrategyPaperTradingRuleEvaluation[]
+  paper_review_next_actions?: string[]
+  live_readiness_checklist?: AIStrategyLiveReadinessItem[]
+  live_readiness_expires_at?: string | null
+  live_handoff?: AIStrategyLiveHandoffPackage | null
+  live_handoff_approval?: AIStrategyLiveHandoffApprovalRecord | null
+  pipeline?: AIStrategyPipelineSummary
+  next_actions?: string[]
   current_backtest_task_id?: string | null
   cancelled_backtest_task_id?: string | null
   child_cancelled?: boolean
@@ -389,6 +433,66 @@ export interface AIStrategyPaperTradingReview {
   live_readiness_expires_at?: string | null
   pipeline?: AIStrategyPipelineSummary
   next_actions: string[]
+  live_handoff?: AIStrategyLiveHandoffPackage | null
+}
+
+export interface AIStrategyLiveHandoffApprovalRequest {
+  decision: 'approved' | 'rejected'
+  approver?: string | null
+  comment?: string | null
+  account_confirmed?: boolean
+  risk_limit_confirmed?: boolean
+  deployment_window?: string | null
+}
+
+export interface AIStrategyLiveHandoffApprovalRecord {
+  run_id: string
+  research_workspace_id: string
+  decision: string
+  approved: boolean
+  decided_at: string
+  decided_by: string
+  comment?: string | null
+  account_confirmed: boolean
+  risk_limit_confirmed: boolean
+  deployment_window?: string | null
+  handoff_status_at_decision: string
+  blockers: string[]
+}
+
+export interface AIStrategyLiveHandoffPackage {
+  run_id: string
+  research_workspace_id: string
+  generated_at: string
+  ready_for_live: boolean
+  status: string
+  approval_required: boolean
+  expires_at?: string | null
+  paper_workspace_id?: string | null
+  paper_unit_id?: string | null
+  best_strategy_id?: string | null
+  best_strategy_name?: string | null
+  symbol: string
+  symbol_name?: string
+  timeframe: string
+  timeframe_n: number
+  target_sharpe: number
+  best_sharpe: number
+  best_metrics: Record<string, unknown>
+  asset_specs: Record<string, unknown>
+  backtest_environment: Record<string, unknown>
+  paper_review_status?: string | null
+  paper_reviewed_at?: string | null
+  paper_review_evaluations: AIStrategyPaperTradingRuleEvaluation[]
+  paper_monitoring_plan: AIStrategyPaperMonitoringRule[]
+  live_readiness_checklist: AIStrategyLiveReadinessItem[]
+  approvals_required: AIStrategyLiveReadinessItem[]
+  deployment_blockers: string[]
+  approval_status?: string | null
+  approval?: AIStrategyLiveHandoffApprovalRecord | null
+  handoff: Record<string, unknown>
+  pipeline: AIStrategyPipelineSummary
+  next_actions: string[]
 }
 
 export interface AIStrategyPipelineStep {
@@ -409,6 +513,15 @@ export interface AIStrategyPipelineSummary {
   paper_trading_error?: string | null
   live_readiness_checklist?: AIStrategyLiveReadinessItem[]
   live_readiness_expires_at?: string | null
+  live_handoff_status?: string | null
+  live_handoff_generated_at?: string | null
+  live_handoff_ready_for_live?: boolean
+  live_handoff_approval_required?: boolean
+  live_handoff_blocker_count?: number
+  live_handoff_approval_status?: string | null
+  live_handoff_approved?: boolean | null
+  live_handoff_approved_at?: string | null
+  live_handoff_rejected_at?: string | null
   steps: AIStrategyPipelineStep[]
 }
 
@@ -627,6 +740,32 @@ export const strategyApi = {
   ): Promise<AIStrategyPaperTradingReview> {
     return api.get<AIStrategyPaperTradingReview>(
       `/strategy/ai-research/runs/${runId}/paper-trading/review`,
+      {
+        params: { research_workspace_id: researchWorkspaceId || undefined },
+      }
+    )
+  },
+
+  async buildAIResearchLiveHandoff(
+    runId: string,
+    researchWorkspaceId?: string | null
+  ): Promise<AIStrategyLiveHandoffPackage> {
+    return api.get<AIStrategyLiveHandoffPackage>(
+      `/strategy/ai-research/runs/${runId}/live-handoff`,
+      {
+        params: { research_workspace_id: researchWorkspaceId || undefined },
+      }
+    )
+  },
+
+  async approveAIResearchLiveHandoff(
+    runId: string,
+    data: AIStrategyLiveHandoffApprovalRequest,
+    researchWorkspaceId?: string | null
+  ): Promise<AIStrategyLiveHandoffPackage> {
+    return api.post<AIStrategyLiveHandoffPackage, AIStrategyLiveHandoffApprovalRequest>(
+      `/strategy/ai-research/runs/${runId}/live-handoff/approval`,
+      data,
       {
         params: { research_workspace_id: researchWorkspaceId || undefined },
       }

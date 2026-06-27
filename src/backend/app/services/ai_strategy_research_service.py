@@ -16,6 +16,9 @@ from typing import Any
 
 from app.config import get_settings
 from app.schemas.ai_strategy_research import (
+    AIStrategyLiveHandoffApprovalRecord,
+    AIStrategyLiveHandoffApprovalRequest,
+    AIStrategyLiveHandoffPackage,
     AIStrategyPaperTradingReview,
     AIStrategyPaperTradingRuleEvaluation,
     AIStrategyPaperTradingStart,
@@ -63,6 +66,20 @@ _TERMINAL_UNIT_STATUSES = {"completed", "failed", "cancelled", "timeout"}
 _MAX_CODE_REPAIR_ATTEMPTS = 2
 _PAPER_TRADING_STARTED_STATUSES = {"running", "submitted", "queued", "pending", "completed"}
 _LIVE_READINESS_VALID_DAYS = 7
+_SENSITIVE_HANDOFF_KEYS = (
+    "api_key",
+    "apikey",
+    "access_key",
+    "password",
+    "passphrase",
+    "auth_code",
+    "credential",
+    "secret",
+    "secret_key",
+    "token",
+    "authorization",
+)
+_SENSITIVE_OMITTED = object()
 
 
 @dataclass(frozen=True)
@@ -110,10 +127,37 @@ class LocalStrategyImprover:
         improved = draft.model_copy(deep=True)
         notes: list[str] = []
         failures = [str(item) for item in quality_gate_failures or []]
+        research_feedback = (
+            dict(metrics.get("research_feedback"))
+            if isinstance(metrics.get("research_feedback"), dict)
+            else {}
+        )
+        failure_categories = {
+            str(item)
+            for item in [
+                *_string_list(metrics.get("failure_categories")),
+                *_string_list(research_feedback.get("failure_categories")),
+            ]
+            if str(item).strip()
+        }
         sharpe = _metric_float(metrics, "sharpe_ratio", "sharpe", "sharpeRatio")
         max_drawdown = _metric_float(metrics, "max_drawdown", "maxDrawdown", default=0.0)
         total_trades = _metric_int(metrics, "total_trades", "totalTrades", "trades")
-        drawdown_failed = any("drawdown" in item.lower() or "回撤" in item for item in failures)
+        drawdown_failed = "drawdown" in failure_categories or any(
+            "drawdown" in item.lower() or "回撤" in item for item in failures
+        )
+        out_of_sample_failed = "out_of_sample" in failure_categories
+        execution_cost_failed = "execution_cost" in failure_categories
+        valuation_context_failed = "valuation_context" in failure_categories
+        live_handoff_rejected = "live_handoff_rejected" in failure_categories
+        iteration_progress = (
+            dict(metrics.get("iteration_progress"))
+            if isinstance(metrics.get("iteration_progress"), dict)
+            else {}
+        )
+        progress_status = str(iteration_progress.get("status") or "").strip().lower()
+        regressed = progress_status == "regressed"
+        stalled = progress_status == "stalled"
 
         suffix = f" v{iteration + 1}"
         base_name = re.sub(r"\s+v\d+$", "", improved.name).strip()
@@ -125,35 +169,73 @@ class LocalStrategyImprover:
         ).strip()
 
         params = improved.params
+        if regressed:
+            notes.append("上一轮自动改稿相对前一轮退化，本轮切换为保守修复。")
+        elif stalled:
+            notes.append("上一轮自动改稿基本停滞，本轮将扩大信号和风控结构调整幅度。")
+        if out_of_sample_failed:
+            notes.append("样本外验证未通过，本轮降低参数敏感度并优先保留稳健信号。")
+        if execution_cost_failed:
+            notes.append("执行成本或滑点压力偏高，本轮降低换手和无效交易。")
+        if valuation_context_failed:
+            notes.append("资产规格或估值上下文存在风险，本轮保留交易约束并避免扩大杠杆暴露。")
+        if live_handoff_rejected:
+            notes.append("实盘交接人工审批未通过，本轮按审批意见降低上线风险并重新验证。")
+
         if "risk_pct" in params:
             current = _param_float(params["risk_pct"], 0.01)
-            next_value = max(round(current * 0.8, 5), 0.001)
+            risk_scale = (
+                0.65
+                if regressed
+                else 0.7
+                if live_handoff_rejected
+                else 0.75
+                if out_of_sample_failed
+                else 0.8
+            )
+            next_value = max(round(current * risk_scale, 5), 0.001)
             _set_param_default(params, "risk_pct", next_value)
             notes.append(f"将单笔风险从 {current:g} 下调到 {next_value:g}")
 
         if "stop_loss_pct" in params and (max_drawdown < -10 or drawdown_failed):
             current = _param_float(params["stop_loss_pct"], 0.05)
-            next_value = max(round(current * 0.8, 4), 0.01)
+            stop_scale = 0.7 if regressed else 0.8
+            next_value = max(round(current * stop_scale, 4), 0.01)
             _set_param_default(params, "stop_loss_pct", next_value)
             notes.append(f"最大回撤偏大，止损比例从 {current:g} 收紧到 {next_value:g}")
 
         if "take_profit_pct" in params and sharpe < target_sharpe:
             current = _param_float(params["take_profit_pct"], 0.1)
-            next_value = round(current * 1.1, 4)
+            take_profit_scale = 1.03 if regressed else 1.15 if stalled else 1.1
+            next_value = round(current * take_profit_scale, 4)
             _set_param_default(params, "take_profit_pct", next_value)
             notes.append(f"盈亏比不足，止盈比例从 {current:g} 提高到 {next_value:g}")
 
         if "atr_stop_multiplier" in params:
             current = _param_float(params["atr_stop_multiplier"], 2.0)
-            next_value = round(max(current * 0.9, 1.0), 3)
+            atr_scale = 0.8 if regressed else 0.85 if stalled else 0.9
+            next_value = round(max(current * atr_scale, 1.0), 3)
             _set_param_default(params, "atr_stop_multiplier", next_value)
             notes.append(f"ATR 止损倍数从 {current:g} 调整到 {next_value:g}")
 
         if "fast_period" in params and "slow_period" in params:
             fast = _param_int(params["fast_period"], 10)
             slow = _param_int(params["slow_period"], 30)
-            next_fast = max(fast - 1, 2) if total_trades < 3 else fast
-            next_slow = max(slow + 2, next_fast + 2)
+            if execution_cost_failed:
+                next_fast = fast + 1
+                next_slow = max(slow + 3, next_fast + 2)
+            elif total_trades < 3:
+                next_fast = max(fast - (2 if stalled else 1), 2)
+                next_slow = max(slow + (4 if stalled else 2), next_fast + 2)
+            elif regressed:
+                next_fast = fast
+                next_slow = max(slow + 1, next_fast + 2)
+            elif stalled:
+                next_fast = max(fast - 1, 2)
+                next_slow = max(slow + 3, next_fast + 2)
+            else:
+                next_fast = fast
+                next_slow = max(slow + 2, next_fast + 2)
             if next_fast != fast or next_slow != slow:
                 _set_param_default(params, "fast_period", next_fast)
                 _set_param_default(params, "slow_period", next_slow)
@@ -161,7 +243,10 @@ class LocalStrategyImprover:
 
         if "rsi_period" in params and sharpe < target_sharpe:
             current = _param_int(params["rsi_period"], 14)
-            next_value = max(current - 1, 5) if total_trades < 3 else current + 1
+            if total_trades < 3:
+                next_value = max(current - (2 if stalled else 1), 5)
+            else:
+                next_value = current + (2 if regressed or stalled else 1)
             _set_param_default(params, "rsi_period", next_value)
             notes.append(f"RSI 周期从 {current} 调整到 {next_value}")
 
@@ -303,11 +388,13 @@ class AIStrategyResearchService:
         *,
         strategy_service: StrategyService | None = None,
         workspace_service: WorkspaceService | None = None,
+        backtest_service: Any | None = None,
         improver: Any | None = None,
         sleep: Callable[[float], Awaitable[None]] | None = None,
     ) -> None:
         self.strategy_service = strategy_service or StrategyService()
         self.workspace_service = workspace_service or WorkspaceService()
+        self.backtest_service = backtest_service
         self.improver = improver or AIStrategyImprover()
         self.sleep = sleep or asyncio.sleep
 
@@ -420,7 +507,10 @@ class AIStrategyResearchService:
                 improvement = await self._improve_draft(
                     draft,
                     iteration=0,
-                    metrics=dict(request.continuation_context.get("metrics") or {}),
+                    metrics=_continuation_improvement_metrics(
+                        request.continuation_context,
+                        request,
+                    ),
                     target_sharpe=request.target_sharpe,
                     quality_gate_failures=continuation_failures,
                     user_id=user_id,
@@ -451,6 +541,8 @@ class AIStrategyResearchService:
                 continuation_note = "基于上一轮取消前已完成迭代的失败指标生成 continuation 改进版。"
             elif continuation_source == "research_failure":
                 continuation_note = "基于上一轮投研未达标原因生成 continuation 改进版。"
+            elif continuation_source == "live_handoff_rejected":
+                continuation_note = "基于上一轮实盘交接驳回意见生成 continuation 改进版。"
             else:
                 continuation_note = "基于上一轮模拟交易复核结果生成 continuation 改进版。"
             pending_improvement_notes = [
@@ -788,6 +880,7 @@ class AIStrategyResearchService:
                         quality_gate_failures = [*quality_gate_failures, validation_failure_reason]
                         failure_reason = validation_failure_reason
                         passed = False
+            previous_iteration = iterations[-1] if iterations else None
             diagnostics = _iteration_diagnostics(
                 request,
                 iteration=iteration,
@@ -796,6 +889,8 @@ class AIStrategyResearchService:
                 quality_gate_failures=quality_gate_failures,
                 quality_gate_evaluations=quality_gate_evaluations,
                 failure_reason=failure_reason,
+                previous_iteration=previous_iteration,
+                quality_score=quality_score,
             )
             if request.out_of_sample_validation:
                 diagnostics["out_of_sample_validation"] = {
@@ -886,10 +981,36 @@ class AIStrategyResearchService:
                     },
                 )
                 try:
+                    improvement_base_draft = draft
+                    rollback_note = None
+                    iteration_progress = diagnostics.get("iteration_progress")
+                    progress_status = (
+                        str(iteration_progress.get("status") or "").strip()
+                        if isinstance(iteration_progress, dict)
+                        else ""
+                    )
+                    if (
+                        progress_status == "regressed"
+                        and best_iteration is not None
+                        and best_iteration.iteration != item.iteration
+                    ):
+                        improvement_base_draft = _draft_from_strategy(
+                            best_iteration.strategy,
+                            request,
+                        )
+                        rollback_note = (
+                            f"第 {iteration} 轮自动改稿退化，下一版回退到当前最佳第 "
+                            f"{best_iteration.iteration} 轮策略后继续改进。"
+                        )
                     improvement = await self._improve_draft(
-                        draft,
+                        improvement_base_draft,
                         iteration=iteration,
-                        metrics=_improvement_metrics(metrics, validation_metrics),
+                        metrics=_improvement_metrics(
+                            metrics,
+                            validation_metrics,
+                            iteration_progress=diagnostics.get("iteration_progress"),
+                            diagnostics=diagnostics,
+                        ),
                         target_sharpe=request.target_sharpe,
                         quality_gate_failures=quality_gate_failures,
                         user_id=user_id,
@@ -909,7 +1030,9 @@ class AIStrategyResearchService:
                     )
                     raise
                 draft = _normalize_research_draft(improvement.draft, request)
-                pending_improvement_notes = improvement.notes
+                pending_improvement_notes = (
+                    [rollback_note, *improvement.notes] if rollback_note else improvement.notes
+                )
 
         paper_trading = None
         paper_trading_error = None
@@ -1286,8 +1409,67 @@ class AIStrategyResearchService:
                 live_readiness_expires_at=live_readiness_expires_at,
             ),
         )
-        await self._mark_run_record_paper_reviewed(user_id, record, review)
+        updated_record = await self._mark_run_record_paper_reviewed(user_id, record, review)
+        if updated_record is not None and updated_record.live_handoff is not None:
+            review = review.model_copy(
+                update={
+                    "live_handoff": updated_record.live_handoff,
+                    "pipeline": updated_record.pipeline,
+                    "next_actions": updated_record.next_actions,
+                }
+            )
         return review
+
+    async def build_live_handoff_package(
+        self,
+        user_id: str,
+        run_id: str,
+        *,
+        research_workspace_id: str | None = None,
+    ) -> AIStrategyLiveHandoffPackage:
+        record = await self._find_research_run_record(
+            user_id,
+            run_id,
+            research_workspace_id=research_workspace_id,
+        )
+        if record is None:
+            raise ValueError("AI research run record not found")
+        record = _research_run_record_with_pipeline(record)
+        package = _build_live_handoff_package(record)
+        updated_record = _run_record_with_live_handoff(record, package)
+        await self._mark_run_record_live_handoff_built(user_id, record, package)
+        return updated_record.live_handoff or package
+
+    async def record_live_handoff_approval(
+        self,
+        user_id: str,
+        run_id: str,
+        request: AIStrategyLiveHandoffApprovalRequest,
+        *,
+        research_workspace_id: str | None = None,
+    ) -> AIStrategyLiveHandoffPackage:
+        record = await self._find_research_run_record(
+            user_id,
+            run_id,
+            research_workspace_id=research_workspace_id,
+        )
+        if record is None:
+            raise ValueError("AI research run record not found")
+        record = _research_run_record_with_pipeline(record)
+        package = _build_live_handoff_package(record)
+        approval = _build_live_handoff_approval_record(
+            user_id=user_id,
+            record=record,
+            package=package,
+            request=request,
+        )
+        await self._mark_run_record_live_handoff_approval(user_id, record, package, approval)
+        return _build_live_handoff_package(
+            _run_record_with_live_handoff_approval(
+                _run_record_with_live_handoff(record, package),
+                approval,
+            )
+        )
 
     async def _ensure_research_workspace(
         self,
@@ -1530,21 +1712,42 @@ class AIStrategyResearchService:
                     return matched, None if matched.run_status == "completed" else matched.run_status
             await self.sleep(poll_interval_seconds)
 
+        task_id = last_status.last_task_id if last_status else None
+        cancel_requested = False
+        if task_id:
+            cancel_requested = await self._cancel_backtest_task(task_id, user_id)
+
+        trading_snapshot = dict(last_status.trading_snapshot if last_status else {})
+        if task_id:
+            trading_snapshot["backtest_timeout_task_id"] = task_id
+            trading_snapshot["backtest_timeout_cancel_requested"] = cancel_requested
+
         timeout_status = UnitStatusResponse(
             id=unit_id,
             run_status="timeout",
-            last_task_id=last_status.last_task_id if last_status else None,
+            last_task_id=task_id,
             metrics_snapshot=dict(last_status.metrics_snapshot if last_status else {}),
             run_count=last_status.run_count if last_status else 0,
             last_run_time=last_status.last_run_time if last_status else None,
             bar_count=last_status.bar_count if last_status else None,
             trading_instance_id=last_status.trading_instance_id if last_status else None,
-            trading_snapshot=dict(last_status.trading_snapshot if last_status else {}),
+            trading_snapshot=trading_snapshot,
             trading_mode=last_status.trading_mode if last_status else "paper",
             lock_trading=last_status.lock_trading if last_status else False,
             lock_running=last_status.lock_running if last_status else False,
         )
         return timeout_status, "Backtest timed out"
+
+    async def _cancel_backtest_task(self, task_id: str, user_id: str) -> bool:
+        try:
+            service = self.backtest_service
+            if service is None:
+                from app.services.backtest.service import BacktestService
+
+                service = BacktestService()
+            return bool(await service.cancel_task(task_id, user_id))
+        except Exception:
+            return False
 
     async def _persist_research_draft_strategy(
         self,
@@ -1974,6 +2177,7 @@ class AIStrategyResearchService:
         research_workspace: WorkspaceResponse,
         run_record: AIStrategyResearchRunRecord,
     ) -> WorkspaceResponse:
+        run_record = _research_run_record_without_sensitive_handoff(run_record)
         settings = dict(research_workspace.settings or {})
         ai_research = dict(settings.get("ai_research") or {})
         record_payload = run_record.model_dump(mode="json")
@@ -2077,7 +2281,7 @@ class AIStrategyResearchService:
                 "paper_monitoring_plan": _paper_monitoring_plan_from_handoff(
                     paper_trading.handoff
                 ),
-                "paper_handoff": dict(paper_trading.handoff or {}),
+                "paper_handoff": _research_record_handoff_payload(paper_trading.handoff),
                 "live_readiness_checklist": [],
                 "live_readiness_expires_at": None,
                 "next_actions": [
@@ -2120,7 +2324,9 @@ class AIStrategyResearchService:
                 "paper_monitoring_plan": _paper_monitoring_plan_from_handoff(
                     paper_trading.handoff if paper_trading else None
                 ),
-                "paper_handoff": dict(paper_trading.handoff or {}) if paper_trading else {},
+                "paper_handoff": _research_record_handoff_payload(
+                    paper_trading.handoff if paper_trading else None
+                ),
                 "pipeline": _pipeline_summary(
                     status=record.status,
                     achieved=record.achieved,
@@ -2145,14 +2351,16 @@ class AIStrategyResearchService:
         user_id: str,
         record: AIStrategyResearchRunRecord,
         review: AIStrategyPaperTradingReview,
-    ) -> WorkspaceResponse | None:
+    ) -> AIStrategyResearchRunRecord | None:
         workspace = await self.workspace_service.get_workspace(record.research_workspace_id, user_id)
         if workspace is None:
             return None
-        paper_handoff = _paper_handoff_with_live_readiness(
-            record.paper_handoff,
-            review.live_readiness_checklist,
-            expires_at=review.live_readiness_expires_at,
+        paper_handoff = _research_record_handoff_payload(
+            _paper_handoff_with_live_readiness(
+                record.paper_handoff,
+                review.live_readiness_checklist,
+                expires_at=review.live_readiness_expires_at,
+            )
         )
         updated_record = record.model_copy(
             update={
@@ -2170,7 +2378,261 @@ class AIStrategyResearchService:
                 "next_actions": review.next_actions,
             }
         )
+        if review.ready_for_live and review.status == "ready_for_live_candidate":
+            package = _build_live_handoff_package(updated_record)
+            updated_record = _run_record_with_live_handoff(updated_record, package)
+        await self._persist_research_run_record(user_id, workspace, updated_record)
+        return updated_record
+
+    async def _mark_run_record_live_handoff_built(
+        self,
+        user_id: str,
+        record: AIStrategyResearchRunRecord,
+        package: AIStrategyLiveHandoffPackage,
+    ) -> WorkspaceResponse | None:
+        workspace = await self.workspace_service.get_workspace(record.research_workspace_id, user_id)
+        if workspace is None:
+            return None
+        updated_record = _run_record_with_live_handoff(record, package)
         return await self._persist_research_run_record(user_id, workspace, updated_record)
+
+    async def _mark_run_record_live_handoff_approval(
+        self,
+        user_id: str,
+        record: AIStrategyResearchRunRecord,
+        package: AIStrategyLiveHandoffPackage,
+        approval: AIStrategyLiveHandoffApprovalRecord,
+    ) -> WorkspaceResponse | None:
+        workspace = await self.workspace_service.get_workspace(record.research_workspace_id, user_id)
+        if workspace is None:
+            return None
+        updated_record = _run_record_with_live_handoff_approval(
+            _run_record_with_live_handoff(record, package),
+            approval,
+        )
+        return await self._persist_research_run_record(user_id, workspace, updated_record)
+
+
+def _run_record_with_live_handoff(
+    record: AIStrategyResearchRunRecord,
+    package: AIStrategyLiveHandoffPackage,
+) -> AIStrategyResearchRunRecord:
+    pipeline = _pipeline_with_live_handoff_step(record.pipeline, package)
+    next_actions = _live_handoff_next_actions(record, package)
+    package = package.model_copy(update={"pipeline": pipeline, "next_actions": next_actions})
+    return record.model_copy(
+        update={
+            "live_handoff": package,
+            "pipeline": pipeline,
+            "next_actions": next_actions,
+        }
+    )
+
+
+def _run_record_with_live_handoff_approval(
+    record: AIStrategyResearchRunRecord,
+    approval: AIStrategyLiveHandoffApprovalRecord,
+) -> AIStrategyResearchRunRecord:
+    package = record.live_handoff
+    if package is not None:
+        package = package.model_copy(
+            update={
+                "approval_status": approval.decision,
+                "approval": approval,
+                "status": "approved_for_live" if approval.approved else "approval_rejected",
+            }
+        )
+    pipeline = _pipeline_with_live_handoff_step(record.pipeline, package, approval=approval)
+    next_actions = _live_handoff_approval_next_actions(record, approval)
+    if package is not None:
+        package = package.model_copy(update={"pipeline": pipeline, "next_actions": next_actions})
+    return record.model_copy(
+        update={
+            "live_handoff": package,
+            "live_handoff_approval": approval,
+            "pipeline": pipeline,
+            "next_actions": next_actions,
+        }
+    )
+
+
+def _pipeline_with_live_handoff_step(
+    pipeline: dict[str, Any] | None,
+    package: AIStrategyLiveHandoffPackage | None,
+    *,
+    approval: AIStrategyLiveHandoffApprovalRecord | None = None,
+) -> dict[str, Any]:
+    updated = dict(pipeline or {})
+    if package is None:
+        return updated
+
+    step_status = "running"
+    if package.status == "approved_for_live":
+        step_status = "completed"
+    elif package.status in {"blocked", "approval_rejected"}:
+        step_status = "failed"
+
+    live_step = {
+        "key": "live_handoff",
+        "label": "实盘交接",
+        "status": step_status,
+        "handoff_status": package.status,
+        "approval_status": approval.decision
+        if approval is not None
+        else package.approval_status,
+        "blocker_count": len(package.deployment_blockers),
+        "generated_at": package.generated_at,
+    }
+    if approval is not None:
+        live_step["approved"] = approval.approved
+        live_step["decided_at"] = approval.decided_at
+
+    raw_steps = updated.get("steps")
+    steps = (
+        [dict(item) for item in raw_steps if isinstance(item, dict)]
+        if isinstance(raw_steps, list)
+        else []
+    )
+    replaced = False
+    for index, step in enumerate(steps):
+        if str(step.get("key") or "") == "live_handoff":
+            steps[index] = {**step, **live_step}
+            replaced = True
+            break
+    if not replaced:
+        steps.append(live_step)
+
+    updated.update(
+        {
+            "current_stage": "live_handoff",
+            "status": package.status,
+            "ready_for_live": package.ready_for_live,
+            "live_handoff_status": package.status,
+            "live_handoff_generated_at": package.generated_at,
+            "live_handoff_ready_for_live": package.ready_for_live,
+            "live_handoff_approval_required": package.approval_required,
+            "live_handoff_blocker_count": len(package.deployment_blockers),
+            "steps": steps,
+        }
+    )
+    if approval is not None:
+        updated.update(
+            {
+                "live_handoff_approval_status": approval.decision,
+                "live_handoff_approved": approval.approved,
+                "live_handoff_approved_at": approval.decided_at if approval.approved else None,
+                "live_handoff_rejected_at": None if approval.approved else approval.decided_at,
+            }
+        )
+    if raw_steps:
+        updated["progress"] = _pipeline_progress_from_steps(steps)
+    return updated
+
+
+def _pipeline_progress_from_steps(steps: list[dict[str, Any]]) -> float:
+    if not steps:
+        return 0.0
+    completed = sum(1 for step in steps if step.get("status") == "completed")
+    return round(completed / len(steps) * 100, 2)
+
+
+def _live_handoff_next_actions(
+    record: AIStrategyResearchRunRecord,
+    package: AIStrategyLiveHandoffPackage,
+) -> list[str]:
+    if package.ready_for_live:
+        actions = [
+            "实盘交接包已生成，等待人工审批账户权限、风险限额和上线窗口。",
+            "审批通过后再切换实盘账户，切换前继续监控模拟交易表现。",
+        ]
+        if package.expires_at:
+            actions.append(f"实盘候选有效期至 {package.expires_at}，过期后需重新复核模拟交易。")
+        return actions
+    if package.deployment_blockers:
+        return [
+            "实盘交接包存在阻塞项，需处理后重新生成交接包。",
+            *package.deployment_blockers,
+        ]
+    return list(record.next_actions or [])
+
+
+def _live_handoff_approval_next_actions(
+    record: AIStrategyResearchRunRecord,
+    approval: AIStrategyLiveHandoffApprovalRecord,
+) -> list[str]:
+    if approval.approved:
+        actions = [
+            "实盘交接包已通过人工审批，可在上线窗口内执行实盘切换前检查。",
+            "切换实盘前需再次确认网关凭据、账户权限、风险限额和当前模拟交易状态。",
+        ]
+        if approval.deployment_window:
+            actions.append(f"计划上线窗口：{approval.deployment_window}")
+        return actions
+    actions = [
+        "实盘交接包已被人工驳回，需处理审批意见后重新进入模拟复核或继续投研。",
+    ]
+    if approval.comment:
+        actions.append(f"驳回意见：{approval.comment}")
+    return actions or list(record.next_actions or [])
+
+
+def _build_live_handoff_approval_record(
+    *,
+    user_id: str,
+    record: AIStrategyResearchRunRecord,
+    package: AIStrategyLiveHandoffPackage,
+    request: AIStrategyLiveHandoffApprovalRequest,
+) -> AIStrategyLiveHandoffApprovalRecord:
+    decision = str(request.decision or "").strip().lower()
+    if decision not in {"approved", "rejected"}:
+        raise ValueError("Live handoff approval decision must be approved or rejected")
+    approved = decision == "approved"
+    blockers = list(package.deployment_blockers or [])
+    if approved and not package.ready_for_live:
+        if not blockers:
+            blockers.append("实盘交接包尚未达到可审批状态。")
+        raise ValueError("Cannot approve blocked live handoff: " + "；".join(blockers))
+    if approved and not request.account_confirmed:
+        raise ValueError("Live account and permissions must be confirmed before approval")
+    if approved and not request.risk_limit_confirmed:
+        raise ValueError("Live risk limits must be confirmed before approval")
+    approver = str(request.approver or user_id or "unknown").strip() or "unknown"
+    return AIStrategyLiveHandoffApprovalRecord(
+        run_id=record.run_id,
+        research_workspace_id=record.research_workspace_id,
+        decision=decision,
+        approved=approved,
+        decided_at=_utc_iso_now(),
+        decided_by=approver,
+        comment=request.comment,
+        account_confirmed=request.account_confirmed,
+        risk_limit_confirmed=request.risk_limit_confirmed,
+        deployment_window=request.deployment_window,
+        handoff_status_at_decision=package.status,
+        blockers=blockers,
+    )
+
+
+def _research_run_record_without_sensitive_handoff(
+    record: AIStrategyResearchRunRecord,
+) -> AIStrategyResearchRunRecord:
+    updates: dict[str, Any] = {}
+    paper_handoff = _research_record_handoff_payload(record.paper_handoff)
+    if paper_handoff != record.paper_handoff:
+        updates["paper_handoff"] = paper_handoff
+
+    if record.live_handoff is not None:
+        live_handoff = record.live_handoff.model_copy(
+            update={"handoff": _research_record_handoff_payload(record.live_handoff.handoff)}
+        )
+        if live_handoff != record.live_handoff:
+            updates["live_handoff"] = live_handoff
+
+    return record.model_copy(update=updates) if updates else record
+
+
+def _research_record_handoff_payload(handoff: Any) -> dict[str, Any]:
+    return _redact_sensitive_handoff(_dict_payload(handoff))
 
 
 def _coerce_unit_status(value: Any) -> UnitStatusResponse | None:
@@ -2579,6 +3041,7 @@ def _coerce_research_run_record(value: Any) -> AIStrategyResearchRunRecord | Non
 def _research_run_record_with_pipeline(
     record: AIStrategyResearchRunRecord,
 ) -> AIStrategyResearchRunRecord:
+    record = _research_run_record_without_sensitive_handoff(record)
     record = _research_run_record_with_live_readiness_freshness(record)
     if record.pipeline:
         return record
@@ -2611,12 +3074,14 @@ def _research_run_record_with_live_readiness_freshness(
         live_readiness_checklist=checklist,
         live_readiness_expires_at=record.live_readiness_expires_at,
     )
-    paper_handoff = _paper_handoff_with_live_readiness(
-        record.paper_handoff,
-        checklist,
-        expires_at=record.live_readiness_expires_at,
+    paper_handoff = _research_record_handoff_payload(
+        _paper_handoff_with_live_readiness(
+            record.paper_handoff,
+            checklist,
+            expires_at=record.live_readiness_expires_at,
+        )
     )
-    return record.model_copy(
+    expired_record = record.model_copy(
         update={
             "paper_review_status": "live_readiness_expired",
             "paper_review_ready_for_live": False,
@@ -2625,6 +3090,12 @@ def _research_run_record_with_live_readiness_freshness(
             "pipeline": pipeline,
             "next_actions": next_actions,
         }
+    )
+    if record.live_handoff is None:
+        return expired_record
+    return _run_record_with_live_handoff(
+        expired_record,
+        _build_live_handoff_package(expired_record),
     )
 
 
@@ -2904,10 +3375,30 @@ def _out_of_sample_gate_evaluations(
 def _improvement_metrics(
     metrics: dict[str, Any],
     validation_metrics: dict[str, Any],
+    *,
+    iteration_progress: dict[str, Any] | None = None,
+    diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if not validation_metrics:
-        return metrics
     merged = dict(metrics)
+    feedback = _improvement_feedback_payload(diagnostics)
+    if feedback:
+        merged["research_feedback"] = feedback
+        for key in (
+            "failure_categories",
+            "strengths",
+            "weaknesses",
+            "improvement_plan",
+            "promotion_ready",
+            "out_of_sample_validation",
+        ):
+            if key in feedback:
+                merged[key] = feedback[key]
+        if iteration_progress is None and isinstance(feedback.get("iteration_progress"), dict):
+            iteration_progress = feedback["iteration_progress"]
+    if iteration_progress:
+        merged["iteration_progress"] = dict(iteration_progress)
+    if not validation_metrics:
+        return merged
     merged["out_of_sample"] = dict(validation_metrics)
     for source_key, target_key in (
         ("sharpe_ratio", "out_of_sample_sharpe"),
@@ -2918,6 +3409,30 @@ def _improvement_metrics(
         if source_key in validation_metrics:
             merged[target_key] = validation_metrics[source_key]
     return merged
+
+
+def _improvement_feedback_payload(diagnostics: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(diagnostics, dict) or not diagnostics:
+        return {}
+    payload: dict[str, Any] = {}
+    for key in (
+        "summary",
+        "failure_categories",
+        "strengths",
+        "weaknesses",
+        "iteration_progress",
+        "improvement_plan",
+        "promotion_ready",
+        "out_of_sample_validation",
+    ):
+        value = diagnostics.get(key)
+        if isinstance(value, dict):
+            payload[key] = dict(value)
+        elif isinstance(value, list):
+            payload[key] = list(value)
+        elif value is not None:
+            payload[key] = value
+    return payload
 
 
 def _is_better_research_candidate(
@@ -3991,6 +4506,9 @@ def _continuation_context_from_record(
     record: AIStrategyResearchRunRecord,
 ) -> dict[str, Any]:
     runtime_context = _record_runtime_context(record)
+    live_rejection_context = _live_handoff_rejection_context_from_record(record, runtime_context)
+    if live_rejection_context:
+        return live_rejection_context
     paper_review_requires_research = _paper_review_requires_research(record)
     review_evaluations = [
         dict(item) for item in record.paper_review_evaluations if isinstance(item, dict)
@@ -4040,6 +4558,149 @@ def _continuation_context_from_record(
     }
 
 
+def _live_handoff_rejection_context_from_record(
+    record: AIStrategyResearchRunRecord,
+    runtime_context: dict[str, Any],
+) -> dict[str, Any]:
+    approval = record.live_handoff_approval
+    handoff = record.live_handoff
+    approval_decision = _object_field_text(approval, "decision")
+    handoff_status = _object_field_text(handoff, "status")
+    approval_status = _object_field_text(handoff, "approval_status")
+    if not (
+        approval_decision == "rejected"
+        or approval_status == "rejected"
+        or handoff_status == "approval_rejected"
+    ):
+        return {}
+
+    comment = _object_field_text(approval, "comment")
+    failures = [
+        "实盘交接审批被驳回，需要处理审批意见后重新投研并重新进入模拟复核。",
+    ]
+    if comment:
+        failures.append(f"实盘交接驳回意见：{comment}")
+    failures.extend(str(item).strip() for item in record.next_actions or [])
+    failures = list(dict.fromkeys(item for item in failures if item))
+
+    return {
+        "source": "live_handoff_rejected",
+        "run_id": record.run_id,
+        "live_handoff_status": handoff_status or "approval_rejected",
+        "live_handoff_approval": _object_payload(approval),
+        "live_handoff": _object_payload(handoff),
+        "quality_gate_failures": failures,
+        "paper_review_status": record.paper_review_status,
+        "paper_reviewed_at": record.paper_reviewed_at,
+        "paper_review_evaluations": [
+            dict(item) for item in record.paper_review_evaluations if isinstance(item, dict)
+        ],
+        "paper_review_next_actions": list(record.paper_review_next_actions or []),
+        "live_readiness_checklist": [
+            dict(item) for item in record.live_readiness_checklist if isinstance(item, dict)
+        ],
+        "metrics": dict(record.best_metrics or {}),
+        "next_actions": list(record.next_actions or []),
+        **runtime_context,
+    }
+
+
+def _continuation_improvement_metrics(
+    context: dict[str, Any],
+    request: AIStrategyResearchRunRequest,
+) -> dict[str, Any]:
+    if not isinstance(context, dict):
+        return {}
+    metrics = dict(context.get("metrics") or {}) if isinstance(context.get("metrics"), dict) else {}
+    diagnostics = (
+        dict(context.get("diagnostics")) if isinstance(context.get("diagnostics"), dict) else {}
+    )
+    feedback = _improvement_feedback_payload(diagnostics)
+    failures = _continuation_quality_gate_failures(context)
+    categories = [
+        *_string_list(feedback.get("failure_categories")),
+        *_failure_categories(failures, "completed", None),
+    ]
+    categories = list(dict.fromkeys(item for item in categories if item))
+    weaknesses = [
+        *_string_list(feedback.get("weaknesses")),
+        *failures,
+    ]
+    weaknesses = list(dict.fromkeys(item for item in weaknesses if item))
+    plan = [
+        *_string_list(context.get("improvement_plan")),
+        *_string_list(feedback.get("improvement_plan")),
+        *_string_list(context.get("paper_review_next_actions")),
+        *_string_list(context.get("next_actions")),
+    ]
+    generated_plan = _improvement_plan_from_failures(
+        request,
+        metrics=metrics,
+        run_status="completed",
+        quality_gate_failures=failures,
+        failure_categories=categories,
+    )
+    plan = list(dict.fromkeys([*plan, *generated_plan]))
+    source = str(context.get("source") or "").strip()
+    feedback.update(
+        {
+            "source": source,
+            "run_id": context.get("run_id"),
+            "failure_categories": categories,
+            "weaknesses": weaknesses,
+            "improvement_plan": plan,
+            "promotion_ready": False,
+        }
+    )
+    for key in (
+        "paper_review_status",
+        "paper_reviewed_at",
+        "paper_review_evaluations",
+        "paper_review_next_actions",
+        "paper_trading_error",
+        "live_handoff_status",
+        "live_handoff_approval",
+        "live_handoff",
+        "live_readiness_checklist",
+        "pipeline",
+        "next_actions",
+    ):
+        value = context.get(key)
+        if isinstance(value, dict):
+            feedback[key] = dict(value)
+        elif isinstance(value, list):
+            feedback[key] = list(value)
+        elif value not in (None, ""):
+            feedback[key] = value
+    if diagnostics:
+        feedback["diagnostics"] = diagnostics
+
+    metrics["research_feedback"] = feedback
+    metrics["failure_categories"] = categories
+    metrics["weaknesses"] = weaknesses
+    metrics["improvement_plan"] = plan
+    metrics["promotion_ready"] = False
+    return metrics
+
+
+def _object_payload(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if hasattr(value, "model_dump"):
+        payload = value.model_dump(mode="json")
+        return dict(payload) if isinstance(payload, dict) else {}
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
+
+
+def _object_field_text(value: Any, key: str) -> str:
+    if value is None:
+        return ""
+    raw = value.get(key) if isinstance(value, dict) else getattr(value, key, "")
+    return str(raw or "").strip()
+
+
 def _paper_review_requires_research(record: AIStrategyResearchRunRecord) -> bool:
     return (
         str(record.paper_review_status or "")
@@ -4083,7 +4744,9 @@ def _record_runtime_context(record: AIStrategyResearchRunRecord) -> dict[str, An
             backtest_environment,
             paper_environment,
         )
-        gateway_config.update(_dict_payload(record.paper_handoff.get("gateway_config")))
+        gateway_config.update(
+            _dict_payload(_omit_sensitive_handoff(record.paper_handoff.get("gateway_config")))
+        )
     context: dict[str, Any] = {}
     if asset_specs:
         context["asset_specs"] = asset_specs
@@ -4300,7 +4963,7 @@ def _build_research_run_record(
         paper_unit_id=paper.unit.id if paper else None,
         paper_trading_started=bool(paper.started) if paper else False,
         paper_monitoring_plan=response.paper_monitoring_plan,
-        paper_handoff=dict(paper.handoff or {}) if paper else {},
+        paper_handoff=_research_record_handoff_payload(paper.handoff if paper else None),
         pipeline=response.pipeline,
         next_actions=response.next_actions,
         started_at=started_at,
@@ -4353,10 +5016,12 @@ def _apply_initial_paper_review_to_run_record(
         live_readiness_checklist=live_readiness_checklist,
         live_readiness_expires_at=live_readiness_expires_at,
     )
-    paper_handoff = _paper_handoff_with_live_readiness(
-        record.paper_handoff,
-        live_readiness_checklist,
-        expires_at=live_readiness_expires_at,
+    paper_handoff = _research_record_handoff_payload(
+        _paper_handoff_with_live_readiness(
+            record.paper_handoff,
+            live_readiness_checklist,
+            expires_at=live_readiness_expires_at,
+        )
     )
     return record.model_copy(
         update={
@@ -4531,6 +5196,12 @@ def _dict_payload(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item or "").strip()]
+
+
 def _iteration_diagnostics(
     request: AIStrategyResearchRunRequest,
     *,
@@ -4540,17 +5211,26 @@ def _iteration_diagnostics(
     quality_gate_failures: list[str],
     quality_gate_evaluations: list[dict[str, Any]],
     failure_reason: str | None,
+    previous_iteration: AIStrategyResearchIteration | None = None,
+    quality_score: float | None = None,
 ) -> dict[str, Any]:
     metric_snapshot = _research_metric_snapshot(metrics, request)
     failure_categories = _failure_categories(quality_gate_failures, run_status, failure_reason)
     strengths = _gate_strengths(quality_gate_evaluations)
     weaknesses = _gate_weaknesses(quality_gate_evaluations, quality_gate_failures, failure_reason)
+    iteration_progress = _iteration_progress_diagnostics(
+        previous_iteration,
+        metrics=metrics,
+        metric_snapshot=metric_snapshot,
+        quality_score=float(quality_score or 0.0),
+    )
     improvement_plan = _improvement_plan_from_failures(
         request,
         metrics=metrics,
         run_status=run_status,
         quality_gate_failures=quality_gate_failures,
         failure_categories=failure_categories,
+        iteration_progress=iteration_progress,
     )
     passed = bool(run_status == "completed" and not quality_gate_failures)
     summary = (
@@ -4566,8 +5246,74 @@ def _iteration_diagnostics(
         "failure_categories": failure_categories,
         "strengths": strengths,
         "weaknesses": weaknesses,
+        "iteration_progress": iteration_progress,
         "improvement_plan": improvement_plan,
         "promotion_ready": passed,
+    }
+
+
+def _iteration_progress_diagnostics(
+    previous_iteration: AIStrategyResearchIteration | None,
+    *,
+    metrics: dict[str, Any],
+    metric_snapshot: dict[str, Any],
+    quality_score: float,
+) -> dict[str, Any]:
+    if previous_iteration is None:
+        return {
+            "status": "baseline",
+            "previous_iteration": None,
+            "summary": "首轮回测作为后续自动改进的基准。",
+        }
+
+    previous_metrics = dict(previous_iteration.metrics or {})
+    current_sharpe = _quality_metric(metrics, "sharpe_ratio", "sharpe", "sharpeRatio")
+    previous_sharpe = _quality_metric(
+        previous_metrics,
+        "sharpe_ratio",
+        "sharpe",
+        "sharpeRatio",
+    )
+    current_trades = _metric_int(metrics, "total_trades", "totalTrades", "trades")
+    previous_trades = previous_iteration.total_trades
+    current_drawdown = metric_snapshot.get("max_drawdown")
+    previous_drawdown = _optional_gate_number(
+        dict(previous_iteration.diagnostics or {}).get("metric_snapshot", {}).get("max_drawdown")
+        if isinstance(dict(previous_iteration.diagnostics or {}).get("metric_snapshot"), dict)
+        else None
+    )
+    quality_delta = round(quality_score - float(previous_iteration.quality_score or 0.0), 6)
+    sharpe_delta = (
+        round(float(current_sharpe) - float(previous_sharpe), 6)
+        if current_sharpe is not None and previous_sharpe is not None
+        else None
+    )
+    trade_delta = int(current_trades - previous_trades)
+    drawdown_delta = (
+        round(float(current_drawdown) - float(previous_drawdown), 6)
+        if current_drawdown is not None and previous_drawdown is not None
+        else None
+    )
+
+    status = "stalled"
+    if quality_delta > 1e-6 or (sharpe_delta is not None and sharpe_delta > 1e-6):
+        status = "improved"
+    if quality_delta < -1e-6 or (sharpe_delta is not None and sharpe_delta < -1e-6):
+        status = "regressed"
+
+    summary_map = {
+        "improved": "本轮自动改稿相对上一轮有改善，可继续沿当前方向微调。",
+        "regressed": "本轮自动改稿相对上一轮退化，下一轮应回退激进改动并缩小参数搜索步长。",
+        "stalled": "本轮自动改稿相对上一轮基本停滞，下一轮需要改变信号结构或风险约束。",
+    }
+    return {
+        "status": status,
+        "previous_iteration": previous_iteration.iteration,
+        "quality_score_delta": quality_delta,
+        "sharpe_delta": sharpe_delta,
+        "total_trades_delta": trade_delta,
+        "max_drawdown_delta": drawdown_delta,
+        "summary": summary_map[status],
     }
 
 
@@ -4626,20 +5372,22 @@ def _failure_categories(
         categories.append("backtest_runtime")
     for failure in quality_gate_failures:
         lowered = failure.lower()
+        if "out-of-sample" in lowered or "out of sample" in lowered or "样本外" in failure:
+            categories.append("out_of_sample")
         if _is_paper_trading_start_failure(failure):
             categories.append("paper_trading_start")
-        elif "sharpe" in lowered:
-            categories.append("sharpe")
-        elif "trade" in lowered or "trades" in lowered or "交易" in failure:
-            categories.append("trade_count")
         elif "drawdown" in lowered or "回撤" in failure:
             categories.append("drawdown")
+        elif "sharpe" in lowered:
+            categories.append("sharpe")
         elif "annual" in lowered or "年化" in failure:
             categories.append("annual_return")
         elif "return" in lowered or "收益" in failure:
             categories.append("total_return")
         elif "win rate" in lowered or "胜率" in failure:
             categories.append("win_rate")
+        elif "trade" in lowered or "trades" in lowered or "交易" in failure:
+            categories.append("trade_count")
         elif "cost" in lowered or "slippage" in lowered or "费用" in failure or "滑点" in failure:
             categories.append("execution_cost")
         elif (
@@ -4654,6 +5402,14 @@ def _failure_categories(
             or "保证金" in failure
         ):
             categories.append("valuation_context")
+        elif (
+            "live handoff" in lowered
+            or "approval" in lowered
+            or "实盘交接" in failure
+            or "审批" in failure
+            or "驳回" in failure
+        ):
+            categories.append("live_handoff_rejected")
     if not categories and failure_reason:
         categories.append("unknown")
     return list(dict.fromkeys(categories))
@@ -4718,6 +5474,7 @@ def _improvement_plan_from_failures(
     run_status: str | None,
     quality_gate_failures: list[str],
     failure_categories: list[str],
+    iteration_progress: dict[str, Any] | None = None,
 ) -> list[str]:
     if run_status == "completed" and not quality_gate_failures:
         return [
@@ -4727,10 +5484,17 @@ def _improvement_plan_from_failures(
 
     plan: list[str] = []
     categories = set(failure_categories)
+    progress_status = str((iteration_progress or {}).get("status") or "").strip()
+    if progress_status == "regressed":
+        plan.append("本轮自动改稿相对上一轮退化，优先回退激进参数变化并保留上一轮有效结构。")
+    elif progress_status == "stalled":
+        plan.append("连续改稿改善有限，下一版需要改变信号组合、过滤条件或风控结构，而不是只微调参数。")
     if "backtest_runtime" in categories:
         plan.append("先修复策略运行错误、数据源缺口或超时问题，再继续生成下一版。")
     if "paper_trading_start" in categories:
         plan.append("优先复核模拟交易单元创建、网关配置、策略脚本依赖和资产参数后再重试。")
+    if "out_of_sample" in categories:
+        plan.append("样本外验证未通过，降低过拟合风险，优先保留稳健信号、减少参数敏感度并扩大验证样本。")
     if "trade_count" in categories:
         plan.append("放宽入场过滤、缩短慢速指标窗口或降低确认条件，优先提高有效交易样本数。")
     if "sharpe" in categories:
@@ -4745,6 +5509,8 @@ def _improvement_plan_from_failures(
         plan.append("降低换手率和无效交易，按模拟成交费用/滑点重新校准手续费与出入场阈值。")
     if "valuation_context" in categories:
         plan.append("先修正交易所/本地资产规格上下文，确保合约乘数、保证金、手续费和持仓估值口径一致后再改稿。")
+    if "live_handoff_rejected" in categories:
+        plan.append("针对实盘交接驳回意见降低上线风险，重新校准仓位、止损、成交成本和审批清单后再进入模拟复核。")
 
     sharpe = _quality_metric(metrics, "sharpe_ratio", "sharpe", "sharpeRatio")
     if sharpe is not None and sharpe < request.target_sharpe and "sharpe" not in categories:
@@ -5218,6 +5984,164 @@ def _paper_review_next_actions(
     return ["继续观察模拟交易表现，并定期回到投研记录复核监控指标。"]
 
 
+def _build_live_handoff_package(
+    record: AIStrategyResearchRunRecord,
+) -> AIStrategyLiveHandoffPackage:
+    checklist = [dict(item) for item in record.live_readiness_checklist if isinstance(item, dict)]
+    if not checklist and isinstance(record.pipeline, dict):
+        checklist = [
+            dict(item)
+            for item in record.pipeline.get("live_readiness_checklist") or []
+            if isinstance(item, dict)
+        ]
+    if not checklist and isinstance(record.paper_handoff, dict):
+        checklist = [
+            dict(item)
+            for item in record.paper_handoff.get("live_readiness_checklist") or []
+            if isinstance(item, dict)
+        ]
+
+    approvals_required = [
+        item
+        for item in checklist
+        if str(item.get("status") or "").strip() == "pending_manual_confirmation"
+    ]
+    deployment_blockers = _live_handoff_deployment_blockers(record, checklist)
+    ready_for_live = (
+        record.achieved
+        and record.paper_trading_started
+        and record.paper_review_ready_for_live
+        and record.paper_review_status == "ready_for_live_candidate"
+        and not deployment_blockers
+    )
+    approval = record.live_handoff_approval
+    approval_status = approval.decision if approval is not None else None
+    package_status = "ready_for_approval" if ready_for_live else "blocked"
+    if approval is not None:
+        package_status = "approved_for_live" if approval.approved else "approval_rejected"
+    handoff = _redact_sensitive_handoff(
+        {
+            **dict(record.paper_handoff or {}),
+            "live_handoff_generated_at": _utc_iso_now(),
+            "live_handoff_ready_for_live": ready_for_live,
+            "approval_required": True,
+            "approval_status": approval_status,
+            "approvals_required": approvals_required,
+            "deployment_blockers": deployment_blockers,
+        }
+    )
+    return AIStrategyLiveHandoffPackage(
+        run_id=record.run_id,
+        research_workspace_id=record.research_workspace_id,
+        generated_at=str(handoff.get("live_handoff_generated_at") or _utc_iso_now()),
+        ready_for_live=ready_for_live,
+        status=package_status,
+        approval_required=True,
+        expires_at=record.live_readiness_expires_at,
+        paper_workspace_id=record.paper_workspace_id,
+        paper_unit_id=record.paper_unit_id,
+        best_strategy_id=record.best_strategy_id,
+        best_strategy_name=record.best_strategy_name,
+        symbol=record.symbol,
+        symbol_name=record.symbol_name,
+        timeframe=record.timeframe,
+        timeframe_n=record.timeframe_n,
+        target_sharpe=record.target_sharpe,
+        best_sharpe=record.best_sharpe,
+        best_metrics=dict(record.best_metrics or {}),
+        asset_specs=dict(record.asset_specs or {}),
+        backtest_environment=dict(record.backtest_environment or {}),
+        paper_review_status=record.paper_review_status,
+        paper_reviewed_at=record.paper_reviewed_at,
+        paper_review_evaluations=[
+            dict(item) for item in record.paper_review_evaluations if isinstance(item, dict)
+        ],
+        paper_monitoring_plan=[
+            dict(item) for item in record.paper_monitoring_plan if isinstance(item, dict)
+        ],
+        live_readiness_checklist=checklist,
+        approvals_required=approvals_required,
+        deployment_blockers=deployment_blockers,
+        approval_status=approval_status,
+        approval=approval,
+        handoff=handoff,
+        pipeline=dict(record.pipeline or {}),
+        next_actions=list(record.next_actions or []),
+    )
+
+
+def _live_handoff_deployment_blockers(
+    record: AIStrategyResearchRunRecord,
+    checklist: list[dict[str, Any]],
+) -> list[str]:
+    blockers: list[str] = []
+    if not record.achieved:
+        blockers.append("策略尚未通过投研质量门槛，不能进入实盘交接。")
+    if not record.paper_trading_started:
+        blockers.append("尚未启动模拟交易，不能进入实盘交接。")
+    if record.paper_review_status == "live_readiness_expired":
+        blockers.append("实盘候选复核已过期，需要重新复核模拟交易。")
+    elif record.paper_review_status != "ready_for_live_candidate":
+        status = record.paper_review_status or "paper_not_reviewed"
+        blockers.append(f"模拟交易复核状态为 {status}，尚未达到实盘候选。")
+    if not record.paper_review_ready_for_live:
+        blockers.append("模拟交易监控计划尚未全部通过。")
+
+    for item in checklist:
+        status = str(item.get("status") or "").strip()
+        if status in {"passed", "pending_manual_confirmation"}:
+            continue
+        label = str(item.get("label") or item.get("key") or "实盘检查项")
+        evidence = str(item.get("evidence") or item.get("action") or "").strip()
+        blockers.append(f"{label} 未满足" + (f"：{evidence}" if evidence else "。"))
+
+    if not blockers and not record.paper_review_ready_for_live:
+        blockers.extend(str(item).strip() for item in record.next_actions if str(item).strip())
+    return list(dict.fromkeys(blockers))
+
+
+def _redact_sensitive_handoff(value: Any) -> Any:
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            if _is_sensitive_handoff_key(str(key)):
+                result[key] = "***"
+            else:
+                result[key] = _redact_sensitive_handoff(item)
+        return result
+    if isinstance(value, list):
+        return [_redact_sensitive_handoff(item) for item in value]
+    return value
+
+
+def _omit_sensitive_handoff(value: Any) -> Any:
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            if _is_sensitive_handoff_key(str(key)):
+                continue
+            cleaned = _omit_sensitive_handoff(item)
+            if cleaned is _SENSITIVE_OMITTED:
+                continue
+            result[key] = cleaned
+        return result
+    if isinstance(value, list):
+        result = []
+        for item in value:
+            cleaned = _omit_sensitive_handoff(item)
+            if cleaned is not _SENSITIVE_OMITTED:
+                result.append(cleaned)
+        return result
+    if value == "***":
+        return _SENSITIVE_OMITTED
+    return value
+
+
+def _is_sensitive_handoff_key(key: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", "_", key.strip().lower()).strip("_")
+    return any(part in normalized for part in _SENSITIVE_HANDOFF_KEYS)
+
+
 def _live_readiness_checklist(
     record: AIStrategyResearchRunRecord,
     *,
@@ -5412,6 +6336,8 @@ def _iteration_next_actions(
             actions.append("提高信号质量和盈亏比，优先减少低胜率或低收益质量的入场。")
         elif _is_paper_trading_start_failure(failure):
             actions.append("优先复核模拟交易单元创建、网关配置、策略脚本依赖和资产参数。")
+        elif "out-of-sample" in lowered or "out of sample" in lowered or "样本外" in failure:
+            actions.append("样本外验证未通过，优先降低过拟合、减少参数敏感度并扩大验证样本。")
         elif "trade" in lowered or "trades" in lowered or "交易" in failure:
             actions.append("放宽入场过滤或缩短信号窗口，先保证样本内有足够交易次数。")
         elif "drawdown" in lowered or "回撤" in failure:
@@ -5656,6 +6582,18 @@ def _build_improvement_messages(
     timeframe = request.timeframe if request is not None else draft.suggested_timeframe or ""
     failures = [str(item) for item in quality_gate_failures or []]
     asset_specs = _resolve_research_asset_specs(request) if request is not None else {}
+    research_feedback = _dict_payload(metrics.get("research_feedback"))
+    suggested_plan = _string_list(metrics.get("improvement_plan"))
+    if not suggested_plan:
+        suggested_plan = _string_list(research_feedback.get("improvement_plan"))
+    if not suggested_plan and request is not None:
+        suggested_plan = _improvement_plan_from_failures(
+            request,
+            metrics=metrics,
+            run_status="completed",
+            quality_gate_failures=failures,
+            failure_categories=_failure_categories(failures, "completed", None),
+        )
     return [
         {
             "role": "system",
@@ -5686,20 +6624,14 @@ def _build_improvement_messages(
                     if request is not None
                     else {},
                     "previous_metrics": metrics,
-                    "suggested_improvement_plan": _improvement_plan_from_failures(
-                        request,
-                        metrics=metrics,
-                        run_status="completed",
-                        quality_gate_failures=failures,
-                        failure_categories=_failure_categories(failures, "completed", None),
-                    )
-                    if request is not None
-                    else [],
+                    "research_feedback": research_feedback,
+                    "suggested_improvement_plan": suggested_plan,
                     "current_draft": draft.model_dump(mode="json"),
                     "rules": [
                         "不要删除风控逻辑；如果调整参数，请同步 params 和 code 中 params 默认值。",
                         "如果新增指标或状态变量，必须保证 Backtrader Strategy 类可独立运行。",
                         "优先执行 suggested_improvement_plan 中的具体改进方向。",
+                        "research_feedback 是服务端结构化诊断，优先级高于自由文本指标。",
                         "优先针对 quality_gate_failures 中列出的失败原因改进策略。",
                         "如果失败原因是代码校验失败，必须先修复语法、安全检查和 bt.Strategy 类定义。",
                         "若 asset_specs 包含合约乘数、保证金、杠杆或手续费，改稿必须保留这些交易约束。",

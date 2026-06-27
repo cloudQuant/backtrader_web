@@ -95,27 +95,6 @@ export interface ScannerPlanRun {
 }
 
 export const marketIntelApi = {
-  searchEquities(q: string) {
-    return request.get<{ items: Array<Record<string, unknown>>; total: number }>('/equity-research/search', { params: { q } })
-  },
-  getEquityQuote(symbol: string) {
-    return request.get<Record<string, unknown>>(`/equity-research/quote/${symbol}`)
-  },
-  getEquityInfo(symbol: string) {
-    return request.get<Record<string, unknown>>(`/equity-research/info/${symbol}`)
-  },
-  getEquityHistory(symbol: string) {
-    return request.get<{ symbol: string; rows: Array<Record<string, unknown>> }>(`/equity-research/history/${symbol}`)
-  },
-  getEquityFinancials(symbol: string) {
-    return request.get<Record<string, unknown>>(`/equity-research/financials/${symbol}`)
-  },
-  getTechnicals(symbol: string) {
-    return request.get<{ symbol: string; factors: Record<string, unknown> }>(`/equity-research/technicals/${symbol}`)
-  },
-  getEquityPeers(symbol: string) {
-    return request.get<{ symbol: string; items: Array<Record<string, unknown>>; total: number }>(`/equity-research/peers/${symbol}`)
-  },
   createNewsSource(payload: Record<string, unknown>) {
     return request.post<Record<string, unknown>>('/news-intelligence/sources', payload)
   },

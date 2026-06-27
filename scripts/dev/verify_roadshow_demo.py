@@ -187,7 +187,7 @@ def verify_files() -> list[tuple[str, bool, str]]:
     checks.append(
         check(
             "Playwright 截图与审计资产",
-            screenshot_count >= 32 and audit_file.is_file(),
+            screenshot_count >= 31 and audit_file.is_file(),
             f"{screenshot_count} screenshots, audit_exists={audit_file.is_file()}",
         )
     )

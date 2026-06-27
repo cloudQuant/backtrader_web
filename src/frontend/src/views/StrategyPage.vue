@@ -367,15 +367,54 @@
                 data-test="ai-research-task-progress"
               >
                 <strong>任务进度</strong>
+                <span v-if="aiResearchTaskObjectiveText">{{ aiResearchTaskObjectiveText }}</span>
+                <span v-if="aiResearchTaskSymbolText">{{ aiResearchTaskSymbolText }}</span>
+                <span v-if="aiResearchTaskTimeframeText">{{ aiResearchTaskTimeframeText }}</span>
                 <span>阶段 {{ aiResearchTaskStageLabel }}</span>
                 <span>{{ formatTaskProgress(aiResearchTaskProgress) }}</span>
                 <span v-if="aiResearchTaskIteration">第 {{ aiResearchTaskIteration }} 轮</span>
                 <span v-if="aiResearchBacktestTaskId">回测 {{ aiResearchBacktestTaskId }}</span>
+                <span v-if="aiResearchTaskPaperStatusText">{{ aiResearchTaskPaperStatusText }}</span>
+                <span v-if="aiResearchTaskPaperUnitId">模拟单元 {{ aiResearchTaskPaperUnitId }}</span>
                 <span v-if="aiResearchTaskMessage">{{ aiResearchTaskMessage }}</span>
                 <span v-if="aiResearchTaskLatestIteration">
                   最近{{ taskLatestIterationLabel(aiResearchTaskLatestIteration) }}
                   Sharpe {{ formatMetric(taskLatestIterationMetric(aiResearchTaskLatestIteration, 'sharpe_ratio', 'sharpe')) }}
                   交易 {{ formatMetric(taskLatestIterationMetric(aiResearchTaskLatestIteration, 'total_trades', 'trades')) }}
+                </span>
+                <span
+                  v-if="taskLatestIterationProgress(aiResearchTaskLatestIteration)"
+                  class="ai-research-task-iteration-progress"
+                  data-test="ai-research-task-iteration-progress"
+                >
+                  <el-tag
+                    size="small"
+                    :type="iterationProgressTagType(taskLatestIterationProgress(aiResearchTaskLatestIteration)?.status)"
+                  >
+                    {{ iterationProgressLabel(taskLatestIterationProgress(aiResearchTaskLatestIteration)?.status) }}
+                  </el-tag>
+                  <template v-if="taskLatestIterationProgress(aiResearchTaskLatestIteration)?.previous_iteration">
+                    对比第 {{ taskLatestIterationProgress(aiResearchTaskLatestIteration)?.previous_iteration }} 轮
+                  </template>
+                  <template v-if="iterationProgressDeltaText(taskLatestIterationProgress(aiResearchTaskLatestIteration), 'sharpe_delta')">
+                    Sharpe {{ iterationProgressDeltaText(taskLatestIterationProgress(aiResearchTaskLatestIteration), 'sharpe_delta') }}
+                  </template>
+                </span>
+                <span
+                  v-if="aiResearchTaskPipelineSteps.length"
+                  class="ai-research-task-pipeline"
+                  data-test="ai-research-task-pipeline"
+                >
+                  <span
+                    v-for="step in aiResearchTaskPipelineSteps"
+                    :key="step.key"
+                  >
+                    {{ step.label || aiResearchStageLabel(step.key) }}
+                    {{ pipelineStepStatusLabel(step.status) }}
+                    <template v-if="pipelineStepIterationText(step)">
+                      {{ pipelineStepIterationText(step) }}
+                    </template>
+                  </span>
                 </span>
               </div>
               <div
@@ -512,6 +551,23 @@
                   复核模拟
                 </el-button>
                 <el-button
+                  v-if="canBuildLiveHandoffFromCurrentResult"
+                  size="small"
+                  type="success"
+                  plain
+                  :loading="aiResearchLiveHandoffLoadingRunId === aiResearchResult.run_id"
+                  data-test="ai-research-current-live-handoff-button"
+                  @click="buildLiveHandoffFromCurrentResult"
+                >
+                  <el-icon
+                    class="mr-1"
+                    aria-hidden="true"
+                  >
+                    <Link />
+                  </el-icon>
+                  实盘交接包
+                </el-button>
+                <el-button
                   v-if="canContinueResearchFromCurrentRunRecord"
                   size="small"
                   type="warning"
@@ -545,6 +601,100 @@
                   </el-icon>
                   继续改进
                 </el-button>
+              </div>
+
+              <div
+                v-if="aiResearchCurrentLiveHandoff"
+                class="ai-research-paper-review ai-research-live-handoff"
+                data-test="ai-research-current-live-handoff"
+              >
+                <div class="ai-research-paper-review-head">
+                  <el-tag
+                    size="small"
+                    :type="aiResearchCurrentLiveHandoff.ready_for_live ? 'success' : 'danger'"
+                  >
+                    {{ liveHandoffStatusLabel(aiResearchCurrentLiveHandoff.status) }}
+                  </el-tag>
+                  <span>
+                    {{ aiResearchCurrentLiveHandoff.approval_required ? '需要人工审批' : '无需额外审批' }}
+                  </span>
+                </div>
+                <div class="ai-research-paper-review-rules">
+                  <span>标的 {{ aiResearchCurrentLiveHandoff.symbol }}</span>
+                  <span>Sharpe {{ formatMetric(aiResearchCurrentLiveHandoff.best_sharpe) }}</span>
+                  <span v-if="aiResearchCurrentLiveHandoff.expires_at">
+                    候选有效期 {{ formatDateTime(aiResearchCurrentLiveHandoff.expires_at) }}
+                  </span>
+                  <span v-if="Object.keys(aiResearchCurrentLiveHandoff.asset_specs || {}).length">
+                    资产规格已随交接包固化
+                  </span>
+                </div>
+                <div
+                  v-if="aiResearchCurrentLiveHandoff.approvals_required.length"
+                  class="ai-research-live-readiness"
+                  data-test="ai-research-current-live-handoff-approvals"
+                >
+                  <strong>审批项</strong>
+                  <span
+                    v-for="item in aiResearchCurrentLiveHandoff.approvals_required"
+                    :key="item.key"
+                  >
+                    {{ item.label }} {{ liveReadinessStatusLabel(item.status) }}：{{ item.action || item.evidence }}
+                  </span>
+                </div>
+                <div
+                  v-if="aiResearchCurrentLiveHandoff.deployment_blockers.length"
+                  class="ai-research-paper-review-actions"
+                  data-test="ai-research-current-live-handoff-blockers"
+                >
+                  <span
+                    v-for="blocker in aiResearchCurrentLiveHandoff.deployment_blockers"
+                    :key="blocker"
+                  >
+                    {{ blocker }}
+                  </span>
+                </div>
+                <div
+                  v-if="aiResearchCurrentLiveHandoff.approval"
+                  class="ai-research-live-readiness"
+                  data-test="ai-research-current-live-handoff-approval"
+                >
+                  <strong>审批结果</strong>
+                  <span>
+                    {{ liveHandoffApprovalLabel(aiResearchCurrentLiveHandoff) }}
+                    {{ aiResearchCurrentLiveHandoff.approval.decided_by }}
+                    {{ formatDateTime(aiResearchCurrentLiveHandoff.approval.decided_at) }}
+                  </span>
+                  <span v-if="aiResearchCurrentLiveHandoff.approval.comment">
+                    {{ aiResearchCurrentLiveHandoff.approval.comment }}
+                  </span>
+                </div>
+                <div
+                  v-if="canApproveLiveHandoff(aiResearchCurrentLiveHandoff)"
+                  class="ai-research-paper-review-actions"
+                  data-test="ai-research-current-live-handoff-actions"
+                >
+                  <el-button
+                    size="small"
+                    type="success"
+                    plain
+                    :loading="aiResearchLiveHandoffApprovingRunId === `${aiResearchCurrentLiveHandoff.run_id}:approved`"
+                    data-test="ai-research-current-live-handoff-approve"
+                    @click="approveCurrentLiveHandoff('approved')"
+                  >
+                    批准交接
+                  </el-button>
+                  <el-button
+                    size="small"
+                    type="danger"
+                    plain
+                    :loading="aiResearchLiveHandoffApprovingRunId === `${aiResearchCurrentLiveHandoff.run_id}:rejected`"
+                    data-test="ai-research-current-live-handoff-reject"
+                    @click="approveCurrentLiveHandoff('rejected')"
+                  >
+                    驳回
+                  </el-button>
+                </div>
               </div>
 
               <div
@@ -699,6 +849,53 @@
               </div>
 
               <div
+                v-if="aiResearchBestDiagnostics"
+                class="ai-research-diagnostics"
+                data-test="ai-research-best-diagnostics"
+              >
+                <div class="ai-research-diagnostics-head">
+                  <strong>投研诊断</strong>
+                  <el-tag
+                    v-if="aiResearchBestDiagnostics.promotionReady !== null"
+                    size="small"
+                    :type="aiResearchBestDiagnostics.promotionReady ? 'success' : 'warning'"
+                  >
+                    {{ aiResearchBestDiagnostics.promotionReady ? '可晋级' : '需改进' }}
+                  </el-tag>
+                </div>
+                <p v-if="aiResearchBestDiagnostics.summary">
+                  {{ aiResearchBestDiagnostics.summary }}
+                </p>
+                <div class="ai-research-diagnostics-items">
+                  <span
+                    v-for="category in aiResearchBestDiagnostics.failureCategories"
+                    :key="`category-${category}`"
+                  >
+                    问题 {{ category }}
+                  </span>
+                  <span
+                    v-for="weakness in aiResearchBestDiagnostics.weaknesses"
+                    :key="`weakness-${weakness}`"
+                    class="ai-research-warning-text"
+                  >
+                    {{ weakness }}
+                  </span>
+                  <span
+                    v-for="strength in aiResearchBestDiagnostics.strengths"
+                    :key="`strength-${strength}`"
+                  >
+                    {{ strength }}
+                  </span>
+                  <span
+                    v-for="plan in aiResearchBestDiagnostics.improvementPlan"
+                    :key="`plan-${plan}`"
+                  >
+                    {{ plan }}
+                  </span>
+                </div>
+              </div>
+
+              <div
                 v-if="aiResearchBestGateEvaluations.length"
                 class="ai-research-gate-summary"
                 data-test="ai-research-gate-summary"
@@ -781,6 +978,30 @@
                     <span>{{ t('strategy.aiResearchSharpe') }}: {{ formatMetric(item.sharpe_ratio) }}</span>
                     <span>质量分: {{ formatMetric(item.quality_score) }}</span>
                     <span>{{ t('strategy.aiResearchTrades') }}: {{ item.total_trades }}</span>
+                  </div>
+                  <div
+                    v-if="iterationProgress(item)"
+                    class="ai-research-iteration-progress"
+                    data-test="ai-research-iteration-progress"
+                  >
+                    <el-tag
+                      size="small"
+                      :type="iterationProgressTagType(iterationProgress(item)?.status)"
+                    >
+                      {{ iterationProgressLabel(iterationProgress(item)?.status) }}
+                    </el-tag>
+                    <span v-if="iterationProgress(item)?.previous_iteration">
+                      对比第 {{ iterationProgress(item)?.previous_iteration }} 轮
+                    </span>
+                    <span v-if="iterationProgressDeltaText(iterationProgress(item), 'sharpe_delta')">
+                      Sharpe {{ iterationProgressDeltaText(iterationProgress(item), 'sharpe_delta') }}
+                    </span>
+                    <span v-if="iterationProgressDeltaText(iterationProgress(item), 'quality_score_delta')">
+                      质量分 {{ iterationProgressDeltaText(iterationProgress(item), 'quality_score_delta') }}
+                    </span>
+                    <span v-if="iterationProgress(item)?.summary">
+                      {{ iterationProgress(item)?.summary }}
+                    </span>
                   </div>
                   <p
                     v-if="item.failure_reason"
@@ -962,6 +1183,23 @@
                     复核模拟
                   </el-button>
                   <el-button
+                    v-if="canBuildLiveHandoffFromRecord(record)"
+                    size="small"
+                    type="success"
+                    plain
+                    :loading="aiResearchLiveHandoffLoadingRunId === record.run_id"
+                    data-test="ai-research-history-live-handoff"
+                    @click="buildLiveHandoffFromResearchRecord(record)"
+                  >
+                    <el-icon
+                      class="mr-1"
+                      aria-hidden="true"
+                    >
+                      <Link />
+                    </el-icon>
+                    实盘交接包
+                  </el-button>
+                  <el-button
                     v-if="bestStrategyIdForRecord(record)"
                     size="small"
                     plain
@@ -1088,6 +1326,99 @@
                       >
                         {{ action }}
                       </span>
+                    </div>
+                  </div>
+                  <div
+                    v-if="liveHandoffForRecord(record)"
+                    class="ai-research-paper-review ai-research-live-handoff"
+                    data-test="ai-research-history-live-handoff-panel"
+                  >
+                    <div class="ai-research-paper-review-head">
+                      <el-tag
+                        size="small"
+                        :type="liveHandoffForRecord(record)?.ready_for_live ? 'success' : 'danger'"
+                      >
+                        {{ liveHandoffStatusLabel(liveHandoffForRecord(record)?.status) }}
+                      </el-tag>
+                      <span>
+                        {{ liveHandoffForRecord(record)?.approval_required ? '需要人工审批' : '无需额外审批' }}
+                      </span>
+                    </div>
+                    <div class="ai-research-paper-review-rules">
+                      <span>标的 {{ liveHandoffForRecord(record)?.symbol }}</span>
+                      <span>Sharpe {{ formatMetric(liveHandoffForRecord(record)?.best_sharpe) }}</span>
+                      <span v-if="liveHandoffForRecord(record)?.expires_at">
+                        候选有效期 {{ formatDateTime(liveHandoffForRecord(record)?.expires_at) }}
+                      </span>
+                      <span v-if="Object.keys(liveHandoffForRecord(record)?.asset_specs || {}).length">
+                        资产规格已随交接包固化
+                      </span>
+                    </div>
+                    <div
+                      v-if="liveHandoffForRecord(record)?.approvals_required.length"
+                      class="ai-research-live-readiness"
+                      data-test="ai-research-history-live-handoff-approvals"
+                    >
+                      <strong>审批项</strong>
+                      <span
+                        v-for="item in liveHandoffForRecord(record)?.approvals_required ?? []"
+                        :key="item.key"
+                      >
+                        {{ item.label }} {{ liveReadinessStatusLabel(item.status) }}：{{ item.action || item.evidence }}
+                      </span>
+                    </div>
+                    <div
+                      v-if="liveHandoffForRecord(record)?.deployment_blockers.length"
+                      class="ai-research-paper-review-actions"
+                      data-test="ai-research-history-live-handoff-blockers"
+                    >
+                      <span
+                        v-for="blocker in liveHandoffForRecord(record)?.deployment_blockers ?? []"
+                        :key="blocker"
+                      >
+                        {{ blocker }}
+                      </span>
+                    </div>
+                    <div
+                      v-if="liveHandoffForRecord(record)?.approval"
+                      class="ai-research-live-readiness"
+                      data-test="ai-research-history-live-handoff-approval"
+                    >
+                      <strong>审批结果</strong>
+                      <span>
+                        {{ liveHandoffApprovalLabel(liveHandoffForRecord(record)) }}
+                        {{ liveHandoffForRecord(record)?.approval?.decided_by }}
+                        {{ formatDateTime(liveHandoffForRecord(record)?.approval?.decided_at) }}
+                      </span>
+                      <span v-if="liveHandoffForRecord(record)?.approval?.comment">
+                        {{ liveHandoffForRecord(record)?.approval?.comment }}
+                      </span>
+                    </div>
+                    <div
+                      v-if="canApproveLiveHandoff(liveHandoffForRecord(record))"
+                      class="ai-research-paper-review-actions"
+                      data-test="ai-research-history-live-handoff-actions"
+                    >
+                      <el-button
+                        size="small"
+                        type="success"
+                        plain
+                        :loading="aiResearchLiveHandoffApprovingRunId === `${record.run_id}:approved`"
+                        data-test="ai-research-history-live-handoff-approve"
+                        @click="approveLiveHandoffFromResearchRecord(record, 'approved')"
+                      >
+                        批准交接
+                      </el-button>
+                      <el-button
+                        size="small"
+                        type="danger"
+                        plain
+                        :loading="aiResearchLiveHandoffApprovingRunId === `${record.run_id}:rejected`"
+                        data-test="ai-research-history-live-handoff-reject"
+                        @click="approveLiveHandoffFromResearchRecord(record, 'rejected')"
+                      >
+                        驳回
+                      </el-button>
                     </div>
                   </div>
                 </div>
@@ -1319,10 +1650,14 @@ import StrategyTemplateCard from './strategy-components/StrategyTemplateCard.vue
 import type { ParamSpec, Strategy, StrategyTemplate } from '@/types'
 import type {
   AIStrategyLiveReadinessItem,
+  AIStrategyLiveHandoffApprovalRequest,
+  AIStrategyLiveHandoffPackage,
+  AIStrategyIterationProgress,
   AIStrategyOutOfSampleValidation,
   AIStrategyPaperMonitoringRule,
   AIStrategyPaperTradingStart,
   AIStrategyPaperTradingReview,
+  AIStrategyPipelineSummary,
   AIStrategyPipelineStep,
   AIStrategyQualityGateEvaluation,
   AIStrategyResearchRunRequest,
@@ -1365,6 +1700,11 @@ const aiResearchTaskProgress = ref(0)
 const aiResearchTaskIteration = ref<number | null>(null)
 const aiResearchBacktestTaskId = ref('')
 const aiResearchCancelledBacktestTaskId = ref('')
+const aiResearchTaskPaperWorkspaceId = ref('')
+const aiResearchTaskPaperUnitId = ref('')
+const aiResearchTaskPaperStarted = ref(false)
+const aiResearchTaskPipeline = ref<AIStrategyPipelineSummary | null>(null)
+const aiResearchTaskRequestSnapshot = ref<Record<string, unknown> | null>(null)
 const aiResearchTaskError = ref('')
 const aiResearchTaskMessage = ref('')
 const aiResearchTaskLatestIteration = ref<Record<string, unknown> | null>(null)
@@ -1372,8 +1712,11 @@ const aiResearchCancelling = ref(false)
 const aiResearchCancelRequested = ref(false)
 const aiResearchPaperStartingRunId = ref('')
 const aiResearchPaperReviewingRunId = ref('')
+const aiResearchLiveHandoffLoadingRunId = ref('')
 const aiResearchStrategyViewingRunId = ref('')
 const aiResearchPaperReviews = reactive<Record<string, AIStrategyPaperTradingReview>>({})
+const aiResearchLiveHandoffs = reactive<Record<string, AIStrategyLiveHandoffPackage>>({})
+const aiResearchLiveHandoffApprovingRunId = ref('')
 
 const AI_RESEARCH_STAGE_LABELS: Record<string, string> = {
   queued: '排队中',
@@ -1396,6 +1739,7 @@ const AI_RESEARCH_STAGE_LABELS: Record<string, string> = {
   paper_trading_failed: '模拟启动失败',
   paper_review: '模拟复核',
   live_candidate: '实盘候选',
+  live_handoff: '实盘交接',
   research_iteration: '投研迭代',
   completed: '已完成',
   failed: '失败',
@@ -1425,6 +1769,13 @@ const AI_RESEARCH_LIVE_READINESS_STATUS_LABELS: Record<string, string> = {
   pending_manual_confirmation: '待人工确认',
   expired: '已过期',
   failed: '未通过',
+}
+
+const AI_RESEARCH_LIVE_HANDOFF_STATUS_LABELS: Record<string, string> = {
+  ready_for_approval: '可提交审批',
+  blocked: '存在阻塞',
+  approved_for_live: '已批准实盘',
+  approval_rejected: '审批驳回',
 }
 
 const AI_RESEARCH_PIPELINE_STEP_STATUS_LABELS: Record<string, string> = {
@@ -1519,6 +1870,36 @@ const aiBestSharpe = computed(() => {
 })
 
 const aiResearchNextActions = computed(() => aiResearchResult.value?.next_actions ?? [])
+const aiResearchBestDiagnostics = computed(() => {
+  const diagnostics = aiResearchResult.value?.best_diagnostics
+  if (!diagnostics) return null
+  const summary = String(diagnostics.summary || '').trim()
+  const failureCategories = diagnostics.failure_categories ?? []
+  const strengths = diagnostics.strengths ?? []
+  const weaknesses = diagnostics.weaknesses ?? []
+  const improvementPlan = diagnostics.improvement_plan ?? []
+  const promotionReady = typeof diagnostics.promotion_ready === 'boolean'
+    ? diagnostics.promotion_ready
+    : null
+  if (
+    !summary
+    && !failureCategories.length
+    && !strengths.length
+    && !weaknesses.length
+    && !improvementPlan.length
+    && promotionReady === null
+  ) {
+    return null
+  }
+  return {
+    summary,
+    failureCategories,
+    strengths,
+    weaknesses,
+    improvementPlan,
+    promotionReady,
+  }
+})
 const aiResearchPipelineSteps = computed<AIStrategyPipelineStep[]>(() => {
   const pipeline = aiResearchResult.value?.pipeline
   if (!pipeline) return []
@@ -1555,12 +1936,56 @@ const aiResearchPaperStatusText = computed(() => {
 const aiResearchTaskStageLabel = computed(() =>
   aiResearchStageLabel(aiResearchTaskStage.value || aiResearchTaskStatus.value)
 )
+const aiResearchTaskObjectiveText = computed(() => {
+  const snapshot = aiResearchTaskRequestSnapshot.value
+  if (!snapshot) return ''
+  const prompt = stringFromUnknown(snapshot.prompt)
+  return prompt ? `目标 ${prompt}` : ''
+})
+const aiResearchTaskSymbolText = computed(() => {
+  const snapshot = aiResearchTaskRequestSnapshot.value
+  if (!snapshot) return ''
+  const symbol = stringFromUnknown(snapshot.symbol)
+  const symbolName = stringFromUnknown(snapshot.symbol_name)
+  if (!symbol && !symbolName) return ''
+  return symbolName ? `标的 ${symbol} ${symbolName}` : `标的 ${symbol}`
+})
+const aiResearchTaskTimeframeText = computed(() => {
+  const snapshot = aiResearchTaskRequestSnapshot.value
+  if (!snapshot) return ''
+  const timeframe = stringFromUnknown(snapshot.timeframe)
+  const timeframeN = optionalNumber(snapshot.timeframe_n) ?? 1
+  if (!timeframe) return ''
+  return /^\d/.test(timeframe) ? `周期 ${timeframe}` : `周期 ${timeframeN}${timeframe}`
+})
+const aiResearchTaskPaperStatusText = computed(() => {
+  const error = String(aiResearchTaskPipeline.value?.paper_trading_error || '').trim()
+  if (error) return `模拟失败 ${error}`
+  if (aiResearchTaskPaperStarted.value) return '模拟已启动'
+  if (aiResearchTaskPaperWorkspaceId.value || aiResearchTaskPaperUnitId.value) return '模拟已创建'
+  return ''
+})
+const aiResearchTaskPipelineSteps = computed<AIStrategyPipelineStep[]>(() => {
+  const pipeline = aiResearchTaskPipeline.value
+  if (!pipeline) return []
+  if (pipeline.steps?.length) return pipeline.steps
+  if (!pipeline.current_stage) return []
+  return [
+    {
+      key: pipeline.current_stage,
+      label: aiResearchStageLabel(pipeline.current_stage),
+      status: pipeline.ready_for_live ? 'completed' : 'running',
+      error: pipeline.paper_trading_error,
+    },
+  ]
+})
 const aiResearchContinuationEnabled = computed(() =>
   Boolean(aiResearchForm.seed_strategy_id || aiResearchForm.continue_from_run_id)
 )
 const aiResearchContinuationLabel = computed(() => {
   if (aiResearchForm.continuation_source === 'paper_review') return '从模拟复核反馈继续'
   if (aiResearchForm.continuation_source === 'paper_trading_failed') return '从模拟启动失败继续'
+  if (aiResearchForm.continuation_source === 'live_handoff_rejected') return '从实盘交接驳回继续'
   if (aiResearchForm.continuation_source === 'research_cancelled') return '从已取消任务继续'
   if (aiResearchForm.continuation_source === 'research_failure') return '从未达标结果继续'
   return '从历史最佳策略继续'
@@ -1619,6 +2044,15 @@ const aiResearchCurrentPaperReview = computed(() => {
   const record = result?.run_record
   if (!result || !record) return null
   return paperReviewForRecord(record)
+})
+const canBuildLiveHandoffFromCurrentResult = computed(() => {
+  const record = aiResearchResult.value?.run_record
+  return Boolean(record && canBuildLiveHandoffFromRecord(record))
+})
+const aiResearchCurrentLiveHandoff = computed(() => {
+  const result = aiResearchResult.value
+  if (!result) return null
+  return liveHandoffForRunId(result.run_id)
 })
 const aiResearchCurrentPaperEnvironment = computed(() => {
   const result = aiResearchResult.value
@@ -1714,6 +2148,15 @@ function taskLatestIterationMetric(
   return null
 }
 
+function taskLatestIterationProgress(iteration: Record<string, unknown> | null) {
+  if (!iteration) return null
+  const diagnostics = isRecord(iteration.diagnostics) ? iteration.diagnostics : {}
+  const progress = isRecord(diagnostics.iteration_progress)
+    ? diagnostics.iteration_progress
+    : iteration.iteration_progress
+  return isRecord(progress) ? progress as AIStrategyIterationProgress : null
+}
+
 function formatDateTime(value: string | null | undefined) {
   if (!value) return '-'
   const date = new Date(value)
@@ -1723,6 +2166,13 @@ function formatDateTime(value: string | null | undefined) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function containsRedactedSecret(value: unknown): boolean {
+  if (typeof value === 'string') return value.trim() === '***'
+  if (Array.isArray(value)) return value.some(item => containsRedactedSecret(item))
+  if (!isRecord(value)) return false
+  return Object.values(value).some(item => containsRedactedSecret(item))
 }
 
 function optionalNumber(value: unknown): number | null {
@@ -2028,11 +2478,11 @@ function gatewayConfigJsonFromRunRecord(record: AIStrategyResearchRunRecord) {
   const payload = bestIterationPayloadForRecord(record)
   const snapshot = payload && isRecord(payload.unit_snapshot) ? payload.unit_snapshot : {}
   const handoff = isRecord(record.paper_handoff) ? record.paper_handoff : {}
-  const gatewayConfig = isRecord(snapshot.gateway_config)
-    ? snapshot.gateway_config
-    : isRecord(handoff.gateway_config) ? handoff.gateway_config : null
-  if (!gatewayConfig || !Object.keys(gatewayConfig).length) return ''
-  return JSON.stringify(gatewayConfig)
+  const candidates = [snapshot.gateway_config, handoff.gateway_config]
+  const gatewayConfig = candidates.find(
+    item => isRecord(item) && Object.keys(item).length > 0 && !containsRedactedSecret(item)
+  )
+  return isRecord(gatewayConfig) ? JSON.stringify(gatewayConfig) : ''
 }
 
 function bestStrategyFromRunRecord(record: AIStrategyResearchRunRecord): Strategy | null {
@@ -2055,16 +2505,30 @@ async function loadAIResearchRuns() {
   try {
     const response = await strategyApi.listAIResearchRuns(undefined, 10)
     aiResearchRuns.value = response.items
+    response.items.forEach(hydrateLiveHandoffFromRunRecord)
   } finally {
     aiResearchRunsLoading.value = false
   }
 }
 
 function upsertAIResearchRunRecord(record: AIStrategyResearchRunRecord) {
+  hydrateLiveHandoffFromRunRecord(record)
   aiResearchRuns.value = [
     record,
     ...aiResearchRuns.value.filter(item => item.run_id !== record.run_id),
   ].slice(0, 10)
+}
+
+function hydrateLiveHandoffFromRunRecord(record: AIStrategyResearchRunRecord) {
+  const handoff = record.live_handoff
+  if (handoff?.run_id === record.run_id) {
+    aiResearchLiveHandoffs[record.run_id] = handoff
+    return
+  }
+  const status = String(record.paper_review_status || '').trim()
+  if (status && status !== 'ready_for_live_candidate') {
+    delete aiResearchLiveHandoffs[record.run_id]
+  }
 }
 
 async function refreshAIResearchRunRecord(
@@ -2149,6 +2613,40 @@ function researchIterationNextActions(item: AIStrategyResearchRunResponse['itera
   return [...new Set([...nextActions, ...improvementPlan])]
 }
 
+function iterationProgress(item: AIStrategyResearchIteration) {
+  const progress = item.diagnostics?.iteration_progress
+  return isRecord(progress) ? progress as AIStrategyIterationProgress : null
+}
+
+function iterationProgressLabel(status?: string | null) {
+  const normalized = String(status || '').trim()
+  const labels: Record<string, string> = {
+    baseline: '基准',
+    improved: '改善',
+    regressed: '退化',
+    stalled: '停滞',
+  }
+  return labels[normalized] ?? aiResearchStageLabel(normalized || 'baseline')
+}
+
+function iterationProgressTagType(status?: string | null) {
+  const normalized = String(status || '').trim()
+  if (normalized === 'improved') return 'success'
+  if (normalized === 'regressed') return 'danger'
+  if (normalized === 'stalled') return 'warning'
+  return 'info'
+}
+
+function iterationProgressDeltaText(
+  progress: AIStrategyIterationProgress | null,
+  key: 'sharpe_delta' | 'quality_score_delta'
+) {
+  const value = optionalNumber(progress?.[key])
+  if (value === null) return ''
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${formatMetric(value)}`
+}
+
 function canStartPaperFromRecord(record: AIStrategyResearchRunRecord) {
   return Boolean(
     record.achieved
@@ -2164,6 +2662,43 @@ function canReviewPaperFromRecord(record: AIStrategyResearchRunRecord) {
     && record.paper_unit_id
     && !isPaperTradingTargetMissing(record)
   )
+}
+
+function canBuildLiveHandoffFromRecord(record: AIStrategyResearchRunRecord) {
+  const review = paperReviewForRecord(record)
+  return Boolean(
+    record.paper_trading_started
+    && review?.ready_for_live
+    && review.status === 'ready_for_live_candidate'
+  )
+}
+
+function liveHandoffForRunId(runId: string): AIStrategyLiveHandoffPackage | null {
+  return aiResearchLiveHandoffs[runId] ?? null
+}
+
+function liveHandoffForRecord(
+  record: AIStrategyResearchRunRecord
+): AIStrategyLiveHandoffPackage | null {
+  return liveHandoffForRunId(record.run_id)
+}
+
+function canApproveLiveHandoff(handoff: AIStrategyLiveHandoffPackage | null | undefined) {
+  return Boolean(
+    handoff
+    && handoff.ready_for_live
+    && handoff.status === 'ready_for_approval'
+    && !handoff.approval
+    && !handoff.approval_status
+  )
+}
+
+function liveHandoffApprovalLabel(handoff: AIStrategyLiveHandoffPackage | null | undefined) {
+  const approval = handoff?.approval
+  if (!approval) return ''
+  if (approval.approved) return '已批准'
+  if (approval.decision === 'rejected') return '已驳回'
+  return approval.decision || ''
 }
 
 function isPaperTradingTargetMissing(record: AIStrategyResearchRunRecord) {
@@ -2191,7 +2726,11 @@ function canContinueResearchFromPaperIssue(record: AIStrategyResearchRunRecord) 
   const source = continuationSourceForRecord(record)
   return Boolean(
     bestStrategyIdForRecord(record) &&
-    (source === 'paper_review' || source === 'paper_trading_failed')
+    (
+      source === 'paper_review'
+      || source === 'paper_trading_failed'
+      || source === 'live_handoff_rejected'
+    )
   )
 }
 
@@ -2210,6 +2749,7 @@ function canContinueResearchFromRunRecord(record: AIStrategyResearchRunRecord) {
 }
 
 function continuationSourceForRecord(record: AIStrategyResearchRunRecord) {
+  if (isLiveHandoffRejected(record)) return 'live_handoff_rejected'
   if (
     ['needs_research_review', 'live_readiness_expired'].includes(
       String(record.paper_review_status || '')
@@ -2229,6 +2769,17 @@ function continuationSourceForRecord(record: AIStrategyResearchRunRecord) {
   return ''
 }
 
+function isLiveHandoffRejected(record: AIStrategyResearchRunRecord) {
+  const handoff = liveHandoffForRecord(record) ?? record.live_handoff
+  const approval = handoff?.approval ?? record.live_handoff_approval
+  return Boolean(
+    approval?.decision === 'rejected'
+    || handoff?.approval_status === 'rejected'
+    || handoff?.status === 'approval_rejected'
+    || record.pipeline?.live_handoff_status === 'approval_rejected'
+  )
+}
+
 function isPaperTradingStartFailure(record: AIStrategyResearchRunRecord) {
   return Boolean(
     record.pipeline?.current_stage === 'paper_trading_failed'
@@ -2237,6 +2788,7 @@ function isPaperTradingStartFailure(record: AIStrategyResearchRunRecord) {
 }
 
 function pipelineStage(record: AIStrategyResearchRunRecord) {
+  if (record.live_handoff || record.pipeline?.current_stage === 'live_handoff') return 'live_handoff'
   if (record.paper_review_ready_for_live) return 'live_candidate'
   if (record.paper_review_status) return 'paper_review'
   if (record.paper_trading_started) return 'paper_trading'
@@ -2276,6 +2828,12 @@ function liveReadinessStatusLabel(status?: string | null) {
   const normalized = String(status || '').trim()
   if (!normalized) return ''
   return AI_RESEARCH_LIVE_READINESS_STATUS_LABELS[normalized] ?? aiResearchStageLabel(normalized)
+}
+
+function liveHandoffStatusLabel(status?: string | null) {
+  const normalized = String(status || '').trim()
+  if (!normalized) return ''
+  return AI_RESEARCH_LIVE_HANDOFF_STATUS_LABELS[normalized] ?? aiResearchStageLabel(normalized)
 }
 
 function pipelineStepStatusLabel(status?: string | null) {
@@ -2553,6 +3111,120 @@ function researchResultFromRunRecord(
     run_record: record,
     next_actions: record.next_actions ?? [],
     message: 'AI research result restored from run history',
+  }
+}
+
+function researchResultFromTaskSummary(
+  task: AIStrategyResearchTaskResponse
+): AIStrategyResearchRunResponse | null {
+  if (!task.run_id || !task.research_workspace_id) return null
+  const request: Record<string, unknown> = isRecord(task.request_snapshot)
+    ? task.request_snapshot
+    : {}
+  const latestIteration = isRecord(task.latest_iteration) ? task.latest_iteration : null
+  const bestMetrics = isRecord(task.best_metrics) ? task.best_metrics : {}
+  const bestSharpe = optionalNumber(task.best_sharpe)
+    ?? optionalNumber(bestMetrics.sharpe_ratio)
+    ?? optionalNumber(bestMetrics.sharpe)
+    ?? optionalNumber(latestIteration?.sharpe_ratio)
+    ?? optionalNumber(latestIteration?.sharpe)
+    ?? 0
+  const bestIteration = optionalNumber(task.best_iteration)
+    ?? optionalNumber(latestIteration?.iteration)
+    ?? optionalNumber(task.current_iteration)
+    ?? null
+  const achieved = optionalBoolean(
+    task.achieved,
+    Boolean(task.paper_trading_started && String(task.status || '').toLowerCase() === 'completed')
+  )
+  const runStatus = String(task.run_status || (achieved ? 'achieved' : task.status || 'completed'))
+  const targetSharpe = optionalNumber(task.target_sharpe) ?? optionalNumber(request.target_sharpe) ?? 0
+  const paperHandoff = isRecord(task.paper_handoff) ? task.paper_handoff : {}
+  const bestDiagnostics = isRecord(task.best_diagnostics) ? task.best_diagnostics : {}
+  const assetSpecs = isRecord(task.asset_specs) && Object.keys(task.asset_specs).length
+    ? task.asset_specs as Record<string, Record<string, unknown>>
+    : isRecord(paperHandoff.asset_specs)
+      ? paperHandoff.asset_specs as Record<string, Record<string, unknown>>
+      : {}
+  const backtestEnvironment = isRecord(task.backtest_environment)
+    && Object.keys(task.backtest_environment).length
+    ? task.backtest_environment
+    : isRecord(paperHandoff.backtest_environment)
+      ? paperHandoff.backtest_environment
+      : {}
+  const record: AIStrategyResearchRunRecord = {
+    run_id: task.run_id,
+    prompt: stringFromUnknown(request.prompt),
+    symbol: stringFromUnknown(request.symbol),
+    symbol_name: stringFromUnknown(request.symbol_name, stringFromUnknown(request.symbol)),
+    timeframe: stringFromUnknown(request.timeframe, '1d'),
+    timeframe_n: optionalNumber(request.timeframe_n) ?? 1,
+    start_date: stringFromUnknown(request.start_date) || null,
+    end_date: stringFromUnknown(request.end_date) || null,
+    initial_cash: optionalNumber(request.initial_cash) ?? undefined,
+    commission: optionalNumber(request.commission) ?? undefined,
+    annual_days: optionalNumber(request.annual_days) ?? undefined,
+    calc_method: stringFromUnknown(request.calc_method) || undefined,
+    weight_mode: stringFromUnknown(request.weight_mode) || undefined,
+    asset_specs: assetSpecs,
+    backtest_environment: backtestEnvironment,
+    status: runStatus,
+    achieved,
+    target_sharpe: targetSharpe,
+    quality_gates: {
+      target_sharpe: targetSharpe,
+      min_total_trades: optionalNumber(request.min_total_trades) ?? 0,
+      max_drawdown_limit: optionalNumber(request.max_drawdown_limit),
+      min_total_return: optionalNumber(request.min_total_return),
+      min_annual_return: optionalNumber(request.min_annual_return),
+      min_win_rate: optionalNumber(request.min_win_rate),
+      out_of_sample_validation: optionalBoolean(request.out_of_sample_validation, true),
+      out_of_sample_ratio: optionalNumber(request.out_of_sample_ratio) ?? 0.25,
+      min_out_of_sample_sharpe: optionalNumber(request.min_out_of_sample_sharpe),
+      min_out_of_sample_trades: optionalNumber(request.min_out_of_sample_trades),
+    },
+    min_total_trades: optionalNumber(request.min_total_trades) ?? 0,
+    max_iterations: optionalNumber(task.max_iterations) ?? optionalNumber(request.max_iterations) ?? 0,
+    iteration_count: optionalNumber(task.iteration_count) ?? (latestIteration ? 1 : 0),
+    best_iteration: bestIteration,
+    best_sharpe: bestSharpe,
+    best_quality_score: optionalNumber(task.best_quality_score) ?? 0,
+    best_quality_gate_evaluations: task.best_quality_gate_evaluations ?? [],
+    best_diagnostics: bestDiagnostics,
+    best_metrics: bestMetrics,
+    best_strategy_id: task.best_strategy_id ?? null,
+    best_strategy_name: task.best_strategy_name ?? null,
+    research_workspace_id: task.research_workspace_id,
+    seed_strategy_id: stringFromUnknown(request.seed_strategy_id) || null,
+    continued_from_run_id: stringFromUnknown(request.continue_from_run_id) || null,
+    paper_workspace_id: task.paper_workspace_id ?? null,
+    paper_workspace_name: stringFromUnknown(
+      task.paper_workspace_name,
+      stringFromUnknown(paperHandoff.paper_workspace_name, stringFromUnknown(request.paper_workspace_name))
+    ) || null,
+    paper_unit_id: task.paper_unit_id ?? null,
+    paper_trading_started: Boolean(task.paper_trading_started),
+    paper_monitoring_plan: task.paper_monitoring_plan ?? [],
+    paper_handoff: paperHandoff,
+    paper_review_status: task.paper_review_status ?? null,
+    paper_review_ready_for_live: Boolean(task.paper_review_ready_for_live),
+    paper_reviewed_at: task.paper_reviewed_at ?? null,
+    paper_review_evaluations: task.paper_review_evaluations ?? [],
+    paper_review_next_actions: task.paper_review_next_actions ?? [],
+    live_readiness_checklist: task.live_readiness_checklist ?? [],
+    live_readiness_expires_at: task.live_readiness_expires_at ?? null,
+    live_handoff: task.live_handoff ?? null,
+    live_handoff_approval: task.live_handoff_approval ?? null,
+    pipeline: task.pipeline,
+    next_actions: task.next_actions ?? [],
+    started_at: task.started_at ?? task.submitted_at,
+    completed_at: task.completed_at ?? task.started_at ?? task.submitted_at,
+    iterations: latestIteration ? [latestIteration] : [],
+  }
+  hydrateLiveHandoffFromRunRecord(record)
+  return {
+    ...researchResultFromRunRecord(record),
+    message: 'AI research result restored from task summary',
   }
 }
 
@@ -2951,11 +3623,11 @@ async function restoreAIResearchResultFromTask(
       100
     )
     const record = response.items.find(item => item.run_id === task.run_id)
-    if (!record) return null
+    if (!record) return researchResultFromTaskSummary(task)
     upsertAIResearchRunRecord(record)
     return researchResultFromRunRecord(record)
   } catch {
-    return null
+    return researchResultFromTaskSummary(task)
   }
 }
 
@@ -3137,10 +3809,22 @@ async function reviewPaperFromResearchRecord(record: AIStrategyResearchRunRecord
       record.research_workspace_id
     )
     aiResearchPaperReviews[record.run_id] = review
-    const updatedRecord = reviewedRunRecord(record, review)
+    delete aiResearchLiveHandoffs[record.run_id]
+    let updatedRecord = reviewedRunRecord(record, review)
+    if (review.live_handoff) {
+      aiResearchLiveHandoffs[record.run_id] = review.live_handoff
+      updatedRecord = liveHandoffRunRecord(updatedRecord, review.live_handoff)
+    }
     upsertAIResearchRunRecord(updatedRecord)
     applyPaperReviewToCurrentResult(record.run_id, updatedRecord)
     ElMessage.success(review.ready_for_live ? '模拟交易已满足实盘候选条件' : '模拟交易复核已更新')
+    if (review.live_handoff) {
+      ElMessage.success(
+        review.live_handoff.ready_for_live ? '实盘交接包已生成' : '实盘交接包存在阻塞项'
+      )
+    } else if (review.ready_for_live) {
+      await buildLiveHandoffFromResearchRecord(updatedRecord)
+    }
   } catch {
     ElMessage.error(t('strategy.aiResearchRunFailed'))
   } finally {
@@ -3152,6 +3836,132 @@ async function reviewPaperFromCurrentResult() {
   const record = aiResearchResult.value?.run_record
   if (!record) return
   await reviewPaperFromResearchRecord(record)
+}
+
+async function buildLiveHandoffFromCurrentResult() {
+  const record = aiResearchResult.value?.run_record
+  if (!record) return
+  await buildLiveHandoffFromResearchRecord(record)
+}
+
+async function approveCurrentLiveHandoff(decision: 'approved' | 'rejected') {
+  const record = aiResearchResult.value?.run_record
+  if (!record) return
+  await approveLiveHandoffFromResearchRecord(record, decision)
+}
+
+async function buildLiveHandoffFromResearchRecord(record: AIStrategyResearchRunRecord) {
+  aiResearchLiveHandoffLoadingRunId.value = record.run_id
+  try {
+    const handoff = await strategyApi.buildAIResearchLiveHandoff(
+      record.run_id,
+      record.research_workspace_id
+    )
+    aiResearchLiveHandoffs[record.run_id] = handoff
+    const updatedRecord = liveHandoffRunRecord(record, handoff)
+    upsertAIResearchRunRecord(updatedRecord)
+    applyResearchRunRecordToCurrentResult(updatedRecord)
+    ElMessage.success(
+      handoff.ready_for_live ? '实盘交接包已生成' : '实盘交接包存在阻塞项'
+    )
+  } catch {
+    ElMessage.error(t('strategy.aiResearchRunFailed'))
+  } finally {
+    aiResearchLiveHandoffLoadingRunId.value = ''
+  }
+}
+
+async function approveLiveHandoffFromResearchRecord(
+  record: AIStrategyResearchRunRecord,
+  decision: 'approved' | 'rejected'
+) {
+  const handoff = liveHandoffForRecord(record)
+  if (!handoff || !canApproveLiveHandoff(handoff)) return
+  const confirmMessage = decision === 'approved'
+    ? '确认已核对账户权限、风险限额和上线窗口，并批准该实盘交接包？'
+    : '确认驳回该实盘交接包？'
+  try {
+    await ElMessageBox.confirm(confirmMessage, '实盘交接审批', {
+      type: decision === 'approved' ? 'success' : 'warning',
+    })
+  } catch {
+    return
+  }
+
+  aiResearchLiveHandoffApprovingRunId.value = `${record.run_id}:${decision}`
+  const payload: AIStrategyLiveHandoffApprovalRequest = decision === 'approved'
+    ? {
+        decision,
+        approver: 'web',
+        comment: '前端人工审批通过',
+        account_confirmed: true,
+        risk_limit_confirmed: true,
+        deployment_window: '人工审批通过后执行',
+      }
+    : {
+        decision,
+        approver: 'web',
+        comment: '前端人工驳回',
+        account_confirmed: false,
+        risk_limit_confirmed: false,
+      }
+  try {
+    const updatedHandoff = await strategyApi.approveAIResearchLiveHandoff(
+      record.run_id,
+      payload,
+      record.research_workspace_id
+    )
+    aiResearchLiveHandoffs[record.run_id] = updatedHandoff
+    const updatedRecord = liveHandoffRunRecord(record, updatedHandoff)
+    upsertAIResearchRunRecord(updatedRecord)
+    applyResearchRunRecordToCurrentResult(updatedRecord)
+    ElMessage.success(decision === 'approved' ? '实盘交接已审批通过' : '实盘交接已驳回')
+  } catch {
+    ElMessage.error(t('strategy.aiResearchRunFailed'))
+  } finally {
+    aiResearchLiveHandoffApprovingRunId.value = ''
+  }
+}
+
+function liveHandoffRunRecord(
+  record: AIStrategyResearchRunRecord,
+  handoff: AIStrategyLiveHandoffPackage
+): AIStrategyResearchRunRecord {
+  const approval = handoff.approval ?? record.live_handoff_approval ?? null
+  const recordPipeline = record.pipeline ?? null
+  const handoffPipeline = handoff.pipeline ?? null
+  return {
+    ...record,
+    live_handoff: handoff,
+    live_handoff_approval: approval,
+    pipeline: {
+      ...(recordPipeline ?? {}),
+      ...(handoffPipeline ?? {}),
+      current_stage: handoffPipeline?.current_stage ?? recordPipeline?.current_stage ?? 'live_candidate',
+      status: handoffPipeline?.status ?? recordPipeline?.status ?? record.status,
+      progress: handoffPipeline?.progress ?? recordPipeline?.progress ?? (handoff.ready_for_live ? 100 : 90),
+      ready_for_live: handoffPipeline?.ready_for_live ?? recordPipeline?.ready_for_live ?? handoff.ready_for_live,
+      steps: handoffPipeline?.steps ?? recordPipeline?.steps ?? [],
+      live_handoff_status: handoff.status,
+      live_handoff_generated_at: handoff.generated_at,
+      live_handoff_ready_for_live: handoff.ready_for_live,
+      live_handoff_approval_required: handoff.approval_required,
+      live_handoff_blocker_count: handoff.deployment_blockers.length,
+      live_handoff_approval_status: approval?.decision
+        ?? handoffPipeline?.live_handoff_approval_status
+        ?? recordPipeline?.live_handoff_approval_status,
+      live_handoff_approved: approval?.approved
+        ?? handoffPipeline?.live_handoff_approved
+        ?? recordPipeline?.live_handoff_approved,
+      live_handoff_approved_at: approval?.approved
+        ? approval.decided_at
+        : handoffPipeline?.live_handoff_approved_at ?? recordPipeline?.live_handoff_approved_at,
+      live_handoff_rejected_at: approval && !approval.approved
+        ? approval.decided_at
+        : handoffPipeline?.live_handoff_rejected_at ?? recordPipeline?.live_handoff_rejected_at,
+    },
+    next_actions: handoff.next_actions?.length ? handoff.next_actions : record.next_actions,
+  }
 }
 
 async function continueResearchFromCurrentPaperReview() {
@@ -3313,14 +4123,26 @@ function aiResearchTaskPollTimeoutMs(
   payload?: AIStrategyResearchRunRequest,
   task?: AIStrategyResearchTaskResponse
 ) {
+  const snapshot: Record<string, unknown> = isRecord(task?.request_snapshot)
+    ? task.request_snapshot
+    : {}
   const maxIterations = boundedNumber(
-    payload?.max_iterations ?? task?.max_iterations ?? aiResearchForm.max_iterations,
+    payload?.max_iterations
+      ?? task?.max_iterations
+      ?? snapshot.max_iterations
+      ?? aiResearchForm.max_iterations,
     3,
     1,
     8
   )
-  const backtestTimeoutSeconds = boundedNumber(payload?.backtest_timeout_seconds, 600, 1, 3600)
-  const validationFactor = payload?.out_of_sample_validation === false ? 1 : 2
+  const backtestTimeoutSeconds = boundedNumber(
+    payload?.backtest_timeout_seconds ?? snapshot.backtest_timeout_seconds,
+    600,
+    1,
+    3600
+  )
+  const outOfSampleValidation = payload?.out_of_sample_validation ?? snapshot.out_of_sample_validation
+  const validationFactor = outOfSampleValidation === false ? 1 : 2
   const estimatedSeconds = maxIterations * validationFactor * backtestTimeoutSeconds + 240
   return boundedNumber(
     estimatedSeconds * 1000,
@@ -3338,9 +4160,80 @@ function applyAIResearchTaskStatus(task: AIStrategyResearchTaskResponse) {
   aiResearchTaskIteration.value = task.current_iteration ?? task.iteration_count ?? null
   aiResearchBacktestTaskId.value = task.current_backtest_task_id || ''
   aiResearchCancelledBacktestTaskId.value = task.cancelled_backtest_task_id || ''
+  aiResearchTaskPaperWorkspaceId.value = task.paper_workspace_id || ''
+  aiResearchTaskPaperUnitId.value = task.paper_unit_id || ''
+  aiResearchTaskPaperStarted.value = Boolean(task.paper_trading_started)
+  aiResearchTaskPipeline.value = task.pipeline ?? null
+  if (isRecord(task.request_snapshot)) {
+    aiResearchTaskRequestSnapshot.value = task.request_snapshot
+  }
   aiResearchTaskError.value = aiResearchTaskFailureMessage(task)
   aiResearchTaskMessage.value = String(task.message || '').trim()
   aiResearchTaskLatestIteration.value = task.latest_iteration ?? null
+}
+
+function applyAIResearchTaskSnapshotToForm(task: AIStrategyResearchTaskResponse) {
+  const snapshot = isRecord(task.request_snapshot) ? task.request_snapshot : null
+  if (!snapshot) return
+  const prompt = stringFromUnknown(snapshot.prompt)
+  const symbol = stringFromUnknown(snapshot.symbol)
+  const symbolName = stringFromUnknown(snapshot.symbol_name)
+  const timeframe = stringFromUnknown(snapshot.timeframe)
+  const startDate = stringFromUnknown(snapshot.start_date)
+  const endDate = stringFromUnknown(snapshot.end_date)
+  if (prompt) aiResearchForm.prompt = prompt
+  if (symbol) aiResearchForm.symbol = symbol
+  if (symbolName || snapshot.symbol_name !== undefined) aiResearchForm.symbol_name = symbolName
+  if (timeframe) aiResearchForm.timeframe = timeframe
+  aiResearchForm.timeframe_n = optionalNumber(snapshot.timeframe_n) ?? aiResearchForm.timeframe_n
+  aiResearchForm.start_date = startDate
+  aiResearchForm.end_date = endDate
+  aiResearchForm.knowledge_base_id = stringFromUnknown(snapshot.knowledge_base_id)
+  aiResearchForm.thinking_mode = optionalBoolean(snapshot.thinking_mode, false)
+  aiResearchForm.target_sharpe = optionalNumber(snapshot.target_sharpe) ?? aiResearchForm.target_sharpe
+  aiResearchForm.min_total_trades =
+    optionalNumber(snapshot.min_total_trades) ?? aiResearchForm.min_total_trades
+  aiResearchForm.max_iterations = optionalNumber(snapshot.max_iterations) ?? aiResearchForm.max_iterations
+  aiResearchForm.initial_cash = optionalNumber(snapshot.initial_cash) ?? aiResearchForm.initial_cash
+  const commission = optionalNumber(snapshot.commission)
+  if (commission !== null) {
+    aiResearchForm.commission = commission
+    aiResearchForm.use_manual_commission = true
+  }
+  aiResearchForm.backtest_timeout_seconds =
+    optionalNumber(snapshot.backtest_timeout_seconds) ?? aiResearchForm.backtest_timeout_seconds
+  aiResearchForm.poll_interval_seconds =
+    optionalNumber(snapshot.poll_interval_seconds) ?? aiResearchForm.poll_interval_seconds
+  aiResearchForm.research_workspace_id = stringFromUnknown(snapshot.research_workspace_id)
+  aiResearchForm.trading_workspace_id = stringFromUnknown(snapshot.trading_workspace_id)
+  aiResearchForm.seed_strategy_id = stringFromUnknown(snapshot.seed_strategy_id)
+  aiResearchForm.continue_from_run_id = stringFromUnknown(snapshot.continue_from_run_id)
+  aiResearchForm.start_paper_trading = optionalBoolean(snapshot.start_paper_trading, true)
+  aiResearchForm.paper_workspace_name = stringFromUnknown(snapshot.paper_workspace_name)
+  const maxDrawdownLimit = optionalNumber(snapshot.max_drawdown_limit)
+  aiResearchForm.use_max_drawdown_limit = maxDrawdownLimit !== null
+  aiResearchForm.max_drawdown_limit = maxDrawdownLimit ?? aiResearchForm.max_drawdown_limit
+  const minTotalReturn = optionalNumber(snapshot.min_total_return)
+  aiResearchForm.use_min_total_return = minTotalReturn !== null
+  aiResearchForm.min_total_return = minTotalReturn ?? aiResearchForm.min_total_return
+  const minAnnualReturn = optionalNumber(snapshot.min_annual_return)
+  aiResearchForm.use_min_annual_return = minAnnualReturn !== null
+  aiResearchForm.min_annual_return = minAnnualReturn ?? aiResearchForm.min_annual_return
+  const minWinRate = optionalNumber(snapshot.min_win_rate)
+  aiResearchForm.use_min_win_rate = minWinRate !== null
+  aiResearchForm.min_win_rate = minWinRate ?? aiResearchForm.min_win_rate
+  aiResearchForm.out_of_sample_validation =
+    optionalBoolean(snapshot.out_of_sample_validation, aiResearchForm.out_of_sample_validation)
+  const outOfSampleRatio = optionalNumber(snapshot.out_of_sample_ratio)
+  if (outOfSampleRatio !== null) aiResearchForm.out_of_sample_ratio_pct = outOfSampleRatio * 100
+  const minOutOfSampleSharpe = optionalNumber(snapshot.min_out_of_sample_sharpe)
+  aiResearchForm.use_min_out_of_sample_sharpe = minOutOfSampleSharpe !== null
+  aiResearchForm.min_out_of_sample_sharpe =
+    minOutOfSampleSharpe ?? aiResearchForm.min_out_of_sample_sharpe
+  const minOutOfSampleTrades = optionalNumber(snapshot.min_out_of_sample_trades)
+  aiResearchForm.use_min_out_of_sample_trades = minOutOfSampleTrades !== null
+  aiResearchForm.min_out_of_sample_trades =
+    minOutOfSampleTrades ?? aiResearchForm.min_out_of_sample_trades
 }
 
 function aiResearchTaskFailureMessage(task: AIStrategyResearchTaskResponse) {
@@ -3426,6 +4319,7 @@ async function restoreActiveAIResearchTask() {
     const task = response.items.find(item => !isAIResearchTaskTerminal(item))
     if (!task) return
     aiResearchRunning.value = true
+    applyAIResearchTaskSnapshotToForm(task)
     aiResearchResult.value = await pollAIResearchTask(task)
     if (aiResearchResult.value.run_record) {
       upsertAIResearchRunRecord(aiResearchResult.value.run_record)
@@ -3500,6 +4394,11 @@ async function runAIResearchLoop() {
   aiResearchTaskIteration.value = null
   aiResearchBacktestTaskId.value = ''
   aiResearchCancelledBacktestTaskId.value = ''
+  aiResearchTaskPaperWorkspaceId.value = ''
+  aiResearchTaskPaperUnitId.value = ''
+  aiResearchTaskPaperStarted.value = false
+  aiResearchTaskPipeline.value = null
+  aiResearchTaskRequestSnapshot.value = null
   aiResearchTaskError.value = ''
   aiResearchTaskMessage.value = ''
   aiResearchTaskLatestIteration.value = null
@@ -3681,6 +4580,13 @@ onMounted(async () => {
   color: var(--el-text-color-primary);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.ai-research-task-iteration-progress {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 
 .ai-research-gate-control {
@@ -3893,6 +4799,16 @@ onMounted(async () => {
   font-size: 13px;
 }
 
+.ai-research-iteration-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
 .ai-research-warning {
   margin: 8px 0 0;
   color: var(--el-color-warning);
@@ -3998,6 +4914,33 @@ onMounted(async () => {
 
 .ai-research-current-paper-review-action {
   margin-top: 8px;
+}
+
+.ai-research-diagnostics {
+  flex-basis: 100%;
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding-top: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.ai-research-diagnostics-head,
+.ai-research-diagnostics-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-research-diagnostics-head strong {
+  color: var(--el-text-color-primary);
+}
+
+.ai-research-diagnostics p {
+  margin: 0;
+  color: var(--el-text-color-primary);
 }
 
 .ai-research-paper-env {

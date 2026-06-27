@@ -125,7 +125,7 @@ async def lookup_market_instrument(
 ):
     """Return a normalized snapshot, historical rows, and derived indicators."""
     try:
-        return service.lookup(
+        return await service.lookup(
             asset_type=asset_type,
             symbol=symbol,
             start_date=start_date,

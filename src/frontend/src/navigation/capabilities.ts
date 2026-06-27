@@ -83,14 +83,6 @@ export const capabilities: Capability[] = [
     visibleInSubnav: false,
   },
   {
-    id: 'data.equityResearch',
-    domainId: 'data',
-    path: '/data/intelligence/equity',
-    labelKey: 'nav.equityResearch',
-    icon: 'Document',
-    legacyPaths: ['/equity-research'],
-  },
-  {
     id: 'data.newsIntelligence',
     domainId: 'data',
     path: '/data/intelligence/news',

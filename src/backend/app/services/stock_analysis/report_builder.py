@@ -83,7 +83,7 @@ class StockAnalysisReportBuilder:
                 self._section("risk", "风险评估与终审", compat["final_trade_decision"], scores),
             ],
             COMPAT_REPORT_KEY: compat,
-            "data_sources": ["equity_research", "news_intelligence"],
+            "data_sources": ["market_data", "news_intelligence"],
             "source_snapshot": snapshot,
             "data_quality": snapshot.get("data_quality") or {"status": "ok"},
             "ai_stage_generation": ai_stage_generation or {"enabled": False},

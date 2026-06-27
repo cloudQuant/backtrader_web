@@ -52,7 +52,6 @@ export default buildLocale({
     portfolio: 'Портфель',
     brokers: 'Настройка брокера',
     portfolioLedger: 'Журнал портфеля',
-    equityResearch: 'Анализ акций',
     newsIntelligence: 'Новостная аналитика',
     stockAnalysis: 'Анализ акции',
     optionsChain: 'Цепочка опционов',

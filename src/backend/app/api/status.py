@@ -45,7 +45,6 @@ CAPABILITY_DOMAINS: list[dict[str, Any]] = [
             {
                 "id": "data.intelligence",
                 "api_prefixes": [
-                    "/api/v1/equity-research",
                     "/api/v1/news-intelligence",
                     "/api/v1/options-chain",
                     "/api/v1/scanners",

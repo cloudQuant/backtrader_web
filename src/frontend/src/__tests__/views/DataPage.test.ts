@@ -8,6 +8,7 @@ import type { MarketAssetType } from '@/api/marketData'
 
 const apiMocks = vi.hoisted(() => ({
   lookupInstrument: vi.fn(),
+  listTables: vi.fn(),
 }))
 
 vi.mock('element-plus', () => ({
@@ -20,18 +21,35 @@ vi.mock('@/api/marketData', () => ({
   },
 }))
 
+vi.mock('@/api/akshare', () => ({
+  akshareTablesApi: {
+    list: apiMocks.listTables,
+  },
+}))
+
 const assetNames: Record<MarketAssetType, string> = {
   stock: '平安银行',
-  futures: '螺纹钢2510',
-  bond: '维格转债',
-  fund: '创业板ETF',
-  option: '10003889',
+  futures: 'IM2606',
+  bond: '电气转债',
+  fund: '沪深300ETF',
+  option: '151.ni2609C184000',
   fx: '美元离岸人民币',
+  crypto: 'BTCJPY',
+}
+
+const assetSymbols: Record<MarketAssetType, string> = {
+  stock: '000001',
+  futures: 'IM2606',
+  bond: 'sh110074',
+  fund: '510300',
+  option: '151.ni2609C184000',
+  fx: 'USDCNH',
   crypto: 'BTCJPY',
 }
 
 function createLookupFixture(assetType: MarketAssetType) {
   const baseSnapshot = {
+    data_source_table: 'akshare_data',
     price: assetType === 'crypto' ? 10000000 : 12.34,
     open: 12.1,
     high: 12.4,
@@ -122,10 +140,10 @@ function createLookupFixture(assetType: MarketAssetType) {
 
   return {
     asset_type: assetType,
-    symbol: assetType === 'stock' ? '000001' : assetType,
+    symbol: assetSymbols[assetType],
     name: assetNames[assetType],
     market: assetType === 'fx' ? 'FX' : 'CN',
-    provider: 'akshare',
+    provider: 'akshare_data',
     snapshot: snapshots[assetType],
     history: {
       period: 'daily',
@@ -150,6 +168,32 @@ describe('DataPage', () => {
     apiMocks.lookupInstrument.mockImplementation(({ asset_type }: { asset_type: MarketAssetType }) => (
       Promise.resolve(createLookupFixture(asset_type))
     ))
+    apiMocks.listTables.mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          table_name: 'stock_zh_a_hist_000001',
+          table_comment: 'A股历史行情',
+          category: 'stocks',
+          script_id: 'stock_zh_a_hist',
+          row_count: 1200,
+          last_update_time: '2026-06-19T09:30:00',
+          last_update_status: 'success',
+          data_start_date: '2026-01-01',
+          data_end_date: '2026-06-19',
+          symbol_raw: '000001',
+          symbol_normalized: '000001',
+          market: 'CN',
+          asset_type: 'stock',
+          metadata: {},
+          created_at: '2026-06-19T09:30:00',
+          updated_at: '2026-06-19T09:30:00',
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 8,
+    })
   })
 
   async function mountPage(path = '/data/market') {
@@ -192,6 +236,8 @@ describe('DataPage', () => {
     expect((wrapper.vm as any).result.name).toBe('平安银行')
     expect((wrapper.vm as any).historyRows).toHaveLength(2)
     expect(wrapper.text()).toContain('+1.29%')
+    expect(wrapper.find('[data-test="market-main-chart"]').exists()).toBe(true)
+    expect(apiMocks.listTables).toHaveBeenCalled()
   })
 
   it('shows a stock-specific valuation and liquidity panel', async () => {
@@ -250,7 +296,7 @@ describe('DataPage', () => {
 
     expect(apiMocks.lookupInstrument).toHaveBeenCalledWith({
       asset_type: 'option',
-      symbol: '10003889',
+      symbol: '151.ni2609C184000',
       period: 'daily',
       start_date: expect.any(String),
       end_date: expect.any(String),
@@ -269,7 +315,7 @@ describe('DataPage', () => {
 
     expect(apiMocks.lookupInstrument).toHaveBeenLastCalledWith({
       asset_type: 'option',
-      symbol: '10003889',
+      symbol: '151.ni2609C184000',
       period: 'daily',
       start_date: expect.any(String),
       end_date: expect.any(String),

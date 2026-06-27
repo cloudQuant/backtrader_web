@@ -88,10 +88,6 @@ describe('iteration170 api wrappers', () => {
     vi.mocked(request.patch).mockResolvedValue({ id: 'plan-1' })
     vi.mocked(request.delete).mockResolvedValue({ deleted: true })
 
-    await marketIntelApi.searchEquities('RB')
-    await marketIntelApi.getEquityInfo('RB2510')
-    await marketIntelApi.getEquityFinancials('RB2510')
-    await marketIntelApi.getEquityPeers('RB2510')
     await marketIntelApi.createNewsSource({ name: 'terminal-rss', url: 'https://example.com/rss' })
     await marketIntelApi.pullNewsSource('terminal-rss', 10)
     await marketIntelApi.listArticles({ sentiment: 'BULLISH', ticker: 'RB2510' })
@@ -130,14 +126,10 @@ describe('iteration170 api wrappers', () => {
     await marketIntelApi.listQuantTools()
     await marketIntelApi.callQuantTool({ tool_name: 'markets.get_quote', input: { symbol: 'RB2510' } })
 
-    expect(request.get).toHaveBeenNthCalledWith(1, '/equity-research/search', { params: { q: 'RB' } })
-    expect(request.get).toHaveBeenNthCalledWith(2, '/equity-research/info/RB2510')
-    expect(request.get).toHaveBeenNthCalledWith(3, '/equity-research/financials/RB2510')
-    expect(request.get).toHaveBeenNthCalledWith(4, '/equity-research/peers/RB2510')
     expect(request.post).toHaveBeenNthCalledWith(1, '/news-intelligence/sources', { name: 'terminal-rss', url: 'https://example.com/rss' })
     expect(request.post).toHaveBeenNthCalledWith(2, '/news-intelligence/sources/terminal-rss/pull', undefined, { params: { limit: 10 } })
-    expect(request.get).toHaveBeenNthCalledWith(5, '/news-intelligence/articles', { params: { sentiment: 'BULLISH', ticker: 'RB2510' } })
-    expect(request.get).toHaveBeenNthCalledWith(6, '/options-chain/RB2510', { params: { expiry: '2026-12-31', provider: 'data_governance' } })
+    expect(request.get).toHaveBeenNthCalledWith(1, '/news-intelligence/articles', { params: { sentiment: 'BULLISH', ticker: 'RB2510' } })
+    expect(request.get).toHaveBeenNthCalledWith(2, '/options-chain/RB2510', { params: { expiry: '2026-12-31', provider: 'data_governance' } })
     expect(request.post).toHaveBeenNthCalledWith(3, '/scanners/run', { universe: ['RB2510'], condition: 'price > 100' }, { timeout: 300000 })
     expect(request.post).toHaveBeenNthCalledWith(4, '/scanners/universe-pools/hs300/precompute', { lookback_days: 20, timeframe: '1d' }, { timeout: 300000 })
     expect(request.post).toHaveBeenNthCalledWith(5, '/scanners/plans', {
@@ -150,7 +142,7 @@ describe('iteration170 api wrappers', () => {
       schedule_enabled: true,
       schedule_frequency: 'daily',
     })
-    expect(request.get).toHaveBeenNthCalledWith(7, '/scanners/plans')
+    expect(request.get).toHaveBeenNthCalledWith(3, '/scanners/plans')
     expect(request.patch).toHaveBeenCalledWith('/scanners/plans/plan-1', {
       name: '沪深300质量动量',
       universe_pool_id: 'hs300',
@@ -167,9 +159,9 @@ describe('iteration170 api wrappers', () => {
     expect(request.delete).toHaveBeenNthCalledWith(2, '/scanners/plans/plan-1')
     expect(request.post).toHaveBeenNthCalledWith(7, '/scanners/plans/plan-1/runs', {}, { timeout: 300000 })
     expect(request.post).toHaveBeenNthCalledWith(8, '/scanners/plans/daily-runs', {}, { timeout: 300000 })
-    expect(request.get).toHaveBeenNthCalledWith(8, '/scanners/plans/plan-1/runs')
-    expect(request.get).toHaveBeenNthCalledWith(9, '/scanners/tasks/task-1')
-    expect(request.get).toHaveBeenNthCalledWith(10, '/quant-tools')
+    expect(request.get).toHaveBeenNthCalledWith(4, '/scanners/plans/plan-1/runs')
+    expect(request.get).toHaveBeenNthCalledWith(5, '/scanners/tasks/task-1')
+    expect(request.get).toHaveBeenNthCalledWith(6, '/quant-tools')
     expect(request.post).toHaveBeenNthCalledWith(9, '/quant-tools/call', { tool_name: 'markets.get_quote', input: { symbol: 'RB2510' } })
   })
 

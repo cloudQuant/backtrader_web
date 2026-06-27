@@ -195,6 +195,72 @@ class AIStrategyPaperTradingReview(BaseModel):
     live_readiness_expires_at: str | None = None
     pipeline: dict[str, Any] = Field(default_factory=dict)
     next_actions: list[str] = Field(default_factory=list)
+    live_handoff: AIStrategyLiveHandoffPackage | None = None
+
+
+class AIStrategyLiveHandoffApprovalRequest(BaseModel):
+    """Manual approval or rejection for a live handoff package."""
+
+    decision: str = Field(..., description="Approval decision: approved or rejected")
+    approver: str | None = Field(None, max_length=120, description="Human approver name or ID")
+    comment: str | None = Field(None, max_length=2000, description="Decision note")
+    account_confirmed: bool = Field(False, description="Live account and permissions checked")
+    risk_limit_confirmed: bool = Field(False, description="Live risk limits checked")
+    deployment_window: str | None = Field(None, max_length=200, description="Planned go-live window")
+
+
+class AIStrategyLiveHandoffApprovalRecord(BaseModel):
+    """Persisted manual decision for a live handoff package."""
+
+    run_id: str
+    research_workspace_id: str
+    decision: str
+    approved: bool = False
+    decided_at: str
+    decided_by: str
+    comment: str | None = None
+    account_confirmed: bool = False
+    risk_limit_confirmed: bool = False
+    deployment_window: str | None = None
+    handoff_status_at_decision: str
+    blockers: list[str] = Field(default_factory=list)
+
+
+class AIStrategyLiveHandoffPackage(BaseModel):
+    """Structured package for manual live-trading approval from a paper candidate."""
+
+    run_id: str
+    research_workspace_id: str
+    generated_at: str
+    ready_for_live: bool = False
+    status: str
+    approval_required: bool = True
+    expires_at: str | None = None
+    paper_workspace_id: str | None = None
+    paper_unit_id: str | None = None
+    best_strategy_id: str | None = None
+    best_strategy_name: str | None = None
+    symbol: str
+    symbol_name: str = ""
+    timeframe: str = "1d"
+    timeframe_n: int = 1
+    target_sharpe: float
+    best_sharpe: float = 0.0
+    best_metrics: dict[str, Any] = Field(default_factory=dict)
+    asset_specs: dict[str, Any] = Field(default_factory=dict)
+    backtest_environment: dict[str, Any] = Field(default_factory=dict)
+    paper_review_status: str | None = None
+    paper_reviewed_at: str | None = None
+    paper_review_evaluations: list[dict[str, Any]] = Field(default_factory=list)
+    paper_monitoring_plan: list[dict[str, Any]] = Field(default_factory=list)
+    live_readiness_checklist: list[dict[str, Any]] = Field(default_factory=list)
+    approvals_required: list[dict[str, Any]] = Field(default_factory=list)
+    deployment_blockers: list[str] = Field(default_factory=list)
+    approval_status: str | None = None
+    approval: AIStrategyLiveHandoffApprovalRecord | None = None
+    handoff: dict[str, Any] = Field(default_factory=dict)
+    pipeline: dict[str, Any] = Field(default_factory=dict)
+    next_actions: list[str] = Field(default_factory=list)
 
 
 class AIStrategyResearchRunRecord(BaseModel):
@@ -256,6 +322,8 @@ class AIStrategyResearchRunRecord(BaseModel):
     paper_review_next_actions: list[str] = Field(default_factory=list)
     live_readiness_checklist: list[dict[str, Any]] = Field(default_factory=list)
     live_readiness_expires_at: str | None = None
+    live_handoff: AIStrategyLiveHandoffPackage | None = None
+    live_handoff_approval: AIStrategyLiveHandoffApprovalRecord | None = None
     pipeline: dict[str, Any] = Field(default_factory=dict)
     next_actions: list[str] = Field(default_factory=list)
     started_at: str
@@ -305,12 +373,43 @@ class AIStrategyResearchTaskResponse(BaseModel):
     completed_at: str | None = None
     run_id: str | None = None
     research_workspace_id: str | None = None
+    request_snapshot: dict[str, Any] = Field(default_factory=dict)
     current_stage: str = "queued"
     progress: float = 0.0
     current_iteration: int | None = None
     iteration_count: int = 0
     max_iterations: int | None = None
     latest_iteration: dict[str, Any] | None = None
+    run_status: str | None = None
+    achieved: bool | None = None
+    target_sharpe: float | None = None
+    best_iteration: int | None = None
+    best_sharpe: float | None = None
+    best_quality_score: float | None = None
+    best_quality_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
+    best_diagnostics: dict[str, Any] = Field(default_factory=dict)
+    best_metrics: dict[str, Any] = Field(default_factory=dict)
+    best_strategy_id: str | None = None
+    best_strategy_name: str | None = None
+    asset_specs: dict[str, Any] = Field(default_factory=dict)
+    backtest_environment: dict[str, Any] = Field(default_factory=dict)
+    paper_workspace_id: str | None = None
+    paper_workspace_name: str | None = None
+    paper_unit_id: str | None = None
+    paper_trading_started: bool = False
+    paper_monitoring_plan: list[dict[str, Any]] = Field(default_factory=list)
+    paper_handoff: dict[str, Any] = Field(default_factory=dict)
+    paper_review_status: str | None = None
+    paper_review_ready_for_live: bool = False
+    paper_reviewed_at: str | None = None
+    paper_review_evaluations: list[dict[str, Any]] = Field(default_factory=list)
+    paper_review_next_actions: list[str] = Field(default_factory=list)
+    live_readiness_checklist: list[dict[str, Any]] = Field(default_factory=list)
+    live_readiness_expires_at: str | None = None
+    live_handoff: AIStrategyLiveHandoffPackage | None = None
+    live_handoff_approval: AIStrategyLiveHandoffApprovalRecord | None = None
+    pipeline: dict[str, Any] = Field(default_factory=dict)
+    next_actions: list[str] = Field(default_factory=list)
     current_backtest_task_id: str | None = None
     cancelled_backtest_task_id: str | None = None
     child_cancelled: bool = False

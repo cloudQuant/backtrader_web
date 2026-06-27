@@ -334,6 +334,35 @@ def dummy_akshare(monkeypatch) -> ModuleType:
     return module
 
 
+@pytest.fixture(autouse=True)
+def disable_market_instrument_warehouse(monkeypatch):
+    from app.services.market_instrument import MarketInstrumentService
+
+    async def empty_warehouse_lookup(
+        self,
+        *,
+        asset_type,
+        symbol,
+        start_date,
+        end_date,
+        period,
+        market,
+        warnings,
+    ):
+        return self._payload(
+            asset_type=asset_type,
+            symbol=symbol,
+            name=symbol,
+            market=market or "CN",
+            snapshot={},
+            rows=[],
+            period=period,
+            provider="akshare_data",
+        )
+
+    monkeypatch.setattr(MarketInstrumentService, "_lookup_warehouse", empty_warehouse_lookup)
+
+
 @pytest.mark.asyncio
 async def test_market_instrument_lookup_returns_stock_snapshot_and_history(
     client,

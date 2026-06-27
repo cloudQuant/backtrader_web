@@ -92,16 +92,6 @@
       "pageTitle": "AI for Trader - 量化交易回测平台"
     },
     {
-      "id": "10-equity-research",
-      "title": "个股研究",
-      "domain": "市场智能",
-      "path": "/data/intelligence/equity",
-      "story": "沉淀个股研究信息，让 AI 辅助总结公司和标的机会。",
-      "file": "assets/screenshots/10-equity-research.png",
-      "currentPath": "/data/intelligence/equity",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
-    },
-    {
       "id": "11-news-intelligence",
       "title": "新闻情报",
       "domain": "市场智能",

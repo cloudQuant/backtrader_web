@@ -11,6 +11,9 @@ from httpx import AsyncClient
 from app.api.strategy.base import get_ai_strategy_research_service, get_ai_strategy_research_tasks
 from app.main import app
 from app.schemas.ai_strategy_research import (
+    AIStrategyLiveHandoffApprovalRecord,
+    AIStrategyLiveHandoffApprovalRequest,
+    AIStrategyLiveHandoffPackage,
     AIStrategyPaperTradingReview,
     AIStrategyPaperTradingRuleEvaluation,
     AIStrategyPaperTradingStart,
@@ -574,6 +577,40 @@ class FailingImprover:
         raise RuntimeError("improver backend unavailable")
 
 
+class RecordingImprover:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.local = LocalStrategyImprover()
+
+    async def improve(
+        self,
+        draft: AIStrategyDraft,
+        *,
+        iteration: int,
+        metrics: dict[str, Any],
+        target_sharpe: float,
+        quality_gate_failures: list[str] | None = None,
+        user_id: str | None = None,
+        request: AIStrategyResearchRunRequest | None = None,
+    ) -> StrategyImprovement:
+        self.calls.append(
+            {
+                "iteration": iteration,
+                "metrics": dict(metrics),
+                "quality_gate_failures": list(quality_gate_failures or []),
+            }
+        )
+        return await self.local.improve(
+            draft,
+            iteration=iteration,
+            metrics=metrics,
+            target_sharpe=target_sharpe,
+            quality_gate_failures=quality_gate_failures,
+            user_id=user_id,
+            request=request,
+        )
+
+
 class BlockingImprover:
     def __init__(self) -> None:
         self.started = asyncio.Event()
@@ -792,6 +829,60 @@ async def test_ai_strategy_improver_plans_for_valuation_context_failures():
 
 
 @pytest.mark.asyncio
+async def test_ai_strategy_improver_prefers_structured_research_feedback_plan():
+    draft = build_ai_strategy_draft("请生成一个样本外稳健策略")
+    router = FakeAIChatRouter(
+        """
+        {
+          "name": "样本外稳健策略",
+          "description": "AI revised strategy",
+          "code": "import backtrader as bt\\nclass RobustStrategy(bt.Strategy):\\n    params = (('risk_pct', 0.01),)\\n    def next(self):\\n        pass\\n",
+          "params": {
+            "risk_pct": {"type": "float", "default": 0.01, "min": 0.001, "max": 0.05, "description": "risk"}
+          },
+          "category": "trend",
+          "notes": ["使用结构化诊断计划"]
+        }
+        """
+    )
+    improver = AIStrategyImprover(
+        ai_router=router,
+        preference_service=FakePreferenceService(),
+        settings=FakeAISettings(),
+    )
+
+    await improver.improve(
+        draft,
+        iteration=1,
+        metrics={
+            "sharpe_ratio": 1.2,
+            "total_trades": 8,
+            "out_of_sample_sharpe": 0.3,
+            "research_feedback": {
+                "failure_categories": ["out_of_sample", "sharpe"],
+                "weaknesses": ["Out-of-sample Sharpe 未达标"],
+                "improvement_plan": ["根据样本外失败降低过拟合并扩大验证样本"],
+                "promotion_ready": False,
+                "out_of_sample_validation": {
+                    "status": "failed",
+                    "failures": ["Out-of-sample Sharpe 0.300 below target 0.800"],
+                },
+            },
+        },
+        target_sharpe=1.0,
+        quality_gate_failures=["Out-of-sample Sharpe 0.300 below target 0.800"],
+        user_id="user-1",
+        request=AIStrategyResearchRunRequest(prompt="样本外稳健策略", symbol="000001.SZ"),
+    )
+
+    payload = json.loads(router.calls[0]["messages"][1]["content"])
+    assert payload["research_feedback"]["failure_categories"] == ["out_of_sample", "sharpe"]
+    assert payload["research_feedback"]["out_of_sample_validation"]["status"] == "failed"
+    assert payload["suggested_improvement_plan"] == ["根据样本外失败降低过拟合并扩大验证样本"]
+    assert payload["previous_metrics"]["out_of_sample_sharpe"] == pytest.approx(0.3)
+
+
+@pytest.mark.asyncio
 async def test_ai_strategy_improver_falls_back_when_model_payload_is_invalid():
     draft = build_ai_strategy_draft("请生成一个均线趋势策略")
     improver = AIStrategyImprover(
@@ -866,6 +957,64 @@ async def test_local_strategy_improver_uses_quality_gate_failures():
 
     assert result.draft.params["stop_loss_pct"].default == 0.024
     assert any("本轮未通过验收门槛" in note for note in result.notes)
+
+
+@pytest.mark.asyncio
+async def test_local_strategy_improver_becomes_conservative_after_regression():
+    draft = build_ai_strategy_draft("请生成一个均线趋势策略")
+
+    result = await LocalStrategyImprover().improve(
+        draft,
+        iteration=2,
+        metrics={
+            "sharpe_ratio": 0.61,
+            "total_trades": 5,
+            "iteration_progress": {
+                "status": "regressed",
+                "previous_iteration": 1,
+                "sharpe_delta": -0.21,
+            },
+        },
+        target_sharpe=1.0,
+        quality_gate_failures=["Sharpe 0.610 below target 1.000"],
+        request=AIStrategyResearchRunRequest(prompt="均线趋势", symbol="000001.SZ"),
+    )
+
+    assert result.draft.params["risk_pct"].default == pytest.approx(0.013)
+    assert result.draft.params["take_profit_pct"].default == pytest.approx(0.0824)
+    assert result.draft.params["fast_period"].default == 10
+    assert result.draft.params["slow_period"].default == 31
+    assert any("保守修复" in note for note in result.notes)
+    assert "('risk_pct', 0.013)" in result.draft.code
+
+
+@pytest.mark.asyncio
+async def test_local_strategy_improver_expands_signal_changes_after_stall():
+    draft = build_ai_strategy_draft("请生成一个均线趋势策略")
+
+    result = await LocalStrategyImprover().improve(
+        draft,
+        iteration=2,
+        metrics={
+            "sharpe_ratio": 0.82,
+            "total_trades": 5,
+            "iteration_progress": {
+                "status": "stalled",
+                "previous_iteration": 1,
+                "sharpe_delta": 0.0,
+            },
+        },
+        target_sharpe=1.0,
+        quality_gate_failures=["Sharpe 0.820 below target 1.000"],
+        request=AIStrategyResearchRunRequest(prompt="均线趋势", symbol="000001.SZ"),
+    )
+
+    assert result.draft.params["risk_pct"].default == pytest.approx(0.016)
+    assert result.draft.params["take_profit_pct"].default == pytest.approx(0.092)
+    assert result.draft.params["fast_period"].default == 9
+    assert result.draft.params["slow_period"].default == 33
+    assert any("基本停滞" in note for note in result.notes)
+    assert "('fast_period', 9)" in result.draft.code
 
 
 @pytest.mark.asyncio
@@ -1022,6 +1171,58 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
 
 
 @pytest.mark.asyncio
+async def test_research_run_record_redacts_gateway_secrets_in_paper_handoff():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.18, "total_trades": 6, "max_drawdown": -4.0}],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+            gateway_config={
+                "name": "paper_gateway",
+                "api_key": "real-api-key",
+                "params": {
+                    "secret_key": "real-secret",
+                    "passphrase": "real-passphrase",
+                    "exchange": "sim",
+                    "broker_id": "9999",
+                },
+            },
+        ),
+    )
+
+    assert result.paper_trading is not None
+    assert result.paper_trading.handoff["gateway_config"]["api_key"] == "real-api-key"
+    assert result.run_record is not None
+    record_gateway = result.run_record.paper_handoff["gateway_config"]
+    assert record_gateway["api_key"] == "***"
+    assert record_gateway["params"]["secret_key"] == "***"
+    assert record_gateway["params"]["passphrase"] == "***"
+    assert record_gateway["params"]["exchange"] == "sim"
+    assert record_gateway["params"]["broker_id"] == "9999"
+    persisted_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    persisted_gateway = persisted_run["paper_handoff"]["gateway_config"]
+    assert persisted_gateway["api_key"] == "***"
+    assert persisted_gateway["params"]["secret_key"] == "***"
+    assert persisted_gateway["params"]["passphrase"] == "***"
+    assert persisted_gateway["params"]["exchange"] == "sim"
+
+
+@pytest.mark.asyncio
 async def test_research_loop_falls_back_when_initial_draft_generation_fails():
     workspace_service = FakeWorkspaceService()
     strategy_service = FakeDraftFailingStrategyService(
@@ -1111,6 +1312,67 @@ async def test_research_loop_falls_back_when_improver_fails():
     )
     assert result.run_record is not None
     assert result.run_record.status == "achieved"
+
+
+@pytest.mark.asyncio
+async def test_research_loop_tracks_iteration_progress_for_next_improvement():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {"sharpe_ratio": 0.82, "total_trades": 4, "max_drawdown": -4.0},
+            {"sharpe_ratio": 0.61, "total_trades": 3, "max_drawdown": -6.0},
+            {"sharpe_ratio": 0.7, "total_trades": 3, "max_drawdown": -5.0},
+        ],
+    )
+    improver = RecordingImprover()
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=improver,
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个双均线趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            start_paper_trading=False,
+            out_of_sample_validation=False,
+            max_iterations=3,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is False
+    assert len(result.iterations) == 3
+    assert result.iterations[0].diagnostics["iteration_progress"]["status"] == "baseline"
+    assert result.iterations[1].diagnostics["iteration_progress"]["status"] == "regressed"
+    assert result.iterations[1].diagnostics["iteration_progress"]["previous_iteration"] == 1
+    assert result.iterations[1].diagnostics["iteration_progress"]["sharpe_delta"] == pytest.approx(
+        -0.21
+    )
+    assert "退化" in result.iterations[1].improvement_plan[0]
+    assert len(improver.calls) == 2
+    assert improver.calls[0]["metrics"]["iteration_progress"]["status"] == "baseline"
+    assert improver.calls[0]["metrics"]["research_feedback"]["promotion_ready"] is False
+    assert "sharpe" in improver.calls[0]["metrics"]["failure_categories"]
+    assert any("Sharpe" in item for item in improver.calls[0]["metrics"]["weaknesses"])
+    assert any("收益波动比" in item for item in improver.calls[0]["metrics"]["improvement_plan"])
+    assert improver.calls[1]["metrics"]["iteration_progress"]["status"] == "regressed"
+    assert improver.calls[1]["metrics"]["iteration_progress"]["previous_iteration"] == 1
+    assert improver.calls[1]["metrics"]["research_feedback"]["iteration_progress"]["status"] == (
+        "regressed"
+    )
+    assert strategy_service.submitted_drafts[2].params["risk_pct"].default == pytest.approx(0.013)
+    assert strategy_service.submitted_drafts[2].params["slow_period"].default == 31
+    assert any("回退到当前最佳第 1 轮策略" in note for note in result.iterations[2].improvement_notes)
+    assert result.run_record is not None
+    persisted_second = result.research_workspace.settings["ai_research"]["runs"][0]["iterations"][1]
+    assert persisted_second["diagnostics"]["iteration_progress"]["status"] == "regressed"
+    assert persisted_second["improvement_plan"][0].startswith("本轮自动改稿相对上一轮退化")
 
 
 @pytest.mark.asyncio
@@ -1810,10 +2072,11 @@ async def test_research_loop_continues_when_out_of_sample_validation_fails():
             {"sharpe_ratio": 0.95, "total_trades": 3, "max_drawdown": -2.5},
         ],
     )
+    improver = RecordingImprover()
     service = AIStrategyResearchService(
         strategy_service=strategy_service,
         workspace_service=workspace_service,
-        improver=LocalStrategyImprover(),
+        improver=improver,
         sleep=_noop_sleep,
     )
 
@@ -1847,7 +2110,14 @@ async def test_research_loop_continues_when_out_of_sample_validation_fails():
         for failure in result.iterations[0].validation_failures
     )
     assert result.iterations[0].diagnostics["promotion_ready"] is False
+    assert "out_of_sample" in result.iterations[0].diagnostics["failure_categories"]
     assert "sharpe" in result.iterations[0].diagnostics["failure_categories"]
+    assert len(improver.calls) == 1
+    improvement_metrics = improver.calls[0]["metrics"]
+    assert "out_of_sample" in improvement_metrics["failure_categories"]
+    assert improvement_metrics["research_feedback"]["out_of_sample_validation"]["status"] == "failed"
+    assert any("样本外验证未通过" in item for item in improvement_metrics["improvement_plan"])
+    assert improvement_metrics["promotion_ready"] is False
     assert result.iterations[1].passed is True
     assert result.iterations[1].validation_status == "passed"
     assert result.best_strategy is not None
@@ -2188,7 +2458,13 @@ async def test_research_loop_continuation_restores_paper_handoff_runtime_metadat
             },
             "gateway_config": {
                 "name": "paper_gateway",
-                "params": {"exchange": "CFFEX", "asset_type": "future"},
+                "api_key": "***",
+                "params": {
+                    "exchange": "CFFEX",
+                    "asset_type": "future",
+                    "secret_key": "***",
+                    "passphrase": "***",
+                },
             },
         },
         "iterations": [
@@ -2257,6 +2533,11 @@ async def test_research_loop_continuation_restores_paper_handoff_runtime_metadat
     assert backtest_request.unit_settings["multiplier"] == 300
     assert backtest_request.unit_settings["margin"] == pytest.approx(0.1)
     assert backtest_request.unit_settings["asset_spec_source"] == "paper_handoff_exchange_specs"
+    backtest_payload = json.dumps(backtest_request.model_dump(mode="python"), ensure_ascii=False)
+    assert "api_key" not in backtest_payload
+    assert "secret_key" not in backtest_payload
+    assert "passphrase" not in backtest_payload
+    assert "***" not in backtest_payload
     assert result.run_record is not None
     assert result.run_record.commission == pytest.approx(0.000023)
     assert result.run_record.asset_specs["IF2609"]["source"] == "paper_handoff_exchange_specs"
@@ -2367,8 +2648,13 @@ async def test_review_paper_trading_run_evaluates_monitoring_plan():
     reviewed_at = datetime.fromisoformat(review.reviewed_at)
     expires_at = datetime.fromisoformat(review.live_readiness_expires_at)
     assert expires_at - reviewed_at == timedelta(days=7)
-    assert review.pipeline["current_stage"] == "live_candidate"
+    assert review.live_handoff is not None
+    assert review.live_handoff.status == "ready_for_approval"
+    assert review.live_handoff.ready_for_live is True
+    assert review.pipeline["current_stage"] == "live_handoff"
     assert review.pipeline["ready_for_live"] is True
+    assert review.pipeline["live_handoff_status"] == "ready_for_approval"
+    assert review.pipeline["live_handoff_ready_for_live"] is True
     assert [item.status for item in review.evaluations] == [
         "passed",
         "passed",
@@ -2390,7 +2676,7 @@ async def test_review_paper_trading_run_evaluates_monitoring_plan():
     assert "模拟交易最大回撤" in checklist_by_key["risk_budget_confirmed"]["evidence"]
     assert review.live_readiness_checklist[-1]["key"] == "human_approval_required"
     assert review.live_readiness_checklist[-1]["status"] == "pending_manual_confirmation"
-    assert "实盘候选" in review.next_actions[0]
+    assert "实盘交接包已生成" in review.next_actions[0]
     updated_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
     assert updated_run["run_id"] == result.run_id
     assert updated_run["paper_review_status"] == "ready_for_live_candidate"
@@ -2399,8 +2685,12 @@ async def test_review_paper_trading_run_evaluates_monitoring_plan():
     assert updated_run["live_readiness_expires_at"] == review.live_readiness_expires_at
     assert updated_run["paper_review_evaluations"][0]["key"] == "rolling_sharpe"
     assert "实盘候选" in updated_run["paper_review_next_actions"][0]
-    assert updated_run["next_actions"] == updated_run["paper_review_next_actions"]
+    assert "实盘交接包已生成" in updated_run["next_actions"][0]
     assert updated_run["live_readiness_checklist"] == review.live_readiness_checklist
+    assert updated_run["live_handoff"]["status"] == "ready_for_approval"
+    assert updated_run["live_handoff"]["ready_for_live"] is True
+    gateway_config = updated_run["live_handoff"]["handoff"].get("gateway_config", {})
+    assert gateway_config.get("api_key") in {None, "***"}
     assert (
         updated_run["paper_handoff"]["live_readiness_checklist"]
         == review.live_readiness_checklist
@@ -2409,10 +2699,368 @@ async def test_review_paper_trading_run_evaluates_monitoring_plan():
         updated_run["paper_handoff"]["live_readiness_expires_at"]
         == review.live_readiness_expires_at
     )
-    assert updated_run["pipeline"]["current_stage"] == "live_candidate"
+    assert updated_run["pipeline"]["current_stage"] == "live_handoff"
     assert updated_run["pipeline"]["ready_for_live"] is True
+    assert updated_run["pipeline"]["live_handoff_status"] == "ready_for_approval"
+    assert updated_run["pipeline"]["live_handoff_ready_for_live"] is True
     assert updated_run["pipeline"]["live_readiness_checklist"] == review.live_readiness_checklist
     assert updated_run["pipeline"]["live_readiness_expires_at"] == review.live_readiness_expires_at
+
+
+@pytest.mark.asyncio
+async def test_build_live_handoff_package_redacts_secrets_and_keeps_asset_context():
+    workspace_service = FakeWorkspaceService()
+    live_readiness_checklist = [
+        {
+            "key": "paper_monitoring_passed",
+            "label": "模拟监控通过",
+            "status": "passed",
+            "evidence": "模拟交易滚动 Sharpe 0.8 / 0.6。",
+            "action": "继续监控同一组指标。",
+        },
+        {
+            "key": "human_approval_required",
+            "label": "人工实盘审批",
+            "status": "pending_manual_confirmation",
+            "evidence": "模拟复核已达到实盘候选状态。",
+            "action": "确认账户权限和上线窗口后再切换实盘。",
+        },
+    ]
+    run = {
+        **_run_record(
+            "live-handoff-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-02T00:00:00+00:00",
+        ),
+        "symbol": "IF2609",
+        "asset_specs": {
+            "IF2609": {
+                "symbol": "IF2609",
+                "asset_class": "future",
+                "multiplier": 300,
+                "margin_rate": 0.1,
+                "commission_rate": 0.000023,
+                "source": "exchange",
+            }
+        },
+        "backtest_environment": {
+            "initial_cash": 1000000,
+            "commission": 0.000023,
+            "contract_multiplier": 300,
+            "margin_rate": 0.1,
+            "asset_spec_source": "exchange",
+        },
+        "paper_review_status": "ready_for_live_candidate",
+        "paper_review_ready_for_live": True,
+        "paper_reviewed_at": "2026-01-02T00:00:00+00:00",
+        "paper_review_evaluations": [
+            {
+                "key": "rolling_sharpe",
+                "label": "模拟交易滚动 Sharpe",
+                "metric": "rolling_sharpe",
+                "window": "30 trading days",
+                "direction": "min",
+                "threshold": 0.6,
+                "actual": 0.8,
+                "source": "unit_status.metrics_snapshot",
+                "status": "passed",
+                "passed": True,
+                "action": "继续观察",
+            }
+        ],
+        "paper_review_next_actions": ["模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。"],
+        "live_readiness_checklist": live_readiness_checklist,
+        "live_readiness_expires_at": "2999-01-08T00:00:00+00:00",
+        "paper_handoff": {
+            "run_id": "live-handoff-run",
+            "gateway_config": {
+                "api_key": "real-api-key",
+                "params": {
+                    "secret_key": "real-secret",
+                    "passphrase": "real-passphrase",
+                    "exchange": "sim",
+                },
+            },
+            "asset_specs": {
+                "IF2609": {
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                }
+            },
+        },
+        "pipeline": {
+            "current_stage": "live_candidate",
+            "status": "achieved",
+            "progress": 100,
+            "ready_for_live": True,
+            "live_readiness_checklist": live_readiness_checklist,
+            "live_readiness_expires_at": "2999-01-08T00:00:00+00:00",
+            "steps": [],
+        },
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [run]}}},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=FakeStrategyService(workspace_service, []),
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    package = await service.build_live_handoff_package(
+        "user-1",
+        "live-handoff-run",
+        research_workspace_id="research-ws",
+    )
+
+    assert package.ready_for_live is True
+    assert package.status == "ready_for_approval"
+    assert package.approval_required is True
+    assert package.deployment_blockers == []
+    assert package.approvals_required[0]["key"] == "human_approval_required"
+    assert package.asset_specs["IF2609"]["multiplier"] == 300
+    assert package.backtest_environment["contract_multiplier"] == 300
+    assert package.handoff["gateway_config"]["api_key"] == "***"
+    assert package.handoff["gateway_config"]["params"]["secret_key"] == "***"
+    assert package.handoff["gateway_config"]["params"]["passphrase"] == "***"
+    assert package.handoff["gateway_config"]["params"]["exchange"] == "sim"
+    assert package.pipeline["current_stage"] == "live_handoff"
+    assert package.pipeline["steps"][-1]["key"] == "live_handoff"
+    assert package.pipeline["steps"][-1]["status"] == "running"
+    persisted_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert persisted_run["live_handoff"]["status"] == "ready_for_approval"
+    assert persisted_run["live_handoff"]["ready_for_live"] is True
+    assert persisted_run["live_handoff"]["handoff"]["gateway_config"]["api_key"] == "***"
+    assert persisted_run["pipeline"]["current_stage"] == "live_handoff"
+    assert persisted_run["pipeline"]["live_handoff_status"] == "ready_for_approval"
+    assert persisted_run["pipeline"]["live_handoff_ready_for_live"] is True
+    assert persisted_run["pipeline"]["steps"][-1]["status"] == "running"
+    assert "等待人工审批" in persisted_run["next_actions"][0]
+
+
+@pytest.mark.asyncio
+async def test_record_live_handoff_approval_persists_manual_decision():
+    workspace_service = FakeWorkspaceService()
+    live_readiness_checklist = [
+        {
+            "key": "paper_monitoring_passed",
+            "label": "模拟监控通过",
+            "status": "passed",
+            "evidence": "模拟交易滚动 Sharpe 0.8 / 0.6。",
+            "action": "继续监控同一组指标。",
+        },
+        {
+            "key": "human_approval_required",
+            "label": "人工实盘审批",
+            "status": "pending_manual_confirmation",
+            "evidence": "模拟复核已达到实盘候选状态。",
+            "action": "确认账户权限和上线窗口后再切换实盘。",
+        },
+    ]
+    run = {
+        **_run_record(
+            "live-approval-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-02T00:00:00+00:00",
+        ),
+        "paper_review_status": "ready_for_live_candidate",
+        "paper_review_ready_for_live": True,
+        "paper_reviewed_at": "2026-01-02T00:00:00+00:00",
+        "paper_review_evaluations": [
+            {
+                "key": "rolling_sharpe",
+                "label": "模拟交易滚动 Sharpe",
+                "metric": "rolling_sharpe",
+                "window": "30 trading days",
+                "direction": "min",
+                "threshold": 0.6,
+                "actual": 0.8,
+                "source": "unit_status.metrics_snapshot",
+                "status": "passed",
+                "passed": True,
+                "action": "继续观察",
+            }
+        ],
+        "paper_review_next_actions": ["模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。"],
+        "live_readiness_checklist": live_readiness_checklist,
+        "live_readiness_expires_at": "2999-01-08T00:00:00+00:00",
+        "paper_handoff": {
+            "run_id": "live-approval-run",
+            "gateway_config": {"name": "paper_gateway", "params": {"exchange": "sim"}},
+        },
+        "pipeline": {
+            "current_stage": "live_candidate",
+            "status": "achieved",
+            "progress": 100,
+            "ready_for_live": True,
+            "live_readiness_checklist": live_readiness_checklist,
+            "live_readiness_expires_at": "2999-01-08T00:00:00+00:00",
+            "steps": [],
+        },
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [run]}}},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=FakeStrategyService(workspace_service, []),
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    package = await service.record_live_handoff_approval(
+        "user-1",
+        "live-approval-run",
+        AIStrategyLiveHandoffApprovalRequest(
+            decision="approved",
+            approver="risk-manager",
+            comment="账户和风控已确认",
+            account_confirmed=True,
+            risk_limit_confirmed=True,
+            deployment_window="2026-01-03 09:30",
+        ),
+        research_workspace_id="research-ws",
+    )
+
+    assert package.status == "approved_for_live"
+    assert package.approval_status == "approved"
+    assert package.approval is not None
+    assert package.approval.approved is True
+    assert package.approval.decided_by == "risk-manager"
+    assert package.approval.deployment_window == "2026-01-03 09:30"
+    persisted_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert persisted_run["live_handoff"]["status"] == "approved_for_live"
+    assert persisted_run["live_handoff_approval"]["decision"] == "approved"
+    assert persisted_run["pipeline"]["current_stage"] == "live_handoff"
+    assert persisted_run["pipeline"]["live_handoff_approval_status"] == "approved"
+    assert persisted_run["pipeline"]["live_handoff_approved"] is True
+    assert persisted_run["pipeline"]["steps"][-1]["key"] == "live_handoff"
+    assert persisted_run["pipeline"]["steps"][-1]["status"] == "completed"
+    assert "通过人工审批" in persisted_run["next_actions"][0]
+
+
+@pytest.mark.asyncio
+async def test_build_live_handoff_package_blocks_expired_candidate():
+    workspace_service = FakeWorkspaceService()
+    run = {
+        **_run_record(
+            "expired-live-handoff-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-02T00:00:00+00:00",
+        ),
+        "paper_review_status": "ready_for_live_candidate",
+        "paper_review_ready_for_live": True,
+        "paper_reviewed_at": "2000-01-01T00:00:00+00:00",
+        "paper_review_evaluations": [
+            {
+                "key": "rolling_sharpe",
+                "label": "模拟交易滚动 Sharpe",
+                "metric": "rolling_sharpe",
+                "window": "30 trading days",
+                "direction": "min",
+                "threshold": 0.6,
+                "actual": 0.8,
+                "source": "unit_status.metrics_snapshot",
+                "status": "passed",
+                "passed": True,
+                "action": "继续观察",
+            }
+        ],
+        "live_readiness_checklist": [
+            {
+                "key": "human_approval_required",
+                "label": "人工实盘审批",
+                "status": "pending_manual_confirmation",
+                "evidence": "模拟复核已达到实盘候选状态。",
+                "action": "确认账户权限和上线窗口后再切换实盘。",
+            }
+        ],
+        "live_readiness_expires_at": "2000-01-08T00:00:00+00:00",
+        "pipeline": {
+            "current_stage": "live_candidate",
+            "status": "achieved",
+            "progress": 100,
+            "ready_for_live": True,
+            "live_readiness_expires_at": "2000-01-08T00:00:00+00:00",
+            "steps": [],
+        },
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [run]}}},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=FakeStrategyService(workspace_service, []),
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    package = await service.build_live_handoff_package(
+        "user-1",
+        "expired-live-handoff-run",
+        research_workspace_id="research-ws",
+    )
+
+    assert package.ready_for_live is False
+    assert package.status == "blocked"
+    assert package.paper_review_status == "live_readiness_expired"
+    assert any("过期" in blocker for blocker in package.deployment_blockers)
+    assert package.live_readiness_checklist[-1]["status"] == "expired"
+    persisted_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert persisted_run["live_handoff"]["status"] == "blocked"
+    assert persisted_run["pipeline"]["current_stage"] == "live_handoff"
+    assert persisted_run["pipeline"]["live_handoff_status"] == "blocked"
+    assert persisted_run["pipeline"]["live_handoff_ready_for_live"] is False
+    assert persisted_run["pipeline"]["steps"][-1]["status"] == "failed"
+    assert "阻塞项" in persisted_run["next_actions"][0]
+
+
+@pytest.mark.asyncio
+async def test_record_live_handoff_approval_rejects_blocked_package():
+    workspace_service = FakeWorkspaceService()
+    run = {
+        **_run_record(
+            "blocked-live-approval-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-02T00:00:00+00:00",
+        ),
+        "paper_review_status": "monitoring",
+        "paper_review_ready_for_live": False,
+        "paper_reviewed_at": "2026-01-02T00:00:00+00:00",
+        "paper_review_evaluations": [],
+        "live_readiness_checklist": [],
+        "pipeline": {
+            "current_stage": "paper_review",
+            "status": "achieved",
+            "progress": 92,
+            "ready_for_live": False,
+            "steps": [],
+        },
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [run]}}},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=FakeStrategyService(workspace_service, []),
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    with pytest.raises(ValueError, match="Cannot approve blocked live handoff"):
+        await service.record_live_handoff_approval(
+            "user-1",
+            "blocked-live-approval-run",
+            AIStrategyLiveHandoffApprovalRequest(
+                decision="approved",
+                approver="risk-manager",
+                account_confirmed=True,
+                risk_limit_confirmed=True,
+            ),
+            research_workspace_id="research-ws",
+        )
 
 
 @pytest.mark.asyncio
@@ -2468,9 +3116,11 @@ async def test_review_paper_trading_waits_for_minimum_paper_trade_sample():
     assert trade_sample.status == "pending"
     assert review.status == "monitoring"
     assert review.ready_for_live is False
+    assert review.live_handoff is None
     assert "继续收集模拟交易数据" in review.next_actions[0]
     updated_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
     assert updated_run["paper_review_status"] == "monitoring"
+    assert updated_run.get("live_handoff") is None
     assert updated_run["pipeline"]["current_stage"] == "paper_review"
     assert updated_run["pipeline"]["ready_for_live"] is False
 
@@ -3412,10 +4062,11 @@ async def test_research_loop_continuation_uses_failed_paper_review_before_backte
         [{"sharpe_ratio": 1.15, "total_trades": 6, "max_drawdown": -8.0}],
         strategies={"strategy-2": seed_strategy},
     )
+    improver = RecordingImprover()
     service = AIStrategyResearchService(
         strategy_service=strategy_service,
         workspace_service=workspace_service,
-        improver=LocalStrategyImprover(),
+        improver=improver,
         sleep=_noop_sleep,
     )
 
@@ -3436,10 +4087,261 @@ async def test_research_loop_continuation_uses_failed_paper_review_before_backte
     assert strategy_service.generated == 0
     assert strategy_service.submitted_drafts[0].name.endswith("v1")
     assert "模拟失败策略 v1" == strategy_service.submitted_drafts[0].name
+    assert len(improver.calls) == 1
+    continuation_metrics = improver.calls[0]["metrics"]
+    assert continuation_metrics["max_drawdown"] == pytest.approx(18.0)
+    assert "drawdown" in continuation_metrics["failure_categories"]
+    assert continuation_metrics["research_feedback"]["source"] == "paper_review"
+    assert continuation_metrics["research_feedback"]["paper_review_status"] == (
+        "needs_research_review"
+    )
+    assert continuation_metrics["research_feedback"]["paper_review_evaluations"][0]["key"] == (
+        "drawdown_guard"
+    )
+    assert any("收紧风控" in item for item in continuation_metrics["improvement_plan"])
     assert "基于上一轮模拟交易复核结果" in result.iterations[0].improvement_notes[0]
     assert any("止损" in note or "风控" in note for note in result.iterations[0].improvement_notes)
     assert result.run_record is not None
     assert result.run_record.continued_from_run_id == "paper-failed-run"
+
+
+@pytest.mark.asyncio
+async def test_research_loop_continuation_uses_live_handoff_rejection_before_backtest():
+    workspace_service = FakeWorkspaceService()
+    record = {
+        **_run_record(
+            "live-rejected-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "paper_review_status": "ready_for_live_candidate",
+        "paper_review_ready_for_live": True,
+        "paper_reviewed_at": "2026-01-02T00:00:00+00:00",
+        "paper_review_evaluations": [
+            {
+                "key": "rolling_sharpe",
+                "label": "模拟交易滚动 Sharpe",
+                "metric": "rolling_sharpe",
+                "window": "30 trading days",
+                "direction": "min",
+                "threshold": 0.6,
+                "actual": 0.82,
+                "source": "unit_status.metrics_snapshot",
+                "status": "passed",
+                "passed": True,
+                "action": "继续观察",
+            }
+        ],
+        "live_handoff": {
+            "run_id": "live-rejected-run",
+            "research_workspace_id": "research-ws",
+            "generated_at": "2026-01-02T00:01:00+00:00",
+            "ready_for_live": True,
+            "status": "approval_rejected",
+            "approval_required": True,
+            "paper_workspace_id": "paper-ws",
+            "paper_unit_id": "paper-unit",
+            "best_strategy_id": "strategy-2",
+            "best_strategy_name": "AI趋势策略",
+            "symbol": "000001.SZ",
+            "symbol_name": "平安银行",
+            "timeframe": "1d",
+            "timeframe_n": 1,
+            "target_sharpe": 1.0,
+            "best_sharpe": 1.21,
+            "best_metrics": {"sharpe_ratio": 1.21, "total_trades": 5},
+            "asset_specs": {},
+            "backtest_environment": {"initial_cash": 100000.0, "commission": 0.001},
+            "paper_review_status": "ready_for_live_candidate",
+            "paper_reviewed_at": "2026-01-02T00:00:00+00:00",
+            "paper_review_evaluations": [],
+            "paper_monitoring_plan": [],
+            "live_readiness_checklist": [],
+            "approvals_required": [],
+            "deployment_blockers": [],
+            "approval_status": "rejected",
+            "handoff": {},
+            "pipeline": {
+                "current_stage": "live_handoff",
+                "status": "approval_rejected",
+                "progress": 100,
+                "ready_for_live": True,
+                "live_handoff_status": "approval_rejected",
+                "steps": [],
+            },
+            "next_actions": [
+                "实盘交接包已被人工驳回，需处理审批意见后重新进入模拟复核或继续投研。",
+            ],
+        },
+        "live_handoff_approval": {
+            "run_id": "live-rejected-run",
+            "research_workspace_id": "research-ws",
+            "decision": "rejected",
+            "approved": False,
+            "decided_at": "2026-01-02T00:02:00+00:00",
+            "decided_by": "risk-manager",
+            "comment": "单笔风险过高，先降低仓位并重新观察模拟成交成本。",
+            "account_confirmed": False,
+            "risk_limit_confirmed": False,
+            "handoff_status_at_decision": "ready_for_approval",
+            "blockers": [],
+        },
+        "pipeline": {
+            "current_stage": "live_handoff",
+            "status": "approval_rejected",
+            "progress": 100,
+            "ready_for_live": True,
+            "live_handoff_status": "approval_rejected",
+            "live_handoff_approval_status": "rejected",
+            "steps": [],
+        },
+        "next_actions": [
+            "实盘交接包已被人工驳回，需处理审批意见后重新进入模拟复核或继续投研。",
+            "驳回意见：单笔风险过高，先降低仓位并重新观察模拟成交成本。",
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [record]}}}
+    )
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "实盘驳回策略"}
+    )
+    seed_strategy = _strategy("strategy-2", seed_draft)
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.16, "total_trades": 8, "max_drawdown": -6.0}],
+        strategies={"strategy-2": seed_strategy},
+    )
+    improver = RecordingImprover()
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=improver,
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续实盘交接驳回后的策略投研",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            continue_from_run_id="live-rejected-run",
+            start_paper_trading=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert strategy_service.generated == 0
+    assert strategy_service.submitted_drafts[0].name == "实盘驳回策略 v1"
+    assert len(improver.calls) == 1
+    continuation_metrics = improver.calls[0]["metrics"]
+    assert "live_handoff_rejected" in continuation_metrics["failure_categories"]
+    assert continuation_metrics["research_feedback"]["source"] == "live_handoff_rejected"
+    assert continuation_metrics["research_feedback"]["live_handoff_approval"]["decision"] == (
+        "rejected"
+    )
+    assert "单笔风险过高" in continuation_metrics["research_feedback"][
+        "live_handoff_approval"
+    ]["comment"]
+    assert any("实盘交接驳回" in item for item in continuation_metrics["improvement_plan"])
+    assert "基于上一轮实盘交接驳回意见" in result.iterations[0].improvement_notes[0]
+    assert any("实盘交接人工审批未通过" in note for note in result.iterations[0].improvement_notes)
+    assert result.run_record is not None
+    assert result.run_record.continued_from_run_id == "live-rejected-run"
+
+
+@pytest.mark.asyncio
+async def test_research_loop_continuation_from_failed_paper_review_restarts_paper_trading():
+    workspace_service = FakeWorkspaceService()
+    record = {
+        **_run_record(
+            "paper-review-loop-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "paper_workspace_id": "old-paper-ws",
+        "paper_workspace_name": "旧模拟工作区",
+        "paper_unit_id": "old-paper-unit",
+        "paper_trading_started": True,
+        "paper_review_status": "needs_research_review",
+        "paper_review_ready_for_live": False,
+        "paper_reviewed_at": "2026-01-02T00:00:00+00:00",
+        "paper_review_evaluations": [
+            {
+                "key": "rolling_sharpe",
+                "label": "模拟交易滚动 Sharpe",
+                "metric": "rolling_sharpe",
+                "window": "30 trading days",
+                "direction": "min",
+                "threshold": 0.6,
+                "actual": 0.18,
+                "source": "unit_status.metrics_snapshot",
+                "status": "failed",
+                "passed": False,
+                "action": "回到研究工作区降低过拟合并收紧风险预算。",
+            }
+        ],
+        "paper_review_next_actions": ["回到研究工作区降低过拟合并收紧风险预算。"],
+        "paper_handoff": {
+            "gateway_config": {"name": "paper_gateway", "params": {"exchange": "sim"}},
+            "backtest_environment": {"initial_cash": 100000.0, "commission": 0.001},
+        },
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [record]}}}
+    )
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "模拟复核失败策略"}
+    )
+    seed_strategy = _strategy("strategy-2", seed_draft)
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.22, "total_trades": 8, "max_drawdown": -5.0}],
+        strategies={"strategy-2": seed_strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续模拟复核失败后的策略投研",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            continue_from_run_id="paper-review-loop-run",
+            paper_workspace_name="AI模拟-修复版",
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert result.status == "achieved"
+    assert result.paper_trading is not None
+    assert result.paper_trading.started is True
+    assert result.paper_trading.workspace.name == "AI模拟-修复版"
+    assert result.paper_trading.handoff is not None
+    assert result.paper_trading.handoff["continued_from_run_id"] == "paper-review-loop-run"
+    assert result.paper_trading.handoff["paper_task_id"] == "paper-task"
+    assert result.paper_trading.handoff["gateway_config"]["name"] == "paper_gateway"
+    assert workspace_service.started_units == [("paper-ws", ["paper-unit"])]
+    assert strategy_service.generated == 0
+    assert strategy_service.submitted_drafts[0].name == "模拟复核失败策略 v1"
+    assert "基于上一轮模拟交易复核结果" in result.iterations[0].improvement_notes[0]
+    assert any("rolling_sharpe" in note or "滚动 Sharpe" in note for note in result.iterations[0].improvement_notes)
+    assert result.run_record is not None
+    assert result.run_record.continued_from_run_id == "paper-review-loop-run"
+    assert result.run_record.paper_trading_started is True
+    assert result.run_record.paper_workspace_name == "AI模拟-修复版"
+    assert result.run_record.paper_handoff["continued_from_run_id"] == "paper-review-loop-run"
+    assert result.run_record.pipeline["current_stage"] == "paper_review"
 
 
 @pytest.mark.asyncio
@@ -4802,6 +5704,23 @@ class FakeResearchAPIService:
             started_at="2026-01-01T00:00:00+00:00",
             completed_at="2026-01-01T00:01:00+00:00",
             best_iteration=1,
+            best_quality_score=100.0,
+            best_quality_gate_evaluations=[
+                {
+                    "key": "sharpe",
+                    "label": "Sharpe",
+                    "actual": 1.05,
+                    "target": request.target_sharpe,
+                    "direction": "min",
+                    "passed": True,
+                    "score": 1.0,
+                }
+            ],
+            best_diagnostics={
+                "summary": "第 1 轮已通过全部质量门槛，可进入模拟交易候选。",
+                "promotion_ready": True,
+                "improvement_plan": ["进入模拟交易后优先验证成交、滑点和费用。"],
+            },
             best_metrics={"sharpe_ratio": 1.05, "total_trades": 4},
             research_workspace=workspace,
             iterations=[
@@ -4968,6 +5887,532 @@ class FakeResearchAPIService:
             next_actions=["模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。"],
         )
 
+    async def build_live_handoff_package(
+        self,
+        user_id: str,
+        run_id: str,
+        *,
+        research_workspace_id: str | None = None,
+    ):
+        live_readiness_checklist = [
+            {
+                "key": "paper_monitoring_passed",
+                "label": "模拟监控通过",
+                "status": "passed",
+                "evidence": "模拟交易滚动 Sharpe 0.8 / 0.6，来源 unit_status.metrics_snapshot",
+                "action": "继续监控同一组指标。",
+            },
+            {
+                "key": "human_approval_required",
+                "label": "人工实盘审批",
+                "status": "pending_manual_confirmation",
+                "evidence": "模拟复核已达到实盘候选状态。",
+                "action": "确认账户权限和上线窗口后再切换实盘。",
+            },
+        ]
+        return AIStrategyLiveHandoffPackage(
+            run_id=run_id,
+            research_workspace_id=research_workspace_id or "research-api-ws",
+            generated_at="2026-01-01T00:03:00+00:00",
+            ready_for_live=True,
+            status="ready_for_approval",
+            approval_required=True,
+            expires_at="2026-01-08T00:02:00+00:00",
+            paper_workspace_id="paper-api-ws",
+            paper_unit_id="paper-api-unit",
+            best_strategy_id="strategy-api",
+            best_strategy_name="AI趋势策略",
+            symbol="000001.SZ",
+            symbol_name="平安银行",
+            timeframe="1d",
+            timeframe_n=1,
+            target_sharpe=1.0,
+            best_sharpe=1.05,
+            best_metrics={"sharpe_ratio": 1.05, "total_trades": 4},
+            asset_specs={
+                "000001.SZ": {
+                    "symbol": "000001.SZ",
+                    "asset_class": "stock",
+                    "multiplier": 1,
+                    "commission_rate": 0.001,
+                }
+            },
+            backtest_environment={"initial_cash": 100000, "commission": 0.001},
+            paper_review_status="ready_for_live_candidate",
+            paper_reviewed_at="2026-01-01T00:02:00+00:00",
+            paper_review_evaluations=[
+                {
+                    "key": "rolling_sharpe",
+                    "label": "模拟交易滚动 Sharpe",
+                    "metric": "rolling_sharpe",
+                    "window": "30 trading days",
+                    "direction": "min",
+                    "threshold": 0.6,
+                    "actual": 0.8,
+                    "source": "unit_status.metrics_snapshot",
+                    "status": "passed",
+                    "passed": True,
+                    "action": "继续观察",
+                }
+            ],
+            paper_monitoring_plan=[
+                {
+                    "key": "rolling_sharpe",
+                    "label": "模拟交易滚动 Sharpe",
+                    "metric": "rolling_sharpe",
+                    "window": "30 trading days",
+                    "direction": "min",
+                    "threshold": 0.6,
+                    "action": "继续观察",
+                }
+            ],
+            live_readiness_checklist=live_readiness_checklist,
+            approvals_required=[live_readiness_checklist[-1]],
+            deployment_blockers=[],
+            handoff={
+                "run_id": run_id,
+                "gateway_config": {
+                    "api_key": "***",
+                    "params": {"secret_key": "***", "exchange": "sim"},
+                },
+            },
+            pipeline={
+                "current_stage": "live_handoff",
+                "status": "ready_for_approval",
+                "progress": 100,
+                "ready_for_live": True,
+                "live_handoff_status": "ready_for_approval",
+                "live_handoff_ready_for_live": True,
+                "live_handoff_approval_required": True,
+                "live_handoff_blocker_count": 0,
+                "live_readiness_checklist": live_readiness_checklist,
+                "live_readiness_expires_at": "2026-01-08T00:02:00+00:00",
+                "steps": [
+                    {
+                        "key": "live_handoff",
+                        "label": "实盘交接",
+                        "status": "running",
+                        "handoff_status": "ready_for_approval",
+                    }
+                ],
+            },
+            next_actions=["提交人工实盘审批，审批通过后再切换实盘账户。"],
+        )
+
+    async def record_live_handoff_approval(
+        self,
+        user_id: str,
+        run_id: str,
+        request: AIStrategyLiveHandoffApprovalRequest,
+        *,
+        research_workspace_id: str | None = None,
+    ):
+        base = await self.build_live_handoff_package(
+            user_id,
+            run_id,
+            research_workspace_id=research_workspace_id,
+        )
+        approved = request.decision == "approved"
+        approval = AIStrategyLiveHandoffApprovalRecord(
+            run_id=run_id,
+            research_workspace_id=research_workspace_id or "research-api-ws",
+            decision=request.decision,
+            approved=approved,
+            decided_at="2026-01-01T00:04:00+00:00",
+            decided_by=request.approver or user_id,
+            comment=request.comment,
+            account_confirmed=request.account_confirmed,
+            risk_limit_confirmed=request.risk_limit_confirmed,
+            deployment_window=request.deployment_window,
+            handoff_status_at_decision=base.status,
+            blockers=[],
+        )
+        return base.model_copy(
+            update={
+                "status": "approved_for_live" if approved else "approval_rejected",
+                "approval_status": request.decision,
+                "approval": approval,
+                "approvals_required": [],
+                "pipeline": {
+                    **dict(base.pipeline or {}),
+                    "current_stage": "live_handoff",
+                    "status": "approved_for_live" if approved else "approval_rejected",
+                    "live_handoff_status": "approved_for_live"
+                    if approved
+                    else "approval_rejected",
+                    "live_handoff_approval_status": request.decision,
+                    "live_handoff_approved": approved,
+                    "live_handoff_approved_at": approval.decided_at if approved else None,
+                    "live_handoff_rejected_at": None if approved else approval.decided_at,
+                    "steps": [
+                        {
+                            "key": "live_handoff",
+                            "label": "实盘交接",
+                            "status": "completed" if approved else "failed",
+                            "handoff_status": "approved_for_live"
+                            if approved
+                            else "approval_rejected",
+                            "approval_status": request.decision,
+                        }
+                    ],
+                },
+                "next_actions": [
+                    "实盘交接包已通过人工审批，可在上线窗口内执行实盘切换前检查。"
+                ]
+                if approved
+                else ["实盘交接包已被人工驳回，需处理审批意见后重新进入模拟复核或继续投研。"],
+            }
+        )
+
+
+class FakeResearchAPIPaperService(FakeResearchAPIService):
+    async def run(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+        *,
+        progress_callback=None,
+    ):
+        result = await super().run(user_id, request, progress_callback=progress_callback)
+        paper_workspace = _workspace("paper-api-ws", "trading")
+        paper_unit = _unit("paper-api-unit", paper_workspace.id, result.best_strategy)
+        asset_specs = {
+            request.symbol: {
+                "symbol": request.symbol,
+                "source": "task_summary_exchange_specs",
+                "multiplier": 300,
+                "margin_rate": 0.1,
+                "commission_rate": 0.000023,
+            }
+        }
+        backtest_environment = {
+            "initial_cash": request.initial_cash,
+            "commission": 0.000023,
+            "annual_days": request.annual_days,
+            "calc_method": request.calc_method,
+            "weight_mode": request.weight_mode,
+            "multiplier": 300,
+            "margin": 0.1,
+            "asset_spec_source": "task_summary_exchange_specs",
+        }
+        monitoring_plan = [
+            {
+                "key": "rolling_sharpe",
+                "label": "模拟交易滚动 Sharpe",
+                "metric": "rolling_sharpe",
+                "window": "30 trading days",
+                "direction": "min",
+                "threshold": 0.6,
+                "action": "继续观察",
+            }
+        ]
+        review_evaluations = [
+            {
+                "key": "rolling_sharpe",
+                "label": "模拟交易滚动 Sharpe",
+                "metric": "rolling_sharpe",
+                "window": "30 trading days",
+                "direction": "min",
+                "threshold": 0.6,
+                "actual": None,
+                "source": None,
+                "status": "pending",
+                "passed": False,
+                "action": "继续观察",
+            }
+        ]
+        handoff = {
+            "run_id": result.run_id,
+            "research_workspace_id": result.research_workspace.id,
+            "paper_workspace_id": paper_workspace.id,
+            "paper_unit_id": paper_unit.id,
+            "paper_task_id": "paper-api-task",
+            "asset_specs": asset_specs,
+            "backtest_environment": backtest_environment,
+            "gateway_config": {
+                "name": "paper_gateway",
+                "api_key": "paper-secret-key",
+                "params": {
+                    "exchange": "sim",
+                    "broker_id": "9999",
+                    "secret_key": "paper-secret",
+                    "passphrase": "paper-passphrase",
+                },
+            },
+            "paper_monitoring_plan": monitoring_plan,
+        }
+        pipeline = {
+            "current_stage": "paper_review",
+            "status": "monitoring",
+            "progress": 96,
+            "ready_for_live": False,
+            "paper_trading_error": None,
+            "steps": [
+                {"key": "draft", "label": "生成策略脚本", "status": "completed"},
+                {"key": "backtest", "label": "自动回测", "status": "completed"},
+                {"key": "paper_trading", "label": "模拟交易", "status": "completed"},
+                {
+                    "key": "paper_review",
+                    "label": "模拟复核",
+                    "status": "running",
+                    "review_status": "monitoring",
+                },
+            ],
+        }
+        run_record = AIStrategyResearchRunRecord.model_validate(
+            {
+                **_run_record(
+                    result.run_id,
+                    workspace_id=result.research_workspace.id,
+                    completed_at=result.completed_at,
+                ),
+                "paper_workspace_id": paper_workspace.id,
+                "paper_workspace_name": paper_workspace.name,
+                "paper_unit_id": paper_unit.id,
+                "paper_trading_started": True,
+                "paper_monitoring_plan": monitoring_plan,
+                "paper_handoff": handoff,
+                "asset_specs": asset_specs,
+                "backtest_environment": backtest_environment,
+                "paper_review_status": "monitoring",
+                "paper_review_ready_for_live": False,
+                "paper_reviewed_at": "2026-01-01T00:02:00+00:00",
+                "paper_review_evaluations": review_evaluations,
+                "paper_review_next_actions": ["继续收集模拟交易数据"],
+                "pipeline": pipeline,
+                "next_actions": ["继续跟踪模拟交易"],
+            }
+        )
+        return result.model_copy(
+            update={
+                "paper_trading": AIStrategyPaperTradingStart(
+                    workspace=paper_workspace,
+                    unit=paper_unit,
+                    run_result=StrategyCopilotRunResult(
+                        unit_id=paper_unit.id,
+                        task_id="paper-api-task",
+                        status="running",
+                    ),
+                    started=True,
+                    handoff=handoff,
+                ),
+                "paper_monitoring_plan": monitoring_plan,
+                "pipeline": pipeline,
+                "run_record": run_record,
+                "next_actions": ["继续跟踪模拟交易"],
+                "message": "Target Sharpe achieved and paper trading started",
+            }
+        )
+
+
+class FakeResearchAPIExpiredLiveCandidateService(FakeResearchAPIPaperService):
+    async def run(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+        *,
+        progress_callback=None,
+    ):
+        result = await super().run(user_id, request, progress_callback=progress_callback)
+        record = result.run_record
+        assert record is not None
+        live_readiness_checklist = [
+            {
+                "key": "human_approval_required",
+                "label": "人工实盘审批",
+                "status": "pending_manual_confirmation",
+                "evidence": "模拟复核已达到实盘候选状态。",
+                "action": "确认账户权限和上线窗口后再切换实盘。",
+            }
+        ]
+        live_readiness_expires_at = "2000-01-08T00:00:00+00:00"
+        paper_handoff = {
+            **dict(record.paper_handoff or {}),
+            "live_readiness_checklist": live_readiness_checklist,
+            "live_readiness_expires_at": live_readiness_expires_at,
+        }
+        pipeline = {
+            "current_stage": "live_candidate",
+            "status": "achieved",
+            "progress": 100,
+            "ready_for_live": True,
+            "live_readiness_checklist": live_readiness_checklist,
+            "live_readiness_expires_at": live_readiness_expires_at,
+            "steps": [],
+        }
+        record = record.model_copy(
+            update={
+                "paper_review_status": "ready_for_live_candidate",
+                "paper_review_ready_for_live": True,
+                "paper_reviewed_at": "2000-01-01T00:00:00+00:00",
+                "paper_review_evaluations": [
+                    {
+                        "key": "rolling_sharpe",
+                        "label": "模拟交易滚动 Sharpe",
+                        "metric": "rolling_sharpe",
+                        "window": "30 trading days",
+                        "direction": "min",
+                        "threshold": 0.6,
+                        "actual": 0.8,
+                        "source": "unit_status.metrics_snapshot",
+                        "status": "passed",
+                        "passed": True,
+                        "action": "继续观察",
+                    }
+                ],
+                "paper_review_next_actions": [
+                    "模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。"
+                ],
+                "live_readiness_checklist": live_readiness_checklist,
+                "live_readiness_expires_at": live_readiness_expires_at,
+                "paper_handoff": paper_handoff,
+                "pipeline": pipeline,
+                "next_actions": [
+                    "模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。"
+                ],
+            }
+        )
+        return result.model_copy(
+            update={
+                "run_record": record,
+                "pipeline": pipeline,
+                "next_actions": record.next_actions,
+            }
+        )
+
+
+class FakeResearchAPILiveHandoffService(FakeResearchAPIPaperService):
+    async def run(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+        *,
+        progress_callback=None,
+    ):
+        result = await super().run(user_id, request, progress_callback=progress_callback)
+        record = result.run_record
+        assert record is not None
+        live_readiness_checklist = [
+            {
+                "key": "human_approval_required",
+                "label": "人工实盘审批",
+                "status": "passed",
+                "evidence": "模拟交易复核和人工审批均通过。",
+                "action": "按审批窗口执行实盘切换前检查。",
+            }
+        ]
+        approval = AIStrategyLiveHandoffApprovalRecord(
+            run_id=result.run_id,
+            research_workspace_id=result.research_workspace.id,
+            decision="approved",
+            approved=True,
+            decided_at="2099-01-01T00:04:00+00:00",
+            decided_by="risk-manager",
+            comment="批准小资金实盘验证",
+            account_confirmed=True,
+            risk_limit_confirmed=True,
+            deployment_window="2099-01-02 09:00-10:00",
+            handoff_status_at_decision="ready_for_approval",
+            blockers=[],
+        )
+        live_handoff = AIStrategyLiveHandoffPackage(
+            run_id=result.run_id,
+            research_workspace_id=result.research_workspace.id,
+            generated_at="2099-01-01T00:03:00+00:00",
+            ready_for_live=True,
+            status="approved_for_live",
+            approval_required=True,
+            expires_at="2099-01-08T00:02:00+00:00",
+            paper_workspace_id=record.paper_workspace_id,
+            paper_unit_id=record.paper_unit_id,
+            best_strategy_id=record.best_strategy_id,
+            best_strategy_name=record.best_strategy_name,
+            symbol=record.symbol,
+            symbol_name=record.symbol_name,
+            timeframe=record.timeframe,
+            timeframe_n=record.timeframe_n,
+            target_sharpe=record.target_sharpe,
+            best_sharpe=record.best_sharpe,
+            best_metrics=record.best_metrics,
+            asset_specs=record.asset_specs,
+            backtest_environment=record.backtest_environment,
+            paper_review_status="ready_for_live_candidate",
+            paper_reviewed_at="2099-01-01T00:02:00+00:00",
+            paper_review_evaluations=[
+                {
+                    "key": "rolling_sharpe",
+                    "label": "模拟交易滚动 Sharpe",
+                    "metric": "rolling_sharpe",
+                    "window": "30 trading days",
+                    "direction": "min",
+                    "threshold": 0.6,
+                    "actual": 0.8,
+                    "source": "unit_status.metrics_snapshot",
+                    "status": "passed",
+                    "passed": True,
+                    "action": "继续观察",
+                }
+            ],
+            paper_monitoring_plan=record.paper_monitoring_plan,
+            live_readiness_checklist=live_readiness_checklist,
+            approvals_required=[],
+            deployment_blockers=[],
+            approval_status="approved",
+            approval=approval,
+            handoff={
+                "run_id": result.run_id,
+                "gateway_config": {
+                    "api_key": "live-secret-key",
+                    "params": {
+                        "secret_key": "live-secret",
+                        "passphrase": "live-passphrase",
+                        "exchange": "sim-live",
+                    },
+                },
+            },
+            pipeline={
+                "current_stage": "live_handoff",
+                "status": "approved_for_live",
+                "progress": 100,
+                "ready_for_live": True,
+                "live_handoff_status": "approved_for_live",
+                "live_handoff_generated_at": "2099-01-01T00:03:00+00:00",
+                "live_handoff_ready_for_live": True,
+                "live_handoff_approval_required": True,
+                "live_handoff_blocker_count": 0,
+                "live_handoff_approval_status": "approved",
+                "live_handoff_approved": True,
+                "live_handoff_approved_at": "2099-01-01T00:04:00+00:00",
+                "steps": [],
+            },
+            next_actions=["实盘交接包已通过人工审批，可在上线窗口内执行实盘切换前检查。"],
+        )
+        pipeline = dict(live_handoff.pipeline)
+        record = record.model_copy(
+            update={
+                "paper_review_status": "ready_for_live_candidate",
+                "paper_review_ready_for_live": True,
+                "paper_reviewed_at": "2099-01-01T00:02:00+00:00",
+                "paper_review_evaluations": list(live_handoff.paper_review_evaluations),
+                "paper_review_next_actions": [
+                    "模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。"
+                ],
+                "live_readiness_checklist": live_readiness_checklist,
+                "live_readiness_expires_at": "2099-01-08T00:02:00+00:00",
+                "live_handoff": live_handoff,
+                "live_handoff_approval": approval,
+                "pipeline": pipeline,
+                "next_actions": live_handoff.next_actions,
+            }
+        )
+        return result.model_copy(
+            update={
+                "run_record": record,
+                "pipeline": pipeline,
+                "next_actions": record.next_actions,
+            }
+        )
+
 
 class SlowResearchAPIService:
     async def run(
@@ -5069,16 +6514,85 @@ class FakeBacktestCancelService:
 
 
 @pytest.mark.asyncio
+async def test_wait_for_unit_status_cancels_backtest_task_on_timeout():
+    workspace_service = FakeWorkspaceService()
+    cancel_service = FakeBacktestCancelService()
+    service = AIStrategyResearchService(
+        workspace_service=workspace_service,
+        backtest_service=cancel_service,
+    )
+    initial_status = UnitStatusResponse(
+        id="unit-timeout",
+        run_status="running",
+        last_task_id="backtest-task-1",
+        metrics_snapshot={"sharpe_ratio": 0.2},
+        run_count=0,
+        trading_snapshot={"source": "poll"},
+        trading_mode="paper",
+    )
+
+    status, reason = await service._wait_for_unit_status(
+        "research-ws",
+        "user-1",
+        "unit-timeout",
+        initial_status=initial_status,
+        timeout_seconds=0,
+        poll_interval_seconds=0,
+    )
+
+    assert reason == "Backtest timed out"
+    assert status is not None
+    assert status.run_status == "timeout"
+    assert status.last_task_id == "backtest-task-1"
+    assert cancel_service.cancelled == [("backtest-task-1", "user-1")]
+    assert status.trading_snapshot["source"] == "poll"
+    assert status.trading_snapshot["backtest_timeout_task_id"] == "backtest-task-1"
+    assert status.trading_snapshot["backtest_timeout_cancel_requested"] is True
+
+
+@pytest.mark.asyncio
 async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
     manager = AIStrategyResearchTaskManager()
+    request = AIStrategyResearchRunRequest(
+        prompt="生成趋势策略",
+        symbol="000001.SZ",
+        symbol_name="平安银行",
+        timeframe="1h",
+        start_date="2024-01-01",
+        end_date="2024-06-30",
+        knowledge_base_id="kb-quant",
+        gateway_config={
+            "name": "paper_gateway",
+            "api_key": "secret-key",
+            "params": {
+                "password": "secret-password",
+                "passphrase": "secret-passphrase",
+                "auth_code": "secret-auth",
+                "access_key": "secret-access",
+                "exchange": "sim",
+            },
+        },
+    )
 
     submitted = await manager.submit(
         "user-1",
-        AIStrategyResearchRunRequest(prompt="生成趋势策略", symbol="000001.SZ"),
+        request,
         service=FakeResearchAPIService(),
     )
 
     assert submitted.status == "pending"
+    assert submitted.request_snapshot["prompt"] == "生成趋势策略"
+    assert submitted.request_snapshot["symbol"] == "000001.SZ"
+    assert submitted.request_snapshot["symbol_name"] == "平安银行"
+    assert submitted.request_snapshot["timeframe"] == "1h"
+    assert submitted.request_snapshot["start_date"] == "2024-01-01"
+    assert submitted.request_snapshot["knowledge_base_id"] == "kb-quant"
+    assert submitted.request_snapshot["gateway_config"]["api_key"] == "***"
+    assert submitted.request_snapshot["gateway_config"]["params"]["password"] == "***"
+    assert submitted.request_snapshot["gateway_config"]["params"]["passphrase"] == "***"
+    assert submitted.request_snapshot["gateway_config"]["params"]["auth_code"] == "***"
+    assert submitted.request_snapshot["gateway_config"]["params"]["access_key"] == "***"
+    assert submitted.request_snapshot["gateway_config"]["params"]["exchange"] == "sim"
     task = None
     for _ in range(20):
         task = await manager.get_task("user-1", submitted.task_id)
@@ -5092,8 +6606,23 @@ async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
     assert task.research_workspace_id == "research-api-ws"
     assert task.progress == 100.0
     assert task.current_stage == "completed"
+    assert task.request_snapshot["prompt"] == "生成趋势策略"
+    assert task.request_snapshot["symbol"] == "000001.SZ"
+    assert task.request_snapshot["gateway_config"]["api_key"] == "***"
     assert task.iteration_count == 1
     assert task.max_iterations == 3
+    assert task.run_status == "achieved"
+    assert task.achieved is True
+    assert task.target_sharpe == pytest.approx(1.0)
+    assert task.best_iteration == 1
+    assert task.best_sharpe == pytest.approx(1.05)
+    assert task.best_quality_score == pytest.approx(100.0)
+    assert task.best_quality_gate_evaluations[0]["key"] == "sharpe"
+    assert task.best_quality_gate_evaluations[0]["passed"] is True
+    assert task.best_diagnostics["promotion_ready"] is True
+    assert "进入模拟交易" in task.best_diagnostics["improvement_plan"][0]
+    assert task.best_metrics["sharpe_ratio"] == pytest.approx(1.05)
+    assert task.best_strategy_id == "strategy-api"
     assert task.latest_iteration is not None
     assert task.latest_iteration["iteration"] == 1
     assert task.result is not None
@@ -5103,6 +6632,154 @@ async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
     tasks = await manager.list_tasks("user-1")
     assert [item.task_id for item in tasks] == [submitted.task_id]
     assert await manager.list_tasks("user-1", active_only=True) == []
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_task_manager_exposes_paper_handoff_summary():
+    manager = AIStrategyResearchTaskManager()
+
+    submitted = await manager.submit(
+        "user-1",
+        AIStrategyResearchRunRequest(prompt="生成趋势策略", symbol="IF2409.CFE"),
+        service=FakeResearchAPIPaperService(),
+    )
+
+    task = None
+    for _ in range(20):
+        task = await manager.get_task("user-1", submitted.task_id)
+        if task is not None and task.status == "completed":
+            break
+        await asyncio.sleep(0.01)
+
+    assert task is not None
+    assert task.status == "completed"
+    assert task.current_stage == "paper_review"
+    assert task.run_status == "achieved"
+    assert task.achieved is True
+    assert task.target_sharpe == pytest.approx(1.0)
+    assert task.best_iteration == 2
+    assert task.best_sharpe == pytest.approx(1.21)
+    assert task.best_strategy_id == "strategy-2"
+    assert task.asset_specs["IF2409.CFE"]["multiplier"] == 300
+    assert task.asset_specs["IF2409.CFE"]["source"] == "task_summary_exchange_specs"
+    assert task.backtest_environment["commission"] == pytest.approx(0.000023)
+    assert task.backtest_environment["multiplier"] == 300
+    assert task.backtest_environment["asset_spec_source"] == "task_summary_exchange_specs"
+    assert task.paper_trading_started is True
+    assert task.paper_workspace_id == "paper-api-ws"
+    assert task.paper_workspace_name == "paper-api-ws"
+    assert task.paper_unit_id == "paper-api-unit"
+    assert task.paper_handoff["paper_task_id"] == "paper-api-task"
+    assert task.paper_handoff["gateway_config"]["api_key"] == "***"
+    assert task.paper_handoff["gateway_config"]["params"]["secret_key"] == "***"
+    assert task.paper_handoff["gateway_config"]["params"]["passphrase"] == "***"
+    assert task.paper_handoff["gateway_config"]["params"]["exchange"] == "sim"
+    assert task.paper_handoff["gateway_config"]["params"]["broker_id"] == "9999"
+    assert task.paper_monitoring_plan[0]["key"] == "rolling_sharpe"
+    assert task.paper_review_status == "monitoring"
+    assert task.paper_review_ready_for_live is False
+    assert task.paper_reviewed_at == "2026-01-01T00:02:00+00:00"
+    assert task.paper_review_evaluations[0]["status"] == "pending"
+    assert task.paper_review_next_actions == ["继续收集模拟交易数据"]
+    assert task.pipeline["current_stage"] == "paper_review"
+    assert task.next_actions == ["继续跟踪模拟交易"]
+    assert task.result is not None
+    assert task.result.paper_trading is not None
+    assert task.result.paper_trading.handoff["gateway_config"]["api_key"] == "***"
+    assert task.result.run_record is not None
+    assert (
+        task.result.run_record.paper_handoff["gateway_config"]["params"]["secret_key"]
+        == "***"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_task_manager_exposes_live_handoff_summary():
+    manager = AIStrategyResearchTaskManager()
+
+    submitted = await manager.submit(
+        "user-1",
+        AIStrategyResearchRunRequest(prompt="生成趋势策略", symbol="IF2409.CFE"),
+        service=FakeResearchAPILiveHandoffService(),
+    )
+
+    task = None
+    for _ in range(20):
+        task = await manager.get_task("user-1", submitted.task_id)
+        if task is not None and task.status == "completed":
+            break
+        await asyncio.sleep(0.01)
+
+    assert task is not None
+    assert task.status == "completed"
+    assert task.current_stage == "live_handoff"
+    assert task.paper_review_status == "ready_for_live_candidate"
+    assert task.paper_review_ready_for_live is True
+    assert task.live_handoff is not None
+    assert task.live_handoff.status == "approved_for_live"
+    assert task.live_handoff.ready_for_live is True
+    assert task.live_handoff.approval_status == "approved"
+    assert task.live_handoff.approval is not None
+    assert task.live_handoff.approval.approved is True
+    assert task.live_handoff_approval is not None
+    assert task.live_handoff_approval.approved is True
+    assert task.live_handoff.handoff["gateway_config"]["api_key"] == "***"
+    assert task.live_handoff.handoff["gateway_config"]["params"]["secret_key"] == "***"
+    assert task.live_handoff.handoff["gateway_config"]["params"]["passphrase"] == "***"
+    assert task.live_handoff.handoff["gateway_config"]["params"]["exchange"] == "sim-live"
+    assert task.pipeline["current_stage"] == "live_handoff"
+    assert task.pipeline["live_handoff_approved"] is True
+    assert task.next_actions == ["实盘交接包已通过人工审批，可在上线窗口内执行实盘切换前检查。"]
+    assert task.result is not None
+    assert task.result.run_record is not None
+    assert task.result.run_record.live_handoff is not None
+    assert task.result.run_record.live_handoff.handoff["gateway_config"]["api_key"] == "***"
+
+    listed = await manager.list_tasks("user-1", active_only=False)
+    assert listed[0].live_handoff is not None
+    assert listed[0].live_handoff.status == "approved_for_live"
+    assert listed[0].live_handoff_approval is not None
+    assert listed[0].live_handoff_approval.decision == "approved"
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_task_manager_expires_stale_live_candidate_summary():
+    manager = AIStrategyResearchTaskManager()
+
+    submitted = await manager.submit(
+        "user-1",
+        AIStrategyResearchRunRequest(prompt="生成趋势策略", symbol="IF2409.CFE"),
+        service=FakeResearchAPIExpiredLiveCandidateService(),
+    )
+
+    task = None
+    for _ in range(20):
+        task = await manager.get_task("user-1", submitted.task_id)
+        if task is not None and task.status == "completed":
+            break
+        await asyncio.sleep(0.01)
+
+    assert task is not None
+    assert task.status == "completed"
+    assert task.current_stage == "paper_review"
+    assert task.paper_review_status == "live_readiness_expired"
+    assert task.paper_review_ready_for_live is False
+    assert task.live_readiness_expires_at == "2000-01-08T00:00:00+00:00"
+    assert task.live_readiness_checklist[-1]["key"] == "live_candidate_expired"
+    assert task.live_readiness_checklist[-1]["status"] == "expired"
+    assert task.pipeline["current_stage"] == "paper_review"
+    assert task.pipeline["ready_for_live"] is False
+    assert task.next_actions[0].startswith("实盘候选复核已过期")
+    assert task.result is not None
+    assert task.result.pipeline["current_stage"] == "paper_review"
+    assert task.result.run_record is not None
+    assert task.result.run_record.paper_review_status == "live_readiness_expired"
+    assert task.result.run_record.paper_review_ready_for_live is False
+
+    listed = await manager.list_tasks("user-1", active_only=False)
+    assert listed[0].task_id == submitted.task_id
+    assert listed[0].paper_review_status == "live_readiness_expired"
+    assert listed[0].pipeline["current_stage"] == "paper_review"
 
 
 @pytest.mark.asyncio
@@ -5166,6 +6843,16 @@ async def test_ai_strategy_research_task_manager_cancels_running_task():
     assert running.research_workspace_id == "slow-research-ws"
     assert running.progress == pytest.approx(25.0)
     assert running.current_backtest_task_id == "child-backtest-task"
+    assert running.pipeline["current_stage"] == "backtesting"
+    assert running.pipeline["progress"] == pytest.approx(25.0)
+    assert running.pipeline["steps"][0]["key"] == "draft"
+    assert running.pipeline["steps"][0]["status"] == "completed"
+    assert running.pipeline["steps"][1]["key"] == "backtest_loop"
+    assert running.pipeline["steps"][1]["status"] == "running"
+    assert running.pipeline["steps"][1]["current_iteration"] == 1
+    assert running.pipeline["steps"][1]["max_iterations"] == 3
+    assert running.pipeline["steps"][2]["key"] == "quality_gate"
+    assert running.pipeline["steps"][2]["status"] == "running"
 
     cancelled = await manager.cancel_task("user-1", submitted.task_id)
     assert cancelled is not None
@@ -5316,10 +7003,16 @@ async def test_ai_strategy_research_task_api_endpoint(
                 "symbol": "000001.SZ",
                 "target_sharpe": 1.0,
                 "max_iterations": 2,
+                "gateway_config": {
+                    "name": "paper_gateway",
+                    "params": {"exchange": "sim", "api_key": "secret-key"},
+                },
             },
         )
         assert response.status_code == 202
         task_id = response.json()["task_id"]
+        assert response.json()["request_snapshot"]["prompt"] == "生成一个均线策略并优化到夏普率 1.0"
+        assert response.json()["request_snapshot"]["gateway_config"]["params"]["api_key"] == "***"
         list_response = await client.get(
             "/api/v1/strategy/ai-research/tasks",
             headers=auth_headers,
@@ -5329,6 +7022,7 @@ async def test_ai_strategy_research_task_api_endpoint(
         list_payload = list_response.json()
         assert list_payload["total"] == 1
         assert list_payload["items"][0]["task_id"] == task_id
+        assert list_payload["items"][0]["request_snapshot"]["symbol"] == "000001.SZ"
         payload = None
         for _ in range(20):
             status_response = await client.get(
@@ -5348,13 +7042,95 @@ async def test_ai_strategy_research_task_api_endpoint(
     assert payload["status"] == "completed"
     assert payload["run_id"] == "api-run"
     assert payload["research_workspace_id"] == "research-api-ws"
+    assert payload["request_snapshot"]["gateway_config"]["params"]["api_key"] == "***"
     assert payload["progress"] == 100.0
     assert payload["current_stage"] == "completed"
     assert payload["iteration_count"] == 1
     assert payload["max_iterations"] == 2
     assert payload["latest_iteration"]["iteration"] == 1
+    assert payload["best_quality_score"] == 100.0
+    assert payload["best_quality_gate_evaluations"][0]["key"] == "sharpe"
+    assert payload["best_quality_gate_evaluations"][0]["passed"] is True
+    assert payload["best_diagnostics"]["promotion_ready"] is True
     assert payload["result"]["achieved"] is True
     assert payload["result"]["research_workspace"]["id"] == "research-api-ws"
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_task_api_returns_paper_pipeline_summary(
+    client: AsyncClient,
+    auth_headers: dict,
+):
+    task_manager = AIStrategyResearchTaskManager()
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: FakeResearchAPIPaperService()
+    app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
+    try:
+        response = await client.post(
+            "/api/v1/strategy/ai-research/tasks",
+            headers=auth_headers,
+            json={
+                "prompt": "生成一个均线策略并优化到夏普率 1.0",
+                "symbol": "000001.SZ",
+                "target_sharpe": 1.0,
+                "max_iterations": 2,
+                "timeframe": "1h",
+                "start_date": "2024-01-01",
+            },
+        )
+        assert response.status_code == 202
+        task_id = response.json()["task_id"]
+        payload = None
+        for _ in range(20):
+            status_response = await client.get(
+                f"/api/v1/strategy/ai-research/tasks/{task_id}",
+                headers=auth_headers,
+            )
+            assert status_response.status_code == 200
+            payload = status_response.json()
+            if payload["status"] == "completed":
+                break
+            await asyncio.sleep(0.01)
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+        app.dependency_overrides.pop(get_ai_strategy_research_tasks, None)
+
+    assert payload is not None
+    assert payload["status"] == "completed"
+    assert payload["request_snapshot"]["prompt"] == "生成一个均线策略并优化到夏普率 1.0"
+    assert payload["request_snapshot"]["timeframe"] == "1h"
+    assert payload["request_snapshot"]["start_date"] == "2024-01-01"
+    assert payload["current_stage"] == "paper_review"
+    assert payload["run_status"] == "achieved"
+    assert payload["achieved"] is True
+    assert payload["target_sharpe"] == 1.0
+    assert payload["best_iteration"] == 2
+    assert payload["best_sharpe"] == 1.21
+    assert payload["best_strategy_id"] == "strategy-2"
+    assert payload["paper_trading_started"] is True
+    assert payload["paper_workspace_id"] == "paper-api-ws"
+    assert payload["paper_workspace_name"] == "paper-api-ws"
+    assert payload["paper_unit_id"] == "paper-api-unit"
+    assert payload["paper_handoff"]["paper_task_id"] == "paper-api-task"
+    assert payload["paper_handoff"]["gateway_config"]["api_key"] == "***"
+    assert payload["paper_handoff"]["gateway_config"]["params"]["secret_key"] == "***"
+    assert payload["paper_handoff"]["gateway_config"]["params"]["exchange"] == "sim"
+    assert payload["paper_monitoring_plan"][0]["key"] == "rolling_sharpe"
+    assert payload["paper_review_status"] == "monitoring"
+    assert payload["paper_review_ready_for_live"] is False
+    assert payload["paper_reviewed_at"] == "2026-01-01T00:02:00+00:00"
+    assert payload["paper_review_evaluations"][0]["key"] == "rolling_sharpe"
+    assert payload["paper_review_evaluations"][0]["status"] == "pending"
+    assert payload["paper_review_next_actions"] == ["继续收集模拟交易数据"]
+    assert payload["pipeline"]["current_stage"] == "paper_review"
+    assert payload["next_actions"] == ["继续跟踪模拟交易"]
+    assert payload["result"]["run_record"]["paper_handoff"]["paper_task_id"] == "paper-api-task"
+    assert (
+        payload["result"]["run_record"]["paper_handoff"]["gateway_config"]["params"][
+            "passphrase"
+        ]
+        == "***"
+    )
+    assert payload["result"]["paper_trading"]["handoff"]["gateway_config"]["api_key"] == "***"
 
 
 @pytest.mark.asyncio
@@ -5480,3 +7256,70 @@ async def test_ai_strategy_research_paper_review_endpoint(
     assert payload["live_readiness_checklist"][0]["key"] == "paper_monitoring_passed"
     assert payload["live_readiness_checklist"][-1]["status"] == "pending_manual_confirmation"
     assert payload["live_readiness_expires_at"] == "2026-01-08T00:02:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_live_handoff_endpoint(
+    client: AsyncClient,
+    auth_headers: dict,
+):
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: FakeResearchAPIService()
+    try:
+        response = await client.get(
+            "/api/v1/strategy/ai-research/runs/api-history-run/live-handoff",
+            headers=auth_headers,
+            params={"research_workspace_id": "research-api-ws"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ready_for_approval"
+    assert payload["ready_for_live"] is True
+    assert payload["approval_required"] is True
+    assert payload["approvals_required"][0]["key"] == "human_approval_required"
+    assert payload["deployment_blockers"] == []
+    assert payload["asset_specs"]["000001.SZ"]["multiplier"] == 1
+    assert payload["handoff"]["gateway_config"]["api_key"] == "***"
+    assert payload["handoff"]["gateway_config"]["params"]["secret_key"] == "***"
+    assert payload["handoff"]["gateway_config"]["params"]["exchange"] == "sim"
+    assert payload["pipeline"]["current_stage"] == "live_handoff"
+    assert payload["pipeline"]["steps"][-1]["key"] == "live_handoff"
+    assert payload["pipeline"]["steps"][-1]["status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_live_handoff_approval_endpoint(
+    client: AsyncClient,
+    auth_headers: dict,
+):
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: FakeResearchAPIService()
+    try:
+        response = await client.post(
+            "/api/v1/strategy/ai-research/runs/api-history-run/live-handoff/approval",
+            headers=auth_headers,
+            params={"research_workspace_id": "research-api-ws"},
+            json={
+                "decision": "approved",
+                "approver": "risk-manager",
+                "comment": "账户权限和风险限额已核对",
+                "account_confirmed": True,
+                "risk_limit_confirmed": True,
+                "deployment_window": "2026-01-03 09:30",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "approved_for_live"
+    assert payload["approval_status"] == "approved"
+    assert payload["approval"]["approved"] is True
+    assert payload["approval"]["decided_by"] == "risk-manager"
+    assert payload["pipeline"]["current_stage"] == "live_handoff"
+    assert payload["pipeline"]["steps"][-1]["key"] == "live_handoff"
+    assert payload["pipeline"]["steps"][-1]["status"] == "completed"
+    assert payload["approval"]["deployment_window"] == "2026-01-03 09:30"
+    assert payload["handoff"]["gateway_config"]["api_key"] == "***"

@@ -268,11 +268,6 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/QuotePage.vue'),
           },
           {
-            path: 'intelligence/equity',
-            name: 'DataEquityResearch',
-            component: () => import('@/views/EquityResearchPage.vue'),
-          },
-          {
             path: 'intelligence/news',
             name: 'DataNewsIntelligence',
             component: () => import('@/views/NewsIntelligencePage.vue'),
@@ -436,11 +431,6 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'portfolio/ledger',
         redirect: { name: 'PortfolioOverview' },
-      },
-      {
-        path: 'equity-research',
-        name: 'EquityResearch',
-        component: () => import('@/views/EquityResearchPage.vue'),
       },
       {
         path: 'news-intelligence',

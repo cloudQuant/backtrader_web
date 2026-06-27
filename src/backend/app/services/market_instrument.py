@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import math
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Any, Literal
 
 import pandas as pd
+from sqlalchemy import text
+
+from app.db.akshare_data_database import _get_akshare_data_engine
 
 MarketAssetType = Literal["stock", "futures", "bond", "fund", "option", "fx", "crypto"]
+
+_WAREHOUSE_PROVIDER = "akshare_data"
+_ONLINE_PROVIDER = "akshare"
 
 
 def _safe_float(value: Any) -> float | None:
@@ -44,12 +51,37 @@ def _first_present(row: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def _first_value(row: dict[str, Any], *keys: str) -> Any:
+    """Return the first present value, accepting both original and lower-case keys."""
+    lowered = {str(key).lower(): value for key, value in row.items()}
+    for key in keys:
+        if not key:
+            continue
+        if key in row and row[key] is not None:
+            return row[key]
+        lowered_value = lowered.get(key.lower())
+        if lowered_value is not None:
+            return lowered_value
+    return None
+
+
 def _date_text(value: date | str | None, fallback: date) -> str:
     if value is None:
         return fallback.strftime("%Y%m%d")
     if isinstance(value, date):
         return value.strftime("%Y%m%d")
     return value.replace("-", "")
+
+
+def _sql_date_text(value: date | str | None, fallback: date) -> str:
+    if value is None:
+        return fallback.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text = value.strip()
+    if len(text) == 8 and text.isdigit():
+        return f"{text[:4]}-{text[4:6]}-{text[6:]}"
+    return text
 
 
 def _iso_date(value: Any) -> str:
@@ -59,7 +91,17 @@ def _iso_date(value: Any) -> str:
 
 
 def _normalize_plain_code(symbol: str) -> str:
-    return symbol.strip().upper().split(".")[0]
+    normalized = symbol.strip().upper()
+    if "." in normalized:
+        left, right = normalized.split(".", 1)
+        if left in {"SH", "SZ", "BJ"}:
+            return right
+        if right in {"SH", "SZ", "BJ"}:
+            return left
+        return left
+    if normalized.startswith(("SH", "SZ", "BJ")) and len(normalized) > 2:
+        return normalized[2:]
+    return normalized
 
 
 def _normalize_exchange_symbol(symbol: str, default_prefix: str = "sh") -> str:
@@ -71,6 +113,24 @@ def _normalize_exchange_symbol(symbol: str, default_prefix: str = "sh") -> str:
     if normalized.startswith(("sh", "sz", "bj")):
         return normalized
     return f"{default_prefix}{normalized}"
+
+
+def _normalize_upper_symbol(symbol: str) -> str:
+    return symbol.strip().upper().replace(".", "")
+
+
+def _coerce_cell(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def _coerce_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {key: _coerce_cell(value) for key, value in row.items()}
 
 
 def _normalize_period(period: str) -> str:
@@ -92,7 +152,7 @@ def _normalize_period(period: str) -> str:
 class MarketInstrumentService:
     """Aggregate quote snapshots and history for market data lookup pages."""
 
-    def lookup(
+    async def lookup(
         self,
         *,
         asset_type: MarketAssetType,
@@ -121,6 +181,22 @@ class MarketInstrumentService:
         if lookup is None:
             raise ValueError(f"Unsupported asset type: {asset_type}")
 
+        warehouse_payload = await self._lookup_warehouse(
+            asset_type=asset_type,
+            symbol=normalized_symbol,
+            start_date=start_date or start,
+            end_date=end_date or end,
+            period=normalized_period,
+            market=market,
+            warnings=warnings,
+        )
+        if self._payload_has_data(warehouse_payload):
+            warehouse_payload["warnings"] = warnings
+            warehouse_payload["indicators"] = self._build_indicators(
+                warehouse_payload["history"]["rows"]
+            )
+            return warehouse_payload
+
         payload = lookup(
             symbol=normalized_symbol,
             start_date=start_date or start,
@@ -132,6 +208,842 @@ class MarketInstrumentService:
         payload["warnings"] = warnings
         payload["indicators"] = self._build_indicators(payload["history"]["rows"])
         return payload
+
+    async def _lookup_warehouse(
+        self,
+        *,
+        asset_type: MarketAssetType,
+        symbol: str,
+        start_date: date | str,
+        end_date: date | str,
+        period: str,
+        market: str | None,
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        lookup_map = {
+            "stock": self._lookup_stock_warehouse,
+            "futures": self._lookup_futures_warehouse,
+            "bond": self._lookup_bond_warehouse,
+            "fund": self._lookup_fund_warehouse,
+            "option": self._lookup_option_warehouse,
+            "fx": self._lookup_fx_warehouse,
+            "crypto": self._lookup_crypto_warehouse,
+        }
+        lookup = lookup_map[asset_type]
+        try:
+            return await lookup(
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date,
+                period=period,
+                market=market,
+                warnings=warnings,
+            )
+        except RuntimeError as exc:
+            warnings.append(f"akshare_data 数据仓库不可用: {exc}")
+        except Exception as exc:
+            warnings.append(f"akshare_data 查询失败: {exc}")
+        return self._payload(
+            asset_type=asset_type,
+            symbol=symbol,
+            name=symbol,
+            market=market or self._default_market(asset_type),
+            snapshot={},
+            rows=[],
+            period=period,
+            provider=_WAREHOUSE_PROVIDER,
+        )
+
+    @staticmethod
+    def _payload_has_data(payload: dict[str, Any]) -> bool:
+        snapshot = payload.get("snapshot") or {}
+        rows = ((payload.get("history") or {}).get("rows") or [])
+        return any(value is not None for value in snapshot.values()) or bool(rows)
+
+    @staticmethod
+    def _default_market(asset_type: MarketAssetType) -> str:
+        return {
+            "stock": "CN",
+            "futures": "CN",
+            "bond": "CN",
+            "fund": "CN",
+            "option": "CN",
+            "fx": "FX",
+            "crypto": "CRYPTO",
+        }[asset_type]
+
+    async def _fetch_rows(
+        self,
+        sql: str,
+        params: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        engine = _get_akshare_data_engine()
+        if engine is None:
+            raise RuntimeError("AKSHARE_DATA_DATABASE_URL is not configured")
+        async with engine.connect() as conn:
+            result = await conn.execute(text(sql), params or {})
+            return [_coerce_row(dict(row)) for row in result.mappings().all()]
+
+    async def _fetch_one(
+        self,
+        sql: str,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        rows = await self._fetch_rows(sql, params)
+        return rows[0] if rows else None
+
+    async def _lookup_stock_warehouse(
+        self,
+        *,
+        symbol: str,
+        start_date: date | str,
+        end_date: date | str,
+        period: str,
+        market: str | None,
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        code = _normalize_plain_code(symbol)
+        spot = await self._fetch_one(
+            """
+            SELECT *
+            FROM STOCK_ZH_A_SPOT_EM
+            WHERE symbol = :code OR `代码` = :code
+            ORDER BY data_date DESC
+            LIMIT 1
+            """,
+            {"code": code},
+        )
+
+        history_table = "STOCK_ZH_A_HIST_TX" if code == "000001" else (
+            "STOCK_ZH_A_DAILY" if code == "600000" else None
+        )
+        history_rows: list[dict[str, Any]] = []
+        if history_table:
+            rows = await self._fetch_rows(
+                f"""
+                SELECT *
+                FROM {history_table}
+                WHERE STR_TO_DATE(`date`, '%Y-%m-%d') BETWEEN :start AND :end
+                ORDER BY STR_TO_DATE(`date`, '%Y-%m-%d') ASC
+                LIMIT 260
+                """,
+                {
+                    "start": _sql_date_text(start_date, date.today()),
+                    "end": _sql_date_text(end_date, date.today()),
+                },
+            )
+            if not rows:
+                rows = list(
+                    reversed(
+                        await self._fetch_rows(
+                            f"""
+                            SELECT *
+                            FROM {history_table}
+                            ORDER BY STR_TO_DATE(`date`, '%Y-%m-%d') DESC
+                            LIMIT 120
+                            """
+                        )
+                    )
+                )
+                if rows:
+                    warnings.append("所选日期范围无股票历史数据，已展示 akshare_data 最近可用记录")
+            history_rows = self._normalize_warehouse_history(
+                rows,
+                date_key="date",
+                open_key="open",
+                high_key="high",
+                low_key="low",
+                close_key="close",
+                volume_key="volume",
+                turnover_key="amount",
+                turnover_rate_key="turnover",
+            )
+
+        if spot is None and not history_rows:
+            spot = await self._fetch_one(
+                """
+                SELECT *
+                FROM STOCK_ZH_A_SPOT_EM
+                WHERE `最新价` IS NOT NULL AND `最新价` <> 0
+                ORDER BY data_date DESC, `成交额` DESC
+                LIMIT 1
+                """
+            )
+            if spot:
+                code = _safe_str(_first_value(spot, "代码", "symbol")) or code
+                warnings.append(f"akshare_data 未找到 {symbol}，已展示最新股票样例 {code}")
+
+        snapshot = self._snapshot_from_cn_quote(spot or {}, symbol=code) if spot else {}
+        snapshot = snapshot or self._snapshot_from_latest_history(code, history_rows)
+        snapshot["data_source_table"] = "STOCK_ZH_A_SPOT_EM"
+        return self._payload(
+            asset_type="stock",
+            symbol=code,
+            name=snapshot.get("name") or code,
+            market=market or "CN",
+            snapshot=snapshot,
+            rows=history_rows,
+            period=period,
+            provider=_WAREHOUSE_PROVIDER,
+        )
+
+    async def _lookup_futures_warehouse(
+        self,
+        *,
+        symbol: str,
+        start_date: date | str,
+        end_date: date | str,
+        period: str,
+        market: str | None,
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        requested = symbol.upper()
+        rows = await self._fetch_rows(
+            """
+            SELECT *
+            FROM FUTURES_DAILY_MARKET
+            WHERE SYMBOL = :symbol
+              AND TRADE_DATE BETWEEN :start AND :end
+            ORDER BY TRADE_DATE ASC
+            LIMIT 260
+            """,
+            {"symbol": requested, "start": start_date, "end": end_date},
+        )
+        if not rows:
+            fallback = await self._fetch_one(
+                """
+                SELECT SYMBOL
+                FROM FUTURES_DAILY_MARKET
+                WHERE TRADE_DATE = (SELECT MAX(TRADE_DATE) FROM FUTURES_DAILY_MARKET)
+                GROUP BY SYMBOL
+                ORDER BY COUNT(*) DESC, SYMBOL ASC
+                LIMIT 1
+                """
+            )
+            if fallback:
+                requested = str(fallback["SYMBOL"])
+                warnings.append(f"akshare_data 未找到 {symbol}，已展示最新期货合约 {requested}")
+                rows = await self._fetch_rows(
+                    """
+                    SELECT *
+                    FROM FUTURES_DAILY_MARKET
+                    WHERE SYMBOL = :symbol
+                    ORDER BY TRADE_DATE ASC
+                    LIMIT 260
+                    """,
+                    {"symbol": requested},
+                )
+
+        history_rows = self._normalize_warehouse_history(
+            rows,
+            date_key="TRADE_DATE",
+            open_key="OPEN_PRICE",
+            high_key="HIGH_PRICE",
+            low_key="LOW_PRICE",
+            close_key="CLOSE_PRICE",
+            volume_key="VOLUME",
+            turnover_key="TURNOVER",
+            settle_key="SETTLE_PRICE",
+            open_interest_key="OPEN_INTEREST",
+        )
+        snapshot = self._snapshot_from_latest_history(requested, history_rows)
+        latest_raw = rows[-1] if rows else {}
+        snapshot.update(
+            {
+                "name": requested,
+                "settle": _safe_float(_first_value(latest_raw, "SETTLE_PRICE")),
+                "previous_settle": _safe_float(_first_value(latest_raw, "PREV_SETTLE")),
+                "open_interest": _safe_int(_first_value(latest_raw, "OPEN_INTEREST")),
+                "turnover": _safe_float(_first_value(latest_raw, "TURNOVER")),
+                "data_source_table": "FUTURES_DAILY_MARKET",
+            }
+        )
+        return self._payload(
+            asset_type="futures",
+            symbol=requested,
+            name=requested,
+            market=market or _safe_str(_first_value(latest_raw, "MARKET")) or "CN",
+            snapshot=snapshot,
+            rows=history_rows,
+            period=period,
+            provider=_WAREHOUSE_PROVIDER,
+        )
+
+    async def _lookup_bond_warehouse(
+        self,
+        *,
+        symbol: str,
+        start_date: date | str,
+        end_date: date | str,
+        period: str,
+        market: str | None,
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        exchange_symbol = _normalize_exchange_symbol(symbol, default_prefix="sh")
+        plain_code = exchange_symbol[2:]
+        spot = await self._fetch_one(
+            """
+            SELECT *
+            FROM BOND_ZH_HS_COV_SPOT
+            WHERE LOWER(symbol) = :symbol OR code = :code
+            ORDER BY data_date DESC
+            LIMIT 1
+            """,
+            {"symbol": exchange_symbol.lower(), "code": plain_code},
+        )
+        rows = await self._fetch_rows(
+            """
+            SELECT *
+            FROM BOND_ZH_HS_COV_MIN
+            WHERE LOWER(symbol) = :symbol
+            ORDER BY `时间` ASC
+            LIMIT 260
+            """,
+            {"symbol": exchange_symbol.lower()},
+        )
+        if not rows:
+            fallback = await self._fetch_one(
+                """
+                SELECT symbol
+                FROM BOND_ZH_HS_COV_MIN
+                WHERE symbol IS NOT NULL
+                GROUP BY symbol
+                ORDER BY MAX(data_date) DESC, COUNT(*) DESC
+                LIMIT 1
+                """
+            )
+            if fallback:
+                exchange_symbol = str(fallback["symbol"])
+                plain_code = exchange_symbol[2:]
+                warnings.append(f"akshare_data 未找到 {symbol}，已展示最新可转债样例 {exchange_symbol}")
+                rows = await self._fetch_rows(
+                    """
+                    SELECT *
+                    FROM BOND_ZH_HS_COV_MIN
+                    WHERE LOWER(symbol) = :symbol
+                    ORDER BY `时间` ASC
+                    LIMIT 260
+                    """,
+                    {"symbol": exchange_symbol.lower()},
+                )
+        history_rows = self._normalize_warehouse_history(
+            rows,
+            date_key="时间",
+            open_key="开盘",
+            high_key="最高",
+            low_key="最低",
+            close_key="收盘",
+            volume_key="成交量",
+            turnover_key="成交额",
+        )
+        if spot:
+            snapshot = {
+                "symbol": exchange_symbol,
+                "name": _safe_str(_first_value(spot, "name", "code")) or exchange_symbol,
+                "price": _safe_float(_first_value(spot, "trade")),
+                "change": _safe_float(_first_value(spot, "pricechange")),
+                "change_pct": _safe_float(_first_value(spot, "changepercent")),
+                "open": _safe_float(_first_value(spot, "open")),
+                "high": _safe_float(_first_value(spot, "high")),
+                "low": _safe_float(_first_value(spot, "low")),
+                "previous_close": _safe_float(_first_value(spot, "settlement")),
+                "bid": _safe_float(_first_value(spot, "buy")),
+                "ask": _safe_float(_first_value(spot, "sell")),
+                "volume": _safe_int(_first_value(spot, "volume")),
+                "turnover": _safe_float(_first_value(spot, "amount")),
+                "update_time": _safe_str(_first_value(spot, "ticktime", "data_date")),
+                "data_source_table": "BOND_ZH_HS_COV_SPOT",
+            }
+        else:
+            snapshot = self._snapshot_from_latest_history(exchange_symbol, history_rows)
+            snapshot["data_source_table"] = "BOND_ZH_HS_COV_MIN"
+        return self._payload(
+            asset_type="bond",
+            symbol=exchange_symbol,
+            name=snapshot.get("name") or plain_code,
+            market=market or "CN",
+            snapshot=snapshot,
+            rows=history_rows,
+            period=period,
+            provider=_WAREHOUSE_PROVIDER,
+        )
+
+    async def _lookup_fund_warehouse(
+        self,
+        *,
+        symbol: str,
+        start_date: date | str,
+        end_date: date | str,
+        period: str,
+        market: str | None,
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        code = _normalize_plain_code(symbol)
+        spot = await self._fetch_one(
+            """
+            SELECT *
+            FROM ETF_REALTIME_QUOTE_EM
+            WHERE ETF_CODE = :code
+            ORDER BY QUOTE_DATE DESC
+            LIMIT 1
+            """,
+            {"code": code},
+        )
+        if spot is None:
+            spot = await self._fetch_one(
+                """
+                SELECT *
+                FROM ETF_REALTIME_QUOTE_EM
+                WHERE LATEST_PRICE IS NOT NULL AND LATEST_PRICE <> 0
+                ORDER BY QUOTE_DATE DESC, TURNOVER DESC
+                LIMIT 1
+                """
+            )
+            if spot:
+                code = str(spot["ETF_CODE"])
+                warnings.append(f"akshare_data 未找到 {symbol}，已展示最新 ETF 样例 {code}")
+
+        rows: list[dict[str, Any]] = []
+        if code == "510300":
+            rows = await self._fetch_rows(
+                """
+                SELECT *
+                FROM FUND_ETF_HIST_SINA
+                WHERE STR_TO_DATE(`date`, '%Y-%m-%d') BETWEEN :start AND :end
+                ORDER BY STR_TO_DATE(`date`, '%Y-%m-%d') ASC
+                LIMIT 260
+                """,
+                {
+                    "start": _sql_date_text(start_date, date.today()),
+                    "end": _sql_date_text(end_date, date.today()),
+                },
+            )
+            if not rows:
+                rows = list(
+                    reversed(
+                        await self._fetch_rows(
+                            """
+                            SELECT *
+                            FROM FUND_ETF_HIST_SINA
+                            ORDER BY STR_TO_DATE(`date`, '%Y-%m-%d') DESC
+                            LIMIT 120
+                            """
+                        )
+                    )
+                )
+                if rows:
+                    warnings.append("所选日期范围无基金历史数据，已展示 akshare_data 最近可用记录")
+        else:
+            nav_rows = await self._fetch_rows(
+                """
+                SELECT *
+                FROM ETF_FUND_HIST_EM
+                WHERE FUND_CODE = :code
+                ORDER BY VALUE_DATE ASC
+                LIMIT 260
+                """,
+                {"code": code},
+            )
+            rows = [
+                {
+                    "date": row.get("VALUE_DATE"),
+                    "open": row.get("UNIT_NET_VALUE"),
+                    "high": row.get("UNIT_NET_VALUE"),
+                    "low": row.get("UNIT_NET_VALUE"),
+                    "close": row.get("UNIT_NET_VALUE"),
+                    "change_pct": row.get("DAILY_GROWTH_RATE"),
+                }
+                for row in nav_rows
+            ]
+
+        history_rows = self._normalize_warehouse_history(
+            rows,
+            date_key="date",
+            open_key="open",
+            high_key="high",
+            low_key="low",
+            close_key="close",
+            volume_key="volume",
+            turnover_key="amount",
+        )
+        if spot:
+            snapshot = {
+                "symbol": code,
+                "name": _safe_str(_first_value(spot, "ETF_NAME")) or code,
+                "price": _safe_float(_first_value(spot, "LATEST_PRICE")),
+                "change": _safe_float(_first_value(spot, "CHANGE_AMOUNT")),
+                "change_pct": _safe_float(_first_value(spot, "CHANGE_PERCENT")),
+                "open": _safe_float(_first_value(spot, "OPEN_PRICE")),
+                "high": _safe_float(_first_value(spot, "HIGH_PRICE")),
+                "low": _safe_float(_first_value(spot, "LOW_PRICE")),
+                "previous_close": _safe_float(_first_value(spot, "PREV_CLOSE")),
+                "volume": _safe_int(_first_value(spot, "VOLUME")),
+                "turnover": _safe_float(_first_value(spot, "TURNOVER")),
+                "turnover_rate": _safe_float(_first_value(spot, "TURNOVER_RATE")),
+                "market_cap": _safe_float(_first_value(spot, "TOTAL_MARKET_CAP")),
+                "float_market_cap": _safe_float(_first_value(spot, "CIRC_MARKET_CAP")),
+                "bid": _safe_float(_first_value(spot, "BID_PRICE")),
+                "ask": _safe_float(_first_value(spot, "ASK_PRICE")),
+                "update_time": _safe_str(_first_value(spot, "UPDATE_TIME", "QUOTE_DATE")),
+                "data_source_table": "ETF_REALTIME_QUOTE_EM",
+            }
+        else:
+            snapshot = self._snapshot_from_latest_history(code, history_rows)
+        return self._payload(
+            asset_type="fund",
+            symbol=code,
+            name=snapshot.get("name") or code,
+            market=market or "CN",
+            snapshot=snapshot,
+            rows=history_rows,
+            period=period,
+            provider=_WAREHOUSE_PROVIDER,
+        )
+
+    async def _lookup_option_warehouse(
+        self,
+        *,
+        symbol: str,
+        start_date: date | str,
+        end_date: date | str,
+        period: str,
+        market: str | None,
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        normalized = symbol.upper()
+        current = await self._fetch_one(
+            """
+            SELECT *
+            FROM OPTION_CURRENT_EM
+            WHERE UPPER(symbol) = :symbol OR UPPER(`代码`) = :symbol
+            ORDER BY data_date DESC
+            LIMIT 1
+            """,
+            {"symbol": normalized},
+        )
+        if current is None:
+            current = await self._fetch_one(
+                """
+                SELECT *
+                FROM OPTION_CURRENT_EM
+                WHERE `最新价` IS NOT NULL
+                ORDER BY data_date DESC, `成交量` DESC
+                LIMIT 1
+                """
+            )
+            if current:
+                normalized = str(_first_value(current, "symbol", "代码") or normalized)
+                warnings.append(f"akshare_data 未找到 {symbol}，已展示最新期权样例 {normalized}")
+
+        latest_date_row = await self._fetch_one("SELECT MAX(data_date) AS latest_date FROM OPTION_CURRENT_EM")
+        latest_date = latest_date_row.get("latest_date") if latest_date_row else None
+        rows = await self._fetch_rows(
+            """
+            SELECT *
+            FROM OPTION_CURRENT_EM
+            WHERE data_date = :latest_date
+            ORDER BY `成交量` DESC, `持仓量` DESC
+            LIMIT 80
+            """,
+            {"latest_date": latest_date},
+        ) if latest_date else []
+        history_rows = [
+            {
+                "date": _iso_date(_first_value(row, "data_date")),
+                "name": _safe_str(_first_value(row, "名称", "name", "代码", "symbol")),
+                "price": _safe_float(_first_value(row, "最新价")),
+                "volume": _safe_int(_first_value(row, "成交量")),
+                "turnover": _safe_float(_first_value(row, "成交额")),
+                "open_interest": _safe_int(_first_value(row, "持仓量")),
+                "change": _safe_float(_first_value(row, "涨跌额", "日增")),
+                "change_pct": _safe_float(_first_value(row, "涨跌幅")),
+                "strike": _safe_float(_first_value(row, "行权价")),
+                "days_to_expiry": _safe_int(_first_value(row, "剩余日")),
+            }
+            for row in rows
+        ]
+        snapshot = {
+            "symbol": normalized,
+            "name": _safe_str(_first_value(current or {}, "名称", "name", "代码", "symbol")) or normalized,
+            "price": _safe_float(_first_value(current or {}, "最新价")),
+            "change": _safe_float(_first_value(current or {}, "涨跌额")),
+            "change_pct": _safe_float(_first_value(current or {}, "涨跌幅")),
+            "open": _safe_float(_first_value(current or {}, "今开")),
+            "previous_settle": _safe_float(_first_value(current or {}, "昨结")),
+            "volume": _safe_int(_first_value(current or {}, "成交量")),
+            "turnover": _safe_float(_first_value(current or {}, "成交额")),
+            "open_interest": _safe_int(_first_value(current or {}, "持仓量")),
+            "strike": _safe_float(_first_value(current or {}, "行权价")),
+            "days_to_expiry": _safe_int(_first_value(current or {}, "剩余日")),
+            "update_time": _safe_str(_first_value(current or {}, "data_date")),
+            "data_source_table": "OPTION_CURRENT_EM",
+        }
+        return self._payload(
+            asset_type="option",
+            symbol=normalized,
+            name=snapshot.get("name") or normalized,
+            market=market or "CN",
+            snapshot=snapshot,
+            rows=history_rows,
+            period=period,
+            provider=_WAREHOUSE_PROVIDER,
+        )
+
+    async def _lookup_fx_warehouse(
+        self,
+        *,
+        symbol: str,
+        start_date: date | str,
+        end_date: date | str,
+        period: str,
+        market: str | None,
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        normalized = symbol.upper()
+        spot = await self._fetch_one(
+            """
+            SELECT *
+            FROM FOREX_SPOT_EM
+            WHERE UPPER(`代码`) = :symbol OR UPPER(symbol) = :symbol
+            ORDER BY data_date DESC
+            LIMIT 1
+            """,
+            {"symbol": normalized},
+        )
+        if spot is None:
+            spot = await self._fetch_one(
+                """
+                SELECT *
+                FROM FOREX_SPOT_EM
+                WHERE `最新价` IS NOT NULL
+                ORDER BY data_date DESC, ABS(`涨跌幅`) DESC
+                LIMIT 1
+                """
+            )
+            if spot:
+                normalized = str(_first_value(spot, "代码", "symbol") or normalized)
+                warnings.append(f"akshare_data 未找到 {symbol}，已展示最新外汇样例 {normalized}")
+
+        currency_column = self._fx_history_column(normalized)
+        rows = await self._fetch_rows(
+            f"""
+            SELECT `日期` AS date, `{currency_column}` AS close
+            FROM CURRENCY_BOC_SAFE
+            WHERE STR_TO_DATE(`日期`, '%Y-%m-%d') BETWEEN :start AND :end
+            ORDER BY STR_TO_DATE(`日期`, '%Y-%m-%d') ASC
+            LIMIT 260
+            """,
+            {
+                "start": _sql_date_text(start_date, date.today()),
+                "end": _sql_date_text(end_date, date.today()),
+            },
+        )
+        if not rows:
+            rows = list(
+                reversed(
+                    await self._fetch_rows(
+                        f"""
+                        SELECT `日期` AS date, `{currency_column}` AS close
+                        FROM CURRENCY_BOC_SAFE
+                        ORDER BY STR_TO_DATE(`日期`, '%Y-%m-%d') DESC
+                        LIMIT 120
+                        """
+                    )
+                )
+            )
+            if rows:
+                warnings.append("所选日期范围无外汇历史数据，已展示 akshare_data 最近可用记录")
+        history_rows = self._normalize_fx_history(rows)
+        snapshot = {
+            "symbol": normalized,
+            "name": _safe_str(_first_value(spot or {}, "名称", "name", "代码")) or normalized,
+            "price": _safe_float(_first_value(spot or {}, "最新价")),
+            "change": _safe_float(_first_value(spot or {}, "涨跌额")),
+            "change_pct": _safe_float(_first_value(spot or {}, "涨跌幅")),
+            "open": _safe_float(_first_value(spot or {}, "今开")),
+            "high": _safe_float(_first_value(spot or {}, "最高")),
+            "low": _safe_float(_first_value(spot or {}, "最低")),
+            "previous_close": _safe_float(_first_value(spot or {}, "昨收")),
+            "update_time": _safe_str(_first_value(spot or {}, "data_date")),
+            "history_currency": currency_column,
+            "data_source_table": "FOREX_SPOT_EM/CURRENCY_BOC_SAFE",
+        }
+        snapshot = snapshot or self._snapshot_from_latest_history(normalized, history_rows)
+        return self._payload(
+            asset_type="fx",
+            symbol=normalized,
+            name=snapshot.get("name") or normalized,
+            market=market or "FX",
+            snapshot=snapshot,
+            rows=history_rows,
+            period=period,
+            provider=_WAREHOUSE_PROVIDER,
+        )
+
+    async def _lookup_crypto_warehouse(
+        self,
+        *,
+        symbol: str,
+        start_date: date | str,
+        end_date: date | str,
+        period: str,
+        market: str | None,
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        normalized = symbol.upper()
+        spot = await self._fetch_one(
+            """
+            SELECT *
+            FROM CRYPTO_JS_SPOT
+            WHERE UPPER(`交易品种`) = :symbol
+            ORDER BY data_date DESC
+            LIMIT 1
+            """,
+            {"symbol": normalized},
+        )
+        if spot is None:
+            spot = await self._fetch_one(
+                """
+                SELECT *
+                FROM CRYPTO_JS_SPOT
+                WHERE `最近报价` IS NOT NULL AND `最近报价` <> 0
+                ORDER BY data_date DESC, `24小时成交量` DESC
+                LIMIT 1
+                """
+            )
+            if spot:
+                normalized = str(_first_value(spot, "交易品种") or normalized)
+                warnings.append(f"akshare_data 未找到 {symbol}，已展示最新数字货币样例 {normalized}")
+
+        latest_date_row = await self._fetch_one("SELECT MAX(data_date) AS latest_date FROM CRYPTO_BITCOIN_CME")
+        latest_date = latest_date_row.get("latest_date") if latest_date_row else None
+        cme_rows = await self._fetch_rows(
+            """
+            SELECT *
+            FROM CRYPTO_BITCOIN_CME
+            WHERE data_date = :latest_date
+            ORDER BY `未平仓合约` DESC
+            LIMIT 20
+            """,
+            {"latest_date": latest_date},
+        ) if latest_date else []
+        history_rows = self._normalize_crypto_cme_rows(pd.DataFrame(cme_rows), latest_date or date.today())
+        snapshot = {
+            "symbol": normalized,
+            "name": _safe_str(_first_value(spot or {}, "交易品种")) or normalized,
+            "price": _safe_float(_first_value(spot or {}, "最近报价")),
+            "change": _safe_float(_first_value(spot or {}, "涨跌额")),
+            "change_pct": _safe_float(_first_value(spot or {}, "涨跌幅")),
+            "high": _safe_float(_first_value(spot or {}, "24小时最高")),
+            "low": _safe_float(_first_value(spot or {}, "24小时最低")),
+            "volume": _safe_float(_first_value(spot or {}, "24小时成交量")),
+            "market": _safe_str(_first_value(spot or {}, "市场")),
+            "update_time": _safe_str(_first_value(spot or {}, "更新时间", "data_date")),
+            "data_source_table": "CRYPTO_JS_SPOT/CRYPTO_BITCOIN_CME",
+        }
+        return self._payload(
+            asset_type="crypto",
+            symbol=normalized,
+            name=snapshot.get("name") or normalized,
+            market=market or _safe_str(snapshot.get("market")) or "CRYPTO",
+            snapshot=snapshot,
+            rows=history_rows,
+            period=period,
+            provider=_WAREHOUSE_PROVIDER,
+        )
+
+    @staticmethod
+    def _normalize_warehouse_history(
+        rows: list[dict[str, Any]],
+        *,
+        date_key: str,
+        open_key: str | None = None,
+        high_key: str | None = None,
+        low_key: str | None = None,
+        close_key: str | None = None,
+        volume_key: str | None = None,
+        turnover_key: str | None = None,
+        change_key: str | None = None,
+        change_pct_key: str | None = None,
+        turnover_rate_key: str | None = None,
+        open_interest_key: str | None = None,
+        settle_key: str | None = None,
+    ) -> list[dict[str, Any]]:
+        normalized_rows: list[dict[str, Any]] = []
+        previous_close: float | None = None
+        for row in rows:
+            close_value = _safe_float(_first_value(row, close_key)) if close_key else None
+            change_pct = (
+                _safe_float(_first_value(row, change_pct_key)) if change_pct_key else None
+            )
+            if change_pct is None and previous_close and close_value is not None:
+                change_pct = ((close_value / previous_close) - 1) * 100
+            normalized_rows.append(
+                {
+                    "date": _iso_date(_first_value(row, date_key)),
+                    "open": _safe_float(_first_value(row, open_key)) if open_key else close_value,
+                    "high": _safe_float(_first_value(row, high_key)) if high_key else close_value,
+                    "low": _safe_float(_first_value(row, low_key)) if low_key else close_value,
+                    "close": close_value,
+                    "volume": _safe_int(_first_value(row, volume_key)) if volume_key else None,
+                    "turnover": _safe_float(_first_value(row, turnover_key)) if turnover_key else None,
+                    "change": _safe_float(_first_value(row, change_key)) if change_key else None,
+                    "change_pct": change_pct,
+                    "turnover_rate": _safe_float(_first_value(row, turnover_rate_key))
+                    if turnover_rate_key
+                    else None,
+                    "open_interest": _safe_int(_first_value(row, open_interest_key))
+                    if open_interest_key
+                    else None,
+                    "settle": _safe_float(_first_value(row, settle_key)) if settle_key else None,
+                }
+            )
+            if close_value is not None:
+                previous_close = close_value
+        return normalized_rows
+
+    @staticmethod
+    def _normalize_fx_history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        normalized_rows: list[dict[str, Any]] = []
+        previous_close: float | None = None
+        for row in rows:
+            close_value = _safe_float(_first_value(row, "close"))
+            change_pct = None
+            if previous_close and close_value is not None:
+                change_pct = ((close_value / previous_close) - 1) * 100
+            normalized_rows.append(
+                {
+                    "date": _iso_date(_first_value(row, "date")),
+                    "open": previous_close or close_value,
+                    "high": close_value,
+                    "low": close_value,
+                    "close": close_value,
+                    "change_pct": change_pct,
+                }
+            )
+            if close_value is not None:
+                previous_close = close_value
+        return normalized_rows
+
+    @staticmethod
+    def _fx_history_column(symbol: str) -> str:
+        upper_symbol = symbol.upper()
+        column_by_currency = {
+            "USD": "美元",
+            "EUR": "欧元",
+            "JPY": "日元",
+            "HKD": "港元",
+            "GBP": "英镑",
+            "AUD": "澳元",
+            "NZD": "新西兰元",
+            "SGD": "新加坡元",
+            "CHF": "瑞士法郎",
+            "CAD": "加元",
+        }
+        for currency, column in column_by_currency.items():
+            if upper_symbol.startswith(currency) or upper_symbol.endswith(currency):
+                return column
+        return "美元"
 
     def _lookup_stock(
         self,
@@ -543,13 +1455,14 @@ class MarketInstrumentService:
         snapshot: dict[str, Any],
         rows: list[dict[str, Any]],
         period: str,
+        provider: str = _ONLINE_PROVIDER,
     ) -> dict[str, Any]:
         return {
             "asset_type": asset_type,
             "symbol": symbol,
             "name": name,
             "market": market,
-            "provider": "akshare",
+            "provider": provider,
             "snapshot": snapshot,
             "history": {
                 "period": period,

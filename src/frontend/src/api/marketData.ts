@@ -27,21 +27,28 @@ export interface MarketSnapshot {
   ask?: number | null
   volume?: number | null
   turnover?: number | null
+  turnover_rate?: number | null
   open_interest?: number | null
+  strike?: number | null
+  days_to_expiry?: number | null
   market_cap?: number | null
   float_market_cap?: number | null
   pe?: number | null
   pb?: number | null
   update_time?: string | null
+  data_source_table?: string | null
+  history_currency?: string | null
   [key: string]: unknown
 }
 
 export interface MarketHistoryRow {
   date: string
+  name?: string | null
   open?: number | null
   high?: number | null
   low?: number | null
   close?: number | null
+  price?: number | null
   volume?: number | null
   turnover?: number | null
   change?: number | null
@@ -49,6 +56,8 @@ export interface MarketHistoryRow {
   turnover_rate?: number | null
   open_interest?: number | null
   settle?: number | null
+  strike?: number | null
+  days_to_expiry?: number | null
   [key: string]: unknown
 }
 

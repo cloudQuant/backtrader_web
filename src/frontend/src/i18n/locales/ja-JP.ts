@@ -54,7 +54,6 @@ export default buildLocale({
     portfolio: 'ポートフォリオ',
     brokers: 'ブローカー設定',
     portfolioLedger: 'ポートフォリオ台帳',
-    equityResearch: 'エクイティリサーチ',
     newsIntelligence: 'ニュースインテリジェンス',
     stockAnalysis: '個別株分析',
     optionsChain: 'オプションチェーン',
