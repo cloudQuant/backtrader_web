@@ -1014,6 +1014,7 @@ class AIStrategyResearchService:
             if workspace is None:
                 raise ValueError("Research workspace not found")
             records = _research_run_records_from_workspace(workspace)
+            await self._persist_freshened_run_records(user_id, workspace, records)
             return AIStrategyResearchRunListResponse(total=len(records), items=records[:limit])
 
         _, workspaces = await self.workspace_service.list_workspaces(
@@ -1024,7 +1025,9 @@ class AIStrategyResearchService:
         )
         records: list[AIStrategyResearchRunRecord] = []
         for workspace in workspaces:
-            records.extend(_research_run_records_from_workspace(workspace))
+            workspace_records = _research_run_records_from_workspace(workspace)
+            await self._persist_freshened_run_records(user_id, workspace, workspace_records)
+            records.extend(workspace_records)
         records.sort(key=lambda item: item.completed_at, reverse=True)
         return AIStrategyResearchRunListResponse(total=len(records), items=records[:limit])
 
@@ -1846,6 +1849,61 @@ class AIStrategyResearchService:
         settings["ai_research"] = ai_research
         return research_workspace.model_copy(update={"settings": settings})
 
+    async def _persist_freshened_run_records(
+        self,
+        user_id: str,
+        workspace: WorkspaceResponse,
+        records: list[AIStrategyResearchRunRecord],
+    ) -> WorkspaceResponse | None:
+        replacements = {
+            record.run_id: record.model_dump(mode="json")
+            for record in records
+            if _freshened_run_record_needs_persist(record)
+        }
+        if not replacements:
+            return None
+
+        settings = dict(workspace.settings or {})
+        ai_research = dict(settings.get("ai_research") or {})
+        changed = False
+
+        raw_runs = ai_research.get("runs")
+        if isinstance(raw_runs, list):
+            next_runs: list[Any] = []
+            for item in raw_runs:
+                if isinstance(item, dict):
+                    replacement = replacements.get(str(item.get("run_id") or ""))
+                    if replacement is not None and _raw_run_record_needs_freshness_persist(
+                        item,
+                    ):
+                        next_runs.append(dict(replacement))
+                        changed = True
+                        continue
+                next_runs.append(item)
+            if changed:
+                ai_research["runs"] = next_runs
+
+        last_run = ai_research.get("last_run")
+        if isinstance(last_run, dict):
+            replacement = replacements.get(str(last_run.get("run_id") or ""))
+            if replacement is not None and _raw_run_record_needs_freshness_persist(last_run):
+                ai_research["last_run"] = dict(replacement)
+                changed = True
+
+        if not changed:
+            return None
+
+        updated_workspace = await self.workspace_service.update_workspace(
+            workspace.id,
+            user_id,
+            WorkspaceUpdate(settings={"ai_research": ai_research}),
+        )
+        if updated_workspace is not None:
+            return updated_workspace
+
+        settings["ai_research"] = ai_research
+        return workspace.model_copy(update={"settings": settings})
+
     async def _mark_run_record_paper_started(
         self,
         user_id: str,
@@ -2344,6 +2402,23 @@ def _research_run_record_with_live_readiness_freshness(
             "pipeline": pipeline,
             "next_actions": next_actions,
         }
+    )
+
+
+def _freshened_run_record_needs_persist(record: AIStrategyResearchRunRecord) -> bool:
+    return (
+        record.paper_review_status == "live_readiness_expired"
+        and not record.paper_review_ready_for_live
+        and bool(record.live_readiness_expires_at)
+    )
+
+
+def _raw_run_record_needs_freshness_persist(raw: dict[str, Any]) -> bool:
+    pipeline = raw.get("pipeline") if isinstance(raw.get("pipeline"), dict) else {}
+    return (
+        str(raw.get("paper_review_status") or "") != "live_readiness_expired"
+        or bool(raw.get("paper_review_ready_for_live"))
+        or str(pipeline.get("current_stage") or "") == "live_candidate"
     )
 
 

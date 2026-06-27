@@ -4113,6 +4113,16 @@ async def test_list_research_run_records_marks_expired_live_candidate_for_review
     assert record.live_readiness_checklist[-1]["status"] == "expired"
     assert "重新复核模拟交易" in record.next_actions[0]
 
+    persisted_run = workspace_service.workspaces["research-expired"].settings["ai_research"][
+        "runs"
+    ][0]
+    assert persisted_run["paper_review_status"] == "live_readiness_expired"
+    assert persisted_run["paper_review_ready_for_live"] is False
+    assert persisted_run["pipeline"]["current_stage"] == "paper_review"
+    assert persisted_run["pipeline"]["ready_for_live"] is False
+    assert persisted_run["live_readiness_checklist"][-1]["key"] == "live_candidate_expired"
+    assert "重新复核模拟交易" in persisted_run["next_actions"][0]
+
 
 class FakeResearchAPIService:
     async def run(
