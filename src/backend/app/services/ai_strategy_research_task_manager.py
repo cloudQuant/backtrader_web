@@ -503,8 +503,9 @@ def _research_result_task_updates(result: Any) -> dict[str, Any]:
         getattr(record, "live_handoff_approval", None),
         AIStrategyLiveHandoffApprovalRecord,
     )
+    timeout_cancel_updates = _backtest_timeout_cancel_task_updates(record, result)
 
-    return {
+    updates = {
         "run_status": getattr(record, "status", None) or getattr(result, "status", None),
         "achieved": _optional_bool(
             getattr(record, "achieved", None),
@@ -569,6 +570,47 @@ def _research_result_task_updates(result: Any) -> dict[str, Any]:
         "pipeline": pipeline,
         "next_actions": next_actions,
     }
+    updates.update(timeout_cancel_updates)
+    return updates
+
+
+def _backtest_timeout_cancel_task_updates(record: Any, result: Any) -> dict[str, Any]:
+    for status in _latest_iteration_statuses(record, result):
+        snapshot = _status_trading_snapshot(status)
+        if not snapshot:
+            continue
+        task_id = str(snapshot.get("backtest_timeout_task_id") or "").strip()
+        if not task_id:
+            continue
+        return {
+            "cancelled_backtest_task_id": task_id,
+            "child_cancelled": bool(snapshot.get("backtest_timeout_cancel_requested")),
+        }
+    return {}
+
+
+def _latest_iteration_statuses(record: Any, result: Any) -> list[Any]:
+    statuses: list[Any] = []
+    for source in (getattr(record, "iterations", None), getattr(result, "iterations", None)):
+        if not isinstance(source, list):
+            continue
+        for item in reversed(source):
+            for key in ("validation_unit_status", "unit_status"):
+                if isinstance(item, dict):
+                    status = item.get(key)
+                else:
+                    status = getattr(item, key, None)
+                if status is not None:
+                    statuses.append(status)
+    return statuses
+
+
+def _status_trading_snapshot(status: Any) -> dict[str, Any]:
+    if isinstance(status, dict):
+        snapshot = status.get("trading_snapshot")
+    else:
+        snapshot = getattr(status, "trading_snapshot", None)
+    return dict(snapshot) if isinstance(snapshot, dict) else {}
 
 
 def _freshened_task_response_for_read(

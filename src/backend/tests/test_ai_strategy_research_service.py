@@ -6414,6 +6414,46 @@ class FakeResearchAPILiveHandoffService(FakeResearchAPIPaperService):
         )
 
 
+class FakeResearchAPITimeoutCancelService(FakeResearchAPIService):
+    async def run(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+        *,
+        progress_callback=None,
+    ):
+        result = await super().run(user_id, request, progress_callback=progress_callback)
+        iteration = result.iterations[0]
+        unit_status = iteration.unit_status
+        assert unit_status is not None
+        timed_out_status = unit_status.model_copy(
+            update={
+                "run_status": "timeout",
+                "last_task_id": "timeout-backtest-task",
+                "trading_snapshot": {
+                    "backtest_timeout_task_id": "timeout-backtest-task",
+                    "backtest_timeout_cancel_requested": True,
+                },
+            }
+        )
+        timed_out_iteration = iteration.model_copy(
+            update={
+                "unit_status": timed_out_status,
+                "passed": False,
+                "failure_reason": "Backtest timed out",
+                "quality_gate_failures": ["Backtest timed out"],
+            }
+        )
+        return result.model_copy(
+            update={
+                "status": "timeout",
+                "achieved": False,
+                "iterations": [timed_out_iteration],
+                "message": "Backtest timed out",
+            }
+        )
+
+
 class SlowResearchAPIService:
     async def run(
         self,
@@ -6632,6 +6672,36 @@ async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
     tasks = await manager.list_tasks("user-1")
     assert [item.task_id for item in tasks] == [submitted.task_id]
     assert await manager.list_tasks("user-1", active_only=True) == []
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_task_manager_exposes_timeout_cancelled_backtest():
+    manager = AIStrategyResearchTaskManager()
+
+    submitted = await manager.submit(
+        "user-1",
+        AIStrategyResearchRunRequest(prompt="生成趋势策略", symbol="000001.SZ"),
+        service=FakeResearchAPITimeoutCancelService(),
+    )
+
+    task = None
+    for _ in range(20):
+        task = await manager.get_task("user-1", submitted.task_id)
+        if task is not None and task.status == "completed":
+            break
+        await asyncio.sleep(0.01)
+
+    assert task is not None
+    assert task.status == "completed"
+    assert task.run_status == "timeout"
+    assert task.achieved is False
+    assert task.cancelled_backtest_task_id == "timeout-backtest-task"
+    assert task.child_cancelled is True
+    assert task.latest_iteration is not None
+    assert (
+        task.latest_iteration["unit_status"]["trading_snapshot"]["backtest_timeout_task_id"]
+        == "timeout-backtest-task"
+    )
 
 
 @pytest.mark.asyncio
