@@ -2017,6 +2017,61 @@ async def test_review_paper_trading_waits_for_minimum_paper_trade_sample():
 
 
 @pytest.mark.asyncio
+async def test_review_paper_trading_normalizes_negative_drawdown_before_live_candidate():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {"sharpe_ratio": 1.18, "total_trades": 6, "max_drawdown": -4.0},
+        ],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+    workspace_service.statuses["paper-unit"] = UnitStatusResponse(
+        id="paper-unit",
+        run_status="running",
+        last_task_id="paper-task",
+        metrics_snapshot={
+            "rolling_sharpe": 0.72,
+            "max_drawdown": -18.0,
+            "closed_trades": 20,
+            "slippage_and_commission_delta": 0.0002,
+        },
+        trading_snapshot={
+            "valuation_status": "confirmed",
+            "position_source": "gateway",
+            "asset_spec_source": "paper_gateway",
+            "valuation_warnings": [],
+        },
+        run_count=1,
+        trading_mode="paper",
+    )
+
+    review = await service.review_paper_trading_run("user-1", result.run_id)
+
+    drawdown = next(item for item in review.evaluations if item.key == "drawdown_guard")
+    assert drawdown.actual == pytest.approx(18.0)
+    assert drawdown.threshold == pytest.approx(5.0)
+    assert drawdown.status == "failed"
+    assert review.status == "needs_research_review"
+    assert review.ready_for_live is False
+
+
+@pytest.mark.asyncio
 async def test_review_paper_trading_blocks_live_candidate_when_valuation_is_unconfirmed():
     workspace_service = FakeWorkspaceService()
     strategy_service = FakeStrategyService(

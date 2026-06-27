@@ -4338,6 +4338,7 @@ def _evaluate_paper_monitoring_plan(
         if not metric or threshold is None:
             continue
         actual, source = _lookup_paper_metric(metric, unit=unit, unit_status=unit_status)
+        actual = _normalize_paper_metric_value(metric, actual, float(threshold))
         direction = str(raw_rule.get("direction") or "min").strip().lower()
         passed = _paper_rule_passed(actual, threshold, direction)
         status = _paper_rule_status(
@@ -4361,6 +4362,18 @@ def _evaluate_paper_monitoring_plan(
             )
         )
     return evaluations
+
+
+def _normalize_paper_metric_value(
+    metric: str,
+    actual: float | None,
+    threshold: float,
+) -> float | None:
+    if actual is None:
+        return None
+    if metric == "max_drawdown":
+        return abs(_align_metric_scale(actual, threshold))
+    return actual
 
 
 def _paper_rule_status(
