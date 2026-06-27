@@ -1921,6 +1921,14 @@ async def test_review_paper_trading_run_evaluates_monitoring_plan():
     assert review.evaluations[-1].key == "valuation_confidence"
     assert review.evaluations[-1].source == "unit_status.trading_snapshot"
     assert review.live_readiness_checklist[0]["key"] == "paper_monitoring_passed"
+    checklist_by_key = {item["key"]: item for item in review.live_readiness_checklist}
+    assert checklist_by_key["execution_costs_confirmed"]["status"] == "passed"
+    assert "成交成本偏离" in checklist_by_key["execution_costs_confirmed"]["evidence"]
+    assert "unit_status.metrics_snapshot" in checklist_by_key["execution_costs_confirmed"][
+        "evidence"
+    ]
+    assert checklist_by_key["risk_budget_confirmed"]["status"] == "passed"
+    assert "模拟交易最大回撤" in checklist_by_key["risk_budget_confirmed"]["evidence"]
     assert review.live_readiness_checklist[-1]["key"] == "human_approval_required"
     assert review.live_readiness_checklist[-1]["status"] == "pending_manual_confirmation"
     assert "实盘候选" in review.next_actions[0]

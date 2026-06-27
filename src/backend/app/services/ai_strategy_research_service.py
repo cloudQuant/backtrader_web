@@ -4675,9 +4675,9 @@ def _live_readiness_checklist(
         {
             "key": "execution_costs_confirmed",
             "label": "执行成本可接受",
-            "status": _live_readiness_status_from_evaluation(by_key.get("execution_cost_delta")),
+            "status": _live_readiness_status_from_evaluation(by_key.get("execution_cost")),
             "evidence": _live_readiness_evaluation_evidence(
-                by_key.get("execution_cost_delta"),
+                by_key.get("execution_cost"),
                 fallback="模拟交易手续费和滑点偏差在监控阈值内。",
             ),
             "action": "实盘前用券商或交易所费率重新确认佣金、滑点和最小价格变动。",
@@ -4690,9 +4690,9 @@ def _live_readiness_checklist(
         {
             "key": "risk_budget_confirmed",
             "label": "风险预算可控",
-            "status": _live_readiness_status_from_evaluation(by_key.get("max_drawdown_guard")),
+            "status": _live_readiness_status_from_evaluation(by_key.get("drawdown_guard")),
             "evidence": _live_readiness_evaluation_evidence(
-                by_key.get("max_drawdown_guard"),
+                by_key.get("drawdown_guard"),
                 fallback="模拟交易回撤约束在监控阈值内。",
             ),
             "action": "实盘前设置最大资金占用、单品种仓位上限、最大回撤止损和人工熔断规则。",
