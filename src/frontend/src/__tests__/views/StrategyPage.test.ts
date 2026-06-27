@@ -104,6 +104,7 @@ vi.mock('@/api/strategy', () => ({
           seed_strategy_id: null,
           continued_from_run_id: null,
           paper_workspace_id: null,
+          paper_workspace_name: null,
           paper_unit_id: null,
           paper_trading_started: false,
           paper_monitoring_plan: [],
@@ -292,6 +293,7 @@ vi.mock('@/api/strategy', () => ({
         seed_strategy_id: null,
         continued_from_run_id: null,
         paper_workspace_id: null,
+        paper_workspace_name: null,
         paper_unit_id: null,
         paper_trading_started: false,
         paper_monitoring_plan: [],
@@ -639,8 +641,10 @@ describe('StrategyPage', () => {
     })
     expect(vm.aiResearchResult.paper_trading.started).toBe(true)
     expect(vm.aiResearchResult.run_record.paper_trading_started).toBe(true)
+    expect(vm.aiResearchResult.run_record.paper_workspace_name).toBe('AI模拟交易')
     expect(vm.aiResearchRuns[0].run_id).toBe('run-1')
     expect(vm.aiResearchRuns[0].paper_trading_started).toBe(true)
+    expect(vm.aiResearchRuns[0].paper_workspace_name).toBe('AI模拟交易')
     const currentPaperEnv = wrapper.find('[data-test="ai-research-current-paper-env"]').text()
     expect(currentPaperEnv).toContain('模拟环境')
     expect(currentPaperEnv).toContain('手续费 0.002000')

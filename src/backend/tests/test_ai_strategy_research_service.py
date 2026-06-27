@@ -162,7 +162,12 @@ class FakeWorkspaceService:
 
     async def create_workspace(self, user_id: str, data):
         workspace_id = "paper-ws" if data.workspace_type == "trading" else "research-ws"
-        workspace = _workspace(workspace_id, data.workspace_type)
+        workspace = _workspace(workspace_id, data.workspace_type).model_copy(
+            update={
+                "name": data.name,
+                "description": data.description,
+            }
+        )
         self.workspaces[workspace.id] = workspace
         return workspace
 
@@ -3521,16 +3526,21 @@ async def test_research_loop_quality_gates_accept_ratio_metrics():
             min_win_rate=50.0,
             max_iterations=1,
             poll_interval_seconds=0.1,
+            paper_workspace_name="AI模拟-质量通过",
         ),
     )
 
     assert result.achieved is True
     assert result.paper_trading is not None
+    assert result.paper_trading.workspace.name == "AI模拟-质量通过"
     assert result.iterations[0].quality_gate_failures == []
     assert result.run_record is not None
+    assert result.run_record.paper_workspace_name == "AI模拟-质量通过"
     assert result.run_record.quality_gates["max_drawdown_limit"] == 10.0
     assert result.paper_trading.handoff is not None
+    assert result.paper_trading.handoff["paper_workspace_name"] == "AI模拟-质量通过"
     assert result.paper_trading.handoff["quality_gates"] == result.run_record.quality_gates
+    assert result.run_record.paper_handoff["paper_workspace_name"] == "AI模拟-质量通过"
 
 
 @pytest.mark.asyncio
@@ -3604,12 +3614,17 @@ async def test_start_paper_trading_from_achieved_research_run_record():
     result = await service.start_paper_trading_from_run(
         "user-1",
         "previous-run",
-        AIStrategyPaperTradingStartRequest(research_workspace_id="research-ws"),
+        AIStrategyPaperTradingStartRequest(
+            research_workspace_id="research-ws",
+            paper_workspace_name="AI模拟-历史最佳",
+        ),
     )
 
     assert result.started is True
+    assert result.workspace.name == "AI模拟-历史最佳"
     assert result.handoff is not None
     assert result.handoff["run_id"] == "previous-run"
+    assert result.handoff["paper_workspace_name"] == "AI模拟-历史最佳"
     assert result.handoff["research_strategy_id"] == strategy.id
     assert result.handoff["achieved_quality_gate_evaluations"][0]["key"] == "sharpe"
     assert result.handoff["paper_monitoring_plan"][0]["key"] == "rolling_sharpe"
@@ -3621,9 +3636,11 @@ async def test_start_paper_trading_from_achieved_research_run_record():
     assert updated_run["run_id"] == "previous-run"
     assert updated_run["paper_trading_started"] is True
     assert updated_run["paper_workspace_id"] == "paper-ws"
+    assert updated_run["paper_workspace_name"] == "AI模拟-历史最佳"
     assert updated_run["paper_unit_id"] == "paper-unit"
     assert updated_run["paper_monitoring_plan"][0]["key"] == "rolling_sharpe"
     assert updated_run["paper_handoff"]["paper_task_id"] == "paper-task"
+    assert updated_run["paper_handoff"]["paper_workspace_name"] == "AI模拟-历史最佳"
     assert updated_run["paper_review_status"] == "monitoring"
     assert updated_run["paper_review_evaluations"][0]["status"] == "pending"
     assert updated_run["pipeline"]["current_stage"] == "paper_review"

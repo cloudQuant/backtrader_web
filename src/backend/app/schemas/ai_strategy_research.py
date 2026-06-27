@@ -242,6 +242,7 @@ class AIStrategyResearchRunRecord(BaseModel):
     seed_strategy_id: str | None = None
     continued_from_run_id: str | None = None
     paper_workspace_id: str | None = None
+    paper_workspace_name: str | None = None
     paper_unit_id: str | None = None
     paper_trading_started: bool = False
     paper_monitoring_plan: list[dict[str, Any]] = Field(default_factory=list)

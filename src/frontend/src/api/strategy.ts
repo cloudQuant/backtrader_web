@@ -295,6 +295,7 @@ export interface AIStrategyResearchRunRecord {
   seed_strategy_id?: string | null
   continued_from_run_id?: string | null
   paper_workspace_id?: string | null
+  paper_workspace_name?: string | null
   paper_unit_id?: string | null
   paper_trading_started: boolean
   paper_monitoring_plan?: AIStrategyPaperMonitoringRule[]

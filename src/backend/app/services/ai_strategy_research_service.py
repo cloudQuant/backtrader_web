@@ -1830,6 +1830,7 @@ class AIStrategyResearchService:
             best_iteration=best_iteration,
             promoted_at=_utc_iso_now(),
         )
+        handoff["paper_workspace_name"] = workspace.name
         unit_data_config = {
             **best_iteration.unit.data_config,
             **dict(request.data_config or {}),
@@ -1874,6 +1875,7 @@ class AIStrategyResearchService:
         handoff = {
             **handoff,
             "paper_workspace_id": workspace.id,
+            "paper_workspace_name": workspace.name,
             "paper_unit_id": unit.id,
             "paper_task_id": run_result.task_id if run_result else None,
             "paper_run_status": run_result.status if run_result else None,
@@ -2050,6 +2052,7 @@ class AIStrategyResearchService:
         updated_record = record.model_copy(
             update={
                 "paper_workspace_id": paper_trading.workspace.id,
+                "paper_workspace_name": paper_trading.workspace.name,
                 "paper_unit_id": paper_trading.unit.id,
                 "paper_trading_started": paper_trading.started,
                 "paper_monitoring_plan": _paper_monitoring_plan_from_handoff(
@@ -2093,6 +2096,7 @@ class AIStrategyResearchService:
                 "live_readiness_checklist": [],
                 "live_readiness_expires_at": None,
                 "paper_workspace_id": paper_trading.workspace.id if paper_trading else None,
+                "paper_workspace_name": paper_trading.workspace.name if paper_trading else None,
                 "paper_unit_id": paper_trading.unit.id if paper_trading else None,
                 "paper_monitoring_plan": _paper_monitoring_plan_from_handoff(
                     paper_trading.handoff if paper_trading else None
@@ -4148,6 +4152,7 @@ def _build_research_run_record(
         seed_strategy_id=request.seed_strategy_id,
         continued_from_run_id=request.continue_from_run_id,
         paper_workspace_id=paper.workspace.id if paper else None,
+        paper_workspace_name=paper.workspace.name if paper else request.paper_workspace_name,
         paper_unit_id=paper.unit.id if paper else None,
         paper_trading_started=bool(paper.started) if paper else False,
         paper_monitoring_plan=response.paper_monitoring_plan,

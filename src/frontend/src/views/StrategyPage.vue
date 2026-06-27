@@ -889,6 +889,9 @@
                       <span v-if="pipelineStage(record)">
                         阶段 {{ pipelineStageLabel(record) }}
                       </span>
+                      <span v-if="record.paper_workspace_name">
+                        模拟 {{ record.paper_workspace_name }}
+                      </span>
                       <span v-if="record.pipeline?.paper_trading_error">
                         模拟错误 {{ record.pipeline.paper_trading_error }}
                       </span>
@@ -2319,6 +2322,7 @@ function paperStartedRunRecord(
     ...record,
     paper_trading_started: paper.started,
     paper_workspace_id: paper.workspace.id,
+    paper_workspace_name: paper.workspace.name,
     paper_unit_id: paper.unit.id,
     paper_handoff: paper.handoff ?? {},
     paper_monitoring_plan:
