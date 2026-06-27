@@ -1484,15 +1484,15 @@ class AIStrategyResearchService:
             raise ValueError(str(exc)) from exc
         paper_trading_error = _paper_trading_start_error(paper_trading)
         if paper_trading_error:
-            await self._mark_run_record_paper_start_failed(
+            updated_record = await self._mark_run_record_paper_start_failed(
                 user_id,
                 record,
                 paper_trading_error,
                 paper_trading=paper_trading,
             )
-            return paper_trading
-        await self._mark_run_record_paper_started(user_id, record, paper_trading)
-        return paper_trading
+            return paper_trading.model_copy(update={"run_record": updated_record})
+        updated_record = await self._mark_run_record_paper_started(user_id, record, paper_trading)
+        return paper_trading.model_copy(update={"run_record": updated_record})
 
     async def review_paper_trading_run(
         self,
@@ -2789,7 +2789,7 @@ class AIStrategyResearchService:
         user_id: str,
         record: AIStrategyResearchRunRecord,
         paper_trading: AIStrategyPaperTradingStart,
-    ) -> WorkspaceResponse | None:
+    ) -> AIStrategyResearchRunRecord | None:
         workspace = await self.workspace_service.get_workspace(record.research_workspace_id, user_id)
         if workspace is None:
             return None
@@ -2816,7 +2816,8 @@ class AIStrategyResearchService:
             paper_trading=paper_trading,
         )
         updated_record = _apply_initial_live_handoff_to_run_record(updated_record)
-        return await self._persist_research_run_record(user_id, workspace, updated_record)
+        await self._persist_research_run_record(user_id, workspace, updated_record)
+        return updated_record
 
     async def _mark_run_record_paper_start_failed(
         self,
@@ -2825,7 +2826,7 @@ class AIStrategyResearchService:
         error: str,
         *,
         paper_trading: AIStrategyPaperTradingStart | None = None,
-    ) -> WorkspaceResponse | None:
+    ) -> AIStrategyResearchRunRecord | None:
         workspace = await self.workspace_service.get_workspace(record.research_workspace_id, user_id)
         if workspace is None:
             return None
@@ -2866,7 +2867,8 @@ class AIStrategyResearchService:
                 ],
             }
         )
-        return await self._persist_research_run_record(user_id, workspace, updated_record)
+        await self._persist_research_run_record(user_id, workspace, updated_record)
+        return updated_record
 
     async def _mark_run_record_paper_reviewed(
         self,

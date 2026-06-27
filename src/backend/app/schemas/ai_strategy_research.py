@@ -148,6 +148,7 @@ class AIStrategyPaperTradingStart(BaseModel):
     run_result: StrategyCopilotRunResult | None = None
     started: bool = False
     handoff: dict[str, Any] | None = None
+    run_record: AIStrategyResearchRunRecord | None = None
 
 
 class AIStrategyPaperTradingStartRequest(BaseModel):

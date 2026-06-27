@@ -5089,6 +5089,11 @@ async def test_start_paper_trading_from_achieved_research_run_record():
     assert result.handoff["research_strategy_id"] == strategy.id
     assert result.handoff["achieved_quality_gate_evaluations"][0]["key"] == "sharpe"
     assert result.handoff["paper_monitoring_plan"][0]["key"] == "rolling_sharpe"
+    assert result.run_record is not None
+    assert result.run_record.run_id == "previous-run"
+    assert result.run_record.paper_trading_started is True
+    assert result.run_record.paper_review_status == "monitoring"
+    assert result.run_record.pipeline["current_stage"] == "paper_review"
     assert workspace_service.started_units == [("paper-ws", ["paper-unit"])]
     assert workspace_service.updated_units[-1].unit_settings["ai_research_handoff"][
         "paper_task_id"
@@ -5894,6 +5899,13 @@ async def test_start_paper_trading_from_history_persists_run_failure():
     assert result.started is False
     assert result.run_result is not None
     assert result.run_result.status == "failed"
+    assert result.run_record is not None
+    assert result.run_record.paper_trading_started is False
+    assert result.run_record.pipeline["current_stage"] == "paper_trading_failed"
+    assert (
+        result.run_record.pipeline["paper_trading_error"]
+        == "Paper trading run finished with status failed"
+    )
     assert workspace_service.started_units == [("paper-ws", ["paper-unit"])]
     updated_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
     assert updated_run["run_id"] == "previous-run"

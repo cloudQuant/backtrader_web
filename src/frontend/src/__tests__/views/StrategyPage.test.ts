@@ -346,7 +346,31 @@ vi.mock('@/api/strategy', () => ({
         lock_trading: false,
         lock_running: false,
         trading_instance_id: null,
-        trading_snapshot: {},
+        trading_snapshot: {
+          instance_id: null,
+          instance_status: 'running',
+          mode: 'paper',
+          error: null,
+          started_at: '2026-06-27T00:00:00Z',
+          stopped_at: null,
+          gateway_summary: null,
+          long_position: 0,
+          short_position: 0,
+          today_pnl: null,
+          position_pnl: null,
+          latest_price: null,
+          change_pct: null,
+          long_market_value: null,
+          short_market_value: null,
+          leverage: null,
+          cumulative_pnl: null,
+          max_drawdown_rate: null,
+          trading_day: null,
+          updated_at: '2026-06-27T00:00:00Z',
+          detail_route: null,
+          positions: [],
+          trades: [],
+        },
         run_status: 'running',
         run_count: 1,
         last_run_time: null,
@@ -4238,6 +4262,161 @@ describe('StrategyPage', () => {
     expect(updatedRecord.pipeline.steps.find((step: any) => step.key === 'paper_review').status).toBe('pending')
     expect(vm.canStartPaperFromRecord(updatedRecord)).toBe(false)
     expect(vm.canReviewPaperFromRecord(updatedRecord)).toBe(true)
+  })
+
+  it('uses returned run record when paper start response already contains live handoff', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const liveHandoff = await strategyApi.buildAIResearchLiveHandoff(
+      'history-run',
+      'research-ws'
+    )
+    vi.mocked(strategyApi.buildAIResearchLiveHandoff).mockClear()
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    await flushPromises()
+    const record: AIStrategyResearchRunRecord = {
+      ...vm.aiResearchRuns[0],
+      run_id: 'history-run',
+      paper_workspace_id: null,
+      paper_workspace_name: null,
+      paper_unit_id: null,
+      paper_trading_started: false,
+      paper_handoff: {},
+      paper_monitoring_plan: [],
+      paper_review_status: null,
+      paper_review_ready_for_live: false,
+      paper_review_evaluations: [],
+      paper_review_next_actions: [],
+      pipeline: {
+        current_stage: 'quality_achieved',
+        status: 'achieved',
+        progress: 60,
+        ready_for_live: false,
+        steps: [],
+      },
+      next_actions: ['策略已通过验收，可进入模拟交易。'],
+    }
+    const returnedRecord: AIStrategyResearchRunRecord = {
+      ...record,
+      paper_workspace_id: 'paper-ws',
+      paper_workspace_name: 'AI模拟交易',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      paper_monitoring_plan: liveHandoff.paper_monitoring_plan,
+      paper_handoff: {
+        run_id: 'history-run',
+        paper_workspace_id: 'paper-ws',
+        paper_workspace_name: 'AI模拟交易',
+        paper_unit_id: 'paper-unit',
+        paper_task_id: 'paper-task',
+        paper_run_status: 'running',
+      },
+      paper_review_status: 'ready_for_live_candidate',
+      paper_review_ready_for_live: true,
+      paper_reviewed_at: '2026-06-27T00:02:00Z',
+      paper_review_evaluations: liveHandoff.paper_review_evaluations,
+      paper_review_next_actions: ['模拟交易监控计划已全部通过，可提交实盘交接审批。'],
+      live_readiness_checklist: liveHandoff.live_readiness_checklist,
+      live_readiness_expires_at: liveHandoff.expires_at,
+      live_handoff: liveHandoff,
+      pipeline: liveHandoff.pipeline,
+      next_actions: liveHandoff.next_actions,
+    }
+    vm.aiResearchRuns = [record]
+    vm.aiResearchRunsLoading = false
+    vi.mocked(strategyApi.listAIResearchRuns).mockClear()
+    vi.mocked(strategyApi.listAIResearchRuns).mockRejectedValueOnce(
+      new Error('history unavailable')
+    )
+    vi.mocked(strategyApi.startAIResearchPaperTrading).mockResolvedValueOnce({
+      workspace: {
+        id: 'paper-ws',
+        user_id: 'u1',
+        name: 'AI模拟交易',
+        description: null,
+        workspace_type: 'trading',
+        settings: {},
+        trading_config: {},
+        unit_count: 1,
+        completed_count: 0,
+        status: 'running',
+        created_at: '2026-06-27T00:00:00Z',
+        updated_at: '2026-06-27T00:00:00Z',
+      },
+      unit: {
+        id: 'paper-unit',
+        workspace_id: 'paper-ws',
+        group_name: 'AI策略',
+        strategy_id: 's1',
+        strategy_name: 'AI策略',
+        symbol: '000001.SZ',
+        symbol_name: '平安银行',
+        timeframe: '1d',
+        timeframe_n: 1,
+        category: 'trend',
+        sort_order: 1,
+        data_config: {},
+        unit_settings: {},
+        params: {},
+        optimization_config: {},
+        trading_mode: 'paper',
+        gateway_config: {},
+        lock_trading: false,
+        lock_running: false,
+        trading_instance_id: null,
+        trading_snapshot: {
+          instance_id: null,
+          instance_status: 'running',
+          mode: 'paper',
+          error: null,
+          started_at: '2026-06-27T00:00:00Z',
+          stopped_at: null,
+          gateway_summary: null,
+          long_position: 0,
+          short_position: 0,
+          today_pnl: null,
+          position_pnl: null,
+          latest_price: null,
+          change_pct: null,
+          long_market_value: null,
+          short_market_value: null,
+          leverage: null,
+          cumulative_pnl: null,
+          max_drawdown_rate: null,
+          trading_day: null,
+          updated_at: '2026-06-27T00:00:00Z',
+          detail_route: null,
+          positions: [],
+          trades: [],
+        },
+        run_status: 'running',
+        run_count: 1,
+        last_run_time: null,
+        last_task_id: 'paper-task',
+        last_optimization_task_id: null,
+        bar_count: null,
+        metrics_snapshot: {},
+        created_at: '2026-06-27T00:00:00Z',
+        updated_at: '2026-06-27T00:00:00Z',
+      },
+      run_result: { unit_id: 'paper-unit', task_id: 'paper-task', status: 'running' },
+      started: true,
+      handoff: returnedRecord.paper_handoff,
+      run_record: returnedRecord,
+    })
+
+    await vm.startPaperFromResearchRecord(record)
+    await flushPromises()
+
+    expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith('research-ws', 20)
+    expect(strategyApi.buildAIResearchLiveHandoff).not.toHaveBeenCalled()
+    const updatedRecord = vm.aiResearchRuns[0]
+    expect(updatedRecord.paper_review_status).toBe('ready_for_live_candidate')
+    expect(updatedRecord.paper_review_ready_for_live).toBe(true)
+    expect(updatedRecord.pipeline.current_stage).toBe('live_handoff')
+    expect(updatedRecord.live_handoff.status).toBe('ready_for_approval')
+    expect(vm.liveHandoffForRecord(updatedRecord).status).toBe('ready_for_approval')
+    expect(updatedRecord.next_actions[0]).toContain('提交人工实盘审批')
   })
 
   it('syncs current result when refreshed run record starts paper trading', async () => {

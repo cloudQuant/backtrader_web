@@ -4254,8 +4254,9 @@ async function startPaperFromResearchRecord(record: AIStrategyResearchRunRecord)
       record.run_id,
       aiResearchPaperStartRequest(record)
     )
+    const responseRecord = paper.run_record ?? null
     if (!paper.started) {
-      const failedRecord = paperStartFailedRunRecord(record, paper)
+      const failedRecord = responseRecord ?? paperStartFailedRunRecord(record, paper)
       upsertAIResearchRunRecord(failedRecord)
       applyPaperStartToCurrentResult(record.run_id, paper, failedRecord)
       try {
@@ -4266,7 +4267,7 @@ async function startPaperFromResearchRecord(record: AIStrategyResearchRunRecord)
       ElMessage.error('模拟交易启动失败')
       return
     }
-    const updatedRecord = paperStartedRunRecord(record, paper)
+    const updatedRecord = responseRecord ?? paperStartedRunRecord(record, paper)
     upsertAIResearchRunRecord(updatedRecord)
     applyPaperStartToCurrentResult(record.run_id, paper, updatedRecord)
     try {
