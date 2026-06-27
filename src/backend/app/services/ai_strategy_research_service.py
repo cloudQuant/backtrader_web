@@ -1127,19 +1127,17 @@ class AIStrategyResearchService:
                 )
 
         iteration_payload = _best_iteration_payload(record)
-        if iteration_payload is None:
-            raise ValueError("AI research run record has no best iteration to promote")
         if (
             not record.best_strategy_id
-            and not _strategy_id_from_iteration_payload(iteration_payload)
-            and not _iteration_payload_has_strategy_snapshot(iteration_payload)
+            and not _strategy_id_from_iteration_payload(iteration_payload or {})
+            and not _iteration_payload_has_strategy_snapshot(iteration_payload or {})
         ):
             raise ValueError("AI research run record has no best strategy to promote")
 
         strategy = None
         if record.best_strategy_id:
             strategy = await self.strategy_service.get_strategy(record.best_strategy_id, user_id)
-        if strategy is None:
+        if strategy is None and iteration_payload is not None:
             strategy = _strategy_from_iteration_snapshot(
                 record,
                 iteration_payload,
@@ -1148,30 +1146,37 @@ class AIStrategyResearchService:
         if strategy is None:
             raise ValueError("Best strategy not found and run record has no strategy snapshot")
 
-        unit_snapshot = (
-            dict(iteration_payload.get("unit_snapshot"))
-            if isinstance(iteration_payload.get("unit_snapshot"), dict)
-            else {}
-        )
-        unit_id = str(iteration_payload.get("unit_id") or unit_snapshot.get("id") or "").strip()
-        if not unit_id:
-            raise ValueError("AI research run record has no research unit to promote")
-        unit = await self.workspace_service.get_unit(record.research_workspace_id, unit_id, user_id)
-        if unit is None:
-            unit = _unit_from_iteration_snapshot(
-                record,
-                strategy=strategy,
-                payload=iteration_payload,
+        unit = None
+        if iteration_payload is not None:
+            unit_snapshot = (
+                dict(iteration_payload.get("unit_snapshot"))
+                if isinstance(iteration_payload.get("unit_snapshot"), dict)
+                else {}
             )
+            unit_id = str(
+                iteration_payload.get("unit_id") or unit_snapshot.get("id") or ""
+            ).strip()
+            if unit_id:
+                unit = await self.workspace_service.get_unit(
+                    record.research_workspace_id,
+                    unit_id,
+                    user_id,
+                )
+            if unit is None:
+                unit = _unit_from_iteration_snapshot(
+                    record,
+                    strategy=strategy,
+                    payload=iteration_payload,
+                )
         if unit is None:
-            raise ValueError("Research unit not found")
+            unit = _unit_from_run_record(record, strategy=strategy)
 
         run_request = _paper_start_request_from_record(record, request)
         iteration = _iteration_from_record_payload(
             record,
             strategy=strategy,
             unit=unit,
-            payload=iteration_payload,
+            payload=iteration_payload or {},
         )
         try:
             paper_trading = await self._start_paper_trading(
@@ -3816,6 +3821,78 @@ def _unit_from_iteration_snapshot(
         run_count=1,
         last_task_id=str(payload.get("task_id") or "") or None,
         metrics_snapshot=dict(payload.get("metrics") or record.best_metrics or {}),
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _unit_from_run_record(
+    record: AIStrategyResearchRunRecord,
+    *,
+    strategy: StrategyResponse,
+) -> StrategyUnitResponse:
+    runtime_context = _record_runtime_context(record)
+    asset_specs = (
+        dict(runtime_context.get("asset_specs"))
+        if isinstance(runtime_context.get("asset_specs"), dict)
+        else {}
+    )
+    backtest_environment = (
+        dict(runtime_context.get("backtest_environment"))
+        if isinstance(runtime_context.get("backtest_environment"), dict)
+        else {}
+    )
+    data_config: dict[str, Any] = {"symbol": record.symbol}
+    unit_settings: dict[str, Any] = {}
+    if asset_specs:
+        _merge_contract_metadata(data_config, asset_specs)
+        _merge_contract_metadata(unit_settings, asset_specs)
+    for key in (
+        "initial_cash",
+        "commission",
+        "annual_days",
+        "calc_method",
+        "weight_mode",
+        "multiplier",
+        "margin",
+        "asset_spec_source",
+    ):
+        value = backtest_environment.get(key)
+        if value not in (None, ""):
+            unit_settings[key] = value
+    if "initial_cash" not in unit_settings:
+        unit_settings["initial_cash"] = record.initial_cash
+    if "commission" not in unit_settings:
+        unit_settings["commission"] = record.commission
+    if "annual_days" not in unit_settings:
+        unit_settings["annual_days"] = record.annual_days
+    if "calc_method" not in unit_settings:
+        unit_settings["calc_method"] = record.calc_method
+    if "weight_mode" not in unit_settings:
+        unit_settings["weight_mode"] = record.weight_mode
+    now = datetime.now(timezone.utc)
+    return StrategyUnitResponse(
+        id=f"{record.run_id}-unit",
+        workspace_id=record.research_workspace_id,
+        group_name=record.best_strategy_name or strategy.name,
+        strategy_id=strategy.id,
+        strategy_name=strategy.name,
+        symbol=record.symbol,
+        symbol_name=record.symbol_name or record.symbol,
+        timeframe=record.timeframe,
+        timeframe_n=record.timeframe_n,
+        category=strategy.category,
+        data_config=data_config,
+        unit_settings=unit_settings,
+        params={name: spec.default for name, spec in strategy.params.items()},
+        optimization_config={},
+        gateway_config=_dict_payload(runtime_context.get("gateway_config")),
+        trading_mode="paper",
+        lock_trading=False,
+        lock_running=False,
+        run_status="completed",
+        run_count=max(int(record.iteration_count or 1), 1),
+        metrics_snapshot=dict(record.best_metrics or {}),
         created_at=now,
         updated_at=now,
     )

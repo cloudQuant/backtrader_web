@@ -3821,6 +3821,93 @@ async def test_start_paper_trading_from_achieved_research_run_record():
 
 
 @pytest.mark.asyncio
+async def test_start_paper_trading_from_achieved_run_without_iteration_snapshot():
+    workspace_service = FakeWorkspaceService()
+    seed_draft = build_ai_strategy_draft("请生成一个股指期货趋势策略").model_copy(
+        update={"name": "历史达标期货策略"}
+    )
+    strategy = _strategy("strategy-history-best", seed_draft)
+    record = {
+        **_run_record(
+            "compact-achieved-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "symbol": "IF2609",
+        "symbol_name": "沪深300股指期货",
+        "initial_cash": 250000.0,
+        "commission": 0.000023,
+        "annual_days": 244,
+        "calc_method": "log",
+        "weight_mode": "value",
+        "best_strategy_id": strategy.id,
+        "best_strategy_name": strategy.name,
+        "best_metrics": {"sharpe_ratio": 1.21, "total_trades": 5, "total_pnl": 3200.0},
+        "asset_specs": {
+            "IF2609": {
+                "symbol": "IF2609",
+                "source": "exchange_specs",
+                "multiplier": 300,
+                "margin_rate": 0.1,
+                "commission_rate": 0.000023,
+            }
+        },
+        "backtest_environment": {
+            "initial_cash": 250000.0,
+            "commission": 0.000023,
+            "annual_days": 244,
+            "calc_method": "log",
+            "weight_mode": "value",
+            "multiplier": 300,
+            "margin": 0.1,
+            "asset_spec_source": "exchange_specs",
+        },
+        "paper_workspace_id": None,
+        "paper_workspace_name": "AI模拟-紧凑历史",
+        "paper_unit_id": None,
+        "paper_trading_started": False,
+        "iterations": [],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [record]}}}
+    )
+    service = AIStrategyResearchService(
+        strategy_service=FakeStrategyService(
+            workspace_service,
+            [],
+            strategies={strategy.id: strategy},
+        ),
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.start_paper_trading_from_run(
+        "user-1",
+        "compact-achieved-run",
+        AIStrategyPaperTradingStartRequest(research_workspace_id="research-ws"),
+    )
+
+    assert result.started is True
+    assert result.workspace.name == "AI模拟-紧凑历史"
+    created_unit = workspace_service.created_units[-1]
+    assert created_unit.strategy_id == strategy.id
+    assert created_unit.data_config["symbol"] == "IF2609"
+    assert created_unit.data_config["contract_metadata"]["IF2609"]["multiplier"] == 300
+    assert created_unit.unit_settings["commission"] == pytest.approx(0.000023)
+    assert created_unit.unit_settings["annual_days"] == 244
+    assert created_unit.unit_settings["calc_method"] == "log"
+    assert result.handoff["research_unit_id"] == "compact-achieved-run-unit"
+    assert result.handoff["best_metrics"]["sharpe_ratio"] == pytest.approx(1.21)
+    assert result.handoff["best_metrics"]["total_pnl"] == pytest.approx(3200.0)
+    assert result.handoff["asset_specs"]["IF2609"]["source"] == "exchange_specs"
+    updated_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert updated_run["paper_trading_started"] is True
+    assert updated_run["paper_unit_id"] == "paper-unit"
+    assert updated_run["pipeline"]["current_stage"] == "paper_review"
+
+
+@pytest.mark.asyncio
 async def test_start_paper_trading_from_history_rejects_duplicate_active_paper():
     workspace_service = FakeWorkspaceService()
     seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
