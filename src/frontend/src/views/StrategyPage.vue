@@ -1330,6 +1330,7 @@ const aiResearchContinuationEnabled = computed(() =>
 const aiResearchContinuationLabel = computed(() => {
   if (aiResearchForm.continuation_source === 'paper_review') return '从模拟复核反馈继续'
   if (aiResearchForm.continuation_source === 'paper_trading_failed') return '从模拟启动失败继续'
+  if (aiResearchForm.continuation_source === 'research_cancelled') return '从已取消任务继续'
   if (aiResearchForm.continuation_source === 'research_failure') return '从未达标结果继续'
   return '从历史最佳策略继续'
 })
@@ -1801,6 +1802,12 @@ function continuationSourceForRecord(record: AIStrategyResearchRunRecord) {
     return 'paper_review'
   }
   if (isPaperTradingStartFailure(record)) return 'paper_trading_failed'
+  if (
+    canContinueResearchFromRunRecord(record)
+    && (record.status === 'cancelled' || record.pipeline?.current_stage === 'cancelled')
+  ) {
+    return 'research_cancelled'
+  }
   if (canContinueResearchFromRunRecord(record)) return 'research_failure'
   return ''
 }

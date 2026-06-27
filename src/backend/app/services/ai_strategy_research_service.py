@@ -407,6 +407,8 @@ class AIStrategyResearchService:
             continuation_source = str(request.continuation_context.get("source") or "")
             if continuation_source == "paper_trading_failed":
                 continuation_note = "基于上一轮模拟交易启动失败原因生成 continuation 改进版。"
+            elif continuation_source == "research_cancelled":
+                continuation_note = "基于上一轮取消前已完成迭代的失败指标生成 continuation 改进版。"
             elif continuation_source == "research_failure":
                 continuation_note = "基于上一轮投研未达标原因生成 continuation 改进版。"
             else:
@@ -3280,6 +3282,7 @@ def _research_failure_context_from_record(
 ) -> dict[str, Any]:
     if record.achieved:
         return {}
+    source = "research_cancelled" if record.status == "cancelled" else "research_failure"
     payload = _best_iteration_payload(record)
     if not payload:
         diagnostics = dict(record.best_diagnostics or {})
@@ -3297,7 +3300,7 @@ def _research_failure_context_from_record(
                 f"Previous research run finished without backtest iterations: {record.status}"
             )
         return {
-            "source": "research_failure",
+            "source": source,
             "run_id": record.run_id,
             "quality_gate_failures": failures,
             "metrics": {},
@@ -3331,7 +3334,7 @@ def _research_failure_context_from_record(
         metrics[f"validation_{key}"] = value
 
     return {
-        "source": "research_failure",
+        "source": source,
         "run_id": record.run_id,
         "iteration": payload.get("iteration"),
         "quality_gate_failures": failures,

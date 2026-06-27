@@ -2261,6 +2261,89 @@ async def test_research_loop_continuation_improves_failed_research_before_backte
 
 
 @pytest.mark.asyncio
+async def test_research_loop_continuation_improves_cancelled_research_before_backtest():
+    workspace_service = FakeWorkspaceService()
+    previous_record = {
+        **_run_record(
+            "cancelled-research-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "status": "cancelled",
+        "achieved": False,
+        "best_iteration": 1,
+        "best_sharpe": 0.42,
+        "best_metrics": {"sharpe_ratio": 0.42, "total_trades": 2, "max_drawdown": -10.0},
+        "next_actions": ["AI投研任务已取消，已保存取消前完成的回测迭代。"],
+        "pipeline": {"current_stage": "cancelled", "status": "cancelled", "steps": []},
+        "iterations": [
+            {
+                "iteration": 1,
+                "strategy_id": "strategy-2",
+                "strategy_name": "取消前策略",
+                "unit_id": "unit-1",
+                "task_id": "task-1",
+                "run_status": "completed",
+                "metrics": {"sharpe_ratio": 0.42, "total_trades": 2, "max_drawdown": -10.0},
+                "sharpe_ratio": 0.42,
+                "total_trades": 2,
+                "quality_score": 42.0,
+                "quality_gate_evaluations": [],
+                "passed": False,
+                "failure_reason": "Sharpe 0.420 below target 1.000",
+                "quality_gate_failures": ["Sharpe 0.420 below target 1.000"],
+                "improvement_plan": ["取消后继续时先降低噪声交易并收紧出场。"],
+                "improvement_notes": [],
+                "next_actions": [],
+            }
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [previous_record]}}}
+    )
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "取消前策略"}
+    )
+    seed_strategy = _strategy("strategy-2", seed_draft)
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.08, "total_trades": 5, "max_drawdown": -5.0}],
+        strategies={"strategy-2": seed_strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续取消前投研",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            continue_from_run_id="cancelled-research-run",
+            start_paper_trading=False,
+            out_of_sample_validation=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert strategy_service.generated == 0
+    assert strategy_service.submitted_drafts[0].name == "取消前策略 v1"
+    assert "基于上一轮取消前已完成迭代" in result.iterations[0].improvement_notes[0]
+    assert any(
+        "Sharpe 0.420 below target 1.000" in note
+        for note in result.iterations[0].improvement_notes
+    )
+    assert result.run_record is not None
+    assert result.run_record.continued_from_run_id == "cancelled-research-run"
+
+
+@pytest.mark.asyncio
 async def test_research_loop_continuation_uses_failed_paper_review_before_backtest():
     workspace_service = FakeWorkspaceService()
     record = {

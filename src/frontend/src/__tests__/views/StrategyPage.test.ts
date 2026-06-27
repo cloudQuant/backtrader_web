@@ -1347,7 +1347,8 @@ describe('StrategyPage', () => {
     expect(continueButton).toBeTruthy()
     await continueButton!.trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('从未达标结果继续')
+    expect(vm.aiResearchForm.continuation_source).toBe('research_cancelled')
+    expect(wrapper.text()).toContain('从已取消任务继续')
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
       prompt: '历史趋势策略',
       symbol: '600000.SH',
