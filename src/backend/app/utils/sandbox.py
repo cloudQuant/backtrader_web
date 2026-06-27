@@ -50,6 +50,7 @@ class StrategySandbox:
         "tuple": tuple,
         "zip": zip,
         "enumerate": enumerate,
+        "hasattr": hasattr,
         "isinstance": isinstance,
         "issubclass": issubclass,
         "type": type,

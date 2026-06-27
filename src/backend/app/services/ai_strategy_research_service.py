@@ -6,6 +6,8 @@ import ast
 import asyncio
 import json
 import re
+import signal
+import threading
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -3912,9 +3914,66 @@ def _validate_strategy_code_draft(code: str) -> None:
     if not any(_is_backtrader_strategy_class(node) for node in ast.walk(tree)):
         raise ValueError("strategy code must define a class inheriting from bt.Strategy")
     try:
-        StrategySandbox.execute_strategy_code(text, timeout=3)
+        strategy_class = StrategySandbox.execute_strategy_code(text, timeout=3)
     except Exception as exc:
         raise ValueError(f"strategy code sandbox validation failed: {exc}") from exc
+    try:
+        _preflight_backtrader_strategy(strategy_class)
+    except Exception as exc:
+        raise ValueError(f"strategy code preflight backtest failed: {exc}") from exc
+
+
+def _preflight_backtrader_strategy(strategy_class: type) -> None:
+    import backtrader as bt
+    import pandas as pd
+
+    index = pd.date_range("2020-01-01", periods=64, freq="D")
+    closes = [100.0 + index * 0.2 for index in range(64)]
+    data = pd.DataFrame(
+        {
+            "open": closes,
+            "high": [value + 1.0 for value in closes],
+            "low": [max(value - 1.0, 0.01) for value in closes],
+            "close": closes,
+            "volume": [1000] * len(closes),
+            "openinterest": [0] * len(closes),
+        },
+        index=index,
+    )
+
+    def run_smoke() -> None:
+        cerebro = bt.Cerebro(stdstats=False)
+        cerebro.broker.setcash(100000.0)
+        cerebro.broker.setcommission(commission=0.001)
+        cerebro.adddata(bt.feeds.PandasData(dataname=data))
+        cerebro.addstrategy(strategy_class)
+        cerebro.run(runonce=False, preload=False)
+
+    _run_preflight_with_timeout(run_smoke, timeout_seconds=3)
+
+
+def _run_preflight_with_timeout(
+    callback: Callable[[], None],
+    *,
+    timeout_seconds: int,
+) -> None:
+    if (
+        not hasattr(signal, "SIGALRM")
+        or threading.current_thread() is not threading.main_thread()
+    ):
+        callback()
+        return
+
+    def handle_timeout(signum: int, frame: Any) -> None:
+        raise TimeoutError(f"strategy preflight timed out after {timeout_seconds} seconds")
+
+    old_handler = signal.signal(signal.SIGALRM, handle_timeout)
+    signal.alarm(timeout_seconds)
+    try:
+        callback()
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
 
 
 def _is_backtrader_strategy_class(node: ast.AST) -> bool:

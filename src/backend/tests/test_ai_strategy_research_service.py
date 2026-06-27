@@ -41,6 +41,7 @@ from app.services.ai_strategy_research_service import (
     AIStrategyResearchService,
     LocalStrategyImprover,
     StrategyImprovement,
+    _validate_strategy_code_draft,
 )
 from app.services.ai_strategy_research_task_manager import AIStrategyResearchTaskManager
 from app.services.strategy.ai_draft import build_ai_strategy_draft, render_ai_strategy_draft_answer
@@ -542,6 +543,29 @@ class FakeRuntimeInvalidDraftStrategyService(FakeInvalidDraftStrategyService):
         )
 
 
+class FakePreflightInvalidDraftStrategyService(FakeInvalidDraftStrategyService):
+    async def generate_copilot_draft(self, user_id: str, request):
+        draft = build_ai_strategy_draft(request.prompt).model_copy(
+            update={
+                "code": (
+                    "import backtrader as bt\n"
+                    "class LooksValidStrategy(bt.Strategy):\n"
+                    "    def next(self):\n"
+                    "        self.buy(size=undefined_position_size)\n"
+                )
+            }
+        )
+        return StrategyCopilotDraftResponse(
+            answer=render_ai_strategy_draft_answer(draft),
+            strategy_draft=draft,
+            citations=[],
+            context_chunks_used=0,
+            tokens_used=0,
+            model_id=None,
+            reasoning=None,
+        )
+
+
 class FakeValidationSubmitFailingStrategyService(FakeStrategyService):
     async def backtest_copilot_draft(self, user_id: str, workspace_id: str, request):
         if self.submitted_backtest_requests:
@@ -749,6 +773,18 @@ def test_ai_strategy_draft_class_name_is_valid_with_numeric_goal():
     assert draft.params["margin_rate"].default == pytest.approx(1.0)
     assert "risk_per_unit = max(price_risk * contract_multiplier" in draft.code
     assert "affordable_size = int" in draft.code
+
+
+def test_ai_strategy_code_validation_runs_preflight_backtest():
+    code = (
+        "import backtrader as bt\n"
+        "class RuntimeBrokenStrategy(bt.Strategy):\n"
+        "    def next(self):\n"
+        "        self.buy(size=undefined_position_size)\n"
+    )
+
+    with pytest.raises(ValueError, match="preflight backtest failed"):
+        _validate_strategy_code_draft(code)
 
 
 @pytest.mark.asyncio
@@ -4917,6 +4953,37 @@ async def test_research_loop_falls_back_when_initial_generated_strategy_fails_sa
     assert "class AIGeneratedStrategy" in strategy_service.submitted_drafts[0].code
     assert result.iterations[0].improvement_notes[0].startswith("AI初始策略代码不可运行")
     assert "sandbox validation failed" in result.iterations[0].improvement_notes[0]
+
+
+@pytest.mark.asyncio
+async def test_research_loop_falls_back_when_initial_generated_strategy_fails_preflight():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakePreflightInvalidDraftStrategyService(workspace_service)
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个运行期无效策略",
+            symbol="000001.SZ",
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+            start_paper_trading=False,
+        ),
+    )
+
+    assert result.achieved is True
+    assert strategy_service.backtest_called is True
+    assert strategy_service.submitted_drafts
+    assert "undefined_position_size" not in strategy_service.submitted_drafts[0].code
+    assert "class AIGeneratedStrategy" in strategy_service.submitted_drafts[0].code
+    assert result.iterations[0].improvement_notes[0].startswith("AI初始策略代码不可运行")
+    assert "preflight backtest failed" in result.iterations[0].improvement_notes[0]
 
 
 @pytest.mark.asyncio
