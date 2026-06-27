@@ -1322,7 +1322,7 @@ class AIStrategyResearchService:
             monitoring_plan=monitoring_plan,
             live_readiness_expires_at=live_readiness_expires_at,
         )
-        _, next_actions = await self._lock_paper_unit_for_review_failure(
+        locked_unit, next_actions, review_lock = await self._lock_paper_unit_for_review_failure(
             user_id,
             record=record,
             workspace=workspace,
@@ -1332,6 +1332,8 @@ class AIStrategyResearchService:
             evaluations=evaluations,
             next_actions=next_actions,
         )
+        if locked_unit is not None:
+            unit = locked_unit
         live_readiness_checklist = _live_readiness_checklist(
             record,
             status=review_status,
@@ -1348,11 +1350,15 @@ class AIStrategyResearchService:
             live_readiness_checklist=live_readiness_checklist,
             live_readiness_expires_at=live_readiness_expires_at,
         )
+        pipeline = _pipeline_with_paper_review_lock(pipeline, review_lock)
         paper_handoff = _research_record_handoff_payload(
-            _paper_handoff_with_live_readiness(
-                record.paper_handoff,
-                live_readiness_checklist,
-                expires_at=live_readiness_expires_at,
+            _paper_handoff_with_review_lock(
+                _paper_handoff_with_live_readiness(
+                    record.paper_handoff,
+                    live_readiness_checklist,
+                    expires_at=live_readiness_expires_at,
+                ),
+                review_lock,
             )
         )
         updated_record = record.model_copy(
@@ -1539,7 +1545,7 @@ class AIStrategyResearchService:
             monitoring_plan=monitoring_plan,
             live_readiness_expires_at=live_readiness_expires_at,
         )
-        locked_unit, next_actions = await self._lock_paper_unit_for_review_failure(
+        locked_unit, next_actions, review_lock = await self._lock_paper_unit_for_review_failure(
             user_id,
             record=record,
             workspace=workspace,
@@ -1559,6 +1565,7 @@ class AIStrategyResearchService:
             live_readiness_checklist=live_readiness_checklist,
             live_readiness_expires_at=live_readiness_expires_at,
         )
+        pipeline = _pipeline_with_paper_review_lock(pipeline, review_lock)
         review = AIStrategyPaperTradingReview(
             run_id=record.run_id,
             research_workspace_id=record.research_workspace_id,
@@ -1600,16 +1607,20 @@ class AIStrategyResearchService:
         reviewed_at: str,
         evaluations: list[AIStrategyPaperTradingRuleEvaluation],
         next_actions: list[str],
-    ) -> tuple[StrategyUnitResponse | None, list[str]]:
+    ) -> tuple[StrategyUnitResponse | None, list[str], dict[str, Any] | None]:
         if not _paper_review_status_requires_unit_lock(review_status):
-            return None, next_actions
+            return None, next_actions, None
         if workspace is None or unit is None:
-            return None, next_actions
+            return None, next_actions, None
         if not _paper_unit_needs_review_lock(unit, review_status):
+            existing_lock = _paper_review_lock_payload_for_record(
+                (unit.unit_settings or {}).get("ai_research_review_lock"),
+                record,
+            )
             return None, _append_unique_text(
                 next_actions,
                 "模拟复核未通过，模拟交易单元已处于停止/锁定状态，需继续投研或人工解锁后再运行。",
-            )
+            ), existing_lock
 
         stop_results, next_actions = await self._stop_paper_unit_for_review_failure(
             user_id,
@@ -1642,18 +1653,22 @@ class AIStrategyResearchService:
             return None, _append_unique_text(
                 next_actions,
                 f"模拟复核未通过，但自动锁定模拟交易单元失败：{exc}",
-            )
+            ), None
 
         if updated is None:
             return None, _append_unique_text(
                 next_actions,
                 "模拟复核未通过，但未找到可锁定的模拟交易单元。",
-            )
+            ), None
 
         locked_unit = StrategyUnitResponse.model_validate(updated)
-        return locked_unit, _append_unique_text(
-            next_actions,
-            "模拟复核未通过，已自动停止并锁定模拟交易单元，需继续投研或人工解锁后再运行。",
+        return (
+            locked_unit,
+            _append_unique_text(
+                next_actions,
+                "模拟复核未通过，已自动停止并锁定模拟交易单元，需继续投研或人工解锁后再运行。",
+            ),
+            lock_payload,
         )
 
     async def _stop_paper_unit_for_review_failure(
@@ -2636,10 +2651,13 @@ class AIStrategyResearchService:
         if workspace is None:
             return None
         paper_handoff = _research_record_handoff_payload(
-            _paper_handoff_with_live_readiness(
-                record.paper_handoff,
-                review.live_readiness_checklist,
-                expires_at=review.live_readiness_expires_at,
+            _paper_handoff_with_review_lock(
+                _paper_handoff_with_live_readiness(
+                    record.paper_handoff,
+                    review.live_readiness_checklist,
+                    expires_at=review.live_readiness_expires_at,
+                ),
+                _paper_review_lock_from_pipeline(review.pipeline),
             )
         )
         updated_record = record.model_copy(
@@ -3463,6 +3481,8 @@ def _paper_review_unit_lock_payload(
     return {
         "run_id": record.run_id,
         "research_workspace_id": record.research_workspace_id,
+        "paper_workspace_id": record.paper_workspace_id,
+        "paper_unit_id": record.paper_unit_id,
         "status": review_status,
         "reviewed_at": reviewed_at,
         "failed_rules": failed_rules,
@@ -3470,6 +3490,56 @@ def _paper_review_unit_lock_payload(
         "next_actions": list(next_actions),
         "reason": "AI paper review failed; trading and running are locked until research review.",
     }
+
+
+def _paper_review_lock_payload_for_record(
+    payload: Any,
+    record: AIStrategyResearchRunRecord,
+) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    lock_payload = dict(payload)
+    lock_payload.setdefault("run_id", record.run_id)
+    lock_payload.setdefault("research_workspace_id", record.research_workspace_id)
+    lock_payload.setdefault("paper_workspace_id", record.paper_workspace_id)
+    lock_payload.setdefault("paper_unit_id", record.paper_unit_id)
+    return lock_payload
+
+
+def _paper_review_lock_from_pipeline(pipeline: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(pipeline, dict):
+        return None
+    return _dict_payload(pipeline.get("paper_review_lock")) or None
+
+
+def _pipeline_with_paper_review_lock(
+    pipeline: dict[str, Any] | None,
+    review_lock: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload = dict(pipeline or {})
+    if review_lock:
+        lock_payload = dict(review_lock)
+        payload["paper_review_lock"] = lock_payload
+        payload["paper_unit_locked"] = True
+        payload["paper_unit_stopped"] = bool(lock_payload.get("stop_results"))
+        return payload
+
+    payload.pop("paper_review_lock", None)
+    payload.pop("paper_unit_locked", None)
+    payload.pop("paper_unit_stopped", None)
+    return payload
+
+
+def _paper_handoff_with_review_lock(
+    handoff: dict[str, Any] | None,
+    review_lock: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload = dict(handoff or {})
+    if review_lock:
+        payload["paper_review_lock"] = dict(review_lock)
+    else:
+        payload.pop("paper_review_lock", None)
+    return payload
 
 
 def _append_unique_text(items: list[str], value: str) -> list[str]:

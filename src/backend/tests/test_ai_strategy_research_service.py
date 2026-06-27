@@ -3248,6 +3248,10 @@ async def test_review_paper_trading_normalizes_negative_drawdown_before_live_can
     assert review.unit is not None
     assert review.unit.lock_trading is True
     assert review.unit.lock_running is True
+    assert review.pipeline["paper_unit_locked"] is True
+    assert review.pipeline["paper_unit_stopped"] is True
+    assert review.pipeline["paper_review_lock"]["paper_unit_id"] == "paper-unit"
+    assert review.pipeline["paper_review_lock"]["stop_results"][0]["cancelled"] is True
     assert "锁定状态" in review.next_actions[-1]
     assert workspace_service.stopped_units == [("paper-ws", ["paper-unit"])]
     assert workspace_service.updated_units[-1].lock_trading is True
@@ -3258,6 +3262,16 @@ async def test_review_paper_trading_normalizes_negative_drawdown_before_live_can
     assert workspace_service.updated_units[-1].unit_settings["ai_research_review_lock"][
         "stop_results"
     ][0]["cancelled"] is True
+    persisted_run = workspace_service.workspaces["research-ws"].settings["ai_research"][
+        "runs"
+    ][0]
+    assert persisted_run["paper_handoff"]["paper_review_lock"]["status"] == (
+        "needs_research_review"
+    )
+    assert persisted_run["paper_handoff"]["paper_review_lock"]["paper_unit_id"] == "paper-unit"
+    assert persisted_run["pipeline"]["paper_unit_locked"] is True
+    assert persisted_run["pipeline"]["paper_unit_stopped"] is True
+    assert persisted_run["pipeline"]["paper_review_lock"]["stop_results"][0]["cancelled"] is True
 
 
 @pytest.mark.asyncio
@@ -5952,6 +5966,10 @@ async def test_list_research_run_records_auto_locks_failed_paper_review_unit():
     assert refreshed.paper_review_status == "needs_research_review"
     assert refreshed.paper_review_ready_for_live is False
     assert refreshed.pipeline["current_stage"] == "paper_review"
+    assert refreshed.pipeline["paper_unit_locked"] is True
+    assert refreshed.pipeline["paper_unit_stopped"] is True
+    assert refreshed.pipeline["paper_review_lock"]["paper_workspace_id"] == "paper-lock"
+    assert refreshed.paper_handoff["paper_review_lock"]["paper_unit_id"] == "paper-lock-unit"
     assert "已自动停止并锁定模拟交易单元" in refreshed.next_actions[-1]
     assert workspace_service.stopped_units == [("paper-lock", ["paper-lock-unit"])]
     assert workspace_service.updated_units[-1].id == "paper-lock-unit"
@@ -5970,6 +5988,13 @@ async def test_list_research_run_records_auto_locks_failed_paper_review_unit():
     assert persisted_run["paper_review_status"] == "needs_research_review"
     assert persisted_run["paper_review_evaluations"][1]["key"] == "drawdown_guard"
     assert persisted_run["paper_review_evaluations"][1]["status"] == "failed"
+    assert persisted_run["paper_handoff"]["paper_review_lock"]["paper_unit_id"] == (
+        "paper-lock-unit"
+    )
+    assert persisted_run["pipeline"]["paper_unit_locked"] is True
+    assert persisted_run["pipeline"]["paper_review_lock"]["stop_results"][0]["unit_id"] == (
+        "paper-lock-unit"
+    )
     assert "已自动停止并锁定模拟交易单元" in persisted_run["next_actions"][-1]
 
 
