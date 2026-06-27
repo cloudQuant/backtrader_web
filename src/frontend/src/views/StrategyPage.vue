@@ -1628,7 +1628,10 @@ const aiResearchCurrentPaperEnvironment = computed(() => {
 const aiResearchCurrentRuntimeEnvironment = computed(() => {
   const result = aiResearchResult.value
   if (!result) return []
-  return researchRuntimeItems(result.run_record, result.paper_trading?.handoff)
+  return researchRuntimeItems(
+    result.run_record,
+    result.paper_trading?.handoff ?? result.run_record?.paper_handoff ?? null
+  )
 })
 const aiResearchBestGateEvaluations = computed(
   () => aiResearchResult.value?.best_quality_gate_evaluations ?? []
@@ -1871,29 +1874,26 @@ function runtimeEnvironmentPayload(
   record: AIStrategyResearchRunRecord | null | undefined,
   handoff?: Record<string, unknown> | null
 ): Record<string, unknown> {
-  if (isRecord(record?.backtest_environment)) return record.backtest_environment
-  if (isRecord(handoff?.backtest_environment)) return handoff.backtest_environment
-  if (isRecord(record?.paper_handoff) && isRecord(record.paper_handoff.backtest_environment)) {
-    return record.paper_handoff.backtest_environment
+  const environment: Record<string, unknown> = {}
+  const merge = (source: unknown) => {
+    if (isRecord(source)) Object.assign(environment, source)
   }
-  return {}
+  merge(record?.backtest_environment)
+  merge(handoff?.backtest_environment)
+  if (handoff !== undefined && isRecord(record?.paper_handoff)) {
+    merge(record.paper_handoff.backtest_environment)
+  }
+  return environment
 }
 
 function firstRuntimeAssetSpec(
   record: AIStrategyResearchRunRecord | null | undefined,
   handoff?: Record<string, unknown> | null
 ): { symbol: string; spec: Record<string, unknown> } | null {
-  const sources = [
-    record?.asset_specs,
-    handoff?.asset_specs,
-    isRecord(record?.paper_handoff) ? record.paper_handoff.asset_specs : null,
-  ]
-  for (const source of sources) {
-    if (!isRecord(source)) continue
-    for (const [symbol, spec] of Object.entries(source)) {
-      if (!isRecord(spec)) continue
-      return { symbol, spec }
-    }
+  const specs = runtimeAssetSpecsPayload(record, handoff)
+  for (const [symbol, spec] of Object.entries(specs)) {
+    if (!isRecord(spec)) continue
+    return { symbol, spec }
   }
   return null
 }
@@ -2794,7 +2794,9 @@ function runtimeAssetSpecsPayload(
   }
   merge(record?.asset_specs)
   merge(handoff?.asset_specs)
-  if (isRecord(record?.paper_handoff)) merge(record.paper_handoff.asset_specs)
+  if (handoff !== undefined && isRecord(record?.paper_handoff)) {
+    merge(record.paper_handoff.asset_specs)
+  }
   return specs
 }
 

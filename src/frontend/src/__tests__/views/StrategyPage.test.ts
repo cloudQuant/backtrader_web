@@ -1206,6 +1206,22 @@ describe('StrategyPage', () => {
       best_quality_score: 96,
       best_quality_gate_evaluations: [],
       best_metrics: { sharpe_ratio: 1.18, total_pnl: 3200 },
+      asset_specs: {
+        'IF2409.CFE': {
+          symbol: 'IF2409.CFE',
+          multiplier: 200,
+          margin_rate: 0.2,
+          commission_rate: 0.001,
+          source: 'stale-local',
+        },
+      },
+      backtest_environment: {
+        initial_cash: 100000,
+        commission: 0.001,
+        multiplier: 200,
+        margin: 0.2,
+        asset_spec_source: 'stale-local',
+      },
       best_strategy_id: 'futures-strategy',
       best_strategy_name: '期货趋势策略',
       research_workspace_id: 'research-ws',
@@ -1271,7 +1287,10 @@ describe('StrategyPage', () => {
     expect(result.paper_trading.run_result.task_id).toBe('paper-task')
     expect(result.paper_trading.unit.data_config.ai_research_run_id).toBe('paper-only-run')
     expect(result.paper_trading.unit.data_config.asset_specs['IF2409.CFE'].multiplier).toBe(300)
+    expect(result.paper_trading.unit.data_config.asset_specs['IF2409.CFE'].source).toBe('exchange')
+    expect(result.paper_trading.unit.data_config.backtest_environment.commission).toBe(0.000023)
     expect(result.paper_trading.unit.unit_settings.commission).toBe(0.000023)
+    expect(result.paper_trading.unit.unit_settings.asset_spec_source).toBe('exchange')
     expect(result.paper_trading.unit.unit_settings.asset_specs['IF2409.CFE'].margin_rate).toBe(0.12)
     expect(result.paper_trading.unit.gateway_config.params.broker_id).toBe('9999')
     expect(result.paper_trading.unit.metrics_snapshot.total_pnl).toBe(3200)
