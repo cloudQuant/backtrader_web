@@ -389,6 +389,14 @@ class FakeInvalidDraftStrategyService:
         )
 
 
+class FakeValidationSubmitFailingStrategyService(FakeStrategyService):
+    async def backtest_copilot_draft(self, user_id: str, workspace_id: str, request):
+        if self.submitted_backtest_requests:
+            self.submitted_backtest_requests.append(request)
+            return None
+        return await super().backtest_copilot_draft(user_id, workspace_id, request)
+
+
 class InvalidThenRepairingImprover:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
@@ -975,6 +983,55 @@ async def test_research_loop_validates_out_of_sample_before_paper_when_dates_are
     ] == pytest.approx(0.92)
     assert result.run_record.iterations[0]["validation_task_id"] == "task-2"
     assert result.run_record.iterations[0]["validation_run_status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_research_loop_records_out_of_sample_submission_failure():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeValidationSubmitFailingStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.32, "total_trades": 12, "max_drawdown": -4.0}],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个趋势策略并做样本外验证",
+            symbol="000001.SZ",
+            start_date="2024-01-01",
+            end_date="2024-01-20",
+            target_sharpe=1.0,
+            min_total_trades=4,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+            start_paper_trading=False,
+        ),
+    )
+
+    assert result.achieved is False
+    assert result.status == "max_iterations_reached"
+    assert result.paper_trading is None
+    assert len(strategy_service.submitted_backtest_requests) == 2
+    iteration = result.iterations[0]
+    assert iteration.passed is False
+    assert iteration.validation_status == "failed"
+    assert iteration.validation_unit is None
+    assert iteration.validation_run_result is None
+    assert iteration.validation_failures == [
+        "Out-of-sample validation failed to start: "
+        "Research workspace or generated validation strategy was not found"
+    ]
+    assert iteration.failure_reason == iteration.validation_failure_reason
+    assert iteration.diagnostics["promotion_ready"] is False
+    assert result.run_record is not None
+    assert result.run_record.iterations[0]["validation_status"] == "failed"
+    assert result.research_workspace.settings["ai_research"]["runs"][0]["run_id"] == result.run_id
 
 
 @pytest.mark.asyncio

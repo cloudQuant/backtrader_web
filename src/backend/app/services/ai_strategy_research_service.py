@@ -510,68 +510,84 @@ class AIStrategyResearchService:
                         end_date=validation_window.validation_end,
                         group_name_suffix=" 样本外验证",
                     )
-                    validation_response = await self.strategy_service.backtest_copilot_draft(
-                        user_id,
-                        research_workspace.id,
-                        validation_request,
-                    )
-                    if validation_response is None:
-                        raise ValueError(
-                            "Research workspace or generated validation strategy was not found"
+                    try:
+                        validation_response = await self.strategy_service.backtest_copilot_draft(
+                            user_id,
+                            research_workspace.id,
+                            validation_request,
                         )
-                    validation_unit = validation_response.unit
-                    validation_run_result = validation_response.run_result
-                    await _emit_research_progress(
-                        progress_callback,
-                        {
-                            "current_stage": "validating",
-                            "progress": min(
-                                _research_loop_progress(iteration, request.max_iterations) + 2.0,
-                                84.0,
-                            ),
-                            "current_iteration": iteration,
-                            "iteration_count": len(iterations),
-                            "max_iterations": request.max_iterations,
-                            "current_backtest_task_id": validation_response.run_result.task_id,
-                            "latest_iteration": {
-                                "iteration": iteration,
-                                "validation_window": validation_window_payload,
+                        if validation_response is None:
+                            raise ValueError(
+                                "Research workspace or generated validation strategy was not found"
+                            )
+                        validation_unit = validation_response.unit
+                        validation_run_result = validation_response.run_result
+                        await _emit_research_progress(
+                            progress_callback,
+                            {
+                                "current_stage": "validating",
+                                "progress": min(
+                                    _research_loop_progress(iteration, request.max_iterations) + 2.0,
+                                    84.0,
+                                ),
+                                "current_iteration": iteration,
+                                "iteration_count": len(iterations),
+                                "max_iterations": request.max_iterations,
+                                "current_backtest_task_id": validation_response.run_result.task_id,
+                                "latest_iteration": {
+                                    "iteration": iteration,
+                                    "validation_window": validation_window_payload,
+                                },
+                                "message": (
+                                    "Out-of-sample validation task submitted "
+                                    f"for iteration {iteration}"
+                                ),
                             },
-                            "message": (
-                                f"Out-of-sample validation task submitted for iteration {iteration}"
-                            ),
-                        },
-                    )
-                    validation_unit_status, validation_wait_failure = await self._wait_for_unit_status(
-                        research_workspace.id,
-                        user_id,
-                        validation_response.unit.id,
-                        initial_status=validation_response.unit_status,
-                        timeout_seconds=request.backtest_timeout_seconds,
-                        poll_interval_seconds=request.poll_interval_seconds,
-                    )
-                    validation_metrics = dict(
-                        validation_unit_status.metrics_snapshot if validation_unit_status else {}
-                    )
-                    validation_run_status = (
-                        validation_unit_status.run_status if validation_unit_status else None
-                    )
-                    validation_gate_evaluations = _out_of_sample_gate_evaluations(
-                        request,
-                        validation_metrics,
-                        run_status=validation_run_status,
-                    )
-                    validation_failures = _out_of_sample_failures(
-                        request,
-                        validation_metrics,
-                        run_status=validation_run_status,
-                    )
-                    validation_status = "passed" if not validation_failures else "failed"
-                    if validation_wait_failure and validation_run_status != "completed":
-                        validation_failure_reason = validation_wait_failure
-                    if validation_failures:
-                        validation_failure_reason = "; ".join(validation_failures)
-                        quality_gate_failures = [*quality_gate_failures, *validation_failures]
+                        )
+                        (
+                            validation_unit_status,
+                            validation_wait_failure,
+                        ) = await self._wait_for_unit_status(
+                            research_workspace.id,
+                            user_id,
+                            validation_response.unit.id,
+                            initial_status=validation_response.unit_status,
+                            timeout_seconds=request.backtest_timeout_seconds,
+                            poll_interval_seconds=request.poll_interval_seconds,
+                        )
+                        validation_metrics = dict(
+                            validation_unit_status.metrics_snapshot
+                            if validation_unit_status
+                            else {}
+                        )
+                        validation_run_status = (
+                            validation_unit_status.run_status if validation_unit_status else None
+                        )
+                        validation_gate_evaluations = _out_of_sample_gate_evaluations(
+                            request,
+                            validation_metrics,
+                            run_status=validation_run_status,
+                        )
+                        validation_failures = _out_of_sample_failures(
+                            request,
+                            validation_metrics,
+                            run_status=validation_run_status,
+                        )
+                        validation_status = "passed" if not validation_failures else "failed"
+                        if validation_wait_failure and validation_run_status != "completed":
+                            validation_failure_reason = validation_wait_failure
+                        if validation_failures:
+                            validation_failure_reason = "; ".join(validation_failures)
+                            quality_gate_failures = [*quality_gate_failures, *validation_failures]
+                            failure_reason = validation_failure_reason
+                            passed = False
+                    except Exception as exc:
+                        validation_status = "failed"
+                        validation_failure_reason = (
+                            f"Out-of-sample validation failed to start: {exc}"
+                        )
+                        validation_failures = [validation_failure_reason]
+                        quality_gate_failures = [*quality_gate_failures, validation_failure_reason]
                         failure_reason = validation_failure_reason
                         passed = False
             diagnostics = _iteration_diagnostics(
