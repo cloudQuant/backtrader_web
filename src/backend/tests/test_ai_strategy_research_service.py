@@ -1805,6 +1805,130 @@ async def test_research_loop_continuation_restores_record_runtime_metadata(monke
 
 
 @pytest.mark.asyncio
+async def test_research_loop_continuation_restores_paper_handoff_runtime_metadata(monkeypatch):
+    def fake_resolve_asset_specs(instance, strategy_dir, gateway=None, symbols=None):
+        return {}
+
+    monkeypatch.setattr(
+        "app.services.ai_strategy_research_service.resolve_asset_specs",
+        fake_resolve_asset_specs,
+    )
+    workspace_service = FakeWorkspaceService()
+    seed_draft = build_ai_strategy_draft("请生成一个股指期货趋势策略").model_copy(
+        update={"name": "历史期货策略"}
+    )
+    seed_strategy = _strategy("futures-strategy-1", seed_draft)
+    record = {
+        **_run_record(
+            "previous-handoff-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "symbol": "IF2609",
+        "symbol_name": "沪深300股指期货",
+        "initial_cash": 100000.0,
+        "commission": 0.001,
+        "annual_days": 252,
+        "calc_method": "simple",
+        "weight_mode": "equal",
+        "best_strategy_id": seed_strategy.id,
+        "best_strategy_name": seed_strategy.name,
+        "asset_specs": {},
+        "backtest_environment": {},
+        "paper_handoff": {
+            "asset_specs": {
+                "IF2609": {
+                    "symbol": "IF2609",
+                    "source": "paper_handoff_exchange_specs",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                }
+            },
+            "backtest_environment": {
+                "initial_cash": 250000.0,
+                "commission": 0.000023,
+                "annual_days": 244,
+                "calc_method": "log",
+                "weight_mode": "value",
+                "multiplier": 300,
+                "margin": 0.1,
+                "asset_spec_source": "paper_handoff_exchange_specs",
+            },
+        },
+        "iterations": [
+            {
+                "iteration": 2,
+                "strategy_id": seed_strategy.id,
+                "strategy_name": seed_strategy.name,
+                "unit_id": "history-unit",
+                "unit_snapshot": {
+                    "id": "history-unit",
+                    "workspace_id": "research-ws",
+                    "data_config": {"symbol": "IF2609"},
+                    "unit_settings": {"initial_cash": 100000.0, "commission": 0.001},
+                    "optimization_config": {},
+                    "gateway_config": {},
+                },
+                "task_id": "task-history",
+                "run_status": "completed",
+                "metrics": {"sharpe_ratio": 0.72, "total_trades": 4},
+                "sharpe_ratio": 0.72,
+                "total_trades": 4,
+                "quality_score": 72.0,
+                "quality_gate_failures": ["Sharpe 0.720 below target 1.000"],
+            }
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [record]}}}
+    )
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.18, "total_trades": 7, "max_drawdown": -4.0}],
+        strategies={seed_strategy.id: seed_strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续股指期货策略投研",
+            symbol="IF2609",
+            target_sharpe=1.0,
+            continue_from_run_id="previous-handoff-run",
+            start_paper_trading=False,
+            out_of_sample_validation=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    backtest_request = strategy_service.submitted_backtest_requests[0]
+    contract_metadata = backtest_request.data_config["contract_metadata"]["IF2609"]
+    unit_metadata = backtest_request.unit_settings["contract_metadata"]["IF2609"]
+    assert contract_metadata["source"] == "paper_handoff_exchange_specs"
+    assert unit_metadata["commission_rate"] == pytest.approx(0.000023)
+    assert backtest_request.unit_settings["initial_cash"] == pytest.approx(250000.0)
+    assert backtest_request.unit_settings["commission"] == pytest.approx(0.000023)
+    assert backtest_request.unit_settings["annual_days"] == 244
+    assert backtest_request.unit_settings["calc_method"] == "log"
+    assert backtest_request.unit_settings["weight_mode"] == "value"
+    assert backtest_request.unit_settings["multiplier"] == 300
+    assert backtest_request.unit_settings["margin"] == pytest.approx(0.1)
+    assert backtest_request.unit_settings["asset_spec_source"] == "paper_handoff_exchange_specs"
+    assert result.run_record is not None
+    assert result.run_record.commission == pytest.approx(0.000023)
+    assert result.run_record.asset_specs["IF2609"]["source"] == "paper_handoff_exchange_specs"
+    assert result.run_record.backtest_environment["commission"] == pytest.approx(0.000023)
+
+
+@pytest.mark.asyncio
 async def test_research_loop_emits_progress_snapshots():
     workspace_service = FakeWorkspaceService()
     strategy_service = FakeStrategyService(
@@ -3336,6 +3460,128 @@ async def test_start_paper_trading_from_history_uses_iteration_unit_snapshot():
     assert result.handoff["asset_specs"]["IF2609"]["asset_spec_source"] == (
         "local_futures_commission"
     )
+
+
+@pytest.mark.asyncio
+async def test_start_paper_trading_from_history_restores_paper_handoff_runtime_metadata():
+    workspace_service = FakeWorkspaceService()
+    seed_draft = build_ai_strategy_draft("请生成一个股指期货趋势策略").model_copy(
+        update={"name": "历史期货策略"}
+    )
+    strategy = _strategy("strategy-2", seed_draft)
+    record = {
+        **_run_record(
+            "previous-handoff-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "symbol": "IF2609",
+        "symbol_name": "沪深300股指期货",
+        "initial_cash": 100000.0,
+        "commission": 0.001,
+        "annual_days": 252,
+        "calc_method": "simple",
+        "weight_mode": "equal",
+        "best_strategy_id": strategy.id,
+        "best_strategy_name": strategy.name,
+        "asset_specs": {},
+        "backtest_environment": {},
+        "paper_workspace_id": None,
+        "paper_unit_id": None,
+        "paper_trading_started": False,
+        "paper_handoff": {
+            "asset_specs": {
+                "IF2609": {
+                    "symbol": "IF2609",
+                    "source": "paper_handoff_exchange_specs",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                }
+            },
+            "backtest_environment": {
+                "initial_cash": 250000.0,
+                "commission": 0.000023,
+                "annual_days": 244,
+                "calc_method": "log",
+                "weight_mode": "value",
+                "multiplier": 300,
+                "margin": 0.1,
+                "asset_spec_source": "paper_handoff_exchange_specs",
+            },
+        },
+        "iterations": [
+            {
+                "iteration": 2,
+                "strategy_id": strategy.id,
+                "strategy_name": strategy.name,
+                "strategy_snapshot": {
+                    "id": strategy.id,
+                    "name": strategy.name,
+                    "description": strategy.description,
+                    "code": strategy.code,
+                    "params": {
+                        key: value.model_dump(mode="json")
+                        for key, value in strategy.params.items()
+                    },
+                    "category": strategy.category,
+                    "created_at": strategy.created_at.isoformat(),
+                    "updated_at": strategy.updated_at.isoformat(),
+                },
+                "unit_id": "missing-research-unit",
+                "unit_snapshot": {
+                    "id": "missing-research-unit",
+                    "workspace_id": "research-ws",
+                    "data_config": {"symbol": "IF2609"},
+                    "unit_settings": {"initial_cash": 100000.0, "commission": 0.001},
+                    "optimization_config": {},
+                    "gateway_config": {},
+                },
+                "task_id": "task-2",
+                "run_status": "completed",
+                "metrics": {"sharpe_ratio": 1.21, "total_trades": 5},
+                "sharpe_ratio": 1.21,
+                "total_trades": 5,
+                "quality_score": 100.0,
+                "passed": True,
+                "quality_gate_failures": [],
+            }
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [record]}}}
+    )
+    service = AIStrategyResearchService(
+        strategy_service=FakeStrategyService(workspace_service, [], strategies={}),
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.start_paper_trading_from_run(
+        "user-1",
+        "previous-handoff-run",
+        AIStrategyPaperTradingStartRequest(research_workspace_id="research-ws"),
+    )
+
+    assert result.started is True
+    created_unit = workspace_service.created_units[-1]
+    assert created_unit.data_config["contract_metadata"]["IF2609"]["source"] == (
+        "paper_handoff_exchange_specs"
+    )
+    assert created_unit.unit_settings["contract_metadata"]["IF2609"]["commission_rate"] == (
+        pytest.approx(0.000023)
+    )
+    assert created_unit.unit_settings["initial_cash"] == pytest.approx(250000.0)
+    assert created_unit.unit_settings["commission"] == pytest.approx(0.000023)
+    assert created_unit.unit_settings["annual_days"] == 244
+    assert created_unit.unit_settings["calc_method"] == "log"
+    assert created_unit.unit_settings["weight_mode"] == "value"
+    assert created_unit.unit_settings["multiplier"] == 300
+    assert created_unit.unit_settings["margin"] == pytest.approx(0.1)
+    assert created_unit.unit_settings["asset_spec_source"] == "paper_handoff_exchange_specs"
+    assert result.handoff["backtest_environment"]["commission"] == pytest.approx(0.000023)
+    assert result.handoff["asset_specs"]["IF2609"]["source"] == "paper_handoff_exchange_specs"
 
 
 @pytest.mark.asyncio

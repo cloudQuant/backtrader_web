@@ -1242,6 +1242,12 @@ class AIStrategyResearchService:
                 raise ValueError("AI research run record not found")
             seed_record = record
             seed_iteration_payload = _best_iteration_payload(record)
+            runtime_context = _record_runtime_context(record)
+            backtest_environment = (
+                dict(runtime_context.get("backtest_environment"))
+                if isinstance(runtime_context.get("backtest_environment"), dict)
+                else {}
+            )
             if not seed_strategy_id:
                 seed_strategy_id = record.best_strategy_id or _strategy_id_from_iteration_payload(
                     seed_iteration_payload or {}
@@ -1259,15 +1265,30 @@ class AIStrategyResearchService:
             if "end_date" not in explicit_fields and record.end_date:
                 update["end_date"] = record.end_date
             if "initial_cash" not in explicit_fields:
-                update["initial_cash"] = record.initial_cash
+                update["initial_cash"] = _runtime_float(
+                    backtest_environment.get("initial_cash"),
+                    record.initial_cash,
+                )
             if "commission" not in explicit_fields:
-                update["commission"] = record.commission
+                update["commission"] = _runtime_float(
+                    backtest_environment.get("commission"),
+                    record.commission,
+                )
             if "annual_days" not in explicit_fields:
-                update["annual_days"] = record.annual_days
+                update["annual_days"] = _runtime_int(
+                    backtest_environment.get("annual_days"),
+                    record.annual_days,
+                )
             if "calc_method" not in explicit_fields and record.calc_method:
-                update["calc_method"] = record.calc_method
+                update["calc_method"] = _runtime_text(
+                    backtest_environment.get("calc_method"),
+                    record.calc_method,
+                )
             if "weight_mode" not in explicit_fields and record.weight_mode:
-                update["weight_mode"] = record.weight_mode
+                update["weight_mode"] = _runtime_text(
+                    backtest_environment.get("weight_mode"),
+                    record.weight_mode,
+                )
             if record.thinking_mode and "thinking_mode" not in explicit_fields:
                 update["thinking_mode"] = record.thinking_mode
             update.update(_continuation_runtime_updates(record, request, explicit_fields))
@@ -1647,11 +1668,13 @@ class AIStrategyResearchService:
         )
         unit_data_config = {
             **best_iteration.unit.data_config,
+            **dict(request.data_config or {}),
             "ai_research_run_id": run_id,
             "ai_research_workspace_id": research_workspace_id,
         }
         unit_settings = {
             **best_iteration.unit.unit_settings,
+            **dict(request.unit_settings or {}),
             "ai_research_handoff": handoff,
         }
         unit_payload = StrategyUnitCreate(
@@ -2139,6 +2162,18 @@ def _asset_specs_from_mapping(payload: dict[str, Any]) -> dict[str, dict[str, An
             merged.update(dict(spec))
             specs[text] = merged
     return specs
+
+
+def _merge_asset_spec_maps(
+    target: dict[str, dict[str, Any]],
+    source: dict[str, dict[str, Any]],
+) -> None:
+    for symbol, spec in source.items():
+        if not isinstance(spec, dict):
+            continue
+        merged = dict(target.get(symbol) or {})
+        merged.update(dict(spec))
+        target[symbol] = merged
 
 
 def _request_backtest_environment(
@@ -3202,6 +3237,17 @@ def _continuation_runtime_updates(
 ) -> dict[str, Any]:
     """Restore runtime assumptions from a previous run unless the caller overrides them."""
 
+    runtime_context = _record_runtime_context(record)
+    asset_specs = (
+        dict(runtime_context.get("asset_specs"))
+        if isinstance(runtime_context.get("asset_specs"), dict)
+        else {}
+    )
+    backtest_environment = (
+        dict(runtime_context.get("backtest_environment"))
+        if isinstance(runtime_context.get("backtest_environment"), dict)
+        else {}
+    )
     payload = _best_iteration_payload(record) or {}
     unit_snapshot = (
         dict(payload.get("unit_snapshot"))
@@ -3213,20 +3259,29 @@ def _continuation_runtime_updates(
     if "data_config" not in explicit_fields:
         data_config = _runtime_mapping_from_snapshot(unit_snapshot, "data_config")
         data_config.update(dict(request.data_config or {}))
-        if record.asset_specs:
-            _merge_contract_metadata(data_config, record.asset_specs)
+        if asset_specs:
+            _merge_contract_metadata(data_config, asset_specs)
         if data_config:
             updates["data_config"] = data_config
 
     if "unit_settings" not in explicit_fields:
         unit_settings = _runtime_mapping_from_snapshot(unit_snapshot, "unit_settings")
         unit_settings.update(dict(request.unit_settings or {}))
-        if record.asset_specs:
-            _merge_contract_metadata(unit_settings, record.asset_specs)
-        if record.backtest_environment:
-            for key in ("multiplier", "margin", "asset_spec_source"):
-                value = record.backtest_environment.get(key)
-                if key not in unit_settings and value not in (None, ""):
+        if asset_specs:
+            _merge_contract_metadata(unit_settings, asset_specs)
+        if backtest_environment:
+            for key in (
+                "initial_cash",
+                "commission",
+                "annual_days",
+                "calc_method",
+                "weight_mode",
+                "multiplier",
+                "margin",
+                "asset_spec_source",
+            ):
+                value = backtest_environment.get(key)
+                if value not in (None, ""):
                     unit_settings[key] = value
         if unit_settings:
             updates["unit_settings"] = unit_settings
@@ -3311,6 +3366,17 @@ def _paper_start_request_from_record(
     request: AIStrategyPaperTradingStartRequest,
 ) -> AIStrategyResearchRunRequest:
     gates = dict(record.quality_gates or {})
+    runtime_context = _record_runtime_context(record)
+    asset_specs = (
+        dict(runtime_context.get("asset_specs"))
+        if isinstance(runtime_context.get("asset_specs"), dict)
+        else {}
+    )
+    backtest_environment = (
+        dict(runtime_context.get("backtest_environment"))
+        if isinstance(runtime_context.get("backtest_environment"), dict)
+        else {}
+    )
     iteration_payload = _best_iteration_payload(record) or {}
     unit_snapshot = (
         dict(iteration_payload.get("unit_snapshot"))
@@ -3319,13 +3385,22 @@ def _paper_start_request_from_record(
     )
     data_config = dict(unit_snapshot.get("data_config") or {})
     unit_settings = dict(unit_snapshot.get("unit_settings") or {})
-    if record.asset_specs:
-        _merge_contract_metadata(data_config, record.asset_specs)
-        _merge_contract_metadata(unit_settings, record.asset_specs)
-    if record.backtest_environment:
-        for key in ("multiplier", "margin", "asset_spec_source"):
-            if key not in unit_settings and record.backtest_environment.get(key) not in (None, ""):
-                unit_settings[key] = record.backtest_environment[key]
+    if asset_specs:
+        _merge_contract_metadata(data_config, asset_specs)
+        _merge_contract_metadata(unit_settings, asset_specs)
+    if backtest_environment:
+        for key in (
+            "initial_cash",
+            "commission",
+            "annual_days",
+            "calc_method",
+            "weight_mode",
+            "multiplier",
+            "margin",
+            "asset_spec_source",
+        ):
+            if backtest_environment.get(key) not in (None, ""):
+                unit_settings[key] = backtest_environment[key]
     return AIStrategyResearchRunRequest(
         prompt=record.prompt,
         symbol=record.symbol,
@@ -3334,11 +3409,11 @@ def _paper_start_request_from_record(
         timeframe_n=record.timeframe_n,
         start_date=record.start_date,
         end_date=record.end_date,
-        initial_cash=record.initial_cash,
-        commission=record.commission,
-        annual_days=record.annual_days,
-        calc_method=record.calc_method,
-        weight_mode=record.weight_mode,
+        initial_cash=_runtime_float(backtest_environment.get("initial_cash"), record.initial_cash),
+        commission=_runtime_float(backtest_environment.get("commission"), record.commission),
+        annual_days=_runtime_int(backtest_environment.get("annual_days"), record.annual_days),
+        calc_method=_runtime_text(backtest_environment.get("calc_method"), record.calc_method),
+        weight_mode=_runtime_text(backtest_environment.get("weight_mode"), record.weight_mode),
         knowledge_base_id=record.knowledge_base_id,
         thinking_mode=record.thinking_mode,
         target_sharpe=record.target_sharpe,
@@ -3837,6 +3912,12 @@ def _build_paper_trading_handoff(
     promoted_at: str,
 ) -> dict[str, Any]:
     asset_specs = _asset_specs_from_unit(best_iteration.unit)
+    for source in (
+        dict(request.data_config or {}),
+        dict(request.unit_settings or {}),
+        _dict_payload(request.gateway_config),
+    ):
+        _merge_asset_spec_maps(asset_specs, _asset_specs_from_mapping(source))
     return {
         "run_id": run_id,
         "source": "ai_strategy_research",
@@ -4249,7 +4330,10 @@ def _paper_effective_commission(
     request: AIStrategyResearchRunRequest,
     best_iteration: AIStrategyResearchIteration,
 ) -> float:
-    unit_settings = dict(best_iteration.unit.unit_settings or {})
+    unit_settings = {
+        **dict(best_iteration.unit.unit_settings or {}),
+        **dict(request.unit_settings or {}),
+    }
     return _runtime_float(unit_settings.get("commission"), request.commission)
 
 
@@ -4257,8 +4341,14 @@ def _paper_backtest_environment(
     request: AIStrategyResearchRunRequest,
     best_iteration: AIStrategyResearchIteration,
 ) -> dict[str, Any]:
-    unit_settings = dict(best_iteration.unit.unit_settings or {})
-    data_config = dict(best_iteration.unit.data_config or {})
+    unit_settings = {
+        **dict(best_iteration.unit.unit_settings or {}),
+        **dict(request.unit_settings or {}),
+    }
+    data_config = {
+        **dict(best_iteration.unit.data_config or {}),
+        **dict(request.data_config or {}),
+    }
     environment: dict[str, Any] = {
         "initial_cash": _runtime_float(unit_settings.get("initial_cash"), request.initial_cash),
         "commission": _runtime_float(unit_settings.get("commission"), request.commission),
