@@ -263,6 +263,28 @@ class AIStrategyLiveHandoffPackage(BaseModel):
     next_actions: list[str] = Field(default_factory=list)
 
 
+class AIStrategyLiveTradingPrepareRequest(BaseModel):
+    """Request to materialize an approved live handoff as a locked live unit."""
+
+    research_workspace_id: str | None = Field(None, description="Workspace that stores the run")
+    trading_workspace_id: str | None = Field(None, description="Existing live trading workspace")
+    live_workspace_name: str | None = Field(None, description="Name for generated live workspace")
+    gateway_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Live gateway config; required when persisted handoff credentials are redacted",
+    )
+
+
+class AIStrategyLiveTradingPrepare(BaseModel):
+    """Locked live trading workspace/unit prepared from an approved handoff."""
+
+    workspace: WorkspaceResponse
+    unit: StrategyUnitResponse
+    prepared: bool = False
+    handoff: dict[str, Any] | None = None
+    next_actions: list[str] = Field(default_factory=list)
+
+
 class AIStrategyResearchRunRecord(BaseModel):
     """Compact persisted summary for one AI strategy research run."""
 
@@ -324,6 +346,11 @@ class AIStrategyResearchRunRecord(BaseModel):
     live_readiness_expires_at: str | None = None
     live_handoff: AIStrategyLiveHandoffPackage | None = None
     live_handoff_approval: AIStrategyLiveHandoffApprovalRecord | None = None
+    live_workspace_id: str | None = None
+    live_workspace_name: str | None = None
+    live_unit_id: str | None = None
+    live_trading_prepared: bool = False
+    live_trading_prepared_at: str | None = None
     pipeline: dict[str, Any] = Field(default_factory=dict)
     next_actions: list[str] = Field(default_factory=list)
     started_at: str
@@ -408,6 +435,11 @@ class AIStrategyResearchTaskResponse(BaseModel):
     live_readiness_expires_at: str | None = None
     live_handoff: AIStrategyLiveHandoffPackage | None = None
     live_handoff_approval: AIStrategyLiveHandoffApprovalRecord | None = None
+    live_workspace_id: str | None = None
+    live_workspace_name: str | None = None
+    live_unit_id: str | None = None
+    live_trading_prepared: bool = False
+    live_trading_prepared_at: str | None = None
     pipeline: dict[str, Any] = Field(default_factory=dict)
     next_actions: list[str] = Field(default_factory=list)
     current_backtest_task_id: str | None = None

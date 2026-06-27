@@ -11,6 +11,8 @@ from app.api.deps import get_current_user
 from app.schemas.ai_strategy_research import (
     AIStrategyLiveHandoffApprovalRequest,
     AIStrategyLiveHandoffPackage,
+    AIStrategyLiveTradingPrepare,
+    AIStrategyLiveTradingPrepareRequest,
     AIStrategyPaperTradingReview,
     AIStrategyPaperTradingStart,
     AIStrategyPaperTradingStartRequest,
@@ -429,6 +431,24 @@ async def approve_ai_strategy_research_live_handoff(
             data,
             research_workspace_id=research_workspace_id,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/ai-research/runs/{run_id}/live-trading/prepare",
+    response_model=AIStrategyLiveTradingPrepare,
+    summary="Prepare a locked live trading unit from an approved AI live handoff",
+)
+async def prepare_ai_strategy_research_live_trading(
+    run_id: str,
+    data: AIStrategyLiveTradingPrepareRequest,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+):
+    """Create a locked live trading unit after live handoff approval."""
+    try:
+        return await service.prepare_live_trading_from_run(current_user.sub, run_id, data)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

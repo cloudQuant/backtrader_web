@@ -19,6 +19,8 @@ from app.schemas.ai_strategy_research import (
     AIStrategyLiveHandoffApprovalRecord,
     AIStrategyLiveHandoffApprovalRequest,
     AIStrategyLiveHandoffPackage,
+    AIStrategyLiveTradingPrepare,
+    AIStrategyLiveTradingPrepareRequest,
     AIStrategyPaperTradingReview,
     AIStrategyPaperTradingRuleEvaluation,
     AIStrategyPaperTradingStart,
@@ -1757,6 +1759,224 @@ class AIStrategyResearchService:
             )
         )
 
+    async def prepare_live_trading_from_run(
+        self,
+        user_id: str,
+        run_id: str,
+        request: AIStrategyLiveTradingPrepareRequest,
+    ) -> AIStrategyLiveTradingPrepare:
+        record = await self._find_research_run_record(
+            user_id,
+            run_id,
+            research_workspace_id=request.research_workspace_id,
+        )
+        if record is None:
+            raise ValueError("AI research run record not found")
+        record = _research_run_record_with_pipeline(record)
+        package = _build_live_handoff_package(record)
+        if not (
+            package.ready_for_live
+            and package.status == "approved_for_live"
+            and package.approval is not None
+            and package.approval.approved
+        ):
+            raise ValueError("AI research live handoff has not been approved for live trading")
+
+        existing = await self._prepared_live_trading_target(user_id, record)
+        if existing is not None:
+            workspace, unit = existing
+            return AIStrategyLiveTradingPrepare(
+                workspace=workspace,
+                unit=unit,
+                prepared=True,
+                handoff=_live_trading_prepare_handoff(record, package, workspace, unit),
+                next_actions=_live_trading_prepare_next_actions(unit),
+            )
+
+        strategy, source_unit = await self._resolve_run_record_strategy_unit(user_id, record)
+        workspace = None
+        if request.trading_workspace_id:
+            workspace = await self.workspace_service.get_workspace(
+                request.trading_workspace_id,
+                user_id,
+            )
+            if workspace is None:
+                raise ValueError("Live trading workspace not found")
+        if workspace is None:
+            workspace = await self.workspace_service.create_workspace(
+                user_id,
+                WorkspaceCreate(
+                    name=request.live_workspace_name
+                    or _bounded_name(f"AI实盘准备 - {strategy.name}", 200),
+                    description="AI research approved live handoff workspace",
+                    workspace_type="trading",
+                ),
+            )
+
+        unit_payload = _live_trading_unit_payload_from_record(
+            record,
+            package=package,
+            strategy=strategy,
+            source_unit=source_unit,
+            request=request,
+        )
+        created_unit = await self.workspace_service.create_unit(
+            workspace.id,
+            user_id,
+            unit_payload,
+        )
+        if created_unit is None:
+            raise ValueError("Failed to create live trading unit")
+        unit = StrategyUnitResponse.model_validate(created_unit)
+
+        handoff = _live_trading_prepare_handoff(record, package, workspace, unit)
+        unit = unit.model_copy(
+            update={
+                "data_config": {
+                    **dict(unit.data_config or {}),
+                    "ai_research_run_id": record.run_id,
+                    "ai_research_workspace_id": record.research_workspace_id,
+                    "ai_research_live_handoff_status": package.status,
+                },
+                "unit_settings": {
+                    **dict(unit.unit_settings or {}),
+                    "ai_research_live_handoff": handoff,
+                },
+            }
+        )
+        persisted_unit = await self.workspace_service.update_unit(
+            workspace.id,
+            unit.id,
+            user_id,
+            StrategyUnitUpdate(
+                data_config=unit.data_config,
+                unit_settings=unit.unit_settings,
+            ),
+        )
+        if persisted_unit is not None:
+            unit = StrategyUnitResponse.model_validate(persisted_unit)
+        workspace = await self._persist_live_trading_handoff(user_id, workspace, handoff)
+        await self._mark_run_record_live_trading_prepared(
+            user_id,
+            record,
+            package,
+            workspace=workspace,
+            unit=unit,
+            handoff=handoff,
+        )
+        return AIStrategyLiveTradingPrepare(
+            workspace=workspace,
+            unit=unit,
+            prepared=True,
+            handoff=handoff,
+            next_actions=_live_trading_prepare_next_actions(unit),
+        )
+
+    async def _resolve_run_record_strategy_unit(
+        self,
+        user_id: str,
+        record: AIStrategyResearchRunRecord,
+    ) -> tuple[StrategyResponse, StrategyUnitResponse]:
+        iteration_payload = _best_iteration_payload(record)
+        if (
+            not record.best_strategy_id
+            and not _strategy_id_from_iteration_payload(iteration_payload or {})
+            and not _iteration_payload_has_strategy_snapshot(iteration_payload or {})
+        ):
+            raise ValueError("AI research run record has no best strategy to promote")
+
+        strategy = None
+        if record.best_strategy_id:
+            strategy = await self.strategy_service.get_strategy(record.best_strategy_id, user_id)
+        if strategy is None and iteration_payload is not None:
+            strategy = _strategy_from_iteration_snapshot(
+                record,
+                iteration_payload,
+                user_id=user_id,
+            )
+        if strategy is None:
+            raise ValueError("Best strategy not found and run record has no strategy snapshot")
+
+        unit = None
+        if iteration_payload is not None:
+            unit_snapshot = (
+                dict(iteration_payload.get("unit_snapshot"))
+                if isinstance(iteration_payload.get("unit_snapshot"), dict)
+                else {}
+            )
+            unit_id = str(
+                iteration_payload.get("unit_id") or unit_snapshot.get("id") or ""
+            ).strip()
+            if unit_id:
+                unit = await self.workspace_service.get_unit(
+                    record.research_workspace_id,
+                    unit_id,
+                    user_id,
+                )
+            if unit is None:
+                unit = _unit_from_iteration_snapshot(
+                    record,
+                    strategy=strategy,
+                    payload=iteration_payload,
+                )
+        if unit is None:
+            unit = _unit_from_run_record(record, strategy=strategy)
+        return strategy, unit
+
+    async def _prepared_live_trading_target(
+        self,
+        user_id: str,
+        record: AIStrategyResearchRunRecord,
+    ) -> tuple[WorkspaceResponse, StrategyUnitResponse] | None:
+        if not (
+            record.live_trading_prepared
+            and record.live_workspace_id
+            and record.live_unit_id
+        ):
+            return None
+        workspace = await self.workspace_service.get_workspace(record.live_workspace_id, user_id)
+        if workspace is None:
+            return None
+        unit = await self.workspace_service.get_unit(workspace.id, record.live_unit_id, user_id)
+        if unit is None:
+            return None
+        return workspace, StrategyUnitResponse.model_validate(unit)
+
+    async def _persist_live_trading_handoff(
+        self,
+        user_id: str,
+        workspace: WorkspaceResponse,
+        handoff: dict[str, Any],
+    ) -> WorkspaceResponse:
+        settings = dict(workspace.settings or {})
+        ai_handoff = dict(settings.get("ai_research_live_handoff") or {})
+        handoff_payload = dict(handoff)
+
+        existing: list[dict[str, Any]] = []
+        raw_handoffs = ai_handoff.get("handoffs")
+        if isinstance(raw_handoffs, list):
+            existing = [dict(item) for item in raw_handoffs if isinstance(item, dict)]
+        ai_handoff["last_handoff"] = handoff_payload
+        ai_handoff["handoffs"] = [
+            handoff_payload,
+            *[
+                item
+                for item in existing
+                if str(item.get("run_id") or "") != str(handoff_payload.get("run_id") or "")
+            ],
+        ][:20]
+
+        updated = await self.workspace_service.update_workspace(
+            workspace.id,
+            user_id,
+            WorkspaceUpdate(settings={"ai_research_live_handoff": ai_handoff}),
+        )
+        if updated is not None:
+            return updated
+
+        settings["ai_research_live_handoff"] = ai_handoff
+        return workspace.model_copy(update={"settings": settings})
+
     async def _ensure_research_workspace(
         self,
         user_id: str,
@@ -2710,6 +2930,53 @@ class AIStrategyResearchService:
         )
         return await self._persist_research_run_record(user_id, workspace, updated_record)
 
+    async def _mark_run_record_live_trading_prepared(
+        self,
+        user_id: str,
+        record: AIStrategyResearchRunRecord,
+        package: AIStrategyLiveHandoffPackage,
+        *,
+        workspace: WorkspaceResponse,
+        unit: StrategyUnitResponse,
+        handoff: dict[str, Any],
+    ) -> WorkspaceResponse | None:
+        research_workspace = await self.workspace_service.get_workspace(
+            record.research_workspace_id,
+            user_id,
+        )
+        if research_workspace is None:
+            return None
+        prepared_at = str(handoff.get("live_trading_prepared_at") or _utc_iso_now())
+        pipeline = _pipeline_with_live_trading_prepared(
+            package.pipeline or record.pipeline,
+            workspace=workspace,
+            unit=unit,
+            prepared_at=prepared_at,
+        )
+        next_actions = _live_trading_prepare_next_actions(unit)
+        package_handoff = dict(package.handoff or {})
+        package_handoff["live_trading_prepare"] = dict(handoff)
+        prepared_package = package.model_copy(
+            update={
+                "handoff": _redact_sensitive_handoff(package_handoff),
+                "pipeline": pipeline,
+                "next_actions": next_actions,
+            }
+        )
+        updated_record = record.model_copy(
+            update={
+                "live_handoff": prepared_package,
+                "live_workspace_id": workspace.id,
+                "live_workspace_name": workspace.name,
+                "live_unit_id": unit.id,
+                "live_trading_prepared": True,
+                "live_trading_prepared_at": prepared_at,
+                "pipeline": pipeline,
+                "next_actions": next_actions,
+            }
+        )
+        return await self._persist_research_run_record(user_id, research_workspace, updated_record)
+
 
 def _run_record_with_live_handoff(
     record: AIStrategyResearchRunRecord,
@@ -2834,6 +3101,54 @@ def _pipeline_progress_from_steps(steps: list[dict[str, Any]]) -> float:
     return round(completed / len(steps) * 100, 2)
 
 
+def _pipeline_with_live_trading_prepared(
+    pipeline: dict[str, Any] | None,
+    *,
+    workspace: WorkspaceResponse,
+    unit: StrategyUnitResponse,
+    prepared_at: str,
+) -> dict[str, Any]:
+    updated = dict(pipeline or {})
+    raw_steps = updated.get("steps")
+    steps = (
+        [dict(item) for item in raw_steps if isinstance(item, dict)]
+        if isinstance(raw_steps, list)
+        else []
+    )
+    live_step = {
+        "key": "live_handoff",
+        "label": "实盘交接",
+        "status": "completed",
+        "handoff_status": "approved_for_live",
+        "live_trading_prepared": True,
+        "live_workspace_id": workspace.id,
+        "live_unit_id": unit.id,
+        "prepared_at": prepared_at,
+    }
+    replaced = False
+    for index, step in enumerate(steps):
+        if str(step.get("key") or "") == "live_handoff":
+            steps[index] = {**step, **live_step}
+            replaced = True
+            break
+    if not replaced:
+        steps.append(live_step)
+    updated.update(
+        {
+            "current_stage": "live_handoff",
+            "live_trading_prepared": True,
+            "live_trading_prepared_at": prepared_at,
+            "live_workspace_id": workspace.id,
+            "live_unit_id": unit.id,
+            "live_unit_locked": bool(unit.lock_trading or unit.lock_running),
+            "steps": steps,
+        }
+    )
+    if raw_steps:
+        updated["progress"] = _pipeline_progress_from_steps(steps)
+    return updated
+
+
 def _live_handoff_next_actions(
     record: AIStrategyResearchRunRecord,
     package: AIStrategyLiveHandoffPackage,
@@ -2872,6 +3187,13 @@ def _live_handoff_approval_next_actions(
     if approval.comment:
         actions.append(f"驳回意见：{approval.comment}")
     return actions or list(record.next_actions or [])
+
+
+def _live_trading_prepare_next_actions(unit: StrategyUnitResponse) -> list[str]:
+    return [
+        "已创建锁定的实盘交易单元，需人工核对网关凭据、账户权限和风控限额后再解锁运行。",
+        f"实盘单元 {unit.id} 当前默认锁定交易/运行，不会自动下单。",
+    ]
 
 
 def _build_live_handoff_approval_record(
@@ -4730,6 +5052,116 @@ def _paper_start_request_from_record(
         gateway_config=gateway_config,
         data_config=data_config,
         unit_settings=unit_settings,
+    )
+
+
+def _live_trading_unit_payload_from_record(
+    record: AIStrategyResearchRunRecord,
+    *,
+    package: AIStrategyLiveHandoffPackage,
+    strategy: StrategyResponse,
+    source_unit: StrategyUnitResponse,
+    request: AIStrategyLiveTradingPrepareRequest,
+) -> StrategyUnitCreate:
+    runtime_context = _record_runtime_context(record)
+    asset_specs = (
+        dict(runtime_context.get("asset_specs"))
+        if isinstance(runtime_context.get("asset_specs"), dict)
+        else {}
+    )
+    backtest_environment = (
+        dict(runtime_context.get("backtest_environment"))
+        if isinstance(runtime_context.get("backtest_environment"), dict)
+        else {}
+    )
+    data_config = {
+        **dict(source_unit.data_config or {}),
+        "ai_research_run_id": record.run_id,
+        "ai_research_workspace_id": record.research_workspace_id,
+        "ai_research_live_handoff_status": package.status,
+    }
+    unit_settings = {
+        **dict(source_unit.unit_settings or {}),
+        "ai_research_live_handoff": _redact_sensitive_handoff(
+            {
+                "run_id": record.run_id,
+                "research_workspace_id": record.research_workspace_id,
+                "live_handoff_status": package.status,
+                "approval": package.approval.model_dump(mode="json")
+                if package.approval is not None
+                else None,
+                "asset_specs": asset_specs,
+                "backtest_environment": backtest_environment,
+            }
+        ),
+    }
+    if asset_specs:
+        _merge_contract_metadata(data_config, asset_specs)
+        _merge_contract_metadata(unit_settings, asset_specs)
+    for key in (
+        "initial_cash",
+        "commission",
+        "annual_days",
+        "calc_method",
+        "weight_mode",
+        "multiplier",
+        "margin",
+        "asset_spec_source",
+    ):
+        value = backtest_environment.get(key)
+        if value not in (None, ""):
+            unit_settings[key] = value
+    gateway_config = _dict_payload(source_unit.gateway_config)
+    gateway_config.update(_dict_payload(runtime_context.get("gateway_config")))
+    gateway_config.update(_dict_payload(request.gateway_config))
+    gateway_config = _dict_payload(_omit_sensitive_handoff(gateway_config))
+    return StrategyUnitCreate(
+        group_name=source_unit.group_name or strategy.name,
+        strategy_id=strategy.id,
+        strategy_name=strategy.name,
+        symbol=record.symbol,
+        symbol_name=record.symbol_name or record.symbol,
+        timeframe=record.timeframe,
+        timeframe_n=record.timeframe_n,
+        category=strategy.category,
+        data_config=data_config,
+        unit_settings=unit_settings,
+        params=dict(source_unit.params or {}),
+        optimization_config=dict(source_unit.optimization_config or {}),
+        trading_mode="live",
+        gateway_config=gateway_config,
+        lock_trading=True,
+        lock_running=True,
+    )
+
+
+def _live_trading_prepare_handoff(
+    record: AIStrategyResearchRunRecord,
+    package: AIStrategyLiveHandoffPackage,
+    workspace: WorkspaceResponse,
+    unit: StrategyUnitResponse,
+) -> dict[str, Any]:
+    prepared_at = _utc_iso_now()
+    return _redact_sensitive_handoff(
+        {
+            "run_id": record.run_id,
+            "research_workspace_id": record.research_workspace_id,
+            "live_handoff_status": package.status,
+            "live_handoff_approved_at": package.approval.decided_at
+            if package.approval is not None
+            else None,
+            "live_trading_prepared_at": prepared_at,
+            "live_workspace_id": workspace.id,
+            "live_workspace_name": workspace.name,
+            "live_unit_id": unit.id,
+            "live_unit_locked": bool(unit.lock_trading or unit.lock_running),
+            "paper_workspace_id": record.paper_workspace_id,
+            "paper_unit_id": record.paper_unit_id,
+            "asset_specs": dict(record.asset_specs or {}),
+            "backtest_environment": dict(record.backtest_environment or {}),
+            "next_actions": _live_trading_prepare_next_actions(unit),
+            "reason": "Approved AI live handoff materialized as a locked live trading unit.",
+        }
     )
 
 

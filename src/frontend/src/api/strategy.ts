@@ -322,6 +322,11 @@ export interface AIStrategyResearchRunRecord {
   live_readiness_expires_at?: string | null
   live_handoff?: AIStrategyLiveHandoffPackage | null
   live_handoff_approval?: AIStrategyLiveHandoffApprovalRecord | null
+  live_workspace_id?: string | null
+  live_workspace_name?: string | null
+  live_unit_id?: string | null
+  live_trading_prepared?: boolean
+  live_trading_prepared_at?: string | null
   pipeline?: AIStrategyPipelineSummary
   next_actions: string[]
   started_at: string
@@ -400,6 +405,11 @@ export interface AIStrategyResearchTaskResponse {
   live_readiness_expires_at?: string | null
   live_handoff?: AIStrategyLiveHandoffPackage | null
   live_handoff_approval?: AIStrategyLiveHandoffApprovalRecord | null
+  live_workspace_id?: string | null
+  live_workspace_name?: string | null
+  live_unit_id?: string | null
+  live_trading_prepared?: boolean
+  live_trading_prepared_at?: string | null
   pipeline?: AIStrategyPipelineSummary
   next_actions?: string[]
   current_backtest_task_id?: string | null
@@ -508,6 +518,21 @@ export interface AIStrategyLiveHandoffPackage {
   next_actions: string[]
 }
 
+export interface AIStrategyLiveTradingPrepareRequest {
+  research_workspace_id?: string | null
+  trading_workspace_id?: string | null
+  live_workspace_name?: string | null
+  gateway_config?: Record<string, unknown>
+}
+
+export interface AIStrategyLiveTradingPrepare {
+  workspace: Workspace
+  unit: StrategyUnit
+  prepared: boolean
+  handoff?: Record<string, unknown> | null
+  next_actions: string[]
+}
+
 export interface AIStrategyPipelineStep {
   key: string
   label: string
@@ -538,6 +563,11 @@ export interface AIStrategyPipelineSummary {
   paper_review_lock?: AIStrategyPaperReviewLock | null
   paper_unit_locked?: boolean
   paper_unit_stopped?: boolean
+  live_trading_prepared?: boolean
+  live_trading_prepared_at?: string | null
+  live_workspace_id?: string | null
+  live_unit_id?: string | null
+  live_unit_locked?: boolean
   steps: AIStrategyPipelineStep[]
 }
 
@@ -785,6 +815,16 @@ export const strategyApi = {
       {
         params: { research_workspace_id: researchWorkspaceId || undefined },
       }
+    )
+  },
+
+  async prepareAIResearchLiveTrading(
+    runId: string,
+    data: AIStrategyLiveTradingPrepareRequest
+  ): Promise<AIStrategyLiveTradingPrepare> {
+    return api.post<AIStrategyLiveTradingPrepare, AIStrategyLiveTradingPrepareRequest>(
+      `/strategy/ai-research/runs/${runId}/live-trading/prepare`,
+      data
     )
   },
 

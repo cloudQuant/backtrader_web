@@ -743,6 +743,30 @@
                     驳回
                   </el-button>
                 </div>
+                <div
+                  v-if="aiResearchResult.run_record?.live_trading_prepared"
+                  class="ai-research-live-readiness"
+                  data-test="ai-research-current-live-prepare-status"
+                >
+                  <strong>实盘单元</strong>
+                  <span>{{ liveTradingPrepareSummary(aiResearchResult.run_record) }}</span>
+                </div>
+                <div
+                  v-else-if="aiResearchResult.run_record && canPrepareLiveTradingFromRecord(aiResearchResult.run_record)"
+                  class="ai-research-paper-review-actions"
+                  data-test="ai-research-current-live-prepare-actions"
+                >
+                  <el-button
+                    size="small"
+                    type="success"
+                    plain
+                    :loading="aiResearchLiveTradingPreparingRunId === aiResearchResult.run_id"
+                    data-test="ai-research-current-live-prepare"
+                    @click="prepareLiveTradingFromCurrentResult"
+                  >
+                    准备实盘单元
+                  </el-button>
+                </div>
               </div>
 
               <div
@@ -1496,6 +1520,30 @@
                         驳回
                       </el-button>
                     </div>
+                    <div
+                      v-if="record.live_trading_prepared"
+                      class="ai-research-live-readiness"
+                      data-test="ai-research-history-live-prepare-status"
+                    >
+                      <strong>实盘单元</strong>
+                      <span>{{ liveTradingPrepareSummary(record) }}</span>
+                    </div>
+                    <div
+                      v-else-if="canPrepareLiveTradingFromRecord(record)"
+                      class="ai-research-paper-review-actions"
+                      data-test="ai-research-history-live-prepare-actions"
+                    >
+                      <el-button
+                        size="small"
+                        type="success"
+                        plain
+                        :loading="aiResearchLiveTradingPreparingRunId === record.run_id"
+                        data-test="ai-research-history-live-prepare"
+                        @click="prepareLiveTradingFromResearchRecord(record)"
+                      >
+                        准备实盘单元
+                      </el-button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1728,6 +1776,7 @@ import type {
   AIStrategyLiveReadinessItem,
   AIStrategyLiveHandoffApprovalRequest,
   AIStrategyLiveHandoffPackage,
+  AIStrategyLiveTradingPrepare,
   AIStrategyIterationProgress,
   AIStrategyOutOfSampleValidation,
   AIStrategyPaperReviewLock,
@@ -1797,6 +1846,7 @@ const aiResearchStrategyViewingRunId = ref('')
 const aiResearchPaperReviews = reactive<Record<string, AIStrategyPaperTradingReview>>({})
 const aiResearchLiveHandoffs = reactive<Record<string, AIStrategyLiveHandoffPackage>>({})
 const aiResearchLiveHandoffApprovingRunId = ref('')
+const aiResearchLiveTradingPreparingRunId = ref('')
 
 const AI_RESEARCH_STAGE_LABELS: Record<string, string> = {
   queued: '排队中',
@@ -2819,12 +2869,32 @@ function canApproveLiveHandoff(handoff: AIStrategyLiveHandoffPackage | null | un
   )
 }
 
+function canPrepareLiveTradingFromRecord(record: AIStrategyResearchRunRecord) {
+  const handoff = liveHandoffForRecord(record)
+  return Boolean(
+    handoff
+    && handoff.ready_for_live
+    && handoff.status === 'approved_for_live'
+    && handoff.approval?.approved
+    && !record.live_trading_prepared
+    && !record.pipeline?.live_trading_prepared
+  )
+}
+
 function liveHandoffApprovalLabel(handoff: AIStrategyLiveHandoffPackage | null | undefined) {
   const approval = handoff?.approval
   if (!approval) return ''
   if (approval.approved) return '已批准'
   if (approval.decision === 'rejected') return '已驳回'
   return approval.decision || ''
+}
+
+function liveTradingPrepareSummary(record: AIStrategyResearchRunRecord | null | undefined) {
+  if (!record) return ''
+  const unitId = record.live_unit_id || record.pipeline?.live_unit_id || '实盘单元'
+  const preparedAt = record.live_trading_prepared_at || record.pipeline?.live_trading_prepared_at
+  const lockText = record.pipeline?.live_unit_locked === false ? '待确认锁定' : '默认锁定'
+  return `${unitId} 已准备，${lockText}${preparedAt ? `，${formatDateTime(preparedAt)}` : ''}`
 }
 
 function isPaperTradingTargetMissing(record: AIStrategyResearchRunRecord) {
@@ -3393,6 +3463,11 @@ function researchResultFromTaskSummary(
     live_readiness_expires_at: task.live_readiness_expires_at ?? null,
     live_handoff: task.live_handoff ?? null,
     live_handoff_approval: task.live_handoff_approval ?? null,
+    live_workspace_id: task.live_workspace_id ?? null,
+    live_workspace_name: task.live_workspace_name ?? null,
+    live_unit_id: task.live_unit_id ?? null,
+    live_trading_prepared: Boolean(task.live_trading_prepared),
+    live_trading_prepared_at: task.live_trading_prepared_at ?? null,
     pipeline: task.pipeline,
     next_actions: task.next_actions ?? [],
     started_at: task.started_at ?? task.submitted_at,
@@ -4092,6 +4167,12 @@ async function approveCurrentLiveHandoff(decision: 'approved' | 'rejected') {
   await approveLiveHandoffFromResearchRecord(record, decision)
 }
 
+async function prepareLiveTradingFromCurrentResult() {
+  const record = aiResearchResult.value?.run_record
+  if (!record) return
+  await prepareLiveTradingFromResearchRecord(record)
+}
+
 async function buildLiveHandoffFromResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchLiveHandoffLoadingRunId.value = record.run_id
   try {
@@ -4165,6 +4246,24 @@ async function approveLiveHandoffFromResearchRecord(
   }
 }
 
+async function prepareLiveTradingFromResearchRecord(record: AIStrategyResearchRunRecord) {
+  if (!canPrepareLiveTradingFromRecord(record)) return
+  aiResearchLiveTradingPreparingRunId.value = record.run_id
+  try {
+    const prepared = await strategyApi.prepareAIResearchLiveTrading(record.run_id, {
+      research_workspace_id: record.research_workspace_id,
+    })
+    const updatedRecord = liveTradingPreparedRunRecord(record, prepared)
+    upsertAIResearchRunRecord(updatedRecord)
+    applyResearchRunRecordToCurrentResult(updatedRecord)
+    ElMessage.success('实盘交易单元已准备，默认锁定等待人工上线')
+  } catch {
+    ElMessage.error(t('strategy.aiResearchRunFailed'))
+  } finally {
+    aiResearchLiveTradingPreparingRunId.value = ''
+  }
+}
+
 function liveHandoffRunRecord(
   record: AIStrategyResearchRunRecord,
   handoff: AIStrategyLiveHandoffPackage
@@ -4203,6 +4302,76 @@ function liveHandoffRunRecord(
         : handoffPipeline?.live_handoff_rejected_at ?? recordPipeline?.live_handoff_rejected_at,
     },
     next_actions: handoff.next_actions?.length ? handoff.next_actions : record.next_actions,
+  }
+}
+
+function liveTradingPreparedRunRecord(
+  record: AIStrategyResearchRunRecord,
+  prepared: AIStrategyLiveTradingPrepare
+): AIStrategyResearchRunRecord {
+  const handoff = isRecord(prepared.handoff) ? prepared.handoff : {}
+  const preparedAt = stringFromUnknown(
+    handoff.live_trading_prepared_at,
+    new Date().toISOString()
+  )
+  const previousSteps = record.pipeline?.steps ?? []
+  const nextSteps = previousSteps.some(step => step.key === 'live_handoff')
+    ? previousSteps.map(step =>
+        step.key === 'live_handoff'
+          ? {
+              ...step,
+              status: 'completed',
+              live_trading_prepared: prepared.prepared,
+              live_workspace_id: prepared.workspace.id,
+              live_unit_id: prepared.unit.id,
+              prepared_at: preparedAt,
+            }
+          : step
+      )
+    : [
+        ...previousSteps,
+        {
+          key: 'live_handoff',
+          label: '实盘交接',
+          status: 'completed',
+          live_trading_prepared: prepared.prepared,
+          live_workspace_id: prepared.workspace.id,
+          live_unit_id: prepared.unit.id,
+          prepared_at: preparedAt,
+        },
+      ]
+  const liveHandoff = record.live_handoff
+    ? {
+        ...record.live_handoff,
+        handoff: {
+          ...(record.live_handoff.handoff ?? {}),
+          live_trading_prepare: handoff,
+        },
+        next_actions: prepared.next_actions,
+      }
+    : record.live_handoff
+  return {
+    ...record,
+    live_handoff: liveHandoff,
+    live_workspace_id: prepared.workspace.id,
+    live_workspace_name: prepared.workspace.name,
+    live_unit_id: prepared.unit.id,
+    live_trading_prepared: prepared.prepared,
+    live_trading_prepared_at: preparedAt,
+    pipeline: {
+      ...(record.pipeline ?? {}),
+      current_stage: 'live_handoff',
+      status: record.pipeline?.status ?? record.live_handoff?.status ?? record.status,
+      progress: record.pipeline?.progress ?? 100,
+      ready_for_live: record.pipeline?.ready_for_live ?? true,
+      live_trading_prepared: prepared.prepared,
+      live_trading_prepared_at: preparedAt,
+      live_workspace_id: prepared.workspace.id,
+      live_unit_id: prepared.unit.id,
+      live_unit_locked: Boolean(prepared.unit.lock_trading || prepared.unit.lock_running),
+      steps: nextSteps,
+    },
+    next_actions: prepared.next_actions?.length ? prepared.next_actions : record.next_actions,
   }
 }
 

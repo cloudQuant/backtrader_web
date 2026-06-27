@@ -621,6 +621,11 @@ def _research_result_task_updates(result: Any) -> dict[str, Any]:
         or handoff.get("live_readiness_expires_at"),
         "live_handoff": live_handoff,
         "live_handoff_approval": live_handoff_approval,
+        "live_workspace_id": getattr(record, "live_workspace_id", None),
+        "live_workspace_name": getattr(record, "live_workspace_name", None),
+        "live_unit_id": getattr(record, "live_unit_id", None),
+        "live_trading_prepared": bool(getattr(record, "live_trading_prepared", False)),
+        "live_trading_prepared_at": getattr(record, "live_trading_prepared_at", None),
         "pipeline": pipeline,
         "next_actions": next_actions,
     }

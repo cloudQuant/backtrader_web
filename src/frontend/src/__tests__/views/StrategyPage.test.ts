@@ -627,6 +627,71 @@ vi.mock('@/api/strategy', () => ({
         ? ['实盘交接包已通过人工审批，可在上线窗口内执行实盘切换前检查。']
         : ['实盘交接包已被人工驳回，需处理审批意见后重新进入模拟复核或继续投研。'],
     })),
+    prepareAIResearchLiveTrading: vi.fn().mockImplementation((
+      runId: string,
+      payload: { research_workspace_id?: string | null }
+    ) => Promise.resolve({
+      workspace: {
+        id: 'live-ws',
+        user_id: 'u1',
+        name: 'AI实盘准备',
+        description: null,
+        workspace_type: 'trading',
+        settings: {},
+        trading_config: {},
+        unit_count: 1,
+        completed_count: 0,
+        status: 'idle',
+        created_at: '2026-06-27T00:05:00Z',
+        updated_at: '2026-06-27T00:05:00Z',
+      },
+      unit: {
+        id: 'live-unit',
+        workspace_id: 'live-ws',
+        group_name: 'AI策略',
+        strategy_id: 's1',
+        strategy_name: 'AI策略',
+        symbol: '000001.SZ',
+        symbol_name: '平安银行',
+        timeframe: '1d',
+        timeframe_n: 1,
+        category: 'trend',
+        sort_order: 1,
+        data_config: { ai_research_run_id: runId },
+        unit_settings: {},
+        params: {},
+        optimization_config: {},
+        trading_mode: 'live',
+        gateway_config: {},
+        lock_trading: true,
+        lock_running: true,
+        trading_instance_id: null,
+        trading_snapshot: {},
+        run_status: 'idle',
+        run_count: 0,
+        last_run_time: null,
+        last_task_id: null,
+        last_optimization_task_id: null,
+        bar_count: null,
+        metrics_snapshot: {},
+        created_at: '2026-06-27T00:05:00Z',
+        updated_at: '2026-06-27T00:05:00Z',
+      },
+      prepared: true,
+      handoff: {
+        run_id: runId,
+        research_workspace_id: payload.research_workspace_id || 'research-ws',
+        live_workspace_id: 'live-ws',
+        live_workspace_name: 'AI实盘准备',
+        live_unit_id: 'live-unit',
+        live_unit_locked: true,
+        live_trading_prepared_at: '2026-06-27T00:05:00Z',
+      },
+      next_actions: [
+        '已创建锁定的实盘交易单元，需人工核对网关凭据、账户权限和风控限额后再解锁运行。',
+        '实盘单元 live-unit 当前默认锁定交易/运行，不会自动下单。',
+      ],
+    })),
   },
 }))
 
@@ -936,6 +1001,20 @@ describe('StrategyPage', () => {
     )
     expect(vm.aiResearchResult.run_record.live_handoff.status).toBe('approved_for_live')
     expect(vm.aiResearchResult.run_record.live_handoff_approval.approved).toBe(true)
+    const prepareButton = wrapper.findAll('button').find(
+      button => button.text().includes('准备实盘单元')
+    )
+    expect(prepareButton).toBeTruthy()
+    await prepareButton!.trigger('click')
+    await flushPromises()
+    expect(strategyApi.prepareAIResearchLiveTrading).toHaveBeenCalledWith('run-1', {
+      research_workspace_id: 'research-ws',
+    })
+    expect(vm.aiResearchResult.run_record.live_trading_prepared).toBe(true)
+    expect(vm.aiResearchResult.run_record.live_unit_id).toBe('live-unit')
+    expect(wrapper.find('[data-test="ai-research-current-live-prepare-status"]').text()).toContain(
+      'live-unit 已准备，默认锁定'
+    )
     expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('实盘交接')
     expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('已完成')
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
@@ -943,6 +1022,7 @@ describe('StrategyPage', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已满足实盘候选条件')
     expect(ElMessage.success).toHaveBeenCalledWith('实盘交接包已生成')
     expect(ElMessage.success).toHaveBeenCalledWith('实盘交接已审批通过')
+    expect(ElMessage.success).toHaveBeenCalledWith('实盘交易单元已准备，默认锁定等待人工上线')
   })
 
   it('warns and keeps continuation available when AI research misses target', async () => {
