@@ -792,6 +792,130 @@ async def test_trading_workspace_positions_recalculate_live_futures_generic_pnl(
 
 
 @pytest.mark.asyncio
+async def test_trading_workspace_positions_complete_partial_gateway_asset_specs(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Gateway fee-only specs should be completed from saved runtime contract metadata."""
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+    from app.services import trading_workspace_service
+
+    manager = _FakeTradingManager()
+    monkeypatch.setattr(
+        trading_workspace_service,
+        "get_live_trading_manager",
+        lambda: manager,
+    )
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "期货规格补全测试", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={
+            "group_name": "交易组",
+            "strategy_id": "simulate/gateway_dual_ma",
+            "strategy_name": "IF Partial Spec Strategy",
+            "symbol": "IF2609",
+            "symbol_name": "沪深300期货",
+            "trading_mode": "live",
+            "gateway_config": {
+                "preset_id": "ctp_futures_gateway",
+                "name": "CTP Futures Gateway",
+                "params": {
+                    "gateway": {
+                        "enabled": True,
+                        "exchange_type": "CTP",
+                        "asset_type": "FUTURE",
+                        "account_id": "SIM001",
+                    }
+                },
+            },
+        },
+    )
+    unit_id = unit_response.json()["id"]
+
+    instance_id = "inst-if-partial-spec"
+    manager.instances[instance_id] = {
+        "id": instance_id,
+        "strategy_id": "simulate/gateway_dual_ma",
+        "strategy_name": "IF Partial Spec Strategy",
+        "status": "running",
+        "error": None,
+        "params": {"symbol": "IF2609", "trading_mode": "live"},
+        "created_at": "2026-04-13 10:00:00",
+        "started_at": "2026-04-13 10:01:00",
+        "stopped_at": None,
+        "log_dir": None,
+        "runtime_dir": None,
+    }
+    manager.gateway_instances.add(instance_id)
+    manager.gateway_positions[instance_id] = [
+        {
+            "InstrumentID": "IF2609",
+            "Position": 1,
+            "PosiDirection": "2",
+            "Price": 5000,
+            "LastPrice": 5010,
+            "PositionProfit": 10,
+            "updated_at": "2026-04-13 10:05:00",
+        }
+    ]
+    manager.gateway_asset_specs[instance_id] = {
+        "IF2609": {
+            "symbol": "IF2609",
+            "OpenRatioByMoney": 0.23,
+            "quote_asset": "CNY",
+            "fee_currency": "CNY",
+            "source": "gateway.fee_only",
+        }
+    }
+
+    async with async_session_maker() as session:
+        unit = await session.get(StrategyUnit, unit_id)
+        assert unit is not None
+        unit.trading_instance_id = instance_id
+        unit.run_status = "running"
+        unit.trading_mode = "live"
+        unit.params = {
+            **(unit.params or {}),
+            "contract_metadata": {
+                "IF2609": {
+                    "symbol": "IF2609",
+                    "VolumeMultiple": 300,
+                    "LongMarginRatioByMoney": 0.1,
+                    "source": "runtime_contract",
+                }
+            },
+        }
+        await session.commit()
+
+    response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/trading/positions",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert len(payload["positions"]) == 1
+    position = payload["positions"][0]
+    assert position["multiplier"] == 300.0
+    assert position["margin_value"] == 150300.0
+    assert position["gross_pnl"] == 3000.0
+    assert position["commission"] == 34.5
+    assert position["position_pnl"] == 2965.5
+    assert "gateway.fee_only" in position["asset_spec_source"]
+    assert "runtime_contract" in position["asset_spec_source"]
+
+
+@pytest.mark.asyncio
 async def test_trading_workspace_runtime_endpoints_expose_runtime_files(
     client: AsyncClient,
     auth_headers: dict[str, str],

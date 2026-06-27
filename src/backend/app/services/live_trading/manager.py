@@ -62,10 +62,23 @@ _MANUAL_GATEWAYS_FILE = _DATA_DIR / "manual_gateways.json"
 _BACKTRADER_DIR = _PROJECT_ROOT.parent / "backtrader"
 if not _BACKTRADER_DIR.is_dir():
     _BACKTRADER_DIR = Path.home() / "Documents" / "backtrader"
-try:
-    _BT_API_PY_DIR = manual_gateway_service._ib_web_cookie_base_dir()
-except Exception:
-    _BT_API_PY_DIR = Path()
+
+
+def _resolve_bt_api_py_import_dir() -> Path:
+    try:
+        installed_pkg_dir = manual_gateway_service._installed_bt_api_py_dir()
+    except Exception:
+        installed_pkg_dir = None
+    if installed_pkg_dir is not None and installed_pkg_dir.is_dir():
+        return installed_pkg_dir.parent
+
+    local_src_dir = _PROJECT_ROOT / "src"
+    if (local_src_dir / "bt_api_py").is_dir():
+        return local_src_dir
+    return Path()
+
+
+_BT_API_PY_DIR = _resolve_bt_api_py_import_dir()
 
 _DEFAULT_TRANSPORT = "tcp" if sys.platform == "win32" else "ipc"
 _FALSE_ENV_VALUES = {"0", "false", "no", "off"}

@@ -11,6 +11,8 @@ Aggregates data across live trading strategy instances:
 import logging
 import math
 from dataclasses import dataclass, field
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -103,6 +105,102 @@ _EXPLICIT_NET_PNL_FIELD_KEYS = (
     "position_pnl_after_fee",
     "positionPnlAfterFee",
 )
+_ASSET_SPEC_CONTRACT_KEYS = frozenset(
+    {
+        "multiplier",
+        "mult",
+        "contract_size",
+        "trade_contract_size",
+        "contract_multiplier",
+        "ctVal",
+        "VolumeMultiple",
+        "CONTRACT_MULTIPLIER",
+    }
+)
+_ASSET_SPEC_MARGIN_KEYS = frozenset(
+    {
+        "margin",
+        "margin_rate",
+        "margin_ratio",
+        "leverage",
+        "margin_amount",
+        "initial_margin_per_lot",
+        "margin_initial",
+        "long_margin_rate",
+        "short_margin_rate",
+        "LongMarginRatio",
+        "ShortMarginRatio",
+        "LongMarginRatioByMoney",
+        "ShortMarginRatioByMoney",
+        "MARGIN_BUY",
+        "MARGIN_SELL",
+        "long_margin_amount",
+        "short_margin_amount",
+        "LongMarginRatioByVolume",
+        "ShortMarginRatioByVolume",
+        "MARGIN_PER_LOT",
+        "LONG_MARGIN_AMOUNT",
+        "SHORT_MARGIN_AMOUNT",
+    }
+)
+_ASSET_SPEC_FEE_KEYS = frozenset(
+    {
+        "commission",
+        "commission_rate",
+        "open_commission_rate",
+        "close_commission_rate",
+        "close_today_commission_rate",
+        "maker_commission_rate",
+        "taker_commission_rate",
+        "commission_amount",
+        "open_commission_amount",
+        "close_commission_amount",
+        "close_today_commission_amount",
+        "OpenRatioByMoney",
+        "CloseRatioByMoney",
+        "CloseTodayRatioByMoney",
+        "OpenRatioByVolume",
+        "CloseRatioByVolume",
+        "CloseTodayRatioByVolume",
+    }
+)
+_ASSET_SPEC_AUX_KEYS = frozenset(
+    {
+        "symbol",
+        "data_name",
+        "instrument",
+        "InstrumentID",
+        "exchange",
+        "exchange_id",
+        "asset_type",
+        "instType",
+        "contract_type",
+        "ctType",
+        "base_asset",
+        "baseCcy",
+        "quote_asset",
+        "quoteCcy",
+        "settle_currency",
+        "settleCcy",
+        "fee_currency",
+        "feeCcy",
+        "current_price",
+        "latest_price",
+        "last_price",
+        "mark_price",
+        "price_tick",
+        "tick_size",
+        "tickSz",
+        "min_order_size",
+        "min_qty",
+        "minSz",
+        "max_order_size",
+        "max_qty",
+        "maxLmtSz",
+        "order_size_step",
+        "lotSz",
+    }
+)
 
 
 @dataclass
@@ -155,6 +253,18 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _json_safe_value(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item) for item in value]
+    return value
 
 
 def _leverage_from_margin_rate(value: Any) -> float | None:
@@ -392,13 +502,10 @@ def _merge_source_contract_metadata(
 ) -> dict[str, dict[str, Any]]:
     completed = {str(key): dict(value) for key, value in specs.items() if isinstance(value, dict)}
     for symbol in symbols:
-        if _asset_spec_has_contract_metadata(_asset_spec_for_symbol(completed, symbol)):
-            continue
         for config in source.valuation_configs:
             metadata = _metadata_from_config(config, symbol)
             if metadata:
                 _merge_asset_spec_aliases(completed, symbol, metadata)
-                break
     return completed
 
 
@@ -409,49 +516,79 @@ def _merge_asset_spec_aliases(
 ) -> None:
     if not spec:
         return
+    spec = _json_safe_value(spec)
     existing = _asset_spec_for_symbol(specs, symbol)
-    merged = dict(spec)
-    merged.update(existing)
+    merged = dict(existing)
+    contributed = False
+    core_contributed = False
+    primary_source_contributed = False
+    for key, value in spec.items():
+        if _can_merge_asset_spec_value(existing, key, value):
+            merged[key] = value
+            contributed = True
+            if _is_asset_spec_core_key(key):
+                core_contributed = True
+            if _is_asset_spec_primary_source_key(existing, key):
+                primary_source_contributed = True
     existing_source = str(existing.get("source") or existing.get("asset_spec_source") or "").strip()
     next_source = str(spec.get("source") or spec.get("asset_spec_source") or "").strip()
-    if existing_source and next_source and existing_source != next_source:
-        merged["source"] = f"{existing_source}+{next_source}"
+    if existing_source and next_source and existing_source != next_source and core_contributed:
+        merged["source"] = _combined_asset_spec_source(existing_source, next_source)
         merged["asset_spec_source"] = merged["source"]
+    elif next_source and not existing_source and primary_source_contributed:
+        merged["source"] = next_source
+        merged["asset_spec_source"] = next_source
     for key in symbol_aliases(symbol):
         specs[str(key)] = dict(merged)
 
 
-def _asset_spec_has_contract_metadata(spec: dict[str, Any]) -> bool:
-    return any(
-        spec.get(key) not in (None, "")
-        for key in (
-            "multiplier",
-            "mult",
-            "contract_size",
-            "trade_contract_size",
-            "contract_multiplier",
-            "ctVal",
-            "VolumeMultiple",
-            "CONTRACT_MULTIPLIER",
-            "margin",
-            "margin_rate",
-            "margin_ratio",
-            "leverage",
-            "margin_amount",
-            "initial_margin_per_lot",
-            "commission",
-            "commission_rate",
-            "open_commission_rate",
-            "close_commission_rate",
-            "close_today_commission_rate",
-            "maker_commission_rate",
-            "taker_commission_rate",
-            "commission_amount",
-            "open_commission_amount",
-            "close_commission_amount",
-            "close_today_commission_amount",
-        )
+def _combined_asset_spec_source(*sources: str) -> str:
+    parts: list[str] = []
+    seen: set[str] = set()
+    for source in sources:
+        for part in str(source or "").split("+"):
+            text = part.strip()
+            if text and text not in seen:
+                parts.append(text)
+                seen.add(text)
+    return "+".join(parts)
+
+
+def _can_merge_asset_spec_value(existing: dict[str, Any], key: str, value: Any) -> bool:
+    if key in {"source", "asset_spec_source"} or value in (None, ""):
+        return False
+    if existing.get(key) not in (None, ""):
+        return False
+    if key in _ASSET_SPEC_CONTRACT_KEYS:
+        return not _asset_spec_has_any(existing, _ASSET_SPEC_CONTRACT_KEYS)
+    if key in _ASSET_SPEC_MARGIN_KEYS:
+        return not _asset_spec_has_any(existing, _ASSET_SPEC_MARGIN_KEYS)
+    if key in _ASSET_SPEC_FEE_KEYS:
+        return not _asset_spec_has_any(existing, _ASSET_SPEC_FEE_KEYS)
+    return key in _ASSET_SPEC_AUX_KEYS
+
+
+def _is_asset_spec_core_key(key: str) -> bool:
+    return (
+        key in _ASSET_SPEC_CONTRACT_KEYS
+        or key in _ASSET_SPEC_MARGIN_KEYS
+        or key in _ASSET_SPEC_FEE_KEYS
     )
+
+
+def _is_asset_spec_primary_source_key(existing: dict[str, Any], key: str) -> bool:
+    if key in _ASSET_SPEC_CONTRACT_KEYS or key in _ASSET_SPEC_MARGIN_KEYS:
+        return True
+    if key in _ASSET_SPEC_FEE_KEYS:
+        return not (
+            _asset_spec_has_any(existing, _ASSET_SPEC_CONTRACT_KEYS)
+            or _asset_spec_has_any(existing, _ASSET_SPEC_MARGIN_KEYS)
+        )
+    return key in _ASSET_SPEC_AUX_KEYS and not existing
+
+
+def _asset_spec_has_any(spec: dict[str, Any], keys: frozenset[str]) -> bool:
+    return any(spec.get(key) not in (None, "") for key in keys)
 
 
 def _position_spec_has_asset_metadata(spec: Any) -> bool:
@@ -536,8 +673,6 @@ def _complete_asset_specs_from_local(
 ) -> dict[str, dict[str, Any]]:
     completed = {str(key): dict(value) for key, value in specs.items() if isinstance(value, dict)}
     for symbol in symbols:
-        if _asset_spec_has_contract_metadata(_asset_spec_for_symbol(completed, symbol)):
-            continue
         try:
             local_spec = query_local_asset_spec(symbol)
         except Exception:
