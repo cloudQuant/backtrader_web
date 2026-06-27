@@ -3790,6 +3790,63 @@ async def test_portfolio_positions_use_gateway_fee_cost_dict_as_real_commission(
 
 
 @pytest.mark.asyncio
+async def test_portfolio_positions_warn_when_position_fee_dict_currency_differs():
+    """Position fee objects in non-valuation currency must fall back to estimated fees."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "position_symbol_name": "BTCUSDT",
+                    "positionAmt": "0.02",
+                    "entryPrice": "60000",
+                    "markPrice": "61000",
+                    "unRealizedProfit": "20",
+                    "fee": {"cost": "0.001", "currency": "BNB"},
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "BTCUSDT" in symbols
+            return {
+                "BTCUSDT": {
+                    "source": "binance_gateway",
+                    "contract_size": 1,
+                    "quote_asset": "USDT",
+                    "commission_rate": 0.0004,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "BTC-USDT",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["commission"] == pytest.approx(0.48)
+    assert row["position_pnl"] == pytest.approx(19.52)
+    assert any("手续费币种" in item for item in row["valuation_warnings"])
+    assert row["valuation_status"] == "estimated"
+    assert result["summary"]["total_pnl"] == pytest.approx(19.52)
+
+
+@pytest.mark.asyncio
 async def test_portfolio_positions_preserve_okx_positive_fee_as_rebate():
     """OKX positive position fee means rebate, not an extra portfolio cost."""
     from app.api.portfolio_api import get_portfolio_positions

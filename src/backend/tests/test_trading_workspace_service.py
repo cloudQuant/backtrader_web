@@ -487,6 +487,73 @@ def test_build_snapshot_uses_gateway_asset_spec_fee_for_position_pnl(monkeypatch
     assert metadata["commission_rate"] == 0.001
 
 
+def test_build_snapshot_estimates_position_fee_dict_with_other_currency(monkeypatch, tmp_path):
+    """Workspace snapshots must not deduct fee objects paid in another asset as quote PnL."""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    unit = SimpleNamespace(
+        workspace_id="ws-1",
+        id="unit-1",
+        trading_instance_id="inst-1",
+        trading_mode="live",
+        gateway_config={},
+        symbol="BTC-USDT",
+        symbol_name="BTC/USDT",
+        strategy_name="Crypto Trend",
+        unit_settings={},
+        params={},
+        data_config={},
+    )
+
+    class FakeManager:
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-1"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-1"
+            return [
+                {
+                    "position_symbol_name": "BTCUSDT",
+                    "positionAmt": "0.02",
+                    "entryPrice": "60000",
+                    "markPrice": "61000",
+                    "unRealizedProfit": "20",
+                    "fee": {"cost": "0.001", "currency": "BNB"},
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-1"
+            assert "BTCUSDT" in symbols
+            return {
+                "BTCUSDT": {
+                    "source": "binance_gateway",
+                    "contract_size": 1,
+                    "quote_asset": "USDT",
+                    "commission_rate": 0.0004,
+                }
+            }
+
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "get_live_trading_manager",
+        lambda: FakeManager(),
+    )
+
+    snapshot, _metrics, _bar_count, _elapsed = TradingWorkspaceService._build_snapshot(
+        unit,
+        {"id": "inst-1", "status": "running", "log_dir": str(log_dir)},
+        full_log=False,
+    )
+
+    assert snapshot["positions"][0]["commission"] == pytest.approx(0.48)
+    assert snapshot["positions"][0]["position_pnl"] == pytest.approx(19.52)
+    assert snapshot["position_pnl"] == pytest.approx(19.52)
+    assert snapshot["valuation_status"] == "estimated"
+    assert any("手续费币种" in item for item in snapshot["valuation_warnings"])
+
+
 def test_build_snapshot_filters_gateway_positions_to_unit_symbol(monkeypatch, tmp_path):
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -2134,6 +2201,63 @@ def test_normalize_gateway_position_does_not_use_trade_fee_in_other_currency():
     assert "commission" not in row
     assert "commission_source" not in row
     assert row["commission_currency_mismatch"] is True
+    assert valued is not None
+    assert valued.commission == pytest.approx(0.48)
+    assert valued.pnl == pytest.approx(19.52)
+
+
+def test_normalize_gateway_position_does_not_use_position_fee_dict_in_other_currency():
+    spec = normalize_asset_spec(
+        {
+            "symbol": "BTCUSDT",
+            "quote_asset": "USDT",
+            "contract_size": 1,
+            "commission_rate": 0.0004,
+        },
+        source="binance_gateway",
+    )
+    row = normalize_gateway_position(
+        {
+            "position_symbol_name": "BTCUSDT",
+            "positionAmt": "0.02",
+            "entryPrice": "60000",
+            "markPrice": "61000",
+            "unRealizedProfit": "20",
+            "fee": {"cost": "0.001", "currency": "BNB"},
+        },
+        asset_spec=spec,
+    )
+
+    valued = value_position(
+        row,
+        spec=contract_spec_for("BTCUSDT", {"contract_metadata": {"BTCUSDT": spec}}),
+    )
+
+    assert "commission" not in row
+    assert row["commission_currency_mismatch"] is True
+    assert valued is not None
+    assert valued.commission == pytest.approx(0.48)
+    assert valued.pnl == pytest.approx(19.52)
+
+
+def test_value_position_does_not_use_fee_dict_in_other_currency():
+    valued = value_position(
+        {
+            "data_name": "BTCUSDT",
+            "size": 0.02,
+            "entryPrice": 60000.0,
+            "markPrice": 61000.0,
+            "unRealizedProfit": 20.0,
+            "fee": {"cost": "0.001", "currency": "BNB"},
+        },
+        spec=PositionSpec(
+            multiplier=1,
+            quote_asset="USDT",
+            commission_rate=0.0004,
+            has_commission=True,
+        ),
+    )
+
     assert valued is not None
     assert valued.commission == pytest.approx(0.48)
     assert valued.pnl == pytest.approx(19.52)

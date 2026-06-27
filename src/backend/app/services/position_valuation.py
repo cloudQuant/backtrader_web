@@ -1366,6 +1366,16 @@ def _row_symbol(row: dict[str, Any]) -> str:
 
 
 def _row_fee_currency(row: dict[str, Any]) -> str:
+    fee_currency = _nested_fee_currency(
+        row.get("fee"),
+        row.get("fees"),
+        row.get("commission"),
+        row.get("comm"),
+        row.get("Commission"),
+        row.get("trade_fee"),
+        row.get("fillFee"),
+        row.get("execFee"),
+    )
     return _currency_code(
         _first_text(
             row.get("fee_currency"),
@@ -1377,8 +1387,45 @@ def _row_fee_currency(row: dict[str, Any]) -> str:
             row.get("fill_fee_currency"),
             row.get("feeCcy"),
             row.get("fee_ccy"),
+            fee_currency,
         )
     )
+
+
+def _nested_fee_currency(*values: Any) -> str:
+    currencies: list[str] = []
+    seen: set[str] = set()
+
+    def collect(value: Any) -> None:
+        if isinstance(value, dict):
+            currency = _first_text(
+                value.get("currency"),
+                value.get("ccy"),
+                value.get("asset"),
+                value.get("coin"),
+                value.get("fee_currency"),
+                value.get("feeCurrency"),
+                value.get("feeCcy"),
+                value.get("commissionAsset"),
+                value.get("commission_asset"),
+            )
+            code = _currency_code(currency)
+            if code and code not in seen:
+                seen.add(code)
+                currencies.append(code)
+            for nested_key in ("fee", "fees", "commission", "comm"):
+                nested = value.get(nested_key)
+                if nested is not value:
+                    collect(nested)
+        elif isinstance(value, (list, tuple, set)):
+            for item in value:
+                collect(item)
+
+    for value in values:
+        collect(value)
+    if not currencies:
+        return ""
+    return currencies[0] if len(currencies) == 1 else "mixed"
 
 
 _RAW_EXCHANGE_GROSS_PNL_KEYS = frozenset(
