@@ -1194,6 +1194,88 @@ describe('StrategyPage', () => {
     }))
   })
 
+  it('continues research from current result when live candidate review expires', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    vi.mocked(strategyApi.reviewAIResearchPaperTrading).mockResolvedValueOnce({
+      run_id: 'run-1',
+      research_workspace_id: 'research-ws',
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      monitoring_plan: [],
+      evaluations: [
+        {
+          key: 'rolling_sharpe',
+          label: '模拟交易滚动 Sharpe',
+          metric: 'rolling_sharpe',
+          window: '30 trading days',
+          direction: 'min',
+          threshold: 0.6,
+          actual: 0.8,
+          source: 'unit_status.metrics_snapshot',
+          status: 'passed',
+          passed: true,
+          action: '继续观察',
+        },
+      ],
+      ready_for_live: false,
+      status: 'live_readiness_expired',
+      reviewed_at: '2026-06-27T00:02:00Z',
+      live_readiness_checklist: [
+        {
+          key: 'live_candidate_expired',
+          label: '候选有效期',
+          status: 'expired',
+          evidence: '实盘候选有效期已在 2026-06-27T00:02:00Z 截止。',
+          action: '重新复核模拟交易。',
+        },
+      ],
+      live_readiness_expires_at: '2026-06-27T00:02:00Z',
+      pipeline: {
+        current_stage: 'paper_review',
+        status: 'achieved',
+        progress: 80,
+        ready_for_live: false,
+        steps: [],
+      },
+      next_actions: ['实盘候选复核已过期，重新复核模拟交易指标后再进入实盘审批。'],
+    })
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.prompt = '生成一个趋势策略'
+    vm.aiResearchForm.symbol = '000001.SZ'
+    await vm.runAIResearchLoop()
+    const startPaperButton = wrapper.findAll('button').find(button => button.text().includes('启动模拟'))
+    expect(startPaperButton).toBeTruthy()
+    await startPaperButton!.trigger('click')
+    await flushPromises()
+    const reviewButton = wrapper.findAll('button').find(button => button.text().includes('复核模拟'))
+    expect(reviewButton).toBeTruthy()
+    await reviewButton!.trigger('click')
+    await flushPromises()
+
+    expect(vm.aiResearchResult.run_record.paper_review_status).toBe('live_readiness_expired')
+    expect(wrapper.find('[data-test="ai-research-current-paper-review"]').text()).toContain(
+      '重新复核'
+    )
+    expect(wrapper.find('[data-test="ai-research-current-live-readiness"]').text()).toContain(
+      '候选有效期 已过期'
+    )
+    const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续改进'))
+    expect(continueButton).toBeTruthy()
+    await continueButton!.trigger('click')
+    await flushPromises()
+
+    expect(vm.aiResearchForm.continuation_source).toBe('paper_review')
+    expect(strategyApi.runAIResearchLoop).toHaveBeenLastCalledWith(expect.objectContaining({
+      prompt: '生成一个趋势策略',
+      symbol: '000001.SZ',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: 's1',
+      continue_from_run_id: 'run-1',
+    }))
+  })
+
   it('restores an active AI research task on mount', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
