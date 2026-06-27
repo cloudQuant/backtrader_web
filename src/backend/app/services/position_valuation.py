@@ -1690,6 +1690,43 @@ def _should_recalculate_generic_pnl(
     )
 
 
+def _numbers_close(left: float, right: float) -> bool:
+    return abs(left - right) <= max(abs(left), abs(right), 1.0) * 1e-6
+
+
+def _should_recalculate_unscaled_exchange_pnl(
+    *,
+    field_key: str | None,
+    explicit_net_pnl_value: Any,
+    explicit_gross_pnl_value: Any,
+    size: float,
+    entry_price: float,
+    current_price: float,
+    multiplier: float,
+    has_multiplier: bool,
+    inverse_contract: bool,
+) -> bool:
+    if explicit_net_pnl_value not in (None, ""):
+        return False
+    if field_key not in _RAW_EXCHANGE_GROSS_PNL_KEYS:
+        return False
+    if inverse_contract or not has_multiplier or multiplier <= 1.0 + EPSILON:
+        return False
+    explicit = safe_float(explicit_gross_pnl_value, None)
+    if (
+        abs(size) <= EPSILON
+        or entry_price <= EPSILON
+        or current_price <= EPSILON
+        or explicit is None
+    ):
+        return False
+    scaled = (current_price - entry_price) * size * multiplier
+    unscaled = (current_price - entry_price) * size
+    if _numbers_close(explicit, scaled):
+        return False
+    return _numbers_close(explicit, unscaled)
+
+
 def _row_commission(
     row: dict[str, Any],
     spec: PositionSpec,
@@ -2233,6 +2270,18 @@ def value_position(
         current_price=current_price,
         multiplier=multiplier,
         has_multiplier=has_multiplier,
+    ):
+        explicit_gross_pnl = None
+    if _should_recalculate_unscaled_exchange_pnl(
+        field_key=explicit_gross_pnl_key,
+        explicit_net_pnl_value=explicit_net_pnl_value,
+        explicit_gross_pnl_value=explicit_gross_pnl_value,
+        size=size,
+        entry_price=entry_price,
+        current_price=current_price,
+        multiplier=multiplier,
+        has_multiplier=has_multiplier,
+        inverse_contract=inverse_contract,
     ):
         explicit_gross_pnl = None
     gross_pnl = (

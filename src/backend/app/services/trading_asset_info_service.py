@@ -1913,6 +1913,45 @@ def _should_recalculate_generic_pnl(
     )
 
 
+def _numbers_close(left: float, right: float) -> bool:
+    return abs(left - right) <= max(abs(left), abs(right), 1.0) * 1e-6
+
+
+def _should_recalculate_unscaled_exchange_pnl(
+    *,
+    field_key: str | None,
+    explicit_net_pnl_value: Any,
+    explicit_gross_pnl_value: Any,
+    size: float,
+    entry_price: float,
+    current_price: Any,
+    multiplier: float,
+    has_multiplier: bool,
+    inverse_contract: bool,
+) -> bool:
+    if explicit_net_pnl_value not in (None, ""):
+        return False
+    if field_key not in _RAW_EXCHANGE_GROSS_PNL_KEYS:
+        return False
+    if inverse_contract or not has_multiplier or multiplier <= 1.0 + 1e-12:
+        return False
+    current_price_number = _safe_float(current_price)
+    explicit = _safe_float(explicit_gross_pnl_value)
+    if (
+        abs(size) <= 1e-12
+        or entry_price <= 0
+        or current_price_number is None
+        or current_price_number <= 0
+        or explicit is None
+    ):
+        return False
+    scaled = (current_price_number - entry_price) * size * multiplier
+    unscaled = (current_price_number - entry_price) * size
+    if _numbers_close(explicit, scaled):
+        return False
+    return _numbers_close(explicit, unscaled)
+
+
 def _valuation_currency_candidates(
     symbol: str,
     asset_spec: dict[str, Any] | None = None,
@@ -2273,7 +2312,18 @@ def normalize_gateway_position(
         multiplier=multiplier,
         has_multiplier=has_multiplier,
     )
-    if generic_pnl_recalculated:
+    exchange_pnl_recalculated = _should_recalculate_unscaled_exchange_pnl(
+        field_key=gross_pnl_key,
+        explicit_net_pnl_value=explicit_net_pnl_value,
+        explicit_gross_pnl_value=gross_pnl_value,
+        size=size,
+        entry_price=price,
+        current_price=current_price,
+        multiplier=multiplier,
+        has_multiplier=has_multiplier,
+        inverse_contract=inverse_contract,
+    )
+    if generic_pnl_recalculated or exchange_pnl_recalculated:
         gross_pnl = None
     net_pnl = None
     if explicit_net_pnl is not None:
@@ -2391,6 +2441,8 @@ def normalize_gateway_position(
         normalized["gross_pnl"] = gross_pnl
     if generic_pnl_recalculated:
         normalized["generic_pnl_recalculated"] = True
+    if exchange_pnl_recalculated:
+        normalized["exchange_pnl_recalculated"] = True
     market_value = _first_value(
         row,
         "market_value",

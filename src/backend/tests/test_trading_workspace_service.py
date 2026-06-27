@@ -2927,6 +2927,41 @@ def test_gateway_position_pnl_alias_is_recalculated_until_explicitly_net():
     assert direct.pnl == pytest.approx(2965.5)
 
 
+def test_gateway_unrealized_profit_is_recalculated_when_it_is_unscaled():
+    spec = normalize_asset_spec(
+        {
+            "InstrumentID": "IF2609",
+            "VolumeMultiple": 300,
+            "OpenRatioByMoney": 0.23,
+        },
+        symbol="IF2609",
+        source="ctp_gateway",
+    )
+    contract_spec = contract_spec_for("IF2609", {"contract_metadata": {"IF2609": spec}})
+
+    row = normalize_gateway_position(
+        {
+            "InstrumentID": "IF2609",
+            "PosiDirection": "2",
+            "Position": 1,
+            "Price": 5000.0,
+            "LastPrice": 5010.0,
+            "unrealizedProfit": 10.0,
+        },
+        asset_spec=spec,
+    )
+    valued = value_position(row, spec=contract_spec)
+
+    assert row["exchange_pnl_recalculated"] is True
+    assert "pnlcomm" not in row
+    assert "position_pnl" not in row
+    assert "gross_pnl" not in row
+    assert valued is not None
+    assert valued.gross_pnl == pytest.approx(3000.0)
+    assert valued.commission == pytest.approx(34.5)
+    assert valued.pnl == pytest.approx(2965.5)
+
+
 def test_gateway_position_pnl_flagged_as_net_is_not_charged_twice():
     spec = normalize_asset_spec(
         {

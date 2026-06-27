@@ -3510,6 +3510,63 @@ async def test_portfolio_positions_hide_gateway_long_short_zero_aliases():
 
 
 @pytest.mark.asyncio
+async def test_portfolio_positions_recalculate_unscaled_gateway_unrealized_profit():
+    """Raw gateway unrealizedProfit can be a price delta and must use contract specs."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "InstrumentID": "IF2609",
+                    "PosiDirection": "2",
+                    "Position": 1,
+                    "Price": 5000.0,
+                    "LastPrice": 5010.0,
+                    "unrealizedProfit": 10.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "IF2609" in symbols
+            return {
+                "IF2609": {
+                    "source": "ctp_gateway",
+                    "VolumeMultiple": 300,
+                    "OpenRatioByMoney": 0.23,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "IF2609",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["multiplier"] == pytest.approx(300.0)
+    assert row["market_value"] == pytest.approx(1_503_000.0)
+    assert row["gross_pnl"] == pytest.approx(3000.0)
+    assert row["commission"] == pytest.approx(34.5)
+    assert row["position_pnl"] == pytest.approx(2965.5)
+    assert result["summary"]["total_pnl"] == pytest.approx(2965.5)
+
+
+@pytest.mark.asyncio
 async def test_portfolio_positions_match_gateway_trade_fees_by_position_side():
     """Hedge-mode long/short positions must not net each other's open fills."""
     from app.api.portfolio_api import get_portfolio_positions
