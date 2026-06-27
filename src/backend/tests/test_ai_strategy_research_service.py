@@ -161,6 +161,7 @@ class FakeWorkspaceService:
         self.created_units: list[StrategyUnitResponse] = []
         self.updated_units: list[StrategyUnitResponse] = []
         self.started_units: list[tuple[str, list[str]]] = []
+        self.stopped_units: list[tuple[str, list[str]]] = []
         self.updated_workspaces: list[WorkspaceResponse] = []
 
     async def create_workspace(self, user_id: str, data):
@@ -255,6 +256,14 @@ class FakeWorkspaceService:
     async def run_units(self, workspace_id: str, user_id: str, unit_ids: list[str], parallel=False):
         self.started_units.append((workspace_id, unit_ids))
         return [{"unit_id": unit_ids[0], "task_id": "paper-task", "status": "running"}]
+
+    async def stop_units(self, workspace_id: str, user_id: str, unit_ids: list[str]):
+        self.stopped_units.append((workspace_id, unit_ids))
+        for unit_id in unit_ids:
+            unit = self.units.get(unit_id)
+            if unit is not None and unit.workspace_id == workspace_id:
+                self.units[unit_id] = unit.model_copy(update={"run_status": "cancelled"})
+        return [{"unit_id": unit_id, "cancelled": True} for unit_id in unit_ids]
 
 
 class FakePaperStartFailingWorkspaceService(FakeWorkspaceService):
@@ -3239,12 +3248,16 @@ async def test_review_paper_trading_normalizes_negative_drawdown_before_live_can
     assert review.unit is not None
     assert review.unit.lock_trading is True
     assert review.unit.lock_running is True
-    assert "已自动锁定模拟交易单元" in review.next_actions[-1]
+    assert "锁定状态" in review.next_actions[-1]
+    assert workspace_service.stopped_units == [("paper-ws", ["paper-unit"])]
     assert workspace_service.updated_units[-1].lock_trading is True
     assert workspace_service.updated_units[-1].lock_running is True
     assert workspace_service.updated_units[-1].unit_settings["ai_research_review_lock"][
         "status"
     ] == "needs_research_review"
+    assert workspace_service.updated_units[-1].unit_settings["ai_research_review_lock"][
+        "stop_results"
+    ][0]["cancelled"] is True
 
 
 @pytest.mark.asyncio
@@ -5939,13 +5952,17 @@ async def test_list_research_run_records_auto_locks_failed_paper_review_unit():
     assert refreshed.paper_review_status == "needs_research_review"
     assert refreshed.paper_review_ready_for_live is False
     assert refreshed.pipeline["current_stage"] == "paper_review"
-    assert "已自动锁定模拟交易单元" in refreshed.next_actions[-1]
+    assert "已自动停止并锁定模拟交易单元" in refreshed.next_actions[-1]
+    assert workspace_service.stopped_units == [("paper-lock", ["paper-lock-unit"])]
     assert workspace_service.updated_units[-1].id == "paper-lock-unit"
     assert workspace_service.updated_units[-1].lock_trading is True
     assert workspace_service.updated_units[-1].lock_running is True
     assert workspace_service.updated_units[-1].unit_settings["ai_research_review_lock"][
         "status"
     ] == "needs_research_review"
+    assert workspace_service.updated_units[-1].unit_settings["ai_research_review_lock"][
+        "stop_results"
+    ][0]["unit_id"] == "paper-lock-unit"
 
     persisted_run = workspace_service.workspaces["research-auto-lock"].settings["ai_research"][
         "runs"
@@ -5953,7 +5970,7 @@ async def test_list_research_run_records_auto_locks_failed_paper_review_unit():
     assert persisted_run["paper_review_status"] == "needs_research_review"
     assert persisted_run["paper_review_evaluations"][1]["key"] == "drawdown_guard"
     assert persisted_run["paper_review_evaluations"][1]["status"] == "failed"
-    assert "已自动锁定模拟交易单元" in persisted_run["next_actions"][-1]
+    assert "已自动停止并锁定模拟交易单元" in persisted_run["next_actions"][-1]
 
 
 class FakeResearchAPIService:

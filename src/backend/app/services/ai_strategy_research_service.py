@@ -1605,13 +1605,25 @@ class AIStrategyResearchService:
             return None, next_actions
         if workspace is None or unit is None:
             return None, next_actions
+        if not _paper_unit_needs_review_lock(unit, review_status):
+            return None, _append_unique_text(
+                next_actions,
+                "模拟复核未通过，模拟交易单元已处于停止/锁定状态，需继续投研或人工解锁后再运行。",
+            )
 
+        stop_results, next_actions = await self._stop_paper_unit_for_review_failure(
+            user_id,
+            workspace=workspace,
+            unit=unit,
+            next_actions=next_actions,
+        )
         lock_payload = _paper_review_unit_lock_payload(
             record,
             review_status=review_status,
             reviewed_at=reviewed_at,
             evaluations=evaluations,
             next_actions=next_actions,
+            stop_results=stop_results,
         )
         unit_settings = dict(unit.unit_settings or {})
         unit_settings["ai_research_review_lock"] = lock_payload
@@ -1641,7 +1653,42 @@ class AIStrategyResearchService:
         locked_unit = StrategyUnitResponse.model_validate(updated)
         return locked_unit, _append_unique_text(
             next_actions,
-            "模拟复核未通过，已自动锁定模拟交易单元，需继续投研或人工解锁后再运行。",
+            "模拟复核未通过，已自动停止并锁定模拟交易单元，需继续投研或人工解锁后再运行。",
+        )
+
+    async def _stop_paper_unit_for_review_failure(
+        self,
+        user_id: str,
+        *,
+        workspace: WorkspaceResponse,
+        unit: StrategyUnitResponse,
+        next_actions: list[str],
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        stop_units = getattr(self.workspace_service, "stop_units", None)
+        if stop_units is None:
+            return [], _append_unique_text(
+                next_actions,
+                "模拟复核未通过，但当前工作区服务不支持自动停止模拟单元。",
+            )
+        try:
+            raw_results = await stop_units(workspace.id, user_id, [unit.id])
+        except Exception as exc:
+            return [], _append_unique_text(
+                next_actions,
+                f"模拟复核未通过，但自动停止模拟交易单元失败：{exc}",
+            )
+
+        stop_results = [
+            dict(item) for item in raw_results or [] if isinstance(item, dict)
+        ]
+        if stop_results:
+            return stop_results, _append_unique_text(
+                next_actions,
+                "模拟复核未通过，已自动请求停止模拟交易单元。",
+            )
+        return stop_results, _append_unique_text(
+            next_actions,
+            "模拟复核未通过，已尝试停止模拟交易单元但未返回停止结果。",
         )
 
     async def build_live_handoff_package(
@@ -3408,6 +3455,7 @@ def _paper_review_unit_lock_payload(
     reviewed_at: str,
     evaluations: list[AIStrategyPaperTradingRuleEvaluation],
     next_actions: list[str],
+    stop_results: list[dict[str, Any]],
 ) -> dict[str, Any]:
     failed_rules = [
         item.model_dump(mode="json") for item in evaluations if item.status == "failed"
@@ -3418,6 +3466,7 @@ def _paper_review_unit_lock_payload(
         "status": review_status,
         "reviewed_at": reviewed_at,
         "failed_rules": failed_rules,
+        "stop_results": [dict(item) for item in stop_results],
         "next_actions": list(next_actions),
         "reason": "AI paper review failed; trading and running are locked until research review.",
     }
