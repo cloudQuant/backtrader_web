@@ -1180,8 +1180,14 @@ class AIStrategyResearchService:
             run_record,
             paper_trading=paper_trading,
         )
+        run_record = _apply_initial_live_handoff_to_run_record(run_record)
+        response_updates: dict[str, Any] = {}
         if run_record.pipeline != response.pipeline:
-            response = response.model_copy(update={"pipeline": run_record.pipeline})
+            response_updates["pipeline"] = run_record.pipeline
+        if run_record.next_actions != response.next_actions:
+            response_updates["next_actions"] = run_record.next_actions
+        if response_updates:
+            response = response.model_copy(update=response_updates)
         research_workspace = await self._persist_research_run_record(
             user_id,
             research_workspace,
@@ -2809,6 +2815,7 @@ class AIStrategyResearchService:
             updated_record,
             paper_trading=paper_trading,
         )
+        updated_record = _apply_initial_live_handoff_to_run_record(updated_record)
         return await self._persist_research_run_record(user_id, workspace, updated_record)
 
     async def _mark_run_record_paper_start_failed(
@@ -5928,6 +5935,21 @@ def _apply_initial_paper_review_to_run_record(
             "pipeline": pipeline,
         }
     )
+
+
+def _apply_initial_live_handoff_to_run_record(
+    record: AIStrategyResearchRunRecord,
+) -> AIStrategyResearchRunRecord:
+    if record.live_handoff is not None:
+        return record
+    if not (
+        record.paper_trading_started
+        and record.paper_review_ready_for_live
+        and record.paper_review_status == "ready_for_live_candidate"
+    ):
+        return record
+    package = _build_live_handoff_package(record)
+    return _run_record_with_live_handoff(record, package)
 
 
 def _build_paper_trading_handoff(

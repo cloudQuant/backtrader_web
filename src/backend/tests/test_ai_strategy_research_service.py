@@ -272,6 +272,28 @@ class FakeWorkspaceService:
         return [{"unit_id": unit_id, "cancelled": True} for unit_id in unit_ids]
 
 
+class FakeLiveReadyPaperWorkspaceService(FakeWorkspaceService):
+    async def create_unit(self, workspace_id: str, user_id: str, data):
+        payload = await super().create_unit(workspace_id, user_id, data)
+        if payload is None or data.trading_mode != "paper":
+            return payload
+        unit = StrategyUnitResponse.model_validate(payload).model_copy(
+            update={
+                "metrics_snapshot": {
+                    "rolling_sharpe": 0.82,
+                    "max_drawdown": -3.2,
+                    "closed_trades": 24,
+                    "slippage_and_commission_delta": 0.0004,
+                },
+                "trading_snapshot": {"valuation_status": "confirmed"},
+            }
+        )
+        self.units[unit.id] = unit
+        if self.created_units:
+            self.created_units[-1] = unit
+        return unit.model_dump(mode="python")
+
+
 class FakePaperStartFailingWorkspaceService(FakeWorkspaceService):
     async def create_unit(self, workspace_id: str, user_id: str, data):
         return None
@@ -1241,6 +1263,50 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert "系统将基于本轮失败原因生成下一版策略" in result.research_workspace.settings[
         "ai_research"
     ]["runs"][0]["iterations"][0]["next_actions"][-1]
+
+
+@pytest.mark.asyncio
+async def test_research_loop_auto_builds_live_handoff_after_ready_initial_paper_review():
+    workspace_service = FakeLiveReadyPaperWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.31, "total_trades": 30, "max_drawdown": -4.0}],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个模拟交易可直接复核的趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            max_iterations=1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert result.paper_trading is not None
+    assert result.paper_trading.started is True
+    assert result.run_record is not None
+    assert result.run_record.paper_review_status == "ready_for_live_candidate"
+    assert result.run_record.paper_review_ready_for_live is True
+    assert result.run_record.live_handoff is not None
+    assert result.run_record.live_handoff.status == "ready_for_approval"
+    assert result.run_record.live_handoff.ready_for_live is True
+    assert result.run_record.live_handoff.approval_required is True
+    assert result.pipeline["current_stage"] == "live_handoff"
+    assert result.pipeline["live_handoff_status"] == "ready_for_approval"
+    assert result.next_actions[0].startswith("实盘交接包已生成")
+
+    persisted_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert persisted_run["live_handoff"]["status"] == "ready_for_approval"
+    assert persisted_run["pipeline"]["current_stage"] == "live_handoff"
+    assert persisted_run["live_readiness_checklist"][-1]["key"] == "human_approval_required"
 
 
 @pytest.mark.asyncio
