@@ -59,6 +59,7 @@ from app.services.workspace_service import WorkspaceService
 from app.utils.sandbox import StrategySandbox
 
 _TERMINAL_UNIT_STATUSES = {"completed", "failed", "cancelled", "timeout"}
+_MAX_CODE_REPAIR_ATTEMPTS = 2
 
 
 @dataclass(frozen=True)
@@ -395,12 +396,15 @@ class AIStrategyResearchService:
                     "message": f"Running AI research backtest iteration {iteration}",
                 },
             )
-            try:
-                _validate_strategy_code_draft(draft.code)
-            except ValueError as exc:
-                raise ValueError(
-                    f"Generated strategy code validation failed before iteration {iteration}: {exc}"
-                ) from exc
+            draft, pending_improvement_notes = await self._ensure_valid_draft_before_backtest(
+                draft,
+                user_id=user_id,
+                request=request,
+                iteration=iteration,
+                iteration_count=len(iterations),
+                pending_improvement_notes=pending_improvement_notes,
+                progress_callback=progress_callback,
+            )
             backtest_request = self._build_backtest_request(
                 draft,
                 request,
@@ -1171,6 +1175,78 @@ class AIStrategyResearchService:
             lock_running=last_status.lock_running if last_status else False,
         )
         return timeout_status, "Backtest timed out"
+
+    async def _ensure_valid_draft_before_backtest(
+        self,
+        draft: AIStrategyDraft,
+        *,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+        iteration: int,
+        iteration_count: int,
+        pending_improvement_notes: list[str],
+        progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
+    ) -> tuple[AIStrategyDraft, list[str]]:
+        notes = list(pending_improvement_notes)
+        current_draft = draft
+        last_error = ""
+
+        for attempt in range(_MAX_CODE_REPAIR_ATTEMPTS + 1):
+            try:
+                _validate_strategy_code_draft(current_draft.code)
+                return current_draft, notes
+            except ValueError as exc:
+                last_error = str(exc)
+                if attempt >= _MAX_CODE_REPAIR_ATTEMPTS:
+                    fallback = _normalize_research_draft(
+                        build_ai_strategy_draft(request.prompt),
+                        request,
+                    )
+                    _validate_strategy_code_draft(fallback.code)
+                    return fallback, [
+                        *notes,
+                        f"策略代码连续校验失败，已使用本地可运行草案继续投研：{last_error}",
+                    ]
+
+                failure = f"Strategy code validation failed before backtest: {last_error}"
+                await _emit_research_progress(
+                    progress_callback,
+                    {
+                        "current_stage": "repairing_code",
+                        "progress": min(
+                            _research_loop_progress(iteration - 1, request.max_iterations) + 2.0,
+                            80.0,
+                        ),
+                        "current_iteration": iteration,
+                        "iteration_count": iteration_count,
+                        "max_iterations": request.max_iterations,
+                        "message": (
+                            f"Repairing generated strategy code before iteration {iteration}"
+                        ),
+                    },
+                )
+                improvement = await self.improver.improve(
+                    current_draft,
+                    iteration=iteration - 1,
+                    metrics={
+                        "code_validation_failed": True,
+                        "repair_attempt": attempt + 1,
+                    },
+                    target_sharpe=request.target_sharpe,
+                    quality_gate_failures=[failure],
+                    user_id=user_id,
+                    request=request,
+                )
+                current_draft = _normalize_research_draft(improvement.draft, request)
+                notes = [
+                    *notes,
+                    f"第 {iteration} 轮回测前策略代码校验失败，已自动修复：{last_error}",
+                    *improvement.notes,
+                ]
+
+        raise ValueError(
+            f"Generated strategy code validation failed before iteration {iteration}: {last_error}"
+        )
 
     async def _start_paper_trading(
         self,
@@ -4010,6 +4086,7 @@ def _build_improvement_messages(
                         "如果新增指标或状态变量，必须保证 Backtrader Strategy 类可独立运行。",
                         "优先执行 suggested_improvement_plan 中的具体改进方向。",
                         "优先针对 quality_gate_failures 中列出的失败原因改进策略。",
+                        "如果失败原因是代码校验失败，必须先修复语法、安全检查和 bt.Strategy 类定义。",
                         "若 asset_specs 包含合约乘数、保证金、杠杆或手续费，改稿必须保留这些交易约束。",
                         "notes 用中文说明具体改动和为什么可能改善 Sharpe/回撤/交易次数。",
                     ],

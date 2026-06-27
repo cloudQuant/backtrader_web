@@ -35,6 +35,7 @@ from app.services.ai_strategy_research_service import (
     AIStrategyImprover,
     AIStrategyResearchService,
     LocalStrategyImprover,
+    StrategyImprovement,
 )
 from app.services.ai_strategy_research_task_manager import AIStrategyResearchTaskManager
 from app.services.strategy.ai_draft import build_ai_strategy_draft, render_ai_strategy_draft_answer
@@ -388,6 +389,45 @@ class FakeInvalidDraftStrategyService:
         )
 
 
+class InvalidThenRepairingImprover:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def improve(
+        self,
+        draft: AIStrategyDraft,
+        *,
+        iteration: int,
+        metrics: dict[str, Any],
+        target_sharpe: float,
+        quality_gate_failures: list[str] | None = None,
+        user_id: str | None = None,
+        request: AIStrategyResearchRunRequest | None = None,
+    ) -> StrategyImprovement:
+        self.calls.append(
+            {
+                "iteration": iteration,
+                "metrics": metrics,
+                "quality_gate_failures": list(quality_gate_failures or []),
+            }
+        )
+        if len(self.calls) == 1:
+            return StrategyImprovement(
+                draft=draft.model_copy(
+                    deep=True,
+                    update={
+                        "name": "无效改稿",
+                        "code": "def not_a_strategy():\n    return 1\n",
+                    },
+                ),
+                notes=["故意返回无效代码以触发回测前修复"],
+            )
+        repaired = build_ai_strategy_draft(
+            request.prompt if request is not None else "请生成一个均线趋势策略"
+        ).model_copy(update={"name": "修复后策略"})
+        return StrategyImprovement(draft=repaired, notes=["修复策略代码后继续回测"])
+
+
 async def _noop_sleep(_: float) -> None:
     return None
 
@@ -718,6 +758,58 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert "系统将基于本轮失败原因生成下一版策略" in result.research_workspace.settings[
         "ai_research"
     ]["runs"][0]["iterations"][0]["next_actions"][-1]
+
+
+@pytest.mark.asyncio
+async def test_research_loop_repairs_invalid_improved_strategy_before_backtest():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {"sharpe_ratio": 0.2, "total_trades": 5, "max_drawdown": -4.0},
+            {"sharpe_ratio": 1.2, "total_trades": 6, "max_drawdown": -3.0},
+        ],
+    )
+    improver = InvalidThenRepairingImprover()
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=improver,
+        sleep=_noop_sleep,
+    )
+    progress_events: list[dict[str, Any]] = []
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个双均线趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            start_paper_trading=False,
+            out_of_sample_validation=False,
+            max_iterations=2,
+            poll_interval_seconds=0.1,
+        ),
+        progress_callback=progress_events.append,
+    )
+
+    assert result.achieved is True
+    assert result.best_iteration == 2
+    assert len(strategy_service.submitted_drafts) == 2
+    assert "not_a_strategy" not in strategy_service.submitted_drafts[1].code
+    assert strategy_service.submitted_drafts[1].name == "修复后策略"
+    assert len(improver.calls) == 2
+    assert any(
+        "Strategy code validation failed before backtest" in failure
+        for failure in improver.calls[1]["quality_gate_failures"]
+    )
+    assert any(event["current_stage"] == "repairing_code" for event in progress_events)
+    assert any(
+        "第 2 轮回测前策略代码校验失败" in note
+        for note in result.iterations[1].improvement_notes
+    )
+    assert result.run_record is not None
+    assert result.run_record.status == "achieved"
 
 
 @pytest.mark.asyncio
