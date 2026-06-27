@@ -874,6 +874,110 @@ async def test_portfolio_positions_use_runtime_config_asset_specs_when_gateway_s
 
 
 @pytest.mark.asyncio
+async def test_portfolio_positions_persist_gateway_asset_specs_to_workspace_unit():
+    """Portfolio risk views should store exchange specs for later snapshot valuation."""
+    from app.api.portfolio_api import get_portfolio_positions
+    from app.db.database import async_session_maker
+    from app.models.user import User
+    from app.models.workspace import StrategyUnit, Workspace
+
+    user_id = "u-portfolio-spec-persist"
+    current_user = SimpleNamespace(sub=user_id)
+    user = User(
+        id=user_id,
+        username=user_id,
+        email=f"{user_id}@example.com",
+        hashed_password="x",
+    )
+    workspace = Workspace(
+        id="ws-portfolio-spec-persist",
+        user_id=user_id,
+        name="组合风控规格持久化",
+        workspace_type="trading",
+    )
+    unit = StrategyUnit(
+        id="unit-portfolio-spec-persist",
+        workspace_id=workspace.id,
+        strategy_id="simulate/gateway_dual_ma",
+        strategy_name="IF实盘",
+        symbol="IF2609",
+        run_status="running",
+        trading_mode="live",
+        trading_instance_id="inst-portfolio-spec-persist",
+        params={
+            "contract_metadata": {
+                "IF2609": {
+                    "source": "stale_local",
+                    "multiplier": 1,
+                    "margin_rate": 1,
+                    "commission_rate": 0,
+                }
+            }
+        },
+    )
+    async with async_session_maker() as session:
+        session.add_all([user, workspace, unit])
+        await session.commit()
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-portfolio-spec-persist"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-portfolio-spec-persist"
+            return [
+                {
+                    "instrument": "IF2609",
+                    "direction": "long",
+                    "volume": 1,
+                    "price": 5000.0,
+                    "current_price": 5001.0,
+                    "profit": 300.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-portfolio-spec-persist"
+            assert "IF2609" in symbols
+            return {
+                "IF2609": {
+                    "symbol": "IF2609",
+                    "source": "ctp_gateway",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                }
+            }
+
+        def query_instance_gateway_account(self, instance_id):
+            assert instance_id == "inst-portfolio-spec-persist"
+            return {
+                "gateway_key": "manual:CTP:spec",
+                "value": 100000.0,
+                "cash": 90000.0,
+            }
+
+    result = await get_portfolio_positions(current_user=current_user, mgr=GatewayManager([]))
+
+    row = result["positions"][0]
+    assert row["market_value"] == 1_500_300.0
+    assert row["margin_value"] == 150_030.0
+    assert row["commission"] == 34.5
+    assert row["position_pnl"] == 265.5
+    assert row["asset_spec_source"] == "ctp_gateway"
+
+    async with async_session_maker() as session:
+        stored = await session.get(StrategyUnit, "unit-portfolio-spec-persist")
+        assert stored is not None
+        metadata = stored.params["contract_metadata"]["IF2609"]
+        assert metadata["source"] == "stale_local+ctp_gateway"
+        assert metadata["multiplier"] == 300
+        assert metadata["margin_rate"] == 0.1
+        assert metadata["commission_rate"] == 0.000023
+
+
+@pytest.mark.asyncio
 async def test_portfolio_positions_recalculate_stale_local_net_pnl_with_asset_specs(tmp_path):
     """Local position snapshots with stale net PnL must be revalued with asset metadata."""
     from app.api.portfolio_api import get_portfolio_positions

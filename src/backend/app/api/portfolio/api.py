@@ -210,12 +210,14 @@ class _PortfolioSource:
     strategy_name: str
     status: str
     symbol: str = ""
+    unit_id: str | None = None
     workspace_id: str | None = None
     trading_mode: str = "paper"
     log_dir: Path | None = None
     snapshot: dict[str, Any] | None = None
     live_positions: list[dict[str, Any]] | None = None
     live_account: dict[str, Any] | None = None
+    resolved_asset_specs: dict[str, dict[str, Any]] = field(default_factory=dict)
     valuation_configs: tuple[dict[str, Any], ...] = ()
     position_source: str | None = None
     account_source: str | None = None
@@ -456,6 +458,7 @@ async def _active_workspace_sources(current_user: Any) -> list[_PortfolioSource]
                 strategy_name=f"{workspace.name} / {unit_name}",
                 status=str(unit.run_status or snapshot.get("instance_status") or "idle"),
                 symbol=str(unit.symbol or ""),
+                unit_id=str(unit.id),
                 trading_mode=str(unit.trading_mode or snapshot.get("mode") or "paper"),
                 workspace_id=str(workspace.id),
                 log_dir=_workspace_unit_log_dir(unit),
@@ -589,6 +592,54 @@ def _is_asset_spec_primary_source_key(existing: dict[str, Any], key: str) -> boo
 
 def _asset_spec_has_any(spec: dict[str, Any], keys: frozenset[str]) -> bool:
     return any(spec.get(key) not in (None, "") for key in keys)
+
+
+def _merge_asset_spec_update(
+    existing: dict[str, Any],
+    update: dict[str, Any],
+) -> dict[str, Any]:
+    update = _json_safe_value(update)
+    merged = dict(existing)
+    core_changed = False
+    primary_source_changed = False
+    for group in (_ASSET_SPEC_CONTRACT_KEYS, _ASSET_SPEC_MARGIN_KEYS, _ASSET_SPEC_FEE_KEYS):
+        group_items = {key: update.get(key) for key in group if update.get(key) not in (None, "")}
+        if not group_items:
+            continue
+        for key in group:
+            if key in merged:
+                merged.pop(key, None)
+                core_changed = True
+                if _is_asset_spec_primary_source_key(existing, key):
+                    primary_source_changed = True
+        for key, value in group_items.items():
+            if merged.get(key) != value:
+                merged[key] = value
+                core_changed = True
+                if _is_asset_spec_primary_source_key(existing, key):
+                    primary_source_changed = True
+
+    for key, value in update.items():
+        if key in {"source", "asset_spec_source"} or value in (None, ""):
+            continue
+        if (
+            key in _ASSET_SPEC_CONTRACT_KEYS
+            or key in _ASSET_SPEC_MARGIN_KEYS
+            or key in _ASSET_SPEC_FEE_KEYS
+        ):
+            continue
+        if key in _ASSET_SPEC_AUX_KEYS and merged.get(key) != value:
+            merged[key] = value
+
+    existing_source = str(existing.get("source") or existing.get("asset_spec_source") or "").strip()
+    next_source = str(update.get("source") or update.get("asset_spec_source") or "").strip()
+    if existing_source and next_source and existing_source != next_source and core_changed:
+        merged["source"] = _combined_asset_spec_source(existing_source, next_source)
+        merged["asset_spec_source"] = merged["source"]
+    elif next_source and not existing_source and primary_source_changed:
+        merged["source"] = next_source
+        merged["asset_spec_source"] = next_source
+    return merged
 
 
 def _position_spec_has_asset_metadata(spec: Any) -> bool:
@@ -845,6 +896,9 @@ def _live_positions_for_source(
             }
     asset_specs = _merge_source_contract_metadata(asset_specs, source, symbols)
     asset_specs = _complete_asset_specs_from_local(asset_specs, symbols)
+    source.resolved_asset_specs = {
+        str(key): dict(value) for key, value in asset_specs.items() if isinstance(value, dict)
+    }
 
     recent_trades: list[dict[str, Any]] = []
     query_trades = getattr(mgr, "query_instance_gateway_trades", None)
@@ -927,6 +981,50 @@ def _live_account_for_source(
     return account
 
 
+async def _persist_source_asset_specs(current_user: Any, source: _PortfolioSource) -> None:
+    if not source.unit_id or not source.resolved_asset_specs:
+        return
+    user_id = _current_user_id(current_user)
+    if not user_id:
+        return
+
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(StrategyUnit, Workspace)
+            .join(Workspace, StrategyUnit.workspace_id == Workspace.id)
+            .where(StrategyUnit.id == source.unit_id)
+            .where(Workspace.user_id == user_id)
+        )
+        row = result.first()
+        if row is None:
+            return
+        unit = row[0]
+        params = _safe_dict(unit.params)
+        metadata = (
+            dict(params.get("contract_metadata"))
+            if isinstance(params.get("contract_metadata"), dict)
+            else {}
+        )
+        changed = False
+        for key, value in source.resolved_asset_specs.items():
+            if not isinstance(value, dict):
+                continue
+            existing_value = _asset_spec_for_symbol(metadata, str(key))
+            merged_value = _merge_asset_spec_update(existing_value, value)
+            if existing_value != merged_value:
+                changed = True
+            for alias in symbol_aliases(str(key)):
+                alias_key = str(alias)
+                if metadata.get(alias_key) != merged_value:
+                    changed = True
+                metadata[alias_key] = dict(merged_value)
+        if not changed:
+            return
+        params["contract_metadata"] = metadata
+        unit.params = params
+        await session.commit()
+
+
 async def _portfolio_sources(
     current_user: Any,
     mgr: LiveTradingManager,
@@ -941,6 +1039,7 @@ async def _portfolio_sources(
         live_positions = _live_positions_for_source(mgr, source)
         if live_positions is not None:
             source.live_positions = live_positions
+            await _persist_source_asset_specs(current_user, source)
         live_account = _live_account_for_source(mgr, source)
         if live_account is not None:
             source.live_account = live_account
