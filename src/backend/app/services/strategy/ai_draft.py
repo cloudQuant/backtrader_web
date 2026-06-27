@@ -96,15 +96,23 @@ class {class_name}(bt.Strategy):
             if self._entry_signal():
                 entry_price = float(self.close[0])
                 risk_budget = max(float(self.broker.getvalue()) * self.p.risk_pct, 0.0)
-                size = 1
+                contract_multiplier = max(float(self.p.contract_multiplier or 1.0), 0.000001)
+                margin_rate = max(float(self.p.margin_rate or 1.0), 0.0)
                 if hasattr(self, 'atr'):
                     atr_stop = float(self.atr[0]) * self.p.atr_stop_multiplier
-                    if atr_stop > 0 and risk_budget > 0:
-                        size = max(int(risk_budget / atr_stop), 1)
                     self.stop_price = entry_price - atr_stop
+                    price_risk = atr_stop
                 else:
                     self.stop_price = entry_price * (1.0 - self.p.stop_loss_pct)
+                    price_risk = entry_price * self.p.stop_loss_pct
                 self.take_profit_price = entry_price * (1.0 + self.p.take_profit_pct)
+                risk_per_unit = max(price_risk * contract_multiplier, 0.000001)
+                risk_size = int(risk_budget / risk_per_unit) if risk_budget > 0 else 0
+                margin_per_unit = max(entry_price * contract_multiplier * margin_rate, 0.000001)
+                affordable_size = int(max(float(self.broker.getcash()), 0.0) / margin_per_unit)
+                size = min(risk_size, affordable_size)
+                if size <= 0:
+                    return
                 self.entry_price = entry_price
                 self.buy(size=size)
         else:

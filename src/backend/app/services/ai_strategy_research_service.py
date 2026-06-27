@@ -4681,6 +4681,7 @@ def _normalize_research_draft(
 ) -> AIStrategyDraft:
     """Keep generated/improved drafts aligned with the active research run."""
 
+    draft = _apply_asset_sizing_params_to_draft(draft, request)
     return draft.model_copy(
         update={
             "data_source": AIStrategyDataSourceSpec(
@@ -4735,6 +4736,62 @@ def _normalize_research_draft(
             "suggested_timeframe": request.timeframe,
         }
     )
+
+
+def _apply_asset_sizing_params_to_draft(
+    draft: AIStrategyDraft,
+    request: AIStrategyResearchRunRequest,
+) -> AIStrategyDraft:
+    asset_specs = _resolve_research_asset_specs(request)
+    primary = next((value for value in asset_specs.values() if isinstance(value, dict)), None)
+    if not primary:
+        return draft
+
+    sizing_params: dict[str, ParamSpec] = {}
+    multiplier = _first_asset_spec_number(
+        primary,
+        "multiplier",
+        "contract_multiplier",
+        "contract_size",
+        "contract_value",
+        "ctVal",
+        "ctMult",
+    )
+    margin_rate = _first_asset_spec_number(
+        primary,
+        "margin_rate",
+        "margin",
+        "long_margin_rate",
+        "short_margin_rate",
+        "margin_initial",
+    )
+    if multiplier is not None and multiplier > 0:
+        sizing_params["contract_multiplier"] = ParamSpec(
+            type="float",
+            default=float(multiplier),
+            min=0.000001,
+            max=max(float(multiplier) * 10.0, 1000000.0),
+            description="Contract multiplier resolved from asset metadata",
+        )
+    if margin_rate is not None and margin_rate >= 0:
+        sizing_params["margin_rate"] = ParamSpec(
+            type="float",
+            default=float(margin_rate),
+            min=0.0,
+            max=max(float(margin_rate) * 10.0, 10.0),
+            description="Initial margin rate resolved from asset metadata",
+        )
+    if not sizing_params:
+        return draft
+
+    code, code_param_names = _ensure_code_param_defaults(draft.code, sizing_params)
+    params = {key: value.model_copy(deep=True) for key, value in draft.params.items()}
+    for key, spec in sizing_params.items():
+        if key in code_param_names:
+            params[key] = spec
+    if params == draft.params and code == draft.code:
+        return draft
+    return draft.model_copy(update={"params": params, "code": code})
 
 
 def _ensure_runnable_initial_draft(
@@ -7701,6 +7758,54 @@ def _rewrite_code_param_defaults(code: str, params: dict[str, ParamSpec]) -> str
         pattern = re.compile(rf"\('{re.escape(key)}'\s*,\s*[^)]+\)")
         text = pattern.sub(f"('{key}', {rendered})", text)
     return text
+
+
+def _ensure_code_param_defaults(
+    code: str,
+    params: dict[str, ParamSpec],
+) -> tuple[str, set[str]]:
+    text = _rewrite_code_param_defaults(code, params)
+    available = {
+        key
+        for key in params
+        if re.search(rf"\('{re.escape(key)}'\s*,", text)
+    }
+    missing = [key for key in params if key not in available]
+    if not missing:
+        return text, available
+
+    multiline = re.search(r"(?m)^([ \t]*)params\s*=\s*\(\s*$", text)
+    if multiline:
+        indent = multiline.group(1)
+        entries = "".join(
+            f"{indent}    ('{key}', {render_param_default(params[key].default)}),\n"
+            for key in missing
+        )
+        text = f"{text[:multiline.end()]}\n{entries}{text[multiline.end():]}"
+        return text, {
+            key
+            for key in params
+            if re.search(rf"\('{re.escape(key)}'\s*,", text)
+        }
+
+    single_line = re.search(r"(?m)^([ \t]*)params\s*=\s*\((.*)\)\s*$", text)
+    if single_line:
+        indent = single_line.group(1)
+        existing = single_line.group(2).strip()
+        existing_lines = f"{indent}    {existing}\n" if existing else ""
+        entries = "".join(
+            f"{indent}    ('{key}', {render_param_default(params[key].default)}),\n"
+            for key in missing
+        )
+        replacement = f"{indent}params = (\n{existing_lines}{entries}{indent})"
+        text = f"{text[:single_line.start()]}{replacement}{text[single_line.end():]}"
+        return text, {
+            key
+            for key in params
+            if re.search(rf"\('{re.escape(key)}'\s*,", text)
+        }
+
+    return text, available
 
 
 def _bounded_name(value: str, max_length: int) -> str:

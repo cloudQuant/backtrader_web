@@ -745,6 +745,10 @@ def test_ai_strategy_draft_class_name_is_valid_with_numeric_goal():
 
     compile(draft.code, "<strategy>", "exec")
     assert "class AIGeneratedStrategy(bt.Strategy):" in draft.code
+    assert draft.params["contract_multiplier"].default == pytest.approx(1.0)
+    assert draft.params["margin_rate"].default == pytest.approx(1.0)
+    assert "risk_per_unit = max(price_risk * contract_multiplier" in draft.code
+    assert "affordable_size = int" in draft.code
 
 
 @pytest.mark.asyncio
@@ -2352,6 +2356,12 @@ async def test_research_loop_enriches_backtest_with_asset_specs(monkeypatch):
     assert backtest_request.unit_settings["margin"] == pytest.approx(0.1)
     assert backtest_request.unit_settings["commission"] == pytest.approx(0.000023)
     assert backtest_request.unit_settings["asset_spec_source"] == "local_futures_commission"
+    submitted_draft = strategy_service.submitted_drafts[0]
+    assert submitted_draft.params["contract_multiplier"].default == 300
+    assert submitted_draft.params["margin_rate"].default == pytest.approx(0.1)
+    assert "('contract_multiplier', 300.0)" in submitted_draft.code
+    assert "('margin_rate', 0.1)" in submitted_draft.code
+    assert "price_risk * contract_multiplier" in submitted_draft.code
     initial_prompt = strategy_service.generate_requests[0].prompt
     assert '"IF2609"' in initial_prompt
     assert '"multiplier": 300' in initial_prompt

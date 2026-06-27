@@ -207,6 +207,26 @@ def build_ai_param_specs(prompt: str) -> dict[str, ParamSpec]:
         ),
     )
     add_param(
+        "contract_multiplier",
+        ParamSpec(
+            type="float",
+            default=1.0,
+            min=0.000001,
+            max=1000000.0,
+            description="Contract multiplier used for asset-aware position sizing",
+        ),
+    )
+    add_param(
+        "margin_rate",
+        ParamSpec(
+            type="float",
+            default=1.0,
+            min=0.0,
+            max=10.0,
+            description="Initial margin rate used to cap position size",
+        ),
+    )
+    add_param(
         "stop_loss_pct",
         ParamSpec(
             type="float",
