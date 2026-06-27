@@ -1049,12 +1049,20 @@ class AIStrategyResearchService:
         iteration_payload = _best_iteration_payload(record)
         if iteration_payload is None:
             raise ValueError("AI research run record has no best iteration to promote")
-        if not record.best_strategy_id:
+        if not record.best_strategy_id and not _strategy_id_from_iteration_payload(iteration_payload):
             raise ValueError("AI research run record has no best strategy to promote")
 
-        strategy = await self.strategy_service.get_strategy(record.best_strategy_id, user_id)
+        strategy = None
+        if record.best_strategy_id:
+            strategy = await self.strategy_service.get_strategy(record.best_strategy_id, user_id)
         if strategy is None:
-            raise ValueError("Best strategy not found")
+            strategy = _strategy_from_iteration_snapshot(
+                record,
+                iteration_payload,
+                user_id=user_id,
+            )
+        if strategy is None:
+            raise ValueError("Best strategy not found and run record has no strategy snapshot")
 
         unit_snapshot = (
             dict(iteration_payload.get("unit_snapshot"))
@@ -3187,6 +3195,61 @@ def _runtime_mapping_from_snapshot(unit_snapshot: dict[str, Any], key: str) -> d
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _strategy_id_from_iteration_payload(payload: dict[str, Any]) -> str:
+    direct = str(payload.get("strategy_id") or "").strip()
+    if direct:
+        return direct
+    snapshot = payload.get("strategy_snapshot")
+    if isinstance(snapshot, dict):
+        return str(snapshot.get("id") or "").strip()
+    return ""
+
+
+def _strategy_from_iteration_snapshot(
+    record: AIStrategyResearchRunRecord,
+    payload: dict[str, Any],
+    *,
+    user_id: str,
+) -> StrategyResponse | None:
+    snapshot = payload.get("strategy_snapshot")
+    snapshot_payload = dict(snapshot) if isinstance(snapshot, dict) else {}
+    code = str(
+        snapshot_payload.get("code")
+        or payload.get("strategy_code")
+        or payload.get("code")
+        or ""
+    ).strip()
+    if not code:
+        return None
+
+    now = datetime.now(timezone.utc)
+    created_at = _parse_utc_datetime(str(snapshot_payload.get("created_at") or "")) or now
+    updated_at = _parse_utc_datetime(str(snapshot_payload.get("updated_at") or "")) or created_at
+    strategy_payload = {
+        "id": _strategy_id_from_iteration_payload(payload)
+        or record.best_strategy_id
+        or f"{record.run_id}-strategy",
+        "user_id": user_id,
+        "name": str(
+            snapshot_payload.get("name")
+            or payload.get("strategy_name")
+            or record.best_strategy_name
+            or "AI research strategy snapshot"
+        ),
+        "description": snapshot_payload.get("description") or record.prompt,
+        "code": code,
+        "params": dict(snapshot_payload.get("params") or {}),
+        "category": str(
+            snapshot_payload.get("category")
+            or payload.get("category")
+            or "custom"
+        ),
+        "created_at": created_at,
+        "updated_at": updated_at,
+    }
+    return StrategyResponse.model_validate(strategy_payload)
+
+
 def _paper_start_request_from_record(
     record: AIStrategyResearchRunRecord,
     request: AIStrategyPaperTradingStartRequest,
@@ -3235,7 +3298,8 @@ def _paper_start_request_from_record(
         max_iterations=max(int(record.max_iterations or 1), 1),
         research_workspace_id=record.research_workspace_id,
         trading_workspace_id=request.trading_workspace_id,
-        seed_strategy_id=record.best_strategy_id,
+        seed_strategy_id=record.best_strategy_id
+        or _strategy_id_from_iteration_payload(iteration_payload),
         continue_from_run_id=record.run_id,
         start_paper_trading=True,
         paper_workspace_name=request.paper_workspace_name,

@@ -2995,6 +2995,19 @@ async def test_start_paper_trading_from_history_uses_iteration_unit_snapshot():
                 "iteration": 2,
                 "strategy_id": strategy.id,
                 "strategy_name": strategy.name,
+                "strategy_snapshot": {
+                    "id": strategy.id,
+                    "name": strategy.name,
+                    "description": strategy.description,
+                    "code": strategy.code,
+                    "params": {
+                        key: value.model_dump(mode="json")
+                        for key, value in strategy.params.items()
+                    },
+                    "category": strategy.category,
+                    "created_at": strategy.created_at.isoformat(),
+                    "updated_at": strategy.updated_at.isoformat(),
+                },
                 "unit_id": "missing-research-unit",
                 "unit_snapshot": unit_snapshot,
                 "task_id": "task-2",
@@ -3027,7 +3040,7 @@ async def test_start_paper_trading_from_history_uses_iteration_unit_snapshot():
     strategy_service = FakeStrategyService(
         workspace_service,
         [],
-        strategies={strategy.id: strategy},
+        strategies={},
     )
     service = AIStrategyResearchService(
         strategy_service=strategy_service,
@@ -3044,6 +3057,8 @@ async def test_start_paper_trading_from_history_uses_iteration_unit_snapshot():
 
     assert result.started is True
     created_unit = workspace_service.created_units[-1]
+    assert created_unit.strategy_id == strategy.id
+    assert created_unit.strategy_name == strategy.name
     assert created_unit.data_config["contract_metadata"]["IF2609"]["multiplier"] == 300
     assert created_unit.unit_settings["commission"] == pytest.approx(0.000023)
     assert created_unit.unit_settings["multiplier"] == 300
