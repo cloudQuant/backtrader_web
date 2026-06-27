@@ -17,6 +17,7 @@ from app.schemas.ai_strategy_research import (
     AIStrategyPaperTradingStart,
     AIStrategyPaperTradingStartRequest,
     AIStrategyResearchRunListResponse,
+    AIStrategyResearchRunRecord,
     AIStrategyResearchRunRequest,
     AIStrategyResearchRunResponse,
     AIStrategyResearchTaskListResponse,
@@ -350,6 +351,31 @@ async def list_ai_strategy_research_runs(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/ai-research/runs/{run_id}",
+    response_model=AIStrategyResearchRunRecord,
+    summary="Get AI strategy research run",
+)
+async def get_ai_strategy_research_run(
+    run_id: str,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+    research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
+):
+    """Get one persisted AI strategy research run record."""
+    try:
+        record = await service.get_run_record(
+            current_user.sub,
+            run_id,
+            research_workspace_id=research_workspace_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI research run not found")
+    return record
 
 
 @router.post(

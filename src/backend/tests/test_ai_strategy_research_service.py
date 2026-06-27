@@ -118,6 +118,13 @@ def _pipeline_step(pipeline: dict[str, Any], key: str) -> dict[str, Any]:
     raise AssertionError(f"pipeline step {key!r} not found")
 
 
+def _promotion_audit_item(record: Any, key: str) -> dict[str, Any]:
+    for item in getattr(record, "promotion_audit", []) or []:
+        if isinstance(item, dict) and item.get("key") == key:
+            return item
+    raise AssertionError(f"promotion audit item {key!r} not found")
+
+
 def _strategy(strategy_id: str, draft: AIStrategyDraft) -> StrategyResponse:
     return StrategyResponse(
         id=strategy_id,
@@ -278,6 +285,7 @@ class FakeWorkspaceService:
         )
         unit = _unit(unit_id, workspace_id, strategy).model_copy(
             update={
+                "group_name": data.group_name,
                 "data_config": data.data_config,
                 "unit_settings": data.unit_settings,
                 "optimization_config": data.optimization_config,
@@ -1317,6 +1325,14 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.run_record.pipeline["current_stage"] == "paper_review"
     assert _pipeline_step(result.run_record.pipeline, "paper_trading")["status"] == "completed"
     assert _pipeline_step(result.run_record.pipeline, "paper_review")["review_status"] == "monitoring"
+    assert _promotion_audit_item(result.run_record, "strategy_generation")["status"] == "completed"
+    assert _promotion_audit_item(result.run_record, "backtest_loop")["details"][
+        "iteration_count"
+    ] == 2
+    assert _promotion_audit_item(result.run_record, "quality_gate")["status"] == "completed"
+    assert _promotion_audit_item(result.run_record, "paper_trading")["status"] == "completed"
+    assert _promotion_audit_item(result.run_record, "paper_review")["status"] == "running"
+    assert result.promotion_audit == result.run_record.promotion_audit
     assert result.run_record.best_quality_gate_evaluations[0]["key"] == "sharpe"
     assert result.next_actions == [
         "策略已通过验收并进入模拟交易，下一步跟踪模拟账户成交、持仓和风控指标。",
@@ -1391,10 +1407,13 @@ async def test_research_loop_auto_builds_live_handoff_after_ready_initial_paper_
     assert result.pipeline["current_stage"] == "live_handoff"
     assert result.pipeline["live_handoff_status"] == "ready_for_approval"
     assert result.next_actions[0].startswith("实盘交接包已生成")
+    assert _promotion_audit_item(result.run_record, "paper_review")["status"] == "completed"
+    assert _promotion_audit_item(result.run_record, "live_handoff")["status"] == "running"
 
     persisted_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
     assert persisted_run["live_handoff"]["status"] == "ready_for_approval"
     assert persisted_run["pipeline"]["current_stage"] == "live_handoff"
+    assert persisted_run["promotion_audit"][-2]["key"] == "live_handoff"
     assert persisted_run["live_readiness_checklist"][-1]["key"] == "human_approval_required"
 
 
@@ -2217,6 +2236,12 @@ async def test_research_loop_can_continue_from_backtest_submission_failure():
             symbol="000001.SZ",
             target_sharpe=1.0,
             continue_from_run_id="backtest-submit-failed-run",
+            continuation_context={
+                "gateway_config": {
+                    "api_key": "context-api-key",
+                    "params": {"secret_key": "context-secret", "exchange": "sim"},
+                }
+            },
             start_paper_trading=False,
             out_of_sample_validation=False,
             max_iterations=1,
@@ -2234,6 +2259,14 @@ async def test_research_loop_can_continue_from_backtest_submission_failure():
     assert result.run_record is not None
     assert result.run_record.seed_strategy_id == "saved-strategy-1"
     assert result.run_record.continued_from_run_id == "backtest-submit-failed-run"
+    assert result.run_record.continuation_source == "research_failure"
+    assert result.run_record.continuation_context["run_id"] == "backtest-submit-failed-run"
+    assert result.run_record.continuation_context["gateway_config"]["api_key"] == "***"
+    assert result.run_record.continuation_context["gateway_config"]["params"]["secret_key"] == "***"
+    assert result.run_record.continuation_context["gateway_config"]["params"]["exchange"] == "sim"
+    persisted_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert persisted_run["continuation_source"] == "research_failure"
+    assert persisted_run["continuation_context"]["gateway_config"]["api_key"] == "***"
 
 
 @pytest.mark.asyncio
@@ -2759,6 +2792,7 @@ async def test_research_loop_enriches_backtest_with_asset_specs(monkeypatch):
             max_iterations=1,
             start_paper_trading=False,
             poll_interval_seconds=0.1,
+            group_name="期货投研分组",
         ),
     )
 
@@ -2786,6 +2820,7 @@ async def test_research_loop_enriches_backtest_with_asset_specs(monkeypatch):
         0.000023
     )
     assert result.run_record is not None
+    assert result.run_record.group_name == "期货投研分组"
     assert result.run_record.commission == pytest.approx(0.000023)
     assert result.run_record.asset_specs["IF2609"]["multiplier"] == 300
     assert result.run_record.asset_specs["IF2609"]["commission_rate"] == pytest.approx(0.000023)
@@ -2805,6 +2840,7 @@ async def test_research_loop_enriches_backtest_with_asset_specs(monkeypatch):
     assert unit_snapshot["unit_settings"]["commission"] == pytest.approx(0.000023)
     assert unit_snapshot["unit_settings"]["asset_spec_source"] == "local_futures_commission"
     persisted_run = result.research_workspace.settings["ai_research"]["runs"][0]
+    assert persisted_run["group_name"] == "期货投研分组"
     assert "bt.Strategy" in persisted_run["iterations"][0]["strategy_snapshot"]["code"]
     assert persisted_run["asset_specs"]["IF2609"]["margin_rate"] == pytest.approx(0.1)
     assert persisted_run["backtest_environment"]["commission"] == pytest.approx(0.000023)
@@ -5317,6 +5353,15 @@ async def test_research_loop_continuation_uses_failed_paper_review_before_backte
     assert any("止损" in note or "风控" in note for note in result.iterations[0].improvement_notes)
     assert result.run_record is not None
     assert result.run_record.continued_from_run_id == "paper-failed-run"
+    assert result.run_record.continuation_context["failure_categories"] == ["drawdown"]
+    assert any(
+        "模拟交易最大回撤" in item
+        for item in result.run_record.continuation_context["weaknesses"]
+    )
+    assert any(
+        "收紧单笔风险" in item
+        for item in result.run_record.continuation_context["improvement_plan"]
+    )
 
 
 @pytest.mark.asyncio
@@ -6327,6 +6372,7 @@ async def test_start_paper_trading_from_history_uses_iteration_unit_snapshot():
         "annual_days": 244,
         "calc_method": "log",
         "weight_mode": "value",
+        "group_name": "历史投研分组",
         "best_strategy_id": strategy.id,
         "best_strategy_name": strategy.name,
         "paper_workspace_id": None,
@@ -6399,6 +6445,7 @@ async def test_start_paper_trading_from_history_uses_iteration_unit_snapshot():
 
     assert result.started is True
     created_unit = workspace_service.created_units[-1]
+    assert created_unit.group_name == "历史投研分组"
     assert created_unit.strategy_id == strategy.id
     assert created_unit.strategy_name == strategy.name
     assert created_unit.data_config["contract_metadata"]["IF2609"]["multiplier"] == 300
@@ -7363,6 +7410,36 @@ class FakeResearchAPIService:
             ],
         )
 
+    async def get_run_record(
+        self,
+        user_id: str,
+        run_id: str,
+        *,
+        research_workspace_id: str | None = None,
+    ):
+        response = await self.list_run_records(
+            user_id,
+            research_workspace_id=research_workspace_id,
+            limit=100,
+        )
+        record = next((item for item in response.items if item.run_id == run_id), None)
+        if record is None:
+            return None
+        return record.model_copy(
+            update={
+                "promotion_audit": [
+                    {
+                        "key": "quality_gate",
+                        "label": "质量门槛",
+                        "status": "completed",
+                        "evidence": "Fake API run achieved target Sharpe.",
+                        "action": "可进入后续模拟交易流程。",
+                        "details": {},
+                    }
+                ]
+            }
+        )
+
     async def start_paper_trading_from_run(
         self,
         user_id: str,
@@ -7807,6 +7884,16 @@ class FakeResearchAPIPaperService(FakeResearchAPIService):
                 "action": "继续观察",
             }
         ]
+        promotion_audit = [
+            {
+                "key": "paper_trading",
+                "label": "模拟交易",
+                "status": "completed",
+                "evidence": "模拟工作区 paper-api-ws，模拟单元 paper-api-unit。",
+                "action": "继续采集模拟成交、持仓、费用和估值指标。",
+                "details": {"paper_workspace_id": "paper-api-ws", "paper_unit_id": "paper-api-unit"},
+            }
+        ]
         handoff = {
             "run_id": result.run_id,
             "research_workspace_id": result.research_workspace.id,
@@ -7866,6 +7953,7 @@ class FakeResearchAPIPaperService(FakeResearchAPIService):
                 "paper_review_evaluations": review_evaluations,
                 "paper_review_next_actions": ["继续收集模拟交易数据"],
                 "pipeline": pipeline,
+                "promotion_audit": promotion_audit,
                 "next_actions": ["继续跟踪模拟交易"],
             }
         )
@@ -7884,6 +7972,7 @@ class FakeResearchAPIPaperService(FakeResearchAPIService):
                 ),
                 "paper_monitoring_plan": monitoring_plan,
                 "pipeline": pipeline,
+                "promotion_audit": promotion_audit,
                 "run_record": run_record,
                 "next_actions": ["继续跟踪模拟交易"],
                 "message": "Target Sharpe achieved and paper trading started",
@@ -7965,6 +8054,37 @@ class FakeResearchAPIExpiredLiveCandidateService(FakeResearchAPIPaperService):
                 "next_actions": record.next_actions,
             }
         )
+
+
+class FakeResearchAPIRecordContinuationService(FakeResearchAPIPaperService):
+    async def run(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+        *,
+        progress_callback=None,
+    ):
+        result = await super().run(user_id, request, progress_callback=progress_callback)
+        assert result.run_record is not None
+        record = result.run_record.model_copy(
+            update={
+                "continued_from_run_id": "record-parent-run",
+                "continuation_source": "paper_review",
+                "continuation_context": {
+                    "source": "paper_review",
+                    "run_id": "record-parent-run",
+                    "quality_gate_failures": ["模拟交易滚动 Sharpe 未通过"],
+                    "gateway_config": {
+                        "api_key": "record-continuation-secret",
+                        "params": {
+                            "secret_key": "record-continuation-secret",
+                            "exchange": "sim",
+                        },
+                    },
+                },
+            }
+        )
+        return result.model_copy(update={"run_record": record})
 
 
 class FakeResearchAPILiveHandoffService(FakeResearchAPIPaperService):
@@ -8428,6 +8548,16 @@ async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
         end_date="2024-06-30",
         knowledge_base_id="kb-quant",
         min_paper_trading_days=14,
+        continue_from_run_id="paper-failed-run",
+        continuation_context={
+            "source": "paper_review",
+            "run_id": "paper-failed-run",
+            "quality_gate_failures": ["模拟交易滚动 Sharpe 未通过"],
+            "gateway_config": {
+                "api_key": "continuation-secret-key",
+                "params": {"secret_key": "continuation-secret", "exchange": "sim"},
+            },
+        },
         gateway_config={
             "name": "paper_gateway",
             "api_key": "secret-key",
@@ -8455,6 +8585,15 @@ async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
     assert submitted.request_snapshot["start_date"] == "2024-01-01"
     assert submitted.request_snapshot["knowledge_base_id"] == "kb-quant"
     assert submitted.request_snapshot["min_paper_trading_days"] == 14
+    assert submitted.continued_from_run_id == "paper-failed-run"
+    assert submitted.continuation_source == "paper_review"
+    assert submitted.continuation_context["run_id"] == "paper-failed-run"
+    assert submitted.continuation_context["quality_gate_failures"] == [
+        "模拟交易滚动 Sharpe 未通过"
+    ]
+    assert submitted.continuation_context["gateway_config"]["api_key"] == "***"
+    assert submitted.continuation_context["gateway_config"]["params"]["secret_key"] == "***"
+    assert submitted.continuation_context["gateway_config"]["params"]["exchange"] == "sim"
     assert submitted.request_snapshot["gateway_config"]["name"] == "paper_gateway"
     assert "api_key" not in submitted.request_snapshot["gateway_config"]
     assert "password" not in submitted.request_snapshot["gateway_config"]["params"]
@@ -8479,6 +8618,10 @@ async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
     assert task.request_snapshot["prompt"] == "生成趋势策略"
     assert task.request_snapshot["symbol"] == "000001.SZ"
     assert task.request_snapshot["min_paper_trading_days"] == 14
+    assert task.continued_from_run_id == "paper-failed-run"
+    assert task.continuation_source == "paper_review"
+    assert task.continuation_context["gateway_config"]["api_key"] == "***"
+    assert task.continuation_context["gateway_config"]["params"]["secret_key"] == "***"
     assert task.request_snapshot["gateway_config"]["name"] == "paper_gateway"
     assert "api_key" not in task.request_snapshot["gateway_config"]
     assert task.request_snapshot["gateway_config"]["params"]["exchange"] == "sim"
@@ -8744,6 +8887,8 @@ async def test_ai_strategy_research_task_manager_exposes_paper_handoff_summary()
     assert task.paper_review_evaluations[0]["status"] == "pending"
     assert task.paper_review_next_actions == ["继续收集模拟交易数据"]
     assert task.pipeline["current_stage"] == "paper_review"
+    assert task.promotion_audit[0]["key"] == "paper_trading"
+    assert task.promotion_audit[0]["status"] == "completed"
     assert task.next_actions == ["继续跟踪模拟交易"]
     assert task.result is not None
     assert task.result.paper_trading is not None
@@ -8753,6 +8898,43 @@ async def test_ai_strategy_research_task_manager_exposes_paper_handoff_summary()
         task.result.run_record.paper_handoff["gateway_config"]["params"]["secret_key"]
         == "***"
     )
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_task_manager_fills_continuation_from_completed_run_record():
+    manager = AIStrategyResearchTaskManager()
+
+    submitted = await manager.submit(
+        "user-1",
+        AIStrategyResearchRunRequest(prompt="生成趋势策略", symbol="IF2409.CFE"),
+        service=FakeResearchAPIRecordContinuationService(),
+    )
+
+    assert submitted.continued_from_run_id is None
+    assert submitted.continuation_source is None
+    assert submitted.continuation_context == {}
+
+    task = None
+    for _ in range(20):
+        task = await manager.get_task("user-1", submitted.task_id)
+        if task is not None and task.status == "completed":
+            break
+        await asyncio.sleep(0.01)
+
+    assert task is not None
+    assert task.status == "completed"
+    assert task.continued_from_run_id == "record-parent-run"
+    assert task.continuation_source == "paper_review"
+    assert task.continuation_context["run_id"] == "record-parent-run"
+    assert task.continuation_context["quality_gate_failures"] == [
+        "模拟交易滚动 Sharpe 未通过"
+    ]
+    assert task.continuation_context["gateway_config"]["api_key"] == "***"
+    assert task.continuation_context["gateway_config"]["params"]["secret_key"] == "***"
+    assert task.continuation_context["gateway_config"]["params"]["exchange"] == "sim"
+    assert task.result is not None
+    assert task.result.run_record is not None
+    assert task.result.run_record.continued_from_run_id == "record-parent-run"
 
 
 @pytest.mark.asyncio
@@ -9198,6 +9380,16 @@ async def test_ai_strategy_research_task_api_endpoint(
                 "symbol": "000001.SZ",
                 "target_sharpe": 1.0,
                 "max_iterations": 2,
+                "continue_from_run_id": "paper-failed-run",
+                "continuation_context": {
+                    "source": "paper_review",
+                    "run_id": "paper-failed-run",
+                    "quality_gate_failures": ["模拟交易滚动 Sharpe 未通过"],
+                    "gateway_config": {
+                        "api_key": "continuation-secret",
+                        "params": {"secret_key": "continuation-secret", "exchange": "sim"},
+                    },
+                },
                 "gateway_config": {
                     "name": "paper_gateway",
                     "params": {"exchange": "sim", "api_key": "secret-key"},
@@ -9207,6 +9399,14 @@ async def test_ai_strategy_research_task_api_endpoint(
         assert response.status_code == 202
         task_id = response.json()["task_id"]
         assert response.json()["request_snapshot"]["prompt"] == "生成一个均线策略并优化到夏普率 1.0"
+        assert response.json()["continued_from_run_id"] == "paper-failed-run"
+        assert response.json()["continuation_source"] == "paper_review"
+        assert response.json()["continuation_context"]["run_id"] == "paper-failed-run"
+        assert response.json()["continuation_context"]["gateway_config"]["api_key"] == "***"
+        assert (
+            response.json()["continuation_context"]["gateway_config"]["params"]["secret_key"]
+            == "***"
+        )
         assert response.json()["request_snapshot"]["gateway_config"]["name"] == "paper_gateway"
         assert response.json()["request_snapshot"]["gateway_config"]["params"]["exchange"] == "sim"
         assert "api_key" not in response.json()["request_snapshot"]["gateway_config"]["params"]
@@ -9240,6 +9440,9 @@ async def test_ai_strategy_research_task_api_endpoint(
     assert payload["run_id"] == "api-run"
     assert payload["research_workspace_id"] == "research-api-ws"
     assert payload["request_snapshot"]["gateway_config"]["params"]["exchange"] == "sim"
+    assert payload["continued_from_run_id"] == "paper-failed-run"
+    assert payload["continuation_source"] == "paper_review"
+    assert payload["continuation_context"]["gateway_config"]["api_key"] == "***"
     assert "api_key" not in payload["request_snapshot"]["gateway_config"]["params"]
     assert payload["progress"] == 100.0
     assert payload["current_stage"] == "completed"
@@ -9316,6 +9519,7 @@ async def test_ai_strategy_research_task_api_runs_generated_goal_full_pipeline(
     strategy_service = FakeStrategyService(
         workspace_service,
         [
+            {"sharpe_ratio": 0.42, "total_trades": 2, "max_drawdown": -4.0},
             {"sharpe_ratio": 1.28, "total_trades": 12, "max_drawdown": -4.0},
             {"sharpe_ratio": 0.94, "total_trades": 4, "max_drawdown": -2.0},
         ],
@@ -9329,6 +9533,10 @@ async def test_ai_strategy_research_task_api_runs_generated_goal_full_pipeline(
     task_manager = AIStrategyResearchTaskManager()
     app.dependency_overrides[get_ai_strategy_research_service] = lambda: service
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
+    run_detail_payload = None
+    approval_payload = None
+    prepared_payload = None
+    final_run_detail_payload = None
     try:
         response = await client.post(
             "/api/v1/strategy/ai-research/tasks",
@@ -9346,7 +9554,7 @@ async def test_ai_strategy_research_task_api_runs_generated_goal_full_pipeline(
                 "min_out_of_sample_sharpe": 0.8,
                 "min_out_of_sample_trades": 2,
                 "min_paper_trading_days": 0,
-                "max_iterations": 1,
+                "max_iterations": 2,
                 "poll_interval_seconds": 0.1,
                 "gateway_config": {
                     "name": "paper_gateway",
@@ -9371,6 +9579,55 @@ async def test_ai_strategy_research_task_api_runs_generated_goal_full_pipeline(
             if payload["status"] == "completed":
                 break
             await asyncio.sleep(0.01)
+
+        assert payload is not None
+        assert payload["status"] == "completed"
+        run_id = payload["run_id"]
+        research_workspace_id = payload["research_workspace_id"]
+        detail_response = await client.get(
+            f"/api/v1/strategy/ai-research/runs/{run_id}",
+            headers=auth_headers,
+            params={"research_workspace_id": research_workspace_id},
+        )
+        assert detail_response.status_code == 200
+        run_detail_payload = detail_response.json()
+        approval_response = await client.post(
+            f"/api/v1/strategy/ai-research/runs/{run_id}/live-handoff/approval",
+            headers=auth_headers,
+            params={"research_workspace_id": research_workspace_id},
+            json={
+                "decision": "approved",
+                "approver": "risk-manager",
+                "comment": "同一run已完成样本外和模拟复核，准入实盘准备。",
+                "account_confirmed": True,
+                "risk_limit_confirmed": True,
+                "deployment_window": "2026-01-03 09:30",
+            },
+        )
+        assert approval_response.status_code == 200
+        approval_payload = approval_response.json()
+        workspace_service.workspaces["live-api-ws"] = _workspace("live-api-ws", "trading")
+        prepare_response = await client.post(
+            f"/api/v1/strategy/ai-research/runs/{run_id}/live-trading/prepare",
+            headers=auth_headers,
+            json={
+                "research_workspace_id": research_workspace_id,
+                "trading_workspace_id": "live-api-ws",
+                "gateway_config": {
+                    "name": "ctp_live",
+                    "params": {"broker_id": "9999", "exchange": "sim-live"},
+                },
+            },
+        )
+        assert prepare_response.status_code == 200
+        prepared_payload = prepare_response.json()
+        final_detail_response = await client.get(
+            f"/api/v1/strategy/ai-research/runs/{run_id}",
+            headers=auth_headers,
+            params={"research_workspace_id": research_workspace_id},
+        )
+        assert final_detail_response.status_code == 200
+        final_run_detail_payload = final_detail_response.json()
     finally:
         app.dependency_overrides.pop(get_ai_strategy_research_service, None)
         app.dependency_overrides.pop(get_ai_strategy_research_tasks, None)
@@ -9383,7 +9640,18 @@ async def test_ai_strategy_research_task_api_runs_generated_goal_full_pipeline(
         "请为 沪深300股指期货（IF2409.CFE）"
     )
     assert payload["request_snapshot"]["require_out_of_sample_validation"] is True
+    assert payload["request_snapshot"]["max_iterations"] == 2
+    assert payload["iteration_count"] == 2
+    assert payload["best_iteration"] == 2
+    assert payload["latest_iteration"]["iteration"] == 2
     assert payload["latest_iteration"]["validation_status"] == "passed"
+    assert payload["result"]["iterations"][0]["passed"] is False
+    assert payload["result"]["iterations"][0]["quality_gate_failures"]
+    assert payload["result"]["iterations"][1]["passed"] is True
+    assert payload["result"]["iterations"][1]["improvement_notes"]
+    assert len(strategy_service.submitted_drafts) == 3
+    assert strategy_service.submitted_drafts[1].name.endswith("v2")
+    assert strategy_service.submitted_drafts[2].name == strategy_service.submitted_drafts[1].name
     assert payload["paper_trading_started"] is True
     assert payload["paper_review_status"] == "ready_for_live_candidate"
     assert payload["paper_review_ready_for_live"] is True
@@ -9396,6 +9664,35 @@ async def test_ai_strategy_research_task_api_runs_generated_goal_full_pipeline(
         "status"
     ] == "passed"
     assert payload["result"]["run_record"]["live_handoff"]["status"] == "ready_for_approval"
+    assert run_detail_payload is not None
+    assert run_detail_payload["run_id"] == payload["run_id"]
+    assert run_detail_payload["live_handoff"]["status"] == "ready_for_approval"
+    live_handoff_audit = next(
+        item for item in run_detail_payload["promotion_audit"] if item["key"] == "live_handoff"
+    )
+    assert live_handoff_audit["status"] == "running"
+    assert approval_payload is not None
+    assert approval_payload["status"] == "approved_for_live"
+    assert approval_payload["approval"]["approved"] is True
+    assert approval_payload["approval"]["decided_by"] == "risk-manager"
+    assert prepared_payload is not None
+    assert prepared_payload["prepared"] is True
+    assert prepared_payload["workspace"]["id"] == "live-api-ws"
+    assert prepared_payload["unit"]["trading_mode"] == "live"
+    assert prepared_payload["unit"]["lock_trading"] is True
+    assert prepared_payload["unit"]["lock_running"] is True
+    assert prepared_payload["unit"]["gateway_config"]["name"] == "ctp_live"
+    assert prepared_payload["unit"]["data_config"]["ai_research_run_id"] == payload["run_id"]
+    assert prepared_payload["unit"]["unit_settings"]["ai_research_live_handoff"]["run_id"] == (
+        payload["run_id"]
+    )
+    assert prepared_payload["handoff"]["live_unit_locked"] is True
+    assert final_run_detail_payload is not None
+    assert final_run_detail_payload["live_trading_prepared"] is True
+    assert final_run_detail_payload["live_workspace_id"] == "live-api-ws"
+    assert final_run_detail_payload["live_unit_id"] == "live-unit"
+    assert final_run_detail_payload["pipeline"]["current_stage"] == "live_trading_prepare"
+    assert final_run_detail_payload["pipeline"]["steps"][-1]["key"] == "live_trading_prepare"
 
 
 @pytest.mark.asyncio
@@ -9549,6 +9846,47 @@ async def test_ai_strategy_research_run_history_endpoint(
     assert payload["total"] == 1
     assert payload["items"][0]["run_id"] == "api-history-run"
     assert payload["items"][0]["research_workspace_id"] == "research-api-ws"
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_run_detail_endpoint(
+    client: AsyncClient,
+    auth_headers: dict,
+):
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: FakeResearchAPIService()
+    try:
+        response = await client.get(
+            "/api/v1/strategy/ai-research/runs/api-history-run",
+            headers=auth_headers,
+            params={"research_workspace_id": "research-api-ws"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run_id"] == "api-history-run"
+    assert payload["research_workspace_id"] == "research-api-ws"
+    assert payload["promotion_audit"]
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_run_detail_endpoint_returns_404(
+    client: AsyncClient,
+    auth_headers: dict,
+):
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: FakeResearchAPIService()
+    try:
+        response = await client.get(
+            "/api/v1/strategy/ai-research/runs/missing-run",
+            headers=auth_headers,
+            params={"research_workspace_id": "research-api-ws"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+
+    assert response.status_code == 404
+    assert "AI research run not found" in str(response.json())
 
 
 @pytest.mark.asyncio

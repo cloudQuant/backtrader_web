@@ -1292,7 +1292,7 @@ def _source_positions(source: _PortfolioSource) -> list[dict[str, Any]]:
         return source.live_positions
     snapshot_positions = _source_snapshot_positions(source)
     if snapshot_positions:
-        source.position_source = str((source.snapshot or {}).get("position_source") or "snapshot")
+        source.position_source = "snapshot"
         return snapshot_positions
     if source.log_dir:
         source.position_source = "log"
@@ -1365,8 +1365,9 @@ def _position_row_should_recalculate_local_pnl(
     spec: Any,
     *,
     position_source: str,
+    force: bool = False,
 ) -> bool:
-    if str(position_source or "").strip().lower() == "gateway":
+    if not force and str(position_source or "").strip().lower() == "gateway":
         return False
     if not (
         getattr(spec, "has_multiplier", False)
@@ -1422,14 +1423,18 @@ def _position_row_for_valuation(
     position_source: str,
 ) -> dict[str, Any]:
     item = dict(row)
+    force_recalculate = bool(item.pop("force_recalculate_position_pnl", False))
     if not _position_row_should_recalculate_local_pnl(
         item,
         spec,
         position_source=position_source,
+        force=force_recalculate,
     ):
         return item
     for key in (*_EXPLICIT_NET_PNL_FIELD_KEYS, *_GROSS_PNL_FIELD_KEYS, "pnl"):
         item.pop(key, None)
+    if force_recalculate:
+        item["market_value_estimated"] = True
     item["recalculated_position_pnl"] = True
     return item
 
@@ -1443,6 +1448,14 @@ def _valued_source_positions(source: _PortfolioSource) -> list[dict[str, Any]]:
             position_source = str(
                 row.get("position_source") or row.get("source") or source.position_source or "local"
             ).strip()
+            if (
+                source.live_positions is None
+                and str(source.position_source or "").strip().lower() in {"log", "snapshot"}
+                and position_source.lower() == "gateway"
+            ):
+                position_source = str(source.position_source)
+                row = dict(row)
+                row["force_recalculate_position_pnl"] = True
             valuation_row = _position_row_for_valuation(
                 row,
                 spec,

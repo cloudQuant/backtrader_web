@@ -465,6 +465,7 @@ class AIStrategyResearchRunRecord(BaseModel):
     annual_days: int = 252
     calc_method: str = "simple"
     weight_mode: str = "equal"
+    group_name: str | None = None
     asset_specs: dict[str, Any] = Field(
         default_factory=dict,
         description="Resolved exchange/local asset specs used for backtest, paper handoff and valuation",
@@ -495,6 +496,11 @@ class AIStrategyResearchRunRecord(BaseModel):
     research_workspace_id: str
     seed_strategy_id: str | None = None
     continued_from_run_id: str | None = None
+    continuation_source: str | None = None
+    continuation_context: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Redacted reason/context used to continue this run from a failed review or prior run",
+    )
     paper_workspace_id: str | None = None
     paper_workspace_name: str | None = None
     paper_unit_id: str | None = None
@@ -516,6 +522,10 @@ class AIStrategyResearchRunRecord(BaseModel):
     live_trading_prepared: bool = False
     live_trading_prepared_at: str | None = None
     pipeline: dict[str, Any] = Field(default_factory=dict)
+    promotion_audit: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Stage-by-stage promotion evidence from research through paper/live readiness",
+    )
     next_actions: list[str] = Field(default_factory=list)
     started_at: str
     completed_at: str
@@ -549,6 +559,7 @@ class AIStrategyResearchRunResponse(BaseModel):
     paper_trading: AIStrategyPaperTradingStart | None = None
     paper_monitoring_plan: list[dict[str, Any]] = Field(default_factory=list)
     pipeline: dict[str, Any] = Field(default_factory=dict)
+    promotion_audit: list[dict[str, Any]] = Field(default_factory=list)
     run_record: AIStrategyResearchRunRecord | None = None
     next_actions: list[str] = Field(default_factory=list)
     message: str
@@ -565,6 +576,9 @@ class AIStrategyResearchTaskResponse(BaseModel):
     run_id: str | None = None
     research_workspace_id: str | None = None
     request_snapshot: dict[str, Any] = Field(default_factory=dict)
+    continued_from_run_id: str | None = None
+    continuation_source: str | None = None
+    continuation_context: dict[str, Any] = Field(default_factory=dict)
     current_stage: str = "queued"
     progress: float = 0.0
     current_iteration: int | None = None
@@ -605,6 +619,7 @@ class AIStrategyResearchTaskResponse(BaseModel):
     live_trading_prepared: bool = False
     live_trading_prepared_at: str | None = None
     pipeline: dict[str, Any] = Field(default_factory=dict)
+    promotion_audit: list[dict[str, Any]] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
     current_backtest_task_id: str | None = None
     cancelled_backtest_task_id: str | None = None

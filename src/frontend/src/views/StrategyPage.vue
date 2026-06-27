@@ -211,6 +211,54 @@
                     />
                   </div>
                 </el-form-item>
+                <el-form-item :label="t('strategy.aiResearchAnnualDays')">
+                  <el-input-number
+                    v-model="aiResearchForm.annual_days"
+                    :min="1"
+                    :max="366"
+                    :step="1"
+                    class="w-full"
+                    data-test="ai-research-annual-days"
+                  />
+                </el-form-item>
+                <el-form-item :label="t('strategy.aiResearchCalcMethod')">
+                  <el-select
+                    v-model="aiResearchForm.calc_method"
+                    class="w-full"
+                    data-test="ai-research-calc-method"
+                  >
+                    <el-option
+                      label="simple"
+                      value="simple"
+                    />
+                    <el-option
+                      label="log"
+                      value="log"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item :label="t('strategy.aiResearchWeightMode')">
+                  <el-select
+                    v-model="aiResearchForm.weight_mode"
+                    class="w-full"
+                    data-test="ai-research-weight-mode"
+                  >
+                    <el-option
+                      label="equal"
+                      value="equal"
+                    />
+                    <el-option
+                      label="value"
+                      value="value"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item :label="t('strategy.aiResearchGroupName')">
+                  <el-input
+                    v-model="aiResearchForm.group_name"
+                    data-test="ai-research-group-name"
+                  />
+                </el-form-item>
                 <el-form-item label="单轮回测超时(秒)">
                   <el-input-number
                     v-model="aiResearchForm.backtest_timeout_seconds"
@@ -433,6 +481,12 @@
                 <span v-if="aiResearchTaskObjectiveText">{{ aiResearchTaskObjectiveText }}</span>
                 <span v-if="aiResearchTaskSymbolText">{{ aiResearchTaskSymbolText }}</span>
                 <span v-if="aiResearchTaskTimeframeText">{{ aiResearchTaskTimeframeText }}</span>
+                <span
+                  v-if="aiResearchTaskContinuationSummary"
+                  data-test="ai-research-task-continuation"
+                >
+                  继续来源 {{ aiResearchTaskContinuationSummary }}
+                </span>
                 <span>阶段 {{ aiResearchTaskStageLabel }}</span>
                 <span>{{ formatTaskProgress(aiResearchTaskProgress) }}</span>
                 <span v-if="aiResearchTaskIteration">第 {{ aiResearchTaskIteration }} 轮</span>
@@ -577,6 +631,13 @@
                   <strong>
                     {{ aiResearchPaperStatusText }}
                   </strong>
+                </div>
+                <div
+                  v-if="aiResearchCurrentContinuationSummary"
+                  data-test="ai-research-current-continuation"
+                >
+                  <span>继续来源</span>
+                  <strong>{{ aiResearchCurrentContinuationSummary }}</strong>
                 </div>
               </div>
 
@@ -988,6 +1049,36 @@
               </div>
 
               <div
+                v-if="aiResearchPromotionAudit.length"
+                class="ai-research-promotion-audit"
+                data-test="ai-research-promotion-audit"
+              >
+                <strong>晋级审计</strong>
+                <div class="ai-research-promotion-audit-items">
+                  <span
+                    v-for="item in aiResearchPromotionAudit"
+                    :key="item.key"
+                    class="ai-research-promotion-audit-item"
+                  >
+                    <span>{{ item.label }}</span>
+                    <el-tag
+                      size="small"
+                      :type="pipelineStepTagType(item.status)"
+                    >
+                      {{ pipelineStepStatusLabel(item.status) }}
+                    </el-tag>
+                    <small>{{ item.evidence }}</small>
+                    <small
+                      v-if="item.action"
+                      class="ai-research-muted-text"
+                    >
+                      {{ item.action }}
+                    </small>
+                  </span>
+                </div>
+              </div>
+
+              <div
                 v-if="aiResearchNextActions.length"
                 class="ai-research-action-plan"
                 data-test="ai-research-next-actions"
@@ -1164,6 +1255,18 @@
                   >
                     {{ item.failure_reason }}
                   </p>
+                  <ul
+                    v-if="item.quality_gate_failures?.length"
+                    class="ai-research-notes ai-research-warning-list"
+                    data-test="ai-research-iteration-failures"
+                  >
+                    <li
+                      v-for="failure in item.quality_gate_failures"
+                      :key="failure"
+                    >
+                      {{ failure }}
+                    </li>
+                  </ul>
                   <div
                     v-if="iterationOutOfSampleValidation(item)"
                     class="ai-research-oos-summary ai-research-oos-summary-compact"
@@ -1284,6 +1387,12 @@
                       </span>
                       <span v-if="record.paper_workspace_name">
                         模拟 {{ record.paper_workspace_name }}
+                      </span>
+                      <span
+                        v-if="continuationSummaryForRecord(record)"
+                        data-test="ai-research-history-continuation"
+                      >
+                        继续来源 {{ continuationSummaryForRecord(record) }}
                       </span>
                       <span v-if="record.pipeline?.paper_trading_error">
                         模拟错误 {{ record.pipeline.paper_trading_error }}
@@ -1839,7 +1948,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Link, MagicStick, Plus, VideoPlay } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
@@ -1865,6 +1974,7 @@ import type {
   AIStrategyPaperTradingReview,
   AIStrategyPipelineSummary,
   AIStrategyPipelineStep,
+  AIStrategyPromotionAuditItem,
   AIStrategyQualityGateEvaluation,
   AIStrategyResearchRunRequest,
   AIStrategyResearchRunRecord,
@@ -1875,6 +1985,7 @@ import type {
 import type { Workspace, StrategyUnit, TradingSnapshot, UnitStatusResponse } from '@/types/workspace'
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 const strategyStore = useStrategyStore()
 
@@ -1917,6 +2028,9 @@ const aiResearchTaskLiveUnitId = ref('')
 const aiResearchTaskLivePrepared = ref(false)
 const aiResearchTaskPipeline = ref<AIStrategyPipelineSummary | null>(null)
 const aiResearchTaskRequestSnapshot = ref<Record<string, unknown> | null>(null)
+const aiResearchTaskContinuedFromRunId = ref('')
+const aiResearchTaskContinuationSource = ref('')
+const aiResearchTaskContinuationContext = ref<Record<string, unknown>>({})
 const aiResearchTaskError = ref('')
 const aiResearchTaskMessage = ref('')
 const aiResearchTaskLatestIteration = ref<Record<string, unknown> | null>(null)
@@ -2073,6 +2187,10 @@ const aiResearchForm = reactive({
   initial_cash: 100000,
   use_manual_commission: false,
   commission: 0.001,
+  annual_days: 252,
+  calc_method: 'simple',
+  weight_mode: 'equal',
+  group_name: '',
   backtest_timeout_seconds: 600,
   poll_interval_seconds: 2,
   research_workspace_id: '',
@@ -2168,6 +2286,12 @@ const aiResearchPipelineSteps = computed<AIStrategyPipelineStep[]>(() => {
     },
   ]
 })
+const aiResearchPromotionAudit = computed<AIStrategyPromotionAuditItem[]>(() =>
+  promotionAuditFromPayload(
+    aiResearchResult.value?.promotion_audit
+      ?? aiResearchResult.value?.run_record?.promotion_audit
+  )
+)
 const aiResearchCurrentPaperFailed = computed(() => {
   const pipeline = aiResearchResult.value?.pipeline
   return Boolean(
@@ -2211,6 +2335,25 @@ const aiResearchTaskTimeframeText = computed(() => {
   const timeframeN = optionalNumber(snapshot.timeframe_n) ?? 1
   if (!timeframe) return ''
   return /^\d/.test(timeframe) ? `周期 ${timeframe}` : `周期 ${timeframeN}${timeframe}`
+})
+const aiResearchTaskContinuationSummary = computed(() => {
+  const snapshot = aiResearchTaskRequestSnapshot.value ?? {}
+  const context = Object.keys(aiResearchTaskContinuationContext.value).length
+    ? aiResearchTaskContinuationContext.value
+    : isRecord(snapshot.continuation_context)
+      ? snapshot.continuation_context
+      : {}
+  const source = stringFromUnknown(
+    aiResearchTaskContinuationSource.value,
+    stringFromUnknown(context.source)
+  )
+  const parentRunId = stringFromUnknown(
+    aiResearchTaskContinuedFromRunId.value,
+    stringFromUnknown(snapshot.continue_from_run_id, stringFromUnknown(context.run_id))
+  )
+  if (!source && !parentRunId) return ''
+  const label = continuationSourceLabel(source)
+  return parentRunId ? `${label} · 上轮 ${parentRunId}` : label
 })
 const aiResearchTaskPaperStatusText = computed(() => {
   const error = String(aiResearchTaskPipeline.value?.paper_trading_error || '').trim()
@@ -2260,12 +2403,11 @@ const aiResearchContinuationEnabled = computed(() =>
   Boolean(aiResearchForm.seed_strategy_id || aiResearchForm.continue_from_run_id)
 )
 const aiResearchContinuationLabel = computed(() => {
-  if (aiResearchForm.continuation_source === 'paper_review') return '从模拟复核反馈继续'
-  if (aiResearchForm.continuation_source === 'paper_trading_failed') return '从模拟启动失败继续'
-  if (aiResearchForm.continuation_source === 'live_handoff_rejected') return '从实盘交接驳回继续'
-  if (aiResearchForm.continuation_source === 'research_cancelled') return '从已取消任务继续'
-  if (aiResearchForm.continuation_source === 'research_failure') return '从未达标结果继续'
-  return '从历史最佳策略继续'
+  return continuationSourceLabel(aiResearchForm.continuation_source || '')
+})
+const aiResearchCurrentContinuationSummary = computed(() => {
+  const record = aiResearchResult.value?.run_record
+  return record ? continuationSummaryForRecord(record) : ''
 })
 const canCancelAIResearchTask = computed(() =>
   aiResearchRunning.value
@@ -2580,6 +2722,7 @@ function aiResearchQualityGateLines() {
 function aiResearchValidationLines() {
   const lines = [
     `回测区间：${aiResearchForm.start_date || '可用历史数据起点'} 至 ${aiResearchForm.end_date || '最新可得数据'}。`,
+    `运行口径：年化天数 ${formatMetric(aiResearchForm.annual_days, 0)}，收益计算 ${aiResearchForm.calc_method}，组合权重 ${aiResearchForm.weight_mode}。`,
   ]
   if (aiResearchForm.out_of_sample_validation) {
     const requirements = [
@@ -3146,8 +3289,13 @@ async function refreshAIResearchRunRecord(
   runId: string,
   researchWorkspaceId?: string | null
 ) {
-  const response = await strategyApi.listAIResearchRuns(researchWorkspaceId || undefined, 20)
-  const record = response.items.find(item => item.run_id === runId)
+  let record: AIStrategyResearchRunRecord | null = null
+  try {
+    record = await strategyApi.getAIResearchRun(runId, researchWorkspaceId || undefined)
+  } catch {
+    const response = await strategyApi.listAIResearchRuns(researchWorkspaceId || undefined, 20)
+    record = response.items.find(item => item.run_id === runId) ?? null
+  }
   if (!record) return null
   upsertAIResearchRunRecord(record)
   applyResearchRunRecordToCurrentResult(record)
@@ -3172,6 +3320,10 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   } else {
     aiResearchForm.use_manual_commission = false
   }
+  aiResearchForm.annual_days = record.annual_days || 252
+  aiResearchForm.calc_method = record.calc_method || 'simple'
+  aiResearchForm.weight_mode = record.weight_mode || 'equal'
+  aiResearchForm.group_name = record.group_name || record.best_strategy_name || ''
   aiResearchForm.knowledge_base_id = record.knowledge_base_id || ''
   aiResearchForm.thinking_mode = Boolean(record.thinking_mode)
   aiResearchForm.paper_workspace_name = record.paper_workspace_name || ''
@@ -3446,6 +3598,156 @@ function continuationSourceForRecord(record: AIStrategyResearchRunRecord) {
   return ''
 }
 
+function continuationSourceLabel(source?: string | null) {
+  if (source === 'paper_review') return '从模拟复核反馈继续'
+  if (source === 'paper_trading_failed') return '从模拟启动失败继续'
+  if (source === 'live_handoff_rejected') return '从实盘交接驳回继续'
+  if (source === 'research_cancelled') return '从已取消任务继续'
+  if (source === 'research_failure') return '从未达标结果继续'
+  return '从历史最佳策略继续'
+}
+
+function continuationSummaryForRecord(record: AIStrategyResearchRunRecord) {
+  const context = isRecord(record.continuation_context) ? record.continuation_context : {}
+  const source = stringFromUnknown(record.continuation_source, stringFromUnknown(context.source))
+  const parentRunId = stringFromUnknown(record.continued_from_run_id, stringFromUnknown(context.run_id))
+  if (!source && !parentRunId) return ''
+  const label = continuationSourceLabel(source)
+  return parentRunId ? `${label} · 上轮 ${parentRunId}` : label
+}
+
+function aiResearchContinuationRecord(runId: string) {
+  const currentRecord = aiResearchResult.value?.run_record
+  if (currentRecord?.run_id === runId) return currentRecord
+  return aiResearchRuns.value.find(record => record.run_id === runId) ?? null
+}
+
+function aiResearchContinuationContext(): Record<string, unknown> | undefined {
+  const runId = aiResearchForm.continue_from_run_id.trim()
+  const source = aiResearchForm.continuation_source.trim()
+  if (!runId || !source) return undefined
+
+  const record = aiResearchContinuationRecord(runId)
+  const context: Record<string, unknown> = { source, run_id: runId }
+  if (!record) return context
+
+  const failures = continuationQualityGateFailures(record, source)
+  if (failures.length) context.quality_gate_failures = failures
+  if (isRecord(record.best_metrics)) context.metrics = { ...record.best_metrics }
+  if (record.next_actions?.length) context.next_actions = [...record.next_actions]
+  if (record.pipeline) context.pipeline = { ...record.pipeline }
+  if (record.asset_specs) context.asset_specs = { ...record.asset_specs }
+  if (record.backtest_environment) context.backtest_environment = { ...record.backtest_environment }
+  if (record.best_diagnostics) context.diagnostics = { ...record.best_diagnostics }
+
+  if (source === 'paper_review') {
+    context.paper_review_status = record.paper_review_status
+    context.paper_reviewed_at = record.paper_reviewed_at
+    const evaluations = [...(record.paper_review_evaluations ?? [])].map(item => ({ ...item }))
+    if (evaluations.length) context.paper_review_evaluations = evaluations
+    if (record.paper_review_next_actions?.length) {
+      context.paper_review_next_actions = [...record.paper_review_next_actions]
+    }
+  } else if (source === 'paper_trading_failed') {
+    context.paper_trading_error = stringFromUnknown(record.pipeline?.paper_trading_error)
+  } else if (source === 'live_handoff_rejected') {
+    const handoff = liveHandoffForRecord(record) ?? record.live_handoff
+    context.live_handoff_status = liveHandoffStatusForRecord(record) || 'approval_rejected'
+    if (handoff) context.live_handoff = { ...handoff }
+    if (record.live_handoff_approval) {
+      context.live_handoff_approval = { ...record.live_handoff_approval }
+    }
+    if (record.live_readiness_checklist?.length) {
+      context.live_readiness_checklist = record.live_readiness_checklist.map(item => ({ ...item }))
+    }
+    if (record.paper_review_evaluations?.length) {
+      context.paper_review_evaluations = record.paper_review_evaluations.map(item => ({ ...item }))
+    }
+    context.paper_review_status = record.paper_review_status
+    context.paper_reviewed_at = record.paper_reviewed_at
+  } else {
+    const iteration = continuationIterationPayload(record)
+    if (iteration?.failure_reason) {
+      context.failure_reason = stringFromUnknown(iteration.failure_reason)
+    }
+    if (iteration?.quality_gate_failures) {
+      context.previous_quality_gate_failures = stringListFromUnknown(
+        iteration.quality_gate_failures
+      )
+    }
+  }
+
+  return context
+}
+
+function continuationQualityGateFailures(
+  record: AIStrategyResearchRunRecord,
+  source: string
+) {
+  const failures = new Set<string>()
+  if (source === 'paper_review') {
+    const failedEvaluations = (record.paper_review_evaluations ?? []).filter(
+      item => String(item.status || '') === 'failed' || item.passed === false
+    )
+    failedEvaluations.forEach(item => {
+      const failure = paperReviewFailureText(item)
+      if (failure) failures.add(failure)
+    })
+    if (!failures.size && record.paper_review_status === 'live_readiness_expired') {
+      failures.add('实盘候选复核已过期，需要重新复核模拟交易指标后再进入实盘审批。')
+    }
+    for (const item of record.paper_review_next_actions ?? []) {
+      if (item.trim()) failures.add(item.trim())
+    }
+  } else if (source === 'paper_trading_failed') {
+    const error = stringFromUnknown(record.pipeline?.paper_trading_error)
+    failures.add(error ? `模拟交易启动失败：${error}` : '模拟交易启动失败。')
+  } else if (source === 'live_handoff_rejected') {
+    failures.add('实盘交接审批被驳回，需要处理审批意见后重新投研并重新进入模拟复核。')
+    const comment = stringFromUnknown(record.live_handoff_approval?.comment)
+    if (comment) failures.add(`实盘交接驳回意见：${comment}`)
+    for (const item of record.next_actions ?? []) {
+      if (item.trim()) failures.add(item.trim())
+    }
+  } else {
+    const iteration = continuationIterationPayload(record)
+    stringListFromUnknown(iteration?.quality_gate_failures).forEach(item => failures.add(item))
+    const reason = stringFromUnknown(iteration?.failure_reason)
+    if (reason) failures.add(reason)
+    for (const item of record.next_actions ?? []) {
+      if (item.trim()) failures.add(item.trim())
+    }
+  }
+  return [...failures]
+}
+
+function paperReviewFailureText(item: AIStrategyPaperTradingRuleEvaluation) {
+  const label = stringFromUnknown(item.label, stringFromUnknown(item.key, '模拟交易复核'))
+  const actual = optionalNumber(item.actual)
+  const threshold = optionalNumber(item.threshold)
+  const actualText = actual === null ? '' : `实际 ${formatMetric(actual)}`
+  const thresholdText = threshold === null ? '' : `阈值 ${formatMetric(threshold)}`
+  const action = stringFromUnknown(item.action)
+  const parts = [actualText, thresholdText].filter(Boolean).join('，')
+  return `${label}未通过${parts ? `（${parts}）` : ''}${action ? `，${action}` : ''}`
+}
+
+function continuationIterationPayload(record: AIStrategyResearchRunRecord) {
+  const iterations = record.iterations.filter(isRecord)
+  if (!iterations.length) return null
+  const bestIteration = optionalNumber(record.best_iteration)
+  if (bestIteration !== null) {
+    const bestPayload = iterations.find(item => optionalNumber(item.iteration) === bestIteration)
+    if (bestPayload) return bestPayload
+  }
+  return iterations[iterations.length - 1]
+}
+
+function stringListFromUnknown(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.map(item => stringFromUnknown(item)).filter(Boolean)
+}
+
 function isLiveHandoffRejected(record: AIStrategyResearchRunRecord) {
   const handoff = liveHandoffForRecord(record) ?? record.live_handoff
   const approval = handoff?.approval ?? record.live_handoff_approval
@@ -3661,6 +3963,18 @@ function liveReadinessChecklistFromPayload(payload: unknown): AIStrategyLiveRead
   }))
 }
 
+function promotionAuditFromPayload(payload: unknown): AIStrategyPromotionAuditItem[] {
+  if (!Array.isArray(payload)) return []
+  return payload.filter(isRecord).map((item, index) => ({
+    key: String(item.key || `audit-${index}`),
+    label: String(item.label || item.key || `审计项 ${index + 1}`),
+    status: String(item.status || 'pending'),
+    evidence: String(item.evidence || ''),
+    action: String(item.action || ''),
+    details: isRecord(item.details) ? item.details : undefined,
+  }))
+}
+
 function clearAIResearchContinuation() {
   aiResearchForm.research_workspace_id = ''
   aiResearchForm.seed_strategy_id = ''
@@ -3803,6 +4117,7 @@ function applyPaperStartToCurrentResult(
     paper_monitoring_plan:
       paperMonitoringPlanFromHandoff(paper.handoff) ?? current.paper_monitoring_plan,
     pipeline: runRecord.pipeline ?? current.pipeline,
+    promotion_audit: runRecord.promotion_audit ?? current.promotion_audit,
     next_actions: runRecord.next_actions ?? current.next_actions,
     run_record: runRecord,
   }
@@ -3869,6 +4184,7 @@ function researchResultFromRunRecord(
     paper_trading: paperTradingFromRunRecord(record),
     paper_monitoring_plan: record.paper_monitoring_plan ?? [],
     pipeline: record.pipeline,
+    promotion_audit: promotionAuditFromPayload(record.promotion_audit),
     run_record: record,
     next_actions: record.next_actions ?? [],
     message: 'AI research result restored from run history',
@@ -3932,6 +4248,15 @@ function researchResultFromTaskSummary(
     ?? taskPipeline.live_trading_prepared_at
     ?? liveTradingPreparedAtFromPipeline(taskPipeline)
     ?? null
+  const taskContinuationContext = isRecord(task.continuation_context)
+    ? { ...task.continuation_context }
+    : {}
+  const requestContinuationContext = isRecord(request.continuation_context)
+    ? { ...request.continuation_context }
+    : {}
+  const continuationContext = Object.keys(taskContinuationContext).length
+    ? taskContinuationContext
+    : requestContinuationContext
   const record: AIStrategyResearchRunRecord = {
     run_id: task.run_id,
     prompt: stringFromUnknown(request.prompt),
@@ -3946,6 +4271,7 @@ function researchResultFromTaskSummary(
     annual_days: optionalNumber(request.annual_days) ?? undefined,
     calc_method: stringFromUnknown(request.calc_method) || undefined,
     weight_mode: stringFromUnknown(request.weight_mode) || undefined,
+    group_name: stringFromUnknown(request.group_name) || undefined,
     asset_specs: assetSpecs,
     backtest_environment: backtestEnvironment,
     status: runStatus,
@@ -3982,7 +4308,15 @@ function researchResultFromTaskSummary(
     best_strategy_name: task.best_strategy_name ?? null,
     research_workspace_id: task.research_workspace_id,
     seed_strategy_id: stringFromUnknown(request.seed_strategy_id) || null,
-    continued_from_run_id: stringFromUnknown(request.continue_from_run_id) || null,
+    continued_from_run_id: stringFromUnknown(
+      task.continued_from_run_id,
+      stringFromUnknown(request.continue_from_run_id)
+    ) || null,
+    continuation_source: stringFromUnknown(
+      task.continuation_source,
+      stringFromUnknown(continuationContext.source)
+    ) || null,
+    continuation_context: continuationContext,
     paper_workspace_id: task.paper_workspace_id ?? null,
     paper_workspace_name: stringFromUnknown(
       task.paper_workspace_name,
@@ -4007,6 +4341,7 @@ function researchResultFromTaskSummary(
     live_trading_prepared: liveTradingPrepared,
     live_trading_prepared_at: liveTradingPreparedAt,
     pipeline: taskPipeline,
+    promotion_audit: promotionAuditFromPayload(task.promotion_audit),
     next_actions: task.next_actions ?? [],
     started_at: task.started_at ?? task.submitted_at,
     completed_at: task.completed_at ?? task.started_at ?? task.submitted_at,
@@ -4217,7 +4552,7 @@ function fallbackPaperUnitFromRunRecord(
   return {
     id: record.paper_unit_id || `${record.run_id}-paper-unit`,
     workspace_id: record.paper_workspace_id || '',
-    group_name: record.best_strategy_name || 'AI策略',
+    group_name: record.group_name || record.best_strategy_name || 'AI策略',
     strategy_id: record.best_strategy_id || null,
     strategy_name: record.best_strategy_name || 'AI策略',
     symbol: record.symbol,
@@ -4439,6 +4774,26 @@ function stringFromUnknown(value: unknown, fallback = '') {
   return text || fallback
 }
 
+function routeQueryText(value: unknown) {
+  if (Array.isArray(value)) return stringFromUnknown(value[0])
+  return stringFromUnknown(value)
+}
+
+function aiResearchRouteRunId() {
+  return (
+    routeQueryText(route.query.ai_research_run_id)
+    || routeQueryText(route.query.research_run_id)
+    || routeQueryText(route.query.run_id)
+  )
+}
+
+function aiResearchRouteWorkspaceId() {
+  return (
+    routeQueryText(route.query.research_workspace_id)
+    || routeQueryText(route.query.workspace_id)
+  )
+}
+
 function nullableString(value: unknown) {
   const text = typeof value === 'string' ? value.trim() : ''
   return text || null
@@ -4467,16 +4822,39 @@ async function restoreAIResearchResultFromTask(
 ): Promise<AIStrategyResearchRunResponse | null> {
   if (!task.run_id) return null
   try {
-    const response = await strategyApi.listAIResearchRuns(
-      task.research_workspace_id || undefined,
-      100
-    )
-    const record = response.items.find(item => item.run_id === task.run_id)
+    let record: AIStrategyResearchRunRecord | null = null
+    try {
+      record = await strategyApi.getAIResearchRun(
+        task.run_id,
+        task.research_workspace_id || undefined
+      )
+    } catch {
+      const response = await strategyApi.listAIResearchRuns(
+        task.research_workspace_id || undefined,
+        100
+      )
+      record = response.items.find(item => item.run_id === task.run_id) ?? null
+    }
     if (!record) return researchResultFromTaskSummary(task)
     upsertAIResearchRunRecord(record)
     return researchResultFromRunRecord(record)
   } catch {
     return researchResultFromTaskSummary(task)
+  }
+}
+
+async function restoreAIResearchRunFromRoute() {
+  const runId = aiResearchRouteRunId()
+  if (!runId) return false
+  try {
+    const record = await refreshAIResearchRunRecord(runId, aiResearchRouteWorkspaceId())
+    if (!record) return false
+    aiResearchResult.value = researchResultFromRunRecord(record)
+    useAIResearchRecord(record)
+    activeTab.value = 'aiResearch'
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -4990,6 +5368,9 @@ function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResea
         )
       : null,
     initial_cash: aiResearchForm.initial_cash,
+    annual_days: aiResearchForm.annual_days,
+    calc_method: aiResearchForm.calc_method,
+    weight_mode: aiResearchForm.weight_mode,
     research_workspace_id: aiResearchForm.research_workspace_id || null,
     seed_strategy_id: aiResearchForm.seed_strategy_id || null,
     continue_from_run_id: aiResearchForm.continue_from_run_id || null,
@@ -5001,11 +5382,16 @@ function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResea
       : null,
     backtest_timeout_seconds: aiResearchForm.backtest_timeout_seconds,
     poll_interval_seconds: aiResearchForm.poll_interval_seconds,
+    group_name: aiResearchForm.group_name.trim() || null,
     knowledge_base_id: aiResearchForm.knowledge_base_id.trim() || null,
     thinking_mode: aiResearchForm.thinking_mode,
   }
   if (aiResearchForm.use_manual_commission) {
     request.commission = aiResearchForm.commission
+  }
+  const continuationContext = aiResearchContinuationContext()
+  if (continuationContext) {
+    request.continuation_context = continuationContext
   }
   if (gatewayConfig) {
     request.gateway_config = gatewayConfig
@@ -5192,6 +5578,11 @@ function applyAIResearchTaskStatus(task: AIStrategyResearchTaskResponse) {
     task.live_trading_prepared || pipeline?.live_trading_prepared
   )
   aiResearchTaskPipeline.value = pipeline
+  aiResearchTaskContinuedFromRunId.value = task.continued_from_run_id || ''
+  aiResearchTaskContinuationSource.value = task.continuation_source || ''
+  aiResearchTaskContinuationContext.value = isRecord(task.continuation_context)
+    ? { ...task.continuation_context }
+    : {}
   if (isRecord(task.request_snapshot)) {
     aiResearchTaskRequestSnapshot.value = task.request_snapshot
   }
@@ -5234,6 +5625,10 @@ function applyAIResearchTaskSnapshotToForm(task: AIStrategyResearchTaskResponse)
     aiResearchForm.commission = commission
     aiResearchForm.use_manual_commission = true
   }
+  aiResearchForm.annual_days = optionalNumber(snapshot.annual_days) ?? aiResearchForm.annual_days
+  aiResearchForm.calc_method = stringFromUnknown(snapshot.calc_method, aiResearchForm.calc_method)
+  aiResearchForm.weight_mode = stringFromUnknown(snapshot.weight_mode, aiResearchForm.weight_mode)
+  aiResearchForm.group_name = stringFromUnknown(snapshot.group_name)
   aiResearchForm.backtest_timeout_seconds =
     optionalNumber(snapshot.backtest_timeout_seconds) ?? aiResearchForm.backtest_timeout_seconds
   aiResearchForm.poll_interval_seconds =
@@ -5241,7 +5636,24 @@ function applyAIResearchTaskSnapshotToForm(task: AIStrategyResearchTaskResponse)
   aiResearchForm.research_workspace_id = stringFromUnknown(snapshot.research_workspace_id)
   aiResearchForm.trading_workspace_id = stringFromUnknown(snapshot.trading_workspace_id)
   aiResearchForm.seed_strategy_id = stringFromUnknown(snapshot.seed_strategy_id)
-  aiResearchForm.continue_from_run_id = stringFromUnknown(snapshot.continue_from_run_id)
+  const taskContinuationContext = isRecord(task.continuation_context)
+    ? task.continuation_context
+    : null
+  const snapshotContinuationContext = isRecord(snapshot.continuation_context)
+    ? snapshot.continuation_context
+    : null
+  const continuationContext = taskContinuationContext ?? snapshotContinuationContext
+  const continuationRunId = continuationContext
+    ? stringFromUnknown(continuationContext.run_id)
+    : ''
+  const continuationSource = continuationContext
+    ? stringFromUnknown(continuationContext.source)
+    : ''
+  aiResearchForm.continue_from_run_id =
+    stringFromUnknown(task.continued_from_run_id, stringFromUnknown(snapshot.continue_from_run_id))
+    || continuationRunId
+  aiResearchForm.continuation_source =
+    stringFromUnknown(task.continuation_source, continuationSource)
   aiResearchForm.start_paper_trading = optionalBoolean(snapshot.start_paper_trading, true)
   aiResearchForm.paper_workspace_name = stringFromUnknown(snapshot.paper_workspace_name)
   if (snapshot.gateway_config !== undefined) {
@@ -5471,6 +5883,9 @@ async function runAIResearchLoop() {
   aiResearchTaskLivePrepared.value = false
   aiResearchTaskPipeline.value = null
   aiResearchTaskRequestSnapshot.value = null
+  aiResearchTaskContinuedFromRunId.value = ''
+  aiResearchTaskContinuationSource.value = ''
+  aiResearchTaskContinuationContext.value = {}
   aiResearchTaskError.value = ''
   aiResearchTaskMessage.value = ''
   aiResearchTaskLatestIteration.value = null
@@ -5607,7 +6022,10 @@ onMounted(async () => {
       strategyStore.fetchTemplates(),
       loadAIResearchRuns(),
     ])
-    void restoreActiveAIResearchTask()
+    const restoredFromRoute = await restoreAIResearchRunFromRoute()
+    if (!restoredFromRoute) {
+      void restoreActiveAIResearchTask()
+    }
   } catch {
     ElMessage.error(t('strategy.loadFailed'))
   }
@@ -5810,6 +6228,37 @@ onUnmounted(() => {
   color: var(--el-text-color-secondary);
 }
 
+.ai-research-promotion-audit {
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  padding: 0 0 12px;
+  margin-bottom: 16px;
+}
+
+.ai-research-promotion-audit > strong {
+  display: block;
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.ai-research-promotion-audit-items {
+  display: grid;
+  gap: 8px;
+}
+
+.ai-research-promotion-audit-item {
+  display: grid;
+  grid-template-columns: minmax(96px, 140px) auto minmax(180px, 1fr) minmax(180px, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+}
+
+.ai-research-promotion-audit-item small {
+  color: var(--el-text-color-secondary);
+}
+
 .ai-research-action-plan {
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
@@ -5884,6 +6333,10 @@ onUnmounted(() => {
   color: var(--el-color-warning);
 }
 
+.ai-research-muted-text {
+  color: var(--el-text-color-secondary);
+}
+
 .ai-research-iterations {
   display: grid;
   gap: 10px;
@@ -5942,6 +6395,10 @@ onUnmounted(() => {
   padding-left: 18px;
   color: var(--el-text-color-secondary);
   font-size: 13px;
+}
+
+.ai-research-warning-list {
+  color: var(--el-color-warning);
 }
 
 .ai-research-next-actions {
@@ -6125,6 +6582,11 @@ onUnmounted(() => {
   .ai-research-form-grid,
   .ai-research-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .ai-research-promotion-audit-item {
+    grid-template-columns: 1fr;
+    align-items: start;
   }
 }
 

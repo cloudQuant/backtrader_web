@@ -1290,8 +1290,9 @@ class TradingWorkspaceService:
         spec: Any,
         *,
         position_source: str,
+        force: bool = False,
     ) -> bool:
-        if str(position_source or "").strip().lower() == "gateway":
+        if not force and str(position_source or "").strip().lower() == "gateway":
             return False
         if not (
             getattr(spec, "has_multiplier", False)
@@ -1340,14 +1341,18 @@ class TradingWorkspaceService:
         position_source: str,
     ) -> dict[str, Any]:
         item = dict(row)
+        force_recalculate = bool(item.pop("force_recalculate_position_pnl", False))
         if not cls._position_row_should_recalculate_local_pnl(
             item,
             spec,
             position_source=position_source,
+            force=force_recalculate,
         ):
             return item
         for key in (*_EXPLICIT_NET_PNL_FIELD_KEYS, *_GROSS_PNL_FIELD_KEYS, "pnl"):
             item.pop(key, None)
+        if force_recalculate:
+            item["market_value_estimated"] = True
         item["recalculated_position_pnl"] = True
         return item
 
@@ -1573,6 +1578,13 @@ class TradingWorkspaceService:
                     cls._asset_spec_config_for_row(_safe_dict(item)),
                 )
                 position_source = cls._position_source_for_row(item, fallback_position_source)
+                if (
+                    str(fallback_position_source or "").strip().lower() in {"log", "snapshot"}
+                    and position_source.lower() == "gateway"
+                ):
+                    item = dict(item)
+                    item["force_recalculate_position_pnl"] = True
+                    position_source = str(fallback_position_source)
                 valuation_item = cls._position_row_for_valuation(
                     _safe_dict(item),
                     spec,
@@ -2156,6 +2168,57 @@ class TradingWorkspaceService:
             return True
         return cls._has_any(row, *_POSITION_RESPONSE_REVALUE_KEYS)
 
+    @staticmethod
+    def _numbers_close(left: float, right: float) -> bool:
+        return abs(left - right) <= max(abs(left), abs(right), 1.0) * 1e-6
+
+    @classmethod
+    def _position_row_conflicts_with_unit_asset_spec(
+        cls,
+        unit: StrategyUnit,
+        row: dict[str, Any],
+    ) -> bool:
+        if cls._position_source_for_row(row, None).lower() != "gateway":
+            return False
+        data_name = gateway_position_symbol(
+            row,
+            str(unit.symbol or unit.symbol_name or unit.strategy_name or ""),
+        )
+        spec = cls._contract_spec(
+            unit,
+            data_name,
+            None,
+            cls._asset_spec_config_for_row(_safe_dict(row)),
+        )
+        if not getattr(spec, "has_multiplier", False):
+            return False
+
+        valuation_row = dict(row)
+        valuation_row["market_value_estimated"] = True
+        valued = value_position(valuation_row, spec=spec)
+        if valued is None:
+            return False
+
+        explicit_market_value = cls._first_row_number(
+            row,
+            "market_value",
+            "marketValue",
+            "mktValue",
+            "positionValue",
+            "position_value",
+            "value",
+        )
+        if explicit_market_value is not None and not cls._numbers_close(
+            abs(explicit_market_value),
+            valued.market_value,
+        ):
+            return True
+
+        return (
+            cls._has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS)
+            and not cls._has_any(row, "valuation_status")
+        )
+
     @classmethod
     def _position_row_needs_asset_spec_revaluation(
         cls,
@@ -2168,11 +2231,14 @@ class TradingWorkspaceService:
             return False
         if not cls._unit_has_asset_valuation_config(unit):
             return False
-        if (
-            cls._has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS)
-            and cls._position_source_for_row(row, None).lower() == "gateway"
-        ):
-            return False
+        row_source = cls._position_source_for_row(row, None).lower()
+        if row_source == "gateway":
+            if cls._position_row_conflicts_with_unit_asset_spec(unit, row):
+                return True
+            if cls._has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS):
+                return False
+            if cls._has_any(row, "valuation_status", "commission", "gross_pnl"):
+                return False
         if (
             cls._has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS, *_GROSS_PNL_FIELD_KEYS, "pnl")
             and cls._has_any(
@@ -2211,12 +2277,15 @@ class TradingWorkspaceService:
         cls,
         rows: list[dict[str, Any]],
         snapshot: dict[str, Any],
+        unit: StrategyUnit | None = None,
     ) -> list[dict[str, Any]]:
         latest_price = snapshot.get("latest_price")
         updated_at = snapshot.get("updated_at")
         valued_rows: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
+            if unit is not None and cls._position_row_needs_asset_spec_revaluation(unit, item):
+                item["force_recalculate_position_pnl"] = True
             if (
                 latest_price not in (None, "")
                 and cls._first_row_number(item, *_CURRENT_PRICE_FIELD_KEYS) is None
@@ -2256,7 +2325,11 @@ class TradingWorkspaceService:
                     snapshot,
                     unit,
                     None,
-                    self._position_rows_for_response_valuation(raw_position_rows, snapshot),
+                    self._position_rows_for_response_valuation(
+                        raw_position_rows,
+                        snapshot,
+                        unit,
+                    ),
                 )
                 if latest_price is not None:
                     snapshot["latest_price"] = round(latest_price, 4)

@@ -17,8 +17,10 @@ const strategyTemplates = vi.hoisted(() => [
   })),
 ])
 const routerPush = vi.hoisted(() => vi.fn())
+const routeQuery = vi.hoisted(() => ({} as Record<string, unknown>))
 
 vi.mock('vue-router', () => ({
+  useRoute: () => ({ query: routeQuery }),
   useRouter: () => ({ push: routerPush }),
 }))
 
@@ -116,6 +118,7 @@ vi.mock('@/api/strategy', () => ({
         },
       ],
     }),
+    getAIResearchRun: vi.fn().mockRejectedValue(new Error('detail unavailable')),
     runAIResearchLoop: vi.fn().mockResolvedValue({
       run_id: 'run-1',
       status: 'achieved',
@@ -264,6 +267,24 @@ vi.mock('@/api/strategy', () => ({
           },
         ],
       },
+      promotion_audit: [
+        {
+          key: 'quality_gate',
+          label: '质量门槛',
+          status: 'completed',
+          evidence: '最佳 Sharpe 1.20 / 目标 1.00；2/2 项质量门槛通过。',
+          action: '质量门槛已达成，可进入模拟交易/复核。',
+          details: {},
+        },
+        {
+          key: 'paper_trading',
+          label: '模拟交易',
+          status: 'pending',
+          evidence: '策略已达标，但尚未启动模拟交易。',
+          action: '启动模拟交易并绑定资产规格、费用和网关配置。',
+          details: {},
+        },
+      ],
       run_record: {
         run_id: 'run-1',
         prompt: '生成一个趋势策略',
@@ -332,6 +353,24 @@ vi.mock('@/api/strategy', () => ({
             },
           ],
         },
+        promotion_audit: [
+          {
+            key: 'quality_gate',
+            label: '质量门槛',
+            status: 'completed',
+            evidence: '最佳 Sharpe 1.20 / 目标 1.00；2/2 项质量门槛通过。',
+            action: '质量门槛已达成，可进入模拟交易/复核。',
+            details: {},
+          },
+          {
+            key: 'paper_trading',
+            label: '模拟交易',
+            status: 'pending',
+            evidence: '策略已达标，但尚未启动模拟交易。',
+            action: '启动模拟交易并绑定资产规格、费用和网关配置。',
+            details: {},
+          },
+        ],
         started_at: '2026-06-27T00:00:00Z',
         completed_at: '2026-06-27T00:01:00Z',
         iterations: [],
@@ -758,7 +797,11 @@ vi.mock('@/components/common/MonacoEditor.vue', () => ({
 }))
 
 describe('StrategyPage', () => {
-  beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks() })
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    Object.keys(routeQuery).forEach(key => delete routeQuery[key])
+  })
 
   const doMount = () => mount(StrategyPage, { global: { stubs: elStubs } })
 
@@ -767,6 +810,98 @@ describe('StrategyPage', () => {
     await flushPromises()
     expect(wrapper.exists()).toBe(true)
     expect(wrapper.text()).toContain('阶段 质量达标')
+  })
+
+  it('restores an AI research run from route query on mount', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    routeQuery.ai_research_run_id = 'deep-run'
+    routeQuery.research_workspace_id = 'research-ws'
+    ;(strategyApi as any).listAIResearchTasks = vi.fn().mockResolvedValue({
+      total: 1,
+      items: [
+        {
+          task_id: 'active-task-should-not-steal-route',
+          status: 'running',
+          submitted_at: '2026-06-27T00:00:00Z',
+          request_snapshot: {
+            prompt: '另一个运行中的任务',
+            symbol: '000001.SZ',
+          },
+          current_stage: 'backtesting',
+          progress: 30,
+          iteration_count: 0,
+          message: 'running',
+        },
+      ],
+    })
+    vi.mocked(strategyApi.getAIResearchRun).mockResolvedValueOnce({
+      run_id: 'deep-run',
+      prompt: '深链恢复趋势策略',
+      symbol: 'IF2409.CFE',
+      symbol_name: '沪深300股指期货',
+      timeframe: '1h',
+      timeframe_n: 1,
+      status: 'achieved',
+      achieved: true,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 1,
+      best_iteration: 1,
+      best_sharpe: 1.2,
+      best_quality_score: 100,
+      best_quality_gate_evaluations: [],
+      best_metrics: { sharpe_ratio: 1.2 },
+      best_strategy_id: 'deep-strategy',
+      best_strategy_name: '深链策略',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_workspace_id: null,
+      paper_workspace_name: null,
+      paper_unit_id: null,
+      paper_trading_started: false,
+      paper_monitoring_plan: [],
+      pipeline: {
+        current_stage: 'quality_achieved',
+        status: 'achieved',
+        progress: 70,
+        ready_for_live: false,
+        steps: [],
+      },
+      promotion_audit: [
+        {
+          key: 'quality_gate',
+          label: '质量门槛',
+          status: 'completed',
+          evidence: '最佳 Sharpe 1.20 / 目标 1.00。',
+          action: '质量门槛已达成，可进入模拟交易/复核。',
+          details: {},
+        },
+      ],
+      next_actions: ['启动模拟交易并继续观察'],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [],
+    } as any)
+
+    try {
+      const wrapper = doMount()
+      await flushPromises()
+      await flushPromises()
+      const vm = wrapper.vm as any
+
+      expect(strategyApi.getAIResearchRun).toHaveBeenCalledWith('deep-run', 'research-ws')
+      expect((strategyApi as any).listAIResearchTasks).not.toHaveBeenCalled()
+      expect(vm.aiResearchResult.run_id).toBe('deep-run')
+      expect(vm.aiResearchForm.prompt).toBe('深链恢复趋势策略')
+      expect(vm.aiResearchForm.symbol).toBe('IF2409.CFE')
+      expect(vm.aiResearchForm.continue_from_run_id).toBe('deep-run')
+      expect(wrapper.find('[data-test="ai-research-promotion-audit"]').text()).toContain('质量门槛')
+    } finally {
+      delete (strategyApi as any).listAIResearchTasks
+    }
   })
 
   it('getCategoryLabel returns correct labels', () => {
@@ -918,6 +1053,9 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.use_min_out_of_sample_trades = true
     vm.aiResearchForm.min_out_of_sample_trades = 3
     vm.aiResearchForm.min_paper_trading_days = 14
+    vm.aiResearchForm.annual_days = 244
+    vm.aiResearchForm.calc_method = 'log'
+    vm.aiResearchForm.weight_mode = 'value'
 
     vm.generateAIResearchPrompt()
 
@@ -928,6 +1066,9 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.prompt).toContain('最大回撤控制在 10% 以内')
     expect(vm.aiResearchForm.prompt).toContain('总收益率不低于 6%')
     expect(vm.aiResearchForm.prompt).toContain('按期货/合约资产处理')
+    expect(vm.aiResearchForm.prompt).toContain('年化天数 244')
+    expect(vm.aiResearchForm.prompt).toContain('收益计算 log')
+    expect(vm.aiResearchForm.prompt).toContain('组合权重 value')
     expect(vm.aiResearchForm.prompt).toContain('保留 25% 数据做样本外验证')
     expect(vm.aiResearchForm.prompt).toContain('样本外 Sharpe 不低于 0.75')
     expect(vm.aiResearchForm.prompt).toContain('样本外交易数不少于 3')
@@ -994,6 +1135,10 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.min_out_of_sample_sharpe = 0.8
     vm.aiResearchForm.use_min_out_of_sample_trades = true
     vm.aiResearchForm.min_out_of_sample_trades = 2
+    vm.aiResearchForm.annual_days = 244
+    vm.aiResearchForm.calc_method = 'log'
+    vm.aiResearchForm.weight_mode = 'value'
+    vm.aiResearchForm.group_name = 'AI投研运行口径'
     vm.aiResearchForm.backtest_timeout_seconds = 900
     vm.aiResearchForm.poll_interval_seconds = 2.5
     vm.aiResearchForm.paper_workspace_name = 'AI模拟-趋势'
@@ -1021,6 +1166,10 @@ describe('StrategyPage', () => {
       min_out_of_sample_sharpe: 0.8,
       min_out_of_sample_trades: 2,
       min_paper_trading_days: 7,
+      annual_days: 244,
+      calc_method: 'log',
+      weight_mode: 'value',
+      group_name: 'AI投研运行口径',
       backtest_timeout_seconds: 900,
       poll_interval_seconds: 2.5,
       paper_workspace_name: 'AI模拟-趋势',
@@ -1049,6 +1198,12 @@ describe('StrategyPage', () => {
     expect(wrapper.find('[data-test="ai-research-oos-summary"]').text()).toContain('0.92 / 0.80')
     expect(wrapper.find('[data-test="ai-research-iteration-oos"]').text()).toContain('已通过')
     expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('样本外 已通过')
+    const promotionAudit = wrapper.find('[data-test="ai-research-promotion-audit"]').text()
+    expect(promotionAudit).toContain('晋级审计')
+    expect(promotionAudit).toContain('质量门槛')
+    expect(promotionAudit).toContain('最佳 Sharpe 1.20 / 目标 1.00')
+    expect(promotionAudit).toContain('模拟交易')
+    expect(promotionAudit).toContain('策略已达标，但尚未启动模拟交易')
     expect(wrapper.find('[data-test="ai-research-next-actions"]').text()).toContain('策略已通过验收')
     expect(wrapper.text()).toContain('进入模拟交易后优先验证成交、滑点、费用和样本外收益稳定性')
     const currentRuntimeEnv = wrapper.find('[data-test="ai-research-current-runtime-env"]').text()
@@ -1186,6 +1341,120 @@ describe('StrategyPage', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('实盘交接包已生成')
     expect(ElMessage.success).toHaveBeenCalledWith('实盘交接已审批通过')
     expect(ElMessage.success).toHaveBeenCalledWith('实盘交易单元已准备，默认锁定等待人工上线')
+  })
+
+  it('renders automatic improvement from a failed first iteration to a passing second iteration', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    const passedIteration = {
+      ...baseResult.iterations[0],
+      iteration: 2,
+      strategy: {
+        ...baseResult.iterations[0].strategy,
+        id: 's2',
+        name: 'AI策略 v2',
+      },
+      unit: {
+        ...baseResult.iterations[0].unit,
+        id: 'u2',
+        strategy_id: 's2',
+        strategy_name: 'AI策略 v2',
+      },
+      run_result: { unit_id: 'u2', task_id: 'task-2', status: 'completed' },
+      unit_status: {
+        ...baseResult.iterations[0].unit_status!,
+        id: 'u2',
+        run_status: 'completed' as const,
+        metrics_snapshot: { sharpe_ratio: 1.2, total_trades: 8 },
+      },
+      metrics: { sharpe_ratio: 1.2, total_trades: 8 },
+      sharpe_ratio: 1.2,
+      total_trades: 8,
+      diagnostics: {
+        summary: '第 2 轮已通过全部质量门槛，可进入模拟交易候选。',
+        iteration_progress: {
+          status: 'improved',
+          previous_iteration: 1,
+          sharpe_delta: 0.78,
+          quality_score_delta: 64,
+          summary: '第 2 轮较上一轮明显改善。',
+        },
+        improvement_plan: ['进入模拟交易后验证成交、滑点和费用。'],
+        promotion_ready: true,
+      },
+      improvement_notes: ['基于第 1 轮失败原因放宽入场覆盖并收紧出场。'],
+    }
+    vi.mocked(strategyApi.runAIResearchLoop).mockResolvedValueOnce({
+      ...baseResult,
+      best_iteration: 2,
+      best_strategy: passedIteration.strategy,
+      iterations: [
+        {
+          ...baseResult.iterations[0],
+          iteration: 1,
+          sharpe_ratio: 0.42,
+          total_trades: 1,
+          metrics: { sharpe_ratio: 0.42, total_trades: 1 },
+          quality_score: 36,
+          passed: false,
+          failure_reason: 'Sharpe 0.420 below target 1.000',
+          quality_gate_failures: [
+            'Sharpe 0.420 below target 1.000',
+            'Only 1 trades, below minimum 4',
+          ],
+          diagnostics: {
+            summary: '第 1 轮未达到目标，需要继续自动改进。',
+            iteration_progress: {
+              status: 'baseline',
+              previous_iteration: null,
+              summary: '首轮回测作为后续自动改进的基准。',
+            },
+            failure_categories: ['sharpe', 'trade_count'],
+            weaknesses: ['Sharpe 不足', '有效交易数不足'],
+            improvement_plan: ['放宽入场过滤以增加有效交易', '降低单笔风险预算'],
+            promotion_ready: false,
+          },
+          improvement_plan: ['放宽入场过滤以增加有效交易'],
+          improvement_notes: [],
+          next_actions: ['系统将基于本轮失败原因生成下一版策略。'],
+        },
+        passedIteration,
+      ],
+      run_record: {
+        ...baseResult.run_record!,
+        iteration_count: 2,
+        best_iteration: 2,
+        best_strategy_id: 's2',
+        best_strategy_name: 'AI策略 v2',
+      },
+    })
+
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.prompt = '生成一个先改进再达标的趋势策略'
+    vm.aiResearchForm.symbol = '000001.SZ'
+    await vm.runAIResearchLoop()
+    await wrapper.vm.$nextTick()
+
+    expect(vm.aiResearchResult.best_iteration).toBe(2)
+    expect(vm.aiResearchResult.iterations[0].passed).toBe(false)
+    expect(vm.aiResearchResult.iterations[1].passed).toBe(true)
+    expect(wrapper.text()).toContain('Sharpe 0.420 below target 1.000')
+    expect(wrapper.text()).toContain('Only 1 trades, below minimum 4')
+    const failureList = wrapper.find('[data-test="ai-research-iteration-failures"]')
+    expect(failureList.exists()).toBe(true)
+    expect(failureList.classes()).toContain('ai-research-warning-list')
+    expect(failureList.findAll('li')).toHaveLength(2)
+    expect(wrapper.text()).toContain('系统将基于本轮失败原因生成下一版策略。')
+    expect(wrapper.text()).toContain('基于第 1 轮失败原因放宽入场覆盖并收紧出场。')
+    const progressText = wrapper.findAll('[data-test="ai-research-iteration-progress"]')
+      .map(item => item.text())
+      .join(' ')
+    expect(progressText).toContain('基准')
+    expect(progressText).toContain('改善')
+    expect(progressText).toContain('Sharpe +0.78')
+    expect(progressText).toContain('质量分 +64.00')
   })
 
   it('blocks AI research start when gateway config contains redacted credentials', async () => {
@@ -1626,6 +1895,19 @@ describe('StrategyPage', () => {
       seed_strategy_id: 's1',
       continue_from_run_id: 'run-1',
     }))
+    const payload = vi.mocked(strategyApi.runAIResearchLoop).mock.calls.at(-1)?.[0]
+    const continuationContext = payload?.continuation_context as Record<string, any>
+    expect(continuationContext).toEqual(expect.objectContaining({
+      source: 'paper_trading_failed',
+      run_id: 'run-1',
+      paper_trading_error: 'Failed to create paper trading unit',
+    }))
+    expect(continuationContext.quality_gate_failures).toEqual(expect.arrayContaining([
+      expect.stringContaining('模拟交易启动失败'),
+    ]))
+    expect(continuationContext.pipeline.paper_trading_error).toBe(
+      'Failed to create paper trading unit'
+    )
   })
 
   it('runs AI research through async task polling when task API is available', async () => {
@@ -1712,6 +1994,13 @@ describe('StrategyPage', () => {
           },
         },
       },
+      continued_from_run_id: 'previous-task-run',
+      continuation_source: 'research_failure',
+      continuation_context: {
+        source: 'research_failure',
+        run_id: 'previous-task-run',
+        quality_gate_failures: ['上一轮夏普率未达标'],
+      },
       latest_iteration: {
         iteration: 1,
         sharpe_ratio: 0.8,
@@ -1767,6 +2056,8 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchTaskIteration).toBe(1)
       expect(vm.aiResearchResult.achieved).toBe(true)
       const taskProgress = wrapper.find('[data-test="ai-research-task-progress"]').text()
+      expect(taskProgress).toContain('继续来源 从未达标结果继续')
+      expect(taskProgress).toContain('previous-task-run')
       expect(taskProgress).toContain('最近第 1 轮')
       expect(taskProgress).toContain('退化')
       expect(taskProgress).toContain('Sharpe -0.20')
@@ -2960,7 +3251,14 @@ describe('StrategyPage', () => {
         min_total_trades: 4,
         initial_cash: 200000,
         commission: 0.000023,
+        group_name: '任务摘要投研分组',
         paper_workspace_name: '摘要模拟工作区',
+        continue_from_run_id: 'paper-failed-run',
+        continuation_context: {
+          source: 'paper_review',
+          run_id: 'paper-failed-run',
+          quality_gate_failures: ['模拟交易滚动 Sharpe 未通过'],
+        },
       },
       current_stage: 'backtesting',
       progress: 40,
@@ -2989,7 +3287,15 @@ describe('StrategyPage', () => {
         min_total_trades: 4,
         initial_cash: 200000,
         commission: 0.000023,
+        group_name: '任务摘要投研分组',
         paper_workspace_name: '摘要模拟工作区',
+      },
+      continued_from_run_id: 'paper-failed-run',
+      continuation_source: 'paper_review',
+      continuation_context: {
+        source: 'paper_review',
+        run_id: 'paper-failed-run',
+        quality_gate_failures: ['模拟交易滚动 Sharpe 未通过'],
       },
       current_stage: 'paper_review',
       progress: 100,
@@ -3144,6 +3450,21 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchResult.run_record.end_date).toBe('2024-06-30')
       expect(vm.aiResearchResult.run_record.initial_cash).toBe(200000)
       expect(vm.aiResearchResult.run_record.commission).toBe(0.000023)
+      expect(vm.aiResearchResult.run_record.group_name).toBe('任务摘要投研分组')
+      expect(vm.aiResearchResult.run_record.continued_from_run_id).toBe('paper-failed-run')
+      expect(vm.aiResearchResult.run_record.continuation_source).toBe('paper_review')
+      expect(vm.aiResearchResult.run_record.continuation_context.quality_gate_failures).toEqual([
+        '模拟交易滚动 Sharpe 未通过',
+      ])
+      expect(wrapper.find('[data-test="ai-research-current-continuation"]').text()).toContain(
+        '从模拟复核反馈继续'
+      )
+      expect(wrapper.find('[data-test="ai-research-current-continuation"]').text()).toContain(
+        'paper-failed-run'
+      )
+      expect(wrapper.find('[data-test="ai-research-history-continuation"]').text()).toContain(
+        '从模拟复核反馈继续'
+      )
       expect(vm.aiResearchResult.run_record.asset_specs['IF2409.CFE'].multiplier).toBe(300)
       expect(vm.aiResearchResult.run_record.asset_specs['IF2409.CFE'].source).toBe(
         'task_summary_exchange_specs'
@@ -3302,6 +3623,17 @@ describe('StrategyPage', () => {
       seed_strategy_id: 's1',
       continue_from_run_id: 'run-1',
     }))
+    const payload = vi.mocked(strategyApi.runAIResearchLoop).mock.calls.at(-1)?.[0]
+    const continuationContext = payload?.continuation_context as Record<string, any>
+    expect(continuationContext).toEqual(expect.objectContaining({
+      source: 'paper_review',
+      run_id: 'run-1',
+      paper_review_status: 'needs_research_review',
+    }))
+    expect(continuationContext.quality_gate_failures).toEqual(expect.arrayContaining([
+      expect.stringContaining('模拟交易滚动 Sharpe未通过'),
+    ]))
+    expect(continuationContext.paper_review_evaluations[0].status).toBe('failed')
   })
 
   it('continues research from current result when live candidate review expires', async () => {
@@ -3416,6 +3748,10 @@ describe('StrategyPage', () => {
             min_out_of_sample_trades: 2,
             initial_cash: 300000,
             commission: 0.000023,
+            annual_days: 244,
+            calc_method: 'log',
+            weight_mode: 'value',
+            group_name: '恢复运行口径',
             backtest_timeout_seconds: 1200,
             poll_interval_seconds: 3,
             min_paper_trading_days: 14,
@@ -3425,6 +3761,13 @@ describe('StrategyPage', () => {
               name: 'paper_gateway',
               params: { broker_id: '9999', exchange: 'CFFEX' },
             },
+          },
+          continued_from_run_id: 'paper-failed-run',
+          continuation_source: 'paper_review',
+          continuation_context: {
+            source: 'paper_review',
+            run_id: 'paper-failed-run',
+            quality_gate_failures: ['模拟交易滚动 Sharpe 未通过'],
           },
           current_stage: 'backtesting',
           progress: 42,
@@ -3495,10 +3838,17 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchForm.initial_cash).toBe(300000)
       expect(vm.aiResearchForm.use_manual_commission).toBe(true)
       expect(vm.aiResearchForm.commission).toBe(0.000023)
+      expect(vm.aiResearchForm.annual_days).toBe(244)
+      expect(vm.aiResearchForm.calc_method).toBe('log')
+      expect(vm.aiResearchForm.weight_mode).toBe('value')
+      expect(vm.aiResearchForm.group_name).toBe('恢复运行口径')
       expect(vm.aiResearchForm.backtest_timeout_seconds).toBe(1200)
       expect(vm.aiResearchForm.poll_interval_seconds).toBe(3)
       expect(vm.aiResearchForm.min_paper_trading_days).toBe(14)
       expect(vm.aiResearchForm.paper_workspace_name).toBe('恢复模拟工作区')
+      expect(vm.aiResearchForm.continue_from_run_id).toBe('paper-failed-run')
+      expect(vm.aiResearchForm.continuation_source).toBe('paper_review')
+      expect(wrapper.text()).toContain('从模拟复核反馈继续')
       expect(JSON.parse(vm.aiResearchForm.gateway_config_json)).toEqual({
         name: 'paper_gateway',
         params: { broker_id: '9999', exchange: 'CFFEX' },
@@ -3683,6 +4033,7 @@ describe('StrategyPage', () => {
       annual_days: 244,
       calc_method: 'log',
       weight_mode: 'value',
+      group_name: '历史投研分组',
       backtest_environment: {
         initial_cash: 250000,
         commission: 0.000023,
@@ -3744,6 +4095,10 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.initial_cash).toBe(250000)
     expect(vm.aiResearchForm.use_manual_commission).toBe(true)
     expect(vm.aiResearchForm.commission).toBe(0.000023)
+    expect(vm.aiResearchForm.annual_days).toBe(244)
+    expect(vm.aiResearchForm.calc_method).toBe('log')
+    expect(vm.aiResearchForm.weight_mode).toBe('value')
+    expect(vm.aiResearchForm.group_name).toBe('历史投研分组')
     expect(vm.aiResearchForm.knowledge_base_id).toBe('kb-history')
     expect(vm.aiResearchForm.thinking_mode).toBe(true)
     expect(vm.aiResearchForm.target_sharpe).toBe(1.5)
@@ -5871,6 +6226,20 @@ describe('StrategyPage', () => {
       seed_strategy_id: 's1',
       continue_from_run_id: 'live-rejected-run',
     }))
+    const payload = vi.mocked(strategyApi.runAIResearchLoop).mock.calls.at(-1)?.[0]
+    const continuationContext = payload?.continuation_context as Record<string, any>
+    expect(continuationContext).toEqual(expect.objectContaining({
+      source: 'live_handoff_rejected',
+      run_id: 'live-rejected-run',
+      live_handoff_status: 'approval_rejected',
+    }))
+    expect(continuationContext.live_handoff_approval).toEqual(expect.objectContaining({
+      decision: 'rejected',
+      comment: '单笔风险过高，先降低仓位。',
+    }))
+    expect(continuationContext.quality_gate_failures).toEqual(expect.arrayContaining([
+      expect.stringContaining('实盘交接驳回意见'),
+    ]))
   })
 
   it('auto-refreshes monitored AI research history with paper review progress', async () => {

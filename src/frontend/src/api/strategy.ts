@@ -158,6 +158,7 @@ export interface AIStrategyResearchRunRequest {
   unit_settings?: Record<string, unknown>
   optimization_config?: Record<string, unknown>
   gateway_config?: Record<string, unknown>
+  continuation_context?: Record<string, unknown>
 }
 
 export interface AIStrategyQualityGateEvaluation {
@@ -272,6 +273,15 @@ export interface AIStrategyLiveReadinessItem {
   details?: Record<string, unknown>
 }
 
+export interface AIStrategyPromotionAuditItem {
+  key: string
+  label: string
+  status: string
+  evidence: string
+  action: string
+  details?: Record<string, unknown>
+}
+
 export interface AIStrategyResearchRunRecord {
   run_id: string
   prompt: string
@@ -286,6 +296,7 @@ export interface AIStrategyResearchRunRecord {
   annual_days?: number
   calc_method?: string
   weight_mode?: string
+  group_name?: string | null
   asset_specs?: Record<string, Record<string, unknown>>
   backtest_environment?: Record<string, unknown>
   knowledge_base_id?: string | null
@@ -310,6 +321,8 @@ export interface AIStrategyResearchRunRecord {
   research_workspace_id: string
   seed_strategy_id?: string | null
   continued_from_run_id?: string | null
+  continuation_source?: string | null
+  continuation_context?: Record<string, unknown>
   paper_workspace_id?: string | null
   paper_workspace_name?: string | null
   paper_unit_id?: string | null
@@ -331,6 +344,7 @@ export interface AIStrategyResearchRunRecord {
   live_trading_prepared?: boolean
   live_trading_prepared_at?: string | null
   pipeline?: AIStrategyPipelineSummary
+  promotion_audit?: AIStrategyPromotionAuditItem[]
   next_actions: string[]
   started_at: string
   completed_at: string
@@ -360,6 +374,7 @@ export interface AIStrategyResearchRunResponse {
   paper_trading?: AIStrategyPaperTradingStart | null
   paper_monitoring_plan?: AIStrategyPaperMonitoringRule[]
   pipeline?: AIStrategyPipelineSummary
+  promotion_audit?: AIStrategyPromotionAuditItem[]
   run_record?: AIStrategyResearchRunRecord | null
   next_actions: string[]
   message: string
@@ -374,6 +389,9 @@ export interface AIStrategyResearchTaskResponse {
   run_id?: string | null
   research_workspace_id?: string | null
   request_snapshot?: AIStrategyResearchRunRequest & Record<string, unknown>
+  continued_from_run_id?: string | null
+  continuation_source?: string | null
+  continuation_context?: Record<string, unknown>
   current_stage: string
   progress: number
   current_iteration?: number | null
@@ -414,6 +432,7 @@ export interface AIStrategyResearchTaskResponse {
   live_trading_prepared?: boolean
   live_trading_prepared_at?: string | null
   pipeline?: AIStrategyPipelineSummary
+  promotion_audit?: AIStrategyPromotionAuditItem[]
   next_actions?: string[]
   current_backtest_task_id?: string | null
   cancelled_backtest_task_id?: string | null
@@ -776,6 +795,15 @@ export const strategyApi = {
   ): Promise<AIStrategyResearchRunListResponse> {
     return api.get<AIStrategyResearchRunListResponse>('/strategy/ai-research/runs', {
       params: { research_workspace_id: researchWorkspaceId || undefined, limit },
+    })
+  },
+
+  async getAIResearchRun(
+    runId: string,
+    researchWorkspaceId?: string | null
+  ): Promise<AIStrategyResearchRunRecord> {
+    return api.get<AIStrategyResearchRunRecord>(`/strategy/ai-research/runs/${runId}`, {
+      params: { research_workspace_id: researchWorkspaceId || undefined },
     })
   },
 

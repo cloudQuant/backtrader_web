@@ -4285,6 +4285,79 @@ async def test_build_positions_response_revalues_stale_local_net_pnl_with_unit_a
 
 
 @pytest.mark.asyncio
+async def test_build_positions_response_revalues_persisted_gateway_snapshot_with_unit_asset_spec(
+    monkeypatch,
+):
+    service = TradingWorkspaceService()
+    unit = SimpleNamespace(
+        id="unit-ctp-stale-gateway",
+        strategy_name="CTP Unit",
+        strategy_id="simulate/gateway_dual_ma",
+        symbol="IF2609",
+        symbol_name="沪深300",
+        trading_mode="live",
+        unit_settings={},
+        params={
+            "contract_metadata": {
+                "IF2609": {
+                    "symbol": "IF2609",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                    "source": "runtime_asset_spec",
+                }
+            }
+        },
+        data_config={},
+        gateway_config={},
+        trading_snapshot={
+            "positions": [
+                {
+                    "data_name": "IF2609",
+                    "direction": "long",
+                    "size": 1,
+                    "price": 5000.0,
+                    "current_price": 5001.0,
+                    "market_value": 5001.0,
+                    "pnlcomm": 1.0,
+                    "position_pnl": 1.0,
+                    "position_source": "gateway",
+                    "updated_at": "2026-06-25 09:00:00",
+                }
+            ],
+            "position_source": "gateway",
+            "long_position": 1.0,
+            "short_position": 0.0,
+            "position_pnl": 1.0,
+            "long_market_value": 5001.0,
+            "short_market_value": 0.0,
+        },
+    )
+
+    async def fail_hydrate(_units, _user_id):
+        raise AssertionError("hydrate_units should not run when hydrate=False")
+
+    monkeypatch.setattr(service, "hydrate_units", fail_hydrate)
+
+    result = await service.build_positions_response([unit], "user-1", hydrate=False)
+    row = result.positions[0]
+
+    assert row.market_value == pytest.approx(1_500_300.0)
+    assert row.margin_value == pytest.approx(150_030.0)
+    assert row.multiplier == pytest.approx(300.0)
+    assert row.margin_rate == pytest.approx(0.1)
+    assert row.gross_pnl == pytest.approx(300.0)
+    assert row.commission == pytest.approx(34.5)
+    assert row.position_pnl == pytest.approx(265.5)
+    assert row.position_source == "gateway"
+    assert result.total_long_value == pytest.approx(1_500_300.0)
+    assert result.total_pnl == pytest.approx(265.5)
+    assert unit.trading_snapshot["positions"][0]["market_value"] == pytest.approx(1_500_300.0)
+    assert unit.trading_snapshot["positions"][0]["position_pnl"] == pytest.approx(265.5)
+    assert any("重新计算" in warning for warning in row.valuation_warnings)
+
+
+@pytest.mark.asyncio
 async def test_build_positions_response_values_raw_ctp_snapshot_aliases(monkeypatch):
     service = TradingWorkspaceService()
     unit = SimpleNamespace(

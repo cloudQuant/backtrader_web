@@ -140,6 +140,14 @@ describe('strategyApi', () => {
     })
   })
 
+  it('getAIResearchRun', async () => {
+    vi.mocked(api.get).mockResolvedValue({ run_id: 'run-1' })
+    await strategyApi.getAIResearchRun('run-1', 'research-ws')
+    expect(api.get).toHaveBeenCalledWith('/strategy/ai-research/runs/run-1', {
+      params: { research_workspace_id: 'research-ws' },
+    })
+  })
+
   it('startAIResearchPaperTrading', async () => {
     vi.mocked(api.post).mockResolvedValue({ started: true })
     await strategyApi.startAIResearchPaperTrading('run-1', {

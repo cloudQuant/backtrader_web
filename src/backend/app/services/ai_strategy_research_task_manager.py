@@ -367,6 +367,7 @@ def _research_progress_task_updates(
 def _research_request_runtime_task_updates(
     request: AIStrategyResearchRunRequest,
 ) -> dict[str, Any]:
+    continuation_updates = _research_request_continuation_task_updates(request)
     try:
         from app.services.ai_strategy_research_service import (
             _request_backtest_environment,
@@ -381,9 +382,11 @@ def _research_request_runtime_task_updates(
             updates["asset_specs"] = _summarize_asset_specs_for_prompt(asset_specs)
         if backtest_environment:
             updates["backtest_environment"] = backtest_environment
+        updates.update(continuation_updates)
         return updates
     except Exception:
         return {
+            **continuation_updates,
             "backtest_environment": {
                 "initial_cash": request.initial_cash,
                 "commission": request.commission,
@@ -395,6 +398,23 @@ def _research_request_runtime_task_updates(
                 **({"end_date": request.end_date} if request.end_date else {}),
             }
         }
+
+
+def _research_request_continuation_task_updates(
+    request: AIStrategyResearchRunRequest,
+) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    continued_from = str(request.continue_from_run_id or "").strip()
+    if continued_from:
+        updates["continued_from_run_id"] = continued_from
+    if isinstance(request.continuation_context, dict) and request.continuation_context:
+        redacted = _redact_sensitive_values(dict(request.continuation_context))
+        if isinstance(redacted, dict) and redacted:
+            updates["continuation_context"] = redacted
+            source = str(redacted.get("source") or "").strip()
+            if source:
+                updates["continuation_source"] = source
+    return updates
 
 
 def _research_progress_pipeline(
@@ -606,6 +626,10 @@ def _research_result_task_updates(result: Any) -> dict[str, Any]:
     record_next_actions = getattr(record, "next_actions", None)
     result_next_actions = getattr(result, "next_actions", None)
     next_actions = _first_non_empty_list(record_next_actions, result_next_actions)
+    promotion_audit = _first_non_empty_list(
+        getattr(record, "promotion_audit", None),
+        getattr(result, "promotion_audit", None),
+    )
     best_metrics = _first_non_empty_dict(
         getattr(record, "best_metrics", None),
         getattr(result, "best_metrics", None),
@@ -634,6 +658,7 @@ def _research_result_task_updates(result: Any) -> dict[str, Any]:
         getattr(record, "live_handoff_approval", None),
         AIStrategyLiveHandoffApprovalRecord,
     )
+    continuation_updates = _research_record_continuation_task_updates(record)
     timeout_cancel_updates = _backtest_timeout_cancel_task_updates(record, result)
 
     updates = {
@@ -711,9 +736,11 @@ def _research_result_task_updates(result: Any) -> dict[str, Any]:
         or pipeline.get("live_trading_prepared_at")
         or _live_prepare_step_prepared_at(pipeline),
         "pipeline": pipeline,
+        "promotion_audit": promotion_audit,
         "next_actions": next_actions,
     }
     updates.update(timeout_cancel_updates)
+    updates.update(continuation_updates)
     return updates
 
 
@@ -770,6 +797,32 @@ def _live_prepare_step_prepared_at(pipeline: dict[str, Any]) -> str | None:
             return None
         return str(prepared_at).strip() or None
     return None
+
+
+def _research_record_continuation_task_updates(record: Any) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    if record is None:
+        return updates
+
+    continued_from = str(getattr(record, "continued_from_run_id", None) or "").strip()
+    if continued_from:
+        updates["continued_from_run_id"] = continued_from
+
+    source = str(getattr(record, "continuation_source", None) or "").strip()
+    context = getattr(record, "continuation_context", None)
+    if isinstance(context, dict) and context:
+        redacted = _redact_sensitive_values(dict(context))
+        if isinstance(redacted, dict) and redacted:
+            updates["continuation_context"] = redacted
+            if not source:
+                source = str(redacted.get("source") or "").strip()
+            if not continued_from:
+                context_run_id = str(redacted.get("run_id") or "").strip()
+                if context_run_id:
+                    updates["continued_from_run_id"] = context_run_id
+    if source:
+        updates["continuation_source"] = source
+    return updates
 
 
 def _status_trading_snapshot(status: Any) -> dict[str, Any]:

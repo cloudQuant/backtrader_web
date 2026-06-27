@@ -481,6 +481,7 @@ class AIStrategyResearchService:
                 paper_trading=None,
                 paper_monitoring_plan=[],
                 pipeline=pipeline,
+                promotion_audit=[],
                 next_actions=_run_next_actions(
                     status="configuration_invalid",
                     achieved=False,
@@ -498,6 +499,7 @@ class AIStrategyResearchService:
                 started_at=started_at,
                 completed_at=completed_at,
             )
+            response = response.model_copy(update={"promotion_audit": run_record.promotion_audit})
             research_workspace = await self._persist_research_run_record(
                 user_id,
                 research_workspace,
@@ -1248,6 +1250,7 @@ class AIStrategyResearchService:
             paper_trading=paper_trading,
             paper_monitoring_plan=paper_monitoring_plan,
             pipeline=pipeline,
+            promotion_audit=[],
             next_actions=next_actions,
             message=message,
         )
@@ -1268,6 +1271,8 @@ class AIStrategyResearchService:
             response_updates["pipeline"] = run_record.pipeline
         if run_record.next_actions != response.next_actions:
             response_updates["next_actions"] = run_record.next_actions
+        if run_record.promotion_audit != response.promotion_audit:
+            response_updates["promotion_audit"] = run_record.promotion_audit
         if response_updates:
             response = response.model_copy(update=response_updates)
         research_workspace = await self._persist_research_run_record(
@@ -1329,6 +1334,19 @@ class AIStrategyResearchService:
             records.extend(workspace_records)
         records.sort(key=lambda item: item.completed_at, reverse=True)
         return AIStrategyResearchRunListResponse(total=len(records), items=records[:limit])
+
+    async def get_run_record(
+        self,
+        user_id: str,
+        run_id: str,
+        *,
+        research_workspace_id: str | None = None,
+    ) -> AIStrategyResearchRunRecord | None:
+        return await self._find_research_run_record(
+            user_id,
+            run_id,
+            research_workspace_id=research_workspace_id,
+        )
 
     async def _freshen_run_records_with_paper_state(
         self,
@@ -1452,20 +1470,22 @@ class AIStrategyResearchService:
                 review_lock,
             )
         )
-        updated_record = record.model_copy(
-            update={
-                "paper_monitoring_plan": [dict(item) for item in monitoring_plan],
-                "paper_review_status": review_status,
-                "paper_review_ready_for_live": ready_for_live,
-                "paper_reviewed_at": reviewed_at,
-                "paper_review_evaluations": evaluation_payload,
-                "paper_review_next_actions": next_actions,
-                "live_readiness_checklist": live_readiness_checklist,
-                "live_readiness_expires_at": live_readiness_expires_at,
-                "paper_handoff": paper_handoff,
-                "pipeline": pipeline,
-                "next_actions": next_actions,
-            }
+        updated_record = _research_run_record_with_promotion_audit(
+            record.model_copy(
+                update={
+                    "paper_monitoring_plan": [dict(item) for item in monitoring_plan],
+                    "paper_review_status": review_status,
+                    "paper_review_ready_for_live": ready_for_live,
+                    "paper_reviewed_at": reviewed_at,
+                    "paper_review_evaluations": evaluation_payload,
+                    "paper_review_next_actions": next_actions,
+                    "live_readiness_checklist": live_readiness_checklist,
+                    "live_readiness_expires_at": live_readiness_expires_at,
+                    "paper_handoff": paper_handoff,
+                    "pipeline": pipeline,
+                    "next_actions": next_actions,
+                }
+            )
         )
         if ready_for_live and review_status == "ready_for_live_candidate":
             package = _build_live_handoff_package(updated_record)
@@ -2099,6 +2119,11 @@ class AIStrategyResearchService:
         seed_iteration_payload: dict[str, Any] | None = None
         update: dict[str, Any] = {}
         explicit_fields = _request_explicit_fields(request)
+        if request.continuation_context:
+            update["continuation_context"] = _enriched_continuation_context(
+                request.continuation_context,
+                request,
+            )
         if request.continue_from_run_id:
             record = await self._find_research_run_record(
                 user_id,
@@ -2171,10 +2196,13 @@ class AIStrategyResearchService:
             update.update(_continuation_runtime_updates(record, request, explicit_fields))
             continuation_context = _continuation_context_from_record(record)
             if continuation_context:
-                update["continuation_context"] = {
-                    **dict(request.continuation_context or {}),
-                    **continuation_context,
-                }
+                update["continuation_context"] = _enriched_continuation_context(
+                    {
+                        **dict(request.continuation_context or {}),
+                        **continuation_context,
+                    },
+                    request,
+                )
 
         if seed_strategy_id:
             update["seed_strategy_id"] = seed_strategy_id
@@ -2443,6 +2471,7 @@ class AIStrategyResearchService:
                 paper_trading=None,
                 paper_monitoring_plan=[],
                 pipeline=pipeline,
+                promotion_audit=[],
                 next_actions=next_actions,
                 message="AI research task cancelled before any backtest iteration completed",
             )
@@ -2496,6 +2525,7 @@ class AIStrategyResearchService:
             paper_trading=None,
             paper_monitoring_plan=[],
             pipeline=pipeline,
+            promotion_audit=[],
             next_actions=next_actions,
             message="AI research task cancelled after saving completed iterations",
         )
@@ -2665,7 +2695,9 @@ class AIStrategyResearchService:
             "ai_research_handoff": handoff,
         }
         unit_payload = StrategyUnitCreate(
-            group_name=best_iteration.unit.group_name or best_iteration.strategy.name,
+            group_name=request.group_name
+            or best_iteration.unit.group_name
+            or best_iteration.strategy.name,
             strategy_id=best_iteration.strategy.id,
             strategy_name=best_iteration.strategy.name,
             symbol=request.symbol,
@@ -2778,7 +2810,7 @@ class AIStrategyResearchService:
         research_workspace: WorkspaceResponse,
         run_record: AIStrategyResearchRunRecord,
     ) -> WorkspaceResponse:
-        run_record = _research_run_record_without_sensitive_handoff(run_record)
+        run_record = _research_run_record_with_pipeline(run_record)
         settings = dict(research_workspace.settings or {})
         ai_research = dict(settings.get("ai_research") or {})
         record_payload = run_record.model_dump(mode="json")
@@ -2920,45 +2952,47 @@ class AIStrategyResearchService:
         if workspace is None:
             return None
         paper_trading_error = str(error or "Paper trading start failed").strip()
-        updated_record = record.model_copy(
-            update={
-                "paper_trading_started": False,
-                "paper_review_status": None,
-                "paper_review_ready_for_live": False,
-                "paper_reviewed_at": None,
-                "paper_review_evaluations": [],
-                "paper_review_next_actions": [],
-                "live_readiness_checklist": [],
-                "live_readiness_expires_at": None,
-                "paper_workspace_id": paper_trading.workspace.id if paper_trading else None,
-                "paper_workspace_name": paper_trading.workspace.name if paper_trading else None,
-                "paper_unit_id": paper_trading.unit.id if paper_trading else None,
-                "paper_monitoring_plan": _paper_monitoring_plan_from_handoff(
-                    paper_trading.handoff if paper_trading else None
-                ),
-                "paper_handoff": _research_record_handoff_payload(
-                    paper_trading.handoff if paper_trading else None
-                ),
-                "pipeline": _pipeline_summary(
-                    status=record.status,
-                    achieved=record.achieved,
-                    iteration_count=record.iteration_count,
-                    max_iterations=record.max_iterations,
-                    out_of_sample_validation=bool(
-                        (record.quality_gates or {}).get("out_of_sample_validation", False)
+        updated_record = _research_run_record_with_promotion_audit(
+            record.model_copy(
+                update={
+                    "paper_trading_started": False,
+                    "paper_review_status": None,
+                    "paper_review_ready_for_live": False,
+                    "paper_reviewed_at": None,
+                    "paper_review_evaluations": [],
+                    "paper_review_next_actions": [],
+                    "live_readiness_checklist": [],
+                    "live_readiness_expires_at": None,
+                    "paper_workspace_id": paper_trading.workspace.id if paper_trading else None,
+                    "paper_workspace_name": paper_trading.workspace.name if paper_trading else None,
+                    "paper_unit_id": paper_trading.unit.id if paper_trading else None,
+                    "paper_monitoring_plan": _paper_monitoring_plan_from_handoff(
+                        paper_trading.handoff if paper_trading else None
                     ),
-                    validation_status=_record_best_validation_status(record),
-                    paper_trading_started=False,
-                    paper_trading_error=paper_trading_error,
-                    paper_review_status=None,
-                    paper_review_ready_for_live=False,
-                ),
-                "next_actions": [
-                    f"模拟交易启动错误：{paper_trading_error}",
-                    "检查交易工作区、网关配置、策略脚本依赖和资产参数后可重试模拟。",
-                    "如果启动问题来自策略脚本或交易环境假设，可从该记录继续投研。",
-                ],
-            }
+                    "paper_handoff": _research_record_handoff_payload(
+                        paper_trading.handoff if paper_trading else None
+                    ),
+                    "pipeline": _pipeline_summary(
+                        status=record.status,
+                        achieved=record.achieved,
+                        iteration_count=record.iteration_count,
+                        max_iterations=record.max_iterations,
+                        out_of_sample_validation=bool(
+                            (record.quality_gates or {}).get("out_of_sample_validation", False)
+                        ),
+                        validation_status=_record_best_validation_status(record),
+                        paper_trading_started=False,
+                        paper_trading_error=paper_trading_error,
+                        paper_review_status=None,
+                        paper_review_ready_for_live=False,
+                    ),
+                    "next_actions": [
+                        f"模拟交易启动错误：{paper_trading_error}",
+                        "检查交易工作区、网关配置、策略脚本依赖和资产参数后可重试模拟。",
+                        "如果启动问题来自策略脚本或交易环境假设，可从该记录继续投研。",
+                    ],
+                }
+            )
         )
         await self._persist_research_run_record(user_id, workspace, updated_record)
         return updated_record
@@ -2982,21 +3016,23 @@ class AIStrategyResearchService:
                 _paper_review_lock_from_pipeline(review.pipeline),
             )
         )
-        updated_record = record.model_copy(
-            update={
-                "paper_review_status": review.status,
-                "paper_review_ready_for_live": review.ready_for_live,
-                "paper_reviewed_at": review.reviewed_at,
-                "paper_review_evaluations": [
-                    item.model_dump(mode="json") for item in review.evaluations
-                ],
-                "paper_review_next_actions": review.next_actions,
-                "live_readiness_checklist": review.live_readiness_checklist,
-                "live_readiness_expires_at": review.live_readiness_expires_at,
-                "paper_handoff": paper_handoff,
-                "pipeline": review.pipeline,
-                "next_actions": review.next_actions,
-            }
+        updated_record = _research_run_record_with_promotion_audit(
+            record.model_copy(
+                update={
+                    "paper_review_status": review.status,
+                    "paper_review_ready_for_live": review.ready_for_live,
+                    "paper_reviewed_at": review.reviewed_at,
+                    "paper_review_evaluations": [
+                        item.model_dump(mode="json") for item in review.evaluations
+                    ],
+                    "paper_review_next_actions": review.next_actions,
+                    "live_readiness_checklist": review.live_readiness_checklist,
+                    "live_readiness_expires_at": review.live_readiness_expires_at,
+                    "paper_handoff": paper_handoff,
+                    "pipeline": review.pipeline,
+                    "next_actions": review.next_actions,
+                }
+            )
         )
         if review.ready_for_live and review.status == "ready_for_live_candidate":
             package = _build_live_handoff_package(updated_record)
@@ -3065,17 +3101,19 @@ class AIStrategyResearchService:
                 "next_actions": next_actions,
             }
         )
-        updated_record = record.model_copy(
-            update={
-                "live_handoff": prepared_package,
-                "live_workspace_id": workspace.id,
-                "live_workspace_name": workspace.name,
-                "live_unit_id": unit.id,
-                "live_trading_prepared": True,
-                "live_trading_prepared_at": prepared_at,
-                "pipeline": pipeline,
-                "next_actions": next_actions,
-            }
+        updated_record = _research_run_record_with_promotion_audit(
+            record.model_copy(
+                update={
+                    "live_handoff": prepared_package,
+                    "live_workspace_id": workspace.id,
+                    "live_workspace_name": workspace.name,
+                    "live_unit_id": unit.id,
+                    "live_trading_prepared": True,
+                    "live_trading_prepared_at": prepared_at,
+                    "pipeline": pipeline,
+                    "next_actions": next_actions,
+                }
+            )
         )
         return await self._persist_research_run_record(user_id, research_workspace, updated_record)
 
@@ -3087,16 +3125,20 @@ def _run_record_with_live_handoff(
     pipeline = _pipeline_with_live_handoff_step(record.pipeline, package)
     next_actions = _live_handoff_next_actions(record, package)
     package = package.model_copy(update={"pipeline": pipeline, "next_actions": next_actions})
-    return record.model_copy(
-        update={
-            "live_handoff": package,
-            "live_readiness_checklist": [
-                dict(item) for item in package.live_readiness_checklist if isinstance(item, dict)
-            ],
-            "live_readiness_expires_at": package.expires_at,
-            "pipeline": pipeline,
-            "next_actions": next_actions,
-        }
+    return _research_run_record_with_promotion_audit(
+        record.model_copy(
+            update={
+                "live_handoff": package,
+                "live_readiness_checklist": [
+                    dict(item)
+                    for item in package.live_readiness_checklist
+                    if isinstance(item, dict)
+                ],
+                "live_readiness_expires_at": package.expires_at,
+                "pipeline": pipeline,
+                "next_actions": next_actions,
+            }
+        )
     )
 
 
@@ -3117,13 +3159,15 @@ def _run_record_with_live_handoff_approval(
     next_actions = _live_handoff_approval_next_actions(record, approval)
     if package is not None:
         package = package.model_copy(update={"pipeline": pipeline, "next_actions": next_actions})
-    return record.model_copy(
-        update={
-            "live_handoff": package,
-            "live_handoff_approval": approval,
-            "pipeline": pipeline,
-            "next_actions": next_actions,
-        }
+    return _research_run_record_with_promotion_audit(
+        record.model_copy(
+            update={
+                "live_handoff": package,
+                "live_handoff_approval": approval,
+                "pipeline": pipeline,
+                "next_actions": next_actions,
+            }
+        )
     )
 
 
@@ -3371,6 +3415,16 @@ def _research_run_record_without_sensitive_handoff(
 
 def _research_record_handoff_payload(handoff: Any) -> dict[str, Any]:
     return _redact_sensitive_handoff(_dict_payload(handoff))
+
+
+def _research_record_continuation_context(context: Any) -> dict[str, Any]:
+    return _redact_sensitive_handoff(_dict_payload(context))
+
+
+def _continuation_source_from_context(context: Any) -> str | None:
+    payload = _dict_payload(context)
+    source = str(payload.get("source") or "").strip()
+    return source or None
 
 
 def _coerce_unit_status(value: Any) -> UnitStatusResponse | None:
@@ -3781,9 +3835,9 @@ def _research_run_record_with_pipeline(
 ) -> AIStrategyResearchRunRecord:
     record = _research_run_record_without_sensitive_handoff(record)
     record = _research_run_record_with_live_readiness_freshness(record)
-    if record.pipeline:
-        return record
-    return record.model_copy(update={"pipeline": _pipeline_summary_from_record(record)})
+    if not record.pipeline:
+        record = record.model_copy(update={"pipeline": _pipeline_summary_from_record(record)})
+    return _research_run_record_with_promotion_audit(record)
 
 
 def _research_run_record_with_live_readiness_freshness(
@@ -4854,6 +4908,344 @@ def _pipeline_current_stage(
     return "research_iteration"
 
 
+def _research_run_record_with_promotion_audit(
+    record: AIStrategyResearchRunRecord,
+) -> AIStrategyResearchRunRecord:
+    audit = _promotion_audit_from_record(record)
+    if record.promotion_audit == audit:
+        return record
+    return record.model_copy(update={"promotion_audit": audit})
+
+
+def _promotion_audit_from_record(record: AIStrategyResearchRunRecord) -> list[dict[str, Any]]:
+    pipeline = record.pipeline if isinstance(record.pipeline, dict) else {}
+    return [
+        _audit_strategy_generation_item(record),
+        _audit_backtest_loop_item(record),
+        _audit_quality_gate_item(record),
+        _audit_out_of_sample_item(record),
+        _audit_paper_trading_item(record, pipeline),
+        _audit_paper_review_item(record),
+        _audit_live_handoff_item(record, pipeline),
+        _audit_live_trading_prepare_item(record, pipeline),
+    ]
+
+
+def _audit_item(
+    *,
+    key: str,
+    label: str,
+    status: str,
+    evidence: str,
+    action: str,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "key": key,
+        "label": label,
+        "status": status,
+        "evidence": evidence,
+        "action": action,
+        "details": dict(details or {}),
+    }
+
+
+def _audit_strategy_generation_item(record: AIStrategyResearchRunRecord) -> dict[str, Any]:
+    if record.best_strategy_id:
+        return _audit_item(
+            key="strategy_generation",
+            label="策略脚本生成",
+            status="completed",
+            evidence=f"已保存候选策略 {record.best_strategy_name or record.best_strategy_id}。",
+            action="保留该策略快照用于回测复现、继续投研或模拟交易。",
+            details={
+                "strategy_id": record.best_strategy_id,
+                "strategy_name": record.best_strategy_name,
+            },
+        )
+    if record.iteration_count > 0:
+        return _audit_item(
+            key="strategy_generation",
+            label="策略脚本生成",
+            status="completed",
+            evidence=f"已完成 {record.iteration_count} 轮策略脚本生成/回测。",
+            action="从最佳迭代快照恢复策略后再继续投研。",
+            details={"iteration_count": record.iteration_count},
+        )
+    status = "cancelled" if record.status == "cancelled" else "failed"
+    return _audit_item(
+        key="strategy_generation",
+        label="策略脚本生成",
+        status=status,
+        evidence=record.best_diagnostics.get("summary") or "尚未产生可回测策略脚本。",
+        action="重新提交 AI 投研任务或检查策略生成配置。",
+        details={"run_status": record.status},
+    )
+
+
+def _audit_backtest_loop_item(record: AIStrategyResearchRunRecord) -> dict[str, Any]:
+    if record.iteration_count > 0:
+        return _audit_item(
+            key="backtest_loop",
+            label="自动回测迭代",
+            status="completed" if record.status != "cancelled" else "cancelled",
+            evidence=(
+                f"已完成 {record.iteration_count}/{record.max_iterations} 轮，"
+                f"最佳 Sharpe {_format_gate_value(record.best_sharpe)}，"
+                f"质量分 {_format_gate_value(record.best_quality_score)}。"
+            ),
+            action="使用最佳迭代作为后续晋级、模拟或继续投研的依据。",
+            details={
+                "iteration_count": record.iteration_count,
+                "max_iterations": record.max_iterations,
+                "best_iteration": record.best_iteration,
+                "best_sharpe": record.best_sharpe,
+                "best_quality_score": record.best_quality_score,
+            },
+        )
+    status = "failed"
+    if record.status == "cancelled":
+        status = "cancelled"
+    elif record.status == "configuration_invalid":
+        status = "pending"
+    return _audit_item(
+        key="backtest_loop",
+        label="自动回测迭代",
+        status=status,
+        evidence=record.best_diagnostics.get("summary") or "尚未完成回测迭代。",
+        action="修正配置、数据或策略脚本后重新启动投研。",
+        details={"run_status": record.status, "max_iterations": record.max_iterations},
+    )
+
+
+def _audit_quality_gate_item(record: AIStrategyResearchRunRecord) -> dict[str, Any]:
+    evaluations = [item for item in record.best_quality_gate_evaluations if isinstance(item, dict)]
+    passed_count = sum(1 for item in evaluations if bool(item.get("passed")))
+    evidence = (
+        f"最佳 Sharpe {_format_gate_value(record.best_sharpe)} / 目标 "
+        f"{_format_gate_value(record.target_sharpe)}；"
+        f"{passed_count}/{len(evaluations)} 项质量门槛通过。"
+    )
+    if not evaluations:
+        evidence = record.best_diagnostics.get("summary") or evidence
+    return _audit_item(
+        key="quality_gate",
+        label="质量门槛",
+        status="completed" if record.achieved else "failed",
+        evidence=evidence,
+        action=(
+            "质量门槛已达成，可进入模拟交易/复核。"
+            if record.achieved
+            else "按失败门槛继续自动改稿并重新回测。"
+        ),
+        details={
+            "target_sharpe": record.target_sharpe,
+            "best_sharpe": record.best_sharpe,
+            "best_quality_score": record.best_quality_score,
+            "quality_gate_evaluations": evaluations,
+        },
+    )
+
+
+def _audit_out_of_sample_item(record: AIStrategyResearchRunRecord) -> dict[str, Any]:
+    gates = record.quality_gates or {}
+    if not bool(gates.get("out_of_sample_validation", False)):
+        return _audit_item(
+            key="out_of_sample_validation",
+            label="样本外验证",
+            status="skipped",
+            evidence="本轮未启用样本外验证。",
+            action="进入模拟前仍需人工关注过拟合风险。",
+            details={"enabled": False},
+        )
+    payload = _best_iteration_payload(record) or {}
+    validation_status = str(payload.get("validation_status") or "").strip()
+    failures = [
+        str(item).strip()
+        for item in payload.get("validation_failures") or []
+        if str(item or "").strip()
+    ]
+    if validation_status == "passed":
+        status = "completed"
+    elif validation_status in {"skipped", "not_required"}:
+        status = "skipped"
+    elif validation_status == "failed" or failures:
+        status = "failed"
+    else:
+        status = "pending"
+    if validation_status:
+        evidence = f"样本外验证状态：{validation_status}。"
+    elif failures:
+        evidence = "样本外验证失败：" + "；".join(failures)
+    else:
+        evidence = "尚未形成样本外验证结果。"
+    return _audit_item(
+        key="out_of_sample_validation",
+        label="样本外验证",
+        status=status,
+        evidence=evidence,
+        action=(
+            "样本外验证已通过，可作为晋级证据。"
+            if status == "completed"
+            else "样本外未通过或缺失时，需继续改进或延长验证区间。"
+        ),
+        details={
+            "enabled": True,
+            "status": validation_status or None,
+            "window": payload.get("validation_window"),
+            "metrics": payload.get("validation_metrics") or {},
+            "failures": failures,
+        },
+    )
+
+
+def _audit_paper_trading_item(
+    record: AIStrategyResearchRunRecord,
+    pipeline: dict[str, Any],
+) -> dict[str, Any]:
+    error = str(pipeline.get("paper_trading_error") or "").strip()
+    if record.paper_trading_started:
+        status = "completed"
+        evidence = (
+            f"模拟工作区 {record.paper_workspace_id or '-'}，"
+            f"模拟单元 {record.paper_unit_id or '-'}。"
+        )
+        action = "继续采集模拟成交、持仓、费用和估值指标。"
+    elif error:
+        status = "failed"
+        evidence = f"模拟交易启动失败：{error}"
+        action = "检查交易工作区、网关、策略脚本依赖和资产规格后重试。"
+    elif record.achieved:
+        status = "pending"
+        evidence = "策略已达标，但尚未启动模拟交易。"
+        action = "启动模拟交易并绑定资产规格、费用和网关配置。"
+    else:
+        status = "pending"
+        evidence = "质量门槛未达成前不启动模拟交易。"
+        action = "继续投研直到满足晋级条件。"
+    return _audit_item(
+        key="paper_trading",
+        label="模拟交易",
+        status=status,
+        evidence=evidence,
+        action=action,
+        details={
+            "paper_workspace_id": record.paper_workspace_id,
+            "paper_unit_id": record.paper_unit_id,
+            "paper_trading_started": record.paper_trading_started,
+            "paper_trading_error": error or None,
+        },
+    )
+
+
+def _audit_paper_review_item(record: AIStrategyResearchRunRecord) -> dict[str, Any]:
+    review_status = str(record.paper_review_status or "").strip()
+    if record.paper_review_ready_for_live:
+        status = "completed"
+    elif review_status in {"needs_research_review", "live_readiness_expired"}:
+        status = "failed"
+    elif review_status:
+        status = "running"
+    else:
+        status = "pending"
+    if review_status:
+        evidence = f"模拟复核状态：{review_status}。"
+    elif record.paper_trading_started:
+        evidence = "模拟交易已启动，等待模拟复核。"
+    else:
+        evidence = "模拟交易未启动，暂无模拟复核。"
+    return _audit_item(
+        key="paper_review",
+        label="模拟复核",
+        status=status,
+        evidence=evidence,
+        action=(
+            "模拟复核通过，可进入实盘交接审批。"
+            if record.paper_review_ready_for_live
+            else "按监控计划继续观察，未通过时回到投研改进。"
+        ),
+        details={
+            "paper_review_status": review_status or None,
+            "paper_review_ready_for_live": record.paper_review_ready_for_live,
+            "paper_reviewed_at": record.paper_reviewed_at,
+            "evaluations": [
+                dict(item) for item in record.paper_review_evaluations if isinstance(item, dict)
+            ],
+        },
+    )
+
+
+def _audit_live_handoff_item(
+    record: AIStrategyResearchRunRecord,
+    pipeline: dict[str, Any],
+) -> dict[str, Any]:
+    handoff = record.live_handoff
+    handoff_status = str(
+        getattr(handoff, "status", None) or pipeline.get("live_handoff_status") or ""
+    ).strip()
+    if record.live_handoff_approval is not None and record.live_handoff_approval.approved:
+        status = "completed"
+    elif handoff_status in {"blocked", "approval_rejected"}:
+        status = "failed"
+    elif handoff_status:
+        status = "running"
+    else:
+        status = "pending"
+    evidence = (
+        f"实盘交接状态：{handoff_status}。"
+        if handoff_status
+        else "尚未生成实盘交接包。"
+    )
+    return _audit_item(
+        key="live_handoff",
+        label="实盘交接",
+        status=status,
+        evidence=evidence,
+        action=(
+            "实盘交接已通过审批，可准备锁定实盘单元。"
+            if status == "completed"
+            else "等待模拟复核通过并完成人工审批。"
+        ),
+        details={
+            "handoff_status": handoff_status or None,
+            "approval": _object_payload(record.live_handoff_approval)
+            if record.live_handoff_approval is not None
+            else None,
+            "expires_at": getattr(handoff, "expires_at", None) if handoff else None,
+        },
+    )
+
+
+def _audit_live_trading_prepare_item(
+    record: AIStrategyResearchRunRecord,
+    pipeline: dict[str, Any],
+) -> dict[str, Any]:
+    prepared = bool(record.live_trading_prepared or pipeline.get("live_trading_prepared"))
+    evidence = (
+        f"实盘工作区 {record.live_workspace_id or pipeline.get('live_workspace_id') or '-'}，"
+        f"实盘单元 {record.live_unit_id or pipeline.get('live_unit_id') or '-'}。"
+        if prepared
+        else "尚未创建锁定实盘交易单元。"
+    )
+    return _audit_item(
+        key="live_trading_prepare",
+        label="实盘准备",
+        status="completed" if prepared else "pending",
+        evidence=evidence,
+        action=(
+            "实盘单元默认锁定，人工核验后再解锁运行。"
+            if prepared
+            else "审批通过后创建锁定实盘单元。"
+        ),
+        details={
+            "live_workspace_id": record.live_workspace_id or pipeline.get("live_workspace_id"),
+            "live_unit_id": record.live_unit_id or pipeline.get("live_unit_id"),
+            "prepared_at": record.live_trading_prepared_at
+            or pipeline.get("live_trading_prepared_at"),
+        },
+    )
+
+
 def _paper_trading_start_error(paper_trading: AIStrategyPaperTradingStart | None) -> str | None:
     if paper_trading is None or paper_trading.started:
         return None
@@ -5387,6 +5779,7 @@ def _paper_start_request_from_record(
         annual_days=_runtime_int(backtest_environment.get("annual_days"), record.annual_days),
         calc_method=_runtime_text(backtest_environment.get("calc_method"), record.calc_method),
         weight_mode=_runtime_text(backtest_environment.get("weight_mode"), record.weight_mode),
+        group_name=record.group_name or record.best_strategy_name,
         knowledge_base_id=record.knowledge_base_id,
         thinking_mode=record.thinking_mode,
         target_sharpe=record.target_sharpe,
@@ -5485,7 +5878,7 @@ def _live_trading_unit_payload_from_record(
     gateway_config.update(_dict_payload(request.gateway_config))
     gateway_config = _dict_payload(_omit_sensitive_handoff(gateway_config))
     return StrategyUnitCreate(
-        group_name=source_unit.group_name or strategy.name,
+        group_name=record.group_name or source_unit.group_name or strategy.name,
         strategy_id=strategy.id,
         strategy_name=strategy.name,
         symbol=record.symbol,
@@ -5550,7 +5943,7 @@ def _unit_from_iteration_snapshot(
     return StrategyUnitResponse(
         id=unit_id,
         workspace_id=str(snapshot.get("workspace_id") or record.research_workspace_id),
-        group_name=str(snapshot.get("group_name") or strategy.name),
+        group_name=str(record.group_name or snapshot.get("group_name") or strategy.name),
         strategy_id=str(snapshot.get("strategy_id") or strategy.id),
         strategy_name=str(snapshot.get("strategy_name") or strategy.name),
         symbol=str(snapshot.get("symbol") or record.symbol),
@@ -5630,7 +6023,7 @@ def _unit_from_run_record(
     return StrategyUnitResponse(
         id=f"{record.run_id}-unit",
         workspace_id=record.research_workspace_id,
-        group_name=record.best_strategy_name or strategy.name,
+        group_name=record.group_name or record.best_strategy_name or strategy.name,
         strategy_id=strategy.id,
         strategy_name=strategy.name,
         symbol=record.symbol,
@@ -5846,12 +6239,67 @@ def _live_handoff_rejection_context_from_record(
     }
 
 
+def _enriched_continuation_context(
+    context: dict[str, Any],
+    request: AIStrategyResearchRunRequest,
+) -> dict[str, Any]:
+    if not isinstance(context, dict):
+        return {}
+    payload = dict(context)
+    metrics = dict(payload.get("metrics") or {}) if isinstance(payload.get("metrics"), dict) else {}
+    diagnostics = (
+        dict(payload.get("diagnostics")) if isinstance(payload.get("diagnostics"), dict) else {}
+    )
+    feedback = _improvement_feedback_payload(diagnostics)
+    failures = _continuation_quality_gate_failures(payload)
+    categories = [
+        *_string_list(payload.get("failure_categories")),
+        *_string_list(feedback.get("failure_categories")),
+        *_failure_categories(failures, "completed", None),
+    ]
+    categories = list(dict.fromkeys(item for item in categories if item))
+    if categories:
+        payload["failure_categories"] = categories
+
+    weaknesses = [
+        *_string_list(payload.get("weaknesses")),
+        *_string_list(feedback.get("weaknesses")),
+        *failures,
+    ]
+    weaknesses = list(dict.fromkeys(item for item in weaknesses if item))
+    if weaknesses:
+        payload["weaknesses"] = weaknesses
+
+    plan = [
+        *_string_list(payload.get("improvement_plan")),
+        *_string_list(feedback.get("improvement_plan")),
+        *_string_list(payload.get("paper_review_next_actions")),
+        *_string_list(payload.get("next_actions")),
+    ]
+    if failures or categories:
+        plan.extend(
+            _improvement_plan_from_failures(
+                request,
+                metrics=metrics,
+                run_status="completed",
+                quality_gate_failures=failures,
+                failure_categories=categories,
+            )
+        )
+    plan = list(dict.fromkeys(item for item in plan if item))
+    if plan:
+        payload["improvement_plan"] = plan
+
+    return payload
+
+
 def _continuation_improvement_metrics(
     context: dict[str, Any],
     request: AIStrategyResearchRunRequest,
 ) -> dict[str, Any]:
     if not isinstance(context, dict):
         return {}
+    context = _enriched_continuation_context(context, request)
     metrics = dict(context.get("metrics") or {}) if isinstance(context.get("metrics"), dict) else {}
     diagnostics = (
         dict(context.get("diagnostics")) if isinstance(context.get("diagnostics"), dict) else {}
@@ -6169,6 +6617,9 @@ def _build_research_run_record(
         annual_days=_runtime_int(unit_settings.get("annual_days"), request.annual_days),
         calc_method=_runtime_text(unit_settings.get("calc_method"), request.calc_method),
         weight_mode=_runtime_text(unit_settings.get("weight_mode"), request.weight_mode),
+        group_name=request.group_name
+        or (best_iteration.unit.group_name if best_iteration is not None else None)
+        or (best_strategy.name if best_strategy else None),
         asset_specs=asset_specs,
         backtest_environment=backtest_environment,
         knowledge_base_id=request.knowledge_base_id,
@@ -6197,6 +6648,8 @@ def _build_research_run_record(
         research_workspace_id=response.research_workspace.id,
         seed_strategy_id=request.seed_strategy_id,
         continued_from_run_id=request.continue_from_run_id,
+        continuation_source=_continuation_source_from_context(request.continuation_context),
+        continuation_context=_research_record_continuation_context(request.continuation_context),
         paper_workspace_id=paper.workspace.id if paper else None,
         paper_workspace_name=paper.workspace.name if paper else request.paper_workspace_name,
         paper_unit_id=paper.unit.id if paper else None,
@@ -6209,7 +6662,9 @@ def _build_research_run_record(
         completed_at=completed_at,
         iterations=[_compact_research_iteration(item) for item in response.iterations],
     )
-    return _research_run_record_without_sensitive_handoff(record)
+    return _research_run_record_with_promotion_audit(
+        _research_run_record_without_sensitive_handoff(record)
+    )
 
 
 def _apply_initial_paper_review_to_run_record(
@@ -6264,26 +6719,28 @@ def _apply_initial_paper_review_to_run_record(
             expires_at=live_readiness_expires_at,
         )
     )
-    return record.model_copy(
-        update={
-            "paper_monitoring_plan": monitoring_plan,
-            "paper_review_status": review_status,
-            "paper_review_ready_for_live": ready_for_live,
-            "paper_reviewed_at": reviewed_at,
-            "paper_review_evaluations": [
-                item.model_dump(mode="json") for item in evaluations
-            ],
-            "paper_review_next_actions": _paper_review_next_actions(
-                review_status,
-                evaluations=evaluations,
-                monitoring_plan=monitoring_plan,
-                live_readiness_expires_at=live_readiness_expires_at,
-            ),
-            "live_readiness_checklist": live_readiness_checklist,
-            "live_readiness_expires_at": live_readiness_expires_at,
-            "paper_handoff": paper_handoff,
-            "pipeline": pipeline,
-        }
+    return _research_run_record_with_promotion_audit(
+        record.model_copy(
+            update={
+                "paper_monitoring_plan": monitoring_plan,
+                "paper_review_status": review_status,
+                "paper_review_ready_for_live": ready_for_live,
+                "paper_reviewed_at": reviewed_at,
+                "paper_review_evaluations": [
+                    item.model_dump(mode="json") for item in evaluations
+                ],
+                "paper_review_next_actions": _paper_review_next_actions(
+                    review_status,
+                    evaluations=evaluations,
+                    monitoring_plan=monitoring_plan,
+                    live_readiness_expires_at=live_readiness_expires_at,
+                ),
+                "live_readiness_checklist": live_readiness_checklist,
+                "live_readiness_expires_at": live_readiness_expires_at,
+                "paper_handoff": paper_handoff,
+                "pipeline": pipeline,
+            }
+        )
     )
 
 
