@@ -4700,6 +4700,44 @@ async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
 
 
 @pytest.mark.asyncio
+async def test_ai_strategy_research_task_manager_prunes_old_terminal_tasks():
+    manager = AIStrategyResearchTaskManager(max_terminal_tasks_per_user=2)
+
+    submitted = []
+    for _ in range(4):
+        item = await manager.submit(
+            "user-1",
+            AIStrategyResearchRunRequest(prompt="生成趋势策略", symbol="000001.SZ"),
+            service=FakeResearchAPIService(),
+        )
+        submitted.append(item)
+        completed = None
+        for _ in range(20):
+            completed = await manager.get_task("user-1", item.task_id)
+            if completed is not None and completed.status == "completed":
+                break
+            await asyncio.sleep(0.01)
+        assert completed is not None
+        assert completed.status == "completed"
+
+    tasks = []
+    for _ in range(20):
+        tasks = await manager.list_tasks("user-1", limit=10)
+        if len(tasks) == 2:
+            break
+        await asyncio.sleep(0.01)
+
+    assert {item.task_id for item in tasks} == {
+        submitted[-1].task_id,
+        submitted[-2].task_id,
+    }
+    assert await manager.get_task("user-1", submitted[0].task_id) is None
+    assert await manager.get_task("user-1", submitted[1].task_id) is None
+    assert await manager.get_task("user-1", submitted[2].task_id) is not None
+    assert await manager.get_task("user-1", submitted[3].task_id) is not None
+
+
+@pytest.mark.asyncio
 async def test_ai_strategy_research_task_manager_cancels_running_task():
     backtest_service = FakeBacktestCancelService()
     manager = AIStrategyResearchTaskManager(backtest_service_factory=lambda: backtest_service)

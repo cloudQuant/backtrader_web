@@ -16,6 +16,8 @@ from app.schemas.ai_strategy_research import (
 )
 
 _CANCEL_CLEANUP_TIMEOUT_SECONDS = 1.0
+_DEFAULT_MAX_TERMINAL_TASKS_PER_USER = 50
+_TERMINAL_TASK_STATUSES = {"completed", "failed", "cancelled"}
 
 
 def _utc_iso_now() -> str:
@@ -32,10 +34,16 @@ class _ResearchTaskState:
 class AIStrategyResearchTaskManager:
     """Track in-process AI research loop tasks for API polling."""
 
-    def __init__(self, *, backtest_service_factory: Callable[[], Any] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        backtest_service_factory: Callable[[], Any] | None = None,
+        max_terminal_tasks_per_user: int = _DEFAULT_MAX_TERMINAL_TASKS_PER_USER,
+    ) -> None:
         self._tasks: dict[str, _ResearchTaskState] = {}
         self._lock = asyncio.Lock()
         self._backtest_service_factory = backtest_service_factory
+        self._max_terminal_tasks_per_user = max(int(max_terminal_tasks_per_user), 0)
 
     async def submit(
         self,
@@ -61,6 +69,9 @@ class AIStrategyResearchTaskManager:
         background_task = loop.create_task(
             self._run_task(task_id, user_id, request, service=service)
         )
+        background_task.add_done_callback(
+            lambda _: loop.create_task(self._prune_terminal_tasks(user_id))
+        )
         async with self._lock:
             state = self._tasks.get(task_id)
             if state is not None:
@@ -85,13 +96,12 @@ class AIStrategyResearchTaskManager:
         active_only: bool = False,
         limit: int = 20,
     ) -> list[AIStrategyResearchTaskResponse]:
-        terminal_statuses = {"completed", "failed", "cancelled"}
         async with self._lock:
             items = [
                 state.response.model_copy(deep=True)
                 for state in self._tasks.values()
                 if state.user_id == user_id
-                and (not active_only or state.response.status not in terminal_statuses)
+                and (not active_only or state.response.status not in _TERMINAL_TASK_STATUSES)
             ]
         items.sort(key=lambda item: item.submitted_at, reverse=True)
         return items[: max(limit, 0)]
@@ -107,7 +117,7 @@ class AIStrategyResearchTaskManager:
             state = self._tasks.get(task_id)
             if state is None or state.user_id != user_id:
                 return None
-            if state.response.status in {"completed", "failed", "cancelled"}:
+            if state.response.status in _TERMINAL_TASK_STATUSES:
                 return state.response.model_copy(deep=True)
             background_task = state.background_task
             child_task_id = state.response.current_backtest_task_id
@@ -217,12 +227,13 @@ class AIStrategyResearchTaskManager:
                 return
             new_status = updates.get("status")
             if (
-                state.response.status in {"completed", "failed", "cancelled"}
+                state.response.status in _TERMINAL_TASK_STATUSES
                 and new_status is not None
                 and new_status != state.response.status
             ):
                 return
             state.response = state.response.model_copy(update=updates)
+            self._prune_terminal_tasks_locked(state.user_id)
 
     async def _cancel_child_backtest(self, task_id: str, user_id: str) -> bool:
         try:
@@ -251,6 +262,29 @@ class AIStrategyResearchTaskManager:
             return
         except (asyncio.TimeoutError, Exception):
             return
+
+    async def _prune_terminal_tasks(self, user_id: str) -> None:
+        async with self._lock:
+            self._prune_terminal_tasks_locked(user_id)
+
+    def _prune_terminal_tasks_locked(self, user_id: str) -> None:
+        terminal_items: list[tuple[str, str]] = []
+        for task_id, state in self._tasks.items():
+            if state.user_id != user_id:
+                continue
+            if state.response.status not in _TERMINAL_TASK_STATUSES:
+                continue
+            background_task = state.background_task
+            if background_task is not None and not background_task.done():
+                continue
+            terminal_items.append((state.response.submitted_at, task_id))
+
+        if len(terminal_items) <= self._max_terminal_tasks_per_user:
+            return
+
+        terminal_items.sort(reverse=True)
+        for _, task_id in terminal_items[self._max_terminal_tasks_per_user:]:
+            self._tasks.pop(task_id, None)
 
 
 _manager: AIStrategyResearchTaskManager | None = None
