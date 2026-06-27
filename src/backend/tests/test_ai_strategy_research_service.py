@@ -3395,6 +3395,156 @@ async def test_start_paper_trading_from_achieved_research_run_record():
 
 
 @pytest.mark.asyncio
+async def test_start_paper_trading_from_history_rejects_duplicate_active_paper():
+    workspace_service = FakeWorkspaceService()
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "历史最佳策略"}
+    )
+    strategy = _strategy("strategy-2", seed_draft)
+    research_unit = _unit(
+        "unit-2",
+        "research-ws",
+        strategy,
+        metrics={"sharpe_ratio": 1.21, "total_trades": 5},
+    )
+    paper_unit = _unit("paper-unit", "paper-ws", strategy)
+    workspace_service.units[research_unit.id] = research_unit
+    workspace_service.units[paper_unit.id] = paper_unit
+    workspace_service.workspaces["paper-ws"] = _workspace("paper-ws", "trading")
+    record = {
+        **_run_record(
+            "previous-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "iterations": [
+            {
+                "iteration": 2,
+                "strategy_id": strategy.id,
+                "strategy_name": strategy.name,
+                "unit_id": research_unit.id,
+                "task_id": "task-2",
+                "run_status": "completed",
+                "metrics": {"sharpe_ratio": 1.21, "total_trades": 5},
+                "sharpe_ratio": 1.21,
+                "total_trades": 5,
+                "quality_score": 100.0,
+                "quality_gate_evaluations": [],
+                "passed": True,
+                "quality_gate_failures": [],
+                "improvement_notes": [],
+                "next_actions": [],
+            }
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [record]}}}
+    )
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [],
+        strategies={strategy.id: strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    with pytest.raises(ValueError, match="already started paper trading"):
+        await service.start_paper_trading_from_run(
+            "user-1",
+            "previous-run",
+            AIStrategyPaperTradingStartRequest(research_workspace_id="research-ws"),
+        )
+
+    assert workspace_service.started_units == []
+
+
+@pytest.mark.asyncio
+async def test_start_paper_trading_from_history_restarts_missing_paper_unit():
+    workspace_service = FakeWorkspaceService()
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "历史最佳策略"}
+    )
+    strategy = _strategy("strategy-2", seed_draft)
+    research_unit = _unit(
+        "unit-2",
+        "research-ws",
+        strategy,
+        metrics={"sharpe_ratio": 1.21, "total_trades": 5},
+    )
+    workspace_service.units[research_unit.id] = research_unit
+    workspace_service.workspaces["paper-ws"] = _workspace("paper-ws", "trading")
+    record = {
+        **_run_record(
+            "previous-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "paper_unit_id": "deleted-paper-unit",
+        "paper_review_status": "paper_unit_missing",
+        "paper_review_ready_for_live": False,
+        "paper_review_next_actions": [
+            "未找到模拟交易单元，检查是否被删除，必要时重新从投研结果启动模拟交易。",
+        ],
+        "iterations": [
+            {
+                "iteration": 2,
+                "strategy_id": strategy.id,
+                "strategy_name": strategy.name,
+                "unit_id": research_unit.id,
+                "task_id": "task-2",
+                "run_status": "completed",
+                "metrics": {"sharpe_ratio": 1.21, "total_trades": 5},
+                "sharpe_ratio": 1.21,
+                "total_trades": 5,
+                "quality_score": 100.0,
+                "quality_gate_evaluations": [],
+                "passed": True,
+                "quality_gate_failures": [],
+                "improvement_notes": [],
+                "next_actions": [],
+            }
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [record]}}}
+    )
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [],
+        strategies={strategy.id: strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.start_paper_trading_from_run(
+        "user-1",
+        "previous-run",
+        AIStrategyPaperTradingStartRequest(research_workspace_id="research-ws"),
+    )
+
+    assert result.started is True
+    assert result.workspace.id == "paper-ws"
+    assert result.unit.id == "paper-unit"
+    assert workspace_service.started_units == [("paper-ws", ["paper-unit"])]
+    updated_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert updated_run["paper_trading_started"] is True
+    assert updated_run["paper_workspace_id"] == "paper-ws"
+    assert updated_run["paper_unit_id"] == "paper-unit"
+    assert updated_run["paper_handoff"]["paper_task_id"] == "paper-task"
+    assert updated_run["paper_review_status"] == "monitoring"
+    assert updated_run["paper_review_evaluations"][0]["status"] == "pending"
+    assert updated_run["pipeline"]["current_stage"] == "paper_review"
+
+
+@pytest.mark.asyncio
 async def test_start_paper_trading_from_history_uses_iteration_unit_snapshot():
     workspace_service = FakeWorkspaceService()
     seed_draft = build_ai_strategy_draft("请生成一个股指期货趋势策略").model_copy(

@@ -1044,7 +1044,16 @@ class AIStrategyResearchService:
         if not record.achieved:
             raise ValueError("AI research run has not achieved its quality gates")
         if record.paper_trading_started:
-            raise ValueError("AI research run has already started paper trading")
+            target_missing, reusable_workspace = await self._paper_trading_target_missing(
+                user_id,
+                record,
+            )
+            if not target_missing:
+                raise ValueError("AI research run has already started paper trading")
+            if reusable_workspace is not None and not request.trading_workspace_id:
+                request = request.model_copy(
+                    update={"trading_workspace_id": reusable_workspace.id}
+                )
 
         iteration_payload = _best_iteration_payload(record)
         if iteration_payload is None:
@@ -1329,6 +1338,24 @@ class AIStrategyResearchService:
             limit=100,
         )
         return next((item for item in records.items if item.run_id == run_id), None)
+
+    async def _paper_trading_target_missing(
+        self,
+        user_id: str,
+        record: AIStrategyResearchRunRecord,
+    ) -> tuple[bool, WorkspaceResponse | None]:
+        workspace = None
+        if record.paper_workspace_id:
+            workspace = await self.workspace_service.get_workspace(
+                record.paper_workspace_id,
+                user_id,
+            )
+        if workspace is None:
+            return True, None
+        if not record.paper_unit_id:
+            return True, workspace
+        unit = await self.workspace_service.get_unit(workspace.id, record.paper_unit_id, user_id)
+        return unit is None, workspace
 
     def _build_backtest_request(
         self,

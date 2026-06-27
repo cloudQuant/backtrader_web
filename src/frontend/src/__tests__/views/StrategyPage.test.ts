@@ -1970,6 +1970,69 @@ describe('StrategyPage', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已启动')
   })
 
+  it('restarts paper trading from history when the previous paper unit is missing', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchRuns = [
+      {
+        run_id: 'history-run',
+        prompt: '历史趋势策略',
+        symbol: '000001.SZ',
+        symbol_name: '平安银行',
+        timeframe: '1d',
+        timeframe_n: 1,
+        status: 'achieved',
+        achieved: true,
+        target_sharpe: 1,
+        quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+        min_total_trades: 1,
+        max_iterations: 3,
+        iteration_count: 2,
+        best_iteration: 2,
+        best_sharpe: 1.2,
+        best_quality_score: 100,
+        best_quality_gate_evaluations: [],
+        best_metrics: { sharpe_ratio: 1.2 },
+        best_strategy_id: 's1',
+        best_strategy_name: 'AI策略',
+        research_workspace_id: 'research-ws',
+        seed_strategy_id: null,
+        continued_from_run_id: null,
+        paper_workspace_id: 'paper-ws',
+        paper_unit_id: 'deleted-paper-unit',
+        paper_trading_started: true,
+        paper_review_status: 'paper_unit_missing',
+        paper_review_ready_for_live: false,
+        paper_review_next_actions: [
+          '未找到模拟交易单元，检查是否被删除，必要时重新从投研结果启动模拟交易。',
+        ],
+        next_actions: [
+          '未找到模拟交易单元，检查是否被删除，必要时重新从投研结果启动模拟交易。',
+        ],
+        started_at: '2026-06-27T00:00:00Z',
+        completed_at: '2026-06-27T00:01:00Z',
+        iterations: [],
+      },
+    ]
+    vm.aiResearchRunsLoading = false
+
+    await wrapper.vm.$nextTick()
+    expect(vm.canStartPaperFromRecord(vm.aiResearchRuns[0])).toBe(true)
+    expect(vm.canReviewPaperFromRecord(vm.aiResearchRuns[0])).toBe(false)
+    const restartButton = wrapper.findAll('button').find(button => button.text().includes('重启模拟'))
+    expect(restartButton).toBeTruthy()
+    await restartButton!.trigger('click')
+    await flushPromises()
+
+    expect(strategyApi.startAIResearchPaperTrading).toHaveBeenCalledWith('history-run', {
+      research_workspace_id: 'research-ws',
+    })
+    expect(vm.aiResearchRuns[0].paper_trading_started).toBe(true)
+    expect(vm.aiResearchRuns[0].paper_unit_id).toBe('paper-unit')
+    expect(vm.aiResearchRuns[0].paper_handoff.paper_task_id).toBe('paper-task')
+  })
+
   it('refreshes run record when starting paper trading from history fails', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const { ElMessage } = await import('element-plus')

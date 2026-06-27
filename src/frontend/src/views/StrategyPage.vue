@@ -428,7 +428,11 @@
                   >
                     <VideoPlay />
                   </el-icon>
-                  {{ aiResearchCurrentPaperFailed ? '重试模拟' : '启动模拟' }}
+                  {{
+                    aiResearchCurrentPaperTargetMissing
+                      ? '重启模拟'
+                      : aiResearchCurrentPaperFailed ? '重试模拟' : '启动模拟'
+                  }}
                 </el-button>
                 <el-button
                   v-if="canOpenPaperFromCurrentResult"
@@ -890,7 +894,7 @@
                     >
                       <VideoPlay />
                     </el-icon>
-                    启动模拟
+                    {{ paperStartButtonLabel(record) }}
                   </el-button>
                   <el-button
                     v-else-if="canReviewPaperFromRecord(record)"
@@ -1483,8 +1487,13 @@ const aiResearchCurrentPaperFailed = computed(() => {
     || pipeline?.paper_trading_error
   )
 })
+const aiResearchCurrentPaperTargetMissing = computed(() => {
+  const record = aiResearchResult.value?.run_record
+  return Boolean(record && isPaperTradingTargetMissing(record))
+})
 const aiResearchPaperStatusText = computed(() => {
   if (aiResearchCurrentPaperFailed.value) return '模拟启动失败'
+  if (aiResearchCurrentPaperTargetMissing.value) return '模拟目标丢失'
   return aiResearchResult.value?.paper_trading?.started
     || aiResearchResult.value?.run_record?.paper_trading_started
     ? t('strategy.aiResearchPaperStarted')
@@ -1523,10 +1532,16 @@ const canStartPaperFromCurrentResult = computed(() => {
 })
 const canOpenPaperFromCurrentResult = computed(() =>
   Boolean(
-    aiResearchResult.value?.paper_trading?.started
-    || (
-      aiResearchResult.value?.run_record?.paper_trading_started
-      && aiResearchResult.value?.run_record?.paper_workspace_id
+    !(
+      aiResearchResult.value?.run_record
+      && isPaperTradingTargetMissing(aiResearchResult.value.run_record)
+    )
+    && (
+      aiResearchResult.value?.paper_trading?.started
+      || (
+        aiResearchResult.value?.run_record?.paper_trading_started
+        && aiResearchResult.value?.run_record?.paper_workspace_id
+      )
     )
   )
 )
@@ -2056,11 +2071,37 @@ function researchIterationNextActions(item: AIStrategyResearchRunResponse['itera
 }
 
 function canStartPaperFromRecord(record: AIStrategyResearchRunRecord) {
-  return Boolean(record.achieved && !record.paper_trading_started && bestStrategyIdForRecord(record))
+  return Boolean(
+    record.achieved
+    && bestStrategyIdForRecord(record)
+    && (!record.paper_trading_started || isPaperTradingTargetMissing(record))
+  )
 }
 
 function canReviewPaperFromRecord(record: AIStrategyResearchRunRecord) {
-  return Boolean(record.paper_trading_started && record.paper_workspace_id && record.paper_unit_id)
+  return Boolean(
+    record.paper_trading_started
+    && record.paper_workspace_id
+    && record.paper_unit_id
+    && !isPaperTradingTargetMissing(record)
+  )
+}
+
+function isPaperTradingTargetMissing(record: AIStrategyResearchRunRecord) {
+  const status = String(record.paper_review_status || '').trim()
+  return Boolean(
+    ['paper_workspace_missing', 'paper_unit_missing'].includes(status)
+    || (
+      record.paper_trading_started
+      && (!record.paper_workspace_id || !record.paper_unit_id)
+    )
+  )
+}
+
+function paperStartButtonLabel(record: AIStrategyResearchRunRecord) {
+  if (isPaperTradingTargetMissing(record)) return '重启模拟'
+  if (isPaperTradingStartFailure(record)) return '重试模拟'
+  return '启动模拟'
 }
 
 function canContinueResearchFromPaperReview(record: AIStrategyResearchRunRecord) {
