@@ -359,6 +359,9 @@
                   <template v-if="aiResearchBacktestTaskId">
                     回测 {{ aiResearchBacktestTaskId }}
                   </template>
+                  <template v-else-if="aiResearchCancelledBacktestTaskId">
+                    已取消回测 {{ aiResearchCancelledBacktestTaskId }}
+                  </template>
                 </el-tag>
               </div>
               <div
@@ -374,6 +377,9 @@
                 <span>{{ formatTaskProgress(aiResearchTaskProgress) }}</span>
                 <span v-if="aiResearchTaskIteration">第 {{ aiResearchTaskIteration }} 轮</span>
                 <span v-if="aiResearchBacktestTaskId">回测 {{ aiResearchBacktestTaskId }}</span>
+                <span v-else-if="aiResearchCancelledBacktestTaskId">
+                  已取消回测 {{ aiResearchCancelledBacktestTaskId }}
+                </span>
                 <span v-if="aiResearchTaskPaperStatusText">{{ aiResearchTaskPaperStatusText }}</span>
                 <span v-if="aiResearchTaskPaperUnitId">模拟单元 {{ aiResearchTaskPaperUnitId }}</span>
                 <span v-if="aiResearchTaskMessage">{{ aiResearchTaskMessage }}</span>

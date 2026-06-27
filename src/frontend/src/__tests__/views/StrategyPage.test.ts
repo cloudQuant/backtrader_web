@@ -2276,22 +2276,30 @@ describe('StrategyPage', () => {
       current_iteration: 1,
       iteration_count: 0,
       max_iterations: 3,
+      cancelled_backtest_task_id: 'child-backtest-task',
+      child_cancelled: true,
       message: 'cancelled',
     })
     try {
-      const vm = doMount().vm as any
+      const wrapper = doMount()
+      const vm = wrapper.vm as any
       vm.aiResearchRunning = true
       vm.aiResearchTaskId = 'research-task-1'
       vi.mocked(strategyApi.listAIResearchRuns).mockClear()
       vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({ total: 0, items: [] })
       await vm.cancelAIResearchTask()
+      await wrapper.vm.$nextTick()
 
       expect((strategyApi as any).cancelAIResearchTask).toHaveBeenCalledWith('research-task-1')
       expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith('research-ws', 20)
       expect(vm.aiResearchRunning).toBe(false)
       expect(vm.aiResearchTaskStatus).toBe('cancelled')
       expect(vm.aiResearchTaskStage).toBe('cancelled')
-      expect(ElMessage.success).toHaveBeenCalledWith('AI投研任务已取消')
+      expect(vm.aiResearchCancelledBacktestTaskId).toBe('child-backtest-task')
+      expect(wrapper.find('[data-test="ai-research-task-progress"]').text()).toContain(
+        '已取消回测 child-backtest-task'
+      )
+      expect(ElMessage.success).toHaveBeenCalledWith('AI投研任务已取消，当前回测任务已同步取消')
     } finally {
       delete (strategyApi as any).cancelAIResearchTask
     }
