@@ -639,6 +639,7 @@ class LiveTradingManager:
         try:
             from app.services.trading_asset_info_service import (
                 persist_asset_specs,
+                normalize_asset_spec,
                 query_gateway_asset_spec,
                 query_gateway_last_price,
                 query_local_asset_spec,
@@ -746,7 +747,14 @@ class LiveTradingManager:
                 spec["latest_price"] = last_price
                 spec["last_price"] = last_price
             if spec:
-                specs[str(symbol)] = spec
+                normalized_spec = normalize_asset_spec(
+                    spec,
+                    symbol=symbol,
+                    source=str(spec.get("source") or "resolved"),
+                )
+                if normalized_spec:
+                    for key in symbol_aliases(symbol):
+                        specs[str(key)] = dict(normalized_spec)
         return specs
 
     def list_connected_gateways(self) -> list[GatewayData]:

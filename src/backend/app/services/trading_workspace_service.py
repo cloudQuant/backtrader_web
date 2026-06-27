@@ -31,6 +31,7 @@ from app.services.trading_asset_info_service import (
     gateway_position_symbol,
     normalize_gateway_position,
     query_local_asset_spec,
+    signed_gateway_size,
     split_bidirectional_position_row,
     symbol_aliases,
 )
@@ -993,6 +994,13 @@ class TradingWorkspaceService:
         if not callable(query_specs):
             return False
         symbols = cls._unit_asset_spec_symbols(unit, instance)
+        for symbol in cls._gateway_position_symbols_from_manager(
+            manager,
+            unit,
+            instance_id,
+            instance,
+        ):
+            _append_symbol_candidate(symbols, symbol)
         if not symbols:
             return False
         try:
@@ -1009,6 +1017,42 @@ class TradingWorkspaceService:
         if not asset_specs:
             return False
         return cls._sync_unit_contract_metadata_from_specs(unit, asset_specs)
+
+    @classmethod
+    def _gateway_position_symbols_from_manager(
+        cls,
+        manager: Any,
+        unit: StrategyUnit,
+        instance_id: str,
+        instance: dict[str, Any] | None,
+    ) -> list[str]:
+        query_positions = getattr(manager, "query_instance_gateway_positions", None)
+        if not callable(query_positions):
+            return []
+        try:
+            raw_positions = query_positions(instance_id)
+        except Exception:
+            return []
+        if not isinstance(raw_positions, list):
+            return []
+
+        allowed_aliases = cls._unit_position_symbol_aliases(unit, instance)
+        symbols: list[str] = []
+        for item in raw_positions:
+            if not isinstance(item, dict):
+                continue
+            if not any(
+                abs(signed_gateway_size(side_item)) > EPSILON
+                for side_item in split_bidirectional_position_row(item)
+            ):
+                continue
+            symbol = gateway_position_symbol(item)
+            if not symbol:
+                continue
+            if allowed_aliases and not cls._position_symbol_matches(symbol, allowed_aliases):
+                continue
+            _append_symbol_candidate(symbols, symbol)
+        return symbols
 
     @classmethod
     def _position_row_should_recalculate_local_pnl(
@@ -1147,6 +1191,7 @@ class TradingWorkspaceService:
         _append_config_symbols(candidates, _safe_dict(getattr(unit, "params", None)))
         _append_config_symbols(candidates, _safe_dict(getattr(unit, "data_config", None)))
         _append_config_symbols(candidates, _safe_dict(getattr(unit, "unit_settings", None)))
+        _append_config_symbols(candidates, _safe_dict(getattr(unit, "gateway_config", None)))
         _append_config_symbols(candidates, _safe_dict((instance or {}).get("params")))
         if not candidates:
             _append_symbol_candidate(candidates, getattr(unit, "symbol_name", None))

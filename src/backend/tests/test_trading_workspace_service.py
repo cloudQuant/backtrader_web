@@ -4412,6 +4412,96 @@ async def test_hydrate_units_queries_running_instance_asset_specs_without_positi
 
 
 @pytest.mark.asyncio
+async def test_hydrate_units_queries_asset_specs_for_gateway_position_symbols(monkeypatch):
+    unit = SimpleNamespace(
+        id="unit-running-position-asset-refresh",
+        symbol="",
+        symbol_name="",
+        strategy_name="multi-symbol",
+        data_config={},
+        unit_settings={},
+        gateway_config={},
+        trading_instance_id="inst-running",
+        run_status="running",
+        trading_snapshot={"instance_status": "running", "positions": []},
+        metrics_snapshot={},
+        bar_count=None,
+        last_run_time=None,
+        params={},
+    )
+
+    class FakeManager:
+        queried_symbols: list[str] = []
+
+        def get_instance(self, instance_id, user_id=None):
+            assert instance_id == "inst-running"
+            assert user_id == "user-1"
+            return {
+                "id": "inst-running",
+                "status": "running",
+                "params": {},
+            }
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-running"
+            return [
+                {
+                    "InstrumentID": "IF2609",
+                    "Position": 1,
+                    "PosiDirection": "2",
+                    "Price": 5000,
+                    "LastPrice": 5010,
+                },
+                {
+                    "InstrumentID": "rb2601",
+                    "Position": 0,
+                    "PosiDirection": "2",
+                    "Price": 3200,
+                    "LastPrice": 3210,
+                },
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-running"
+            self.queried_symbols = list(symbols)
+            return {
+                "IF2609": {
+                    "symbol": "IF2609",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                    "source": "gateway.query_instrument",
+                }
+            }
+
+    def fake_build_snapshot(cls, current_unit, instance, *, full_log=True):
+        assert instance is not None
+        return dict(current_unit.trading_snapshot), {}, None, None
+
+    manager = FakeManager()
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "get_live_trading_manager",
+        lambda: manager,
+    )
+    monkeypatch.setattr(
+        TradingWorkspaceService,
+        "_build_snapshot",
+        classmethod(fake_build_snapshot),
+    )
+
+    changed = await TradingWorkspaceService().hydrate_units([unit], user_id="user-1")
+
+    assert changed is True
+    assert "IF2609" in manager.queried_symbols
+    assert "rb2601" not in manager.queried_symbols
+    metadata = unit.params["contract_metadata"]["IF2609"]
+    assert metadata["multiplier"] == 300
+    assert metadata["margin_rate"] == 0.1
+    assert metadata["commission_rate"] == 0.000023
+
+
+@pytest.mark.asyncio
 async def test_stop_units_exposes_open_order_cancel_metadata(monkeypatch):
     cancel_metadata = {
         "gateway_key": "manual:CTP:simnow",
