@@ -80,10 +80,10 @@ describe('TradingPositionDialog', () => {
     updated_at: '2026-06-26T00:00:00Z',
   }
 
-  const mountDialog = () => mount(TradingPositionDialog, {
+  const mountDialog = (dialogUnit: StrategyUnit = unit) => mount(TradingPositionDialog, {
     props: {
       modelValue: true,
-      unit,
+      unit: dialogUnit,
     },
     global: { stubs: elStubs },
   })
@@ -100,9 +100,60 @@ describe('TradingPositionDialog', () => {
     const vm = mountDialog().vm as any
 
     expect(vm.positionPnl({ pnlcomm: 1.2, pnl: 2.3, position_pnl: 3.4 })).toBe(1.2)
+    expect(vm.positionPnl({ net_pnl: 3.5, position_pnl: 3.4, pnl: 2.3 })).toBe(3.5)
     expect(vm.positionPnl({ pnl: 2.3, position_pnl: 3.4 })).toBe(3.4)
     expect(vm.positionPnl({ pnl: 2.3, net_pnl: 3.5 })).toBe(3.5)
     expect(vm.positionPnl({ position_pnl: 3.4 })).toBe(3.4)
     expect(vm.positionPnl({ gross_pnl: 4.5 })).toBe(4.5)
+  })
+
+  it('filters flat exchange alias rows and keeps nonzero alias positions', () => {
+    const aliasedSnapshot = {
+      ...snapshot,
+      positions: [
+        {
+          data_name: 'BTC-USDT-SWAP',
+          direction: 'long',
+          size: 0,
+          price: 60000,
+          current_price: 60010,
+          market_value: 0,
+          pnl: null,
+          position_pnl: 999,
+          long_position: 0,
+          short_position: 0,
+        },
+        {
+          data_name: 'ETH-USDT-SWAP',
+          direction: 'long',
+          size: 0,
+          price: 3000,
+          current_price: 3001,
+          market_value: 0,
+          pnl: null,
+          position_pnl: 888,
+          positionAmt: '0',
+        },
+        {
+          data_name: 'IF2609',
+          direction: 'long',
+          size: 0,
+          price: 5000,
+          current_price: 5001,
+          market_value: 1500300,
+          pnl: null,
+          position_pnl: 265.5,
+          Position: '1',
+        },
+      ] as any,
+    }
+    const wrapper = mountDialog({
+      ...unit,
+      trading_snapshot: aliasedSnapshot,
+    })
+    const vm = wrapper.vm as any
+
+    expect(vm.positions).toHaveLength(1)
+    expect(vm.positions[0].data_name).toBe('IF2609')
   })
 })

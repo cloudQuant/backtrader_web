@@ -4143,6 +4143,9 @@ async def test_build_positions_response_revalues_stale_local_snapshot_with_unit_
     assert row.position_pnl == pytest.approx(265.5)
     assert result.total_long_value == pytest.approx(1_500_300.0)
     assert result.total_pnl == pytest.approx(265.5)
+    assert unit.trading_snapshot["position_pnl"] == pytest.approx(265.5)
+    assert unit.trading_snapshot["positions"][0]["position_pnl"] == pytest.approx(265.5)
+    assert unit.trading_snapshot["positions"][0]["market_value"] == pytest.approx(1_500_300.0)
     assert any("重新计算" in warning for warning in row.valuation_warnings)
 
 

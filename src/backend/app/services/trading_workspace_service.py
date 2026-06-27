@@ -2232,6 +2232,7 @@ class TradingWorkspaceService:
             snapshot = _safe_dict(unit.trading_snapshot)
             position_rows = list(snapshot.get("positions") or [])
             raw_position_rows = [row for row in position_rows if isinstance(row, dict)]
+            snapshot_revalued = False
             if raw_position_rows and any(
                 self._position_row_needs_response_valuation(row)
                 or self._position_row_needs_asset_spec_revaluation(unit, row)
@@ -2246,6 +2247,9 @@ class TradingWorkspaceService:
                 if latest_price is not None:
                     snapshot["latest_price"] = round(latest_price, 4)
                 position_rows = list(snapshot.get("positions") or [])
+                snapshot_revalued = True
+            if snapshot_revalued and getattr(unit, "trading_snapshot", None) != snapshot:
+                unit.trading_snapshot = snapshot
             active_position_rows = [
                 row
                 for row in position_rows

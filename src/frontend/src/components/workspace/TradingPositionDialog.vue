@@ -102,11 +102,109 @@ defineEmits<{
 
 const POSITION_EPSILON = 1e-12
 
+const POSITION_SIZE_KEYS = [
+  'size',
+  'position',
+  'Position',
+  'pos',
+  'Pos',
+  'positionAmt',
+  'position_amt',
+  'position_volume',
+  'volume',
+  'Volume',
+  'qty',
+  'Qty',
+  'contracts',
+  'TodayPosition',
+  'YdPosition',
+] as const
+
+const LONG_POSITION_KEYS = [
+  'long_position',
+  'longPosition',
+  'long_size',
+  'longSize',
+  'long_qty',
+  'longQty',
+] as const
+
+const SHORT_POSITION_KEYS = [
+  'short_position',
+  'shortPosition',
+  'short_size',
+  'shortSize',
+  'short_qty',
+  'shortQty',
+] as const
+
+const NET_PNL_KEYS = [
+  'pnlcomm',
+  'net_pnl',
+  'netPnl',
+  'netPNL',
+  'net_position_pnl',
+  'netPositionPnl',
+  'pnl_after_fee',
+  'pnlAfterFee',
+  'position_pnl_after_fee',
+  'positionPnlAfterFee',
+] as const
+
+const POSITION_PNL_KEYS = [
+  'position_pnl',
+  'positionPnl',
+  'positionPNL',
+  'pnl',
+  'profit',
+  'Profit',
+] as const
+
+const GROSS_PNL_KEYS = [
+  'gross_pnl',
+  'grossPnl',
+  'unrealized_pnl',
+  'unrealizedPnl',
+  'upl',
+] as const
+
 const positions = computed(() => (
   (props.unit?.trading_snapshot?.positions ?? []).filter(position => (
-    Math.abs(Number(position.size || 0)) > POSITION_EPSILON
+    openPositionSize(position as unknown as Record<string, unknown>) > POSITION_EPSILON
   ))
 ))
+
+function finiteNumber(value: unknown) {
+  if (value == null || value === '') return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+function firstFiniteNumber(row: Record<string, unknown>, keys: readonly string[]) {
+  for (const key of keys) {
+    const number = finiteNumber(row[key])
+    if (number != null) return number
+  }
+  return null
+}
+
+function maxAbsNumber(row: Record<string, unknown>, keys: readonly string[]) {
+  let maxValue = 0
+  for (const key of keys) {
+    const number = finiteNumber(row[key])
+    if (number == null) continue
+    maxValue = Math.max(maxValue, Math.abs(number))
+  }
+  return maxValue
+}
+
+function openPositionSize(row: Record<string, unknown>) {
+  const size = maxAbsNumber(row, POSITION_SIZE_KEYS)
+  if (size > POSITION_EPSILON) return size
+  const longPosition = Math.max(firstFiniteNumber(row, LONG_POSITION_KEYS) ?? 0, 0)
+  const shortPosition = Math.max(firstFiniteNumber(row, SHORT_POSITION_KEYS) ?? 0, 0)
+  return longPosition + shortPosition
+}
 
 function formatNumber(value: number | null | undefined, digits = 2) {
   if (value == null || Number.isNaN(value)) return '-'
@@ -129,11 +227,9 @@ function formatSignedAmount(value: number | null | undefined) {
 }
 
 function positionPnl(row: Record<string, unknown>) {
-  for (const key of ['pnlcomm', 'position_pnl', 'net_pnl', 'pnl', 'gross_pnl']) {
-    const value = row[key]
-    if (value == null || value === '') continue
-    const number = Number(value)
-    if (Number.isFinite(number)) return number
+  for (const keys of [NET_PNL_KEYS, POSITION_PNL_KEYS, GROSS_PNL_KEYS]) {
+    const value = firstFiniteNumber(row, keys)
+    if (value != null) return value
   }
   return null
 }

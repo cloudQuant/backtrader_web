@@ -550,11 +550,20 @@ class WorkspaceService(WorkspaceRunOpsMixin):
                     ).lower()
                     in {"queued", "running"}
                 ]
+            response_snapshots_before = {
+                str(unit.id): _dict_or_empty(unit.trading_snapshot) for unit in response_units
+            }
             response = await self.trading_service.build_positions_response(
                 response_units,
                 user_id,
                 hydrate=False,
             )
+            if any(
+                _dict_or_empty(unit.trading_snapshot)
+                != response_snapshots_before.get(str(unit.id), {})
+                for unit in response_units
+            ):
+                await session.commit()
             return response.model_dump()
 
     async def get_trading_daily_summary(
