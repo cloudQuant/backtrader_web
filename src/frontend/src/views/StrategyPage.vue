@@ -2402,12 +2402,12 @@ function recordOutOfSampleSummary(record: AIStrategyResearchRunRecord) {
 }
 
 function strategyIdFromIterationPayload(payload: Record<string, unknown>) {
-  const strategySnapshot = isRecord(payload.strategy_snapshot) ? payload.strategy_snapshot : {}
+  const strategySnapshot = iterationStrategyPayload(payload)
   return stringFromUnknown(strategySnapshot.id ?? payload.strategy_id, '').trim()
 }
 
 function iterationPayloadHasStrategy(payload: Record<string, unknown>) {
-  const strategySnapshot = isRecord(payload.strategy_snapshot) ? payload.strategy_snapshot : {}
+  const strategySnapshot = iterationStrategyPayload(payload)
   return Boolean(
     strategyIdFromIterationPayload(payload)
     || stringFromUnknown(strategySnapshot.code, '')
@@ -3251,8 +3251,14 @@ function researchIterationFromRunRecord(
   const metrics = isRecord(payload.metrics) ? payload.metrics : {}
   const strategy = strategyFromIterationRecord(record, payload, iteration)
   const unit = unitFromIterationRecord(record, payload, strategy, metrics)
-  const runStatus = stringFromUnknown(payload.run_status, 'completed')
+  const runResult = iterationRunResultPayload(payload)
+  const runStatus = stringFromUnknown(
+    payload.run_status ?? runResult.status ?? unit.run_status,
+    'completed'
+  )
   const taskId = nullableString(payload.task_id)
+    ?? nullableString(runResult.task_id)
+    ?? unit.last_task_id
   return {
     iteration,
     strategy,
@@ -3295,8 +3301,8 @@ function strategyFromIterationRecord(
   payload: Record<string, unknown>,
   iteration: number
 ): Strategy {
-  const snapshot = isRecord(payload.unit_snapshot) ? payload.unit_snapshot : {}
-  const strategySnapshot = isRecord(payload.strategy_snapshot) ? payload.strategy_snapshot : {}
+  const snapshot = iterationUnitPayload(payload)
+  const strategySnapshot = iterationStrategyPayload(payload)
   const strategyId = stringFromUnknown(
     strategySnapshot.id ?? payload.strategy_id,
     record.best_strategy_id || fallbackSnapshotStrategyId(record)
@@ -3494,9 +3500,20 @@ function unitFromIterationRecord(
   strategy: Strategy,
   metrics: Record<string, unknown>
 ): StrategyUnit {
-  const snapshot = isRecord(payload.unit_snapshot) ? payload.unit_snapshot : {}
+  const snapshot = iterationUnitPayload(payload)
+  const runResult = iterationRunResultPayload(payload)
+  const runStatus = stringFromUnknown(
+    payload.run_status ?? runResult.status ?? snapshot.run_status,
+    'completed'
+  ) as StrategyUnit['run_status']
+  const taskId = nullableString(payload.task_id)
+    ?? nullableString(runResult.task_id)
+    ?? nullableString(snapshot.last_task_id)
   return {
-    id: stringFromUnknown(payload.unit_id, stringFromUnknown(snapshot.id, `${record.run_id}-unit`)),
+    id: stringFromUnknown(
+      payload.unit_id ?? runResult.unit_id,
+      stringFromUnknown(snapshot.id, `${record.run_id}-unit`)
+    ),
     workspace_id: stringFromUnknown(snapshot.workspace_id, record.research_workspace_id),
     group_name: stringFromUnknown(snapshot.group_name, strategy.name),
     strategy_id: strategy.id,
@@ -3519,16 +3536,34 @@ function unitFromIterationRecord(
     lock_running: Boolean(snapshot.lock_running),
     trading_instance_id: nullableString(snapshot.trading_instance_id),
     trading_snapshot: emptyTradingSnapshot(unitTradingMode(snapshot)),
-    run_status: stringFromUnknown(payload.run_status, 'completed') as StrategyUnit['run_status'],
+    run_status: runStatus,
     run_count: optionalNumber(snapshot.run_count) ?? 1,
     last_run_time: optionalNumber(snapshot.last_run_time),
-    last_task_id: nullableString(payload.task_id),
+    last_task_id: taskId,
     last_optimization_task_id: nullableString(snapshot.last_optimization_task_id),
     bar_count: optionalNumber(snapshot.bar_count),
     metrics_snapshot: metrics,
     created_at: record.started_at,
     updated_at: record.completed_at,
   }
+}
+
+function iterationStrategyPayload(payload: Record<string, unknown>) {
+  if (isRecord(payload.strategy_snapshot) && Object.keys(payload.strategy_snapshot).length) {
+    return payload.strategy_snapshot
+  }
+  return isRecord(payload.strategy) ? payload.strategy : {}
+}
+
+function iterationUnitPayload(payload: Record<string, unknown>) {
+  if (isRecord(payload.unit_snapshot) && Object.keys(payload.unit_snapshot).length) {
+    return payload.unit_snapshot
+  }
+  return isRecord(payload.unit) ? payload.unit : {}
+}
+
+function iterationRunResultPayload(payload: Record<string, unknown>) {
+  return isRecord(payload.run_result) ? payload.run_result : {}
 }
 
 function unitStatusFromIterationRecord(

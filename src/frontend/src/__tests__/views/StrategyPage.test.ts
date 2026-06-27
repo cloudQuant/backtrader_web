@@ -1295,12 +1295,39 @@ describe('StrategyPage', () => {
       best_sharpe: 0,
       best_quality_score: 0,
       best_metrics: { sharpe_ratio: 0, total_trades: 0 },
-      best_strategy_id: 'strategy-timeout',
-      best_strategy_name: '超时策略',
       cancelled_backtest_task_id: 'timeout-backtest-task',
       child_cancelled: true,
       latest_iteration: {
         iteration: 1,
+        strategy: {
+          id: 'strategy-timeout',
+          name: '超时策略',
+          description: 'timeout strategy from task summary',
+          code: 'class TimeoutStrategy: pass',
+          params: { fast_period: 10 },
+          category: 'trend',
+          created_at: '2026-06-27T00:00:00Z',
+          updated_at: '2026-06-27T00:00:00Z',
+        },
+        unit: {
+          id: 'unit-timeout',
+          workspace_id: 'research-ws',
+          group_name: '超时策略',
+          strategy_id: 'strategy-timeout',
+          strategy_name: '超时策略',
+          symbol: '000001.SZ',
+          symbol_name: '平安银行',
+          timeframe: '1d',
+          timeframe_n: 1,
+          category: 'trend',
+          run_status: 'timeout',
+          last_task_id: 'timeout-backtest-task',
+        },
+        run_result: {
+          unit_id: 'unit-timeout',
+          task_id: 'timeout-backtest-task',
+          status: 'timeout',
+        },
         sharpe_ratio: 0,
         total_trades: 0,
         unit_status: {
@@ -1339,6 +1366,11 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchTaskStage).toBe('backtest_timeout')
       expect(vm.aiResearchResult.status).toBe('timeout')
       expect(vm.aiResearchCancelledBacktestTaskId).toBe('timeout-backtest-task')
+      expect(vm.canContinueResearchFromCurrentRunRecord).toBe(true)
+      expect(vm.aiResearchResult.iterations[0].strategy.id).toBe('strategy-timeout')
+      expect(vm.aiResearchResult.iterations[0].strategy.code).toContain('TimeoutStrategy')
+      expect(vm.aiResearchResult.iterations[0].unit.id).toBe('unit-timeout')
+      expect(vm.aiResearchResult.iterations[0].run_result.task_id).toBe('timeout-backtest-task')
       expect(wrapper.find('[data-test="ai-research-task-progress"]').text()).toContain(
         '已取消回测 timeout-backtest-task'
       )
