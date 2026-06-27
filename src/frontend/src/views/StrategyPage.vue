@@ -750,6 +750,15 @@
                 >
                   <strong>实盘单元</strong>
                   <span>{{ liveTradingPrepareSummary(aiResearchResult.run_record) }}</span>
+                  <el-button
+                    size="small"
+                    type="primary"
+                    plain
+                    data-test="ai-research-current-open-live"
+                    @click="openLiveWorkspaceFromCurrentResult"
+                  >
+                    打开实盘工作区
+                  </el-button>
                 </div>
                 <div
                   v-else-if="aiResearchResult.run_record && canPrepareLiveTradingFromRecord(aiResearchResult.run_record)"
@@ -1527,6 +1536,15 @@
                     >
                       <strong>实盘单元</strong>
                       <span>{{ liveTradingPrepareSummary(record) }}</span>
+                      <el-button
+                        size="small"
+                        type="primary"
+                        plain
+                        data-test="ai-research-history-open-live"
+                        @click="openLiveWorkspaceFromRecord(record)"
+                      >
+                        打开实盘工作区
+                      </el-button>
                     </div>
                     <div
                       v-else-if="canPrepareLiveTradingFromRecord(record)"
@@ -4868,6 +4886,18 @@ function openResearchWorkspace() {
 function openPaperWorkspace() {
   const workspaceId = aiResearchResult.value?.paper_trading?.workspace.id
     || aiResearchResult.value?.run_record?.paper_workspace_id
+  if (!workspaceId) return
+  router.push({ name: 'TradingWorkspaceDetail', params: { id: workspaceId } })
+}
+
+function openLiveWorkspaceFromCurrentResult() {
+  const record = aiResearchResult.value?.run_record
+  if (!record) return
+  openLiveWorkspaceFromRecord(record)
+}
+
+function openLiveWorkspaceFromRecord(record: AIStrategyResearchRunRecord) {
+  const workspaceId = record.live_workspace_id || record.pipeline?.live_workspace_id
   if (!workspaceId) return
   router.push({ name: 'TradingWorkspaceDetail', params: { id: workspaceId } })
 }

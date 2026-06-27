@@ -16,9 +16,10 @@ const strategyTemplates = vi.hoisted(() => [
     params: {},
   })),
 ])
+const routerPush = vi.hoisted(() => vi.fn())
 
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: routerPush }),
 }))
 
 vi.mock('element-plus', () => ({
@@ -1015,6 +1016,15 @@ describe('StrategyPage', () => {
     expect(wrapper.find('[data-test="ai-research-current-live-prepare-status"]').text()).toContain(
       'live-unit 已准备，默认锁定'
     )
+    const openLiveButton = wrapper.findAll('button').find(
+      button => button.text().includes('打开实盘工作区')
+    )
+    expect(openLiveButton).toBeTruthy()
+    await openLiveButton!.trigger('click')
+    expect(routerPush).toHaveBeenCalledWith({
+      name: 'TradingWorkspaceDetail',
+      params: { id: 'live-ws' },
+    })
     expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('实盘交接')
     expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('已完成')
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
