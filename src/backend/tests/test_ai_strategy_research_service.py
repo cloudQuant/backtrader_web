@@ -481,6 +481,30 @@ class FakeInvalidDraftStrategyService:
         )
 
 
+class FakeRuntimeInvalidDraftStrategyService(FakeInvalidDraftStrategyService):
+    async def generate_copilot_draft(self, user_id: str, request):
+        draft = build_ai_strategy_draft(request.prompt).model_copy(
+            update={
+                "code": (
+                    "import backtrader as bt\n"
+                    "x = missing_research_runtime_name\n"
+                    "class LooksValidStrategy(bt.Strategy):\n"
+                    "    def next(self):\n"
+                    "        pass\n"
+                )
+            }
+        )
+        return StrategyCopilotDraftResponse(
+            answer=render_ai_strategy_draft_answer(draft),
+            strategy_draft=draft,
+            citations=[],
+            context_chunks_used=0,
+            tokens_used=0,
+            model_id=None,
+            reasoning=None,
+        )
+
+
 class FakeValidationSubmitFailingStrategyService(FakeStrategyService):
     async def backtest_copilot_draft(self, user_id: str, workspace_id: str, request):
         if self.submitted_backtest_requests:
@@ -936,6 +960,40 @@ async def test_ai_strategy_improver_falls_back_when_model_code_is_not_strategy()
     assert "not_a_strategy" not in result.draft.code
     assert result.notes[0].startswith("AI模型改稿不可用，已使用本地规则回退")
     assert "must define a class inheriting from bt.Strategy" in result.notes[0]
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_improver_falls_back_when_model_code_fails_sandbox_execution():
+    draft = build_ai_strategy_draft("请生成一个均线趋势策略")
+    improver = AIStrategyImprover(
+        ai_router=FakeAIChatRouter(
+            """
+            {
+              "name": "裸Strategy策略",
+              "description": "invalid runtime",
+              "code": "class BareStrategy(Strategy):\\n    def next(self):\\n        pass\\n",
+              "notes": ["模型返回了沙箱无法执行的裸 Strategy 基类"]
+            }
+            """
+        ),
+        preference_service=FakePreferenceService(),
+        settings=FakeAISettings(),
+    )
+
+    result = await improver.improve(
+        draft,
+        iteration=1,
+        metrics={"sharpe_ratio": 0.2, "total_trades": 0},
+        target_sharpe=1.0,
+        user_id="user-1",
+        request=AIStrategyResearchRunRequest(prompt="均线趋势", symbol="000001.SZ"),
+    )
+
+    assert result.draft.name.endswith("v2")
+    assert "BareStrategy" not in result.draft.code
+    assert result.notes[0].startswith("AI模型改稿不可用，已使用本地规则回退")
+    assert "sandbox validation failed" in result.notes[0]
+    assert "Undefined name" in result.notes[0]
 
 
 @pytest.mark.asyncio
@@ -4522,6 +4580,37 @@ async def test_research_loop_falls_back_when_initial_generated_strategy_is_inval
     assert strategy_service.submitted_drafts
     assert "class AIGeneratedStrategy" in strategy_service.submitted_drafts[0].code
     assert result.iterations[0].improvement_notes[0].startswith("AI初始策略代码不可运行")
+
+
+@pytest.mark.asyncio
+async def test_research_loop_falls_back_when_initial_generated_strategy_fails_sandbox():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeRuntimeInvalidDraftStrategyService(workspace_service)
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个运行时无效策略",
+            symbol="000001.SZ",
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+            start_paper_trading=False,
+        ),
+    )
+
+    assert result.achieved is True
+    assert strategy_service.backtest_called is True
+    assert strategy_service.submitted_drafts
+    assert "missing_research_runtime_name" not in strategy_service.submitted_drafts[0].code
+    assert "class AIGeneratedStrategy" in strategy_service.submitted_drafts[0].code
+    assert result.iterations[0].improvement_notes[0].startswith("AI初始策略代码不可运行")
+    assert "sandbox validation failed" in result.iterations[0].improvement_notes[0]
 
 
 @pytest.mark.asyncio

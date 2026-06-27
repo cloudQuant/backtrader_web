@@ -58,6 +58,7 @@ class StrategySandbox:
     # Whitelist of allowed modules
     _ALLOWED_MODULES = {
         "bt": bt,
+        "backtrader": bt,
         "datetime": datetime,
         "math": math,
     }
@@ -83,6 +84,7 @@ class StrategySandbox:
         }
 
         # Add security restrictions
+        safe_globals["__builtins__"]["__import__"] = cls._safe_import
         safe_globals["__import__"] = cls._safe_import
         safe_globals["__print__"] = cls._safe_print
 

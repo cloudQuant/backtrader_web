@@ -224,6 +224,13 @@ class TestSafeImport:
         result = StrategySandbox._safe_import("bt")
         assert result is not None
 
+    def test_allowed_import_backtrader(self):
+        """Test allowed import of the canonical backtrader module name."""
+        result = StrategySandbox._safe_import("backtrader")
+        import backtrader
+
+        assert result is backtrader
+
     def test_disallowed_import_socket(self):
         """Test disallowed import of socket."""
         with pytest.raises(ImportError, match="is not allowed"):
@@ -258,6 +265,34 @@ class TestExecuteStrategyCode:
         assert result is not None
         assert issubclass(result, bt.Strategy)
         assert result.__name__ == "MyStrategy"
+
+    def test_execute_strategy_with_backtrader_import_alias(self):
+        """AI-generated Backtrader code commonly imports backtrader as bt."""
+        code = """
+import backtrader as bt
+
+class ImportedStrategy(bt.Strategy):
+    def next(self):
+        pass
+"""
+        result = StrategySandbox.execute_strategy_code(code)
+        assert result is not None
+        assert issubclass(result, bt.Strategy)
+        assert result.__name__ == "ImportedStrategy"
+
+    def test_execute_strategy_with_backtrader_strategy_import(self):
+        """The sandbox should also support from backtrader import Strategy."""
+        code = """
+from backtrader import Strategy
+
+class ImportedBaseStrategy(Strategy):
+    def next(self):
+        pass
+"""
+        result = StrategySandbox.execute_strategy_code(code)
+        assert result is not None
+        assert issubclass(result, bt.Strategy)
+        assert result.__name__ == "ImportedBaseStrategy"
 
     def test_execute_no_strategy_class(self):
         """Test code without strategy class."""

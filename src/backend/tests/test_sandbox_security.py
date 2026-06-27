@@ -159,6 +159,13 @@ class TestSafeImport:
 
         assert result is backtrader
 
+    def test_import_backtrader_allowed(self):
+        """Importing the canonical backtrader module name should be allowed."""
+        result = StrategySandbox._safe_import("backtrader")
+        import backtrader
+
+        assert result is backtrader
+
     def test_import_math_allowed(self):
         """Importing math should be allowed."""
         result = StrategySandbox._safe_import("math")
@@ -214,7 +221,7 @@ class TestSafeGlobals:
         assert "exec" not in builtins
         assert "compile" not in builtins
         assert "open" not in builtins
-        assert "__import__" not in builtins
+        assert builtins["__import__"] == StrategySandbox._safe_import
 
     def test_safe_globals_has_allowed_modules(self):
         """Safe globals should include allowed modules."""

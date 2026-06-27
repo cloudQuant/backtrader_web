@@ -3132,6 +3132,10 @@ def _validate_strategy_code_draft(code: str) -> None:
 
     if not any(_is_backtrader_strategy_class(node) for node in ast.walk(tree)):
         raise ValueError("strategy code must define a class inheriting from bt.Strategy")
+    try:
+        StrategySandbox.execute_strategy_code(text, timeout=3)
+    except Exception as exc:
+        raise ValueError(f"strategy code sandbox validation failed: {exc}") from exc
 
 
 def _is_backtrader_strategy_class(node: ast.AST) -> bool:
