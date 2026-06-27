@@ -35,6 +35,7 @@ from app.schemas.strategy import (
     StrategyCopilotBacktestRequest,
     StrategyCopilotDraftRequest,
     StrategyCopilotRunResult,
+    StrategyCreate,
     StrategyResponse,
 )
 from app.schemas.workspace import (
@@ -807,6 +808,14 @@ class AIStrategyResearchService:
             status = "backtest_submission_failed"
         best_metrics = dict(result_iteration.metrics) if result_iteration else {}
         run_failure_diagnostics = _run_failure_diagnostics(run_failures)
+        fallback_strategy = None
+        if result_iteration is None and run_failures:
+            fallback_strategy = await self._persist_research_draft_strategy(
+                user_id,
+                draft,
+                request,
+                run_id=run_id,
+            )
         paper_monitoring_plan = (
             _paper_monitoring_plan(request, result_iteration)
             if achieved and result_iteration is not None
@@ -855,7 +864,7 @@ class AIStrategyResearchService:
             best_metrics=best_metrics,
             research_workspace=research_workspace,
             iterations=iterations,
-            best_strategy=result_iteration.strategy if result_iteration else None,
+            best_strategy=result_iteration.strategy if result_iteration else fallback_strategy,
             paper_trading=paper_trading,
             paper_monitoring_plan=paper_monitoring_plan,
             pipeline=pipeline,
@@ -1248,6 +1257,33 @@ class AIStrategyResearchService:
             lock_running=last_status.lock_running if last_status else False,
         )
         return timeout_status, "Backtest timed out"
+
+    async def _persist_research_draft_strategy(
+        self,
+        user_id: str,
+        draft: AIStrategyDraft,
+        request: AIStrategyResearchRunRequest,
+        *,
+        run_id: str,
+    ) -> StrategyResponse | None:
+        try:
+            normalized = _normalize_research_draft(draft, request)
+            _validate_strategy_code_draft(normalized.code)
+            return await self.strategy_service.create_strategy(
+                user_id,
+                StrategyCreate(
+                    name=_bounded_name(f"{normalized.name} - 待回测", 100),
+                    description=(
+                        f"{normalized.description or ''}\n\n"
+                        f"AI投研运行 {run_id} 的回测提交失败，保存该草案用于继续投研。"
+                    ).strip(),
+                    code=normalized.code,
+                    params=normalized.params,
+                    category=normalized.category,
+                ),
+            )
+        except Exception:
+            return None
 
     async def _ensure_valid_draft_before_backtest(
         self,
@@ -3013,7 +3049,30 @@ def _research_failure_context_from_record(
         return {}
     payload = _best_iteration_payload(record)
     if not payload:
-        return {}
+        diagnostics = dict(record.best_diagnostics or {})
+        failures = [
+            str(item).strip()
+            for item in [
+                *list(diagnostics.get("weaknesses") or []),
+                diagnostics.get("summary"),
+                *(record.next_actions or []),
+            ]
+            if str(item or "").strip()
+        ]
+        if not failures:
+            failures.append(
+                f"Previous research run finished without backtest iterations: {record.status}"
+            )
+        return {
+            "source": "research_failure",
+            "run_id": record.run_id,
+            "quality_gate_failures": failures,
+            "metrics": {},
+            "diagnostics": diagnostics,
+            "improvement_plan": list(diagnostics.get("improvement_plan") or []),
+            "next_actions": list(record.next_actions or []),
+            **_record_runtime_context(record),
+        }
 
     failures = [
         str(item).strip()

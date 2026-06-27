@@ -1218,6 +1218,66 @@ describe('StrategyPage', () => {
     }))
   })
 
+  it('continues AI research from a saved draft after backtest submission failed', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    const record = {
+      run_id: 'backtest-failed-run',
+      prompt: '历史趋势策略',
+      symbol: '600000.SH',
+      symbol_name: '浦发银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      status: 'backtest_submission_failed',
+      achieved: false,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 0,
+      best_iteration: null,
+      best_sharpe: 0,
+      best_quality_score: 0,
+      best_quality_gate_evaluations: [],
+      best_metrics: {},
+      best_strategy_id: 'saved-draft-strategy',
+      best_strategy_name: '保存草案 - 待回测',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_trading_started: false,
+      pipeline: {
+        current_stage: 'backtest_failed',
+        status: 'backtest_submission_failed',
+        progress: 20,
+        ready_for_live: false,
+        steps: [],
+      },
+      next_actions: ['修复提交问题后，可从本次记录继续自动投研。'],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [],
+    }
+    vm.aiResearchRuns = [record]
+    vm.aiResearchRunsLoading = false
+
+    await wrapper.vm.$nextTick()
+    expect(vm.canContinueResearchFromRunRecord(record)).toBe(true)
+    const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续投研'))
+    expect(continueButton).toBeTruthy()
+    await continueButton!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('从未达标结果继续')
+    expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: '历史趋势策略',
+      symbol: '600000.SH',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: 'saved-draft-strategy',
+      continue_from_run_id: 'backtest-failed-run',
+    }))
+  })
+
   it('marks continuation as paper-review feedback when previous paper review failed', async () => {
     const wrapper = doMount()
     const vm = wrapper.vm as any

@@ -330,6 +330,20 @@ class FakeStrategyService:
     async def get_strategy(self, strategy_id: str, user_id: str):
         return self.strategies.get(strategy_id)
 
+    async def create_strategy(self, user_id: str, strategy_create):
+        draft = build_ai_strategy_draft("保存AI投研草案").model_copy(
+            update={
+                "name": strategy_create.name,
+                "description": strategy_create.description or "",
+                "code": strategy_create.code,
+                "params": strategy_create.params,
+                "category": strategy_create.category,
+            }
+        )
+        strategy = _strategy(f"saved-strategy-{len(self.strategies) + 1}", draft)
+        self.strategies[strategy.id] = strategy
+        return strategy
+
 
 class FakeInvalidDraftStrategyService:
     def __init__(self, workspace_service: FakeWorkspaceService) -> None:
@@ -921,11 +935,92 @@ async def test_research_loop_persists_when_all_backtest_submissions_fail():
     assert "最近一次提交失败" in result.next_actions[-1]
     assert result.run_record is not None
     assert result.run_record.status == "backtest_submission_failed"
+    assert result.run_record.best_strategy_id == "saved-strategy-1"
+    assert result.run_record.best_strategy_name.endswith("待回测")
     assert result.run_record.best_diagnostics["promotion_ready"] is False
     persisted_run = result.research_workspace.settings["ai_research"]["runs"][0]
     assert persisted_run["run_id"] == result.run_id
     assert persisted_run["status"] == "backtest_submission_failed"
+    assert persisted_run["best_strategy_id"] == "saved-strategy-1"
     assert persisted_run["best_diagnostics"]["failure_categories"] == ["backtest_submission"]
+
+
+@pytest.mark.asyncio
+async def test_research_loop_can_continue_from_backtest_submission_failure():
+    workspace_service = FakeWorkspaceService()
+    failed_record = {
+        **_run_record(
+            "backtest-submit-failed-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "status": "backtest_submission_failed",
+        "achieved": False,
+        "iteration_count": 0,
+        "best_iteration": None,
+        "best_strategy_id": "saved-strategy-1",
+        "best_strategy_name": "保存草案 - 待回测",
+        "best_metrics": {},
+        "best_diagnostics": {
+            "summary": "投研循环在提交回测任务时失败，尚未产生可评估的回测结果。",
+            "failure_categories": ["backtest_submission"],
+            "weaknesses": ["Backtest submission failed before iteration 2: queue unavailable"],
+            "improvement_plan": ["检查回测队列并继续提交。"],
+            "promotion_ready": False,
+        },
+        "pipeline": {
+            "current_stage": "backtest_failed",
+            "status": "backtest_submission_failed",
+            "progress": 20,
+            "ready_for_live": False,
+            "steps": [],
+        },
+        "next_actions": ["最近一次提交失败：queue unavailable"],
+        "iterations": [],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [failed_record]}}}
+    )
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "保存草案 - 待回测"}
+    )
+    seed_strategy = _strategy("saved-strategy-1", seed_draft)
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.18, "total_trades": 7, "max_drawdown": -4.0}],
+        strategies={"saved-strategy-1": seed_strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续上一轮回测提交失败的投研",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            continue_from_run_id="backtest-submit-failed-run",
+            start_paper_trading=False,
+            out_of_sample_validation=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert strategy_service.generated == 0
+    assert strategy_service.submitted_drafts[0].name.endswith("v1")
+    assert any(
+        "Backtest submission failed before iteration 2" in note
+        for note in result.iterations[0].improvement_notes
+    )
+    assert result.run_record is not None
+    assert result.run_record.seed_strategy_id == "saved-strategy-1"
+    assert result.run_record.continued_from_run_id == "backtest-submit-failed-run"
 
 
 @pytest.mark.asyncio

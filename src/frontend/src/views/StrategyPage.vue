@@ -1783,7 +1783,15 @@ function canContinueResearchFromPaperIssue(record: AIStrategyResearchRunRecord) 
 }
 
 function canContinueResearchFromRunRecord(record: AIStrategyResearchRunRecord) {
-  return Boolean(record.best_strategy_id && !record.achieved && record.iteration_count > 0)
+  return Boolean(
+    record.best_strategy_id
+    && !record.achieved
+    && (
+      record.iteration_count > 0
+      || record.status === 'backtest_submission_failed'
+      || record.pipeline?.current_stage === 'backtest_failed'
+    )
+  )
 }
 
 function continuationSourceForRecord(record: AIStrategyResearchRunRecord) {
