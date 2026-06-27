@@ -2537,7 +2537,7 @@ function researchResultFromRunRecord(
     research_workspace: workspaceFromResearchRunRecord(record),
     iterations,
     best_strategy: null,
-    paper_trading: null,
+    paper_trading: paperTradingFromRunRecord(record),
     paper_monitoring_plan: record.paper_monitoring_plan ?? [],
     pipeline: record.pipeline,
     run_record: record,
@@ -2630,6 +2630,79 @@ function strategyFromIterationRecord(
     category: stringFromUnknown(strategySnapshot.category, stringFromUnknown(snapshot.category, 'custom')),
     created_at: stringFromUnknown(strategySnapshot.created_at, record.started_at),
     updated_at: stringFromUnknown(strategySnapshot.updated_at, record.completed_at),
+  }
+}
+
+function paperTradingFromRunRecord(
+  record: AIStrategyResearchRunRecord
+): AIStrategyPaperTradingStart | null {
+  if (!record.paper_trading_started || !record.paper_workspace_id || !record.paper_unit_id) {
+    return null
+  }
+  const payload = bestIterationPayloadForRecord(record)
+  if (!payload) return null
+  const iteration = Math.max(
+    Math.trunc(optionalNumber(payload.iteration) ?? record.best_iteration ?? 1),
+    1
+  )
+  const metrics = isRecord(payload.metrics) ? payload.metrics : record.best_metrics ?? {}
+  const strategy = strategyFromIterationRecord(record, payload, iteration)
+  const researchUnit = unitFromIterationRecord(record, payload, strategy, metrics)
+  const handoff = isRecord(record.paper_handoff) ? record.paper_handoff : {}
+  const runStatus = stringFromUnknown(
+    handoff.paper_run_status,
+    record.paper_trading_started ? 'running' : 'idle'
+  ) as StrategyUnit['run_status']
+  const taskId = nullableString(handoff.paper_task_id) ?? researchUnit.last_task_id
+  const paperUnit: StrategyUnit = {
+    ...researchUnit,
+    id: record.paper_unit_id,
+    workspace_id: record.paper_workspace_id,
+    trading_mode: 'paper',
+    data_config: {
+      ...researchUnit.data_config,
+      ai_research_run_id: record.run_id,
+      ai_research_workspace_id: record.research_workspace_id,
+    },
+    unit_settings: {
+      ...researchUnit.unit_settings,
+      ai_research_handoff: handoff,
+    },
+    run_status: runStatus,
+    last_task_id: taskId,
+    updated_at: record.completed_at,
+  }
+  return {
+    workspace: paperWorkspaceFromRunRecord(record),
+    unit: paperUnit,
+    run_result: {
+      unit_id: paperUnit.id,
+      task_id: taskId,
+      status: runStatus,
+    },
+    started: Boolean(record.paper_trading_started),
+    handoff,
+  }
+}
+
+function paperWorkspaceFromRunRecord(record: AIStrategyResearchRunRecord): Workspace {
+  return {
+    id: record.paper_workspace_id || '',
+    user_id: '',
+    name: record.paper_workspace_name || `AI模拟 - ${record.symbol}`,
+    description: null,
+    workspace_type: 'trading',
+    settings: {
+      ai_research_handoff: {
+        last_handoff: isRecord(record.paper_handoff) ? record.paper_handoff : {},
+      },
+    },
+    trading_config: {},
+    unit_count: record.paper_unit_id ? 1 : 0,
+    completed_count: 0,
+    status: 'running',
+    created_at: record.completed_at,
+    updated_at: record.completed_at,
   }
 }
 
