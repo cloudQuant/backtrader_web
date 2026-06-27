@@ -322,6 +322,7 @@ class AIStrategyResearchService:
         await _emit_research_progress(
             progress_callback,
             {
+                "run_id": run_id,
                 "current_stage": "initializing",
                 "progress": 2.0,
                 "iteration_count": 0,
@@ -331,6 +332,18 @@ class AIStrategyResearchService:
         )
         request, draft = await self._prepare_initial_draft(user_id, request)
         research_workspace = await self._ensure_research_workspace(user_id, request)
+        await _emit_research_progress(
+            progress_callback,
+            {
+                "run_id": run_id,
+                "research_workspace_id": research_workspace.id,
+                "current_stage": "workspace_ready",
+                "progress": 4.0,
+                "iteration_count": 0,
+                "max_iterations": request.max_iterations,
+                "message": "AI research workspace is ready",
+            },
+        )
         initial_draft_notes: list[str] = []
         if draft is None:
             await _emit_research_progress(

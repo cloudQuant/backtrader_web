@@ -876,6 +876,11 @@ async def test_research_loop_falls_back_when_initial_draft_generation_fails():
     assert "class AIGeneratedStrategy" in strategy_service.submitted_drafts[0].code
     assert result.iterations[0].improvement_notes[0].startswith("AI初始策略生成失败")
     assert any(event["current_stage"] == "draft_generation_failed" for event in progress_events)
+    assert any(event.get("run_id") == result.run_id for event in progress_events)
+    assert any(
+        event.get("research_workspace_id") == result.research_workspace.id
+        for event in progress_events
+    )
     assert result.run_record is not None
     assert result.run_record.knowledge_base_id == "kb-broken"
     assert result.research_workspace.settings["ai_research"]["runs"][0]["run_id"] == result.run_id
@@ -1588,7 +1593,7 @@ async def test_research_loop_emits_progress_snapshots():
     )
     events: list[dict[str, Any]] = []
 
-    await service.run(
+    result = await service.run(
         "user-1",
         AIStrategyResearchRunRequest(
             prompt="请生成一个趋势策略",
@@ -1602,8 +1607,11 @@ async def test_research_loop_emits_progress_snapshots():
     )
 
     stages = [item["current_stage"] for item in events]
-    assert stages[:3] == ["initializing", "drafting", "backtesting"]
+    assert stages[:4] == ["initializing", "workspace_ready", "drafting", "backtesting"]
     assert "evaluating" in stages
+    assert events[0]["run_id"] == result.run_id
+    workspace_ready = next(item for item in events if item["current_stage"] == "workspace_ready")
+    assert workspace_ready["research_workspace_id"] == result.research_workspace.id
     submitted = next(
         item for item in events if item.get("message") == "Backtest task submitted for iteration 1"
     )
@@ -2890,7 +2898,13 @@ async def test_list_research_run_records_reads_workspace_history():
 
 
 class FakeResearchAPIService:
-    async def run(self, user_id: str, request: AIStrategyResearchRunRequest):
+    async def run(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+        *,
+        progress_callback=None,
+    ):
         workspace = _workspace("research-api-ws", "research")
         draft = build_ai_strategy_draft(request.prompt)
         strategy = _strategy("strategy-api", draft)
@@ -2900,6 +2914,18 @@ class FakeResearchAPIService:
             strategy,
             metrics={"sharpe_ratio": 1.05, "total_trades": 4},
         )
+        if progress_callback is not None:
+            await progress_callback(
+                {
+                    "run_id": "api-run",
+                    "research_workspace_id": workspace.id,
+                    "current_stage": "workspace_ready",
+                    "progress": 4.0,
+                    "iteration_count": 0,
+                    "max_iterations": request.max_iterations,
+                    "message": "fake research workspace ready",
+                }
+            )
         return AIStrategyResearchRunResponse(
             run_id="api-run",
             status="achieved",
@@ -3059,6 +3085,8 @@ class SlowResearchAPIService:
         if progress_callback is not None:
             await progress_callback(
                 {
+                    "run_id": "slow-run",
+                    "research_workspace_id": "slow-research-ws",
                     "current_stage": "backtesting",
                     "progress": 25.0,
                     "current_iteration": 1,
@@ -3102,6 +3130,7 @@ async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
     assert task is not None
     assert task.status == "completed"
     assert task.run_id == "api-run"
+    assert task.research_workspace_id == "research-api-ws"
     assert task.progress == 100.0
     assert task.current_stage == "completed"
     assert task.iteration_count == 1
@@ -3136,12 +3165,16 @@ async def test_ai_strategy_research_task_manager_cancels_running_task():
 
     assert running is not None
     assert running.status == "running"
+    assert running.run_id == "slow-run"
+    assert running.research_workspace_id == "slow-research-ws"
     assert running.progress == pytest.approx(25.0)
     assert running.current_backtest_task_id == "child-backtest-task"
 
     cancelled = await manager.cancel_task("user-1", submitted.task_id)
     assert cancelled is not None
     assert cancelled.status == "cancelled"
+    assert cancelled.run_id == "slow-run"
+    assert cancelled.research_workspace_id == "slow-research-ws"
     assert cancelled.current_stage == "cancelled"
     assert cancelled.cancelled_backtest_task_id == "child-backtest-task"
     assert cancelled.child_cancelled is True
@@ -3234,6 +3267,7 @@ async def test_ai_strategy_research_task_api_endpoint(
     assert payload is not None
     assert payload["status"] == "completed"
     assert payload["run_id"] == "api-run"
+    assert payload["research_workspace_id"] == "research-api-ws"
     assert payload["progress"] == 100.0
     assert payload["current_stage"] == "completed"
     assert payload["iteration_count"] == 1
@@ -3286,6 +3320,8 @@ async def test_ai_strategy_research_task_cancel_endpoint(
     assert cancel_response.status_code == 200
     payload = cancel_response.json()
     assert payload["status"] == "cancelled"
+    assert payload["run_id"] == "slow-run"
+    assert payload["research_workspace_id"] == "slow-research-ws"
     assert payload["current_stage"] == "cancelled"
     assert payload["cancelled_backtest_task_id"] == "child-backtest-task"
     assert payload["child_cancelled"] is True

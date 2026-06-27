@@ -337,6 +337,7 @@ export interface AIStrategyResearchTaskResponse {
   started_at?: string | null
   completed_at?: string | null
   run_id?: string | null
+  research_workspace_id?: string | null
   current_stage: string
   progress: number
   current_iteration?: number | null

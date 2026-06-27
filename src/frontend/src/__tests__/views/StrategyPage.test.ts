@@ -775,6 +775,7 @@ describe('StrategyPage', () => {
       submitted_at: '2026-06-27T00:00:00Z',
       completed_at: '2026-06-27T00:01:00Z',
       run_id: 'restored-run',
+      research_workspace_id: 'research-ws',
       current_stage: 'paper_trading',
       progress: 100,
       current_iteration: 1,
@@ -845,7 +846,7 @@ describe('StrategyPage', () => {
       await vm.runAIResearchLoop()
 
       expect((strategyApi as any).getAIResearchTask).toHaveBeenCalledWith('research-task-without-result')
-      expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith(undefined, 100)
+      expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith('research-ws', 100)
       expect(vm.aiResearchResult.run_id).toBe('restored-run')
       expect(vm.aiResearchResult.research_workspace.id).toBe('research-ws')
       expect(vm.aiResearchResult.run_record.paper_trading_started).toBe(true)

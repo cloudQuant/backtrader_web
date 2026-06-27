@@ -179,6 +179,7 @@ class AIStrategyResearchTaskManager:
                 status="completed",
                 completed_at=_utc_iso_now(),
                 run_id=result.run_id,
+                research_workspace_id=result.research_workspace.id,
                 current_stage=str((result.pipeline or {}).get("current_stage") or "completed"),
                 progress=100.0,
                 iteration_count=len(result.iterations),

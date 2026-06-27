@@ -297,6 +297,7 @@ class AIStrategyResearchTaskResponse(BaseModel):
     started_at: str | None = None
     completed_at: str | None = None
     run_id: str | None = None
+    research_workspace_id: str | None = None
     current_stage: str = "queued"
     progress: float = 0.0
     current_iteration: int | None = None

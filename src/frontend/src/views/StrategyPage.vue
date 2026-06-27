@@ -1972,7 +1972,10 @@ async function restoreAIResearchResultFromTask(
 ): Promise<AIStrategyResearchRunResponse | null> {
   if (!task.run_id) return null
   try {
-    const response = await strategyApi.listAIResearchRuns(undefined, 100)
+    const response = await strategyApi.listAIResearchRuns(
+      task.research_workspace_id || undefined,
+      100
+    )
     const record = response.items.find(item => item.run_id === task.run_id)
     if (!record) return null
     upsertAIResearchRunRecord(record)
