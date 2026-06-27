@@ -390,6 +390,31 @@ class FakePendingBacktestStrategyService(FakeStrategyService):
         )
 
 
+class FakeBlockingDraftGenerationStrategyService(FakeStrategyService):
+    def __init__(self, workspace_service: FakeWorkspaceService):
+        super().__init__(workspace_service, [])
+        self.started = asyncio.Event()
+
+    async def generate_copilot_draft(self, user_id: str, request):
+        self.generate_requests.append(request)
+        self.started.set()
+        await asyncio.sleep(60)
+        raise AssertionError("blocking draft generation should have been cancelled")
+
+
+class FakeBlockingBacktestSubmitStrategyService(FakeStrategyService):
+    def __init__(self, workspace_service: FakeWorkspaceService):
+        super().__init__(workspace_service, [])
+        self.started = asyncio.Event()
+
+    async def backtest_copilot_draft(self, user_id: str, workspace_id: str, request):
+        self.submitted_drafts.append(request.strategy_draft)
+        self.submitted_backtest_requests.append(request)
+        self.started.set()
+        await asyncio.sleep(60)
+        raise AssertionError("blocking backtest submission should have been cancelled")
+
+
 class FakeInvalidDraftStrategyService:
     def __init__(self, workspace_service: FakeWorkspaceService) -> None:
         self.workspace_service = workspace_service
@@ -1253,6 +1278,115 @@ async def test_research_loop_persists_submitted_iteration_when_cancelled_before_
     assert iteration["unit_snapshot"]["id"] == "unit-1"
     assert any("cancelled while waiting" in item for item in iteration["quality_gate_failures"])
     assert "已提交的回测策略" in iteration["improvement_notes"][0]
+
+
+@pytest.mark.asyncio
+async def test_research_loop_persists_draft_when_cancelled_during_initial_generation():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeBlockingDraftGenerationStrategyService(workspace_service)
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    task = asyncio.create_task(
+        service.run(
+            "user-1",
+            AIStrategyResearchRunRequest(
+                prompt="请生成一个双均线趋势策略",
+                symbol="000001.SZ",
+                target_sharpe=1.0,
+                start_paper_trading=False,
+                out_of_sample_validation=False,
+                max_iterations=2,
+                poll_interval_seconds=0.1,
+            ),
+        )
+    )
+    await asyncio.wait_for(strategy_service.started.wait(), timeout=1.0)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    persisted_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert persisted_run["status"] == "cancelled"
+    assert persisted_run["achieved"] is False
+    assert persisted_run["iteration_count"] == 0
+    assert persisted_run["best_iteration"] is None
+    assert persisted_run["best_strategy_id"] == "saved-strategy-1"
+    assert persisted_run["best_strategy_name"].endswith("待回测")
+    assert persisted_run["best_diagnostics"]["failure_categories"] == [
+        "cancelled",
+        "draft_only",
+    ]
+    assert any(
+        "initial strategy draft" in item
+        for item in persisted_run["best_diagnostics"]["weaknesses"]
+    )
+    assert persisted_run["pipeline"]["current_stage"] == "cancelled"
+    assert persisted_run["pipeline"]["steps"][1]["status"] == "cancelled"
+    assert "待回测策略草案" in persisted_run["next_actions"][0]
+    assert persisted_run["iterations"] == []
+    assert "backtrader" in strategy_service.strategies["saved-strategy-1"].code
+
+
+@pytest.mark.asyncio
+async def test_research_loop_persists_draft_when_cancelled_during_backtest_submission():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeBlockingBacktestSubmitStrategyService(workspace_service)
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    task = asyncio.create_task(
+        service.run(
+            "user-1",
+            AIStrategyResearchRunRequest(
+                prompt="请生成一个双均线趋势策略",
+                symbol="000001.SZ",
+                target_sharpe=1.0,
+                start_paper_trading=False,
+                out_of_sample_validation=False,
+                max_iterations=2,
+                poll_interval_seconds=0.1,
+            ),
+        )
+    )
+    await asyncio.wait_for(strategy_service.started.wait(), timeout=1.0)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    persisted_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert persisted_run["status"] == "cancelled"
+    assert persisted_run["achieved"] is False
+    assert persisted_run["iteration_count"] == 0
+    assert persisted_run["best_iteration"] is None
+    assert persisted_run["best_strategy_id"] == "saved-strategy-1"
+    assert persisted_run["best_strategy_name"].endswith("待回测")
+    assert persisted_run["best_diagnostics"]["failure_categories"] == [
+        "cancelled",
+        "draft_only",
+    ]
+    assert any(
+        "submitting backtest iteration 1" in item
+        for item in persisted_run["best_diagnostics"]["weaknesses"]
+    )
+    assert persisted_run["pipeline"]["current_stage"] == "cancelled"
+    assert persisted_run["pipeline"]["steps"][1]["status"] == "cancelled"
+    assert "待回测策略草案" in persisted_run["next_actions"][0]
+    assert persisted_run["iterations"] == []
+    assert len(strategy_service.submitted_drafts) == 1
+    assert strategy_service.strategies["saved-strategy-1"].code.strip() == (
+        strategy_service.submitted_drafts[0].code.strip()
+    )
 
 
 @pytest.mark.asyncio

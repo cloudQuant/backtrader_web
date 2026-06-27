@@ -346,6 +346,10 @@ class AIStrategyResearchService:
             },
         )
         initial_draft_notes: list[str] = []
+        iterations: list[AIStrategyResearchIteration] = []
+        best_iteration: AIStrategyResearchIteration | None = None
+        selected_iteration: AIStrategyResearchIteration | None = None
+        run_failures: list[str] = []
         if draft is None:
             await _emit_research_progress(
                 progress_callback,
@@ -368,6 +372,27 @@ class AIStrategyResearchService:
                 )
                 draft = _normalize_research_draft(draft_response.strategy_draft, request)
                 draft, initial_draft_notes = _ensure_runnable_initial_draft(draft, request)
+            except asyncio.CancelledError:
+                fallback_draft = _normalize_research_draft(
+                    build_ai_strategy_draft(request.prompt),
+                    request,
+                )
+                await self._persist_cancelled_research_run(
+                    user_id=user_id,
+                    request=request,
+                    research_workspace=research_workspace,
+                    run_id=run_id,
+                    started_at=started_at,
+                    iterations=iterations,
+                    best_iteration=best_iteration,
+                    selected_iteration=selected_iteration,
+                    run_failures=[
+                        *run_failures,
+                        "AI research cancelled while generating initial strategy draft",
+                    ],
+                    draft=fallback_draft,
+                )
+                raise
             except Exception as exc:
                 await _emit_research_progress(
                     progress_callback,
@@ -387,23 +412,37 @@ class AIStrategyResearchService:
         else:
             draft, initial_draft_notes = _ensure_runnable_seed_draft(draft, request)
 
-        iterations: list[AIStrategyResearchIteration] = []
-        best_iteration: AIStrategyResearchIteration | None = None
-        selected_iteration: AIStrategyResearchIteration | None = None
         pending_improvement_notes: list[str] = initial_draft_notes
         continuation_failures = _continuation_quality_gate_failures(request.continuation_context)
         validation_window = _out_of_sample_window(request)
-        run_failures: list[str] = []
         if continuation_failures:
-            improvement = await self._improve_draft(
-                draft,
-                iteration=0,
-                metrics=dict(request.continuation_context.get("metrics") or {}),
-                target_sharpe=request.target_sharpe,
-                quality_gate_failures=continuation_failures,
-                user_id=user_id,
-                request=request,
-            )
+            try:
+                improvement = await self._improve_draft(
+                    draft,
+                    iteration=0,
+                    metrics=dict(request.continuation_context.get("metrics") or {}),
+                    target_sharpe=request.target_sharpe,
+                    quality_gate_failures=continuation_failures,
+                    user_id=user_id,
+                    request=request,
+                )
+            except asyncio.CancelledError:
+                await self._persist_cancelled_research_run(
+                    user_id=user_id,
+                    request=request,
+                    research_workspace=research_workspace,
+                    run_id=run_id,
+                    started_at=started_at,
+                    iterations=iterations,
+                    best_iteration=best_iteration,
+                    selected_iteration=selected_iteration,
+                    run_failures=[
+                        *run_failures,
+                        "AI research cancelled while preparing continuation draft",
+                    ],
+                    draft=draft,
+                )
+                raise
             draft = _normalize_research_draft(improvement.draft, request)
             continuation_source = str(request.continuation_context.get("source") or "")
             if continuation_source == "paper_trading_failed":
@@ -432,15 +471,33 @@ class AIStrategyResearchService:
                     "message": f"Running AI research backtest iteration {iteration}",
                 },
             )
-            draft, pending_improvement_notes = await self._ensure_valid_draft_before_backtest(
-                draft,
-                user_id=user_id,
-                request=request,
-                iteration=iteration,
-                iteration_count=len(iterations),
-                pending_improvement_notes=pending_improvement_notes,
-                progress_callback=progress_callback,
-            )
+            try:
+                draft, pending_improvement_notes = await self._ensure_valid_draft_before_backtest(
+                    draft,
+                    user_id=user_id,
+                    request=request,
+                    iteration=iteration,
+                    iteration_count=len(iterations),
+                    pending_improvement_notes=pending_improvement_notes,
+                    progress_callback=progress_callback,
+                )
+            except asyncio.CancelledError:
+                await self._persist_cancelled_research_run(
+                    user_id=user_id,
+                    request=request,
+                    research_workspace=research_workspace,
+                    run_id=run_id,
+                    started_at=started_at,
+                    iterations=iterations,
+                    best_iteration=best_iteration,
+                    selected_iteration=selected_iteration,
+                    run_failures=[
+                        *run_failures,
+                        f"AI research cancelled while validating strategy draft for iteration {iteration}",
+                    ],
+                    draft=draft,
+                )
+                raise
             backtest_request = self._build_backtest_request(
                 draft,
                 request,
@@ -457,18 +514,21 @@ class AIStrategyResearchService:
                 if backtest_response is None:
                     raise ValueError("Research workspace or generated strategy was not found")
             except asyncio.CancelledError:
-                if iterations:
-                    await self._persist_cancelled_research_run(
-                        user_id=user_id,
-                        request=request,
-                        research_workspace=research_workspace,
-                        run_id=run_id,
-                        started_at=started_at,
-                        iterations=iterations,
-                        best_iteration=best_iteration,
-                        selected_iteration=selected_iteration,
-                        run_failures=run_failures,
-                    )
+                await self._persist_cancelled_research_run(
+                    user_id=user_id,
+                    request=request,
+                    research_workspace=research_workspace,
+                    run_id=run_id,
+                    started_at=started_at,
+                    iterations=iterations,
+                    best_iteration=best_iteration,
+                    selected_iteration=selected_iteration,
+                    run_failures=[
+                        *run_failures,
+                        f"AI research cancelled while submitting backtest iteration {iteration}",
+                    ],
+                    draft=draft,
+                )
                 raise
             except Exception as exc:
                 failure_reason = f"Backtest submission failed before iteration {iteration}: {exc}"
@@ -514,18 +574,18 @@ class AIStrategyResearchService:
                             request=request,
                         )
                     except asyncio.CancelledError:
-                        if iterations:
-                            await self._persist_cancelled_research_run(
-                                user_id=user_id,
-                                request=request,
-                                research_workspace=research_workspace,
-                                run_id=run_id,
-                                started_at=started_at,
-                                iterations=iterations,
-                                best_iteration=best_iteration,
-                                selected_iteration=selected_iteration,
-                                run_failures=run_failures,
-                            )
+                        await self._persist_cancelled_research_run(
+                            user_id=user_id,
+                            request=request,
+                            research_workspace=research_workspace,
+                            run_id=run_id,
+                            started_at=started_at,
+                            iterations=iterations,
+                            best_iteration=best_iteration,
+                            selected_iteration=selected_iteration,
+                            run_failures=run_failures,
+                            draft=draft,
+                        )
                         raise
                     draft = _normalize_research_draft(improvement.draft, request)
                     pending_improvement_notes = [
@@ -1474,6 +1534,7 @@ class AIStrategyResearchService:
         request: AIStrategyResearchRunRequest,
         *,
         run_id: str,
+        reason: str = "回测提交失败",
     ) -> StrategyResponse | None:
         try:
             normalized = _normalize_research_draft(draft, request)
@@ -1484,7 +1545,7 @@ class AIStrategyResearchService:
                     name=_bounded_name(f"{normalized.name} - 待回测", 100),
                     description=(
                         f"{normalized.description or ''}\n\n"
-                        f"AI投研运行 {run_id} 的回测提交失败，保存该草案用于继续投研。"
+                        f"AI投研运行 {run_id} 的{reason}，保存该草案用于继续投研。"
                     ).strip(),
                     code=normalized.code,
                     params=normalized.params,
@@ -1506,9 +1567,74 @@ class AIStrategyResearchService:
         best_iteration: AIStrategyResearchIteration | None,
         selected_iteration: AIStrategyResearchIteration | None,
         run_failures: list[str],
+        draft: AIStrategyDraft | None = None,
     ) -> AIStrategyResearchRunRecord | None:
         if not iterations:
-            return None
+            fallback_strategy = None
+            if draft is not None:
+                fallback_strategy = await self._persist_research_draft_strategy(
+                    user_id,
+                    draft,
+                    request,
+                    run_id=run_id,
+                    reason="任务取消时尚未产生回测迭代",
+                )
+            completed_at = _utc_iso_now()
+            failures = [
+                str(item).strip() for item in run_failures if str(item or "").strip()
+            ]
+            diagnostics = _cancelled_draft_diagnostics(
+                failures,
+                strategy_saved=fallback_strategy is not None,
+            )
+            next_actions = [
+                "AI投研任务已取消，已保存当前待回测策略草案。"
+                if fallback_strategy is not None
+                else "AI投研任务已取消，但当前策略草案未能保存。",
+                "可从该记录继续投研，重新提交首轮回测并沿用已解析的资产/费用环境。",
+            ]
+            if failures:
+                next_actions.append("取消前最近状态：" + failures[-1])
+            pipeline = _pipeline_summary(
+                status="cancelled",
+                achieved=False,
+                iteration_count=0,
+                max_iterations=request.max_iterations,
+                paper_trading_started=False,
+                paper_trading_error=None,
+                paper_review_status=None,
+                paper_review_ready_for_live=False,
+            )
+            response = AIStrategyResearchRunResponse(
+                run_id=run_id,
+                status="cancelled",
+                achieved=False,
+                target_sharpe=request.target_sharpe,
+                started_at=started_at,
+                completed_at=completed_at,
+                best_iteration=None,
+                best_quality_score=0.0,
+                best_quality_gate_evaluations=[],
+                best_diagnostics=diagnostics,
+                best_metrics={},
+                research_workspace=research_workspace,
+                iterations=[],
+                best_strategy=fallback_strategy,
+                paper_trading=None,
+                paper_monitoring_plan=[],
+                pipeline=pipeline,
+                next_actions=next_actions,
+                message="AI research task cancelled before any backtest iteration completed",
+            )
+            run_record = _build_research_run_record(
+                run_id=run_id,
+                request=request,
+                response=response,
+                started_at=started_at,
+                completed_at=completed_at,
+            )
+            await self._persist_research_run_record(user_id, research_workspace, run_record)
+            return run_record
 
         result_iteration = selected_iteration or best_iteration or iterations[-1]
         best_metrics = dict(result_iteration.metrics)
@@ -5207,6 +5333,30 @@ def _run_failure_diagnostics(run_failures: list[str]) -> dict[str, Any]:
         "improvement_plan": [
             "检查研究工作区是否可用，确认策略脚本保存、数据源和回测任务队列配置。",
             "修复提交问题后，从该记录继续投研，让系统重新提交回测并进入质量门槛评估。",
+        ],
+        "promotion_ready": False,
+    }
+
+
+def _cancelled_draft_diagnostics(
+    run_failures: list[str],
+    *,
+    strategy_saved: bool,
+) -> dict[str, Any]:
+    failures = [str(item).strip() for item in run_failures if str(item or "").strip()]
+    if not failures:
+        failures = ["AI research cancelled before any completed backtest iteration"]
+    return {
+        "summary": (
+            "AI投研任务在首轮回测产生结果前取消，已保存待回测策略草案。"
+            if strategy_saved
+            else "AI投研任务在首轮回测产生结果前取消，且策略草案未能保存。"
+        ),
+        "failure_categories": ["cancelled", "draft_only"],
+        "weaknesses": failures,
+        "improvement_plan": [
+            "从该记录继续投研，重新提交首轮回测并生成可评估的质量门槛结果。",
+            "继续前确认研究工作区、数据源、手续费和合约规格配置仍然有效。",
         ],
         "promotion_ready": False,
     }
