@@ -4344,6 +4344,35 @@ class SlowResearchAPIService:
         raise AssertionError("slow research task should have been cancelled")
 
 
+class CancelResistantResearchAPIService:
+    async def run(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+        *,
+        progress_callback=None,
+    ):
+        if progress_callback is not None:
+            await progress_callback(
+                {
+                    "run_id": "race-run",
+                    "research_workspace_id": "race-research-ws",
+                    "current_stage": "backtesting",
+                    "progress": 25.0,
+                    "current_iteration": 1,
+                    "iteration_count": 0,
+                    "max_iterations": request.max_iterations,
+                    "current_backtest_task_id": "child-backtest-task",
+                    "message": "cancel-resistant fake backtest",
+                }
+            )
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            pass
+        return await FakeResearchAPIService().run(user_id, request)
+
+
 class FakeBacktestCancelService:
     def __init__(self) -> None:
         self.cancelled: list[tuple[str, str]] = []
@@ -4434,6 +4463,56 @@ async def test_ai_strategy_research_task_manager_cancels_running_task():
     assert final is not None
     assert final.status == "cancelled"
     assert final.completed_at
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_task_manager_keeps_cancelled_terminal_state():
+    backtest_service = FakeBacktestCancelService()
+    manager = AIStrategyResearchTaskManager(backtest_service_factory=lambda: backtest_service)
+    submitted = await manager.submit(
+        "user-1",
+        AIStrategyResearchRunRequest(prompt="生成趋势策略", symbol="000001.SZ"),
+        service=CancelResistantResearchAPIService(),
+    )
+
+    running = None
+    for _ in range(20):
+        running = await manager.get_task("user-1", submitted.task_id)
+        if running is not None and running.current_stage == "backtesting":
+            break
+        await asyncio.sleep(0.01)
+
+    assert running is not None
+    assert running.status == "running"
+    assert running.run_id == "race-run"
+
+    cancelled = await manager.cancel_task("user-1", submitted.task_id)
+    assert cancelled is not None
+    assert cancelled.status == "cancelled"
+    assert cancelled.cancelled_backtest_task_id == "child-backtest-task"
+    assert cancelled.child_cancelled is True
+
+    background_task = manager._tasks[submitted.task_id].background_task
+    assert background_task is not None
+    for _ in range(20):
+        if background_task.done():
+            break
+        await asyncio.sleep(0.01)
+    assert background_task.done()
+
+    final = None
+    for _ in range(20):
+        final = await manager.get_task("user-1", submitted.task_id)
+        if final is not None and final.status == "completed":
+            break
+        await asyncio.sleep(0.01)
+
+    assert final is not None
+    assert final.status == "cancelled"
+    assert final.run_id == "race-run"
+    assert final.cancelled_backtest_task_id == "child-backtest-task"
+    assert final.child_cancelled is True
+    assert final.result is None
 
 
 @pytest.mark.asyncio

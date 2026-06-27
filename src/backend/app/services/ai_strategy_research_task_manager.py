@@ -212,9 +212,11 @@ class AIStrategyResearchTaskManager:
             state = self._tasks.get(task_id)
             if state is None:
                 return
+            new_status = updates.get("status")
             if (
                 state.response.status in {"completed", "failed", "cancelled"}
-                and updates.get("status") == "running"
+                and new_status is not None
+                and new_status != state.response.status
             ):
                 return
             state.response = state.response.model_copy(update=updates)
