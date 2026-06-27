@@ -3236,6 +3236,15 @@ async def test_review_paper_trading_normalizes_negative_drawdown_before_live_can
     assert drawdown.status == "failed"
     assert review.status == "needs_research_review"
     assert review.ready_for_live is False
+    assert review.unit is not None
+    assert review.unit.lock_trading is True
+    assert review.unit.lock_running is True
+    assert "已自动锁定模拟交易单元" in review.next_actions[-1]
+    assert workspace_service.updated_units[-1].lock_trading is True
+    assert workspace_service.updated_units[-1].lock_running is True
+    assert workspace_service.updated_units[-1].unit_settings["ai_research_review_lock"][
+        "status"
+    ] == "needs_research_review"
 
 
 @pytest.mark.asyncio
@@ -5859,6 +5868,92 @@ async def test_list_research_run_records_auto_refreshes_paper_review_from_curren
     assert persisted_run["paper_review_evaluations"][0]["actual"] == pytest.approx(0.82)
     assert persisted_run["live_handoff"]["status"] == "ready_for_approval"
     assert persisted_run["pipeline"]["current_stage"] == "live_handoff"
+
+
+@pytest.mark.asyncio
+async def test_list_research_run_records_auto_locks_failed_paper_review_unit():
+    workspace_service = FakeWorkspaceService()
+    seed_draft = build_ai_strategy_draft("生成回撤控制策略").model_copy(
+        update={"name": "自动锁定 paper 策略"}
+    )
+    strategy = _strategy("strategy-auto-lock", seed_draft)
+    record = {
+        **_run_record(
+            "auto-paper-lock-run",
+            workspace_id="research-auto-lock",
+            completed_at="2026-01-02T00:00:00+00:00",
+        ),
+        "best_strategy_id": strategy.id,
+        "paper_workspace_id": "paper-lock",
+        "paper_workspace_name": "AI模拟自动锁定",
+        "paper_unit_id": "paper-lock-unit",
+        "paper_trading_started": True,
+        "paper_review_status": "monitoring",
+        "paper_review_ready_for_live": False,
+        "pipeline": {
+            "current_stage": "paper_review",
+            "status": "achieved",
+            "progress": 80.0,
+            "ready_for_live": False,
+            "steps": [],
+        },
+    }
+    workspace_service.workspaces["research-auto-lock"] = _workspace(
+        "research-auto-lock",
+        "research",
+    ).model_copy(update={"settings": {"ai_research": {"runs": [record]}}})
+    workspace_service.workspaces["paper-lock"] = _workspace("paper-lock", "trading")
+    unit = _unit("paper-lock-unit", "paper-lock", strategy).model_copy(
+        update={"trading_snapshot": {"valuation_status": "confirmed"}}
+    )
+    workspace_service.units[unit.id] = unit
+    workspace_service.statuses[unit.id] = UnitStatusResponse(
+        id=unit.id,
+        run_status="running",
+        last_task_id="paper-lock-task",
+        metrics_snapshot={
+            "rolling_sharpe": 0.8,
+            "max_drawdown": -22.0,
+            "closed_trades": 25,
+            "slippage_and_commission_delta": 0.0002,
+        },
+        run_count=1,
+        trading_snapshot={"valuation_status": "confirmed"},
+        trading_mode="paper",
+    )
+    service = AIStrategyResearchService(
+        strategy_service=FakeStrategyService(
+            workspace_service,
+            [],
+            strategies={strategy.id: strategy},
+        ),
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.list_run_records("user-1", limit=20)
+
+    refreshed = result.items[0]
+    assert refreshed.run_id == "auto-paper-lock-run"
+    assert refreshed.paper_review_status == "needs_research_review"
+    assert refreshed.paper_review_ready_for_live is False
+    assert refreshed.pipeline["current_stage"] == "paper_review"
+    assert "已自动锁定模拟交易单元" in refreshed.next_actions[-1]
+    assert workspace_service.updated_units[-1].id == "paper-lock-unit"
+    assert workspace_service.updated_units[-1].lock_trading is True
+    assert workspace_service.updated_units[-1].lock_running is True
+    assert workspace_service.updated_units[-1].unit_settings["ai_research_review_lock"][
+        "status"
+    ] == "needs_research_review"
+
+    persisted_run = workspace_service.workspaces["research-auto-lock"].settings["ai_research"][
+        "runs"
+    ][0]
+    assert persisted_run["paper_review_status"] == "needs_research_review"
+    assert persisted_run["paper_review_evaluations"][1]["key"] == "drawdown_guard"
+    assert persisted_run["paper_review_evaluations"][1]["status"] == "failed"
+    assert "已自动锁定模拟交易单元" in persisted_run["next_actions"][-1]
 
 
 class FakeResearchAPIService:

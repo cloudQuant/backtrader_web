@@ -1299,6 +1299,7 @@ class AIStrategyResearchService:
             monitoring_plan=monitoring_plan,
             live_readiness_expires_at=record.live_readiness_expires_at,
         )
+        unit_needs_review_lock = _paper_unit_needs_review_lock(unit, review_status)
         if not _paper_review_refresh_has_meaningful_change(
             record,
             monitoring_plan=monitoring_plan,
@@ -1306,7 +1307,7 @@ class AIStrategyResearchService:
             ready_for_live=ready_for_live,
             evaluation_payload=evaluation_payload,
             next_actions=next_actions,
-        ):
+        ) and not unit_needs_review_lock:
             return record
 
         reviewed_at = _utc_iso_now()
@@ -1320,6 +1321,16 @@ class AIStrategyResearchService:
             evaluations=evaluations,
             monitoring_plan=monitoring_plan,
             live_readiness_expires_at=live_readiness_expires_at,
+        )
+        _, next_actions = await self._lock_paper_unit_for_review_failure(
+            user_id,
+            record=record,
+            workspace=workspace,
+            unit=unit,
+            review_status=review_status,
+            reviewed_at=reviewed_at,
+            evaluations=evaluations,
+            next_actions=next_actions,
         )
         live_readiness_checklist = _live_readiness_checklist(
             record,
@@ -1522,6 +1533,24 @@ class AIStrategyResearchService:
             reviewed_at=reviewed_at,
             expires_at=live_readiness_expires_at,
         )
+        next_actions = _paper_review_next_actions(
+            review_status,
+            evaluations=evaluations,
+            monitoring_plan=monitoring_plan,
+            live_readiness_expires_at=live_readiness_expires_at,
+        )
+        locked_unit, next_actions = await self._lock_paper_unit_for_review_failure(
+            user_id,
+            record=record,
+            workspace=workspace,
+            unit=unit,
+            review_status=review_status,
+            reviewed_at=reviewed_at,
+            evaluations=evaluations,
+            next_actions=next_actions,
+        )
+        if locked_unit is not None:
+            unit = locked_unit
         pipeline = _pipeline_summary_from_record(
             record,
             paper_trading_started=record.paper_trading_started,
@@ -1547,12 +1576,7 @@ class AIStrategyResearchService:
             live_readiness_checklist=live_readiness_checklist,
             live_readiness_expires_at=live_readiness_expires_at,
             pipeline=pipeline,
-            next_actions=_paper_review_next_actions(
-                review_status,
-                evaluations=evaluations,
-                monitoring_plan=monitoring_plan,
-                live_readiness_expires_at=live_readiness_expires_at,
-            ),
+            next_actions=next_actions,
         )
         updated_record = await self._mark_run_record_paper_reviewed(user_id, record, review)
         if updated_record is not None and updated_record.live_handoff is not None:
@@ -1564,6 +1588,61 @@ class AIStrategyResearchService:
                 }
             )
         return review
+
+    async def _lock_paper_unit_for_review_failure(
+        self,
+        user_id: str,
+        *,
+        record: AIStrategyResearchRunRecord,
+        workspace: WorkspaceResponse | None,
+        unit: StrategyUnitResponse | None,
+        review_status: str,
+        reviewed_at: str,
+        evaluations: list[AIStrategyPaperTradingRuleEvaluation],
+        next_actions: list[str],
+    ) -> tuple[StrategyUnitResponse | None, list[str]]:
+        if not _paper_review_status_requires_unit_lock(review_status):
+            return None, next_actions
+        if workspace is None or unit is None:
+            return None, next_actions
+
+        lock_payload = _paper_review_unit_lock_payload(
+            record,
+            review_status=review_status,
+            reviewed_at=reviewed_at,
+            evaluations=evaluations,
+            next_actions=next_actions,
+        )
+        unit_settings = dict(unit.unit_settings or {})
+        unit_settings["ai_research_review_lock"] = lock_payload
+        try:
+            updated = await self.workspace_service.update_unit(
+                workspace.id,
+                unit.id,
+                user_id,
+                StrategyUnitUpdate(
+                    unit_settings=unit_settings,
+                    lock_trading=True,
+                    lock_running=True,
+                ),
+            )
+        except Exception as exc:
+            return None, _append_unique_text(
+                next_actions,
+                f"模拟复核未通过，但自动锁定模拟交易单元失败：{exc}",
+            )
+
+        if updated is None:
+            return None, _append_unique_text(
+                next_actions,
+                "模拟复核未通过，但未找到可锁定的模拟交易单元。",
+            )
+
+        locked_unit = StrategyUnitResponse.model_validate(updated)
+        return locked_unit, _append_unique_text(
+            next_actions,
+            "模拟复核未通过，已自动锁定模拟交易单元，需继续投研或人工解锁后再运行。",
+        )
 
     async def build_live_handoff_package(
         self,
@@ -3302,6 +3381,54 @@ def _paper_review_refresh_has_meaningful_change(
     if evaluation_payload != [dict(item) for item in record.paper_review_evaluations]:
         return True
     return next_actions != list(record.paper_review_next_actions or [])
+
+
+def _paper_review_status_requires_unit_lock(status: str | None) -> bool:
+    return str(status or "").strip() in {"needs_research_review", "live_readiness_expired"}
+
+
+def _paper_unit_needs_review_lock(
+    unit: StrategyUnitResponse | None,
+    review_status: str | None,
+) -> bool:
+    if unit is None or not _paper_review_status_requires_unit_lock(review_status):
+        return False
+    settings = dict(unit.unit_settings or {})
+    return not (
+        unit.lock_trading
+        and unit.lock_running
+        and isinstance(settings.get("ai_research_review_lock"), dict)
+    )
+
+
+def _paper_review_unit_lock_payload(
+    record: AIStrategyResearchRunRecord,
+    *,
+    review_status: str,
+    reviewed_at: str,
+    evaluations: list[AIStrategyPaperTradingRuleEvaluation],
+    next_actions: list[str],
+) -> dict[str, Any]:
+    failed_rules = [
+        item.model_dump(mode="json") for item in evaluations if item.status == "failed"
+    ]
+    return {
+        "run_id": record.run_id,
+        "research_workspace_id": record.research_workspace_id,
+        "status": review_status,
+        "reviewed_at": reviewed_at,
+        "failed_rules": failed_rules,
+        "next_actions": list(next_actions),
+        "reason": "AI paper review failed; trading and running are locked until research review.",
+    }
+
+
+def _append_unique_text(items: list[str], value: str) -> list[str]:
+    texts = [str(item).strip() for item in items if str(item or "").strip()]
+    text = str(value or "").strip()
+    if text:
+        texts.append(text)
+    return list(dict.fromkeys(texts))
 
 
 def _validate_strategy_code_draft(code: str) -> None:
