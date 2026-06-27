@@ -2017,6 +2017,14 @@ function bestStrategyIdForRecord(record: AIStrategyResearchRunRecord) {
   return payload ? strategyIdFromIterationPayload(payload) : ''
 }
 
+function gatewayConfigJsonFromRunRecord(record: AIStrategyResearchRunRecord) {
+  const payload = bestIterationPayloadForRecord(record)
+  const snapshot = payload && isRecord(payload.unit_snapshot) ? payload.unit_snapshot : {}
+  const gatewayConfig = isRecord(snapshot.gateway_config) ? snapshot.gateway_config : null
+  if (!gatewayConfig || !Object.keys(gatewayConfig).length) return ''
+  return JSON.stringify(gatewayConfig)
+}
+
 function bestStrategyFromRunRecord(record: AIStrategyResearchRunRecord): Strategy | null {
   const payload = bestIterationPayloadForRecord(record)
   if (!payload) return null
@@ -2082,6 +2090,7 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.knowledge_base_id = record.knowledge_base_id || ''
   aiResearchForm.thinking_mode = Boolean(record.thinking_mode)
   aiResearchForm.paper_workspace_name = record.paper_workspace_name || ''
+  aiResearchForm.gateway_config_json = gatewayConfigJsonFromRunRecord(record)
   aiResearchForm.target_sharpe = record.target_sharpe
   aiResearchForm.min_total_trades = record.min_total_trades
   aiResearchForm.use_max_drawdown_limit = typeof gates.max_drawdown_limit === 'number'

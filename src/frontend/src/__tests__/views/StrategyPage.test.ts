@@ -1672,7 +1672,18 @@ describe('StrategyPage', () => {
       next_actions: [],
       started_at: '2026-06-27T00:00:00Z',
       completed_at: '2026-06-27T00:01:00Z',
-      iterations: [],
+      iterations: [
+        {
+          iteration: 2,
+          strategy_id: 'best-strategy',
+          unit_snapshot: {
+            gateway_config: {
+              name: 'paper_gateway',
+              params: { exchange: 'CFFEX' },
+            },
+          },
+        },
+      ],
     })
     expect(vm.aiResearchForm.prompt).toBe('历史趋势策略')
     expect(vm.aiResearchForm.symbol).toBe('600000.SH')
@@ -1691,6 +1702,10 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.backtest_timeout_seconds).toBe(1200)
     expect(vm.aiResearchForm.poll_interval_seconds).toBe(3)
     expect(vm.aiResearchForm.paper_workspace_name).toBe('历史模拟工作区')
+    expect(JSON.parse(vm.aiResearchForm.gateway_config_json)).toEqual({
+      name: 'paper_gateway',
+      params: { exchange: 'CFFEX' },
+    })
     expect(vm.aiResearchForm.out_of_sample_validation).toBe(true)
     expect(vm.aiResearchForm.out_of_sample_ratio_pct).toBe(30)
     expect(vm.aiResearchForm.use_min_out_of_sample_sharpe).toBe(true)
