@@ -1416,6 +1416,107 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('shows live trading preparation from completed async task summary', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const livePipeline = {
+      current_stage: 'live_trading_prepare',
+      status: 'approved_for_live',
+      progress: 100,
+      ready_for_live: true,
+      live_trading_prepared: true,
+      live_trading_prepared_at: '2026-06-27T00:05:00Z',
+      live_workspace_id: 'live-ws',
+      live_unit_id: 'live-unit',
+      live_unit_locked: true,
+      steps: [
+        { key: 'live_handoff', label: '实盘交接', status: 'completed' },
+        {
+          key: 'live_trading_prepare',
+          label: '实盘准备',
+          status: 'completed',
+          live_trading_prepared: true,
+          live_workspace_id: 'live-ws',
+          live_unit_id: 'live-unit',
+          live_unit_locked: true,
+          prepared_at: '2026-06-27T00:05:00Z',
+        },
+      ],
+    }
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    ;(strategyApi as any).submitAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'live-task-1',
+      status: 'running',
+      submitted_at: '2026-06-27T00:00:00Z',
+      current_stage: 'live_handoff',
+      progress: 92,
+      current_iteration: 2,
+      iteration_count: 2,
+      max_iterations: 3,
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      message: 'handoff',
+    })
+    ;(strategyApi as any).getAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'live-task-1',
+      status: 'completed',
+      submitted_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:05:00Z',
+      run_id: 'run-1',
+      current_stage: 'live_trading_prepare',
+      progress: 100,
+      current_iteration: 2,
+      iteration_count: 2,
+      max_iterations: 3,
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      live_workspace_id: 'live-ws',
+      live_unit_id: 'live-unit',
+      live_trading_prepared: true,
+      live_trading_prepared_at: '2026-06-27T00:05:00Z',
+      pipeline: livePipeline,
+      message: 'live prepared',
+      result: {
+        ...baseResult,
+        pipeline: livePipeline,
+        run_record: {
+          ...baseResult.run_record!,
+          live_workspace_id: 'live-ws',
+          live_workspace_name: 'AI实盘准备',
+          live_unit_id: 'live-unit',
+          live_trading_prepared: true,
+          live_trading_prepared_at: '2026-06-27T00:05:00Z',
+          pipeline: livePipeline,
+        },
+      },
+    })
+    try {
+      const wrapper = doMount()
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.prompt = '生成一个趋势策略'
+      vm.aiResearchForm.symbol = '000001.SZ'
+      await vm.runAIResearchLoop()
+
+      expect((strategyApi as any).getAIResearchTask).toHaveBeenCalledWith('live-task-1')
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect(vm.aiResearchTaskStage).toBe('live_trading_prepare')
+      expect(vm.aiResearchResult.run_record.live_trading_prepared).toBe(true)
+      const taskProgress = wrapper.find('[data-test="ai-research-task-progress"]').text()
+      expect(taskProgress).toContain('阶段 实盘准备')
+      expect(taskProgress).toContain('模拟已启动')
+      expect(taskProgress).toContain('模拟单元 paper-unit')
+      expect(taskProgress).toContain('实盘已准备')
+      expect(taskProgress).toContain('实盘单元 live-unit')
+      expect(taskProgress).toContain('实盘准备 已完成')
+      expect(taskProgress).toContain('live prepared')
+    } finally {
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
+    }
+  })
+
   it('shows timeout-cancelled backtest from async task summary', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const { ElMessage } = await import('element-plus')

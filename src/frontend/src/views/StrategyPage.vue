@@ -382,6 +382,8 @@
                 </span>
                 <span v-if="aiResearchTaskPaperStatusText">{{ aiResearchTaskPaperStatusText }}</span>
                 <span v-if="aiResearchTaskPaperUnitId">模拟单元 {{ aiResearchTaskPaperUnitId }}</span>
+                <span v-if="aiResearchTaskLiveStatusText">{{ aiResearchTaskLiveStatusText }}</span>
+                <span v-if="aiResearchTaskLiveUnitId">实盘单元 {{ aiResearchTaskLiveUnitId }}</span>
                 <span v-if="aiResearchTaskMessage">{{ aiResearchTaskMessage }}</span>
                 <span
                   v-if="aiResearchTaskRuntimeItems.length"
@@ -1848,6 +1850,9 @@ const aiResearchCancelledBacktestTaskId = ref('')
 const aiResearchTaskPaperWorkspaceId = ref('')
 const aiResearchTaskPaperUnitId = ref('')
 const aiResearchTaskPaperStarted = ref(false)
+const aiResearchTaskLiveWorkspaceId = ref('')
+const aiResearchTaskLiveUnitId = ref('')
+const aiResearchTaskLivePrepared = ref(false)
 const aiResearchTaskPipeline = ref<AIStrategyPipelineSummary | null>(null)
 const aiResearchTaskRequestSnapshot = ref<Record<string, unknown> | null>(null)
 const aiResearchTaskError = ref('')
@@ -2112,6 +2117,19 @@ const aiResearchTaskPaperStatusText = computed(() => {
   if (error) return `模拟失败 ${error}`
   if (aiResearchTaskPaperStarted.value) return '模拟已启动'
   if (aiResearchTaskPaperWorkspaceId.value || aiResearchTaskPaperUnitId.value) return '模拟已创建'
+  return ''
+})
+const aiResearchTaskLiveStatusText = computed(() => {
+  const pipeline = aiResearchTaskPipeline.value
+  if (aiResearchTaskLivePrepared.value || pipeline?.live_trading_prepared) return '实盘已准备'
+  if (
+    aiResearchTaskLiveWorkspaceId.value
+    || aiResearchTaskLiveUnitId.value
+    || pipeline?.live_workspace_id
+    || pipeline?.live_unit_id
+  ) {
+    return '实盘已创建'
+  }
   return ''
 })
 const aiResearchTaskPipelineSteps = computed<AIStrategyPipelineStep[]>(() => {
@@ -4589,6 +4607,7 @@ function aiResearchTaskPollTimeoutMs(
 }
 
 function applyAIResearchTaskStatus(task: AIStrategyResearchTaskResponse) {
+  const pipeline = task.pipeline ?? null
   aiResearchTaskId.value = task.task_id
   aiResearchTaskStatus.value = task.status
   aiResearchTaskStage.value = task.current_stage || task.status
@@ -4599,7 +4618,12 @@ function applyAIResearchTaskStatus(task: AIStrategyResearchTaskResponse) {
   aiResearchTaskPaperWorkspaceId.value = task.paper_workspace_id || ''
   aiResearchTaskPaperUnitId.value = task.paper_unit_id || ''
   aiResearchTaskPaperStarted.value = Boolean(task.paper_trading_started)
-  aiResearchTaskPipeline.value = task.pipeline ?? null
+  aiResearchTaskLiveWorkspaceId.value = task.live_workspace_id || pipeline?.live_workspace_id || ''
+  aiResearchTaskLiveUnitId.value = task.live_unit_id || pipeline?.live_unit_id || ''
+  aiResearchTaskLivePrepared.value = Boolean(
+    task.live_trading_prepared || pipeline?.live_trading_prepared
+  )
+  aiResearchTaskPipeline.value = pipeline
   if (isRecord(task.request_snapshot)) {
     aiResearchTaskRequestSnapshot.value = task.request_snapshot
   }
@@ -4852,6 +4876,9 @@ async function runAIResearchLoop() {
   aiResearchTaskPaperWorkspaceId.value = ''
   aiResearchTaskPaperUnitId.value = ''
   aiResearchTaskPaperStarted.value = false
+  aiResearchTaskLiveWorkspaceId.value = ''
+  aiResearchTaskLiveUnitId.value = ''
+  aiResearchTaskLivePrepared.value = false
   aiResearchTaskPipeline.value = null
   aiResearchTaskRequestSnapshot.value = null
   aiResearchTaskError.value = ''
