@@ -489,6 +489,9 @@
                     <template v-if="pipelineStepIterationText(step)">
                       {{ pipelineStepIterationText(step) }}
                     </template>
+                    <template v-if="step.review_status">
+                      复核 {{ paperReviewStatusLabel(step.review_status) }}
+                    </template>
                   </span>
                 </span>
               </div>

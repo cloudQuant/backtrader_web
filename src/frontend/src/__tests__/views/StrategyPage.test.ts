@@ -1535,6 +1535,12 @@ describe('StrategyPage', () => {
       live_unit_id: 'live-unit',
       live_unit_locked: true,
       steps: [
+        {
+          key: 'paper_review',
+          label: '模拟复核',
+          status: 'completed',
+          review_status: 'ready_for_live_candidate',
+        },
         { key: 'live_handoff', label: '实盘交接', status: 'completed' },
         {
           key: 'live_trading_prepare',
@@ -1614,6 +1620,7 @@ describe('StrategyPage', () => {
       expect(taskProgress).toContain('模拟单元 paper-unit')
       expect(taskProgress).toContain('实盘已准备')
       expect(taskProgress).toContain('实盘单元 live-unit')
+      expect(taskProgress).toContain('复核 实盘候选')
       expect(taskProgress).toContain('实盘准备 已完成')
       expect(taskProgress).toContain('live prepared')
     } finally {
