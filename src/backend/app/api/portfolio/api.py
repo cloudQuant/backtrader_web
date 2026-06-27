@@ -452,6 +452,77 @@ def _asset_spec_has_contract_metadata(spec: dict[str, Any]) -> bool:
     )
 
 
+def _position_spec_has_asset_metadata(spec: Any) -> bool:
+    return bool(
+        getattr(spec, "has_multiplier", False)
+        or getattr(spec, "has_margin_rate", False)
+        or getattr(spec, "has_margin_amount", False)
+        or getattr(spec, "has_commission", False)
+    )
+
+
+def _row_can_use_local_asset_spec(row: dict[str, Any]) -> bool:
+    if _has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS, *_GROSS_PNL_FIELD_KEYS, "pnl"):
+        return True
+    return _has_any(
+        row,
+        "price",
+        "avg_price",
+        "average_price",
+        "price_open",
+        "avgCost",
+        "avgPrice",
+        "avgPx",
+        "entryPrice",
+        "Price",
+        "AveragePrice",
+    ) and _has_any(
+        row,
+        "current_price",
+        "latest_price",
+        "last_price",
+        "mark_price",
+        "markPrice",
+        "markPx",
+        "market_price",
+        "lastPrice",
+        "LastPrice",
+        "price_current",
+        "marketPrice",
+        "mktPrice",
+        "mp",
+        "PriceCurrent",
+        "CurrentPrice",
+        "SettlementPrice",
+        "settlement_price",
+    )
+
+
+def _contract_spec_for_position(
+    symbol: str,
+    row: dict[str, Any],
+    source: _PortfolioSource,
+) -> Any:
+    spec = contract_spec_for(symbol, row, source.snapshot or {}, *source.valuation_configs)
+    if _position_spec_has_asset_metadata(spec):
+        return spec
+    if not _row_can_use_local_asset_spec(row):
+        return spec
+    try:
+        local_spec = query_local_asset_spec(symbol)
+    except Exception:
+        local_spec = {}
+    if isinstance(local_spec, dict) and local_spec:
+        return contract_spec_for(
+            symbol,
+            row,
+            local_spec,
+            source.snapshot or {},
+            *source.valuation_configs,
+        )
+    return spec
+
+
 def _complete_asset_specs_from_local(
     specs: dict[str, dict[str, Any]],
     symbols: list[str],
@@ -1096,7 +1167,7 @@ def _valued_source_positions(source: _PortfolioSource) -> list[dict[str, Any]]:
     for raw_row in _source_positions(source):
         for row in split_bidirectional_position_row(raw_row):
             symbol = str(row.get("data_name") or row.get("symbol") or "")
-            spec = contract_spec_for(symbol, row, source.snapshot or {}, *source.valuation_configs)
+            spec = _contract_spec_for_position(symbol, row, source)
             position_source = str(
                 row.get("position_source") or row.get("source") or source.position_source or "local"
             ).strip()

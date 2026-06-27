@@ -768,8 +768,7 @@ class TradingWorkspaceService:
         *extra_configs: dict[str, Any],
     ):
         instance_params = _safe_dict((instance or {}).get("params"))
-        return contract_spec_for(
-            symbol,
+        configs = (
             *extra_configs,
             _safe_dict(getattr(unit, "unit_settings", None)),
             _safe_dict(getattr(unit, "params", None)),
@@ -783,6 +782,47 @@ class TradingWorkspaceService:
             _safe_dict(instance_params.get("backtest")),
             _safe_dict(instance_params.get("live")),
         )
+        spec = contract_spec_for(symbol, *configs)
+        if cls._position_spec_has_asset_metadata(spec):
+            return spec
+        if not any(cls._config_can_use_local_asset_spec(config) for config in configs):
+            return spec
+        try:
+            local_spec = query_local_asset_spec(symbol)
+        except Exception:
+            local_spec = {}
+        if isinstance(local_spec, dict) and local_spec:
+            return contract_spec_for(symbol, local_spec, *configs)
+        return spec
+
+    @staticmethod
+    def _position_spec_has_asset_metadata(spec: Any) -> bool:
+        return bool(
+            getattr(spec, "has_multiplier", False)
+            or getattr(spec, "has_margin_rate", False)
+            or getattr(spec, "has_margin_amount", False)
+            or getattr(spec, "has_commission", False)
+        )
+
+    @classmethod
+    def _config_can_use_local_asset_spec(cls, config: dict[str, Any]) -> bool:
+        if not isinstance(config, dict):
+            return False
+        if cls._has_any(config, *_EXPLICIT_NET_PNL_FIELD_KEYS, *_GROSS_PNL_FIELD_KEYS, "pnl"):
+            return True
+        return cls._has_any(
+            config,
+            "price",
+            "avg_price",
+            "average_price",
+            "price_open",
+            "avgCost",
+            "avgPrice",
+            "avgPx",
+            "entryPrice",
+            "Price",
+            "AveragePrice",
+        ) and cls._has_any(config, *_CURRENT_PRICE_FIELD_KEYS)
 
     @staticmethod
     def _position_source_for_row(row: dict[str, Any], fallback: str | None = None) -> str:

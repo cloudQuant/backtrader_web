@@ -268,6 +268,71 @@ def test_build_snapshot_recalculates_stale_local_net_pnl(monkeypatch, tmp_path):
     assert any("重新计算" in item for item in snapshot["valuation_warnings"])
 
 
+def test_build_snapshot_recalculates_stale_local_net_pnl_with_local_asset_spec(
+    monkeypatch,
+    tmp_path,
+):
+    """Strategy snapshots should use local exchange metadata when runtime specs are absent."""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    unit = SimpleNamespace(
+        workspace_id="ws-1",
+        id="unit-1",
+        trading_instance_id="inst-1",
+        trading_mode="paper",
+        gateway_config={},
+        symbol="IF2609",
+        symbol_name="沪深300股指期货",
+        strategy_name="IF Trend",
+        unit_settings={},
+        params={},
+        data_config={},
+    )
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "query_local_asset_spec",
+        lambda symbol: {
+            "symbol": symbol,
+            "multiplier": 300,
+            "margin_rate": 0.1,
+            "commission_rate": 0.000023,
+            "source": "local_futures_commission",
+        },
+    )
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "parse_position_log",
+        lambda _log_dir: [
+            {
+                "data_name": "IF2609",
+                "size": 1,
+                "price": 5000.0,
+                "current_price": 5001.0,
+                "gross_pnl": 1.0,
+                "position_pnl": 1.0,
+                "pnlcomm": 1.0,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "parse_current_position",
+        lambda _log_dir: [],
+    )
+
+    snapshot, _metrics, _bar_count, _elapsed = TradingWorkspaceService._build_snapshot(
+        unit,
+        {"id": "inst-1", "status": "running", "log_dir": str(log_dir)},
+        full_log=False,
+    )
+
+    assert snapshot["long_market_value"] == 1_500_300.0
+    assert snapshot["position_pnl"] == 265.5
+    assert snapshot["asset_spec_source"] == "local_futures_commission"
+    assert snapshot["positions"][0]["commission"] == 34.5
+    assert snapshot["positions"][0]["position_pnl"] == 265.5
+
+
 def test_build_snapshot_prefers_live_gateway_positions(monkeypatch, tmp_path):
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
