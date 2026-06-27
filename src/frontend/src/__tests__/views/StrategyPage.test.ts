@@ -1431,6 +1431,85 @@ describe('StrategyPage', () => {
     }))
   })
 
+  it('uses the highest quality strategy snapshot when best iteration is missing', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    const record = {
+      run_id: 'snapshot-run',
+      prompt: '历史快照策略',
+      symbol: '600000.SH',
+      symbol_name: '浦发银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      status: 'max_iterations_reached',
+      achieved: false,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 2,
+      best_iteration: null,
+      best_sharpe: 0.72,
+      best_quality_score: 72,
+      best_quality_gate_evaluations: [],
+      best_metrics: {},
+      best_strategy_id: null,
+      best_strategy_name: null,
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_trading_started: false,
+      next_actions: [],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [
+        {
+          iteration: 1,
+          strategy_id: 'snapshot-weak',
+          strategy_snapshot: {
+            id: 'snapshot-weak',
+            name: '低质量快照策略',
+            code: 'class WeakSnapshotStrategy(bt.Strategy):\n    pass\n',
+            params: {},
+            category: 'custom',
+          },
+          metrics: { sharpe_ratio: 0.2, total_trades: 1 },
+          sharpe_ratio: 0.2,
+          total_trades: 1,
+          quality_score: 20,
+          passed: false,
+        },
+        {
+          iteration: 2,
+          strategy_id: 'snapshot-strong',
+          strategy_snapshot: {
+            id: 'snapshot-strong',
+            name: '高质量快照策略',
+            code: 'class StrongSnapshotStrategy(bt.Strategy):\n    pass\n',
+            params: {},
+            category: 'custom',
+          },
+          metrics: { sharpe_ratio: 0.72, total_trades: 5 },
+          sharpe_ratio: 0.72,
+          total_trades: 5,
+          quality_score: 72,
+          passed: false,
+        },
+      ],
+    }
+
+    vm.useAIResearchRecord(record)
+    expect(vm.aiResearchForm.seed_strategy_id).toBe('snapshot-strong')
+    expect(vm.aiResearchForm.continue_from_run_id).toBe('snapshot-run')
+
+    await vm.viewStrategyFromResearchRecord(record)
+    await flushPromises()
+    expect(strategyApi.get).not.toHaveBeenCalled()
+    expect(vm.currentStrategy.id).toBe('snapshot-strong')
+    expect(vm.currentStrategy.code).toContain('StrongSnapshotStrategy')
+  })
+
   it('runs AI research continuation from selected history record', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const wrapper = doMount()

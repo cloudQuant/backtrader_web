@@ -1882,6 +1882,48 @@ function strategyIdFromIterationPayload(payload: Record<string, unknown>) {
   return stringFromUnknown(strategySnapshot.id ?? payload.strategy_id, '').trim()
 }
 
+function iterationPayloadHasStrategy(payload: Record<string, unknown>) {
+  const strategySnapshot = isRecord(payload.strategy_snapshot) ? payload.strategy_snapshot : {}
+  return Boolean(
+    strategyIdFromIterationPayload(payload)
+    || stringFromUnknown(strategySnapshot.code, '')
+    || stringFromUnknown(payload.strategy_code, '')
+    || stringFromUnknown(payload.code, '')
+  )
+}
+
+function iterationPayloadRank(payload: Record<string, unknown>) {
+  const metrics = isRecord(payload.metrics) ? payload.metrics : {}
+  return [
+    optionalBoolean(payload.passed, false) ? 1 : 0,
+    optionalNumber(payload.quality_score) ?? 0,
+    optionalNumber(payload.sharpe_ratio)
+      ?? optionalNumber(metrics.sharpe_ratio)
+      ?? optionalNumber(metrics.sharpe)
+      ?? optionalNumber(metrics.sharpeRatio)
+      ?? 0,
+    optionalNumber(payload.total_trades)
+      ?? optionalNumber(metrics.total_trades)
+      ?? optionalNumber(metrics.totalTrades)
+      ?? optionalNumber(metrics.trades)
+      ?? 0,
+    -(optionalNumber(payload.iteration) ?? 0),
+  ]
+}
+
+function compareIterationPayloads(
+  candidate: Record<string, unknown>,
+  current: Record<string, unknown>
+) {
+  const candidateRank = iterationPayloadRank(candidate)
+  const currentRank = iterationPayloadRank(current)
+  for (let index = 0; index < candidateRank.length; index += 1) {
+    const delta = candidateRank[index] - currentRank[index]
+    if (delta !== 0) return delta
+  }
+  return 0
+}
+
 function bestIterationPayloadForRecord(record: AIStrategyResearchRunRecord) {
   const iterations = (record.iterations || []).filter(isRecord)
   if (!iterations.length) return null
@@ -1892,7 +1934,12 @@ function bestIterationPayloadForRecord(record: AIStrategyResearchRunRecord) {
     )
     if (matched) return matched
   }
-  return [...iterations].reverse().find(strategyIdFromIterationPayload) || null
+  const candidates = iterations.filter(iterationPayloadHasStrategy)
+  const pool = candidates.length ? candidates : iterations
+  return pool.reduce(
+    (best, payload) => (compareIterationPayloads(payload, best) > 0 ? payload : best),
+    pool[0]
+  )
 }
 
 function bestStrategyIdForRecord(record: AIStrategyResearchRunRecord) {

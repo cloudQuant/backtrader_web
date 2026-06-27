@@ -2492,6 +2492,117 @@ async def test_research_loop_can_continue_from_strategy_snapshot_when_seed_missi
 
 
 @pytest.mark.asyncio
+async def test_research_loop_uses_highest_quality_snapshot_when_best_iteration_missing():
+    workspace_service = FakeWorkspaceService()
+    weak_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "低质量快照策略"}
+    )
+    strong_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "高质量快照策略"}
+    )
+    weak_strategy = _strategy("snapshot-weak", weak_draft)
+    strong_strategy = _strategy("snapshot-strong", strong_draft)
+    previous_record = {
+        **_run_record(
+            "snapshot-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "best_iteration": None,
+        "best_strategy_id": None,
+        "best_strategy_name": None,
+        "best_sharpe": 0.74,
+        "best_quality_score": 74.0,
+        "iterations": [
+            {
+                "iteration": 1,
+                "strategy_id": "snapshot-weak",
+                "strategy_name": "低质量快照策略",
+                "strategy_snapshot": {
+                    "id": weak_strategy.id,
+                    "name": weak_strategy.name,
+                    "description": weak_strategy.description,
+                    "code": weak_strategy.code,
+                    "params": {
+                        key: value.model_dump(mode="json")
+                        for key, value in weak_strategy.params.items()
+                    },
+                    "category": weak_strategy.category,
+                    "created_at": weak_strategy.created_at.isoformat(),
+                    "updated_at": weak_strategy.updated_at.isoformat(),
+                },
+                "metrics": {"sharpe_ratio": 0.25, "total_trades": 1},
+                "sharpe_ratio": 0.25,
+                "total_trades": 1,
+                "quality_score": 25.0,
+                "passed": False,
+                "quality_gate_failures": ["Sharpe 0.250 below target 1.000"],
+            },
+            {
+                "iteration": 2,
+                "strategy_id": "snapshot-strong",
+                "strategy_name": "高质量快照策略",
+                "strategy_snapshot": {
+                    "id": strong_strategy.id,
+                    "name": strong_strategy.name,
+                    "description": strong_strategy.description,
+                    "code": strong_strategy.code,
+                    "params": {
+                        key: value.model_dump(mode="json")
+                        for key, value in strong_strategy.params.items()
+                    },
+                    "category": strong_strategy.category,
+                    "created_at": strong_strategy.created_at.isoformat(),
+                    "updated_at": strong_strategy.updated_at.isoformat(),
+                },
+                "metrics": {"sharpe_ratio": 0.74, "total_trades": 5},
+                "sharpe_ratio": 0.74,
+                "total_trades": 5,
+                "quality_score": 74.0,
+                "passed": False,
+                "quality_gate_failures": ["Sharpe 0.740 below target 1.000"],
+            },
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [previous_record]}}}
+    )
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.12, "total_trades": 6}],
+        strategies={},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续历史快照投研",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            continue_from_run_id="snapshot-run",
+            start_paper_trading=False,
+            out_of_sample_validation=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert strategy_service.generated == 0
+    assert strategy_service.submitted_drafts[0].name == "高质量快照策略"
+    assert strategy_service.submitted_drafts[0].code.strip() == strong_strategy.code.strip()
+    assert result.run_record is not None
+    assert result.run_record.seed_strategy_id == "snapshot-strong"
+    assert result.run_record.continued_from_run_id == "snapshot-run"
+
+
+@pytest.mark.asyncio
 async def test_research_loop_continuation_improves_failed_research_before_backtest():
     workspace_service = FakeWorkspaceService()
     previous_record = {

@@ -3146,9 +3146,53 @@ def _best_iteration_payload(record: AIStrategyResearchRunRecord) -> dict[str, An
     for item in record.iterations:
         if int(item.get("iteration") or 0) == int(record.best_iteration or 0):
             return dict(item)
-    if record.iterations:
-        return dict(record.iterations[0])
-    return None
+    candidates = [
+        dict(item)
+        for item in record.iterations
+        if isinstance(item, dict) and _iteration_payload_has_strategy_snapshot(item)
+    ]
+    if not candidates:
+        candidates = [dict(item) for item in record.iterations if isinstance(item, dict)]
+    if not candidates:
+        return None
+    return max(candidates, key=_iteration_payload_rank)
+
+
+def _iteration_payload_has_strategy_snapshot(payload: dict[str, Any]) -> bool:
+    if _strategy_id_from_iteration_payload(payload):
+        return True
+    snapshot = payload.get("strategy_snapshot")
+    if isinstance(snapshot, dict) and str(snapshot.get("code") or "").strip():
+        return True
+    return bool(str(payload.get("strategy_code") or payload.get("code") or "").strip())
+
+
+def _iteration_payload_rank(payload: dict[str, Any]) -> tuple[int, float, float, int, int]:
+    metrics = dict(payload.get("metrics") or {}) if isinstance(payload.get("metrics"), dict) else {}
+    passed = _payload_flag(payload.get("passed"))
+    quality_score = _optional_gate_number(payload.get("quality_score")) or 0.0
+    sharpe = _optional_gate_number(payload.get("sharpe_ratio"))
+    if sharpe is None:
+        sharpe = _metric_float(metrics, "sharpe_ratio", "sharpe", "sharpeRatio")
+    total_trades = _optional_gate_int(payload.get("total_trades"))
+    if total_trades is None:
+        total_trades = _metric_int(metrics, "total_trades", "totalTrades", "trades")
+    iteration = _optional_gate_int(payload.get("iteration")) or 0
+    return (
+        1 if passed else 0,
+        quality_score,
+        sharpe,
+        total_trades,
+        -iteration,
+    )
+
+
+def _payload_flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "passed"}
+    return bool(value)
 
 
 def _continuation_runtime_updates(
