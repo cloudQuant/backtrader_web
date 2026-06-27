@@ -1205,7 +1205,16 @@ class AIStrategyResearchService:
             if workspace is None:
                 raise ValueError("Research workspace not found")
             records = _research_run_records_from_workspace(workspace)
-            await self._persist_freshened_run_records(user_id, workspace, records)
+            records, changed_run_ids = await self._freshen_run_records_with_paper_state(
+                user_id,
+                records,
+            )
+            await self._persist_freshened_run_records(
+                user_id,
+                workspace,
+                records,
+                changed_run_ids=changed_run_ids,
+            )
             return AIStrategyResearchRunListResponse(total=len(records), items=records[:limit])
 
         _, workspaces = await self.workspace_service.list_workspaces(
@@ -1217,10 +1226,146 @@ class AIStrategyResearchService:
         records: list[AIStrategyResearchRunRecord] = []
         for workspace in workspaces:
             workspace_records = _research_run_records_from_workspace(workspace)
-            await self._persist_freshened_run_records(user_id, workspace, workspace_records)
+            workspace_records, changed_run_ids = await self._freshen_run_records_with_paper_state(
+                user_id,
+                workspace_records,
+            )
+            await self._persist_freshened_run_records(
+                user_id,
+                workspace,
+                workspace_records,
+                changed_run_ids=changed_run_ids,
+            )
             records.extend(workspace_records)
         records.sort(key=lambda item: item.completed_at, reverse=True)
         return AIStrategyResearchRunListResponse(total=len(records), items=records[:limit])
+
+    async def _freshen_run_records_with_paper_state(
+        self,
+        user_id: str,
+        records: list[AIStrategyResearchRunRecord],
+    ) -> tuple[list[AIStrategyResearchRunRecord], set[str]]:
+        freshened: list[AIStrategyResearchRunRecord] = []
+        changed_run_ids: set[str] = set()
+        for record in records:
+            updated = await self._freshen_run_record_with_paper_state(user_id, record)
+            freshened.append(updated)
+            if updated != record:
+                changed_run_ids.add(updated.run_id)
+        return freshened, changed_run_ids
+
+    async def _freshen_run_record_with_paper_state(
+        self,
+        user_id: str,
+        record: AIStrategyResearchRunRecord,
+    ) -> AIStrategyResearchRunRecord:
+        if not _run_record_should_auto_refresh_paper_review(record):
+            return record
+
+        workspace = None
+        unit = None
+        unit_status = None
+        if record.paper_workspace_id:
+            workspace = await self.workspace_service.get_workspace(
+                record.paper_workspace_id,
+                user_id,
+            )
+        if workspace is None or not record.paper_unit_id:
+            return record
+        unit = await self.workspace_service.get_unit(workspace.id, record.paper_unit_id, user_id)
+        if unit is None:
+            return record
+        statuses = await self.workspace_service.get_units_status(workspace.id, user_id)
+        unit_status = _find_unit_status(statuses or [], record.paper_unit_id)
+
+        monitoring_plan = _resolve_paper_monitoring_plan(record, unit)
+        evaluations = _evaluate_paper_monitoring_plan(
+            monitoring_plan,
+            unit=unit,
+            unit_status=unit_status,
+        )
+        ready_for_live = bool(evaluations) and all(item.passed for item in evaluations)
+        review_status = _paper_review_status(
+            record,
+            workspace=workspace,
+            unit=unit,
+            evaluations=evaluations,
+            ready_for_live=ready_for_live,
+        )
+        evaluation_payload = [item.model_dump(mode="json") for item in evaluations]
+        next_actions = _paper_review_next_actions(
+            review_status,
+            evaluations=evaluations,
+            monitoring_plan=monitoring_plan,
+            live_readiness_expires_at=record.live_readiness_expires_at,
+        )
+        if not _paper_review_refresh_has_meaningful_change(
+            record,
+            monitoring_plan=monitoring_plan,
+            review_status=review_status,
+            ready_for_live=ready_for_live,
+            evaluation_payload=evaluation_payload,
+            next_actions=next_actions,
+        ):
+            return record
+
+        reviewed_at = _utc_iso_now()
+        live_readiness_expires_at = (
+            _utc_iso_add_days(reviewed_at, _LIVE_READINESS_VALID_DAYS)
+            if ready_for_live
+            else None
+        )
+        next_actions = _paper_review_next_actions(
+            review_status,
+            evaluations=evaluations,
+            monitoring_plan=monitoring_plan,
+            live_readiness_expires_at=live_readiness_expires_at,
+        )
+        live_readiness_checklist = _live_readiness_checklist(
+            record,
+            status=review_status,
+            evaluations=evaluations,
+            monitoring_plan=monitoring_plan,
+            reviewed_at=reviewed_at,
+            expires_at=live_readiness_expires_at,
+        )
+        pipeline = _pipeline_summary_from_record(
+            record,
+            paper_trading_started=record.paper_trading_started,
+            paper_review_status=review_status,
+            paper_review_ready_for_live=ready_for_live,
+            live_readiness_checklist=live_readiness_checklist,
+            live_readiness_expires_at=live_readiness_expires_at,
+        )
+        paper_handoff = _research_record_handoff_payload(
+            _paper_handoff_with_live_readiness(
+                record.paper_handoff,
+                live_readiness_checklist,
+                expires_at=live_readiness_expires_at,
+            )
+        )
+        updated_record = record.model_copy(
+            update={
+                "paper_monitoring_plan": [dict(item) for item in monitoring_plan],
+                "paper_review_status": review_status,
+                "paper_review_ready_for_live": ready_for_live,
+                "paper_reviewed_at": reviewed_at,
+                "paper_review_evaluations": evaluation_payload,
+                "paper_review_next_actions": next_actions,
+                "live_readiness_checklist": live_readiness_checklist,
+                "live_readiness_expires_at": live_readiness_expires_at,
+                "paper_handoff": paper_handoff,
+                "pipeline": pipeline,
+                "next_actions": next_actions,
+            }
+        )
+        if ready_for_live and review_status == "ready_for_live_candidate":
+            package = _build_live_handoff_package(updated_record)
+            return _run_record_with_live_handoff(updated_record, package)
+        if updated_record.live_handoff is not None:
+            package = _build_live_handoff_package(updated_record)
+            return _run_record_with_live_handoff(updated_record, package)
+        return updated_record
 
     async def start_paper_trading_from_run(
         self,
@@ -2213,11 +2358,14 @@ class AIStrategyResearchService:
         user_id: str,
         workspace: WorkspaceResponse,
         records: list[AIStrategyResearchRunRecord],
+        *,
+        changed_run_ids: set[str] | None = None,
     ) -> WorkspaceResponse | None:
+        changed_run_ids = set(changed_run_ids or set())
         replacements = {
             record.run_id: record.model_dump(mode="json")
             for record in records
-            if _freshened_run_record_needs_persist(record)
+            if record.run_id in changed_run_ids or _freshened_run_record_needs_persist(record)
         }
         if not replacements:
             return None
@@ -2231,9 +2379,11 @@ class AIStrategyResearchService:
             next_runs: list[Any] = []
             for item in raw_runs:
                 if isinstance(item, dict):
-                    replacement = replacements.get(str(item.get("run_id") or ""))
+                    run_id = str(item.get("run_id") or "")
+                    replacement = replacements.get(run_id)
                     if replacement is not None and _raw_run_record_needs_freshness_persist(
                         item,
+                        force=run_id in changed_run_ids,
                     ):
                         next_runs.append(dict(replacement))
                         changed = True
@@ -2244,8 +2394,12 @@ class AIStrategyResearchService:
 
         last_run = ai_research.get("last_run")
         if isinstance(last_run, dict):
-            replacement = replacements.get(str(last_run.get("run_id") or ""))
-            if replacement is not None and _raw_run_record_needs_freshness_persist(last_run):
+            run_id = str(last_run.get("run_id") or "")
+            replacement = replacements.get(run_id)
+            if replacement is not None and _raw_run_record_needs_freshness_persist(
+                last_run,
+                force=run_id in changed_run_ids,
+            ):
                 ai_research["last_run"] = dict(replacement)
                 changed = True
 
@@ -3107,13 +3261,47 @@ def _freshened_run_record_needs_persist(record: AIStrategyResearchRunRecord) -> 
     )
 
 
-def _raw_run_record_needs_freshness_persist(raw: dict[str, Any]) -> bool:
+def _raw_run_record_needs_freshness_persist(raw: dict[str, Any], *, force: bool = False) -> bool:
+    if force:
+        return True
     pipeline = raw.get("pipeline") if isinstance(raw.get("pipeline"), dict) else {}
     return (
         str(raw.get("paper_review_status") or "") != "live_readiness_expired"
         or bool(raw.get("paper_review_ready_for_live"))
         or str(pipeline.get("current_stage") or "") == "live_candidate"
     )
+
+
+def _run_record_should_auto_refresh_paper_review(record: AIStrategyResearchRunRecord) -> bool:
+    if not record.achieved or not record.paper_trading_started:
+        return False
+    if not record.paper_workspace_id:
+        return False
+    if record.live_handoff_approval is not None and record.live_handoff_approval.approved:
+        return False
+    return True
+
+
+def _paper_review_refresh_has_meaningful_change(
+    record: AIStrategyResearchRunRecord,
+    *,
+    monitoring_plan: list[dict[str, Any]],
+    review_status: str,
+    ready_for_live: bool,
+    evaluation_payload: list[dict[str, Any]],
+    next_actions: list[str],
+) -> bool:
+    if [dict(item) for item in monitoring_plan] != [
+        dict(item) for item in record.paper_monitoring_plan
+    ]:
+        return True
+    if review_status != record.paper_review_status:
+        return True
+    if ready_for_live != record.paper_review_ready_for_live:
+        return True
+    if evaluation_payload != [dict(item) for item in record.paper_review_evaluations]:
+        return True
+    return next_actions != list(record.paper_review_next_actions or [])
 
 
 def _validate_strategy_code_draft(code: str) -> None:

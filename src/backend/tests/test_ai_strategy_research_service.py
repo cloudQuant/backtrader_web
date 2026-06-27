@@ -5756,6 +5756,111 @@ async def test_list_research_run_records_marks_expired_live_candidate_for_review
     assert "重新复核模拟交易" in persisted_run["next_actions"][0]
 
 
+@pytest.mark.asyncio
+async def test_list_research_run_records_auto_refreshes_paper_review_from_current_status():
+    workspace_service = FakeWorkspaceService()
+    seed_draft = build_ai_strategy_draft("生成趋势策略").model_copy(
+        update={"name": "自动刷新 paper 策略"}
+    )
+    strategy = _strategy("strategy-auto-paper", seed_draft)
+    record = {
+        **_run_record(
+            "auto-paper-review-run",
+            workspace_id="research-auto-paper",
+            completed_at="2026-01-02T00:00:00+00:00",
+        ),
+        "best_strategy_id": strategy.id,
+        "paper_workspace_id": "paper-auto",
+        "paper_workspace_name": "AI模拟自动刷新",
+        "paper_unit_id": "paper-auto-unit",
+        "paper_trading_started": True,
+        "paper_review_status": "monitoring",
+        "paper_review_ready_for_live": False,
+        "paper_reviewed_at": "2026-01-02T00:00:00+00:00",
+        "paper_review_evaluations": [
+            {
+                "key": "rolling_sharpe",
+                "label": "模拟交易滚动 Sharpe",
+                "metric": "rolling_sharpe",
+                "window": "30 trading days",
+                "direction": "min",
+                "threshold": 0.6,
+                "actual": None,
+                "source": None,
+                "status": "pending",
+                "passed": False,
+                "action": "继续观察",
+            }
+        ],
+        "paper_review_next_actions": ["继续收集模拟交易数据"],
+        "pipeline": {
+            "current_stage": "paper_review",
+            "status": "achieved",
+            "progress": 80.0,
+            "ready_for_live": False,
+            "steps": [],
+        },
+    }
+    workspace_service.workspaces["research-auto-paper"] = _workspace(
+        "research-auto-paper",
+        "research",
+    ).model_copy(update={"settings": {"ai_research": {"runs": [record]}}})
+    workspace_service.workspaces["paper-auto"] = _workspace("paper-auto", "trading")
+    unit = _unit("paper-auto-unit", "paper-auto", strategy).model_copy(
+        update={"trading_snapshot": {"valuation_status": "confirmed"}}
+    )
+    workspace_service.units[unit.id] = unit
+    workspace_service.statuses[unit.id] = UnitStatusResponse(
+        id=unit.id,
+        run_status="running",
+        last_task_id="paper-auto-task",
+        metrics_snapshot={
+            "rolling_sharpe": 0.82,
+            "max_drawdown": -4.2,
+            "closed_trades": 24,
+            "slippage_and_commission_delta": 0.0004,
+        },
+        run_count=1,
+        trading_snapshot={"valuation_status": "confirmed"},
+        trading_mode="paper",
+    )
+    service = AIStrategyResearchService(
+        strategy_service=FakeStrategyService(
+            workspace_service,
+            [],
+            strategies={strategy.id: strategy},
+        ),
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.list_run_records("user-1", limit=20)
+
+    refreshed = result.items[0]
+    assert refreshed.run_id == "auto-paper-review-run"
+    assert refreshed.paper_review_status == "ready_for_live_candidate"
+    assert refreshed.paper_review_ready_for_live is True
+    assert refreshed.paper_monitoring_plan[0]["key"] == "rolling_sharpe"
+    assert all(item["passed"] for item in refreshed.paper_review_evaluations)
+    assert refreshed.live_readiness_checklist[0]["key"] == "paper_monitoring_passed"
+    assert refreshed.live_handoff is not None
+    assert refreshed.live_handoff.ready_for_live is True
+    assert refreshed.live_handoff.status == "ready_for_approval"
+    assert refreshed.pipeline["current_stage"] == "live_handoff"
+    assert refreshed.pipeline["live_handoff_ready_for_live"] is True
+    assert "实盘候选有效期至" in refreshed.paper_review_next_actions[-1]
+
+    persisted_run = workspace_service.workspaces["research-auto-paper"].settings["ai_research"][
+        "runs"
+    ][0]
+    assert persisted_run["paper_review_status"] == "ready_for_live_candidate"
+    assert persisted_run["paper_review_ready_for_live"] is True
+    assert persisted_run["paper_review_evaluations"][0]["actual"] == pytest.approx(0.82)
+    assert persisted_run["live_handoff"]["status"] == "ready_for_approval"
+    assert persisted_run["pipeline"]["current_stage"] == "live_handoff"
+
+
 class FakeResearchAPIService:
     async def run(
         self,
