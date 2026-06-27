@@ -522,7 +522,7 @@
                     {{ paperReviewStatusLabel(aiResearchCurrentPaperReview.status) }}
                   </el-tag>
                   <span>
-                    {{ aiResearchCurrentPaperReview.ready_for_live ? '实盘候选' : '继续观察' }}
+                    {{ paperReviewDispositionLabel(aiResearchCurrentPaperReview) }}
                   </span>
                 </div>
                 <div class="ai-research-paper-review-rules">
@@ -946,7 +946,7 @@
                         {{ paperReviewStatusLabel(paperReviewForRecord(record)?.status) }}
                       </el-tag>
                       <span>
-                        {{ paperReviewForRecord(record)?.ready_for_live ? '实盘候选' : '继续观察' }}
+                        {{ paperReviewDispositionLabel(paperReviewForRecord(record)) }}
                       </span>
                     </div>
                     <div class="ai-research-paper-review-rules">
@@ -1935,6 +1935,15 @@ function paperReviewStatusLabel(status?: string | null) {
   const normalized = String(status || '').trim()
   if (!normalized) return ''
   return AI_RESEARCH_PAPER_REVIEW_STATUS_LABELS[normalized] ?? aiResearchStageLabel(normalized)
+}
+
+function paperReviewDispositionLabel(review: AIStrategyPaperTradingReview | null | undefined) {
+  const status = String(review?.status || '').trim()
+  if (review?.ready_for_live) return '实盘候选'
+  if (status === 'live_readiness_expired') return '重新复核'
+  if (status === 'needs_research_review') return '需要重新投研'
+  if (status === 'monitoring') return '继续观察'
+  return '待处理'
 }
 
 function liveReadinessStatusLabel(status?: string | null) {

@@ -1466,6 +1466,7 @@ describe('StrategyPage', () => {
 
     expect(wrapper.text()).toContain('复核 实盘候选已过期')
     expect(wrapper.text()).toContain('候选有效期')
+    expect(wrapper.find('[data-test="ai-research-paper-review"]').text()).toContain('重新复核')
     expect(wrapper.find('[data-test="ai-research-live-readiness"]').text()).toContain(
       '候选有效期 已过期'
     )
