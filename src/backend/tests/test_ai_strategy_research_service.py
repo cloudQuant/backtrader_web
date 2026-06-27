@@ -1768,6 +1768,9 @@ async def test_review_paper_trading_run_evaluates_monitoring_plan():
     assert review.evaluations[0].source == "unit_status.metrics_snapshot"
     assert review.evaluations[-1].key == "valuation_confidence"
     assert review.evaluations[-1].source == "unit_status.trading_snapshot"
+    assert review.live_readiness_checklist[0]["key"] == "paper_monitoring_passed"
+    assert review.live_readiness_checklist[-1]["key"] == "human_approval_required"
+    assert review.live_readiness_checklist[-1]["status"] == "pending_manual_confirmation"
     assert "实盘候选" in review.next_actions[0]
     updated_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
     assert updated_run["run_id"] == result.run_id
@@ -1777,8 +1780,14 @@ async def test_review_paper_trading_run_evaluates_monitoring_plan():
     assert updated_run["paper_review_evaluations"][0]["key"] == "rolling_sharpe"
     assert "实盘候选" in updated_run["paper_review_next_actions"][0]
     assert updated_run["next_actions"] == updated_run["paper_review_next_actions"]
+    assert updated_run["live_readiness_checklist"] == review.live_readiness_checklist
+    assert (
+        updated_run["paper_handoff"]["live_readiness_checklist"]
+        == review.live_readiness_checklist
+    )
     assert updated_run["pipeline"]["current_stage"] == "live_candidate"
     assert updated_run["pipeline"]["ready_for_live"] is True
+    assert updated_run["pipeline"]["live_readiness_checklist"] == review.live_readiness_checklist
 
 
 @pytest.mark.asyncio
@@ -3288,11 +3297,36 @@ class FakeResearchAPIService:
             ready_for_live=True,
             status="ready_for_live_candidate",
             reviewed_at="2026-01-01T00:02:00+00:00",
+            live_readiness_checklist=[
+                {
+                    "key": "paper_monitoring_passed",
+                    "label": "模拟监控通过",
+                    "status": "passed",
+                    "evidence": "模拟交易滚动 Sharpe 0.8 / 0.6，来源 unit_status.metrics_snapshot",
+                    "action": "继续监控同一组指标。",
+                },
+                {
+                    "key": "human_approval_required",
+                    "label": "人工实盘审批",
+                    "status": "pending_manual_confirmation",
+                    "evidence": "模拟复核已达到实盘候选状态。",
+                    "action": "确认账户权限和上线窗口后再切换实盘。",
+                },
+            ],
             pipeline={
                 "current_stage": "live_candidate",
                 "status": "achieved",
                 "progress": 100,
                 "ready_for_live": True,
+                "live_readiness_checklist": [
+                    {
+                        "key": "paper_monitoring_passed",
+                        "label": "模拟监控通过",
+                        "status": "passed",
+                        "evidence": "模拟交易滚动 Sharpe 0.8 / 0.6，来源 unit_status.metrics_snapshot",
+                        "action": "继续监控同一组指标。",
+                    },
+                ],
                 "steps": [],
             },
             next_actions=["模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。"],
@@ -3622,3 +3656,5 @@ async def test_ai_strategy_research_paper_review_endpoint(
     assert payload["ready_for_live"] is True
     assert payload["evaluations"][0]["metric"] == "rolling_sharpe"
     assert payload["evaluations"][0]["status"] == "passed"
+    assert payload["live_readiness_checklist"][0]["key"] == "paper_monitoring_passed"
+    assert payload["live_readiness_checklist"][-1]["status"] == "pending_manual_confirmation"

@@ -1142,13 +1142,21 @@ class AIStrategyResearchService:
             evaluations=evaluations,
             ready_for_live=ready_for_live,
         )
+        reviewed_at = _utc_iso_now()
+        live_readiness_checklist = _live_readiness_checklist(
+            record,
+            status=review_status,
+            evaluations=evaluations,
+            monitoring_plan=monitoring_plan,
+            reviewed_at=reviewed_at,
+        )
         pipeline = _pipeline_summary_from_record(
             record,
             paper_trading_started=record.paper_trading_started,
             paper_review_status=review_status,
             paper_review_ready_for_live=ready_for_live,
+            live_readiness_checklist=live_readiness_checklist,
         )
-        reviewed_at = _utc_iso_now()
         review = AIStrategyPaperTradingReview(
             run_id=record.run_id,
             research_workspace_id=record.research_workspace_id,
@@ -1163,6 +1171,7 @@ class AIStrategyResearchService:
             ready_for_live=ready_for_live,
             status=review_status,
             reviewed_at=reviewed_at,
+            live_readiness_checklist=live_readiness_checklist,
             pipeline=pipeline,
             next_actions=_paper_review_next_actions(
                 review_status,
@@ -1774,6 +1783,7 @@ class AIStrategyResearchService:
                     paper_trading.handoff
                 ),
                 "paper_handoff": dict(paper_trading.handoff or {}),
+                "live_readiness_checklist": [],
                 "next_actions": [
                     "已从历史投研结果启动模拟交易，下一步跟踪模拟账户成交、持仓和风控指标。",
                     "保留研究工作区记录，用于后续继续投研或样本外验证。",
@@ -1806,6 +1816,7 @@ class AIStrategyResearchService:
                 "paper_reviewed_at": None,
                 "paper_review_evaluations": [],
                 "paper_review_next_actions": [],
+                "live_readiness_checklist": [],
                 "paper_workspace_id": paper_trading.workspace.id if paper_trading else None,
                 "paper_unit_id": paper_trading.unit.id if paper_trading else None,
                 "paper_monitoring_plan": _paper_monitoring_plan_from_handoff(
@@ -1840,6 +1851,10 @@ class AIStrategyResearchService:
         workspace = await self.workspace_service.get_workspace(record.research_workspace_id, user_id)
         if workspace is None:
             return None
+        paper_handoff = _paper_handoff_with_live_readiness(
+            record.paper_handoff,
+            review.live_readiness_checklist,
+        )
         updated_record = record.model_copy(
             update={
                 "paper_review_status": review.status,
@@ -1849,6 +1864,8 @@ class AIStrategyResearchService:
                     item.model_dump(mode="json") for item in review.evaluations
                 ],
                 "paper_review_next_actions": review.next_actions,
+                "live_readiness_checklist": review.live_readiness_checklist,
+                "paper_handoff": paper_handoff,
                 "pipeline": review.pipeline,
                 "next_actions": review.next_actions,
             }
@@ -2673,6 +2690,7 @@ def _pipeline_summary_from_record(
     paper_trading_error: str | None = None,
     paper_review_status: str | None = None,
     paper_review_ready_for_live: bool | None = None,
+    live_readiness_checklist: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return _pipeline_summary(
         status=record.status,
@@ -2689,6 +2707,9 @@ def _pipeline_summary_from_record(
         paper_review_ready_for_live=record.paper_review_ready_for_live
         if paper_review_ready_for_live is None
         else paper_review_ready_for_live,
+        live_readiness_checklist=record.live_readiness_checklist
+        if live_readiness_checklist is None
+        else live_readiness_checklist,
     )
 
 
@@ -2702,6 +2723,7 @@ def _pipeline_summary(
     paper_trading_error: str | None,
     paper_review_status: str | None,
     paper_review_ready_for_live: bool,
+    live_readiness_checklist: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     draft_status = "completed"
     backtest_status = (
@@ -2771,6 +2793,7 @@ def _pipeline_summary(
         "progress": round(completed_count / len(steps) * 100, 2),
         "ready_for_live": paper_review_ready_for_live,
         "paper_trading_error": paper_trading_error,
+        "live_readiness_checklist": list(live_readiness_checklist or []),
         "steps": steps,
     }
 
@@ -3494,18 +3517,31 @@ def _apply_initial_paper_review_to_run_record(
         evaluations=evaluations,
         ready_for_live=ready_for_live,
     )
+    reviewed_at = _utc_iso_now()
+    live_readiness_checklist = _live_readiness_checklist(
+        record,
+        status=review_status,
+        evaluations=evaluations,
+        monitoring_plan=monitoring_plan,
+        reviewed_at=reviewed_at,
+    )
     pipeline = _pipeline_summary_from_record(
         record,
         paper_trading_started=record.paper_trading_started,
         paper_review_status=review_status,
         paper_review_ready_for_live=ready_for_live,
+        live_readiness_checklist=live_readiness_checklist,
+    )
+    paper_handoff = _paper_handoff_with_live_readiness(
+        record.paper_handoff,
+        live_readiness_checklist,
     )
     return record.model_copy(
         update={
             "paper_monitoring_plan": monitoring_plan,
             "paper_review_status": review_status,
             "paper_review_ready_for_live": ready_for_live,
-            "paper_reviewed_at": _utc_iso_now(),
+            "paper_reviewed_at": reviewed_at,
             "paper_review_evaluations": [
                 item.model_dump(mode="json") for item in evaluations
             ],
@@ -3514,6 +3550,8 @@ def _apply_initial_paper_review_to_run_record(
                 evaluations=evaluations,
                 monitoring_plan=monitoring_plan,
             ),
+            "live_readiness_checklist": live_readiness_checklist,
+            "paper_handoff": paper_handoff,
             "pipeline": pipeline,
         }
     )
@@ -4280,6 +4318,145 @@ def _paper_review_next_actions(
             "继续收集模拟交易数据，等待以下指标形成有效样本：" + "、".join(pending),
         ]
     return ["继续观察模拟交易表现，并定期回到投研记录复核监控指标。"]
+
+
+def _live_readiness_checklist(
+    record: AIStrategyResearchRunRecord,
+    *,
+    status: str,
+    evaluations: list[AIStrategyPaperTradingRuleEvaluation],
+    monitoring_plan: list[dict[str, Any]],
+    reviewed_at: str,
+) -> list[dict[str, Any]]:
+    if status != "ready_for_live_candidate":
+        return []
+
+    by_key = {item.key: item for item in evaluations}
+    passed_rules = [item.key for item in evaluations if item.passed]
+    performance_items = [
+        item
+        for key in ("rolling_sharpe", "trade_sample")
+        if (item := by_key.get(key)) is not None
+    ]
+    performance_evidence = "；".join(
+        _live_readiness_evaluation_evidence(item) for item in performance_items
+    )
+    if not performance_evidence:
+        performance_evidence = f"{len(passed_rules)}/{len(evaluations)} 项模拟监控规则已通过"
+
+    return [
+        {
+            "key": "paper_monitoring_passed",
+            "label": "模拟监控通过",
+            "status": "passed",
+            "evidence": performance_evidence,
+            "action": "保留模拟监控计划，进入人工实盘复核前继续监控同一组指标。",
+            "details": {
+                "reviewed_at": reviewed_at,
+                "monitoring_rule_count": len(monitoring_plan),
+                "passed_rules": passed_rules,
+            },
+        },
+        {
+            "key": "valuation_confirmed",
+            "label": "估值与资产参数确认",
+            "status": _live_readiness_status_from_evaluation(by_key.get("valuation_confidence")),
+            "evidence": _live_readiness_evaluation_evidence(
+                by_key.get("valuation_confidence"),
+                fallback="模拟交易估值、持仓来源、资产规格来源已确认。",
+            ),
+            "action": "实盘前再次核对交易所合约乘数、保证金、手续费、持仓来源和账户估值口径。",
+            "details": {
+                "asset_spec_source": record.backtest_environment.get("asset_spec_source"),
+                "asset_specs": record.asset_specs,
+                "backtest_environment": record.backtest_environment,
+            },
+        },
+        {
+            "key": "execution_costs_confirmed",
+            "label": "执行成本可接受",
+            "status": _live_readiness_status_from_evaluation(by_key.get("execution_cost_delta")),
+            "evidence": _live_readiness_evaluation_evidence(
+                by_key.get("execution_cost_delta"),
+                fallback="模拟交易手续费和滑点偏差在监控阈值内。",
+            ),
+            "action": "实盘前用券商或交易所费率重新确认佣金、滑点和最小价格变动。",
+            "details": {
+                "commission": record.commission,
+                "symbol": record.symbol,
+                "timeframe": record.timeframe,
+            },
+        },
+        {
+            "key": "risk_budget_confirmed",
+            "label": "风险预算可控",
+            "status": _live_readiness_status_from_evaluation(by_key.get("max_drawdown_guard")),
+            "evidence": _live_readiness_evaluation_evidence(
+                by_key.get("max_drawdown_guard"),
+                fallback="模拟交易回撤约束在监控阈值内。",
+            ),
+            "action": "实盘前设置最大资金占用、单品种仓位上限、最大回撤止损和人工熔断规则。",
+            "details": {
+                "initial_cash": record.initial_cash,
+                "quality_gates": record.quality_gates,
+                "best_metrics": record.best_metrics,
+            },
+        },
+        {
+            "key": "human_approval_required",
+            "label": "人工实盘审批",
+            "status": "pending_manual_confirmation",
+            "evidence": f"模拟复核已在 {reviewed_at} 达到实盘候选状态。",
+            "action": "由负责人确认账户权限、交易时段、实盘资金、应急预案和上线窗口后再切换实盘。",
+            "details": {
+                "run_id": record.run_id,
+                "research_workspace_id": record.research_workspace_id,
+                "paper_workspace_id": record.paper_workspace_id,
+                "paper_unit_id": record.paper_unit_id,
+            },
+        },
+    ]
+
+
+def _live_readiness_status_from_evaluation(
+    item: AIStrategyPaperTradingRuleEvaluation | None,
+) -> str:
+    if item is None:
+        return "pending"
+    return "passed" if item.passed else item.status or "pending"
+
+
+def _live_readiness_evaluation_evidence(
+    item: AIStrategyPaperTradingRuleEvaluation | None,
+    *,
+    fallback: str = "",
+) -> str:
+    if item is None:
+        return fallback or "缺少对应的模拟监控评估。"
+    actual = _format_live_readiness_value(item.actual)
+    threshold = _format_live_readiness_value(item.threshold)
+    source = item.source or "unknown"
+    return f"{item.label} {actual} / {threshold}，来源 {source}"
+
+
+def _format_live_readiness_value(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, int | float):
+        return f"{float(value):.6g}"
+    return str(value)
+
+
+def _paper_handoff_with_live_readiness(
+    handoff: dict[str, Any] | None,
+    checklist: list[dict[str, Any]],
+) -> dict[str, Any]:
+    payload = dict(handoff or {})
+    if checklist:
+        payload["live_readiness_checklist"] = [dict(item) for item in checklist]
+    else:
+        payload.pop("live_readiness_checklist", None)
+    return payload
 
 
 def _iteration_next_actions(

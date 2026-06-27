@@ -403,11 +403,36 @@ vi.mock('@/api/strategy', () => ({
       ready_for_live: true,
       status: 'ready_for_live_candidate',
       reviewed_at: '2026-06-27T00:02:00Z',
+      live_readiness_checklist: [
+        {
+          key: 'paper_monitoring_passed',
+          label: '模拟监控通过',
+          status: 'passed',
+          evidence: '模拟交易滚动 Sharpe 0.72 / 0.60，来源 unit_status.metrics_snapshot',
+          action: '继续监控同一组指标。',
+        },
+        {
+          key: 'human_approval_required',
+          label: '人工实盘审批',
+          status: 'pending_manual_confirmation',
+          evidence: '模拟复核已达到实盘候选状态。',
+          action: '确认账户权限和上线窗口后再切换实盘。',
+        },
+      ],
       pipeline: {
         current_stage: 'live_candidate',
         status: 'achieved',
         progress: 100,
         ready_for_live: true,
+        live_readiness_checklist: [
+          {
+            key: 'paper_monitoring_passed',
+            label: '模拟监控通过',
+            status: 'passed',
+            evidence: '模拟交易滚动 Sharpe 0.72 / 0.60，来源 unit_status.metrics_snapshot',
+            action: '继续监控同一组指标。',
+          },
+        ],
         steps: [],
       },
       next_actions: ['模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。'],
@@ -622,6 +647,9 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchRuns[0].paper_review_status).toBe('ready_for_live_candidate')
     expect(wrapper.find('[data-test="ai-research-current-paper-review"]').text()).toContain(
       '实盘候选'
+    )
+    expect(wrapper.find('[data-test="ai-research-current-live-readiness"]').text()).toContain(
+      '人工实盘审批 待人工确认'
     )
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已启动')
@@ -1825,6 +1853,9 @@ describe('StrategyPage', () => {
     expect(wrapper.find('[data-test="ai-research-paper-review-actions"]').text()).toContain(
       '模拟交易监控计划已全部通过'
     )
+    expect(wrapper.find('[data-test="ai-research-live-readiness"]').text()).toContain(
+      '模拟监控通过 已通过'
+    )
     expect(wrapper.text()).toContain('实盘候选')
     expect(wrapper.text()).toContain('复核 实盘候选')
     expect(wrapper.text()).toContain('模拟交易滚动 Sharpe')
@@ -1889,12 +1920,30 @@ describe('StrategyPage', () => {
               action: 'continue',
             },
           ],
+          live_readiness_checklist: [
+            {
+              key: 'human_approval_required',
+              label: '人工实盘审批',
+              status: 'pending_manual_confirmation',
+              evidence: '模拟复核已达到实盘候选状态。',
+              action: '确认账户权限和上线窗口后再切换实盘。',
+            },
+          ],
           paper_review_next_actions: ['模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。'],
           pipeline: {
             current_stage: 'live_candidate',
             status: 'achieved',
             progress: 100,
             ready_for_live: true,
+            live_readiness_checklist: [
+              {
+                key: 'human_approval_required',
+                label: '人工实盘审批',
+                status: 'pending_manual_confirmation',
+                evidence: '模拟复核已达到实盘候选状态。',
+                action: '确认账户权限和上线窗口后再切换实盘。',
+              },
+            ],
             steps: [],
           },
           next_actions: ['模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。'],
@@ -1914,6 +1963,9 @@ describe('StrategyPage', () => {
     )
     expect(wrapper.find('[data-test="ai-research-paper-review"]').text()).toContain(
       '模拟交易滚动 Sharpe'
+    )
+    expect(wrapper.find('[data-test="ai-research-live-readiness"]').text()).toContain(
+      '人工实盘审批 待人工确认'
     )
     expect(wrapper.find('[data-test="ai-research-paper-review-actions"]').text()).toContain(
       '模拟交易监控计划已全部通过'

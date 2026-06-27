@@ -534,6 +534,19 @@
                   </span>
                 </div>
                 <div
+                  v-if="liveReadinessChecklistForReview(aiResearchCurrentPaperReview).length"
+                  class="ai-research-live-readiness"
+                  data-test="ai-research-current-live-readiness"
+                >
+                  <strong>实盘交接清单</strong>
+                  <span
+                    v-for="item in liveReadinessChecklistForReview(aiResearchCurrentPaperReview)"
+                    :key="item.key"
+                  >
+                    {{ item.label }} {{ liveReadinessStatusLabel(item.status) }}：{{ item.evidence }}
+                  </span>
+                </div>
+                <div
                   v-if="aiResearchCurrentPaperReview.next_actions?.length"
                   class="ai-research-paper-review-actions"
                   data-test="ai-research-current-paper-review-actions"
@@ -939,6 +952,19 @@
                       </span>
                     </div>
                     <div
+                      v-if="liveReadinessChecklistForReview(paperReviewForRecord(record)).length"
+                      class="ai-research-live-readiness"
+                      data-test="ai-research-live-readiness"
+                    >
+                      <strong>实盘交接清单</strong>
+                      <span
+                        v-for="item in liveReadinessChecklistForReview(paperReviewForRecord(record))"
+                        :key="item.key"
+                      >
+                        {{ item.label }} {{ liveReadinessStatusLabel(item.status) }}：{{ item.evidence }}
+                      </span>
+                    </div>
+                    <div
                       v-if="paperReviewForRecord(record)?.next_actions?.length"
                       class="ai-research-paper-review-actions"
                       data-test="ai-research-paper-review-actions"
@@ -1179,6 +1205,7 @@ import StrategyDetailDialog from './strategy-components/StrategyDetailDialog.vue
 import StrategyTemplateCard from './strategy-components/StrategyTemplateCard.vue'
 import type { ParamSpec, Strategy, StrategyTemplate } from '@/types'
 import type {
+  AIStrategyLiveReadinessItem,
   AIStrategyOutOfSampleValidation,
   AIStrategyPaperMonitoringRule,
   AIStrategyPaperTradingStart,
@@ -1272,6 +1299,13 @@ const AI_RESEARCH_PAPER_REVIEW_STATUS_LABELS: Record<string, string> = {
   ready_for_live_candidate: '实盘候选',
   monitoring: '继续观察',
   needs_research_review: '需要重新投研',
+}
+
+const AI_RESEARCH_LIVE_READINESS_STATUS_LABELS: Record<string, string> = {
+  passed: '已通过',
+  pending: '待确认',
+  pending_manual_confirmation: '待人工确认',
+  failed: '未通过',
 }
 
 const form = reactive({
@@ -1892,10 +1926,50 @@ function paperReviewStatusLabel(status?: string | null) {
   return AI_RESEARCH_PAPER_REVIEW_STATUS_LABELS[normalized] ?? aiResearchStageLabel(normalized)
 }
 
+function liveReadinessStatusLabel(status?: string | null) {
+  const normalized = String(status || '').trim()
+  if (!normalized) return ''
+  return AI_RESEARCH_LIVE_READINESS_STATUS_LABELS[normalized] ?? aiResearchStageLabel(normalized)
+}
+
 function aiResearchStageLabel(stage?: string | null) {
   const normalized = String(stage || '').trim()
   if (!normalized) return ''
   return AI_RESEARCH_STAGE_LABELS[normalized] ?? normalized.replace(/_/g, ' ')
+}
+
+function liveReadinessChecklistForReview(
+  review: AIStrategyPaperTradingReview | null | undefined
+): AIStrategyLiveReadinessItem[] {
+  if (!review) return []
+  if (review.live_readiness_checklist?.length) return review.live_readiness_checklist
+  return liveReadinessChecklistFromPayload(review.pipeline?.live_readiness_checklist)
+}
+
+function liveReadinessChecklistForRecord(
+  record: AIStrategyResearchRunRecord
+): AIStrategyLiveReadinessItem[] {
+  if (record.live_readiness_checklist?.length) return record.live_readiness_checklist
+  const pipelineChecklist = liveReadinessChecklistFromPayload(
+    record.pipeline?.live_readiness_checklist
+  )
+  if (pipelineChecklist.length) return pipelineChecklist
+  if (isRecord(record.paper_handoff)) {
+    return liveReadinessChecklistFromPayload(record.paper_handoff.live_readiness_checklist)
+  }
+  return []
+}
+
+function liveReadinessChecklistFromPayload(payload: unknown): AIStrategyLiveReadinessItem[] {
+  if (!Array.isArray(payload)) return []
+  return payload.filter(isRecord).map((item, index) => ({
+    key: String(item.key || `item-${index}`),
+    label: String(item.label || item.key || `检查项 ${index + 1}`),
+    status: String(item.status || 'pending'),
+    evidence: String(item.evidence || ''),
+    action: String(item.action || ''),
+    details: isRecord(item.details) ? item.details : undefined,
+  }))
 }
 
 function clearAIResearchContinuation() {
@@ -1917,6 +1991,7 @@ function paperStartedRunRecord(
     paper_handoff: paper.handoff ?? {},
     paper_monitoring_plan:
       paperMonitoringPlanFromHandoff(paper.handoff) ?? record.paper_monitoring_plan,
+    live_readiness_checklist: [],
   }
 }
 
@@ -1955,12 +2030,14 @@ function paperStartFailedRunRecord(
     paper_reviewed_at: null,
     paper_review_evaluations: [],
     paper_review_next_actions: [],
+    live_readiness_checklist: [],
     pipeline: {
       current_stage: 'paper_trading_failed',
       status: record.status,
       progress: record.pipeline?.progress ?? 92,
       ready_for_live: false,
       paper_trading_error: error,
+      live_readiness_checklist: [],
       steps,
     },
     next_actions: [
@@ -2067,6 +2144,13 @@ function reviewedRunRecord(
   record: AIStrategyResearchRunRecord,
   review: AIStrategyPaperTradingReview
 ): AIStrategyResearchRunRecord {
+  const liveReadinessChecklist = liveReadinessChecklistForReview(review)
+  const paperHandoff: Record<string, unknown> = { ...(record.paper_handoff ?? {}) }
+  if (liveReadinessChecklist.length) {
+    paperHandoff.live_readiness_checklist = liveReadinessChecklist
+  } else {
+    delete paperHandoff.live_readiness_checklist
+  }
   return {
     ...record,
     paper_review_status: review.status,
@@ -2074,6 +2158,8 @@ function reviewedRunRecord(
     paper_reviewed_at: review.reviewed_at ?? record.paper_reviewed_at,
     paper_review_evaluations: review.evaluations,
     paper_review_next_actions: review.next_actions,
+    live_readiness_checklist: liveReadinessChecklist,
+    paper_handoff: paperHandoff,
     pipeline: review.pipeline ?? record.pipeline,
     next_actions: review.next_actions,
   }
@@ -2096,6 +2182,7 @@ function paperReviewForRecord(
     ready_for_live: Boolean(record.paper_review_ready_for_live),
     status: record.paper_review_status,
     reviewed_at: record.paper_reviewed_at,
+    live_readiness_checklist: liveReadinessChecklistForRecord(record),
     pipeline: record.pipeline,
     next_actions: record.paper_review_next_actions ?? [],
   } satisfies AIStrategyPaperTradingReview
@@ -2964,6 +3051,20 @@ onMounted(async () => {
 
 .ai-research-paper-review-rules {
   color: var(--el-text-color-secondary);
+}
+
+.ai-research-live-readiness {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ai-research-live-readiness strong {
+  color: var(--el-text-color-primary);
+  font-size: 12px;
 }
 
 .ai-research-history-empty {

@@ -249,6 +249,15 @@ export interface AIStrategyPaperTradingStartRequest {
   gateway_config?: Record<string, unknown>
 }
 
+export interface AIStrategyLiveReadinessItem {
+  key: string
+  label: string
+  status: string
+  evidence: string
+  action: string
+  details?: Record<string, unknown>
+}
+
 export interface AIStrategyResearchRunRecord {
   run_id: string
   prompt: string
@@ -295,6 +304,7 @@ export interface AIStrategyResearchRunRecord {
   paper_reviewed_at?: string | null
   paper_review_evaluations?: AIStrategyPaperTradingRuleEvaluation[]
   paper_review_next_actions?: string[]
+  live_readiness_checklist?: AIStrategyLiveReadinessItem[]
   pipeline?: AIStrategyPipelineSummary
   next_actions: string[]
   started_at: string
@@ -371,6 +381,7 @@ export interface AIStrategyPaperTradingReview {
   ready_for_live: boolean
   status: string
   reviewed_at?: string | null
+  live_readiness_checklist?: AIStrategyLiveReadinessItem[]
   pipeline?: AIStrategyPipelineSummary
   next_actions: string[]
 }
@@ -391,6 +402,7 @@ export interface AIStrategyPipelineSummary {
   progress: number
   ready_for_live: boolean
   paper_trading_error?: string | null
+  live_readiness_checklist?: AIStrategyLiveReadinessItem[]
   steps: AIStrategyPipelineStep[]
 }
 

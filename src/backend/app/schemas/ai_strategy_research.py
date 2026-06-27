@@ -191,6 +191,7 @@ class AIStrategyPaperTradingReview(BaseModel):
     ready_for_live: bool = False
     status: str
     reviewed_at: str | None = None
+    live_readiness_checklist: list[dict[str, Any]] = Field(default_factory=list)
     pipeline: dict[str, Any] = Field(default_factory=dict)
     next_actions: list[str] = Field(default_factory=list)
 
@@ -249,6 +250,7 @@ class AIStrategyResearchRunRecord(BaseModel):
     paper_reviewed_at: str | None = None
     paper_review_evaluations: list[dict[str, Any]] = Field(default_factory=list)
     paper_review_next_actions: list[str] = Field(default_factory=list)
+    live_readiness_checklist: list[dict[str, Any]] = Field(default_factory=list)
     pipeline: dict[str, Any] = Field(default_factory=dict)
     next_actions: list[str] = Field(default_factory=list)
     started_at: str
