@@ -1369,6 +1369,10 @@ class AIStrategyResearchService:
                     backtest_environment.get("weight_mode"),
                     record.weight_mode,
                 )
+            if "backtest_timeout_seconds" not in explicit_fields:
+                update["backtest_timeout_seconds"] = record.backtest_timeout_seconds
+            if "poll_interval_seconds" not in explicit_fields:
+                update["poll_interval_seconds"] = record.poll_interval_seconds
             if record.thinking_mode and "thinking_mode" not in explicit_fields:
                 update["thinking_mode"] = record.thinking_mode
             update.update(_continuation_runtime_updates(record, request, explicit_fields))
@@ -3733,6 +3737,8 @@ def _paper_start_request_from_record(
         min_out_of_sample_sharpe=_optional_gate_number(gates.get("min_out_of_sample_sharpe")),
         min_out_of_sample_trades=_optional_gate_int(gates.get("min_out_of_sample_trades")),
         max_iterations=max(int(record.max_iterations or 1), 1),
+        backtest_timeout_seconds=record.backtest_timeout_seconds,
+        poll_interval_seconds=record.poll_interval_seconds,
         research_workspace_id=record.research_workspace_id,
         trading_workspace_id=request.trading_workspace_id,
         seed_strategy_id=record.best_strategy_id
@@ -4133,6 +4139,8 @@ def _build_research_run_record(
         quality_gates=_quality_gates_payload(request),
         min_total_trades=request.min_total_trades,
         max_iterations=request.max_iterations,
+        backtest_timeout_seconds=request.backtest_timeout_seconds,
+        poll_interval_seconds=request.poll_interval_seconds,
         iteration_count=len(response.iterations),
         best_iteration=response.best_iteration,
         best_sharpe=best_iteration.sharpe_ratio
@@ -4264,6 +4272,8 @@ def _build_paper_trading_handoff(
         "selected_iteration": best_iteration.iteration,
         "target_sharpe": request.target_sharpe,
         "quality_gates": _quality_gates_payload(request),
+        "backtest_timeout_seconds": request.backtest_timeout_seconds,
+        "poll_interval_seconds": request.poll_interval_seconds,
         "achieved_sharpe": best_iteration.sharpe_ratio,
         "achieved_quality_score": best_iteration.quality_score,
         "achieved_quality_gate_evaluations": best_iteration.quality_gate_evaluations,

@@ -1642,6 +1642,8 @@ describe('StrategyPage', () => {
       },
       min_total_trades: 3,
       max_iterations: 4,
+      backtest_timeout_seconds: 1200,
+      poll_interval_seconds: 3,
       iteration_count: 2,
       best_iteration: 2,
       best_sharpe: 1.6,
@@ -1673,6 +1675,8 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.max_drawdown_limit).toBe(15)
     expect(vm.aiResearchForm.use_min_win_rate).toBe(true)
     expect(vm.aiResearchForm.min_win_rate).toBe(55)
+    expect(vm.aiResearchForm.backtest_timeout_seconds).toBe(1200)
+    expect(vm.aiResearchForm.poll_interval_seconds).toBe(3)
     expect(vm.aiResearchForm.out_of_sample_validation).toBe(true)
     expect(vm.aiResearchForm.out_of_sample_ratio_pct).toBe(30)
     expect(vm.aiResearchForm.use_min_out_of_sample_sharpe).toBe(true)

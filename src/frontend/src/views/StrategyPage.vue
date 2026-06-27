@@ -2073,6 +2073,12 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.use_min_win_rate = typeof gates.min_win_rate === 'number'
   aiResearchForm.min_win_rate = Number(gates.min_win_rate ?? 50)
   aiResearchForm.max_iterations = record.max_iterations || 3
+  if (typeof record.backtest_timeout_seconds === 'number') {
+    aiResearchForm.backtest_timeout_seconds = record.backtest_timeout_seconds
+  }
+  if (typeof record.poll_interval_seconds === 'number') {
+    aiResearchForm.poll_interval_seconds = record.poll_interval_seconds
+  }
   aiResearchForm.out_of_sample_validation = optionalBoolean(gates.out_of_sample_validation, true)
   aiResearchForm.out_of_sample_ratio_pct = outOfSampleRatioPct(gates.out_of_sample_ratio)
   aiResearchForm.use_min_out_of_sample_sharpe =

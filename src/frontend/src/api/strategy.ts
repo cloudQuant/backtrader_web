@@ -282,6 +282,8 @@ export interface AIStrategyResearchRunRecord {
   quality_gates: Record<string, unknown>
   min_total_trades: number
   max_iterations: number
+  backtest_timeout_seconds?: number
+  poll_interval_seconds?: number
   iteration_count: number
   best_iteration?: number | null
   best_sharpe: number

@@ -229,6 +229,8 @@ class AIStrategyResearchRunRecord(BaseModel):
     quality_gates: dict[str, Any] = Field(default_factory=dict)
     min_total_trades: int = 0
     max_iterations: int = 0
+    backtest_timeout_seconds: float = 600.0
+    poll_interval_seconds: float = 2.0
     iteration_count: int = 0
     best_iteration: int | None = None
     best_sharpe: float = 0.0

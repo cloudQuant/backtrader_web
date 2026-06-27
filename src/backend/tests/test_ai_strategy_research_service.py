@@ -835,6 +835,7 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
             thinking_mode=True,
             target_sharpe=1.0,
             max_iterations=3,
+            backtest_timeout_seconds=1200,
             poll_interval_seconds=0.1,
         ),
     )
@@ -899,6 +900,8 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.run_record.knowledge_base_id == "kb-quant"
     assert result.run_record.thinking_mode is True
     assert result.run_record.best_strategy_id == "strategy-2"
+    assert result.run_record.backtest_timeout_seconds == pytest.approx(1200)
+    assert result.run_record.poll_interval_seconds == pytest.approx(0.1)
     assert result.run_record.paper_trading_started is True
     assert result.run_record.best_quality_score == 100.0
     assert result.run_record.best_diagnostics["promotion_ready"] is True
@@ -930,6 +933,8 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
         "min_out_of_sample_trades": 1,
     }
     assert result.paper_trading.handoff["quality_gates"] == result.run_record.quality_gates
+    assert result.paper_trading.handoff["backtest_timeout_seconds"] == 1200
+    assert result.paper_trading.handoff["poll_interval_seconds"] == 0.1
     assert result.research_workspace.settings["ai_research"]["last_run"]["run_id"] == result.run_id
     assert result.research_workspace.settings["ai_research"]["runs"][0]["run_id"] == result.run_id
     assert (
@@ -2773,6 +2778,8 @@ async def test_research_loop_can_continue_from_previous_run_best_strategy():
         "annual_days": 244,
         "calc_method": "log",
         "weight_mode": "value",
+        "backtest_timeout_seconds": 1800,
+        "poll_interval_seconds": 4,
     }
     workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
         update={
@@ -2809,7 +2816,6 @@ async def test_research_loop_can_continue_from_previous_run_best_strategy():
             start_paper_trading=False,
             out_of_sample_validation=False,
             max_iterations=1,
-            poll_interval_seconds=0.1,
         ),
     )
 
@@ -2830,6 +2836,8 @@ async def test_research_loop_can_continue_from_previous_run_best_strategy():
     assert result.run_record.continued_from_run_id == "previous-run"
     assert result.run_record.start_date == "2024-01-01"
     assert result.run_record.commission == pytest.approx(0.000023)
+    assert result.run_record.backtest_timeout_seconds == pytest.approx(1800)
+    assert result.run_record.poll_interval_seconds == pytest.approx(4)
 
 
 @pytest.mark.asyncio
