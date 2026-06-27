@@ -656,6 +656,8 @@ describe('StrategyPage', () => {
     expect(wrapper.find('[data-test="ai-research-current-live-readiness"]').text()).toContain(
       '人工实盘审批 待人工确认'
     )
+    expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('实盘候选')
+    expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('已完成')
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已启动')
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已满足实盘候选条件')
@@ -725,6 +727,11 @@ describe('StrategyPage', () => {
     expect(review.exists()).toBe(true)
     expect(review.text()).toContain('继续观察')
     expect(review.text()).toContain('模拟交易滚动 Sharpe')
+    const pipeline = wrapper.find('[data-test="ai-research-pipeline"]')
+    expect(pipeline.text()).toContain('AI投研流水线')
+    expect(pipeline.text()).toContain('模拟复核')
+    expect(pipeline.text()).toContain('进行中')
+    expect(pipeline.text()).toContain('复核 继续观察')
     expect(wrapper.find('[data-test="ai-research-current-paper-review-actions"]').text()).toContain(
       '继续收集模拟交易数据'
     )

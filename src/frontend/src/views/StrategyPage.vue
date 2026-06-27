@@ -582,6 +582,41 @@
               </div>
 
               <div
+                v-if="aiResearchPipelineSteps.length"
+                class="ai-research-pipeline"
+                data-test="ai-research-pipeline"
+              >
+                <strong>AI投研流水线</strong>
+                <div class="ai-research-pipeline-steps">
+                  <span
+                    v-for="step in aiResearchPipelineSteps"
+                    :key="step.key"
+                    class="ai-research-pipeline-step"
+                  >
+                    <span>{{ step.label || aiResearchStageLabel(step.key) }}</span>
+                    <el-tag
+                      size="small"
+                      :type="pipelineStepTagType(step.status)"
+                    >
+                      {{ pipelineStepStatusLabel(step.status) }}
+                    </el-tag>
+                    <small v-if="pipelineStepIterationText(step)">
+                      {{ pipelineStepIterationText(step) }}
+                    </small>
+                    <small v-if="step.review_status">
+                      复核 {{ paperReviewStatusLabel(step.review_status) }}
+                    </small>
+                    <small
+                      v-if="step.error"
+                      class="ai-research-warning-text"
+                    >
+                      {{ step.error }}
+                    </small>
+                  </span>
+                </div>
+              </div>
+
+              <div
                 v-if="aiResearchNextActions.length"
                 class="ai-research-action-plan"
                 data-test="ai-research-next-actions"
@@ -1219,6 +1254,7 @@ import type {
   AIStrategyPaperMonitoringRule,
   AIStrategyPaperTradingStart,
   AIStrategyPaperTradingReview,
+  AIStrategyPipelineStep,
   AIStrategyQualityGateEvaluation,
   AIStrategyResearchRunRequest,
   AIStrategyResearchRunRecord,
@@ -1319,6 +1355,14 @@ const AI_RESEARCH_LIVE_READINESS_STATUS_LABELS: Record<string, string> = {
   failed: '未通过',
 }
 
+const AI_RESEARCH_PIPELINE_STEP_STATUS_LABELS: Record<string, string> = {
+  pending: '待执行',
+  running: '进行中',
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+}
+
 const form = reactive({
   name: '',
   description: '',
@@ -1398,6 +1442,20 @@ const aiBestSharpe = computed(() => {
 })
 
 const aiResearchNextActions = computed(() => aiResearchResult.value?.next_actions ?? [])
+const aiResearchPipelineSteps = computed<AIStrategyPipelineStep[]>(() => {
+  const pipeline = aiResearchResult.value?.pipeline
+  if (!pipeline) return []
+  if (pipeline.steps?.length) return pipeline.steps
+  if (!pipeline.current_stage) return []
+  return [
+    {
+      key: pipeline.current_stage,
+      label: aiResearchStageLabel(pipeline.current_stage),
+      status: pipeline.ready_for_live ? 'completed' : 'running',
+      error: pipeline.paper_trading_error,
+    },
+  ]
+})
 const aiResearchCurrentPaperFailed = computed(() => {
   const pipeline = aiResearchResult.value?.pipeline
   return Boolean(
@@ -1950,6 +2008,29 @@ function liveReadinessStatusLabel(status?: string | null) {
   const normalized = String(status || '').trim()
   if (!normalized) return ''
   return AI_RESEARCH_LIVE_READINESS_STATUS_LABELS[normalized] ?? aiResearchStageLabel(normalized)
+}
+
+function pipelineStepStatusLabel(status?: string | null) {
+  const normalized = String(status || '').trim()
+  if (!normalized) return ''
+  return AI_RESEARCH_PIPELINE_STEP_STATUS_LABELS[normalized] ?? aiResearchStageLabel(normalized)
+}
+
+function pipelineStepTagType(status?: string | null) {
+  const normalized = String(status || '').trim()
+  if (normalized === 'completed') return 'success'
+  if (normalized === 'failed') return 'danger'
+  if (normalized === 'running') return 'warning'
+  return 'info'
+}
+
+function pipelineStepIterationText(step: AIStrategyPipelineStep) {
+  const count = typeof step.iteration_count === 'number' ? step.iteration_count : null
+  const max = typeof step.max_iterations === 'number' ? step.max_iterations : null
+  if (count === null && max === null) return ''
+  if (count !== null && max !== null) return `${count}/${max} 轮`
+  if (count !== null) return `${count} 轮`
+  return `最多 ${max} 轮`
 }
 
 function aiResearchStageLabel(stage?: string | null) {
@@ -2839,6 +2920,39 @@ onMounted(async () => {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 16px;
+}
+
+.ai-research-pipeline {
+  border-top: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  padding: 10px 0;
+  margin-bottom: 16px;
+}
+
+.ai-research-pipeline > strong {
+  display: block;
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.ai-research-pipeline-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-research-pipeline-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+}
+
+.ai-research-pipeline-step small {
+  color: var(--el-text-color-secondary);
 }
 
 .ai-research-action-plan {
