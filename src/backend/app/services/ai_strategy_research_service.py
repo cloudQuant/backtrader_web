@@ -3891,7 +3891,7 @@ def _paper_monitoring_plan_from_metrics(
             "metric": "closed_trades",
             "window": "paper validation period",
             "direction": "min",
-            "threshold": max(int(request.min_total_trades), 1),
+            "threshold": max(int(request.min_total_trades), 20),
             "action": "成交样本不足时延长模拟观察期，不进入实盘。",
         },
         {
@@ -4010,7 +4010,11 @@ def _evaluate_paper_monitoring_plan(
         actual, source = _lookup_paper_metric(metric, unit=unit, unit_status=unit_status)
         direction = str(raw_rule.get("direction") or "min").strip().lower()
         passed = _paper_rule_passed(actual, threshold, direction)
-        status = "pending" if actual is None else "passed" if passed else "failed"
+        status = _paper_rule_status(
+            key=str(raw_rule.get("key") or metric),
+            actual=actual,
+            passed=passed,
+        )
         evaluations.append(
             AIStrategyPaperTradingRuleEvaluation(
                 key=str(raw_rule.get("key") or metric),
@@ -4027,6 +4031,21 @@ def _evaluate_paper_monitoring_plan(
             )
         )
     return evaluations
+
+
+def _paper_rule_status(
+    *,
+    key: str,
+    actual: float | None,
+    passed: bool,
+) -> str:
+    if actual is None:
+        return "pending"
+    if passed:
+        return "passed"
+    if key == "trade_sample":
+        return "pending"
+    return "failed"
 
 
 _PAPER_METRIC_ALIASES: dict[str, tuple[str, ...]] = {

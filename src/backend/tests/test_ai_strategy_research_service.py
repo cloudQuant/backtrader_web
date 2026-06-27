@@ -1736,7 +1736,7 @@ async def test_review_paper_trading_run_evaluates_monitoring_plan():
         metrics_snapshot={
             "rolling_sharpe": 0.72,
             "max_drawdown": 4.5,
-            "closed_trades": 3,
+            "closed_trades": 20,
             "slippage_and_commission_delta": 0.0002,
         },
         trading_snapshot={
@@ -1782,7 +1782,7 @@ async def test_review_paper_trading_run_evaluates_monitoring_plan():
 
 
 @pytest.mark.asyncio
-async def test_review_paper_trading_blocks_live_candidate_when_valuation_is_unconfirmed():
+async def test_review_paper_trading_waits_for_minimum_paper_trade_sample():
     workspace_service = FakeWorkspaceService()
     strategy_service = FakeStrategyService(
         workspace_service,
@@ -1814,6 +1814,66 @@ async def test_review_paper_trading_blocks_live_candidate_when_valuation_is_unco
             "rolling_sharpe": 0.72,
             "max_drawdown": 4.5,
             "closed_trades": 3,
+            "slippage_and_commission_delta": 0.0002,
+        },
+        trading_snapshot={
+            "valuation_status": "confirmed",
+            "position_source": "gateway",
+            "asset_spec_source": "paper_gateway",
+            "valuation_warnings": [],
+        },
+        run_count=1,
+        trading_mode="paper",
+    )
+
+    review = await service.review_paper_trading_run("user-1", result.run_id)
+
+    trade_sample = next(item for item in review.evaluations if item.key == "trade_sample")
+    assert trade_sample.threshold == 20.0
+    assert trade_sample.actual == 3.0
+    assert trade_sample.status == "pending"
+    assert review.status == "monitoring"
+    assert review.ready_for_live is False
+    assert "继续收集模拟交易数据" in review.next_actions[0]
+    updated_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert updated_run["paper_review_status"] == "monitoring"
+    assert updated_run["pipeline"]["current_stage"] == "paper_review"
+    assert updated_run["pipeline"]["ready_for_live"] is False
+
+
+@pytest.mark.asyncio
+async def test_review_paper_trading_blocks_live_candidate_when_valuation_is_unconfirmed():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {"sharpe_ratio": 1.18, "total_trades": 6, "max_drawdown": -4.0},
+        ],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+    workspace_service.statuses["paper-unit"] = UnitStatusResponse(
+        id="paper-unit",
+        run_status="running",
+        last_task_id="paper-task",
+        metrics_snapshot={
+            "rolling_sharpe": 0.72,
+            "max_drawdown": 4.5,
+            "closed_trades": 20,
             "slippage_and_commission_delta": 0.0002,
         },
         trading_snapshot={
@@ -1903,7 +1963,7 @@ async def test_review_paper_trading_confirms_valuation_from_unit_asset_specs(mon
         metrics_snapshot={
             "rolling_sharpe": 0.72,
             "max_drawdown": 4.5,
-            "closed_trades": 3,
+            "closed_trades": 20,
             "slippage_and_commission_delta": 0.0002,
         },
         run_count=1,
