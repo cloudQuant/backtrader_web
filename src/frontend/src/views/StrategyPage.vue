@@ -240,6 +240,31 @@
                     data-test="ai-research-gateway-config"
                   />
                 </el-form-item>
+                <el-form-item label="实盘工作区名称">
+                  <el-input
+                    v-model="aiResearchForm.live_workspace_name"
+                    clearable
+                    placeholder="自动命名"
+                    data-test="ai-research-live-workspace-name"
+                  />
+                </el-form-item>
+                <el-form-item label="实盘工作区 ID">
+                  <el-input
+                    v-model="aiResearchForm.live_trading_workspace_id"
+                    clearable
+                    placeholder="可选，复用已有实盘工作区"
+                    data-test="ai-research-live-workspace-id"
+                  />
+                </el-form-item>
+                <el-form-item label="实盘网关配置 JSON">
+                  <el-input
+                    v-model="aiResearchForm.live_gateway_config_json"
+                    type="textarea"
+                    :rows="3"
+                    placeholder='{"name":"ctp_live","params":{}}'
+                    data-test="ai-research-live-gateway-config"
+                  />
+                </el-form-item>
                 <el-form-item :label="t('strategy.aiResearchStartDate')">
                   <el-input
                     v-model="aiResearchForm.start_date"
@@ -1987,6 +2012,9 @@ const aiResearchForm = reactive({
   paper_workspace_name: '',
   trading_workspace_id: '',
   gateway_config_json: '',
+  live_workspace_name: '',
+  live_trading_workspace_id: '',
+  live_gateway_config_json: '',
 })
 
 // ---- Computed ----
@@ -2697,6 +2725,15 @@ function gatewayConfigJsonFromRunRecord(record: AIStrategyResearchRunRecord) {
   return isRecord(gatewayConfig) ? JSON.stringify(gatewayConfig) : ''
 }
 
+function liveGatewayConfigJsonFromRunRecord(record: AIStrategyResearchRunRecord) {
+  const handoffPayload = record.live_handoff?.handoff
+  const gatewayConfig = isRecord(handoffPayload?.gateway_config)
+    ? handoffPayload.gateway_config
+    : null
+  if (!isRecord(gatewayConfig) || containsRedactedSecret(gatewayConfig)) return ''
+  return JSON.stringify(gatewayConfig)
+}
+
 function bestStrategyFromRunRecord(record: AIStrategyResearchRunRecord): Strategy | null {
   const payload = bestIterationPayloadForRecord(record)
   if (!payload) return null
@@ -2778,6 +2815,9 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.paper_workspace_name = record.paper_workspace_name || ''
   aiResearchForm.trading_workspace_id = record.paper_workspace_id || ''
   aiResearchForm.gateway_config_json = gatewayConfigJsonFromRunRecord(record)
+  aiResearchForm.live_workspace_name = record.live_workspace_name || ''
+  aiResearchForm.live_trading_workspace_id = record.live_workspace_id || ''
+  aiResearchForm.live_gateway_config_json = liveGatewayConfigJsonFromRunRecord(record)
   aiResearchForm.target_sharpe = record.target_sharpe
   aiResearchForm.min_total_trades = record.min_total_trades
   aiResearchForm.use_max_drawdown_limit = typeof gates.max_drawdown_limit === 'number'
@@ -4327,9 +4367,10 @@ async function prepareLiveTradingFromResearchRecord(record: AIStrategyResearchRu
   if (!canPrepareLiveTradingFromRecord(record)) return
   aiResearchLiveTradingPreparingRunId.value = record.run_id
   try {
-    const prepared = await strategyApi.prepareAIResearchLiveTrading(record.run_id, {
-      research_workspace_id: record.research_workspace_id,
-    })
+    const prepared = await strategyApi.prepareAIResearchLiveTrading(
+      record.run_id,
+      aiResearchLivePrepareRequest(record)
+    )
     const updatedRecord = liveTradingPreparedRunRecord(record, prepared)
     upsertAIResearchRunRecord(updatedRecord)
     applyResearchRunRecordToCurrentResult(updatedRecord)
@@ -4548,16 +4589,36 @@ function aiResearchPaperWorkspaceName() {
 }
 
 function parseAIResearchGatewayConfig() {
-  const raw = aiResearchForm.gateway_config_json.trim()
+  return parseGatewayConfigJson(
+    aiResearchForm.gateway_config_json,
+    '模拟网关配置必须是合法 JSON',
+    '模拟网关配置必须是 JSON 对象'
+  )
+}
+
+function parseAIResearchLiveGatewayConfig() {
+  return parseGatewayConfigJson(
+    aiResearchForm.live_gateway_config_json,
+    '实盘网关配置必须是合法 JSON',
+    '实盘网关配置必须是 JSON 对象'
+  )
+}
+
+function parseGatewayConfigJson(
+  rawValue: string,
+  parseErrorMessage: string,
+  objectErrorMessage: string
+): Record<string, unknown> | undefined {
+  const raw = rawValue.trim()
   if (!raw) return undefined
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
   } catch {
-    throw new Error('模拟网关配置必须是合法 JSON')
+    throw new Error(parseErrorMessage)
   }
   if (!isRecord(parsed) || Array.isArray(parsed)) {
-    throw new Error('模拟网关配置必须是 JSON 对象')
+    throw new Error(objectErrorMessage)
   }
   return parsed
 }
@@ -4581,6 +4642,30 @@ function aiResearchPaperStartRequest(record: AIStrategyResearchRunRecord) {
     || null
   if (paperWorkspaceName) {
     request.paper_workspace_name = paperWorkspaceName
+  }
+  if (gatewayConfig) {
+    request.gateway_config = gatewayConfig
+  }
+  return request
+}
+
+function aiResearchLivePrepareRequest(record: AIStrategyResearchRunRecord) {
+  const gatewayConfig = parseAIResearchLiveGatewayConfig()
+  const request = {
+    research_workspace_id: record.research_workspace_id,
+  } as {
+    research_workspace_id: string
+    trading_workspace_id?: string
+    live_workspace_name?: string
+    gateway_config?: Record<string, unknown>
+  }
+  const liveWorkspaceId = aiResearchForm.live_trading_workspace_id.trim()
+  if (liveWorkspaceId) {
+    request.trading_workspace_id = liveWorkspaceId
+  }
+  const liveWorkspaceName = aiResearchForm.live_workspace_name.trim()
+  if (liveWorkspaceName) {
+    request.live_workspace_name = liveWorkspaceName
   }
   if (gatewayConfig) {
     request.gateway_config = gatewayConfig

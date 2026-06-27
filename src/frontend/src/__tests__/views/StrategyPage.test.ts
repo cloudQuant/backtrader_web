@@ -630,12 +630,17 @@ vi.mock('@/api/strategy', () => ({
     })),
     prepareAIResearchLiveTrading: vi.fn().mockImplementation((
       runId: string,
-      payload: { research_workspace_id?: string | null }
+      payload: {
+        research_workspace_id?: string | null
+        trading_workspace_id?: string | null
+        live_workspace_name?: string | null
+        gateway_config?: Record<string, unknown>
+      }
     ) => Promise.resolve({
       workspace: {
-        id: 'live-ws',
+        id: payload.trading_workspace_id || 'live-ws',
         user_id: 'u1',
-        name: 'AI实盘准备',
+        name: payload.live_workspace_name || 'AI实盘准备',
         description: null,
         workspace_type: 'trading',
         settings: {},
@@ -648,7 +653,7 @@ vi.mock('@/api/strategy', () => ({
       },
       unit: {
         id: 'live-unit',
-        workspace_id: 'live-ws',
+        workspace_id: payload.trading_workspace_id || 'live-ws',
         group_name: 'AI策略',
         strategy_id: 's1',
         strategy_name: 'AI策略',
@@ -663,7 +668,7 @@ vi.mock('@/api/strategy', () => ({
         params: {},
         optimization_config: {},
         trading_mode: 'live',
-        gateway_config: {},
+        gateway_config: payload.gateway_config || {},
         lock_trading: true,
         lock_running: true,
         trading_instance_id: null,
@@ -682,8 +687,8 @@ vi.mock('@/api/strategy', () => ({
       handoff: {
         run_id: runId,
         research_workspace_id: payload.research_workspace_id || 'research-ws',
-        live_workspace_id: 'live-ws',
-        live_workspace_name: 'AI实盘准备',
+        live_workspace_id: payload.trading_workspace_id || 'live-ws',
+        live_workspace_name: payload.live_workspace_name || 'AI实盘准备',
         live_unit_id: 'live-unit',
         live_unit_locked: true,
         live_trading_prepared_at: '2026-06-27T00:05:00Z',
@@ -864,6 +869,11 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.paper_workspace_name = 'AI模拟-趋势'
     vm.aiResearchForm.trading_workspace_id = 'paper-ws-existing'
     vm.aiResearchForm.gateway_config_json = '{"name":"paper_gateway","params":{"exchange":"sim"}}'
+    vm.aiResearchForm.live_workspace_name = 'AI实盘-趋势'
+    vm.aiResearchForm.live_trading_workspace_id = 'live-ws-existing'
+    vm.aiResearchForm.live_gateway_config_json = (
+      '{"name":"ctp_live","params":{"broker_id":"9999","exchange":"sim-live"}}'
+    )
     await vm.runAIResearchLoop()
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
       prompt: '生成一个趋势策略',
@@ -1010,6 +1020,12 @@ describe('StrategyPage', () => {
     await flushPromises()
     expect(strategyApi.prepareAIResearchLiveTrading).toHaveBeenCalledWith('run-1', {
       research_workspace_id: 'research-ws',
+      trading_workspace_id: 'live-ws-existing',
+      live_workspace_name: 'AI实盘-趋势',
+      gateway_config: {
+        name: 'ctp_live',
+        params: { broker_id: '9999', exchange: 'sim-live' },
+      },
     })
     expect(vm.aiResearchResult.run_record.live_trading_prepared).toBe(true)
     expect(vm.aiResearchResult.run_record.live_unit_id).toBe('live-unit')
@@ -1025,7 +1041,7 @@ describe('StrategyPage', () => {
     await openLiveButton!.trigger('click')
     expect(routerPush).toHaveBeenCalledWith({
       name: 'TradingWorkspaceDetail',
-      params: { id: 'live-ws' },
+      params: { id: 'live-ws-existing' },
     })
     expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('实盘交接')
     expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('实盘准备')
