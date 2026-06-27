@@ -33,6 +33,7 @@ _SENSITIVE_REQUEST_KEYS = (
     "token",
     "authorization",
 )
+_SENSITIVE_REQUEST_OMITTED = object()
 
 
 def _utc_iso_now() -> str:
@@ -823,7 +824,8 @@ def _metric_float(metrics: dict[str, Any], *keys: str) -> float | None:
 
 def _research_request_snapshot(request: AIStrategyResearchRunRequest) -> dict[str, Any]:
     payload = request.model_dump(mode="json")
-    return _redact_sensitive_values(payload)
+    sanitized = _omit_sensitive_request_values(payload)
+    return dict(sanitized) if isinstance(sanitized, dict) else {}
 
 
 def _redacted_research_result_for_task(result: Any) -> AIStrategyResearchRunResponse | None:
@@ -863,6 +865,29 @@ def _redact_sensitive_values(value: Any) -> Any:
         return result
     if isinstance(value, list):
         return [_redact_sensitive_values(item) for item in value]
+    return value
+
+
+def _omit_sensitive_request_values(value: Any) -> Any:
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            if _is_sensitive_request_key(str(key)):
+                continue
+            cleaned = _omit_sensitive_request_values(item)
+            if cleaned is _SENSITIVE_REQUEST_OMITTED:
+                continue
+            result[key] = cleaned
+        return result
+    if isinstance(value, list):
+        result = []
+        for item in value:
+            cleaned = _omit_sensitive_request_values(item)
+            if cleaned is not _SENSITIVE_REQUEST_OMITTED:
+                result.append(cleaned)
+        return result
+    if value == "***":
+        return _SENSITIVE_REQUEST_OMITTED
     return value
 
 

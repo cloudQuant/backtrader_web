@@ -7308,12 +7308,14 @@ async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
     assert submitted.request_snapshot["timeframe"] == "1h"
     assert submitted.request_snapshot["start_date"] == "2024-01-01"
     assert submitted.request_snapshot["knowledge_base_id"] == "kb-quant"
-    assert submitted.request_snapshot["gateway_config"]["api_key"] == "***"
-    assert submitted.request_snapshot["gateway_config"]["params"]["password"] == "***"
-    assert submitted.request_snapshot["gateway_config"]["params"]["passphrase"] == "***"
-    assert submitted.request_snapshot["gateway_config"]["params"]["auth_code"] == "***"
-    assert submitted.request_snapshot["gateway_config"]["params"]["access_key"] == "***"
+    assert submitted.request_snapshot["gateway_config"]["name"] == "paper_gateway"
+    assert "api_key" not in submitted.request_snapshot["gateway_config"]
+    assert "password" not in submitted.request_snapshot["gateway_config"]["params"]
+    assert "passphrase" not in submitted.request_snapshot["gateway_config"]["params"]
+    assert "auth_code" not in submitted.request_snapshot["gateway_config"]["params"]
+    assert "access_key" not in submitted.request_snapshot["gateway_config"]["params"]
     assert submitted.request_snapshot["gateway_config"]["params"]["exchange"] == "sim"
+    assert "secret-key" not in json.dumps(submitted.request_snapshot, ensure_ascii=False)
     task = None
     for _ in range(20):
         task = await manager.get_task("user-1", submitted.task_id)
@@ -7329,7 +7331,9 @@ async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
     assert task.current_stage == "completed"
     assert task.request_snapshot["prompt"] == "生成趋势策略"
     assert task.request_snapshot["symbol"] == "000001.SZ"
-    assert task.request_snapshot["gateway_config"]["api_key"] == "***"
+    assert task.request_snapshot["gateway_config"]["name"] == "paper_gateway"
+    assert "api_key" not in task.request_snapshot["gateway_config"]
+    assert task.request_snapshot["gateway_config"]["params"]["exchange"] == "sim"
     assert task.iteration_count == 1
     assert task.max_iterations == 3
     assert task.run_status == "achieved"
@@ -7897,7 +7901,9 @@ async def test_ai_strategy_research_task_api_endpoint(
         assert response.status_code == 202
         task_id = response.json()["task_id"]
         assert response.json()["request_snapshot"]["prompt"] == "生成一个均线策略并优化到夏普率 1.0"
-        assert response.json()["request_snapshot"]["gateway_config"]["params"]["api_key"] == "***"
+        assert response.json()["request_snapshot"]["gateway_config"]["name"] == "paper_gateway"
+        assert response.json()["request_snapshot"]["gateway_config"]["params"]["exchange"] == "sim"
+        assert "api_key" not in response.json()["request_snapshot"]["gateway_config"]["params"]
         list_response = await client.get(
             "/api/v1/strategy/ai-research/tasks",
             headers=auth_headers,
@@ -7927,7 +7933,8 @@ async def test_ai_strategy_research_task_api_endpoint(
     assert payload["status"] == "completed"
     assert payload["run_id"] == "api-run"
     assert payload["research_workspace_id"] == "research-api-ws"
-    assert payload["request_snapshot"]["gateway_config"]["params"]["api_key"] == "***"
+    assert payload["request_snapshot"]["gateway_config"]["params"]["exchange"] == "sim"
+    assert "api_key" not in payload["request_snapshot"]["gateway_config"]["params"]
     assert payload["progress"] == 100.0
     assert payload["current_stage"] == "completed"
     assert payload["iteration_count"] == 1
