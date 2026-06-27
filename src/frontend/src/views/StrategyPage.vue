@@ -486,11 +486,8 @@
                   >
                     {{ step.label || aiResearchStageLabel(step.key) }}
                     {{ pipelineStepStatusLabel(step.status) }}
-                    <template v-if="pipelineStepIterationText(step)">
-                      {{ pipelineStepIterationText(step) }}
-                    </template>
-                    <template v-if="step.review_status">
-                      复核 {{ paperReviewStatusLabel(step.review_status) }}
+                    <template v-if="pipelineStepDetailText(step, aiResearchTaskPipeline)">
+                      {{ pipelineStepDetailText(step, aiResearchTaskPipeline) }}
                     </template>
                   </span>
                 </span>
@@ -941,11 +938,8 @@
                     >
                       {{ pipelineStepStatusLabel(step.status) }}
                     </el-tag>
-                    <small v-if="pipelineStepIterationText(step)">
-                      {{ pipelineStepIterationText(step) }}
-                    </small>
-                    <small v-if="step.review_status">
-                      复核 {{ paperReviewStatusLabel(step.review_status) }}
+                    <small v-if="pipelineStepDetailText(step, aiResearchResult.pipeline)">
+                      {{ pipelineStepDetailText(step, aiResearchResult.pipeline) }}
                     </small>
                     <small
                       v-if="step.error"
@@ -3253,6 +3247,23 @@ function pipelineStepIterationText(step: AIStrategyPipelineStep) {
   if (count !== null && max !== null) return `${count}/${max} 轮`
   if (count !== null) return `${count} 轮`
   return `最多 ${max} 轮`
+}
+
+function pipelineStepDetailText(
+  step: AIStrategyPipelineStep,
+  pipeline?: AIStrategyPipelineSummary | null
+) {
+  const details: string[] = []
+  const iteration = pipelineStepIterationText(step)
+  if (iteration) details.push(iteration)
+  if (step.review_status) details.push(`复核 ${paperReviewStatusLabel(step.review_status)}`)
+  if (step.key === 'live_handoff') {
+    const handoffStatus = stringFromUnknown(pipeline?.live_handoff_status)
+    if (handoffStatus) details.push(`交接 ${liveHandoffStatusLabel(handoffStatus)}`)
+    const blockerCount = optionalNumber(pipeline?.live_handoff_blocker_count)
+    if (blockerCount !== null && blockerCount > 0) details.push(`${formatMetric(blockerCount, 0)} 项阻塞`)
+  }
+  return details.join(' ')
 }
 
 function aiResearchStageLabel(stage?: string | null) {

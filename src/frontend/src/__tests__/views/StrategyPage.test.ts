@@ -1534,6 +1534,9 @@ describe('StrategyPage', () => {
       live_workspace_id: 'live-ws',
       live_unit_id: 'live-unit',
       live_unit_locked: true,
+      live_handoff_status: 'approved_for_live',
+      live_handoff_approval_status: 'approved',
+      live_handoff_blocker_count: 0,
       steps: [
         {
           key: 'paper_review',
@@ -1621,6 +1624,7 @@ describe('StrategyPage', () => {
       expect(taskProgress).toContain('实盘已准备')
       expect(taskProgress).toContain('实盘单元 live-unit')
       expect(taskProgress).toContain('复核 实盘候选')
+      expect(taskProgress).toContain('交接 已批准实盘')
       expect(taskProgress).toContain('实盘准备 已完成')
       expect(taskProgress).toContain('live prepared')
     } finally {
