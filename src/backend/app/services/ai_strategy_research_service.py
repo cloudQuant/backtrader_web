@@ -381,7 +381,7 @@ class AIStrategyResearchService:
         validation_window = _out_of_sample_window(request)
         run_failures: list[str] = []
         if continuation_failures:
-            improvement = await self.improver.improve(
+            improvement = await self._improve_draft(
                 draft,
                 iteration=0,
                 metrics=dict(request.continuation_context.get("metrics") or {}),
@@ -470,7 +470,7 @@ class AIStrategyResearchService:
                             "message": f"Improving strategy for iteration {iteration + 1}",
                         },
                     )
-                    improvement = await self.improver.improve(
+                    improvement = await self._improve_draft(
                         draft,
                         iteration=iteration,
                         metrics={
@@ -757,7 +757,7 @@ class AIStrategyResearchService:
                         "message": f"Improving strategy for iteration {iteration + 1}",
                     },
                 )
-                improvement = await self.improver.improve(
+                improvement = await self._improve_draft(
                     draft,
                     iteration=iteration,
                     metrics=_improvement_metrics(metrics, validation_metrics),
@@ -1352,7 +1352,7 @@ class AIStrategyResearchService:
                         ),
                     },
                 )
-                improvement = await self.improver.improve(
+                improvement = await self._improve_draft(
                     current_draft,
                     iteration=iteration - 1,
                     metrics={
@@ -1374,6 +1374,45 @@ class AIStrategyResearchService:
         raise ValueError(
             f"Generated strategy code validation failed before iteration {iteration}: {last_error}"
         )
+
+    async def _improve_draft(
+        self,
+        draft: AIStrategyDraft,
+        *,
+        iteration: int,
+        metrics: dict[str, Any],
+        target_sharpe: float,
+        quality_gate_failures: list[str] | None,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+    ) -> StrategyImprovement:
+        try:
+            return await self.improver.improve(
+                draft,
+                iteration=iteration,
+                metrics=metrics,
+                target_sharpe=target_sharpe,
+                quality_gate_failures=quality_gate_failures,
+                user_id=user_id,
+                request=request,
+            )
+        except Exception as exc:
+            fallback = await LocalStrategyImprover().improve(
+                draft,
+                iteration=iteration,
+                metrics=metrics,
+                target_sharpe=target_sharpe,
+                quality_gate_failures=quality_gate_failures,
+                user_id=user_id,
+                request=request,
+            )
+            return StrategyImprovement(
+                draft=fallback.draft,
+                notes=[
+                    f"AI投研改稿失败，已使用本地规则回退：{exc}",
+                    *fallback.notes,
+                ],
+            )
 
     async def _start_paper_trading(
         self,

@@ -480,6 +480,31 @@ class InvalidThenRepairingImprover:
         return StrategyImprovement(draft=repaired, notes=["修复策略代码后继续回测"])
 
 
+class FailingImprover:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def improve(
+        self,
+        draft: AIStrategyDraft,
+        *,
+        iteration: int,
+        metrics: dict[str, Any],
+        target_sharpe: float,
+        quality_gate_failures: list[str] | None = None,
+        user_id: str | None = None,
+        request: AIStrategyResearchRunRequest | None = None,
+    ) -> StrategyImprovement:
+        self.calls.append(
+            {
+                "iteration": iteration,
+                "metrics": metrics,
+                "quality_gate_failures": list(quality_gate_failures or []),
+            }
+        )
+        raise RuntimeError("improver backend unavailable")
+
+
 async def _noop_sleep(_: float) -> None:
     return None
 
@@ -854,6 +879,49 @@ async def test_research_loop_falls_back_when_initial_draft_generation_fails():
     assert result.run_record is not None
     assert result.run_record.knowledge_base_id == "kb-broken"
     assert result.research_workspace.settings["ai_research"]["runs"][0]["run_id"] == result.run_id
+
+
+@pytest.mark.asyncio
+async def test_research_loop_falls_back_when_improver_fails():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {"sharpe_ratio": 0.25, "total_trades": 0, "max_drawdown": -8.0},
+            {"sharpe_ratio": 1.18, "total_trades": 6, "max_drawdown": -4.0},
+        ],
+    )
+    improver = FailingImprover()
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=improver,
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个双均线趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            start_paper_trading=False,
+            out_of_sample_validation=False,
+            max_iterations=2,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert result.status == "achieved"
+    assert result.best_iteration == 2
+    assert len(improver.calls) == 1
+    assert len(strategy_service.submitted_drafts) == 2
+    assert result.iterations[1].improvement_notes[0].startswith(
+        "AI投研改稿失败，已使用本地规则回退"
+    )
+    assert result.run_record is not None
+    assert result.run_record.status == "achieved"
 
 
 @pytest.mark.asyncio
