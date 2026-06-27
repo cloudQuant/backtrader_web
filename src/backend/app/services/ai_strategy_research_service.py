@@ -4530,6 +4530,18 @@ def _failure_categories(
             categories.append("win_rate")
         elif "cost" in lowered or "slippage" in lowered or "费用" in failure or "滑点" in failure:
             categories.append("execution_cost")
+        elif (
+            "valuation" in lowered
+            or "asset spec" in lowered
+            or "asset_specs" in lowered
+            or "margin" in lowered
+            or "multiplier" in lowered
+            or "估值" in failure
+            or "资产规格" in failure
+            or "合约乘数" in failure
+            or "保证金" in failure
+        ):
+            categories.append("valuation_context")
     if not categories and failure_reason:
         categories.append("unknown")
     return list(dict.fromkeys(categories))
@@ -4619,6 +4631,8 @@ def _improvement_plan_from_failures(
         plan.append("增加信号确认条件或行情状态过滤，降低震荡行情中的错误入场。")
     if "execution_cost" in categories:
         plan.append("降低换手率和无效交易，按模拟成交费用/滑点重新校准手续费与出入场阈值。")
+    if "valuation_context" in categories:
+        plan.append("先修正交易所/本地资产规格上下文，确保合约乘数、保证金、手续费和持仓估值口径一致后再改稿。")
 
     sharpe = _quality_metric(metrics, "sharpe_ratio", "sharpe", "sharpeRatio")
     if sharpe is not None and sharpe < request.target_sharpe and "sharpe" not in categories:
@@ -5296,6 +5310,18 @@ def _iteration_next_actions(
             actions.append("增加趋势/波动过滤，减少低质量信号以提升胜率。")
         elif "cost" in lowered or "slippage" in lowered or "费用" in failure or "滑点" in failure:
             actions.append("降低换手率和无效交易，并用模拟成交成本重新校准手续费与入场阈值。")
+        elif (
+            "valuation" in lowered
+            or "asset spec" in lowered
+            or "asset_specs" in lowered
+            or "margin" in lowered
+            or "multiplier" in lowered
+            or "估值" in failure
+            or "资产规格" in failure
+            or "合约乘数" in failure
+            or "保证金" in failure
+        ):
+            actions.append("先修正资产规格、合约乘数、保证金和持仓估值口径，再继续生成下一版策略。")
 
     if failure_reason and not failures:
         actions.append(f"复核失败原因：{failure_reason}")

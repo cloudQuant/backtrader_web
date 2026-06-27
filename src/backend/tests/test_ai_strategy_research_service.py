@@ -732,6 +732,66 @@ async def test_ai_strategy_improver_uses_model_json_to_rewrite_strategy(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_ai_strategy_improver_plans_for_valuation_context_failures():
+    draft = build_ai_strategy_draft("请生成一个股指期货策略")
+    router = FakeAIChatRouter(
+        """
+        {
+          "name": "估值修正策略",
+          "description": "AI revised strategy",
+          "code": "import backtrader as bt\\nclass ValuationAwareStrategy(bt.Strategy):\\n    params = (('risk_pct', 0.01),)\\n    def next(self):\\n        pass\\n",
+          "params": {
+            "risk_pct": {"type": "float", "default": 0.01, "min": 0.001, "max": 0.05, "description": "risk"}
+          },
+          "category": "trend",
+          "assumptions": ["使用已确认资产规格"],
+          "risk_points": ["需要核对合约乘数"],
+          "next_steps": ["继续回测"],
+          "notes": ["补充估值上下文"]
+        }
+        """
+    )
+    improver = AIStrategyImprover(
+        ai_router=router,
+        preference_service=FakePreferenceService(),
+        settings=FakeAISettings(),
+    )
+
+    await improver.improve(
+        draft,
+        iteration=1,
+        metrics={"sharpe_ratio": 0.9, "total_trades": 20},
+        target_sharpe=1.0,
+        quality_gate_failures=[
+            "估值与资产规格确认 paper review failed: 0.000 / 1.000 (min); "
+            "action: 持仓估值、合约乘数、保证金或手续费未确认。"
+        ],
+        user_id="user-1",
+        request=AIStrategyResearchRunRequest(
+            prompt="股指期货策略",
+            symbol="IF2609",
+            data_config={
+                "contract_metadata": {
+                    "IF2609": {
+                        "multiplier": 300,
+                        "margin_rate": 0.1,
+                        "commission_rate": 0.000023,
+                        "source": "paper_handoff_exchange_specs",
+                    }
+                }
+            },
+        ),
+    )
+
+    payload = json.loads(router.calls[0]["messages"][1]["content"])
+    assert any(
+        "资产规格" in item and "估值" in item
+        for item in payload["suggested_improvement_plan"]
+    )
+    assert payload["asset_specs"]["IF2609"]["multiplier"] == 300
+
+
+@pytest.mark.asyncio
 async def test_ai_strategy_improver_falls_back_when_model_payload_is_invalid():
     draft = build_ai_strategy_draft("请生成一个均线趋势策略")
     improver = AIStrategyImprover(
