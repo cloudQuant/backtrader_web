@@ -15,6 +15,8 @@ from app.schemas.ai_strategy_research import (
     AIStrategyResearchTaskResponse,
 )
 
+_CANCEL_CLEANUP_TIMEOUT_SECONDS = 1.0
+
 
 def _utc_iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -128,6 +130,7 @@ class AIStrategyResearchTaskManager:
             )
         if background_task is not None and not background_task.done():
             background_task.cancel()
+            await self._wait_for_cancel_cleanup(background_task)
         latest = await self.get_task(user_id, task_id)
         return latest or response
 
@@ -231,6 +234,23 @@ class AIStrategyResearchTaskManager:
             return bool(await service.cancel_task(task_id, user_id))
         except Exception:
             return False
+
+    async def _wait_for_cancel_cleanup(
+        self,
+        background_task: asyncio.Task[None],
+    ) -> None:
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(background_task),
+                timeout=_CANCEL_CLEANUP_TIMEOUT_SECONDS,
+            )
+        except asyncio.CancelledError:
+            current_task = asyncio.current_task()
+            if current_task is not None and current_task.cancelling():
+                raise
+            return
+        except (asyncio.TimeoutError, Exception):
+            return
 
 
 _manager: AIStrategyResearchTaskManager | None = None
