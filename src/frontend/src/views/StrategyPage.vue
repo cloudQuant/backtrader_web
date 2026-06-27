@@ -420,6 +420,35 @@
                   </template>
                 </span>
                 <span
+                  v-if="aiResearchTaskLatestDiagnostics"
+                  class="ai-research-task-diagnostics"
+                  data-test="ai-research-task-latest-diagnostics"
+                >
+                  <strong>最近诊断</strong>
+                  <span v-if="aiResearchTaskLatestDiagnostics.summary">
+                    {{ aiResearchTaskLatestDiagnostics.summary }}
+                  </span>
+                  <span
+                    v-for="failure in aiResearchTaskLatestDiagnostics.failures"
+                    :key="`task-failure-${failure}`"
+                    class="ai-research-warning-text"
+                  >
+                    {{ failure }}
+                  </span>
+                  <span
+                    v-for="plan in aiResearchTaskLatestDiagnostics.improvementPlan"
+                    :key="`task-plan-${plan}`"
+                  >
+                    改稿 {{ plan }}
+                  </span>
+                  <span
+                    v-for="action in aiResearchTaskLatestDiagnostics.nextActions"
+                    :key="`task-action-${action}`"
+                  >
+                    下一步 {{ action }}
+                  </span>
+                </span>
+                <span
                   v-if="aiResearchTaskPipelineSteps.length"
                   class="ai-research-task-pipeline"
                   data-test="ai-research-task-pipeline"
@@ -2006,6 +2035,9 @@ const aiResearchTaskRuntimeItems = computed(() =>
     aiResearchTaskAssetSpecs.value
   )
 )
+const aiResearchTaskLatestDiagnostics = computed(() =>
+  taskLatestIterationDiagnostics(aiResearchTaskLatestIteration.value)
+)
 const aiResearchContinuationEnabled = computed(() =>
   Boolean(aiResearchForm.seed_strategy_id || aiResearchForm.continue_from_run_id)
 )
@@ -2182,6 +2214,32 @@ function taskLatestIterationProgress(iteration: Record<string, unknown> | null) 
     ? diagnostics.iteration_progress
     : iteration.iteration_progress
   return isRecord(progress) ? progress as AIStrategyIterationProgress : null
+}
+
+function taskLatestIterationDiagnostics(iteration: Record<string, unknown> | null) {
+  if (!iteration) return null
+  const diagnostics = isRecord(iteration.diagnostics) ? iteration.diagnostics : {}
+  const summary = stringFromUnknown(diagnostics.summary)
+  const failures = uniqueTextItems([
+    stringFromUnknown(iteration.failure_reason),
+    ...stringArrayFromUnknown(iteration.quality_gate_failures),
+    ...stringArrayFromUnknown(iteration.validation_failures),
+    ...stringArrayFromUnknown(diagnostics.weaknesses),
+  ]).slice(0, 4)
+  const improvementPlan = uniqueTextItems([
+    ...stringArrayFromUnknown(iteration.improvement_plan),
+    ...stringArrayFromUnknown(diagnostics.improvement_plan),
+  ]).slice(0, 4)
+  const nextActions = uniqueTextItems(stringArrayFromUnknown(iteration.next_actions)).slice(0, 3)
+  if (!summary && !failures.length && !improvementPlan.length && !nextActions.length) {
+    return null
+  }
+  return {
+    summary,
+    failures,
+    improvementPlan,
+    nextActions,
+  }
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -3703,6 +3761,14 @@ function stringArrayFromUnknown(value: unknown) {
     : []
 }
 
+function uniqueTextItems(items: unknown[]) {
+  return [...new Set(
+    items
+      .map(item => stringFromUnknown(item))
+      .filter(Boolean)
+  )]
+}
+
 function arrayFromUnknown<T>(value: unknown): T[] {
   return Array.isArray(value) ? value.filter(isRecord) as T[] : []
 }
@@ -4703,6 +4769,16 @@ onMounted(async () => {
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+
+.ai-research-task-diagnostics {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding-top: 8px;
 }
 
 .ai-research-gate-control {

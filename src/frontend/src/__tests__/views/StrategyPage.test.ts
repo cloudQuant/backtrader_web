@@ -742,6 +742,39 @@ describe('StrategyPage', () => {
     expect(vm.form.code).toBe('code')
   })
 
+  it('shows latest running AI research diagnostics in task progress', async () => {
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchTaskId = 'task-diagnostics'
+    vm.aiResearchTaskStage = 'improving'
+    vm.aiResearchTaskProgress = 55
+    vm.aiResearchTaskLatestIteration = {
+      iteration: 2,
+      sharpe_ratio: 0.42,
+      total_trades: 1,
+      failure_reason: 'Sharpe 0.420 below target 1.000',
+      quality_gate_failures: ['Only 1 trades, below minimum 5'],
+      diagnostics: {
+        summary: '第 2 轮未达标，系统将扩大信号覆盖并收紧风险。',
+        weaknesses: ['有效交易样本数不足'],
+        improvement_plan: ['放宽入场过滤以增加有效交易', '降低单笔风险预算'],
+      },
+      improvement_plan: ['放宽入场过滤以增加有效交易'],
+      next_actions: ['系统将基于本轮失败原因生成下一版策略。'],
+    }
+    await wrapper.vm.$nextTick()
+
+    const diagnostics = wrapper.find('[data-test="ai-research-task-latest-diagnostics"]').text()
+    expect(diagnostics).toContain('最近诊断')
+    expect(diagnostics).toContain('第 2 轮未达标')
+    expect(diagnostics).toContain('Sharpe 0.420 below target 1.000')
+    expect(diagnostics).toContain('Only 1 trades, below minimum 5')
+    expect(diagnostics).toContain('有效交易样本数不足')
+    expect(diagnostics).toContain('改稿 放宽入场过滤以增加有效交易')
+    expect(diagnostics).toContain('改稿 降低单笔风险预算')
+    expect(diagnostics).toContain('下一步 系统将基于本轮失败原因生成下一版策略。')
+  })
+
   it('runs AI research loop from form input', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const { ElMessage } = await import('element-plus')
