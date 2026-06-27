@@ -3093,6 +3093,8 @@ async function pollAIResearchTask(
       throw new Error('AI research task completed without a result')
     }
     if (isAIResearchTaskCancelled(task)) {
+      const restoredResult = await restoreAIResearchResultFromTask(task)
+      if (restoredResult) return restoredResult
       throw new Error('AI_RESEARCH_CANCELLED')
     }
     if (isAIResearchTaskTerminal(task)) {
@@ -3126,7 +3128,13 @@ async function restoreActiveAIResearchTask() {
     } else {
       await loadAIResearchRuns()
     }
-    ElMessage.success(t('strategy.aiResearchRunSuccess'))
+    if (String(aiResearchResult.value.status || '').toLowerCase() === 'cancelled') {
+      if (!aiResearchCancelRequested.value) {
+        ElMessage.success('AI投研任务已取消')
+      }
+    } else {
+      ElMessage.success(t('strategy.aiResearchRunSuccess'))
+    }
   } catch (error) {
     aiResearchTaskError.value = aiResearchErrorMessage(error)
     ElMessage.error(t('strategy.aiResearchRunFailed'))
@@ -3199,7 +3207,13 @@ async function runAIResearchLoop() {
     } else {
       await loadAIResearchRuns()
     }
-    ElMessage.success(t('strategy.aiResearchRunSuccess'))
+    if (String(aiResearchResult.value.status || '').toLowerCase() === 'cancelled') {
+      if (!aiResearchCancelRequested.value) {
+        ElMessage.success('AI投研任务已取消')
+      }
+    } else {
+      ElMessage.success(t('strategy.aiResearchRunSuccess'))
+    }
   } catch (error) {
     if (
       error instanceof Error

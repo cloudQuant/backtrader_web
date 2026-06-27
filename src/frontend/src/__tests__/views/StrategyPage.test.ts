@@ -867,6 +867,118 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('restores cancelled async task result from persisted run history', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    ;(strategyApi as any).submitAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'cancelled-poll-task',
+      status: 'running',
+      submitted_at: '2026-06-27T00:00:00Z',
+      current_stage: 'backtesting',
+      progress: 35,
+      current_iteration: 1,
+      iteration_count: 0,
+      max_iterations: 3,
+      message: 'submitted',
+    })
+    ;(strategyApi as any).getAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'cancelled-poll-task',
+      status: 'cancelled',
+      submitted_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      run_id: 'cancelled-poll-run',
+      research_workspace_id: 'research-ws',
+      current_stage: 'cancelled',
+      progress: 35,
+      current_iteration: 1,
+      iteration_count: 0,
+      max_iterations: 3,
+      message: 'cancelled',
+    })
+    try {
+      const wrapper = doMount()
+      await flushPromises()
+      const vm = wrapper.vm as any
+      vi.mocked(strategyApi.listAIResearchRuns).mockClear()
+      vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({
+        total: 1,
+        items: [
+          {
+            run_id: 'cancelled-poll-run',
+            prompt: '轮询取消的趋势策略',
+            symbol: '000001.SZ',
+            symbol_name: '平安银行',
+            timeframe: '1d',
+            timeframe_n: 1,
+            status: 'cancelled',
+            achieved: false,
+            target_sharpe: 1,
+            quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+            min_total_trades: 1,
+            max_iterations: 3,
+            iteration_count: 0,
+            best_iteration: null,
+            best_sharpe: 0,
+            best_quality_score: 0,
+            best_quality_gate_evaluations: [],
+            best_diagnostics: {
+              summary: 'AI投研任务在首轮回测产生结果前取消，已保存待回测策略草案。',
+              failure_categories: ['cancelled', 'draft_only'],
+              promotion_ready: false,
+            },
+            best_metrics: {},
+            best_strategy_id: 'saved-strategy-1',
+            best_strategy_name: '待回测策略',
+            research_workspace_id: 'research-ws',
+            seed_strategy_id: null,
+            continued_from_run_id: null,
+            paper_workspace_id: null,
+            paper_unit_id: null,
+            paper_trading_started: false,
+            paper_monitoring_plan: [],
+            paper_handoff: {},
+            paper_review_status: null,
+            paper_review_ready_for_live: false,
+            paper_reviewed_at: null,
+            paper_review_evaluations: [],
+            paper_review_next_actions: [],
+            live_readiness_checklist: [],
+            live_readiness_expires_at: null,
+            pipeline: {
+              current_stage: 'cancelled',
+              status: 'cancelled',
+              progress: 20,
+              ready_for_live: false,
+              steps: [],
+            },
+            next_actions: ['AI投研任务已取消，已保存当前待回测策略草案。'],
+            started_at: '2026-06-27T00:00:00Z',
+            completed_at: '2026-06-27T00:01:00Z',
+            iterations: [],
+          },
+        ],
+      } as any)
+      vm.aiResearchForm.prompt = '轮询取消的趋势策略'
+      vm.aiResearchForm.symbol = '000001.SZ'
+      await vm.runAIResearchLoop()
+
+      expect((strategyApi as any).getAIResearchTask).toHaveBeenCalledWith('cancelled-poll-task')
+      expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith('research-ws', 100)
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect(vm.aiResearchResult.run_id).toBe('cancelled-poll-run')
+      expect(vm.aiResearchResult.status).toBe('cancelled')
+      expect(vm.aiResearchTaskStatus).toBe('cancelled')
+      expect(vm.aiResearchRuns[0].run_id).toBe('cancelled-poll-run')
+      expect(vm.canContinueResearchFromCurrentRunRecord).toBe(true)
+      expect(ElMessage.success).toHaveBeenCalledWith('AI投研任务已取消')
+      expect(ElMessage.error).not.toHaveBeenCalled()
+    } finally {
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
+    }
+  })
+
   it('restores completed async task result from persisted run history when result is missing', async () => {
     const { strategyApi } = await import('@/api/strategy')
     vi.mocked(strategyApi.runAIResearchLoop).mockClear()
