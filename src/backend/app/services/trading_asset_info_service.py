@@ -326,6 +326,42 @@ PRICE_PAYLOAD_FIELD_KEYS = (
     "settlement_price",
     "SettlementPrice",
 )
+POSITION_SIZE_FIELD_KEYS = (
+    "size",
+    "volume",
+    "position",
+    "qty",
+    "quantity",
+    "trade_volume",
+    "position_volume",
+    "position_size",
+    "positionSize",
+    "position_qty",
+    "positionQty",
+    "position_quantity",
+    "positionQuantity",
+    "positionAmt",
+    "pos",
+    "pa",
+    "contracts",
+    "open_qty",
+    "openQty",
+    "open_volume",
+    "openVolume",
+    "net_qty",
+    "netQty",
+    "net_position",
+    "netPosition",
+    "net_position_size",
+    "netPositionSize",
+    "holding",
+    "holdings",
+    "Position",
+    "Volume",
+    "Qty",
+    "Quantity",
+    "TradeVolume",
+)
 BID_PRICE_FIELD_KEYS = (
     "bid_price",
     "bidPrice",
@@ -1005,22 +1041,7 @@ def signed_gateway_size(row: dict[str, Any]) -> float:
     long_position = _first_number(*(row.get(key) for key in LONG_POSITION_FIELD_KEYS))
     short_position = _first_number(*(row.get(key) for key in SHORT_POSITION_FIELD_KEYS))
     raw_size = (
-        _first_number(
-            _first_value(row, "size", "volume", "position", "qty", "quantity", "trade_volume"),
-            _first_value(
-                row,
-                "position_volume",
-                "positionAmt",
-                "pos",
-                "pa",
-                "Position",
-                "Volume",
-                "Qty",
-                "Quantity",
-                "TradeVolume",
-            ),
-            default=0.0,
-        )
+        _first_number(_first_value(row, *POSITION_SIZE_FIELD_KEYS), default=0.0)
         or 0.0
     )
     if abs(raw_size) <= 1e-12 and (long_position is not None or short_position is not None):
@@ -1104,10 +1125,15 @@ _PRICE_FIELD_KEYS = (
     "avg_price",
     "average_price",
     "price_open",
+    "entry_price",
     "avgCost",
     "avgPrice",
     "avgPx",
+    "avg_entry_price",
+    "avgEntryPrice",
     "entryPrice",
+    "open_avg_price",
+    "openAvgPrice",
     "ep",
     "Price",
     "AveragePrice",
@@ -1584,6 +1610,8 @@ _RAW_EXCHANGE_GROSS_PNL_KEYS = frozenset(
         "position_unrealised_pnl",
         "unrealized_profit",
         "unrealised_profit",
+        "unrealizedProfit",
+        "unrealisedProfit",
         "unRealizedProfit",
         "UnrealizedPnL",
         "unrealizedPnl",
@@ -1601,8 +1629,8 @@ _RAW_EXCHANGE_GROSS_PNL_KEYS = frozenset(
         "PositionProfit",
     }
 )
-_RECALCULABLE_POSITION_PNL_KEYS = _RAW_EXCHANGE_GROSS_PNL_KEYS | frozenset(
-    (*MARKABLE_NET_PNL_FIELD_KEYS, "gross_pnl")
+_RECALCULABLE_POSITION_PNL_KEYS = frozenset(
+    (*MARKABLE_NET_PNL_FIELD_KEYS, "gross_pnl", "position_profit", "PositionProfit")
 )
 
 
@@ -1968,11 +1996,16 @@ def normalize_gateway_position(
                 "avg_price",
                 "average_price",
                 "price_open",
+                "entry_price",
                 "avgCost",
                 "avgPrice",
                 "avgPx",
+                "avg_entry_price",
+                "avgEntryPrice",
                 "entryPrice",
                 "ep",
+                "open_avg_price",
+                "openAvgPrice",
                 "Price",
                 "AveragePrice",
             ),
@@ -2087,6 +2120,8 @@ def normalize_gateway_position(
         "position_unrealised_pnl",
         "unrealized_profit",
         "unrealised_profit",
+        "unrealizedProfit",
+        "unrealisedProfit",
         "unRealizedProfit",
         "UnrealizedPnL",
         "unrealizedPnl",
@@ -2157,6 +2192,8 @@ def normalize_gateway_position(
             "use_margin",
             "initial_margin",
             "maintain_margin",
+            "initialMargin",
+            "maintMargin",
             "UseMargin",
             "InitialMargin",
             "MaintainMargin",

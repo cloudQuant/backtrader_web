@@ -26,6 +26,7 @@ from app.services.log_parser_service import (
 from app.services.position_valuation import EPSILON, contract_spec_for, value_position
 from app.services.trading_asset_info_service import (
     LONG_POSITION_FIELD_KEYS,
+    POSITION_SIZE_FIELD_KEYS,
     SHORT_POSITION_FIELD_KEYS,
     gateway_position_symbol,
     normalize_gateway_position,
@@ -86,6 +87,8 @@ _GROSS_PNL_FIELD_KEYS = (
     "PositionProfit",
     "unrealized_profit",
     "unrealised_profit",
+    "unrealizedProfit",
+    "unrealisedProfit",
     "unRealizedProfit",
     "UnrealizedPnL",
     "unrealizedPnl",
@@ -103,18 +106,7 @@ _GROSS_PNL_FIELD_KEYS = (
     "up",
 )
 _POSITION_SIZE_ALIAS_KEYS = (
-    "volume",
-    "position",
-    "qty",
-    "quantity",
-    "position_volume",
-    "positionAmt",
-    "pos",
-    "pa",
-    "Position",
-    "Volume",
-    "Qty",
-    "Quantity",
+    *POSITION_SIZE_FIELD_KEYS,
     *LONG_POSITION_FIELD_KEYS,
     *SHORT_POSITION_FIELD_KEYS,
 )
@@ -135,7 +127,12 @@ _POSITION_RESPONSE_REVALUE_KEYS = (
     "posi_direction",
     "position_direction",
     "price_open",
+    "entry_price",
     "avgPx",
+    "avg_entry_price",
+    "avgEntryPrice",
+    "open_avg_price",
+    "openAvgPrice",
     "last_price",
     "lastPrice",
     "markPx",
@@ -816,10 +813,15 @@ class TradingWorkspaceService:
             "avg_price",
             "average_price",
             "price_open",
+            "entry_price",
             "avgCost",
             "avgPrice",
             "avgPx",
+            "avg_entry_price",
+            "avgEntryPrice",
             "entryPrice",
+            "open_avg_price",
+            "openAvgPrice",
             "Price",
             "AveragePrice",
         ) and cls._has_any(config, *_CURRENT_PRICE_FIELD_KEYS)
@@ -1031,10 +1033,15 @@ class TradingWorkspaceService:
             "avg_price",
             "average_price",
             "price_open",
+            "entry_price",
             "avgCost",
             "avgPrice",
             "avgPx",
+            "avg_entry_price",
+            "avgEntryPrice",
             "entryPrice",
+            "open_avg_price",
+            "openAvgPrice",
             "Price",
             "AveragePrice",
         ):
@@ -1569,6 +1576,13 @@ class TradingWorkspaceService:
                 instance = manager.get_instance(unit.trading_instance_id, user_id=user_id)
 
             params_before = _safe_dict(getattr(unit, "params", None))
+            if instance is not None and self._sync_unit_contract_metadata_from_instance(
+                unit,
+                instance,
+            ):
+                changed = True
+            if self._refresh_unit_asset_specs_from_manager(manager, unit, instance):
+                changed = True
             snapshot, metrics_snapshot, bar_count, elapsed_seconds = self._build_snapshot(
                 unit,
                 instance,
@@ -1873,10 +1887,15 @@ class TradingWorkspaceService:
             "avg_price",
             "average_price",
             "price_open",
+            "entry_price",
             "avgCost",
             "avgPrice",
             "avgPx",
+            "avg_entry_price",
+            "avgEntryPrice",
             "entryPrice",
+            "open_avg_price",
+            "openAvgPrice",
             "Price",
             "AveragePrice",
         ):

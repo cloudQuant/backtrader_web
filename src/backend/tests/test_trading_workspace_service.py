@@ -1355,6 +1355,56 @@ def test_normalize_gateway_position_handles_raw_ctp_position_direction_values():
     assert short_row["price"] == pytest.approx(5000.0)
 
 
+def test_normalize_gateway_position_handles_contract_qty_entry_aliases():
+    spec = normalize_asset_spec(
+        {
+            "symbol": "BTCUSDT",
+            "contract_size": 1,
+            "maxLeverage": 10,
+            "commission_rate": 0.0004,
+            "source": "generic_gateway",
+        }
+    )
+    row = normalize_gateway_position(
+        {
+            "symbol": "BTCUSDT",
+            "side": "Sell",
+            "positionQty": "0.2",
+            "entry_price": "60000",
+            "markPrice": "59000",
+            "notionalValue": "11800",
+            "initialMargin": "1180",
+            "unrealizedProfit": "200",
+        },
+        asset_spec=spec,
+        recent_trades=[
+            {
+                "symbol": "BTCUSDT",
+                "side": "Sell",
+                "qty": "0.2",
+                "price": "60000",
+                "fee": "4.8",
+                "fee_currency": "USDT",
+            }
+        ],
+    )
+
+    valued = value_position(
+        row,
+        spec=contract_spec_for("BTCUSDT", {"contract_metadata": {"BTCUSDT": spec}}),
+    )
+
+    assert row["size"] == pytest.approx(-0.2)
+    assert row["price"] == pytest.approx(60000.0)
+    assert row["gross_pnl"] == pytest.approx(200.0)
+    assert row["commission"] == pytest.approx(4.8)
+    assert row["commission_source"] == "gateway.trades"
+    assert valued is not None
+    assert valued.margin_rate == pytest.approx(0.1)
+    assert valued.margin_value == pytest.approx(1180.0)
+    assert valued.pnl == pytest.approx(195.2)
+
+
 def test_normalize_gateway_position_handles_raw_ib_portfolio_fields():
     row = normalize_gateway_position(
         {
@@ -4291,6 +4341,74 @@ async def test_hydrate_units_marks_changed_when_asset_metadata_is_refreshed(monk
 
     assert changed is True
     assert unit.params["contract_metadata"]["IF2609"]["multiplier"] == 300
+
+
+@pytest.mark.asyncio
+async def test_hydrate_units_queries_running_instance_asset_specs_without_positions(monkeypatch):
+    unit = SimpleNamespace(
+        id="unit-running-asset-refresh",
+        symbol="IF2609",
+        data_config={},
+        unit_settings={},
+        gateway_config={},
+        trading_instance_id="inst-running",
+        run_status="running",
+        trading_snapshot={"instance_status": "running", "positions": []},
+        metrics_snapshot={},
+        bar_count=None,
+        last_run_time=None,
+        params={},
+    )
+
+    class FakeManager:
+        queried_symbols: list[str] = []
+
+        def get_instance(self, instance_id, user_id=None):
+            assert instance_id == "inst-running"
+            assert user_id == "user-1"
+            return {
+                "id": "inst-running",
+                "status": "running",
+                "params": {"symbol": "IF2609"},
+            }
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-running"
+            self.queried_symbols = list(symbols)
+            return {
+                "IF2609": {
+                    "symbol": "IF2609",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                    "source": "gateway.query_instrument",
+                }
+            }
+
+    def fake_build_snapshot(cls, current_unit, instance, *, full_log=True):
+        assert instance is not None
+        return dict(current_unit.trading_snapshot), {}, None, None
+
+    manager = FakeManager()
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "get_live_trading_manager",
+        lambda: manager,
+    )
+    monkeypatch.setattr(
+        TradingWorkspaceService,
+        "_build_snapshot",
+        classmethod(fake_build_snapshot),
+    )
+
+    changed = await TradingWorkspaceService().hydrate_units([unit], user_id="user-1")
+
+    assert changed is True
+    assert "IF2609" in manager.queried_symbols
+    metadata = unit.params["contract_metadata"]["IF2609"]
+    assert metadata["multiplier"] == 300
+    assert metadata["margin_rate"] == 0.1
+    assert metadata["commission_rate"] == 0.000023
 
 
 @pytest.mark.asyncio

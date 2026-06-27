@@ -8,6 +8,7 @@ from typing import Any
 
 from app.services.trading_asset_info_service import (
     LONG_POSITION_FIELD_KEYS,
+    POSITION_SIZE_FIELD_KEYS,
     SHORT_POSITION_FIELD_KEYS,
     TODAY_POSITION_FIELD_KEYS,
     YESTERDAY_POSITION_FIELD_KEYS,
@@ -1068,22 +1069,7 @@ def _row_size(row: dict[str, Any]) -> float:
     long_position = _first_number(*(row.get(key) for key in LONG_POSITION_FIELD_KEYS))
     short_position = _first_number(*(row.get(key) for key in SHORT_POSITION_FIELD_KEYS))
     size = safe_float(
-        _first_number(
-            row.get("size"),
-            row.get("volume"),
-            row.get("position"),
-            row.get("qty"),
-            row.get("quantity"),
-            row.get("position_volume"),
-            row.get("positionAmt"),
-            row.get("pos"),
-            row.get("pa"),
-            row.get("Position"),
-            row.get("Volume"),
-            row.get("Qty"),
-            row.get("Quantity"),
-            default=0.0,
-        ),
+        _first_number(*(row.get(key) for key in POSITION_SIZE_FIELD_KEYS), default=0.0),
         0.0,
     )
     if abs(size) <= EPSILON and (long_position is not None or short_position is not None):
@@ -1148,6 +1134,7 @@ def _row_margin_rate(row: dict[str, Any], spec: PositionSpec, size: float) -> fl
         row.get("leverage"),
         row.get("lever"),
         row.get("max_leverage"),
+        row.get("maxLeverage"),
     )
     if leverage and leverage > 0:
         return 1.0 / leverage
@@ -1493,6 +1480,8 @@ _RAW_EXCHANGE_GROSS_PNL_KEYS = frozenset(
         "position_unrealised_pnl",
         "unrealized_profit",
         "unrealised_profit",
+        "unrealizedProfit",
+        "unrealisedProfit",
         "unRealizedProfit",
         "UnrealizedPnL",
         "unrealizedPnl",
@@ -1510,8 +1499,8 @@ _RAW_EXCHANGE_GROSS_PNL_KEYS = frozenset(
         "PositionProfit",
     }
 )
-_RECALCULABLE_POSITION_PNL_KEYS = _RAW_EXCHANGE_GROSS_PNL_KEYS | frozenset(
-    (*MARKABLE_NET_PNL_FIELD_KEYS, "gross_pnl")
+_RECALCULABLE_POSITION_PNL_KEYS = frozenset(
+    (*MARKABLE_NET_PNL_FIELD_KEYS, "gross_pnl", "position_profit", "PositionProfit")
 )
 
 
@@ -1829,6 +1818,8 @@ def _row_margin_value(
         row.get("use_margin"),
         row.get("initial_margin"),
         row.get("maintain_margin"),
+        row.get("initialMargin"),
+        row.get("maintMargin"),
         row.get("positionIM"),
         row.get("positionIMByMp"),
         row.get("positionMM"),
@@ -2156,11 +2147,16 @@ def value_position(
             row.get("avg_price"),
             row.get("average_price"),
             row.get("price_open"),
+            row.get("entry_price"),
             row.get("avgCost"),
             row.get("avgPrice"),
             row.get("avgPx"),
+            row.get("avg_entry_price"),
+            row.get("avgEntryPrice"),
             row.get("entryPrice"),
             row.get("ep"),
+            row.get("open_avg_price"),
+            row.get("openAvgPrice"),
             row.get("averageCost"),
             row.get("Price"),
             row.get("AveragePrice"),
@@ -2243,6 +2239,8 @@ def value_position(
             "position_unrealised_pnl",
             "unrealized_profit",
             "unrealised_profit",
+            "unrealizedProfit",
+            "unrealisedProfit",
             "unRealizedProfit",
             "UnrealizedPnL",
             "unrealizedPnl",
