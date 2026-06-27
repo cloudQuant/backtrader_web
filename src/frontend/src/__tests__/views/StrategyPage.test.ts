@@ -941,7 +941,45 @@ describe('StrategyPage', () => {
       next_actions: ['继续跟踪模拟交易'],
       started_at: '2026-06-27T00:00:00Z',
       completed_at: '2026-06-27T00:01:00Z',
-      iterations: [],
+      iterations: [
+        {
+          iteration: 1,
+          strategy_id: 's1',
+          strategy_name: 'AI策略',
+          unit_id: 'unit-1',
+          unit_snapshot: {
+            id: 'unit-1',
+            workspace_id: 'research-ws',
+            group_name: 'AI策略',
+            strategy_id: 's1',
+            strategy_name: 'AI策略',
+            symbol: '000001.SZ',
+            symbol_name: '平安银行',
+            timeframe: '1d',
+            timeframe_n: 1,
+            category: 'trend',
+            data_config: { symbol: '000001.SZ' },
+            unit_settings: { initial_cash: 100000, commission: 0.001 },
+            params: {},
+            optimization_config: {},
+            gateway_config: {},
+            trading_mode: 'paper',
+          },
+          task_id: 'task-1',
+          run_status: 'completed',
+          metrics: { sharpe_ratio: 1.2, total_trades: 5 },
+          sharpe_ratio: 1.2,
+          total_trades: 5,
+          quality_score: 100,
+          quality_gate_evaluations: [
+            { key: 'sharpe', label: 'Sharpe', actual: 1.2, target: 1, direction: 'min', passed: true, score: 1 },
+          ],
+          passed: true,
+          quality_gate_failures: [],
+          improvement_notes: ['第一轮达标'],
+          next_actions: ['进入模拟交易'],
+        },
+      ],
     }
     try {
       const wrapper = doMount()
@@ -961,10 +999,23 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchResult.run_id).toBe('restored-run')
       expect(vm.aiResearchResult.research_workspace.id).toBe('research-ws')
       expect(vm.aiResearchResult.run_record.paper_trading_started).toBe(true)
+      expect(vm.aiResearchResult.iterations).toHaveLength(1)
+      expect(vm.aiResearchResult.iterations[0].strategy.id).toBe('s1')
+      expect(vm.aiResearchResult.iterations[0].unit.id).toBe('unit-1')
+      expect(vm.aiResearchResult.iterations[0].sharpe_ratio).toBe(1.2)
       expect(vm.aiResearchPaperStatusText).toBe('已启动')
       expect(vm.aiResearchCurrentPaperEnvironment[0].key).toBe('initial_cash')
       expect(vm.canOpenPaperFromCurrentResult).toBe(true)
       expect(vm.canViewBestStrategyFromCurrentResult).toBe(true)
+      vi.mocked(strategyApi.get).mockClear()
+      await wrapper.vm.$nextTick()
+      const iterationScriptButton = wrapper.findAll('button').find(
+        button => button.text().trim() === '查看脚本'
+      )
+      expect(iterationScriptButton).toBeTruthy()
+      await iterationScriptButton!.trigger('click')
+      await flushPromises()
+      expect(strategyApi.get).toHaveBeenCalledWith('s1')
       vi.mocked(strategyApi.get).mockClear()
       await vm.viewBestStrategyFromCurrentResult()
       await flushPromises()

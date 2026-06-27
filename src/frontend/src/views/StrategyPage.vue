@@ -715,7 +715,7 @@
                       <el-button
                         size="small"
                         data-test="ai-research-view-iteration-strategy"
-                        @click="viewStrategy(item.strategy)"
+                        @click="viewResearchIterationStrategy(item)"
                       >
                         查看脚本
                       </el-button>
@@ -1276,9 +1276,10 @@ import type {
   AIStrategyResearchRunRequest,
   AIStrategyResearchRunRecord,
   AIStrategyResearchRunResponse,
+  AIStrategyResearchIteration,
   AIStrategyResearchTaskResponse,
 } from '@/api/strategy'
-import type { Workspace } from '@/types/workspace'
+import type { Workspace, StrategyUnit, TradingSnapshot, UnitStatusResponse } from '@/types/workspace'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -2261,6 +2262,7 @@ function workspaceFromResearchRunRecord(record: AIStrategyResearchRunRecord): Wo
 function researchResultFromRunRecord(
   record: AIStrategyResearchRunRecord
 ): AIStrategyResearchRunResponse {
+  const iterations = researchIterationsFromRunRecord(record)
   return {
     run_id: record.run_id,
     status: record.status,
@@ -2274,7 +2276,7 @@ function researchResultFromRunRecord(
     best_diagnostics: record.best_diagnostics ?? {},
     best_metrics: record.best_metrics ?? {},
     research_workspace: workspaceFromResearchRunRecord(record),
-    iterations: [],
+    iterations,
     best_strategy: null,
     paper_trading: null,
     paper_monitoring_plan: record.paper_monitoring_plan ?? [],
@@ -2283,6 +2285,221 @@ function researchResultFromRunRecord(
     next_actions: record.next_actions ?? [],
     message: 'AI research result restored from run history',
   }
+}
+
+function researchIterationsFromRunRecord(
+  record: AIStrategyResearchRunRecord
+): AIStrategyResearchIteration[] {
+  return (record.iterations || [])
+    .filter(isRecord)
+    .map((payload, index) => researchIterationFromRunRecord(record, payload, index + 1))
+}
+
+function researchIterationFromRunRecord(
+  record: AIStrategyResearchRunRecord,
+  payload: Record<string, unknown>,
+  fallbackIteration: number
+): AIStrategyResearchIteration {
+  const iteration = Math.max(Math.trunc(optionalNumber(payload.iteration) ?? fallbackIteration), 1)
+  const metrics = isRecord(payload.metrics) ? payload.metrics : {}
+  const strategy = strategyFromIterationRecord(record, payload, iteration)
+  const unit = unitFromIterationRecord(record, payload, strategy, metrics)
+  const runStatus = stringFromUnknown(payload.run_status, 'completed')
+  const taskId = nullableString(payload.task_id)
+  return {
+    iteration,
+    strategy,
+    unit,
+    run_result: {
+      unit_id: unit.id,
+      task_id: taskId,
+      status: runStatus,
+    },
+    unit_status: unitStatusFromIterationRecord(unit, runStatus, taskId, metrics),
+    metrics,
+    sharpe_ratio: optionalNumber(payload.sharpe_ratio) ?? metricFromPayload(metrics, 'sharpe_ratio', 'sharpe') ?? 0,
+    total_trades: optionalNumber(payload.total_trades) ?? metricFromPayload(metrics, 'total_trades', 'trades') ?? 0,
+    validation_status: nullableString(payload.validation_status),
+    validation_window: validationWindowFromUnknown(payload.validation_window),
+    validation_metrics: isRecord(payload.validation_metrics) ? payload.validation_metrics : {},
+    validation_gate_evaluations: arrayFromUnknown<AIStrategyQualityGateEvaluation>(
+      payload.validation_gate_evaluations
+    ),
+    validation_failures: stringArrayFromUnknown(payload.validation_failures),
+    validation_failure_reason: nullableString(payload.validation_failure_reason),
+    quality_score: optionalNumber(payload.quality_score) ?? record.best_quality_score ?? 0,
+    quality_gate_evaluations: arrayFromUnknown<AIStrategyQualityGateEvaluation>(
+      payload.quality_gate_evaluations
+    ),
+    passed: Boolean(payload.passed),
+    failure_reason: nullableString(payload.failure_reason),
+    quality_gate_failures: stringArrayFromUnknown(payload.quality_gate_failures),
+    diagnostics: isRecord(payload.diagnostics)
+      ? payload.diagnostics as AIStrategyResearchIteration['diagnostics']
+      : {},
+    improvement_plan: stringArrayFromUnknown(payload.improvement_plan),
+    improvement_notes: stringArrayFromUnknown(payload.improvement_notes),
+    next_actions: stringArrayFromUnknown(payload.next_actions),
+  }
+}
+
+function strategyFromIterationRecord(
+  record: AIStrategyResearchRunRecord,
+  payload: Record<string, unknown>,
+  iteration: number
+): Strategy {
+  const snapshot = isRecord(payload.unit_snapshot) ? payload.unit_snapshot : {}
+  const strategyId = stringFromUnknown(
+    payload.strategy_id,
+    record.best_strategy_id || `${record.run_id}-iteration-${iteration}`
+  )
+  const strategyName = stringFromUnknown(
+    payload.strategy_name,
+    record.best_strategy_name || `AI策略 第${iteration}轮`
+  )
+  const diagnostics = isRecord(payload.diagnostics) ? payload.diagnostics : {}
+  return {
+    id: strategyId,
+    user_id: '',
+    name: strategyName,
+    description: stringFromUnknown(diagnostics.summary, record.prompt),
+    code: stringFromUnknown(payload.strategy_code, stringFromUnknown(payload.code, '')),
+    params: isRecord(snapshot.params) ? snapshot.params as Strategy['params'] : {},
+    category: stringFromUnknown(snapshot.category, 'custom'),
+    created_at: record.started_at,
+    updated_at: record.completed_at,
+  }
+}
+
+function unitFromIterationRecord(
+  record: AIStrategyResearchRunRecord,
+  payload: Record<string, unknown>,
+  strategy: Strategy,
+  metrics: Record<string, unknown>
+): StrategyUnit {
+  const snapshot = isRecord(payload.unit_snapshot) ? payload.unit_snapshot : {}
+  return {
+    id: stringFromUnknown(payload.unit_id, stringFromUnknown(snapshot.id, `${record.run_id}-unit`)),
+    workspace_id: stringFromUnknown(snapshot.workspace_id, record.research_workspace_id),
+    group_name: stringFromUnknown(snapshot.group_name, strategy.name),
+    strategy_id: strategy.id,
+    strategy_name: strategy.name,
+    symbol: stringFromUnknown(snapshot.symbol, record.symbol),
+    symbol_name: stringFromUnknown(snapshot.symbol_name, record.symbol_name || record.symbol),
+    timeframe: stringFromUnknown(snapshot.timeframe, record.timeframe),
+    timeframe_n: optionalNumber(snapshot.timeframe_n) ?? record.timeframe_n,
+    category: stringFromUnknown(snapshot.category, strategy.category),
+    sort_order: 0,
+    data_config: isRecord(snapshot.data_config) ? snapshot.data_config : {},
+    unit_settings: isRecord(snapshot.unit_settings) ? snapshot.unit_settings : {},
+    params: isRecord(snapshot.params) ? snapshot.params : {},
+    optimization_config: isRecord(snapshot.optimization_config) ? snapshot.optimization_config : {},
+    trading_mode: unitTradingMode(snapshot),
+    gateway_config: isRecord(snapshot.gateway_config)
+      ? snapshot.gateway_config as StrategyUnit['gateway_config']
+      : {},
+    lock_trading: Boolean(snapshot.lock_trading),
+    lock_running: Boolean(snapshot.lock_running),
+    trading_instance_id: nullableString(snapshot.trading_instance_id),
+    trading_snapshot: emptyTradingSnapshot(unitTradingMode(snapshot)),
+    run_status: stringFromUnknown(payload.run_status, 'completed') as StrategyUnit['run_status'],
+    run_count: optionalNumber(snapshot.run_count) ?? 1,
+    last_run_time: optionalNumber(snapshot.last_run_time),
+    last_task_id: nullableString(payload.task_id),
+    last_optimization_task_id: nullableString(snapshot.last_optimization_task_id),
+    bar_count: optionalNumber(snapshot.bar_count),
+    metrics_snapshot: metrics,
+    created_at: record.started_at,
+    updated_at: record.completed_at,
+  }
+}
+
+function unitStatusFromIterationRecord(
+  unit: StrategyUnit,
+  runStatus: string,
+  taskId: string | null,
+  metrics: Record<string, unknown>
+): UnitStatusResponse {
+  return {
+    id: unit.id,
+    run_status: runStatus as UnitStatusResponse['run_status'],
+    last_task_id: taskId,
+    metrics_snapshot: metrics,
+    run_count: unit.run_count,
+    last_run_time: unit.last_run_time,
+    bar_count: unit.bar_count,
+    trading_instance_id: unit.trading_instance_id,
+    trading_snapshot: emptyTradingSnapshot(unit.trading_mode),
+    trading_mode: unit.trading_mode,
+    lock_trading: unit.lock_trading,
+    lock_running: unit.lock_running,
+    opt_status: null,
+    opt_total: null,
+    opt_completed: null,
+    opt_progress: null,
+    opt_elapsed_time: null,
+    opt_remaining_time: null,
+  }
+}
+
+function metricFromPayload(payload: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = optionalNumber(payload[key])
+    if (value !== null) return value
+  }
+  return null
+}
+
+function unitTradingMode(snapshot: Record<string, unknown>) {
+  return stringFromUnknown(snapshot.trading_mode, 'paper') as StrategyUnit['trading_mode']
+}
+
+function emptyTradingSnapshot(mode: StrategyUnit['trading_mode']): TradingSnapshot {
+  return {
+    instance_id: null,
+    instance_status: 'idle',
+    mode,
+    error: null,
+    started_at: null,
+    stopped_at: null,
+    gateway_summary: null,
+    long_position: 0,
+    short_position: 0,
+    today_pnl: null,
+    position_pnl: null,
+    latest_price: null,
+    change_pct: null,
+    long_market_value: null,
+    short_market_value: null,
+    leverage: null,
+    cumulative_pnl: null,
+    max_drawdown_rate: null,
+    trading_day: null,
+    updated_at: null,
+    detail_route: null,
+    positions: [],
+    trades: [],
+  }
+}
+
+function stringFromUnknown(value: unknown, fallback = '') {
+  const text = typeof value === 'string' ? value.trim() : ''
+  return text || fallback
+}
+
+function nullableString(value: unknown) {
+  const text = typeof value === 'string' ? value.trim() : ''
+  return text || null
+}
+
+function stringArrayFromUnknown(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
+}
+
+function arrayFromUnknown<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value.filter(isRecord) as T[] : []
 }
 
 async function restoreAIResearchResultFromTask(
@@ -2422,6 +2639,23 @@ async function viewBestStrategyFromCurrentResult() {
   const record = result.run_record
   if (!record) return
   await viewStrategyFromResearchRecord(record)
+}
+
+async function viewResearchIterationStrategy(item: AIStrategyResearchIteration) {
+  if (item.strategy.code.trim()) {
+    viewStrategy(item.strategy)
+    return
+  }
+  if (!item.strategy.id) return
+  aiResearchStrategyViewingRunId.value = aiResearchResult.value?.run_id || item.strategy.id
+  try {
+    const strategy = await strategyApi.get(item.strategy.id)
+    viewStrategy(strategy)
+  } catch {
+    ElMessage.error(t('strategy.aiResearchRunFailed'))
+  } finally {
+    aiResearchStrategyViewingRunId.value = ''
+  }
 }
 
 async function viewStrategyFromResearchRecord(record: AIStrategyResearchRunRecord) {
