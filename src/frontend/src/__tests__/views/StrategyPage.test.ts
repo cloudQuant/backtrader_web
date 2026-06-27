@@ -2102,6 +2102,18 @@ describe('StrategyPage', () => {
       next_actions: ['模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。'],
       latest_iteration: {
         iteration: 2,
+        strategy_id: 'summary-strategy',
+        strategy_name: '摘要恢复策略',
+        strategy_snapshot: {
+          id: 'summary-strategy',
+          name: '摘要恢复策略',
+          description: '从任务摘要恢复的 AI 生成策略脚本',
+          code: 'import backtrader as bt\nclass SummaryRestoredStrategy(bt.Strategy):\n    pass\n',
+          params: {},
+          category: 'trend',
+          created_at: '2026-06-27T00:00:10Z',
+          updated_at: '2026-06-27T00:20:00Z',
+        },
         sharpe_ratio: 1.18,
         total_trades: 9,
         metrics: { sharpe_ratio: 1.18, total_trades: 9 },
@@ -2147,6 +2159,8 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchResult.best_diagnostics.summary).toBe('任务摘要诊断：已通过质量门槛')
       expect(vm.aiResearchResult.run_record.best_diagnostics.promotion_ready).toBe(true)
       expect(vm.aiResearchResult.run_record.best_strategy_id).toBe('summary-strategy')
+      expect(vm.aiResearchResult.best_strategy.id).toBe('summary-strategy')
+      expect(vm.aiResearchResult.best_strategy.code).toContain('SummaryRestoredStrategy')
       const diagnostics = wrapper.find('[data-test="ai-research-best-diagnostics"]').text()
       expect(diagnostics).toContain('投研诊断')
       expect(diagnostics).toContain('可晋级')
@@ -2183,6 +2197,12 @@ describe('StrategyPage', () => {
       expect(wrapper.find('[data-test="ai-research-current-live-readiness"]').text()).toContain(
         '人工实盘审批 待人工确认'
       )
+      vi.mocked(strategyApi.get).mockClear()
+      await vm.viewBestStrategyFromCurrentResult()
+      await flushPromises()
+      expect(strategyApi.get).not.toHaveBeenCalled()
+      expect(vm.viewDialogVisible).toBe(true)
+      expect(vm.currentStrategy.code).toContain('SummaryRestoredStrategy')
     } finally {
       setTimeoutSpy.mockRestore()
       delete (strategyApi as any).submitAIResearchTask

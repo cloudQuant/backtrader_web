@@ -3105,6 +3105,7 @@ function researchResultFromRunRecord(
   record: AIStrategyResearchRunRecord
 ): AIStrategyResearchRunResponse {
   const iterations = researchIterationsFromRunRecord(record)
+  const snapshotBestStrategy = bestStrategyFromRunRecord(record)
   return {
     run_id: record.run_id,
     status: record.status,
@@ -3119,7 +3120,7 @@ function researchResultFromRunRecord(
     best_metrics: record.best_metrics ?? {},
     research_workspace: workspaceFromResearchRunRecord(record),
     iterations,
-    best_strategy: null,
+    best_strategy: snapshotBestStrategy?.code?.trim() ? snapshotBestStrategy : null,
     paper_trading: paperTradingFromRunRecord(record),
     paper_monitoring_plan: record.paper_monitoring_plan ?? [],
     pipeline: record.pipeline,
