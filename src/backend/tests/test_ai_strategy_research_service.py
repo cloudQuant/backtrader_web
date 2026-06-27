@@ -429,6 +429,12 @@ class FakeBacktestSubmitFailingStrategyService(FakeStrategyService):
         return await super().backtest_copilot_draft(user_id, workspace_id, request)
 
 
+class FakeDraftFailingStrategyService(FakeStrategyService):
+    async def generate_copilot_draft(self, user_id: str, request):
+        self.generate_requests.append(request)
+        raise RuntimeError("knowledge base unavailable")
+
+
 class InvalidThenRepairingImprover:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
@@ -798,6 +804,50 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert "系统将基于本轮失败原因生成下一版策略" in result.research_workspace.settings[
         "ai_research"
     ]["runs"][0]["iterations"][0]["next_actions"][-1]
+
+
+@pytest.mark.asyncio
+async def test_research_loop_falls_back_when_initial_draft_generation_fails():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeDraftFailingStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.18, "total_trades": 6, "max_drawdown": -4.0}],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+    progress_events: list[dict[str, Any]] = []
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个双均线趋势策略",
+            symbol="000001.SZ",
+            knowledge_base_id="kb-broken",
+            thinking_mode=True,
+            target_sharpe=1.0,
+            start_paper_trading=False,
+            out_of_sample_validation=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+        progress_callback=progress_events.append,
+    )
+
+    assert result.achieved is True
+    assert result.status == "achieved"
+    assert strategy_service.generate_requests[0].knowledge_base_id == "kb-broken"
+    assert strategy_service.generate_requests[0].thinking_mode is True
+    assert strategy_service.submitted_drafts
+    assert "class AIGeneratedStrategy" in strategy_service.submitted_drafts[0].code
+    assert result.iterations[0].improvement_notes[0].startswith("AI初始策略生成失败")
+    assert any(event["current_stage"] == "draft_generation_failed" for event in progress_events)
+    assert result.run_record is not None
+    assert result.run_record.knowledge_base_id == "kb-broken"
+    assert result.research_workspace.settings["ai_research"]["runs"][0]["run_id"] == result.run_id
 
 
 @pytest.mark.asyncio

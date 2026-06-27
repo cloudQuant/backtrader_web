@@ -342,16 +342,33 @@ class AIStrategyResearchService:
                     "message": "Generating initial strategy draft",
                 },
             )
-            draft_response = await self.strategy_service.generate_copilot_draft(
-                user_id,
-                StrategyCopilotDraftRequest(
-                    prompt=_build_research_draft_prompt(request),
-                    knowledge_base_id=request.knowledge_base_id,
-                    thinking_mode=request.thinking_mode,
-                ),
-            )
-            draft = _normalize_research_draft(draft_response.strategy_draft, request)
-            draft, initial_draft_notes = _ensure_runnable_initial_draft(draft, request)
+            try:
+                draft_response = await self.strategy_service.generate_copilot_draft(
+                    user_id,
+                    StrategyCopilotDraftRequest(
+                        prompt=_build_research_draft_prompt(request),
+                        knowledge_base_id=request.knowledge_base_id,
+                        thinking_mode=request.thinking_mode,
+                    ),
+                )
+                draft = _normalize_research_draft(draft_response.strategy_draft, request)
+                draft, initial_draft_notes = _ensure_runnable_initial_draft(draft, request)
+            except Exception as exc:
+                await _emit_research_progress(
+                    progress_callback,
+                    {
+                        "current_stage": "draft_generation_failed",
+                        "progress": 6.0,
+                        "iteration_count": 0,
+                        "max_iterations": request.max_iterations,
+                        "message": f"Initial strategy draft generation failed: {exc}",
+                    },
+                )
+                draft = _normalize_research_draft(build_ai_strategy_draft(request.prompt), request)
+                _validate_strategy_code_draft(draft.code)
+                initial_draft_notes = [
+                    f"AI初始策略生成失败，已使用本地可运行草案继续投研：{exc}",
+                ]
         else:
             draft, initial_draft_notes = _ensure_runnable_seed_draft(draft, request)
 
