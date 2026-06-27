@@ -1,5 +1,6 @@
 import json
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import yaml
@@ -4331,6 +4332,111 @@ async def test_start_units_syncs_runtime_contract_metadata_to_unit(tmp_path, mon
 
 
 @pytest.mark.asyncio
+async def test_start_units_injects_local_asset_specs_before_paper_runtime_sync(
+    tmp_path,
+    monkeypatch,
+):
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir(parents=True)
+    unit = SimpleNamespace(
+        id="unit-paper-local-spec",
+        workspace_id="ws-1",
+        group_name="压测",
+        strategy_id="simulate/gateway_dual_ma",
+        strategy_name="IF Paper Local Spec",
+        symbol="IF2609",
+        symbol_name="沪深300",
+        timeframe="1m",
+        timeframe_n=1,
+        category="future",
+        data_config={},
+        unit_settings={},
+        params={},
+        optimization_config={},
+        gateway_config={},
+        trading_mode="paper",
+        lock_running=False,
+        lock_trading=False,
+        trading_instance_id=None,
+        run_status="idle",
+        run_count=0,
+        trading_snapshot={},
+        metrics_snapshot={},
+        bar_count=None,
+        last_run_time=None,
+    )
+
+    def fake_local_asset_spec(symbol):
+        assert symbol == "IF2609"
+        return {
+            "symbol": "IF2609",
+            "multiplier": 300,
+            "margin_rate": 0.12,
+            "commission_rate": 0.000024,
+            "source": "local_futures_fees",
+        }
+
+    synced_params: dict[str, Any] = {}
+
+    def fake_sync_runtime(current_unit, *_args, **_kwargs):
+        synced_params.update(current_unit.params or {})
+        return runtime_dir
+
+    class FakeManager:
+        def __init__(self):
+            self.instances = {}
+            self.added_params = {}
+
+        def add_instance(self, strategy_id, params, user_id=None, runtime_dir=None):
+            self.added_params = dict(params or {})
+            instance = {
+                "id": "inst-paper-local-spec",
+                "strategy_id": strategy_id,
+                "status": "stopped",
+                "params": dict(params or {}),
+                "runtime_dir": runtime_dir,
+                "log_dir": None,
+            }
+            self.instances["inst-paper-local-spec"] = instance
+            return instance
+
+        def get_instance(self, instance_id, user_id=None):
+            return self.instances.get(instance_id)
+
+        async def start_instance(self, instance_id):
+            instance = self.instances[instance_id]
+            instance["status"] = "running"
+            return instance
+
+    manager = FakeManager()
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "query_local_asset_spec",
+        fake_local_asset_spec,
+    )
+    monkeypatch.setattr(
+        workspace_unit_runtime,
+        "sync_trading_unit_runtime",
+        fake_sync_runtime,
+    )
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "get_live_trading_manager",
+        lambda: manager,
+    )
+
+    results = await TradingWorkspaceService().start_units([unit], user_id="user-1")
+
+    assert results[0]["status"] == "running"
+    for params in (synced_params, manager.added_params, unit.params):
+        metadata = params["contract_metadata"]["IF2609"]
+        assert metadata["multiplier"] == 300
+        assert metadata["margin_rate"] == 0.12
+        assert metadata["commission_rate"] == 0.000024
+        assert metadata["source"] == "local_futures_fees"
+
+
+@pytest.mark.asyncio
 async def test_start_units_queries_asset_specs_after_start(tmp_path, monkeypatch):
     runtime_dir = tmp_path / "runtime"
     runtime_dir.mkdir(parents=True)
@@ -4550,6 +4656,84 @@ async def test_hydrate_units_queries_running_instance_asset_specs_without_positi
     assert metadata["multiplier"] == 300
     assert metadata["margin_rate"] == 0.1
     assert metadata["commission_rate"] == 0.000023
+
+
+@pytest.mark.asyncio
+async def test_hydrate_units_fills_local_asset_specs_when_manager_cannot_query(
+    tmp_path,
+    monkeypatch,
+):
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir(parents=True)
+    unit = SimpleNamespace(
+        id="unit-local-asset-refresh",
+        symbol="IF2609",
+        data_config={},
+        unit_settings={},
+        gateway_config={},
+        trading_instance_id="inst-local-running",
+        run_status="running",
+        trading_snapshot={"instance_status": "running", "positions": []},
+        metrics_snapshot={},
+        bar_count=None,
+        last_run_time=None,
+        params={},
+    )
+
+    class FakeManager:
+        def get_instance(self, instance_id, user_id=None):
+            assert instance_id == "inst-local-running"
+            assert user_id == "user-1"
+            return {
+                "id": "inst-local-running",
+                "status": "running",
+                "params": {"symbol": "IF2609"},
+                "runtime_dir": str(runtime_dir),
+            }
+
+    def fake_local_asset_spec(symbol):
+        assert symbol == "IF2609"
+        return {
+            "symbol": "IF2609",
+            "multiplier": 300,
+            "margin_rate": 0.12,
+            "commission_rate": 0.000024,
+            "source": "local_futures_fees",
+        }
+
+    def fake_build_snapshot(cls, current_unit, instance, *, full_log=True):
+        assert instance is not None
+        return dict(current_unit.trading_snapshot), {}, None, None
+
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "get_live_trading_manager",
+        lambda: FakeManager(),
+    )
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "query_local_asset_spec",
+        fake_local_asset_spec,
+    )
+    monkeypatch.setattr(
+        TradingWorkspaceService,
+        "_build_snapshot",
+        classmethod(fake_build_snapshot),
+    )
+
+    changed = await TradingWorkspaceService().hydrate_units([unit], user_id="user-1")
+
+    assert changed is True
+    metadata = unit.params["contract_metadata"]["IF2609"]
+    assert metadata["multiplier"] == 300
+    assert metadata["margin_rate"] == 0.12
+    assert metadata["commission_rate"] == 0.000024
+    assert metadata["source"] == "local_futures_fees"
+    config = load_runtime_config(runtime_dir)
+    runtime_metadata = config["contract_metadata"]["IF2609"]
+    assert runtime_metadata["multiplier"] == 300
+    assert runtime_metadata["margin_rate"] == 0.12
+    assert runtime_metadata["commission_rate"] == 0.000024
 
 
 @pytest.mark.asyncio

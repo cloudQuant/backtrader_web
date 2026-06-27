@@ -31,6 +31,7 @@ from app.services.trading_asset_info_service import (
     SHORT_POSITION_FIELD_KEYS,
     gateway_position_symbol,
     normalize_gateway_position,
+    persist_asset_specs,
     query_local_asset_spec,
     signed_gateway_size,
     split_bidirectional_position_row,
@@ -1216,6 +1217,26 @@ class TradingWorkspaceService:
         return cls._sync_unit_contract_metadata_from_specs(unit, asset_specs)
 
     @classmethod
+    def _refresh_unit_asset_specs_from_local(
+        cls,
+        unit: StrategyUnit,
+        instance: dict[str, Any] | None = None,
+    ) -> bool:
+        symbols = cls._unit_asset_spec_symbols(unit, instance)
+        if not symbols:
+            return False
+        asset_specs = _complete_asset_specs_from_local({}, symbols)
+        if not asset_specs:
+            return False
+        runtime_dir = str((instance or {}).get("runtime_dir") or "").strip()
+        if runtime_dir:
+            try:
+                persist_asset_specs(Path(runtime_dir).expanduser(), instance or {}, asset_specs)
+            except Exception:
+                pass
+        return cls._sync_unit_contract_metadata_from_specs(unit, asset_specs)
+
+    @classmethod
     def _gateway_position_symbols_from_manager(
         cls,
         manager: Any,
@@ -1830,6 +1851,11 @@ class TradingWorkspaceService:
                 changed = True
             if self._refresh_unit_asset_specs_from_manager(manager, unit, instance):
                 changed = True
+            if (
+                not self._unit_has_asset_valuation_config(unit)
+                and self._refresh_unit_asset_specs_from_local(unit, instance)
+            ):
+                changed = True
             snapshot, metrics_snapshot, bar_count, elapsed_seconds = self._build_snapshot(
                 unit,
                 instance,
@@ -1879,6 +1905,8 @@ class TradingWorkspaceService:
                     raise ValueError("策略单元缺少策略模板")
 
                 instance = None
+                if self.normalize_trading_mode(unit.trading_mode) != "live":
+                    self._refresh_unit_asset_specs_from_local(unit, None)
                 runtime_dir = workspace_unit_runtime.sync_trading_unit_runtime(
                     unit,
                     normalized_workspace_settings,
