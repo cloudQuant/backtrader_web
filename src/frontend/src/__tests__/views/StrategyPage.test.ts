@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import StrategyPage from '@/views/StrategyPage.vue'
 import { stripStrategyMeta, getStrategyParamCount } from '@/constants/strategy'
 import { elStubs } from '@/test/stubs'
+import type { AIStrategyResearchRunRecord } from '@/api/strategy'
 
 const strategyTemplates = vi.hoisted(() => [
   { id: 't1', name: 'SMA', category: 'trend', description: 'test', params: {} },
@@ -142,7 +143,7 @@ vi.mock('@/api/strategy', () => ({
           label: '模拟交易滚动 Sharpe',
           metric: 'rolling_sharpe',
           window: '30 trading days',
-          direction: 'min',
+          direction: 'min' as const,
           threshold: 0.6,
           action: '低于阈值时暂停放大资金',
         },
@@ -1450,7 +1451,7 @@ describe('StrategyPage', () => {
     const { strategyApi } = await import('@/api/strategy')
     const wrapper = doMount()
     const vm = wrapper.vm as any
-    const record = {
+    const record: AIStrategyResearchRunRecord = {
       run_id: 'snapshot-run',
       prompt: '历史快照策略',
       symbol: '600000.SH',
@@ -1909,41 +1910,99 @@ describe('StrategyPage', () => {
     const { ElMessage } = await import('element-plus')
     const wrapper = doMount()
     const vm = wrapper.vm as any
-    vm.aiResearchRuns = [
-      {
+    const record = {
+      run_id: 'history-run',
+      prompt: '历史趋势策略',
+      symbol: '000001.SZ',
+      symbol_name: '平安银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      status: 'achieved',
+      achieved: true,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 2,
+      best_iteration: 2,
+      best_sharpe: 1.2,
+      best_quality_score: 100,
+      best_quality_gate_evaluations: [],
+      best_metrics: { sharpe_ratio: 1.2 },
+      best_strategy_id: 's1',
+      best_strategy_name: 'AI策略',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_workspace_id: null,
+      paper_unit_id: null,
+      paper_trading_started: false,
+      next_actions: [],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [],
+    }
+    const refreshedRecord: AIStrategyResearchRunRecord = {
+      ...record,
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      paper_handoff: {
         run_id: 'history-run',
-        prompt: '历史趋势策略',
-        symbol: '000001.SZ',
-        symbol_name: '平安银行',
-        timeframe: '1d',
-        timeframe_n: 1,
-        status: 'achieved',
-        achieved: true,
-        target_sharpe: 1,
-        quality_gates: { target_sharpe: 1, min_total_trades: 1 },
-        min_total_trades: 1,
-        max_iterations: 3,
-        iteration_count: 2,
-        best_iteration: 2,
-        best_sharpe: 1.2,
-        best_quality_score: 100,
-        best_quality_gate_evaluations: [],
-        best_metrics: { sharpe_ratio: 1.2 },
-        best_strategy_id: 's1',
-        best_strategy_name: 'AI策略',
-        research_workspace_id: 'research-ws',
-        seed_strategy_id: null,
-        continued_from_run_id: null,
-        paper_workspace_id: null,
-        paper_unit_id: null,
-        paper_trading_started: false,
-        next_actions: [],
-        started_at: '2026-06-27T00:00:00Z',
-        completed_at: '2026-06-27T00:01:00Z',
-        iterations: [],
+        paper_task_id: 'paper-task',
+        paper_workspace_id: 'paper-ws',
+        paper_unit_id: 'paper-unit',
       },
-    ]
+      paper_monitoring_plan: [
+        {
+          key: 'rolling_sharpe',
+          label: '模拟交易滚动 Sharpe',
+          metric: 'rolling_sharpe',
+          window: '30 trading days',
+          direction: 'min' as const,
+          threshold: 0.6,
+          action: '继续观察',
+        },
+      ],
+      paper_review_status: 'monitoring',
+      paper_review_ready_for_live: false,
+      paper_reviewed_at: '2026-06-27T00:02:00Z',
+      paper_review_evaluations: [
+        {
+          key: 'rolling_sharpe',
+          label: '模拟交易滚动 Sharpe',
+          metric: 'rolling_sharpe',
+          window: '30 trading days',
+          direction: 'min',
+          threshold: 0.6,
+          actual: null,
+          source: null,
+          status: 'pending',
+          passed: false,
+          action: '低于阈值时暂停放大资金',
+        },
+      ],
+      paper_review_next_actions: [
+        '继续收集模拟交易数据，等待以下指标形成有效样本：模拟交易滚动 Sharpe',
+      ],
+      pipeline: {
+        current_stage: 'paper_review',
+        status: 'achieved',
+        progress: 80,
+        ready_for_live: false,
+        steps: [],
+      },
+      next_actions: [
+        '继续收集模拟交易数据，等待以下指标形成有效样本：模拟交易滚动 Sharpe',
+      ],
+    }
+    vm.aiResearchRuns = [record]
     vm.aiResearchRunsLoading = false
+    vi.mocked(strategyApi.listAIResearchRuns).mockClear()
+    vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({
+      total: 1,
+      items: [refreshedRecord],
+    })
 
     await wrapper.vm.$nextTick()
     expect(vm.canStartPaperFromRecord(vm.aiResearchRuns[0])).toBe(true)
@@ -1962,11 +2021,14 @@ describe('StrategyPage', () => {
     expect(strategyApi.startAIResearchPaperTrading).toHaveBeenCalledWith('history-run', {
       research_workspace_id: 'research-ws',
     })
+    expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith('research-ws', 20)
     expect(vm.aiResearchRuns[0].paper_trading_started).toBe(true)
     expect(vm.aiResearchRuns[0].paper_workspace_id).toBe('paper-ws')
     expect(vm.aiResearchRuns[0].paper_unit_id).toBe('paper-unit')
     expect(vm.aiResearchRuns[0].paper_handoff.paper_task_id).toBe('paper-task')
     expect(vm.aiResearchRuns[0].paper_monitoring_plan[0].key).toBe('rolling_sharpe')
+    expect(vm.aiResearchRuns[0].paper_review_status).toBe('monitoring')
+    expect(vm.aiResearchRuns[0].pipeline.current_stage).toBe('paper_review')
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已启动')
   })
 
@@ -2016,6 +2078,48 @@ describe('StrategyPage', () => {
       },
     ]
     vm.aiResearchRunsLoading = false
+    vi.mocked(strategyApi.listAIResearchRuns).mockClear()
+    vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({
+      total: 1,
+      items: [
+        {
+          ...vm.aiResearchRuns[0],
+          paper_workspace_id: 'paper-ws',
+          paper_unit_id: 'paper-unit',
+          paper_trading_started: true,
+          paper_review_status: 'monitoring',
+          paper_review_ready_for_live: false,
+          paper_review_evaluations: [
+            {
+              key: 'rolling_sharpe',
+              label: '模拟交易滚动 Sharpe',
+              metric: 'rolling_sharpe',
+              window: '30 trading days',
+              direction: 'min' as const,
+              threshold: 0.6,
+              actual: null,
+              source: null,
+              status: 'pending',
+              passed: false,
+              action: '低于阈值时暂停放大资金',
+            },
+          ],
+          paper_handoff: {
+            run_id: 'history-run',
+            paper_workspace_id: 'paper-ws',
+            paper_unit_id: 'paper-unit',
+            paper_task_id: 'paper-task',
+          },
+          pipeline: {
+            current_stage: 'paper_review',
+            status: 'achieved',
+            progress: 80,
+            ready_for_live: false,
+            steps: [],
+          },
+        },
+      ],
+    })
 
     await wrapper.vm.$nextTick()
     expect(vm.canStartPaperFromRecord(vm.aiResearchRuns[0])).toBe(true)

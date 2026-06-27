@@ -2753,6 +2753,11 @@ async function startPaperFromResearchRecord(record: AIStrategyResearchRunRecord)
     const updatedRecord = paperStartedRunRecord(record, paper)
     upsertAIResearchRunRecord(updatedRecord)
     applyPaperStartToCurrentResult(record.run_id, paper, updatedRecord)
+    try {
+      await refreshAIResearchRunRecord(record.run_id, record.research_workspace_id)
+    } catch {
+      // Keep the local started state visible even if history refresh fails.
+    }
     ElMessage.success('模拟交易已启动')
   } catch {
     try {
