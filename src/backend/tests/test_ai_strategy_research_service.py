@@ -7011,6 +7011,29 @@ class FakeResearchAPILivePreparedService(FakeResearchAPILiveHandoffService):
         )
 
 
+class FakeResearchAPIPipelineOnlyLivePreparedService(FakeResearchAPILivePreparedService):
+    async def run(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+        *,
+        progress_callback=None,
+    ):
+        result = await super().run(user_id, request, progress_callback=progress_callback)
+        record = result.run_record
+        assert record is not None
+        record = record.model_copy(
+            update={
+                "live_workspace_id": None,
+                "live_workspace_name": None,
+                "live_unit_id": None,
+                "live_trading_prepared": False,
+                "live_trading_prepared_at": None,
+            }
+        )
+        return result.model_copy(update={"run_record": record})
+
+
 class FakeResearchAPITimeoutCancelService(FakeResearchAPIService):
     async def run(
         self,
@@ -7505,6 +7528,42 @@ async def test_ai_strategy_research_task_manager_exposes_live_prepared_summary()
     listed = await manager.list_tasks("user-1", active_only=False)
     assert listed[0].live_trading_prepared is True
     assert listed[0].pipeline["current_stage"] == "live_trading_prepare"
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_task_manager_fills_live_summary_from_pipeline():
+    manager = AIStrategyResearchTaskManager()
+
+    submitted = await manager.submit(
+        "user-1",
+        AIStrategyResearchRunRequest(prompt="生成趋势策略", symbol="IF2409.CFE"),
+        service=FakeResearchAPIPipelineOnlyLivePreparedService(),
+    )
+
+    task = None
+    for _ in range(20):
+        task = await manager.get_task("user-1", submitted.task_id)
+        if task is not None and task.status == "completed":
+            break
+        await asyncio.sleep(0.01)
+
+    assert task is not None
+    assert task.status == "completed"
+    assert task.current_stage == "live_trading_prepare"
+    assert task.live_workspace_id == "live-api-ws"
+    assert task.live_workspace_name is None
+    assert task.live_unit_id == "live-api-unit"
+    assert task.live_trading_prepared is True
+    assert task.live_trading_prepared_at == "2099-01-01T00:05:00+00:00"
+    assert task.result is not None
+    assert task.result.run_record is not None
+    assert task.result.run_record.live_workspace_id is None
+    assert task.result.pipeline["live_workspace_id"] == "live-api-ws"
+
+    listed = await manager.list_tasks("user-1", active_only=False)
+    assert listed[0].live_workspace_id == "live-api-ws"
+    assert listed[0].live_unit_id == "live-api-unit"
+    assert listed[0].live_trading_prepared is True
 
 
 @pytest.mark.asyncio

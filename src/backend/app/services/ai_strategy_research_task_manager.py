@@ -649,11 +649,18 @@ def _research_result_task_updates(result: Any) -> dict[str, Any]:
         or handoff.get("live_readiness_expires_at"),
         "live_handoff": live_handoff,
         "live_handoff_approval": live_handoff_approval,
-        "live_workspace_id": getattr(record, "live_workspace_id", None),
-        "live_workspace_name": getattr(record, "live_workspace_name", None),
-        "live_unit_id": getattr(record, "live_unit_id", None),
-        "live_trading_prepared": bool(getattr(record, "live_trading_prepared", False)),
-        "live_trading_prepared_at": getattr(record, "live_trading_prepared_at", None),
+        "live_workspace_id": getattr(record, "live_workspace_id", None)
+        or pipeline.get("live_workspace_id"),
+        "live_workspace_name": getattr(record, "live_workspace_name", None)
+        or pipeline.get("live_workspace_name"),
+        "live_unit_id": getattr(record, "live_unit_id", None) or pipeline.get("live_unit_id"),
+        "live_trading_prepared": bool(
+            getattr(record, "live_trading_prepared", False)
+            or pipeline.get("live_trading_prepared")
+        ),
+        "live_trading_prepared_at": getattr(record, "live_trading_prepared_at", None)
+        or pipeline.get("live_trading_prepared_at")
+        or _live_prepare_step_prepared_at(pipeline),
         "pipeline": pipeline,
         "next_actions": next_actions,
     }
@@ -690,6 +697,22 @@ def _latest_iteration_statuses(record: Any, result: Any) -> list[Any]:
                 if status is not None:
                     statuses.append(status)
     return statuses
+
+
+def _live_prepare_step_prepared_at(pipeline: dict[str, Any]) -> str | None:
+    steps = pipeline.get("steps")
+    if not isinstance(steps, list):
+        return None
+    for step in reversed(steps):
+        if not isinstance(step, dict):
+            continue
+        if str(step.get("key") or "") != "live_trading_prepare":
+            continue
+        prepared_at = step.get("prepared_at")
+        if prepared_at is None:
+            return None
+        return str(prepared_at).strip() or None
+    return None
 
 
 def _status_trading_snapshot(status: Any) -> dict[str, Any]:
