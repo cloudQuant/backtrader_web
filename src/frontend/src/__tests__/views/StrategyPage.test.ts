@@ -1331,6 +1331,19 @@ describe('StrategyPage', () => {
         margin: 0.1,
         asset_spec_source: 'task_exchange_specs',
       },
+      request_snapshot: {
+        prompt: '生成一个趋势策略',
+        symbol: '000001.SZ',
+        timeframe: '1d',
+        timeframe_n: 1,
+        gateway_config: {
+          name: 'paper_gateway',
+          params: {
+            exchange: 'sim',
+            mode: 'paper',
+          },
+        },
+      },
       message: 'submitted',
     })
     ;(strategyApi as any).getAIResearchTask = vi.fn().mockResolvedValue({
@@ -1359,6 +1372,19 @@ describe('StrategyPage', () => {
         multiplier: 300,
         margin: 0.1,
         asset_spec_source: 'task_exchange_specs',
+      },
+      request_snapshot: {
+        prompt: '生成一个趋势策略',
+        symbol: '000001.SZ',
+        timeframe: '1d',
+        timeframe_n: 1,
+        gateway_config: {
+          name: 'paper_gateway',
+          params: {
+            exchange: 'sim',
+            mode: 'paper',
+          },
+        },
       },
       latest_iteration: {
         iteration: 1,
@@ -1426,6 +1452,9 @@ describe('StrategyPage', () => {
       expect(taskRuntime).toContain('合约乘数 300.00')
       expect(taskRuntime).toContain('保证金 0.1000')
       expect(taskRuntime).toContain('资产来源 task_exchange_specs')
+      expect(taskRuntime).toContain('网关 paper_gateway')
+      expect(taskRuntime).toContain('交易所 sim')
+      expect(taskRuntime).toContain('模式 paper')
     } finally {
       delete (strategyApi as any).submitAIResearchTask
       delete (strategyApi as any).getAIResearchTask

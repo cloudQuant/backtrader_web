@@ -2177,7 +2177,8 @@ const aiResearchTaskPipelineSteps = computed<AIStrategyPipelineStep[]>(() => {
 const aiResearchTaskRuntimeItems = computed(() =>
   runtimeItemsFromPayloads(
     aiResearchTaskBacktestEnvironment.value,
-    aiResearchTaskAssetSpecs.value
+    aiResearchTaskAssetSpecs.value,
+    aiResearchTaskRequestSnapshot.value
   )
 )
 const aiResearchTaskLatestDiagnostics = computed(() =>
@@ -2482,15 +2483,25 @@ function researchRuntimeItems(
 
 function runtimeItemsFromPayloads(
   environment: Record<string, unknown>,
-  assetSpecs: Record<string, unknown>
+  assetSpecs: Record<string, unknown>,
+  requestSnapshot?: Record<string, unknown> | null
 ): PaperEnvironmentItem[] {
   const items = environmentItemsFromPayload(environment)
+  const existing = new Set(items.map(item => item.key))
+  const appendItem = (item: PaperEnvironmentItem) => {
+    if (existing.has(item.key) || !item.value) return
+    items.push(item)
+    existing.add(item.key)
+  }
+  for (const item of gatewayRuntimeItemsFromSnapshot(requestSnapshot)) {
+    appendItem(item)
+  }
   const asset = firstRuntimeAssetSpecFromPayload(assetSpecs)
   if (!asset) return items
 
-  const existing = new Set(items.map(item => item.key))
   if (!existing.has('asset_symbol')) {
     items.unshift({ key: 'asset_symbol', label: '资产', value: asset.symbol })
+    existing.add('asset_symbol')
   }
   const appendSpecNumber = (key: string, label: string, digits = 2) => {
     if (existing.has(key)) return
@@ -2517,6 +2528,82 @@ function runtimeItemsFromPayloads(
   if (!items.some(item => item.label === '资产来源')) appendSpecText('source', '资产来源')
   if (!items.some(item => item.label === '费用来源')) appendSpecText('fee_source', '费用来源')
   return items.slice(0, 10)
+}
+
+function gatewayRuntimeItemsFromSnapshot(
+  requestSnapshot?: Record<string, unknown> | null
+): PaperEnvironmentItem[] {
+  if (!isRecord(requestSnapshot) || !isRecord(requestSnapshot.gateway_config)) return []
+  const gatewayConfig = requestSnapshot.gateway_config
+  const params = isRecord(gatewayConfig.params) ? gatewayConfig.params : {}
+  const gatewayParams = isRecord(params.gateway) ? params.gateway : {}
+  const ctpParams = isRecord(params.ctp) ? params.ctp : {}
+  const ibParams = isRecord(params.ib) ? params.ib : {}
+  const mt5Params = isRecord(params.mt5) ? params.mt5 : {}
+  const text = (...values: unknown[]) => {
+    for (const value of values) {
+      if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+      const parsed = stringFromUnknown(value)
+      if (parsed) return parsed
+    }
+    return ''
+  }
+  const items: PaperEnvironmentItem[] = []
+  const appendText = (key: string, label: string, value: string) => {
+    if (!value) return
+    items.push({ key, label, value })
+  }
+  appendText(
+    'gateway_name',
+    '网关',
+    text(
+      gatewayConfig.name,
+      gatewayConfig.preset_id,
+      params.name,
+      params.preset_id,
+      gatewayParams.provider
+    )
+  )
+  appendText(
+    'gateway_exchange',
+    '交易所',
+    text(
+      gatewayConfig.exchange,
+      gatewayConfig.exchange_id,
+      gatewayConfig.exchange_type,
+      params.exchange,
+      params.exchange_id,
+      params.exchange_type,
+      gatewayParams.exchange,
+      gatewayParams.exchange_id,
+      gatewayParams.exchange_type
+    )
+  )
+  appendText(
+    'gateway_mode',
+    '模式',
+    text(
+      gatewayConfig.mode,
+      gatewayConfig.trading_mode,
+      params.mode,
+      params.trading_mode,
+      gatewayParams.mode,
+      gatewayParams.trading_mode
+    )
+  )
+  appendText(
+    'gateway_broker',
+    '经纪商',
+    text(
+      gatewayConfig.broker_id,
+      params.broker_id,
+      ctpParams.broker_id,
+      ibParams.broker_id,
+      mt5Params.broker_id,
+      gatewayParams.broker_id
+    )
+  )
+  return items
 }
 
 function hasPaperEnvironment(handoff: Record<string, unknown> | null | undefined) {
