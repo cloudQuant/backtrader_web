@@ -1173,6 +1173,22 @@ describe('StrategyPage', () => {
       current_iteration: 1,
       iteration_count: 0,
       max_iterations: 3,
+      asset_specs: {
+        'IF2409.CFE': {
+          symbol: 'IF2409.CFE',
+          source: 'task_exchange_specs',
+          multiplier: 300,
+          margin_rate: 0.1,
+          commission_rate: 0.000023,
+        },
+      },
+      backtest_environment: {
+        initial_cash: 100000,
+        commission: 0.000023,
+        multiplier: 300,
+        margin: 0.1,
+        asset_spec_source: 'task_exchange_specs',
+      },
       message: 'submitted',
     })
     ;(strategyApi as any).getAIResearchTask = vi.fn().mockResolvedValue({
@@ -1186,6 +1202,22 @@ describe('StrategyPage', () => {
       current_iteration: 1,
       iteration_count: 1,
       max_iterations: 3,
+      asset_specs: {
+        'IF2409.CFE': {
+          symbol: 'IF2409.CFE',
+          source: 'task_exchange_specs',
+          multiplier: 300,
+          margin_rate: 0.1,
+          commission_rate: 0.000023,
+        },
+      },
+      backtest_environment: {
+        initial_cash: 100000,
+        commission: 0.000023,
+        multiplier: 300,
+        margin: 0.1,
+        asset_spec_source: 'task_exchange_specs',
+      },
       latest_iteration: {
         iteration: 1,
         sharpe_ratio: 0.8,
@@ -1246,6 +1278,12 @@ describe('StrategyPage', () => {
       expect(taskProgress).toContain('Sharpe -0.20')
       expect(taskProgress).toContain('自动回测迭代 已完成 1/3 轮')
       expect(taskProgress).toContain('模拟交易 进行中')
+      const taskRuntime = wrapper.find('[data-test="ai-research-task-runtime"]').text()
+      expect(taskRuntime).toContain('运行环境')
+      expect(taskRuntime).toContain('手续费 0.000023')
+      expect(taskRuntime).toContain('合约乘数 300.00')
+      expect(taskRuntime).toContain('保证金 0.1000')
+      expect(taskRuntime).toContain('资产来源 task_exchange_specs')
     } finally {
       delete (strategyApi as any).submitAIResearchTask
       delete (strategyApi as any).getAIResearchTask

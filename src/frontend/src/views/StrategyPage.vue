@@ -383,6 +383,19 @@
                 <span v-if="aiResearchTaskPaperStatusText">{{ aiResearchTaskPaperStatusText }}</span>
                 <span v-if="aiResearchTaskPaperUnitId">模拟单元 {{ aiResearchTaskPaperUnitId }}</span>
                 <span v-if="aiResearchTaskMessage">{{ aiResearchTaskMessage }}</span>
+                <span
+                  v-if="aiResearchTaskRuntimeItems.length"
+                  class="ai-research-task-runtime"
+                  data-test="ai-research-task-runtime"
+                >
+                  <strong>运行环境</strong>
+                  <span
+                    v-for="item in aiResearchTaskRuntimeItems"
+                    :key="item.key"
+                  >
+                    {{ item.label }} {{ item.value }}
+                  </span>
+                </span>
                 <span v-if="aiResearchTaskLatestIteration">
                   最近{{ taskLatestIterationLabel(aiResearchTaskLatestIteration) }}
                   Sharpe {{ formatMetric(taskLatestIterationMetric(aiResearchTaskLatestIteration, 'sharpe_ratio', 'sharpe')) }}
@@ -1714,6 +1727,8 @@ const aiResearchTaskRequestSnapshot = ref<Record<string, unknown> | null>(null)
 const aiResearchTaskError = ref('')
 const aiResearchTaskMessage = ref('')
 const aiResearchTaskLatestIteration = ref<Record<string, unknown> | null>(null)
+const aiResearchTaskAssetSpecs = ref<Record<string, Record<string, unknown>>>({})
+const aiResearchTaskBacktestEnvironment = ref<Record<string, unknown>>({})
 const aiResearchCancelling = ref(false)
 const aiResearchCancelRequested = ref(false)
 const aiResearchPaperStartingRunId = ref('')
@@ -1985,6 +2000,12 @@ const aiResearchTaskPipelineSteps = computed<AIStrategyPipelineStep[]>(() => {
     },
   ]
 })
+const aiResearchTaskRuntimeItems = computed(() =>
+  runtimeItemsFromPayloads(
+    aiResearchTaskBacktestEnvironment.value,
+    aiResearchTaskAssetSpecs.value
+  )
+)
 const aiResearchContinuationEnabled = computed(() =>
   Boolean(aiResearchForm.seed_strategy_id || aiResearchForm.continue_from_run_id)
 )
@@ -2248,8 +2269,16 @@ function researchRuntimeItems(
   handoff?: Record<string, unknown> | null
 ): PaperEnvironmentItem[] {
   const environment = runtimeEnvironmentPayload(record, handoff)
+  const specs = runtimeAssetSpecsPayload(record, handoff)
+  return runtimeItemsFromPayloads(environment, specs)
+}
+
+function runtimeItemsFromPayloads(
+  environment: Record<string, unknown>,
+  assetSpecs: Record<string, unknown>
+): PaperEnvironmentItem[] {
   const items = environmentItemsFromPayload(environment)
-  const asset = firstRuntimeAssetSpec(record, handoff)
+  const asset = firstRuntimeAssetSpecFromPayload(assetSpecs)
   if (!asset) return items
 
   const existing = new Set(items.map(item => item.key))
@@ -2342,11 +2371,9 @@ function runtimeEnvironmentPayload(
   return environment
 }
 
-function firstRuntimeAssetSpec(
-  record: AIStrategyResearchRunRecord | null | undefined,
-  handoff?: Record<string, unknown> | null
+function firstRuntimeAssetSpecFromPayload(
+  specs: Record<string, unknown>
 ): { symbol: string; spec: Record<string, unknown> } | null {
-  const specs = runtimeAssetSpecsPayload(record, handoff)
   for (const [symbol, spec] of Object.entries(specs)) {
     if (!isRecord(spec)) continue
     return { symbol, spec }
@@ -4233,6 +4260,12 @@ function applyAIResearchTaskStatus(task: AIStrategyResearchTaskResponse) {
   if (isRecord(task.request_snapshot)) {
     aiResearchTaskRequestSnapshot.value = task.request_snapshot
   }
+  aiResearchTaskAssetSpecs.value = isRecord(task.asset_specs)
+    ? task.asset_specs as Record<string, Record<string, unknown>>
+    : {}
+  aiResearchTaskBacktestEnvironment.value = isRecord(task.backtest_environment)
+    ? task.backtest_environment
+    : {}
   aiResearchTaskError.value = aiResearchTaskFailureMessage(task)
   aiResearchTaskMessage.value = String(task.message || '').trim()
   aiResearchTaskLatestIteration.value = task.latest_iteration ?? null
@@ -4481,6 +4514,8 @@ async function runAIResearchLoop() {
   aiResearchTaskError.value = ''
   aiResearchTaskMessage.value = ''
   aiResearchTaskLatestIteration.value = null
+  aiResearchTaskAssetSpecs.value = {}
+  aiResearchTaskBacktestEnvironment.value = {}
   aiResearchCancelRequested.value = false
   try {
     aiResearchResult.value = await runAIResearchRequest(buildAIResearchRequest(prompt, symbol))
@@ -4656,6 +4691,13 @@ onMounted(async () => {
 }
 
 .ai-research-task-iteration-progress {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.ai-research-task-runtime {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 6px;
