@@ -1025,6 +1025,11 @@ describe('StrategyPage', () => {
         iteration_count: 2,
         max_iterations: 8,
         message: 'done',
+        latest_iteration: {
+          iteration: 2,
+          sharpe_ratio: 1.12,
+          total_trades: 18,
+        },
         result: baseResult,
       }
     })
@@ -1040,6 +1045,14 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchTaskStatus).toBe('completed')
       expect(vm.aiResearchResult.achieved).toBe(true)
       expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      const taskProgress = wrapper.find('[data-test="ai-research-task-progress"]').text()
+      expect(taskProgress).toContain('任务进度')
+      expect(taskProgress).toContain('阶段 模拟交易')
+      expect(taskProgress).toContain('100%')
+      expect(taskProgress).toContain('done')
+      expect(taskProgress).toContain('最近第 2 轮')
+      expect(taskProgress).toContain('Sharpe 1.12')
+      expect(taskProgress).toContain('交易 18.00')
     } finally {
       setTimeoutSpy.mockRestore()
       delete (strategyApi as any).submitAIResearchTask

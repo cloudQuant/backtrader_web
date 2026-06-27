@@ -317,6 +317,23 @@
                 </el-tag>
               </div>
               <div
+                v-if="aiResearchTaskId"
+                class="ai-research-task-progress"
+                data-test="ai-research-task-progress"
+              >
+                <strong>任务进度</strong>
+                <span>阶段 {{ aiResearchTaskStageLabel }}</span>
+                <span>{{ formatTaskProgress(aiResearchTaskProgress) }}</span>
+                <span v-if="aiResearchTaskIteration">第 {{ aiResearchTaskIteration }} 轮</span>
+                <span v-if="aiResearchBacktestTaskId">回测 {{ aiResearchBacktestTaskId }}</span>
+                <span v-if="aiResearchTaskMessage">{{ aiResearchTaskMessage }}</span>
+                <span v-if="aiResearchTaskLatestIteration">
+                  最近{{ taskLatestIterationLabel(aiResearchTaskLatestIteration) }}
+                  Sharpe {{ formatMetric(taskLatestIterationMetric(aiResearchTaskLatestIteration, 'sharpe_ratio', 'sharpe')) }}
+                  交易 {{ formatMetric(taskLatestIterationMetric(aiResearchTaskLatestIteration, 'total_trades', 'trades')) }}
+                </span>
+              </div>
+              <div
                 v-if="aiResearchTaskError"
                 class="ai-research-task-error"
                 data-test="ai-research-task-error"
@@ -1296,6 +1313,8 @@ const aiResearchTaskIteration = ref<number | null>(null)
 const aiResearchBacktestTaskId = ref('')
 const aiResearchCancelledBacktestTaskId = ref('')
 const aiResearchTaskError = ref('')
+const aiResearchTaskMessage = ref('')
+const aiResearchTaskLatestIteration = ref<Record<string, unknown> | null>(null)
 const aiResearchCancelling = ref(false)
 const aiResearchCancelRequested = ref(false)
 const aiResearchPaperStartingRunId = ref('')
@@ -1592,6 +1611,29 @@ function formatTaskProgress(value: unknown) {
   const number = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(number) || number <= 0) return ''
   return `${Math.round(number)}%`
+}
+
+function taskLatestIterationLabel(iteration: Record<string, unknown>) {
+  const number = taskLatestIterationMetric(iteration, 'iteration')
+  return number === null ? '一轮' : `第 ${formatMetric(number, 0)} 轮`
+}
+
+function taskLatestIterationMetric(
+  iteration: Record<string, unknown>,
+  ...keys: string[]
+) {
+  for (const key of keys) {
+    const value = optionalNumber(iteration[key])
+    if (value !== null) return value
+  }
+  const metrics = iteration.metrics
+  if (isRecord(metrics)) {
+    for (const key of keys) {
+      const value = optionalNumber(metrics[key])
+      if (value !== null) return value
+    }
+  }
+  return null
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -2550,6 +2592,8 @@ function applyAIResearchTaskStatus(task: AIStrategyResearchTaskResponse) {
   aiResearchBacktestTaskId.value = task.current_backtest_task_id || ''
   aiResearchCancelledBacktestTaskId.value = task.cancelled_backtest_task_id || ''
   aiResearchTaskError.value = aiResearchTaskFailureMessage(task)
+  aiResearchTaskMessage.value = String(task.message || '').trim()
+  aiResearchTaskLatestIteration.value = task.latest_iteration ?? null
 }
 
 function aiResearchTaskFailureMessage(task: AIStrategyResearchTaskResponse) {
@@ -2699,6 +2743,8 @@ async function runAIResearchLoop() {
   aiResearchBacktestTaskId.value = ''
   aiResearchCancelledBacktestTaskId.value = ''
   aiResearchTaskError.value = ''
+  aiResearchTaskMessage.value = ''
+  aiResearchTaskLatestIteration.value = null
   aiResearchCancelRequested.value = false
   try {
     aiResearchResult.value = await runAIResearchRequest(buildAIResearchRequest(prompt, symbol))
@@ -2854,6 +2900,23 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.ai-research-task-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ai-research-task-progress strong {
+  color: var(--el-text-color-primary);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .ai-research-gate-control {
