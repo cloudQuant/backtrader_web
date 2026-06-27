@@ -1129,7 +1129,11 @@ class AIStrategyResearchService:
         iteration_payload = _best_iteration_payload(record)
         if iteration_payload is None:
             raise ValueError("AI research run record has no best iteration to promote")
-        if not record.best_strategy_id and not _strategy_id_from_iteration_payload(iteration_payload):
+        if (
+            not record.best_strategy_id
+            and not _strategy_id_from_iteration_payload(iteration_payload)
+            and not _iteration_payload_has_strategy_snapshot(iteration_payload)
+        ):
             raise ValueError("AI research run record has no best strategy to promote")
 
         strategy = None
@@ -1332,6 +1336,12 @@ class AIStrategyResearchService:
                 seed_strategy_id = record.best_strategy_id or _strategy_id_from_iteration_payload(
                     seed_iteration_payload or {}
                 )
+                if (
+                    not seed_strategy_id
+                    and seed_iteration_payload
+                    and _iteration_payload_has_strategy_snapshot(seed_iteration_payload)
+                ):
+                    seed_strategy_id = _fallback_snapshot_strategy_id(record)
             if not seed_strategy_id:
                 raise ValueError("AI research run record has no best strategy to continue")
             if not request.research_workspace_id:
@@ -3627,6 +3637,10 @@ def _strategy_id_from_iteration_payload(payload: dict[str, Any]) -> str:
     return ""
 
 
+def _fallback_snapshot_strategy_id(record: AIStrategyResearchRunRecord) -> str:
+    return f"{record.run_id}-strategy"
+
+
 def _strategy_from_iteration_snapshot(
     record: AIStrategyResearchRunRecord,
     payload: dict[str, Any],
@@ -3650,7 +3664,7 @@ def _strategy_from_iteration_snapshot(
     strategy_payload = {
         "id": _strategy_id_from_iteration_payload(payload)
         or record.best_strategy_id
-        or f"{record.run_id}-strategy",
+        or _fallback_snapshot_strategy_id(record),
         "user_id": user_id,
         "name": str(
             snapshot_payload.get("name")
@@ -3746,7 +3760,12 @@ def _paper_start_request_from_record(
         research_workspace_id=record.research_workspace_id,
         trading_workspace_id=request.trading_workspace_id,
         seed_strategy_id=record.best_strategy_id
-        or _strategy_id_from_iteration_payload(iteration_payload),
+        or _strategy_id_from_iteration_payload(iteration_payload)
+        or (
+            _fallback_snapshot_strategy_id(record)
+            if _iteration_payload_has_strategy_snapshot(iteration_payload)
+            else None
+        ),
         continue_from_run_id=record.run_id,
         start_paper_trading=True,
         paper_workspace_name=request.paper_workspace_name or record.paper_workspace_name,

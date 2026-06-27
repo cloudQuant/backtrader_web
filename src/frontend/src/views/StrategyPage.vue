@@ -2014,7 +2014,14 @@ function bestStrategyIdForRecord(record: AIStrategyResearchRunRecord) {
   const direct = stringFromUnknown(record.best_strategy_id, '').trim()
   if (direct) return direct
   const payload = bestIterationPayloadForRecord(record)
-  return payload ? strategyIdFromIterationPayload(payload) : ''
+  if (!payload) return ''
+  const payloadStrategyId = strategyIdFromIterationPayload(payload)
+  if (payloadStrategyId) return payloadStrategyId
+  return iterationPayloadHasStrategy(payload) ? fallbackSnapshotStrategyId(record) : ''
+}
+
+function fallbackSnapshotStrategyId(record: AIStrategyResearchRunRecord) {
+  return `${record.run_id}-strategy`
 }
 
 function gatewayConfigJsonFromRunRecord(record: AIStrategyResearchRunRecord) {
@@ -2614,7 +2621,7 @@ function strategyFromIterationRecord(
   const strategySnapshot = isRecord(payload.strategy_snapshot) ? payload.strategy_snapshot : {}
   const strategyId = stringFromUnknown(
     strategySnapshot.id ?? payload.strategy_id,
-    record.best_strategy_id || `${record.run_id}-iteration-${iteration}`
+    record.best_strategy_id || fallbackSnapshotStrategyId(record)
   )
   const strategyName = stringFromUnknown(
     strategySnapshot.name ?? payload.strategy_name,

@@ -3017,6 +3017,84 @@ async def test_research_loop_can_continue_from_strategy_snapshot_when_seed_missi
 
 
 @pytest.mark.asyncio
+async def test_research_loop_can_continue_from_code_snapshot_without_strategy_id():
+    workspace_service = FakeWorkspaceService()
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "无ID历史快照策略"}
+    )
+    snapshot_strategy = _strategy("ignored-snapshot-id", seed_draft)
+    previous_record = {
+        **_run_record(
+            "snapshot-no-id-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "best_strategy_id": None,
+        "best_strategy_name": "无ID历史快照策略",
+        "iterations": [
+            {
+                "iteration": 1,
+                "strategy_name": "无ID历史快照策略",
+                "strategy_snapshot": {
+                    "name": snapshot_strategy.name,
+                    "description": snapshot_strategy.description,
+                    "code": snapshot_strategy.code,
+                    "params": {
+                        key: value.model_dump(mode="json")
+                        for key, value in snapshot_strategy.params.items()
+                    },
+                    "category": snapshot_strategy.category,
+                    "created_at": snapshot_strategy.created_at.isoformat(),
+                    "updated_at": snapshot_strategy.updated_at.isoformat(),
+                },
+                "metrics": {"sharpe_ratio": 0.72, "total_trades": 3},
+                "sharpe_ratio": 0.72,
+                "total_trades": 3,
+                "quality_score": 72.0,
+                "passed": False,
+                "quality_gate_failures": ["Sharpe 0.720 below target 1.000"],
+            }
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [previous_record]}}}
+    )
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.13, "total_trades": 6}],
+        strategies={},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续无ID历史快照投研",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            continue_from_run_id="snapshot-no-id-run",
+            start_paper_trading=False,
+            out_of_sample_validation=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert strategy_service.generated == 0
+    assert strategy_service.submitted_drafts[0].name == "无ID历史快照策略"
+    assert strategy_service.submitted_drafts[0].code.strip() == snapshot_strategy.code.strip()
+    assert result.run_record is not None
+    assert result.run_record.seed_strategy_id == "snapshot-no-id-run-strategy"
+    assert result.run_record.continued_from_run_id == "snapshot-no-id-run"
+
+
+@pytest.mark.asyncio
 async def test_research_loop_uses_highest_quality_snapshot_when_best_iteration_missing():
     workspace_service = FakeWorkspaceService()
     weak_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
@@ -4039,6 +4117,92 @@ async def test_start_paper_trading_from_history_uses_iteration_unit_snapshot():
     assert result.handoff["asset_specs"]["IF2609"]["asset_spec_source"] == (
         "local_futures_commission"
     )
+
+
+@pytest.mark.asyncio
+async def test_start_paper_trading_from_history_uses_code_snapshot_without_strategy_id():
+    workspace_service = FakeWorkspaceService()
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "无ID历史快照策略"}
+    )
+    snapshot_strategy = _strategy("ignored-snapshot-id", seed_draft)
+    record = {
+        **_run_record(
+            "paper-snapshot-no-id-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "best_strategy_id": None,
+        "best_strategy_name": "无ID历史快照策略",
+        "paper_workspace_id": None,
+        "paper_unit_id": None,
+        "paper_trading_started": False,
+        "iterations": [
+            {
+                "iteration": 1,
+                "strategy_name": "无ID历史快照策略",
+                "strategy_snapshot": {
+                    "name": snapshot_strategy.name,
+                    "description": snapshot_strategy.description,
+                    "code": snapshot_strategy.code,
+                    "params": {
+                        key: value.model_dump(mode="json")
+                        for key, value in snapshot_strategy.params.items()
+                    },
+                    "category": snapshot_strategy.category,
+                    "created_at": snapshot_strategy.created_at.isoformat(),
+                    "updated_at": snapshot_strategy.updated_at.isoformat(),
+                },
+                "unit_id": "snapshot-unit",
+                "unit_snapshot": {
+                    "id": "snapshot-unit",
+                    "workspace_id": "research-ws",
+                    "group_name": "无ID历史快照策略",
+                    "symbol": "000001.SZ",
+                    "symbol_name": "平安银行",
+                    "timeframe": "1d",
+                    "timeframe_n": 1,
+                    "category": snapshot_strategy.category,
+                    "data_config": {"symbol": "000001.SZ"},
+                    "unit_settings": {"initial_cash": 100000.0, "commission": 0.001},
+                    "params": {},
+                    "optimization_config": {},
+                    "gateway_config": {},
+                    "trading_mode": "paper",
+                },
+                "task_id": "task-snapshot",
+                "run_status": "completed",
+                "metrics": {"sharpe_ratio": 1.21, "total_trades": 5},
+                "sharpe_ratio": 1.21,
+                "total_trades": 5,
+                "quality_score": 100.0,
+                "passed": True,
+                "quality_gate_failures": [],
+            }
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [record]}}}
+    )
+    service = AIStrategyResearchService(
+        strategy_service=FakeStrategyService(workspace_service, [], strategies={}),
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.start_paper_trading_from_run(
+        "user-1",
+        "paper-snapshot-no-id-run",
+        AIStrategyPaperTradingStartRequest(research_workspace_id="research-ws"),
+    )
+
+    assert result.started is True
+    created_unit = workspace_service.created_units[-1]
+    assert created_unit.strategy_id == "paper-snapshot-no-id-run-strategy"
+    assert created_unit.strategy_name == "无ID历史快照策略"
+    assert result.handoff["seed_strategy_id"] == "paper-snapshot-no-id-run-strategy"
+    assert result.handoff["research_strategy_id"] == "paper-snapshot-no-id-run-strategy"
 
 
 @pytest.mark.asyncio

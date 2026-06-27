@@ -1916,9 +1916,7 @@ describe('StrategyPage', () => {
       iterations: [
         {
           iteration: 1,
-          strategy_id: 'snapshot-strategy',
           strategy_snapshot: {
-            id: 'snapshot-strategy',
             name: '历史快照策略',
             code: 'class AIGeneratedStrategy(bt.Strategy):\n    pass\n',
             params: {},
@@ -1934,7 +1932,7 @@ describe('StrategyPage', () => {
     await wrapper.vm.$nextTick()
     expect(vm.canContinueResearchFromRunRecord(record)).toBe(true)
     vm.useAIResearchRecord(record)
-    expect(vm.aiResearchForm.seed_strategy_id).toBe('snapshot-strategy')
+    expect(vm.aiResearchForm.seed_strategy_id).toBe('snapshot-run-strategy')
     expect(vm.aiResearchForm.continue_from_run_id).toBe('snapshot-run')
 
     await vm.continueResearchFromRecord(record)
@@ -1943,7 +1941,7 @@ describe('StrategyPage', () => {
       prompt: '历史快照策略',
       symbol: '600000.SH',
       research_workspace_id: 'research-ws',
-      seed_strategy_id: 'snapshot-strategy',
+      seed_strategy_id: 'snapshot-run-strategy',
       continue_from_run_id: 'snapshot-run',
     }))
   })
