@@ -1140,6 +1140,8 @@ describe('StrategyPage', () => {
       status: 'cancelled',
       submitted_at: '2026-06-27T00:00:00Z',
       completed_at: '2026-06-27T00:01:00Z',
+      run_id: 'cancelled-run',
+      research_workspace_id: 'research-ws',
       current_stage: 'cancelled',
       progress: 35,
       current_iteration: 1,
@@ -1151,9 +1153,12 @@ describe('StrategyPage', () => {
       const vm = doMount().vm as any
       vm.aiResearchRunning = true
       vm.aiResearchTaskId = 'research-task-1'
+      vi.mocked(strategyApi.listAIResearchRuns).mockClear()
+      vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({ total: 0, items: [] })
       await vm.cancelAIResearchTask()
 
       expect((strategyApi as any).cancelAIResearchTask).toHaveBeenCalledWith('research-task-1')
+      expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith('research-ws', 20)
       expect(vm.aiResearchRunning).toBe(false)
       expect(vm.aiResearchTaskStatus).toBe('cancelled')
       expect(vm.aiResearchTaskStage).toBe('cancelled')
@@ -1288,6 +1293,67 @@ describe('StrategyPage', () => {
       research_workspace_id: 'research-ws',
       seed_strategy_id: 'best-strategy',
       continue_from_run_id: 'history-run',
+    }))
+  })
+
+  it('continues AI research from a cancelled run with completed iterations', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    const record = {
+      run_id: 'cancelled-run',
+      prompt: '历史趋势策略',
+      symbol: '600000.SH',
+      symbol_name: '浦发银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      status: 'cancelled',
+      achieved: false,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 1,
+      best_iteration: 1,
+      best_sharpe: 0.7,
+      best_quality_score: 80,
+      best_quality_gate_evaluations: [],
+      best_metrics: { sharpe_ratio: 0.7 },
+      best_strategy_id: 'cancelled-best-strategy',
+      best_strategy_name: '取消前最佳策略',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_trading_started: false,
+      pipeline: {
+        current_stage: 'cancelled',
+        status: 'cancelled',
+        progress: 40,
+        ready_for_live: false,
+        steps: [],
+      },
+      next_actions: ['AI投研任务已取消，已保存取消前完成的回测迭代。'],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [{ iteration: 1 }],
+    }
+    vm.aiResearchRuns = [record]
+    vm.aiResearchRunsLoading = false
+
+    await wrapper.vm.$nextTick()
+    expect(vm.canContinueResearchFromRunRecord(record)).toBe(true)
+    expect(wrapper.text()).toContain('阶段 cancelled')
+    const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续投研'))
+    expect(continueButton).toBeTruthy()
+    await continueButton!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('从未达标结果继续')
+    expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: '历史趋势策略',
+      symbol: '600000.SH',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: 'cancelled-best-strategy',
+      continue_from_run_id: 'cancelled-run',
     }))
   })
 

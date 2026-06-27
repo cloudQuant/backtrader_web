@@ -1789,7 +1789,9 @@ function canContinueResearchFromRunRecord(record: AIStrategyResearchRunRecord) {
     && (
       record.iteration_count > 0
       || record.status === 'backtest_submission_failed'
+      || record.status === 'cancelled'
       || record.pipeline?.current_stage === 'backtest_failed'
+      || record.pipeline?.current_stage === 'cancelled'
     )
   )
 }
@@ -1817,6 +1819,7 @@ function pipelineStage(record: AIStrategyResearchRunRecord) {
   if (record.pipeline?.current_stage) return record.pipeline.current_stage
   if (record.achieved) return 'quality_achieved'
   if (record.status === 'timeout') return 'backtest_timeout'
+  if (record.status === 'cancelled') return 'cancelled'
   return record.iteration_count > 0 ? 'research_iteration' : ''
 }
 
@@ -2372,6 +2375,13 @@ async function cancelAIResearchTask() {
     applyAIResearchTaskStatus(task)
     aiResearchTaskError.value = ''
     aiResearchRunning.value = false
+    if (task.run_id) {
+      try {
+        await refreshAIResearchRunRecord(task.run_id, task.research_workspace_id)
+      } catch {
+        await loadAIResearchRuns()
+      }
+    }
     ElMessage.success(
       task.child_cancelled && task.cancelled_backtest_task_id
         ? 'AI投研任务已取消，当前回测任务已同步取消'

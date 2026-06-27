@@ -505,6 +505,26 @@ class FailingImprover:
         raise RuntimeError("improver backend unavailable")
 
 
+class BlockingImprover:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+
+    async def improve(
+        self,
+        draft: AIStrategyDraft,
+        *,
+        iteration: int,
+        metrics: dict[str, Any],
+        target_sharpe: float,
+        quality_gate_failures: list[str] | None = None,
+        user_id: str | None = None,
+        request: AIStrategyResearchRunRequest | None = None,
+    ) -> StrategyImprovement:
+        self.started.set()
+        await asyncio.sleep(60)
+        raise AssertionError("blocking improver should have been cancelled")
+
+
 async def _noop_sleep(_: float) -> None:
     return None
 
@@ -1084,6 +1104,54 @@ async def test_research_loop_persists_when_all_backtest_submissions_fail():
     assert persisted_run["status"] == "backtest_submission_failed"
     assert persisted_run["best_strategy_id"] == "saved-strategy-1"
     assert persisted_run["best_diagnostics"]["failure_categories"] == ["backtest_submission"]
+
+
+@pytest.mark.asyncio
+async def test_research_loop_persists_completed_iterations_when_cancelled():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 0.2, "total_trades": 1, "max_drawdown": -3.0}],
+    )
+    improver = BlockingImprover()
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=improver,
+        sleep=_noop_sleep,
+    )
+
+    task = asyncio.create_task(
+        service.run(
+            "user-1",
+            AIStrategyResearchRunRequest(
+                prompt="请生成一个双均线趋势策略",
+                symbol="000001.SZ",
+                target_sharpe=1.0,
+                start_paper_trading=False,
+                out_of_sample_validation=False,
+                max_iterations=2,
+                poll_interval_seconds=0.1,
+            ),
+        )
+    )
+    await asyncio.wait_for(improver.started.wait(), timeout=1.0)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    persisted_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert persisted_run["status"] == "cancelled"
+    assert persisted_run["achieved"] is False
+    assert persisted_run["iteration_count"] == 1
+    assert persisted_run["best_iteration"] == 1
+    assert persisted_run["best_strategy_id"] == "strategy-1"
+    assert persisted_run["best_metrics"]["sharpe_ratio"] == pytest.approx(0.2)
+    assert persisted_run["iterations"][0]["iteration"] == 1
+    assert persisted_run["pipeline"]["current_stage"] == "cancelled"
+    assert persisted_run["pipeline"]["steps"][1]["status"] == "cancelled"
+    assert "已保存取消前完成的回测迭代" in persisted_run["next_actions"][0]
 
 
 @pytest.mark.asyncio
