@@ -3193,7 +3193,7 @@ export default {
   // 仪表盘
   dashboard: {
     overviewKicker: '运营概览',
-    overviewTitle: '交易研究工作台',
+    overviewTitle: '工作台',
     overviewSubtitle: '集中查看策略资产、最近回测表现和常用入口，快速判断下一步研究动作。',
     backtestCount: '回测次数',
     strategyCount: '策略数量',
