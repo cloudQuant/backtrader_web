@@ -18,13 +18,14 @@ from app.services.ai_observability.logger import get_ai_call_log_sink, hash_prom
 from app.services.ai_router.preferences import AIModelPreferenceService, ResolvedAIModelPreference
 from app.services.ai_router.router import get_ai_chat_router
 from app.services.prompt_registry import PromptRegistry
+from app.services.strategy.ai_draft import build_ai_strategy_draft
 from app.services.strategy_service import render_ai_strategy_draft_answer
 
 _BudgetChecker = Callable[..., Awaitable[None]]
 
 _MODE_INSTRUCTIONS = {
     "knowledge_qa": """
-你是 AI for Trader 的知识库助手。回答必须优先引用知识库中的平台事实、接口约束、配置项和限制。
+你是 AI for Investor 的知识库助手。回答必须优先引用知识库中的平台事实、接口约束、配置项和限制。
 输出结构固定为：
 1. 直接结论
 2. 依据与引用
@@ -42,8 +43,15 @@ _MODE_INSTRUCTIONS = {
 7. 下一步建议
 """.strip(),
     "backtrader_strategy": """
-你是 Backtrader 策略 Copilot。请把用户需求转换成面向 Backtrader / AI for Trader 的实现草案。
+你是 Backtrader 策略 Copilot。请把用户需求转换成面向 Backtrader / AI for Investor 的完整可运行策略实现。
 你必须返回一个 JSON 对象，不要使用 Markdown 代码块，不要输出 JSON 以外的内容。
+代码要求：
+- 必须包含完整 import、一个继承 bt.Strategy 的策略类、params、__init__、next 方法，以及必要的订单/仓位状态处理。
+- next 方法必须包含真实 self.buy/self.sell/self.close 或 order_target_* 调用，不能只输出信号计算或说明文字。
+- 不要输出 pass、TODO、伪代码或省略号，也不要在注释中保留这些占位写法；如果需要做合理假设，请直接在 assumptions 中说明并给出可运行默认实现。
+- 生成的 code 字段应能作为单个 Python 策略文件保存，默认使用 Backtrader 标准 self.datas[0]、self.buy、self.sell、self.close 写法。
+- 风控至少包含一种可执行规则，例如止损、止盈、ATR 风控、移动止损或最大持仓约束。
+- next_steps 必须包含“回测验证”“策略审查”“按审查建议优化”三类后续动作。
 JSON 结构：
 {
   "answer_markdown": "给用户看的结构化说明，允许包含 Markdown",
@@ -138,7 +146,7 @@ _QUANT_FOCUS_HINTS = {
     "general": "保持回答通用，但仍需显式指出金融/量化场景下的不确定性与风险。",
     "strategy_research": "优先把回答组织为研究流程，显式写出假设、信号、风险、样本外验证与回测约束。",
     "strategy_review": "优先识别未来函数、数据泄露、样本偏差、过拟合和执行假设缺口。",
-    "implementation": "优先说明如何在 AI for Trader 中落地，包括策略代码、参数、数据源和执行步骤。",
+    "implementation": "优先说明如何在 AI for Investor 中落地，包括策略代码、参数、数据源和执行步骤。",
 }
 
 
@@ -344,14 +352,25 @@ class AIChatService:
                 None,
                 None,
             )
-        system_prompt = "\n".join(
-            [
-                "你是 AI for Trader 的 AI Copilot。",
-                "你需要严格基于给定知识库上下文回答，帮助用户完成量化研究、策略设计与平台落地。",
-                "如果上下文无法支撑某个实现细节，要明确说明这是推断或需要补充信息。",
-                "不要把研究建议表述成收益保证，不要给出带有确定性的投资承诺。",
-            ]
-        ).strip()
+        uses_knowledge_context = assistant_mode == "knowledge_qa" or bool(citations)
+        if uses_knowledge_context:
+            system_prompt = "\n".join(
+                [
+                    "你是 AI for Investor 的 AI Copilot。",
+                    "你需要严格基于给定知识库上下文回答，帮助用户完成量化研究、策略设计与平台落地。",
+                    "如果上下文无法支撑某个实现细节，要明确说明这是推断或需要补充信息。",
+                    "不要把研究建议表述成收益保证，不要给出带有确定性的投资承诺。",
+                ]
+            ).strip()
+        else:
+            system_prompt = "\n".join(
+                [
+                    "你是 AI for Investor 的 AI Copilot。",
+                    "当前模式不依赖知识库检索；请基于用户输入、会话上下文和通用量化工程知识完成任务。",
+                    "如果缺少实现细节，要明确说明这是推断或需要补充信息。",
+                    "不要把研究建议表述成收益保证，不要给出带有确定性的投资承诺。",
+                ]
+            ).strip()
         if settings.get("system_prompt_suffix"):
             system_prompt = (
                 f"{system_prompt}\n{_normalize_text(str(settings['system_prompt_suffix']))}"
@@ -382,20 +401,32 @@ class AIChatService:
         )
         context_text = self._build_context_blocks(citations)
         diagnostics_text = self._build_diagnostics_text(retrieval_diagnostics)
+        uses_knowledge_context = assistant_mode == "knowledge_qa" or bool(citations)
         reasoning_hint = (
             "先给出 3-5 行的分析摘要，再给出最终回答。"
             if thinking_mode
             else "直接给出结构化结论，不要展开冗长推理。"
         )
-        system_prompt = "\n".join(
-            [
-                "你是 AI for Trader 的 AI Copilot。",
-                "你需要严格基于给定知识库上下文回答，帮助用户完成量化研究、策略设计与平台落地。",
-                "如果上下文无法支撑某个实现细节，要明确说明这是推断或需要补充信息。",
-                "不要把研究建议表述成收益保证，不要给出带有确定性的投资承诺。",
-                quant_focus_hint,
-            ]
-        ).strip()
+        if uses_knowledge_context:
+            system_prompt = "\n".join(
+                [
+                    "你是 AI for Investor 的 AI Copilot。",
+                    "你需要严格基于给定知识库上下文回答，帮助用户完成量化研究、策略设计与平台落地。",
+                    "如果上下文无法支撑某个实现细节，要明确说明这是推断或需要补充信息。",
+                    "不要把研究建议表述成收益保证，不要给出带有确定性的投资承诺。",
+                    quant_focus_hint,
+                ]
+            ).strip()
+        else:
+            system_prompt = "\n".join(
+                [
+                    "你是 AI for Investor 的 AI Copilot。",
+                    "当前模式不依赖知识库检索；请基于用户输入、会话上下文和通用量化工程知识完成任务。",
+                    "如果缺少实现细节，要明确说明这是推断或需要补充信息。",
+                    "不要把研究建议表述成收益保证，不要给出带有确定性的投资承诺。",
+                    quant_focus_hint,
+                ]
+            ).strip()
 
         if settings.get("system_prompt_suffix"):
             system_prompt = (
@@ -411,7 +442,11 @@ class AIChatService:
                 "",
                 "附加要求：",
                 f"- {reasoning_hint}",
-                "- 明确区分“知识库事实”和“你的推断”。",
+                (
+                    "- 明确区分“知识库事实”和“你的推断”。"
+                    if uses_knowledge_context
+                    else "- 明确区分“用户明确提供的信息”和“你的推断”。"
+                ),
                 "- 若输出代码，默认使用 Python / Backtrader 风格。",
                 "- 若问题过于宽泛，先帮用户拆成可执行步骤。",
                 "- 在量化场景下，显式写出关键假设、风险点、数据依赖和回测验证建议。",
@@ -521,6 +556,7 @@ class AIChatService:
             api_key=preference.api_key if preference else self.settings.AI_CHAT_API_KEY,
             timeout=self.settings.AI_CHAT_TIMEOUT,
             temperature=self.settings.AI_CHAT_TEMPERATURE,
+            max_tokens=self.settings.AI_CHAT_MAX_TOKENS,
         )
         answer = response.content
         if not answer:
@@ -528,7 +564,10 @@ class AIChatService:
 
         parsed_strategy_draft: dict[str, Any] | None = None
         if assistant_mode == "backtrader_strategy":
-            parsed = self._parse_strategy_generation(answer)
+            parsed = self._parse_strategy_generation(
+                answer,
+                fallback_prompt=self._latest_user_prompt(messages),
+            )
             if parsed is not None:
                 answer = parsed["answer"]
                 parsed_strategy_draft = parsed["strategy_draft"]
@@ -571,13 +610,25 @@ class AIChatService:
         return ""
 
     @staticmethod
-    def _parse_strategy_generation(content: str) -> dict[str, Any] | None:
+    def _parse_strategy_generation(content: str, *, fallback_prompt: str = "") -> dict[str, Any]:
         json_text = AIChatService._extract_json_object(content)
         if not json_text:
-            return None
-        payload = json.loads(json_text)
-        strategy_payload = payload.get("strategy_draft", payload)
-        draft = AIStrategyDraft.model_validate(strategy_payload)
+            return AIChatService._fallback_strategy_generation(
+                fallback_prompt,
+                "AI 模型没有返回可解析的策略 JSON。",
+            )
+        try:
+            payload = json.loads(json_text)
+            strategy_payload = payload.get("strategy_draft", payload)
+            draft = AIStrategyDraft.model_validate(strategy_payload)
+            from app.services.ai_strategy_research_service import _validate_strategy_code_draft
+
+            _validate_strategy_code_draft(draft.code)
+        except Exception as exc:
+            return AIChatService._fallback_strategy_generation(
+                fallback_prompt,
+                f"AI 模型返回的策略代码不完整，已自动替换为本地完整可运行草案：{exc}",
+            )
         answer_text = str(payload.get("answer_markdown") or "").strip()
         if not answer_text:
             answer_text = render_ai_strategy_draft_answer(draft)
@@ -585,6 +636,22 @@ class AIChatService:
             "answer": answer_text,
             "strategy_draft": draft.model_dump(),
         }
+
+    @staticmethod
+    def _fallback_strategy_generation(prompt: str, reason: str) -> dict[str, Any]:
+        draft = build_ai_strategy_draft(prompt or "请生成一个完整可运行的 Backtrader 策略")
+        answer_text = f"{reason}\n\n{render_ai_strategy_draft_answer(draft)}"
+        return {
+            "answer": answer_text,
+            "strategy_draft": draft.model_dump(),
+        }
+
+    @staticmethod
+    def _latest_user_prompt(messages: list[dict[str, str]]) -> str:
+        for message in reversed(messages):
+            if message.get("role") == "user":
+                return str(message.get("content") or "").strip()
+        return ""
 
     @staticmethod
     def _extract_json_object(content: str) -> str | None:

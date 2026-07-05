@@ -6,7 +6,7 @@
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `APP_NAME` | ai-for-trader | Application name |
+| `APP_NAME` | ai-for-investor | Application name |
 | `DEBUG` | false | Debug mode |
 | `SECRET_KEY` | (required) | Flask secret key |
 | `TZ` | Asia/Shanghai | Timezone |

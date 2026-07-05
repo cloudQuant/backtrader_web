@@ -1,6 +1,8 @@
 """Tests for instance_store module."""
 
 import json
+from datetime import date, datetime
+from decimal import Decimal
 
 import pytest
 
@@ -43,6 +45,26 @@ class TestSaveAll:
         store.save_all({"a": {"v": 1}})
         store.save_all({"b": {"v": 2}})
         assert store.load_all() == {"b": {"v": 2}}
+
+    def test_serializes_json_safe_values(self, store, tmp_path):
+        store.save_all(
+            {
+                "inst-1": {
+                    "created": datetime(2026, 7, 4, 9, 30),
+                    "trade_date": date(2026, 7, 4),
+                    "price": Decimal("12.34"),
+                    "runtime_dir": tmp_path / "runtime",
+                    "tags": {"paper", "ai"},
+                }
+            }
+        )
+
+        loaded = store.load_all()["inst-1"]
+        assert loaded["created"] == "2026-07-04T09:30:00"
+        assert loaded["trade_date"] == "2026-07-04"
+        assert loaded["price"] == pytest.approx(12.34)
+        assert loaded["runtime_dir"] == str(tmp_path / "runtime")
+        assert sorted(loaded["tags"]) == ["ai", "paper"]
 
 
 class TestGet:

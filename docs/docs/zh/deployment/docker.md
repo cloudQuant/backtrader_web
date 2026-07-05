@@ -9,8 +9,8 @@
 
 ```bash
 # 克隆并配置
-git clone https://github.com/cloudQuant/ai-for-trader.git
-cd ai-for-trader
+git clone https://github.com/cloudQuant/ai-for-investor.git
+cd ai-for-investor
 
 # 创建环境文件
 cp src/backend/.env.example src/backend/.env
@@ -56,7 +56,7 @@ HTTPS_PORT=443
 # 数据库
 DB_HOST=mysql
 DB_PORT=3306
-DB_NAME=ai_for_trader
+DB_NAME=ai_for_investor
 DB_USER=backtrader
 
 # Redis
@@ -97,8 +97,8 @@ volumes:
   - ./runtime/mysql:/var/lib/mysql    # 数据库
   - ./runtime/redis:/data              # Redis 缓存
   - ./runtime/certbot:/etc/letsencrypt  # SSL 证书
-  - ./datas:/opt/workspace/ai-for-trader/datas  # 行情数据
-  - ./strategies:/opt/workspace/ai-for-trader/strategies  # 策略
+  - ./datas:/opt/workspace/ai-for-investor/datas  # 行情数据
+  - ./strategies:/opt/workspace/ai-for-investor/strategies  # 策略
 ```
 
 ## 健康检查

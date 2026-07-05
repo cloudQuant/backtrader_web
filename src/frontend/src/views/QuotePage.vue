@@ -1,12 +1,71 @@
 <template>
-  <div class="quote-page space-y-6">
-    <!-- Data Source Tabs -->
-    <el-card
-      class="!p-0"
-      body-class="!p-3"
-    >
-      <div class="flex items-center justify-between flex-wrap gap-2">
-        <div class="flex items-center gap-1 flex-wrap">
+  <div
+    class="quote-page"
+    data-test="quote-page"
+  >
+    <section class="quote-hero">
+      <div class="quote-hero-copy">
+        <span>{{ t('quote.heroKicker') }}</span>
+        <h1>{{ t('quote.headerTitle') }}</h1>
+        <p>{{ t('quote.headerDesc') }}</p>
+      </div>
+
+      <div class="quote-hero-status">
+        <el-tag
+          size="small"
+          :type="refreshModeTag"
+          effect="plain"
+        >
+          {{ refreshModeText }}
+        </el-tag>
+        <span
+          v-if="store.updateTime"
+          class="quote-update-time"
+          :class="{ 'is-stale': isDataStale }"
+        >
+          {{ formatTime(store.updateTime) }}
+          <el-tooltip
+            v-if="isDataStale"
+            :content="t('quote.dataStaleTip')"
+            placement="top"
+          >
+            <el-icon aria-hidden="true">
+              <WarningFilled />
+            </el-icon>
+          </el-tooltip>
+        </span>
+        <span
+          v-if="store.quotesLoading"
+          class="quote-refreshing"
+        >
+          <el-icon
+            class="is-loading"
+            aria-hidden="true"
+          >
+            <Loading />
+          </el-icon>
+          {{ t('quote.refreshing') }}
+        </span>
+      </div>
+
+      <div class="quote-hero-stats">
+        <article
+          v-for="item in quoteStats"
+          :key="item.label"
+        >
+          <span>{{ item.label }}</span>
+          <strong :class="item.tone">{{ item.value }}</strong>
+        </article>
+      </div>
+
+      <div class="quote-source-panel">
+        <div class="quote-section-heading">
+          <div>
+            <span>{{ t('quote.sourcePanelTitle') }}</span>
+            <p>{{ t('quote.sourcePanelDesc') }}</p>
+          </div>
+        </div>
+        <div class="quote-source-tabs">
           <div
             v-for="src in store.sources"
             :key="src.source"
@@ -23,41 +82,12 @@
             <span class="source-tab__dot" />
           </div>
         </div>
-        <!-- Refresh status -->
-        <div class="flex items-center gap-2 text-xs text-gray-500">
-          <el-tag
-            size="small"
-            :type="refreshModeTag"
-            effect="plain"
-          >
-            {{ refreshModeText }}
-          </el-tag>
-          <span
-            v-if="store.updateTime"
-            :class="{ 'text-orange-500': isDataStale }"
-          >
-            {{ formatTime(store.updateTime) }}
-            <el-tooltip
-              v-if="isDataStale"
-              :content="t('quote.dataStaleTip')"
-              placement="top"
-            >
-              <el-icon class="ml-1 text-orange-500"><WarningFilled /></el-icon>
-            </el-tooltip>
-          </span>
-          <span
-            v-if="store.quotesLoading"
-            class="text-blue-500 flex items-center gap-1"
-          >
-            <el-icon class="is-loading"><Loading /></el-icon> {{ t('quote.refreshing') }}
-          </span>
-        </div>
       </div>
-    </el-card>
+    </section>
 
     <!-- Source unavailable / disconnected state -->
     <template v-if="store.activeSourceInfo && store.activeSourceInfo.status !== 'available'">
-      <el-card>
+      <el-card class="quote-state-card">
         <el-empty :description="sourceStatusText">
           <el-button
             v-if="store.activeSourceInfo.status === 'not_connected'"
@@ -73,19 +103,21 @@
     <!-- Main content (only when source is available) -->
     <template v-else>
       <!-- Toolbar -->
-      <el-card
-        class="!p-0"
-        body-class="!py-2 !px-3"
-      >
-        <div class="flex items-center justify-between flex-wrap gap-2">
-          <div class="flex items-center gap-2 flex-wrap">
+      <section class="quote-control-panel">
+        <div class="quote-section-heading">
+          <div>
+            <span>{{ t('quote.controlsTitle') }}</span>
+            <p>{{ t('quote.controlsDesc') }}</p>
+          </div>
+        </div>
+        <div class="quote-toolbar">
+          <div class="quote-filter-grid">
             <!-- Search -->
             <el-input
               v-model="store.searchKeyword"
               :placeholder="t('quote.searchPh')"
               :prefix-icon="Search"
               clearable
-              style="width: 200px"
               size="default"
             />
             <!-- Category filter -->
@@ -94,7 +126,6 @@
               :placeholder="t('quote.filterAllCategory')"
               clearable
               size="default"
-              style="width: 130px"
             >
               <el-option
                 v-for="cat in store.categories"
@@ -109,7 +140,6 @@
               :placeholder="t('quote.filterTrendPh')"
               clearable
               size="default"
-              style="width: 120px"
             >
               <el-option
                 :label="t('quote.filterTrendUp')"
@@ -128,6 +158,7 @@
             <el-checkbox
               v-model="store.filterCustomOnly"
               :label="t('quote.filterCustomOnly')"
+              class="quote-checkbox"
             />
             <!-- Advanced filter (P1) -->
             <el-popover
@@ -148,16 +179,15 @@
                   />
                 </el-button>
               </template>
-              <div class="space-y-3 text-sm">
+              <div class="quote-advanced-popover">
                 <div>
-                  <span class="text-gray-600">{{ t('quote.rangeChangePct') }}</span>
-                  <div class="flex items-center gap-2 mt-1">
+                  <span>{{ t('quote.rangeChangePct') }}</span>
+                  <div class="quote-range-row">
                     <el-input-number
                       v-model="store.filterChangePctMin"
                       :controls="false"
                       :placeholder="t('quote.rangeMin')"
                       size="small"
-                      style="width: 100px"
                     />
                     <span>~</span>
                     <el-input-number
@@ -165,19 +195,17 @@
                       :controls="false"
                       :placeholder="t('quote.rangeMax')"
                       size="small"
-                      style="width: 100px"
                     />
                   </div>
                 </div>
                 <div>
-                  <span class="text-gray-600">{{ t('quote.rangeVolume') }}</span>
-                  <div class="flex items-center gap-2 mt-1">
+                  <span>{{ t('quote.rangeVolume') }}</span>
+                  <div class="quote-range-row">
                     <el-input-number
                       v-model="store.filterVolumeMin"
                       :controls="false"
                       :placeholder="t('quote.rangeMin')"
                       size="small"
-                      style="width: 100px"
                     />
                     <span>~</span>
                     <el-input-number
@@ -185,7 +213,6 @@
                       :controls="false"
                       :placeholder="t('quote.rangeMax')"
                       size="small"
-                      style="width: 100px"
                     />
                   </div>
                 </div>
@@ -207,22 +234,24 @@
             </el-popover>
           </div>
 
-          <div class="flex items-center gap-2">
+          <div class="quote-action-row">
             <!-- Auto refresh toggle -->
-            <el-tooltip :content="t('quote.autoRefreshTooltip')">
-              <el-switch
-                v-model="autoRefreshLocal"
-                active-text=""
-                inactive-text=""
-                size="small"
-                @change="v => store.setAutoRefresh(Boolean(v))"
-              />
-            </el-tooltip>
+            <span class="quote-auto-refresh">
+              <el-tooltip :content="t('quote.autoRefreshTooltip')">
+                <el-switch
+                  v-model="autoRefreshLocal"
+                  active-text=""
+                  inactive-text=""
+                  size="small"
+                  @change="v => store.setAutoRefresh(Boolean(v))"
+                />
+              </el-tooltip>
+            </span>
             <el-select
               v-if="store.autoRefresh"
               v-model="refreshIntervalLocal"
               size="small"
-              style="width: 80px"
+              class="quote-interval-select"
               @change="(v: number) => store.setRefreshInterval(v)"
             >
               <el-option
@@ -250,9 +279,12 @@
             <el-button
               :loading="store.quotesLoading"
               size="default"
+              :aria-label="t('quote.refreshing')"
               @click="store.fetchQuotes()"
             >
-              <el-icon><Refresh /></el-icon>
+              <el-icon aria-hidden="true">
+                <Refresh />
+              </el-icon>
             </el-button>
             <!-- Column config (P1) -->
             <el-tooltip :content="t('quote.columnSettingsTooltip')">
@@ -260,7 +292,9 @@
                 size="default"
                 @click="showColumnDialog = true"
               >
-                <el-icon><Setting /></el-icon>
+                <el-icon aria-hidden="true">
+                  <Setting />
+                </el-icon>
               </el-button>
             </el-tooltip>
             <!-- Add symbol -->
@@ -269,27 +303,36 @@
               size="default"
               @click="showAddDialog = true"
             >
-              <el-icon><Plus /></el-icon> {{ t('quote.btnAddSymbol') }}
+              <el-icon aria-hidden="true">
+                <Plus />
+              </el-icon>
+              {{ t('quote.btnAddSymbol') }}
             </el-button>
           </div>
         </div>
-      </el-card>
+      </section>
 
       <!-- Loading -->
       <div
         v-if="store.quotesLoading && store.ticks.length === 0"
-        class="flex justify-center py-12"
+        class="quote-loading-state"
       >
-        <el-icon class="is-loading text-4xl text-blue-500">
+        <el-icon
+          class="is-loading"
+          aria-hidden="true"
+        >
           <Loading />
         </el-icon>
       </div>
 
       <!-- Error state -->
-      <el-card v-else-if="store.quotesError">
+      <el-card
+        v-else-if="store.quotesError"
+        class="quote-state-card"
+      >
         <el-empty :description="t('quote.errorEmptyDesc')">
           <template #description>
-            <p class="text-red-500">
+            <p class="quote-error-text">
               {{ store.quotesError }}
             </p>
           </template>
@@ -303,7 +346,10 @@
       </el-card>
 
       <!-- Empty state -->
-      <el-card v-else-if="store.filteredTicks.length === 0 && store.ticks.length === 0">
+      <el-card
+        v-else-if="store.filteredTicks.length === 0 && store.ticks.length === 0"
+        class="quote-state-card"
+      >
         <el-empty :description="t('quote.emptyQuotes')">
           <el-button
             type="primary"
@@ -315,11 +361,22 @@
       </el-card>
 
       <!-- Quote Table -->
-      <el-card
+      <section
         v-else
-        class="!p-0"
-        body-class="!p-0"
+        class="quote-table-panel"
       >
+        <div class="quote-section-heading quote-table-heading">
+          <div>
+            <span>{{ t('quote.tableTitle') }}</span>
+            <p>{{ t('quote.tableDesc') }}</p>
+          </div>
+          <el-tag
+            size="small"
+            effect="plain"
+          >
+            {{ t('quote.countDisplay', { filtered: store.filteredTicks.length, total: store.ticks.length }) }}
+          </el-tag>
+        </div>
         <el-table
           :data="store.filteredTicks"
           stripe
@@ -354,7 +411,7 @@
               show-overflow-tooltip
             >
               <template #default="{ row }">
-                <span class="font-mono font-medium whitespace-nowrap">{{ row.symbol }}</span>
+                <span class="quote-symbol-cell">{{ row.symbol }}</span>
               </template>
             </el-table-column>
             <el-table-column
@@ -417,7 +474,7 @@
               align="center"
             >
               <template #default="{ row }">
-                <span class="text-xs text-gray-500">{{ formatTime(row.update_time) }}</span>
+                <span class="quote-time-cell">{{ formatTime(row.update_time) }}</span>
               </template>
             </el-table-column>
             <el-table-column
@@ -481,7 +538,7 @@
           </el-table-column>
         </el-table>
         <!-- Table footer -->
-        <div class="flex items-center justify-between px-3 py-2 text-xs text-gray-500 border-t">
+        <div class="quote-table-footer">
           <span>
             {{ t('quote.countDisplay', { filtered: store.filteredTicks.length, total: store.ticks.length }) }}
             <template v-if="store.hasAdvancedFilters">
@@ -495,10 +552,10 @@
           </span>
           <span
             v-if="store.quotesLoading"
-            class="text-blue-500"
+            class="quote-refreshing"
           >{{ t('quote.refreshingDot') }}</span>
         </div>
-      </el-card>
+      </section>
     </template>
 
     <!-- Add Symbol Dialog -->
@@ -516,25 +573,28 @@
       />
       <div
         v-if="store.symbolSearchLoading"
-        class="py-4 text-center"
+        class="quote-dialog-loading"
       >
-        <el-icon class="is-loading">
+        <el-icon
+          class="is-loading"
+          aria-hidden="true"
+        >
           <Loading />
         </el-icon> {{ t('quote.searching') }}
       </div>
       <div
         v-else-if="store.symbolSearchResults.length > 0"
-        class="mt-3 max-h-64 overflow-auto"
+        class="quote-symbol-results"
       >
         <div
           v-for="item in store.symbolSearchResults"
           :key="item.symbol"
-          class="flex items-center justify-between px-3 py-2 hover:bg-gray-50 rounded cursor-pointer"
+          class="quote-symbol-result"
           @click="handleAddSymbol(item.symbol)"
         >
           <div>
-            <span class="font-mono font-medium">{{ item.symbol }}</span>
-            <span class="ml-2 text-sm text-gray-500">{{ item.name }}</span>
+            <span>{{ item.symbol }}</span>
+            <small>{{ item.name }}</small>
           </div>
           <el-tag
             size="small"
@@ -547,12 +607,12 @@
       </div>
       <div
         v-else-if="addKeyword && !store.symbolSearchLoading"
-        class="py-4 text-center text-gray-400"
+        class="quote-dialog-empty"
       >
         {{ t('quote.notFound') }}
       </div>
       <el-divider />
-      <div class="flex items-center gap-2">
+      <div class="quote-direct-add">
         <el-input
           v-model="addSymbolDirect"
           :placeholder="t('quote.addDirectPh')"
@@ -575,20 +635,20 @@
       width="420px"
       destroy-on-close
     >
-      <div class="text-xs text-gray-400 mb-3">
+      <div class="quote-column-hint">
         {{ t('quote.columnDialogHint') }}
       </div>
-      <div class="space-y-1 max-h-80 overflow-auto">
+      <div class="quote-column-list">
         <div
           v-for="(col, idx) in columnConfigLocal"
           :key="col.prop"
-          class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50"
+          class="quote-column-row"
           draggable="true"
           @dragstart="onColDragStart(idx)"
           @dragover.prevent
           @drop="onColDrop(idx)"
         >
-          <el-icon class="cursor-move text-gray-400">
+          <el-icon class="quote-column-drag">
             <Rank />
           </el-icon>
           <el-checkbox
@@ -614,14 +674,15 @@
     <el-drawer
       v-model="store.chartDrawerVisible"
       :title="t('quote.chartDrawerTitleTpl', { symbol: store.chartSymbol })"
+      class="quote-chart-drawer"
       direction="btt"
       size="50%"
       :destroy-on-close="true"
       @close="store.closeChart()"
     >
       <!-- Timeframe selector -->
-      <div class="flex items-center gap-2 mb-3">
-        <span class="text-sm text-gray-500">{{ t('quote.timeframeLabel') }}</span>
+      <div class="quote-chart-toolbar">
+        <span>{{ t('quote.timeframeLabel') }}</span>
         <el-radio-group
           :model-value="store.chartTimeframe"
           size="small"
@@ -654,23 +715,28 @@
           :loading="store.chartLoading"
           @click="store.fetchChartData()"
         >
-          <el-icon><Refresh /></el-icon>
+          <el-icon aria-hidden="true">
+            <Refresh />
+          </el-icon>
         </el-button>
       </div>
       <!-- Chart content -->
       <div
         v-if="store.chartLoading"
-        class="flex items-center justify-center h-64"
+        class="quote-chart-state"
       >
-        <el-icon class="is-loading text-3xl text-blue-500">
+        <el-icon
+          class="is-loading"
+          aria-hidden="true"
+        >
           <Loading />
         </el-icon>
       </div>
       <div
         v-else-if="store.chartError"
-        class="flex flex-col items-center justify-center h-64 gap-3"
+        class="quote-chart-state"
       >
-        <p class="text-red-500">
+        <p class="quote-error-text">
           {{ store.chartError }}
         </p>
         <el-button
@@ -683,15 +749,15 @@
       </div>
       <div
         v-else-if="store.chartBars.length === 0"
-        class="flex items-center justify-center h-64"
+        class="quote-chart-state"
       >
         <el-empty :description="t('quote.chartEmpty')" />
       </div>
       <div
         v-else
         ref="chartContainerRef"
-        class="w-full"
-        style="height: calc(100% - 50px)"
+        class="quote-chart-container"
+        data-test="quote-chart"
       />
     </el-drawer>
   </div>
@@ -806,6 +872,32 @@ const isDataStale = computed(() => {
   } catch {
     return false
   }
+})
+
+const quoteStats = computed(() => {
+  const availableSources = store.sources.filter((source) => source.status === 'available').length
+  return [
+    {
+      label: t('quote.statSourceHealth'),
+      value: `${availableSources}/${store.sources.length || 0}`,
+      tone: availableSources > 0 ? 'is-positive' : '',
+    },
+    {
+      label: t('quote.statActiveSource'),
+      value: store.activeSourceInfo?.source_label || store.activeSource || '--',
+      tone: '',
+    },
+    {
+      label: t('quote.statVisibleSymbols'),
+      value: String(store.filteredTicks.length),
+      tone: '',
+    },
+    {
+      label: t('quote.statCustomSymbols'),
+      value: String(store.customSymbols.length),
+      tone: store.customSymbols.length > 0 ? 'is-positive' : '',
+    },
+  ]
 })
 
 // ---- table sort ----
@@ -964,12 +1056,17 @@ function buildChartOption() {
   const dates = bars.map((b) => b.date)
   const ohlc = bars.map((b) => [b.open, b.close, b.low, b.high])
   const volumes = bars.map((b) => b.volume)
+  const palette = chartPalette()
   // volume bar color: up=red, down=green
   const volColors = bars.map((b) => (b.close >= b.open ? CANDLE_UP_COLOR : CANDLE_DOWN_COLOR))
 
   return {
     animation: false,
-    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+    },
     axisPointer: { link: [{ xAxisIndex: 'all' }] },
     grid: [
       { left: '10%', right: '5%', height: '55%' },
@@ -980,7 +1077,8 @@ function buildChartOption() {
         type: 'category',
         data: dates,
         boundaryGap: false,
-        axisLine: { onZero: false },
+        axisLine: { onZero: false, lineStyle: { color: palette.border } },
+        axisLabel: { color: palette.secondary, hideOverlap: true },
         splitLine: { show: false },
       },
       {
@@ -988,14 +1086,19 @@ function buildChartOption() {
         gridIndex: 1,
         data: dates,
         boundaryGap: false,
-        axisLine: { onZero: false },
+        axisLine: { onZero: false, lineStyle: { color: palette.border } },
         axisTick: { show: false },
         splitLine: { show: false },
         axisLabel: { show: false },
       },
     ],
     yAxis: [
-      { scale: true, splitArea: { show: true } },
+      {
+        scale: true,
+        axisLabel: { color: palette.secondary },
+        splitLine: { lineStyle: { color: palette.grid, type: 'dashed' } },
+        splitArea: { show: false },
+      },
       {
         scale: true,
         gridIndex: 1,
@@ -1003,7 +1106,7 @@ function buildChartOption() {
         axisLabel: { show: false },
         axisLine: { show: false },
         axisTick: { show: false },
-        splitLine: { show: false },
+        splitLine: { lineStyle: { color: palette.grid, type: 'dashed' } },
       },
     ],
     dataZoom: [
@@ -1026,6 +1129,20 @@ function buildChartOption() {
       },
     ],
   } as echarts.EChartsOption
+}
+
+function themeColor(name: string, fallback: string) {
+  if (typeof window === 'undefined') return fallback
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return value || fallback
+}
+
+function chartPalette() {
+  return {
+    secondary: themeColor('--text-color-secondary', 'slategray'),
+    border: themeColor('--border-color', 'lightgray'),
+    grid: themeColor('--border-color-light', 'gainsboro'),
+  }
 }
 
 function renderChart() {
@@ -1108,55 +1225,311 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.quote-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  --quote-card-bg: var(--bg-color);
+  --quote-soft-bg: var(--fill-color-lighter);
+  --quote-hover-bg: var(--fill-color-light);
+  --quote-border: var(--border-color-light);
+  --quote-border-strong: var(--border-color);
+  color: var(--text-color-primary);
+}
+
+.quote-hero,
+.quote-control-panel,
+.quote-table-panel,
+.quote-state-card {
+  border: 1px solid var(--quote-border);
+  border-radius: 8px;
+  background: var(--quote-card-bg);
+  box-shadow: 0 10px 28px var(--shadow-color);
+}
+
+.quote-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  padding: 20px;
+}
+
+.quote-hero-copy {
+  min-width: 0;
+}
+
+.quote-hero-copy > span,
+.quote-section-heading span {
+  display: inline-flex;
+  margin-bottom: 7px;
+  color: var(--primary-color);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
+.quote-hero-copy h1 {
+  margin: 0;
+  color: var(--text-color-primary);
+  font-size: 26px;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
+.quote-hero-copy p,
+.quote-section-heading p {
+  margin: 8px 0 0;
+  color: var(--text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.quote-hero-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+}
+
+.quote-update-time,
+.quote-refreshing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+}
+
+.quote-update-time.is-stale {
+  color: var(--warning-color);
+}
+
+.quote-refreshing {
+  color: var(--primary-color);
+}
+
+.quote-hero-stats {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quote-hero-stats article {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--quote-border);
+  border-radius: 8px;
+  background: var(--quote-soft-bg);
+}
+
+.quote-hero-stats span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.quote-hero-stats strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text-color-primary);
+  font-size: 17px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-source-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(220px, 0.35fr) minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--quote-border);
+  border-radius: 8px;
+  background: var(--quote-soft-bg);
+}
+
+.quote-section-heading {
+  min-width: 0;
+}
+
+.quote-source-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
 .source-tab {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 16px;
-  border-radius: var(--el-border-radius-base);
+  min-width: 0;
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid var(--quote-border);
+  border-radius: 8px;
+  background: var(--quote-card-bg);
+  color: var(--text-color-regular);
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s;
+  font-size: 13px;
+  font-weight: 650;
+  transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease;
   user-select: none;
-  border: 1px solid transparent;
 }
 
 .source-tab:hover {
-  background-color: rgba(59, 130, 246, 0.08);
+  border-color: color-mix(in srgb, var(--primary-color) 32%, var(--quote-border));
+  background: color-mix(in srgb, var(--primary-color) 8%, var(--quote-card-bg));
 }
 
 .source-tab--active {
-  background-color: rgba(59, 130, 246, 0.15) !important;
-  border-color: var(--el-color-primary);
-  color: var(--el-color-primary);
+  border-color: color-mix(in srgb, var(--primary-color) 48%, var(--quote-border));
+  background: color-mix(in srgb, var(--primary-color) 12%, var(--quote-card-bg));
+  color: var(--primary-color);
 }
 
 .source-tab__dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
 .source-tab--available .source-tab__dot {
-  background-color: var(--el-color-success);
+  background-color: var(--success-color);
 }
 
 .source-tab--disconnected .source-tab__dot {
-  background-color: var(--el-color-warning);
+  background-color: var(--warning-color);
 }
 
 .source-tab--unavailable .source-tab__dot {
-  background-color: var(--el-text-color-placeholder);
+  background-color: var(--text-color-placeholder);
 }
 
 .source-tab--unavailable {
-  color: var(--el-text-color-placeholder);
+  color: var(--text-color-placeholder);
   cursor: not-allowed;
 }
 
-/* Dense table style */
+.source-tab__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-control-panel {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.quote-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+}
+
+.quote-filter-grid {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.2fr) minmax(130px, 0.7fr) minmax(130px, 0.7fr) auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.quote-checkbox {
+  min-height: 32px;
+}
+
+.quote-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.quote-interval-select {
+  width: 88px;
+}
+
+.quote-advanced-popover {
+  display: grid;
+  gap: 12px;
+  color: var(--text-color-primary);
+  font-size: 13px;
+}
+
+.quote-advanced-popover > div > span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.quote-range-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.quote-loading-state,
+.quote-chart-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  color: var(--primary-color);
+  font-size: 28px;
+}
+
+.quote-chart-state {
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quote-error-text {
+  margin: 0;
+  color: var(--danger-color);
+}
+
+.quote-state-card :deep(.el-card__body) {
+  padding: 32px 18px;
+}
+
+.quote-table-panel {
+  overflow: hidden;
+}
+
+.quote-table-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--quote-border);
+}
+
+.quote-table {
+  --el-table-bg-color: var(--quote-card-bg);
+  --el-table-tr-bg-color: var(--quote-card-bg);
+  --el-table-header-bg-color: var(--quote-soft-bg);
+  --el-table-row-hover-bg-color: var(--quote-hover-bg);
+  --el-table-border-color: var(--quote-border);
+  --el-table-text-color: var(--text-color-primary);
+  --el-table-header-text-color: var(--text-color-secondary);
+}
+
 .quote-table :deep(.el-table__row td) {
   padding: 4px 0;
   font-size: 13px;
@@ -1165,7 +1538,36 @@ onUnmounted(() => {
 .quote-table :deep(.el-table__header th) {
   padding: 6px 0;
   font-size: 12px;
-  background-color: var(--el-fill-color-lighter) !important;
+  background-color: var(--quote-soft-bg) !important;
+}
+
+.quote-table :deep(.el-table__fixed),
+.quote-table :deep(.el-table__fixed-right) {
+  background: var(--quote-card-bg);
+}
+
+.quote-symbol-cell {
+  color: var(--text-color-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.quote-time-cell {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+}
+
+.quote-table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--quote-border);
+  background: var(--quote-soft-bg);
+  color: var(--text-color-secondary);
+  font-size: 12px;
 }
 
 /* Tick flash animation (P1) */
@@ -1174,12 +1576,273 @@ onUnmounted(() => {
 }
 
 @keyframes tick-flash-anim {
-  0% { background-color: rgba(59, 130, 246, 0.15); }
+  0% { background-color: color-mix(in srgb, var(--primary-color) 16%, var(--quote-card-bg)); }
   100% { background-color: transparent; }
 }
 
 /* Row click cursor */
 .quote-table :deep(.el-table__row) {
   cursor: pointer;
+}
+
+.quote-page :deep(.el-tag) {
+  border-color: var(--quote-border);
+  background: var(--quote-soft-bg);
+  color: var(--text-color-regular);
+}
+
+.quote-page :deep(.el-tag.el-tag--success) {
+  border-color: color-mix(in srgb, var(--success-color) 36%, var(--quote-border));
+  background: color-mix(in srgb, var(--success-color) 12%, var(--quote-card-bg));
+  color: var(--success-color);
+}
+
+.quote-page :deep(.el-tag.el-tag--warning) {
+  border-color: color-mix(in srgb, var(--warning-color) 38%, var(--quote-border));
+  background: color-mix(in srgb, var(--warning-color) 12%, var(--quote-card-bg));
+  color: var(--warning-color);
+}
+
+.quote-page :deep(.el-button:not(.el-button--primary):not(.el-button--danger):not(.is-link)) {
+  border-color: var(--quote-border);
+  background: var(--quote-soft-bg);
+  color: var(--text-color-regular);
+}
+
+.quote-page :deep(.el-button:not(.el-button--primary):not(.el-button--danger):not(.is-link):hover),
+.quote-page :deep(.el-button:not(.el-button--primary):not(.el-button--danger):not(.is-link):focus) {
+  border-color: color-mix(in srgb, var(--primary-color) 36%, var(--quote-border));
+  background: color-mix(in srgb, var(--primary-color) 10%, var(--quote-card-bg));
+  color: var(--primary-color);
+}
+
+.quote-page :deep(.el-input__wrapper),
+.quote-page :deep(.el-select__wrapper),
+.quote-page :deep(.el-input-number .el-input__wrapper) {
+  background: var(--quote-soft-bg);
+  box-shadow: 0 0 0 1px var(--quote-border) inset;
+}
+
+.quote-page :deep(.el-checkbox__label),
+.quote-page :deep(.el-switch__label) {
+  color: var(--text-color-regular);
+}
+
+.quote-dialog-loading,
+.quote-dialog-empty {
+  padding: 18px 0;
+  color: var(--text-color-secondary);
+  text-align: center;
+}
+
+.quote-symbol-results,
+.quote-column-list {
+  display: grid;
+  gap: 6px;
+  max-height: 320px;
+  margin-top: 12px;
+  overflow: auto;
+}
+
+.quote-symbol-result,
+.quote-column-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--quote-border);
+  border-radius: 8px;
+  background: var(--quote-soft-bg);
+  cursor: pointer;
+}
+
+.quote-symbol-result:hover,
+.quote-column-row:hover {
+  border-color: color-mix(in srgb, var(--primary-color) 32%, var(--quote-border));
+  background: color-mix(in srgb, var(--primary-color) 8%, var(--quote-card-bg));
+}
+
+.quote-symbol-result > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.quote-symbol-result span {
+  color: var(--text-color-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-weight: 720;
+}
+
+.quote-symbol-result small {
+  overflow: hidden;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-direct-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.quote-column-hint {
+  margin-bottom: 12px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.quote-column-row {
+  justify-content: flex-start;
+}
+
+.quote-column-drag {
+  color: var(--text-color-secondary);
+  cursor: move;
+}
+
+.quote-chart-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.quote-chart-toolbar > span {
+  color: var(--text-color-secondary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.quote-chart-container {
+  width: 100%;
+  height: calc(100% - 52px);
+  min-height: 300px;
+}
+
+:global(.quote-chart-drawer) {
+  background: var(--bg-color) !important;
+  color: var(--text-color-primary);
+}
+
+:global(.quote-chart-drawer .el-drawer__header) {
+  margin-bottom: 0;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border-color-light);
+  color: var(--text-color-primary);
+}
+
+:global(.quote-chart-drawer .el-drawer__body) {
+  padding: 16px 20px 20px;
+  background: var(--bg-color);
+  color: var(--text-color-primary);
+}
+
+:global(.quote-chart-drawer .el-drawer__close-btn) {
+  color: var(--text-color-secondary);
+}
+
+:global(.quote-chart-drawer .el-radio-button__inner) {
+  border-color: var(--border-color-light);
+  background: var(--fill-color-lighter);
+  color: var(--text-color-regular);
+}
+
+:global(.quote-chart-drawer .el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  border-color: var(--primary-color);
+  background: var(--primary-color);
+  color: var(--el-color-white);
+  box-shadow: none;
+}
+
+.text-red-600 {
+  color: var(--danger-color) !important;
+  font-weight: 700;
+}
+
+.text-green-600 {
+  color: var(--success-color) !important;
+  font-weight: 700;
+}
+
+.text-gray-400,
+.text-gray-500,
+.text-gray-600 {
+  color: var(--text-color-secondary) !important;
+}
+
+.is-positive {
+  color: var(--success-color) !important;
+}
+
+@media (max-width: 1180px) {
+  .quote-hero,
+  .quote-source-panel,
+  .quote-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .quote-hero-status,
+  .quote-source-tabs,
+  .quote-action-row {
+    justify-content: flex-start;
+  }
+
+  .quote-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .quote-page {
+    gap: 14px;
+  }
+
+  .quote-hero,
+  .quote-control-panel {
+    padding: 14px;
+  }
+
+  .quote-hero-copy h1 {
+    font-size: 22px;
+  }
+
+  .quote-hero-stats,
+  .quote-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quote-source-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .quote-action-row :deep(.el-button),
+  .quote-action-row :deep(.el-select),
+  .quote-action-row :deep(.el-select__wrapper) {
+    width: 100%;
+  }
+
+  .quote-table-heading,
+  .quote-table-footer,
+  .quote-direct-add,
+  .quote-range-row {
+    grid-template-columns: 1fr;
+  }
+
+  .quote-table-heading,
+  .quote-table-footer {
+    display: grid;
+  }
+
+  .quote-chart-container {
+    min-height: 260px;
+  }
 }
 </style>

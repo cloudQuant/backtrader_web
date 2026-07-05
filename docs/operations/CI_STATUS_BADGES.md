@@ -6,46 +6,46 @@ Add these badges to your project README to show the current status of CI/CD pipe
 
 ### Main CI Pipeline
 ```markdown
-![CI - Quality Checks](https://github.com/YOUR_USERNAME/ai-for-trader/workflows/CI%20-%20Quality%20Checks/badge.svg)
+![CI - Quality Checks](https://github.com/YOUR_USERNAME/ai-for-investor/workflows/CI%20-%20Quality%20Checks/badge.svg)
 ```
 
 ### E2E Tests
 ```markdown
-![E2E Tests](https://github.com/YOUR_USERNAME/ai-for-trader/workflows/E2E%20-%20End-to-End%20Tests/badge.svg)
+![E2E Tests](https://github.com/YOUR_USERNAME/ai-for-investor/workflows/E2E%20-%20End-to-End%20Tests/badge.svg)
 ```
 
 ### PR Checks
 ```markdown
-![PR Checks](https://github.com/YOUR_USERNAME/ai-for-trader/workflows/PR%20-%20Pull%20Request%20Checks/badge.svg)
+![PR Checks](https://github.com/YOUR_USERNAME/ai-for-investor/workflows/PR%20-%20Pull%20Request%20Checks/badge.svg)
 ```
 
 ### Nightly Builds
 ```markdown
-![Nightly Tests](https://github.com/YOUR_USERNAME/ai-for-trader/workflows/Nightly%20-%20Comprehensive%20Tests/badge.svg)
+![Nightly Tests](https://github.com/YOUR_USERNAME/ai-for-investor/workflows/Nightly%20-%20Comprehensive%20Tests/badge.svg)
 ```
 
 ## Coverage Badges
 
 ### Codecov
 ```markdown
-![Codecov](https://codecov.io/gh/YOUR_USERNAME/ai-for-trader/branch/master/graph/badge.svg)
+![Codecov](https://codecov.io/gh/YOUR_USERNAME/ai-for-investor/branch/master/graph/badge.svg)
 ```
 
 With token:
 ```markdown
-[![codecov](https://codecov.io/gh/YOUR_USERNAME/ai-for-trader/branch/master/graph/badge.svg)](https://codecov.io/gh/YOUR_USERNAME/ai-for-trader)
+[![codecov](https://codecov.io/gh/YOUR_USERNAME/ai-for-investor/branch/master/graph/badge.svg)](https://codecov.io/gh/YOUR_USERNAME/ai-for-investor)
 ```
 
 ### Separate Coverage Badges
 
 Backend:
 ```markdown
-![Backend Coverage](https://codecov.io/gh/YOUR_USERNAME/ai-for-trader/branch/master/graph/badge.svg?flag=backend)
+![Backend Coverage](https://codecov.io/gh/YOUR_USERNAME/ai-for-investor/branch/master/graph/badge.svg?flag=backend)
 ```
 
 Frontend:
 ```markdown
-![Frontend Coverage](https://codecov.io/gh/YOUR_USERNAME/ai-for-trader/branch/master/graph/badge.svg?flag=frontend)
+![Frontend Coverage](https://codecov.io/gh/YOUR_USERNAME/ai-for-investor/branch/master/graph/badge.svg?flag=frontend)
 ```
 
 ## Quality Metrics
@@ -62,7 +62,7 @@ Frontend:
 
 ### License
 ```markdown
-![License](https://img.shields.io/github/license/YOUR_USERNAME/ai-for-trader)
+![License](https://img.shields.io/github/license/YOUR_USERNAME/ai-for-investor)
 ```
 
 ## Technology Stack
@@ -87,33 +87,33 @@ Frontend:
 
 ### GitHub Issues
 ```markdown
-![Issues](https://img.shields.io/github/issues/YOUR_USERNAME/ai-for-trader)
+![Issues](https://img.shields.io/github/issues/YOUR_USERNAME/ai-for-investor)
 ```
 
 ### Pull Requests
 ```markdown
-![PRs](https://img.shields.io/github/issues-pr/YOUR_USERNAME/ai-for-trader)
+![PRs](https://img.shields.io/github/issues-pr/YOUR_USERNAME/ai-for-investor)
 ```
 
 ### Last Commit
 ```markdown
-![Last Commit](https://img.shields.io/github/last-commit/YOUR_USERNAME/ai-for-trader)
+![Last Commit](https://img.shields.io/github/last-commit/YOUR_USERNAME/ai-for-investor)
 ```
 
 ### Repo Size
 ```markdown
-![Repo Size](https://img.shields.io/github/repo-size/YOUR_USERNAME/ai-for-trader)
+![Repo Size](https://img.shields.io/github/repo-size/YOUR_USERNAME/ai-for-investor)
 ```
 
 ## Example README Section
 
 ```markdown
-# AI for Trader
+# AI for Investor
 
-![CI - Quality Checks](https://github.com/YOUR_USERNAME/ai-for-trader/workflows/CI%20-%20Quality%20Checks/badge.svg)
-![E2E Tests](https://github.com/YOUR_USERNAME/ai-for-trader/workflows/E2E%20-%20End-to-End%20Tests/badge.svg)
-[![codecov](https://codecov.io/gh/YOUR_USERNAME/ai-for-trader/branch/master/graph/badge.svg)](https://codecov.io/gh/YOUR_USERNAME/ai-for-trader)
-![License](https://img.shields.io/github/license/YOUR_USERNAME/ai-for-trader)
+![CI - Quality Checks](https://github.com/YOUR_USERNAME/ai-for-investor/workflows/CI%20-%20Quality%20Checks/badge.svg)
+![E2E Tests](https://github.com/YOUR_USERNAME/ai-for-investor/workflows/E2E%20-%20End-to-End%20Tests/badge.svg)
+[![codecov](https://codecov.io/gh/YOUR_USERNAME/ai-for-investor/branch/master/graph/badge.svg)](https://codecov.io/gh/YOUR_USERNAME/ai-for-investor)
+![License](https://img.shields.io/github/license/YOUR_USERNAME/ai-for-investor)
 
 A quantitative trading platform with Backtrader integration.
 
@@ -121,10 +121,10 @@ A quantitative trading platform with Backtrader integration.
 
 | Pipeline | Status |
 |----------|--------|
-| CI Quality Checks | ![CI](https://github.com/YOUR_USERNAME/ai-for-trader/workflows/CI%20-%20Quality%20Checks/badge.svg) |
-| E2E Tests | ![E2E](https://github.com/YOUR_USERNAME/ai-for-trader/workflows/E2E%20-%20End-to-End%20Tests/badge.svg) |
-| Backend Coverage | ![Backend](https://codecov.io/gh/YOUR_USERNAME/ai-for-trader/branch/master/graph/badge.svg?flag=backend) |
-| Frontend Coverage | ![Frontend](https://codecov.io/gh/YOUR_USERNAME/ai-for-trader/branch/master/graph/badge.svg?flag=frontend) |
+| CI Quality Checks | ![CI](https://github.com/YOUR_USERNAME/ai-for-investor/workflows/CI%20-%20Quality%20Checks/badge.svg) |
+| E2E Tests | ![E2E](https://github.com/YOUR_USERNAME/ai-for-investor/workflows/E2E%20-%20End-to-End%20Tests/badge.svg) |
+| Backend Coverage | ![Backend](https://codecov.io/gh/YOUR_USERNAME/ai-for-investor/branch/master/graph/badge.svg?flag=backend) |
+| Frontend Coverage | ![Frontend](https://codecov.io/gh/YOUR_USERNAME/ai-for-investor/branch/master/graph/badge.svg?flag=frontend) |
 ```
 
 ## Custom Badge Creation

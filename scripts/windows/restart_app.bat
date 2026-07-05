@@ -7,7 +7,7 @@ set "LOG_DIR=%SCRIPT_DIR%logs"
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
 echo ======================================
-echo   AI for Trader - 重启项目
+echo   AI for Investor - 重启项目
 echo ======================================
 echo.
 

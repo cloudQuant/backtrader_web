@@ -119,6 +119,16 @@ export interface StrategyCopilotBacktestResponse {
 
 export interface AIStrategyResearchRunRequest {
   prompt?: string
+  workflow_mode?: 'auto' | 'prompt'
+  workflow_steps?: Array<
+    | 'ideation'
+    | 'generation'
+    | 'backtest'
+    | 'review'
+    | 'optimization'
+    | 'validation'
+    | 'paper_trading'
+  >
   symbol: string
   symbol_name?: string
   timeframe?: string
@@ -161,6 +171,46 @@ export interface AIStrategyResearchRunRequest {
   continuation_context?: Record<string, unknown>
 }
 
+export interface AIStrategyResearchConfigProfile {
+  id: string
+  name: string
+  description: string
+  config: Record<string, unknown>
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface AIStrategyResearchConfigProfileListResponse {
+  file_path: string
+  total: number
+  items: AIStrategyResearchConfigProfile[]
+}
+
+export interface AIStrategyResearchConfigProfileCreateRequest {
+  id?: string | null
+  name: string
+  description?: string
+  config: Record<string, unknown>
+}
+
+export interface AIStrategyResearchConfigProfileUpdateRequest {
+  name?: string
+  description?: string
+  config?: Record<string, unknown>
+}
+
+export interface AIStrategyResearchConfigProfileImportRequest {
+  raw_yaml: string
+  name?: string | null
+  profile_id?: string | null
+}
+
+export interface AIStrategyResearchConfigProfileImportResponse {
+  file_path: string
+  total: number
+  items: AIStrategyResearchConfigProfile[]
+}
+
 export interface AIStrategyQualityGateEvaluation {
   key: string
   label: string
@@ -169,6 +219,24 @@ export interface AIStrategyQualityGateEvaluation {
   direction: 'min' | 'max'
   passed: boolean
   score: number
+  margin?: number | null
+  gap?: number | null
+  gap_ratio?: number | null
+  distance_to_pass?: number | null
+  status?: string
+}
+
+export interface AIStrategyGateGap {
+  key?: string
+  label?: string
+  actual?: number | null
+  target?: number | null
+  direction?: 'min' | 'max' | string
+  gap?: number | null
+  gap_ratio?: number | null
+  distance_to_pass?: number | null
+  score?: number | null
+  status?: string
 }
 
 export interface AIStrategyResearchDiagnostics {
@@ -178,6 +246,7 @@ export interface AIStrategyResearchDiagnostics {
   failure_categories?: string[]
   strengths?: string[]
   weaknesses?: string[]
+  gate_gaps?: AIStrategyGateGap[]
   improvement_plan?: string[]
   promotion_ready?: boolean
   out_of_sample_validation?: AIStrategyOutOfSampleValidation
@@ -208,6 +277,10 @@ export interface AIStrategyPaperTradingRuleEvaluation extends AIStrategyPaperMon
   source?: string | null
   status: string
   passed: boolean
+  margin?: number | null
+  gap?: number | null
+  gap_ratio?: number | null
+  distance_to_pass?: number | null
 }
 
 export interface AIStrategyResearchIteration {
@@ -285,6 +358,8 @@ export interface AIStrategyPromotionAuditItem {
 export interface AIStrategyResearchRunRecord {
   run_id: string
   prompt: string
+  workflow_mode?: 'auto' | 'prompt'
+  workflow_steps?: NonNullable<AIStrategyResearchRunRequest['workflow_steps']>
   symbol: string
   symbol_name: string
   timeframe: string
@@ -389,6 +464,7 @@ export interface AIStrategyResearchTaskResponse {
   run_id?: string | null
   research_workspace_id?: string | null
   request_snapshot?: AIStrategyResearchRunRequest & Record<string, unknown>
+  request_explicit_fields?: string[]
   continued_from_run_id?: string | null
   continuation_source?: string | null
   continuation_context?: Record<string, unknown>
@@ -398,6 +474,7 @@ export interface AIStrategyResearchTaskResponse {
   iteration_count: number
   max_iterations?: number | null
   latest_iteration?: Record<string, unknown> | null
+  best_iteration_payload?: Record<string, unknown> | null
   run_status?: string | null
   achieved?: boolean | null
   target_sharpe?: number | null
@@ -445,6 +522,14 @@ export interface AIStrategyResearchTaskResponse {
 export interface AIStrategyResearchTaskListResponse {
   total: number
   items: AIStrategyResearchTaskResponse[]
+}
+
+export interface AIStrategyResearchTaskContinueRequest {
+  overrides?: Partial<AIStrategyResearchRunRequest> & Record<string, unknown>
+}
+
+export interface AIStrategyResearchRunContinueRequest {
+  overrides?: Partial<AIStrategyResearchRunRequest> & Record<string, unknown>
 }
 
 export interface AIStrategyPaperTradingReview {
@@ -596,6 +681,8 @@ export interface AIStrategyPipelineSummary {
   live_workspace_id?: string | null
   live_unit_id?: string | null
   live_unit_locked?: boolean
+  workflow_mode?: AIStrategyResearchRunRequest['workflow_mode']
+  workflow_steps?: AIStrategyResearchRunRequest['workflow_steps']
   steps: AIStrategyPipelineStep[]
 }
 
@@ -754,6 +841,44 @@ export const strategyApi = {
     )
   },
 
+  async listAIResearchConfigProfiles(): Promise<AIStrategyResearchConfigProfileListResponse> {
+    return api.get<AIStrategyResearchConfigProfileListResponse>(
+      '/strategy/ai-research/config-profiles'
+    )
+  },
+
+  async createAIResearchConfigProfile(
+    data: AIStrategyResearchConfigProfileCreateRequest
+  ): Promise<AIStrategyResearchConfigProfile> {
+    return api.post<
+      AIStrategyResearchConfigProfile,
+      AIStrategyResearchConfigProfileCreateRequest
+    >('/strategy/ai-research/config-profiles', data)
+  },
+
+  async updateAIResearchConfigProfile(
+    profileId: string,
+    data: AIStrategyResearchConfigProfileUpdateRequest
+  ): Promise<AIStrategyResearchConfigProfile> {
+    return api.put<
+      AIStrategyResearchConfigProfile,
+      AIStrategyResearchConfigProfileUpdateRequest
+    >(`/strategy/ai-research/config-profiles/${profileId}`, data)
+  },
+
+  async deleteAIResearchConfigProfile(profileId: string): Promise<void> {
+    return api.delete<void>(`/strategy/ai-research/config-profiles/${profileId}`)
+  },
+
+  async importAIResearchConfigProfileYaml(
+    data: AIStrategyResearchConfigProfileImportRequest
+  ): Promise<AIStrategyResearchConfigProfileImportResponse> {
+    return api.post<
+      AIStrategyResearchConfigProfileImportResponse,
+      AIStrategyResearchConfigProfileImportRequest
+    >('/strategy/ai-research/config-profiles/import', data)
+  },
+
   async runAIResearchLoop(
     data: AIStrategyResearchRunRequest
   ): Promise<AIStrategyResearchRunResponse> {
@@ -786,6 +911,28 @@ export const strategyApi = {
     return api.post<AIStrategyResearchTaskResponse, undefined>(
       `/strategy/ai-research/tasks/${taskId}/cancel`,
       undefined
+    )
+  },
+
+  async continueAIResearchTask(
+    taskId: string,
+    data: AIStrategyResearchTaskContinueRequest = {}
+  ): Promise<AIStrategyResearchTaskResponse> {
+    return api.post<AIStrategyResearchTaskResponse, AIStrategyResearchTaskContinueRequest>(
+      `/strategy/ai-research/tasks/${taskId}/continue`,
+      data
+    )
+  },
+
+  async continueAIResearchRun(
+    runId: string,
+    data: AIStrategyResearchRunContinueRequest = {},
+    researchWorkspaceId?: string | null
+  ): Promise<AIStrategyResearchTaskResponse> {
+    return api.post<AIStrategyResearchTaskResponse, AIStrategyResearchRunContinueRequest>(
+      `/strategy/ai-research/runs/${runId}/continue`,
+      data,
+      { params: { research_workspace_id: researchWorkspaceId || undefined } }
     )
   },
 
@@ -857,11 +1004,17 @@ export const strategyApi = {
 
   async prepareAIResearchLiveTrading(
     runId: string,
-    data: AIStrategyLiveTradingPrepareRequest
+    data: AIStrategyLiveTradingPrepareRequest,
+    researchWorkspaceId?: string | null
   ): Promise<AIStrategyLiveTradingPrepare> {
     return api.post<AIStrategyLiveTradingPrepare, AIStrategyLiveTradingPrepareRequest>(
       `/strategy/ai-research/runs/${runId}/live-trading/prepare`,
-      data
+      data,
+      {
+        params: {
+          research_workspace_id: researchWorkspaceId || data.research_workspace_id || undefined,
+        },
+      }
     )
   },
 

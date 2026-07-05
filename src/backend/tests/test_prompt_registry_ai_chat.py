@@ -85,7 +85,7 @@ class TestAIChatServicePromptRegistry:
         assert prompt_template_id is None
         assert prompt_template_version is None
         assert "模式要求" in messages[-1]["content"]
-        assert "AI for Trader 的知识库助手" in messages[-1]["content"]
+        assert "AI for Investor 的知识库助手" in messages[-1]["content"]
 
     @pytest.mark.asyncio
     async def test_generate_answer_records_prompt_template_id_for_active_template(self):

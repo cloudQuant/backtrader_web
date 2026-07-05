@@ -223,14 +223,14 @@ const draftIssue = computed(() => getStrategyDraftIssue(props.draft))
 .execution-box {
   margin-top: 12px;
   border: 1px solid var(--border-color);
-  border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-card);
+  border-radius: 8px;
+  background: var(--bg-color);
   padding: 12px;
 }
 
 .strategy-draft {
-  border-color: var(--success-border-color);
-  background: var(--success-surface);
+  border-color: color-mix(in srgb, var(--success-color) 44%, var(--border-color) 56%);
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--success-color) 16%);
 }
 
 .draft-head {
@@ -271,32 +271,32 @@ const draftIssue = computed(() => getStrategyDraftIssue(props.draft))
 }
 
 .draft-stats span {
-  border: 1px solid var(--success-border-color);
-  border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-card);
+  border: 1px solid color-mix(in srgb, var(--success-color) 36%, var(--border-color) 64%);
+  border-radius: 8px;
+  background: var(--bg-color);
   padding: 8px;
   color: var(--success-text-strong);
   font-size: 12px;
 }
 
 .draft-list {
-  border: 1px solid var(--success-border-color);
-  border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-card);
+  border: 1px solid color-mix(in srgb, var(--success-color) 36%, var(--border-color) 64%);
+  border-radius: 8px;
+  background: var(--bg-color);
   padding: 9px;
 }
 
 .draft-list.warning {
-  border-color: var(--warning-border-color);
-  background: var(--warning-surface);
+  border-color: color-mix(in srgb, var(--warning-color) 44%, var(--border-color) 56%);
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--warning-color) 16%);
   color: var(--warning-text-color);
 }
 
 .draft-warning {
   margin-top: 8px;
-  border: 1px solid var(--warning-border-color);
-  border-radius: var(--el-border-radius-base);
-  background: var(--warning-surface);
+  border: 1px solid color-mix(in srgb, var(--warning-color) 44%, var(--border-color) 56%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--warning-color) 16%);
   padding: 8px 10px;
   color: var(--warning-text-color);
   font-size: 12px;
@@ -315,10 +315,10 @@ const draftIssue = computed(() => getStrategyDraftIssue(props.draft))
 .report-box,
 .analysis-box {
   margin-top: 10px;
-  border: 1px solid var(--info-border-color);
-  border-radius: var(--el-border-radius-base);
-  background: var(--info-surface);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 38%, var(--border-color) 62%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--primary-color) 16%);
   padding: 10px;
-  color: var(--info-text-color);
+  color: var(--text-color-primary);
 }
 </style>

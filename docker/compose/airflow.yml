@@ -1,6 +1,6 @@
 version: "3.8"
 
-# Apache Airflow deployment for AI for Trader data orchestration.
+# Apache Airflow deployment for AI for Investor data orchestration.
 # Usage:
 #   docker compose -f docker-compose.yml -f docker/compose/airflow.yml up -d
 #   Access Airflow UI: http://localhost:8080 (admin/admin)
@@ -56,7 +56,7 @@ services:
           --firstname Admin \
           --lastname User \
           --role Admin \
-          --email admin@ai-for-trader.local
+          --email admin@ai-for-investor.local
     depends_on:
       airflow-postgres:
         condition: service_healthy

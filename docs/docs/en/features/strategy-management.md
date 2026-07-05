@@ -2,7 +2,7 @@
 
 ## Overview
 
-AI for Trader provides comprehensive strategy management with version control, similar to Git.
+AI for Investor provides comprehensive strategy management with version control, similar to Git.
 
 ## Built-in Templates
 

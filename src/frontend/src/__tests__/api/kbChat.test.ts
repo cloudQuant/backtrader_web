@@ -27,6 +27,11 @@ describe('kbChatApi', () => {
     expect(get).toHaveBeenCalledWith('/kb-chat/conversations', {
       params: { knowledge_base_id: 'kb-1', skip: 10, limit: 20 },
     })
+
+    await kbChatApi.listConversations(null)
+    expect(get).toHaveBeenCalledWith('/kb-chat/conversations', {
+      params: {},
+    })
   })
 
   it('getHistory GETs with the conversation id in path', async () => {
@@ -58,6 +63,26 @@ describe('kbChatApi', () => {
       model_id: 'gpt-4',
       assistant_mode: 'knowledge_qa',
       thinking_mode: true,
+    }, {
+      timeout: KB_CHAT_SEND_TIMEOUT_MS,
+    })
+  })
+
+  it('send omits knowledge_base_id when assistant mode does not need one', async () => {
+    const { KB_CHAT_SEND_TIMEOUT_MS, kbChatApi } = await import('@/api/kbChat')
+    const apiModule = (await import('@/api/index')).default
+    const post = vi.mocked(apiModule.post).mockResolvedValue({} as never)
+
+    await kbChatApi.send({
+      question: 'generate a dual moving average strategy',
+      assistant_mode: 'backtrader_strategy',
+    })
+    expect(post).toHaveBeenCalledWith('/kb-chat/send', {
+      question: 'generate a dual moving average strategy',
+      conversation_id: undefined,
+      model_id: undefined,
+      assistant_mode: 'backtrader_strategy',
+      thinking_mode: undefined,
     }, {
       timeout: KB_CHAT_SEND_TIMEOUT_MS,
     })

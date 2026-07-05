@@ -1,9 +1,40 @@
 import { flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { mountWithPlugins } from '@/__tests__/mountWithPlugins'
+import type { AIProviderConfig } from '@/api/aiObservability'
 import { aiObservabilityApi } from '@/api/aiObservability'
 import AIProviderConfigPage from '@/views/config/AIProviderConfigPage.vue'
+
+const fixtures = vi.hoisted(() => {
+  const providers: AIProviderConfig[] = [
+    {
+      provider: 'local_openai',
+      display_name: 'Local OpenAI',
+      provider_type: 'openai_compatible',
+      base_url: 'https://llm.example.com/v1',
+      api_key_env: null,
+      api_key_configured: true,
+      models: ['local-model', 'second-model'],
+      enabled: true,
+      source: 'override',
+    },
+    {
+      provider: 'ark',
+      display_name: 'Volcengine Ark',
+      provider_type: 'litellm',
+      base_url: null,
+      api_key_env: 'ARK_API_KEY',
+      api_key_configured: false,
+      models: ['ark/deepseek-v3'],
+      enabled: false,
+      source: 'default',
+    },
+  ]
+
+  return { providers }
+})
 
 vi.mock('@/api/aiObservability', () => ({
   aiObservabilityApi: {
@@ -24,31 +55,9 @@ describe('AIProviderConfigPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(aiObservabilityApi.getAdminAIProviderConfigs).mockResolvedValue({
-      items: [
-        {
-          provider: 'local_openai',
-          display_name: 'Local OpenAI',
-          provider_type: 'openai_compatible',
-          base_url: 'https://llm.example.com/v1',
-          api_key_env: null,
-          api_key_configured: true,
-          models: ['local-model'],
-          enabled: true,
-          source: 'override',
-        },
-      ],
+      items: [...fixtures.providers],
     })
-    vi.mocked(aiObservabilityApi.updateAdminAIProviderConfig).mockResolvedValue({
-      provider: 'local_openai',
-      display_name: 'Local OpenAI',
-      provider_type: 'openai_compatible',
-      base_url: 'https://llm.example.com/v1',
-      api_key_env: null,
-      api_key_configured: true,
-      models: ['local-model'],
-      enabled: true,
-      source: 'override',
-    })
+    vi.mocked(aiObservabilityApi.updateAdminAIProviderConfig).mockResolvedValue(fixtures.providers[0])
     vi.mocked(aiObservabilityApi.deleteAdminAIProviderConfig).mockResolvedValue(undefined)
   })
 
@@ -56,12 +65,44 @@ describe('AIProviderConfigPage', () => {
     const wrapper = mountWithPlugins(AIProviderConfigPage)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('AI配置')
+    expect(wrapper.find('[data-test="ai-provider-hero"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="ai-provider-metrics"]').findAll('.provider-metric')).toHaveLength(4)
+    expect(wrapper.find('[data-test="ai-provider-workbench"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="ai-provider-table"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="ai-provider-mobile-list"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('AI 模型服务控制台')
+    expect(wrapper.text()).toContain('Local OpenAI')
+    expect(wrapper.text()).toContain('Volcengine Ark')
     expect(wrapper.text()).not.toContain('sk-')
-    expect((wrapper.vm as any).providerDrafts[0].display_name).toBe('Local OpenAI')
     expect((wrapper.vm as any).providerDrafts[0].api_key).toBe('')
     expect((wrapper.vm as any).providerDrafts[0].modelsText).toContain('local-model')
     expect(aiObservabilityApi.getAdminAIProviderConfigs).toHaveBeenCalled()
+  })
+
+  it('filters providers by status, type, and search keyword', async () => {
+    const wrapper = mountWithPlugins(AIProviderConfigPage)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.statusFilter = 'disabled'
+    await nextTick()
+
+    expect(wrapper.text()).not.toContain('Local OpenAI')
+    expect(wrapper.text()).toContain('Volcengine Ark')
+
+    vm.statusFilter = 'all'
+    vm.typeFilter = 'openai_compatible'
+    await nextTick()
+
+    expect(wrapper.text()).toContain('Local OpenAI')
+    expect(wrapper.text()).not.toContain('Volcengine Ark')
+
+    vm.typeFilter = 'all'
+    vm.providerSearch = 'deepseek'
+    await nextTick()
+
+    expect(wrapper.text()).not.toContain('Local OpenAI')
+    expect(wrapper.text()).toContain('Volcengine Ark')
   })
 
   it('saves edits through the dialog draft', async () => {
@@ -99,7 +140,7 @@ describe('AIProviderConfigPage', () => {
     expect(vm.providerDrafts[0].display_name).toBe('Updated OpenAI')
   })
 
-  it('creates and deletes providers from the list actions', async () => {
+  it('creates, toggles, and deletes providers from the workbench actions', async () => {
     const wrapper = mountWithPlugins(AIProviderConfigPage)
     await flushPromises()
 
@@ -131,6 +172,22 @@ describe('AIProviderConfigPage', () => {
       enabled: true,
     })
     expect(vm.providerDrafts.some((item: { provider: string }) => item.provider === 'custom_ai')).toBe(true)
+
+    vi.mocked(aiObservabilityApi.updateAdminAIProviderConfig).mockResolvedValueOnce({
+      ...fixtures.providers[1],
+      enabled: true,
+    })
+    await vm.toggleProviderEnabled(vm.providerDrafts.find((item: { provider: string }) => item.provider === 'ark'), true)
+
+    expect(aiObservabilityApi.updateAdminAIProviderConfig).toHaveBeenCalledWith('ark', {
+      display_name: 'Volcengine Ark',
+      provider_type: 'litellm',
+      base_url: null,
+      api_key: null,
+      api_key_env: 'ARK_API_KEY',
+      models: ['ark/deepseek-v3'],
+      enabled: true,
+    })
 
     await vm.deleteProvider(vm.providerDrafts.find((item: { provider: string }) => item.provider === 'custom_ai'))
 

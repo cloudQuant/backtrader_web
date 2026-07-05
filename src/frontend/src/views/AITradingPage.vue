@@ -9,7 +9,11 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
+  CircleCheck,
+  Connection,
+  DataLine,
   Promotion,
+  TrendCharts,
   Warning,
   Document,
 } from '@element-plus/icons-vue'
@@ -53,6 +57,70 @@ const selectableAccounts = computed(() => {
 const selectedAccount = computed(() => (
   selectableAccounts.value.find(account => account.account_id === selectedAccountId.value) ?? null
 ))
+const paperAccountCount = computed(() =>
+  availableAccounts.value.filter(account => account.source !== 'gateway').length
+)
+const liveGatewayCount = computed(() =>
+  availableAccounts.value.filter(account => account.source === 'gateway' && account.gateway_id).length
+)
+const connectedGatewayCount = computed(() =>
+  (config.value?.available_gateways ?? []).filter(gateway => gateway.connected).length
+)
+const selectedAccountSummary = computed(() =>
+  selectedAccount.value
+    ? accountOptionLabel(selectedAccount.value)
+    : (dryRun.value ? t('aiTrading.pickPaperAccount') : t('aiTrading.pickLiveGateway'))
+)
+const modeHelper = computed(() =>
+  dryRun.value ? t('aiTrading.modePaperHelper') : t('aiTrading.modeLiveHelper')
+)
+const riskThreshold = computed(() => {
+  const threshold = config.value?.require_confirmation_above
+  if (typeof threshold !== 'number' || !Number.isFinite(threshold)) {
+    return '--'
+  }
+  return `${Math.round(threshold * 100)}%`
+})
+const maxSingleTradeAmount = computed(() => formatAccountNumber(config.value?.max_single_trade_amount))
+const commandStats = computed(() => [
+  {
+    key: 'accounts',
+    label: t('aiTrading.statAccounts'),
+    value: `${paperAccountCount.value}/${liveGatewayCount.value}`,
+    helper: t('aiTrading.statAccountsHelper'),
+    tone: 'primary',
+    icon: DataLine,
+  },
+  {
+    key: 'gateways',
+    label: t('aiTrading.statGateways'),
+    value: connectedGatewayCount.value,
+    helper: t('aiTrading.statGatewaysHelper'),
+    tone: connectedGatewayCount.value > 0 ? 'success' : 'warning',
+    icon: Connection,
+  },
+  {
+    key: 'risk',
+    label: t('aiTrading.statRiskLimit'),
+    value: maxSingleTradeAmount.value,
+    helper: t('aiTrading.statRiskLimitHelper', { threshold: riskThreshold.value }),
+    tone: 'warning',
+    icon: Warning,
+  },
+  {
+    key: 'history',
+    label: t('aiTrading.statHistory'),
+    value: history.value.length,
+    helper: t('aiTrading.statHistoryHelper'),
+    tone: 'neutral',
+    icon: TrendCharts,
+  },
+])
+const quickCommands = computed(() => [
+  t('aiTrading.quickCommand1'),
+  t('aiTrading.quickCommand2'),
+  t('aiTrading.quickCommand3'),
+])
 
 // Methods
 async function handleSend() {
@@ -156,6 +224,10 @@ function accountOptionLabel(account: AITradingAccountOption): string {
   return parts.filter(Boolean).join(' · ')
 }
 
+function applyQuickCommand(command: string) {
+  message.value = command
+}
+
 async function loadHistory() {
   try {
     const result = await getTradingHistory(20)
@@ -224,26 +296,44 @@ onMounted(async () => {
 
 <template>
   <div class="ai-trading-page">
-    <!-- Header -->
-    <section class="trading-hero">
-      <div>
-        <div class="eyebrow">
-          {{ t('aiTrading.eyebrow') }}
-        </div>
-        <h2>{{ t('aiTrading.title') }}</h2>
+    <section
+      class="trading-hero"
+      data-test="ai-trading-hero"
+    >
+      <div class="trading-hero-copy">
+        <span class="eyebrow">
+          {{ t('aiTrading.heroKicker') }}
+        </span>
+        <h1>{{ t('aiTrading.title') }}</h1>
         <p>{{ t('aiTrading.desc') }}</p>
       </div>
+
       <div class="hero-controls">
-        <label
-          class="mode-switch"
-          :class="modeClass"
-        >
-          <input
-            v-model="dryRun"
-            type="checkbox"
+        <div class="mode-control">
+          <span class="control-label">{{ t('aiTrading.executionMode') }}</span>
+          <div
+            class="mode-segment"
+            role="group"
+            :aria-label="t('aiTrading.executionMode')"
           >
-          <span>{{ modeLabel }}</span>
-        </label>
+            <button
+              type="button"
+              :class="{ active: dryRun }"
+              @click="dryRun = true"
+            >
+              {{ t('aiTrading.modePaper') }}
+            </button>
+            <button
+              type="button"
+              :class="{ active: !dryRun }"
+              @click="dryRun = false"
+            >
+              {{ t('aiTrading.modeLive') }}
+            </button>
+          </div>
+          <span class="mode-helper">{{ modeHelper }}</span>
+        </div>
+
         <label class="auto-confirm-toggle">
           <input
             v-model="autoConfirm"
@@ -254,15 +344,49 @@ onMounted(async () => {
       </div>
     </section>
 
-    <!-- Main content -->
+    <section
+      class="command-overview"
+      data-test="ai-trading-overview"
+      :aria-label="t('aiTrading.overviewLabel')"
+    >
+      <article
+        v-for="stat in commandStats"
+        :key="stat.key"
+        class="command-stat-card"
+        :class="`is-${stat.tone}`"
+      >
+        <span class="command-stat-icon">
+          <el-icon aria-hidden="true">
+            <component :is="stat.icon" />
+          </el-icon>
+        </span>
+        <span class="command-stat-copy">
+          <span>{{ stat.label }}</span>
+          <strong>{{ stat.value }}</strong>
+          <em>{{ stat.helper }}</em>
+        </span>
+      </article>
+    </section>
+
     <div class="trading-grid">
-      <!-- Left: Input + Response -->
       <main class="trading-main">
-        <!-- Input area -->
-        <div class="input-section">
-          <div class="input-hints">
-            <span>{{ t('aiTrading.inputHints') }}</span>
-          </div>
+        <section
+          class="command-console"
+          data-test="ai-trading-console"
+        >
+          <header class="section-header">
+            <div>
+              <span>{{ t('aiTrading.consoleKicker') }}</span>
+              <h2>{{ t('aiTrading.consoleTitle') }}</h2>
+            </div>
+            <span
+              class="mode-pill"
+              :class="modeClass"
+            >
+              {{ modeLabel }}
+            </span>
+          </header>
+
           <div class="context-row">
             <label class="context-field">
               <span>{{ t('aiTrading.fieldPaperAccount') }}</span>
@@ -283,14 +407,37 @@ onMounted(async () => {
               </select>
             </label>
             <span
-              v-if="dryRun && selectableAccounts.length === 0"
-              class="context-hint"
-            >{{ t('aiTrading.hintNoPaperAccount') }}</span>
-            <span
-              v-else-if="!dryRun && selectableAccounts.length === 0"
-              class="context-hint"
-            >{{ t('aiTrading.hintNoLiveGateway') }}</span>
+              class="account-summary"
+              :class="{ muted: !selectedAccount }"
+            >
+              {{ selectedAccountSummary }}
+            </span>
           </div>
+
+          <p
+            v-if="dryRun && selectableAccounts.length === 0"
+            class="context-hint"
+          >
+            {{ t('aiTrading.hintNoPaperAccount') }}
+          </p>
+          <p
+            v-else-if="!dryRun && selectableAccounts.length === 0"
+            class="context-hint"
+          >
+            {{ t('aiTrading.hintNoLiveGateway') }}
+          </p>
+
+          <div class="quick-command-row">
+            <button
+              v-for="command in quickCommands"
+              :key="command"
+              type="button"
+              @click="applyQuickCommand(command)"
+            >
+              {{ command }}
+            </button>
+          </div>
+
           <div class="input-row">
             <textarea
               v-model="message"
@@ -299,33 +446,41 @@ onMounted(async () => {
               :maxlength="500"
               @keydown.enter.exact.prevent="handleSend"
             />
+          </div>
+
+          <footer class="command-footer">
+            <span>{{ t('aiTrading.inputHints') }}</span>
             <button
               class="send-btn"
               :disabled="!canSend"
               @click="handleSend"
             >
-              <el-icon><Promotion /></el-icon>
+              <el-icon aria-hidden="true">
+                <Promotion />
+              </el-icon>
               {{ loading ? t('aiTrading.btnSending') : t('aiTrading.btnSend') }}
             </button>
-          </div>
-        </div>
+          </footer>
+        </section>
 
-        <!-- Current response -->
-        <div
+        <section
           v-if="currentResponse"
           class="response-card"
+          data-test="ai-trading-response"
         >
-          <div class="response-header">
+          <header class="response-header">
+            <div>
+              <span>{{ t('aiTrading.responseKicker') }}</span>
+              <h2>{{ t('aiTrading.responseTitle') }}</h2>
+            </div>
             <span
               class="status-badge"
               :style="{ backgroundColor: getStatusColor(currentResponse.status) }"
             >
               {{ getStatusLabel(currentResponse.status) }}
             </span>
-            <span class="trade-id">{{ currentResponse.trade_id }}</span>
-          </div>
+          </header>
 
-          <!-- Intent summary -->
           <div class="intent-summary">
             <div class="intent-action">
               <strong>{{ getActionLabel(currentResponse.intent.action) }}</strong>
@@ -356,22 +511,23 @@ onMounted(async () => {
               >
                 {{ t('aiTrading.riskLabel') }}: {{ currentResponse.risk_assessment.risk_level }}
               </span>
+              <span class="trade-id">{{ currentResponse.trade_id }}</span>
             </div>
           </div>
 
-          <!-- Message -->
           <div
             v-if="currentResponse.degraded || currentResponse.diagnostic_message"
             class="diagnostic-box"
           >
-            <el-icon><Warning /></el-icon>
+            <el-icon aria-hidden="true">
+              <Warning />
+            </el-icon>
             <span>{{ currentResponse.diagnostic_message || t('aiTrading.diagnosticDefault') }}</span>
           </div>
           <div class="response-message">
             {{ currentResponse.message }}
           </div>
 
-          <!-- Warnings -->
           <div
             v-if="currentResponse.risk_assessment.warnings.length"
             class="warnings-box"
@@ -381,12 +537,13 @@ onMounted(async () => {
               :key="i"
               class="warning-item"
             >
-              <el-icon><Warning /></el-icon>
+              <el-icon aria-hidden="true">
+                <Warning />
+              </el-icon>
               <span>{{ w }}</span>
             </div>
           </div>
 
-          <!-- Suggestions -->
           <div
             v-if="currentResponse.suggestions.length"
             class="suggestions-box"
@@ -404,7 +561,6 @@ onMounted(async () => {
             </ul>
           </div>
 
-          <!-- AI Reasoning -->
           <div
             v-if="currentResponse.ai_reasoning"
             class="reasoning-box"
@@ -414,14 +570,29 @@ onMounted(async () => {
             </div>
             <p>{{ currentResponse.ai_reasoning }}</p>
           </div>
-        </div>
+        </section>
 
-        <!-- Response history -->
-        <div
+        <section
+          v-else
+          class="response-empty"
+          data-test="ai-trading-empty"
+        >
+          <span class="empty-icon">
+            <el-icon aria-hidden="true">
+              <CircleCheck />
+            </el-icon>
+          </span>
+          <div>
+            <h2>{{ t('aiTrading.emptyResponseTitle') }}</h2>
+            <p>{{ t('aiTrading.emptyResponseDesc') }}</p>
+          </div>
+        </section>
+
+        <section
           v-if="responses.length > 1"
           class="response-history"
         >
-          <h4>{{ t('aiTrading.historyHeading') }}</h4>
+          <h3>{{ t('aiTrading.historyHeading') }}</h3>
           <div
             v-for="resp in responses.slice(1, 6)"
             :key="resp.trade_id"
@@ -435,32 +606,49 @@ onMounted(async () => {
             <span v-if="resp.intent.symbol">{{ resp.intent.symbol }}</span>
             <span class="history-status">{{ getStatusLabel(resp.status) }}</span>
           </div>
-        </div>
+        </section>
       </main>
 
-      <!-- Right: History panel -->
       <aside class="history-panel">
         <div class="panel-header">
-          <h3>{{ t('aiTrading.panelHeading') }}</h3>
+          <div>
+            <span>{{ t('aiTrading.sideKicker') }}</span>
+            <h2>{{ t('aiTrading.panelHeading') }}</h2>
+          </div>
           <span class="record-count">{{ history.length }} {{ t('aiTrading.recordCountSuffix') }}</span>
         </div>
+
+        <div class="guardrail-panel">
+          <span class="guardrail-kicker">{{ t('aiTrading.guardrailTitle') }}</span>
+          <div class="guardrail-row">
+            <span>{{ t('aiTrading.guardrailMaxTrade') }}</span>
+            <strong>{{ maxSingleTradeAmount }}</strong>
+          </div>
+          <div class="guardrail-row">
+            <span>{{ t('aiTrading.guardrailConfirm') }}</span>
+            <strong>{{ riskThreshold }}</strong>
+          </div>
+        </div>
+
         <div
           v-if="history.length === 0"
           class="empty-state"
         >
-          <el-icon><Document /></el-icon>
+          <el-icon aria-hidden="true">
+            <Document />
+          </el-icon>
           <p>{{ t('aiTrading.emptyState') }}</p>
         </div>
         <div
           v-else
           class="history-list"
         >
-          <div
+          <article
             v-for="item in history"
             :key="item.trade_id"
             class="history-card"
           >
-            <div class="history-card-header">
+            <header class="history-card-header">
               <span class="history-card-action">{{ getActionLabel(item.action) }}</span>
               <span
                 v-if="item.symbol"
@@ -472,10 +660,10 @@ onMounted(async () => {
               >
                 {{ getStatusLabel(item.status) }}
               </span>
-            </div>
-            <div class="history-card-input">
+            </header>
+            <p class="history-card-input">
               {{ item.user_input }}
-            </div>
+            </p>
             <div class="history-card-meta">
               <span v-if="item.quantity">{{ t('aiTrading.quantityLabel') }}: {{ item.quantity }}</span>
               <span
@@ -484,7 +672,7 @@ onMounted(async () => {
               >{{ t('aiTrading.paperTag') }}</span>
               <span class="history-card-time">{{ item.created_at?.slice(0, 16) }}</span>
             </div>
-          </div>
+          </article>
         </div>
       </aside>
     </div>

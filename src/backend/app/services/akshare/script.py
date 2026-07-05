@@ -34,7 +34,11 @@ settings = get_settings()
 
 _SCRIPT_MIN_TIMEOUT_SECONDS: dict[str, float] = {
     "macro_bank_english_interest_rate": 90.0,
+    "macro_china_agricultural_product": 150.0,
+    "macro_china_bdti_index": 150.0,
     "macro_china_bond_public": 150.0,
+    "macro_china_cpi_yearly": 150.0,
+    "macro_china_exports_yoy": 150.0,
     "macro_china_insurance": 420.0,
     "macro_china_retail_price_index": 240.0,
     "macro_china_society_traffic_volume": 240.0,
@@ -44,11 +48,14 @@ _SCRIPT_MIN_TIMEOUT_SECONDS: dict[str, float] = {
     "macro_euro_cpi_yoy": 120.0,
     "macro_euro_ppi_mom": 120.0,
     "macro_global_sox_index": 240.0,
+    "etf_fund_hist_em": 600.0,
     "macro_shipping_bdi": 120.0,
     "macro_shipping_bpi": 120.0,
     "macro_usa_api_crude_stock": 120.0,
     "macro_usa_cb_consumer_confidence": 120.0,
+    "macro_usa_core_cpi_monthly": 150.0,
     "macro_usa_core_pce_price": 120.0,
+    "macro_usa_cpi_monthly": 150.0,
     "macro_usa_eia_crude_rate": 150.0,
     "macro_usa_exist_home_sales": 120.0,
     "macro_usa_house_starts": 120.0,
@@ -57,6 +64,7 @@ _SCRIPT_MIN_TIMEOUT_SECONDS: dict[str, float] = {
     "macro_usa_ism_pmi": 120.0,
     "macro_usa_michigan_consumer_sentiment": 120.0,
     "macro_usa_new_home_sales": 120.0,
+    "macro_usa_nfib_small_business": 150.0,
     "macro_usa_personal_spending": 120.0,
 }
 _ALLOW_EMPTY_TARGET_TABLE_SCRIPT_IDS = {
@@ -653,11 +661,18 @@ class AkshareScriptService:
                 "_call_timeout": 60,
             },
             "macro_bank_english_interest_rate": {"_call_timeout": 60},
-            "macro_china_bond_public": {"_call_timeout": 120},
+            "macro_china_agricultural_product": {"_call_timeout": 120},
+            "macro_china_bdti_index": {"_call_timeout": 120},
+            "macro_china_bond_public": {"_call_timeout": 150},
+            "macro_china_cpi_yearly": {"_call_timeout": 120},
+            "macro_china_exports_yoy": {"_call_timeout": 120},
             "macro_china_trade_balance": {"_call_timeout": 60},
             "macro_euro_cpi_yoy": {"_call_timeout": 90},
             "macro_euro_ppi_mom": {"_call_timeout": 90},
             "macro_global_sox_index": {"_call_timeout": 180},
+            "macro_usa_core_cpi_monthly": {"_call_timeout": 120},
+            "macro_usa_cpi_monthly": {"_call_timeout": 120},
+            "macro_usa_nfib_small_business": {"_call_timeout": 120},
             "macro_usa_non_farm": {"_call_timeout": 60},
             "macro_usa_trade_balance": {"_call_timeout": 60},
             "macro_usa_unemployment_rate": {"_call_timeout": 60},
@@ -741,7 +756,6 @@ class AkshareScriptService:
                 "max_pages": 1,
                 "_call_timeout": 60,
             },
-            "stock_zh_kcb_report_em": {"to_page": 10},
             "stock_hot_deal_xq": {
                 "symbol": "最热门",
                 "max_pages": 1,
@@ -802,6 +816,7 @@ class AkshareScriptService:
             "fund_value_estimation_em": {
                 "fund_type": "全部",
             },
+            "etf_fund_hist_em": {"max_codes": 20},
             "fund_etf_fund_info_em": {
                 "fund": "510300",
                 "start_date": lookback_730,
@@ -913,7 +928,27 @@ class AkshareScriptService:
                 "end_date": "20231228",
                 "max_days": 1,
             },
-            "daily_market_data": {"markets": "CFFEX", "lookback_days": 10, "max_windows": 1},
+            "daily_market_data": {
+                "markets": "CFFEX,INE,CZCE,DCE,SHFE,GFEX",
+                "lookback_days": 30,
+                "max_windows": 4,
+                "_call_timeout": 120,
+            },
+            "dce_delivery_data": {
+                "lookback_months": 12,
+                "max_months": 12,
+                "_call_timeout": 60,
+            },
+            "dce_delivery_match": {
+                "max_symbols": 20,
+                "_call_timeout": 60,
+            },
+            "foreign_futures_history_em": {
+                "_call_timeout": 120,
+            },
+            "foreign_futures_realtime_em": {
+                "_call_timeout": 120,
+            },
             "futures_contract_info_cffex": {
                 "lookback_days": 10,
                 "max_days": 1,

@@ -5,7 +5,6 @@ Akshare data provider for data fetch operations
 import logging
 import os
 import queue
-import requests
 import time
 import uuid
 from threading import Thread
@@ -13,6 +12,7 @@ from typing import Any
 
 import akshare as ak
 import pandas as pd
+import requests
 
 from app.data_fetch.core.mysql_base import MysqlBase
 from app.data_fetch.utils.akshare_network_proxy import configure_akshare_network_proxy
@@ -100,7 +100,7 @@ class AkshareToMySql(MysqlBase):
             if call_timeout_s is None:
                 # Default AKShare call timeout. Can be overridden per-call via `_call_timeout`
                 # or globally via env `AKSHARE_CALL_TIMEOUT`.
-                call_timeout_s = int(os.getenv("AKSHARE_CALL_TIMEOUT", "30"))
+                call_timeout_s = int(os.getenv("AKSHARE_CALL_TIMEOUT", "120"))
             else:
                 call_timeout_s = int(call_timeout_s)
 

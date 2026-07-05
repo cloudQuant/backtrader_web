@@ -18,9 +18,15 @@ const strategyTemplates = vi.hoisted(() => [
 ])
 const routerPush = vi.hoisted(() => vi.fn())
 const routeQuery = vi.hoisted(() => ({} as Record<string, unknown>))
+const routePath = vi.hoisted(() => ({ value: '/investment/strategies' }))
 
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: routeQuery }),
+  useRoute: () => ({
+    query: routeQuery,
+    get path() {
+      return routePath.value
+    },
+  }),
   useRouter: () => ({ push: routerPush }),
 }))
 
@@ -453,15 +459,24 @@ vi.mock('@/api/strategy', () => ({
       handoff: {
         run_id: 'history-run',
         paper_task_id: 'paper-task',
+        asset_specs: {
+          IF2609: {
+            symbol: 'IF2609',
+            multiplier: 300,
+            margin_rate: 0.1,
+            commission_rate: 0.000023,
+            source: 'paper_handoff_exchange_specs',
+          },
+        },
         backtest_environment: {
           initial_cash: 100000,
-          commission: 0.002,
+          commission: 0.000023,
           multiplier: 300,
           margin: 0.1,
           annual_days: 244,
           calc_method: 'simple',
           weight_mode: 'equal',
-          asset_spec_source: 'local_futures_commission',
+          asset_spec_source: 'paper_handoff_exchange_specs',
           start_date: '2024-01-01',
           end_date: '2024-12-31',
         },
@@ -801,6 +816,7 @@ describe('StrategyPage', () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     Object.keys(routeQuery).forEach(key => delete routeQuery[key])
+    routePath.value = '/investment/strategies'
   })
 
   const doMount = () => mount(StrategyPage, { global: { stubs: elStubs } })
@@ -810,6 +826,30 @@ describe('StrategyPage', () => {
     await flushPromises()
     expect(wrapper.exists()).toBe(true)
     expect(wrapper.text()).toContain('阶段 质量达标')
+  })
+
+  it('shows strategy library and my strategies under strategy management', async () => {
+    routePath.value = '/research/strategies'
+    const wrapper = doMount()
+    await flushPromises()
+    expect((wrapper.vm as any).showStrategyManagementTabs).toBe(true)
+    expect((wrapper.vm as any).showAIResearchTab).toBe(false)
+    expect(wrapper.text()).toContain('共 120 个策略')
+    expect(wrapper.text()).toContain('Strategy Tool 2')
+    expect(wrapper.text()).toContain('创建策略')
+    expect(wrapper.text()).not.toContain('AI投研')
+  })
+
+  it('hides strategy management tabs from investment strategy research', async () => {
+    routePath.value = '/investment/strategies'
+    const wrapper = doMount()
+    await flushPromises()
+    expect((wrapper.vm as any).showStrategyManagementTabs).toBe(false)
+    expect((wrapper.vm as any).showAIResearchTab).toBe(true)
+    expect(wrapper.text()).toContain('AI投研')
+    expect(wrapper.text()).not.toContain('共 120 个策略')
+    expect(wrapper.text()).not.toContain('Strategy Tool 2')
+    expect(wrapper.text()).not.toContain('创建策略')
   })
 
   it('restores an AI research run from route query on mount', async () => {
@@ -1015,6 +1055,20 @@ describe('StrategyPage', () => {
       diagnostics: {
         summary: '第 2 轮未达标，系统将扩大信号覆盖并收紧风险。',
         weaknesses: ['有效交易样本数不足'],
+        gate_gaps: [
+          {
+            key: 'sharpe',
+            label: 'Sharpe',
+            actual: 0.42,
+            target: 1,
+            direction: 'min',
+            gap: 0.58,
+            gap_ratio: 0.58,
+            distance_to_pass: 0.58,
+            score: 0.42,
+            status: 'failed',
+          },
+        ],
         improvement_plan: ['放宽入场过滤以增加有效交易', '降低单笔风险预算'],
       },
       improvement_plan: ['放宽入场过滤以增加有效交易'],
@@ -1028,9 +1082,39 @@ describe('StrategyPage', () => {
     expect(diagnostics).toContain('Sharpe 0.420 below target 1.000')
     expect(diagnostics).toContain('Only 1 trades, below minimum 5')
     expect(diagnostics).toContain('有效交易样本数不足')
+    expect(diagnostics).toContain('差距 Sharpe 还差 0.58')
+    expect(diagnostics).toContain('当前 0.42')
+    expect(diagnostics).toContain('目标 1.00')
     expect(diagnostics).toContain('改稿 放宽入场过滤以增加有效交易')
     expect(diagnostics).toContain('改稿 降低单笔风险预算')
     expect(diagnostics).toContain('下一步 系统将基于本轮失败原因生成下一版策略。')
+  })
+
+  it('shows the running best AI research iteration when the latest iteration regresses', async () => {
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchTaskId = 'task-best-progress'
+    vm.aiResearchTaskStage = 'improving'
+    vm.aiResearchTaskProgress = 62
+    vm.aiResearchTaskBestIteration = {
+      iteration: 1,
+      sharpe_ratio: 1.18,
+      total_trades: 12,
+    }
+    vm.aiResearchTaskLatestIteration = {
+      iteration: 2,
+      sharpe_ratio: 0.42,
+      total_trades: 3,
+    }
+    await wrapper.vm.$nextTick()
+
+    const progress = wrapper.find('[data-test="ai-research-task-progress"]').text()
+    expect(progress).toContain('最近第 2 轮')
+    const best = wrapper.find('[data-test="ai-research-task-best-iteration"]')
+    expect(best.exists()).toBe(true)
+    expect(best.text()).toContain('当前最佳第 1 轮')
+    expect(best.text()).toContain('Sharpe 1.18')
+    expect(best.text()).toContain('交易 12.00')
   })
 
   it('generates an AI research objective from current controls and submits it', async () => {
@@ -1061,6 +1145,12 @@ describe('StrategyPage', () => {
 
     expect(vm.aiResearchForm.prompt).toContain('请为 沪深300股指期货（IF2409.CFE）')
     expect(vm.aiResearchForm.prompt).toContain('1h 级别的可执行 Backtrader 策略')
+    expect(vm.aiResearchForm.prompt).toContain('专业流水线')
+    expect(vm.aiResearchForm.prompt).toContain('策略构思')
+    expect(vm.aiResearchForm.prompt).toContain('策略生成')
+    expect(vm.aiResearchForm.prompt).toContain('策略回测')
+    expect(vm.aiResearchForm.prompt).toContain('策略审查')
+    expect(vm.aiResearchForm.prompt).toContain('策略优化')
     expect(vm.aiResearchForm.prompt).toContain('目标 Sharpe 不低于 1.20')
     expect(vm.aiResearchForm.prompt).toContain('至少产生 8 笔有效交易')
     expect(vm.aiResearchForm.prompt).toContain('最大回撤控制在 10% 以内')
@@ -1079,6 +1169,8 @@ describe('StrategyPage', () => {
 
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
       prompt: expect.stringContaining('按期货/合约资产处理'),
+      workflow_mode: 'auto',
+      workflow_steps: ['ideation', 'generation', 'backtest', 'review', 'optimization'],
       symbol: 'IF2409.CFE',
       symbol_name: '沪深300股指期货',
       target_sharpe: 1.2,
@@ -1101,6 +1193,24 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.symbol_name = '沪深300股指期货'
     vm.aiResearchForm.timeframe = '1h'
     vm.aiResearchForm.target_sharpe = 1.1
+    const serverGeneratedPrompt = [
+      '请为 沪深300股指期货（IF2409.CFE）生成一套 1h 级别的可执行 Backtrader 策略。',
+      '目标 Sharpe 不低于 1.10。',
+      '按期货/合约资产处理，必须显式使用合约乘数、保证金、杠杆、最小变动价位和真实手续费。',
+    ].join('\n')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: 'IF2409.CFE' })
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    vi.mocked(strategyApi.runAIResearchLoop).mockResolvedValueOnce({
+      ...baseResult,
+      run_record: {
+        ...baseResult.run_record!,
+        prompt: serverGeneratedPrompt,
+        symbol: 'IF2409.CFE',
+        symbol_name: '沪深300股指期货',
+        timeframe: '1h',
+        target_sharpe: 1.1,
+      },
+    })
     vi.mocked(ElMessage.warning).mockClear()
 
     await vm.runAIResearchLoop()
@@ -1110,11 +1220,42 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.prompt).toContain('按期货/合约资产处理')
     expect(ElMessage.warning).not.toHaveBeenCalledWith('请填写策略目标')
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: expect.stringContaining('完整可运行的 Backtrader Strategy 脚本'),
+      prompt: '',
+      workflow_mode: 'auto',
+      workflow_steps: ['ideation', 'generation', 'backtest', 'review', 'optimization'],
       symbol: 'IF2409.CFE',
       timeframe: '1h',
       target_sharpe: 1.1,
     }))
+  })
+
+  it('treats bare SA futures symbols as futures in generated AI research prompts', () => {
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.symbol = 'sa'
+    vm.aiResearchForm.symbol_name = '纯碱'
+    vm.aiResearchForm.timeframe = '1h'
+
+    vm.generateAIResearchPrompt()
+
+    expect(vm.aiResearchForm.prompt).toContain('请为 纯碱（sa）')
+    expect(vm.aiResearchForm.prompt).toContain('按期货/合约资产处理')
+    expect(vm.aiResearchForm.prompt).not.toContain('按股票资产处理')
+  })
+
+  it('requires a prompt when AI research is set to prompt workflow mode', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.workflow_mode = 'prompt'
+    vm.aiResearchForm.prompt = ''
+    vm.aiResearchForm.symbol = '000001.SZ'
+
+    await vm.runAIResearchLoop()
+
+    expect(ElMessage.warning).toHaveBeenCalledWith('请输入策略研究提示，或切换为自动规划')
+    expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
   })
 
   it('runs AI research loop from form input', async () => {
@@ -1152,6 +1293,8 @@ describe('StrategyPage', () => {
     await vm.runAIResearchLoop()
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
       prompt: '生成一个趋势策略',
+      workflow_mode: 'auto',
+      workflow_steps: ['ideation', 'generation', 'backtest', 'review', 'optimization'],
       symbol: '000001.SZ',
       knowledge_base_id: 'kb-quant',
       thinking_mode: true,
@@ -1246,9 +1389,9 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchRuns[0].paper_workspace_name).toBe('AI模拟交易')
     const currentPaperEnv = wrapper.find('[data-test="ai-research-current-paper-env"]').text()
     expect(currentPaperEnv).toContain('模拟环境')
-    expect(currentPaperEnv).toContain('手续费 0.002000')
+    expect(currentPaperEnv).toContain('手续费 0.000023')
     expect(currentPaperEnv).toContain('合约乘数 300.00')
-    expect(currentPaperEnv).toContain('资产来源 local_futures_commission')
+    expect(currentPaperEnv).toContain('资产来源 paper_handoff_exchange_specs')
     const currentReviewButton = wrapper.findAll('button').find(
       button => button.text().includes('复核模拟')
     )
@@ -1315,7 +1458,7 @@ describe('StrategyPage', () => {
         name: 'ctp_live',
         params: { broker_id: '9999', exchange: 'sim-live' },
       },
-    })
+    }, 'research-ws')
     expect(vm.aiResearchResult.run_record.live_trading_prepared).toBe(true)
     expect(vm.aiResearchResult.run_record.live_unit_id).toBe('live-unit')
     expect(vm.aiResearchResult.run_record.pipeline.current_stage).toBe('live_trading_prepare')
@@ -1827,8 +1970,10 @@ describe('StrategyPage', () => {
 
   it('shows paper trading start failure as retryable current result', async () => {
     const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
     const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
     vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    vi.mocked(ElMessage.error).mockClear()
     const failedPipeline = {
       current_stage: 'paper_trading_failed',
       status: 'achieved',
@@ -1875,6 +2020,7 @@ describe('StrategyPage', () => {
     )
     expect(wrapper.text()).toContain('阶段 模拟启动失败')
     expect(wrapper.text()).toContain('模拟错误 Failed to create paper trading unit')
+    expect(ElMessage.error).toHaveBeenCalledWith('模拟交易启动失败')
     expect(vm.aiResearchRuns[0].pipeline.paper_trading_error).toBe(
       'Failed to create paper trading unit'
     )
@@ -1883,6 +2029,7 @@ describe('StrategyPage', () => {
       button => button.text().includes('继续改进')
     )
     expect(continueButton).toBeTruthy()
+    vm.aiResearchForm.start_paper_trading = false
     await continueButton!.trigger('click')
     await flushPromises()
 
@@ -1894,6 +2041,7 @@ describe('StrategyPage', () => {
       research_workspace_id: 'research-ws',
       seed_strategy_id: 's1',
       continue_from_run_id: 'run-1',
+      start_paper_trading: true,
     }))
     const payload = vi.mocked(strategyApi.runAIResearchLoop).mock.calls.at(-1)?.[0]
     const continuationContext = payload?.continuation_context as Record<string, any>
@@ -2063,15 +2211,102 @@ describe('StrategyPage', () => {
       expect(taskProgress).toContain('Sharpe -0.20')
       expect(taskProgress).toContain('自动回测迭代 已完成 1/3 轮')
       expect(taskProgress).toContain('模拟交易 进行中')
-      const taskRuntime = wrapper.find('[data-test="ai-research-task-runtime"]').text()
-      expect(taskRuntime).toContain('运行环境')
-      expect(taskRuntime).toContain('手续费 0.000023')
-      expect(taskRuntime).toContain('合约乘数 300.00')
-      expect(taskRuntime).toContain('保证金 0.1000')
-      expect(taskRuntime).toContain('资产来源 task_exchange_specs')
-      expect(taskRuntime).toContain('网关 paper_gateway')
-      expect(taskRuntime).toContain('交易所 sim')
-      expect(taskRuntime).toContain('模式 paper')
+      expect(wrapper.find('[data-test="ai-research-task-runtime"]').exists()).toBe(false)
+      expect(taskProgress).not.toContain('运行环境')
+      expect(taskProgress).not.toContain('手续费 0.000023')
+      expect(taskProgress).not.toContain('合约乘数 300.00')
+      expect(taskProgress).not.toContain('保证金 0.1000')
+    } finally {
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
+    }
+  })
+
+  it('keeps submitted async continuation runtime context when later task payload is sparse', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: 'IF2409.CFE' })
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    ;(strategyApi as any).submitAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'continuation-runtime-task',
+      status: 'running',
+      submitted_at: '2026-06-27T00:00:00Z',
+      current_stage: 'backtesting',
+      progress: 15,
+      current_iteration: 1,
+      iteration_count: 0,
+      max_iterations: 3,
+      continued_from_run_id: 'paper-context-run',
+      continuation_source: 'paper_review',
+      continuation_context: {
+        source: 'paper_review',
+        run_id: 'paper-context-run',
+        paper_review_status: 'needs_research_review',
+        quality_gate_failures: ['模拟复核最大回撤超限'],
+      },
+      asset_specs: {
+        'IF2409.CFE': {
+          symbol: 'IF2409.CFE',
+          source: 'exchange',
+          multiplier: 300,
+          margin_rate: 0.12,
+          commission_rate: 0.000023,
+        },
+      },
+      backtest_environment: {
+        initial_cash: 100000,
+        commission: 0.000023,
+        multiplier: 300,
+        margin: 0.12,
+        asset_spec_source: 'exchange',
+      },
+      request_snapshot: {
+        prompt: '继续优化股指期货策略',
+        symbol: 'IF2409.CFE',
+        timeframe: '1d',
+        timeframe_n: 1,
+        gateway_config: {
+          name: 'paper_gateway',
+          params: {
+            exchange: 'sim',
+            mode: 'paper',
+          },
+        },
+      },
+      message: 'submitted',
+    })
+    ;(strategyApi as any).getAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'continuation-runtime-task',
+      status: 'completed',
+      submitted_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      run_id: 'run-1',
+      current_stage: 'completed',
+      progress: 100,
+      current_iteration: 1,
+      iteration_count: 1,
+      max_iterations: 3,
+      message: 'done',
+      result: baseResult,
+    })
+    try {
+      const wrapper = doMount()
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.prompt = '继续优化股指期货策略'
+      vm.aiResearchForm.symbol = 'IF2409.CFE'
+      await vm.runAIResearchLoop()
+
+      expect((strategyApi as any).getAIResearchTask).toHaveBeenCalledWith('continuation-runtime-task')
+      const taskProgress = wrapper.find('[data-test="ai-research-task-progress"]').text()
+      expect(taskProgress).toContain('继续来源 从模拟复核反馈继续')
+      expect(taskProgress).toContain('paper-context-run')
+      expect(taskProgress).not.toContain('目标 继续优化股指期货策略')
+      expect(taskProgress).not.toContain('标的 IF2409.CFE')
+      expect(wrapper.find('[data-test="ai-research-task-runtime"]').exists()).toBe(false)
+      expect(taskProgress).not.toContain('运行环境')
+      expect(taskProgress).not.toContain('资产 IF2409.CFE')
+      expect(taskProgress).not.toContain('手续费 0.000023')
+      expect(taskProgress).not.toContain('合约乘数 300.00')
+      expect(taskProgress).not.toContain('保证金 0.1200')
     } finally {
       delete (strategyApi as any).submitAIResearchTask
       delete (strategyApi as any).getAIResearchTask
@@ -2406,9 +2641,14 @@ describe('StrategyPage', () => {
         asset_specs_source: 'exchange',
       },
     }
+    const serverGeneratedPrompt = [
+      '请为 沪深300股指期货（IF2409.CFE）生成一套 1h 级别的可执行 Backtrader 策略。',
+      '按期货/合约资产处理，必须显式使用合约乘数、保证金、杠杆、最小变动价位和真实手续费。',
+    ].join('\n')
     const readyRecord = {
       ...baseResult.run_record!,
       run_id: 'async-live-handoff-run',
+      prompt: serverGeneratedPrompt,
       paper_workspace_id: 'paper-ws',
       paper_unit_id: 'paper-unit',
       paper_trading_started: true,
@@ -2502,21 +2742,21 @@ describe('StrategyPage', () => {
 
       expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
       expect((strategyApi as any).submitAIResearchTask).toHaveBeenCalledWith(expect.objectContaining({
-        prompt: expect.stringContaining('按期货/合约资产处理'),
+        prompt: '',
         symbol: 'IF2409.CFE',
         symbol_name: '沪深300股指期货',
         timeframe: '1h',
         target_sharpe: 1,
       }))
       const submittedRequest = (strategyApi as any).submitAIResearchTask.mock.calls[0]?.[0] as Record<string, unknown>
-      expect(String(submittedRequest.prompt)).toContain('请为 沪深300股指期货（IF2409.CFE）')
-      expect(String(submittedRequest.prompt)).toContain('按期货/合约资产处理')
-      expect(String(submittedRequest.prompt)).toContain('合约乘数、保证金、杠杆、最小变动价位和真实手续费')
-      expect(vm.aiResearchForm.prompt).toBe(submittedRequest.prompt)
+      expect(submittedRequest.prompt).toBe('')
+      expect(vm.aiResearchForm.prompt).toContain('请为 沪深300股指期货（IF2409.CFE）')
+      expect(vm.aiResearchForm.prompt).toContain('按期货/合约资产处理')
+      expect(vm.aiResearchForm.prompt).toContain('合约乘数、保证金、杠杆、最小变动价位和真实手续费')
       expect(vm.aiResearchResult.run_record.live_handoff.status).toBe('ready_for_approval')
       expect(vm.aiResearchRuns[0].live_handoff.status).toBe('ready_for_approval')
       const taskProgress = wrapper.find('[data-test="ai-research-task-progress"]').text()
-      expect(taskProgress).toContain('标的 IF2409.CFE 沪深300股指期货')
+      expect(taskProgress).not.toContain('标的 IF2409.CFE 沪深300股指期货')
       expect(taskProgress).toContain('阶段 实盘交接')
       expect(wrapper.find('[data-test="ai-research-task-pipeline"]').text()).toContain('实盘交接')
       expect(wrapper.find('[data-test="ai-research-pipeline"]').text()).toContain('实盘交接')
@@ -2910,7 +3150,17 @@ describe('StrategyPage', () => {
           },
           task_id: 'task-1',
           run_status: 'completed',
-          metrics: { sharpe_ratio: 1.2, total_trades: 5 },
+          metrics: {
+            sharpe_ratio: 1.2,
+            total_trades: 5,
+            total_return: 12.34,
+            annual_return: 18.9,
+            max_drawdown: -4.56,
+            win_rate: 60,
+            net_profit: 12340,
+            final_value: 112340,
+            trading_cost: 18.5,
+          },
           sharpe_ratio: 1.2,
           total_trades: 5,
           quality_score: 100,
@@ -2952,6 +3202,14 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchResult.iterations[0].strategy.name).toBe('AI策略快照')
       expect(vm.aiResearchResult.iterations[0].unit.id).toBe('unit-1')
       expect(vm.aiResearchResult.iterations[0].sharpe_ratio).toBe(1.2)
+      await wrapper.vm.$nextTick()
+      const backtestSummary = wrapper.find('[data-test="ai-research-iteration-backtest-summary"]')
+      expect(backtestSummary.exists()).toBe(true)
+      expect(backtestSummary.text()).toContain('回测结果')
+      expect(backtestSummary.text()).toContain('总收益 12.34%')
+      expect(backtestSummary.text()).toContain('年化 18.90%')
+      expect(backtestSummary.text()).toContain('最大回撤 4.56%')
+      expect(backtestSummary.text()).toContain('净利润 12340.00')
       expect(vm.aiResearchPaperStatusText).toBe('已启动')
       expect(vm.aiResearchCurrentPaperEnvironment[0].key).toBe('initial_cash')
       expect(vm.canOpenPaperFromCurrentResult).toBe(true)
@@ -3186,6 +3444,24 @@ describe('StrategyPage', () => {
           ready_for_live: false,
           steps: [],
         },
+        promotion_audit: [
+          {
+            key: 'quality_gate',
+            label: '质量门槛',
+            status: 'completed',
+            evidence: '最佳 Sharpe 1.12 / 目标 1.00。',
+            action: '质量门槛已达成，可进入模拟交易/复核。',
+            details: {},
+          },
+          {
+            key: 'paper_trading',
+            label: '模拟交易',
+            status: 'completed',
+            evidence: '模拟单元 paper-unit。',
+            action: '继续采集模拟成交、持仓、费用和估值指标。',
+            details: {},
+          },
+        ],
         next_actions: ['继续跟踪模拟交易'],
         message: 'done',
         latest_iteration: {
@@ -3210,9 +3486,9 @@ describe('StrategyPage', () => {
       expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
       const taskProgress = wrapper.find('[data-test="ai-research-task-progress"]').text()
       expect(taskProgress).toContain('任务进度')
-      expect(taskProgress).toContain('目标 生成一个趋势策略')
-      expect(taskProgress).toContain('标的 000001.SZ 平安银行')
-      expect(taskProgress).toContain('周期 1d')
+      expect(taskProgress).not.toContain('目标 生成一个趋势策略')
+      expect(taskProgress).not.toContain('标的 000001.SZ 平安银行')
+      expect(taskProgress).not.toContain('周期 1d')
       expect(taskProgress).toContain('阶段 模拟交易')
       expect(taskProgress).toContain('100%')
       expect(taskProgress).toContain('done')
@@ -3221,6 +3497,10 @@ describe('StrategyPage', () => {
       expect(taskProgress).toContain('最近第 2 轮')
       expect(taskProgress).toContain('Sharpe 1.12')
       expect(taskProgress).toContain('交易 18.00')
+      const taskPromotionAudit = wrapper.find('[data-test="ai-research-task-promotion-audit"]').text()
+      expect(taskPromotionAudit).toContain('晋级审计')
+      expect(taskPromotionAudit).toContain('质量门槛 已完成')
+      expect(taskPromotionAudit).toContain('模拟交易 已完成')
     } finally {
       setTimeoutSpy.mockRestore()
       delete (strategyApi as any).submitAIResearchTask
@@ -3249,8 +3529,8 @@ describe('StrategyPage', () => {
         end_date: '2024-06-30',
         target_sharpe: 1,
         min_total_trades: 4,
-        initial_cash: 200000,
-        commission: 0.000023,
+        initial_cash: 100000,
+        commission: 0.001,
         group_name: '任务摘要投研分组',
         paper_workspace_name: '摘要模拟工作区',
         continue_from_run_id: 'paper-failed-run',
@@ -3285,8 +3565,11 @@ describe('StrategyPage', () => {
         end_date: '2024-06-30',
         target_sharpe: 1,
         min_total_trades: 4,
-        initial_cash: 200000,
-        commission: 0.000023,
+        initial_cash: 100000,
+        commission: 0.001,
+        annual_days: 252,
+        calc_method: 'simple',
+        weight_mode: 'equal',
         group_name: '任务摘要投研分组',
         paper_workspace_name: '摘要模拟工作区',
       },
@@ -3450,6 +3733,9 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchResult.run_record.end_date).toBe('2024-06-30')
       expect(vm.aiResearchResult.run_record.initial_cash).toBe(200000)
       expect(vm.aiResearchResult.run_record.commission).toBe(0.000023)
+      expect(vm.aiResearchResult.run_record.annual_days).toBe(244)
+      expect(vm.aiResearchResult.run_record.calc_method).toBe('log')
+      expect(vm.aiResearchResult.run_record.weight_mode).toBe('value')
       expect(vm.aiResearchResult.run_record.group_name).toBe('任务摘要投研分组')
       expect(vm.aiResearchResult.run_record.continued_from_run_id).toBe('paper-failed-run')
       expect(vm.aiResearchResult.run_record.continuation_source).toBe('paper_review')
@@ -3556,6 +3842,10 @@ describe('StrategyPage', () => {
           source: 'unit_status.metrics_snapshot',
           status: 'failed',
           passed: false,
+          margin: -0.4,
+          gap: 0.4,
+          gap_ratio: 0.667,
+          distance_to_pass: 0.4,
           action: '回到研究工作区降低过拟合并收紧风险预算',
         },
       ],
@@ -3602,6 +3892,9 @@ describe('StrategyPage', () => {
     expect(wrapper.find('[data-test="ai-research-current-paper-review"]').text()).toContain(
       '需要重新投研'
     )
+    expect(wrapper.find('[data-test="ai-research-current-paper-review"]').text()).toContain(
+      '差距 0.40'
+    )
     const lockPanel = wrapper.find('[data-test="ai-research-current-paper-review-lock"]')
     expect(lockPanel.text()).toContain('模拟单元保护')
     expect(lockPanel.text()).toContain('paper-unit 需要重新投研，已自动停止并锁定')
@@ -3612,6 +3905,7 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchResult.next_actions[0]).toBe('回到研究工作区降低过拟合并收紧风险预算')
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续改进'))
     expect(continueButton).toBeTruthy()
+    vm.aiResearchForm.start_paper_trading = false
     await continueButton!.trigger('click')
     await flushPromises()
 
@@ -3622,6 +3916,7 @@ describe('StrategyPage', () => {
       research_workspace_id: 'research-ws',
       seed_strategy_id: 's1',
       continue_from_run_id: 'run-1',
+      start_paper_trading: true,
     }))
     const payload = vi.mocked(strategyApi.runAIResearchLoop).mock.calls.at(-1)?.[0]
     const continuationContext = payload?.continuation_context as Record<string, any>
@@ -3721,6 +4016,62 @@ describe('StrategyPage', () => {
   it('restores an active AI research task on mount', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const completedResult = {
+      ...baseResult,
+      run_record: {
+        ...baseResult.run_record!,
+        prompt: '服务端完成的恢复策略',
+        symbol: 'IF2409.CFE',
+        symbol_name: '沪深300股指期货',
+        timeframe: '1h',
+        timeframe_n: 1,
+        start_date: '2024-01-01',
+        end_date: '2024-06-30',
+        initial_cash: 300000,
+        commission: 0.000023,
+        annual_days: 244,
+        calc_method: 'log',
+        weight_mode: 'value',
+        group_name: '恢复运行口径',
+        target_sharpe: 1.3,
+        min_total_trades: 5,
+        max_iterations: 6,
+        backtest_timeout_seconds: 1200,
+        poll_interval_seconds: 3,
+        quality_gates: {
+          ...baseResult.run_record!.quality_gates,
+          target_sharpe: 1.3,
+          min_total_trades: 5,
+          max_drawdown_limit: 12,
+          out_of_sample_validation: true,
+          require_out_of_sample_validation: true,
+          out_of_sample_ratio: 0.3,
+          min_out_of_sample_sharpe: 0.8,
+          min_out_of_sample_trades: 2,
+          min_paper_trading_days: 14,
+        },
+        backtest_environment: {
+          initial_cash: 300000,
+          commission: 0.000023,
+          commission_source: 'asset_specs_or_default',
+          annual_days: 244,
+          calc_method: 'log',
+          weight_mode: 'value',
+          multiplier: 300,
+          margin: 0.1,
+          asset_spec_source: 'exchange_specs',
+        },
+        paper_workspace_name: '恢复模拟工作区',
+        paper_handoff: {
+          gateway_config: {
+            name: 'paper_gateway',
+            params: { broker_id: '9999', exchange: 'CFFEX' },
+          },
+        },
+        paper_review_status: 'needs_research_review',
+        paper_review_ready_for_live: false,
+      },
+    }
     vi.mocked(strategyApi.runAIResearchLoop).mockClear()
     ;(strategyApi as any).listAIResearchTasks = vi.fn().mockResolvedValue({
       total: 1,
@@ -3746,11 +4097,11 @@ describe('StrategyPage', () => {
             out_of_sample_ratio: 0.3,
             min_out_of_sample_sharpe: 0.8,
             min_out_of_sample_trades: 2,
-            initial_cash: 300000,
-            commission: 0.000023,
-            annual_days: 244,
-            calc_method: 'log',
-            weight_mode: 'value',
+            initial_cash: 100000,
+            commission: 0.001,
+            annual_days: 252,
+            calc_method: 'simple',
+            weight_mode: 'equal',
             group_name: '恢复运行口径',
             backtest_timeout_seconds: 1200,
             poll_interval_seconds: 3,
@@ -3775,6 +4126,17 @@ describe('StrategyPage', () => {
           iteration_count: 1,
           max_iterations: 6,
           current_backtest_task_id: 'bt-task-1',
+          backtest_environment: {
+            initial_cash: 300000,
+            commission: 0.000023,
+            commission_source: 'asset_specs_or_default',
+            annual_days: 244,
+            calc_method: 'log',
+            weight_mode: 'value',
+            multiplier: 300,
+            margin: 0.1,
+            asset_spec_source: 'exchange_specs',
+          },
           message: 'running',
         },
       ],
@@ -3792,7 +4154,7 @@ describe('StrategyPage', () => {
       max_iterations: 3,
       current_backtest_task_id: null,
       message: 'done',
-      result: baseResult,
+      result: completedResult,
     })
     try {
       const wrapper = doMount()
@@ -3820,7 +4182,7 @@ describe('StrategyPage', () => {
         },
         message: 'running',
       })).toBe(14640000)
-      expect(vm.aiResearchForm.prompt).toBe('恢复中的趋势策略')
+      expect(vm.aiResearchForm.prompt).toBe('服务端完成的恢复策略')
       expect(vm.aiResearchForm.symbol).toBe('IF2409.CFE')
       expect(vm.aiResearchForm.symbol_name).toBe('沪深300股指期货')
       expect(vm.aiResearchForm.timeframe).toBe('1h')
@@ -3836,7 +4198,7 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchForm.use_min_out_of_sample_sharpe).toBe(true)
       expect(vm.aiResearchForm.use_min_out_of_sample_trades).toBe(true)
       expect(vm.aiResearchForm.initial_cash).toBe(300000)
-      expect(vm.aiResearchForm.use_manual_commission).toBe(true)
+      expect(vm.aiResearchForm.use_manual_commission).toBe(false)
       expect(vm.aiResearchForm.commission).toBe(0.000023)
       expect(vm.aiResearchForm.annual_days).toBe(244)
       expect(vm.aiResearchForm.calc_method).toBe('log')
@@ -3846,7 +4208,7 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchForm.poll_interval_seconds).toBe(3)
       expect(vm.aiResearchForm.min_paper_trading_days).toBe(14)
       expect(vm.aiResearchForm.paper_workspace_name).toBe('恢复模拟工作区')
-      expect(vm.aiResearchForm.continue_from_run_id).toBe('paper-failed-run')
+      expect(vm.aiResearchForm.continue_from_run_id).toBe('run-1')
       expect(vm.aiResearchForm.continuation_source).toBe('paper_review')
       expect(wrapper.text()).toContain('从模拟复核反馈继续')
       expect(JSON.parse(vm.aiResearchForm.gateway_config_json)).toEqual({
@@ -3855,6 +4217,620 @@ describe('StrategyPage', () => {
       })
     } finally {
       delete (strategyApi as any).listAIResearchTasks
+      delete (strategyApi as any).getAIResearchTask
+    }
+  })
+
+  it('restores a recently completed AI research task when no active task exists', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const completedResult = {
+      ...baseResult,
+      run_record: {
+        ...baseResult.run_record!,
+        prompt: '服务端完成的离线趋势策略',
+        symbol: 'IF2409.CFE',
+        symbol_name: '沪深300股指期货',
+        timeframe: '1h',
+        timeframe_n: 1,
+        target_sharpe: 1.1,
+        max_iterations: 4,
+        commission: 0.000023,
+        backtest_environment: {
+          initial_cash: 100000,
+          commission: 0.000023,
+          commission_source: 'asset_specs_or_default',
+          annual_days: 244,
+          calc_method: 'log',
+          weight_mode: 'value',
+          asset_spec_source: 'exchange_specs',
+        },
+      },
+    }
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    ;(strategyApi as any).listAIResearchTasks = vi.fn()
+      .mockResolvedValueOnce({ total: 0, items: [] })
+      .mockResolvedValueOnce({
+        total: 1,
+        items: [
+          {
+            task_id: 'completed-restore-task',
+            status: 'completed',
+            submitted_at: '2026-06-27T00:00:00Z',
+            completed_at: '2026-06-27T00:01:00Z',
+            run_id: baseResult.run_id,
+            research_workspace_id: baseResult.research_workspace.id,
+            request_snapshot: {
+              prompt: '离线完成的趋势策略',
+              symbol: 'IF2409.CFE',
+              symbol_name: '沪深300股指期货',
+              timeframe: '1h',
+              timeframe_n: 1,
+              target_sharpe: 1.1,
+              max_iterations: 4,
+              commission: 0.001,
+              start_paper_trading: true,
+            },
+            request_explicit_fields: [
+              'prompt',
+              'symbol',
+              'symbol_name',
+              'timeframe',
+              'timeframe_n',
+              'target_sharpe',
+              'max_iterations',
+              'start_paper_trading',
+            ],
+            current_stage: 'paper_review',
+            progress: 100,
+            current_iteration: 2,
+            iteration_count: 2,
+            max_iterations: 4,
+            paper_trading_started: true,
+            paper_workspace_id: 'paper-ws',
+            paper_unit_id: 'paper-unit',
+            message: 'done',
+            result: completedResult,
+          },
+        ],
+      })
+    ;(strategyApi as any).getAIResearchTask = vi.fn()
+    try {
+      const wrapper = doMount()
+      await flushPromises()
+      await flushPromises()
+      const vm = wrapper.vm as any
+
+      expect((strategyApi as any).listAIResearchTasks).toHaveBeenNthCalledWith(1, true, 5)
+      expect((strategyApi as any).listAIResearchTasks).toHaveBeenNthCalledWith(2, false, 5)
+      expect((strategyApi as any).getAIResearchTask).not.toHaveBeenCalled()
+      expect(vm.aiResearchTaskId).toBe('completed-restore-task')
+      expect(vm.aiResearchTaskStatus).toBe('completed')
+      expect(vm.aiResearchTaskStage).toBe('paper_review')
+      expect(vm.aiResearchResult.run_id).toBe(baseResult.run_id)
+      expect(vm.aiResearchResult.achieved).toBe(true)
+      expect(vm.aiResearchForm.prompt).toBe('服务端完成的离线趋势策略')
+      expect(vm.aiResearchForm.symbol).toBe('IF2409.CFE')
+      expect(vm.aiResearchForm.symbol_name).toBe('沪深300股指期货')
+      expect(vm.aiResearchForm.commission).toBe(0.000023)
+      expect(vm.aiResearchForm.use_manual_commission).toBe(false)
+      expect(wrapper.find('[data-test="ai-research-task-progress"]').text()).toContain('任务进度')
+    } finally {
+      delete (strategyApi as any).listAIResearchTasks
+      delete (strategyApi as any).getAIResearchTask
+    }
+  })
+
+  it('restores the best iteration from task summary when the latest iteration is not best', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const baseIteration = baseResult.iterations[0]
+    const bestIteration = {
+      ...baseIteration,
+      iteration: 1,
+      strategy: {
+        ...baseIteration.strategy,
+        id: 'best-summary-strategy',
+        name: '最佳摘要策略',
+        code: 'import backtrader as bt\nclass BestSummaryStrategy(bt.Strategy):\n    pass\n',
+      },
+      unit: {
+        ...baseIteration.unit,
+        id: 'best-summary-unit',
+        strategy_id: 'best-summary-strategy',
+        strategy_name: '最佳摘要策略',
+      },
+      run_result: { unit_id: 'best-summary-unit', task_id: 'best-task', status: 'completed' },
+      unit_status: {
+        ...baseIteration.unit_status!,
+        id: 'best-summary-unit',
+        run_status: 'completed' as const,
+        metrics_snapshot: { sharpe_ratio: 0.9, total_trades: 8 },
+      },
+      metrics: { sharpe_ratio: 0.9, total_trades: 8 },
+      sharpe_ratio: 0.9,
+      total_trades: 8,
+      quality_score: 82,
+      passed: false,
+      quality_gate_failures: ['Sharpe 0.900 below target 1.000'],
+      diagnostics: {
+        strategy_generation: {
+          source: 'ai_model',
+          provider: 'fake',
+          model_id: 'research-best-model',
+        },
+      },
+    }
+    const latestIteration = {
+      ...baseIteration,
+      iteration: 2,
+      strategy: {
+        ...baseIteration.strategy,
+        id: 'latest-regressed-strategy',
+        name: '退化摘要策略',
+        code: 'import backtrader as bt\nclass LatestRegressedStrategy(bt.Strategy):\n    pass\n',
+      },
+      unit: {
+        ...baseIteration.unit,
+        id: 'latest-regressed-unit',
+        strategy_id: 'latest-regressed-strategy',
+        strategy_name: '退化摘要策略',
+      },
+      run_result: { unit_id: 'latest-regressed-unit', task_id: 'latest-task', status: 'completed' },
+      unit_status: {
+        ...baseIteration.unit_status!,
+        id: 'latest-regressed-unit',
+        run_status: 'completed' as const,
+        metrics_snapshot: { sharpe_ratio: 0.4, total_trades: 2 },
+      },
+      metrics: { sharpe_ratio: 0.4, total_trades: 2 },
+      sharpe_ratio: 0.4,
+      total_trades: 2,
+      quality_score: 35,
+      passed: false,
+      quality_gate_failures: ['Sharpe 0.400 below target 1.000'],
+      diagnostics: {
+        strategy_generation: {
+          source: 'local_fallback',
+          provider: 'local',
+          fallback_reason: 'AI provider timeout',
+        },
+      },
+    }
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    ;(strategyApi as any).listAIResearchTasks = vi.fn()
+      .mockResolvedValueOnce({ total: 0, items: [] })
+      .mockResolvedValueOnce({
+        total: 1,
+        items: [
+          {
+            task_id: 'summary-best-task',
+            status: 'completed',
+            submitted_at: '2026-06-27T00:00:00Z',
+            completed_at: '2026-06-27T00:01:00Z',
+            run_id: 'summary-best-run',
+            research_workspace_id: 'research-ws',
+            request_snapshot: {
+              prompt: '摘要恢复未达标策略',
+              symbol: '000001.SZ',
+              timeframe: '1d',
+              target_sharpe: 1,
+              max_iterations: 2,
+            },
+            current_stage: 'completed',
+            progress: 100,
+            current_iteration: 2,
+            iteration_count: 2,
+            max_iterations: 2,
+            run_status: 'max_iterations_reached',
+            achieved: false,
+            target_sharpe: 1,
+            best_iteration: 1,
+            best_sharpe: 0.9,
+            best_quality_score: 82,
+            best_diagnostics: {
+              strategy_generation: {
+                source: 'ai_model',
+                provider: 'fake',
+                model_id: 'research-best-model',
+              },
+            },
+            best_metrics: { sharpe_ratio: 0.9, total_trades: 8 },
+            best_strategy_id: 'best-summary-strategy',
+            best_strategy_name: '最佳摘要策略',
+            best_iteration_payload: bestIteration,
+            latest_iteration: latestIteration,
+            message: 'not achieved',
+          },
+        ],
+      })
+    ;(strategyApi as any).getAIResearchTask = vi.fn()
+    try {
+      const wrapper = doMount()
+      await flushPromises()
+      await flushPromises()
+      const vm = wrapper.vm as any
+
+      expect((strategyApi as any).listAIResearchTasks).toHaveBeenNthCalledWith(1, true, 5)
+      expect((strategyApi as any).listAIResearchTasks).toHaveBeenNthCalledWith(2, false, 5)
+      expect(vm.aiResearchResult.run_id).toBe('summary-best-run')
+      expect(vm.aiResearchResult.best_iteration).toBe(1)
+      expect(vm.aiResearchResult.best_strategy.id).toBe('best-summary-strategy')
+      expect(vm.aiResearchResult.best_strategy.name).toBe('最佳摘要策略')
+      expect(vm.aiResearchResult.best_strategy.code).toContain('BestSummaryStrategy')
+      expect(vm.aiResearchResult.best_strategy.code).not.toContain('LatestRegressedStrategy')
+      expect(vm.aiResearchForm.seed_strategy_id).toBe('best-summary-strategy')
+      expect(vm.aiResearchForm.continue_from_run_id).toBe('summary-best-run')
+      expect(vm.aiResearchForm.continuation_source).toBe('research_failure')
+      expect(wrapper.find('[data-test="ai-research-task-latest-diagnostics"]').text()).toContain(
+        '本地回退改稿'
+      )
+      expect(wrapper.find('[data-test="ai-research-best-diagnostics"]').text()).toContain(
+        'AI改稿 · 模型 research-best-model'
+      )
+    } finally {
+      delete (strategyApi as any).listAIResearchTasks
+      delete (strategyApi as any).getAIResearchTask
+    }
+  })
+
+  it('restores a recently cancelled AI research task when no active task exists', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const cancelledRecord: AIStrategyResearchRunRecord = {
+      ...baseResult.run_record!,
+      run_id: 'recent-cancelled-run',
+      status: 'cancelled',
+      achieved: false,
+      iteration_count: 0,
+      best_iteration: null,
+      best_sharpe: 0,
+      best_quality_score: 0,
+      best_quality_gate_evaluations: [],
+      best_metrics: {},
+      best_strategy_id: 'saved-cancelled-draft',
+      best_strategy_name: '取消前草案',
+      paper_trading_started: false,
+      paper_workspace_id: null,
+      paper_unit_id: null,
+      paper_monitoring_plan: [],
+      paper_handoff: {},
+      paper_review_status: null,
+      paper_review_ready_for_live: false,
+      paper_review_evaluations: [],
+      paper_review_next_actions: [],
+      pipeline: {
+        current_stage: 'cancelled',
+        status: 'cancelled',
+        progress: 30,
+        ready_for_live: false,
+        steps: [
+          { key: 'draft', label: '策略生成', status: 'completed' },
+          { key: 'backtest_loop', label: '自动回测迭代', status: 'cancelled' },
+        ],
+      },
+      next_actions: ['AI投研任务已取消，已保存当前待回测策略草案。'],
+      iterations: [],
+    }
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    vi.mocked(strategyApi.getAIResearchRun).mockResolvedValueOnce(cancelledRecord)
+    ;(strategyApi as any).listAIResearchTasks = vi.fn()
+      .mockResolvedValueOnce({ total: 0, items: [] })
+      .mockResolvedValueOnce({
+        total: 1,
+        items: [
+          {
+            task_id: 'cancelled-restore-task',
+            status: 'cancelled',
+            submitted_at: '2026-06-27T00:00:00Z',
+            completed_at: '2026-06-27T00:01:00Z',
+            run_id: 'recent-cancelled-run',
+            research_workspace_id: 'research-ws',
+            request_snapshot: {
+              prompt: '取消后恢复的趋势策略',
+              symbol: '000001.SZ',
+              timeframe: '1d',
+              timeframe_n: 1,
+              target_sharpe: 1,
+              max_iterations: 3,
+            },
+            current_stage: 'cancelled',
+            progress: 30,
+            current_iteration: 1,
+            iteration_count: 0,
+            max_iterations: 3,
+            message: 'cancelled',
+          },
+        ],
+      })
+    try {
+      const wrapper = doMount()
+      await flushPromises()
+      await flushPromises()
+      const vm = wrapper.vm as any
+
+      expect((strategyApi as any).listAIResearchTasks).toHaveBeenNthCalledWith(1, true, 5)
+      expect((strategyApi as any).listAIResearchTasks).toHaveBeenNthCalledWith(2, false, 5)
+      expect(strategyApi.getAIResearchRun).toHaveBeenCalledWith('recent-cancelled-run', 'research-ws')
+      expect(vm.aiResearchTaskId).toBe('cancelled-restore-task')
+      expect(vm.aiResearchTaskStatus).toBe('cancelled')
+      expect(vm.aiResearchResult.run_id).toBe('recent-cancelled-run')
+      expect(vm.aiResearchResult.status).toBe('cancelled')
+      expect(vm.aiResearchResult.run_record.best_strategy_id).toBe('saved-cancelled-draft')
+      expect(vm.canContinueResearchFromCurrentRunRecord).toBe(true)
+      expect(wrapper.find('[data-test="ai-research-task-progress"]').text()).toContain('已取消')
+    } finally {
+      delete (strategyApi as any).listAIResearchTasks
+    }
+  })
+
+  it('restores an interrupted AI research task snapshot and allows continuation', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const baseIteration = baseResult.iterations[0]
+    const continuedResult = {
+      ...baseResult,
+      run_id: 'continued-from-task-run',
+      run_record: {
+        ...baseResult.run_record!,
+        run_id: 'continued-from-task-run',
+        continued_from_run_id: 'interrupted-run',
+        continuation_source: 'research_interrupted',
+        continuation_context: {
+          source: 'research_interrupted',
+          run_id: 'interrupted-run',
+          task_id: 'interrupted-restore-task',
+        },
+      },
+    }
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    vi.mocked(strategyApi.getAIResearchRun).mockRejectedValueOnce(new Error('run not persisted'))
+    vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({ total: 0, items: [] })
+    ;(strategyApi as any).continueAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'continued-from-task',
+      status: 'completed',
+      submitted_at: '2026-06-27T00:02:00Z',
+      completed_at: '2026-06-27T00:03:00Z',
+      run_id: 'continued-from-task-run',
+      research_workspace_id: 'research-ws',
+      current_stage: 'completed',
+      progress: 100,
+      iteration_count: 1,
+      max_iterations: 3,
+      message: 'continued',
+      result: continuedResult,
+    })
+    ;(strategyApi as any).listAIResearchTasks = vi.fn()
+      .mockResolvedValueOnce({ total: 0, items: [] })
+      .mockResolvedValueOnce({
+        total: 1,
+        items: [
+          {
+            task_id: 'interrupted-restore-task',
+            status: 'failed',
+            submitted_at: '2026-06-27T00:00:00Z',
+            started_at: '2026-06-27T00:00:05Z',
+            completed_at: '2026-06-27T00:01:00Z',
+            run_id: 'interrupted-run',
+            research_workspace_id: 'research-ws',
+            request_snapshot: {
+              prompt: '中断后恢复的趋势策略',
+              symbol: '000001.SZ',
+              symbol_name: '平安银行',
+              timeframe: '1d',
+              timeframe_n: 1,
+              target_sharpe: 1,
+              max_iterations: 3,
+            },
+            current_stage: 'interrupted',
+            progress: 45,
+            current_iteration: 1,
+            iteration_count: 1,
+            max_iterations: 3,
+            best_iteration: 1,
+            best_sharpe: 0.82,
+            best_metrics: { sharpe_ratio: 0.82, total_trades: 5 },
+            best_iteration_payload: {
+              iteration: 1,
+              strategy: baseIteration.strategy,
+              unit: baseIteration.unit,
+              metrics: { sharpe_ratio: 0.82, total_trades: 5 },
+              sharpe_ratio: 0.82,
+              total_trades: 5,
+              quality_score: 82,
+              passed: false,
+              failure_reason: '任务中断前尚未达到目标',
+              quality_gate_failures: ['任务中断前尚未达到目标'],
+              improvement_plan: ['从当前最佳策略快照继续。'],
+            },
+            continuation_source: 'research_interrupted',
+            continuation_context: {
+              source: 'research_interrupted',
+              run_id: 'interrupted-run',
+              task_id: 'interrupted-restore-task',
+            },
+            pipeline: {
+              current_stage: 'interrupted',
+              status: 'failed',
+              progress: 45,
+              interrupted_task_id: 'interrupted-restore-task',
+              steps: [
+                { key: 'draft', label: '策略生成', status: 'completed' },
+                { key: 'backtest_loop', label: '自动回测迭代', status: 'failed' },
+              ],
+            },
+            next_actions: ['AI投研任务中断，可从当前最佳策略快照继续投研。'],
+            error: 'AI research task interrupted before completion',
+            message: 'AI research task interrupted before completion',
+          },
+        ],
+      })
+    try {
+      const wrapper = doMount()
+      await flushPromises()
+      await flushPromises()
+      const vm = wrapper.vm as any
+
+      expect((strategyApi as any).listAIResearchTasks).toHaveBeenNthCalledWith(1, true, 5)
+      expect((strategyApi as any).listAIResearchTasks).toHaveBeenNthCalledWith(2, false, 5)
+      expect(vm.aiResearchTaskId).toBe('interrupted-restore-task')
+      expect(vm.aiResearchTaskStatus).toBe('failed')
+      expect(vm.aiResearchTaskStage).toBe('interrupted')
+      expect(vm.aiResearchResult.run_id).toBe('interrupted-run')
+      expect(vm.aiResearchResult.status).toBe('interrupted')
+      expect(vm.aiResearchResult.run_record.continuation_source).toBe('research_interrupted')
+      expect(vm.canContinueResearchFromCurrentRunRecord).toBe(true)
+      const taskProgress = wrapper.find('[data-test="ai-research-task-progress"]').text()
+      expect(taskProgress).toContain('任务中断')
+      expect(taskProgress).toContain('继续来源 从中断任务继续')
+      await wrapper.vm.$nextTick()
+      const continueButton = wrapper
+        .findAll('button')
+        .find(button => button.text().includes('从任务继续'))
+      expect(continueButton?.exists()).toBe(true)
+      await continueButton!.trigger('click')
+      await flushPromises()
+
+      expect((strategyApi as any).continueAIResearchTask).toHaveBeenCalledWith(
+        'interrupted-restore-task',
+        expect.objectContaining({
+          overrides: expect.objectContaining({
+            symbol: '000001.SZ',
+            continue_from_run_id: 'interrupted-run',
+          }),
+        })
+      )
+      expect(vm.aiResearchTaskId).toBe('continued-from-task')
+      expect(vm.aiResearchResult.run_id).toBe('continued-from-task-run')
+      expect(vm.aiResearchResult.run_record.continued_from_run_id).toBe('interrupted-run')
+    } finally {
+      delete (strategyApi as any).listAIResearchTasks
+      delete (strategyApi as any).continueAIResearchTask
+    }
+  })
+
+  it('restarts an interrupted AI research task when no strategy snapshot exists', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const restartedResult = {
+      ...baseResult,
+      run_id: 'restarted-task-run',
+      run_record: {
+        ...baseResult.run_record!,
+        run_id: 'restarted-task-run',
+        continued_from_run_id: null,
+        continuation_source: null,
+        continuation_context: {},
+      },
+    }
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    vi.mocked(strategyApi.getAIResearchRun).mockRejectedValueOnce(new Error('run not persisted'))
+    vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({ total: 0, items: [] })
+    ;(strategyApi as any).listAIResearchTasks = vi.fn()
+      .mockResolvedValueOnce({ total: 0, items: [] })
+      .mockResolvedValueOnce({
+        total: 1,
+        items: [
+          {
+            task_id: 'draft-interrupted-task',
+            status: 'failed',
+            submitted_at: '2026-06-27T00:00:00Z',
+            started_at: '2026-06-27T00:00:05Z',
+            completed_at: '2026-06-27T00:01:00Z',
+            run_id: 'draft-interrupted-run',
+            research_workspace_id: 'research-ws',
+            request_snapshot: {
+              prompt: '首轮前中断的趋势策略',
+              symbol: 'IF2409.CFE',
+              symbol_name: '沪深300股指期货',
+              timeframe: '1h',
+              timeframe_n: 1,
+              start_date: '2024-01-01',
+              end_date: '2024-06-30',
+              target_sharpe: 1,
+              max_iterations: 3,
+              out_of_sample_validation: false,
+            },
+            current_stage: 'interrupted',
+            progress: 8,
+            iteration_count: 0,
+            max_iterations: 3,
+            continuation_source: 'research_interrupted',
+            continuation_context: {
+              source: 'research_interrupted',
+              run_id: 'draft-interrupted-run',
+              task_id: 'draft-interrupted-task',
+            },
+            pipeline: {
+              current_stage: 'interrupted',
+              status: 'failed',
+              progress: 8,
+              interrupted_task_id: 'draft-interrupted-task',
+              steps: [
+                { key: 'draft', label: '策略生成', status: 'running' },
+                { key: 'backtest_loop', label: '自动回测迭代', status: 'pending' },
+              ],
+            },
+            next_actions: ['AI投研任务中断，且尚未形成可复用策略快照；请用原请求重新启动投研。'],
+            error: 'AI research task interrupted before first iteration',
+            message: 'AI research task interrupted before first iteration',
+          },
+        ],
+      })
+    ;(strategyApi as any).continueAIResearchTask = vi.fn()
+    ;(strategyApi as any).submitAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'restarted-task',
+      status: 'completed',
+      submitted_at: '2026-06-27T00:02:00Z',
+      completed_at: '2026-06-27T00:03:00Z',
+      run_id: 'restarted-task-run',
+      research_workspace_id: 'research-ws',
+      current_stage: 'completed',
+      progress: 100,
+      iteration_count: 1,
+      max_iterations: 3,
+      message: 'restarted',
+      result: restartedResult,
+    })
+    ;(strategyApi as any).getAIResearchTask = vi.fn()
+    try {
+      const wrapper = doMount()
+      await flushPromises()
+      await flushPromises()
+      const vm = wrapper.vm as any
+
+      expect(vm.aiResearchTaskId).toBe('draft-interrupted-task')
+      expect(vm.canContinueAIResearchTask).toBe(false)
+      const continueButton = wrapper
+        .findAll('button')
+        .find(button => button.text().includes('从任务继续'))
+      expect(continueButton).toBeUndefined()
+      const retryButton = wrapper
+        .findAll('button')
+        .find(button => button.text().includes('重新启动任务'))
+      expect(retryButton?.exists()).toBe(true)
+
+      await retryButton!.trigger('click')
+      await flushPromises()
+
+      expect((strategyApi as any).continueAIResearchTask).not.toHaveBeenCalled()
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect((strategyApi as any).submitAIResearchTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: '首轮前中断的趋势策略',
+          symbol: 'IF2409.CFE',
+        })
+      )
+      const submittedRequest = (strategyApi as any).submitAIResearchTask.mock.calls[0]?.[0] as Record<string, unknown>
+      expect(submittedRequest.continue_from_run_id).toBeNull()
+      expect(submittedRequest.seed_strategy_id).toBeNull()
+      expect(submittedRequest.continuation_context).toBeUndefined()
+      expect(vm.aiResearchTaskId).toBe('restarted-task')
+      expect(vm.aiResearchResult.run_id).toBe('restarted-task-run')
+    } finally {
+      delete (strategyApi as any).listAIResearchTasks
+      delete (strategyApi as any).continueAIResearchTask
+      delete (strategyApi as any).submitAIResearchTask
       delete (strategyApi as any).getAIResearchTask
     }
   })
@@ -4125,6 +5101,119 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.continue_from_run_id).toBe('history-run')
   })
 
+  it('selects AI research history records into result and task progress panels', async () => {
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    const record: AIStrategyResearchRunRecord = {
+      run_id: 'rb-history-run',
+      prompt: '螺纹钢 1h 趋势策略',
+      workflow_mode: 'auto',
+      symbol: 'RB0',
+      symbol_name: '螺纹钢主连',
+      timeframe: '1h',
+      timeframe_n: 1,
+      start_date: '2020-01-01',
+      end_date: '2026-06-30',
+      initial_cash: 100000,
+      commission: 0.000101,
+      annual_days: 252,
+      calc_method: 'simple',
+      weight_mode: 'equal',
+      status: 'backtest_failed',
+      achieved: false,
+      target_sharpe: 1,
+      quality_gates: {
+        target_sharpe: 1,
+        min_total_trades: 1,
+        out_of_sample_validation: true,
+        out_of_sample_ratio: 0.25,
+      },
+      min_total_trades: 1,
+      max_iterations: 5,
+      iteration_count: 2,
+      best_iteration: 2,
+      best_sharpe: 0.42,
+      best_quality_score: 42,
+      best_quality_gate_evaluations: [],
+      best_metrics: { sharpe_ratio: 0.42, total_trades: 3 },
+      asset_specs: {
+        RB0: {
+          symbol: 'RB0',
+          multiplier: 10,
+          margin_rate: 0.11,
+          commission_rate: 0.000101,
+          source: 'local_futures_fees',
+        },
+      },
+      backtest_environment: {
+        initial_cash: 100000,
+        commission: 0.000101,
+        multiplier: 10,
+        margin: 0.11,
+        annual_days: 252,
+        calc_method: 'simple',
+        weight_mode: 'equal',
+        asset_spec_source: 'local_futures_fees',
+      },
+      best_strategy_id: 'rb-strategy',
+      best_strategy_name: 'RB 趋势策略',
+      research_workspace_id: 'rb-research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_workspace_id: null,
+      paper_workspace_name: null,
+      paper_unit_id: null,
+      paper_trading_started: false,
+      paper_monitoring_plan: [],
+      paper_handoff: {},
+      paper_review_status: null,
+      paper_review_ready_for_live: false,
+      paper_reviewed_at: null,
+      paper_review_evaluations: [],
+      paper_review_next_actions: [],
+      live_readiness_checklist: [],
+      live_readiness_expires_at: null,
+      pipeline: {
+        current_stage: 'backtest_failed',
+        status: 'backtest_failed',
+        progress: 100,
+        ready_for_live: false,
+        steps: [
+          { key: 'backtest_loop', label: '策略回测', status: 'failed', iteration_count: 2 },
+        ],
+      },
+      next_actions: ['继续优化风险过滤。'],
+      started_at: '2026-07-04T07:00:00Z',
+      completed_at: '2026-07-04T07:05:00Z',
+      iterations: [
+        {
+          iteration: 2,
+          metrics: { sharpe_ratio: 0.42, total_trades: 3 },
+          strategy_snapshot: {
+            id: 'rb-strategy',
+            name: 'RB 趋势策略',
+            code: 'class AIGeneratedStrategy(bt.Strategy):\n    pass\n',
+            params: {},
+            category: 'future',
+          },
+        },
+      ],
+    }
+
+    vm.selectAIResearchRunRecord(record)
+    await wrapper.vm.$nextTick()
+
+    expect(vm.aiResearchResult.run_id).toBe('rb-history-run')
+    expect(vm.aiResearchResult.best_quality_score).toBe(42)
+    expect(vm.aiResearchTaskRequestSnapshot.symbol).toBe('RB0')
+    expect(vm.aiResearchTaskBacktestEnvironment.multiplier).toBe(10)
+    expect(wrapper.find('[data-test="ai-research-result"]').text()).toContain('0.42')
+    const taskProgress = wrapper.find('[data-test="ai-research-task-progress"]').text()
+    expect(taskProgress).not.toContain('标的 RB0 螺纹钢主连')
+    expect(taskProgress).toContain('阶段 回测失败')
+    expect(taskProgress).not.toContain('合约乘数 10.00')
+  })
+
   it('refills gateway config from paper handoff when iteration snapshot is missing', () => {
     const vm = doMount().vm as any
     vm.aiResearchForm.trading_workspace_id = 'stale-paper-ws'
@@ -4327,6 +5416,163 @@ describe('StrategyPage', () => {
     }))
   })
 
+  it('continues AI research run records through the server endpoint when available', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    const record: AIStrategyResearchRunRecord = {
+      run_id: 'paper-review-run',
+      prompt: '历史模拟复核失败策略',
+      symbol: '600000.SH',
+      symbol_name: '浦发银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      status: 'achieved',
+      achieved: true,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 2,
+      best_iteration: 2,
+      best_sharpe: 1.1,
+      best_quality_score: 90,
+      best_quality_gate_evaluations: [],
+      best_metrics: { sharpe_ratio: 1.1 },
+      best_strategy_id: 'saved-strategy-1',
+      best_strategy_name: '历史策略',
+      research_workspace_id: 'research-ws',
+      paper_trading_started: true,
+      paper_review_status: 'needs_research_review',
+      paper_review_ready_for_live: false,
+      paper_review_evaluations: [
+        {
+          key: 'drawdown_guard',
+          label: '模拟交易最大回撤',
+          metric: 'max_drawdown',
+          window: 'since paper start',
+          direction: 'max',
+          threshold: 10,
+          actual: 18,
+          source: 'unit_status.metrics_snapshot',
+          status: 'failed',
+          passed: false,
+          action: '收紧风控',
+        },
+      ],
+      paper_review_next_actions: ['收紧风控'],
+      pipeline: {
+        current_stage: 'paper_review',
+        status: 'needs_research_review',
+        progress: 80,
+        ready_for_live: false,
+        steps: [],
+      },
+      next_actions: ['从模拟复核反馈继续'],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [],
+    }
+    const result = {
+      run_id: 'continued-run',
+      status: 'achieved',
+      achieved: true,
+      target_sharpe: 1,
+      started_at: '2026-06-27T00:02:00Z',
+      completed_at: '2026-06-27T00:03:00Z',
+      best_iteration: 1,
+      best_quality_score: 100,
+      best_quality_gate_evaluations: [],
+      best_metrics: { sharpe_ratio: 1.25 },
+      research_workspace: {
+        id: 'research-ws',
+        user_id: 'u1',
+        name: 'AI投研',
+        description: null,
+        workspace_type: 'research',
+        settings: {},
+        trading_config: {},
+        unit_count: 1,
+        completed_count: 1,
+        status: 'completed',
+        created_at: '2026-06-27T00:02:00Z',
+        updated_at: '2026-06-27T00:03:00Z',
+      },
+      iterations: [],
+      paper_trading: null,
+      paper_monitoring_plan: [],
+      pipeline: {
+        current_stage: 'validation',
+        status: 'achieved',
+        progress: 100,
+        ready_for_live: false,
+        steps: [],
+      },
+      promotion_audit: [],
+      run_record: {
+        ...record,
+        run_id: 'continued-run',
+        status: 'achieved',
+        achieved: true,
+        continued_from_run_id: 'paper-review-run',
+        continuation_source: 'paper_review',
+        paper_review_status: null,
+        paper_review_ready_for_live: false,
+        best_sharpe: 1.25,
+        pipeline: {
+          current_stage: 'validation',
+          status: 'achieved',
+          progress: 100,
+          ready_for_live: false,
+          steps: [],
+        },
+      },
+      next_actions: ['继续模拟交易'],
+      message: 'ok',
+    }
+    ;(strategyApi as any).continueAIResearchRun = vi.fn().mockResolvedValue({
+      task_id: 'run-continue-task',
+      status: 'completed',
+      submitted_at: '2026-06-27T00:02:00Z',
+      request_snapshot: {
+        continue_from_run_id: 'paper-review-run',
+        continuation_context: { source: 'paper_review' },
+      },
+      current_stage: 'completed',
+      progress: 100,
+      max_iterations: 3,
+      message: 'completed',
+      result,
+    })
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    try {
+      await vm.continueResearchFromRecord(record)
+      await flushPromises()
+
+      expect((strategyApi as any).continueAIResearchRun).toHaveBeenCalledWith(
+        'paper-review-run',
+        {
+          overrides: expect.objectContaining({
+            prompt: '历史模拟复核失败策略',
+            symbol: '600000.SH',
+            start_paper_trading: true,
+          }),
+        },
+        'research-ws'
+      )
+      const overrides = (strategyApi as any).continueAIResearchRun.mock.calls[0]?.[1]
+        ?.overrides as Record<string, unknown>
+      expect(overrides.continue_from_run_id).toBeUndefined()
+      expect(overrides.seed_strategy_id).toBeUndefined()
+      expect(overrides.continuation_context).toBeUndefined()
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect(vm.aiResearchResult.run_id).toBe('continued-run')
+      expect(vm.aiResearchTaskId).toBe('run-continue-task')
+    } finally {
+      delete (strategyApi as any).continueAIResearchRun
+    }
+  })
+
   it('uses the highest quality strategy snapshot when best iteration is missing', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const wrapper = doMount()
@@ -4452,6 +5698,7 @@ describe('StrategyPage', () => {
     expect(vm.canContinueResearchFromRunRecord(record)).toBe(true)
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续投研'))
     expect(continueButton).toBeTruthy()
+    vm.aiResearchForm.start_paper_trading = false
     await continueButton!.trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('从未达标结果继续')
@@ -4461,6 +5708,7 @@ describe('StrategyPage', () => {
       research_workspace_id: 'research-ws',
       seed_strategy_id: 'best-strategy',
       continue_from_run_id: 'history-run',
+      start_paper_trading: true,
     }))
     const call = vi.mocked(strategyApi.runAIResearchLoop).mock.calls.at(-1)?.[0]
     expect(call).not.toHaveProperty('commission')
@@ -4515,6 +5763,7 @@ describe('StrategyPage', () => {
     expect(wrapper.text()).toContain('阶段 已取消')
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续投研'))
     expect(continueButton).toBeTruthy()
+    vm.aiResearchForm.start_paper_trading = false
     await continueButton!.trigger('click')
     await flushPromises()
     expect(vm.aiResearchForm.continuation_source).toBe('research_cancelled')
@@ -4525,6 +5774,7 @@ describe('StrategyPage', () => {
       research_workspace_id: 'research-ws',
       seed_strategy_id: 'cancelled-best-strategy',
       continue_from_run_id: 'cancelled-run',
+      start_paper_trading: true,
     }))
   })
 
@@ -4665,6 +5915,7 @@ describe('StrategyPage', () => {
     expect(vm.canContinueResearchFromRunRecord(record)).toBe(true)
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续投研'))
     expect(continueButton).toBeTruthy()
+    vm.aiResearchForm.start_paper_trading = false
     await continueButton!.trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('从未达标结果继续')
@@ -4674,6 +5925,7 @@ describe('StrategyPage', () => {
       research_workspace_id: 'research-ws',
       seed_strategy_id: 'saved-draft-strategy',
       continue_from_run_id: 'backtest-failed-run',
+      start_paper_trading: true,
     }))
   })
 
@@ -5032,6 +6284,12 @@ describe('StrategyPage', () => {
     expect(updatedRecord.paper_review_evaluations).toEqual([])
     expect(updatedRecord.pipeline.current_stage).toBe('paper_trading')
     expect(updatedRecord.pipeline.steps.find((step: any) => step.key === 'paper_review').status).toBe('pending')
+    expect(updatedRecord.asset_specs.IF2609.multiplier).toBe(300)
+    expect(updatedRecord.asset_specs.IF2609.source).toBe('paper_handoff_exchange_specs')
+    expect(updatedRecord.backtest_environment.commission).toBe(0.000023)
+    expect(updatedRecord.backtest_environment.asset_spec_source).toBe(
+      'paper_handoff_exchange_specs'
+    )
     expect(vm.canStartPaperFromRecord(updatedRecord)).toBe(false)
     expect(vm.canReviewPaperFromRecord(updatedRecord)).toBe(true)
   })
@@ -6217,6 +7475,7 @@ describe('StrategyPage', () => {
 
     expect(vm.continuationSourceForRecord(record)).toBe('live_handoff_rejected')
     expect(vm.canContinueResearchFromPaperReview(record)).toBe(true)
+    vm.aiResearchForm.start_paper_trading = false
     await vm.continueResearchFromRecord(record)
     await flushPromises()
 
@@ -6225,6 +7484,7 @@ describe('StrategyPage', () => {
       research_workspace_id: 'research-ws',
       seed_strategy_id: 's1',
       continue_from_run_id: 'live-rejected-run',
+      start_paper_trading: true,
     }))
     const payload = vi.mocked(strategyApi.runAIResearchLoop).mock.calls.at(-1)?.[0]
     const continuationContext = payload?.continuation_context as Record<string, any>
@@ -6411,7 +7671,7 @@ describe('StrategyPage', () => {
       await vi.advanceTimersByTimeAsync(30_000)
       await flushPromises()
 
-      expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith(undefined, 10)
+      expect(strategyApi.listAIResearchRuns).toHaveBeenCalledWith(undefined, 50)
       expect(vm.aiResearchRuns[0].paper_review_status).toBe('ready_for_live_candidate')
       expect(vm.aiResearchRuns[0].live_handoff?.status).toBe('ready_for_approval')
       expect(vm.aiResearchLiveHandoffs['auto-refresh-run'].status).toBe('ready_for_approval')

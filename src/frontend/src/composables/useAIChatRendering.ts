@@ -14,6 +14,7 @@ export interface QuickTool {
   title: string
   description: string
   prompt: string
+  assistantMode?: KBAssistantMode
 }
 
 export interface AssistantModeMeta {
@@ -29,11 +30,6 @@ export interface AssistantModeMeta {
 // Reactive computed list — locale changes update labels automatically.
 export const assistantModeOptions: ComputedRef<Array<{ value: KBAssistantMode; label: string }>> = computed(() => [
   { value: 'knowledge_qa', label: t('aiChat.modeKnowledgeQA') },
-  { value: 'strategy_idea', label: t('aiChat.modeStrategyIdea') },
-  { value: 'backtrader_strategy', label: t('aiChat.modeBacktraderStrategy') },
-  { value: 'strategy_review', label: t('aiChat.modeStrategyReview') },
-  { value: 'trading_execution', label: t('aiChat.modeTradingExecution') },
-  { value: 'stock_analysis', label: t('aiChat.modeStockAnalysis') },
 ])
 
 // Reactive computed map — locale changes update labels automatically.
@@ -71,11 +67,11 @@ export const assistantModeMetaMap: ComputedRef<Record<KBAssistantMode, Assistant
     ],
   },
   strategy_idea: {
-    label: t('aiChat.modeStrategyIdea'),
-    emptyTitle: t('aiChat.sideaEmptyTitle'),
-    emptyDescription: t('aiChat.sideaEmptyDesc'),
-    inputHint: t('aiChat.sideaInputHint'),
-    inputPlaceholder: t('aiChat.sideaInputPh'),
+    label: t('aiChat.modeStrategyResearch'),
+    emptyTitle: t('aiChat.sresearchEmptyTitle'),
+    emptyDescription: t('aiChat.sresearchEmptyDesc'),
+    inputHint: t('aiChat.sresearchInputHint'),
+    inputPlaceholder: t('aiChat.sresearchInputPh'),
     suggestedPrompts: [
       t('aiChat.sideaPrompt1'),
       t('aiChat.sideaPrompt2'),
@@ -87,18 +83,21 @@ export const assistantModeMetaMap: ComputedRef<Record<KBAssistantMode, Assistant
         title: t('aiChat.sideaToolExpandTitle'),
         description: t('aiChat.sideaToolExpandDesc'),
         prompt: t('aiChat.sideaToolExpandPrompt'),
+        assistantMode: 'strategy_idea',
       },
       {
-        icon: 'test',
-        title: t('aiChat.sideaToolTestTitle'),
-        description: t('aiChat.sideaToolTestDesc'),
-        prompt: t('aiChat.sideaToolTestPrompt'),
+        icon: 'code',
+        title: t('aiChat.btToolCodeTitle'),
+        description: t('aiChat.btToolCodeDesc'),
+        prompt: t('aiChat.btToolCodePrompt'),
+        assistantMode: 'backtrader_strategy',
       },
       {
-        icon: 'risk',
-        title: t('aiChat.sideaToolRiskTitle'),
-        description: t('aiChat.sideaToolRiskDesc'),
-        prompt: t('aiChat.sideaToolRiskPrompt'),
+        icon: 'logic',
+        title: t('aiChat.reviewToolLogicTitle'),
+        description: t('aiChat.reviewToolLogicDesc'),
+        prompt: t('aiChat.reviewToolLogicPrompt'),
+        assistantMode: 'strategy_review',
       },
     ],
   },
@@ -286,6 +285,22 @@ export function getStrategyDraftIssue(draft?: KBStrategyDraft | null): string | 
   if (!draft) return t('aiChat.draftIssueNoCard')
   if (!draft.name?.trim()) return t('aiChat.draftIssueNoName')
   if (!draft.code?.trim()) return t('aiChat.draftIssueNoCode')
+  const code = draft.code.trim()
+  const hasStrategyClass = /class\s+\w+\s*\([^)]*bt\.Strategy[^)]*\)\s*:/.test(code)
+  const hasInit = /def\s+__init__\s*\(/.test(code)
+  const hasNext = /def\s+next\s*\(/.test(code)
+  const hasTradeAction = /\bself\.(buy|sell|close|order_target_percent|order_target_size|order_target_value|buy_bracket|sell_bracket)\s*\(/.test(code)
+  const codeWithoutComments = code
+    .split('\n')
+    .map(line => line.replace(/#.*$/, ''))
+    .join('\n')
+  const hasPlaceholder = (
+    /^\s*pass\s*$/m.test(codeWithoutComments)
+    || /TODO|NotImplemented|待实现|省略|\.{3}|…/.test(code)
+  )
+  if (!hasStrategyClass || !hasInit || !hasNext || !hasTradeAction || hasPlaceholder) {
+    return t('aiChat.draftIssueIncompleteCode')
+  }
   if (!isPlainRecord(draft.params)) return t('aiChat.draftIssueBadParams')
   if (!draft.category?.trim()) return t('aiChat.draftIssueNoCategory')
   if (!draft.data_source || !draft.data_source.timeframe) {

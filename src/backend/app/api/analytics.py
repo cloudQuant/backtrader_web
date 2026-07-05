@@ -13,10 +13,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 
 from app.api.deps import get_current_user
+from app.db.database import async_session_maker
 from app.db.sql_repository import SQLRepository
 from app.models.backtest import BacktestTask
+from app.models.workspace import StrategyUnit, Workspace
 from app.schemas.analytics import (
     BacktestDetailResponse,
     KlineWithSignalsResponse,
@@ -88,8 +91,41 @@ async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
     return find_latest_log_dir(strategy_dir)
 
 
+async def _resolve_strategy_display_name(
+    task_id: str,
+    fallback: str,
+    user_id: str | None,
+) -> str:
+    """Resolve the user-facing strategy unit name for a backtest task."""
+    try:
+        async with async_session_maker() as session:
+            stmt = (
+                select(StrategyUnit.strategy_name, StrategyUnit.group_name)
+                .join(Workspace, StrategyUnit.workspace_id == Workspace.id)
+                .where(StrategyUnit.last_task_id == task_id)
+                .limit(1)
+            )
+            if user_id:
+                stmt = stmt.where(Workspace.user_id == user_id)
+            row = (await session.execute(stmt)).first()
+            if row:
+                strategy_name = str(row[0] or "").strip()
+                group_name = str(row[1] or "").strip()
+                if strategy_name:
+                    return strategy_name
+                if group_name:
+                    return group_name
+    except Exception as exc:
+        logger.debug("Failed to resolve strategy display name for %s: %s", task_id, exc)
+    return fallback or "Unknown"
+
+
 async def get_backtest_data(
-    task_id: str, backtest_service: BacktestService, user_id: str | None = None
+    task_id: str,
+    backtest_service: BacktestService,
+    user_id: str | None = None,
+    include_logs: bool = True,
+    include_klines: bool = True,
 ) -> dict | None:
     """Load a backtest result with optional user_id authorization.
 
@@ -115,9 +151,15 @@ async def get_backtest_data(
     equity_dates = result.equity_dates or []
     _drawdown_values = result.drawdown_curve or []
 
-    # [B009] Use task-specific log directory to get real cash data
+    display_name = await _resolve_strategy_display_name(
+        task_id,
+        result.strategy_id or "Unknown",
+        user_id,
+    )
+
+    # [B009] Use task-specific log directory to get real cash data when requested.
     real_cash_map: dict = {}
-    task_log_dir = await _resolve_log_dir(task_id, result.strategy_id)
+    task_log_dir = await _resolve_log_dir(task_id, result.strategy_id) if include_logs else None
     try:
         if task_log_dir:
             value_data = parse_value_log(task_log_dir)
@@ -166,7 +208,7 @@ async def get_backtest_data(
     log_indicators: dict = {}
     kline_close_map: dict = {}  # date -> close price
     try:
-        if task_log_dir:
+        if task_log_dir and include_klines:
             kline_data = parse_data_log(task_log_dir)
             kline_dates = kline_data.get("dates", [])
             kline_ohlc = kline_data.get("ohlc", [])
@@ -198,7 +240,7 @@ async def get_backtest_data(
     signals = []
 
     log_trades = None
-    if task_log_dir:
+    if task_log_dir and include_logs:
         try:
             from app.services.log_parser_service import parse_trade_log
 
@@ -254,34 +296,34 @@ async def get_backtest_data(
         }
         trades.append(trade)
 
-        # Generate open and close signals for each closed trade
-        # Prefer K-line close price as signal price, fallback to trade avg price
-        is_long = trade["direction"] == "buy"
-        dtopen = td.get("dtopen", "") or ""
-        dtclose = td.get("dtclose", "") or trade["datetime"] or ""
-        if dtopen:
-            open_date = _normalize_chart_date(dtopen)
-            signals.append(
-                {
-                    "date": open_date,
-                    "type": "buy" if is_long else "sell",
-                    "price": kline_close_map.get(open_date, trade["price"]),
-                    "size": trade["size"],
-                }
-            )
-        if dtclose:
-            close_date = _normalize_chart_date(dtclose)
-            signals.append(
-                {
-                    "date": close_date,
-                    "type": "sell" if is_long else "buy",
-                    "price": kline_close_map.get(close_date, trade["price"]),
-                    "size": trade["size"],
-                }
-            )
+        if include_klines:
+            # Generate open and close signals for each closed trade.
+            is_long = trade["direction"] == "buy"
+            dtopen = td.get("dtopen", "") or ""
+            dtclose = td.get("dtclose", "") or trade["datetime"] or ""
+            if dtopen:
+                open_date = _normalize_chart_date(dtopen)
+                signals.append(
+                    {
+                        "date": open_date,
+                        "type": "buy" if is_long else "sell",
+                        "price": kline_close_map.get(open_date, trade["price"]),
+                        "size": trade["size"],
+                    }
+                )
+            if dtclose:
+                close_date = _normalize_chart_date(dtclose)
+                signals.append(
+                    {
+                        "date": close_date,
+                        "type": "sell" if is_long else "buy",
+                        "price": kline_close_map.get(close_date, trade["price"]),
+                        "size": trade["size"],
+                    }
+                )
 
     # Fallback: use equity curve to derive if no log data
-    if not klines:
+    if include_klines and not klines:
         base_price = 10.0
         for i, date in enumerate(equity_dates):
             if i > 0 and equity_values[i - 1] > 0:
@@ -330,7 +372,7 @@ async def get_backtest_data(
 
     return {
         "task_id": task_id,
-        "strategy_name": result.strategy_id or "Unknown",
+        "strategy_name": display_name,
         "symbol": result.symbol or "Unknown",
         "start_date": str(result.start_date)[:10] if result.start_date else "",
         "end_date": str(result.end_date)[:10] if result.end_date else "",
@@ -368,7 +410,13 @@ async def get_backtest_detail(
         HTTPException: If result not found (404).
     """
     # Get real backtest result from database
-    result = await get_backtest_data(task_id, backtest_service, user_id=current_user.sub)
+    result = await get_backtest_data(
+        task_id,
+        backtest_service,
+        user_id=current_user.sub,
+        include_logs=False,
+        include_klines=False,
+    )
 
     if not result:
         raise HTTPException(status_code=404, detail="Backtest result not found")
@@ -420,7 +468,13 @@ async def get_kline_with_signals(
     Raises:
         HTTPException: If result not found (404).
     """
-    result = await get_backtest_data(task_id, backtest_service, user_id=current_user.sub)
+    result = await get_backtest_data(
+        task_id,
+        backtest_service,
+        user_id=current_user.sub,
+        include_logs=True,
+        include_klines=True,
+    )
 
     if not result:
         raise HTTPException(status_code=404, detail="Backtest result not found")
@@ -482,7 +536,13 @@ async def get_monthly_returns(
     Raises:
         HTTPException: If result not found (404).
     """
-    result = await get_backtest_data(task_id, backtest_service, user_id=current_user.sub)
+    result = await get_backtest_data(
+        task_id,
+        backtest_service,
+        user_id=current_user.sub,
+        include_logs=False,
+        include_klines=False,
+    )
 
     if not result:
         raise HTTPException(status_code=404, detail="Backtest result not found")
@@ -537,7 +597,13 @@ async def export_backtest_results(
     Raises:
         HTTPException: If result not found (404) or format unsupported (400).
     """
-    result = await get_backtest_data(task_id, backtest_service, user_id=current_user.sub)
+    result = await get_backtest_data(
+        task_id,
+        backtest_service,
+        user_id=current_user.sub,
+        include_logs=True,
+        include_klines=True,
+    )
 
     if not result:
         raise HTTPException(status_code=404, detail="Backtest result not found")

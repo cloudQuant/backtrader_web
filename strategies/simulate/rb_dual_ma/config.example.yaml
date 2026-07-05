@@ -4,7 +4,7 @@
 strategy:
   name: "螺纹钢双均线策略"
   description: "短期均线上穿长期均线买入，下穿卖出 - 螺纹钢期货"
-  author: "ai-for-trader"
+  author: "ai-for-investor"
   category: "simulate"
   
 # ============================================================

@@ -36,7 +36,7 @@ async def init_all() -> None:
 def main() -> None:
     """Parse CLI arguments and run the selected action."""
     parser = argparse.ArgumentParser(
-        description="Database initialization script for AI for Trader"
+        description="Database initialization script for AI for Investor"
     )
     parser.add_argument("--create-tables", action="store_true", help="Create database tables")
     parser.add_argument("--create-admin", action="store_true", help="Create default admin account")

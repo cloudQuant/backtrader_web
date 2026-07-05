@@ -12,21 +12,21 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/*
 
-WORKDIR /opt/workspace/ai-for-trader/src/backend
+WORKDIR /opt/workspace/ai-for-investor/src/backend
 
 # Copy dependency files first for better layer caching
-COPY src/backend/pyproject.toml /opt/workspace/ai-for-trader/src/backend/
+COPY src/backend/pyproject.toml /opt/workspace/ai-for-investor/src/backend/
 
 # Install Python dependencies in editable mode
 RUN pip install -e ".[dev,backtrader]" 2>/dev/null || pip install -e ".[dev]"
 
 # Create necessary directories
 RUN mkdir -p \
-    /opt/workspace/ai-for-trader/datas \
-    /opt/workspace/ai-for-trader/workspace_units \
-    /opt/workspace/ai-for-trader/src/backend/data \
-    /opt/workspace/ai-for-trader/src/backend/logs \
-    /opt/workspace/ai-for-trader/strategies
+    /opt/workspace/ai-for-investor/datas \
+    /opt/workspace/ai-for-investor/workspace_units \
+    /opt/workspace/ai-for-investor/src/backend/data \
+    /opt/workspace/ai-for-investor/src/backend/logs \
+    /opt/workspace/ai-for-investor/strategies
 
 # Copy entrypoint script
 COPY docker/entrypoint-dev.sh /usr/local/bin/entrypoint-dev.sh

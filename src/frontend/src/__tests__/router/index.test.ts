@@ -17,6 +17,7 @@ vi.mock('@/views/DataPage.vue', () => ({ default: { template: '<div>Data</div>' 
 vi.mock('@/views/QuotePage.vue', () => ({ default: { template: '<div>Quote</div>' } }))
 vi.mock('@/views/data/DataLayout.vue', () => ({ default: { template: '<div><router-view /></div>' } }))
 vi.mock('@/views/config/ConfigDataLayout.vue', () => ({ default: { template: '<div><router-view /></div>' } }))
+vi.mock('@/views/config/ConfigAILayout.vue', () => ({ default: { template: '<div><router-view /></div>' } }))
 vi.mock('@/views/config/AIProviderConfigPage.vue', () => ({ default: { template: '<div>AI Provider Config</div>' } }))
 vi.mock('@/views/data/DataMarketPage.vue', () => ({ default: { template: '<div>Data Market</div>' } }))
 vi.mock('@/views/data/DataScriptsPage.vue', () => ({ default: { template: '<div>Data Scripts</div>' } }))
@@ -88,18 +89,23 @@ describe('router', () => {
     expect(names).toContain('DataTopics')
     expect(names).toContain('ConfigDataGovernance')
     expect(names).toContain('ConfigAIProviders')
+    expect(names).toContain('ConfigAIObservability')
+    expect(names).toContain('ConfigPromptTemplates')
     expect(names).toContain('AIChat')
     expect(names).toContain('AIChatCanonical')
     expect(names).toContain('AIObservability')
-    expect(names).toContain('AIObservabilityCanonical')
+    expect(names).not.toContain('AIObservabilityLegacyRedirect')
     expect(names).toContain('PromptTemplates')
-    expect(names).toContain('PromptTemplatesCanonical')
+    expect(names).not.toContain('PromptTemplatesLegacyRedirect')
+    expect(names).not.toContain('AIObservabilityCanonical')
+    expect(names).not.toContain('PromptTemplatesCanonical')
     expect(names).toContain('KnowledgeBase')
     expect(names).toContain('AIKnowledgeBase')
     expect(names).toContain('KnowledgeBaseDocument')
     expect(names).toContain('ResearchStrategies')
     expect(names).toContain('ResearchWorkspaces')
     expect(names).toContain('ResearchBacktestResult')
+    expect(names).toContain('InvestmentStrategies')
     expect(names).toContain('InvestmentStockAnalysis')
     expect(names).toContain('DataQuote')
     expect(names).toContain('ConfigGateways')
@@ -201,6 +207,13 @@ describe('router', () => {
     await router.push('/investment/stock-analysis')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('InvestmentStockAnalysis')
+  })
+
+  it('guard allows authenticated user on canonical /investment/strategies', async () => {
+    mockAuthStore(true)
+    await router.push('/investment/strategies')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('InvestmentStrategies')
   })
 
   it('serves data tables from market data for non-admin users', async () => {
@@ -326,21 +339,36 @@ describe('router', () => {
     mockAuthStore(true, true)
     await router.push('/admin/ai-observability')
     await router.isReady()
-    expect(router.currentRoute.value.name).toBe('AIObservability')
+    expect(router.currentRoute.value.name).toBe('ConfigAIObservability')
   })
 
-  it('guard redirects non-admin user away from canonical /ai/observability', async () => {
-    mockAuthStore(true, false)
-    await router.push('/ai/observability')
+  it('guard allows admin user to access config AI observability', async () => {
+    mockAuthStore(true, true)
+    await router.push('/config/ai/observability')
     await router.isReady()
-    expect(router.currentRoute.value.name).toBe('DataMarket')
+    expect(router.currentRoute.value.name).toBe('ConfigAIObservability')
   })
 
-  it('guard allows admin user to access canonical /ai/observability', async () => {
+  it('redirects legacy AI knowledge area observability to config center', async () => {
     mockAuthStore(true, true)
     await router.push('/ai/observability')
     await router.isReady()
-    expect(router.currentRoute.value.name).toBe('AIObservabilityCanonical')
+    expect(router.currentRoute.value.name).toBe('ConfigAIObservability')
+    expect(router.currentRoute.value.path).toBe('/config/ai/observability')
+
+    await router.push('/ai/ai-observability')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('ConfigAIObservability')
+    expect(router.currentRoute.value.path).toBe('/config/ai/observability')
+  })
+
+  it('guard redirects non-admin user away from config AI observability', async () => {
+    mockAuthStore(true, false)
+    await router.push('/')
+    await router.isReady()
+    await router.push('/config/ai/observability')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataMarket')
   })
 
   it('guard redirects non-admin user away from /admin/prompt-templates', async () => {
@@ -354,7 +382,36 @@ describe('router', () => {
     mockAuthStore(true, true)
     await router.push('/admin/prompt-templates')
     await router.isReady()
-    expect(router.currentRoute.value.name).toBe('PromptTemplates')
+    expect(router.currentRoute.value.name).toBe('ConfigPromptTemplates')
+  })
+
+  it('guard allows admin user to access config prompt governance', async () => {
+    mockAuthStore(true, true)
+    await router.push('/config/ai/prompt-governance')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('ConfigPromptTemplates')
+  })
+
+  it('redirects legacy AI knowledge area prompt governance to config center', async () => {
+    mockAuthStore(true, true)
+    await router.push('/ai/prompt-governance')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('ConfigPromptTemplates')
+    expect(router.currentRoute.value.path).toBe('/config/ai/prompt-governance')
+
+    await router.push('/ai/prompt-templates')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('ConfigPromptTemplates')
+    expect(router.currentRoute.value.path).toBe('/config/ai/prompt-governance')
+  })
+
+  it('guard redirects non-admin user away from config prompt governance', async () => {
+    mockAuthStore(true, false)
+    await router.push('/')
+    await router.isReady()
+    await router.push('/config/ai/prompt-governance')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataMarket')
   })
 
   it('redirects legacy /live-trading route to trading workspace', async () => {

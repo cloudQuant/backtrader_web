@@ -1,5 +1,7 @@
 """Tests for fincore_metrics_helper - financial metric calculations."""
 
+from datetime import datetime, timedelta
+
 from app.services.backtest.analyzers import FincoreAdapter
 from app.services.fincore_metrics_helper import (
     MetricsSource,
@@ -8,6 +10,7 @@ from app.services.fincore_metrics_helper import (
     _calculate_sharpe_ratio,
     _calculate_total_return,
     _calculate_win_rate,
+    _infer_periods_per_year,
     calculate_extended_metrics,
     calculate_metrics_from_log_data,
     compare_calculation_methods,
@@ -196,6 +199,54 @@ class TestCalculateMetricsFromLogData:
         assert result["profitable_trades"] == 0
         assert result["losing_trades"] == 2
 
+    def test_trade_stats_use_closed_trades_and_do_not_count_zero_as_loss(self):
+        log_data = {
+            "equity_curve": [100000.0, 101000.0],
+            "equity_dates": ["2024-01-01", "2024-01-02"],
+            "trades": [
+                {"pnlcomm": 100, "dtclose": "2024-01-01", "barlen": 2},
+                {"pnlcomm": 0, "dtclose": "2024-01-02", "barlen": 0},
+                {"pnlcomm": -50, "dtclose": "2024-01-03", "barlen": 4},
+                {"pnlcomm": 500, "isopen": "1", "barlen": 10},
+            ],
+        }
+
+        result = calculate_metrics_from_log_data(log_data)
+
+        assert result["total_trades"] == 3
+        assert result["profitable_trades"] == 1
+        assert result["losing_trades"] == 1
+        assert result["break_even_trades"] == 1
+        assert result["win_rate"] == 33.33
+        assert result["avg_holding_bars"] == 3.0
+        assert result["max_consecutive_wins"] == 1
+        assert result["max_consecutive_losses"] == 1
+
+    def test_average_holding_falls_back_to_open_close_dates(self):
+        log_data = {
+            "equity_curve": [100000.0, 101000.0],
+            "equity_dates": ["2024-01-01", "2024-01-02"],
+            "trades": [
+                {
+                    "pnlcomm": 100,
+                    "dtopen": "2024-01-01T00:00:00+00:00",
+                    "dtclose": "2024-01-05T00:00:00+00:00",
+                    "barlen": 0,
+                },
+                {
+                    "pnlcomm": -50,
+                    "dtopen": "2024-01-10",
+                    "dtclose": "2024-01-12",
+                    "barlen": 0,
+                },
+            ],
+        }
+
+        result = calculate_metrics_from_log_data(log_data)
+
+        assert result["total_trades"] == 2
+        assert result["avg_holding_bars"] == 3.0
+
     def test_use_fincore_flag_without_fincore(self):
         """When fincore is not installed, falls back to manual."""
         log_data = {
@@ -206,6 +257,34 @@ class TestCalculateMetricsFromLogData:
         # Should still work regardless of fincore availability
         assert result["total_return"] > 0
         assert result["metrics_source"] in (MetricsSource.MANUAL, MetricsSource.FINCORE)
+
+    def test_intraday_equity_dates_use_period_risk_free_rate(self):
+        start = datetime(2026, 1, 1, 9, 0, 0)
+        dates = [(start + timedelta(hours=i)).strftime("%Y-%m-%d %H:%M:%S") for i in range(80)]
+        equity = [100000.0]
+        for i in range(1, 80):
+            bar_return = 0.00045 if i % 5 else -0.0002
+            equity.append(equity[-1] * (1 + bar_return))
+
+        result = calculate_metrics_from_log_data(
+            {"equity_curve": equity, "equity_dates": dates, "trades": []}
+        )
+
+        assert result["total_return"] > 0
+        assert result["annual_return"] > 0
+        assert result["sharpe_ratio"] > 0
+
+
+class TestInferPeriodsPerYear:
+    """Test annualization period inference."""
+
+    def test_infers_hourly_backtest_frequency_from_elapsed_span(self):
+        periods = _infer_periods_per_year(
+            ["2025-10-17 23:00:00", "2026-07-03 23:00:00"],
+            observation_count=1023,
+        )
+
+        assert 1400 < periods < 1500
 
 
 class TestCalculateExtendedMetrics:
@@ -279,6 +358,37 @@ class TestCalculateExtendedMetrics:
         result = calculate_extended_metrics(log_data)
         # avg_win = 3000, avg_loss = 1000, ratio = 3.0
         assert result["profit_loss_ratio"] == 3.0
+
+    def test_extended_metrics_include_holding_and_streaks(self):
+        log_data = {
+            "equity_curve": [100000.0, 101000.0, 100500.0, 102000.0],
+            "equity_dates": ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"],
+            "trades": [
+                {"pnlcomm": 100, "dtclose": "2024-01-01", "barlen": 1},
+                {"pnlcomm": 200, "dtclose": "2024-01-02", "barlen": 3},
+                {"pnlcomm": 0, "dtclose": "2024-01-03", "barlen": 5},
+                {"pnlcomm": -50, "dtclose": "2024-01-04", "barlen": 7},
+            ],
+        }
+        result = calculate_extended_metrics(log_data)
+
+        assert result["avg_holding_bars"] == 4.0
+        assert result["max_consecutive_wins"] == 2
+        assert result["max_consecutive_losses"] == 1
+        assert result["break_even_trades"] == 1
+
+    def test_extended_metrics_holding_falls_back_to_dates(self):
+        log_data = {
+            "equity_curve": [100000.0, 101000.0, 100500.0],
+            "equity_dates": ["2024-01-01", "2024-01-02", "2024-01-03"],
+            "trades": [
+                {"pnlcomm": 100, "dtopen": "2024-01-01", "dtclose": "2024-01-04", "barlen": 0},
+                {"pnlcomm": -50, "dtopen": "2024-01-05", "dtclose": "2024-01-07", "barlen": 0},
+            ],
+        }
+        result = calculate_extended_metrics(log_data)
+
+        assert result["avg_holding_bars"] == 2.5
 
 
 class TestCompareCalculationMethods:

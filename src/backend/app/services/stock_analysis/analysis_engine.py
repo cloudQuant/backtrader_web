@@ -227,7 +227,7 @@ class StockAnalysisEngine:
             {
                 "role": "system",
                 "content": (
-                    "你是 AI for Trader 的原生股票分析引擎。"
+                    "你是 AI for Investor 的原生股票分析引擎。"
                     "你按兼容阶段职责生成中文研究文本，"
                     "但不得复制或引用外部分析项目源码。"
                     "所有结论仅供研究参考，不构成投资建议。"

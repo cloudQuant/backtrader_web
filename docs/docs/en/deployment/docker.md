@@ -9,8 +9,8 @@
 
 ```bash
 # Clone and configure
-git clone https://github.com/cloudQuant/ai-for-trader.git
-cd ai-for-trader
+git clone https://github.com/cloudQuant/ai-for-investor.git
+cd ai-for-investor
 
 # Create environment file
 cp src/backend/.env.example src/backend/.env
@@ -56,7 +56,7 @@ HTTPS_PORT=443
 # Database
 DB_HOST=mysql
 DB_PORT=3306
-DB_NAME=ai_for_trader
+DB_NAME=ai_for_investor
 DB_USER=backtrader
 
 # Redis
@@ -97,8 +97,8 @@ volumes:
   - ./runtime/mysql:/var/lib/mysql    # Database
   - ./runtime/redis:/data              # Redis cache
   - ./runtime/certbot:/etc/letsencrypt  # SSL certificates
-  - ./datas:/opt/workspace/ai-for-trader/datas  # Market data
-  - ./strategies:/opt/workspace/ai-for-trader/strategies  # Strategies
+  - ./datas:/opt/workspace/ai-for-investor/datas  # Market data
+  - ./strategies:/opt/workspace/ai-for-investor/strategies  # Strategies
 ```
 
 ## Health Checks

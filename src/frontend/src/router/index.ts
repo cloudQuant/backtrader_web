@@ -27,7 +27,12 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'investment',
-        redirect: { name: 'InvestmentStockAnalysis' },
+        redirect: { name: 'InvestmentStrategies' },
+      },
+      {
+        path: 'investment/strategies',
+        name: 'InvestmentStrategies',
+        component: () => import('@/views/StrategyPage.vue'),
       },
       {
         path: 'investment/stock-analysis',
@@ -95,15 +100,23 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/KnowledgeBaseDocumentPage.vue'),
       },
       {
-        path: 'ai/observability',
-        name: 'AIObservabilityCanonical',
-        component: () => import('@/views/AIObservabilityPage.vue'),
+        path: 'ai/prompt-governance',
+        redirect: { name: 'ConfigPromptTemplates' },
         meta: { requiresAdmin: true },
       },
       {
-        path: 'ai/prompt-governance',
-        name: 'PromptTemplatesCanonical',
-        component: () => import('@/views/PromptTemplatesPage.vue'),
+        path: 'ai/prompt-templates',
+        redirect: { name: 'ConfigPromptTemplates' },
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'ai/observability',
+        redirect: { name: 'ConfigAIObservability' },
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'ai/ai-observability',
+        redirect: { name: 'ConfigAIObservability' },
         meta: { requiresAdmin: true },
       },
       {
@@ -174,14 +187,29 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'config/ai',
-        redirect: { name: 'ConfigAIProviders' },
+        component: () => import('@/views/config/ConfigAILayout.vue'),
         meta: { requiresAdmin: true },
-      },
-      {
-        path: 'config/ai/providers',
-        name: 'ConfigAIProviders',
-        component: () => import('@/views/config/AIProviderConfigPage.vue'),
-        meta: { requiresAdmin: true },
+        children: [
+          {
+            path: '',
+            redirect: { name: 'ConfigAIProviders' },
+          },
+          {
+            path: 'providers',
+            name: 'ConfigAIProviders',
+            component: () => import('@/views/config/AIProviderConfigPage.vue'),
+          },
+          {
+            path: 'prompt-governance',
+            name: 'ConfigPromptTemplates',
+            component: () => import('@/views/PromptTemplatesPage.vue'),
+          },
+          {
+            path: 'observability',
+            name: 'ConfigAIObservability',
+            component: () => import('@/views/AIObservabilityPage.vue'),
+          },
+        ],
       },
       {
         path: 'config/gateways',
@@ -202,13 +230,13 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'admin/ai-observability',
         name: 'AIObservability',
-        component: () => import('@/views/AIObservabilityPage.vue'),
+        redirect: { name: 'ConfigAIObservability' },
         meta: { requiresAdmin: true },
       },
       {
         path: 'admin/prompt-templates',
         name: 'PromptTemplates',
-        component: () => import('@/views/PromptTemplatesPage.vue'),
+        redirect: { name: 'ConfigPromptTemplates' },
         meta: { requiresAdmin: true },
       },
       {

@@ -1,5 +1,5 @@
 """
-E2E API tests for AI for Trader — covers 90% of backend functionality.
+E2E API tests for AI for Investor — covers 90% of backend functionality.
 
 Tests the full API flow via HTTP requests (no browser needed).
 Requires: Backend running on http://localhost:8000

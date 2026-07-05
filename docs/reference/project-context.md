@@ -1,14 +1,14 @@
-# AI for Trader — Project Context
+# AI for Investor — Project Context
 
 > LLM-optimized project context for AI agent consistency.
 > Last updated: 2026-05-20
 
 ## Identity
 
-**Name**: AI for Trader
+**Name**: AI for Investor
 **Type**: Full-stack quantitative trading platform (open-source)
 **License**: MIT
-**Repo**: github.com/cloudQuant/ai-for-trader
+**Repo**: github.com/cloudQuant/ai-for-investor
 **Stage**: v0.1.0 (initial public release)
 
 ## Tech Stack

@@ -4,7 +4,7 @@ This document describes the fincore library integration and how to work with the
 
 ## Overview
 
-The AI for Trader platform uses the **fincore** library for standardized financial metric calculations. This ensures consistency with industry standards and provides reliable results for strategy evaluation.
+The AI for Investor platform uses the **fincore** library for standardized financial metric calculations. This ensures consistency with industry standards and provides reliable results for strategy evaluation.
 
 ## Architecture
 

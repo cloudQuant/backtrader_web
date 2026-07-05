@@ -40,7 +40,7 @@ class FuturesDeliveryMatchDce(AkshareToMySql):
 
                                 """
 
-    def run(self):
+    def run(self, max_symbols=None, _call_timeout=None):
         """
         更新大连商品交易所交割配对数据。
 
@@ -68,6 +68,8 @@ class FuturesDeliveryMatchDce(AkshareToMySql):
                 return pd.DataFrame()
 
             self.logger.info(f"获取到大商所期货品种: {dce_symbols}")
+            if max_symbols is not None:
+                dce_symbols = dce_symbols[: int(max_symbols)]
 
             all_dfs = []
             success_count = 0
@@ -81,7 +83,10 @@ class FuturesDeliveryMatchDce(AkshareToMySql):
 
                     # Fetch data
                     # df = ak.futures_delivery_match_dce(symbol=symbol)
-                    df = self.fetch_ak_data("futures_delivery_match_dce", symbol)
+                    kwargs = {}
+                    if _call_timeout is not None:
+                        kwargs["_call_timeout"] = _call_timeout
+                    df = self.fetch_ak_data("futures_delivery_match_dce", symbol, **kwargs)
 
                     if df is None or df.empty:
                         self.logger.warning(f"未获取到 {symbol} 的交割配对数据")
@@ -172,7 +177,17 @@ class FuturesDeliveryMatchDce(AkshareToMySql):
                         "MATCH_DATE",
                         conditions={"PRODUCT_CATEGORY": symbol.lower()},
                     )
-                    df = df[df["MATCH_DATE"] >= now_match_date]
+                    if now_match_date:
+                        df = df[df["MATCH_DATE"] >= now_match_date]
+                    df = df.drop_duplicates(
+                        subset=[
+                            "CONTRACT_CODE",
+                            "MATCH_DATE",
+                            "BUYER_MEMBER_ID",
+                            "SELLER_MEMBER_ID",
+                            "DELIVERY_SETTLEMENT_PRICE",
+                        ]
+                    )
                     # Save to database
                     self.save_data(df, table_name)
                     success_count += 1

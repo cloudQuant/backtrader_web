@@ -1,4 +1,4 @@
-# AI for Trader
+# AI for Investor
 
 **An AI + quant platform that takes traders from research questions to strategy drafts, backtests, and trading workflows.**
 
@@ -6,13 +6,13 @@
 [![Vue 3](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg?logo=vuedotjs&logoColor=white)](https://vuejs.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/cloudQuant/ai-for-trader/ci.yml?branch=master&label=CI&logo=githubactions&logoColor=white)](https://github.com/cloudQuant/ai-for-trader/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/cloudQuant/ai-for-investor/ci.yml?branch=master&label=CI&logo=githubactions&logoColor=white)](https://github.com/cloudQuant/ai-for-investor/actions)
 
 [中文文档](README.md) | **English**
 
 ---
 
-AI for Trader is an AI + quantitative trading MVP for developers, traders, and small research teams who want to turn market knowledge and natural-language strategy ideas into executable research workflows. Strategy development, backtesting, parameter optimization, paper trading, live trading, knowledge-base Q&A, and AI-assisted research are integrated in one product.
+AI for Investor is an AI + quantitative trading MVP for developers, traders, and small research teams who want to turn market knowledge and natural-language strategy ideas into executable research workflows. Strategy development, backtesting, parameter optimization, paper trading, live trading, knowledge-base Q&A, and AI-assisted research are integrated in one product.
 
 ## Highlights
 
@@ -75,8 +75,8 @@ AI for Trader is an AI + quantitative trading MVP for developers, traders, and s
 
 ```bash
 # Clone
-git clone https://github.com/cloudQuant/ai-for-trader.git
-cd ai-for-trader
+git clone https://github.com/cloudQuant/ai-for-investor.git
+cd ai-for-investor
 
 # Backend
 cd src/backend
@@ -247,7 +247,7 @@ Frontend coverage thresholds are tightened gradually from measured baselines:
 ## Project Structure
 
 ```
-ai-for-trader/
+ai-for-investor/
 ├── src/
 │   ├── backend/              # FastAPI backend
 │   │   ├── app/
@@ -334,7 +334,7 @@ See [docs/STRATEGIC_ROADMAP.md](docs/STRATEGIC_ROADMAP.md) for the full strategi
 
 <p align="center">
   Built with ❤️ for the quantitative trading community<br>
-  <a href="https://github.com/cloudQuant/ai-for-trader">GitHub</a> ·
-  <a href="https://github.com/cloudQuant/ai-for-trader/issues">Issues</a> ·
-  <a href="https://github.com/cloudQuant/ai-for-trader/discussions">Discussions</a>
+  <a href="https://github.com/cloudQuant/ai-for-investor">GitHub</a> ·
+  <a href="https://github.com/cloudQuant/ai-for-investor/issues">Issues</a> ·
+  <a href="https://github.com/cloudQuant/ai-for-investor/discussions">Discussions</a>
 </p>

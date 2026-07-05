@@ -207,7 +207,8 @@ async def test_analytics_api_detail_kline_monthly_export_and_error():
         "created_at": "2023-01-01T00:00:00Z",
     }
 
-    async def _fake_get_backtest_data(task_id, backtest_service, user_id=None):
+    async def _fake_get_backtest_data(task_id, backtest_service, user_id=None, **kwargs):
+        del backtest_service, user_id, kwargs
         return fake_result if task_id == "t1" else None
 
     with patch.object(analytics_api, "get_backtest_data", side_effect=_fake_get_backtest_data):
@@ -236,7 +237,8 @@ async def test_analytics_api_detail_kline_monthly_export_and_error():
         fake_result2 = dict(fake_result)
         fake_result2["log_indicators"] = {"x": [1.0]}
 
-        async def _fake_get_backtest_data2(task_id, backtest_service, user_id=None):
+        async def _fake_get_backtest_data2(task_id, backtest_service, user_id=None, **kwargs):
+            del task_id, backtest_service, user_id, kwargs
             return fake_result2
 
         with patch.object(analytics_api, "get_backtest_data", side_effect=_fake_get_backtest_data2):

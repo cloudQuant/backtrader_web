@@ -394,3 +394,57 @@ class TestWorkspaceUnitRuntime:
         assert "_is_inverse_contract(meta)" in run_text
         assert "close_yesterday_commission=close_yesterday_rate" in run_text
         assert "close_yesterday_commission_amount=close_yesterday_amount" in run_text
+
+    def test_sync_unit_runtime_uses_default_csv_root_for_empty_workspace_setting(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(
+            workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "workspace_units"
+        )
+
+        template_dir = tmp_path / "strategies" / "backtest" / "sa_trend"
+        template_dir.mkdir(parents=True)
+        (template_dir / "config.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "strategy": {"name": "SA trend"},
+                    "params": {},
+                    "data": {"symbol": "sa", "data_type": "future"},
+                    "backtest": {"initial_cash": 100000},
+                },
+                allow_unicode=True,
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        (template_dir / "strategy_sa.py").write_text("class Dummy: pass\n", encoding="utf-8")
+        monkeypatch.setattr(
+            workspace_unit_runtime, "get_strategy_dir", lambda strategy_id: template_dir
+        )
+
+        unit = SimpleNamespace(
+            id="unit-sa",
+            workspace_id="ws-sa",
+            group_name="SA",
+            strategy_id="backtest/sa_trend",
+            strategy_name="SA trend",
+            symbol="sa",
+            symbol_name="纯碱",
+            timeframe="1h",
+            timeframe_n=1,
+            category="trend",
+            data_config={"start_date": "2024-01-01", "end_date": "2024-12-31"},
+            unit_settings={},
+            params={},
+            optimization_config={},
+        )
+        workspace_settings = {"data_source": {"type": "csv", "csv": {"directory_path": ""}}}
+
+        runtime_dir = workspace_unit_runtime.sync_unit_runtime(unit, workspace_settings)
+        config = yaml.safe_load((runtime_dir / "config.yaml").read_text(encoding="utf-8"))
+
+        assert Path(config["data"]["directory_path"]).as_posix().endswith("data/datas/future")
+        assert config["data"]["symbol"] == "sa"
+        run_text = (runtime_dir / "run.py").read_text(encoding="utf-8")
+        assert "_candidate_patterns(symbol, suffix)" in run_text
+        assert "BACKTRADER_DATA_DIR" in run_text

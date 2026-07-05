@@ -1,9 +1,9 @@
-# AI for Trader Documentation
+# AI for Investor Documentation
 
 ## Documentation Sites
 
-- **English**: https://cloudquant.github.io/ai-for-trader/en/
-- **中文**: https://cloudquant.github.io/ai-for-trader/zh/
+- **English**: https://cloudquant.github.io/ai-for-investor/en/
+- **中文**: https://cloudquant.github.io/ai-for-investor/zh/
 
 ## Internal Docs Layout
 

@@ -1236,7 +1236,7 @@
 
 - `ERROR | app.middleware.exception_handling:handle_http_exception | HTTP exception: %s - %s`
 - 同一请求的 request middleware 日志与 exception handler 日志使用不同 request_id。
-- 安全头测试显示 DEBUG 下响应会带 `X-Powered-By: AI for Trader`。
+- 安全头测试显示 DEBUG 下响应会带 `X-Powered-By: AI for Investor`。
 
 原因：
 

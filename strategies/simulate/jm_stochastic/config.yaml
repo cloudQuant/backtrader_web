@@ -4,7 +4,7 @@
 strategy:
   name: "焦煤随机指标策略"
   description: "基于KDJ指标的策略 - 焦煤期货"
-  author: "ai-for-trader"
+  author: "ai-for-investor"
   category: "simulate"
   
 # ============================================================

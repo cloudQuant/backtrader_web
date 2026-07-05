@@ -34,8 +34,8 @@ const featurePages: FeaturePage[] = [
   { name: 'portfolio ledger', path: '/portfolio/ledger', expected: /组合账本|Portfolio Ledger|创建账本/i },
   { name: 'ai chat', path: '/ai/chat', expected: /AI助手|AI Copilot|AI Assistant/i },
   { name: 'ai knowledge base', path: '/ai/knowledge-base', expected: /知识库|Knowledge Base/i },
-  { name: 'ai observability', path: '/ai/observability', expected: /AI成本|AI Cost|Usage/i, adminOnly: true },
-  { name: 'prompt governance', path: '/ai/prompt-governance', expected: /Prompt治理|Prompt Governance/i, adminOnly: true },
+  { name: 'config ai observability', path: '/config/ai/observability', expected: /AI成本|AI Cost|Usage/i, adminOnly: true },
+  { name: 'config prompt governance', path: '/config/ai/prompt-governance', expected: /Prompt治理|Prompt Governance/i, adminOnly: true },
   { name: 'admin settings', path: '/admin/settings', expected: /系统设置|Settings|个人设置/i, adminOnly: true },
 ];
 
@@ -55,6 +55,8 @@ const legacyPaths: FeaturePage[] = [
   { name: 'legacy scanners', path: '/scanners', expected: /条件扫描|Scanners/i },
   { name: 'legacy quant tools', path: '/quant-tools', expected: /量化工具|Quant Tools/i },
   { name: 'legacy ai trading', path: '/ai-trading', expected: /AI交易|AI Trading|自然语言/i },
+  { name: 'legacy ai prompt governance', path: '/ai/prompt-governance', expected: /Prompt治理|Prompt Governance/i, adminOnly: true },
+  { name: 'legacy ai observability', path: '/ai/observability', expected: /AI成本|AI Cost|Usage/i, adminOnly: true },
 ];
 
 async function assertFeaturePageUsable(page: Page, target: FeaturePage) {

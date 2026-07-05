@@ -17,12 +17,16 @@ _ALLOWED_RUNTIME_FILE_EXTENSIONS = frozenset(
 )
 
 
+def _default_csv_directory_path() -> str:
+    return str((Path(__file__).resolve().parents[5] / "data" / "datas").resolve())
+
+
 def _default_workspace_settings() -> dict[str, Any]:
     return {
         "data_source": {
             "type": "csv",
             "csv": {
-                "directory_path": "",
+                "directory_path": _default_csv_directory_path(),
                 "delimiter": ",",
                 "encoding": "utf-8",
                 "has_header": True,
@@ -98,6 +102,11 @@ def _normalize_workspace_settings(settings: dict[str, Any] | None) -> dict[str, 
             else:
                 merged_data_source[key] = value
         normalized["data_source"] = merged_data_source
+
+    csv_section = dict((normalized.get("data_source") or {}).get("csv") or {})
+    if not str(csv_section.get("directory_path") or "").strip():
+        csv_section["directory_path"] = _default_csv_directory_path()
+        normalized["data_source"]["csv"] = csv_section
 
     return normalized
 

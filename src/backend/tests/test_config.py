@@ -14,7 +14,7 @@ class TestConfig:
 
     def test_default_values(self):
         settings = get_settings()
-        assert settings.APP_NAME == "ai-for-trader"
+        assert settings.APP_NAME == "ai-for-investor"
         assert settings.JWT_ALGORITHM == "HS256"
         assert settings.JWT_EXPIRE_MINUTES > 0
         assert settings.PORT == 8000

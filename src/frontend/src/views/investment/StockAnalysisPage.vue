@@ -3,35 +3,46 @@
     <section class="command-surface">
       <div class="command-header">
         <div class="title-block">
-          <span class="eyebrow">投资研究</span>
-          <h2>单股分析</h2>
-          <p>面向单一股票的完整研究流水线，覆盖技术面、基本面、新闻情绪和风险终审。</p>
+          <span class="eyebrow">{{ t('stockAnalysis.eyebrow') }}</span>
+          <h2>{{ t('stockAnalysis.title') }}</h2>
+          <p>{{ t('stockAnalysis.subtitle') }}</p>
         </div>
         <div class="status-stack">
-          <span class="status-caption">任务状态</span>
+          <span class="status-caption">{{ t('stockAnalysis.taskStatus') }}</span>
           <el-tag
             :type="currentTask ? statusTagType(currentTask.status) : 'info'"
             effect="plain"
             round
           >
-            {{ currentTask ? statusLabel(currentTask.status) : '未提交' }}
+            {{ currentTask ? statusLabel(currentTask.status) : t('stockAnalysis.notSubmitted') }}
           </el-tag>
+        </div>
+      </div>
+
+      <div class="hero-metrics">
+        <div
+          v-for="item in heroMetrics"
+          :key="item.label"
+          class="hero-metric"
+        >
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
         </div>
       </div>
 
       <div class="command-bar">
         <label class="symbol-field">
-          <span>股票代码</span>
+          <span>{{ t('stockAnalysis.symbol') }}</span>
           <el-input
             v-model="form.symbol"
             size="large"
-            placeholder="000001.SZ / 600519.SH / AAPL"
+            :placeholder="t('stockAnalysis.symbolPlaceholder')"
             clearable
           />
         </label>
 
         <label class="compact-field">
-          <span>市场</span>
+          <span>{{ t('stockAnalysis.market') }}</span>
           <el-select
             v-model="form.marketType"
             size="large"
@@ -47,13 +58,13 @@
         </label>
 
         <label class="compact-field">
-          <span>分析日期</span>
+          <span>{{ t('stockAnalysis.analysisDate') }}</span>
           <el-date-picker
             v-model="form.analysisDate"
             size="large"
             type="date"
             value-format="YYYY-MM-DD"
-            placeholder="选择日期"
+            :placeholder="t('stockAnalysis.datePlaceholder')"
             class="full-width"
           />
         </label>
@@ -66,7 +77,13 @@
           :disabled="!form.symbol.trim() || form.selectedModules.length === 0"
           @click="submitAnalysis"
         >
-          开始智能分析
+          <el-icon
+            class="button-icon"
+            aria-hidden="true"
+          >
+            <DataAnalysis />
+          </el-icon>
+          {{ t('stockAnalysis.startAnalysis') }}
         </el-button>
       </div>
     </section>
@@ -76,10 +93,10 @@
         <div class="analysis-panel">
           <div class="panel-head">
             <div>
-              <span class="panel-kicker">PARAMETERS</span>
-              <h3>分析配置</h3>
+              <span class="panel-kicker">{{ t('stockAnalysis.parametersKicker') }}</span>
+              <h3>{{ t('stockAnalysis.configTitle') }}</h3>
             </div>
-            <span class="panel-hint">{{ form.researchDepth }} · {{ selectedModuleLabels.length }} 个模块</span>
+            <span class="panel-hint">{{ configHint }}</span>
           </div>
 
           <el-form
@@ -88,11 +105,11 @@
           >
             <div class="form-grid">
               <el-form-item>
-                <span class="field-label">研究深度</span>
+                <span class="field-label">{{ t('stockAnalysis.researchDepth') }}</span>
                 <el-select
                   v-model="form.researchDepth"
                   class="full-width"
-                  placeholder="选择研究深度"
+                  :placeholder="t('stockAnalysis.depthPlaceholder')"
                 >
                   <el-option
                     v-for="depth in depthOptions"
@@ -108,16 +125,16 @@
               </el-form-item>
 
               <el-form-item>
-                <span class="field-label">大模型</span>
+                <span class="field-label">{{ t('stockAnalysis.model') }}</span>
                 <el-select
                   v-model="form.modelId"
                   class="full-width"
-                  placeholder="系统默认模型"
+                  :placeholder="t('stockAnalysis.defaultModel')"
                   clearable
                   :loading="loadingModels"
                 >
                   <el-option
-                    label="系统默认模型"
+                    :label="t('stockAnalysis.defaultModel')"
                     value=""
                   />
                   <el-option
@@ -132,10 +149,13 @@
 
             <el-form-item>
               <div class="section-label-row">
-                <span class="field-label">研究模块</span>
+                <span class="field-label">{{ t('stockAnalysis.modules') }}</span>
                 <span>{{ moduleCoverageText }}</span>
               </div>
-              <el-checkbox-group v-model="form.selectedModules" class="module-grid">
+              <el-checkbox-group
+                v-model="form.selectedModules"
+                class="module-grid"
+              >
                 <el-checkbox
                   v-for="module in moduleOptions"
                   :key="module.value"
@@ -156,16 +176,16 @@
         >
           <div class="runtime-head">
             <div>
-              <span class="panel-kicker">EXECUTION</span>
-              <h3>{{ currentTask.symbol }} 分析进度</h3>
-              <p>{{ currentTask.message || currentTask.current_step || '任务已创建，等待执行。' }}</p>
+              <span class="panel-kicker">{{ t('stockAnalysis.executionKicker') }}</span>
+              <h3>{{ t('stockAnalysis.progressTitle', { symbol: currentTask.symbol }) }}</h3>
+              <p>{{ currentTask.message || currentTask.current_step || t('stockAnalysis.runtimeFallback') }}</p>
             </div>
             <el-button
               v-if="canCancel"
               :loading="cancelling"
               @click="cancelTask"
             >
-              取消任务
+              {{ t('stockAnalysis.cancelTask') }}
             </el-button>
           </div>
           <el-progress
@@ -173,9 +193,9 @@
             :stroke-width="10"
           />
           <div class="runtime-meta">
-            <span>市场：{{ currentTask.market_type }}</span>
-            <span>日期：{{ currentTask.analysis_date }}</span>
-            <span>深度：{{ currentTask.research_depth }}</span>
+            <span>{{ t('stockAnalysis.runtimeMarket', { value: currentTask.market_type }) }}</span>
+            <span>{{ t('stockAnalysis.runtimeDate', { value: currentTask.analysis_date }) }}</span>
+            <span>{{ t('stockAnalysis.runtimeDepth', { value: currentTask.research_depth }) }}</span>
           </div>
         </section>
 
@@ -184,15 +204,15 @@
           class="empty-panel"
         >
           <div class="empty-content">
-            <span class="panel-kicker">REPORT PREVIEW</span>
-            <h3>等待生成报告</h3>
-            <p>提交后会在这里展示完整分析结果，任务运行期间可以离开页面稍后回来查看。</p>
+            <span class="panel-kicker">{{ t('stockAnalysis.previewKicker') }}</span>
+            <h3>{{ t('stockAnalysis.waitingTitle') }}</h3>
+            <p>{{ t('stockAnalysis.waitingDesc') }}</p>
           </div>
           <div class="preview-steps">
-            <span>技术面</span>
-            <span>基本面</span>
-            <span>新闻情绪</span>
-            <span>风险终审</span>
+            <span>{{ t('stockAnalysis.previewTechnical') }}</span>
+            <span>{{ t('stockAnalysis.previewFundamentals') }}</span>
+            <span>{{ t('stockAnalysis.previewNews') }}</span>
+            <span>{{ t('stockAnalysis.previewRisk') }}</span>
           </div>
         </section>
       </div>
@@ -201,8 +221,8 @@
         <div class="side-panel">
           <div class="panel-head compact">
             <div>
-              <span class="panel-kicker">RUN PROFILE</span>
-              <h3>执行画像</h3>
+              <span class="panel-kicker">{{ t('stockAnalysis.profileKicker') }}</span>
+              <h3>{{ t('stockAnalysis.profileTitle') }}</h3>
             </div>
           </div>
 
@@ -226,8 +246,8 @@
 
         <div class="side-panel output-panel">
           <div>
-            <span class="panel-kicker">OUTPUT</span>
-            <h3>报告输出</h3>
+            <span class="panel-kicker">{{ t('stockAnalysis.outputKicker') }}</span>
+            <h3>{{ t('stockAnalysis.outputTitle') }}</h3>
           </div>
           <div class="output-grid">
             <span
@@ -247,7 +267,7 @@
     >
       <div class="report-toolbar">
         <div>
-          <h3>{{ reportMeta.symbolName || currentTask?.symbol }} 投资研究报告</h3>
+          <h3>{{ t('stockAnalysis.reportTitle', { symbol: reportMeta.symbolName || currentTask?.symbol || '--' }) }}</h3>
           <p>{{ reportMeta.marketType }} · {{ reportMeta.analysisDate }} · {{ reportMeta.researchDepth }}</p>
         </div>
         <div
@@ -267,26 +287,26 @@
 
       <div class="decision-grid">
         <div class="decision-card">
-          <span>投资倾向</span>
-          <strong>{{ decision.label || '持有' }}</strong>
+          <span>{{ t('stockAnalysis.investmentBias') }}</span>
+          <strong>{{ decision.label || t('stockAnalysis.hold') }}</strong>
         </div>
         <div class="decision-card">
-          <span>置信度</span>
+          <span>{{ t('stockAnalysis.confidence') }}</span>
           <strong>{{ formatPercent(decision.confidence_score) }}</strong>
         </div>
         <div class="decision-card">
-          <span>风险等级</span>
-          <strong>{{ decision.risk_level || '中等' }}</strong>
+          <span>{{ t('stockAnalysis.riskLevel') }}</span>
+          <strong>{{ decision.risk_level || t('stockAnalysis.mediumRisk') }}</strong>
         </div>
         <div class="decision-card">
-          <span>目标价</span>
+          <span>{{ t('stockAnalysis.targetPrice') }}</span>
           <strong>{{ decision.target_price ?? '--' }}</strong>
         </div>
       </div>
 
       <div class="executive-summary">
-        <h4>核心摘要</h4>
-        <p>{{ report.executive_summary || decision.reasoning || '暂无摘要。' }}</p>
+        <h4>{{ t('stockAnalysis.executiveSummary') }}</h4>
+        <p>{{ report.executive_summary || decision.reasoning || t('stockAnalysis.noSummary') }}</p>
       </div>
 
       <el-tabs
@@ -307,10 +327,10 @@
                 size="small"
                 effect="plain"
               >
-                评分 {{ Math.round(section.score * 100) }}
+                {{ t('stockAnalysis.score', { score: Math.round(section.score * 100) }) }}
               </el-tag>
             </div>
-            <p>{{ section.summary || '暂无内容。' }}</p>
+            <p>{{ section.summary || t('stockAnalysis.noContent') }}</p>
             <ul v-if="section.findings.length > 1">
               <li
                 v-for="finding in section.findings"
@@ -329,7 +349,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
+import { DataAnalysis } from '@element-plus/icons-vue'
 
 import { aiObservabilityApi, type AIModelOption } from '@/api/aiObservability'
 import {
@@ -394,19 +416,20 @@ interface StockAnalysisReport {
 }
 
 const route = useRoute()
+const { t, locale } = useI18n()
 
-const marketOptions = [
-  { label: 'A股', value: 'A股' },
-  { label: '港股', value: '港股' },
-  { label: '美股', value: '美股' },
-]
+const marketOptions = computed(() => [
+  { label: t('stockAnalysis.marketCnA'), value: 'A股' },
+  { label: t('stockAnalysis.marketHk'), value: '港股' },
+  { label: t('stockAnalysis.marketUs'), value: '美股' },
+])
 
-const depthOptions = [
+const depthOptions = computed<ResearchDepthOption[]>(() => [
   {
     value: '快速',
-    label: '1级 - 快速',
-    description: '单点市场快扫，优先速度和成本',
-    time: '2-5分钟',
+    label: t('stockAnalysis.depthQuickLabel'),
+    description: t('stockAnalysis.depthQuickDesc'),
+    time: t('stockAnalysis.depthQuickTime'),
     modules: ['market'],
     debateRounds: 1,
     riskRounds: 1,
@@ -414,9 +437,9 @@ const depthOptions = [
   },
   {
     value: '基础',
-    label: '2级 - 基础',
-    description: '市场与基本面组合，覆盖常规投资判断',
-    time: '3-6分钟',
+    label: t('stockAnalysis.depthBaseLabel'),
+    description: t('stockAnalysis.depthBaseDesc'),
+    time: t('stockAnalysis.depthBaseTime'),
     modules: ['market', 'fundamentals'],
     debateRounds: 1,
     riskRounds: 1,
@@ -424,9 +447,9 @@ const depthOptions = [
   },
   {
     value: '标准',
-    label: '3级 - 标准',
-    description: '技术、基本面、新闻和风险终审，默认推荐',
-    time: '4-8分钟',
+    label: t('stockAnalysis.depthStandardLabel'),
+    description: t('stockAnalysis.depthStandardDesc'),
+    time: t('stockAnalysis.depthStandardTime'),
     modules: ['market', 'fundamentals', 'news', 'risk'],
     debateRounds: 1,
     riskRounds: 2,
@@ -434,9 +457,9 @@ const depthOptions = [
   },
   {
     value: '深度',
-    label: '4级 - 深度',
-    description: '启用完整研究模块和多轮辩论',
-    time: '6-11分钟',
+    label: t('stockAnalysis.depthDeepLabel'),
+    description: t('stockAnalysis.depthDeepDesc'),
+    time: t('stockAnalysis.depthDeepTime'),
     modules: ['market', 'fundamentals', 'news', 'social', 'risk'],
     debateRounds: 2,
     riskRounds: 2,
@@ -444,23 +467,23 @@ const depthOptions = [
   },
   {
     value: '全面',
-    label: '5级 - 全面',
-    description: '完整模块、最高讨论轮次和最完整报告',
-    time: '8-16分钟',
+    label: t('stockAnalysis.depthFullLabel'),
+    description: t('stockAnalysis.depthFullDesc'),
+    time: t('stockAnalysis.depthFullTime'),
     modules: ['market', 'fundamentals', 'news', 'social', 'risk'],
     debateRounds: 3,
     riskRounds: 3,
     memoryEnabled: true,
   },
-] satisfies ResearchDepthOption[]
+])
 
-const moduleOptions: AnalysisModuleOption[] = [
-  { value: 'market', label: '技术面', description: '行情结构、趋势和量价表现' },
-  { value: 'fundamentals', label: '基本面', description: '财务质量、估值和经营线索' },
-  { value: 'news', label: '新闻', description: '事件驱动和公开资讯影响' },
-  { value: 'social', label: '情绪', description: '市场叙事和投资者情绪' },
-  { value: 'risk', label: '风险', description: '波动、回撤和终审意见' },
-]
+const moduleOptions = computed<AnalysisModuleOption[]>(() => [
+  { value: 'market', label: t('stockAnalysis.moduleMarket'), description: t('stockAnalysis.moduleMarketDesc') },
+  { value: 'fundamentals', label: t('stockAnalysis.moduleFundamentals'), description: t('stockAnalysis.moduleFundamentalsDesc') },
+  { value: 'news', label: t('stockAnalysis.moduleNews'), description: t('stockAnalysis.moduleNewsDesc') },
+  { value: 'social', label: t('stockAnalysis.moduleSocial'), description: t('stockAnalysis.moduleSocialDesc') },
+  { value: 'risk', label: t('stockAnalysis.moduleRisk'), description: t('stockAnalysis.moduleRiskDesc') },
+])
 
 const exportFormats: StockAnalysisExportFormat[] = ['markdown', 'html', 'docx', 'pdf']
 
@@ -494,27 +517,57 @@ const modelOptions = computed(() =>
   })),
 )
 const selectedModuleLabels = computed(() =>
-  moduleOptions
+  moduleOptions.value
     .filter((module) => form.selectedModules.includes(module.value))
     .map((module) => module.label),
 )
-const selectedDepthOption = computed(() => {
-  return depthOptions.find((depth) => depth.value === form.researchDepth) ?? depthOptions[2]
+const selectedDepthOption = computed<ResearchDepthOption>(() => {
+  const options = depthOptions.value
+  return options.find((depth) => depth.value === form.researchDepth) ?? options[2] ?? options[0]!
+})
+const configHint = computed(() =>
+  t('stockAnalysis.configHint', {
+    depth: selectedDepthOption.value.label,
+    count: selectedModuleLabels.value.length,
+  })
+)
+const heroMetrics = computed(() => [
+  { label: t('stockAnalysis.heroModules'), value: moduleCoverageText.value },
+  { label: t('stockAnalysis.heroTime'), value: selectedDepthOption.value.time },
+  {
+    label: t('stockAnalysis.heroRounds'),
+    value: `${selectedDepthOption.value.debateRounds}/${selectedDepthOption.value.riskRounds}`,
+  },
+  { label: t('stockAnalysis.heroExports'), value: exportFormats.map(format => format.toUpperCase()).join(' / ') },
+])
+const currentLocale = computed(() => String(locale.value || 'zh-CN'))
+const defaultModelLabel = computed(() => t('stockAnalysis.defaultModel'))
+const activeMarketLabel = computed(() => {
+  return marketOptions.value.find((market) => market.value === form.marketType)?.label ?? form.marketType
 })
 const moduleCoverageText = computed(() => {
-  if (selectedModuleLabels.value.length === moduleOptions.length) return '完整覆盖'
-  if (selectedModuleLabels.value.length === 0) return '未选择模块'
+  if (selectedModuleLabels.value.length === moduleOptions.value.length) return t('stockAnalysis.fullCoverage')
+  if (selectedModuleLabels.value.length === 0) return t('stockAnalysis.noModules')
   return selectedModuleLabels.value.join(' / ')
 })
 const runProfileRows = computed(() => [
-  { label: '标的', value: normalizeSymbol(form.symbol) || '--' },
-  { label: '市场', value: form.marketType },
-  { label: '日期', value: form.analysisDate || '--' },
-  { label: '深度', value: form.researchDepth },
-  { label: '讨论轮次', value: `${selectedDepthOption.value.debateRounds} / ${selectedDepthOption.value.riskRounds}` },
-  { label: '记忆', value: selectedDepthOption.value.memoryEnabled ? '启用' : '关闭' },
-  { label: '模块', value: moduleCoverageText.value },
-  { label: '模型', value: modelOptions.value.find((model) => model.id === form.modelId)?.label ?? '系统默认模型' },
+  { label: t('stockAnalysis.profileSymbol'), value: normalizeSymbol(form.symbol) || '--' },
+  { label: t('stockAnalysis.profileMarket'), value: activeMarketLabel.value },
+  { label: t('stockAnalysis.profileDate'), value: form.analysisDate || '--' },
+  { label: t('stockAnalysis.profileDepth'), value: selectedDepthOption.value.label },
+  {
+    label: t('stockAnalysis.profileRounds'),
+    value: t('stockAnalysis.roundsValue', {
+      debate: selectedDepthOption.value.debateRounds,
+      risk: selectedDepthOption.value.riskRounds,
+    }),
+  },
+  {
+    label: t('stockAnalysis.profileMemory'),
+    value: selectedDepthOption.value.memoryEnabled ? t('stockAnalysis.enabled') : t('stockAnalysis.disabled'),
+  },
+  { label: t('stockAnalysis.profileModules'), value: moduleCoverageText.value },
+  { label: t('stockAnalysis.profileModel'), value: modelOptions.value.find((model) => model.id === form.modelId)?.label ?? defaultModelLabel.value },
 ])
 
 const report = computed(() => (analysisResult.value?.report ?? null) as StockAnalysisReport | null)
@@ -556,7 +609,7 @@ onUnmounted(() => {
 watch(
   () => form.researchDepth,
   (depth) => {
-    const preset = depthOptions.find((item) => item.value === depth)
+    const preset = depthOptions.value.find((item) => item.value === depth)
     if (!preset) return
     form.selectedModules = [...preset.modules]
   },
@@ -583,7 +636,7 @@ function normalizeSymbol(symbol: string): string {
 }
 
 function buildPayload(): StockAnalysisCreateTaskParams {
-  const selectedModules = moduleOptions
+  const selectedModules = moduleOptions.value
     .map((module) => module.value)
     .filter((module) => form.selectedModules.includes(module))
 
@@ -595,7 +648,7 @@ function buildPayload(): StockAnalysisCreateTaskParams {
     selected_modules: selectedModules,
     include_sentiment: selectedModules.includes('social'),
     include_risk: selectedModules.includes('risk'),
-    language: 'zh-CN',
+    language: currentLocale.value,
     model_id: form.modelId || undefined,
   }
 }
@@ -603,11 +656,11 @@ function buildPayload(): StockAnalysisCreateTaskParams {
 async function submitAnalysis() {
   const payload = buildPayload()
   if (!payload.symbol) {
-    ElMessage.warning('请输入股票代码')
+    ElMessage.warning(t('stockAnalysis.symbolRequired'))
     return
   }
   if (payload.selected_modules.length === 0) {
-    ElMessage.warning('请至少选择一个研究模块')
+    ElMessage.warning(t('stockAnalysis.moduleRequired'))
     return
   }
 
@@ -617,15 +670,15 @@ async function submitAnalysis() {
   try {
     const task = await stockAnalysisApi.createTask(payload)
     currentTask.value = task
-    taskNotice.value = '分析任务已提交'
-    ElMessage.success('分析任务已提交')
+    taskNotice.value = t('stockAnalysis.taskSubmitted')
+    ElMessage.success(t('stockAnalysis.taskSubmitted'))
     if (task.status === 'completed') {
       await loadResult(task.task_id)
     } else {
       startPolling(task.task_id)
     }
   } catch {
-    ElMessage.error('提交分析任务失败')
+    ElMessage.error(t('stockAnalysis.submitFailed'))
   } finally {
     submitting.value = false
   }
@@ -652,16 +705,16 @@ async function refreshTask(taskId: string) {
     if (task.status === 'completed') {
       stopPolling()
       await loadResult(task.task_id)
-      ElMessage.success('分析报告已生成')
+      ElMessage.success(t('stockAnalysis.reportReady'))
     } else if (task.status === 'failed' || task.status === 'cancelled') {
       stopPolling()
       if (task.status === 'failed') {
-        ElMessage.error(task.error_message || '分析任务失败')
+        ElMessage.error(task.error_message || t('stockAnalysis.taskFailed'))
       }
     }
   } catch {
     stopPolling()
-    ElMessage.error('刷新任务状态失败')
+    ElMessage.error(t('stockAnalysis.refreshFailed'))
   }
 }
 
@@ -681,9 +734,9 @@ async function cancelTask() {
     const task = await stockAnalysisApi.cancelTask(currentTask.value.task_id)
     currentTask.value = task
     stopPolling()
-    ElMessage.success('任务已取消')
+    ElMessage.success(t('stockAnalysis.cancelSuccess'))
   } catch {
-    ElMessage.error('取消任务失败')
+    ElMessage.error(t('stockAnalysis.cancelFailed'))
   } finally {
     cancelling.value = false
   }
@@ -705,7 +758,7 @@ async function downloadReport(format: StockAnalysisExportFormat) {
     link.remove()
     URL.revokeObjectURL(url)
   } catch {
-    ElMessage.error('导出报告失败')
+    ElMessage.error(t('stockAnalysis.exportFailed'))
   } finally {
     exporting.value = null
   }
@@ -713,11 +766,11 @@ async function downloadReport(format: StockAnalysisExportFormat) {
 
 function statusLabel(status: TaskStatus): string {
   const labels: Record<TaskStatus, string> = {
-    pending: '等待中',
-    running: '运行中',
-    completed: '已完成',
-    failed: '失败',
-    cancelled: '已取消',
+    pending: t('stockAnalysis.statusPending'),
+    running: t('stockAnalysis.statusRunning'),
+    completed: t('stockAnalysis.statusCompleted'),
+    failed: t('stockAnalysis.statusFailed'),
+    cancelled: t('stockAnalysis.statusCancelled'),
   }
   return labels[status]
 }
@@ -737,12 +790,11 @@ function formatPercent(value: unknown): string {
 
 <style scoped>
 .stock-analysis-page {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 18px;
-  color: #172033;
   max-width: 1480px;
   margin: 0 auto;
+  color: var(--text-color-primary);
 }
 
 .command-surface,
@@ -751,14 +803,14 @@ function formatPercent(value: unknown): string {
 .runtime-panel,
 .report-panel,
 .empty-panel {
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+  background: var(--bg-color);
+  box-shadow: 0 10px 28px var(--shadow-color);
 }
 
 .command-surface {
-  padding: 22px;
+  padding: 20px;
 }
 
 .command-header {
@@ -767,7 +819,7 @@ function formatPercent(value: unknown): string {
   justify-content: space-between;
   gap: 28px;
   padding-bottom: 18px;
-  border-bottom: 1px solid #e6edf5;
+  border-bottom: 1px solid var(--border-color-light);
 }
 
 .title-block {
@@ -780,7 +832,7 @@ function formatPercent(value: unknown): string {
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0;
-  color: #1d4ed8;
+  color: var(--primary-color);
 }
 
 .command-header h2,
@@ -794,7 +846,7 @@ function formatPercent(value: unknown): string {
 .command-header h2 {
   font-size: 24px;
   line-height: 1.25;
-  color: #0f172a;
+  color: var(--text-color-primary);
 }
 
 .command-header p,
@@ -803,7 +855,7 @@ function formatPercent(value: unknown): string {
 .report-toolbar p,
 .empty-panel p {
   margin: 8px 0 0;
-  color: #5f6f86;
+  color: var(--text-color-secondary);
   line-height: 1.6;
 }
 
@@ -817,7 +869,39 @@ function formatPercent(value: unknown): string {
 
 .status-caption {
   font-size: 12px;
-  color: #718096;
+  color: var(--text-color-secondary);
+}
+
+.hero-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.hero-metric {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+}
+
+.hero-metric span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.hero-metric strong {
+  display: block;
+  color: var(--text-color-primary);
+  font-size: 16px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .command-bar {
@@ -840,7 +924,11 @@ function formatPercent(value: unknown): string {
   margin-bottom: 7px;
   font-size: 12px;
   font-weight: 600;
-  color: #53657d;
+  color: var(--text-color-secondary);
+}
+
+.button-icon {
+  margin-right: 6px;
 }
 
 .analysis-workbench {
@@ -879,21 +967,21 @@ function formatPercent(value: unknown): string {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0;
-  color: #64748b;
+  color: var(--text-color-secondary);
 }
 
 .panel-head h3,
 .output-panel h3 {
   font-size: 17px;
-  color: #0f172a;
+  color: var(--text-color-primary);
 }
 
 .panel-hint {
   padding: 5px 9px;
-  border: 1px solid #d7e1ee;
+  border: 1px solid var(--border-color-light);
   border-radius: 999px;
-  background: #f8fafc;
-  color: #475569;
+  background: var(--fill-color-lighter);
+  color: var(--text-color-regular);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -910,7 +998,7 @@ function formatPercent(value: unknown): string {
   margin-bottom: 8px;
   font-size: 13px;
   font-weight: 600;
-  color: #26364d;
+  color: var(--text-color-primary);
 }
 
 .section-label-row {
@@ -923,9 +1011,10 @@ function formatPercent(value: unknown): string {
 }
 
 .section-label-row > span:last-child {
-  color: #64748b;
+  color: var(--text-color-secondary);
   font-size: 12px;
   text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .form-grid {
@@ -945,23 +1034,23 @@ function formatPercent(value: unknown): string {
   gap: 12px;
   margin-top: 8px;
   padding: 8px 10px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-color-light);
   border-radius: 8px;
-  background: #f8fafc;
-  color: #64748b;
+  background: var(--fill-color-lighter);
+  color: var(--text-color-secondary);
   font-size: 12px;
   line-height: 1.5;
 }
 
 .depth-policy strong {
   flex: 0 0 auto;
-  color: #1d4ed8;
+  color: var(--primary-color);
   font-size: 12px;
 }
 
 .module-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
   width: 100%;
 }
@@ -972,22 +1061,28 @@ function formatPercent(value: unknown): string {
   height: auto;
   margin-right: 0;
   padding: 12px 10px;
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--border-color-light);
   border-radius: 8px;
-  background: #fbfdff;
+  background: var(--fill-color-lighter);
   white-space: normal;
   transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .module-grid :deep(.el-checkbox.module-tile:hover) {
-  border-color: #93c5fd;
-  background: #f8fbff;
+  border-color: var(--primary-color);
+  background: var(--fill-color-light);
 }
 
 .module-grid :deep(.el-checkbox.is-checked.module-tile) {
-  border-color: #2563eb;
-  background: #eff6ff;
-  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+  border-color: var(--primary-color);
+  background: var(--fill-color-light);
+  box-shadow: inset 0 0 0 1px var(--primary-color);
+}
+
+.module-grid :deep(.el-checkbox.is-checked.module-tile .el-checkbox__label),
+.module-grid :deep(.el-checkbox.is-checked.module-tile .module-name),
+.module-grid :deep(.el-checkbox.is-checked.module-tile small) {
+  color: var(--text-color-primary);
 }
 
 .module-grid :deep(.el-checkbox__label) {
@@ -999,13 +1094,13 @@ function formatPercent(value: unknown): string {
   display: block;
   margin-bottom: 5px;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-color-primary);
 }
 
 .module-grid small {
   display: block;
   line-height: 1.5;
-  color: #66758a;
+  color: var(--text-color-secondary);
 }
 
 .analysis-sidebar {
@@ -1021,7 +1116,7 @@ function formatPercent(value: unknown): string {
   display: grid;
   gap: 0;
   margin: 0;
-  border-top: 1px solid #edf2f7;
+  border-top: 1px solid var(--border-color-light);
 }
 
 .profile-list div {
@@ -1030,21 +1125,22 @@ function formatPercent(value: unknown): string {
   justify-content: space-between;
   gap: 14px;
   padding: 11px 0;
-  border-bottom: 1px solid #edf2f7;
+  border-bottom: 1px solid var(--border-color-light);
 }
 
 .profile-list dt {
-  color: #64748b;
+  color: var(--text-color-secondary);
   font-size: 12px;
 }
 
 .profile-list dd {
   margin: 0;
   text-align: right;
-  color: #0f172a;
+  color: var(--text-color-primary);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .start-analysis-button {
@@ -1056,8 +1152,9 @@ function formatPercent(value: unknown): string {
   margin: 14px 0 0;
   padding: 10px 12px;
   border-radius: 8px;
-  background: #ecfdf5;
-  color: #047857;
+  border: 1px solid var(--success-border-color);
+  background: var(--success-surface);
+  color: var(--success-text-strong);
   font-size: 13px;
   font-weight: 600;
 }
@@ -1078,10 +1175,10 @@ function formatPercent(value: unknown): string {
   align-items: center;
   justify-content: center;
   min-height: 34px;
-  border: 1px solid #dde7f2;
+  border: 1px solid var(--border-color-light);
   border-radius: 8px;
-  background: #f8fafc;
-  color: #475569;
+  background: var(--fill-color-lighter);
+  color: var(--text-color-regular);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1106,14 +1203,14 @@ function formatPercent(value: unknown): string {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 14px;
-  color: #516173;
+  color: var(--text-color-secondary);
   font-size: 13px;
 }
 
 .runtime-meta span {
   padding: 5px 9px;
   border-radius: 999px;
-  background: #f1f5f9;
+  background: var(--fill-color-lighter);
 }
 
 .export-actions {
@@ -1132,30 +1229,31 @@ function formatPercent(value: unknown): string {
 
 .decision-card {
   padding: 14px 16px;
-  border: 1px solid #dfe8f3;
+  border: 1px solid var(--border-color-light);
   border-radius: 8px;
-  background: #fbfdff;
+  background: var(--fill-color-lighter);
 }
 
 .decision-card span {
   display: block;
   margin-bottom: 6px;
-  color: #64748b;
+  color: var(--text-color-secondary);
   font-size: 12px;
 }
 
 .decision-card strong {
   font-size: 18px;
-  color: #0f172a;
+  color: var(--text-color-primary);
+  overflow-wrap: anywhere;
 }
 
 .executive-summary {
   margin-bottom: 18px;
   padding: 16px 18px;
-  border: 1px solid #cfe0f4;
-  border-left: 4px solid #2563eb;
+  border: 1px solid var(--info-border-color);
+  border-left: 4px solid var(--primary-color);
   border-radius: 8px;
-  background: #f7fbff;
+  background: var(--info-surface);
 }
 
 .executive-summary h4,
@@ -1167,7 +1265,7 @@ function formatPercent(value: unknown): string {
 .report-section p {
   margin: 0;
   line-height: 1.75;
-  color: #334155;
+  color: var(--text-color-regular);
   white-space: pre-wrap;
 }
 
@@ -1181,7 +1279,7 @@ function formatPercent(value: unknown): string {
 
 .report-tabs :deep(.el-tabs__nav-wrap::after) {
   height: 1px;
-  background: #e2e8f0;
+  background: var(--border-color-light);
 }
 
 .report-section {
@@ -1199,7 +1297,7 @@ function formatPercent(value: unknown): string {
 .report-section ul {
   margin: 14px 0 0;
   padding-left: 18px;
-  color: #334155;
+  color: var(--text-color-regular);
   line-height: 1.7;
 }
 
@@ -1227,13 +1325,15 @@ function formatPercent(value: unknown): string {
   justify-content: center;
   min-height: 38px;
   padding: 0 12px;
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--border-color);
   border-radius: 8px;
-  background: #f8fafc;
-  color: #64748b;
+  background: var(--fill-color-lighter);
+  color: var(--text-color-secondary);
   font-size: 13px;
   font-weight: 600;
-  white-space: nowrap;
+  line-height: 1.35;
+  text-align: center;
+  overflow-wrap: normal;
 }
 
 .stock-analysis-page :deep(.el-form-item) {
@@ -1242,15 +1342,16 @@ function formatPercent(value: unknown): string {
 
 .stock-analysis-page :deep(.el-input__wrapper),
 .stock-analysis-page :deep(.el-select__wrapper) {
-  box-shadow: 0 0 0 1px #d7e1ee inset;
+  background: var(--bg-color);
+  box-shadow: 0 0 0 1px var(--border-color-light) inset;
 }
 
 .stock-analysis-page :deep(.el-input__wrapper:hover),
 .stock-analysis-page :deep(.el-select__wrapper:hover) {
-  box-shadow: 0 0 0 1px #93c5fd inset;
+  box-shadow: 0 0 0 1px var(--primary-color) inset;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1180px) {
   .command-bar,
   .analysis-workbench {
     grid-template-columns: 1fr;
@@ -1262,6 +1363,20 @@ function formatPercent(value: unknown): string {
 
   .module-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero-metrics,
+  .decision-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .empty-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .preview-steps {
+    width: 100%;
   }
 }
 
@@ -1275,6 +1390,7 @@ function formatPercent(value: unknown): string {
 
   .form-grid,
   .module-grid,
+  .hero-metrics,
   .decision-grid,
   .preview-steps {
     grid-template-columns: 1fr;
@@ -1291,6 +1407,27 @@ function formatPercent(value: unknown): string {
 
   .status-stack {
     align-items: flex-start;
+  }
+
+  .command-bar {
+    gap: 12px;
+  }
+
+  .start-analysis-button,
+  .export-actions :deep(.el-button) {
+    width: 100%;
+  }
+
+  .depth-policy,
+  .section-label-row,
+  .profile-list div {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .section-label-row > span:last-child,
+  .profile-list dd {
+    text-align: left;
   }
 }
 </style>

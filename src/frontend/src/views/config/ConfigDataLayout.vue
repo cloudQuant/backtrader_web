@@ -71,7 +71,9 @@ function handleTabChange(path: string | number) {
 <style scoped>
 .config-data-shell {
   border: 1px solid var(--border-color-light);
-  background: var(--bg-color-card);
+  border-radius: 8px;
+  background: var(--bg-color);
+  color: var(--text-color-primary);
 }
 
 .config-data-hero {
@@ -93,6 +95,22 @@ function handleTabChange(path: string | number) {
   margin: 0;
   max-width: 720px;
   color: var(--text-color-regular);
+}
+
+.config-data-shell :deep(.el-tabs__nav-wrap::after) {
+  background: var(--border-color);
+}
+
+.config-data-shell :deep(.el-tabs__item) {
+  color: var(--text-color-secondary);
+}
+
+.config-data-shell :deep(.el-tabs__item.is-active) {
+  color: var(--primary-color);
+}
+
+.config-data-shell :deep(.el-tabs__active-bar) {
+  background: var(--primary-color);
 }
 
 @media (max-width: 768px) {

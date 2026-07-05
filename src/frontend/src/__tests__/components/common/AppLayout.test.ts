@@ -139,15 +139,17 @@ describe('AppLayout', () => {
         { path: '/', component: { template: '<div>Home</div>' } },
         { path: '/backtest', component: { template: '<div>Backtest</div>' } },
         { path: '/strategy', component: { template: '<div>Strategy</div>' } },
+        { path: '/investment/strategies', component: { template: '<div>InvestmentStrategy</div>' } },
+        { path: '/investment/stock-analysis', component: { template: '<div>StockAnalysis</div>' } },
         { path: '/research/strategies', component: { template: '<div>Strategy</div>' } },
         { path: '/data', component: { template: '<div>Data</div>' } },
         { path: '/trading', component: { template: '<div>Trading</div>' } },
         { path: '/portfolio', component: { template: '<div>Portfolio</div>' } },
         { path: '/brokers', component: { template: '<div>Brokers</div>' } },
         { path: '/ai-chat', component: { template: '<div>AIChat</div>' } },
-        { path: '/ai/observability', component: { template: '<div>AIObservability</div>' } },
-        { path: '/ai/prompt-governance', component: { template: '<div>PromptTemplates</div>' } },
         { path: '/ai/knowledge-base', component: { template: '<div>KnowledgeBase</div>' } },
+        { path: '/config/ai/observability', component: { template: '<div>AIObservability</div>' } },
+        { path: '/config/ai/prompt-governance', component: { template: '<div>PromptTemplates</div>' } },
         { path: '/admin/ai-observability', component: { template: '<div>AIObservability</div>' } },
         { path: '/admin/prompt-templates', component: { template: '<div>PromptTemplates</div>' } },
         { path: '/knowledge-base', component: { template: '<div>KnowledgeBase</div>' } },
@@ -220,7 +222,7 @@ describe('AppLayout', () => {
     it('应该显示应用标题', async () => {
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
-      expect(wrapper.text()).toContain('AI for Trader')
+      expect(wrapper.text()).toContain('AI for Investor')
     })
   })
 
@@ -233,7 +235,7 @@ describe('AppLayout', () => {
       expect(wrapper.text()).toContain('策略研究')
       expect(wrapper.text()).toContain('交易运营')
       expect(wrapper.text()).toContain('组合风控')
-      expect(wrapper.text()).toContain('AI助手')
+      expect(wrapper.text()).toContain('知识库')
       expect(wrapper.text()).not.toContain('AI知识')
       expect(wrapper.text()).not.toContain('平台治理')
     })
@@ -257,24 +259,37 @@ describe('AppLayout', () => {
       expect(wrapper.text()).toContain('策略管理')
     })
 
-    it('应该包含AI助手菜单项', async () => {
+    it('投资研究中的策略入口应该显示AI投研', async () => {
+      await router.push('/investment/strategies')
+      const AppLayout = (await import('@/components/common/AppLayout.vue')).default
+      const wrapper = mount(AppLayout, { global: getGlobalConfig() })
+      expect(wrapper.text()).toContain('投资研究')
+      expect(wrapper.text()).toContain('AI投研')
+    })
+
+    it('应该包含知识库与知识问答菜单项', async () => {
       await router.push('/ai-chat')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
-      expect(wrapper.text()).toContain('AI助手')
+      expect(wrapper.text()).toContain('知识库')
+      expect(wrapper.text()).toContain('知识问答')
+      expect(wrapper.text()).not.toContain('AI成本')
+      expect(wrapper.text()).not.toContain('Prompt治理')
     })
 
-    it('管理员应该看到AI成本菜单项', async () => {
-      await router.push('/ai/observability')
+    it('管理员应该在配置中心看到AI成本菜单项', async () => {
+      await router.push('/config/ai/observability')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
+      expect(wrapper.text()).toContain('配置中心')
       expect(wrapper.text()).toContain('AI成本')
     })
 
-    it('管理员应该看到Prompt治理菜单项', async () => {
-      await router.push('/ai/prompt-governance')
+    it('管理员应该在配置中心看到Prompt治理菜单项', async () => {
+      await router.push('/config/ai/prompt-governance')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
+      expect(wrapper.text()).toContain('配置中心')
       expect(wrapper.text()).toContain('Prompt治理')
     })
 
@@ -301,22 +316,22 @@ describe('AppLayout', () => {
       expect(wrapper.text()).toContain('策略研究')
     })
 
-    it('AI问答页面应该显示"AI助手"', async () => {
+    it('AI问答页面应该显示"知识问答"', async () => {
       await router.push('/ai-chat')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
-      expect(wrapper.text()).toContain('AI助手')
+      expect(wrapper.text()).toContain('知识问答')
     })
 
     it('AI成本页面应该显示"AI成本"', async () => {
-      await router.push('/admin/ai-observability')
+      await router.push('/config/ai/observability')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('AI成本')
     })
 
     it('Prompt治理页面应该显示"Prompt治理"', async () => {
-      await router.push('/admin/prompt-templates')
+      await router.push('/config/ai/prompt-governance')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('Prompt治理')

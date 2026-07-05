@@ -6,7 +6,7 @@
 
 - 生产环境配置安全：`DEBUG=false` 时拒绝 `CORS_ORIGINS=*`，避免带凭证跨域被误放开。
 - 知识库源文件下载：移除裸 `axios` 和手写 `Authorization`，统一走前端 `api` 客户端复用 token 注入、重试和 401 处理。
-- 历史知识库迁移：确认旧数据来源为 ReqDocs 的 `document_management` MySQL/MongoDB；已按 10 篇文档一批迁移到当前 `ai_for_trader` 知识库表，结果为 44 个知识库、30,148 篇文档、11 个对话、44 条消息，且 44 个知识库均可公开读取。
+- 历史知识库迁移：确认旧数据来源为 ReqDocs 的 `document_management` MySQL/MongoDB；已按 10 篇文档一批迁移到当前 `ai_for_investor` 知识库表，结果为 44 个知识库、30,148 篇文档、11 个对话、44 条消息，且 44 个知识库均可公开读取。
 - 知识库页面初始化：前端默认知识库列表请求改为 `limit=100`，避免历史 44 个知识库被后端默认 20 条分页截断。
 - 知识库文档列表减载：`GET /knowledge-base/{kb_id}/documents/` 已改为只返回文档摘要，不再查询/返回正文；页面选中文档后再调用详情接口加载正文。16,422 篇文档的大知识库摘要读取 smoke 为 0.43s，响应项无 `content` 字段。
 - 前端 lint error：修复策略编辑/详情、数据同步配置表单的 prop mutation；修复一个测试变量声明问题。

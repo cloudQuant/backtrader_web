@@ -1,65 +1,121 @@
 <template>
-  <div class="space-y-4">
-    <div class="flex items-center justify-between gap-3">
-      <div>
-        <div class="text-sm text-slate-500">
-          {{ t('kbDoc.pageTitle') }}
+  <div
+    class="kb-doc-page"
+    data-test="kb-doc-page"
+  >
+    <section
+      class="kb-doc-hero"
+      data-test="kb-doc-hero"
+    >
+      <div class="kb-doc-hero-main">
+        <div class="kb-doc-kicker">
+          {{ t('kbDoc.heroKicker') }}
         </div>
-        <h2 class="text-2xl font-semibold text-slate-900">
-          {{ docData?.title || t('kbDoc.fallbackTitle') }}
-        </h2>
+        <h1>{{ docData?.title || t('kbDoc.fallbackTitle') }}</h1>
+        <p>{{ t('kbDoc.heroSubtitle') }}</p>
+        <div
+          v-if="docData"
+          class="kb-doc-tags"
+        >
+          <span :class="statusClass(doc.status)">{{ doc.status }}</span>
+          <span :class="indexClass(doc.index_status)">{{ doc.index_status }}</span>
+          <span v-if="sourceFileName">{{ sourceFileName }}</span>
+        </div>
       </div>
-      <button
-        type="button"
-        class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
-        @click="goBack"
+
+      <div class="kb-doc-hero-actions">
+        <button
+          type="button"
+          class="kb-doc-button"
+          @click="goBack"
+        >
+          <el-icon aria-hidden="true">
+            <ArrowLeft />
+          </el-icon>
+          {{ t('kbDoc.btnBack') }}
+        </button>
+        <button
+          v-if="docData"
+          type="button"
+          class="kb-doc-button kb-doc-button-primary"
+          @click="openQuickChat(t('kbDoc.prompt1'))"
+        >
+          <el-icon aria-hidden="true">
+            <MagicStick />
+          </el-icon>
+          {{ t('kbDoc.quickAiTitle') }}
+        </button>
+      </div>
+
+      <div
+        v-if="docData"
+        class="kb-doc-metrics"
+        data-test="kb-doc-metrics"
       >
-        {{ t('kbDoc.btnBack') }}
-      </button>
-    </div>
+        <article class="kb-doc-metric">
+          <el-icon aria-hidden="true">
+            <Document />
+          </el-icon>
+          <span>{{ t('kbDoc.statStatus') }}</span>
+          <strong>{{ doc.status }}</strong>
+        </article>
+        <article class="kb-doc-metric">
+          <el-icon aria-hidden="true">
+            <DataAnalysis />
+          </el-icon>
+          <span>{{ t('kbDoc.statIndex') }}</span>
+          <strong>{{ doc.index_status }}</strong>
+        </article>
+        <article class="kb-doc-metric">
+          <el-icon aria-hidden="true">
+            <Files />
+          </el-icon>
+          <span>{{ t('kbDoc.statSource') }}</span>
+          <strong>{{ sourceFileName ? t('kbDoc.sourceAvailable') : t('kbDoc.sourceMissing') }}</strong>
+        </article>
+        <article class="kb-doc-metric">
+          <el-icon aria-hidden="true">
+            <Reading />
+          </el-icon>
+          <span>{{ t('kbDoc.statContent') }}</span>
+          <strong>{{ doc.content?.length ?? 0 }} {{ t('kbDoc.metaContentLengthSuffix') }}</strong>
+        </article>
+      </div>
+    </section>
 
     <div
       v-if="loading"
-      class="rounded border border-slate-200 bg-white px-4 py-8 text-sm text-slate-500"
+      class="kb-doc-state"
+      data-test="kb-doc-loading"
     >
       {{ t('kbDoc.loading') }}
     </div>
 
     <div
       v-else-if="errorMessage"
-      class="rounded border border-rose-200 bg-rose-50 px-4 py-8 text-sm text-rose-700"
+      class="kb-doc-state kb-doc-state-error"
+      data-test="kb-doc-error"
     >
       {{ errorMessage }}
     </div>
 
     <template v-else-if="docData">
-      <!-- Document type / status tag row -->
-      <div class="flex flex-wrap items-center gap-2 text-xs">
-        <span
-          class="rounded px-2 py-0.5"
-          :class="statusClass(doc.status)"
-        >{{ doc.status }}</span>
-        <span
-          class="rounded px-2 py-0.5"
-          :class="indexClass(doc.index_status)"
-        >{{ doc.index_status }}</span>
-        <span
-          v-if="sourceFileName"
-          class="rounded bg-slate-100 px-2 py-0.5 text-slate-600"
-        >{{ sourceFileName }}</span>
-      </div>
-
-      <!-- Three columns: doc preview / summary / info -->
-      <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <!-- Main content card -->
-        <el-card class="min-w-0">
+      <div class="kb-doc-workbench">
+        <el-card
+          class="kb-doc-panel kb-doc-reader-panel"
+          data-test="kb-doc-reader-panel"
+        >
           <template #header>
-            <div class="flex items-center justify-between gap-3">
-              <div class="font-medium text-slate-900">
-                {{ t('kbDoc.cardTitle') }}
+            <div class="kb-doc-panel-header">
+              <div>
+                <div class="kb-doc-panel-kicker">
+                  {{ t('kbDoc.readerPanelKicker') }}
+                </div>
+                <div class="kb-doc-panel-title">
+                  {{ t('kbDoc.cardTitle') }}
+                </div>
               </div>
-              <div class="flex items-center gap-2 text-xs">
-                <!-- View switcher tab -->
+              <div class="kb-doc-reader-controls">
                 <el-tabs
                   v-model="activeTab"
                   class="kb-doc-tabs"
@@ -70,7 +126,7 @@
                     name="source"
                   />
                   <el-tab-pane
-                    label="Markdown"
+                    :label="t('kbDoc.tabMarkdown')"
                     name="markdown"
                   />
                   <el-tab-pane
@@ -78,58 +134,68 @@
                     name="metadata"
                   />
                 </el-tabs>
-                <!-- Zoom controls (PDF only) -->
-                <template v-if="activeTab === 'source' && sourceMimeType === 'application/pdf'">
-                  <span class="text-slate-400">|</span>
+                <div
+                  v-if="activeTab === 'source' && sourceMimeType === 'application/pdf'"
+                  class="kb-doc-zoom-controls"
+                >
                   <button
                     type="button"
-                    class="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
+                    class="kb-doc-icon-button"
                     :title="t('kbDoc.btnZoomOut')"
                     @click="adjustZoom(-0.1)"
                   >
-                    −
+                    <el-icon aria-hidden="true">
+                      <ZoomOut />
+                    </el-icon>
                   </button>
-                  <span class="text-xs text-slate-600">{{ Math.round(pdfZoom * 100) }}%</span>
+                  <span>{{ Math.round(pdfZoom * 100) }}%</span>
                   <button
                     type="button"
-                    class="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
+                    class="kb-doc-icon-button"
                     :title="t('kbDoc.btnZoomIn')"
                     @click="adjustZoom(0.1)"
                   >
-                    +
+                    <el-icon aria-hidden="true">
+                      <ZoomIn />
+                    </el-icon>
                   </button>
                   <button
                     type="button"
-                    class="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
+                    class="kb-doc-icon-button"
                     :title="t('kbDoc.btnReset')"
                     @click="pdfZoom = 1"
                   >
-                    ⟲
+                    <el-icon aria-hidden="true">
+                      <RefreshLeft />
+                    </el-icon>
                   </button>
                   <button
                     type="button"
-                    class="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
+                    class="kb-doc-icon-button"
                     :title="pdfFullscreen ? t('kbDoc.btnExitFullscreen') : t('kbDoc.btnFullscreen')"
                     @click="toggleFullscreen"
                   >
-                    {{ pdfFullscreen ? '⊠' : '⛶' }}
+                    <el-icon aria-hidden="true">
+                      <FullScreen />
+                    </el-icon>
                   </button>
                   <a
                     v-if="sourcePreviewUrl"
                     :href="sourcePreviewUrl"
                     :download="sourceFileName || 'document'"
-                    class="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
+                    class="kb-doc-icon-button"
                     :title="t('kbDoc.btnDownload')"
                     target="_blank"
                   >
-                    ↓
+                    <el-icon aria-hidden="true">
+                      <Download />
+                    </el-icon>
                   </a>
-                </template>
+                </div>
               </div>
             </div>
           </template>
 
-          <!-- ========== Source file view ========== -->
           <KnowledgeBaseDocSourceView
             v-show="activeTab === 'source'"
             :source-mime-type="sourceMimeType"
@@ -144,31 +210,27 @@
             @read-markdown="activeTab = 'markdown'"
           />
 
-          <!-- ========== Markdown view ========== -->
           <div
             v-show="activeTab === 'markdown'"
-            class="min-h-[60vh]"
+            class="kb-doc-markdown-pane"
           >
             <article
               v-if="doc.content"
-              class="document-reader max-h-[72vh] overflow-auto whitespace-pre-wrap break-words text-[15px] leading-8 text-slate-800"
+              class="document-reader"
             >
               {{ doc.content }}
             </article>
             <div
               v-else
-              class="flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 py-16 text-sm text-slate-500"
+              class="kb-doc-empty"
             >
-              <div class="text-4xl">
-                📝
-              </div>
-              <div class="mt-2">
-                {{ t('kbDoc.noMarkdownContent') }}
-              </div>
+              <el-icon aria-hidden="true">
+                <Document />
+              </el-icon>
+              <div>{{ t('kbDoc.noMarkdownContent') }}</div>
             </div>
           </div>
 
-          <!-- ========== Metadata view ========== -->
           <KnowledgeBaseDocMetadata
             :visible="activeTab === 'metadata'"
             :doc="doc"
@@ -180,20 +242,24 @@
           />
         </el-card>
 
-
-        <KnowledgeBaseDocSidePanel
-          :document-summary="documentSummary"
-          :source-file-name="sourceFileName"
-          :source-mime-type="sourceMimeType"
-          :source-preview-url="sourcePreviewUrl"
-          :is-office-file="isOfficeFile"
-          :has-content="!!doc.content"
-          :is-indexed="doc.index_status === 'indexed'"
-          :quick-prompts="quickPrompts"
-          @navigate="(tab) => (activeTab = tab)"
-          @download="downloadSourceFile"
-          @quick-chat="openQuickChat"
-        />
+        <aside
+          class="kb-doc-side"
+          data-test="kb-doc-side-panel"
+        >
+          <KnowledgeBaseDocSidePanel
+            :document-summary="documentSummary"
+            :source-file-name="sourceFileName"
+            :source-mime-type="sourceMimeType"
+            :source-preview-url="sourcePreviewUrl"
+            :is-office-file="isOfficeFile"
+            :has-content="!!doc.content"
+            :is-indexed="doc.index_status === 'indexed'"
+            :quick-prompts="quickPrompts"
+            @navigate="(tab) => (activeTab = tab)"
+            @download="downloadSourceFile"
+            @quick-chat="openQuickChat"
+          />
+        </aside>
       </div>
     </template>
   </div>
@@ -210,6 +276,19 @@ import { getErrorMessage } from '@/api'
 import KnowledgeBaseDocSidePanel from './knowledge-base-components/KnowledgeBaseDocSidePanel.vue'
 import KnowledgeBaseDocMetadata from './knowledge-base-components/KnowledgeBaseDocMetadata.vue'
 import KnowledgeBaseDocSourceView from './knowledge-base-components/KnowledgeBaseDocSourceView.vue'
+import {
+  ArrowLeft,
+  DataAnalysis,
+  Document,
+  Download,
+  Files,
+  FullScreen,
+  MagicStick,
+  Reading,
+  RefreshLeft,
+  ZoomIn,
+  ZoomOut,
+} from '@element-plus/icons-vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -351,7 +430,7 @@ function revokeSourcePreviewUrl() {
 }
 
 function goBack() {
-  router.push({ path: '/knowledge-base', query: { kbId: String(route.params.kbId || '') } })
+  router.push({ path: '/ai/knowledge-base', query: { kbId: String(route.params.kbId || '') } })
 }
 
 function downloadSourceFile() {
@@ -364,7 +443,7 @@ function downloadSourceFile() {
 
 function openQuickChat(prompt: string) {
   const kbId = String(route.params.kbId || '')
-  router.push({ path: '/ai-chat', query: { kbId, prompt } })
+  router.push({ path: '/ai/chat', query: { kbId, prompt } })
 }
 
 function onTabChange(tab: string | number) {
@@ -423,7 +502,7 @@ watch(
     if (prompt && typeof prompt === 'string') {
       // Bridge prompt to AI chat page via sessionStorage
       sessionStorage.setItem('kb_quick_prompt', prompt)
-      router.replace({ path: '/ai-chat', query: { kbId: route.params.kbId, prompt } })
+      router.replace({ path: '/ai/chat', query: { kbId: route.params.kbId, prompt } })
     }
   },
   { immediate: true }
@@ -443,8 +522,365 @@ if (typeof window !== 'undefined') {
 </script>
 
 <style scoped>
+.kb-doc-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  --kb-doc-surface: var(--bg-color);
+  --kb-doc-surface-soft: var(--fill-color-lighter);
+  --kb-doc-surface-muted: var(--fill-color-light);
+  --kb-doc-border: var(--border-color);
+  --kb-doc-primary-soft: color-mix(in srgb, var(--bg-color) 82%, var(--primary-color) 18%);
+  --kb-doc-success-soft: color-mix(in srgb, var(--bg-color) 84%, var(--success-color) 16%);
+  --kb-doc-warning-soft: color-mix(in srgb, var(--bg-color) 84%, var(--warning-color) 16%);
+  --kb-doc-danger-soft: color-mix(in srgb, var(--bg-color) 84%, var(--danger-color) 16%);
+  color: var(--text-color-primary);
+}
+
+.kb-doc-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: start;
+  padding: 22px;
+  border: 1px solid color-mix(in srgb, var(--kb-doc-border) 72%, var(--primary-color) 28%);
+  border-radius: 8px;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--kb-doc-surface) 88%, var(--primary-color) 12%),
+      color-mix(in srgb, var(--kb-doc-surface-soft) 90%, var(--primary-color) 10%)
+    );
+}
+
+.kb-doc-hero-main {
+  min-width: 0;
+}
+
+.kb-doc-kicker,
+.kb-doc-panel-kicker {
+  color: var(--primary-color);
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.kb-doc-hero h1 {
+  margin: 8px 0 0;
+  color: var(--text-color-primary);
+  font-size: 34px;
+  font-weight: 760;
+  line-height: 1.15;
+  letter-spacing: 0;
+  hyphens: auto;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.kb-doc-hero p {
+  max-width: 820px;
+  margin: 10px 0 0;
+  color: var(--text-color-secondary);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.kb-doc-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.kb-doc-button,
+.kb-doc-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--kb-doc-border);
+  border-radius: 8px;
+  background: var(--kb-doc-surface);
+  color: var(--text-color-regular);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.kb-doc-button {
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.kb-doc-button:hover,
+.kb-doc-icon-button:hover {
+  border-color: color-mix(in srgb, var(--primary-color) 42%, var(--kb-doc-border) 58%);
+  background: var(--kb-doc-primary-soft);
+  color: var(--primary-color);
+}
+
+.kb-doc-button-primary {
+  border-color: var(--primary-color);
+  background: var(--primary-color);
+  color: var(--el-color-white);
+}
+
+.kb-doc-button-primary:hover {
+  background: var(--primary-color-dark);
+  color: var(--el-color-white);
+}
+
+.kb-doc-tags,
+.kb-doc-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kb-doc-tags {
+  margin-top: 16px;
+}
+
+.kb-doc-tags span {
+  border: 1px solid var(--kb-doc-border);
+  border-radius: 9999px;
+  background: var(--kb-doc-surface);
+  padding: 4px 9px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.kb-doc-metrics {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.kb-doc-metric {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--kb-doc-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--kb-doc-surface) 90%, var(--kb-doc-surface-muted) 10%);
+}
+
+.kb-doc-metric .el-icon {
+  grid-row: span 2;
+  color: var(--primary-color);
+  font-size: 18px;
+}
+
+.kb-doc-metric span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+}
+
+.kb-doc-metric strong {
+  min-width: 0;
+  color: var(--text-color-primary);
+  font-size: 17px;
+  font-weight: 760;
+  line-height: 1.25;
+  hyphens: auto;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.kb-doc-state {
+  border: 1px solid var(--kb-doc-border);
+  border-radius: 8px;
+  background: var(--kb-doc-surface);
+  padding: 28px;
+  color: var(--text-color-secondary);
+  font-size: 14px;
+}
+
+.kb-doc-state-error {
+  border-color: color-mix(in srgb, var(--danger-color) 44%, var(--kb-doc-border) 56%);
+  background: var(--kb-doc-danger-soft);
+  color: var(--danger-color);
+}
+
+.kb-doc-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 16px;
+  align-items: start;
+}
+
+.kb-doc-panel {
+  min-width: 0;
+}
+
+.kb-doc-page :deep(.el-card) {
+  --el-card-bg-color: var(--kb-doc-surface);
+  --el-card-border-color: var(--kb-doc-border);
+  border-radius: 8px;
+  color: var(--text-color-primary);
+}
+
+.kb-doc-page :deep(.el-card__header) {
+  border-bottom-color: var(--kb-doc-border);
+  background: color-mix(in srgb, var(--kb-doc-surface) 90%, var(--kb-doc-surface-muted) 10%);
+}
+
+.kb-doc-page :deep(.el-card__body) {
+  background: var(--kb-doc-surface);
+}
+
+.kb-doc-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.kb-doc-panel-title {
+  margin-top: 3px;
+  color: var(--text-color-primary);
+  font-size: 16px;
+  font-weight: 760;
+}
+
+.kb-doc-reader-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.kb-doc-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+}
+
+.kb-doc-icon-button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.kb-doc-markdown-pane {
+  min-height: 60vh;
+}
+
 .document-reader {
   font-feature-settings: 'liga' 1, 'calt' 1;
+  max-height: 72vh;
+  overflow: auto;
+  border: 1px solid var(--kb-doc-border);
+  border-radius: 8px;
+  background: var(--kb-doc-surface-soft);
+  padding: 22px;
+  color: var(--text-color-primary);
+  font-size: 15px;
+  line-height: 1.85;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.kb-doc-empty {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  min-height: 320px;
+  border: 1px dashed var(--kb-doc-border);
+  border-radius: 8px;
+  background: var(--kb-doc-surface-soft);
+  color: var(--text-color-secondary);
+  font-size: 14px;
+  text-align: center;
+}
+
+.kb-doc-empty .el-icon {
+  color: var(--primary-color);
+  font-size: 34px;
+}
+
+.kb-doc-page :deep(.text-slate-900),
+.kb-doc-page :deep(.text-slate-800),
+.kb-doc-page :deep(.text-slate-700) {
+  color: var(--text-color-primary) !important;
+}
+
+.kb-doc-page :deep(.text-slate-600),
+.kb-doc-page :deep(.text-slate-500) {
+  color: var(--text-color-secondary) !important;
+}
+
+.kb-doc-page :deep(.text-slate-400),
+.kb-doc-page :deep(.text-slate-300) {
+  color: var(--text-color-placeholder) !important;
+}
+
+.kb-doc-page :deep(.bg-white),
+.kb-doc-page :deep(.bg-slate-50),
+.kb-doc-page :deep(.bg-slate-100),
+.kb-doc-page :deep(.bg-blue-50) {
+  background: var(--kb-doc-surface-soft) !important;
+}
+
+.kb-doc-page :deep(.bg-emerald-100) {
+  background: var(--kb-doc-success-soft) !important;
+}
+
+.kb-doc-page :deep(.bg-amber-100) {
+  background: var(--kb-doc-warning-soft) !important;
+}
+
+.kb-doc-page :deep(.bg-rose-50) {
+  background: var(--kb-doc-danger-soft) !important;
+}
+
+.kb-doc-page :deep(.bg-blue-600) {
+  background: var(--primary-color) !important;
+}
+
+.kb-doc-page :deep(.text-emerald-700) {
+  color: var(--success-color) !important;
+}
+
+.kb-doc-page :deep(.text-amber-700) {
+  color: var(--warning-color) !important;
+}
+
+.kb-doc-page :deep(.text-blue-700) {
+  color: var(--primary-color) !important;
+}
+
+.kb-doc-page :deep(.text-rose-700) {
+  color: var(--danger-color) !important;
+}
+
+.kb-doc-page :deep(.border),
+.kb-doc-page :deep(.border-slate-100),
+.kb-doc-page :deep(.border-slate-200),
+.kb-doc-page :deep(.border-slate-300),
+.kb-doc-page :deep(.border-rose-200) {
+  border-color: var(--kb-doc-border) !important;
+}
+
+.kb-doc-page :deep(input),
+.kb-doc-page :deep(select),
+.kb-doc-page :deep(textarea) {
+  border-color: var(--kb-doc-border) !important;
+  background: var(--kb-doc-surface) !important;
+  color: var(--text-color-primary) !important;
 }
 
 /* Tab style overrides */
@@ -459,8 +895,65 @@ if (typeof window !== 'undefined') {
   padding: 0 12px;
   height: 32px;
   line-height: 32px;
+  color: var(--text-color-secondary);
+}
+:deep(.kb-doc-tabs .el-tabs__item.is-active) {
+  color: var(--primary-color);
 }
 :deep(.kb-doc-tabs .el-tabs__active-bar) {
   height: 2px;
+  background: var(--primary-color);
+}
+
+@media (max-width: 1100px) {
+  .kb-doc-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .kb-doc-hero-actions {
+    justify-content: flex-start;
+  }
+
+  .kb-doc-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kb-doc-workbench {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .kb-doc-hero {
+    padding: 16px;
+  }
+
+  .kb-doc-button {
+    width: 100%;
+  }
+
+  .kb-doc-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kb-doc-panel-header,
+  .kb-doc-reader-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .kb-doc-reader-controls {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .kb-doc-hero h1 {
+    font-size: 28px;
+  }
+
+  .kb-doc-metrics {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

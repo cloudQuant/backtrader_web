@@ -12,8 +12,12 @@ vi.mock('element-plus', () => ({
 }))
 
 const push = vi.fn()
+const routeState = vi.hoisted(() => ({
+  meta: { workspaceType: 'research' as 'research' | 'trading' },
+  path: '/workspace',
+}))
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ meta: { workspaceType: 'research' }, path: '/workspace' }),
+  useRoute: () => routeState,
   useRouter: () => ({ push }),
 }))
 
@@ -24,11 +28,43 @@ vi.mock('@/api/index', () => ({
 
 const fetchWorkspaces = vi.fn().mockResolvedValue(undefined)
 const deleteWorkspace = vi.fn().mockResolvedValue(undefined)
+const storeState = vi.hoisted(() => ({
+  workspaces: [
+    {
+      id: 'w-1',
+      user_id: 'u-1',
+      name: 'A',
+      description: 'Alpha workspace',
+      workspace_type: 'research',
+      settings: {},
+      trading_config: {},
+      unit_count: 3,
+      completed_count: 2,
+      status: 'running',
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-01-02T00:00:00Z',
+    },
+    {
+      id: 'w-2',
+      user_id: 'u-1',
+      name: 'B',
+      description: 'Beta workspace',
+      workspace_type: 'research',
+      settings: {},
+      trading_config: {},
+      unit_count: 0,
+      completed_count: 0,
+      status: 'idle',
+      created_at: '2024-01-03T00:00:00Z',
+      updated_at: '2024-01-04T00:00:00Z',
+    },
+  ],
+  total: 2,
+  loading: false,
+}))
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceStore: () => ({
-    workspaces: [{ id: 'w-1', name: 'A' }],
-    total: 1,
-    loading: false,
+    ...storeState,
     fetchWorkspaces,
     deleteWorkspace,
   }),
@@ -55,6 +91,14 @@ describe('WorkspaceListPage', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    routeState.meta.workspaceType = 'research'
+    routeState.path = '/workspace'
+    storeState.total = 2
+    storeState.loading = false
+    storeState.workspaces = storeState.workspaces.map(workspace => ({
+      ...workspace,
+      workspace_type: routeState.meta.workspaceType,
+    }))
   })
 
   it('fetches research workspaces on mount via the workspaceType watcher', async () => {
@@ -63,12 +107,12 @@ describe('WorkspaceListPage', () => {
     expect(fetchWorkspaces).toHaveBeenCalledWith(0, 50, 'research')
   })
 
-  it('statusTagType maps known statuses', () => {
+  it('statusTone maps known statuses', () => {
     const vm = doMount().vm as any
-    expect(vm.statusTagType('running')).toBe('warning')
-    expect(vm.statusTagType('completed')).toBe('success')
-    expect(vm.statusTagType('error')).toBe('danger')
-    expect(vm.statusTagType('???')).toBe('info')
+    expect(vm.statusTone('running')).toBe('running')
+    expect(vm.statusTone('completed')).toBe('completed')
+    expect(vm.statusTone('error')).toBe('error')
+    expect(vm.statusTone('???')).toBe('idle')
   })
 
   it('statusLabel maps known statuses and falls back to the raw value', () => {
@@ -89,6 +133,40 @@ describe('WorkspaceListPage', () => {
     expect(vm.emptyDescription).toBe('workspace.emptyResearch')
   })
 
+  it('renders trading operations summary and fetches trading workspaces for trading routes', async () => {
+    routeState.meta.workspaceType = 'trading'
+    routeState.path = '/trading/workspaces'
+    storeState.workspaces = [
+      {
+        ...storeState.workspaces[0],
+        workspace_type: 'trading',
+        status: 'running',
+        unit_count: 4,
+        completed_count: 3,
+      },
+      {
+        ...storeState.workspaces[1],
+        workspace_type: 'trading',
+        status: 'error',
+        unit_count: 2,
+        completed_count: 0,
+      },
+    ]
+    storeState.total = 2
+
+    const wrapper = doMount()
+    await new Promise(r => setTimeout(r, 0))
+    const vm = wrapper.vm as any
+
+    expect(fetchWorkspaces).toHaveBeenCalledWith(0, 50, 'trading')
+    expect(vm.workspaceType).toBe('trading')
+    expect(vm.emptyDescription).toBe('workspace.emptyTrading')
+    expect(wrapper.find('[data-test="trading-ops-panel"]').exists()).toBe(true)
+    expect(vm.tradingCompletionRate).toBe(50)
+    expect(vm.workspaceReadinessLabel(storeState.workspaces[0])).toBe('workspace.tradingReadinessPartial')
+    expect(vm.workspaceReadinessLabel(storeState.workspaces[1])).toBe('workspace.tradingReadinessReview')
+  })
+
   it('toggleSelect adds then removes an id', () => {
     const vm = doMount().vm as any
     vm.toggleSelect('w-1')
@@ -107,6 +185,14 @@ describe('WorkspaceListPage', () => {
     const vm = doMount().vm as any
     vm.goToDetail('w-9')
     expect(push).toHaveBeenCalledWith('/workspace/w-9')
+  })
+
+  it('goToDetail routes trading workspaces to trading detail paths', () => {
+    routeState.meta.workspaceType = 'trading'
+    routeState.path = '/trading/workspaces'
+    const vm = doMount().vm as any
+    vm.goToDetail('w-9')
+    expect(push).toHaveBeenCalledWith('/trading/w-9')
   })
 
   it('handleEdit opens the dialog with the editing workspace', () => {

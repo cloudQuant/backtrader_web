@@ -19,7 +19,7 @@
       "story": "从首页进入完整交易生命周期，按数据、研究、交易、组合、AI 和管理组织功能。",
       "file": "assets/screenshots/02-dashboard.png",
       "currentPath": "/",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "03-data-market",
@@ -29,7 +29,7 @@
       "story": "把行情数据沉淀为 AI 可理解、可调用的交易研究输入。",
       "file": "assets/screenshots/03-data-market.png",
       "currentPath": "/data/market",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "04-data-quote",
@@ -39,7 +39,7 @@
       "story": "查看实时行情状态，为 AI 解释市场异动提供基础。",
       "file": "assets/screenshots/04-data-quote.png",
       "currentPath": "/data/quote",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "05-data-topics",
@@ -49,7 +49,7 @@
       "story": "用主题化方式组织数据资产，让研究线索更容易被复用。",
       "file": "assets/screenshots/05-data-topics.png",
       "currentPath": "/data/topics",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "06-data-scripts",
@@ -59,7 +59,7 @@
       "story": "管理数据采集和加工脚本，形成可调度的数据流水线。",
       "file": "assets/screenshots/06-data-scripts.png",
       "currentPath": "/data/scripts",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "07-data-tasks",
@@ -69,7 +69,7 @@
       "story": "把数据采集、清洗和更新变成可跟踪任务。",
       "file": "assets/screenshots/07-data-tasks.png",
       "currentPath": "/data/tasks",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "08-data-executions",
@@ -79,7 +79,7 @@
       "story": "追踪数据任务运行结果，保障 AI 输入的可追溯性。",
       "file": "assets/screenshots/08-data-executions.png",
       "currentPath": "/data/executions",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "09-data-tables",
@@ -89,7 +89,7 @@
       "story": "浏览结构化数据表，支撑策略研究和回测数据核验。",
       "file": "assets/screenshots/09-data-tables.png",
       "currentPath": "/data/tables",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "11-news-intelligence",
@@ -99,7 +99,7 @@
       "story": "把新闻和事件接入交易研究链路，辅助机会发现。",
       "file": "assets/screenshots/11-news-intelligence.png",
       "currentPath": "/data/intelligence/news",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "12-options-chain",
@@ -109,7 +109,7 @@
       "story": "展示衍生品结构，扩展 AI 对风险和市场预期的分析上下文。",
       "file": "assets/screenshots/12-options-chain.png",
       "currentPath": "/data/intelligence/options",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "13-scanners",
@@ -119,7 +119,7 @@
       "story": "通过扫描器快速发现候选标的和交易信号。",
       "file": "assets/screenshots/13-scanners.png",
       "currentPath": "/data/intelligence/scanners",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "14-data-sync",
@@ -129,7 +129,7 @@
       "story": "同步本地和远端数据库，保障团队环境数据一致。",
       "file": "assets/screenshots/14-data-sync.png",
       "currentPath": "/data/sync",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "15-data-interfaces",
@@ -139,7 +139,7 @@
       "story": "集中管理数据接口，为后续模型和策略调用提供入口。",
       "file": "assets/screenshots/15-data-interfaces.png",
       "currentPath": "/data/interfaces",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "16-data-governance",
@@ -149,7 +149,7 @@
       "story": "把数据质量、来源和治理纳入 AI 交易系统的基础设施。",
       "file": "assets/screenshots/16-data-governance.png",
       "currentPath": "/data/governance",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "17-airflow",
@@ -159,7 +159,7 @@
       "story": "通过 DAG 管理自动化数据和研究任务，支撑持续更新。",
       "file": "assets/screenshots/17-airflow.png",
       "currentPath": "/data/airflow",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "18-ai-chat",
@@ -169,7 +169,7 @@
       "story": "用模型渠道和知识库上下文，让交易者直接问系统、问资料、问策略。",
       "file": "assets/screenshots/18-ai-chat.png",
       "currentPath": "/ai/chat",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "19-knowledge-base",
@@ -179,7 +179,7 @@
       "story": "上传和索引研报、策略文档、交易规则和复盘材料。",
       "file": "assets/screenshots/19-knowledge-base.png",
       "currentPath": "/ai/knowledge-base",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "20-prompt-governance",
@@ -189,7 +189,7 @@
       "story": "把提示词模板纳入治理，保证团队 AI 输出稳定可复用。",
       "file": "assets/screenshots/20-prompt-governance.png",
       "currentPath": "/ai/prompt-governance",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "21-ai-observability",
@@ -199,7 +199,7 @@
       "story": "追踪模型调用、失败诊断和成本，为 AI 能力团队化提供依据。",
       "file": "assets/screenshots/21-ai-observability.png",
       "currentPath": "/ai/observability",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "22-strategy-center",
@@ -209,7 +209,7 @@
       "story": "集中管理策略、模板、编辑器和 AI 生成草稿。",
       "file": "assets/screenshots/22-strategy-center.png",
       "currentPath": "/research/strategies",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "23-research-workspaces",
@@ -219,7 +219,7 @@
       "story": "把策略、回测、报告和任务沉淀成可复用研究资产。",
       "file": "assets/screenshots/23-research-workspaces.png",
       "currentPath": "/research/workspaces",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "24-backtest",
@@ -229,7 +229,7 @@
       "story": "通过收益、回撤、交易统计、评分和过拟合检测降低试错成本。",
       "file": "assets/screenshots/24-backtest.png",
       "currentPath": "/research/backtests/legacy",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "25-quant-tools",
@@ -239,7 +239,7 @@
       "story": "提供辅助分析工具，帮助用户快速完成策略研究计算。",
       "file": "assets/screenshots/25-quant-tools.png",
       "currentPath": "/research/tools",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "26-trading-workspace",
@@ -249,7 +249,7 @@
       "story": "把模拟、实盘、运行状态和交易任务集中到执行工作区。",
       "file": "assets/screenshots/26-trading-workspace.png",
       "currentPath": "/trading/workspaces",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "27-brokers",
@@ -259,7 +259,7 @@
       "story": "管理券商和交易账户配置，支撑从研究到执行的连接。",
       "file": "assets/screenshots/27-brokers.png",
       "currentPath": "/trading/brokers",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "28-gateways",
@@ -269,7 +269,7 @@
       "story": "监控交易网关连接状态，降低实盘执行前的不确定性。",
       "file": "assets/screenshots/28-gateways.png",
       "currentPath": "/trading/gateways",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "29-ai-trading",
@@ -279,7 +279,7 @@
       "story": "展示 AI 辅助交易运营的入口，强调辅助监控和决策支持。",
       "file": "assets/screenshots/29-ai-trading.png",
       "currentPath": "/trading/ai",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "30-portfolio",
@@ -289,7 +289,7 @@
       "story": "把资产、持仓和风险放到组合层面看，避免只看单策略。",
       "file": "assets/screenshots/30-portfolio.png",
       "currentPath": "/portfolio/overview",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "31-portfolio-ledger",
@@ -299,7 +299,7 @@
       "story": "沉淀资金、持仓和交易记录，为 AI 复盘提供事实基础。",
       "file": "assets/screenshots/31-portfolio-ledger.png",
       "currentPath": "/portfolio/ledger",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     },
     {
       "id": "32-settings",
@@ -309,7 +309,7 @@
       "story": "集中管理系统配置、用户偏好和平台能力边界。",
       "file": "assets/screenshots/32-settings.png",
       "currentPath": "/admin/settings",
-      "pageTitle": "AI for Trader - 量化交易回测平台"
+      "pageTitle": "AI for Investor - 量化交易回测平台"
     }
   ],
   "screenshotMode": "viewport",

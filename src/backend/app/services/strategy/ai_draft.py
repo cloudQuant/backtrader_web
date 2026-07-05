@@ -40,6 +40,7 @@ def build_ai_strategy_draft(prompt: str, references: list[str] | None = None) ->
     setup_lines = [
         "        self.close = self.datas[0].close",
         "        self.entry_price = None",
+        "        self.entry_bar = None",
         "        self.stop_price = None",
         "        self.take_profit_price = None",
     ]
@@ -66,7 +67,7 @@ def build_ai_strategy_draft(prompt: str, references: list[str] | None = None) ->
 
 class {class_name}(bt.Strategy):
     """
-    Auto-generated draft from AI for Trader AI Copilot.
+    Auto-generated draft from AI for Investor AI Copilot.
     Original prompt: {prompt_comment}
     """
 
@@ -114,6 +115,7 @@ class {class_name}(bt.Strategy):
                 if size <= 0:
                     return
                 self.entry_price = entry_price
+                self.entry_bar = len(self)
                 self.buy(size=size)
         else:
             should_exit = self._exit_signal()
@@ -121,9 +123,12 @@ class {class_name}(bt.Strategy):
                 should_exit = True
             if self.take_profit_price is not None and self.close[0] >= self.take_profit_price:
                 should_exit = True
+            if self.entry_bar is not None and len(self) - self.entry_bar >= self.p.max_hold_bars:
+                should_exit = True
             if should_exit:
                 self.close()
                 self.entry_price = None
+                self.entry_bar = None
                 self.stop_price = None
                 self.take_profit_price = None
 '''

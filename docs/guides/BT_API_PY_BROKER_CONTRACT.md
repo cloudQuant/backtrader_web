@@ -5,12 +5,12 @@
 ## 当前生效的架构边界
 
 - `bt_api_py` 继续承担统一 broker contract 与 `btapibroker` 集成路径。
-- `ai-for-trader` 是消费方，不再继续扩 broker registry / adapter / native-paper 实装平台。
+- `ai-for-investor` 是消费方，不再继续扩 broker registry / adapter / native-paper 实装平台。
 - 后续新增交易所 / 券商接入，优先按独立 `bt_api_xx` 包演进，并与现有 `bt_api_py` 模式保持兼容。
 
 ## 重要约束
 
-`bt_api_py` 是独立 Python 包，不应在 `ai-for-trader/src/bt_api_py` 中直接扩展。
+`bt_api_py` 是独立 Python 包，不应在 `ai-for-investor/src/bt_api_py` 中直接扩展。
 
 当前新增实现位于独立仓：
 
@@ -31,7 +31,7 @@
 
 - `bt_api_py` 保持统一抽象层、测试契约与 backtrader 集成层稳定。
 - 单个交易所 / 券商的具体实现，优先拆分到独立 `bt_api_xx` 包。
-- `ai-for-trader` 侧如果需要配合，只做统一消费、展示、调度、审计与文档边界，不再承接 broker 主实现。
+- `ai-for-investor` 侧如果需要配合，只做统一消费、展示、调度、审计与文档边界，不再承接 broker 主实现。
 
 相关执行文档：
 
@@ -197,10 +197,10 @@ error.to_dict()
 
 ### 验证边界
 
-- 在 `ai-for-trader` 仓内，推荐把 `tests/test_broker_contract.py` 作为集成 smoke test 回放。
+- 在 `ai-for-investor` 仓内，推荐把 `tests/test_broker_contract.py` 作为集成 smoke test 回放。
 - `MockBrokerAdapter` 的覆盖率 gate 需要回到独立 editable 仓 `/Users/yunjinqi/Documents/new_projects/bt_api/bt_api_py` 执行。
-- 原因是 `ai-for-trader/src/backend/.coveragerc` 当前固定 `source = app`，只统计 backend `app` 包；而 `bt_api_py.brokers.mock` 的实际导入路径位于独立仓。
-- 因此，`ai-for-trader/src/backend` 下的 `pytest --cov=bt_api_py.brokers.mock ...` 不再视作本仓稳定验收命令。
+- 原因是 `ai-for-investor/src/backend/.coveragerc` 当前固定 `source = app`，只统计 backend `app` 包；而 `bt_api_py.brokers.mock` 的实际导入路径位于独立仓。
+- 因此，`ai-for-investor/src/backend` 下的 `pytest --cov=bt_api_py.brokers.mock ...` 不再视作本仓稳定验收命令。
 
 ## GatewayBridgeAdapter
 
@@ -272,7 +272,7 @@ from bt_api_py.testing.contract_cases import run_broker_contract_cases
 }
 ```
 
-在 `ai-for-trader` 仓内，当前推荐的最小回放命令是：
+在 `ai-for-investor` 仓内，当前推荐的最小回放命令是：
 
 ```bash
 pytest tests/test_broker_contract.py -q --tb=short

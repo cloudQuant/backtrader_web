@@ -64,8 +64,8 @@ const emit = defineEmits<{
 .citation-box {
   margin-top: 12px;
   border: 1px solid var(--border-color);
-  border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-card);
+  border-radius: 8px;
+  background: var(--bg-color);
   padding: 12px;
 }
 
@@ -87,11 +87,16 @@ const emit = defineEmits<{
   width: 100%;
   align-items: start;
   border: 1px solid var(--border-color);
-  border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-hover);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-color) 88%, var(--fill-color-light) 12%);
   padding: 10px;
   text-align: left;
   cursor: pointer;
+}
+
+.citation-item:hover {
+  border-color: color-mix(in srgb, var(--primary-color) 34%, var(--border-color) 66%);
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--primary-color) 16%);
 }
 
 .citation-item + .citation-item {
@@ -105,7 +110,7 @@ const emit = defineEmits<{
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
-  background: var(--info-surface);
+  background: color-mix(in srgb, var(--bg-color) 76%, var(--primary-color) 24%);
   color: var(--primary-color);
   font-size: 12px;
   font-weight: 700;

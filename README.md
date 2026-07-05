@@ -1,4 +1,4 @@
-# AI for Trader
+# AI for Investor
 
 AI 驱动的量化研究、策略生成、回测验证与交易辅助平台
 
@@ -9,7 +9,7 @@ AI 驱动的量化研究、策略生成、回测验证与交易辅助平台
 
 ## 项目简介
 
-AI for Trader 是一个面向量化交易者和投研团队的 **AI + 量化** MVP 产品，围绕“自然语言研究 → 知识库问答 → 策略生成 → 回测验证 → 工作区沉淀”的闭环，提供从策略开发、数据管理、回测分析、参数优化到模拟交易、实盘监控和 AI 辅助研究的全流程解决方案：
+AI for Investor 是一个面向量化交易者和投研团队的 **AI + 量化** MVP 产品，围绕“自然语言研究 → 知识库问答 → 策略生成 → 回测验证 → 工作区沉淀”的闭环，提供从策略开发、数据管理、回测分析、参数优化到模拟交易、实盘监控和 AI 辅助研究的全流程解决方案：
 
 - 🚀 **开箱即用** - 5分钟完成首次回测
 - 📊 **专业图表** - Echarts K线图 + 10+ 分析图表
@@ -74,8 +74,8 @@ AI for Trader 是一个面向量化交易者和投研团队的 **AI + 量化** M
 
 ```bash
 # 克隆项目
-git clone https://github.com/cloudQuant/ai-for-trader.git
-cd ai-for-trader
+git clone https://github.com/cloudQuant/ai-for-investor.git
+cd ai-for-investor
 
 # 步骤 1：安装前环境检查
 ./scripts/dev/verify-dev-env.sh --preinstall
@@ -135,7 +135,7 @@ AI 调用可观测、多模型路由、VaR/CVaR、因子分析、绩效归因和
 ## 项目结构
 
 ```
-ai-for-trader/
+ai-for-investor/
 ├── src/
 │   ├── backend/             # FastAPI 后端
 │   │   ├── app/

@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
+const routerMock = vi.hoisted(() => ({
+  push: vi.fn(),
+  replace: vi.fn(),
+}))
+
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({ t: (k: string) => k }),
 }))
@@ -12,8 +17,8 @@ vi.mock('element-plus', () => ({
 }))
 
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: {}, params: {}, path: '/data/tasks' }),
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRoute: () => ({ query: {}, params: {}, path: '/config/data/tasks' }),
+  useRouter: () => routerMock,
 }))
 
 vi.mock('@/api/akshare', () => ({
@@ -24,7 +29,29 @@ vi.mock('@/api/akshare', () => ({
     }),
   },
   akshareTasksApi: {
-    list: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    list: vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: 3,
+          name: 'Daily stock sync',
+          description: 'Refresh daily stock bars',
+          user_id: 'admin',
+          script_id: 's-1',
+          schedule_type: 'cron',
+          schedule_expression: '0 8 * * 1-5',
+          parameters: {},
+          is_active: true,
+          retry_on_failure: true,
+          max_retries: 3,
+          timeout: 300,
+          last_execution_at: '2026-07-01T08:00:00Z',
+          next_execution_at: '2026-07-02T08:00:00Z',
+          created_at: '2026-06-30T08:00:00Z',
+          updated_at: '2026-07-01T08:00:00Z',
+        },
+      ],
+      total: 1,
+    }),
     getScheduleTemplates: vi.fn().mockResolvedValue({
       templates: [{ value: 'every_day', label: 'Daily', cron_expression: '0 8 * * *' }],
     }),
@@ -68,6 +95,17 @@ describe('DataTasksPage', () => {
     expect(tasksApi.getScheduleTemplates).toHaveBeenCalled()
   })
 
+  it('renders the redesigned schedule governance workbench', async () => {
+    const wrapper = doMount()
+    await new Promise(r => setTimeout(r, 0))
+    expect(wrapper.find('[data-test="tasks-hero"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="tasks-metrics"]').findAll('.tasks-metric')).toHaveLength(4)
+    expect(wrapper.find('[data-test="tasks-workbench"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="tasks-table"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('tasksWorkbenchTitle')
+    expect(wrapper.text()).toContain('Daily stock sync')
+  })
+
   it('isAdmin reflects the auth store', () => {
     expect((doMount().vm as any).isAdmin).toBe(true)
   })
@@ -107,6 +145,10 @@ describe('DataTasksPage', () => {
     const vm = doMount().vm as any
     await vm.runTask(3)
     expect(tasksApi.run).toHaveBeenCalledWith(3)
+    expect(routerMock.push).toHaveBeenCalledWith({
+      name: 'ConfigDataExecutions',
+      query: { task_id: '3' },
+    })
   })
 
   it('toggleTask invokes the toggle API', async () => {

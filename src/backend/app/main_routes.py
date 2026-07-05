@@ -87,7 +87,7 @@ def register_runtime_routes(
     @app.get("/", summary="Root route")
     async def root():
         return {
-            "service": "AI for Trader API",
+            "service": "AI for Investor API",
             "version": "2.0.0",
             "status": "running",
             "docs": "/docs",

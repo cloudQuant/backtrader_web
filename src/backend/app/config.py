@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     """
 
     # App settings
-    APP_NAME: str = "ai-for-trader"
+    APP_NAME: str = "ai-for-investor"
     DEBUG: bool = Field(default=False, description="Debug mode (must remain False in production)")
     SECRET_KEY: str = Field(
         default="your-secret-key-change-in-production",
@@ -167,6 +167,12 @@ class Settings(BaseSettings):
     )
     AI_CHAT_TEMPERATURE: float = Field(
         default=0.2, description="Sampling temperature for AI chat provider requests"
+    )
+    AI_CHAT_MAX_TOKENS: int = Field(
+        default=4096,
+        ge=512,
+        le=32768,
+        description="Maximum tokens requested from the AI chat provider",
     )
     AI_BUDGET_DAILY_USD: float | None = Field(
         default=None, description="Default daily AI cost budget in USD. None means unlimited"
@@ -272,7 +278,7 @@ class Settings(BaseSettings):
     )
     AIRFLOW_CALLBACK_BASE_URL: str = Field(
         default="http://localhost:8000",
-        description="Base URL for Airflow task callbacks to ai-for-trader",
+        description="Base URL for Airflow task callbacks to ai-for-investor",
     )
 
     # SQL logging (independent of DEBUG to avoid too much noise)

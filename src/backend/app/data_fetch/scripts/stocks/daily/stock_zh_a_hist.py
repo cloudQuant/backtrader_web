@@ -38,6 +38,58 @@ class StockZhAHist(AkshareToMySql):
         market = "1" if symbol.startswith("6") else "0"
         return f"{market}.{symbol}"
 
+    @staticmethod
+    def _tx_symbol(symbol: str) -> str:
+        symbol = str(symbol or "").strip()
+        if symbol.startswith(("sh", "sz", "bj")):
+            return symbol
+        if symbol.startswith("6"):
+            return f"sh{symbol}"
+        if symbol.startswith(("4", "8")):
+            return f"bj{symbol}"
+        return f"sz{symbol}"
+
+    def _fetch_daily_from_tencent(self, **kwargs) -> pd.DataFrame:
+        symbol = str(kwargs.get("symbol") or "000001").strip()
+        tx_kwargs = {
+            "symbol": self._tx_symbol(symbol),
+            "start_date": kwargs.get("start_date", "19700101"),
+            "end_date": kwargs.get("end_date", "20500101"),
+            "adjust": kwargs.get("adjust", "qfq"),
+        }
+        if kwargs.get("_call_timeout") is not None:
+            tx_kwargs["_call_timeout"] = kwargs["_call_timeout"]
+        try:
+            df = self.fetch_ak_data("stock_zh_a_hist_tx", **tx_kwargs)
+        except Exception as exc:
+            self.logger.warning(f"Tencent stock history fallback failed: {exc}")
+            return pd.DataFrame()
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        df = df.rename(
+            columns={
+                "date": "日期",
+                "open": "开盘",
+                "close": "收盘",
+                "high": "最高",
+                "low": "最低",
+                "amount": "成交量",
+            }
+        )
+        df["股票代码"] = symbol
+        df["symbol"] = symbol
+        df["name"] = symbol
+        if "成交额" not in df.columns:
+            df["成交额"] = None
+        for column in ("振幅", "涨跌幅", "涨跌额", "换手率"):
+            if column not in df.columns:
+                df[column] = None
+        self.logger.warning(
+            "Eastmoney kline returned empty; populated STOCK_ZH_A_HIST from Tencent daily history"
+        )
+        return df
+
     def _fetch_daily_from_trends(
         self, symbol: str, start_date: str | None = None, end_date: str | None = None
     ) -> pd.DataFrame:
@@ -135,22 +187,40 @@ class StockZhAHist(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
+            source = str(kwargs.pop("source", "auto") or "auto").lower()
+            source_aliases = {
+                "tx": "tencent",
+                "qq": "tencent",
+                "em": "eastmoney",
+                "east_money": "eastmoney",
+            }
+            source = source_aliases.get(source, source)
+            if source not in {"auto", "eastmoney", "tencent"}:
+                self.logger.warning(f"Unknown stock history source {source!r}; using auto")
+                source = "auto"
+
             # Fetch data from AkShare
-            try:
-                df = self.fetch_ak_data("stock_zh_a_hist", **kwargs)
-            except Exception as fetch_exc:
-                self.logger.warning(
-                    f"Eastmoney kline fetch failed, trying same-source trends2 aggregation: {fetch_exc}"
-                )
-                df = pd.DataFrame()
+            if source == "tencent":
+                df = self._fetch_daily_from_tencent(**kwargs)
+            else:
+                try:
+                    df = self.fetch_ak_data("stock_zh_a_hist", **kwargs)
+                except Exception as fetch_exc:
+                    self.logger.warning(
+                        f"Eastmoney kline fetch failed, trying Tencent daily history: {fetch_exc}"
+                    )
+                    df = pd.DataFrame()
 
             if df is None or df.empty:
                 symbol = str(kwargs.get("symbol") or "000001")
-                df = self._fetch_daily_from_trends(
-                    symbol=symbol,
-                    start_date=kwargs.get("start_date"),
-                    end_date=kwargs.get("end_date"),
-                )
+                if source in {"auto", "tencent"}:
+                    df = self._fetch_daily_from_tencent(**kwargs)
+                if df is None or df.empty:
+                    df = self._fetch_daily_from_trends(
+                        symbol=symbol,
+                        start_date=kwargs.get("start_date"),
+                        end_date=kwargs.get("end_date"),
+                    )
                 if df is None or df.empty:
                     self.logger.warning("No data found")
                     return pd.DataFrame()
@@ -171,12 +241,16 @@ class StockZhAHist(AkshareToMySql):
             if "name" not in df.columns and kwargs.get("symbol") is not None:
                 df["name"] = str(kwargs["symbol"])
 
-            # Save to database
+            # Save to database. STOCK_ZH_A_HIST is keyed by (symbol, data_date);
+            # deleting by data_date alone would remove the same day's rows for
+            # other symbols during batch backfills.
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            if "日期" in df.columns:
-                for trade_date in sorted(df["日期"].astype(str).unique()):
-                    self.delete_data(self.table_name, {"data_date": trade_date})
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+            self.save_data(
+                df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["symbol", "data_date"],
+            )
 
             return df
 

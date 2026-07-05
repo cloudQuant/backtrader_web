@@ -2,7 +2,7 @@
 
 ## Overview
 
-Connect to real brokers for live trading with AI for Trader.
+Connect to real brokers for live trading with AI for Investor.
 
 ## Supported Brokers
 

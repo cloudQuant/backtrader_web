@@ -4,7 +4,7 @@
 strategy:
   name: "MT5 布林带突破策略"
   description: "基于布林带的突破策略，适用于MT5外汇品种。价格突破上轨做多，跌破下轨平仓。"
-  author: "ai-for-trader"
+  author: "ai-for-investor"
 
 # ============================================================
 # 策略参数

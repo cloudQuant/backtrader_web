@@ -45,7 +45,7 @@ def _install_in_memory_provider() -> InMemorySpanExporter:
     trace._TRACER_PROVIDER_SET_ONCE._done = True  # type: ignore[attr-defined]
     import app.utils.tracing as tracing_mod
 
-    tracing_mod._TRACER = provider.get_tracer("ai-for-trader")
+    tracing_mod._TRACER = provider.get_tracer("ai-for-investor")
     return exporter
 
 

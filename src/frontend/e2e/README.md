@@ -1,6 +1,6 @@
 # E2E 测试环境设置指南
 
-本指南帮助你设置和运行 AI for Trader 的 E2E 测试。
+本指南帮助你设置和运行 AI for Investor 的 E2E 测试。
 
 ## 前提条件
 

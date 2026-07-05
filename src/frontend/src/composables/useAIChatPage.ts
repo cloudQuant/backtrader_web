@@ -13,6 +13,7 @@ import {
   formatDate,
   getStrategyDraftIssue,
   retrievalProfileLabel,
+  type QuickTool,
 } from '@/composables/useAIChatRendering'
 import { useStrategyDraftWorkspaceExecution } from '@/composables/useStrategyDraftWorkspaceExecution'
 import type { KBChatMessage } from '@/stores/kbChat'
@@ -24,6 +25,8 @@ import type { Workspace } from '@/types/workspace'
 
 type StockMarketCode = 'cn_a' | 'hk' | 'us'
 type StockResearchDepthCode = 'quick' | 'basic' | 'standard' | 'deep' | 'full'
+type StrategyWorkflowActionKey = 'rethink' | 'regenerate' | 'backtest' | 'review' | 'optimize'
+type StrategyAssistantMode = 'strategy_idea' | 'backtrader_strategy' | 'strategy_review'
 
 // i18n-ignore-next-line
 // i18n-reason: Internal API value map encoded with unicode escapes, not user-facing literals.
@@ -38,6 +41,11 @@ const STOCK_MODULE_PROMPT_LABELS: Record<string, string> = { market: '\u6280\u67
 // i18n-reason: Internal prompt map encoded with unicode escapes, not user-facing literals.
 const STOCK_DEPTH_PROMPT_LABELS: Record<string, string> = { quick: '\u5feb\u901f\u5206\u6790', basic: '\u57fa\u7840\u6df1\u5ea6', standard: '\u6807\u51c6\u6df1\u5ea6', deep: '\u6df1\u5ea6\u7814\u7a76', full: '\u5168\u9762\u7814\u7a76' }
 const STOCK_PROMPT_DEFAULT_FOCUS = '\u6280\u672f\u9762\u3001\u57fa\u672c\u9762\u3001\u65b0\u95fb\u98ce\u9669'
+const STRATEGY_ASSISTANT_MODES = new Set<KBAssistantMode>([
+  'strategy_idea',
+  'backtrader_strategy',
+  'strategy_review',
+])
 
 export function useAIChatPage() {
   const { t } = useI18n()
@@ -93,6 +101,7 @@ export function useAIChatPage() {
   } = useStrategyDraftWorkspaceExecution()
 
   const currentModeMeta = computed(() => assistantModeMetaMap.value[selectedAssistantMode.value])
+  const requiresKnowledgeBase = computed(() => selectedAssistantMode.value === 'knowledge_qa')
   const suggestedPrompts = computed(() => currentModeMeta.value.suggestedPrompts)
   const quickTools = computed(() => currentModeMeta.value.quickTools)
   const inputPlaceholder = computed(() => currentModeMeta.value.inputPlaceholder)
@@ -105,6 +114,25 @@ export function useAIChatPage() {
     () => selectedKnowledgeBaseId.value || currentKnowledgeBase.value?.id || '',
   )
   const currentKnowledgeBaseName = computed(() => currentKnowledgeBase.value?.name ?? '')
+  const requestKnowledgeBaseId = computed(() => (
+    requiresKnowledgeBase.value ? currentKnowledgeBaseId.value : null
+  ))
+  const displayContextTitle = computed(() => {
+    if (!requiresKnowledgeBase.value) return t('aiChat.noKnowledgeBaseRequired')
+    return currentKnowledgeBaseName.value || t('aiChat.noKnowledgeBaseSelected')
+  })
+  const composerHint = computed(() => {
+    if (requiresKnowledgeBase.value && !currentKnowledgeBaseId.value) {
+      return t('aiChat.selectKnowledgeBaseFirst')
+    }
+    return currentModeMeta.value.inputHint
+  })
+  const canSubmitQuestion = computed(() => (
+    Boolean(question.value.trim())
+    && !chatStore.loading
+    && (!requiresKnowledgeBase.value || Boolean(currentKnowledgeBaseId.value))
+  ))
+  const strategyWorkflowEnabled = computed(() => false)
 
   async function loadSessionModelOptions() {
     try {
@@ -172,9 +200,57 @@ export function useAIChatPage() {
     question.value = prompt
   }
 
+  function isStrategyAssistantMode(mode: KBAssistantMode): mode is StrategyAssistantMode {
+    return STRATEGY_ASSISTANT_MODES.has(mode)
+  }
+
+  function isAssistantModeTabActive(mode: KBAssistantMode) {
+    if (mode === 'strategy_idea') {
+      return isStrategyAssistantMode(selectedAssistantMode.value)
+    }
+    return selectedAssistantMode.value === mode
+  }
+
+  function selectAssistantMode(mode: KBAssistantMode) {
+    selectedAssistantMode.value = mode === 'knowledge_qa' ? mode : 'knowledge_qa'
+  }
+
+  function applyQuickTool(tool: QuickTool) {
+    if (tool.assistantMode === 'knowledge_qa') selectedAssistantMode.value = tool.assistantMode
+    question.value = tool.prompt
+  }
+
   function handleContinueFromStockAnalysis(mode: 'strategy_idea' | 'backtrader_strategy', prompt: string) {
-    selectedAssistantMode.value = mode
-    question.value = prompt
+    router.push({
+      name: 'InvestmentStrategies',
+      query: {
+        prompt,
+        workflow: mode,
+      },
+    })
+  }
+
+  function migrateLegacyAssistantMode(mode: string) {
+    if (mode === 'stock_analysis') {
+      router.push({
+        name: 'InvestmentStockAnalysis',
+        query: {
+          symbol: typeof route.query.symbol === 'string' ? route.query.symbol : undefined,
+        },
+      })
+      return true
+    }
+    if (STRATEGY_ASSISTANT_MODES.has(mode as KBAssistantMode)) {
+      router.push({
+        name: 'InvestmentStrategies',
+        query: {
+          prompt: typeof route.query.prompt === 'string' ? route.query.prompt : undefined,
+          workflow: mode,
+        },
+      })
+      return true
+    }
+    return false
   }
 
   function buildStockAnalysisParams(): KBStockAnalysisParams {
@@ -202,6 +278,63 @@ export function useAIChatPage() {
       ? String(params.research_depth)
       : STOCK_DEPTH_PROMPT_LABELS[stockAnalysisForm.value.researchDepth] ?? STOCK_DEPTH_PROMPT_LABELS.standard
     return `\u5206\u6790 ${params.symbol}\uff0c${params.market_type ?? STOCK_MARKET_VALUES.cn_a}\uff0c${depth}\uff0c\u91cd\u70b9\u770b${focus || STOCK_PROMPT_DEFAULT_FOCUS}\u548c\u4ea4\u6613\u5efa\u8bae`
+  }
+
+  function truncateWorkflowText(value: string | null | undefined, maxLength: number) {
+    const normalized = String(value || '').trim()
+    if (normalized.length <= maxLength) return normalized
+    return `${normalized.slice(0, maxLength)}...`
+  }
+
+  function buildDraftWorkflowReference(draft?: KBStrategyDraft | null) {
+    if (!draft) return ''
+    return t('aiChat.workflowPromptDraft', {
+      name: draft.name,
+      description: truncateWorkflowText(draft.description, 360),
+      code: truncateWorkflowText(draft.code, 900),
+    })
+  }
+
+  function buildBacktestWorkflowReference(index: number) {
+    const execution = workspaceExecutions.value[index]
+    if (!execution) return ''
+    const summary = execution.report?.summary
+    if (!summary) {
+      return t('aiChat.workflowPromptBacktestStatus', {
+        status: execution.runStatus || t('aiChat.notRunning'),
+      })
+    }
+    return t('aiChat.workflowPromptBacktestReport', {
+      status: execution.runStatus || t('aiChat.notRunning'),
+      completed: summary.completed_units,
+      total: summary.total_units,
+      avgReturn: summary.avg_total_return ?? '-',
+      sharpe: summary.avg_sharpe_ratio ?? '-',
+      drawdown: summary.avg_max_drawdown ?? '-',
+      winRate: summary.avg_win_rate ?? '-',
+      trades: summary.total_trades ?? '-',
+      analysis: truncateWorkflowText(execution.analysis?.summary, 500),
+    })
+  }
+
+  function buildStrategyWorkflowPrompt(
+    action: StrategyWorkflowActionKey,
+    message: KBChatMessage,
+    index: number,
+  ) {
+    const reference = truncateWorkflowText(message.content, 900)
+    const draft = buildDraftWorkflowReference(message.strategyDraft)
+    const backtest = buildBacktestWorkflowReference(index)
+    if (action === 'rethink') {
+      return t('aiChat.workflowPromptRethink', { reference, draft, backtest })
+    }
+    if (action === 'regenerate') {
+      return t('aiChat.workflowPromptRegenerate', { reference, draft, backtest })
+    }
+    if (action === 'optimize') {
+      return t('aiChat.workflowPromptOptimize', { reference, draft, backtest })
+    }
+    return t('aiChat.workflowPromptReview', { reference, draft, backtest })
   }
 
   function toggleLeftPanel() {
@@ -392,8 +525,15 @@ export function useAIChatPage() {
     await generateReport(index, draft)
   }
 
-  async function sendQuestion(q: string, stockAnalysisParams?: KBStockAnalysisParams) {
-    if (!selectedKnowledgeBaseId.value || !q.trim()) return
+  async function sendQuestion(
+    q: string,
+    stockAnalysisParams?: KBStockAnalysisParams,
+    assistantModeOverride?: KBAssistantMode,
+  ) {
+    if (!q.trim()) return
+    const assistantMode = assistantModeOverride ?? selectedAssistantMode.value
+    const modeRequiresKnowledgeBase = assistantMode === 'knowledge_qa'
+    if (modeRequiresKnowledgeBase && !currentKnowledgeBaseId.value) return
     question.value = ''
     try {
       const options: {
@@ -402,21 +542,55 @@ export function useAIChatPage() {
         modelId?: string
         stockAnalysisParams?: KBStockAnalysisParams
       } = {
-        assistantMode: selectedAssistantMode.value,
+        assistantMode,
         thinkingMode: thinkingMode.value,
         modelId: selectedSessionModelKey.value || undefined,
       }
       if (stockAnalysisParams) {
         options.stockAnalysisParams = stockAnalysisParams
       }
-      await chatStore.sendMessage(selectedKnowledgeBaseId.value, q, options)
+      await chatStore.sendMessage(
+        modeRequiresKnowledgeBase ? currentKnowledgeBaseId.value : null,
+        q,
+        options,
+      )
     } catch (error) {
       ElMessage.error(getErrorMessage(error, t('aiChat.msgSendFailedKbOrModel')))
     }
   }
 
+  async function handleStrategyWorkflowAction(
+    action: StrategyWorkflowActionKey,
+    message: KBChatMessage,
+    index: number,
+  ) {
+    if (chatStore.loading) return
+    if (action === 'backtest') {
+      if (!ensureUsableStrategyDraft(message.strategyDraft)) return
+      if (workspaceExecutions.value[index]) {
+        await handleRunStrategyDraftBacktest(index)
+        return
+      }
+      await openAddToWorkspaceDialog(message, index)
+      return
+    }
+
+    const assistantMode: KBAssistantMode = action === 'rethink'
+      ? 'strategy_idea'
+      : action === 'review'
+        ? 'strategy_review'
+        : 'backtrader_strategy'
+    await router.push({
+      name: 'InvestmentStrategies',
+      query: {
+        prompt: buildStrategyWorkflowPrompt(action, message, index),
+        workflow: assistantMode,
+      },
+    })
+  }
+
   async function handleAsk() {
-    if (!selectedKnowledgeBaseId.value || !question.value.trim()) return
+    if (!canSubmitQuestion.value) return
     const stockAnalysisParams = selectedAssistantMode.value === 'stock_analysis'
       ? buildStockAnalysisParams()
       : undefined
@@ -436,14 +610,18 @@ export function useAIChatPage() {
     await chatStore.fetchHistory(conversationId)
   }
 
-  function handleNewConversation() {
+  function resetConversationScope() {
     chatStore.resetConversationState()
-    question.value = ''
     savingStrategyIndex.value = null
     savedStrategyIds.value = {}
     addedWorkspaceUnitIds.value = {}
     resetExecutions()
     resetWorkspaceDraftState()
+  }
+
+  function handleNewConversation() {
+    resetConversationScope()
+    question.value = ''
   }
 
   async function handleJumpToCitation(documentId?: string | null) {
@@ -469,6 +647,7 @@ export function useAIChatPage() {
   }
 
   watch(selectedKnowledgeBaseId, async (value) => {
+    if (!requiresKnowledgeBase.value) return
     chatStore.resetConversationState()
     conversationSearch.value = ''
     if (value) {
@@ -485,6 +664,22 @@ export function useAIChatPage() {
     }
   })
 
+  watch(selectedAssistantMode, (value, oldValue) => {
+    const currentRequiresKnowledgeBase = value === 'knowledge_qa'
+    const previousRequiresKnowledgeBase = oldValue === 'knowledge_qa'
+    if (currentRequiresKnowledgeBase !== previousRequiresKnowledgeBase) {
+      resetConversationScope()
+    }
+    conversationSearch.value = ''
+    if (currentRequiresKnowledgeBase) {
+      if (currentKnowledgeBaseId.value) {
+        void chatStore.fetchConversations(currentKnowledgeBaseId.value)
+      }
+      return
+    }
+    void chatStore.fetchConversations(null)
+  })
+
   onMounted(async () => {
     void loadSessionModelOptions()
     await kbStore.fetchKnowledgeBases()
@@ -492,13 +687,18 @@ export function useAIChatPage() {
     const firstId = kbStore.knowledgeBases[0]?.id
     selectedKnowledgeBaseId.value = queryKbId || firstId || ''
 
+    const mode = route.query.mode
+    if (mode === 'knowledge_qa') {
+      selectedAssistantMode.value = mode
+    } else if (typeof mode === 'string' && migrateLegacyAssistantMode(mode)) {
+      selectedAssistantMode.value = 'knowledge_qa'
+      return
+    } else {
+      selectedAssistantMode.value = 'knowledge_qa'
+    }
     const prompt = route.query.prompt
     if (prompt && typeof prompt === 'string') {
       question.value = prompt
-    }
-    const mode = route.query.mode
-    if (mode && typeof mode === 'string' && mode in assistantModeMetaMap.value) {
-      selectedAssistantMode.value = mode as KBAssistantMode
     }
   })
 
@@ -532,12 +732,18 @@ export function useAIChatPage() {
     generatingReportIndex,
     // Computed
     currentModeMeta,
+    requiresKnowledgeBase,
     suggestedPrompts,
     quickTools,
     inputPlaceholder,
     currentKnowledgeBase,
     currentKnowledgeBaseId,
     currentKnowledgeBaseName,
+    requestKnowledgeBaseId,
+    displayContextTitle,
+    composerHint,
+    canSubmitQuestion,
+    strategyWorkflowEnabled,
     currentKnowledgeBaseSettings,
     knowledgeBaseDocuments,
     indexedDocumentCount,
@@ -549,6 +755,9 @@ export function useAIChatPage() {
     retrievalProfileLabel,
     // Functions
     applyPrompt,
+    applyQuickTool,
+    isAssistantModeTabActive,
+    selectAssistantMode,
     handleContinueFromStockAnalysis,
     toggleLeftPanel,
     toggleRightPanel,
@@ -562,6 +771,7 @@ export function useAIChatPage() {
     handleRunStrategyDraftBacktest,
     handleRefreshWorkspaceExecution,
     handleGenerateWorkspaceReport,
+    handleStrategyWorkflowAction,
     handleAsk,
     handleSelectConversation,
     handleNewConversation,

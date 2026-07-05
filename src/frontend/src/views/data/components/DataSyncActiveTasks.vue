@@ -1,8 +1,19 @@
 <template>
-  <el-card v-if="tasks.length > 0">
+  <el-card
+    v-if="tasks.length > 0"
+    class="sync-active-card"
+    data-test="sync-active-card"
+  >
     <template #header>
-      <div class="page-title small">
-        {{ t('dataPages.syncProgressTitle') }}
+      <div class="sync-active-heading">
+        <div>
+          <div class="sync-active-kicker">
+            {{ t('dataPages.syncProgressKicker') }}
+          </div>
+          <div class="sync-active-title">
+            {{ t('dataPages.syncProgressTitle') }}
+          </div>
+        </div>
       </div>
     </template>
 
@@ -46,3 +57,84 @@ defineProps<{
   statusLabel: (status: SyncTaskStatus['status']) => string
 }>()
 </script>
+
+<style scoped>
+.sync-active-card {
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--bg-color);
+  color: var(--text-color-primary);
+}
+
+.sync-active-card :deep(.el-card__header) {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-color-light);
+}
+
+.sync-active-card :deep(.el-card__body) {
+  padding: 18px;
+}
+
+.sync-active-kicker {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.sync-active-title {
+  margin-top: 4px;
+  color: var(--text-color-primary);
+  font-size: 18px;
+  font-weight: 780;
+  line-height: 1.25;
+}
+
+.task-list {
+  display: grid;
+  gap: 12px;
+}
+
+.task-item {
+  padding: 14px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+}
+
+.task-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.task-title {
+  color: var(--text-color-primary);
+  font-weight: 760;
+  line-height: 1.35;
+}
+
+.task-db {
+  margin-left: 6px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.task-subtitle {
+  margin-top: 4px;
+  color: var(--text-color-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+  .task-top {
+    display: grid;
+  }
+}
+</style>

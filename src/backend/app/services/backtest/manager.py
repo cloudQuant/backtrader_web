@@ -9,6 +9,7 @@ import logging
 from typing import Any
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.database import async_session_maker
 from app.models.backtest import BacktestResultModel, BacktestTask
@@ -188,10 +189,48 @@ class BacktestExecutionManager:
                     task.error_message = error_message
                 if log_dir:
                     task.log_dir = log_dir
+                if status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
+                    request_data = dict(task.request_data) if isinstance(task.request_data, dict) else {}
+                    runtime = dict(request_data.get("_runtime") or {})
+                    if status == TaskStatus.COMPLETED:
+                        runtime["progress"] = 100
+                        runtime["message"] = "Backtest completed"
+                    elif status == TaskStatus.FAILED:
+                        runtime["message"] = error_message or task.error_message or "Backtest failed"
+                    elif status == TaskStatus.CANCELLED:
+                        runtime["message"] = error_message or task.error_message or "Backtest cancelled"
+                    request_data["_runtime"] = runtime
+                    task.request_data = request_data
+                    flag_modified(task, "request_data")
 
                 await session.commit()
                 await session.refresh(task)
                 return task
+
+    async def update_task_progress(
+        self,
+        task_id: str,
+        progress: float,
+        message: str | None = None,
+    ) -> BacktestTask | None:
+        """Persist latest task progress in ``request_data._runtime`` for polling UIs."""
+        async with async_session_maker() as session:
+            task = await session.get(BacktestTask, task_id)
+            if not task:
+                return None
+
+            request_data = dict(task.request_data) if isinstance(task.request_data, dict) else {}
+            runtime = dict(request_data.get("_runtime") or {})
+            runtime["progress"] = max(0.0, min(float(progress), 100.0))
+            if message is not None:
+                runtime["message"] = str(message)
+            request_data["_runtime"] = runtime
+            task.request_data = request_data
+            flag_modified(task, "request_data")
+
+            await session.commit()
+            await session.refresh(task)
+            return task
 
     async def create_result(
         self,

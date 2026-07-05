@@ -6,7 +6,7 @@
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `APP_NAME` | ai-for-trader | 应用名称 |
+| `APP_NAME` | ai-for-investor | 应用名称 |
 | `DEBUG` | false | 调试模式 |
 | `SECRET_KEY` | (必需) | Flask 密钥 |
 | `TZ` | Asia/Shanghai | 时区 |

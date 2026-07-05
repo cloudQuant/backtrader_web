@@ -19,7 +19,7 @@ class TestSettingsValidation:
     def test_default_settings_load(self):
         """Test that default settings can be loaded."""
         settings = Settings()
-        assert settings.APP_NAME == "ai-for-trader"
+        assert settings.APP_NAME == "ai-for-investor"
         assert settings.DEBUG is False
         assert settings.DATABASE_TYPE == "sqlite"
         assert settings.DB_AUTO_CREATE_SCHEMA is False

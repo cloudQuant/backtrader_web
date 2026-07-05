@@ -55,11 +55,22 @@ def parse_runtime_datetime(value: Any) -> datetime | None:
     return resolved
 
 
+def _as_utc_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def db_task_elapsed_seconds(task: BacktestTask | OptimizationTask | None) -> float | None:
     """Compute elapsed seconds for a persisted task row."""
     if task is None or task.created_at is None:
         return None
-    end_time: datetime | None = cast("datetime | None", task.updated_at)
+    created_at = _as_utc_datetime(cast(datetime, task.created_at))
+    if created_at is None:
+        return None
+    end_time = _as_utc_datetime(cast("datetime | None", task.updated_at))
     if str(getattr(task, "status", "") or "") in {
         TaskStatus.RUNNING.value,
         "pending",
@@ -67,9 +78,11 @@ def db_task_elapsed_seconds(task: BacktestTask | OptimizationTask | None) -> flo
         "running",
     }:
         end_time = datetime.now(timezone.utc)
+    else:
+        end_time = _as_utc_datetime(end_time)
     if end_time is None:
         return None
-    elapsed = (end_time - cast(datetime, task.created_at)).total_seconds()
+    elapsed = (end_time - created_at).total_seconds()
     if elapsed < 0:
         return None
     return round(elapsed, 2)

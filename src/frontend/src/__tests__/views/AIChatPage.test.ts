@@ -5,6 +5,27 @@ import { createPinia, setActivePinia } from 'pinia'
 import AIChatPage from '@/views/AIChatPage.vue'
 import { elStubs } from '@/test/stubs'
 
+const COMPLETE_STRATEGY_CODE = vi.hoisted(() => [
+  'import backtrader as bt',
+  '',
+  'class Demo(bt.Strategy):',
+  '    params = (("fast_period", 10), ("slow_period", 30))',
+  '',
+  '    def __init__(self):',
+  '        self.fast_ma = bt.ind.SMA(self.datas[0].close, period=self.p.fast_period)',
+  '        self.slow_ma = bt.ind.SMA(self.datas[0].close, period=self.p.slow_period)',
+  '        self.cross = bt.ind.CrossOver(self.fast_ma, self.slow_ma)',
+  '        self.order = None',
+  '',
+  '    def next(self):',
+  '        if self.order:',
+  '            return',
+  '        if not self.position and self.cross > 0:',
+  '            self.order = self.buy()',
+  '        elif self.position and self.cross < 0:',
+  '            self.order = self.close()',
+].join('\n'))
+
 const routerMocks = vi.hoisted(() => ({
   push: vi.fn(),
 }))
@@ -126,7 +147,7 @@ const mocks = vi.hoisted(() => ({
       strategyDraft: {
         name: 'AI策略 - 双均线',
         description: '一个测试策略草案',
-        code: 'class Demo(bt.Strategy):\n    pass',
+        code: COMPLETE_STRATEGY_CODE,
         params: {
           fast_period: { type: 'int', default: 10 },
         },
@@ -386,22 +407,15 @@ describe('AIChatPage', () => {
     mocks.messages.splice(0, mocks.messages.length, ...originalMessages)
   })
 
-  it('passes assistant mode when sending a backtrader strategy request', async () => {
+  it('only exposes knowledge QA mode in the knowledge base chat page', async () => {
     const wrapper = mount(AIChatPage, { global: { stubs: { ...elStubs } } })
     await flushPromises()
-    const modeButton = wrapper.findAll('button').find(button => button.text().includes('Backtrader策略生成'))
-    expect(modeButton).toBeTruthy()
-    await modeButton!.trigger('click')
-    await wrapper.find('textarea').setValue('请生成一个双均线策略')
-    const sendButton = wrapper.findAll('button').find(button => button.text().includes('发送'))
-    expect(sendButton).toBeTruthy()
-    await sendButton!.trigger('click')
-
-    expect(mocks.sendMessage).toHaveBeenCalledWith('kb-1', '请生成一个双均线策略', {
-      assistantMode: 'backtrader_strategy',
-      thinkingMode: false,
-      modelId: undefined,
-    })
+    const modeTabs = wrapper.findAll('.mode-tab').map(button => button.text())
+    expect(modeTabs).toEqual(['知识问答'])
+    expect(modeTabs).not.toContain('策略研究')
+    expect(modeTabs).not.toContain('Backtrader策略生成')
+    expect(modeTabs).not.toContain('策略审查')
+    expect(modeTabs).not.toContain('股票分析')
   })
 
   it('passes selected session model when sending a message', async () => {
@@ -422,48 +436,14 @@ describe('AIChatPage', () => {
     })
   })
 
-  it('submits stock analysis params from the context panel', async () => {
+  it('does not expose stock analysis controls in the knowledge base chat page', async () => {
     const wrapper = mount(AIChatPage, { global: { stubs: { ...elStubs } } })
     await flushPromises()
-    const vm = wrapper.vm as any
-    vm.selectedAssistantMode = 'stock_analysis'
-    vm.selectedSessionModelKey = 'ollama::ollama/llama3.1:8b'
-    vm.stockAnalysisForm = {
-      symbol: '600519.SH',
-      marketType: 'cn_a',
-      analysisDate: '2026-06-15',
-      researchDepth: 'deep',
-      modules: ['market', 'fundamentals', 'news', 'risk'],
-    }
-    await wrapper.vm.$nextTick()
-
-    const startButton = wrapper.findAll('button').find(button => button.text().includes('开始分析'))
-    expect(startButton).toBeTruthy()
-    await startButton!.trigger('click')
-
-    expect(mocks.sendMessage).toHaveBeenCalledWith(
-      'kb-1',
-      '分析 600519.SH，A股，深度研究，重点看技术面、基本面、新闻、风险和交易建议',
-      {
-        assistantMode: 'stock_analysis',
-        thinkingMode: false,
-        modelId: 'ollama::ollama/llama3.1:8b',
-        stockAnalysisParams: {
-          symbol: '600519.SH',
-          market_type: 'A股',
-          analysis_date: '2026-06-15',
-          research_depth: '深度',
-          selected_modules: ['market', 'fundamentals', 'news', 'risk'],
-          include_sentiment: false,
-          include_risk: true,
-          language: 'zh-CN',
-          model_id: 'ollama::ollama/llama3.1:8b',
-        },
-      },
-    )
+    expect(wrapper.text()).not.toContain('股票分析参数')
+    expect(wrapper.findAll('button').some(button => button.text().includes('开始分析'))).toBe(false)
   })
 
-  it('prefills a Backtrader request from a stock analysis report', async () => {
+  it('routes stock analysis report continuations to investment strategy research', async () => {
     const originalMessages = [...mocks.messages]
     mocks.messages.splice(0, mocks.messages.length, {
       role: 'assistant',
@@ -486,10 +466,47 @@ describe('AIChatPage', () => {
     expect(backtraderButton).toBeTruthy()
     await backtraderButton!.trigger('click')
 
-    const vm = wrapper.vm as any
-    expect(vm.selectedAssistantMode).toBe('backtrader_strategy')
-    expect(vm.question).toContain('基于 600519.SH 股票分析报告')
-    expect(vm.question).toContain('Backtrader 策略草案')
+    expect(routerMocks.push).toHaveBeenCalledWith({
+      name: 'InvestmentStrategies',
+      query: {
+        prompt: expect.stringContaining('基于 600519.SH 股票分析报告'),
+        workflow: 'backtrader_strategy',
+      },
+    })
+
+    mocks.messages.splice(0, mocks.messages.length, ...originalMessages)
+  })
+
+  it('does not expose strategy workflow actions in the knowledge base chat page', async () => {
+    const originalMessages = [...mocks.messages]
+    mocks.messages.splice(0, mocks.messages.length, {
+      role: 'assistant',
+      content: '均线突破策略构思：用短均线上穿长均线作为入场信号。',
+      assistantMode: 'strategy_idea',
+    } as any)
+
+    const wrapper = mount(AIChatPage, { global: { stubs: { ...elStubs } } })
+    await flushPromises()
+    const nextGenerateButton = wrapper.findAll('.workflow-next-actions button')
+      .find(button => button.text().includes('生成策略'))
+    expect(nextGenerateButton).toBeFalsy()
+
+    mocks.messages.splice(0, mocks.messages.length, ...originalMessages)
+  })
+
+  it('does not expose strategy optimization workflow actions in the knowledge base chat page', async () => {
+    const originalMessages = [...mocks.messages]
+    mocks.messages.splice(0, mocks.messages.length, {
+      role: 'assistant',
+      content: '审查结论：需要加入 ATR 止损、限制最大持仓，并降低参数过拟合风险。',
+      assistantMode: 'strategy_review',
+    } as any)
+
+    const wrapper = mount(AIChatPage, { global: { stubs: { ...elStubs } } })
+    await flushPromises()
+    const optimizeButton = wrapper.findAll('.workflow-next-actions button')
+      .find(button => button.text().includes('优化策略'))
+    expect(optimizeButton).toBeFalsy()
 
     mocks.messages.splice(0, mocks.messages.length, ...originalMessages)
   })
@@ -500,7 +517,7 @@ describe('AIChatPage', () => {
       user_id: 'user-1',
       name: 'AI策略 - 双均线',
       description: '一个测试策略草案',
-      code: 'class Demo(bt.Strategy):\n    pass',
+      code: COMPLETE_STRATEGY_CODE,
       params: {
         fast_period: { type: 'int', default: 10 },
       },
@@ -518,7 +535,7 @@ describe('AIChatPage', () => {
     expect(strategyApiMocks.create).toHaveBeenCalledWith({
       name: 'AI策略 - 双均线',
       description: '一个测试策略草案',
-      code: 'class Demo(bt.Strategy):\n    pass',
+      code: COMPLETE_STRATEGY_CODE,
       params: {
         fast_period: { type: 'int', default: 10 },
       },
@@ -535,7 +552,7 @@ describe('AIChatPage', () => {
         user_id: 'user-1',
         name: 'AI策略 - 双均线',
         description: '一个测试策略草案',
-        code: 'class Demo(bt.Strategy):\n    pass',
+        code: COMPLETE_STRATEGY_CODE,
         params: {
           fast_period: { type: 'int', default: 10 },
         },
@@ -603,7 +620,7 @@ describe('AIChatPage', () => {
       strategy_draft: {
         name: 'AI策略 - 双均线',
         description: '一个测试策略草案',
-        code: 'class Demo(bt.Strategy):\n    pass',
+        code: COMPLETE_STRATEGY_CODE,
         params: {
           fast_period: { type: 'int', default: 10 },
         },
@@ -656,7 +673,7 @@ describe('AIChatPage', () => {
         user_id: 'user-1',
         name: 'AI策略 - 双均线',
         description: '一个测试策略草案',
-        code: 'class Demo(bt.Strategy):\n    pass',
+        code: COMPLETE_STRATEGY_CODE,
         params: {
           fast_period: { type: 'int', default: 10 },
         },
@@ -766,7 +783,7 @@ describe('AIChatPage', () => {
         user_id: 'user-1',
         name: 'AI策略 - 双均线',
         description: '一个测试策略草案',
-        code: 'class Demo(bt.Strategy):\n    pass',
+        code: COMPLETE_STRATEGY_CODE,
         params: {
           fast_period: { type: 'int', default: 10 },
         },

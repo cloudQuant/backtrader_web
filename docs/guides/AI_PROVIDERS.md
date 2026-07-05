@@ -1,6 +1,6 @@
 # AI Providers 配置指南
 
-这份指南说明 AI for Trader 如何配置多 AI provider、如何接入 Ollama 本地模型，以及用户如何在 Settings 和 AI Chat 中选择模型。
+这份指南说明 AI for Investor 如何配置多 AI provider、如何接入 Ollama 本地模型，以及用户如何在 Settings 和 AI Chat 中选择模型。
 
 ## 支持范围
 

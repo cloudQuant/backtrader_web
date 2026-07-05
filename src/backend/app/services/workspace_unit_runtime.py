@@ -97,9 +97,12 @@ _UNIT_RUN_PY = textwrap.dedent(
 
     BASE_DIR = Path(__file__).resolve().parent
     logger = logging.getLogger(__name__)
+    _PANDAS_DATA_CLASS = getattr(bt.feeds, 'PandasData', None)
+    if _PANDAS_DATA_CLASS is None:
+        from backtrader.feeds.pandafeed import PandasData as _PANDAS_DATA_CLASS
 
 
-    class UnitPandasFeed(bt.feeds.PandasData):
+    class UnitPandasFeed(_PANDAS_DATA_CLASS):
         params = (
             ('datetime', None),
             ('open', -1),
@@ -130,6 +133,14 @@ _UNIT_RUN_PY = textwrap.dedent(
             return default
 
 
+    def _safe_bool(value, default=False):
+        if value in (None, ''):
+            return default
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() not in {'0', 'false', 'no', 'off', ''}
+
+
     def _first_number(*values, default=None):
         for value in values:
             if value in (None, ''):
@@ -148,6 +159,15 @@ _UNIT_RUN_PY = textwrap.dedent(
         if number > 1.0:
             return number / 100.0
         return max(number, 0.0)
+
+
+    def _normalise_signed_rate(value, default=None):
+        number = _first_number(value, default=default)
+        if number is None:
+            return default
+        if abs(number) > 1.0:
+            return number / 100.0
+        return number
 
 
     def _symbol_keys(symbol: str) -> list[str]:
@@ -615,7 +635,14 @@ _UNIT_RUN_PY = textwrap.dedent(
         raw = str(symbol or '').strip()
         if not raw:
             return []
-        variants = [raw, raw.upper(), raw.lower()]
+        instrument = raw
+        if '.' in instrument:
+            left, right = instrument.split('.', 1)
+            instrument = right if left.upper() in {'SHFE', 'DCE', 'CZCE', 'CFFEX', 'INE', 'GFEX'} else left
+        if '_' in instrument:
+            left, right = instrument.split('_', 1)
+            instrument = right if left.upper() in {'SHFE', 'DCE', 'CZCE', 'CFFEX', 'INE', 'GFEX'} else left
+        variants = [raw, instrument, raw.upper(), raw.lower(), instrument.upper(), instrument.lower()]
         names: list[str] = []
         for value in variants:
             if suffix:
@@ -630,9 +657,71 @@ _UNIT_RUN_PY = textwrap.dedent(
         return unique
 
 
+    def _symbol_product_prefix(symbol: str) -> str:
+        raw = str(symbol or '').strip()
+        if '.' in raw:
+            left, right = raw.split('.', 1)
+            raw = right if left.upper() in {'SHFE', 'DCE', 'CZCE', 'CFFEX', 'INE', 'GFEX'} else left
+        if '_' in raw:
+            left, right = raw.split('_', 1)
+            raw = right if left.upper() in {'SHFE', 'DCE', 'CZCE', 'CFFEX', 'INE', 'GFEX'} else left
+        letters = []
+        for ch in raw:
+            if ch.isalpha():
+                letters.append(ch)
+            elif letters:
+                break
+        return ''.join(letters).upper()
+
+
+    def _candidate_patterns(symbol: str, suffix: str) -> list[str]:
+        raw = str(symbol or '').strip()
+        prefix = _symbol_product_prefix(raw)
+        base_patterns = [f'{raw}_*.csv', f'{raw.upper()}_*.csv', f'{raw.lower()}_*.csv']
+        if not prefix:
+            return base_patterns
+        prefix_patterns = []
+        if suffix:
+            prefix_patterns.extend([
+                f'{prefix}[0-9]*_{suffix}.csv',
+                f'{prefix.lower()}[0-9]*_{suffix}.csv',
+                f'{prefix}*_{suffix}.csv',
+                f'{prefix.lower()}*_{suffix}.csv',
+            ])
+        prefix_patterns.extend([
+            f'{prefix}[0-9]*.csv',
+            f'{prefix.lower()}[0-9]*.csv',
+            f'{prefix}*.csv',
+            f'{prefix.lower()}*.csv',
+        ])
+        patterns = prefix_patterns + base_patterns
+        unique: list[str] = []
+        seen: set[str] = set()
+        for pattern in patterns:
+            if pattern not in seen:
+                unique.append(pattern)
+                seen.add(pattern)
+        return unique
+
+
+    def _pick_matching_csv(matches: list[Path], suffix: str) -> Path | None:
+        if not matches:
+            return None
+        ordered = sorted(matches)
+        suffix_lower = str(suffix or '').lower()
+        if suffix_lower:
+            for match in ordered:
+                if suffix_lower in match.name.lower() or match.parent.name.lower() == suffix_lower:
+                    return match
+        return ordered[0]
+
+
     def resolve_data_file(config: dict) -> Path:
         data = config.get('data') or {}
-        directory_path = Path(str(data.get('directory_path') or '')).expanduser()
+        raw_directory = str(data.get('directory_path') or '').strip()
+        if not raw_directory:
+            raw_directory = os.environ.get('BACKTRADER_DATA_DIR', '').strip()
+        directory_path = Path(raw_directory or '.').expanduser()
         if not directory_path.is_dir():
             raise FileNotFoundError(f'Data directory not found: {directory_path}')
         symbol = str(data.get('symbol') or '').strip()
@@ -647,15 +736,14 @@ _UNIT_RUN_PY = textwrap.dedent(
                 candidate = root / name
                 if candidate.is_file():
                     return candidate
-        patterns = [f'{symbol}_*.csv', f'{symbol.upper()}_*.csv', f'{symbol.lower()}_*.csv']
-        for pattern in patterns:
-            matches = sorted(directory_path.rglob(pattern))
-            if not matches:
-                continue
-            for match in matches:
-                if suffix and (suffix.lower() in match.name.lower() or match.parent.name.lower() == suffix.lower()):
+            for pattern in _candidate_patterns(symbol, suffix):
+                match = _pick_matching_csv(list(root.glob(pattern)), suffix)
+                if match is not None:
                     return match
-            return matches[0]
+        for pattern in _candidate_patterns(symbol, suffix):
+            match = _pick_matching_csv(list(directory_path.rglob(pattern)), suffix)
+            if match is not None:
+                return match
         raise FileNotFoundError(f'No CSV file found for symbol={symbol} under {directory_path}')
 
 
@@ -736,7 +824,7 @@ _UNIT_RUN_PY = textwrap.dedent(
 
     def _pick_feed_class(module: object):
         for value in vars(module).values():
-            if isinstance(value, type) and issubclass(value, bt.feeds.PandasData) and value is not bt.feeds.PandasData:
+            if isinstance(value, type) and issubclass(value, _PANDAS_DATA_CLASS) and value is not _PANDAS_DATA_CLASS:
                 return value
         return UnitPandasFeed
 
@@ -753,7 +841,11 @@ _UNIT_RUN_PY = textwrap.dedent(
         df, csv_path = load_dataframe(config)
         data_cfg = config.get('data') or {}
         params = config.get('params') or {}
-        cerebro = bt.Cerebro(stdstats=True)
+        live_cfg = config.get('live') or {}
+        simulate_cfg = config.get('simulate') or {}
+        cerebro = bt.Cerebro(
+            stdstats=_safe_bool(live_cfg.get('stdstats', simulate_cfg.get('stdstats')), False)
+        )
         name = str(data_cfg.get('symbol') or 'DATA')
         cerebro.adddata(feed_class(dataname=df), name=name)
         _apply_commission_info(cerebro, config, name)
@@ -811,6 +903,101 @@ def _asset_type_for_unit(category: str) -> str:
     text = str(category or "").strip()
     lowered = text.lower()
     return _ASSET_TYPE_ALIASES.get(text, _ASSET_TYPE_ALIASES.get(lowered, lowered or "future"))
+
+
+def _asset_type_alias(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    return _ASSET_TYPE_ALIASES.get(text) or _ASSET_TYPE_ALIASES.get(lowered)
+
+
+def _asset_type_from_symbol(symbol: Any) -> str | None:
+    normalized = str(symbol or "").strip().upper()
+    if not normalized:
+        return None
+    if normalized.endswith((".SZ", ".SH", ".BJ", ".HK", ".US")):
+        return "stock"
+    futures_suffixes = (".CFE", ".CFFEX", ".SHFE", ".INE", ".DCE", ".CZCE", ".GFEX")
+    futures_prefixes = (
+        "IF",
+        "IC",
+        "IH",
+        "IM",
+        "TF",
+        "TS",
+        "AU",
+        "AG",
+        "CU",
+        "AL",
+        "ZN",
+        "RB",
+        "HC",
+        "SC",
+        "FU",
+        "RU",
+        "MA",
+        "TA",
+        "SA",
+        "SR",
+        "CF",
+        "OI",
+        "RM",
+        "FG",
+        "JM",
+        "J",
+        "I",
+        "M",
+        "Y",
+        "P",
+        "A",
+        "B",
+        "C",
+        "CS",
+        "L",
+        "V",
+        "PP",
+        "EB",
+        "EG",
+        "PG",
+        "AP",
+    )
+    if normalized.endswith(futures_suffixes):
+        return "future"
+    if any(
+        normalized.startswith(prefix)
+        and any(ch.isdigit() for ch in normalized[len(prefix) :])
+        for prefix in futures_prefixes
+    ):
+        return "future"
+    return None
+
+
+def _asset_type_for_unit_config(
+    *,
+    category: Any,
+    symbol: Any,
+    data_config: dict[str, Any] | None,
+    unit_settings: dict[str, Any] | None,
+    template_data: dict[str, Any] | None = None,
+) -> str:
+    data_cfg = dict(data_config or {})
+    settings = dict(unit_settings or {})
+    template = dict(template_data or {})
+    for value in (
+        data_cfg.get("asset_type"),
+        data_cfg.get("data_type"),
+        settings.get("asset_type"),
+        settings.get("data_type"),
+        category,
+        template.get("asset_type"),
+        template.get("data_type"),
+    ):
+        alias = _asset_type_alias(value)
+        if alias:
+            return alias
+    return _asset_type_from_symbol(symbol or data_cfg.get("symbol") or template.get("symbol")) or "future"
 
 
 def _trading_data_type_for_asset(asset_type: str) -> str:
@@ -873,6 +1060,10 @@ def _default_unit_end_date_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _default_csv_directory_path() -> str:
+    return str((Path(__file__).resolve().parents[4] / "data" / "datas").resolve())
+
+
 def _normalize_unit_data_config(data_config: dict[str, Any] | None) -> dict[str, Any]:
     normalized = dict(data_config or {})
     range_type = str(normalized.get("range_type") or "date").strip().lower()
@@ -910,14 +1101,24 @@ def _build_unit_config(unit: StrategyUnit, workspace_settings: dict[str, Any]) -
         if unit_settings.get(key) is not None:
             backtest_section[key] = unit_settings[key]
     template_config["backtest"] = backtest_section
-    category = unit.category or str((template_config.get("data") or {}).get("data_type") or "")
-    asset_type = _asset_type_for_unit(category)
+    template_data = dict(template_config.get("data") or {})
+    data_config = _normalize_unit_data_config(unit.data_config)
+    category = unit.category or str(template_data.get("data_type") or "")
+    asset_type = _asset_type_for_unit_config(
+        category=category,
+        symbol=unit.symbol,
+        data_config=data_config,
+        unit_settings=unit_settings,
+        template_data=template_data,
+    )
     data_source = dict(workspace_settings.get("data_source") or {})
     csv_section = dict(data_source.get("csv") or {})
     data_root = str(csv_section.get("directory_path") or "").strip()
+    if not data_root:
+        data_root = _default_csv_directory_path()
     asset_root = str((Path(data_root) / asset_type).resolve()) if data_root else ""
-    data_section = dict(template_config.get("data") or {})
-    data_section.update(_normalize_unit_data_config(unit.data_config))
+    data_section = template_data
+    data_section.update(data_config)
     data_section["symbol"] = unit.symbol or data_section.get("symbol", "")
     data_section["symbol_name"] = unit.symbol_name or data_section.get("symbol_name", "")
     data_section["asset_type"] = asset_type
@@ -1055,7 +1256,8 @@ def _build_trading_unit_config(
         template_config["symbol"] = symbol_section
 
     data_section = dict(template_config.get("data") or {})
-    data_section.update(_normalize_unit_data_config(unit.data_config))
+    data_config = _normalize_unit_data_config(unit.data_config)
+    data_section.update(data_config)
     if unit.symbol:
         data_section["symbol"] = unit.symbol
     if unit.symbol_name:
@@ -1066,17 +1268,26 @@ def _build_trading_unit_config(
         data_section["timeframe_n"] = unit.timeframe_n
     if unit.category:
         data_section["category"] = unit.category
-    asset_type = _asset_type_for_unit(
-        unit.category or str(data_section.get("data_type") or data_section.get("asset_type") or "")
+    unit_settings = dict(unit.unit_settings or {})
+    asset_type = _asset_type_for_unit_config(
+        category=unit.category or str(data_section.get("data_type") or data_section.get("asset_type") or ""),
+        symbol=unit.symbol or data_section.get("symbol"),
+        data_config=data_config,
+        unit_settings=unit_settings,
+        template_data=data_section,
     )
     exchange_type = _trading_exchange_for_unit(unit, asset_type, data_section)
     data_section["asset_type"] = asset_type
     data_section["data_type"] = _trading_data_type_for_asset(asset_type)
     data_section["exchange"] = exchange_type
+    data_source = dict((workspace_settings or {}).get("data_source") or {})
+    csv_section = dict(data_source.get("csv") or {})
+    data_root = str(csv_section.get("directory_path") or "").strip()
+    if data_root and not str(data_section.get("directory_path") or "").strip():
+        data_section["directory_path"] = str((Path(data_root) / asset_type).resolve())
     template_config["data"] = data_section
 
     simulate_section = dict(template_config.get("simulate") or {})
-    unit_settings = dict(unit.unit_settings or {})
     for key in (
         "initial_cash",
         "commission",
@@ -1196,7 +1407,10 @@ def sync_trading_unit_runtime(unit: StrategyUnit, workspace_settings: dict[str, 
     target_dir = unit_dir(unit.workspace_id, unit.id)
     target_dir.mkdir(parents=True, exist_ok=True)
     template_dir = get_strategy_dir(str(unit.strategy_id or "").strip())
+    template_has_run_py = (template_dir / "run.py").is_file()
     _sync_trading_runtime_sources(template_dir, target_dir)
+    if not template_has_run_py:
+        (target_dir / "run.py").write_text(_UNIT_RUN_PY, encoding="utf-8")
     config = _build_trading_unit_config(unit, workspace_settings)
     with (target_dir / "config.yaml").open("w", encoding="utf-8") as handle:
         yaml.safe_dump(config, handle, allow_unicode=True, sort_keys=False)

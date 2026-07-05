@@ -4,7 +4,7 @@
 strategy:
   name: "菜籽油RSI抄底策略"
   description: "RSI超卖时买入 - 菜籽油期货"
-  author: "ai-for-trader"
+  author: "ai-for-investor"
   category: "simulate"
   
 # ============================================================

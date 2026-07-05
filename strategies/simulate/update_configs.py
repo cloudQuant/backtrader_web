@@ -139,7 +139,7 @@ def update_config(config_path: Path, env_vars: dict[str, str]) -> dict[str, Any]
 def update_gitignore():
     gitignore_path = PROJECT_ROOT / ".gitignore"
     patterns_to_add = [
-        "ai-for-trader/strategies/simulate/*/config.yaml",
+        "ai-for-investor/strategies/simulate/*/config.yaml",
     ]
 
     existing_lines = []

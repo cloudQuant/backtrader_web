@@ -4,7 +4,7 @@
 strategy:
   name: "MT5 黄金区间突破策略"
   description: "基于前N根K线高低点的区间突破策略，适用于XAUUSD黄金H1周期。"
-  author: "ai-for-trader"
+  author: "ai-for-investor"
   category: "simulate"
 
 # ============================================================

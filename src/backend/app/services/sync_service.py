@@ -1730,7 +1730,7 @@ class SyncService:
         payload.remote_user = payload.remote_user.strip() or "root"
         payload.remote_ssh_key = payload.remote_ssh_key.strip() or "~/.ssh/id_rsa"
         payload.remote_container = payload.remote_container.strip() or "backtrader_mysql"
-        payload.remote_install_dir = payload.remote_install_dir.strip() or "/opt/ai-for-trader"
+        payload.remote_install_dir = payload.remote_install_dir.strip() or "/opt/ai-for-investor"
         payload.remote_mysql_host = self._normalize_host(
             payload.remote_mysql_host or payload.remote_host
         )
@@ -1743,7 +1743,7 @@ class SyncService:
             if name.strip()
         ]
         if not payload.sync_databases:
-            payload.sync_databases = ["ai_for_trader", "akshare_data"]
+            payload.sync_databases = ["ai_for_investor", "akshare_data"]
         return payload
 
     def _is_direct_mode(self, config: SyncConfig) -> bool:

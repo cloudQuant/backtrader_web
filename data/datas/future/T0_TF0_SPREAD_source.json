@@ -1,0 +1,17 @@
+{
+  "symbol": "T0_TF0_SPREAD",
+  "symbol_name": "10年-5年国债期货期限价差指数",
+  "source": "akshare_synthetic_spread_index",
+  "legs": [
+    "T0",
+    "TF0"
+  ],
+  "formula": "100 + 10 * (T0 - TF0); high=100+10*(T0.high-TF0.low), low=100+10*(T0.low-TF0.high)",
+  "minute_rows": 1023,
+  "daily_rows": 2294,
+  "minute_start": "2025-08-26 14:00:00",
+  "minute_end": "2026-07-03 15:15:00",
+  "daily_start": "2017-01-17 00:00:00",
+  "daily_end": "2026-07-03 00:00:00",
+  "generated_at": "2026-07-04T16:35:55.339197+00:00"
+}

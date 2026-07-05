@@ -14,6 +14,24 @@ describe('marketDataApi', () => {
     vi.clearAllMocks()
   })
 
+  it('listInstrumentOptions calls the selectable instrument endpoint', async () => {
+    vi.mocked(api.get).mockResolvedValue({ items: [], total: 0 })
+
+    await marketDataApi.listInstrumentOptions({
+      asset_type: 'stock',
+      search: '000',
+      limit: 20,
+    })
+
+    expect(api.get).toHaveBeenCalledWith('/data/market-instruments/options', {
+      params: {
+        asset_type: 'stock',
+        search: '000',
+        limit: 20,
+      },
+    })
+  })
+
   it('lookupInstrument calls the aggregated market instrument endpoint', async () => {
     vi.mocked(api.get).mockResolvedValue({ symbol: 'RB2510' })
 

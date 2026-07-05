@@ -1,13 +1,13 @@
-# MkDocs Configuration for AI for Trader
+# MkDocs Configuration for AI for Investor
 # https://www.mkdocs.org
 
-site_name: AI for Trader
-site_url: https://cloudquant.github.io/ai-for-trader/
+site_name: AI for Investor
+site_url: https://cloudquant.github.io/ai-for-investor/
 site_description: 基于 Backtrader 的现代化量化交易全栈管理平台 | Modern Quantitative Trading Platform based on Backtrader
-site_author: AI for Trader Team
+site_author: AI for Investor Team
 
-repo_name: cloudQuant/ai-for-trader
-repo_url: https://github.com/cloudQuant/ai-for-trader
+repo_name: cloudQuant/ai-for-investor
+repo_url: https://github.com/cloudQuant/ai-for-investor
 
 theme:
   name: material
@@ -88,7 +88,7 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/cloudQuant/ai-for-trader
+      link: https://github.com/cloudQuant/ai-for-investor
   generator: false
   alternate:
     - name: English

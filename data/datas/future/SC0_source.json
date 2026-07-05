@@ -1,0 +1,14 @@
+{
+  "symbol": "SC0",
+  "symbol_name": "上海原油连续",
+  "source": "akshare",
+  "minute_function": "futures_zh_minute_sina(symbol=\"SC0\", period=\"60\")",
+  "daily_function": "futures_zh_daily_sina(symbol=\"SC0\")",
+  "minute_rows": 1023,
+  "daily_rows": 2006,
+  "minute_start": "2026-01-27 22:00:00",
+  "minute_end": "2026-07-06 00:00:00",
+  "daily_start": "2018-03-26 00:00:00",
+  "daily_end": "2026-07-03 00:00:00",
+  "generated_at": "2026-07-04T16:34:49.054639+00:00"
+}

@@ -11,6 +11,24 @@ import {
 } from '@/composables/useStrategyDraftWorkspaceExecution'
 import type { WorkspaceReportResponse } from '@/types/workspace'
 
+const COMPLETE_STRATEGY_CODE = [
+  'import backtrader as bt',
+  '',
+  'class Demo(bt.Strategy):',
+  '    params = (("fast_period", 10), ("slow_period", 30))',
+  '',
+  '    def __init__(self):',
+  '        self.fast_ma = bt.ind.SMA(self.datas[0].close, period=self.p.fast_period)',
+  '        self.slow_ma = bt.ind.SMA(self.datas[0].close, period=self.p.slow_period)',
+  '        self.cross = bt.ind.CrossOver(self.fast_ma, self.slow_ma)',
+  '',
+  '    def next(self):',
+  '        if not self.position and self.cross > 0:',
+  '            self.buy()',
+  '        elif self.position and self.cross < 0:',
+  '            self.close()',
+].join('\n')
+
 type ExposedWorkspaceExecutionVm =
   Omit<ReturnType<typeof useStrategyDraftWorkspaceExecution>, 'workspaceExecutions'>
   & { workspaceExecutions: Record<number, DraftWorkspaceExecutionState> }
@@ -18,7 +36,7 @@ type ExposedWorkspaceExecutionVm =
 const sampleDraft: KBStrategyDraft = {
   name: 'AI策略 - 双均线',
   description: '一个测试策略草案',
-  code: 'class Demo(bt.Strategy):\n    pass',
+  code: COMPLETE_STRATEGY_CODE,
   params: {
     fast_period: { type: 'int', default: 10 },
   },

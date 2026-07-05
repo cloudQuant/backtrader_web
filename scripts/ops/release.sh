@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Release Script for AI for Trader v0.1.0
+# Release Script for AI for Investor v0.1.0
 #
 # Usage:
 #   ./scripts/release.sh              # Dry run (shows what would happen)
@@ -16,7 +16,7 @@
 set -euo pipefail
 
 VERSION="0.1.0"
-DOCKER_REPO="cloudquant/ai-for-trader"
+DOCKER_REPO="cloudquant/ai-for-investor"
 DRY_RUN=true
 
 if [[ "${1:-}" == "--execute" ]]; then
@@ -24,7 +24,7 @@ if [[ "${1:-}" == "--execute" ]]; then
 fi
 
 echo "╔══════════════════════════════════════════════╗"
-echo "║  AI for Trader Release v${VERSION}            ║"
+echo "║  AI for Investor Release v${VERSION}            ║"
 echo "║  Mode: $(if $DRY_RUN; then echo 'DRY RUN'; else echo 'EXECUTE'; fi)                            ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
@@ -132,7 +132,7 @@ fi
 echo ""
 echo "▶ Step 7: Creating GitHub Release..."
 
-RELEASE_NOTES="## AI for Trader v${VERSION} — Initial Public Release
+RELEASE_NOTES="## AI for Investor v${VERSION} — Initial Public Release
 
 ### Highlights
 
@@ -152,8 +152,8 @@ docker compose up -d
 # Open http://localhost:3000
 
 # Manual
-git clone https://github.com/cloudQuant/ai-for-trader.git
-cd ai-for-trader/src/backend && pip install -e '.[dev,backtrader]'
+git clone https://github.com/cloudQuant/ai-for-investor.git
+cd ai-for-investor/src/backend && pip install -e '.[dev,backtrader]'
 cd ../frontend && npm install && npm run dev
 \`\`\`
 

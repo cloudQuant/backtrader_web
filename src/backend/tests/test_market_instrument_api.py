@@ -391,6 +391,64 @@ async def test_market_instrument_lookup_returns_stock_snapshot_and_history(
 
 
 @pytest.mark.asyncio
+async def test_market_instrument_stock_snapshot_only_warehouse_fills_online_history(
+    monkeypatch,
+    dummy_akshare,
+):
+    from app.services.market_instrument import MarketInstrumentService
+
+    def fail_spot_lookup():
+        raise AssertionError("stock snapshot lookup should not run when only filling history")
+
+    async def snapshot_only_warehouse_lookup(
+        self,
+        *,
+        asset_type,
+        symbol,
+        start_date,
+        end_date,
+        period,
+        market,
+        warnings,
+    ):
+        return self._payload(
+            asset_type=asset_type,
+            symbol=symbol,
+            name="万科A",
+            market=market or "CN",
+            snapshot={"symbol": symbol, "name": "万科A", "price": 3.05},
+            rows=[],
+            period=period,
+            provider="akshare_data",
+        )
+
+    async def empty_history_cache(self, **_):
+        return []
+
+    async def store_history_cache(self, **_):
+        return None
+
+    monkeypatch.setattr(MarketInstrumentService, "_lookup_warehouse", snapshot_only_warehouse_lookup)
+    monkeypatch.setattr(MarketInstrumentService, "_lookup_history_cache", empty_history_cache)
+    monkeypatch.setattr(MarketInstrumentService, "_store_history_cache", store_history_cache)
+    monkeypatch.setattr(dummy_akshare, "stock_zh_a_spot_em", fail_spot_lookup)
+
+    service = MarketInstrumentService()
+    payload = await service.lookup(
+        asset_type="stock",
+        symbol="000002",
+        start_date="2026-06-01",
+        end_date="2026-06-19",
+    )
+
+    assert payload["snapshot"]["price"] == 3.05
+    assert payload["history"]["total"] == 2
+    assert payload["provider"] == "akshare_data+akshare"
+    assert payload["indicators"]["latest_close"] == 12.4
+    assert "已使用 AkShare 在线历史行情补齐" in payload["warnings"][0]
+
+
+@pytest.mark.asyncio
 async def test_market_instrument_lookup_returns_futures_snapshot_and_history(
     client,
     auth_headers,

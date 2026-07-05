@@ -4,7 +4,7 @@
 strategy:
   name: "豆油鳄鱼线策略"
   description: "基于鳄鱼线的趋势跟踪策略 - 豆油期货"
-  author: "ai-for-trader"
+  author: "ai-for-investor"
   category: "simulate"
   
 # ============================================================

@@ -34,6 +34,34 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _task_runtime_info(task: BacktestTask | None) -> dict[str, Any]:
+    if task is None:
+        return {}
+    request_data = task.request_data if isinstance(task.request_data, dict) else {}
+    runtime = request_data.get("_runtime") if isinstance(request_data, dict) else {}
+    return runtime if isinstance(runtime, dict) else {}
+
+
+def _unit_run_progress(
+    task: BacktestTask | None,
+    run_status: str,
+) -> tuple[float | None, str | None]:
+    runtime = _task_runtime_info(task)
+    raw_progress = runtime.get("progress")
+    progress = float(raw_progress) if isinstance(raw_progress, (int, float)) else None
+    message = runtime.get("message") if isinstance(runtime.get("message"), str) else None
+    if progress is None:
+        if run_status in {"queued", "idle"}:
+            progress = 0.0
+        elif run_status == "running":
+            progress = 10.0
+        elif run_status in {"completed", "failed", "cancelled"}:
+            progress = 100.0
+    if progress is not None:
+        progress = max(0.0, min(progress, 100.0))
+    return progress, message
+
+
 class WorkspaceRunOpsMixin:
     """Mixin providing run/stop/status/polling methods for WorkspaceService."""
 
@@ -228,7 +256,10 @@ class WorkspaceRunOpsMixin:
         return results
 
     async def get_units_status(
-        self, workspace_id: str, user_id: str
+        self,
+        workspace_id: str,
+        user_id: str,
+        unit_ids: list[str] | None = None,
     ) -> list[UnitStatusResponse] | None:
         """Get run status of all units (polling endpoint)."""
         async with async_session_maker() as session:
@@ -236,11 +267,10 @@ class WorkspaceRunOpsMixin:
             if ws is None:
                 return None
 
-            q = (
-                select(StrategyUnit)
-                .where(StrategyUnit.workspace_id == workspace_id)
-                .order_by(StrategyUnit.sort_order)
-            )
+            q = select(StrategyUnit).where(StrategyUnit.workspace_id == workspace_id)
+            if unit_ids:
+                q = q.where(StrategyUnit.id.in_(unit_ids))
+            q = q.order_by(StrategyUnit.sort_order)
             result = await session.execute(q)
             units = list(result.scalars().all())
 
@@ -369,12 +399,25 @@ class WorkspaceRunOpsMixin:
                     else None
                 )
                 opt_info = opt_progress_map.get(opt_tid, {}) if opt_tid else {}
+                status_task = task_by_id.get(str(u_obj.last_task_id)) if u_obj.last_task_id else None
+                error_message = (
+                    str(status_task.error_message)
+                    if status_task and status_task.error_message
+                    else None
+                )
+                run_progress, run_message = _unit_run_progress(
+                    status_task,
+                    str(u_obj.run_status or "idle"),
+                )
                 responses.append(
                     UnitStatusResponse(
                         id=str(u_obj.id),
                         run_status=str(u_obj.run_status or "idle"),
                         last_task_id=str(u_obj.last_task_id) if u_obj.last_task_id else None,
+                        error_message=error_message,
                         metrics_snapshot=cast(dict[str, Any], u_obj.metrics_snapshot or {}),
+                        run_progress=run_progress,
+                        run_message=run_message,
                         run_count=int(u_obj.run_count or 0),
                         last_run_time=(
                             float(u_obj.last_run_time) if u_obj.last_run_time is not None else None

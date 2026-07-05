@@ -12,6 +12,8 @@ they depend on ``self.trading_service`` for hydration and normalization.
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
@@ -33,6 +35,29 @@ from app.services.param_optimization_service import get_optimization_progress
 from app.services.workspace._helpers import compute_rename
 
 logger = logging.getLogger(__name__)
+
+
+_JSON_FIELD_NAMES = {
+    "data_config",
+    "unit_settings",
+    "params",
+    "optimization_config",
+    "gateway_config",
+    "trading_snapshot",
+    "metrics_snapshot",
+}
+
+
+def _json_safe_value(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item) for item in value]
+    return value
 
 
 async def create_unit(
@@ -66,19 +91,21 @@ async def create_unit(
             timeframe_n=data.timeframe_n,
             category=data.category,
             sort_order=max_order + 1,
-            data_config=_normalize_unit_data_config(data.data_config),
-            unit_settings=data.unit_settings,
-            params=data.params,
-            optimization_config=data.optimization_config,
+            data_config=_json_safe_value(_normalize_unit_data_config(data.data_config)),
+            unit_settings=_json_safe_value(data.unit_settings),
+            params=_json_safe_value(data.params),
+            optimization_config=_json_safe_value(data.optimization_config),
             trading_mode=trading_service.normalize_trading_mode(data.trading_mode),
-            gateway_config=trading_service.normalize_gateway_config(
-                data.gateway_config.model_dump()
-                if hasattr(data.gateway_config, "model_dump")
-                else data.gateway_config
+            gateway_config=_json_safe_value(
+                trading_service.normalize_gateway_config(
+                    data.gateway_config.model_dump()
+                    if hasattr(data.gateway_config, "model_dump")
+                    else data.gateway_config
+                )
             ),
             lock_trading=bool(data.lock_trading),
             lock_running=bool(data.lock_running),
-            trading_snapshot=(
+            trading_snapshot=_json_safe_value(
                 data.trading_snapshot.model_dump()
                 if hasattr(data.trading_snapshot, "model_dump")
                 else data.trading_snapshot
@@ -128,19 +155,21 @@ async def batch_create_units(
                 timeframe_n=data.timeframe_n,
                 category=data.category,
                 sort_order=max_order + 1 + i,
-                data_config=_normalize_unit_data_config(data.data_config),
-                unit_settings=data.unit_settings,
-                params=data.params,
-                optimization_config=data.optimization_config,
+                data_config=_json_safe_value(_normalize_unit_data_config(data.data_config)),
+                unit_settings=_json_safe_value(data.unit_settings),
+                params=_json_safe_value(data.params),
+                optimization_config=_json_safe_value(data.optimization_config),
                 trading_mode=trading_service.normalize_trading_mode(data.trading_mode),
-                gateway_config=trading_service.normalize_gateway_config(
-                    data.gateway_config.model_dump()
-                    if hasattr(data.gateway_config, "model_dump")
-                    else data.gateway_config
+                gateway_config=_json_safe_value(
+                    trading_service.normalize_gateway_config(
+                        data.gateway_config.model_dump()
+                        if hasattr(data.gateway_config, "model_dump")
+                        else data.gateway_config
+                    )
                 ),
                 lock_trading=bool(data.lock_trading),
                 lock_running=bool(data.lock_running),
-                trading_snapshot=(
+                trading_snapshot=_json_safe_value(
                     data.trading_snapshot.model_dump()
                     if hasattr(data.trading_snapshot, "model_dump")
                     else data.trading_snapshot
@@ -435,6 +464,8 @@ async def update_unit(
                     if hasattr(value, "model_dump")
                     else cast(dict[str, Any], value)
                 )
+            if key in _JSON_FIELD_NAMES:
+                value = _json_safe_value(value)
             setattr(unit, key, value)
         await session.commit()
         await session.refresh(unit)

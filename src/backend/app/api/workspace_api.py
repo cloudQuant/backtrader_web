@@ -389,11 +389,17 @@ async def stop_units(
 )
 async def get_units_status(
     workspace_id: str,
+    unit_ids: str | None = Query(None),
     current_user: TokenPayload = Depends(get_current_user),
     service: WorkspaceService = Depends(get_workspace_service),
 ) -> list[Any]:
     """Get current run status of all units in workspace (polling endpoint)."""
-    statuses = await service.get_units_status(workspace_id, current_user.sub)
+    parsed_unit_ids = [value.strip() for value in str(unit_ids or "").split(",") if value.strip()]
+    statuses = await service.get_units_status(
+        workspace_id,
+        current_user.sub,
+        unit_ids=parsed_unit_ids or None,
+    )
     if statuses is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
     return statuses

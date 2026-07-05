@@ -154,6 +154,105 @@ def _modify_mysql_column_type_if_needed(
     )
 
 
+def _make_column_nullable_if_needed(
+    bind,
+    table_name: str,
+    column_name: str,
+    ddl: str,
+) -> None:
+    if not _has_table(bind, table_name):
+        return
+
+    columns = {column["name"]: column for column in sa.inspect(bind).get_columns(table_name)}
+    column = columns.get(column_name)
+    if column is None or column.get("nullable", True):
+        return
+
+    dialect_name = bind.dialect.name
+    if dialect_name == "mysql":
+        bind.execute(text(f"ALTER TABLE {table_name} MODIFY COLUMN {column_name} {ddl}"))
+    elif dialect_name == "postgresql":
+        bind.execute(text(f"ALTER TABLE {table_name} ALTER COLUMN {column_name} DROP NOT NULL"))
+    elif dialect_name == "sqlite" and table_name == "chat_conversations":
+        _rebuild_sqlite_chat_conversations_with_nullable_kb(bind)
+    else:
+        logger.warning(
+            "Cannot automatically make %s.%s nullable for dialect %s",
+            table_name,
+            column_name,
+            dialect_name,
+        )
+        return
+
+    logger.warning(
+        "Made database column %s.%s nullable during startup schema sync",
+        table_name,
+        column_name,
+    )
+
+
+def _rebuild_sqlite_chat_conversations_with_nullable_kb(bind) -> None:
+    """Rebuild SQLite chat_conversations so knowledge_base_id can be NULL."""
+    bind.execute(text("PRAGMA foreign_keys=OFF"))
+    bind.execute(text("DROP TABLE IF EXISTS chat_conversations_new"))
+    bind.execute(
+        text(
+            """
+            CREATE TABLE chat_conversations_new (
+                id VARCHAR(36) NOT NULL PRIMARY KEY,
+                knowledge_base_id VARCHAR(36),
+                user_id VARCHAR(36) NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                model_id VARCHAR(200),
+                settings JSON,
+                created_at DATETIME,
+                updated_at DATETIME,
+                FOREIGN KEY(knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+    )
+    existing_columns = _get_column_names(bind, "chat_conversations")
+    copy_columns = [
+        column
+        for column in (
+            "id",
+            "knowledge_base_id",
+            "user_id",
+            "title",
+            "model_id",
+            "settings",
+            "created_at",
+            "updated_at",
+        )
+        if column in existing_columns
+    ]
+    if copy_columns:
+        columns_sql = ", ".join(copy_columns)
+        bind.execute(
+            text(
+                f"INSERT INTO chat_conversations_new ({columns_sql}) "
+                f"SELECT {columns_sql} FROM chat_conversations"
+            )
+        )
+    bind.execute(text("DROP TABLE chat_conversations"))
+    bind.execute(text("ALTER TABLE chat_conversations_new RENAME TO chat_conversations"))
+    bind.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_chat_conversations_knowledge_base_id "
+            "ON chat_conversations (knowledge_base_id)"
+        )
+    )
+    bind.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_chat_conversations_user_id "
+            "ON chat_conversations (user_id)"
+        )
+    )
+    bind.execute(text("PRAGMA foreign_keys=ON"))
+
+
 def _ensure_workspace_schema_compatibility_sync(bind) -> None:
     dialect_name = bind.dialect.name
     false_literal = "FALSE" if dialect_name == "postgresql" else "0"
@@ -299,6 +398,12 @@ def _ensure_knowledge_base_schema_compatibility_sync(bind) -> None:
         "chat_conversations",
         "updated_at",
         f"updated_at {datetime_type}",
+    )
+    _make_column_nullable_if_needed(
+        bind,
+        "chat_conversations",
+        "knowledge_base_id",
+        "VARCHAR(36) NULL",
     )
 
     if _has_table(bind, "chat_messages"):

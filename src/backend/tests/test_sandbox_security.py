@@ -221,6 +221,7 @@ class TestSafeGlobals:
         assert "exec" not in builtins
         assert "compile" not in builtins
         assert "open" not in builtins
+        assert builtins["print"] == StrategySandbox._safe_print
         assert builtins["__import__"] == StrategySandbox._safe_import
 
     def test_safe_globals_has_allowed_modules(self):

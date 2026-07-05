@@ -12,7 +12,13 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-import backtrader as bt
+try:
+    import backtrader as bt
+except Exception as exc:  # pragma: no cover - depends on optional native runtime
+    bt = None
+    _BACKTRADER_IMPORT_ERROR: Exception | None = exc
+else:
+    _BACKTRADER_IMPORT_ERROR = None
 
 
 class _SandboxTimeoutError(Exception):
@@ -86,6 +92,7 @@ class StrategySandbox:
 
         # Add security restrictions
         safe_globals["__builtins__"]["__import__"] = cls._safe_import
+        safe_globals["__builtins__"]["print"] = cls._safe_print
         safe_globals["__import__"] = cls._safe_import
         safe_globals["__print__"] = cls._safe_print
 
@@ -174,6 +181,8 @@ class StrategySandbox:
             RuntimeError: If the code execution fails or times out.
         """
         execution_timeout = timeout if timeout is not None else cls._EXECUTION_TIMEOUT
+        if bt is None:
+            raise RuntimeError(f"backtrader runtime is unavailable: {_BACKTRADER_IMPORT_ERROR}")
 
         # Pre-check code to prevent dangerous operations (AST-based)
         cls._check_code_safety(code)
@@ -280,6 +289,8 @@ class StrategySandbox:
                 continue
             if isinstance(obj, type):
                 try:
+                    if bt is None:
+                        return None
                     if issubclass(obj, bt.Strategy) and obj != bt.Strategy:
                         return obj
                 except TypeError:

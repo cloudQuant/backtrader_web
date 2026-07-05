@@ -255,7 +255,7 @@ def find_clash_external_controller() -> tuple[str, str] | tuple[None, None]:
 
             req = urllib.request.Request(
                 f"http://127.0.0.1:{probe_port}/version",
-                headers={"User-Agent": "ai-for-trader"},
+                headers={"User-Agent": "ai-for-investor"},
             )
             resp = urllib.request.urlopen(req, timeout=2)
             if resp.status == 200:
@@ -280,7 +280,7 @@ def clash_api_add_direct_rules(
     import json as _json
     import urllib.request
 
-    headers = {"Content-Type": "application/json", "User-Agent": "ai-for-trader"}
+    headers = {"Content-Type": "application/json", "User-Agent": "ai-for-investor"}
     if secret:
         headers["Authorization"] = f"Bearer {secret}"
 

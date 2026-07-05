@@ -3,7 +3,7 @@ title: 首页
 description: 基于 Backtrader 的现代化量化交易全栈管理平台
 ---
 
-# AI for Trader
+# AI for Investor
 
 <div align="center">
 
@@ -47,8 +47,8 @@ description: 基于 Backtrader 的现代化量化交易全栈管理平台
 
 ```bash
 # 克隆项目
-git clone https://github.com/cloudQuant/ai-for-trader.git
-cd ai-for-trader
+git clone https://github.com/cloudQuant/ai-for-investor.git
+cd ai-for-investor
 
 # 后端安装
 cd src/backend
@@ -96,4 +96,4 @@ docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
 
 ## 许可证
 
-[MIT License](https://github.com/cloudQuant/ai-for-trader/blob/main/LICENSE)
+[MIT License](https://github.com/cloudQuant/ai-for-investor/blob/main/LICENSE)

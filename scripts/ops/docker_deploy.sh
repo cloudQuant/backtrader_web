@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ###############################################################################
-# AI for Trader - Docker 一键部署脚本
+# AI for Investor - Docker 一键部署脚本
 #
 # 适用于全新的 Ubuntu 22.04 / 24.04 LTS 服务器
 # 服务器可以是完全空白的 (连 Docker 都没有)
@@ -29,23 +29,23 @@
 #   - Nginx + Vue 3 Frontend (Web 界面)
 #
 # 部署后管理:
-#   查看状态:  cd /opt/ai-for-trader && docker compose -f docker-compose.yml -f docker/compose/prod.yml ps
-#   查看日志:  cd /opt/ai-for-trader && docker compose -f docker-compose.yml -f docker/compose/prod.yml logs -f
-#   重启应用:  cd /opt/ai-for-trader && docker compose -f docker-compose.yml -f docker/compose/prod.yml restart backend frontend
-#   停止应用:  cd /opt/ai-for-trader && docker compose -f docker-compose.yml -f docker/compose/prod.yml stop backend frontend
-#   停止服务:  cd /opt/ai-for-trader && docker compose -f docker-compose.yml -f docker/compose/prod.yml down
-#   更新部署:  cd /opt/ai-for-trader && git pull && docker compose -f docker-compose.yml -f docker/compose/prod.yml build backend frontend && docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d backend frontend
+#   查看状态:  cd /opt/ai-for-investor && docker compose -f docker-compose.yml -f docker/compose/prod.yml ps
+#   查看日志:  cd /opt/ai-for-investor && docker compose -f docker-compose.yml -f docker/compose/prod.yml logs -f
+#   重启应用:  cd /opt/ai-for-investor && docker compose -f docker-compose.yml -f docker/compose/prod.yml restart backend frontend
+#   停止应用:  cd /opt/ai-for-investor && docker compose -f docker-compose.yml -f docker/compose/prod.yml stop backend frontend
+#   停止服务:  cd /opt/ai-for-investor && docker compose -f docker-compose.yml -f docker/compose/prod.yml down
+#   更新部署:  cd /opt/ai-for-investor && git pull && docker compose -f docker-compose.yml -f docker/compose/prod.yml build backend frontend && docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d backend frontend
 ###############################################################################
 set -euo pipefail
 
 # ========================= 用户配置区 =========================
 
 # 项目 Git 仓库地址
-GIT_REPO="${GIT_REPO:-https://github.com/cloudQuant/ai-for-trader.git}"
+GIT_REPO="${GIT_REPO:-https://github.com/cloudQuant/ai-for-investor.git}"
 GIT_BRANCH="${GIT_BRANCH:-dev}"
 
 # 安装目录
-INSTALL_DIR="${INSTALL_DIR:-/opt/ai-for-trader}"
+INSTALL_DIR="${INSTALL_DIR:-/opt/ai-for-investor}"
 ENV_FILE_RELATIVE_PATH="${ENV_FILE_RELATIVE_PATH:-src/backend/.env}"
 
 # 对外 HTTP 端口 (80 = 标准 HTTP)
@@ -61,7 +61,7 @@ DB_HOST="${DB_HOST:-mysql}"
 DB_PORT="${DB_PORT:-3306}"
 DB_USER="${DB_USER:-backtrader}"
 DB_PASSWORD="${DB_PASSWORD:-}"
-DB_NAME="${DB_NAME:-ai_for_trader}"
+DB_NAME="${DB_NAME:-ai_for_investor}"
 MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-}"
 MYSQL_DATA_DIR="${MYSQL_DATA_DIR:-./runtime/mysql}"
 REDIS_DATA_DIR="${REDIS_DATA_DIR:-./runtime/redis}"
@@ -276,7 +276,7 @@ ENV_FILE="${INSTALL_DIR}/${ENV_FILE_RELATIVE_PATH}"
 mkdir -p "$(dirname "${ENV_FILE}")"
 
 cat > "${ENV_FILE}" <<EOF
-# ===== AI for Trader Docker 配置 =====
+# ===== AI for Investor Docker 配置 =====
 # 自动生成于 $(date '+%Y-%m-%d %H:%M:%S')
 # 此文件由 docker compose --env-file ${ENV_FILE_RELATIVE_PATH} 读取
 
@@ -369,9 +369,9 @@ docker compose "${COMPOSE_ARGS[@]}" ps
 ###############################################################################
 # 保存凭据
 ###############################################################################
-CREDENTIALS_FILE="/root/.ai-for-trader_credentials"
+CREDENTIALS_FILE="/root/.ai-for-investor_credentials"
 cat > "${CREDENTIALS_FILE}" <<EOF
-# AI for Trader Docker 部署凭据 - 请妥善保管!
+# AI for Investor Docker 部署凭据 - 请妥善保管!
 # 生成时间: $(date '+%Y-%m-%d %H:%M:%S')
 
 MySQL 主机:          ${DB_HOST}
@@ -392,7 +392,7 @@ chmod 600 "${CREDENTIALS_FILE}"
 ###############################################################################
 echo ""
 echo -e "${GREEN}============================================${NC}"
-echo -e "${GREEN}  AI for Trader Docker 部署完成!${NC}"
+echo -e "${GREEN}  AI for Investor Docker 部署完成!${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo ""
 echo -e "  访问地址:     ${BLUE}http://${SERVER_DOMAIN}${NC}"

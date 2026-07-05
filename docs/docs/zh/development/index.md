@@ -1,11 +1,11 @@
 # 开发指南
 
-本节涵盖 AI for Trader 的开发指南。
+本节涵盖 AI for Investor 的开发指南。
 
 ## 项目结构
 
 ```
-ai-for-trader/
+ai-for-investor/
 ├── src/
 │   ├── backend/              # FastAPI 后端
 │   │   ├── app/

@@ -32,7 +32,7 @@ AI 聊天页现在支持以下模式：
 
 新增了一个可配置的 AI 生成层：
 
-- 文件: [ai_chat_service.py](/Users/yunjinqi/Documents/new_projects/ai-for-trader/src/backend/app/services/ai_chat_service.py)
+- 文件: [ai_chat_service.py](/Users/yunjinqi/Documents/new_projects/ai-for-investor/src/backend/app/services/ai_chat_service.py)
 - 作用:
   - 调用兼容 `chat/completions` 的模型端点
   - 把知识库检索结果拼装成上下文
@@ -40,7 +40,7 @@ AI 聊天页现在支持以下模式：
 
 ### 2. RAG 降级路径更清晰
 
-文件: [rag_service.py](/Users/yunjinqi/Documents/new_projects/ai-for-trader/src/backend/app/services/rag_service.py)
+文件: [rag_service.py](/Users/yunjinqi/Documents/new_projects/ai-for-investor/src/backend/app/services/rag_service.py)
 
 当前行为：
 
@@ -54,7 +54,7 @@ AI 聊天页现在支持以下模式：
 
 ### 3. AI 会话安全与一致性修复
 
-文件: [kb_chat_service.py](/Users/yunjinqi/Documents/new_projects/ai-for-trader/src/backend/app/services/kb_chat_service.py)
+文件: [kb_chat_service.py](/Users/yunjinqi/Documents/new_projects/ai-for-investor/src/backend/app/services/kb_chat_service.py)
 
 修复内容：
 
@@ -66,7 +66,7 @@ AI 聊天页现在支持以下模式：
 
 ### AI 聊天页
 
-文件: [AIChatPage.vue](/Users/yunjinqi/Documents/new_projects/ai-for-trader/src/frontend/src/views/AIChatPage.vue)
+文件: [AIChatPage.vue](/Users/yunjinqi/Documents/new_projects/ai-for-investor/src/frontend/src/views/AIChatPage.vue)
 
 新增：
 
@@ -85,8 +85,8 @@ AI 聊天页现在支持以下模式：
 
 文件：
 
-- [strategy.py](/Users/yunjinqi/Documents/new_projects/ai-for-trader/src/backend/app/api/strategy.py)
-- [strategy_service.py](/Users/yunjinqi/Documents/new_projects/ai-for-trader/src/backend/app/services/strategy_service.py)
+- [strategy.py](/Users/yunjinqi/Documents/new_projects/ai-for-investor/src/backend/app/api/strategy.py)
+- [strategy_service.py](/Users/yunjinqi/Documents/new_projects/ai-for-investor/src/backend/app/services/strategy_service.py)
 
 新增接口：
 
@@ -103,8 +103,8 @@ AI 聊天页现在支持以下模式：
 
 文件：
 
-- [kbChat.ts](/Users/yunjinqi/Documents/new_projects/ai-for-trader/src/frontend/src/api/kbChat.ts)
-- [kbChat.ts](/Users/yunjinqi/Documents/new_projects/ai-for-trader/src/frontend/src/stores/kbChat.ts)
+- [kbChat.ts](/Users/yunjinqi/Documents/new_projects/ai-for-investor/src/frontend/src/api/kbChat.ts)
+- [kbChat.ts](/Users/yunjinqi/Documents/new_projects/ai-for-investor/src/frontend/src/stores/kbChat.ts)
 
 新增：
 
@@ -114,7 +114,7 @@ AI 聊天页现在支持以下模式：
 
 ## 配置方法
 
-在 [src/backend/.env.example](/Users/yunjinqi/Documents/new_projects/ai-for-trader/src/backend/.env.example) 中已新增配置项：
+在 [src/backend/.env.example](/Users/yunjinqi/Documents/new_projects/ai-for-investor/src/backend/.env.example) 中已新增配置项：
 
 ```bash
 AI_CHAT_ENABLED=false

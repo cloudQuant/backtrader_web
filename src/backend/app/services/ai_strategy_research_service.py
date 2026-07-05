@@ -4,20 +4,24 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import io
 import json
 import re
 import signal
 import threading
 import time
+import tokenize
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from app.config import get_settings
 from app.schemas.ai_strategy_research import (
+    AI_STRATEGY_RESEARCH_DEFAULT_WORKFLOW_STEPS,
+    AI_STRATEGY_RESEARCH_WORKFLOW_STEP_LABELS,
     AIStrategyLiveHandoffApprovalRecord,
     AIStrategyLiveHandoffApprovalRequest,
     AIStrategyLiveHandoffPackage,
@@ -32,6 +36,7 @@ from app.schemas.ai_strategy_research import (
     AIStrategyResearchRunRecord,
     AIStrategyResearchRunRequest,
     AIStrategyResearchRunResponse,
+    AIStrategyResearchTaskResponse,
 )
 from app.schemas.strategy import (
     AIStrategyBacktestSpec,
@@ -90,6 +95,7 @@ _SENSITIVE_OMITTED = object()
 class StrategyImprovement:
     draft: AIStrategyDraft
     notes: list[str]
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -171,6 +177,25 @@ class LocalStrategyImprover:
             f"AI research revision {iteration + 1}: previous Sharpe {sharpe:.3f}, "
             f"target {target_sharpe:.3f}."
         ).strip()
+
+        trade_count_failed = (
+            (request is not None and total_trades < max(int(request.min_total_trades), 1))
+            or "trade_count" in failure_categories
+            or any("trade" in item.lower() or "交易" in item for item in failures)
+        )
+        if trade_count_failed and request is not None:
+            rebuilt = build_ai_strategy_draft(request.prompt)
+            improved = _normalize_research_draft(rebuilt, request)
+            improved.name = f"{base_name}{suffix}"[:100]
+            improved.description = (
+                f"{improved.description or ''}\n"
+                f"AI research revision {iteration + 1}: rebuilt after trade-count failure; "
+                f"previous closed trades {total_trades}, target {request.min_total_trades}."
+            ).strip()
+            notes.append(
+                "上一轮缺少闭合交易，本轮重建为带止损、止盈和最长持仓退出的基础模板，"
+                "优先生成可计数的完成交易。"
+            )
 
         params = improved.params
         if regressed:
@@ -273,7 +298,15 @@ class LocalStrategyImprover:
             "继续回测新版本并比较 Sharpe、回撤和交易次数",
             "达标后进入 paper 模拟交易并观察实盘风控指标",
         ]
-        return StrategyImprovement(draft=improved, notes=notes)
+        return StrategyImprovement(
+            draft=improved,
+            notes=notes,
+            metadata={
+                "source": "local_rules",
+                "provider": "local",
+                "model_id": None,
+            },
+        )
 
 
 class AIStrategyImprover:
@@ -330,6 +363,7 @@ class AIStrategyImprover:
                 base_url=preference.base_url,
                 api_key=preference.api_key,
                 timeout=float(getattr(self.settings, "AI_CHAT_TIMEOUT", 120.0) or 120.0),
+                max_tokens=int(getattr(self.settings, "AI_CHAT_MAX_TOKENS", 4000) or 4000),
                 temperature=min(
                     float(getattr(self.settings, "AI_CHAT_TEMPERATURE", 0.2) or 0.2),
                     0.3,
@@ -340,6 +374,8 @@ class AIStrategyImprover:
                 _parse_ai_improvement_payload(response.content),
                 iteration=iteration,
                 model_id=response.model,
+                provider=response.provider,
+                total_tokens=response.total_tokens,
             )
             return improved
         except Exception as exc:
@@ -358,6 +394,13 @@ class AIStrategyImprover:
                     f"AI模型改稿不可用，已使用本地规则回退：{exc}",
                     *fallback.notes,
                 ],
+                metadata={
+                    **dict(fallback.metadata or {}),
+                    "source": "local_fallback",
+                    "fallback_reason": str(exc),
+                    "failed_ai_provider": preference.provider,
+                    "failed_ai_model": preference.model,
+                },
             )
 
     async def _resolve_preference(
@@ -462,6 +505,8 @@ class AIStrategyResearchService:
                 paper_trading_error=None,
                 paper_review_status=None,
                 paper_review_ready_for_live=False,
+                workflow_mode=request.workflow_mode,
+                workflow_steps=request.workflow_steps,
             )
             response = AIStrategyResearchRunResponse(
                 run_id=run_id,
@@ -536,6 +581,11 @@ class AIStrategyResearchService:
                         thinking_mode=request.thinking_mode,
                     ),
                 )
+                initial_draft_metadata = _initial_generation_metadata_from_response(
+                    draft_response,
+                    source="ai_initial_draft",
+                    request=request,
+                )
                 draft = _normalize_research_draft(draft_response.strategy_draft, request)
                 draft, initial_draft_notes = _ensure_runnable_initial_draft(draft, request)
             except asyncio.CancelledError:
@@ -572,13 +622,20 @@ class AIStrategyResearchService:
                 )
                 draft = _normalize_research_draft(build_ai_strategy_draft(request.prompt), request)
                 _validate_strategy_code_draft(draft.code)
+                initial_draft_metadata = {
+                    "source": "local_initial_fallback",
+                    "provider": "local",
+                    "fallback_reason": str(exc),
+                }
                 initial_draft_notes = [
                     f"AI初始策略生成失败，已使用本地可运行草案继续投研：{exc}",
                 ]
         else:
             draft, initial_draft_notes = _ensure_runnable_seed_draft(draft, request)
+            initial_draft_metadata = _seed_generation_metadata(request)
 
         pending_improvement_notes: list[str] = initial_draft_notes
+        pending_generation_metadata: dict[str, Any] = dict(initial_draft_metadata)
         continuation_failures = _continuation_quality_gate_failures(request.continuation_context)
         validation_window = _out_of_sample_window(request)
         if continuation_failures:
@@ -628,6 +685,11 @@ class AIStrategyResearchService:
                 continuation_note,
                 *improvement.notes,
             ]
+            pending_generation_metadata = _strategy_generation_metadata(
+                improvement.metadata,
+                phase="continuation_improvement",
+                iteration=1,
+            )
         achieved = False
 
         for iteration in range(1, request.max_iterations + 1):
@@ -643,13 +705,18 @@ class AIStrategyResearchService:
                 },
             )
             try:
-                draft, pending_improvement_notes = await self._ensure_valid_draft_before_backtest(
+                (
+                    draft,
+                    pending_improvement_notes,
+                    pending_generation_metadata,
+                ) = await self._ensure_valid_draft_before_backtest(
                     draft,
                     user_id=user_id,
                     request=request,
                     iteration=iteration,
                     iteration_count=len(iterations),
                     pending_improvement_notes=pending_improvement_notes,
+                    pending_generation_metadata=pending_generation_metadata,
                     progress_callback=progress_callback,
                 )
             except asyncio.CancelledError:
@@ -763,6 +830,11 @@ class AIStrategyResearchService:
                         f"第 {iteration} 轮回测提交失败，已基于失败原因生成下一版策略：{failure_reason}",
                         *improvement.notes,
                     ]
+                    pending_generation_metadata = _strategy_generation_metadata(
+                        improvement.metadata,
+                        phase="backtest_submission_repair",
+                        iteration=iteration + 1,
+                    )
                     continue
                 break
             await _emit_research_progress(
@@ -991,6 +1063,12 @@ class AIStrategyResearchService:
                         f"第 {iteration} 轮训练样本达标，但样本外验证未通过："
                         + "；".join(validation_failures)
                     )
+            generation_metadata = _strategy_generation_metadata(
+                pending_generation_metadata,
+                iteration=iteration,
+            )
+            if generation_metadata:
+                diagnostics["strategy_generation"] = generation_metadata
             improvement_plan = list(diagnostics.get("improvement_plan") or [])
 
             item = AIStrategyResearchIteration(
@@ -1117,6 +1195,11 @@ class AIStrategyResearchService:
                 pending_improvement_notes = (
                     [rollback_note, *improvement.notes] if rollback_note else improvement.notes
                 )
+                pending_generation_metadata = _strategy_generation_metadata(
+                    improvement.metadata,
+                    phase="quality_gate_improvement",
+                    iteration=iteration + 1,
+                )
 
         paper_trading = None
         paper_trading_error = None
@@ -1201,10 +1284,11 @@ class AIStrategyResearchService:
             if achieved and result_iteration is not None
             else []
         )
-        message = (
-            f"Target Sharpe {request.target_sharpe:.3f} achieved"
-            if achieved
-            else f"Target Sharpe {request.target_sharpe:.3f} not achieved"
+        message = _research_completion_message(
+            request=request,
+            achieved=achieved,
+            result_iteration=result_iteration,
+            run_failures=run_failures,
         )
         completed_at = _utc_iso_now()
         next_actions = _run_next_actions(
@@ -1227,6 +1311,8 @@ class AIStrategyResearchService:
             paper_trading_error=paper_trading_error,
             paper_review_status=None,
             paper_review_ready_for_live=False,
+            workflow_mode=request.workflow_mode,
+            workflow_steps=request.workflow_steps,
         )
         response = AIStrategyResearchRunResponse(
             run_id=run_id,
@@ -1342,11 +1428,72 @@ class AIStrategyResearchService:
         *,
         research_workspace_id: str | None = None,
     ) -> AIStrategyResearchRunRecord | None:
-        return await self._find_research_run_record(
+        found = await self._find_research_run_record_with_workspace(
             user_id,
             run_id,
             research_workspace_id=research_workspace_id,
         )
+        return found[1] if found is not None else None
+
+    async def build_continuation_request_from_run_record(
+        self,
+        user_id: str,
+        run_id: str,
+        *,
+        overrides: dict[str, Any] | None = None,
+        research_workspace_id: str | None = None,
+    ) -> AIStrategyResearchRunRequest | None:
+        record = await self._find_research_run_record(
+            user_id,
+            run_id,
+            research_workspace_id=research_workspace_id,
+        )
+        if record is None:
+            return None
+        return _continuation_request_from_run_record(record, overrides or {})
+
+    async def continuation_task_updates(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+    ) -> dict[str, Any]:
+        """Expose record-derived continuation context before the long task completes."""
+
+        continued_from = str(request.continue_from_run_id or "").strip()
+        if not continued_from:
+            return {}
+        record = await self._find_research_run_record(
+            user_id,
+            continued_from,
+            research_workspace_id=request.research_workspace_id,
+        )
+        if record is None:
+            return {}
+
+        runtime_context = _record_runtime_context(record)
+        context = _continuation_context_from_record(record)
+        if context:
+            context = _enriched_continuation_context(
+                {
+                    **dict(request.continuation_context or {}),
+                    **context,
+                },
+                request,
+            )
+
+        updates: dict[str, Any] = {"continued_from_run_id": record.run_id}
+        source = _continuation_source_from_context(context)
+        if source:
+            updates["continuation_source"] = source
+        if context:
+            updates["continuation_context"] = _research_record_continuation_context(context)
+        asset_specs = runtime_context.get("asset_specs")
+        if isinstance(asset_specs, dict) and asset_specs:
+            updates["asset_specs"] = _summarize_asset_specs_for_prompt(asset_specs)
+        backtest_environment = runtime_context.get("backtest_environment")
+        if isinstance(backtest_environment, dict) and backtest_environment:
+            updates["backtest_environment"] = dict(backtest_environment)
+        return updates
 
     async def _freshen_run_records_with_paper_state(
         self,
@@ -1368,6 +1515,39 @@ class AIStrategyResearchService:
         record: AIStrategyResearchRunRecord,
     ) -> AIStrategyResearchRunRecord:
         if not _run_record_should_auto_refresh_paper_review(record):
+            if not (
+                record.achieved
+                and record.paper_trading_started
+                and record.paper_workspace_id
+                and _run_record_should_invalidate_missing_paper_target(record)
+            ):
+                return record
+            workspace = await self.workspace_service.get_workspace(
+                record.paper_workspace_id,
+                user_id,
+            )
+            if workspace is None:
+                return _run_record_with_missing_paper_target(
+                    record,
+                    reason=f"Paper trading workspace {record.paper_workspace_id} was not found",
+                )
+            if not record.paper_unit_id:
+                return _run_record_with_missing_paper_target(
+                    record,
+                    reason="Paper trading unit ID is missing",
+                )
+            unit = _coerce_strategy_unit_response(
+                await self.workspace_service.get_unit(
+                    workspace.id,
+                    record.paper_unit_id,
+                    user_id,
+                )
+            )
+            if unit is None:
+                return _run_record_with_missing_paper_target(
+                    record,
+                    reason=f"Paper trading unit {record.paper_unit_id} was not found",
+                )
             return record
 
         workspace = None
@@ -1378,10 +1558,33 @@ class AIStrategyResearchService:
                 record.paper_workspace_id,
                 user_id,
             )
-        if workspace is None or not record.paper_unit_id:
+        if workspace is None:
+            if _run_record_should_invalidate_missing_paper_target(record):
+                return _run_record_with_missing_paper_target(
+                    record,
+                    reason=f"Paper trading workspace {record.paper_workspace_id} was not found",
+                )
             return record
-        unit = await self.workspace_service.get_unit(workspace.id, record.paper_unit_id, user_id)
+        if not record.paper_unit_id:
+            if _run_record_should_invalidate_missing_paper_target(record):
+                return _run_record_with_missing_paper_target(
+                    record,
+                    reason="Paper trading unit ID is missing",
+                )
+            return record
+        unit = _coerce_strategy_unit_response(
+            await self.workspace_service.get_unit(
+                workspace.id,
+                record.paper_unit_id,
+                user_id,
+            )
+        )
         if unit is None:
+            if _run_record_should_invalidate_missing_paper_target(record):
+                return _run_record_with_missing_paper_target(
+                    record,
+                    reason=f"Paper trading unit {record.paper_unit_id} was not found",
+                )
             return record
         statuses = await self.workspace_service.get_units_status(workspace.id, user_id)
         unit_status = _find_unit_status(statuses or [], record.paper_unit_id)
@@ -1539,6 +1742,18 @@ class AIStrategyResearchService:
                 iteration_payload,
                 user_id=user_id,
             )
+            if strategy is not None:
+                strategy = await self._persist_strategy_snapshot_for_promotion(
+                    user_id,
+                    record,
+                    strategy,
+                )
+                record = record.model_copy(
+                    update={
+                        "best_strategy_id": strategy.id,
+                        "best_strategy_name": strategy.name,
+                    }
+                )
         if strategy is None:
             raise ValueError("Best strategy not found and run record has no strategy snapshot")
 
@@ -1553,10 +1768,12 @@ class AIStrategyResearchService:
                 iteration_payload.get("unit_id") or unit_snapshot.get("id") or ""
             ).strip()
             if unit_id:
-                unit = await self.workspace_service.get_unit(
-                    record.research_workspace_id,
-                    unit_id,
-                    user_id,
+                unit = _coerce_strategy_unit_response(
+                    await self.workspace_service.get_unit(
+                        record.research_workspace_id,
+                        unit_id,
+                        user_id,
+                    )
                 )
             if unit is None:
                 unit = _unit_from_iteration_snapshot(
@@ -1618,7 +1835,13 @@ class AIStrategyResearchService:
         if record.paper_workspace_id:
             workspace = await self.workspace_service.get_workspace(record.paper_workspace_id, user_id)
         if workspace is not None and record.paper_unit_id:
-            unit = await self.workspace_service.get_unit(workspace.id, record.paper_unit_id, user_id)
+            unit = _coerce_strategy_unit_response(
+                await self.workspace_service.get_unit(
+                    workspace.id,
+                    record.paper_unit_id,
+                    user_id,
+                )
+            )
             statuses = await self.workspace_service.get_units_status(workspace.id, user_id)
             unit_status = _find_unit_status(statuses or [], record.paper_unit_id)
 
@@ -1729,10 +1952,47 @@ class AIStrategyResearchService:
                 (unit.unit_settings or {}).get("ai_research_review_lock"),
                 record,
             )
+            stop_results = [
+                dict(item)
+                for item in (existing_lock or {}).get("stop_results", [])
+                if isinstance(item, dict)
+            ]
+            lock_payload = _paper_review_unit_lock_payload(
+                record,
+                review_status=review_status,
+                reviewed_at=reviewed_at,
+                evaluations=evaluations,
+                next_actions=next_actions,
+                stop_results=stop_results,
+            )
+            unit_settings = dict(unit.unit_settings or {})
+            unit_settings["ai_research_review_lock"] = lock_payload
+            try:
+                updated = await self.workspace_service.update_unit(
+                    workspace.id,
+                    unit.id,
+                    user_id,
+                    StrategyUnitUpdate(
+                        unit_settings=unit_settings,
+                        lock_trading=True,
+                        lock_running=True,
+                    ),
+                )
+            except Exception:
+                updated = None
+            if updated is not None:
+                return (
+                    StrategyUnitResponse.model_validate(updated),
+                    _append_unique_text(
+                        next_actions,
+                        "模拟复核未通过，模拟交易单元已处于停止/锁定状态，需继续投研或人工解锁后再运行。",
+                    ),
+                    lock_payload,
+                )
             return None, _append_unique_text(
                 next_actions,
                 "模拟复核未通过，模拟交易单元已处于停止/锁定状态，需继续投研或人工解锁后再运行。",
-            ), existing_lock
+            ), lock_payload
 
         stop_results, next_actions = await self._stop_paper_unit_for_review_failure(
             user_id,
@@ -1903,7 +2163,11 @@ class AIStrategyResearchService:
                 next_actions=_live_trading_prepare_next_actions(unit),
             )
 
-        strategy, source_unit = await self._resolve_run_record_strategy_unit(user_id, record)
+        record, strategy, source_unit = await self._resolve_run_record_strategy_unit(
+            user_id,
+            record,
+        )
+        package = _build_live_handoff_package(record)
         workspace = None
         if request.trading_workspace_id:
             workspace = await self.workspace_service.get_workspace(
@@ -1986,7 +2250,7 @@ class AIStrategyResearchService:
         self,
         user_id: str,
         record: AIStrategyResearchRunRecord,
-    ) -> tuple[StrategyResponse, StrategyUnitResponse]:
+    ) -> tuple[AIStrategyResearchRunRecord, StrategyResponse, StrategyUnitResponse]:
         iteration_payload = _best_iteration_payload(record)
         if (
             not record.best_strategy_id
@@ -2004,6 +2268,18 @@ class AIStrategyResearchService:
                 iteration_payload,
                 user_id=user_id,
             )
+            if strategy is not None:
+                strategy = await self._persist_strategy_snapshot_for_promotion(
+                    user_id,
+                    record,
+                    strategy,
+                )
+                record = record.model_copy(
+                    update={
+                        "best_strategy_id": strategy.id,
+                        "best_strategy_name": strategy.name,
+                    }
+                )
         if strategy is None:
             raise ValueError("Best strategy not found and run record has no strategy snapshot")
 
@@ -2018,10 +2294,12 @@ class AIStrategyResearchService:
                 iteration_payload.get("unit_id") or unit_snapshot.get("id") or ""
             ).strip()
             if unit_id:
-                unit = await self.workspace_service.get_unit(
-                    record.research_workspace_id,
-                    unit_id,
-                    user_id,
+                unit = _coerce_strategy_unit_response(
+                    await self.workspace_service.get_unit(
+                        record.research_workspace_id,
+                        unit_id,
+                        user_id,
+                    )
                 )
             if unit is None:
                 unit = _unit_from_iteration_snapshot(
@@ -2031,7 +2309,7 @@ class AIStrategyResearchService:
                 )
         if unit is None:
             unit = _unit_from_run_record(record, strategy=strategy)
-        return strategy, unit
+        return record, strategy, unit
 
     async def _prepared_live_trading_target(
         self,
@@ -2047,10 +2325,12 @@ class AIStrategyResearchService:
         workspace = await self.workspace_service.get_workspace(record.live_workspace_id, user_id)
         if workspace is None:
             return None
-        unit = await self.workspace_service.get_unit(workspace.id, record.live_unit_id, user_id)
+        unit = _coerce_strategy_unit_response(
+            await self.workspace_service.get_unit(workspace.id, record.live_unit_id, user_id)
+        )
         if unit is None:
             return None
-        return workspace, StrategyUnitResponse.model_validate(unit)
+        return workspace, unit
 
     async def _persist_live_trading_handoff(
         self,
@@ -2099,7 +2379,7 @@ class AIStrategyResearchService:
             if workspace is None:
                 raise ValueError("Research workspace not found")
             return workspace
-        name = _bounded_name(f"AI投研 - {request.symbol} - {request.prompt}", 200)
+        name = _research_workspace_name(request)
         return await self.workspace_service.create_workspace(
             user_id,
             WorkspaceCreate(
@@ -2228,12 +2508,62 @@ class AIStrategyResearchService:
         *,
         research_workspace_id: str | None = None,
     ) -> AIStrategyResearchRunRecord | None:
-        records = await self.list_run_records(
+        found = await self._find_research_run_record_with_workspace(
             user_id,
+            run_id,
             research_workspace_id=research_workspace_id,
-            limit=100,
         )
-        return next((item for item in records.items if item.run_id == run_id), None)
+        return found[1] if found is not None else None
+
+    async def _find_research_run_record_with_workspace(
+        self,
+        user_id: str,
+        run_id: str,
+        *,
+        research_workspace_id: str | None = None,
+    ) -> tuple[WorkspaceResponse, AIStrategyResearchRunRecord] | None:
+        run_id = str(run_id or "").strip()
+        if not run_id:
+            return None
+
+        if research_workspace_id:
+            workspace = await self.workspace_service.get_workspace(research_workspace_id, user_id)
+            if workspace is None:
+                raise ValueError("Research workspace not found")
+            record = _find_run_record_in_workspace(workspace, run_id)
+            if record is None:
+                return None
+            return await self._freshen_found_run_record(user_id, workspace, record)
+
+        _, workspaces = await self.workspace_service.list_workspaces(
+            user_id,
+            skip=0,
+            limit=1000,
+            workspace_type="research",
+        )
+        for workspace in workspaces:
+            record = _find_run_record_in_workspace(workspace, run_id)
+            if record is None:
+                continue
+            return await self._freshen_found_run_record(user_id, workspace, record)
+        return None
+
+    async def _freshen_found_run_record(
+        self,
+        user_id: str,
+        workspace: WorkspaceResponse,
+        record: AIStrategyResearchRunRecord,
+    ) -> tuple[WorkspaceResponse, AIStrategyResearchRunRecord]:
+        updated = await self._freshen_run_record_with_paper_state(user_id, record)
+        if updated == record:
+            return workspace, record
+        refreshed_workspace = await self._persist_freshened_run_records(
+            user_id,
+            workspace,
+            [updated],
+            changed_run_ids={updated.run_id},
+        )
+        return refreshed_workspace or workspace, updated
 
     async def _paper_trading_target_missing(
         self,
@@ -2250,7 +2580,9 @@ class AIStrategyResearchService:
             return True, None
         if not record.paper_unit_id:
             return True, workspace
-        unit = await self.workspace_service.get_unit(workspace.id, record.paper_unit_id, user_id)
+        unit = _coerce_strategy_unit_response(
+            await self.workspace_service.get_unit(workspace.id, record.paper_unit_id, user_id)
+        )
         return unit is None, workspace
 
     def _build_backtest_request(
@@ -2278,13 +2610,14 @@ class AIStrategyResearchService:
             data_config["end_date"] = effective_end_date
 
         unit_settings = {
-            **request.unit_settings,
             "initial_cash": request.initial_cash,
             "commission": request.commission,
             "annual_days": request.annual_days,
             "calc_method": request.calc_method,
             "weight_mode": request.weight_mode,
+            **request.unit_settings,
         }
+        _apply_backtest_environment_defaults(unit_settings, request, asset_specs)
         if asset_specs:
             _merge_contract_metadata(data_config, asset_specs)
             _merge_contract_metadata(unit_settings, asset_specs)
@@ -2401,6 +2734,34 @@ class AIStrategyResearchService:
         except Exception:
             return None
 
+    async def _persist_strategy_snapshot_for_promotion(
+        self,
+        user_id: str,
+        record: AIStrategyResearchRunRecord,
+        strategy: StrategyResponse,
+    ) -> StrategyResponse:
+        try:
+            _validate_strategy_code_draft(strategy.code)
+            saved = await self.strategy_service.create_strategy(
+                user_id,
+                StrategyCreate(
+                    name=_bounded_name(f"{strategy.name} - 投研快照", 100),
+                    description=(
+                        f"{strategy.description or ''}\n\n"
+                        f"AI投研运行 {record.run_id} 的历史最佳策略快照，"
+                        "已物化保存用于模拟/实盘晋级。"
+                    ).strip(),
+                    code=strategy.code,
+                    params=strategy.params,
+                    category=strategy.category,
+                ),
+            )
+        except Exception as exc:
+            raise ValueError("Failed to persist strategy snapshot for promotion") from exc
+        if saved is None:
+            raise ValueError("Failed to persist strategy snapshot for promotion")
+        return saved
+
     async def _persist_cancelled_research_run(
         self,
         *,
@@ -2452,6 +2813,8 @@ class AIStrategyResearchService:
                 paper_trading_error=None,
                 paper_review_status=None,
                 paper_review_ready_for_live=False,
+                workflow_mode=request.workflow_mode,
+                workflow_steps=request.workflow_steps,
             )
             response = AIStrategyResearchRunResponse(
                 run_id=run_id,
@@ -2506,6 +2869,8 @@ class AIStrategyResearchService:
             paper_trading_error=None,
             paper_review_status=None,
             paper_review_ready_for_live=False,
+            workflow_mode=request.workflow_mode,
+            workflow_steps=request.workflow_steps,
         )
         response = AIStrategyResearchRunResponse(
             run_id=run_id,
@@ -2548,16 +2913,18 @@ class AIStrategyResearchService:
         iteration: int,
         iteration_count: int,
         pending_improvement_notes: list[str],
+        pending_generation_metadata: dict[str, Any],
         progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
-    ) -> tuple[AIStrategyDraft, list[str]]:
+    ) -> tuple[AIStrategyDraft, list[str], dict[str, Any]]:
         notes = list(pending_improvement_notes)
+        generation_metadata = dict(pending_generation_metadata or {})
         current_draft = draft
         last_error = ""
 
         for attempt in range(_MAX_CODE_REPAIR_ATTEMPTS + 1):
             try:
                 _validate_strategy_code_draft(current_draft.code)
-                return current_draft, notes
+                return current_draft, notes, generation_metadata
             except ValueError as exc:
                 last_error = str(exc)
                 if attempt >= _MAX_CODE_REPAIR_ATTEMPTS:
@@ -2566,10 +2933,18 @@ class AIStrategyResearchService:
                         request,
                     )
                     _validate_strategy_code_draft(fallback.code)
-                    return fallback, [
-                        *notes,
-                        f"策略代码连续校验失败，已使用本地可运行草案继续投研：{last_error}",
-                    ]
+                    return (
+                        fallback,
+                        [
+                            *notes,
+                            f"策略代码连续校验失败，已使用本地可运行草案继续投研：{last_error}",
+                        ],
+                        {
+                            "source": "local_code_repair_fallback",
+                            "provider": "local",
+                            "fallback_reason": last_error,
+                        },
+                    )
 
                 failure = f"Strategy code validation failed before backtest: {last_error}"
                 await _emit_research_progress(
@@ -2606,6 +2981,11 @@ class AIStrategyResearchService:
                     f"第 {iteration} 轮回测前策略代码校验失败，已自动修复：{last_error}",
                     *improvement.notes,
                 ]
+                generation_metadata = _strategy_generation_metadata(
+                    improvement.metadata,
+                    phase="code_repair",
+                    iteration=iteration,
+                )
 
         raise ValueError(
             f"Generated strategy code validation failed before iteration {iteration}: {last_error}"
@@ -2648,6 +3028,11 @@ class AIStrategyResearchService:
                     f"AI投研改稿失败，已使用本地规则回退：{exc}",
                     *fallback.notes,
                 ],
+                metadata={
+                    **dict(fallback.metadata or {}),
+                    "source": "local_fallback",
+                    "fallback_reason": str(exc),
+                },
             )
 
     async def _start_paper_trading(
@@ -2669,7 +3054,7 @@ class AIStrategyResearchService:
                 user_id,
                 WorkspaceCreate(
                     name=request.paper_workspace_name
-                    or _bounded_name(f"AI模拟交易 - {best_iteration.strategy.name}", 200),
+                    or _paper_workspace_name(request, best_iteration),
                     description="AI research loop paper trading workspace",
                     workspace_type="trading",
                 ),
@@ -2683,6 +3068,11 @@ class AIStrategyResearchService:
             promoted_at=_utc_iso_now(),
         )
         handoff["paper_workspace_name"] = workspace.name
+        handoff_asset_specs = {
+            str(symbol): dict(spec)
+            for symbol, spec in dict(handoff.get("asset_specs") or {}).items()
+            if isinstance(spec, dict) and spec
+        }
         unit_data_config = {
             **best_iteration.unit.data_config,
             **dict(request.data_config or {}),
@@ -2694,6 +3084,15 @@ class AIStrategyResearchService:
             **dict(request.unit_settings or {}),
             "ai_research_handoff": handoff,
         }
+        unit_params = {
+            **dict(best_iteration.unit.params or {}),
+            "ai_research_run_id": run_id,
+            "ai_research_workspace_id": research_workspace_id,
+        }
+        if handoff_asset_specs:
+            _merge_contract_metadata(unit_data_config, handoff_asset_specs)
+            _merge_contract_metadata(unit_settings, handoff_asset_specs)
+            _merge_contract_metadata(unit_params, handoff_asset_specs)
         unit_payload = StrategyUnitCreate(
             group_name=request.group_name
             or best_iteration.unit.group_name
@@ -2707,7 +3106,7 @@ class AIStrategyResearchService:
             category=best_iteration.strategy.category,
             data_config=unit_data_config,
             unit_settings=unit_settings,
-            params=best_iteration.unit.params,
+            params=unit_params,
             optimization_config=best_iteration.unit.optimization_config,
             trading_mode="paper",
             gateway_config=request.gateway_config or best_iteration.unit.gateway_config,
@@ -2746,6 +3145,13 @@ class AIStrategyResearchService:
                     **unit.unit_settings,
                     "ai_research_handoff": handoff,
                 },
+                "params": {
+                    **dict(unit.params or {}),
+                    "ai_research_run_id": run_id,
+                    "ai_research_workspace_id": research_workspace_id,
+                    "ai_research_paper_task_id": run_result.task_id if run_result else None,
+                    "ai_research_paper_run_status": run_result.status if run_result else None,
+                },
             }
         )
         persisted_unit = await self.workspace_service.update_unit(
@@ -2755,6 +3161,7 @@ class AIStrategyResearchService:
             StrategyUnitUpdate(
                 data_config=unit.data_config,
                 unit_settings=unit.unit_settings,
+                params=unit.params,
             ),
         )
         if persisted_unit is not None:
@@ -2926,6 +3333,13 @@ class AIStrategyResearchService:
                 "paper_handoff": _research_record_handoff_payload(paper_trading.handoff),
                 "live_readiness_checklist": [],
                 "live_readiness_expires_at": None,
+                "live_handoff": None,
+                "live_handoff_approval": None,
+                "live_workspace_id": None,
+                "live_workspace_name": None,
+                "live_unit_id": None,
+                "live_trading_prepared": False,
+                "live_trading_prepared_at": None,
                 "next_actions": [
                     "已从历史投研结果启动模拟交易，下一步跟踪模拟账户成交、持仓和风控指标。",
                     "保留研究工作区记录，用于后续继续投研或样本外验证。",
@@ -2963,6 +3377,13 @@ class AIStrategyResearchService:
                     "paper_review_next_actions": [],
                     "live_readiness_checklist": [],
                     "live_readiness_expires_at": None,
+                    "live_handoff": None,
+                    "live_handoff_approval": None,
+                    "live_workspace_id": None,
+                    "live_workspace_name": None,
+                    "live_unit_id": None,
+                    "live_trading_prepared": False,
+                    "live_trading_prepared_at": None,
                     "paper_workspace_id": paper_trading.workspace.id if paper_trading else None,
                     "paper_workspace_name": paper_trading.workspace.name if paper_trading else None,
                     "paper_unit_id": paper_trading.unit.id if paper_trading else None,
@@ -2985,6 +3406,8 @@ class AIStrategyResearchService:
                         paper_trading_error=paper_trading_error,
                         paper_review_status=None,
                         paper_review_ready_for_live=False,
+                        workflow_mode=record.workflow_mode,
+                        workflow_steps=record.workflow_steps,
                     ),
                     "next_actions": [
                         f"模拟交易启动错误：{paper_trading_error}",
@@ -3437,6 +3860,16 @@ def _coerce_unit_status(value: Any) -> UnitStatusResponse | None:
     return None
 
 
+def _coerce_strategy_unit_response(value: Any) -> StrategyUnitResponse | None:
+    if value is None:
+        return None
+    if isinstance(value, StrategyUnitResponse):
+        return value
+    if isinstance(value, dict):
+        return StrategyUnitResponse.model_validate(value)
+    return None
+
+
 def _cancelled_submitted_iteration(
     *,
     request: AIStrategyResearchRunRequest,
@@ -3534,22 +3967,25 @@ def _resolve_research_asset_specs(
     symbols = _research_asset_symbols(request)
     if not symbols:
         return {}
+    existing_metadata = _existing_contract_metadata(request)
+    metadata_specs = _asset_specs_from_metadata(existing_metadata)
     params = {
         "symbol": request.symbol,
         "data_config": dict(request.data_config or {}),
     }
-    for key, value in _existing_contract_metadata(request).items():
+    for key, value in existing_metadata.items():
         if value:
             params[key] = value
     try:
-        return resolve_asset_specs(
+        resolved = resolve_asset_specs(
             {"params": params},
             Path(),
             gateway=request.gateway_config or None,
             symbols=symbols,
         )
+        return resolved or metadata_specs
     except Exception:
-        return {}
+        return metadata_specs
 
 
 def _research_asset_symbols(request: AIStrategyResearchRunRequest) -> list[str]:
@@ -3592,7 +4028,73 @@ def _existing_contract_metadata(
                     if isinstance(item_value, dict)
                 })
                 metadata[key] = merged
+    continuation_specs = _continuation_asset_specs(request)
+    if continuation_specs:
+        merged_contract_metadata = dict(continuation_specs)
+        merged_contract_metadata.update(dict(metadata.get("contract_metadata") or {}))
+        metadata["contract_metadata"] = merged_contract_metadata
     return metadata
+
+
+def _continuation_asset_specs(
+    request: AIStrategyResearchRunRequest,
+) -> dict[str, dict[str, Any]]:
+    context = request.continuation_context
+    if not isinstance(context, dict) or not context:
+        return {}
+    specs: dict[str, dict[str, Any]] = {}
+    for source in (
+        context.get("asset_specs"),
+        context.get("contract_metadata"),
+        context.get("contracts"),
+        context.get("contract_specs"),
+        context.get("instrument_specs"),
+        context,
+    ):
+        if not isinstance(source, dict):
+            continue
+        _merge_asset_spec_maps(specs, _asset_specs_from_mapping(source))
+        if source is context:
+            continue
+        nested_specs = {
+            str(symbol): dict(spec)
+            for symbol, spec in source.items()
+            if isinstance(spec, dict) and spec
+        }
+        if nested_specs:
+            _merge_asset_spec_maps(specs, nested_specs)
+        elif source is not context:
+            symbol = str(source.get("symbol") or request.symbol or "").strip()
+            if symbol:
+                _merge_asset_spec_maps(specs, {symbol: dict(source)})
+    return specs
+
+
+def _continuation_backtest_environment(
+    request: AIStrategyResearchRunRequest,
+) -> dict[str, Any]:
+    context = request.continuation_context
+    if not isinstance(context, dict):
+        return {}
+    environment = context.get("backtest_environment")
+    return dict(environment) if isinstance(environment, dict) else {}
+
+
+def _asset_specs_from_metadata(
+    metadata: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    specs: dict[str, dict[str, Any]] = {}
+    for container in metadata.values():
+        if isinstance(container, dict):
+            _merge_asset_spec_maps(
+                specs,
+                {
+                    str(symbol): dict(spec)
+                    for symbol, spec in container.items()
+                    if isinstance(spec, dict) and spec
+                },
+            )
+    return specs
 
 
 def _merge_contract_metadata(
@@ -3745,6 +4247,7 @@ def _request_backtest_environment(
     specs = asset_specs or _resolve_research_asset_specs(request)
     commission = request.commission
     primary = next((value for value in specs.values() if isinstance(value, dict)), None)
+    continuation_environment = _continuation_backtest_environment(request)
     if primary and not _request_has_explicit_commission(request):
         asset_commission = _first_asset_spec_number(
             primary,
@@ -3756,6 +4259,14 @@ def _request_backtest_environment(
         )
         if asset_commission is not None:
             commission = max(asset_commission, 0.0)
+    elif not _request_has_explicit_commission(request):
+        continuation_commission = _first_asset_spec_number(
+            continuation_environment,
+            "commission",
+            "commission_rate",
+        )
+        if continuation_commission is not None:
+            commission = max(continuation_commission, 0.0)
     environment: dict[str, Any] = {
         "initial_cash": request.initial_cash,
         "commission": commission,
@@ -3768,6 +4279,13 @@ def _request_backtest_environment(
         "start_date": request.start_date,
         "end_date": request.end_date,
     }
+    explicit_fields = _request_explicit_fields(request)
+    for key in ("initial_cash", "annual_days", "calc_method", "weight_mode"):
+        if key in explicit_fields:
+            continue
+        value = continuation_environment.get(key)
+        if value not in (None, ""):
+            environment[key] = value
     if primary:
         multiplier = _optional_gate_number(primary.get("multiplier"))
         margin = _first_asset_spec_number(
@@ -3789,7 +4307,35 @@ def _request_backtest_environment(
             environment["margin"] = margin
         if source:
             environment["asset_spec_source"] = source
+    for key in ("multiplier", "margin", "asset_spec_source"):
+        if (
+            environment.get(key) in (None, "")
+            and continuation_environment.get(key) not in (None, "")
+        ):
+            environment[key] = continuation_environment[key]
     return {key: value for key, value in environment.items() if value not in (None, "")}
+
+
+def _apply_backtest_environment_defaults(
+    unit_settings: dict[str, Any],
+    request: AIStrategyResearchRunRequest,
+    asset_specs: dict[str, dict[str, Any]],
+) -> None:
+    environment = _request_backtest_environment(request, asset_specs)
+    explicit_fields = _request_explicit_fields(request)
+    request_unit_settings = request.unit_settings or {}
+    for key in ("initial_cash", "commission", "annual_days", "calc_method", "weight_mode"):
+        if key in explicit_fields or key in request_unit_settings:
+            continue
+        value = environment.get(key)
+        if value not in (None, ""):
+            unit_settings[key] = value
+    for key in ("multiplier", "margin", "asset_spec_source"):
+        if key in request_unit_settings:
+            continue
+        value = environment.get(key)
+        if value not in (None, ""):
+            unit_settings[key] = value
 
 
 def _research_run_records_from_workspace(
@@ -3802,21 +4348,428 @@ def _research_run_records_from_workspace(
 
     raw_runs = ai_research.get("runs")
     runs = raw_runs if isinstance(raw_runs, list) else []
-    records: list[AIStrategyResearchRunRecord] = []
-    seen: set[str] = set()
-    for raw in runs:
+    records_by_run_id: dict[str, AIStrategyResearchRunRecord] = {}
+    ordered_run_ids: list[str] = []
+    for raw in [*runs, ai_research.get("last_run")]:
         record = _coerce_research_run_record(raw)
-        if record is None or record.run_id in seen:
+        if record is None:
             continue
-        seen.add(record.run_id)
-        records.append(record)
-
-    if not records:
-        record = _coerce_research_run_record(ai_research.get("last_run"))
-        if record is not None:
-            records.append(record)
+        current = records_by_run_id.get(record.run_id)
+        if current is None:
+            ordered_run_ids.append(record.run_id)
+            records_by_run_id[record.run_id] = record
+            continue
+        if _research_run_record_history_rank(record) > _research_run_record_history_rank(current):
+            records_by_run_id[record.run_id] = record
+    records = [records_by_run_id[run_id] for run_id in ordered_run_ids]
     records.sort(key=lambda item: item.completed_at, reverse=True)
     return records
+
+
+def _find_run_record_in_workspace(
+    workspace: WorkspaceResponse,
+    run_id: str,
+) -> AIStrategyResearchRunRecord | None:
+    target = str(run_id or "").strip()
+    if not target:
+        return None
+    record = next(
+        (
+            record
+            for record in _research_run_records_from_workspace(workspace)
+            if record.run_id == target
+        ),
+        None,
+    )
+    if record is not None:
+        return record
+    return _find_task_snapshot_run_record_in_workspace(workspace, target)
+
+
+def _find_task_snapshot_run_record_in_workspace(
+    workspace: WorkspaceResponse,
+    run_id: str,
+) -> AIStrategyResearchRunRecord | None:
+    settings = dict(workspace.settings or {})
+    ai_research = settings.get("ai_research")
+    if not isinstance(ai_research, dict):
+        return None
+    raw_tasks = ai_research.get("tasks")
+    tasks = raw_tasks if isinstance(raw_tasks, list) else []
+    candidates: list[AIStrategyResearchRunRecord] = []
+    for raw in [*tasks, ai_research.get("last_task")]:
+        record = _research_run_record_from_task_snapshot(raw, workspace, run_id)
+        if record is not None:
+            candidates.append(record)
+    if not candidates:
+        return None
+    return max(candidates, key=_research_run_record_history_rank)
+
+
+def _research_run_record_from_task_snapshot(
+    raw: Any,
+    workspace: WorkspaceResponse,
+    run_id: str,
+) -> AIStrategyResearchRunRecord | None:
+    if not isinstance(raw, dict):
+        return None
+    try:
+        task = AIStrategyResearchTaskResponse.model_validate(raw)
+    except Exception:
+        return None
+    if str(task.run_id or "").strip() != run_id:
+        return None
+    if str(task.research_workspace_id or "").strip() != str(workspace.id):
+        return None
+    request = dict(task.request_snapshot or {})
+    iterations = _task_snapshot_iterations_for_run_record(task)
+    best_iteration = (
+        task.best_iteration
+        or _task_snapshot_best_iteration(iterations)
+        or _optional_gate_int(task.current_iteration)
+    )
+    best_payload = (
+        next(
+            (
+                dict(item)
+                for item in iterations
+                if _optional_gate_int(item.get("iteration")) == _optional_gate_int(best_iteration)
+            ),
+            dict(iterations[0]),
+        )
+        if iterations
+        else {}
+    )
+    best_metrics = _merged_task_metrics(task.best_metrics, best_payload.get("metrics"))
+    pipeline = dict(task.pipeline or {})
+    stage = str(pipeline.get("current_stage") or task.current_stage or task.status).strip()
+    status = str(task.run_status or task.status or "failed").strip()
+    if task.status not in {"completed", "failed", "cancelled"}:
+        pipeline.update(
+            {
+                "current_stage": "interrupted",
+                "status": "failed",
+                "progress": task.progress,
+                "interrupted_task_id": task.task_id,
+            }
+        )
+        if task.run_id:
+            pipeline["interrupted_run_id"] = task.run_id
+        if task.current_backtest_task_id:
+            pipeline["interrupted_backtest_task_id"] = task.current_backtest_task_id
+        stage = "interrupted"
+        status = "interrupted"
+    elif stage == "interrupted":
+        status = "interrupted"
+    continuation_context = _task_snapshot_continuation_context(task, pipeline)
+    record = AIStrategyResearchRunRecord(
+        run_id=run_id,
+        prompt=str(request.get("prompt") or task.message or "AI research task snapshot"),
+        symbol=str(request.get("symbol") or ""),
+        symbol_name=str(request.get("symbol_name") or request.get("symbol") or ""),
+        timeframe=str(request.get("timeframe") or "1d"),
+        timeframe_n=_runtime_int(request.get("timeframe_n"), 1),
+        start_date=_runtime_text(request.get("start_date"), None),
+        end_date=_runtime_text(request.get("end_date"), None),
+        initial_cash=_runtime_float(
+            task.backtest_environment.get("initial_cash")
+            if isinstance(task.backtest_environment, dict)
+            else None,
+            _runtime_float(request.get("initial_cash"), 100000.0),
+        ),
+        commission=_runtime_float(
+            task.backtest_environment.get("commission")
+            if isinstance(task.backtest_environment, dict)
+            else None,
+            _runtime_float(request.get("commission"), 0.001),
+        ),
+        annual_days=_runtime_int(
+            task.backtest_environment.get("annual_days")
+            if isinstance(task.backtest_environment, dict)
+            else None,
+            _runtime_int(request.get("annual_days"), 252),
+        ),
+        calc_method=_runtime_text(
+            task.backtest_environment.get("calc_method")
+            if isinstance(task.backtest_environment, dict)
+            else None,
+            _runtime_text(request.get("calc_method"), "simple"),
+        )
+        or "simple",
+        weight_mode=_runtime_text(
+            task.backtest_environment.get("weight_mode")
+            if isinstance(task.backtest_environment, dict)
+            else None,
+            _runtime_text(request.get("weight_mode"), "equal"),
+        )
+        or "equal",
+        group_name=_runtime_text(request.get("group_name"), None),
+        asset_specs=dict(task.asset_specs or {}),
+        backtest_environment=dict(task.backtest_environment or {}),
+        knowledge_base_id=_runtime_text(request.get("knowledge_base_id"), None),
+        thinking_mode=bool(request.get("thinking_mode", False)),
+        status=status,
+        achieved=bool(task.achieved),
+        target_sharpe=_runtime_float(request.get("target_sharpe"), float(task.target_sharpe or 0.0)),
+        quality_gates={
+            "target_sharpe": _runtime_float(
+                request.get("target_sharpe"),
+                float(task.target_sharpe or 0.0),
+            ),
+            "min_total_trades": _runtime_int(request.get("min_total_trades"), 0),
+            "max_drawdown_limit": request.get("max_drawdown_limit"),
+            "min_total_return": request.get("min_total_return"),
+            "min_annual_return": request.get("min_annual_return"),
+            "min_win_rate": request.get("min_win_rate"),
+            "out_of_sample_validation": bool(request.get("out_of_sample_validation", True)),
+            "require_out_of_sample_validation": bool(
+                request.get("require_out_of_sample_validation", False)
+            ),
+            "out_of_sample_ratio": _runtime_float(request.get("out_of_sample_ratio"), 0.25),
+            "min_out_of_sample_sharpe": request.get("min_out_of_sample_sharpe"),
+            "min_out_of_sample_trades": request.get("min_out_of_sample_trades"),
+            "min_paper_trading_days": _runtime_int(request.get("min_paper_trading_days"), 7),
+        },
+        min_total_trades=_runtime_int(request.get("min_total_trades"), 0),
+        max_iterations=_runtime_int(task.max_iterations, _runtime_int(request.get("max_iterations"), 1)),
+        backtest_timeout_seconds=_runtime_float(request.get("backtest_timeout_seconds"), 600.0),
+        poll_interval_seconds=_runtime_float(request.get("poll_interval_seconds"), 2.0),
+        iteration_count=max(_runtime_int(task.iteration_count, 0), len(iterations)),
+        best_iteration=_optional_gate_int(best_iteration),
+        best_sharpe=_runtime_float(
+            task.best_sharpe,
+            _runtime_float(best_payload.get("sharpe_ratio"), 0.0),
+        ),
+        best_quality_score=_runtime_float(task.best_quality_score, 0.0),
+        best_quality_gate_evaluations=list(task.best_quality_gate_evaluations or []),
+        best_diagnostics=dict(task.best_diagnostics or {}),
+        best_metrics=best_metrics,
+        best_strategy_id=task.best_strategy_id
+        or _strategy_id_from_iteration_payload(best_payload)
+        or None,
+        best_strategy_name=task.best_strategy_name,
+        research_workspace_id=str(workspace.id),
+        seed_strategy_id=_runtime_text(request.get("seed_strategy_id"), None),
+        continued_from_run_id=_runtime_text(
+            task.continued_from_run_id,
+            _runtime_text(request.get("continue_from_run_id"), None),
+        ),
+        continuation_source=str(continuation_context.get("source") or ""),
+        continuation_context=continuation_context,
+        pipeline=pipeline,
+        promotion_audit=list(task.promotion_audit or []),
+        next_actions=_task_snapshot_next_actions(task, stage),
+        started_at=task.started_at or task.submitted_at,
+        completed_at=task.completed_at or task.started_at or task.submitted_at,
+        iterations=iterations,
+    )
+    return _research_run_record_with_promotion_audit(
+        _research_run_record_without_sensitive_handoff(record)
+    )
+
+
+def _task_snapshot_iterations_for_run_record(
+    task: AIStrategyResearchTaskResponse,
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for payload in (task.best_iteration_payload, task.latest_iteration):
+        if isinstance(payload, dict):
+            candidates.append(_task_iteration_payload_for_run_record(payload))
+    result: list[dict[str, Any]] = []
+    seen_iterations: set[int] = set()
+    for payload in candidates:
+        iteration = _optional_gate_int(payload.get("iteration"))
+        if iteration is not None and iteration in seen_iterations:
+            continue
+        if iteration is not None:
+            seen_iterations.add(iteration)
+        result.append(payload)
+    return result
+
+
+def _task_iteration_payload_for_run_record(payload: dict[str, Any]) -> dict[str, Any]:
+    item = dict(payload)
+    strategy = item.get("strategy")
+    if isinstance(strategy, dict) and not isinstance(item.get("strategy_snapshot"), dict):
+        item["strategy_snapshot"] = _task_strategy_snapshot(strategy)
+    unit = item.get("unit")
+    if isinstance(unit, dict) and not isinstance(item.get("unit_snapshot"), dict):
+        item["unit_snapshot"] = _task_unit_snapshot(unit)
+    run_result = item.get("run_result")
+    if isinstance(run_result, dict):
+        if "task_id" not in item and run_result.get("task_id"):
+            item["task_id"] = run_result.get("task_id")
+        if "run_status" not in item and run_result.get("status"):
+            item["run_status"] = run_result.get("status")
+    unit_status = item.get("unit_status")
+    if isinstance(unit_status, dict):
+        if "run_status" not in item and unit_status.get("run_status"):
+            item["run_status"] = unit_status.get("run_status")
+        if "task_id" not in item and unit_status.get("last_task_id"):
+            item["task_id"] = unit_status.get("last_task_id")
+        metrics = unit_status.get("metrics_snapshot")
+        if isinstance(metrics, dict) and not isinstance(item.get("metrics"), dict):
+            item["metrics"] = dict(metrics)
+    return _omit_sensitive_handoff(item)
+
+
+def _task_strategy_snapshot(strategy: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in {
+            "id": strategy.get("id"),
+            "name": strategy.get("name"),
+            "description": strategy.get("description"),
+            "code": strategy.get("code"),
+            "params": dict(strategy.get("params") or {})
+            if isinstance(strategy.get("params"), dict)
+            else {},
+            "category": strategy.get("category"),
+            "created_at": strategy.get("created_at"),
+            "updated_at": strategy.get("updated_at"),
+        }.items()
+        if value not in (None, "")
+    }
+
+
+def _task_unit_snapshot(unit: dict[str, Any]) -> dict[str, Any]:
+    snapshot = {
+        key: value
+        for key, value in {
+            "id": unit.get("id"),
+            "workspace_id": unit.get("workspace_id"),
+            "group_name": unit.get("group_name"),
+            "strategy_id": unit.get("strategy_id"),
+            "strategy_name": unit.get("strategy_name"),
+            "symbol": unit.get("symbol"),
+            "symbol_name": unit.get("symbol_name"),
+            "timeframe": unit.get("timeframe"),
+            "timeframe_n": unit.get("timeframe_n"),
+            "category": unit.get("category"),
+            "data_config": dict(unit.get("data_config") or {})
+            if isinstance(unit.get("data_config"), dict)
+            else {},
+            "unit_settings": dict(unit.get("unit_settings") or {})
+            if isinstance(unit.get("unit_settings"), dict)
+            else {},
+            "params": dict(unit.get("params") or {}) if isinstance(unit.get("params"), dict) else {},
+            "optimization_config": dict(unit.get("optimization_config") or {})
+            if isinstance(unit.get("optimization_config"), dict)
+            else {},
+            "gateway_config": _dict_payload(_omit_sensitive_handoff(unit.get("gateway_config"))),
+            "trading_mode": unit.get("trading_mode"),
+            "lock_trading": unit.get("lock_trading"),
+            "lock_running": unit.get("lock_running"),
+        }.items()
+        if value not in (None, "")
+    }
+    return snapshot
+
+
+def _task_snapshot_best_iteration(iterations: list[dict[str, Any]]) -> int | None:
+    if not iterations:
+        return None
+    best = max(iterations, key=_iteration_payload_rank)
+    return _optional_gate_int(best.get("iteration"))
+
+
+def _merged_task_metrics(*values: Any) -> dict[str, Any]:
+    metrics: dict[str, Any] = {}
+    for value in values:
+        if isinstance(value, dict):
+            metrics.update(value)
+    return metrics
+
+
+def _task_snapshot_continuation_context(
+    task: AIStrategyResearchTaskResponse,
+    pipeline: dict[str, Any],
+) -> dict[str, Any]:
+    context = dict(task.continuation_context or {})
+    source = str(context.get("source") or task.continuation_source or "").strip()
+    stage = str(pipeline.get("current_stage") or task.current_stage or "").strip()
+    if stage == "interrupted":
+        source = "research_interrupted"
+        context.update(
+            {
+                "source": source,
+                "run_id": task.run_id,
+                "task_id": task.task_id,
+                "interrupted_stage": stage,
+                "interrupted_backtest_task_id": pipeline.get("interrupted_backtest_task_id"),
+                "quality_gate_failures": [
+                    task.error
+                    or task.message
+                    or "AI research task interrupted before completion"
+                ],
+                "pipeline": pipeline,
+            }
+        )
+    elif source:
+        context["source"] = source
+    if task.run_id and not context.get("run_id"):
+        context["run_id"] = task.run_id
+    return _research_record_continuation_context(context)
+
+
+def _task_snapshot_next_actions(
+    task: AIStrategyResearchTaskResponse,
+    stage: str,
+) -> list[str]:
+    actions = [str(item).strip() for item in task.next_actions or [] if str(item or "").strip()]
+    if stage == "interrupted":
+        has_strategy_snapshot = bool(
+            task.best_strategy_id
+            or task.best_iteration_payload
+            or task.latest_iteration
+        )
+        if has_strategy_snapshot:
+            actions.append("AI投研任务在服务重启或进程中断前未完成，可从当前最佳策略快照继续投研。")
+        else:
+            actions.append("AI投研任务在服务重启或进程中断前未完成，且尚未形成可复用策略快照；请用原请求重新启动投研。")
+    if not actions and task.message:
+        actions.append(str(task.message).strip())
+    return list(dict.fromkeys(item for item in actions if item))
+
+
+def _research_run_record_history_rank(record: AIStrategyResearchRunRecord) -> tuple[Any, ...]:
+    return (
+        _research_run_record_stage_rank(record),
+        1 if record.live_trading_prepared else 0,
+        1 if record.live_handoff_approval is not None else 0,
+        1 if record.live_handoff is not None else 0,
+        1 if record.paper_review_ready_for_live else 0,
+        1 if record.paper_review_status else 0,
+        1 if record.paper_trading_started else 0,
+        1 if record.paper_handoff else 0,
+        len(record.paper_review_evaluations or []),
+        len(record.live_readiness_checklist or []),
+        len(record.promotion_audit or []),
+        len(record.iterations or []),
+        str(record.completed_at or ""),
+        str(record.started_at or ""),
+    )
+
+
+def _research_run_record_stage_rank(record: AIStrategyResearchRunRecord) -> int:
+    pipeline = record.pipeline if isinstance(record.pipeline, dict) else {}
+    stage = str(pipeline.get("current_stage") or "").strip()
+    order = {
+        "configuration_invalid": 0,
+        "cancelled": 1,
+        "interrupted": 2,
+        "research_iteration": 2,
+        "backtest_failed": 2,
+        "backtest_timeout": 2,
+        "quality_achieved": 3,
+        "paper_trading": 4,
+        "paper_trading_failed": 5,
+        "paper_review": 6,
+        "live_candidate": 7,
+        "live_handoff": 8,
+        "live_trading_prepare": 9,
+    }
+    return order.get(stage, 0)
 
 
 def _coerce_research_run_record(value: Any) -> AIStrategyResearchRunRecord | None:
@@ -3838,6 +4791,68 @@ def _research_run_record_with_pipeline(
     if not record.pipeline:
         record = record.model_copy(update={"pipeline": _pipeline_summary_from_record(record)})
     return _research_run_record_with_promotion_audit(record)
+
+
+def _run_record_with_missing_paper_target(
+    record: AIStrategyResearchRunRecord,
+    *,
+    reason: str,
+) -> AIStrategyResearchRunRecord:
+    paper_trading_error = str(reason or "Paper trading target is missing").strip()
+    handoff = _research_record_handoff_payload(
+        {
+            **dict(record.paper_handoff or {}),
+            "paper_target_missing": {
+                "reason": paper_trading_error,
+                "paper_workspace_id": record.paper_workspace_id,
+                "paper_unit_id": record.paper_unit_id,
+            },
+        }
+    )
+    pipeline = _pipeline_summary(
+        status=record.status,
+        achieved=record.achieved,
+        iteration_count=record.iteration_count,
+        max_iterations=record.max_iterations,
+        out_of_sample_validation=bool(
+            (record.quality_gates or {}).get("out_of_sample_validation", False)
+        ),
+        validation_status=_record_best_validation_status(record),
+        paper_trading_started=False,
+        paper_trading_error=paper_trading_error,
+        paper_review_status=None,
+        paper_review_ready_for_live=False,
+        workflow_mode=record.workflow_mode,
+        workflow_steps=record.workflow_steps,
+    )
+    return _research_run_record_with_promotion_audit(
+        record.model_copy(
+            update={
+                "paper_trading_started": False,
+                "paper_review_status": None,
+                "paper_review_ready_for_live": False,
+                "paper_reviewed_at": None,
+                "paper_review_evaluations": [],
+                "paper_review_next_actions": [],
+                "live_readiness_checklist": [],
+                "live_readiness_expires_at": None,
+                "live_handoff": None,
+                "live_handoff_approval": None,
+                "live_workspace_id": None,
+                "live_workspace_name": None,
+                "live_unit_id": None,
+                "live_trading_prepared": False,
+                "live_trading_prepared_at": None,
+                "paper_handoff": handoff,
+                "pipeline": pipeline,
+                "next_actions": [
+                    f"模拟交易目标缺失：{paper_trading_error}",
+                    "重新创建或选择模拟交易工作区后，可从该投研记录重新启动模拟交易。",
+                    "如目标缺失由策略脚本或资产参数导致，可从该记录继续自动投研。",
+                ],
+            }
+        )
+    )
 
 
 def _research_run_record_with_live_readiness_freshness(
@@ -3918,6 +4933,16 @@ def _run_record_should_auto_refresh_paper_review(record: AIStrategyResearchRunRe
     if record.live_handoff_approval is not None and record.live_handoff_approval.approved:
         return False
     return True
+
+
+def _run_record_should_invalidate_missing_paper_target(
+    record: AIStrategyResearchRunRecord,
+) -> bool:
+    handoff = dict(record.paper_handoff or {})
+    return any(
+        handoff.get(key) not in (None, "")
+        for key in ("paper_task_id", "paper_run_status", "paper_started_at")
+    )
 
 
 def _paper_review_refresh_has_meaningful_change(
@@ -4058,8 +5083,14 @@ def _validate_strategy_code_draft(code: str) -> None:
     except Exception as exc:
         raise ValueError(f"strategy code safety check failed: {exc}") from exc
 
-    if not any(_is_backtrader_strategy_class(node) for node in ast.walk(tree)):
+    strategy_node = next(
+        (node for node in ast.walk(tree) if _is_backtrader_strategy_class(node)),
+        None,
+    )
+    if strategy_node is None:
         raise ValueError("strategy code must define a class inheriting from bt.Strategy")
+    _validate_strategy_runtime_dependencies(tree)
+    _validate_strategy_class_completeness(strategy_node, text)
     try:
         strategy_class = StrategySandbox.execute_strategy_code(text, timeout=3)
     except Exception as exc:
@@ -4068,6 +5099,99 @@ def _validate_strategy_code_draft(code: str) -> None:
         _preflight_backtrader_strategy(strategy_class)
     except Exception as exc:
         raise ValueError(f"strategy code preflight backtest failed: {exc}") from exc
+
+
+def _validate_strategy_runtime_dependencies(tree: ast.AST) -> None:
+    forbidden_modules = {"pandas", "numpy"}
+    forbidden_names = {"pd", "np", "pandas", "numpy"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                module_name = str(alias.name or "").split(".", maxsplit=1)[0]
+                if module_name in forbidden_modules:
+                    raise ValueError(
+                        "strategy code must not depend on pandas/numpy at runtime"
+                    )
+        elif isinstance(node, ast.ImportFrom):
+            module_name = str(node.module or "").split(".", maxsplit=1)[0]
+            if module_name in forbidden_modules:
+                raise ValueError("strategy code must not depend on pandas/numpy at runtime")
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            if node.id in forbidden_names:
+                raise ValueError("strategy code must not depend on pandas/numpy at runtime")
+
+
+def _validate_strategy_class_completeness(strategy_node: ast.ClassDef, code: str) -> None:
+    methods = {
+        item.name: item
+        for item in strategy_node.body
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    if "__init__" not in methods:
+        raise ValueError("strategy code must define __init__")
+    if "next" not in methods:
+        raise ValueError("strategy code must define next")
+    for node in ast.walk(strategy_node):
+        if isinstance(node, ast.Pass):
+            raise ValueError("strategy code must not contain pass placeholders")
+        if _is_ellipsis_expr(node):
+            raise ValueError("strategy code must not contain ellipsis placeholders")
+        if _is_not_implemented_placeholder(node):
+            raise ValueError("strategy code must not contain NotImplemented placeholders")
+    if _contains_placeholder_comment(code):
+        raise ValueError("strategy code must not contain TODO or placeholder comments")
+    if not any(_is_trade_action_call(node) for node in ast.walk(methods["next"])):
+        raise ValueError("strategy code next method must place or close orders")
+
+
+def _is_ellipsis_expr(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Constant)
+        and node.value.value is Ellipsis
+    )
+
+
+def _is_not_implemented_placeholder(node: ast.AST) -> bool:
+    if isinstance(node, ast.Raise):
+        exc = node.exc
+        if isinstance(exc, ast.Name):
+            return exc.id == "NotImplementedError"
+        if isinstance(exc, ast.Call) and isinstance(exc.func, ast.Name):
+            return exc.func.id == "NotImplementedError"
+    if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+        return node.value.value is NotImplemented
+    return False
+
+
+def _contains_placeholder_comment(code: str) -> bool:
+    placeholders = ("TODO", "todo", "待实现", "省略", "伪代码")
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(code).readline)
+        return any(
+            token.type == tokenize.COMMENT and any(marker in token.string for marker in placeholders)
+            for token in tokens
+        )
+    except tokenize.TokenError:
+        return True
+
+
+def _is_trade_action_call(node: ast.AST) -> bool:
+    trade_actions = {
+        "buy",
+        "sell",
+        "close",
+        "order_target_percent",
+        "order_target_size",
+        "order_target_value",
+        "buy_bracket",
+        "sell_bracket",
+    }
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        return False
+    if node.func.attr not in trade_actions:
+        return False
+    return isinstance(node.func.value, ast.Name) and node.func.value.id == "self"
 
 
 def _preflight_backtrader_strategy(strategy_class: type) -> None:
@@ -4215,6 +5339,37 @@ def _quality_gate_failures(
                 )
 
     return failures
+
+
+def _research_completion_message(
+    *,
+    request: AIStrategyResearchRunRequest,
+    achieved: bool,
+    result_iteration: Any | None,
+    run_failures: list[str],
+) -> str:
+    if achieved:
+        return "Quality gates achieved"
+
+    failures: list[str] = []
+    if result_iteration is not None:
+        failures = [
+            str(item).strip()
+            for item in getattr(result_iteration, "quality_gate_failures", []) or []
+            if str(item or "").strip()
+        ]
+
+    if failures:
+        shown = "; ".join(failures[:3])
+        suffix = f"; +{len(failures) - 3} more" if len(failures) > 3 else ""
+        return f"Quality gates not achieved: {shown}{suffix}"
+
+    if run_failures:
+        latest = str(run_failures[-1] or "").strip()
+        if latest:
+            return f"Backtest submission failed: {latest[:220]}"
+
+    return f"Target Sharpe {request.target_sharpe:.3f} not achieved"
 
 
 def _parse_iso_date(value: str | None) -> date | None:
@@ -4393,6 +5548,7 @@ def _improvement_metrics(
             "failure_categories",
             "strengths",
             "weaknesses",
+            "gate_gaps",
             "improvement_plan",
             "promotion_ready",
             "out_of_sample_validation",
@@ -4426,6 +5582,7 @@ def _improvement_feedback_payload(diagnostics: dict[str, Any] | None) -> dict[st
         "failure_categories",
         "strengths",
         "weaknesses",
+        "gate_gaps",
         "iteration_progress",
         "improvement_plan",
         "promotion_ready",
@@ -4639,14 +5796,22 @@ def _minimum_gate_evaluation(
     actual: float | None,
     target: float,
 ) -> dict[str, Any]:
+    score = _minimum_gate_score(actual, target)
+    passed = actual is not None and score >= 1.0
+    distance = None if actual is None else max(float(target) - float(actual), 0.0)
     return {
         "key": key,
         "label": label,
         "actual": actual,
         "target": target,
         "direction": "min",
-        "passed": actual is not None and _minimum_gate_score(actual, target) >= 1.0,
-        "score": _minimum_gate_score(actual, target),
+        "passed": passed,
+        "score": score,
+        "margin": _rounded_gate_delta(None if actual is None else float(actual) - float(target)),
+        "gap": _rounded_gate_delta(distance),
+        "gap_ratio": _gate_gap_ratio(distance, target),
+        "distance_to_pass": _rounded_gate_delta(distance),
+        "status": "passed" if passed else "unavailable" if actual is None else "failed",
     }
 
 
@@ -4657,15 +5822,66 @@ def _maximum_gate_evaluation(
     target: float,
 ) -> dict[str, Any]:
     score = 0.0 if actual is None else 1.0 if actual <= target else max(min(target / actual, 1.0), 0.0)
+    passed = actual is not None and actual <= target
+    distance = None if actual is None else max(float(actual) - float(target), 0.0)
     return {
         "key": key,
         "label": label,
         "actual": actual,
         "target": target,
         "direction": "max",
-        "passed": actual is not None and actual <= target,
+        "passed": passed,
         "score": score,
+        "margin": _rounded_gate_delta(None if actual is None else float(target) - float(actual)),
+        "gap": _rounded_gate_delta(distance),
+        "gap_ratio": _gate_gap_ratio(distance, target),
+        "distance_to_pass": _rounded_gate_delta(distance),
+        "status": "passed" if passed else "unavailable" if actual is None else "failed",
     }
+
+
+def _rounded_gate_delta(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(float(value), 6)
+
+
+def _gate_gap_ratio(gap: float | None, target: float) -> float | None:
+    if gap is None:
+        return None
+    denominator = abs(float(target))
+    if denominator <= 1e-12:
+        return None
+    return round(float(gap) / denominator, 6)
+
+
+def _gate_gap_summary(evaluations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    gaps: list[dict[str, Any]] = []
+    for item in evaluations:
+        if not isinstance(item, dict) or bool(item.get("passed")):
+            continue
+        gaps.append(
+            {
+                "key": item.get("key"),
+                "label": item.get("label"),
+                "direction": item.get("direction"),
+                "actual": item.get("actual"),
+                "target": item.get("target"),
+                "gap": item.get("gap"),
+                "gap_ratio": item.get("gap_ratio"),
+                "distance_to_pass": item.get("distance_to_pass"),
+                "score": item.get("score"),
+                "status": item.get("status"),
+            }
+        )
+    gaps.sort(
+        key=lambda item: (
+            float(item.get("gap_ratio") or -1.0),
+            float(item.get("gap") or -1.0),
+        ),
+        reverse=True,
+    )
+    return gaps
 
 
 def _minimum_gate_score(value: float | None, threshold: float) -> float:
@@ -4737,6 +5953,8 @@ def _pipeline_summary_from_record(
         live_readiness_expires_at=record.live_readiness_expires_at
         if live_readiness_expires_at is None
         else live_readiness_expires_at,
+        workflow_mode=record.workflow_mode,
+        workflow_steps=record.workflow_steps,
     )
 
 
@@ -4754,9 +5972,14 @@ def _pipeline_summary(
     paper_review_ready_for_live: bool,
     live_readiness_checklist: list[dict[str, Any]] | None = None,
     live_readiness_expires_at: str | None = None,
+    workflow_mode: str = "auto",
+    workflow_steps: list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     configuration_invalid = status == "configuration_invalid"
+    workflow_step_keys = _research_workflow_steps_for_summary(workflow_steps)
     draft_status = "pending" if configuration_invalid else "completed"
+    if status == "draft_generation_failed":
+        draft_status = "failed"
     if configuration_invalid:
         backtest_status = "pending"
     elif status == "cancelled":
@@ -4784,8 +6007,20 @@ def _pipeline_summary(
         gate_status = "failed"
     else:
         gate_status = "running"
+    review_status = _strategy_review_step_status(
+        status=status,
+        configuration_invalid=configuration_invalid,
+        iteration_count=iteration_count,
+    )
+    optimization_status = _strategy_optimization_step_status(
+        status=status,
+        achieved=achieved,
+        configuration_invalid=configuration_invalid,
+        iteration_count=iteration_count,
+        max_iterations=max_iterations,
+    )
     paper_status = "completed" if paper_trading_started else "failed" if paper_trading_error else "pending"
-    review_status = (
+    paper_review_step_status = (
         "completed"
         if paper_review_ready_for_live
         else "failed"
@@ -4796,11 +6031,29 @@ def _pipeline_summary(
     )
 
     steps = [
-        {"key": "draft", "label": "策略生成", "status": draft_status},
+        {
+            "key": "strategy_idea",
+            "label": _research_workflow_step_label("ideation"),
+            "status": "pending" if configuration_invalid else "completed",
+        },
+        {"key": "draft", "label": _research_workflow_step_label("generation"), "status": draft_status},
         {
             "key": "backtest_loop",
-            "label": "自动回测迭代",
+            "label": _research_workflow_step_label("backtest"),
             "status": backtest_status,
+            "iteration_count": iteration_count,
+            "max_iterations": max_iterations,
+        },
+        {
+            "key": "strategy_review",
+            "label": _research_workflow_step_label("review"),
+            "status": review_status,
+            "iteration_count": iteration_count,
+        },
+        {
+            "key": "optimization_loop",
+            "label": _research_workflow_step_label("optimization"),
+            "status": optimization_status,
             "iteration_count": iteration_count,
             "max_iterations": max_iterations,
         },
@@ -4820,7 +6073,7 @@ def _pipeline_summary(
         {
             "key": "paper_review",
             "label": "模拟复核",
-            "status": review_status,
+            "status": paper_review_step_status,
             "review_status": paper_review_status,
         },
     ]
@@ -4841,8 +6094,64 @@ def _pipeline_summary(
         "paper_trading_error": paper_trading_error,
         "live_readiness_checklist": list(live_readiness_checklist or []),
         "live_readiness_expires_at": live_readiness_expires_at,
+        "workflow_mode": workflow_mode,
+        "workflow_steps": workflow_step_keys,
         "steps": steps,
     }
+
+
+def _research_workflow_steps_for_summary(
+    workflow_steps: list[str] | tuple[str, ...] | None,
+) -> list[str]:
+    allowed = set(AI_STRATEGY_RESEARCH_WORKFLOW_STEP_LABELS)
+    steps = [str(item) for item in workflow_steps or () if str(item) in allowed]
+    if not steps:
+        steps = list(AI_STRATEGY_RESEARCH_DEFAULT_WORKFLOW_STEPS)
+    return steps
+
+
+def _research_workflow_step_label(step: str) -> str:
+    return AI_STRATEGY_RESEARCH_WORKFLOW_STEP_LABELS.get(step, step.replace("_", " "))
+
+
+def _strategy_review_step_status(
+    *,
+    status: str,
+    configuration_invalid: bool,
+    iteration_count: int,
+) -> str:
+    if configuration_invalid:
+        return "pending"
+    if iteration_count > 0:
+        return "completed"
+    if status == "cancelled":
+        return "cancelled"
+    if status in {"draft_generation_failed", "backtest_submission_failed"}:
+        return "pending"
+    return "pending"
+
+
+def _strategy_optimization_step_status(
+    *,
+    status: str,
+    achieved: bool,
+    configuration_invalid: bool,
+    iteration_count: int,
+    max_iterations: int,
+) -> str:
+    if configuration_invalid:
+        return "pending"
+    if status == "cancelled":
+        return "cancelled"
+    if iteration_count <= 0:
+        return "pending"
+    if iteration_count > 1:
+        return "completed"
+    if achieved:
+        return "skipped"
+    if iteration_count >= max_iterations:
+        return "failed"
+    return "running"
 
 
 def _record_best_validation_status(record: AIStrategyResearchRunRecord) -> str | None:
@@ -4951,26 +6260,38 @@ def _audit_item(
 
 
 def _audit_strategy_generation_item(record: AIStrategyResearchRunRecord) -> dict[str, Any]:
+    generation_metadata = _record_strategy_generation_metadata(record)
+    generation_evidence = _strategy_generation_audit_text(generation_metadata)
     if record.best_strategy_id:
+        evidence = f"已保存候选策略 {record.best_strategy_name or record.best_strategy_id}。"
+        if generation_evidence:
+            evidence = f"{evidence} {generation_evidence}"
         return _audit_item(
             key="strategy_generation",
             label="策略脚本生成",
             status="completed",
-            evidence=f"已保存候选策略 {record.best_strategy_name or record.best_strategy_id}。",
+            evidence=evidence,
             action="保留该策略快照用于回测复现、继续投研或模拟交易。",
             details={
                 "strategy_id": record.best_strategy_id,
                 "strategy_name": record.best_strategy_name,
+                "strategy_generation": generation_metadata,
             },
         )
     if record.iteration_count > 0:
+        evidence = f"已完成 {record.iteration_count} 轮策略脚本生成/回测。"
+        if generation_evidence:
+            evidence = f"{evidence} {generation_evidence}"
         return _audit_item(
             key="strategy_generation",
             label="策略脚本生成",
             status="completed",
-            evidence=f"已完成 {record.iteration_count} 轮策略脚本生成/回测。",
+            evidence=evidence,
             action="从最佳迭代快照恢复策略后再继续投研。",
-            details={"iteration_count": record.iteration_count},
+            details={
+                "iteration_count": record.iteration_count,
+                "strategy_generation": generation_metadata,
+            },
         )
     status = "cancelled" if record.status == "cancelled" else "failed"
     return _audit_item(
@@ -4979,8 +6300,56 @@ def _audit_strategy_generation_item(record: AIStrategyResearchRunRecord) -> dict
         status=status,
         evidence=record.best_diagnostics.get("summary") or "尚未产生可回测策略脚本。",
         action="重新提交 AI 投研任务或检查策略生成配置。",
-        details={"run_status": record.status},
+        details={"run_status": record.status, "strategy_generation": generation_metadata},
     )
+
+
+def _record_strategy_generation_metadata(
+    record: AIStrategyResearchRunRecord,
+) -> dict[str, Any]:
+    diagnostics = dict(record.best_diagnostics or {})
+    generation = diagnostics.get("strategy_generation")
+    if isinstance(generation, dict):
+        return _strategy_generation_metadata(generation)
+    payload = _best_iteration_payload(record) or {}
+    payload_diagnostics = (
+        dict(payload.get("diagnostics"))
+        if isinstance(payload.get("diagnostics"), dict)
+        else {}
+    )
+    generation = payload_diagnostics.get("strategy_generation")
+    if isinstance(generation, dict):
+        return _strategy_generation_metadata(generation)
+    return {}
+
+
+def _strategy_generation_audit_text(metadata: dict[str, Any]) -> str:
+    if not metadata:
+        return ""
+    source = str(metadata.get("source") or "").strip()
+    provider = str(metadata.get("provider") or "").strip()
+    model_id = str(metadata.get("model_id") or "").strip()
+    fallback_reason = str(metadata.get("fallback_reason") or "").strip()
+    labels = {
+        "ai_initial_draft": "AI 初稿",
+        "ai_model": "AI 模型改稿",
+        "local_rules": "本地规则改稿",
+        "local_fallback": "本地回退改稿",
+        "local_initial_fallback": "本地初稿回退",
+        "local_code_repair_fallback": "本地代码修复",
+        "seed_strategy": "种子策略",
+        "continued_run_seed": "历史记录种子",
+        "local_seed": "本地种子",
+    }
+    parts = [labels.get(source, source or "未知来源")]
+    if model_id:
+        parts.append(f"模型 {model_id}")
+    elif provider and provider != "local":
+        parts.append(provider)
+    text = "草案来源：" + " / ".join(parts) + "。"
+    if fallback_reason:
+        text += f" 回退原因：{fallback_reason}。"
+    return text
 
 
 def _audit_backtest_loop_item(record: AIStrategyResearchRunRecord) -> dict[str, Any]:
@@ -5723,6 +7092,47 @@ def _strategy_from_iteration_snapshot(
     return StrategyResponse.model_validate(strategy_payload)
 
 
+def _continuation_request_from_run_record(
+    record: AIStrategyResearchRunRecord,
+    overrides: dict[str, Any],
+) -> AIStrategyResearchRunRequest:
+    base_request = _paper_start_request_from_record(
+        record,
+        AIStrategyPaperTradingStartRequest(),
+    )
+    payload = base_request.model_dump(mode="python")
+    continuation_context = _continuation_context_from_record(record)
+    if continuation_context:
+        payload["continuation_context"] = continuation_context
+
+    for key, value in dict(overrides or {}).items():
+        if value is not None:
+            payload[key] = value
+    if isinstance((overrides or {}).get("continuation_context"), dict):
+        payload["continuation_context"] = {
+            **continuation_context,
+            **dict(overrides["continuation_context"]),
+        }
+
+    payload["continue_from_run_id"] = record.run_id
+    payload["research_workspace_id"] = record.research_workspace_id
+    if not str(payload.get("seed_strategy_id") or "").strip():
+        raise ValueError("AI research run record has no best strategy to continue")
+
+    request = AIStrategyResearchRunRequest.model_validate(payload)
+    context = dict(request.continuation_context or {})
+    if context:
+        request = request.model_copy(
+            update={
+                "continuation_context": _enriched_continuation_context(
+                    context,
+                    request,
+                )
+            }
+        )
+    return request
+
+
 def _paper_start_request_from_record(
     record: AIStrategyResearchRunRecord,
     request: AIStrategyPaperTradingStartRequest,
@@ -6173,11 +7583,18 @@ def _continuation_context_from_record(
     if not failures:
         failures = _paper_review_status_failures(record)
     metrics = dict(record.best_metrics or {})
+    paper_review_rule_gaps = _paper_review_gap_summary(context_evaluations)
     for item in context_evaluations:
         metric = str(item.get("metric") or item.get("key") or "").strip()
         actual = _optional_gate_number(item.get("actual"))
         if metric and actual is not None:
             metrics[metric] = actual
+        gap = _optional_gate_number(item.get("distance_to_pass") or item.get("gap"))
+        if metric and gap is not None:
+            metrics[f"{metric}_gap"] = gap
+        gap_ratio = _optional_gate_number(item.get("gap_ratio"))
+        if metric and gap_ratio is not None:
+            metrics[f"{metric}_gap_ratio"] = gap_ratio
 
     return {
         "source": "paper_review",
@@ -6186,6 +7603,7 @@ def _continuation_context_from_record(
         "paper_reviewed_at": record.paper_reviewed_at,
         "quality_gate_failures": failures,
         "paper_review_evaluations": context_evaluations,
+        "paper_review_rule_gaps": paper_review_rule_gaps,
         "paper_review_next_actions": list(record.paper_review_next_actions or []),
         "metrics": metrics,
         **runtime_context,
@@ -6290,6 +7708,16 @@ def _enriched_continuation_context(
     if plan:
         payload["improvement_plan"] = plan
 
+    rule_gaps = _paper_review_gap_summary(
+        [
+            dict(item)
+            for item in payload.get("paper_review_evaluations") or []
+            if isinstance(item, dict)
+        ]
+    )
+    if rule_gaps and not isinstance(payload.get("paper_review_rule_gaps"), list):
+        payload["paper_review_rule_gaps"] = rule_gaps
+
     return payload
 
 
@@ -6341,10 +7769,16 @@ def _continuation_improvement_metrics(
             "promotion_ready": False,
         }
     )
+    rule_gaps = context.get("paper_review_rule_gaps")
+    if isinstance(rule_gaps, list):
+        feedback["paper_review_rule_gaps"] = [
+            dict(item) for item in rule_gaps if isinstance(item, dict)
+        ]
     for key in (
         "paper_review_status",
         "paper_reviewed_at",
         "paper_review_evaluations",
+        "paper_review_rule_gaps",
         "paper_review_next_actions",
         "paper_trading_error",
         "live_handoff_status",
@@ -6468,13 +7902,23 @@ def _research_failure_context_from_record(
 ) -> dict[str, Any]:
     if record.achieved:
         return {}
-    source = "research_cancelled" if record.status == "cancelled" else "research_failure"
+    pipeline = record.pipeline if isinstance(record.pipeline, dict) else {}
+    if str(pipeline.get("current_stage") or record.status or "").strip() == "interrupted":
+        source = "research_interrupted"
+    else:
+        source = "research_cancelled" if record.status == "cancelled" else "research_failure"
+    base_context = (
+        dict(record.continuation_context)
+        if isinstance(record.continuation_context, dict)
+        else {}
+    )
     payload = _best_iteration_payload(record)
     if not payload:
         diagnostics = dict(record.best_diagnostics or {})
         failures = [
             str(item).strip()
             for item in [
+                *_string_list(base_context.get("quality_gate_failures")),
                 *list(diagnostics.get("weaknesses") or []),
                 diagnostics.get("summary"),
                 *(record.next_actions or []),
@@ -6486,6 +7930,7 @@ def _research_failure_context_from_record(
                 f"Previous research run finished without backtest iterations: {record.status}"
             )
         return {
+            **base_context,
             "source": source,
             "run_id": record.run_id,
             "quality_gate_failures": failures,
@@ -6499,6 +7944,7 @@ def _research_failure_context_from_record(
     failures = [
         str(item).strip()
         for item in [
+            *_string_list(base_context.get("quality_gate_failures")),
             *list(payload.get("quality_gate_failures") or []),
             *list(payload.get("validation_failures") or []),
         ]
@@ -6520,6 +7966,7 @@ def _research_failure_context_from_record(
         metrics[f"validation_{key}"] = value
 
     return {
+        **base_context,
         "source": source,
         "run_id": record.run_id,
         "iteration": payload.get("iteration"),
@@ -6563,9 +8010,58 @@ def _paper_review_failure_text(item: dict[str, Any]) -> str:
     detail = f"{label} paper review failed: {actual} / {threshold}"
     if direction:
         detail = f"{detail} ({direction})"
+    gap = _optional_gate_number(item.get("distance_to_pass") or item.get("gap"))
+    if gap is not None:
+        detail = f"{detail}; gap: {_format_gate_value(gap)}"
     if action:
         detail = f"{detail}; action: {action}"
     return detail
+
+
+def _paper_review_gap_summary(evaluations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    gaps: list[dict[str, Any]] = []
+    for item in evaluations:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status") or "").strip()
+        if bool(item.get("passed")) or status == "passed":
+            continue
+        metric = str(item.get("metric") or item.get("key") or "").strip()
+        threshold = _optional_gate_number(item.get("threshold"))
+        actual = _optional_gate_number(item.get("actual"))
+        direction = str(item.get("direction") or "min").strip().lower()
+        gap = _optional_gate_number(item.get("distance_to_pass") or item.get("gap"))
+        gap_ratio = _optional_gate_number(item.get("gap_ratio"))
+        margin = _optional_gate_number(item.get("margin"))
+        if gap is None and threshold is not None:
+            computed = _paper_rule_gap_fields(actual, float(threshold), direction)
+            gap = computed.get("gap")
+            gap_ratio = computed.get("gap_ratio")
+            margin = computed.get("margin")
+        gaps.append(
+            {
+                "key": item.get("key") or metric,
+                "label": item.get("label") or metric,
+                "metric": metric,
+                "status": status or "pending",
+                "direction": direction if direction in {"min", "max"} else "min",
+                "actual": actual,
+                "threshold": threshold,
+                "margin": margin,
+                "gap": gap,
+                "gap_ratio": gap_ratio,
+                "distance_to_pass": gap,
+                "action": item.get("action"),
+            }
+        )
+    gaps.sort(
+        key=lambda item: (
+            float(item.get("gap_ratio") or -1.0),
+            float(item.get("gap") or -1.0),
+        ),
+        reverse=True,
+    )
+    return gaps
 
 
 def _continuation_quality_gate_failures(context: dict[str, Any]) -> list[str]:
@@ -6606,6 +8102,8 @@ def _build_research_run_record(
     record = AIStrategyResearchRunRecord(
         run_id=run_id,
         prompt=request.prompt,
+        workflow_mode=request.workflow_mode,
+        workflow_steps=list(request.workflow_steps),
         symbol=request.symbol,
         symbol_name=request.symbol_name or request.symbol,
         timeframe=request.timeframe,
@@ -6945,6 +8443,7 @@ def _iteration_diagnostics(
         failure_categories=failure_categories,
         iteration_progress=iteration_progress,
     )
+    gate_gaps = _gate_gap_summary(quality_gate_evaluations)
     passed = bool(run_status == "completed" and not quality_gate_failures)
     summary = (
         f"第 {iteration} 轮已通过全部质量门槛，可进入模拟交易候选。"
@@ -6959,6 +8458,7 @@ def _iteration_diagnostics(
         "failure_categories": failure_categories,
         "strengths": strengths,
         "weaknesses": weaknesses,
+        "gate_gaps": gate_gaps,
         "iteration_progress": iteration_progress,
         "improvement_plan": improvement_plan,
         "promotion_ready": passed,
@@ -7209,7 +8709,10 @@ def _improvement_plan_from_failures(
     if "out_of_sample" in categories:
         plan.append("样本外验证未通过，降低过拟合风险，优先保留稳健信号、减少参数敏感度并扩大验证样本。")
     if "trade_count" in categories:
-        plan.append("放宽入场过滤、缩短慢速指标窗口或降低确认条件，优先提高有效交易样本数。")
+        plan.append(
+            "放宽入场过滤、缩短慢速指标窗口或降低确认条件，并加入止损、止盈、反向信号"
+            "或最长持仓 bars 退出，确保至少产生闭合交易。"
+        )
     if "sharpe" in categories:
         plan.append("减少低质量入场，增加趋势/波动过滤，并优化止盈止损以提升收益波动比。")
     if "drawdown" in categories:
@@ -7431,6 +8934,7 @@ def _evaluate_paper_monitoring_plan(
             actual=actual,
             passed=passed,
         )
+        gap_fields = _paper_rule_gap_fields(actual, float(threshold), direction)
         evaluations.append(
             AIStrategyPaperTradingRuleEvaluation(
                 key=str(raw_rule.get("key") or metric),
@@ -7443,6 +8947,7 @@ def _evaluate_paper_monitoring_plan(
                 source=source,
                 status=status,
                 passed=passed,
+                **gap_fields,
                 action=str(raw_rule.get("action") or ""),
             )
         )
@@ -7731,8 +9236,6 @@ def _lookup_paper_valuation_confidence(
         status = str(payload.get("valuation_status") or "").strip().lower()
         if status in {"confirmed", "gateway_confirmed"}:
             return 1.0, source_name
-        if status in {"estimated", "stale_fallback", "unknown"}:
-            return 0.0, source_name
 
         row_statuses = _paper_position_row_statuses(payload)
         if row_statuses:
@@ -7740,6 +9243,9 @@ def _lookup_paper_valuation_confidence(
                 return 1.0, f"{source_name}.positions"
             if row_statuses & {"estimated", "stale_fallback", "unknown"}:
                 return 0.0, f"{source_name}.positions"
+
+        if status in {"estimated", "stale_fallback", "unknown"}:
+            return 0.0, source_name
 
     if unit is not None:
         source = _unit_contract_metadata_source(unit)
@@ -7755,18 +9261,32 @@ def _lookup_paper_valuation_confidence(
 
 
 def _record_asset_specs_source(record: AIStrategyResearchRunRecord) -> str | None:
-    if _contract_metadata_has_asset_specs(dict(record.asset_specs or {})):
+    if _contract_metadata_has_complete_asset_specs(
+        dict(record.asset_specs or {}),
+        fallback_symbol=record.symbol,
+        backtest_environment=dict(record.backtest_environment or {}),
+    ):
         return "record.asset_specs"
     paper_handoff = dict(record.paper_handoff or {})
     handoff_specs = paper_handoff.get("asset_specs")
-    if isinstance(handoff_specs, dict) and _contract_metadata_has_asset_specs(handoff_specs):
+    handoff_environment = paper_handoff.get("backtest_environment")
+    if isinstance(handoff_specs, dict) and _contract_metadata_has_complete_asset_specs(
+        handoff_specs,
+        fallback_symbol=record.symbol,
+        backtest_environment=handoff_environment if isinstance(handoff_environment, dict) else {},
+    ):
         return "record.paper_handoff.asset_specs"
     backtest_environment = dict(record.backtest_environment or {})
-    if _payload_has_asset_spec_fields(backtest_environment):
+    if _payload_has_complete_asset_spec_fields(
+        backtest_environment,
+        symbol=record.symbol,
+        backtest_environment=backtest_environment,
+    ):
         return "record.backtest_environment"
-    handoff_environment = paper_handoff.get("backtest_environment")
-    if isinstance(handoff_environment, dict) and _payload_has_asset_spec_fields(
-        handoff_environment
+    if isinstance(handoff_environment, dict) and _payload_has_complete_asset_spec_fields(
+        handoff_environment,
+        symbol=record.symbol,
+        backtest_environment=handoff_environment,
     ):
         return "record.paper_handoff.backtest_environment"
     return None
@@ -7814,9 +9334,114 @@ def _unit_contract_metadata_source(unit: StrategyUnitResponse) -> str | None:
     for source_name, payload in sources:
         for key in metadata_keys:
             metadata = payload.get(key)
-            if isinstance(metadata, dict) and _contract_metadata_has_asset_specs(metadata):
+            if isinstance(metadata, dict) and _contract_metadata_has_complete_asset_specs(
+                metadata,
+                fallback_symbol=str(unit.symbol or ""),
+                backtest_environment=dict(unit.unit_settings or {}),
+            ):
                 return f"{source_name}.{key}"
     return None
+
+
+_ASSET_SPEC_MULTIPLIER_KEYS = (
+    "multiplier",
+    "mult",
+    "contract_multiplier",
+    "contractMultiplier",
+    "contract_size",
+    "contractSize",
+    "contract_notional_value",
+    "okx_contract_value",
+    "ctVal",
+    "ctMult",
+    "volume_multiple",
+    "VolumeMultiple",
+    "CONTRACT_MULTIPLIER",
+)
+_ASSET_SPEC_MARGIN_KEYS = (
+    "margin",
+    "margin_rate",
+    "marginRate",
+    "margin_ratio",
+    "marginRatio",
+    "long_margin_rate",
+    "longMarginRatio",
+    "short_margin_rate",
+    "shortMarginRatio",
+    "LongMarginRatio",
+    "ShortMarginRatio",
+    "LongMarginRatioByMoney",
+    "ShortMarginRatioByMoney",
+    "leverage",
+    "lever",
+    "max_leverage",
+    "margin_amount",
+    "marginAmount",
+    "initial_margin_per_lot",
+    "margin_initial",
+    "marginInitial",
+    "initial_margin_amount",
+    "initialMargin",
+    "initialMarginRatio",
+    "MARGIN_RATIO",
+    "MARGIN_PER_LOT",
+    "LONG_MARGIN_AMOUNT",
+    "SHORT_MARGIN_AMOUNT",
+)
+_ASSET_SPEC_COMMISSION_KEYS = (
+    "commission",
+    "commission_rate",
+    "commissionRate",
+    "open_commission_rate",
+    "openCommissionRate",
+    "close_commission_rate",
+    "closeCommissionRate",
+    "close_today_commission_rate",
+    "closeTodayCommissionRate",
+    "maker_commission_rate",
+    "maker_fee_rate",
+    "makerFeeRate",
+    "taker_commission_rate",
+    "taker_fee_rate",
+    "takerFeeRate",
+    "fee_rate",
+    "commission_amount",
+    "commissionAmount",
+    "open_fee_amount",
+    "open_commission_amount",
+    "close_fee_amount",
+    "close_commission_amount",
+    "close_today_fee_amount",
+    "close_today_commission_amount",
+    "OPEN_FEE_RATE",
+    "CLOSE_FEE_RATE",
+    "CLOSE_TODAY_FEE_RATE",
+    "OPEN_FEE_AMOUNT",
+    "CLOSE_FEE_AMOUNT",
+    "CLOSE_TODAY_FEE_AMOUNT",
+)
+_DERIVATIVE_ASSET_TYPE_MARKERS = (
+    "future",
+    "futures",
+    "fut",
+    "swap",
+    "perp",
+    "perpetual",
+    "option",
+    "options",
+    "contract",
+    "margin",
+    "cfd",
+)
+_CASH_ASSET_TYPE_MARKERS = (
+    "stock",
+    "equity",
+    "spot",
+    "cash",
+    "fund",
+    "etf",
+    "index",
+)
 
 
 def _contract_metadata_has_asset_specs(metadata: dict[str, Any]) -> bool:
@@ -7825,6 +9450,126 @@ def _contract_metadata_has_asset_specs(metadata: dict[str, Any]) -> bool:
             continue
         if _payload_has_asset_spec_fields(value):
             return True
+    return False
+
+
+def _contract_metadata_has_complete_asset_specs(
+    metadata: dict[str, Any],
+    *,
+    fallback_symbol: str = "",
+    backtest_environment: dict[str, Any] | None = None,
+) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    environment = dict(backtest_environment or {})
+    for symbol, value in metadata.items():
+        if not isinstance(value, dict):
+            continue
+        if _payload_has_complete_asset_spec_fields(
+            value,
+            symbol=str(symbol or fallback_symbol or ""),
+            backtest_environment=environment,
+        ):
+            return True
+    return False
+
+
+def _payload_has_complete_asset_spec_fields(
+    payload: dict[str, Any],
+    *,
+    symbol: str = "",
+    backtest_environment: dict[str, Any] | None = None,
+) -> bool:
+    missing = _asset_spec_missing_requirements(
+        payload,
+        symbol=symbol,
+        backtest_environment=backtest_environment,
+    )
+    return bool(payload) and not missing
+
+
+def _asset_spec_missing_requirements(
+    payload: dict[str, Any],
+    *,
+    symbol: str = "",
+    backtest_environment: dict[str, Any] | None = None,
+) -> list[str]:
+    spec = dict(payload or {})
+    environment = dict(backtest_environment or {})
+    missing: list[str] = []
+    requires_margin = _asset_spec_requires_margin(spec, symbol=symbol)
+    if requires_margin and not _asset_spec_has_number(spec, *_ASSET_SPEC_MULTIPLIER_KEYS):
+        missing.append("合约乘数")
+    if not _asset_spec_has_commission(spec, environment):
+        missing.append("手续费")
+    if requires_margin and not _asset_spec_has_number(
+        spec,
+        *_ASSET_SPEC_MARGIN_KEYS,
+        extra=environment,
+    ):
+        missing.append("保证金/杠杆")
+    return missing
+
+
+def _asset_spec_has_commission(
+    spec: dict[str, Any],
+    environment: dict[str, Any],
+) -> bool:
+    if _asset_spec_has_number(spec, *_ASSET_SPEC_COMMISSION_KEYS):
+        return True
+    if _optional_gate_number(environment.get("commission")) is not None:
+        return True
+    commission_source = str(environment.get("commission_source") or "").strip().lower()
+    if commission_source == "user_override":
+        return _optional_gate_number(environment.get("commission")) is not None
+    return False
+
+
+def _asset_spec_has_number(
+    payload: dict[str, Any],
+    *keys: str,
+    extra: dict[str, Any] | None = None,
+) -> bool:
+    for source in (payload, extra or {}):
+        for key in keys:
+            if _optional_gate_number(source.get(key)) is not None:
+                return True
+    return False
+
+
+def _asset_spec_requires_margin(spec: dict[str, Any], *, symbol: str = "") -> bool:
+    type_text = " ".join(
+        str(spec.get(key) or "")
+        for key in (
+            "asset_type",
+            "instType",
+            "contract_type",
+            "ctType",
+            "type",
+        )
+    ).lower()
+    if any(marker in type_text for marker in _DERIVATIVE_ASSET_TYPE_MARKERS):
+        return True
+    source_text = " ".join(
+        str(spec.get(key) or "")
+        for key in (
+            "source",
+            "asset_spec_source",
+        )
+    ).lower()
+    if any(
+        marker in source_text
+        for marker in ("future", "futures", "ctp", "swap", "perp", "option", "margin", "cfd")
+    ):
+        return True
+    if any(marker in type_text for marker in _CASH_ASSET_TYPE_MARKERS):
+        return False
+    multiplier = _first_asset_spec_number(spec, *_ASSET_SPEC_MULTIPLIER_KEYS)
+    if multiplier is not None and abs(multiplier - 1.0) > 1e-12:
+        return True
+    text = str(symbol or spec.get("symbol") or "").strip()
+    if re.fullmatch(r"[A-Za-z]{1,4}\d{3,5}(?:\.[A-Za-z]+)?", text):
+        return True
     return False
 
 
@@ -7885,6 +9630,32 @@ def _paper_rule_passed(actual: float | None, threshold: float, direction: str) -
     if direction == "max":
         return actual <= threshold
     return actual >= threshold
+
+
+def _paper_rule_gap_fields(
+    actual: float | None,
+    threshold: float,
+    direction: str,
+) -> dict[str, float | None]:
+    if actual is None:
+        return {
+            "margin": None,
+            "gap": None,
+            "gap_ratio": None,
+            "distance_to_pass": None,
+        }
+    if direction == "max":
+        margin = float(threshold) - float(actual)
+        gap = max(float(actual) - float(threshold), 0.0)
+    else:
+        margin = float(actual) - float(threshold)
+        gap = max(float(threshold) - float(actual), 0.0)
+    return {
+        "margin": _rounded_gate_delta(margin),
+        "gap": _rounded_gate_delta(gap),
+        "gap_ratio": _gate_gap_ratio(gap, threshold),
+        "distance_to_pass": _rounded_gate_delta(gap),
+    }
 
 
 def _paper_review_status(
@@ -8170,21 +9941,7 @@ def _live_readiness_checklist(
             },
         },
         _live_readiness_research_quality_item(record),
-        {
-            "key": "valuation_confirmed",
-            "label": "估值与资产参数确认",
-            "status": _live_readiness_status_from_evaluation(by_key.get("valuation_confidence")),
-            "evidence": _live_readiness_evaluation_evidence(
-                by_key.get("valuation_confidence"),
-                fallback="模拟交易估值、持仓来源、资产规格来源已确认。",
-            ),
-            "action": "实盘前再次核对交易所合约乘数、保证金、手续费、持仓来源和账户估值口径。",
-            "details": {
-                "asset_spec_source": record.backtest_environment.get("asset_spec_source"),
-                "asset_specs": record.asset_specs,
-                "backtest_environment": record.backtest_environment,
-            },
-        },
+        _live_readiness_valuation_item(record, by_key.get("valuation_confidence")),
         {
             "key": "execution_costs_confirmed",
             "label": "执行成本可接受",
@@ -8275,10 +10032,35 @@ def _ensure_live_readiness_research_evidence(
     if not checklist:
         return checklist
 
+    valuation_item = _live_readiness_valuation_item(record, None)
+    valuation_required = bool(
+        dict(valuation_item.get("details") or {})
+        .get("asset_spec_completeness", {})
+        .get("required")
+    )
+    if valuation_required:
+        updated_checklist: list[dict[str, Any]] = []
+        for item in checklist:
+            if str(item.get("key") or "").strip() == "valuation_confirmed":
+                if valuation_item["status"] != "passed":
+                    updated_checklist.append(valuation_item)
+                else:
+                    merged = dict(item)
+                    merged["details"] = {
+                        **dict(item.get("details") or {}),
+                        **dict(valuation_item.get("details") or {}),
+                    }
+                    updated_checklist.append(merged)
+            else:
+                updated_checklist.append(item)
+        checklist = updated_checklist
+
     existing_keys = {str(item.get("key") or "").strip() for item in checklist}
     additions: list[dict[str, Any]] = []
     if "research_quality_confirmed" not in existing_keys:
         additions.append(_live_readiness_research_quality_item(record))
+    if valuation_required and "valuation_confirmed" not in existing_keys:
+        additions.append(valuation_item)
     if "out_of_sample_validation_confirmed" not in existing_keys:
         out_of_sample_item = _live_readiness_out_of_sample_item(record)
         if out_of_sample_item is not None:
@@ -8296,6 +10078,101 @@ def _ensure_live_readiness_research_evidence(
     if inserted:
         return enriched
     return [*additions, *checklist]
+
+
+def _live_readiness_valuation_item(
+    record: AIStrategyResearchRunRecord,
+    evaluation: AIStrategyPaperTradingRuleEvaluation | None,
+) -> dict[str, Any]:
+    completeness = _record_asset_spec_completeness(record)
+    status = _live_readiness_status_from_evaluation(evaluation)
+    evidence = _live_readiness_evaluation_evidence(
+        evaluation,
+        fallback="模拟交易估值、持仓来源、资产规格来源已确认。",
+    )
+    if completeness["required"] and completeness["status"] != "passed":
+        status = "failed" if completeness["missing"] else "pending"
+        evidence = "资产参数不完整：" + "；".join(completeness["missing"]) + "。"
+    elif evaluation is None and completeness["required"] and completeness["status"] == "passed":
+        status = "passed"
+        evidence = "交易资产合约乘数、手续费和必要保证金/杠杆参数已确认。"
+
+    return {
+        "key": "valuation_confirmed",
+        "label": "估值与资产参数确认",
+        "status": status,
+        "evidence": evidence,
+        "action": "实盘前再次核对交易所合约乘数、保证金、手续费、持仓来源和账户估值口径。",
+        "details": {
+            "asset_spec_source": record.backtest_environment.get("asset_spec_source"),
+            "asset_specs": record.asset_specs,
+            "backtest_environment": record.backtest_environment,
+            "asset_spec_completeness": completeness,
+        },
+    }
+
+
+def _record_asset_spec_completeness(record: AIStrategyResearchRunRecord) -> dict[str, Any]:
+    runtime_context = _record_runtime_context(record)
+    asset_specs = (
+        dict(runtime_context.get("asset_specs"))
+        if isinstance(runtime_context.get("asset_specs"), dict)
+        else {}
+    )
+    backtest_environment = (
+        dict(runtime_context.get("backtest_environment"))
+        if isinstance(runtime_context.get("backtest_environment"), dict)
+        else {}
+    )
+    required = bool(asset_specs) or _asset_spec_requires_margin(
+        {
+            "symbol": record.symbol,
+            "source": backtest_environment.get("asset_spec_source"),
+            "multiplier": backtest_environment.get("multiplier"),
+        },
+        symbol=record.symbol,
+    )
+    symbols: dict[str, Any] = {}
+    missing: list[str] = []
+
+    if not asset_specs:
+        if required:
+            missing.append(f"{record.symbol or '交易资产'} 缺少交易所或本地资产规格")
+        return {
+            "required": required,
+            "status": "failed" if missing else "skipped",
+            "missing": missing,
+            "symbols": symbols,
+        }
+
+    for symbol, spec in asset_specs.items():
+        if not isinstance(spec, dict):
+            continue
+        text_symbol = str(symbol or record.symbol or "").strip()
+        item_missing = _asset_spec_missing_requirements(
+            spec,
+            symbol=text_symbol,
+            backtest_environment=backtest_environment,
+        )
+        symbols[text_symbol] = {
+            "has_multiplier": "合约乘数" not in item_missing,
+            "has_commission": "手续费" not in item_missing,
+            "requires_margin": _asset_spec_requires_margin(spec, symbol=text_symbol),
+            "has_margin_or_leverage": "保证金/杠杆" not in item_missing,
+            "missing": item_missing,
+            "source": spec.get("source")
+            or spec.get("asset_spec_source")
+            or backtest_environment.get("asset_spec_source"),
+        }
+        if item_missing:
+            missing.append(f"{text_symbol} 缺少" + "、".join(item_missing))
+
+    return {
+        "required": True,
+        "status": "passed" if not missing else "failed",
+        "missing": missing,
+        "symbols": symbols,
+    }
 
 
 def _live_readiness_research_quality_item(
@@ -8698,12 +10575,35 @@ def _cancelled_draft_diagnostics(
     }
 
 
+def _research_workflow_payload(request: AIStrategyResearchRunRequest | None) -> dict[str, Any]:
+    if request is None:
+        return {}
+    return {
+        "mode": request.workflow_mode,
+        "steps": [
+            {
+                "key": step,
+                "label": _research_workflow_step_label(step),
+            }
+            for step in request.workflow_steps
+        ],
+        "review_to_optimization_loop": [
+            "策略构思",
+            "策略生成",
+            "策略回测",
+            "策略审查",
+            "根据优化建议继续优化策略",
+        ],
+    }
+
+
 def _build_research_draft_prompt(request: AIStrategyResearchRunRequest) -> str:
     """Add research-loop constraints to the initial draft prompt."""
 
     asset_specs = _resolve_research_asset_specs(request)
     context: dict[str, Any] = {
         "objective": request.prompt,
+        "workflow": _research_workflow_payload(request),
         "symbol": request.symbol,
         "symbol_name": request.symbol_name or request.symbol,
         "timeframe": request.timeframe,
@@ -8730,6 +10630,7 @@ def _build_research_draft_prompt(request: AIStrategyResearchRunRequest) -> str:
         "strategy_requirements": [
             "生成完整可运行的 Backtrader Strategy 代码",
             "包含明确入场、出场、仓位和止损/止盈逻辑",
+            "next 方法必须包含真实 self.buy/self.sell/self.close 或 order_target_* 调用",
             "参数默认值必须与 params 描述一致，方便后续自动改进",
             "避免未来函数、不可执行交易假设和只依赖单一样本内收益",
             "若资产规格包含合约乘数、保证金或手续费，策略说明中必须提示对应风险",
@@ -8740,7 +10641,7 @@ def _build_research_draft_prompt(request: AIStrategyResearchRunRequest) -> str:
         "AI策略投研上下文(JSON):\n"
         f"{json.dumps(context, ensure_ascii=False, sort_keys=True)}\n\n"
         "请按上述上下文生成第一版策略草案；后续系统会自动回测、评估质量门槛、"
-        "基于失败原因继续改进，并在达标后进入模拟交易。"
+        "审查失败原因、根据优化建议继续改进，并在达标后进入模拟交易。"
     )
 
 
@@ -8828,7 +10729,7 @@ def _build_improvement_messages(
         {
             "role": "system",
             "content": (
-                "你是 AI for Trader 的量化策略研究员。你只输出 JSON，不输出 Markdown。"
+                "你是 AI for Investor 的量化策略研究员。你只输出 JSON，不输出 Markdown。"
                 "你需要基于上一轮回测指标改进 Backtrader 策略脚本，目标是提高样本内 Sharpe，"
                 "同时降低过拟合和不可执行风险。返回字段必须是："
                 "name, description, code, params, category, assumptions, risk_points, "
@@ -8840,6 +10741,9 @@ def _build_improvement_messages(
             "content": json.dumps(
                 {
                     "objective": objective,
+                    "workflow": _research_workflow_payload(request)
+                    if request is not None
+                    else {},
                     "symbol": symbol,
                     "timeframe": timeframe,
                     "iteration_to_create": iteration + 1,
@@ -8863,7 +10767,10 @@ def _build_improvement_messages(
                         "优先执行 suggested_improvement_plan 中的具体改进方向。",
                         "research_feedback 是服务端结构化诊断，优先级高于自由文本指标。",
                         "优先针对 quality_gate_failures 中列出的失败原因改进策略。",
+                        "本轮必须体现策略审查后的优化建议，并输出下一轮可回测的完整策略。",
                         "如果失败原因是代码校验失败，必须先修复语法、安全检查和 bt.Strategy 类定义。",
+                        "如果 total_trades/closed trades 不达标，必须加入能触发 self.close() 的止损、止盈、"
+                        "反向信号或最长持仓 bars 退出，不能只依赖未平仓浮盈。",
                         "若 asset_specs 包含合约乘数、保证金、杠杆或手续费，改稿必须保留这些交易约束。",
                         "notes 用中文说明具体改动和为什么可能改善 Sharpe/回撤/交易次数。",
                     ],
@@ -8897,6 +10804,8 @@ def _merge_ai_improvement(
     *,
     iteration: int,
     model_id: str,
+    provider: str | None = None,
+    total_tokens: int | None = None,
 ) -> StrategyImprovement:
     improved = draft.model_copy(deep=True)
     name = _optional_text(payload.get("name"))
@@ -8915,10 +10824,12 @@ def _merge_ai_improvement(
         _validate_strategy_code_draft(code)
         improved.code = code
 
-    params = _coerce_param_specs(payload.get("params"))
-    if params:
+    incoming_params = _coerce_param_specs(payload.get("params"))
+    if incoming_params:
+        params = _merge_param_specs(improved.params, incoming_params)
         improved.params = params
         improved.code = _rewrite_code_param_defaults(improved.code, improved.params)
+        _validate_strategy_code_draft(improved.code)
 
     category = _optional_text(payload.get("category"))
     if category:
@@ -8941,7 +10852,96 @@ def _merge_ai_improvement(
         notes = [f"AI模型 {model_id} 已生成第 {iteration + 1} 版策略改稿"]
     else:
         notes = [f"AI模型 {model_id} 改稿", *notes]
-    return StrategyImprovement(draft=improved, notes=notes)
+    metadata = {
+        "source": "ai_model",
+        "provider": provider or "unknown",
+        "model_id": model_id,
+    }
+    if total_tokens is not None:
+        metadata["total_tokens"] = int(total_tokens)
+    return StrategyImprovement(draft=improved, notes=notes, metadata=metadata)
+
+
+def _initial_generation_metadata_from_response(
+    response: Any,
+    *,
+    source: str,
+    request: AIStrategyResearchRunRequest,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "source": source,
+        "provider": "strategy_copilot",
+        "knowledge_base_id": request.knowledge_base_id,
+        "thinking_mode": bool(request.thinking_mode),
+    }
+    model_id = str(getattr(response, "model_id", "") or "").strip()
+    if model_id:
+        metadata["model_id"] = model_id
+    tokens_used = _optional_gate_int(getattr(response, "tokens_used", None))
+    if tokens_used is not None:
+        metadata["total_tokens"] = tokens_used
+    return _strategy_generation_metadata(metadata)
+
+
+def _seed_generation_metadata(request: AIStrategyResearchRunRequest) -> dict[str, Any]:
+    if request.continue_from_run_id:
+        return _strategy_generation_metadata(
+            {
+                "source": "continued_run_seed",
+                "provider": "history",
+                "run_id": request.continue_from_run_id,
+                "strategy_id": request.seed_strategy_id,
+            }
+        )
+    if request.seed_strategy_id:
+        return _strategy_generation_metadata(
+            {
+                "source": "seed_strategy",
+                "provider": "strategy_store",
+                "strategy_id": request.seed_strategy_id,
+            }
+        )
+    return _strategy_generation_metadata({"source": "local_seed", "provider": "local"})
+
+
+def _strategy_generation_metadata(
+    metadata: dict[str, Any] | None,
+    *,
+    phase: str | None = None,
+    iteration: int | None = None,
+) -> dict[str, Any]:
+    if not isinstance(metadata, dict):
+        metadata = {}
+    allowed = {
+        "source",
+        "provider",
+        "model_id",
+        "total_tokens",
+        "fallback_reason",
+        "failed_ai_provider",
+        "failed_ai_model",
+        "knowledge_base_id",
+        "thinking_mode",
+        "run_id",
+        "strategy_id",
+        "phase",
+    }
+    result: dict[str, Any] = {}
+    for key in allowed:
+        value = metadata.get(key)
+        if value in (None, ""):
+            continue
+        if isinstance(value, bool):
+            result[key] = value
+        elif isinstance(value, (int, float)):
+            result[key] = value
+        else:
+            result[key] = str(value)
+    if phase:
+        result["phase"] = phase
+    if iteration is not None:
+        result["iteration"] = int(iteration)
+    return result
 
 
 def _coerce_param_specs(value: Any) -> dict[str, ParamSpec]:
@@ -8963,6 +10963,26 @@ def _coerce_param_specs(value: Any) -> dict[str, ParamSpec]:
         else:
             params[key] = ParamSpec(default=raw)
     return params
+
+
+def _merge_param_specs(
+    base: dict[str, ParamSpec],
+    incoming: dict[str, ParamSpec],
+) -> dict[str, ParamSpec]:
+    merged = {key: spec.model_copy(deep=True) for key, spec in base.items()}
+    for key, spec in incoming.items():
+        next_spec = spec.model_copy(deep=True)
+        if _param_default_missing(next_spec.default):
+            existing = merged.get(key)
+            if existing is None or _param_default_missing(existing.default):
+                continue
+            next_spec.default = existing.default
+        merged[key] = next_spec
+    return merged
+
+
+def _param_default_missing(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
 
 
 def _coerce_text_list(value: Any) -> list[str]:
@@ -9078,3 +11098,77 @@ def _bounded_name(value: str, max_length: int) -> str:
     if len(text) <= max_length:
         return text or "AI策略投研"
     return text[: max_length - 1].rstrip() + "…"
+
+
+def _workspace_symbol_label(request: AIStrategyResearchRunRequest) -> str:
+    symbol = str(request.symbol or "").strip()
+    symbol_name = str(request.symbol_name or "").strip()
+    display_symbol = symbol.upper() if re.search(r"[A-Za-z]", symbol) else symbol
+    if symbol_name and symbol and symbol_name.lower() != symbol.lower():
+        return f"{symbol_name}({display_symbol})"
+    return symbol_name.upper() if symbol_name and symbol_name.lower() == symbol.lower() else (
+        symbol_name or display_symbol or "未指定标的"
+    )
+
+
+def _workspace_timeframe_label(request: AIStrategyResearchRunRequest) -> str:
+    timeframe = str(request.timeframe or "").strip() or "1d"
+    timeframe_n = int(request.timeframe_n or 1)
+    if timeframe_n <= 1:
+        return timeframe
+    if timeframe[:1].isdigit():
+        return f"{timeframe_n}x{timeframe}"
+    return f"{timeframe_n}{timeframe}"
+
+
+def _workspace_objective_label(prompt: str | None) -> str:
+    text = re.sub(r"\s+", " ", str(prompt or "")).strip()
+    if not text:
+        return "自动策略研究"
+    text = re.split(r"专业流水线[:：]", text, maxsplit=1)[0].strip()
+    text = re.split(r"运行口径[:：]", text, maxsplit=1)[0].strip()
+    text = re.sub(
+        r"^请为\s*.+?生成一套\s*.+?级别的可执行\s*Backtrader\s*策略[，,。.]?",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
+    text = re.sub(r"并自动迭代回测直到达到质量门槛[，,。.]?", "", text).strip()
+    text = re.sub(r"^请(生成|设计|构建|实现)", "", text).strip()
+    text = text.strip(" -_，,。.")
+    if not text or len(text) < 4:
+        return "自动策略研究"
+    first_sentence = re.split(r"[。；;]", text, maxsplit=1)[0].strip()
+    return _bounded_name(first_sentence or text, 24)
+
+
+def _research_workspace_name(request: AIStrategyResearchRunRequest) -> str:
+    return _bounded_name(
+        " - ".join(
+            [
+                "AI投研",
+                _workspace_symbol_label(request),
+                _workspace_timeframe_label(request),
+                _workspace_objective_label(request.prompt),
+            ]
+        ),
+        80,
+    )
+
+
+def _paper_workspace_name(
+    request: AIStrategyResearchRunRequest,
+    best_iteration: AIStrategyResearchIteration,
+) -> str:
+    strategy_name = _bounded_name(best_iteration.strategy.name, 24)
+    return _bounded_name(
+        " - ".join(
+            [
+                "AI模拟",
+                _workspace_symbol_label(request),
+                _workspace_timeframe_label(request),
+                strategy_name,
+            ]
+        ),
+        80,
+    )

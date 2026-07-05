@@ -1,6 +1,6 @@
 # Operations Guide
 
-This guide covers system administration, maintenance, and troubleshooting for the AI for Trader platform.
+This guide covers system administration, maintenance, and troubleshooting for the AI for Investor platform.
 
 ## Task Execution Model and Multi-Instance Limits
 
@@ -326,11 +326,11 @@ fi
 ```bash
 # 1. Backup current deployment
 sudo systemctl stop backtrader
-cp -r /opt/ai-for-trader /opt/ai-for-trader.backup
+cp -r /opt/ai-for-investor /opt/ai-for-investor.backup
 
 # 2. Pull latest code
-cd /opt/ai-for-trader
-git remote set-url origin https://github.com/cloudQuant/ai-for-trader.git
+cd /opt/ai-for-investor
+git remote set-url origin https://github.com/cloudQuant/ai-for-investor.git
 git fetch origin
 git checkout main
 git pull origin main
@@ -401,8 +401,8 @@ sudo systemctl stop backtrader
 gunzip -c /backups/backtrader_YYYYMMDD.sql.gz | psql -U backtrader backtrader
 
 # Restore application
-rm -rf /opt/ai-for-trader
-cp -r /opt/ai-for-trader.backup /opt/ai-for-trader
+rm -rf /opt/ai-for-investor
+cp -r /opt/ai-for-investor.backup /opt/ai-for-investor
 
 # Start services
 sudo systemctl start backtrader
@@ -421,7 +421,7 @@ sudo systemctl start backtrader
 - **Installation Guide**: [INSTALLATION.md](INSTALLATION.md)
 - **Deployment Guide**: [DEPLOYMENT.md](DEPLOYMENT.md)
 - **API Documentation**: http://your-domain.com/docs
-- **GitHub Issues**: https://github.com/cloudQuant/ai-for-trader/issues
+- **GitHub Issues**: https://github.com/cloudQuant/ai-for-investor/issues
 
 ## Contact Information
 

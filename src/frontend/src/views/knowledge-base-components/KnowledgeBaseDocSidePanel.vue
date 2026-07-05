@@ -1,24 +1,24 @@
 <template>
-  <div class="space-y-4">
+  <div class="kb-doc-side-panel">
     <!-- Document summary card -->
-    <el-card>
+    <el-card class="kb-doc-side-card">
       <template #header>
-        <div class="font-medium">
+        <div class="kb-doc-side-title">
           {{ t('kbDoc.summaryTitle') }}
         </div>
       </template>
-      <div class="space-y-3 text-sm">
-        <div class="leading-6 text-slate-700">
+      <div class="kb-doc-side-stack">
+        <div class="kb-doc-summary-text">
           {{ documentSummary }}
         </div>
         <div
           v-if="sourceFileName"
-          class="flex flex-wrap gap-2"
+          class="kb-doc-side-actions"
         >
           <button
             v-if="sourceMimeType === 'application/pdf' || isOfficeFile"
             type="button"
-            class="rounded border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+            class="kb-doc-side-action"
             @click="emit('navigate', 'source')"
           >
             {{ t('kbDoc.btnPreviewSource') }}
@@ -26,7 +26,7 @@
           <button
             v-if="hasContent"
             type="button"
-            class="rounded border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+            class="kb-doc-side-action"
             @click="emit('navigate', 'markdown')"
           >
             {{ t('kbDoc.btnReadMd') }}
@@ -34,7 +34,7 @@
           <button
             v-if="sourcePreviewUrl"
             type="button"
-            class="rounded border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+            class="kb-doc-side-action"
             @click="emit('download')"
           >
             {{ t('kbDoc.btnDownloadOriginal') }}
@@ -44,13 +44,13 @@
     </el-card>
 
     <!-- Reading tips -->
-    <el-card>
+    <el-card class="kb-doc-side-card">
       <template #header>
-        <div class="font-medium">
+        <div class="kb-doc-side-title">
           {{ t('kbDoc.readingTipsTitle') }}
         </div>
       </template>
-      <ul class="space-y-2 text-sm text-slate-600">
+      <ul class="kb-doc-tip-list">
         <li v-if="sourceMimeType === 'application/pdf' || isOfficeFile">
           {{ t('kbDoc.tipPreferSource') }}
         </li>
@@ -67,18 +67,18 @@
     </el-card>
 
     <!-- Quick AI Q&A entry -->
-    <el-card>
+    <el-card class="kb-doc-side-card">
       <template #header>
-        <div class="font-medium">
+        <div class="kb-doc-side-title">
           {{ t('kbDoc.quickAiTitle') }}
         </div>
       </template>
-      <div class="space-y-2 text-sm">
+      <div class="kb-doc-prompt-list">
         <button
           v-for="prompt in quickPrompts"
           :key="prompt"
           type="button"
-          class="block w-full rounded border border-slate-200 px-3 py-2 text-left text-slate-600 hover:bg-slate-50"
+          class="kb-doc-prompt-button"
           @click="emit('quickChat', prompt)"
         >
           {{ prompt }}
@@ -110,3 +110,91 @@ const emit = defineEmits<{
   (e: 'quickChat', prompt: string): void
 }>()
 </script>
+
+<style scoped>
+.kb-doc-side-panel {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.kb-doc-side-panel :deep(.el-card) {
+  --el-card-bg-color: var(--bg-color);
+  --el-card-border-color: var(--border-color);
+  border-radius: 8px;
+  color: var(--text-color-primary);
+}
+
+.kb-doc-side-panel :deep(.el-card__header) {
+  border-bottom-color: var(--border-color);
+  background: color-mix(in srgb, var(--bg-color) 90%, var(--fill-color-light) 10%);
+}
+
+.kb-doc-side-title {
+  color: var(--text-color-primary);
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.kb-doc-side-stack,
+.kb-doc-prompt-list {
+  display: grid;
+  gap: 10px;
+}
+
+.kb-doc-summary-text {
+  color: var(--text-color-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.kb-doc-side-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kb-doc-side-action,
+.kb-doc-prompt-button {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+  color: var(--text-color-regular);
+  cursor: pointer;
+  font: inherit;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.kb-doc-side-action {
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.kb-doc-prompt-button {
+  display: block;
+  width: 100%;
+  padding: 10px 11px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.kb-doc-side-action:hover,
+.kb-doc-prompt-button:hover {
+  border-color: color-mix(in srgb, var(--primary-color) 42%, var(--border-color) 58%);
+  background: color-mix(in srgb, var(--bg-color) 82%, var(--primary-color) 18%);
+  color: var(--primary-color);
+}
+
+.kb-doc-tip-list {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+</style>

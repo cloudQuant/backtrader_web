@@ -84,19 +84,32 @@ async def list_workspaces(
             count_q = count_q.where(Workspace.workspace_type == normalized_workspace_type)
         total = (await session.execute(count_q)).scalar() or 0
 
-        q = (
-            select(Workspace)
+        id_q = (
+            select(Workspace.id)
             .where(Workspace.user_id == user_id)
-            .options(selectinload(Workspace.strategy_units))
-            .order_by(Workspace.updated_at.desc())
+            .order_by(Workspace.updated_at.desc(), Workspace.id.desc())
             .offset(skip)
             .limit(limit)
         )
         if normalized_workspace_type:
-            q = q.where(Workspace.workspace_type == normalized_workspace_type)
+            id_q = id_q.where(Workspace.workspace_type == normalized_workspace_type)
+        id_result = await session.execute(id_q)
+        workspace_ids = [str(item) for item in id_result.scalars().all()]
+        if not workspace_ids:
+            return total, []
+
+        q = (
+            select(Workspace)
+            .where(Workspace.id.in_(workspace_ids))
+            .options(selectinload(Workspace.strategy_units))
+        )
         result = await session.execute(q)
-        workspaces = list(result.scalars().unique().all())
-        return total, [_workspace_to_response(ws) for ws in workspaces]
+        workspace_by_id = {str(ws.id): ws for ws in result.scalars().unique().all()}
+        return total, [
+            _workspace_to_response(workspace_by_id[workspace_id])
+            for workspace_id in workspace_ids
+            if workspace_id in workspace_by_id
+        ]
 
 
 async def update_workspace(

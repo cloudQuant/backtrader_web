@@ -89,13 +89,13 @@ class DocumentChunk(Base):
 
 
 class ChatConversation(Base):
-    """Chat conversation bound to a knowledge base."""
+    """Chat conversation, optionally bound to a knowledge base."""
 
     __tablename__ = "chat_conversations"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     knowledge_base_id = Column(
-        String(36), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False, index=True
+        String(36), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=True, index=True
     )
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     title = Column(String(255), nullable=False, default="新对话")

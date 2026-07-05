@@ -28,8 +28,6 @@ import math
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from app.services.log_parser.computations import (
     synthesize_value_curve as _synthesize_value_curve,
 )
@@ -961,62 +959,33 @@ def parse_log_dir(log_dir: Path, strategy_dir: Path | None = None) -> dict[str, 
     initial_cash = equity[0] if equity else 100000.0
     final_value = equity[-1] if equity else initial_cash
 
-    total_return = (
-        ((final_value - initial_cash) / initial_cash * 100)
-        if initial_cash > 0 and math.isfinite(initial_cash) and math.isfinite(final_value)
-        else 0.0
+    from app.services.fincore_metrics_helper import calculate_metrics_from_log_data
+
+    metrics = calculate_metrics_from_log_data(
+        {
+            "equity_curve": equity,
+            "equity_dates": value_data.get("datetimes") or value_data.get("dates", []),
+            "trades": trades,
+        },
+        use_fincore=True,
     )
-    total_return = _finite_metric(total_return)
-
-    n_days = len(equity)
-    n_years = n_days / 252.0 if n_days > 0 else 1.0
-    annual_return = 0.0
-    if (
-        n_years > 0
-        and initial_cash > 0
-        and final_value > 0
-        and math.isfinite(initial_cash)
-        and math.isfinite(final_value)
-    ):
-        try:
-            annual_return = ((final_value / initial_cash) ** (1.0 / n_years) - 1) * 100
-        except OverflowError:
-            annual_return = 0.0
-    annual_return = _finite_metric(annual_return)
-
-    max_drawdown = (
-        max(value_data.get("drawdown_curve", [0.0])) if value_data.get("drawdown_curve") else 0.0
-    )
-
-    returns = _equity_returns_for_metrics(equity) if len(equity) > 1 else []
-    if returns:
-        avg_ret = float(np.mean(returns))
-        std_ret = float(np.std(returns))
-        sharpe_ratio = (avg_ret / std_ret * (252**0.5)) if std_ret > 0 else 0.0
-        sharpe_ratio = _finite_metric(sharpe_ratio)
-    else:
-        sharpe_ratio = 0.0
-
-    total_trades = len(trades)
-    profitable_trades = len([t for t in trades if t.get("pnlcomm", 0) > 0])
-    losing_trades = len([t for t in trades if t.get("pnlcomm", 0) <= 0])
-    win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0.0
 
     return {
         "run_info": run_info,
         "log_dir": str(log_dir),
-        "total_return": round(total_return, 4),
-        "annual_return": round(annual_return, 4),
-        "sharpe_ratio": round(sharpe_ratio, 4),
-        "max_drawdown": round(max_drawdown, 4),
-        "win_rate": round(win_rate, 2),
-        "total_trades": total_trades,
-        "profitable_trades": profitable_trades,
-        "losing_trades": losing_trades,
+        "total_return": round(_finite_metric(metrics.get("total_return", 0.0)), 4),
+        "annual_return": round(_finite_metric(metrics.get("annual_return", 0.0)), 4),
+        "sharpe_ratio": round(_finite_metric(metrics.get("sharpe_ratio", 0.0)), 4),
+        "max_drawdown": round(_finite_metric(metrics.get("max_drawdown", 0.0)), 4),
+        "win_rate": round(_finite_metric(metrics.get("win_rate", 0.0)), 2),
+        "total_trades": int(metrics.get("total_trades", 0) or 0),
+        "profitable_trades": int(metrics.get("profitable_trades", 0) or 0),
+        "losing_trades": int(metrics.get("losing_trades", 0) or 0),
         "initial_cash": initial_cash,
         "final_value": round(final_value, 2),
         "equity_curve": equity,
-        "equity_dates": value_data.get("dates", []),
+        "equity_dates": value_data.get("datetimes") or value_data.get("dates", []),
+        "equity_datetimes": value_data.get("datetimes", []),
         "cash_curve": value_data.get("cash_curve", []),
         "drawdown_curve": value_data.get("drawdown_curve", []),
         "trades": trades,

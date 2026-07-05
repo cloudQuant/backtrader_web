@@ -1102,7 +1102,11 @@ async function handleRunWithParams(row: Record<string, unknown>) {
               router.push({
                 name: 'BacktestResult',
                 params: { id: s.last_task_id as string },
-                query: { workspaceId: props.workspaceId },
+                query: {
+                  workspaceId: props.workspaceId,
+                  unitId: unit.id,
+                  strategyName: unit.strategy_name || unit.group_name || unit.strategy_id || '',
+                },
               })
             } else {
               ElMessage.error(t('optimization.backtestFailed'))

@@ -145,11 +145,13 @@ async def test_chat_completion_uses_litellm_completion_when_available() -> None:
         messages=[{"role": "user", "content": "hi"}],
         model="openai/gpt-4o-mini",
         temperature=0.1,
+        max_tokens=2048,
     )
 
     assert captured["model"] == "openai/gpt-4o-mini"
     assert captured["messages"] == [{"role": "user", "content": "hi"}]
     assert captured["temperature"] == 0.1
+    assert captured["max_tokens"] == 2048
     assert response.content == "hello"
     assert response.prompt_tokens == 3
     assert response.completion_tokens == 4
@@ -187,6 +189,7 @@ async def test_chat_completion_falls_back_to_openai_compatible_endpoint() -> Non
         api_key="sk-test",
         timeout=12,
         temperature=0.2,
+        max_tokens=1024,
     )
 
     assert captured["url"] == "http://provider.local/v1/chat/completions"
@@ -195,6 +198,7 @@ async def test_chat_completion_falls_back_to_openai_compatible_endpoint() -> Non
         "model": "gpt-4o-mini",
         "messages": [{"role": "user", "content": "hi"}],
         "temperature": 0.2,
+        "max_tokens": 1024,
     }
     assert captured["timeout"] == 12
     assert response.content == "fallback answer"

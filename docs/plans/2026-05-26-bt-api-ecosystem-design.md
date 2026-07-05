@@ -2,9 +2,9 @@
 
 > **For Claude:** 后续如果要执行该设计，请在独立仓 / 独立 worktree 中推进，并优先保证 `bt_api_py` 与 `backtrader` 的兼容链路不破坏。
 
-**Goal:** 明确 broker 能力不再在 `ai-for-trader` 内持续产品化，而是沉淀为 `bt_api_py` 统一核心 + `bt_api_xx` 独立交易所/券商扩展包的长期演进路线。
+**Goal:** 明确 broker 能力不再在 `ai-for-investor` 内持续产品化，而是沉淀为 `bt_api_py` 统一核心 + `bt_api_xx` 独立交易所/券商扩展包的长期演进路线。
 
-**Architecture:** `bt_api_py` 继续作为统一能力入口与 `btapibroker` 集成层，对外消费 `bt_api_base` 的 `ExchangeRegistry` / `PluginLoader` 能力；每个交易所 / 券商实现拆成单独 `bt_api_xx` 包，并按老模式暴露 `bt_api.plugins` entry point 与 `register_plugin(registry, runtime_factory)`；`ai-for-trader` 只消费稳定接口，不再承担 broker adapter 主实现。整个体系以“核心稳定、接入外置、兼容优先”为原则。
+**Architecture:** `bt_api_py` 继续作为统一能力入口与 `btapibroker` 集成层，对外消费 `bt_api_base` 的 `ExchangeRegistry` / `PluginLoader` 能力；每个交易所 / 券商实现拆成单独 `bt_api_xx` 包，并按老模式暴露 `bt_api.plugins` entry point 与 `register_plugin(registry, runtime_factory)`；`ai-for-investor` 只消费稳定接口，不再承担 broker adapter 主实现。整个体系以“核心稳定、接入外置、兼容优先”为原则。
 
 **Tech Stack:** Python 3.10+、`bt_api_base` old plugin mode、Backtrader integration、独立可发布 Python packages
 
@@ -16,11 +16,11 @@
 
 - `bt_api_py` 是统一 broker 能力层
 - `backtrader` 底层通过 `btapibroker` 接入 `bt_api_py`
-- `ai-for-trader` 是上层消费方，而不是 broker 平台宿主
+- `ai-for-investor` 是上层消费方，而不是 broker 平台宿主
 
-因此，后续如果继续把 broker registry、native adapter、paper/native/gateway 混合实现堆在 `ai-for-trader` 中，会产生三个问题：
+因此，后续如果继续把 broker registry、native adapter、paper/native/gateway 混合实现堆在 `ai-for-investor` 中，会产生三个问题：
 
-- **职责重复**：`ai-for-trader` 和 `bt_api_py` 会同时维护 broker 抽象
+- **职责重复**：`ai-for-investor` 和 `bt_api_py` 会同时维护 broker 抽象
 - **发布耦合**：每新增一个券商都要跟随 web 仓发版
 - **生态不可扩展**：交易所/券商实现无法独立测试、独立发布、独立演进
 
@@ -28,7 +28,7 @@
 
 - `bt_api_py` 做稳定核心
 - `bt_api_xx` 做独立扩展
-- `ai-for-trader` 只接标准接口
+- `ai-for-investor` 只接标准接口
 
 ---
 
@@ -39,13 +39,13 @@
 - 给 broker 能力一个**唯一权威宿主**
 - 允许每个交易所 / 券商**独立拆包和发布**
 - 不破坏现有 `btapibroker -> bt_api_py -> adapter` 的使用方式
-- 给 `ai-for-trader` 一个稳定、薄的消费边界
+- 给 `ai-for-investor` 一个稳定、薄的消费边界
 
 ### 2.2 非目标
 
 以下内容不在本设计内直接落地：
 
-- 在 `ai-for-trader` 中重建 broker registry 平台
+- 在 `ai-for-investor` 中重建 broker registry 平台
 - 一次性完成全部 broker 的独立拆包
 - 重新设计 backtrader 的执行引擎
 - 在本轮设计里引入复杂插件市场 / 远程包管理中心
@@ -90,9 +90,9 @@
 - 暴露 `plugin.py` 中的 `register_plugin(registry, runtime_factory)`
 - 自带该 broker 的 runtime、gateway、测试、文档与依赖
 
-### 3.3 Web 消费方：`ai-for-trader`
+### 3.3 Web 消费方：`ai-for-investor`
 
-`ai-for-trader` 不再承担 broker 主实现，仅保留：
+`ai-for-investor` 不再承担 broker 主实现，仅保留：
 
 - 统一配置/别名映射
 - 能力展示与审计
@@ -119,7 +119,7 @@ backtrader strategy
 
 - `btapibroker` 不依赖具体 `bt_api_xx` 包内部细节
 - `bt_api_xx` 只依赖稳定的 `bt_api_base` 插件 contract，并通过 `bt_api_py` 被消费
-- `ai-for-trader` 不直接 import 单个 broker 的私有实现细节
+- `ai-for-investor` 不直接 import 单个 broker 的私有实现细节
 
 ### 4.2 旧模式兼容
 
@@ -298,7 +298,7 @@ bt_api_base>=0.15,<1.0
 - fake HTTP 或 mock SDK 测试
 - 可选的 sandbox/integration test
 
-### 8.3 `ai-for-trader` 测试
+### 8.3 `ai-for-investor` 测试
 
 web 仓不再承担 broker adapter 验证，只保留：
 
@@ -330,7 +330,7 @@ web 仓不再承担 broker adapter 验证，只保留：
 
 ### Phase 4
 
-- `ai-for-trader` 只保留统一消费边界
+- `ai-for-investor` 只保留统一消费边界
 - 新 broker 需求默认走 `bt_api_xx`
 - 停止在 web 仓内部追加 broker 平台代码
 
@@ -341,7 +341,7 @@ web 仓不再承担 broker adapter 验证，只保留：
 该设计意味着：
 
 - `iteration 171` 中与 broker 相关的内容，应理解为**跨仓协同前置项**
-- `ai-for-trader` 在 171 中不继续做 broker adapter 实装
+- `ai-for-investor` 在 171 中不继续做 broker adapter 实装
 - `171` 的重点仍是：
   - Data Connector Registry
   - Portfolio Ledger
@@ -363,7 +363,7 @@ web 仓不再承担 broker adapter 验证，只保留：
 - **`bt_api_py`**：统一核心
 - **`bt_api_xx`**：单交易所 / 单券商独立扩展
 - **`btapibroker`**：backtrader 集成桥
-- **`ai-for-trader`**：统一消费方
+- **`ai-for-investor`**：统一消费方
 
 这能最大程度避免职责重复，并保持 broker 能力在独立生态中可测试、可发布、可扩展。
 

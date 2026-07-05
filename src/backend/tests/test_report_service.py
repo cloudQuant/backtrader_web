@@ -475,7 +475,7 @@ class TestTemplateRendering:
         assert "Trade Statistics" in html
         assert "Strategy Parameters" in html
         assert "Risk Disclaimer" in html
-        assert "AI for Trader" in html
+        assert "AI for Investor" in html
 
     @pytest.mark.asyncio
     async def test_template_styling(self):

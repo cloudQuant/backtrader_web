@@ -429,6 +429,63 @@ class TestAIChatServiceExtractJsonObject:
         assert result is None
 
 
+class TestAIChatServiceStrategyGeneration:
+    """Test structured Backtrader strategy draft parsing."""
+
+    def test_incomplete_strategy_json_falls_back_to_complete_draft(self):
+        from app.services.ai_strategy_research_service import _validate_strategy_code_draft
+
+        content = json.dumps(
+            {
+                "answer_markdown": "模型返回草案",
+                "strategy_draft": {
+                    "name": "不完整策略",
+                    "description": "缺少真实逻辑",
+                    "category": "trend",
+                    "code": (
+                        "import backtrader as bt\n"
+                        "class IncompleteStrategy(bt.Strategy):\n"
+                        "    def __init__(self):\n"
+                        "        pass\n"
+                        "    def next(self):\n"
+                        "        pass\n"
+                    ),
+                    "params": {},
+                    "assumptions": [],
+                    "risk_points": [],
+                    "data_source": {"type": "csv", "timeframe": "1d"},
+                    "backtest_defaults": {"initial_cash": 100000, "commission": 0.001},
+                    "execution_plan": {"workspace_type": "research"},
+                    "rationale": "测试",
+                    "next_steps": [],
+                    "suggested_symbol": None,
+                    "suggested_timeframe": "1d",
+                },
+            },
+            ensure_ascii=False,
+        )
+
+        parsed = AIChatService._parse_strategy_generation(
+            content,
+            fallback_prompt="请生成一个双均线策略",
+        )
+
+        assert "策略代码不完整" in parsed["answer"]
+        assert "IncompleteStrategy" not in parsed["strategy_draft"]["code"]
+        assert "self.buy" in parsed["strategy_draft"]["code"]
+        _validate_strategy_code_draft(parsed["strategy_draft"]["code"])
+
+    def test_missing_strategy_json_falls_back_to_complete_draft(self):
+        parsed = AIChatService._parse_strategy_generation(
+            "这里只是普通文字，没有 JSON",
+            fallback_prompt="请生成一个双均线策略",
+        )
+
+        assert "没有返回可解析的策略 JSON" in parsed["answer"]
+        assert "class" in parsed["strategy_draft"]["code"]
+        assert "self.buy" in parsed["strategy_draft"]["code"]
+
+
 class TestAIChatServiceGenerateAnswer:
     """Test the generate_answer method."""
 

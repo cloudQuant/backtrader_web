@@ -20,16 +20,24 @@ vi.mock('vue-i18n', () => ({
 }))
 
 describe('LoginPage', () => {
+  const doMount = () => mountWithPlugins(LoginPage, {
+    customStubs: {
+      ThemeSwitcher: { template: '<button type="button">theme</button>' },
+      LanguageSwitcher: { template: '<button type="button">language</button>' },
+    },
+  })
+
   it('renders login form', () => {
-    const wrapper = mountWithPlugins(LoginPage)
-    expect(wrapper.text()).toContain('AI for Trader')
+    const wrapper = doMount()
+    expect(wrapper.text()).toContain('AI for Investor')
     // i18n mock returns keys
+    expect(wrapper.text()).toContain('auth.loginTitle')
     expect(wrapper.text()).toContain('auth.login')
     expect(wrapper.text()).toContain('auth.registerNow')
   })
 
   it('has reactive form data', () => {
-    const wrapper = mountWithPlugins(LoginPage)
+    const wrapper = doMount()
     const vm = wrapper.vm as unknown as LoginPageVm
     expect(vm.form.username).toBe('')
     expect(vm.form.password).toBe('')

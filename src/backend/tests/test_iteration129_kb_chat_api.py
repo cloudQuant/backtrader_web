@@ -226,6 +226,42 @@ class TestIteration129KBChatAPI:
         assert "class" in payload["strategy_draft"]["code"]
         assert payload["strategy_draft"]["params"]
 
+    async def test_send_backtrader_strategy_does_not_require_knowledge_base(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        send_resp = await client.post(
+            "/api/v1/kb-chat/send",
+            headers=auth_headers,
+            json={
+                "question": "请生成一个双均线突破并结合 ATR 止损的 Backtrader 策略",
+                "assistant_mode": "backtrader_strategy",
+            },
+        )
+        assert send_resp.status_code == 200, send_resp.text
+        payload = send_resp.json()
+        assert payload["assistant_mode"] == "backtrader_strategy"
+        assert payload["context_chunks_used"] == 0
+        assert payload["citations"] == []
+        assert payload["strategy_draft"] is not None
+        assert "class" in payload["strategy_draft"]["code"]
+
+        history_resp = await client.get(
+            f"/api/v1/kb-chat/history/{payload['conversation_id']}",
+            headers=auth_headers,
+        )
+        assert history_resp.status_code == 200, history_resp.text
+        history_body = history_resp.json()
+        assert len(history_body["messages"]) == 2
+        assistant_message = history_body["messages"][1]
+        assert assistant_message["assistant_mode"] == "backtrader_strategy"
+        assert assistant_message["strategy_draft"] is not None
+        assert "class" in assistant_message["strategy_draft"]["code"]
+
+        list_resp = await client.get("/api/v1/kb-chat/conversations", headers=auth_headers)
+        assert list_resp.status_code == 200, list_resp.text
+        list_body = list_resp.json()
+        assert any(item["id"] == payload["conversation_id"] for item in list_body["items"])
+
     async def test_send_rejects_conversation_from_different_knowledge_base(
         self, client: AsyncClient, auth_headers: dict
     ):

@@ -1,4 +1,4 @@
-# AI for Trader 战略规划路线图
+# AI for Investor 战略规划路线图
 
 > 版本：v2.0 | 更新日期：2026-05-20 | 状态：活跃
 
@@ -26,7 +26,7 @@
 **成为全球领先的开源量化交易平台，构建百年量化基础设施。**
 
 我们相信量化交易不应该是少数机构的专利。通过开源、AI 驱动和社区协作，
-AI for Trader 致力于构建一个人人可用、持续进化的量化交易生态系统。
+AI for Investor 致力于构建一个人人可用、持续进化的量化交易生态系统。
 
 ### 使命
 
@@ -52,7 +52,7 @@ AI for Trader 致力于构建一个人人可用、持续进化的量化交易生
 
 ### 2.1 竞品矩阵
 
-| 维度 | AI for Trader | QuantConnect | 聚宽 | 米筐 | vnpy | TradingView | Zipline |
+| 维度 | AI for Investor | QuantConnect | 聚宽 | 米筐 | vnpy | TradingView | Zipline |
 |------|---------------|--------------|------|------|------|-------------|---------|
 | 开源程度 | ✅ 完全开源 | 部分开源 | ❌ 闭源 | ❌ 闭源 | ✅ 完全开源 | ❌ 闭源 | ✅ 完全开源 |
 | AI 集成 | ✅ 深度集成 | 基础 | 基础 | ❌ | ❌ | ❌ | ❌ |
@@ -103,7 +103,7 @@ AI for Trader 致力于构建一个人人可用、持续进化的量化交易生
          米筐 ●      │      ● QuantConnect
                      │
     聚宽 ●           │
-                     │         ● AI for Trader（目标位置）
+                     │         ● AI for Investor（目标位置）
                      │
          TradingView ●    ● vnpy
                      │

@@ -1,6 +1,6 @@
 # Features Overview
 
-AI for Trader provides comprehensive quantitative trading functionality.
+AI for Investor provides comprehensive quantitative trading functionality.
 
 ## Core Modules
 

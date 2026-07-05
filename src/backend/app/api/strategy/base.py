@@ -16,10 +16,18 @@ from app.schemas.ai_strategy_research import (
     AIStrategyPaperTradingReview,
     AIStrategyPaperTradingStart,
     AIStrategyPaperTradingStartRequest,
+    AIStrategyResearchConfigProfile,
+    AIStrategyResearchConfigProfileCreate,
+    AIStrategyResearchConfigProfileImportRequest,
+    AIStrategyResearchConfigProfileImportResponse,
+    AIStrategyResearchConfigProfileListResponse,
+    AIStrategyResearchConfigProfileUpdate,
+    AIStrategyResearchRunContinueRequest,
     AIStrategyResearchRunListResponse,
     AIStrategyResearchRunRecord,
     AIStrategyResearchRunRequest,
     AIStrategyResearchRunResponse,
+    AIStrategyResearchTaskContinueRequest,
     AIStrategyResearchTaskListResponse,
     AIStrategyResearchTaskResponse,
 )
@@ -34,6 +42,9 @@ from app.schemas.strategy import (
     StrategyListResponse,
     StrategyResponse,
     StrategyUpdate,
+)
+from app.services.ai_strategy_research_config_profiles import (
+    AIStrategyResearchConfigProfileService,
 )
 from app.services.ai_strategy_research_service import (
     AIStrategyResearchService,
@@ -69,6 +80,11 @@ def get_ai_strategy_research_service():
 @lru_cache
 def get_ai_strategy_research_tasks():
     return get_ai_strategy_research_task_manager()
+
+
+@lru_cache
+def get_ai_strategy_research_config_profiles():
+    return AIStrategyResearchConfigProfileService()
 
 
 @router.post("/", response_model=StrategyResponse, summary="Create strategy")
@@ -258,6 +274,145 @@ async def run_ai_strategy_research_loop(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+@router.get(
+    "/ai-research/config-profiles",
+    response_model=AIStrategyResearchConfigProfileListResponse,
+    summary="List local AI strategy research configuration profiles",
+)
+async def list_ai_strategy_research_config_profiles(
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchConfigProfileService = Depends(
+        get_ai_strategy_research_config_profiles
+    ),
+):
+    """List reusable AI research form profiles from the local YAML file."""
+    del current_user
+    try:
+        return await service.list_profiles()
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/ai-research/config-profiles",
+    response_model=AIStrategyResearchConfigProfile,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a local AI strategy research configuration profile",
+)
+async def create_ai_strategy_research_config_profile(
+    data: AIStrategyResearchConfigProfileCreate,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchConfigProfileService = Depends(
+        get_ai_strategy_research_config_profiles
+    ),
+):
+    """Create a reusable AI research form profile in the local YAML file."""
+    del current_user
+    try:
+        return await service.create_profile(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/ai-research/config-profiles/import",
+    response_model=AIStrategyResearchConfigProfileImportResponse,
+    summary="Import AI strategy research configuration profiles from YAML",
+)
+async def import_ai_strategy_research_config_profiles(
+    data: AIStrategyResearchConfigProfileImportRequest,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchConfigProfileService = Depends(
+        get_ai_strategy_research_config_profiles
+    ),
+):
+    """Import selected YAML content into the local AI research profile file."""
+    del current_user
+    try:
+        return await service.import_profiles(
+            data.raw_yaml,
+            fallback_name=data.name,
+            fallback_profile_id=data.profile_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/ai-research/config-profiles/{profile_id}",
+    response_model=AIStrategyResearchConfigProfile,
+    summary="Get a local AI strategy research configuration profile",
+)
+async def get_ai_strategy_research_config_profile(
+    profile_id: str,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchConfigProfileService = Depends(
+        get_ai_strategy_research_config_profiles
+    ),
+):
+    """Return one reusable AI research form profile."""
+    del current_user
+    try:
+        profile = await service.get_profile(profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AI research config profile not found"
+        )
+    return profile
+
+
+@router.put(
+    "/ai-research/config-profiles/{profile_id}",
+    response_model=AIStrategyResearchConfigProfile,
+    summary="Update a local AI strategy research configuration profile",
+)
+async def update_ai_strategy_research_config_profile(
+    profile_id: str,
+    data: AIStrategyResearchConfigProfileUpdate,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchConfigProfileService = Depends(
+        get_ai_strategy_research_config_profiles
+    ),
+):
+    """Update a reusable AI research form profile in the local YAML file."""
+    del current_user
+    try:
+        profile = await service.update_profile(profile_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AI research config profile not found"
+        )
+    return profile
+
+
+@router.delete(
+    "/ai-research/config-profiles/{profile_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a local AI strategy research configuration profile",
+)
+async def delete_ai_strategy_research_config_profile(
+    profile_id: str,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchConfigProfileService = Depends(
+        get_ai_strategy_research_config_profiles
+    ),
+):
+    """Delete a reusable AI research form profile from the local YAML file."""
+    del current_user
+    try:
+        deleted = await service.delete_profile(profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AI research config profile not found"
+        )
+
+
 @router.post(
     "/ai-research/tasks",
     response_model=AIStrategyResearchTaskResponse,
@@ -331,6 +486,34 @@ async def cancel_ai_strategy_research_task(
     return task
 
 
+@router.post(
+    "/ai-research/tasks/{task_id}/continue",
+    response_model=AIStrategyResearchTaskResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Continue AI strategy research from a task snapshot",
+)
+async def continue_ai_strategy_research_task(
+    task_id: str,
+    data: AIStrategyResearchTaskContinueRequest | None = None,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+    task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
+):
+    """Submit a new research task rebuilt from a saved task snapshot."""
+    try:
+        task = await task_manager.continue_task(
+            current_user.sub,
+            task_id,
+            overrides=data.overrides if data is not None else {},
+            service=service,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if task is None:
+        raise HTTPException(status_code=404, detail="AI research task not found")
+    return task
+
+
 @router.get(
     "/ai-research/runs",
     response_model=AIStrategyResearchRunListResponse,
@@ -374,8 +557,42 @@ async def get_ai_strategy_research_run(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if record is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI research run not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AI research run not found"
+        )
     return record
+
+
+@router.post(
+    "/ai-research/runs/{run_id}/continue",
+    response_model=AIStrategyResearchTaskResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Continue AI strategy research from a persisted run",
+)
+async def continue_ai_strategy_research_run(
+    run_id: str,
+    data: AIStrategyResearchRunContinueRequest | None = None,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+    task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
+    research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
+):
+    """Submit a new AI research task derived from a saved run record."""
+    try:
+        request = await service.build_continuation_request_from_run_record(
+            current_user.sub,
+            run_id,
+            overrides=data.overrides if data is not None else {},
+            research_workspace_id=research_workspace_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if request is None:
+        raise HTTPException(status_code=404, detail="AI research run not found")
+    try:
+        return await task_manager.submit(current_user.sub, request, service=service)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post(
@@ -482,9 +699,12 @@ async def prepare_ai_strategy_research_live_trading(
     data: AIStrategyLiveTradingPrepareRequest,
     current_user=Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+    research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
 ):
     """Create a locked live trading unit after live handoff approval."""
     try:
+        if research_workspace_id:
+            data = data.model_copy(update={"research_workspace_id": research_workspace_id})
         return redact_ai_strategy_research_payload(
             await service.prepare_live_trading_from_run(current_user.sub, run_id, data)
         )

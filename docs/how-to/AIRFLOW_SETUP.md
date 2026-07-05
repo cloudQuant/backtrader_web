@@ -45,7 +45,7 @@ docker compose -f docker-compose.yml -f docker/compose/airflow.yml up -d
 # 用户名: admin  密码: admin
 ```
 
-## 配置 AI for Trader 连接 Airflow
+## 配置 AI for Investor 连接 Airflow
 
 在 `.env` 文件中添加：
 
@@ -62,7 +62,7 @@ AIRFLOW_CALLBACK_BASE_URL=http://localhost:8000
 ## 验证集成
 
 ```bash
-# 启动 AI for Trader 后端
+# 启动 AI for Investor 后端
 cd src/backend && python -m uvicorn app.main:app --reload
 
 # 检查编排状态

@@ -117,7 +117,7 @@ from airflow.operators.python import PythonOperator
 from airflow.utils.dates import days_ago
 
 default_args = {{
-    "owner": "ai_for_trader",
+    "owner": "ai_for_investor",
     "retries": 2,
     "retry_delay": timedelta(minutes=5),
     "execution_timeout": timedelta(minutes=30),

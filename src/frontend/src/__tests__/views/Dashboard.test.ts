@@ -4,7 +4,12 @@ import { createPinia, setActivePinia } from 'pinia'
 import Dashboard from '@/views/DashboardPage.vue'
 import { elStubs } from '@/test/stubs'
 
+const routerMocks = vi.hoisted(() => ({
+  push: vi.fn(),
+}))
+
 vi.mock('@element-plus/icons-vue', () => ({
+  ArrowRight: { template: '<span />' },
   DataLine: { template: '<span />' },
   Document: { template: '<span />' },
   Grid: { template: '<span />' },
@@ -15,6 +20,12 @@ vi.mock('@element-plus/icons-vue', () => ({
 vi.mock('vue-i18n', () => ({
   createI18n: vi.fn(() => ({ global: { t: (key: string) => key } })),
   useI18n: vi.fn(() => ({ t: (key: string) => key })),
+}))
+
+vi.mock('vue-router', () => ({
+  useRouter: () => ({
+    push: routerMocks.push,
+  }),
 }))
 
 vi.mock('@/stores/backtest', () => ({
@@ -37,7 +48,10 @@ vi.mock('@/stores/strategy', () => ({
 }))
 
 describe('Dashboard', () => {
-  beforeEach(() => { setActivePinia(createPinia()) })
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    routerMocks.push.mockClear()
+  })
 
   const doMount = () => mount(Dashboard, { global: { stubs: elStubs } })
 
@@ -74,5 +88,13 @@ describe('Dashboard', () => {
     const vm = doMount().vm as any
     expect(vm.getStrategyName('s1')).toBe('SMA Cross')
     expect(vm.getStrategyName('unknown_id')).toBe('unknown_id')
+  })
+
+  it('navigates from quick actions to canonical research workspace route', async () => {
+    const wrapper = doMount()
+
+    await wrapper.find('.dashboard-action-card').trigger('click')
+
+    expect(routerMocks.push).toHaveBeenCalledWith('/research/workspaces')
   })
 })

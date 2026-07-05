@@ -1,4 +1,4 @@
-# AI for Trader - 暗色主题实现指南
+# AI for Investor - 暗色主题实现指南
 
 > 本文档提供暗色主题的完整实现方案
 

@@ -54,7 +54,9 @@ describe('DataTopicsPage', () => {
 
   it('loads topics, stats, and refreshes selected topic', async () => {
     const wrapper = mountWithPlugins(DataTopicsPage)
-    expect(wrapper.text()).toContain('Data Topic Hub')
+    expect(wrapper.find('[data-test="data-topics-page"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('数据主题中心')
+    expect(wrapper.text()).toContain('订阅控制台')
 
     await flushPromises()
     await (wrapper.vm as any).refreshSelectedTopic()
@@ -65,6 +67,7 @@ describe('DataTopicsPage', () => {
     expect(apiMocks.refreshTopic).toHaveBeenCalledWith('market:quote:RB2510')
     expect(wrapper.text()).toContain('market:quote:RB2510')
     expect(wrapper.text()).toContain('RB2510')
+    expect(wrapper.text()).toContain('最近刷新值')
   })
 
   it('skips admin stats for non-admin users', async () => {

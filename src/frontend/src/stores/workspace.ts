@@ -219,6 +219,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       for (const u of units.value) {
         if (selectedUnitIds.value.includes(u.id)) {
           u.run_status = 'queued'
+          u.run_progress = 0
+          u.run_message = '回测任务排队中'
         }
       }
       const res = await workspaceApi.runUnits(workspaceId, [...selectedUnitIds.value], parallel)
@@ -228,6 +230,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         if (idx >= 0) {
           units.value[idx].run_status = r.status as StrategyUnit['run_status']
           if (r.task_id) units.value[idx].last_task_id = r.task_id
+          units.value[idx].run_progress = r.status === 'running' ? 10 : 0
+          units.value[idx].run_message = r.status === 'running' ? '回测任务已提交' : r.error ?? null
         }
       }
       return res.results
@@ -255,7 +259,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           // Always update non-optimization fields
           unit.run_status = s.run_status
           unit.last_task_id = s.last_task_id
+          unit.error_message = s.error_message
           unit.metrics_snapshot = s.metrics_snapshot
+          unit.run_progress = s.run_progress
+          unit.run_message = s.run_message
           unit.run_count = s.run_count
           unit.last_run_time = s.last_run_time
           unit.bar_count = s.bar_count

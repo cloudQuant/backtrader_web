@@ -1,5 +1,5 @@
 """
-E2E tests for AI for Trader core user flows.
+E2E tests for AI for Investor core user flows.
 
 Covers:
 1. Registration

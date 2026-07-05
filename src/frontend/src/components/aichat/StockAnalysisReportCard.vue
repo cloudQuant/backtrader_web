@@ -185,7 +185,7 @@ function buildStrategyIdeaPrompt(): string {
 }
 
 function buildBacktraderPrompt(): string {
-  return `基于 ${buildReportContext()}。请生成一个 Backtrader 策略草案，包含策略名称、适用周期、核心指标、参数表、完整策略代码、默认回测参数、接入 AI for Trader 研究工作区的建议，以及需要进一步验证的风险点。`
+  return `基于 ${buildReportContext()}。请生成一个 Backtrader 策略草案，包含策略名称、适用周期、核心指标、参数表、完整策略代码、默认回测参数、接入 AI for Investor 研究工作区的建议，以及需要进一步验证的风险点。`
 }
 
 async function download(format: StockAnalysisExportFormat) {

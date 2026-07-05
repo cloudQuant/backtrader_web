@@ -1,6 +1,6 @@
 # 功能介绍
 
-AI for Trader 提供全面的量化交易功能。
+AI for Investor 提供全面的量化交易功能。
 
 ## 核心模块
 

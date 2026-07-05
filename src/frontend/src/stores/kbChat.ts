@@ -55,7 +55,7 @@ export const useKBChatStore = defineStore('kbChat', () => {
   const currentConversationId = ref<string | null>(null)
   const loading = ref(false)
 
-  async function fetchConversations(knowledgeBaseId: string) {
+  async function fetchConversations(knowledgeBaseId?: string | null) {
     const response = await kbChatApi.listConversations(knowledgeBaseId)
     conversations.value = Array.isArray(response.items) ? response.items : []
     return response
@@ -71,6 +71,8 @@ export const useKBChatStore = defineStore('kbChat', () => {
         role: message.role === 'assistant' ? 'assistant' : 'user',
         content: typeof message.content === 'string' ? message.content : '',
         citations: Array.isArray(message.citations) ? message.citations : undefined,
+        assistantMode: message.assistant_mode ?? undefined,
+        strategyDraft: message.strategy_draft ?? null,
         reasoning: message.reasoning ?? undefined,
         reasonCode: message.reason_code ?? undefined,
         diagnosticMessage: message.diagnostic_message ?? undefined,
@@ -90,7 +92,7 @@ export const useKBChatStore = defineStore('kbChat', () => {
   }
 
   async function sendMessage(
-    knowledgeBaseId: string,
+    knowledgeBaseId: string | null,
     question: string,
     options?: {
       assistantMode?: KBAssistantMode
@@ -103,12 +105,14 @@ export const useKBChatStore = defineStore('kbChat', () => {
     try {
       messages.value.push({ role: 'user', content: question })
       const request: Parameters<typeof kbChatApi.send>[0] = {
-        knowledge_base_id: knowledgeBaseId,
         question,
         conversation_id: currentConversationId.value,
         model_id: options?.modelId,
         assistant_mode: options?.assistantMode,
         thinking_mode: options?.thinkingMode,
+      }
+      if (knowledgeBaseId) {
+        request.knowledge_base_id = knowledgeBaseId
       }
       if (options?.stockAnalysisParams) {
         request.stock_analysis_params = options.stockAnalysisParams

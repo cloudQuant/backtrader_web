@@ -1,9 +1,55 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
+import type { DataInterface } from '@/types'
+
+const interfaceFixture = vi.hoisted((): DataInterface => ({
+  id: 1,
+  name: 'stock_zh_a_hist',
+  display_name: 'A 股历史行情',
+  description: '沪深京 A 股日频历史行情接口',
+  category_id: 1,
+  module_path: 'akshare',
+  function_name: 'stock_zh_a_hist',
+  parameters: {
+    symbol: { type: 'string', required: true },
+    period: { type: 'string', default: 'daily' },
+  },
+  extra_config: { throttle_ms: 500 },
+  return_type: 'DataFrame',
+  example: 'ak.stock_zh_a_hist(symbol="000001")',
+  is_active: true,
+  created_at: '2026-07-01T08:00:00Z',
+  updated_at: '2026-07-01T09:00:00Z',
+  params: [
+    {
+      id: 1,
+      name: 'symbol',
+      display_name: '股票代码',
+      param_type: 'string',
+      description: '证券代码',
+      default_value: null,
+      required: true,
+      options: null,
+      sort_order: 1,
+    },
+    {
+      id: 2,
+      name: 'period',
+      display_name: '周期',
+      param_type: 'string',
+      description: '行情周期',
+      default_value: 'daily',
+      required: false,
+      options: ['daily', 'weekly'],
+      sort_order: 2,
+    },
+  ],
+}))
+
 vi.mock('vue-i18n', () => ({
-  useI18n: () => ({ t: (k: string) => k }),
+  useI18n: () => ({ t: (k: string, params?: Record<string, unknown>) => (params?.count !== undefined ? `${k}:${params.count}` : k) }),
 }))
 
 vi.mock('element-plus', () => ({
@@ -17,12 +63,12 @@ vi.mock('@/api/akshare', () => ({
       { id: 1, name: 'stock', description: '股票' },
       { id: 2, name: 'future', description: '' },
     ]),
-    list: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    list: vi.fn().mockResolvedValue({ items: [interfaceFixture], total: 1 }),
     create: vi.fn().mockResolvedValue({ id: 1 }),
     update: vi.fn().mockResolvedValue({ id: 1 }),
     delete: vi.fn().mockResolvedValue(undefined),
     bootstrap: vi.fn().mockResolvedValue({ created: 2, updated: 1 }),
-    getDetail: vi.fn().mockResolvedValue({ id: 1, name: 'stock_zh_a' }),
+    getDetail: vi.fn().mockResolvedValue(interfaceFixture),
   },
 }))
 
@@ -49,13 +95,33 @@ describe('DataInterfacesPage', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    api.getCategories.mockResolvedValue([
+      { id: 1, name: 'stock', description: '股票' },
+      { id: 2, name: 'future', description: '' },
+    ])
+    api.list.mockResolvedValue({ items: [{ ...interfaceFixture }], total: 1 })
+    api.getDetail.mockResolvedValue({ ...interfaceFixture })
   })
 
   it('loads categories and interfaces on mount', async () => {
     doMount()
-    await new Promise(r => setTimeout(r, 0))
+    await flushPromises()
     expect(api.getCategories).toHaveBeenCalled()
     expect(api.list).toHaveBeenCalled()
+  })
+
+  it('renders the redesigned interface registry workbench', async () => {
+    const wrapper = doMount()
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="interfaces-hero"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="interfaces-metrics"]').findAll('.interfaces-metric')).toHaveLength(4)
+    expect(wrapper.find('[data-test="interfaces-workbench"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="interfaces-table"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="interfaces-mobile-list"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('A 股历史行情')
+    expect(wrapper.text()).toContain('stock_zh_a_hist')
+    expect(wrapper.text()).toContain('ifWorkbenchTitle')
   })
 
   it('isAdmin reflects the auth store', () => {
@@ -64,7 +130,7 @@ describe('DataInterfacesPage', () => {
 
   it('categoryNameMap maps id to description or name', async () => {
     const vm = doMount().vm as any
-    await new Promise(r => setTimeout(r, 0))
+    await flushPromises()
     expect(vm.categoryNameMap[1]).toBe('股票')
     expect(vm.categoryNameMap[2]).toBe('future') // empty description falls back to name
   })
@@ -97,6 +163,7 @@ describe('DataInterfacesPage', () => {
     await vm.openDetail(1)
     expect(api.getDetail).toHaveBeenCalledWith(1)
     expect(vm.currentInterface?.id).toBe(1)
+    expect(vm.currentInterface?.params).toHaveLength(2)
   })
 
   it('deleteInterface confirms and deletes', async () => {

@@ -1,27 +1,33 @@
 <template>
-  <div class="scanner-page">
-    <header class="scanner-header">
-      <div>
+  <div
+    class="scanner-page"
+    data-test="scanner-page"
+  >
+    <section class="scanner-hero">
+      <div class="scanner-hero-copy">
         <div class="scanner-eyebrow">
           {{ t('scannerPage.headerEyebrow') }}
         </div>
-        <h2>
+        <h1>
           {{ t('scannerPage.headerTitle') }}
-        </h2>
+        </h1>
         <p>
           {{ t('scannerPage.headerDesc') }}
         </p>
       </div>
 
-      <div
-        v-if="taskId"
-        class="scanner-status-strip"
-      >
-        <span>{{ t('scannerPage.metaTask') }} <strong>{{ taskId }}</strong></span>
-        <span>{{ t('scannerPage.metaStatus') }} <strong>{{ taskStatus }}</strong></span>
-        <span>{{ t('scannerPage.metaUniverse') }} <strong>{{ selectedPoolInstrumentCount }}</strong></span>
+      <div class="scanner-hero-stats">
+        <article
+          v-for="stat in scannerHeroStats"
+          :key="stat.key"
+          class="scanner-hero-stat"
+        >
+          <span>{{ stat.label }}</span>
+          <strong>{{ stat.value }}</strong>
+          <small>{{ stat.helper }}</small>
+        </article>
       </div>
-    </header>
+    </section>
 
     <el-card class="scanner-workbench">
       <section class="scanner-query-panel">
@@ -38,70 +44,154 @@
           </el-tag>
         </div>
 
-        <section class="scanner-plan-panel">
-          <div class="scanner-section-header">
-            <div>
-              <h3>{{ t('scannerPage.planCenterTitle') }}</h3>
-              <p>{{ t('scannerPage.planCenterDesc') }}</p>
+        <div class="scanner-command-grid">
+          <section class="scanner-plan-panel">
+            <div class="scanner-section-header">
+              <div>
+                <h3>{{ t('scannerPage.planCenterTitle') }}</h3>
+                <p>{{ t('scannerPage.planCenterDesc') }}</p>
+              </div>
+              <span class="scanner-row-count">{{ t('scannerPage.planCount', { count: scannerPlans.length }) }}</span>
             </div>
-            <span class="scanner-row-count">{{ t('scannerPage.planCount', { count: scannerPlans.length }) }}</span>
-          </div>
-          <div class="scanner-plan-grid">
-            <label class="scanner-field">
-              <span>{{ t('scannerPage.fieldSavedPlan') }}</span>
-              <el-select
-                v-model="selectedPlanId"
-                clearable
-                @change="applySelectedPlan"
-              >
-                <el-option
-                  v-for="plan in scannerPlans"
-                  :key="plan.id"
-                  :label="plan.name"
-                  :value="plan.id"
+            <div class="scanner-plan-grid">
+              <label class="scanner-field">
+                <span>{{ t('scannerPage.fieldSavedPlan') }}</span>
+                <el-select
+                  v-model="selectedPlanId"
+                  clearable
+                  @change="applySelectedPlan"
+                >
+                  <el-option
+                    v-for="plan in scannerPlans"
+                    :key="plan.id"
+                    :label="plan.name"
+                    :value="plan.id"
+                  />
+                </el-select>
+              </label>
+              <div class="scanner-plan-actions">
+                <el-button
+                  type="primary"
+                  @click="openNewPlanDialog"
+                >
+                  <el-icon aria-hidden="true">
+                    <Plus />
+                  </el-icon>
+                  {{ t('scannerPage.btnNewPlan') }}
+                </el-button>
+                <el-button
+                  :disabled="!selectedPlanId"
+                  @click="openEditPlanDialog()"
+                >
+                  <el-icon aria-hidden="true">
+                    <EditPen />
+                  </el-icon>
+                  {{ t('scannerPage.btnEditPlan') }}
+                </el-button>
+                <el-button
+                  :loading="planLoading"
+                  :disabled="!selectedPoolId"
+                  @click="saveScannerPlan"
+                >
+                  {{ t('scannerPage.btnSavePlan') }}
+                </el-button>
+                <el-button
+                  :loading="planRunLoading"
+                  :disabled="!selectedPlanId"
+                  @click="runSelectedPlan"
+                >
+                  {{ t('scannerPage.btnRunPlan') }}
+                </el-button>
+                <el-button
+                  :loading="dailyRunLoading"
+                  @click="runDailyPlans"
+                >
+                  {{ t('scannerPage.btnRunDailyPlans') }}
+                </el-button>
+              </div>
+            </div>
+            <div class="scanner-plan-run-strip">
+              <span>{{ t('scannerPage.planLatestRun') }}</span>
+              <strong>{{ latestPlanRunLabel }}</strong>
+            </div>
+          </section>
+
+          <section class="scanner-live-panel">
+            <div class="scanner-section-header">
+              <div>
+                <h3>{{ t('scannerPage.liveRunTitle') }}</h3>
+                <p>{{ t('scannerPage.liveRunDesc') }}</p>
+              </div>
+            </div>
+
+            <div class="scanner-live-grid">
+              <label class="scanner-field">
+                <span>{{ t('scannerPage.fieldUniversePool') }}</span>
+                <el-select
+                  v-model="selectedPoolId"
+                  @change="selectManagerPool"
+                >
+                  <el-option
+                    v-for="pool in universePools"
+                    :key="pool.id"
+                    :label="`${pool.name} · ${pool.instrument_count}`"
+                    :value="pool.id"
+                  />
+                </el-select>
+              </label>
+              <label class="scanner-field">
+                <span>{{ t('scannerPage.fieldLookback') }}</span>
+                <el-input-number
+                  v-model="lookbackDays"
+                  :min="1"
+                  :max="365"
                 />
-              </el-select>
-            </label>
-            <div class="scanner-plan-actions">
+              </label>
+              <label class="scanner-field">
+                <span>{{ t('scannerPage.fieldTimeframe') }}</span>
+                <el-select v-model="timeframe">
+                  <el-option
+                    label="1d"
+                    value="1d"
+                  />
+                  <el-option
+                    label="4h"
+                    value="4h"
+                  />
+                  <el-option
+                    label="1h"
+                    value="1h"
+                  />
+                </el-select>
+              </label>
+            </div>
+
+            <div class="scanner-active-condition">
+              <span>{{ t('scannerPage.fieldActiveCondition') }}</span>
+              <strong>{{ condition }}</strong>
+            </div>
+
+            <div class="scanner-live-actions">
               <el-button
                 type="primary"
-                @click="openNewPlanDialog"
-              >
-                {{ t('scannerPage.btnNewPlan') }}
-              </el-button>
-              <el-button
-                :disabled="!selectedPlanId"
-                @click="openEditPlanDialog()"
-              >
-                {{ t('scannerPage.btnEditPlan') }}
-              </el-button>
-              <el-button
-                :loading="planLoading"
+                :loading="loading"
                 :disabled="!selectedPoolId"
-                @click="saveScannerPlan"
+                @click="run"
               >
-                {{ t('scannerPage.btnSavePlan') }}
+                <el-icon aria-hidden="true">
+                  <VideoPlay />
+                </el-icon>
+                {{ t('scannerPage.btnRunNow') }}
               </el-button>
-              <el-button
-                :loading="planRunLoading"
-                :disabled="!selectedPlanId"
-                @click="runSelectedPlan"
-              >
-                {{ t('scannerPage.btnRunPlan') }}
-              </el-button>
-              <el-button
-                :loading="dailyRunLoading"
-                @click="runDailyPlans"
-              >
-                {{ t('scannerPage.btnRunDailyPlans') }}
+              <el-button @click="openEditPlanDialog()">
+                <el-icon aria-hidden="true">
+                  <Setting />
+                </el-icon>
+                {{ t('scannerPage.btnManagePools') }}
               </el-button>
             </div>
-          </div>
-          <div class="scanner-plan-run-strip">
-            <span>{{ t('scannerPage.planLatestRun') }}</span>
-            <strong>{{ latestPlanRunLabel }}</strong>
-          </div>
-        </section>
+          </section>
+        </div>
       </section>
 
       <section class="scanner-metric-panel">
@@ -127,6 +217,100 @@
             <small>{{ metric.helper }}</small>
           </div>
         </div>
+      </section>
+
+      <section class="scanner-match-board">
+        <div class="scanner-section-header">
+          <div>
+            <h3>{{ t('scannerPage.matchBoardTitle') }}</h3>
+            <p>{{ t('scannerPage.matchBoardDesc') }}</p>
+          </div>
+          <span class="scanner-row-count">{{ t('scannerPage.resultCount', { count: matches.length }) }}</span>
+        </div>
+
+        <div
+          v-if="matches.length === 0"
+          class="scanner-empty-state"
+        >
+          <strong>{{ t('scannerPage.emptyMatchesTitle') }}</strong>
+          <p>{{ t('scannerPage.emptyMatchesDesc') }}</p>
+        </div>
+        <el-table
+          v-else
+          class="scanner-match-table"
+          :data="matches"
+          :empty-text="t('scannerPage.emptyMatchesTitle')"
+        >
+          <el-table-column
+            :label="t('scannerPage.colSymbol')"
+            min-width="150"
+          >
+            <template #default="scope">
+              <div class="scanner-symbol-cell">
+                <strong>{{ displayValue(scope.row.symbol) }}</strong>
+                <span>{{ displayValue(scope.row.provider) }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="name"
+            :label="t('scannerPage.colName')"
+            min-width="140"
+          />
+          <el-table-column
+            :label="t('scannerPage.colPrice')"
+            width="110"
+          >
+            <template #default="scope">
+              {{ formatNumber(scope.row.price) }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="t('scannerPage.colChangePct')"
+            width="120"
+          >
+            <template #default="scope">
+              {{ formatPercent(scope.row.change_pct) }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="t('scannerPage.colIndicator')"
+            width="130"
+          >
+            <template #default="scope">
+              <span
+                class="scanner-score-pill"
+                :class="scoreClass(scope.row.indicator)"
+              >
+                {{ formatPercent(scope.row.indicator) }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="t('scannerPage.colFactor')"
+            width="120"
+          >
+            <template #default="scope">
+              {{ formatPercent(scope.row.factor) }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="t('scannerPage.colNewsSentiment')"
+            width="150"
+          >
+            <template #default="scope">
+              {{ formatPercent(scope.row.news_sentiment) }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="t('scannerPage.colPortfolioExposure')"
+            width="150"
+          >
+            <template #default="scope">
+              {{ formatPercent(scope.row.portfolio_exposure) }}
+            </template>
+          </el-table-column>
+        </el-table>
       </section>
     </el-card>
 
@@ -469,6 +653,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { EditPen, Plus, Setting, VideoPlay } from '@element-plus/icons-vue'
 import {
   marketIntelApi,
   type ScannerIndicatorRule,
@@ -595,6 +780,33 @@ const statusTagType = computed(() => {
   if (taskStatus.value === 'running' || taskStatus.value === 'submitted') return 'warning'
   return 'info'
 })
+
+const scannerHeroStats = computed(() => [
+  {
+    key: 'pools',
+    label: t('scannerPage.statPools'),
+    value: formatNumber(universePools.value.length, 0),
+    helper: t('scannerPage.statPoolsHelper'),
+  },
+  {
+    key: 'plans',
+    label: t('scannerPage.statPlans'),
+    value: formatNumber(scannerPlans.value.length, 0),
+    helper: t('scannerPage.statPlansHelper'),
+  },
+  {
+    key: 'universe',
+    label: t('scannerPage.statUniverse'),
+    value: formatNumber(selectedPoolInstrumentCount.value, 0),
+    helper: selectedPool.value?.name || t('scannerPage.poolNoDescription'),
+  },
+  {
+    key: 'results',
+    label: t('scannerPage.statResults'),
+    value: formatNumber(matches.value.length, 0),
+    helper: taskStatus.value || 'idle',
+  },
+])
 
 const metricCards = computed(() => [
   {
@@ -1093,6 +1305,19 @@ function formatDateTime(value?: string) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date)
+}
+
+function displayValue(value: unknown) {
+  const text = String(value ?? '').trim()
+  return text || '-'
+}
+
+function scoreClass(value: unknown) {
+  const numericValue = toFiniteNumber(value)
+  if (numericValue === undefined) return 'is-empty'
+  if (numericValue >= 0.7) return 'is-strong'
+  if (numericValue >= 0.45) return 'is-medium'
+  return 'is-muted'
 }
 </script>
 
@@ -1647,6 +1872,420 @@ function formatDateTime(value?: string) {
   .scanner-plan-table-actions :deep(.el-button),
   .scanner-custom-actions,
   .scanner-custom-actions :deep(.el-button) {
+    width: 100%;
+  }
+}
+
+.scanner-page {
+  --scanner-bg: var(--bg-color-page);
+  --scanner-surface: color-mix(in srgb, var(--bg-color) 92%, transparent);
+  --scanner-surface-strong: color-mix(in srgb, var(--bg-color) 82%, var(--el-color-primary) 18%);
+  --scanner-text: var(--text-color-primary);
+  --scanner-muted: var(--text-color-secondary);
+  --scanner-border: color-mix(in srgb, var(--border-color) 78%, transparent);
+  --scanner-border-strong: color-mix(in srgb, var(--border-color) 64%, var(--el-color-primary) 36%);
+  --scanner-shadow: 0 18px 48px color-mix(in srgb, #000 16%, transparent);
+  --scanner-good: var(--success-color, #16a34a);
+  --scanner-warn: var(--warning-color, #d97706);
+  --scanner-bad: var(--danger-color, #dc2626);
+  gap: 18px;
+  color: var(--scanner-text);
+}
+
+.scanner-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
+  gap: 18px;
+  padding: clamp(22px, 3.2vw, 34px);
+  border: 1px solid var(--scanner-border);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--bg-color) 94%, var(--el-color-primary) 6%), transparent),
+    var(--scanner-surface);
+  background-color: var(--scanner-surface);
+  box-shadow: var(--scanner-shadow);
+}
+
+.scanner-hero-copy {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.scanner-eyebrow {
+  margin: 0;
+  color: var(--el-color-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.scanner-hero h1 {
+  margin: 0;
+  color: var(--scanner-text);
+  font-size: clamp(30px, 4vw, 46px);
+  line-height: 1.06;
+  letter-spacing: 0;
+}
+
+.scanner-hero p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--scanner-muted);
+  line-height: 1.68;
+}
+
+.scanner-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.scanner-hero-stat,
+.scanner-metric-card,
+.scanner-source-card {
+  min-width: 0;
+  border: 1px solid var(--scanner-border);
+  border-radius: 8px;
+  background: var(--scanner-surface);
+  background-color: var(--scanner-surface);
+}
+
+.scanner-hero-stat {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  min-height: 118px;
+  padding: 16px;
+}
+
+.scanner-hero-stat span,
+.scanner-hero-stat small,
+.scanner-metric-card span,
+.scanner-metric-card small {
+  color: var(--scanner-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.scanner-hero-stat strong,
+.scanner-metric-card strong {
+  color: var(--scanner-text);
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.scanner-workbench {
+  border: 1px solid var(--scanner-border);
+  border-radius: 8px;
+  background: var(--scanner-surface);
+  background-color: var(--scanner-surface);
+  box-shadow: 0 12px 30px color-mix(in srgb, #000 10%, transparent);
+}
+
+.scanner-workbench :deep(.el-card__body) {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+}
+
+.scanner-query-panel,
+.scanner-metric-panel {
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.scanner-command-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.14fr) minmax(320px, 0.86fr);
+  gap: 16px;
+}
+
+.scanner-plan-panel,
+.scanner-live-panel,
+.scanner-metric-panel,
+.scanner-match-board,
+.scanner-plan-editor-section,
+.scanner-plan-dialog-aside,
+.scanner-manager-toolbar,
+.scanner-manager-detail,
+.scanner-custom-panel,
+.scanner-indicator-manager-panel {
+  border: 1px solid var(--scanner-border);
+  border-radius: 8px;
+  background: var(--scanner-surface);
+  background-color: var(--scanner-surface);
+}
+
+.scanner-plan-panel,
+.scanner-live-panel,
+.scanner-metric-panel,
+.scanner-match-board {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.scanner-section-header,
+.scanner-symbol-heading {
+  align-items: flex-start;
+}
+
+.scanner-section-header h3,
+.scanner-symbol-heading span {
+  color: var(--scanner-text);
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.scanner-section-header p,
+.scanner-symbol-heading small {
+  color: var(--scanner-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.scanner-row-count,
+.scanner-run-pill,
+.scanner-status-strip span {
+  border-color: var(--scanner-border);
+  border-radius: 999px;
+  color: var(--scanner-muted);
+  background: var(--scanner-surface-strong);
+}
+
+.scanner-plan-grid {
+  grid-template-columns: minmax(220px, 0.72fr) minmax(360px, 1.28fr);
+}
+
+.scanner-plan-actions,
+.scanner-live-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.scanner-live-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(132px, 0.38fr) minmax(132px, 0.38fr);
+  gap: 10px;
+  align-items: end;
+}
+
+.scanner-active-condition {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--scanner-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--scanner-bg) 64%, var(--bg-color) 36%);
+}
+
+.scanner-active-condition span {
+  color: var(--scanner-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.scanner-active-condition strong {
+  color: var(--scanner-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.scanner-plan-run-strip {
+  padding: 10px 12px;
+  border: 1px solid var(--scanner-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--scanner-bg) 64%, var(--bg-color) 36%);
+}
+
+.scanner-field span {
+  color: var(--scanner-muted);
+}
+
+.scanner-metric-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.scanner-metric-card {
+  min-height: 118px;
+  padding: 14px;
+}
+
+.scanner-metric-card.is-teal,
+.scanner-score-pill.is-strong {
+  border-color: color-mix(in srgb, var(--scanner-good) 55%, transparent);
+  color: var(--scanner-good);
+  background: color-mix(in srgb, var(--scanner-good) 12%, var(--bg-color));
+}
+
+.scanner-metric-card.is-amber,
+.scanner-score-pill.is-medium {
+  border-color: color-mix(in srgb, var(--scanner-warn) 55%, transparent);
+  color: var(--scanner-warn);
+  background: color-mix(in srgb, var(--scanner-warn) 12%, var(--bg-color));
+}
+
+.scanner-metric-card.is-blue {
+  border-color: color-mix(in srgb, var(--el-color-primary) 55%, transparent);
+}
+
+.scanner-match-board {
+  overflow: hidden;
+  padding: 0;
+}
+
+.scanner-match-board > .scanner-section-header {
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid var(--scanner-border);
+}
+
+.scanner-match-table {
+  --el-table-bg-color: var(--scanner-surface);
+  --el-table-tr-bg-color: var(--scanner-surface);
+  --el-table-header-bg-color: color-mix(in srgb, var(--scanner-bg) 62%, var(--bg-color) 38%);
+  --el-table-text-color: var(--scanner-text);
+  --el-table-header-text-color: var(--scanner-text);
+  --el-table-border-color: var(--scanner-border);
+}
+
+.scanner-symbol-cell {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.scanner-symbol-cell strong {
+  color: var(--scanner-text);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.scanner-symbol-cell span {
+  color: var(--scanner-muted);
+  font-size: 12px;
+}
+
+.scanner-score-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  min-width: 76px;
+  padding: 0 9px;
+  border: 1px solid var(--scanner-border);
+  border-radius: 999px;
+  color: var(--scanner-muted);
+  background: var(--scanner-surface-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.scanner-score-pill.is-muted,
+.scanner-score-pill.is-empty {
+  border-color: color-mix(in srgb, var(--scanner-border) 72%, transparent);
+  color: var(--scanner-muted);
+  background: var(--scanner-surface-strong);
+}
+
+.scanner-empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin: 18px;
+  padding: 34px 18px;
+  border: 1px dashed var(--scanner-border-strong);
+  border-radius: 8px;
+  color: var(--scanner-muted);
+  text-align: center;
+  background: color-mix(in srgb, var(--scanner-bg) 68%, var(--bg-color) 32%);
+}
+
+.scanner-empty-state strong {
+  color: var(--scanner-text);
+}
+
+.scanner-empty-state p {
+  max-width: 560px;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.scanner-plan-dialog-aside,
+.scanner-plan-editor-section,
+.scanner-manager-toolbar,
+.scanner-manager-detail,
+.scanner-custom-panel,
+.scanner-indicator-manager-panel {
+  background: color-mix(in srgb, var(--scanner-bg) 58%, var(--bg-color) 42%);
+}
+
+.scanner-symbol-chip,
+.scanner-pool-meta-grid span,
+.scanner-indicator-rule {
+  border-color: var(--scanner-border);
+  color: var(--scanner-text);
+  background: var(--scanner-surface);
+}
+
+.scanner-symbol-chip {
+  background: color-mix(in srgb, var(--el-color-primary) 10%, var(--bg-color));
+}
+
+:global(.scanner-pool-dialog.el-dialog),
+:global(.scanner-pool-dialog .el-dialog) {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-color);
+}
+
+:global(.scanner-pool-dialog.el-dialog .el-dialog__title),
+:global(.scanner-pool-dialog .el-dialog__title),
+:global(.scanner-pool-dialog.el-dialog .el-dialog__body),
+:global(.scanner-pool-dialog .el-dialog__body) {
+  color: var(--text-color-primary);
+}
+
+@media (max-width: 1120px) {
+  .scanner-hero,
+  .scanner-command-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .scanner-metric-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 840px) {
+  .scanner-hero,
+  .scanner-workbench :deep(.el-card__body),
+  .scanner-plan-panel,
+  .scanner-live-panel,
+  .scanner-metric-panel {
+    padding: 16px;
+  }
+
+  .scanner-hero-stats,
+  .scanner-plan-grid,
+  .scanner-live-grid,
+  .scanner-metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .scanner-plan-actions,
+  .scanner-live-actions,
+  .scanner-plan-actions :deep(.el-button),
+  .scanner-live-actions :deep(.el-button) {
     width: 100%;
   }
 }

@@ -1,6 +1,6 @@
-# AI for Trader Backend
+# AI for Investor Backend
 
-FastAPI-based backend service for the AI for Trader quantitative backtesting platform.
+FastAPI-based backend service for the AI for Investor quantitative backtesting platform.
 
 ## Features
 

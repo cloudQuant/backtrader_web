@@ -4,7 +4,7 @@
 strategy:
   name: "铜MACD+ATR策略"
   description: "结合MACD和ATR的趋势策略 - 铜期货"
-  author: "ai-for-trader"
+  author: "ai-for-investor"
   category: "simulate"
   
 # ============================================================

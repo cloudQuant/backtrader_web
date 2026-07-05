@@ -11,6 +11,30 @@ export interface MarketInstrumentLookupParams {
   market?: string
 }
 
+export interface MarketInstrumentOption {
+  asset_type: MarketAssetType
+  symbol: string
+  name: string
+  market?: string | null
+  source_table?: string | null
+  latest_date?: string | null
+  has_snapshot: boolean
+  has_history: boolean
+  history_rows: number
+}
+
+export interface MarketInstrumentOptionsParams {
+  asset_type: MarketAssetType
+  search?: string
+  limit?: number
+}
+
+export interface MarketInstrumentOptionsResponse {
+  asset_type: MarketAssetType
+  items: MarketInstrumentOption[]
+  total: number
+}
+
 export interface MarketSnapshot {
   symbol?: string
   name?: string
@@ -87,6 +111,11 @@ export interface MarketInstrumentLookupResponse {
 }
 
 export const marketDataApi = {
+  listInstrumentOptions(params: MarketInstrumentOptionsParams) {
+    return request.get<MarketInstrumentOptionsResponse>('/data/market-instruments/options', {
+      params,
+    })
+  },
   lookupInstrument(params: MarketInstrumentLookupParams) {
     return request.get<MarketInstrumentLookupResponse>('/data/market-instruments/lookup', {
       params,

@@ -1,6 +1,6 @@
 # 快速上手：5 分钟完成首次回测
 
-本指南帮助你从零开始，在 5 分钟内启动 AI for Trader 并完成一次策略回测。
+本指南帮助你从零开始，在 5 分钟内启动 AI for Investor 并完成一次策略回测。
 
 > **前置条件**：Python 3.10+、Node.js 20+、Git
 
@@ -10,8 +10,8 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/cloudQuant/ai-for-trader.git
-cd ai-for-trader
+git clone https://github.com/cloudQuant/ai-for-investor.git
+cd ai-for-investor
 
 # 后端安装
 cd src/backend

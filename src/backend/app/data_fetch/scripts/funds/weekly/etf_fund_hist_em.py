@@ -6,6 +6,8 @@ import pandas as pd
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
+DEFAULT_ETF_HIST_CODE_LIMIT = 20
+
 
 class EtfFundHistEm(AkshareToMySql):
     def __init__(self, db_config=DB_CONFIG, logger=None):
@@ -256,7 +258,13 @@ class EtfFundHistEm(AkshareToMySql):
             self.logger.error(f"获取已存在数据日期失败: {e}")
             return set()
 
-    def run(self, fund_codes=None, start_date=None, end_date=None, max_codes=None):
+    def run(
+        self,
+        fund_codes=None,
+        start_date=None,
+        end_date=None,
+        max_codes=DEFAULT_ETF_HIST_CODE_LIMIT,
+    ):
         """
         执行数据获取和保存
 

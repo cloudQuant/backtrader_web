@@ -119,7 +119,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.utils.dates import days_ago
 
-default_args = {{"owner": "ai_for_trader", "retries": 3, "retry_delay": timedelta(minutes=5)}}
+default_args = {{"owner": "ai_for_investor", "retries": 3, "retry_delay": timedelta(minutes=5)}}
 
 dag = DAG(
     dag_id="dag_group_{category}",

@@ -7,7 +7,7 @@ to ``true``, ``1``, or ``yes`` (case-insensitive).
 
 Environment variables (standard OTEL SDK config):
     OTEL_ENABLED          - Set to "true"/"1"/"yes" to activate instrumentation.
-    OTEL_SERVICE_NAME     - Logical service name (default: "ai-for-trader-api").
+    OTEL_SERVICE_NAME     - Logical service name (default: "ai-for-investor-api").
     OTEL_EXPORTER_OTLP_ENDPOINT - OTLP collector endpoint (default: http://localhost:4317).
     OTEL_TRACES_SAMPLER   - Sampler type (default: parentbased_tracealways).
     OTEL_LOG_LEVEL        - SDK internal log level (default: warning).
@@ -78,7 +78,7 @@ def setup_telemetry(app: FastAPI) -> bool:
         logger.debug("OpenTelemetry disabled (OTEL_ENABLED != true/1/yes)")
         return False
 
-    service_name = os.environ.get("OTEL_SERVICE_NAME", "ai-for-trader-api")
+    service_name = os.environ.get("OTEL_SERVICE_NAME", "ai-for-investor-api")
     otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 
     # Create resource with service metadata

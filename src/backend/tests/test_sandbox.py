@@ -193,11 +193,11 @@ class TestCreateSafeGlobals:
         """Test contains safe print function."""
         g = StrategySandbox._create_safe_globals()
         assert "__print__" in g
+        assert g["__builtins__"]["print"] == StrategySandbox._safe_print
 
     def test_safe_globals_no_dangerous_builtins(self):
         """Test does not contain dangerous built-in functions."""
         g = StrategySandbox._create_safe_globals()
-        assert "print" not in g["__builtins__"]
         assert "open" not in g["__builtins__"]
         assert "eval" not in g["__builtins__"]
         assert "exec" not in g["__builtins__"]
@@ -336,6 +336,19 @@ class TestStrategy(bt.Strategy):
         code = "x = not_defined_name\n"
         with pytest.raises(NameError, match="Undefined name"):
             StrategySandbox.execute_strategy_code(code)
+
+    def test_execute_allows_safe_print(self):
+        """Strategy code may use print for logging; sandbox maps it to a no-op."""
+        code = """
+print('strategy loaded')
+
+class TestStrategy(bt.Strategy):
+    def next(self):
+        print('bar', len(self))
+"""
+        result = StrategySandbox.execute_strategy_code(code)
+
+        assert issubclass(result, bt.Strategy)
 
     def test_execute_attribute_error_at_top_level(self):
         """AttributeError should be re-raised with a helpful message."""

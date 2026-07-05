@@ -1,4 +1,4 @@
-# AI for Trader Frontend
+# AI for Investor Frontend
 
 基于 Vue 3 + TypeScript + Vite 的 Backtrader 量化交易回测 Web 前端。
 

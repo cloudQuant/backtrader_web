@@ -122,9 +122,14 @@ html.dark .el-table {
   --el-table-tr-bg-color: var(--bg-color);
   --el-table-header-bg-color: var(--fill-color);
   --el-table-row-hover-bg-color: var(--fill-color);
+  --el-table-striped-bg-color: var(--fill-color-light);
   --el-table-text-color: var(--text-color-primary);
   --el-table-header-text-color: var(--text-color-primary);
   --el-table-border-color: var(--border-color);
+}
+
+html.dark .el-table__body tr.el-table__row--striped td.el-table__cell {
+  background-color: var(--el-table-striped-bg-color) !important;
 }
 
 html.dark .el-dialog {
@@ -134,14 +139,32 @@ html.dark .el-dialog {
 
 html.dark .el-input__wrapper,
 html.dark .el-textarea__inner,
-html.dark .el-select .el-input__wrapper {
+html.dark .el-select .el-input__wrapper,
+html.dark .el-select__wrapper {
   background-color: var(--fill-color) !important;
   box-shadow: 0 0 0 1px var(--border-color) inset !important;
   color: var(--text-color-primary);
 }
 
-html.dark .el-input__inner {
-  color: var(--text-color-primary);
+html.dark .el-input__inner,
+html.dark .el-select__placeholder,
+html.dark .el-select__selected-item,
+html.dark .el-textarea__inner {
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .el-input-number__decrease,
+html.dark .el-input-number__increase {
+  border-color: var(--border-color) !important;
+  background-color: var(--fill-color-light) !important;
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .el-input-number__decrease.is-disabled,
+html.dark .el-input-number__increase.is-disabled,
+html.dark .el-input.is-disabled .el-input__wrapper {
+  background-color: var(--fill-color-lighter) !important;
+  color: var(--text-color-secondary) !important;
 }
 
 html.dark .bg-gray-50 {

@@ -43,7 +43,7 @@ class ConversationResponse(BaseModel):
     """Conversation response."""
 
     id: str
-    knowledge_base_id: str
+    knowledge_base_id: str | None = None
     user_id: str
     title: str
     model_id: str | None = None
@@ -72,8 +72,13 @@ class ChatMessageResponse(BaseModel):
     model_id: str | None = None
     reasoning: str | None = None
     metadata: dict[str, Any] | None = None
+    assistant_mode: KBAssistantMode | None = None
+    strategy_draft: AIStrategyDraft | None = None
     stock_analysis_task: StockAnalysisTaskCard | None = None
     stock_analysis_report: StockAnalysisReportCard | None = None
+    reason_code: str | None = None
+    diagnostic_message: str | None = None
+    diagnostics: RAGDiagnostics | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -85,8 +90,13 @@ class ChatMessageResponse(BaseModel):
             metadata = value.get("metadata") or value.get("metadata_json") or {}
             if isinstance(metadata, dict):
                 value.setdefault("metadata", metadata)
+                value.setdefault("assistant_mode", metadata.get("assistant_mode"))
+                value.setdefault("strategy_draft", metadata.get("strategy_draft"))
                 value.setdefault("stock_analysis_task", metadata.get("stock_analysis_task"))
                 value.setdefault("stock_analysis_report", metadata.get("stock_analysis_report"))
+                value.setdefault("reason_code", metadata.get("reason_code"))
+                value.setdefault("diagnostic_message", metadata.get("diagnostic_message"))
+                value.setdefault("diagnostics", metadata.get("diagnostics"))
             return value
         metadata = getattr(value, "metadata_json", None) or {}
         if not isinstance(metadata, dict):
@@ -101,8 +111,13 @@ class ChatMessageResponse(BaseModel):
             "model_id": getattr(value, "model_id", None),
             "reasoning": getattr(value, "reasoning", None),
             "metadata": metadata,
+            "assistant_mode": metadata.get("assistant_mode"),
+            "strategy_draft": metadata.get("strategy_draft"),
             "stock_analysis_task": metadata.get("stock_analysis_task"),
             "stock_analysis_report": metadata.get("stock_analysis_report"),
+            "reason_code": metadata.get("reason_code"),
+            "diagnostic_message": metadata.get("diagnostic_message"),
+            "diagnostics": metadata.get("diagnostics"),
             "created_at": getattr(value, "created_at", None),
         }
 
@@ -117,7 +132,7 @@ class ChatHistoryResponse(BaseModel):
 class KBChatRequest(BaseModel):
     """Send chat message request."""
 
-    knowledge_base_id: str = Field(..., min_length=1)
+    knowledge_base_id: str | None = Field(None, min_length=1)
     question: str = Field(..., min_length=1, max_length=2000)
     conversation_id: str | None = Field(None, min_length=1)
     model_id: str | None = None
@@ -132,6 +147,12 @@ class KBChatRequest(BaseModel):
         if not normalized:
             raise ValueError("question must not be blank")
         return normalized
+
+    @model_validator(mode="after")
+    def require_knowledge_base_for_qa(self):
+        if self.assistant_mode == "knowledge_qa" and not self.knowledge_base_id:
+            raise ValueError("knowledge_base_id is required for knowledge_qa")
+        return self
 
 
 class KBChatResponse(BaseModel):

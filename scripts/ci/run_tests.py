@@ -10,7 +10,7 @@ def run_tests():
     try:
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "src/backend/tests", "-v", "--tb=short", "-x", "-q"],
-            cwd="/Users/yunjinqi/Documents/new_projects/ai-for-trader",
+            cwd="/Users/yunjinqi/Documents/new_projects/ai-for-investor",
             timeout=120,
             capture_output=True,
             text=True

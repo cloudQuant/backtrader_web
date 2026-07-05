@@ -28,7 +28,7 @@ def get_kb_chat_service() -> KBChatService:
 
 @router.get("/conversations", response_model=ConversationListResponse, summary="List conversations")
 async def list_conversations(
-    knowledge_base_id: str = Query(...),
+    knowledge_base_id: str | None = Query(None),
     current_user: TokenPayload = Depends(get_current_user),
     service: KBChatService = Depends(get_kb_chat_service),
 ):

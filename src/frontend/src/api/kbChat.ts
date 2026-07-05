@@ -61,7 +61,7 @@ export interface KBStrategyDraft {
 
 export interface KBConversation {
   id: string
-  knowledge_base_id: string
+  knowledge_base_id?: string | null
   title: string
   model_id?: string | null
   created_at: string
@@ -135,6 +135,8 @@ export interface KBHistoryMessage {
   citations?: KBCitation[] | null
   tokens_used?: number | null
   model_id?: string | null
+  assistant_mode?: KBAssistantMode | null
+  strategy_draft?: KBStrategyDraft | null
   reasoning?: string | null
   reason_code?: KBReasonCode | null
   diagnostic_message?: string | null
@@ -167,19 +169,20 @@ export interface KBAskResponse {
 }
 
 export const kbChatApi = {
-  listConversations(knowledgeBaseId: string, params?: { skip?: number; limit?: number }) {
+  listConversations(knowledgeBaseId?: string | null, params?: { skip?: number; limit?: number }) {
+    const requestParams: Record<string, unknown> = { ...params }
+    if (knowledgeBaseId) {
+      requestParams.knowledge_base_id = knowledgeBaseId
+    }
     return api.get<KBConversationListResponse>('/kb-chat/conversations', {
-      params: {
-        knowledge_base_id: knowledgeBaseId,
-        ...params,
-      },
+      params: requestParams,
     })
   },
   getHistory(conversationId: string) {
     return api.get<KBHistoryResponse>(`/kb-chat/history/${conversationId}`)
   },
   send(data: {
-    knowledge_base_id: string
+    knowledge_base_id?: string | null
     question: string
     conversation_id?: string | null
     model_id?: string
@@ -188,12 +191,14 @@ export const kbChatApi = {
     stock_analysis_params?: KBStockAnalysisParams
   }) {
     const payload: Record<string, unknown> = {
-      knowledge_base_id: data.knowledge_base_id,
       question: data.question,
       conversation_id: data.conversation_id,
       model_id: data.model_id,
       assistant_mode: data.assistant_mode,
       thinking_mode: data.thinking_mode,
+    }
+    if (data.knowledge_base_id) {
+      payload.knowledge_base_id = data.knowledge_base_id
     }
     if (data.stock_analysis_params) {
       payload.stock_analysis_params = data.stock_analysis_params

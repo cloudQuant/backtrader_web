@@ -13,7 +13,7 @@ test.describe('认证功能', () => {
     await page.goto('/login');
 
     // 验证页面元素
-    await expect(page.locator('h1')).toContainText('AI for Trader');
+    await expect(page.locator('h1')).toContainText('AI for Investor');
     await expect(page.getByTestId('login-username')).toBeVisible();
     await expect(page.getByTestId('login-password')).toBeVisible();
     await expect(page.getByTestId('login-submit')).toBeVisible();

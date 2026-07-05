@@ -1,30 +1,87 @@
 <template>
-  <div class="space-y-6">
-    <el-card>
+  <div
+    class="sync-page"
+    data-test="sync-page"
+  >
+    <section
+      class="sync-hero"
+      data-test="sync-hero"
+    >
+      <div class="sync-hero-copy">
+        <div class="sync-kicker">
+          {{ t('dataPages.syncHeroKicker') }}
+        </div>
+        <h1>{{ t('dataPages.syncPageTitle') }}</h1>
+        <p>{{ t('dataPages.syncPageDesc') }}</p>
+      </div>
+
+      <div class="sync-hero-actions">
+        <el-button
+          :icon="Connection"
+          :loading="testingConnection"
+          @click="handleTestConnection"
+        >
+          {{ t('dataPages.syncTestConnection') }}
+        </el-button>
+        <el-button
+          type="primary"
+          :icon="CircleCheck"
+          :loading="savingConfig"
+          @click="handleSaveConfig"
+        >
+          {{ t('dataPages.syncSaveConfig') }}
+        </el-button>
+      </div>
+
+      <div
+        class="sync-metrics"
+        data-test="sync-metrics"
+      >
+        <article class="sync-metric">
+          <el-icon aria-hidden="true">
+            <Setting />
+          </el-icon>
+          <span>{{ t('dataPages.syncMetricMode') }}</span>
+          <strong>{{ syncModeLabel(syncMode) }}</strong>
+        </article>
+        <article class="sync-metric">
+          <el-icon aria-hidden="true">
+            <DataAnalysis />
+          </el-icon>
+          <span>{{ t('dataPages.syncMetricDatabases') }}</span>
+          <strong>{{ configuredDatabaseCount }}</strong>
+        </article>
+        <article class="sync-metric">
+          <el-icon aria-hidden="true">
+            <Refresh />
+          </el-icon>
+          <span>{{ t('dataPages.syncMetricActiveTasks') }}</span>
+          <strong>{{ activeTasks.length }}</strong>
+        </article>
+        <article class="sync-metric">
+          <el-icon aria-hidden="true">
+            <Warning />
+          </el-icon>
+          <span>{{ t('dataPages.syncMetricConnection') }}</span>
+          <strong>{{ connectionSummary }}</strong>
+        </article>
+      </div>
+    </section>
+
+    <el-card
+      class="sync-config-panel"
+      data-test="sync-config-panel"
+    >
       <template #header>
-        <div class="header-row">
+        <div class="sync-panel-heading">
           <div>
-            <div class="page-title">
-              {{ t('dataPages.syncPageTitle') }}
+            <div class="sync-kicker">
+              {{ t('dataPages.syncConfigKicker') }}
             </div>
-            <div class="page-subtitle">
-              {{ t('dataPages.syncPageDesc') }}
+            <div class="sync-panel-title">
+              {{ t('dataPages.syncConfigTitle') }}
             </div>
-          </div>
-          <div class="toolbar-actions">
-            <el-button
-              :loading="testingConnection"
-              @click="handleTestConnection"
-            >
-              {{ t('dataPages.syncTestConnection') }}
-            </el-button>
-            <el-button
-              type="primary"
-              :loading="savingConfig"
-              @click="handleSaveConfig"
-            >
-              {{ t('dataPages.syncSaveConfig') }}
-            </el-button>
+            <p>{{ t('dataPages.syncConfigDesc') }}</p>
           </div>
         </div>
       </template>
@@ -36,7 +93,7 @@
         @update:config="updateConfigForm"
       />
 
-      <div class="tips-grid">
+      <div class="sync-guidance-grid">
         <div class="tip-card">
           <div class="tip-title">
             {{ t('dataPages.syncTipFillTitle') }}
@@ -66,6 +123,7 @@
       <div
         v-if="connectionStatus"
         class="connection-grid"
+        data-test="sync-connection-grid"
       >
         <div
           v-for="(passed, key) in connectionStatus.checks"
@@ -103,27 +161,46 @@
       @sync="startSync"
     />
 
-    <el-card>
+    <el-card
+      class="sync-history-panel"
+      data-test="sync-history-panel"
+    >
       <template #header>
-        <div class="section-header">
+        <div class="sync-panel-heading">
           <div>
-            <div class="page-title small">
+            <div class="sync-kicker">
+              {{ t('dataPages.syncHistoryKicker') }}
+            </div>
+            <div class="sync-panel-title">
               {{ t('dataPages.syncHistoryTitle') }}
             </div>
-            <div class="page-subtitle">
-              {{ t('dataPages.syncHistoryDesc') }}
-            </div>
+            <p>{{ t('dataPages.syncHistoryDesc') }}</p>
           </div>
-          <el-button @click="loadHistory">
+          <el-button
+            :icon="Refresh"
+            :loading="loadingHistory"
+            @click="loadHistory"
+          >
             {{ t('dataPages.syncRefreshHistory') }}
           </el-button>
         </div>
       </template>
 
+      <div
+        v-if="!loadingHistory && history.length === 0"
+        class="sync-empty"
+      >
+        <strong>{{ t('dataPages.syncHistoryEmptyTitle') }}</strong>
+        <span>{{ t('dataPages.syncHistoryEmptyDesc') }}</span>
+      </div>
+
       <el-table
+        v-else
         v-loading="loadingHistory"
         :data="history"
         stripe
+        class="sync-history-table"
+        data-test="sync-history-table"
       >
         <el-table-column
           :label="t('dataPages.syncHistColTime')"
@@ -172,10 +249,37 @@
           min-width="260"
         >
           <template #default="{ row }">
-            {{ row.error || row.message }}
+            {{ row.error || row.message || t('dataPages.syncNoMessage') }}
           </template>
         </el-table-column>
       </el-table>
+
+      <div
+        v-if="history.length > 0"
+        class="sync-history-mobile-list"
+        data-test="sync-history-mobile-list"
+      >
+        <article
+          v-for="item in history"
+          :key="item.task_id"
+          class="sync-history-card"
+        >
+          <div class="sync-history-card-head">
+            <div>
+              <strong>{{ item.direction === 'upload' ? t('dataPages.syncDirUploadShort') : t('dataPages.syncDirDownloadShort') }}</strong>
+              <span>{{ formatDateTime(item.started_at) }}</span>
+            </div>
+            <span :class="`is-${item.status}`">{{ statusLabel(item.status) }}</span>
+          </div>
+          <div class="sync-history-card-grid">
+            <span>{{ t('dataPages.syncHistColDatabases') }}</span>
+            <strong>{{ item.databases.join(', ') }}</strong>
+            <span>{{ t('dataPages.syncHistColDuration') }}</span>
+            <strong>{{ formatDuration(item.duration_seconds) }}</strong>
+          </div>
+          <p>{{ item.error || item.message || t('dataPages.syncNoMessage') }}</p>
+        </article>
+      </div>
     </el-card>
   </div>
 </template>
@@ -184,6 +288,14 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  CircleCheck,
+  Connection,
+  DataAnalysis,
+  Refresh,
+  Setting,
+  Warning,
+} from '@element-plus/icons-vue'
 import { getErrorMessage } from '@/api/index'
 import { syncApi } from '@/api/sync'
 import DataSyncConfigForm from './components/DataSyncConfigForm.vue'
@@ -211,12 +323,12 @@ const configForm = reactive<SyncConfig>({
   remote_user: 'root',
   remote_ssh_key: '~/.ssh/id_rsa',
   remote_container: 'backtrader_mysql',
-  remote_install_dir: '/opt/ai-for-trader',
+  remote_install_dir: '/opt/ai-for-investor',
   remote_mysql_host: '',
   remote_mysql_port: 3306,
   remote_mysql_user: 'root',
   remote_mysql_password: '',
-  sync_databases: ['ai_for_trader', 'akshare_data'],
+  sync_databases: ['ai_for_investor', 'akshare_data'],
 })
 
 const connectionStatus = ref<SyncConnectionStatus | null>(null)
@@ -224,7 +336,7 @@ const databaseRows = ref<DatabaseSyncInfo[]>([])
 const history = ref<SyncTaskStatus[]>([])
 const activeTaskMap = ref<Record<string, SyncTaskStatus>>({})
 const pollers = new Map<string, number>()
-const syncDatabasesInput = ref('ai_for_trader, akshare_data')
+const syncDatabasesInput = ref('ai_for_investor, akshare_data')
 
 const loadingDatabases = ref(false)
 const loadingHistory = ref(false)
@@ -236,6 +348,13 @@ const syncMode = ref<SyncMode>('full')
 
 const activeTasks = computed(() => Object.values(activeTaskMap.value))
 const databaseNames = computed(() => databaseRows.value.map(item => item.name))
+const configuredDatabaseCount = computed(() => normalizeDatabaseNames(syncDatabasesInput.value).length)
+const connectionSummary = computed(() => {
+  if (!connectionStatus.value) return t('dataPages.syncConnectionNotTested')
+  return connectionStatus.value.success
+    ? t('dataPages.syncConnectionHealthy')
+    : t('dataPages.syncConnectionIssue')
+})
 
 function formatDateTime(value: string | null) {
   if (!value) return '-'
@@ -255,6 +374,12 @@ function statusLabel(status: SyncTaskStatus['status']) {
   if (status === 'running') return t('dataPages.syncStatusRunning')
   if (status === 'completed') return t('dataPages.syncStatusCompleted')
   return t('dataPages.syncStatusFailed')
+}
+
+function syncModeLabel(mode: SyncMode) {
+  if (mode === 'schema_only') return t('dataPages.syncModeSchemaOnly')
+  if (mode === 'data_only') return t('dataPages.syncModeDataOnly')
+  return t('dataPages.syncModeFull')
 }
 
 function labelForCheck(key: string) {

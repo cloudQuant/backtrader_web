@@ -105,67 +105,17 @@ class FundScaleOpenSina(AkshareToMySql):
             return False
 
         try:
-            # 获取已存在的数据ID
-            existing_ids = {
-                row[0]
-                for row in self.query_data(
-                    f"SELECT r_id FROM {self.table_name} WHERE is_active = 1"  # nosec B608
-                )
-                or []
-            }
-
-            # 插入新数据
-            new_data = df[~df["r_id"].isin(existing_ids)]
-            if not new_data.empty:
-                new_data = new_data.copy()
-                new_data["is_active"] = 1
-                new_data["data_source"] = "新浪财经"
-                self.insert_data(
-                    new_data,
-                    self.table_name,
-                    [
-                        "r_id",
-                        "fund_type",
-                        "fund_code",
-                        "fund_name",
-                        "nav",
-                        "total_raised",
-                        "total_shares",
-                        "establish_date",
-                        "manager",
-                        "update_date",
-                        "is_active",
-                        "data_source",
-                    ],
-                )
-                self.logger.info(f"Inserted {len(new_data)} new records")
-
-            # 更新已有数据
-            updated_data = df[df["r_id"].isin(existing_ids)]
-            if not updated_data.empty:
-                for _, row in updated_data.iterrows():
-                    self.execute_sql(
-                        f"""  # nosec B608
-                        UPDATE {self.table_name}
-                        SET fund_name=%s, nav=%s, total_raised=%s,
-                            total_shares=%s, establish_date=%s, manager=%s,
-                            update_date=%s, updatedate=CURRENT_TIMESTAMP
-                        WHERE r_id=%s
-                        """,
-                        (
-                            row["fund_name"],
-                            row["nav"],
-                            row["total_raised"],
-                            row["total_shares"],
-                            row["establish_date"],
-                            row["manager"],
-                            row["update_date"],
-                            row["r_id"],
-                        ),
-                    )
-                self.logger.info(f"Updated {len(updated_data)} records")
-
-            return True
+            save_df = df.copy()
+            save_df["is_active"] = 1
+            save_df["data_source"] = "新浪财经"
+            saved_rows = self.save_data(
+                save_df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["R_ID"],
+            )
+            self.logger.info("Upserted %s open-end fund scale records", saved_rows)
+            return bool(saved_rows)
 
         except Exception as e:
             self.logger.error(f"Error saving data: {e}")

@@ -135,3 +135,22 @@ async def lookup_market_instrument(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/market-instruments/options", summary="List selectable market instruments")
+async def list_market_instrument_options(
+    asset_type: MarketAssetType = Query("stock", description="Instrument type"),
+    search: str = Query("", description="Search by symbol, name, market, or variety"),
+    limit: int = Query(80, ge=1, le=200, description="Maximum number of options"),
+    current_user=Depends(get_current_user),
+    service: MarketInstrumentService = Depends(get_market_instrument_service),
+):
+    """Return selectable instruments for the market data query page."""
+    try:
+        return await service.list_instruments(
+            asset_type=asset_type,
+            search=search,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

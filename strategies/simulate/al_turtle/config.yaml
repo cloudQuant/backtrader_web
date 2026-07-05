@@ -4,7 +4,7 @@
 strategy:
   name: "铝海龟交易策略"
   description: "经典的海龟交易系统 - 铝期货"
-  author: "ai-for-trader"
+  author: "ai-for-investor"
   category: "simulate"
   
 # ============================================================

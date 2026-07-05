@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide covers the supported local development setup for AI for Trader.
+This guide covers the supported local development setup for AI for Investor.
 
 ## Prerequisites
 
@@ -12,8 +12,8 @@ This guide covers the supported local development setup for AI for Trader.
 ## 1. Clone the Repository
 
 ```bash
-git clone https://github.com/cloudQuant/ai-for-trader.git
-cd ai-for-trader
+git clone https://github.com/cloudQuant/ai-for-investor.git
+cd ai-for-investor
 ```
 
 ## 2. Run Preinstall Checks

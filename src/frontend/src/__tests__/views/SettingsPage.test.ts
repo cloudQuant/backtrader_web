@@ -69,13 +69,20 @@ describe('SettingsPage', () => {
     })
   })
 
-  it('renders sections', () => {
+  it('renders redesigned settings workspace', () => {
     const wrapper = mountWithPlugins(SettingsPage)
+    expect(wrapper.find('[data-test="settings-hero"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="settings-metrics"]').findAll('.settings-metric')).toHaveLength(4)
+    expect(wrapper.find('[data-test="settings-profile-card"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="settings-security-card"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="settings-ai-usage-card"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="settings-ai-model-card"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('个人信息')
     expect(wrapper.text()).toContain('修改密码')
     expect(wrapper.text()).toContain('我的 AI 用量')
     expect(wrapper.text()).toContain('关于')
-    expect(wrapper.text()).toContain('AI for Trader')
+    expect(wrapper.text()).toContain('账户与个人 AI 配置')
+    expect(wrapper.text()).toContain('AI for Investor')
   })
 
   it('loads current user AI usage on mount', async () => {

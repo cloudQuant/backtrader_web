@@ -159,6 +159,23 @@ describe('WorkspaceUnitsTab', () => {
     expect(vm.formatOptimizationCount({ opt_total: 10, opt_completed: 4 })).toBe('4/10')
   })
 
+  it('unitResultSummary renders metrics and failure reasons', () => {
+    const vm = doMount().vm as any
+    expect(
+      vm.unitResultSummary({
+        run_status: 'completed',
+        metrics_snapshot: { total_return: 0.1234, sharpe_ratio: 1.234, total_trades: 8 },
+      }),
+    ).toBe('收益 12.34% · Sharpe 1.23 · 交易 8')
+    expect(
+      vm.unitResultSummary({
+        run_status: 'failed',
+        error_message: 'No CSV file found for symbol=sa',
+        metrics_snapshot: {},
+      }),
+    ).toBe('失败：No CSV file found for symbol=sa')
+  })
+
   it('canOpenReport requires completed status and a task id', () => {
     const vm = doMount().vm as any
     expect(vm.canOpenReport({ run_status: 'completed', last_task_id: 't-1' })).toBe(true)

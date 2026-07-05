@@ -13,7 +13,7 @@ class TestMainRoutes:
         resp = await client.get("/")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["service"] == "AI for Trader API"
+        assert data["service"] == "AI for Investor API"
         assert data["version"] == "2.0.0"
         assert "features" in data
 

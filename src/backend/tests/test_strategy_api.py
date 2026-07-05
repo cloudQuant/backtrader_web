@@ -9,7 +9,10 @@ from app.api.strategy.base import (
     get_ai_strategy_research_service,
     get_ai_strategy_research_tasks,
 )
-from app.schemas.ai_strategy_research import AIStrategyResearchTaskResponse
+from app.schemas.ai_strategy_research import (
+    AIStrategyResearchRunRequest,
+    AIStrategyResearchTaskResponse,
+)
 from tests.conftest import app, register_and_login
 
 SAMPLE_CODE = "import backtrader as bt\nclass TestStrategy(bt.Strategy): pass"
@@ -349,6 +352,37 @@ class _FakeAIResearchService:
         self.calls.append(("get_run_record", user_id, run_id))
         return deepcopy(_run_record_payload()) if run_id == "run-1" else None
 
+    async def build_continuation_request_from_run_record(
+        self,
+        user_id,
+        run_id,
+        *,
+        overrides=None,
+        research_workspace_id=None,
+    ):
+        self.calls.append(("build_continuation_request_from_run_record", user_id, run_id))
+        if run_id != "run-1":
+            return None
+        payload = {
+            "prompt": "继续优化趋势策略",
+            "symbol": "IF2409.CFE",
+            "symbol_name": "沪深300股指期货",
+            "target_sharpe": 1.2,
+            "min_total_trades": 4,
+            "max_iterations": 2,
+            "research_workspace_id": research_workspace_id or "research-ws",
+            "seed_strategy_id": "ai-strategy-1",
+            "continue_from_run_id": run_id,
+            "start_paper_trading": True,
+            "continuation_context": {
+                "source": "paper_review",
+                "run_id": run_id,
+                "quality_gate_failures": ["模拟复核回撤超限"],
+            },
+        }
+        payload.update(overrides or {})
+        return AIStrategyResearchRunRequest.model_validate(payload)
+
     async def start_paper_trading_from_run(self, user_id, run_id, data):
         self.calls.append(("start_paper_trading_from_run", user_id, data))
         return deepcopy(_paper_start_payload())
@@ -398,8 +432,10 @@ class _FakeAIResearchTaskManager:
             max_iterations=3,
             message="running",
         )
+        self.submissions = []
 
     async def submit(self, user_id, request, *, service=None):
+        self.submissions.append({"user_id": user_id, "request": request, "service": service})
         self.task = self.task.model_copy(
             update={
                 "request_snapshot": request.model_dump(mode="python"),
@@ -423,6 +459,33 @@ class _FakeAIResearchTaskManager:
                 "completed_at": "2026-06-28T00:01:00Z",
                 "current_stage": "cancelled",
                 "message": "cancelled",
+            }
+        )
+        return self.task
+
+    async def continue_task(self, user_id, task_id, *, overrides=None, service=None):
+        if task_id != self.task.task_id:
+            return None
+        self.submissions.append(
+            {
+                "user_id": user_id,
+                "continue_task_id": task_id,
+                "overrides": overrides or {},
+                "service": service,
+            }
+        )
+        request_snapshot = {
+            **dict(self.task.request_snapshot or {}),
+            **dict(overrides or {}),
+        }
+        self.task = self.task.model_copy(
+            update={
+                "task_id": "task-continued",
+                "status": "pending",
+                "completed_at": None,
+                "current_stage": "queued",
+                "message": "continued",
+                "request_snapshot": request_snapshot,
             }
         )
         return self.task
@@ -819,6 +882,11 @@ class TestStrategyAPI:
                 "/api/v1/strategy/ai-research/tasks/task-1/cancel",
                 headers=auth_headers,
             )
+            continue_response = await client.post(
+                "/api/v1/strategy/ai-research/tasks/task-1/continue",
+                json={"overrides": {"prompt": "继续上一轮任务", "max_iterations": 2}},
+                headers=auth_headers,
+            )
             missing_response = await client.get(
                 "/api/v1/strategy/ai-research/tasks/missing",
                 headers=auth_headers,
@@ -832,6 +900,7 @@ class TestStrategyAPI:
         assert submitted["task_id"] == "task-1"
         assert submitted["request_snapshot"]["prompt"] == "自动生成并改进策略"
         assert submitted["request_snapshot"]["target_sharpe"] == pytest.approx(1.0)
+        assert task_manager.submissions[0]["service"] is service
 
         assert list_response.status_code == 200, list_response.text
         assert list_response.json()["total"] == 1
@@ -839,6 +908,58 @@ class TestStrategyAPI:
         assert get_response.json()["current_stage"] == "backtesting"
         assert cancel_response.status_code == 200, cancel_response.text
         assert cancel_response.json()["status"] == "cancelled"
+        assert continue_response.status_code == 202, continue_response.text
+        continued = continue_response.json()
+        assert continued["task_id"] == "task-continued"
+        assert continued["request_snapshot"]["prompt"] == "继续上一轮任务"
+        assert task_manager.submissions[1]["continue_task_id"] == "task-1"
+        assert task_manager.submissions[1]["overrides"]["max_iterations"] == 2
+        assert task_manager.submissions[1]["service"] is service
+        assert missing_response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_ai_research_run_continue_endpoint_submits_task(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        """Persisted run continuation should derive a request server-side and submit a task."""
+        service = _FakeAIResearchService()
+        task_manager = _FakeAIResearchTaskManager()
+        app.dependency_overrides[get_ai_strategy_research_service] = lambda: service
+        app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
+        try:
+            response = await client.post(
+                "/api/v1/strategy/ai-research/runs/run-1/continue"
+                "?research_workspace_id=research-ws",
+                json={
+                    "overrides": {
+                        "target_sharpe": 1.3,
+                        "max_iterations": 4,
+                        "paper_workspace_name": "续跑模拟交易",
+                    }
+                },
+                headers=auth_headers,
+            )
+            missing_response = await client.post(
+                "/api/v1/strategy/ai-research/runs/missing/continue"
+                "?research_workspace_id=research-ws",
+                json={},
+                headers=auth_headers,
+            )
+        finally:
+            app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+            app.dependency_overrides.pop(get_ai_strategy_research_tasks, None)
+
+        assert response.status_code == 202, response.text
+        payload = response.json()
+        assert payload["request_snapshot"]["continue_from_run_id"] == "run-1"
+        assert payload["request_snapshot"]["seed_strategy_id"] == "ai-strategy-1"
+        assert payload["request_snapshot"]["target_sharpe"] == pytest.approx(1.3)
+        assert payload["request_snapshot"]["max_iterations"] == 4
+        assert payload["request_snapshot"]["paper_workspace_name"] == "续跑模拟交易"
+        assert payload["request_snapshot"]["continuation_context"]["source"] == "paper_review"
+        assert task_manager.submissions[0]["service"] is service
+        assert service.calls[0][0] == "build_continuation_request_from_run_record"
+        assert service.calls[0][2] == "run-1"
         assert missing_response.status_code == 404
 
     @pytest.mark.asyncio
@@ -897,9 +1018,10 @@ class TestStrategyAPI:
                 headers=auth_headers,
             )
             prepare_response = await client.post(
-                "/api/v1/strategy/ai-research/runs/run-1/live-trading/prepare",
+                "/api/v1/strategy/ai-research/runs/run-1/live-trading/prepare"
+                "?research_workspace_id=research-ws",
                 json={
-                    "research_workspace_id": "research-ws",
+                    "research_workspace_id": "stale-research-ws",
                     "live_workspace_name": "AI 实盘交易",
                     "gateway_config": {
                         "api_key": "live-key",
@@ -941,3 +1063,5 @@ class TestStrategyAPI:
             "record_live_handoff_approval",
             "prepare_live_trading_from_run",
         ]
+        prepare_call = service.calls[-1]
+        assert prepare_call[2].research_workspace_id == "research-ws"

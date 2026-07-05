@@ -1,10 +1,10 @@
 """
-AI for Trader - Quantitative backtest visualization framework.
+AI for Investor - Quantitative backtest visualization framework.
 
 This package provides web-based visualization for backtrader backtest results.
 
 Usage:
-    >>> from ai_for_trader import WebServer
+    >>> from ai_for_investor import WebServer
     >>> import backtrader as bt
     >>>
     >>> cerebro = bt.Cerebro()

@@ -1,7 +1,7 @@
 strategy:
   name: "通用网关布林突破策略"
   description: "适用于 CTP / IB / MT5 的统一布林带突破策略模板，默认用于 1 分钟纸面模拟。"
-  author: "ai-for-trader"
+  author: "ai-for-investor"
   category: "simulate"
 
 symbol:

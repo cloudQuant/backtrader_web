@@ -34,8 +34,15 @@ vi.mock('@/api/strategy', () => ({
 }))
 
 describe('RegisterPage', () => {
+  const doMount = () => mountWithPlugins(RegisterPage, {
+    customStubs: {
+      ThemeSwitcher: { template: '<button type="button">theme</button>' },
+      LanguageSwitcher: { template: '<button type="button">language</button>' },
+    },
+  })
+
   it('renders register form', () => {
-    const wrapper = mountWithPlugins(RegisterPage)
+    const wrapper = doMount()
     // i18n mock returns keys
     expect(wrapper.text()).toContain('auth.registerTitle')
     expect(wrapper.text()).toContain('auth.register')
@@ -43,7 +50,7 @@ describe('RegisterPage', () => {
   })
 
   it('has reactive form with 4 fields', () => {
-    const wrapper = mountWithPlugins(RegisterPage)
+    const wrapper = doMount()
     const vm = wrapper.vm as unknown as RegisterPageVm
     expect(vm.form.username).toBe('')
     expect(vm.form.email).toBe('')
@@ -52,7 +59,7 @@ describe('RegisterPage', () => {
   })
 
   it('validateConfirmPassword rejects mismatch', () => {
-    const wrapper = mountWithPlugins(RegisterPage)
+    const wrapper = doMount()
     const vm = wrapper.vm as unknown as RegisterPageVm
     vm.form.password = 'abc123'
     const cb = vi.fn()
@@ -62,7 +69,7 @@ describe('RegisterPage', () => {
   })
 
   it('validateConfirmPassword accepts match', () => {
-    const wrapper = mountWithPlugins(RegisterPage)
+    const wrapper = doMount()
     const vm = wrapper.vm as unknown as RegisterPageVm
     vm.form.password = 'abc123'
     const cb = vi.fn()

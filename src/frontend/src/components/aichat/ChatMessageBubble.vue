@@ -39,14 +39,34 @@
             {{ t('aiChat.stockAnalysisReport') }}
           </span>
         </div>
-        <el-button
-          circle
-          size="small"
-          :title="t('aiChat.copyMessage')"
-          @click="emit('copyMessage', message.content)"
-        >
-          <el-icon><CopyDocument /></el-icon>
-        </el-button>
+        <div class="message-head-actions">
+          <div
+            v-if="hoverWorkflowActions.length"
+            class="workflow-hover-actions"
+          >
+            <el-button
+              v-for="action in hoverWorkflowActions"
+              :key="`hover-${action.key}`"
+              size="small"
+              :disabled="action.disabled"
+              :title="action.title"
+              @click="emit('strategyWorkflowAction', action.key)"
+            >
+              <el-icon>
+                <component :is="action.icon" />
+              </el-icon>
+              {{ action.label }}
+            </el-button>
+          </div>
+          <el-button
+            circle
+            size="small"
+            :title="t('aiChat.copyMessage')"
+            @click="emit('copyMessage', message.content)"
+          >
+            <el-icon><CopyDocument /></el-icon>
+          </el-button>
+        </div>
       </div>
 
       <div class="message-content">
@@ -139,17 +159,46 @@
         :citations="message.citations"
         @jump="documentId => emit('jumpCitation', documentId)"
       />
+
+      <section
+        v-if="nextWorkflowActions.length"
+        class="workflow-next-actions"
+      >
+        <span>{{ t('aiChat.workflowNextStep') }}</span>
+        <el-button
+          v-for="action in nextWorkflowActions"
+          :key="`next-${action.key}`"
+          size="small"
+          :type="action.primary ? 'primary' : 'default'"
+          :disabled="action.disabled"
+          @click="emit('strategyWorkflowAction', action.key)"
+        >
+          <el-icon>
+            <component :is="action.icon" />
+          </el-icon>
+          {{ action.nextLabel || action.label }}
+        </el-button>
+      </section>
     </div>
   </article>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { CopyDocument, Cpu, UserFilled } from '@element-plus/icons-vue'
+import {
+  CopyDocument,
+  Cpu,
+  DataAnalysis,
+  MagicStick,
+  Promotion,
+  Refresh,
+  UserFilled,
+} from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 
 import type { DraftWorkspaceExecutionState } from '@/composables/useStrategyDraftWorkspaceExecution'
 import type { KBChatMessage } from '@/stores/kbChat'
+import type { KBAssistantMode } from '@/api/kbChat'
 import type { KBStockAnalysisReport, KBStockAnalysisTask } from '@/api/kbChat'
 import type { StockAnalysisTask } from '@/api/stockAnalysis'
 import {
@@ -174,15 +223,132 @@ const props = defineProps<{
   generatingReport: boolean
   execution?: DraftWorkspaceExecutionState
   knowledgeBaseId?: string | null
+  strategyWorkflowEnabled?: boolean
 }>()
 
 type DisplayStockTask = KBStockAnalysisTask & { error_message?: string | null }
+export type StrategyWorkflowActionKey = 'rethink' | 'regenerate' | 'backtest' | 'review' | 'optimize'
+
+interface WorkflowAction {
+  key: StrategyWorkflowActionKey
+  label: string
+  nextLabel?: string
+  title: string
+  icon: typeof MagicStick
+  disabled?: boolean
+  primary?: boolean
+}
 
 const localStockTask = ref<DisplayStockTask | null>(props.message.stockAnalysisTask ?? null)
 const localStockReport = ref<KBStockAnalysisReport | null>(props.message.stockAnalysisReport ?? null)
 
 const displayStockTask = computed<DisplayStockTask | null>(() => localStockTask.value)
 const displayStockReport = computed<KBStockAnalysisReport | null>(() => localStockReport.value)
+const strategyModes: KBAssistantMode[] = ['strategy_idea', 'backtrader_strategy', 'strategy_review']
+const isStrategyWorkflowMessage = computed(() => (
+  props.strategyWorkflowEnabled === true
+  && props.message.role === 'assistant'
+  && (
+    Boolean(props.message.strategyDraft)
+    || Boolean(props.execution)
+    || strategyModes.includes(props.message.assistantMode as KBAssistantMode)
+  )
+))
+const hasStrategyDraft = computed(() => Boolean(props.message.strategyDraft))
+const hasBacktestResult = computed(() => (
+  Boolean(props.execution?.report)
+  || Boolean(props.execution?.analysis)
+  || props.execution?.runStatus === 'completed'
+))
+const canOptimize = computed(() => (
+  hasStrategyDraft.value
+  || hasBacktestResult.value
+  || props.message.assistantMode === 'strategy_review'
+))
+const workflowActionMap = computed<Record<StrategyWorkflowActionKey, WorkflowAction>>(() => ({
+  rethink: {
+    key: 'rethink',
+    label: t('aiChat.workflowRethink'),
+    nextLabel: t('aiChat.workflowNextIdea'),
+    title: t('aiChat.workflowRethinkTitle'),
+    icon: MagicStick,
+  },
+  regenerate: {
+    key: 'regenerate',
+    label: t('aiChat.workflowRegenerate'),
+    nextLabel: t('aiChat.workflowNextGenerate'),
+    title: t('aiChat.workflowRegenerateTitle'),
+    icon: Refresh,
+  },
+  backtest: {
+    key: 'backtest',
+    label: t('aiChat.workflowRebacktest'),
+    nextLabel: t('aiChat.workflowNextBacktest'),
+    title: t('aiChat.workflowRebacktestTitle'),
+    icon: Promotion,
+    disabled: !hasStrategyDraft.value,
+  },
+  review: {
+    key: 'review',
+    label: t('aiChat.workflowRereview'),
+    nextLabel: t('aiChat.workflowNextReview'),
+    title: t('aiChat.workflowRereviewTitle'),
+    icon: DataAnalysis,
+  },
+  optimize: {
+    key: 'optimize',
+    label: t('aiChat.workflowOptimize'),
+    nextLabel: t('aiChat.workflowNextOptimize'),
+    title: t('aiChat.workflowOptimizeTitle'),
+    icon: MagicStick,
+    disabled: !canOptimize.value,
+  },
+}))
+const hoverWorkflowActions = computed<WorkflowAction[]>(() => {
+  if (!isStrategyWorkflowMessage.value) return []
+  return [
+    workflowActionMap.value.rethink,
+    workflowActionMap.value.regenerate,
+    workflowActionMap.value.backtest,
+    workflowActionMap.value.review,
+    workflowActionMap.value.optimize,
+  ]
+})
+const nextWorkflowActions = computed<WorkflowAction[]>(() => {
+  if (!isStrategyWorkflowMessage.value) return []
+  const assistantMode = props.message.assistantMode
+  if (assistantMode === 'strategy_review') {
+    return [
+      { ...workflowActionMap.value.optimize, primary: true },
+      workflowActionMap.value.regenerate,
+      workflowActionMap.value.rethink,
+    ]
+  }
+  if (hasBacktestResult.value) {
+    return [
+      { ...workflowActionMap.value.review, primary: true },
+      workflowActionMap.value.optimize,
+      workflowActionMap.value.regenerate,
+    ]
+  }
+  if (assistantMode === 'strategy_idea' && !hasStrategyDraft.value) {
+    return [
+      { ...workflowActionMap.value.regenerate, primary: true },
+      workflowActionMap.value.review,
+    ]
+  }
+  if (hasStrategyDraft.value || assistantMode === 'backtrader_strategy') {
+    return [
+      { ...workflowActionMap.value.backtest, primary: true },
+      workflowActionMap.value.review,
+      workflowActionMap.value.optimize,
+    ]
+  }
+  return [
+    { ...workflowActionMap.value.regenerate, primary: true },
+    workflowActionMap.value.review,
+  ]
+})
 
 watch(
   () => props.message.stockAnalysisTask,
@@ -229,6 +395,7 @@ const emit = defineEmits<{
   jumpCitation: [documentId?: string | null]
   continueStrategyIdea: [prompt: string]
   continueBacktraderStrategy: [prompt: string]
+  strategyWorkflowAction: [action: StrategyWorkflowActionKey]
 }>()
 </script>
 
@@ -247,7 +414,7 @@ const emit = defineEmits<{
 .message-card.user .message-avatar {
   grid-column: 2;
   grid-row: 1;
-  background: var(--bg-color-hover);
+  background: color-mix(in srgb, var(--bg-color) 86%, var(--fill-color-light) 14%);
   color: var(--text-color-regular);
 }
 
@@ -261,7 +428,7 @@ const emit = defineEmits<{
 }
 
 .message-card.user .message-content {
-  background: var(--bg-color-hover);
+  background: color-mix(in srgb, var(--bg-color) 88%, var(--fill-color-light) 12%);
 }
 
 .message-avatar {
@@ -270,8 +437,8 @@ const emit = defineEmits<{
   height: 38px;
   align-items: center;
   justify-content: center;
-  border-radius: var(--el-border-radius-base);
-  background: var(--info-surface);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-color) 76%, var(--primary-color) 24%);
   color: var(--primary-color);
 }
 
@@ -286,6 +453,27 @@ const emit = defineEmits<{
   gap: 12px;
 }
 
+.message-head-actions,
+.workflow-hover-actions,
+.workflow-next-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.workflow-hover-actions {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+
+.message-card.assistant:hover .workflow-hover-actions,
+.message-card.assistant:focus-within .workflow-hover-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .message-author {
   font-size: 13px;
   font-weight: 700;
@@ -295,27 +483,27 @@ const emit = defineEmits<{
 .message-badge {
   margin-left: 8px;
   border-radius: 9999px;
-  background: var(--info-surface);
+  background: color-mix(in srgb, var(--bg-color) 78%, var(--primary-color) 22%);
   padding: 3px 8px;
   color: var(--primary-color);
   font-size: 12px;
 }
 
 .message-badge.success {
-  background: var(--success-surface);
+  background: color-mix(in srgb, var(--bg-color) 78%, var(--success-color) 22%);
   color: var(--success-text-color);
 }
 
 .message-badge.warning {
-  background: var(--warning-surface);
+  background: color-mix(in srgb, var(--bg-color) 78%, var(--warning-color) 22%);
   color: var(--warning-text-color);
 }
 
 .message-content {
   margin-top: 8px;
   border: 1px solid var(--border-color);
-  border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-card);
+  border-radius: 8px;
+  background: var(--bg-color);
   padding: 13px 14px;
   color: var(--text-color-primary);
   font-size: 15px;
@@ -329,8 +517,8 @@ const emit = defineEmits<{
 .reasoning-box {
   margin-top: 12px;
   border: 1px solid var(--border-color);
-  border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-card);
+  border-radius: 8px;
+  background: var(--bg-color);
   padding: 12px;
 }
 
@@ -342,28 +530,28 @@ const emit = defineEmits<{
 }
 
 .reasoning-box {
-  background: var(--warning-surface);
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--warning-color) 16%);
   color: var(--warning-text-color);
 }
 
 .diagnostic-box {
-  border-color: var(--warning-border-color);
-  background: var(--warning-surface);
+  border-color: color-mix(in srgb, var(--warning-color) 44%, var(--border-color) 56%);
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--warning-color) 16%);
   color: var(--warning-text-color);
   font-size: 13px;
   line-height: 1.7;
 }
 
 .diagnostic-box.ai_provider_failed {
-  border-color: var(--danger-border-color);
-  background: var(--danger-surface);
+  border-color: color-mix(in srgb, var(--danger-color) 44%, var(--border-color) 56%);
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--danger-color) 16%);
   color: var(--danger-text-color);
 }
 
 .retrieval-box {
-  border-color: var(--info-border-color);
-  background: var(--info-surface);
-  color: var(--info-text-color);
+  border-color: color-mix(in srgb, var(--primary-color) 38%, var(--border-color) 62%);
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--primary-color) 16%);
+  color: var(--text-color-primary);
 }
 
 .retrieval-meta {
@@ -375,7 +563,7 @@ const emit = defineEmits<{
 
 .retrieval-meta span {
   border-radius: 9999px;
-  background: var(--color-primary-100);
+  background: color-mix(in srgb, var(--bg-color) 76%, var(--primary-color) 24%);
   padding: 3px 8px;
   color: var(--primary-color);
   font-size: 12px;
@@ -384,5 +572,19 @@ const emit = defineEmits<{
 .retrieval-query {
   margin-top: 8px;
   line-height: 1.7;
+}
+
+.workflow-next-actions {
+  margin-top: 12px;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 38%, var(--border-color) 62%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--primary-color) 16%);
+  padding: 10px 12px;
+}
+
+.workflow-next-actions span {
+  color: var(--text-color-primary);
+  font-size: 12px;
+  font-weight: 700;
 }
 </style>

@@ -21,9 +21,17 @@ describe('navigation capabilities', () => {
     expect(dataIds).not.toContain('data.optionsChain')
 
     const configIds = getCapabilitiesForDomain('config' as any, true).map((item) => item.id)
-    expect(configIds).toEqual(['config.data', 'config.ai', 'config.gateways'])
+    expect(configIds).toEqual([
+      'config.data',
+      'config.ai',
+      'config.promptGovernance',
+      'config.aiCost',
+      'config.gateways',
+    ])
+    const aiIds = getCapabilitiesForDomain('ai', true).map((item) => item.id)
+    expect(aiIds).toEqual(['ai.chat', 'ai.knowledgeBase'])
     const investmentIds = getCapabilitiesForDomain('investment' as any, true).map((item) => item.id)
-    expect(investmentIds).toEqual(['investment.stockAnalysis'])
+    expect(investmentIds).toEqual(['investment.strategyResearch', 'investment.stockAnalysis'])
     const tradingIds = getCapabilitiesForDomain('trading', true).map((item) => item.id)
     expect(tradingIds).not.toContain('trading.brokers')
     expect(tradingIds).not.toContain('trading.gateways')
@@ -42,6 +50,13 @@ describe('navigation capabilities', () => {
     ])
     expect(getDomainByPath('/config/data/tasks').id).toBe('config')
     expect(getDomainByPath('/data/tasks').id).toBe('config')
+    expect(getDomainByPath('/config/ai/prompt-governance').id).toBe('config')
+    expect(getDomainByPath('/config/ai/observability').id).toBe('config')
+    expect(getDomainByPath('/ai/prompt-governance').id).toBe('config')
+    expect(getDomainByPath('/ai/prompt-templates').id).toBe('config')
+    expect(getDomainByPath('/ai/observability').id).toBe('config')
+    expect(getDomainByPath('/ai/ai-observability').id).toBe('config')
+    expect(getDomainByPath('/investment/strategies').id).toBe('investment')
     expect(getDomainByPath('/investment/stock-analysis').id).toBe('investment')
     expect(getDomainByPath('/data/tables').id).toBe('data')
     expect(getDomainByPath('/data/tables/1292').id).toBe('data')

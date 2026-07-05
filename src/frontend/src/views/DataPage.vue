@@ -1,15 +1,30 @@
 <template>
   <div class="history-data-page">
-    <el-card class="history-query-card">
+    <el-card
+      class="history-query-card"
+      data-test="data-market-page"
+    >
       <template #header>
         <div class="history-query-header">
           <div>
+            <span class="history-query-kicker">{{ t('dataMgmt.heroKicker') }}</span>
             <h2>{{ t('dataMgmt.headerTitle') }}</h2>
             <p>{{ t('dataMgmt.headerDesc') }}</p>
           </div>
-          <el-tag type="info">
-            {{ t('dataMgmt.providerTag', { provider: result?.provider || '-' }) }}
-          </el-tag>
+          <div class="history-query-status">
+            <el-tag type="info">
+              {{ t('dataMgmt.providerTag', { provider: result?.provider || '-' }) }}
+            </el-tag>
+            <div class="history-query-stats">
+              <article
+                v-for="item in heroStats"
+                :key="item.label"
+              >
+                <span>{{ item.label }}</span>
+                <strong :class="item.tone">{{ item.value }}</strong>
+              </article>
+            </div>
+          </div>
         </div>
       </template>
 
@@ -38,12 +53,42 @@
         class="history-query-toolbar"
         :class="{ 'has-market': form.asset_type === 'futures' }"
       >
-        <el-input
+        <el-select
           v-model="form.symbol"
+          class="instrument-select"
+          data-test="market-instrument-select"
+          filterable
+          remote
           clearable
+          allow-create
+          default-first-option
+          reserve-keyword
+          :loading="instrumentOptionsLoading"
           :placeholder="symbolPlaceholder"
-          @keyup.enter="lookupInstrument"
-        />
+          :remote-method="searchInstrumentOptions"
+          @visible-change="handleInstrumentDropdownVisible"
+        >
+          <el-option
+            v-for="option in instrumentOptions"
+            :key="`${option.asset_type}:${option.symbol}:${option.market || ''}`"
+            :label="instrumentOptionLabel(option)"
+            :value="option.symbol"
+          >
+            <div class="instrument-option">
+              <span>
+                <strong>{{ option.symbol }}</strong>
+                <small>{{ option.name || '-' }}</small>
+              </span>
+              <em>{{ option.market || '-' }}</em>
+              <el-tag
+                size="small"
+                :type="option.has_history ? 'success' : 'warning'"
+              >
+                {{ formatInstrumentHistoryStatus(option) }}
+              </el-tag>
+            </div>
+          </el-option>
+        </el-select>
         <el-select
           v-model="form.period"
           :placeholder="t('dataMgmt.periodPlaceholder')"
@@ -476,6 +521,7 @@ import {
   marketDataApi,
   type MarketAssetType,
   type MarketHistoryRow,
+  type MarketInstrumentOption,
   type MarketInstrumentLookupResponse,
 } from '@/api/marketData'
 import { CANDLE_DOWN_COLOR, CANDLE_ITEM_STYLE, CANDLE_UP_COLOR } from '@/constants/chartColors'
@@ -1013,10 +1059,13 @@ const loading = ref(false)
 const result = ref<MarketInstrumentLookupResponse | null>(null)
 const chartMode = ref<ChartMode>('price')
 const marketChartRef = ref<HTMLDivElement>()
+const instrumentOptions = ref<MarketInstrumentOption[]>([])
+const instrumentOptionsLoading = ref(false)
 const relatedTablesLoading = ref(false)
 const relatedTables = ref<DataTable[]>([])
 const relatedTablesError = ref('')
 let marketChart: echarts.ECharts | null = null
+let instrumentOptionsRequestId = 0
 let relatedTableRequestId = 0
 
 const snapshot = computed<Record<string, unknown>>(() => result.value?.snapshot || {})
@@ -1079,6 +1128,12 @@ const coverageScore = computed(() => {
   const total = dataCoverageRows.value.reduce((sum, item) => sum + item.coverage, 0)
   return Math.round(total / dataCoverageRows.value.length)
 })
+const heroStats = computed<KpiCard[]>(() => [
+  metricCard('dataMgmt.heroStatAsset', assetLabel(form.asset_type)),
+  metricCard('dataMgmt.heroStatSymbol', result.value?.symbol || form.symbol || '-'),
+  metricCard('dataMgmt.heroStatRows', formatNumber(result.value?.history.total)),
+  metricCard('dataMgmt.heroStatCoverage', `${coverageScore.value}%`),
+])
 const assetDataFamilies = computed<DataFamilyView[]>(() => buildAssetDataFamilies())
 const relatedTablesBadge = computed(() => {
   if (relatedTablesError.value) return t('dataMgmt.relatedTablesUnavailable')
@@ -1117,6 +1172,7 @@ const historyTableColumns = computed<HistoryTableColumn[]>(() => [
 
 onMounted(() => {
   applyRouteTab(route.query.tab, false)
+  void loadInstrumentOptions(formSymbolText())
   void lookupInstrument()
   window.addEventListener('resize', resizeMarketChart)
 })
@@ -1130,6 +1186,7 @@ watch(
   () => route.query.tab,
   (tab) => {
     if (applyRouteTab(tab, true)) {
+      void loadInstrumentOptions(formSymbolText())
       void lookupInstrument()
     }
   },
@@ -1174,6 +1231,7 @@ function assetLabel(assetType: MarketAssetType) {
 
 function setAssetType(assetType: MarketAssetType) {
   if (applyAssetType(assetType)) {
+    void loadInstrumentOptions(formSymbolText())
     void lookupInstrument()
   }
 }
@@ -1188,9 +1246,10 @@ function applyAssetType(assetType: MarketAssetType, resetResult = true) {
   if (form.asset_type === assetType) return false
 
   const previousTab = currentAssetTab()
+  const currentSymbol = formSymbolText()
   form.asset_type = assetType
   const nextTab = currentAssetTab()
-  if (!form.symbol.trim() || form.symbol === previousTab.defaultSymbol) {
+  if (!currentSymbol || currentSymbol === previousTab.defaultSymbol) {
     form.symbol = nextTab.defaultSymbol
   }
   if (form.asset_type !== 'futures') {
@@ -1203,7 +1262,8 @@ function applyAssetType(assetType: MarketAssetType, resetResult = true) {
 }
 
 async function lookupInstrument() {
-  if (!form.symbol.trim()) {
+  const symbol = formSymbolText()
+  if (!symbol) {
     ElMessage.error(t('dataMgmt.msgSymbolRequired'))
     return
   }
@@ -1211,11 +1271,11 @@ async function lookupInstrument() {
   try {
     const response = await marketDataApi.lookupInstrument({
       asset_type: form.asset_type,
-      symbol: form.symbol.trim(),
+      symbol,
       period: form.period,
       start_date: dateRange.value?.[0],
       end_date: dateRange.value?.[1],
-      market: form.asset_type === 'futures' ? form.market.trim() || undefined : undefined,
+      market: form.asset_type === 'futures' ? formMarketText() || undefined : undefined,
     })
     result.value = response
     void loadRelatedTables(response)
@@ -1227,6 +1287,77 @@ async function lookupInstrument() {
   } finally {
     loading.value = false
   }
+}
+
+function searchInstrumentOptions(query: string) {
+  void loadInstrumentOptions(query)
+}
+
+function handleInstrumentDropdownVisible(visible: boolean) {
+  if (visible && !instrumentOptions.value.length) {
+    void loadInstrumentOptions(formSymbolText())
+  }
+}
+
+async function loadInstrumentOptions(search = '') {
+  const requestId = ++instrumentOptionsRequestId
+  const normalizedSearch = String(search || '').trim()
+  instrumentOptionsLoading.value = true
+  try {
+    const response = await marketDataApi.listInstrumentOptions({
+      asset_type: form.asset_type,
+      search: normalizedSearch,
+      limit: 80,
+    })
+    if (requestId !== instrumentOptionsRequestId) return
+    instrumentOptions.value = ensureCurrentInstrumentOption(response.items)
+  } catch {
+    if (requestId === instrumentOptionsRequestId) {
+      instrumentOptions.value = ensureCurrentInstrumentOption([])
+    }
+  } finally {
+    if (requestId === instrumentOptionsRequestId) {
+      instrumentOptionsLoading.value = false
+    }
+  }
+}
+
+function ensureCurrentInstrumentOption(options: MarketInstrumentOption[]) {
+  const currentSymbol = formSymbolText()
+  if (!currentSymbol) return options
+  if (options.some((option) => option.symbol === currentSymbol)) return options
+  return [
+    {
+      asset_type: form.asset_type,
+      symbol: currentSymbol,
+      name: currentSymbol,
+      market: form.asset_type === 'futures' ? formMarketText() || 'CF' : undefined,
+      source_table: null,
+      latest_date: null,
+      has_snapshot: false,
+      has_history: false,
+      history_rows: 0,
+    },
+    ...options,
+  ]
+}
+
+function formSymbolText() {
+  return String(form.symbol || '').trim()
+}
+
+function formMarketText() {
+  return String(form.market || '').trim()
+}
+
+function instrumentOptionLabel(option: MarketInstrumentOption) {
+  const name = option.name && option.name !== option.symbol ? ` ${option.name}` : ''
+  const market = option.market ? ` · ${option.market}` : ''
+  return `${option.symbol}${name}${market}`
+}
+
+function formatInstrumentHistoryStatus(option: MarketInstrumentOption) {
+  return option.has_history ? formatNumber(option.history_rows) : '0'
 }
 
 function toDateInput(value: Date) {
@@ -1534,6 +1665,7 @@ function buildReturnChartOption(): echarts.EChartsOption {
   const returns = cumulativeReturns(closes)
   const drawdowns = drawdownSeries(closes)
   const volumes = rows.map((row) => numericValue(row.volume, 0))
+  const palette = chartPalette()
 
   return baseChartOption({
     legend: [t('dataMgmt.chartCumulativeReturn'), t('dataMgmt.chartDrawdown'), t('charts.klineVolume')],
@@ -1557,13 +1689,8 @@ function buildReturnChartOption(): echarts.EChartsOption {
         data: returns,
         smooth: true,
         showSymbol: false,
-        lineStyle: { width: 2, color: '#2563eb' },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(37, 99, 235, 0.22)' },
-            { offset: 1, color: 'rgba(37, 99, 235, 0.02)' },
-          ]),
-        },
+        lineStyle: { width: 2, color: palette.primary },
+        areaStyle: { opacity: 0.16 },
       },
       {
         name: t('dataMgmt.chartDrawdown'),
@@ -1571,7 +1698,7 @@ function buildReturnChartOption(): echarts.EChartsOption {
         data: drawdowns,
         smooth: true,
         showSymbol: false,
-        lineStyle: { width: 1.6, color: '#dc2626' },
+        lineStyle: { width: 1.6, color: palette.danger },
       },
       {
         name: t('charts.klineVolume'),
@@ -1579,7 +1706,7 @@ function buildReturnChartOption(): echarts.EChartsOption {
         xAxisIndex: 1,
         yAxisIndex: 1,
         data: volumes,
-        itemStyle: { color: '#64748b' },
+        itemStyle: { color: palette.secondary },
         barMaxWidth: 12,
       },
     ],
@@ -1592,6 +1719,7 @@ function buildLiquidityChartOption(): echarts.EChartsOption {
   const volume = rows.map((row) => numericValue(row.volume, 0))
   const turnover = rows.map((row) => numericValue(row.turnover, null))
   const openInterest = rows.map((row) => numericValue(row.open_interest, null))
+  const palette = chartPalette()
 
   return baseChartOption({
     legend: [
@@ -1611,7 +1739,7 @@ function buildLiquidityChartOption(): echarts.EChartsOption {
         name: t('charts.klineVolume'),
         type: 'bar',
         data: volume,
-        itemStyle: { color: '#0f766e' },
+        itemStyle: { color: palette.success },
         barMaxWidth: 14,
       },
       {
@@ -1621,7 +1749,7 @@ function buildLiquidityChartOption(): echarts.EChartsOption {
         data: turnover,
         smooth: true,
         showSymbol: false,
-        lineStyle: { color: '#f59e0b', width: 2 },
+        lineStyle: { color: palette.warning, width: 2 },
       },
       {
         name: t('dataMgmt.fieldOpenInterest'),
@@ -1630,7 +1758,7 @@ function buildLiquidityChartOption(): echarts.EChartsOption {
         data: openInterest,
         smooth: true,
         showSymbol: false,
-        lineStyle: { color: '#7c3aed', width: 2 },
+        lineStyle: { color: palette.info, width: 2 },
       },
     ],
   })
@@ -1639,6 +1767,8 @@ function buildLiquidityChartOption(): echarts.EChartsOption {
 function buildStructureChartOption(): echarts.EChartsOption {
   const rows = historyRows.value
   const labels = rows.map((row, index) => String(row.name || row.date || index + 1))
+  const palette = chartPalette()
+
   return baseChartOption({
     legend: [
       t('charts.klineVolume'),
@@ -1657,14 +1787,14 @@ function buildStructureChartOption(): echarts.EChartsOption {
         name: t('charts.klineVolume'),
         type: 'bar',
         data: rows.map((row) => numericValue(row.volume, 0)),
-        itemStyle: { color: '#0891b2' },
+        itemStyle: { color: palette.primary },
         barMaxWidth: 18,
       },
       {
         name: t('dataMgmt.fieldOpenInterest'),
         type: 'bar',
         data: rows.map((row) => numericValue(row.open_interest, 0)),
-        itemStyle: { color: '#6366f1' },
+        itemStyle: { color: palette.info },
         barMaxWidth: 18,
       },
       {
@@ -1673,7 +1803,7 @@ function buildStructureChartOption(): echarts.EChartsOption {
         yAxisIndex: 1,
         data: rows.map((row) => numericValue(row.change, null)),
         smooth: true,
-        lineStyle: { color: '#dc2626', width: 2 },
+        lineStyle: { color: palette.danger, width: 2 },
       },
     ],
   })
@@ -1681,16 +1811,17 @@ function buildStructureChartOption(): echarts.EChartsOption {
 
 function baseChartOption(option: MarketChartOptionDraft): echarts.EChartsOption {
   const { legend, ...restOption } = option
+  const palette = chartPalette()
   return {
     animation: false,
-    color: ['#2563eb', '#dc2626', '#0f766e', '#f59e0b', '#7c3aed'],
+    color: [palette.primary, palette.danger, palette.success, palette.warning, palette.info],
     backgroundColor: 'transparent',
     legend: {
       top: 8,
       left: 56,
       itemWidth: 10,
       itemHeight: 8,
-      textStyle: { color: '#475569', fontSize: 12 },
+      textStyle: { color: palette.mutedText, fontSize: 12 },
       data: legend as string[],
     },
     tooltip: {
@@ -1704,25 +1835,47 @@ function baseChartOption(option: MarketChartOptionDraft): echarts.EChartsOption 
 }
 
 function categoryAxis(data: string[]): echarts.XAXisComponentOption {
+  const palette = chartPalette()
   return {
     type: 'category',
     data,
     boundaryGap: false,
-    axisLine: { lineStyle: { color: '#cbd5e1' }, onZero: false },
+    axisLine: { lineStyle: { color: palette.border }, onZero: false },
     axisTick: { show: false },
-    axisLabel: { color: '#64748b', hideOverlap: true },
+    axisLabel: { color: palette.secondary, hideOverlap: true },
     splitLine: { show: false },
   }
 }
 
 function valueAxis(overrides: Partial<echarts.YAXisComponentOption> = {}): echarts.YAXisComponentOption {
+  const palette = chartPalette()
   return {
     type: 'value',
     scale: true,
-    axisLabel: { color: '#64748b', formatter: compactAxisLabel },
-    splitLine: { lineStyle: { color: '#e2e8f0', type: 'dashed' } },
+    axisLabel: { color: palette.secondary, formatter: compactAxisLabel },
+    splitLine: { lineStyle: { color: palette.grid, type: 'dashed' } },
     ...overrides,
   } as echarts.YAXisComponentOption
+}
+
+function themeColor(name: string, fallback: string) {
+  if (typeof window === 'undefined') return fallback
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return value || fallback
+}
+
+function chartPalette() {
+  return {
+    primary: themeColor('--primary-color', 'royalblue'),
+    danger: themeColor('--danger-color', 'crimson'),
+    success: themeColor('--success-color', 'seagreen'),
+    warning: themeColor('--warning-color', 'goldenrod'),
+    info: themeColor('--info-text-color', 'slateblue'),
+    secondary: themeColor('--text-color-secondary', 'slategray'),
+    mutedText: themeColor('--text-color-regular', 'dimgray'),
+    border: themeColor('--border-color', 'lightgray'),
+    grid: themeColor('--border-color-light', 'gainsboro'),
+  }
 }
 
 function dataZoom(xAxisIndex: number[]): echarts.DataZoomComponentOption[] {
@@ -1990,6 +2143,12 @@ function hasValue(value: unknown) {
 .history-data-page {
   display: grid;
   gap: 18px;
+  --market-card-bg: var(--bg-color);
+  --market-soft-bg: var(--fill-color-lighter);
+  --market-hover-bg: var(--fill-color-light);
+  --market-border: var(--border-color-light);
+  --market-border-strong: var(--border-color);
+  --market-shadow: 0 10px 28px var(--shadow-color);
   color: var(--text-color-primary);
 }
 
@@ -1998,8 +2157,10 @@ function hasValue(value: unknown) {
 .snapshot-card,
 .asset-detail-card,
 .history-table-card {
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+  border: 1px solid var(--market-border);
+  background: var(--market-card-bg);
+  box-shadow: var(--market-shadow);
 }
 
 .history-query-card :deep(.el-card__header),
@@ -2007,9 +2168,9 @@ function hasValue(value: unknown) {
 .snapshot-card :deep(.el-card__header),
 .asset-detail-card :deep(.el-card__header),
 .history-table-card :deep(.el-card__header) {
-  padding: 14px 18px;
-  border-bottom-color: rgba(148, 163, 184, 0.18);
-  background: var(--bg-color-overlay);
+  padding: 16px 18px;
+  border-bottom-color: var(--market-border);
+  background: var(--market-card-bg);
 }
 
 .history-query-card :deep(.el-card__body),
@@ -2022,16 +2183,27 @@ function hasValue(value: unknown) {
 
 .history-query-header,
 .section-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
 }
 
+.history-query-kicker {
+  display: inline-flex;
+  margin-bottom: 7px;
+  color: var(--primary-color);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
 .history-query-header h2 {
   margin: 0;
   color: var(--text-color-primary);
-  font-size: 21px;
+  font-size: 24px;
+  font-weight: 760;
   line-height: 1.25;
   letter-spacing: 0;
 }
@@ -2043,12 +2215,73 @@ function hasValue(value: unknown) {
   line-height: 1.55;
 }
 
+.history-query-status {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+  min-width: min(460px, 42vw);
+}
+
 .history-query-header :deep(.el-tag) {
   height: 26px;
-  border-color: transparent;
-  background: var(--bg-color-page);
-  color: var(--text-color-secondary);
   font-weight: 600;
+}
+
+.history-data-page :deep(.el-tag) {
+  border-color: var(--market-border);
+  background: var(--market-soft-bg);
+  color: var(--text-color-regular);
+}
+
+.history-data-page :deep(.el-tag.el-tag--success) {
+  border-color: color-mix(in srgb, var(--success-color) 36%, var(--market-border));
+  background: color-mix(in srgb, var(--success-color) 12%, var(--market-card-bg));
+  color: var(--success-color);
+}
+
+.history-data-page :deep(.el-tag.el-tag--warning) {
+  border-color: color-mix(in srgb, var(--warning-color) 38%, var(--market-border));
+  background: color-mix(in srgb, var(--warning-color) 12%, var(--market-card-bg));
+  color: var(--warning-color);
+}
+
+.history-data-page :deep(.el-tag.el-tag--info) {
+  border-color: var(--market-border);
+  background: var(--market-soft-bg);
+  color: var(--text-color-secondary);
+}
+
+.history-query-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.history-query-stats article {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--market-border);
+  border-radius: 8px;
+  background: var(--market-soft-bg);
+}
+
+.history-query-stats span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-color-secondary);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.history-query-stats strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text-color-primary);
+  font-size: 13px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .asset-tabbar {
@@ -2065,9 +2298,9 @@ function hasValue(value: unknown) {
   min-width: 0;
   min-height: 44px;
   padding: 9px 11px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid var(--market-border);
   border-radius: 8px;
-  background: var(--bg-color-page);
+  background: var(--market-soft-bg);
   color: var(--text-color-primary);
   cursor: pointer;
   text-align: left;
@@ -2075,8 +2308,9 @@ function hasValue(value: unknown) {
 }
 
 .asset-tab:hover {
-  border-color: rgba(37, 99, 235, 0.28);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.05);
+  border-color: color-mix(in srgb, var(--primary-color) 36%, var(--market-border));
+  background: var(--market-hover-bg);
+  box-shadow: 0 6px 16px var(--shadow-color);
   transform: translateY(-1px);
 }
 
@@ -2087,20 +2321,22 @@ function hasValue(value: unknown) {
 }
 
 .asset-tab span {
+  min-width: 0;
   font-size: 14px;
   font-weight: 600;
   line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .asset-tab.is-active {
-  border-color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
-  box-shadow: inset 0 -2px 0 var(--el-color-primary);
+  border-color: color-mix(in srgb, var(--primary-color) 48%, var(--market-border));
+  background: color-mix(in srgb, var(--primary-color) 12%, var(--market-card-bg));
+  color: var(--primary-color);
+  box-shadow: inset 0 -2px 0 var(--primary-color);
 }
 
 .asset-tab.is-active .el-icon {
-  color: var(--el-color-primary);
+  color: var(--primary-color);
 }
 
 .history-query-toolbar {
@@ -2115,9 +2351,11 @@ function hasValue(value: unknown) {
 }
 
 .history-query-toolbar :deep(.el-input__wrapper),
-.history-query-toolbar :deep(.el-select__wrapper) {
+.history-query-toolbar :deep(.el-select__wrapper),
+.history-query-toolbar :deep(.el-date-editor.el-input__wrapper) {
   min-height: 36px;
-  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.24) inset;
+  background: var(--market-soft-bg);
+  box-shadow: 0 0 0 1px var(--market-border) inset;
 }
 
 .history-query-toolbar :deep(.el-button) {
@@ -2126,16 +2364,69 @@ function hasValue(value: unknown) {
   font-weight: 700;
 }
 
+.instrument-select {
+  width: 100%;
+}
+
+.instrument-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.instrument-option span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.instrument-option strong,
+.instrument-option small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instrument-option strong {
+  color: var(--text-color-primary);
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.instrument-option small,
+.instrument-option em {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.2;
+}
+
+.history-data-page :deep(.el-button:not(.el-button--primary)) {
+  border-color: var(--market-border);
+  background: var(--market-soft-bg);
+  color: var(--text-color-regular);
+}
+
+.history-data-page :deep(.el-button:not(.el-button--primary):hover),
+.history-data-page :deep(.el-button:not(.el-button--primary):focus) {
+  border-color: color-mix(in srgb, var(--primary-color) 36%, var(--market-border));
+  background: color-mix(in srgb, var(--primary-color) 10%, var(--market-card-bg));
+  color: var(--primary-color);
+}
+
 .asset-overview {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
   padding: 18px 20px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  border: 1px solid var(--market-border);
   border-radius: 8px;
-  background: var(--bg-color-overlay);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+  background: var(--market-card-bg);
+  box-shadow: var(--market-shadow);
 }
 
 .asset-overview-main {
@@ -2152,15 +2443,15 @@ function hasValue(value: unknown) {
   flex: 0 0 auto;
   width: 40px;
   height: 40px;
-  border: 1px solid rgba(37, 99, 235, 0.22);
+  border: 1px solid color-mix(in srgb, var(--primary-color) 28%, var(--market-border));
   border-radius: 8px;
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--primary-color) 12%, var(--market-card-bg));
+  color: var(--primary-color);
   font-size: 18px;
 }
 
 .asset-overview-label {
-  color: var(--el-color-primary);
+  color: var(--primary-color);
   font-size: 12px;
   font-weight: 700;
 }
@@ -2185,7 +2476,7 @@ function hasValue(value: unknown) {
   gap: 4px;
   min-width: 140px;
   padding-left: 18px;
-  border-left: 1px solid rgba(148, 163, 184, 0.22);
+  border-left: 1px solid var(--market-border);
 }
 
 .asset-overview-meta span {
@@ -2210,10 +2501,10 @@ function hasValue(value: unknown) {
   gap: 10px;
   min-height: 82px;
   padding: 14px 15px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  border: 1px solid var(--market-border);
   border-radius: 8px;
-  background: var(--bg-color-overlay);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.045);
+  background: var(--market-card-bg);
+  box-shadow: 0 8px 20px var(--shadow-color);
 }
 
 .history-metric-head {
@@ -2238,11 +2529,11 @@ function hasValue(value: unknown) {
 }
 
 .history-metric-head i.is-positive {
-  background: var(--el-color-danger);
+  background: var(--danger-color);
 }
 
 .history-metric-head i.is-negative {
-  background: var(--el-color-success);
+  background: var(--success-color);
 }
 
 .history-metric-card strong {
@@ -2254,11 +2545,11 @@ function hasValue(value: unknown) {
 }
 
 .is-positive {
-  color: var(--el-color-danger) !important;
+  color: var(--danger-color) !important;
 }
 
 .is-negative {
-  color: var(--el-color-success) !important;
+  color: var(--success-color) !important;
 }
 
 .history-alert {
@@ -2267,7 +2558,7 @@ function hasValue(value: unknown) {
 
 .market-workbench-grid {
   display: grid;
-  grid-template-columns: minmax(620px, 1fr) minmax(280px, 0.31fr);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.34fr);
   gap: 16px;
   align-items: stretch;
 }
@@ -2306,9 +2597,9 @@ function hasValue(value: unknown) {
   grid-auto-flow: column;
   gap: 4px;
   padding: 3px;
-  border: 1px solid var(--border-color-light);
+  border: 1px solid var(--market-border);
   border-radius: 8px;
-  background: var(--bg-color-page);
+  background: var(--market-soft-bg);
 }
 
 .chart-mode-tab {
@@ -2325,8 +2616,8 @@ function hasValue(value: unknown) {
 }
 
 .chart-mode-tab.is-active {
-  background: var(--el-color-primary);
-  color: #fff;
+  background: var(--primary-color);
+  color: var(--el-color-white);
 }
 
 .market-main-chart {
@@ -2342,16 +2633,16 @@ function hasValue(value: unknown) {
 .market-panel,
 .data-catalog-section,
 .related-table-panel {
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  border: 1px solid var(--market-border);
   border-radius: 8px;
-  background: var(--bg-color-overlay);
+  background: var(--market-card-bg);
 }
 
 .market-panel {
   display: grid;
   gap: 12px;
   padding: 15px;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.045);
+  box-shadow: 0 8px 20px var(--shadow-color);
 }
 
 .market-panel-header,
@@ -2371,7 +2662,7 @@ function hasValue(value: unknown) {
 }
 
 .market-panel-header strong {
-  color: var(--el-color-primary);
+  color: var(--primary-color);
   font-size: 18px;
   line-height: 1.2;
 }
@@ -2429,14 +2720,14 @@ function hasValue(value: unknown) {
   height: 5px;
   min-width: 4px;
   border-radius: 999px;
-  background: var(--el-color-primary);
+  background: var(--primary-color);
 }
 
 .data-catalog-section {
   display: grid;
   gap: 14px;
   padding: 16px 18px;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--market-shadow);
 }
 
 .data-catalog-header p {
@@ -2467,15 +2758,15 @@ function hasValue(value: unknown) {
   min-width: 0;
   min-height: 132px;
   padding: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  border: 1px solid var(--market-border);
   border-radius: 8px;
-  background: var(--bg-color-page);
+  background: var(--market-soft-bg);
   transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
 
 .data-family-card:hover {
-  border-color: rgba(37, 99, 235, 0.24);
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.045);
+  border-color: color-mix(in srgb, var(--primary-color) 32%, var(--market-border));
+  box-shadow: 0 8px 18px var(--shadow-color);
   transform: translateY(-1px);
 }
 
@@ -2495,16 +2786,16 @@ function hasValue(value: unknown) {
 .field-chip {
   max-width: 100%;
   padding: 3px 7px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid var(--market-border);
   border-radius: 999px;
-  background: var(--bg-color-overlay);
+  background: var(--market-card-bg);
   overflow-wrap: anywhere;
 }
 
 .field-chip.is-present {
-  border-color: rgba(15, 118, 110, 0.26);
-  background: rgba(15, 118, 110, 0.08);
-  color: #0f766e;
+  border-color: var(--success-border-color);
+  background: var(--success-surface);
+  color: var(--success-text-color);
 }
 
 .related-table-panel {
@@ -2513,7 +2804,7 @@ function hasValue(value: unknown) {
   gap: 12px;
   min-width: 0;
   padding: 12px;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.045);
+  box-shadow: 0 8px 18px var(--shadow-color);
 }
 
 .related-table-row {
@@ -2524,17 +2815,17 @@ function hasValue(value: unknown) {
   width: 100%;
   min-height: 48px;
   padding: 8px 10px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  border: 1px solid var(--market-border);
   border-radius: 8px;
-  background: var(--bg-color-page);
+  background: var(--market-soft-bg);
   cursor: pointer;
   text-align: left;
   transition: border-color 0.16s ease, background-color 0.16s ease;
 }
 
 .related-table-row:hover {
-  border-color: rgba(37, 99, 235, 0.24);
-  background: var(--el-color-primary-light-9);
+  border-color: color-mix(in srgb, var(--primary-color) 32%, var(--market-border));
+  background: color-mix(in srgb, var(--primary-color) 10%, var(--market-card-bg));
 }
 
 .related-table-row span {
@@ -2558,7 +2849,7 @@ function hasValue(value: unknown) {
 
 .related-table-row em {
   flex: 0 0 auto;
-  color: var(--el-color-primary);
+  color: var(--primary-color);
   font-size: 12px;
   font-style: normal;
   font-weight: 700;
@@ -2588,9 +2879,9 @@ function hasValue(value: unknown) {
   gap: 14px;
   min-height: 42px;
   padding: 10px 12px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  border: 1px solid var(--market-border);
   border-radius: 8px;
-  background: var(--bg-color-page);
+  background: var(--market-soft-bg);
 }
 
 .asset-detail-row span {
@@ -2615,19 +2906,29 @@ function hasValue(value: unknown) {
 
 .snapshot-card :deep(.el-descriptions__label) {
   width: 108px;
-  background: var(--bg-color-page);
+  background: var(--market-soft-bg);
   color: var(--text-color-secondary);
   font-weight: 700;
 }
 
 .snapshot-card :deep(.el-descriptions__content) {
+  background: var(--market-card-bg);
   color: var(--text-color-primary);
   font-weight: 600;
 }
 
+.snapshot-card :deep(.el-descriptions__cell) {
+  border-color: var(--market-border);
+}
+
 .history-table-card :deep(.el-table) {
-  --el-table-header-bg-color: var(--bg-color-page);
-  --el-table-row-hover-bg-color: var(--el-color-primary-light-9);
+  --el-table-bg-color: var(--market-card-bg);
+  --el-table-tr-bg-color: var(--market-card-bg);
+  --el-table-header-bg-color: var(--market-soft-bg);
+  --el-table-row-hover-bg-color: var(--market-hover-bg);
+  --el-table-border-color: var(--market-border);
+  --el-table-text-color: var(--text-color-primary);
+  --el-table-header-text-color: var(--text-color-secondary);
 }
 
 .history-table-card :deep(.el-table th.el-table__cell) {
@@ -2641,6 +2942,17 @@ function hasValue(value: unknown) {
 }
 
 @media (max-width: 1180px) {
+  .history-query-header,
+  .section-header {
+    grid-template-columns: 1fr;
+  }
+
+  .history-query-status {
+    justify-items: stretch;
+    min-width: 0;
+    width: 100%;
+  }
+
   .asset-tabbar {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -2669,9 +2981,26 @@ function hasValue(value: unknown) {
 }
 
 @media (max-width: 760px) {
-  .history-query-header,
-  .section-header {
-    flex-direction: column;
+  .history-query-card :deep(.el-card__header),
+  .history-query-card :deep(.el-card__body),
+  .market-chart-card :deep(.el-card__header),
+  .market-chart-card :deep(.el-card__body),
+  .snapshot-card :deep(.el-card__header),
+  .snapshot-card :deep(.el-card__body),
+  .asset-detail-card :deep(.el-card__header),
+  .asset-detail-card :deep(.el-card__body),
+  .history-table-card :deep(.el-card__header),
+  .history-table-card :deep(.el-card__body),
+  .data-catalog-section {
+    padding: 14px;
+  }
+
+  .history-query-header h2 {
+    font-size: 22px;
+  }
+
+  .history-query-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .asset-tabbar,
@@ -2686,6 +3015,10 @@ function hasValue(value: unknown) {
   .data-catalog-header,
   .related-table-header {
     flex-direction: column;
+  }
+
+  .market-chart-header {
+    grid-template-columns: 1fr;
   }
 
   .chart-mode-tabs {
@@ -2703,10 +3036,32 @@ function hasValue(value: unknown) {
 
   .asset-overview {
     flex-direction: column;
+    padding: 14px;
   }
 
   .asset-overview-meta {
     justify-items: start;
+    width: 100%;
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid var(--market-border);
+    padding-top: 12px;
+  }
+
+  .asset-overview-main {
+    flex-direction: column;
+  }
+
+  .asset-detail-row,
+  .market-stat-row,
+  .coverage-row div {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .asset-detail-row strong,
+  .market-stat-row strong {
+    text-align: left;
   }
 }
 </style>

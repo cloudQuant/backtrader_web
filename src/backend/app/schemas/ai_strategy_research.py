@@ -2,12 +2,143 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.strategy import StrategyCopilotRunResult, StrategyResponse
 from app.schemas.workspace import StrategyUnitResponse, UnitStatusResponse, WorkspaceResponse
+
+AIStrategyResearchWorkflowMode = Literal["auto", "prompt"]
+AIStrategyResearchWorkflowStep = Literal[
+    "ideation",
+    "generation",
+    "backtest",
+    "review",
+    "optimization",
+    "validation",
+    "paper_trading",
+]
+
+AI_STRATEGY_RESEARCH_DEFAULT_WORKFLOW_STEPS: tuple[AIStrategyResearchWorkflowStep, ...] = (
+    "ideation",
+    "generation",
+    "backtest",
+    "review",
+    "optimization",
+)
+
+AI_STRATEGY_RESEARCH_WORKFLOW_STEP_LABELS: dict[AIStrategyResearchWorkflowStep, str] = {
+    "ideation": "策略构思",
+    "generation": "策略生成",
+    "backtest": "策略回测",
+    "review": "策略审查",
+    "optimization": "策略优化",
+    "validation": "样本外验证",
+    "paper_trading": "模拟交易",
+}
+
+AI_STRATEGY_RESEARCH_WORKFLOW_STEP_DESCRIPTIONS: dict[AIStrategyResearchWorkflowStep, str] = {
+    "ideation": "比较候选信号家族，明确入场、出场、仓位和风控假设。",
+    "generation": "生成完整可运行的 Backtrader Strategy 脚本，不能留 pass、TODO 或伪代码。",
+    "backtest": "自动提交回测并记录 Sharpe、收益、回撤、交易次数和质量门槛差距。",
+    "review": "审查回测结果、失败原因、过拟合风险和实盘可执行性。",
+    "optimization": "根据审查意见继续优化代码、参数和风控，必要时进入下一轮回测。",
+    "validation": "对达标策略执行样本外验证，确认稳健性后再晋级。",
+    "paper_trading": "达标后进入模拟交易，复核滑点、费用、估值置信度和滚动表现。",
+}
+
+
+class AIStrategyResearchConfigProfile(BaseModel):
+    """A reusable local YAML profile for the AI research form."""
+
+    id: str = Field(
+        ...,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+        description="Stable profile identifier used in URLs and YAML.",
+    )
+    name: str = Field(..., min_length=1, max_length=120, description="Profile display name")
+    description: str = Field("", max_length=500, description="Optional profile notes")
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="AI research form snapshot; frontend converts it to a run request.",
+    )
+    created_at: str | None = Field(None, description="ISO timestamp when the profile was created")
+    updated_at: str | None = Field(None, description="ISO timestamp when the profile was updated")
+
+
+class AIStrategyResearchConfigProfileCreate(BaseModel):
+    """Create a reusable AI research configuration profile."""
+
+    id: str | None = Field(
+        None,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+        description="Optional stable profile id; generated when omitted.",
+    )
+    name: str = Field(..., min_length=1, max_length=120, description="Profile display name")
+    description: str = Field("", max_length=500, description="Optional profile notes")
+    config: dict[str, Any] = Field(default_factory=dict, description="AI research form snapshot")
+
+
+class AIStrategyResearchConfigProfileUpdate(BaseModel):
+    """Update a reusable AI research configuration profile."""
+
+    name: str | None = Field(None, min_length=1, max_length=120)
+    description: str | None = Field(None, max_length=500)
+    config: dict[str, Any] | None = Field(None, description="AI research form snapshot")
+
+
+class AIStrategyResearchConfigProfileListResponse(BaseModel):
+    """List response for local AI research configuration profiles."""
+
+    file_path: str
+    total: int
+    items: list[AIStrategyResearchConfigProfile]
+
+
+class AIStrategyResearchConfigProfileImportRequest(BaseModel):
+    """Import one or more AI research configuration profiles from YAML text."""
+
+    raw_yaml: str = Field(..., min_length=1, description="YAML content selected in the frontend")
+    name: str | None = Field(None, max_length=120, description="Fallback profile name")
+    profile_id: str | None = Field(
+        None,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+        description="Optional profile id used when the YAML does not contain one.",
+    )
+
+
+class AIStrategyResearchConfigProfileImportResponse(BaseModel):
+    """Import response for YAML profile content."""
+
+    file_path: str
+    total: int
+    items: list[AIStrategyResearchConfigProfile]
+
+
+def _default_ai_research_workflow_steps() -> list[AIStrategyResearchWorkflowStep]:
+    return list(AI_STRATEGY_RESEARCH_DEFAULT_WORKFLOW_STEPS)
+
+
+def _research_workflow_step_lines(request: AIStrategyResearchRunRequest) -> list[str]:
+    lines: list[str] = []
+    mode_label = (
+        "自动规划并执行完整投研流水线"
+        if request.workflow_mode == "auto"
+        else "按用户提示执行指定投研流水线"
+    )
+    lines.append(f"模式：{mode_label}。")
+    for index, step in enumerate(request.workflow_steps, start=1):
+        label = AI_STRATEGY_RESEARCH_WORKFLOW_STEP_LABELS[step]
+        description = AI_STRATEGY_RESEARCH_WORKFLOW_STEP_DESCRIPTIONS[step]
+        lines.append(f"{index}. {label}：{description}")
+    return lines
 
 
 def _format_research_number(value: float | int | None, digits: int = 2) -> str:
@@ -21,43 +152,107 @@ def _format_research_number(value: float | int | None, digits: int = 2) -> str:
     return f"{number:.{digits}f}"
 
 
-def _research_symbol_label(request: "AIStrategyResearchRunRequest") -> str:
+def _research_symbol_label(request: AIStrategyResearchRunRequest) -> str:
     symbol = request.symbol.strip() or "待研究标的"
     symbol_name = request.symbol_name.strip()
     return f"{symbol_name}（{symbol}）" if symbol_name else symbol
 
 
+_RESEARCH_FUTURES_SUFFIXES = (".CFE", ".CFFEX", ".SHFE", ".INE", ".DCE", ".CZCE", ".GFEX")
+_RESEARCH_FUTURES_PREFIXES = (
+    "IF",
+    "IC",
+    "IH",
+    "IM",
+    "T",
+    "TF",
+    "TL",
+    "TS",
+    "AU",
+    "AG",
+    "CU",
+    "AL",
+    "ZN",
+    "PB",
+    "NI",
+    "SN",
+    "AO",
+    "RB",
+    "HC",
+    "SS",
+    "BU",
+    "RU",
+    "BR",
+    "FU",
+    "SP",
+    "WR",
+    "SC",
+    "LU",
+    "NR",
+    "BC",
+    "EC",
+    "A",
+    "B",
+    "C",
+    "CS",
+    "EB",
+    "EG",
+    "I",
+    "J",
+    "JD",
+    "JM",
+    "L",
+    "LH",
+    "M",
+    "P",
+    "PG",
+    "PP",
+    "RR",
+    "V",
+    "Y",
+    "SA",
+    "FG",
+    "MA",
+    "TA",
+    "SR",
+    "CF",
+    "OI",
+    "RM",
+    "AP",
+    "CJ",
+    "CY",
+    "PF",
+    "PK",
+    "SF",
+    "SM",
+    "UR",
+    "WH",
+    "ZC",
+    "SI",
+    "LC",
+)
+
+
+def _is_research_futures_symbol(symbol: str) -> bool:
+    normalized = symbol.strip().upper()
+    if not normalized:
+        return False
+    if normalized.endswith(_RESEARCH_FUTURES_SUFFIXES):
+        return True
+    for prefix in sorted(_RESEARCH_FUTURES_PREFIXES, key=len, reverse=True):
+        if not normalized.startswith(prefix):
+            continue
+        suffix = normalized[len(prefix) :]
+        if any(ch.isdigit() for ch in suffix):
+            return True
+        if not suffix and len(prefix) >= 2:
+            return True
+    return False
+
+
 def _research_asset_constraint_line(symbol: str) -> str:
     normalized = symbol.strip().upper()
-    futures_suffixes = (".CFE", ".CFFEX", ".SHFE", ".INE", ".DCE", ".CZCE", ".GFEX")
-    futures_prefixes = (
-        "IF",
-        "IC",
-        "IH",
-        "IM",
-        "TF",
-        "TS",
-        "AU",
-        "AG",
-        "CU",
-        "AL",
-        "ZN",
-        "RB",
-        "HC",
-        "SC",
-        "FU",
-        "RU",
-        "MA",
-        "TA",
-        "SR",
-        "CF",
-        "OI",
-        "RM",
-    )
-    if normalized.endswith(futures_suffixes) or any(
-        normalized.startswith(prefix) and any(ch.isdigit() for ch in normalized[len(prefix) :])
-        for prefix in futures_prefixes
-    ):
+    if _is_research_futures_symbol(symbol):
         return (
             "按期货/合约资产处理，必须使用交易所或本地资产规格中的合约乘数、"
             "保证金、杠杆、最小变动价位和真实手续费估算仓位与风险。"
@@ -69,7 +264,7 @@ def _research_asset_constraint_line(symbol: str) -> str:
     return "必须从交易所或本地资产规格读取手续费、合约乘数、保证金、价格精度和最小下单量，并在仓位 sizing 中使用这些约束。"
 
 
-def _build_default_ai_research_prompt(request: "AIStrategyResearchRunRequest") -> str:
+def _build_default_ai_research_prompt(request: AIStrategyResearchRunRequest) -> str:
     quality_lines = [
         f"目标 Sharpe 不低于 {_format_research_number(request.target_sharpe)}。",
         f"至少产生 {_format_research_number(request.min_total_trades, 0)} 笔有效交易，避免只靠少数交易达标。",
@@ -90,7 +285,11 @@ def _build_default_ai_research_prompt(request: "AIStrategyResearchRunRequest") -
         quality_lines.append(f"胜率不低于 {_format_research_number(request.min_win_rate, 0)}%。")
 
     validation_lines = [
-        f"回测区间：{request.start_date or '可用历史数据起点'} 至 {request.end_date or '最新可得数据'}。"
+        f"回测区间：{request.start_date or '可用历史数据起点'} 至 {request.end_date or '最新可得数据'}。",
+        (
+            f"运行口径：年化天数 {_format_research_number(request.annual_days, 0)}，"
+            f"收益计算 {request.calc_method}，组合权重 {request.weight_mode}。"
+        ),
     ]
     if request.out_of_sample_validation:
         requirements = [
@@ -127,6 +326,9 @@ def _build_default_ai_research_prompt(request: "AIStrategyResearchRunRequest") -
                 "级别的可执行 Backtrader 策略，并自动迭代回测直到达到质量门槛。"
             ),
             "",
+            "专业流水线：",
+            *_research_workflow_step_lines(request),
+            "",
             "研究方向：",
             f"1. 先比较 {signal_families} 等候选逻辑，再选择最适合该标的的可执行方案。",
             "2. 策略必须包含明确的入场、出场、止损/止盈、仓位 sizing 和异常行情保护。",
@@ -155,6 +357,18 @@ class AIStrategyResearchRunRequest(BaseModel):
             "Natural language strategy objective. When omitted, the platform generates "
             "a structured objective from symbol, timeframe, quality gates, and promotion settings."
         ),
+    )
+    workflow_mode: AIStrategyResearchWorkflowMode = Field(
+        "auto",
+        description=(
+            "How the research workflow is planned: auto generates a professional objective "
+            "from controls; prompt requires a user-provided objective."
+        ),
+    )
+    workflow_steps: list[AIStrategyResearchWorkflowStep] = Field(
+        default_factory=_default_ai_research_workflow_steps,
+        min_length=1,
+        description="Ordered professional research workflow steps to execute and report.",
     )
     symbol: str = Field(..., min_length=1, max_length=50, description="Backtest/trading symbol")
     symbol_name: str = Field("", max_length=200, description="Symbol display name")
@@ -258,11 +472,17 @@ class AIStrategyResearchRunRequest(BaseModel):
     )
 
     @model_validator(mode="after")
-    def fill_generated_prompt(self) -> "AIStrategyResearchRunRequest":
-        if self.prompt.strip():
-            self.prompt = self.prompt.strip()
+    def fill_generated_prompt(self) -> AIStrategyResearchRunRequest:
+        prompt = self.prompt.strip()
+        if self.workflow_mode == "prompt" and not prompt:
+            raise ValueError("workflow_mode='prompt' requires a non-empty prompt")
+        if prompt:
+            object.__setattr__(self, "prompt", prompt)
             return self
-        self.prompt = _build_default_ai_research_prompt(self)
+        object.__setattr__(self, "prompt", _build_default_ai_research_prompt(self))
+        fields_set = getattr(self, "__pydantic_fields_set__", None)
+        if isinstance(fields_set, set):
+            fields_set.discard("prompt")
         return self
 
 
@@ -336,6 +556,10 @@ class AIStrategyPaperTradingRuleEvaluation(BaseModel):
     source: str | None = None
     status: str
     passed: bool = False
+    margin: float | None = None
+    gap: float | None = None
+    gap_ratio: float | None = None
+    distance_to_pass: float | None = None
     action: str
 
 
@@ -370,7 +594,9 @@ class AIStrategyLiveHandoffApprovalRequest(BaseModel):
     comment: str | None = Field(None, max_length=2000, description="Decision note")
     account_confirmed: bool = Field(False, description="Live account and permissions checked")
     risk_limit_confirmed: bool = Field(False, description="Live risk limits checked")
-    deployment_window: str | None = Field(None, max_length=200, description="Planned go-live window")
+    deployment_window: str | None = Field(
+        None, max_length=200, description="Planned go-live window"
+    )
 
 
 class AIStrategyLiveHandoffApprovalRecord(BaseModel):
@@ -454,6 +680,10 @@ class AIStrategyResearchRunRecord(BaseModel):
 
     run_id: str
     prompt: str
+    workflow_mode: AIStrategyResearchWorkflowMode = "auto"
+    workflow_steps: list[AIStrategyResearchWorkflowStep] = Field(
+        default_factory=_default_ai_research_workflow_steps
+    )
     symbol: str
     symbol_name: str = ""
     timeframe: str = "1d"
@@ -576,6 +806,7 @@ class AIStrategyResearchTaskResponse(BaseModel):
     run_id: str | None = None
     research_workspace_id: str | None = None
     request_snapshot: dict[str, Any] = Field(default_factory=dict)
+    request_explicit_fields: list[str] = Field(default_factory=list)
     continued_from_run_id: str | None = None
     continuation_source: str | None = None
     continuation_context: dict[str, Any] = Field(default_factory=dict)
@@ -585,6 +816,7 @@ class AIStrategyResearchTaskResponse(BaseModel):
     iteration_count: int = 0
     max_iterations: int | None = None
     latest_iteration: dict[str, Any] | None = None
+    best_iteration_payload: dict[str, Any] | None = None
     run_status: str | None = None
     achieved: bool | None = None
     target_sharpe: float | None = None
@@ -634,3 +866,27 @@ class AIStrategyResearchTaskListResponse(BaseModel):
 
     total: int
     items: list[AIStrategyResearchTaskResponse] = Field(default_factory=list)
+
+
+class AIStrategyResearchTaskContinueRequest(BaseModel):
+    """Overrides used when continuing a recovered AI research task snapshot."""
+
+    overrides: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Optional AIStrategyResearchRunRequest fields to override when rebuilding "
+            "a continuation request from the saved task snapshot"
+        ),
+    )
+
+
+class AIStrategyResearchRunContinueRequest(BaseModel):
+    """Overrides used when continuing from a persisted AI research run record."""
+
+    overrides: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Optional AIStrategyResearchRunRequest fields to override when rebuilding "
+            "a continuation request from the saved run record"
+        ),
+    )

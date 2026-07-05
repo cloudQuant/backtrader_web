@@ -4,7 +4,7 @@
 strategy:
   name: "豆一TD序列策略"
   description: "基于TD序列的反转策略 - 豆一期货"
-  author: "ai-for-trader"
+  author: "ai-for-investor"
   category: "simulate"
 
 # ============================================================

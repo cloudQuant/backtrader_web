@@ -4,19 +4,24 @@ Backtrader analyzer extensions.
 Collects detailed backtest data for analytics and reporting.
 """
 
+import datetime
 import logging
 from typing import TYPE_CHECKING, Any
 
-import backtrader as bt
-
 logger = logging.getLogger(__name__)
+
+try:
+    import backtrader as bt
+except Exception as exc:  # pragma: no cover - depends on optional native runtime
+    bt = None
+    logger.warning("backtrader is unavailable; analyzer base classes use fallback mode: %s", exc)
 
 if TYPE_CHECKING:
     # backtrader has no type stubs (ignore_missing_imports). Aliasing to ``Any``
     # lets mypy accept ``AnalyzerBase`` as a base class (inheriting from Any is allowed).
     AnalyzerBase: Any = object
 else:
-    AnalyzerBase = getattr(bt, "Analyzer", object)
+    AnalyzerBase = getattr(bt, "Analyzer", object) if bt is not None else object
     if AnalyzerBase is object:
         logger.warning(
             "backtrader.Analyzer is unavailable; custom analyzers are running in fallback mode"
@@ -429,8 +434,11 @@ class FincoreAdapter:
             return 0.0
 
         # Manual calculation (fincore doesn't have win_rate function)
-        winning_trades = sum(1 for t in trades if t.get("pnlcomm", 0) > 0)
-        total_trades = len(trades)
+        closed_trades = [
+            t for t in trades if t.get("pnlcomm") is not None or t.get("pnl") is not None
+        ]
+        winning_trades = sum(1 for t in closed_trades if t.get("pnlcomm", t.get("pnl", 0)) > 0)
+        total_trades = len(closed_trades)
 
         if total_trades == 0:
             return 0.0
@@ -477,12 +485,68 @@ class FincoreAdapter:
         if not trades:
             return 0.0
 
-        holding_periods = [t.get("barlen", 0) for t in trades if t.get("barlen") is not None]
+        holding_periods = [
+            float(t.get("barlen", 0))
+            for t in trades
+            if t.get("barlen") is not None and float(t.get("barlen", 0) or 0) > 0
+        ]
+        if not holding_periods:
+            holding_periods = [
+                holding_days
+                for trade in trades
+                if (holding_days := self._trade_holding_days(trade)) is not None
+            ]
 
         if not holding_periods:
             return 0.0
 
         return float(sum(holding_periods) / len(holding_periods))
+
+    @staticmethod
+    def _parse_trade_datetime(value: Any) -> datetime.datetime | None:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        try:
+            return datetime.datetime.fromisoformat(text)
+        except ValueError:
+            pass
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.datetime.strptime(text[: len(fmt)], fmt)
+            except ValueError:
+                continue
+        return None
+
+    @classmethod
+    def _trade_holding_days(cls, trade: dict[str, Any]) -> float | None:
+        opened = cls._parse_trade_datetime(
+            trade.get("dtopen")
+            or trade.get("open_datetime")
+            or trade.get("opened_at")
+            or trade.get("entry_datetime")
+            or trade.get("entry_date")
+        )
+        closed = cls._parse_trade_datetime(
+            trade.get("dtclose")
+            or trade.get("close_datetime")
+            or trade.get("closed_at")
+            or trade.get("exit_datetime")
+            or trade.get("exit_date")
+            or trade.get("datetime")
+            or trade.get("date")
+        )
+        if opened is None or closed is None:
+            return None
+        if (opened.tzinfo is None) != (closed.tzinfo is None):
+            opened = opened.replace(tzinfo=None)
+            closed = closed.replace(tzinfo=None)
+        seconds = (closed - opened).total_seconds()
+        if seconds < 0:
+            return None
+        return seconds / 86400.0
 
     def calculate_max_consecutive(self, trades: list, win: bool) -> int:
         """Calculate maximum consecutive wins or losses.
@@ -499,6 +563,9 @@ class FincoreAdapter:
 
         for t in trades:
             pnl = t.get("pnlcomm", 0)
+            if pnl == 0:
+                current = 0
+                continue
             is_win = pnl > 0
             if is_win == win:
                 current += 1

@@ -175,6 +175,18 @@
                 <el-icon><TrendCharts /></el-icon>
               </el-button>
             </el-tooltip>
+            <el-tooltip
+              content="查看回测结果"
+              placement="top"
+            >
+              <el-button
+                :disabled="!hasOpenableSelectedReport"
+                size="small"
+                @click="handleOpenSelectedReport"
+              >
+                <el-icon><View /></el-icon>
+              </el-button>
+            </el-tooltip>
           </el-button-group>
 
           <!-- Group 4: Optimization -->
@@ -449,29 +461,75 @@
         align="center"
       >
         <template #default="{ row }">
-          <!--
-            Bug8 follow-up: show "completed/total" from initialization so the
-            column always reflects optimization task cardinality.
-          -->
-          <template v-if="shouldShowOptimizationProgress(row)">
-            {{ formatOptimizationCount(row) }}
-          </template>
-          <template v-else-if="shouldShowOptimizationTerminal(row)">
-            <el-tag
-              :type="optimizationStatusTagType(row.opt_status)"
-              size="small"
+          <div class="unit-status-cell">
+            <template v-if="shouldShowOptimizationProgress(row)">
+              <span class="unit-status-count">{{ formatOptimizationCount(row) }}</span>
+              <el-progress
+                class="unit-status-progress"
+                :percentage="optimizationProgressPercent(row)"
+                :stroke-width="6"
+                :show-text="false"
+              />
+            </template>
+            <template v-else-if="shouldShowOptimizationTerminal(row)">
+              <el-tag
+                :type="optimizationStatusTagType(row.opt_status)"
+                size="small"
+              >
+                {{ optimizationStatusLabel(row.opt_status) }}
+              </el-tag>
+            </template>
+            <template v-else>
+              <el-tag
+                :type="runStatusTagType(row.run_status)"
+                size="small"
+              >
+                {{ runStatusLabel(row.run_status) }}
+              </el-tag>
+              <template v-if="shouldShowRunProgress(row)">
+                <span class="unit-status-count">{{ runProgressLabel(row) }}</span>
+                <el-progress
+                  class="unit-status-progress"
+                  :percentage="runProgressPercent(row)"
+                  :status="runProgressStatus(row)"
+                  :stroke-width="6"
+                  :show-text="false"
+                />
+                <span
+                  v-if="row.run_message"
+                  class="unit-status-message"
+                >
+                  {{ row.run_message }}
+                </span>
+              </template>
+            </template>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column
+        label="结果"
+        min-width="280"
+      >
+        <template #default="{ row }">
+          <div class="unit-result-cell">
+            <span
+              class="unit-result-summary"
+              :class="{ 'unit-result-summary--error': row.run_status === 'failed' }"
             >
-              {{ optimizationStatusLabel(row.opt_status) }}
-            </el-tag>
-          </template>
-          <template v-else>
-            <el-tag
-              :type="runStatusTagType(row.run_status)"
+              {{ unitResultSummary(row) }}
+            </span>
+            <el-button
+              v-if="canOpenReport(row)"
+              class="unit-result-action"
               size="small"
+              link
+              type="primary"
+              @click.stop="openBacktestResult(row)"
             >
-              {{ runStatusLabel(row.run_status) }}
-            </el-tag>
-          </template>
+              <el-icon><View /></el-icon>
+              查看
+            </el-button>
+          </div>
         </template>
       </el-table-column>
       <el-table-column
@@ -612,7 +670,7 @@ import {
   DataLine, Setting, Document, Aim, EditPen, Edit,
   Top, Bottom, Upload, Download, RefreshRight,
   Switch, TrendCharts, Cpu, CopyDocument, Odometer, Notebook,
-  Operation, Promotion,
+  Operation, Promotion, View,
 } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -652,6 +710,9 @@ const selectedUnit = computed<StrategyUnit | null>(() => {
   if (!hasSingleSelection.value) return null
   return store.units.find(u => u.id === store.selectedUnitIds[0]) ?? null
 })
+const hasOpenableSelectedReport = computed(() => (
+  selectedUnit.value ? canOpenReport(selectedUnit.value) : false
+))
 
 // Dialog visibility flags
 const showCreateUnit = ref(false)
@@ -691,16 +752,31 @@ function canOpenReport(unit: StrategyUnit): boolean {
   return unit.run_status === 'completed' && !!unit.last_task_id
 }
 
+function openBacktestResult(row: StrategyUnit) {
+  if (!canOpenReport(row)) return
+  router.push({
+    name: 'BacktestResult',
+    params: { id: row.last_task_id as string },
+    query: {
+      workspaceId: props.workspaceId,
+      unitId: row.id,
+      strategyName: row.strategy_name || row.group_name || row.strategy_id || '',
+    },
+  })
+}
+
+function handleOpenSelectedReport() {
+  if (selectedUnit.value) {
+    openBacktestResult(selectedUnit.value)
+  }
+}
+
 function handleRowDblClick(row: StrategyUnit, column?: { type?: string }, event?: Event) {
   if (!canOpenReport(row)) return
   if (column?.type === 'selection') return
   const target = event?.target as HTMLElement | null
   if (target?.closest('button, a, .el-checkbox')) return
-  router.push({
-    name: 'BacktestResult',
-    params: { id: row.last_task_id as string },
-    query: { workspaceId: props.workspaceId },
-  })
+  openBacktestResult(row)
 }
 
 function onUnitCreated() {
@@ -1201,6 +1277,101 @@ function formatOptimizationCount(row: StrategyUnit): string {
   return `${getOptimizationCompleted(row)}/${total}`
 }
 
+function optimizationProgressPercent(row: StrategyUnit): number {
+  const explicit = Number(row.opt_progress)
+  if (Number.isFinite(explicit) && explicit >= 0) {
+    return Math.min(Math.round(explicit), 100)
+  }
+  const total = getOptimizationTotal(row)
+  if (total <= 0) return 0
+  return Math.min(Math.round((getOptimizationCompleted(row) / total) * 100), 100)
+}
+
+function shouldShowRunProgress(row: StrategyUnit): boolean {
+  return !!row.last_task_id && ['queued', 'running', 'completed', 'failed', 'cancelled'].includes(row.run_status)
+}
+
+function runProgressPercent(row: StrategyUnit): number {
+  const explicit = Number(row.run_progress)
+  if (Number.isFinite(explicit) && explicit >= 0) {
+    return Math.min(Math.round(explicit), 100)
+  }
+  const fallback: Record<string, number> = {
+    queued: 0,
+    running: 10,
+    completed: 100,
+    failed: 100,
+    cancelled: 100,
+  }
+  return fallback[row.run_status] ?? 0
+}
+
+function runProgressLabel(row: StrategyUnit): string {
+  return `${runProgressPercent(row)}%`
+}
+
+function runProgressStatus(row: StrategyUnit): 'success' | 'exception' | 'warning' | undefined {
+  if (row.run_status === 'completed') return 'success'
+  if (row.run_status === 'failed') return 'exception'
+  if (row.run_status === 'cancelled') return 'warning'
+  return undefined
+}
+
+function numericMetric(metrics: Record<string, unknown>, key: string): number | null {
+  const value = metrics[key]
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function percentMetric(value: number | null): string {
+  if (value == null) return '-'
+  const normalized = Math.abs(value) <= 2 ? value * 100 : value
+  return `${normalized.toFixed(2)}%`
+}
+
+function decimalMetric(value: number | null): string {
+  return value == null ? '-' : value.toFixed(2)
+}
+
+function integerMetric(value: number | null): string {
+  return value == null ? '-' : `${Math.round(value)}`
+}
+
+function compactResultText(value: unknown): string | null {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) return null
+  return text.length > 120 ? `${text.slice(0, 120)}...` : text
+}
+
+function unitFailureMessage(row: StrategyUnit): string | null {
+  const metrics = row.metrics_snapshot ?? {}
+  return compactResultText(row.error_message)
+    ?? compactResultText(metrics.error)
+    ?? compactResultText(metrics.message)
+}
+
+function unitResultSummary(row: StrategyUnit): string {
+  if (row.run_status === 'failed') {
+    return `失败：${unitFailureMessage(row) ?? '未返回错误详情'}`
+  }
+  if (row.run_status === 'queued') return '排队中'
+  if (row.run_status === 'running') return '运行中'
+  if (row.run_status === 'cancelled') return '已取消'
+  if (row.run_status !== 'completed') return '-'
+
+  const metrics = row.metrics_snapshot ?? {}
+  const totalReturn = numericMetric(metrics, 'total_return')
+  const sharpe = numericMetric(metrics, 'sharpe_ratio')
+  const trades = numericMetric(metrics, 'total_trades')
+  return `收益 ${percentMetric(totalReturn)} · Sharpe ${decimalMetric(sharpe)} · 交易 ${integerMetric(trades)}`
+}
+
 function getLiveOptimizationElapsedSeconds(row: StrategyUnit): number {
   const syncedElapsed = Math.max(0, row.opt_elapsed_time ?? 0)
   if (row.opt_status !== 'running') {
@@ -1269,3 +1440,59 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleString('zh-CN')
 }
 </script>
+
+<style scoped>
+.unit-status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.unit-status-count {
+  font-size: 12px;
+  line-height: 1;
+  color: var(--el-text-color-secondary);
+}
+
+.unit-status-progress {
+  width: 84px;
+}
+
+.unit-status-message {
+  max-width: 108px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--el-text-color-placeholder);
+}
+
+.unit-result-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.unit-result-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.unit-result-summary--error {
+  color: var(--el-color-danger);
+}
+
+.unit-result-action {
+  flex: 0 0 auto;
+}
+</style>

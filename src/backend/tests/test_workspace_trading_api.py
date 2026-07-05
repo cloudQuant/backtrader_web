@@ -14,11 +14,22 @@ async def test_workspace_list_supports_workspace_type_filter(
         "/api/v1/workspace/",
         headers=auth_headers,
         json={
-            "name": "研究工作区",
+            "name": "研究工作区-旧",
             "workspace_type": "research",
         },
     )
     assert research_response.status_code == 201
+
+    latest_research_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={
+            "name": "研究工作区-新",
+            "workspace_type": "research",
+            "settings": {"large_payload": "x" * 1024},
+        },
+    )
+    assert latest_research_response.status_code == 201
 
     trading_response = await client.post(
         "/api/v1/workspace/",
@@ -41,6 +52,19 @@ async def test_workspace_list_supports_workspace_type_filter(
     assert payload["total"] == 1
     assert payload["items"][0]["workspace_type"] == "trading"
     assert payload["items"][0]["name"] == "交易工作区"
+
+    research_list_response = await client.get(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        params={"workspace_type": "research"},
+    )
+    assert research_list_response.status_code == 200
+    research_payload = research_list_response.json()
+    assert research_payload["total"] == 2
+    assert [item["name"] for item in research_payload["items"]] == [
+        "研究工作区-新",
+        "研究工作区-旧",
+    ]
 
 
 @pytest.mark.asyncio
@@ -264,6 +288,63 @@ async def test_trading_workspace_run_and_status_use_trading_runtime_branch(
     assert status_payload[0]["run_status"] == "running"
     assert status_payload[0]["trading_instance_id"] == "inst-001"
     assert status_payload[0]["trading_snapshot"]["instance_status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_workspace_status_endpoint_filters_unit_ids(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+):
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={
+            "name": "状态过滤测试",
+            "workspace_type": "trading",
+        },
+    )
+    assert workspace_response.status_code == 201
+    workspace_id = workspace_response.json()["id"]
+
+    first_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={
+            "group_name": "交易组",
+            "strategy_id": "simulate/gateway_dual_ma",
+            "strategy_name": "First Strategy",
+            "symbol": "SA505",
+            "symbol_name": "纯碱主力",
+            "trading_mode": "paper",
+        },
+    )
+    second_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={
+            "group_name": "交易组",
+            "strategy_id": "simulate/gateway_dual_ma",
+            "strategy_name": "Second Strategy",
+            "symbol": "SA506",
+            "symbol_name": "纯碱次主力",
+            "trading_mode": "paper",
+        },
+    )
+    assert first_response.status_code == 201
+    assert second_response.status_code == 201
+    first_id = first_response.json()["id"]
+    second_id = second_response.json()["id"]
+
+    status_response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/status",
+        headers=auth_headers,
+        params={"unit_ids": first_id},
+    )
+
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert [item["id"] for item in status_payload] == [first_id]
+    assert second_id not in {item["id"] for item in status_payload}
 
 
 @pytest.mark.asyncio

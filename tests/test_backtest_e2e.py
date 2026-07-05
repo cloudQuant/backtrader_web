@@ -241,7 +241,7 @@ def test_backtest_run():
                 import subprocess
                 logs = subprocess.check_output(
                     ["tail", "-20", "logs/backend.log"],
-                    cwd="/Users/yunjinqi/Documents/量化交易框架/ai-for-trader",
+                    cwd="/Users/yunjinqi/Documents/量化交易框架/ai-for-investor",
                     text=True, timeout=3
                 )
                 for line in logs.strip().split("\n"):

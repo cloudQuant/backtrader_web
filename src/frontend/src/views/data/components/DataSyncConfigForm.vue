@@ -2,6 +2,8 @@
   <el-form
     :model="config"
     label-width="120px"
+    class="sync-config-form"
+    data-test="sync-config-form"
   >
     <div class="config-section-title">
       {{ t('dataPages.syncSecMode') }}
@@ -170,3 +172,57 @@ function updateConfigField<K extends keyof SyncConfig>(
   emit('update:config', { ...props.config, [field]: value })
 }
 </script>
+
+<style scoped>
+.sync-config-form {
+  display: grid;
+  gap: 18px;
+}
+
+.config-section-title {
+  margin: 2px 0 -6px;
+  color: var(--text-color-primary);
+  font-size: 14px;
+  font-weight: 780;
+  line-height: 1.25;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  min-width: 0;
+}
+
+.form-grid.single-column {
+  grid-template-columns: 1fr;
+}
+
+.sync-config-form :deep(.el-form-item) {
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.sync-config-form :deep(.el-form-item__label) {
+  color: var(--text-color-secondary);
+  font-weight: 650;
+}
+
+.sync-config-form :deep(.el-input__wrapper),
+.sync-config-form :deep(.el-select__wrapper),
+.sync-config-form :deep(.el-textarea__inner) {
+  border-radius: 8px;
+  background: var(--bg-color-overlay);
+  color: var(--text-color-primary);
+}
+
+.full-width {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

@@ -1,23 +1,62 @@
 <template>
-  <div class="ai-chat-page">
-    <section class="ai-hero">
-      <div class="min-w-0">
+  <div
+    class="ai-chat-page"
+    data-test="ai-chat-page"
+  >
+    <section
+      class="ai-hero"
+      data-test="ai-chat-hero"
+    >
+      <div class="hero-copy">
         <div class="eyebrow">
-          AI Copilot
+          {{ t('aiChat.heroKicker') }}
         </div>
-        <h2>{{ t('nav.aiChat') }}</h2>
+        <h1>{{ t('aiChat.heroTitle') }}</h1>
         <p>
-          {{ t('aiChat.aroundKnowledgeBase') }}, Backtrader {{ t('aiChat.draftAndStrategyReview') }}. {{ t('aiChat.citationActionHint') }}
+          {{ t('aiChat.heroSubtitle') }}
         </p>
+        <div
+          class="hero-metrics"
+          data-test="ai-chat-metrics"
+        >
+          <article class="hero-metric">
+            <span>{{ t('aiChat.heroKnowledgeBases') }}</span>
+            <strong>{{ kbStore.knowledgeBases.length }}</strong>
+          </article>
+          <article class="hero-metric">
+            <span>{{ t('aiChat.heroDocuments') }}</span>
+            <strong>{{ currentKnowledgeBase?.document_count ?? 0 }}</strong>
+          </article>
+          <article class="hero-metric">
+            <span>{{ t('aiChat.heroIndexed') }}</span>
+            <strong>{{ indexedDocumentCount }}/{{ knowledgeBaseDocuments.length }}</strong>
+          </article>
+          <article class="hero-metric">
+            <span>{{ t('aiChat.heroSessions') }}</span>
+            <strong>{{ chatStore.conversations.length }}</strong>
+          </article>
+        </div>
       </div>
 
-      <div class="hero-controls">
-        <div class="control-label">
+      <div class="hero-command">
+        <div class="hero-command__header">
+          <span
+            class="status-dot"
+            :class="{ active: Boolean(currentKnowledgeBaseId) }"
+          />
+          <div>
+            <strong>{{ t('aiChat.retrievalStatusTitle') }}</strong>
+            <span>{{ currentKnowledgeBaseId ? t('aiChat.retrievalReady') : t('aiChat.retrievalMissing') }}</span>
+          </div>
+        </div>
+        <div
+          v-if="requiresKnowledgeBase"
+          class="control-label hero-kb-select"
+        >
           <span>{{ t('aiChat.knowledgeBase') }}</span>
           <el-select
             v-model="selectedKnowledgeBaseId"
             :placeholder="t('aiChat.selectKnowledgeBasePrompt')"
-            style="min-width: 240px"
           >
             <el-option
               v-for="kb in kbStore.knowledgeBases"
@@ -26,6 +65,15 @@
               :value="kb.id"
             />
           </el-select>
+        </div>
+        <div
+          v-else
+          class="control-label standalone-mode-label"
+        >
+          <span>{{ t('aiChat.contextSource') }}</span>
+          <el-tag type="info">
+            {{ t('aiChat.noKnowledgeBaseRequired') }}
+          </el-tag>
         </div>
         <el-button
           :aria-label="t('aiChat.newConversationShort')"
@@ -39,17 +87,28 @@
       </div>
     </section>
 
-    <section class="mode-strip">
-      <button
-        v-for="option in assistantModeOptions"
-        :key="option.value"
-        type="button"
-        class="mode-tab"
-        :class="{ active: selectedAssistantMode === option.value }"
-        @click="selectedAssistantMode = option.value"
-      >
-        {{ option.label }}
-      </button>
+    <section
+      class="mode-strip"
+      data-test="ai-chat-toolbar"
+    >
+      <div class="mode-strip__label">
+        {{ t('aiChat.modeStripLabel') }}
+      </div>
+      <div class="mode-tabs">
+        <button
+          v-for="option in assistantModeOptions"
+          :key="option.value"
+          type="button"
+          class="mode-tab"
+          :class="{ active: isAssistantModeTabActive(option.value) }"
+          @click="selectAssistantMode(option.value)"
+        >
+          <el-icon aria-hidden="true">
+            <Collection />
+          </el-icon>
+          {{ option.label }}
+        </button>
+      </div>
       <div class="thinking-toggle">
         <el-switch
           v-model="thinkingMode"
@@ -69,6 +128,7 @@
       <aside
         class="ai-panel conversation-panel"
         :class="{ collapsed: leftPanelCollapsed }"
+        data-test="ai-chat-conversations"
       >
         <button
           v-if="leftPanelCollapsed"
@@ -161,12 +221,12 @@
             <span class="context-icon"><el-icon><Collection /></el-icon></span>
             <div class="min-w-0">
               <div class="context-title">
-                {{ currentKnowledgeBaseName || t('aiChat.noKnowledgeBaseSelected') }}
+                {{ displayContextTitle }}
               </div>
               <div class="context-meta">
                 {{ currentModeMeta.label }}
                 <span v-if="thinkingMode">/ {{ t('aiChat.deepMode') }}</span>
-                <span v-if="currentKnowledgeBaseId">/ {{ retrievalProfileLabel(currentKnowledgeBaseSettings.retrieval_profile) }}</span>
+                <span v-if="requiresKnowledgeBase && currentKnowledgeBaseId">/ {{ retrievalProfileLabel(currentKnowledgeBaseSettings.retrieval_profile) }}</span>
                 <span v-if="chatStore.currentConversationId">/ {{ t('aiChat.sessionInProgress') }}</span>
               </div>
             </div>
@@ -227,7 +287,8 @@
               :refreshing-status="refreshingStatusIndex === index"
               :generating-report="generatingReportIndex === index"
               :execution="workspaceExecutions[index]"
-              :knowledge-base-id="selectedKnowledgeBaseId"
+              :knowledge-base-id="requiresKnowledgeBase ? selectedKnowledgeBaseId : null"
+              :strategy-workflow-enabled="strategyWorkflowEnabled"
               @copy-message="copyMessage"
               @save-strategy="handleSaveStrategyDraft(message, index)"
               @add-to-workspace="openAddToWorkspaceDialog(message, index)"
@@ -238,6 +299,7 @@
               @jump-citation="handleJumpToCitation"
               @continue-strategy-idea="prompt => handleContinueFromStockAnalysis('strategy_idea', prompt)"
               @continue-backtrader-strategy="prompt => handleContinueFromStockAnalysis('backtrader_strategy', prompt)"
+              @strategy-workflow-action="action => handleStrategyWorkflowAction(action, message, index)"
             />
 
             <div
@@ -254,15 +316,16 @@
 
         <div class="composer">
           <div class="composer-meta">
-            <span>{{ selectedKnowledgeBaseId ? currentModeMeta.inputHint : t('aiChat.selectKnowledgeBaseFirst') }}</span>
+            <span>{{ composerHint }}</span>
             <span>{{ question.length }}/500</span>
           </div>
           <div class="composer-row">
             <el-input
               v-model="question"
+              data-test="ai-chat-input"
               type="textarea"
               :maxlength="500"
-              :disabled="!selectedKnowledgeBaseId || chatStore.loading"
+              :disabled="(requiresKnowledgeBase && !currentKnowledgeBaseId) || chatStore.loading"
               :placeholder="inputPlaceholder"
               :aria-label="inputPlaceholder"
               :rows="3"
@@ -288,8 +351,9 @@
             </el-select>
             <el-button
               type="primary"
-              :disabled="!selectedKnowledgeBaseId || !question.trim() || chatStore.loading"
+              :disabled="!canSubmitQuestion"
               class="send-button"
+              data-test="ai-chat-send"
               @click="handleAsk"
             >
               <el-icon><Promotion /></el-icon>
@@ -302,6 +366,7 @@
       <aside
         class="ai-panel insight-panel"
         :class="{ collapsed: rightPanelCollapsed }"
+        data-test="ai-chat-context"
       >
         <button
           v-if="rightPanelCollapsed"
@@ -329,7 +394,7 @@
             <div class="panel-header-actions">
               <span
                 class="status-dot"
-                :class="{ active: Boolean(selectedKnowledgeBaseId) }"
+                :class="{ active: !requiresKnowledgeBase || Boolean(selectedKnowledgeBaseId) }"
               />
               <el-button
                 circle
@@ -345,7 +410,10 @@
             </div>
           </div>
 
-          <div class="kb-card">
+          <div
+            v-if="requiresKnowledgeBase"
+            class="kb-card"
+          >
             <div class="kb-name">
               {{ currentKnowledgeBaseName || t('aiChat.noKnowledgeBaseSelected') }}
             </div>
@@ -401,111 +469,20 @@
           </div>
 
           <div
-            v-if="selectedAssistantMode === 'stock_analysis'"
-            class="stock-analysis-panel"
+            v-else
+            class="kb-card standalone-context-card"
           >
-            <div class="section-kicker">
-              {{ t('aiChat.stockPanelTitle') }}
+            <div class="kb-name">
+              {{ t('aiChat.noKnowledgeBaseRequired') }}
             </div>
-            <div class="stock-form-grid">
-              <label>
-                <span>{{ t('aiChat.symbolCode') }}</span>
-                <el-input
-                  v-model="stockAnalysisForm.symbol"
-                  size="small"
-                  placeholder="000001.SZ"
-                />
-              </label>
-              <label>
-                <span>{{ t('aiChat.stockMarketType') }}</span>
-                <el-select
-                  v-model="stockAnalysisForm.marketType"
-                  size="small"
-                  class="w-full"
-                >
-                  <el-option
-                    :label="t('aiChat.stockMarketA')"
-                    value="cn_a"
-                  />
-                  <el-option
-                    :label="t('aiChat.stockMarketHK')"
-                    value="hk"
-                  />
-                  <el-option
-                    :label="t('aiChat.stockMarketUS')"
-                    value="us"
-                  />
-                </el-select>
-              </label>
-              <label>
-                <span>{{ t('aiChat.stockAnalysisDate') }}</span>
-                <el-date-picker
-                  v-model="stockAnalysisForm.analysisDate"
-                  type="date"
-                  value-format="YYYY-MM-DD"
-                  size="small"
-                  class="w-full"
-                />
-              </label>
-              <label>
-                <span>{{ t('aiChat.stockResearchDepth') }}</span>
-                <el-select
-                  v-model="stockAnalysisForm.researchDepth"
-                  size="small"
-                  class="w-full"
-                >
-                  <el-option
-                    :label="t('aiChat.stockDepthQuick')"
-                    value="quick"
-                  />
-                  <el-option
-                    :label="t('aiChat.stockDepthBasic')"
-                    value="basic"
-                  />
-                  <el-option
-                    :label="t('aiChat.stockDepthStandard')"
-                    value="standard"
-                  />
-                  <el-option
-                    :label="t('aiChat.stockDepthDeep')"
-                    value="deep"
-                  />
-                  <el-option
-                    :label="t('aiChat.stockDepthFull')"
-                    value="full"
-                  />
-                </el-select>
-              </label>
+            <div class="kb-desc">
+              {{ t('aiChat.standaloneModeDescription') }}
             </div>
-            <el-checkbox-group
-              v-model="stockAnalysisForm.modules"
-              class="stock-module-grid"
-            >
-              <el-checkbox label="market">
-                {{ t('aiChat.stockModuleMarket') }}
-              </el-checkbox>
-              <el-checkbox label="fundamentals">
-                {{ t('aiChat.stockModuleFundamentals') }}
-              </el-checkbox>
-              <el-checkbox label="news">
-                {{ t('aiChat.stockModuleNews') }}
-              </el-checkbox>
-              <el-checkbox label="social">
-                {{ t('aiChat.stockModuleSentiment') }}
-              </el-checkbox>
-              <el-checkbox label="risk">
-                {{ t('aiChat.stockModuleRisk') }}
-              </el-checkbox>
-            </el-checkbox-group>
-            <el-button
-              class="w-full"
-              type="primary"
-              :disabled="!currentKnowledgeBaseId || chatStore.loading"
-              @click="handleStockAnalysisSubmit"
-            >
-              <el-icon><Promotion /></el-icon>
-              {{ t('aiChat.stockStartAnalysis') }}
-            </el-button>
+            <div class="kb-settings">
+              <span>{{ currentModeMeta.label }}</span>
+              <span>{{ t('aiChat.modelOnlyContext') }}</span>
+              <span v-if="thinkingMode">{{ t('aiChat.deepMode') }}</span>
+            </div>
           </div>
 
           <div class="tool-section">
@@ -517,7 +494,7 @@
               :key="tool.title"
               type="button"
               class="tool-item"
-              @click="applyPrompt(tool.prompt)"
+              @click="applyQuickTool(tool)"
             >
               <el-icon><Compass /></el-icon>
               <span>
@@ -675,14 +652,12 @@ const {
   chatStore,
   router,
   selectedKnowledgeBaseId,
-  selectedAssistantMode,
   thinkingMode,
   leftPanelCollapsed,
   rightPanelCollapsed,
   conversationSearch,
   question,
   selectedSessionModelKey,
-  stockAnalysisForm,
   sessionModelOptions,
   savingStrategyIndex,
   savedStrategyIds,
@@ -696,12 +671,17 @@ const {
   refreshingStatusIndex,
   generatingReportIndex,
   currentModeMeta,
+  requiresKnowledgeBase,
   suggestedPrompts,
   quickTools,
   inputPlaceholder,
   currentKnowledgeBase,
   currentKnowledgeBaseId,
   currentKnowledgeBaseName,
+  displayContextTitle,
+  composerHint,
+  canSubmitQuestion,
+  strategyWorkflowEnabled,
   currentKnowledgeBaseSettings,
   knowledgeBaseDocuments,
   indexedDocumentCount,
@@ -711,12 +691,14 @@ const {
   formatDate,
   retrievalProfileLabel,
   applyPrompt,
+  applyQuickTool,
+  isAssistantModeTabActive,
+  selectAssistantMode,
   handleContinueFromStockAnalysis,
   toggleLeftPanel,
   toggleRightPanel,
   copyMessage,
   copyConversation,
-  handleStockAnalysisSubmit,
   resetWorkspaceDraftState,
   handleSaveStrategyDraft,
   openAddToWorkspaceDialog,
@@ -724,6 +706,7 @@ const {
   handleRunStrategyDraftBacktest,
   handleRefreshWorkspaceExecution,
   handleGenerateWorkspaceReport,
+  handleStrategyWorkflowAction,
   handleAsk,
   handleSelectConversation,
   handleNewConversation,

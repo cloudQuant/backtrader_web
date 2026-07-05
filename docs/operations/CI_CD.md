@@ -2,7 +2,7 @@
 
 ## Overview
 
-The AI for Trader project uses GitHub Actions for continuous integration and continuous deployment. The CI/CD pipeline ensures code quality, runs automated tests, and validates pull requests before merging.
+The AI for Investor project uses GitHub Actions for continuous integration and continuous deployment. The CI/CD pipeline ensures code quality, runs automated tests, and validates pull requests before merging.
 
 ## Workflows
 
@@ -151,8 +151,8 @@ npm run test:e2e:debug
 Add these badges to your README:
 
 ```markdown
-![CI Status](https://github.com/username/ai-for-trader/workflows/CI%20-%20Quality%20Checks/badge.svg)
-![E2E Tests](https://github.com/username/ai-for-trader/workflows/E2E%20-%20End-to-End%20Tests/badge.svg)
+![CI Status](https://github.com/username/ai-for-investor/workflows/CI%20-%20Quality%20Checks/badge.svg)
+![E2E Tests](https://github.com/username/ai-for-investor/workflows/E2E%20-%20End-to-End%20Tests/badge.svg)
 ```
 
 ### Coverage Reports
@@ -352,7 +352,7 @@ Closes #123
 
 View all workflow runs at:
 ```
-https://github.com/username/ai-for-trader/actions
+https://github.com/username/ai-for-investor/actions
 ```
 
 ### Notifications

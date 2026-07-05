@@ -21,11 +21,11 @@ services:
     container_name: backtrader_backend_local
     restart: unless-stopped
     environment:
-      APP_NAME: ai-for-trader
+      APP_NAME: ai-for-investor
       DEBUG: ${DEBUG:-false}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       DATABASE_TYPE: mysql
-      DATABASE_URL: mysql+aiomysql://root:${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}@host.docker.internal:${DB_PORT:-3306}/${MYSQL_DB_MAIN:-ai_for_trader}
+      DATABASE_URL: mysql+aiomysql://root:${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}@host.docker.internal:${DB_PORT:-3306}/${MYSQL_DB_MAIN:-ai_for_investor}
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
       JWT_ALGORITHM: HS256
@@ -46,11 +46,11 @@ services:
     ports:
       - "${LOCAL_BACKEND_PORT:-8000}:8000"
     volumes:
-      - ./datas:/opt/workspace/ai-for-trader/datas
-      - ./strategies:/opt/workspace/ai-for-trader/strategies
-      - ./workspace_units:/opt/workspace/ai-for-trader/workspace_units
-      - ${LOCAL_BACKEND_LOGS_DIR:-./runtime/local/backend/logs}:/opt/workspace/ai-for-trader/src/backend/logs
-      - ${LOCAL_BACKEND_APP_DATA_DIR:-./runtime/local/backend/data}:/opt/workspace/ai-for-trader/src/backend/data
+      - ./datas:/opt/workspace/ai-for-investor/datas
+      - ./strategies:/opt/workspace/ai-for-investor/strategies
+      - ./workspace_units:/opt/workspace/ai-for-investor/workspace_units
+      - ${LOCAL_BACKEND_LOGS_DIR:-./runtime/local/backend/logs}:/opt/workspace/ai-for-investor/src/backend/logs
+      - ${LOCAL_BACKEND_APP_DATA_DIR:-./runtime/local/backend/data}:/opt/workspace/ai-for-investor/src/backend/data
     depends_on:
       redis:
         condition: service_healthy

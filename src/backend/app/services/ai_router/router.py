@@ -45,6 +45,7 @@ class AIChatRouter:
         api_key: str | None = None,
         timeout: float = 60.0,
         temperature: float = 0.2,
+        max_tokens: int | None = None,
     ) -> ChatCompletionResponse:
         if self._should_use_litellm(provider, model):
             return await self._call_litellm(
@@ -54,6 +55,7 @@ class AIChatRouter:
                 api_base=base_url,
                 api_key=api_key,
                 timeout=timeout,
+                max_tokens=max_tokens,
             )
         return await asyncio.to_thread(
             self._call_openai_compatible,
@@ -63,6 +65,7 @@ class AIChatRouter:
             api_key=api_key or "",
             timeout=timeout,
             temperature=temperature,
+            max_tokens=max_tokens,
         )
 
     def _should_use_litellm(self, provider: str | None, model: str) -> bool:
@@ -81,6 +84,7 @@ class AIChatRouter:
         api_base: str | None,
         api_key: str | None,
         timeout: float,
+        max_tokens: int | None,
     ) -> ChatCompletionResponse:
         assert self._litellm_completion is not None
         kwargs: dict[str, Any] = {
@@ -93,6 +97,8 @@ class AIChatRouter:
             kwargs["api_base"] = api_base
         if api_key:
             kwargs["api_key"] = api_key
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
         response = self._litellm_completion(**kwargs)
         if inspect.isawaitable(response):
             response = await response
@@ -107,6 +113,7 @@ class AIChatRouter:
         api_key: str,
         timeout: float,
         temperature: float,
+        max_tokens: int | None,
     ) -> ChatCompletionResponse:
         endpoint = resolve_openai_compatible_endpoint(base_url)
         payload = {
@@ -114,6 +121,8 @@ class AIChatRouter:
             "messages": messages,
             "temperature": temperature,
         }
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
         request = urllib.request.Request(
             endpoint,
             data=json.dumps(payload).encode("utf-8"),

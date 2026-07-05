@@ -25,7 +25,7 @@ class TestMainApp:
         from app.main import app
 
         assert app is not None
-        assert app.title == "AI for Trader API"
+        assert app.title == "AI for Investor API"
         assert app.version == "2.0.0"
 
     async def test_app_docs_configured(self):
@@ -46,7 +46,7 @@ class TestRootRoute:
         assert resp.status_code == 200
         data = resp.json()
         assert "service" in data
-        assert data["service"] == "AI for Trader API"
+        assert data["service"] == "AI for Investor API"
         assert "version" in data
         assert data["version"] == "2.0.0"
         assert "status" in data

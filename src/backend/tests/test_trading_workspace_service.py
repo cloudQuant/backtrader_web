@@ -1,4 +1,5 @@
 import json
+from datetime import date
 from types import SimpleNamespace
 from typing import Any
 
@@ -100,6 +101,32 @@ def test_build_instance_params_keeps_explicit_gateway_for_paper_units():
     assert params["trading_mode"] == "paper"
     assert params["gateway"]["exchange_type"] == "IB_WEB"
     assert params["ib_web"]["account_id"] == "DU123456"
+
+
+def test_build_instance_params_serializes_json_values_for_instance_store():
+    unit = SimpleNamespace(
+        workspace_id="ws-1",
+        id="unit-1",
+        group_name="AI Research",
+        strategy_name="SA Paper",
+        params={"start_date": date(2024, 5, 20)},
+        symbol="SA505",
+        symbol_name="SA505",
+        timeframe="1d",
+        timeframe_n=1,
+        category="future",
+        data_config={"end_date": date(2025, 5, 19)},
+        unit_settings={"windows": [date(2024, 6, 1)]},
+        trading_mode="paper",
+        gateway_config={},
+    )
+
+    params = TradingWorkspaceService._build_instance_params(unit)
+
+    assert params["start_date"] == "2024-05-20"
+    assert params["data_config"]["end_date"] == "2025-05-19"
+    assert params["unit_settings"]["windows"] == ["2024-06-01"]
+    assert params["gateway"] == {"enabled": False}
 
 
 def test_default_snapshot_and_normalized_trade_rows_expose_trades():
@@ -3553,6 +3580,44 @@ def test_sync_trading_unit_runtime_refreshes_existing_template_sources(tmp_path,
     assert (runtime_dir / "run.py").read_text("utf-8") == "# refreshed runtime entrypoint v2\n"
 
 
+def test_sync_trading_unit_runtime_writes_fallback_run_py_for_generated_strategy(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path)
+    template_dir = _make_strategy_template(
+        tmp_path, "generated/ai-strategy", "strategy_generated"
+    )
+    (template_dir / "run.py").unlink()
+    monkeypatch.setattr(workspace_unit_runtime, "get_strategy_dir", lambda _sid: template_dir)
+    unit = _make_basic_trading_unit("generated/ai-strategy")
+
+    runtime_dir = workspace_unit_runtime.sync_trading_unit_runtime(unit, {})
+
+    run_py = runtime_dir / "run.py"
+    assert run_py.is_file()
+    assert "def _normalise_signed_rate" in run_py.read_text("utf-8")
+    assert (runtime_dir / "strategy_generated.py").is_file()
+
+
+def test_sync_trading_unit_runtime_refreshes_fallback_run_py_for_generated_strategy(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path)
+    template_dir = _make_strategy_template(
+        tmp_path, "generated/ai-strategy", "strategy_generated"
+    )
+    (template_dir / "run.py").unlink()
+    monkeypatch.setattr(workspace_unit_runtime, "get_strategy_dir", lambda _sid: template_dir)
+    unit = _make_basic_trading_unit("generated/ai-strategy")
+    runtime_dir = workspace_unit_runtime.unit_dir(unit.workspace_id, unit.id)
+    runtime_dir.mkdir(parents=True)
+    (runtime_dir / "run.py").write_text("# stale fallback\n", encoding="utf-8")
+
+    workspace_unit_runtime.sync_trading_unit_runtime(unit, {})
+
+    assert "_PANDAS_DATA_CLASS" in (runtime_dir / "run.py").read_text("utf-8")
+
+
 def test_sync_trading_unit_runtime_normalizes_futures_data_metadata(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path)
     template_dir = _make_strategy_template(
@@ -3596,12 +3661,17 @@ def test_sync_trading_unit_runtime_normalizes_futures_data_metadata(tmp_path, mo
         },
     )
 
-    runtime_dir = workspace_unit_runtime.sync_trading_unit_runtime(unit, {})
+    data_root = tmp_path / "datas"
+    runtime_dir = workspace_unit_runtime.sync_trading_unit_runtime(
+        unit,
+        {"data_source": {"type": "csv", "csv": {"directory_path": str(data_root)}}},
+    )
     config = yaml.safe_load((runtime_dir / "config.yaml").read_text("utf-8"))
 
     assert config["data"]["asset_type"] == "future"
     assert config["data"]["data_type"] == "futures"
     assert config["data"]["exchange"] == "CTP"
+    assert config["data"]["directory_path"] == str((data_root / "future").resolve())
     assert config["live"]["qcheck"] == 0.5
     assert config["live"]["log_ticks"] is False
     assert config["live"]["log_positions"] is True
@@ -4674,7 +4744,7 @@ async def test_start_units_syncs_runtime_contract_metadata_to_unit(tmp_path, mon
     assert metadata["multiplier"] == 300
     assert metadata["margin_rate"] == 0.1
     assert metadata["commission_rate"] == 0.000023
-    assert metadata["source"] == "gateway.get_symbol_info"
+    assert "gateway.get_symbol_info" in metadata["source"]
 
 
 @pytest.mark.asyncio
@@ -4744,6 +4814,121 @@ async def test_start_units_injects_local_asset_specs_before_paper_runtime_sync(
                 "log_dir": None,
             }
             self.instances["inst-paper-local-spec"] = instance
+            return instance
+
+        def get_instance(self, instance_id, user_id=None):
+            return self.instances.get(instance_id)
+
+        async def start_instance(self, instance_id):
+            instance = self.instances[instance_id]
+            instance["status"] = "running"
+            return instance
+
+    manager = FakeManager()
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "query_local_asset_spec",
+        fake_local_asset_spec,
+    )
+    monkeypatch.setattr(
+        workspace_unit_runtime,
+        "sync_trading_unit_runtime",
+        fake_sync_runtime,
+    )
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "get_live_trading_manager",
+        lambda: manager,
+    )
+
+    results = await TradingWorkspaceService().start_units([unit], user_id="user-1")
+
+    assert results[0]["status"] == "running"
+    for params in (synced_params, manager.added_params, unit.params):
+        metadata = params["contract_metadata"]["IF2609"]
+        assert metadata["multiplier"] == 300
+        assert metadata["margin_rate"] == 0.12
+        assert metadata["commission_rate"] == 0.000024
+        assert metadata["source"] == "local_futures_fees"
+
+
+@pytest.mark.asyncio
+async def test_start_units_injects_local_asset_specs_before_live_runtime_sync(
+    tmp_path,
+    monkeypatch,
+):
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir(parents=True)
+    unit = SimpleNamespace(
+        id="unit-live-local-spec",
+        workspace_id="ws-1",
+        group_name="实盘",
+        strategy_id="simulate/gateway_dual_ma",
+        strategy_name="IF Live Local Spec",
+        symbol="IF2609",
+        symbol_name="沪深300",
+        timeframe="1m",
+        timeframe_n=1,
+        category="future",
+        data_config={},
+        unit_settings={},
+        params={},
+        optimization_config={},
+        gateway_config={
+            "params": {
+                "gateway": {
+                    "enabled": True,
+                    "provider": "ctp_gateway",
+                    "exchange_type": "CTP",
+                    "asset_type": "FUTURE",
+                    "account_id": "SIM001",
+                }
+            }
+        },
+        trading_mode="live",
+        lock_running=False,
+        lock_trading=False,
+        trading_instance_id=None,
+        run_status="idle",
+        run_count=0,
+        trading_snapshot={},
+        metrics_snapshot={},
+        bar_count=None,
+        last_run_time=None,
+    )
+
+    def fake_local_asset_spec(symbol):
+        assert symbol == "IF2609"
+        return {
+            "symbol": "IF2609",
+            "multiplier": 300,
+            "margin_rate": 0.12,
+            "commission_rate": 0.000024,
+            "source": "local_futures_fees",
+        }
+
+    synced_params: dict[str, Any] = {}
+
+    def fake_sync_runtime(current_unit, *_args, **_kwargs):
+        synced_params.update(current_unit.params or {})
+        return runtime_dir
+
+    class FakeManager:
+        def __init__(self):
+            self.instances = {}
+            self.added_params = {}
+
+        def add_instance(self, strategy_id, params, user_id=None, runtime_dir=None):
+            self.added_params = dict(params or {})
+            instance = {
+                "id": "inst-live-local-spec",
+                "strategy_id": strategy_id,
+                "status": "stopped",
+                "params": dict(params or {}),
+                "runtime_dir": runtime_dir,
+                "log_dir": None,
+            }
+            self.instances["inst-live-local-spec"] = instance
             return instance
 
         def get_instance(self, instance_id, user_id=None):
@@ -4886,7 +5071,7 @@ async def test_start_units_queries_asset_specs_after_start(tmp_path, monkeypatch
     assert metadata["multiplier"] == 300
     assert metadata["margin_rate"] == 0.1
     assert metadata["commission_rate"] == 0.000023
-    assert metadata["source"] == "gateway.query_instrument"
+    assert "gateway.query_instrument" in metadata["source"]
 
 
 @pytest.mark.asyncio

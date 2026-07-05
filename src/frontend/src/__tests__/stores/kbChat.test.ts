@@ -4,6 +4,24 @@ import { createPinia, setActivePinia } from 'pinia'
 import { kbChatApi } from '@/api/kbChat'
 import { useKBChatStore } from '@/stores/kbChat'
 
+const COMPLETE_STRATEGY_CODE = [
+  'import backtrader as bt',
+  '',
+  'class Demo(bt.Strategy):',
+  '    params = (("fast_period", 10), ("slow_period", 30))',
+  '',
+  '    def __init__(self):',
+  '        self.fast_ma = bt.ind.SMA(self.datas[0].close, period=self.p.fast_period)',
+  '        self.slow_ma = bt.ind.SMA(self.datas[0].close, period=self.p.slow_period)',
+  '        self.cross = bt.ind.CrossOver(self.fast_ma, self.slow_ma)',
+  '',
+  '    def next(self):',
+  '        if not self.position and self.cross > 0:',
+  '            self.buy()',
+  '        elif self.position and self.cross < 0:',
+  '            self.close()',
+].join('\n')
+
 vi.mock('@/api/kbChat', () => ({
   kbChatApi: {
     listConversations: vi.fn(),
@@ -60,7 +78,7 @@ describe('useKBChatStore', () => {
       strategy_draft: {
         name: 'AI策略 - 双均线',
         description: '测试草案',
-        code: 'class Demo(bt.Strategy):\n    pass',
+        code: COMPLETE_STRATEGY_CODE,
         params: {
           fast_period: { type: 'int', default: 10 },
         },
@@ -148,6 +166,92 @@ describe('useKBChatStore', () => {
     })
   })
 
+  it('sendMessage should allow assistant modes without a knowledge base', async () => {
+    vi.mocked(kbChatApi.send).mockResolvedValue({
+      conversation_id: 'conv-standalone',
+      answer: '已生成策略草案',
+      citations: [],
+      context_chunks_used: 0,
+      tokens_used: 0,
+      model_id: null,
+      assistant_mode: 'backtrader_strategy',
+      strategy_draft: null,
+    })
+
+    const store = useKBChatStore()
+    await store.sendMessage(null, '生成双均线策略', {
+      assistantMode: 'backtrader_strategy',
+    })
+
+    expect(kbChatApi.send).toHaveBeenCalledWith({
+      question: '生成双均线策略',
+      conversation_id: null,
+      model_id: undefined,
+      assistant_mode: 'backtrader_strategy',
+      thinking_mode: undefined,
+    })
+    expect(kbChatApi.listConversations).toHaveBeenCalledWith(null)
+  })
+
+  it('fetchHistory should restore assistant mode and strategy draft metadata', async () => {
+    vi.mocked(kbChatApi.getHistory).mockResolvedValue({
+      conversation_id: 'conv-1',
+      messages: [
+        {
+          id: 'msg-1',
+          conversation_id: 'conv-1',
+          role: 'assistant',
+          content: '已生成策略草稿',
+          assistant_mode: 'backtrader_strategy',
+          strategy_draft: {
+            name: 'AI策略 - 双均线',
+            description: '测试草案',
+            code: COMPLETE_STRATEGY_CODE,
+            params: {
+              fast_period: { type: 'int', default: 10 },
+            },
+            category: 'trend',
+            assumptions: ['默认使用 OHLCV 数据'],
+            risk_points: ['需要验证样本外稳定性'],
+            data_source: {
+              type: 'csv',
+              symbol: null,
+              symbol_name: null,
+              timeframe: '1d',
+              timeframe_n: 1,
+              start_date: null,
+              end_date: null,
+              adjustment: null,
+            },
+            backtest_defaults: {
+              initial_cash: 100000,
+              commission: 0.001,
+              annual_days: 252,
+              calc_method: 'simple',
+              weight_mode: 'equal',
+            },
+            execution_plan: {
+              workspace_type: 'research',
+              group_name: 'AI策略 - 双均线',
+              run_parallel: false,
+            },
+            rationale: '用于测试历史恢复',
+            next_steps: ['继续完善'],
+            suggested_symbol: null,
+            suggested_timeframe: '1d',
+          },
+          created_at: '2026-04-23T00:00:00Z',
+        },
+      ],
+    })
+
+    const store = useKBChatStore()
+    await store.fetchHistory('conv-1')
+
+    expect(store.messages[0].assistantMode).toBe('backtrader_strategy')
+    expect(store.messages[0].strategyDraft?.name).toBe('AI策略 - 双均线')
+  })
+
   it('sendMessage should keep stock analysis cards', async () => {
     vi.mocked(kbChatApi.send).mockResolvedValue({
       conversation_id: 'conv-stock',
@@ -177,7 +281,7 @@ describe('useKBChatStore', () => {
     } as any)
 
     const store = useKBChatStore()
-    await store.sendMessage('kb-1', '分析 000001.SZ', {
+    await store.sendMessage(null, '分析 000001.SZ', {
       assistantMode: 'stock_analysis',
     })
 
@@ -205,7 +309,7 @@ describe('useKBChatStore', () => {
     } as any)
 
     const store = useKBChatStore()
-    await store.sendMessage('kb-1', '分析 000001.SZ', {
+    await store.sendMessage(null, '分析 000001.SZ', {
       assistantMode: 'stock_analysis',
       stockAnalysisParams: {
         symbol: '000001.SZ',
@@ -220,7 +324,6 @@ describe('useKBChatStore', () => {
     })
 
     expect(kbChatApi.send).toHaveBeenCalledWith({
-      knowledge_base_id: 'kb-1',
       question: '分析 000001.SZ',
       conversation_id: null,
       model_id: undefined,

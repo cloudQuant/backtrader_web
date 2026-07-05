@@ -8,6 +8,7 @@ import type { MarketAssetType } from '@/api/marketData'
 
 const apiMocks = vi.hoisted(() => ({
   lookupInstrument: vi.fn(),
+  listInstrumentOptions: vi.fn(),
   listTables: vi.fn(),
 }))
 
@@ -17,6 +18,7 @@ vi.mock('element-plus', () => ({
 
 vi.mock('@/api/marketData', () => ({
   marketDataApi: {
+    listInstrumentOptions: apiMocks.listInstrumentOptions,
     lookupInstrument: apiMocks.lookupInstrument,
   },
 }))
@@ -162,12 +164,46 @@ function createLookupFixture(assetType: MarketAssetType) {
   }
 }
 
+function createInstrumentOptionsFixture(assetType: MarketAssetType) {
+  return {
+    asset_type: assetType,
+    total: 2,
+    items: [
+      {
+        asset_type: assetType,
+        symbol: assetSymbols[assetType],
+        name: assetNames[assetType],
+        market: assetType === 'fx' ? 'FX' : assetType === 'crypto' ? 'CRYPTO' : 'CN',
+        source_table: 'akshare_data',
+        latest_date: '2026-06-19',
+        has_snapshot: true,
+        has_history: true,
+        history_rows: 120,
+      },
+      {
+        asset_type: assetType,
+        symbol: `${assetSymbols[assetType]}X`,
+        name: `${assetNames[assetType]}备选`,
+        market: assetType === 'futures' ? 'CFFEX' : 'CN',
+        source_table: 'akshare_data',
+        latest_date: '2026-06-18',
+        has_snapshot: true,
+        has_history: false,
+        history_rows: 0,
+      },
+    ],
+  }
+}
+
 describe('DataPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     apiMocks.lookupInstrument.mockImplementation(({ asset_type }: { asset_type: MarketAssetType }) => (
       Promise.resolve(createLookupFixture(asset_type))
     ))
+    apiMocks.listInstrumentOptions.mockImplementation(
+      ({ asset_type }: { asset_type: MarketAssetType }) => Promise.resolve(createInstrumentOptionsFixture(asset_type)),
+    )
     apiMocks.listTables.mockResolvedValue({
       items: [
         {
@@ -237,6 +273,13 @@ describe('DataPage', () => {
     expect((wrapper.vm as any).historyRows).toHaveLength(2)
     expect(wrapper.text()).toContain('+1.29%')
     expect(wrapper.find('[data-test="market-main-chart"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="market-instrument-select"]').exists()).toBe(true)
+    expect(apiMocks.listInstrumentOptions).toHaveBeenCalledWith({
+      asset_type: 'stock',
+      search: '000001',
+      limit: 80,
+    })
+    expect((wrapper.vm as any).instrumentOptions).toHaveLength(2)
     expect(apiMocks.listTables).toHaveBeenCalled()
   })
 
@@ -262,6 +305,11 @@ describe('DataPage', () => {
     await futuresTab?.trigger('click')
     await flushPromises()
 
+    expect(apiMocks.listInstrumentOptions).toHaveBeenLastCalledWith({
+      asset_type: 'futures',
+      search: 'IM2606',
+      limit: 80,
+    })
     expect(wrapper.text()).toContain('合约监控')
     expect(wrapper.text()).toContain('持仓量')
     expect(wrapper.text()).toContain('结算价')

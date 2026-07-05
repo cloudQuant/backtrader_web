@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 把 broker 能力从 `ai-for-trader` 彻底收敛到独立 `bt_api_py` 核心与 `bt_api_xx` 外部扩展包体系，并给出第一批可执行的核心改造与样板扩展落地顺序。
+**Goal:** 把 broker 能力从 `ai-for-investor` 彻底收敛到独立 `bt_api_py` 核心与 `bt_api_xx` 外部扩展包体系，并给出第一批可执行的核心改造与样板扩展落地顺序。
 
 **Architecture:** 现有 `bt_api_py.bt_api.BtApi` 已经内置 `PluginLoader`、`_RuntimeRegistrar` 与 `ExchangeRegistry` 消费路径；外部 `bt_api_xx` 包的标准形态应是 old plugin mode：`bt_api.plugins` entry point + `register_plugin(registry, runtime_factory)` + `feed / exchange_data / balance_handler / gateway adapter` layering。本计划以这个老模式为准推进首包 `bt_api_alpaca`，并补足 `bt_api_py` 侧 discovery / integration tests 与文档收口。
 
@@ -15,7 +15,7 @@
 ### Repository roots
 
 - Core repo: `/Users/yunjinqi/Documents/new_projects/bt_api/bt_api_py`
-- Docs repo: `/Users/yunjinqi/Documents/new_projects/ai-for-trader`
+- Docs repo: `/Users/yunjinqi/Documents/new_projects/ai-for-investor`
 - First sample external package target: `/Users/yunjinqi/Documents/new_projects/bt_api/bt_api_alpaca`
 
 ### Current facts to preserve
@@ -28,7 +28,7 @@
 
 ### Hard rules
 
-- 不在 `ai-for-trader` 仓内实现 broker adapter 主逻辑
+- 不在 `ai-for-investor` 仓内实现 broker adapter 主逻辑
 - 先做 core contract / loader / compatibility，再做外部包
 - 每一步都先写失败测试，再补最小实现
 - 只跑**非常小的目标测试**，不要一开始跑全量套件
@@ -488,9 +488,9 @@ git commit -m "test(bt_api): verify alpaca old-mode plugin discovery and consump
 ### Task 7: Document the compatibility contract and keep web-side docs thin
 
 **Files:**
-- Modify: `/Users/yunjinqi/Documents/new_projects/ai-for-trader/docs/guides/BT_API_PY_BROKER_CONTRACT.md`
-- Modify: `/Users/yunjinqi/Documents/new_projects/ai-for-trader/docs/plans/2026-05-26-bt-api-ecosystem-design.md`
-- Modify: `/Users/yunjinqi/Documents/new_projects/ai-for-trader/docs/iterations/迭代171-FinceptTerminal迁移深化与产品化收口/index.md`
+- Modify: `/Users/yunjinqi/Documents/new_projects/ai-for-investor/docs/guides/BT_API_PY_BROKER_CONTRACT.md`
+- Modify: `/Users/yunjinqi/Documents/new_projects/ai-for-investor/docs/plans/2026-05-26-bt-api-ecosystem-design.md`
+- Modify: `/Users/yunjinqi/Documents/new_projects/ai-for-investor/docs/iterations/迭代171-FinceptTerminal迁移深化与产品化收口/index.md`
 - Test: doc review only
 
 **Step 1: Write the failing review checklist**
@@ -500,7 +500,7 @@ Create a checklist in the task notes:
 ```text
 - Docs must say bt_api_py owns the contract
 - Docs must say bt_api_xx owns concrete adapters
-- Docs must say ai-for-trader is consumer only
+- Docs must say ai-for-investor is consumer only
 - Docs must link to implementation plan and package spec
 ```
 
@@ -512,7 +512,7 @@ Manual check expected: at least one doc is missing the implementation-plan or pa
 
 - Add a “Next execution docs” section to the ecosystem design doc
 - Link both new docs from the broker guide or 171 doc
-- Do not add new broker scope back into `ai-for-trader`
+- Do not add new broker scope back into `ai-for-investor`
 
 **Step 4: Run review to verify it passes**
 
@@ -521,7 +521,7 @@ Manual check expected: all four checklist items are satisfied.
 **Step 5: Commit**
 
 ```bash
-git add /Users/yunjinqi/Documents/new_projects/ai-for-trader/docs/guides/BT_API_PY_BROKER_CONTRACT.md /Users/yunjinqi/Documents/new_projects/ai-for-trader/docs/plans/2026-05-26-bt-api-ecosystem-design.md /Users/yunjinqi/Documents/new_projects/ai-for-trader/docs/iterations/迭代171-FinceptTerminal迁移深化与产品化收口/index.md
+git add /Users/yunjinqi/Documents/new_projects/ai-for-investor/docs/guides/BT_API_PY_BROKER_CONTRACT.md /Users/yunjinqi/Documents/new_projects/ai-for-investor/docs/plans/2026-05-26-bt-api-ecosystem-design.md /Users/yunjinqi/Documents/new_projects/ai-for-investor/docs/iterations/迭代171-FinceptTerminal迁移深化与产品化收口/index.md
 git commit -m "docs: link broker ecosystem execution plan and package spec"
 ```
 
@@ -558,4 +558,4 @@ This plan is complete when all of the following are true:
 - a canonical `bt_api_py.backtrader.btapibroker` import path exists
 - the contract harness produces richer case-level results for external-package validation
 - a first external sample package (`bt_api_alpaca`) exists and passes the core contract harness
-- `ai-for-trader` docs point to the new implementation plan and package spec, but do not absorb broker implementation work back into the web repo
+- `ai-for-investor` docs point to the new implementation plan and package spec, but do not absorb broker implementation work back into the web repo

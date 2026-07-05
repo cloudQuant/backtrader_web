@@ -1,6 +1,6 @@
-# Contributing to AI for Trader
+# Contributing to AI for Investor
 
-Thank you for your interest in contributing to AI for Trader! This document provides guidelines and instructions for contributors.
+Thank you for your interest in contributing to AI for Investor! This document provides guidelines and instructions for contributors.
 
 ## Table of Contents
 
@@ -18,8 +18,8 @@ Thank you for your interest in contributing to AI for Trader! This document prov
 
 ```bash
 # Fork the repository on GitHub
-git clone https://github.com/YOUR_USERNAME/ai-for-trader.git
-cd ai-for-trader
+git clone https://github.com/YOUR_USERNAME/ai-for-investor.git
+cd ai-for-investor
 ```
 
 ### 2. Create a Feature Branch

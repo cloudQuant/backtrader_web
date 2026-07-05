@@ -7,6 +7,7 @@ live trading manager/runtime while persisting state on workspace units.
 
 from __future__ import annotations
 
+import logging
 import shutil
 from datetime import date, datetime
 from decimal import Decimal
@@ -37,6 +38,8 @@ from app.services.trading_asset_info_service import (
     split_bidirectional_position_row,
     symbol_aliases,
 )
+
+logger = logging.getLogger(__name__)
 
 _LIGHT_HYDRATE_PRESERVE_KEYS = (
     "today_pnl",
@@ -452,13 +455,11 @@ def _merge_asset_spec_aliases(
     spec = _json_safe_value(spec)
     existing = _asset_spec_for_symbol(specs, symbol)
     merged = dict(existing)
-    contributed = False
     core_contributed = False
     primary_source_contributed = False
     for key, value in spec.items():
         if _can_merge_asset_spec_value(existing, key, value):
             merged[key] = value
-            contributed = True
             if _is_asset_spec_core_key(key):
                 core_contributed = True
             if _is_asset_spec_primary_source_key(existing, key):
@@ -530,7 +531,6 @@ def _merge_asset_spec_update(
 ) -> dict[str, Any]:
     update = _json_safe_value(update)
     merged = dict(existing)
-    changed = False
     core_changed = False
     primary_source_changed = False
     for group in (
@@ -548,14 +548,12 @@ def _merge_asset_spec_update(
         for key in group:
             if key in merged:
                 merged.pop(key, None)
-                changed = True
                 core_changed = True
                 if _is_asset_spec_primary_source_key(existing, key):
                     primary_source_changed = True
         for key, value in group_items.items():
             if merged.get(key) != value:
                 merged[key] = value
-                changed = True
                 core_changed = True
                 if _is_asset_spec_primary_source_key(existing, key):
                     primary_source_changed = True
@@ -570,7 +568,6 @@ def _merge_asset_spec_update(
             continue
         if key in _ASSET_SPEC_AUX_KEYS and merged.get(key) != value:
             merged[key] = value
-            changed = True
 
     existing_source = str(existing.get("source") or existing.get("asset_spec_source") or "").strip()
     next_source = str(update.get("source") or update.get("asset_spec_source") or "").strip()
@@ -1714,7 +1711,7 @@ class TradingWorkspaceService:
                 params["gateway"] = {"enabled": False}
 
         params["trading_mode"] = trading_mode
-        return params
+        return _json_safe_value(params)
 
     @classmethod
     def _build_snapshot(
@@ -1928,8 +1925,7 @@ class TradingWorkspaceService:
                     raise ValueError("策略单元缺少策略模板")
 
                 instance = None
-                if self.normalize_trading_mode(unit.trading_mode) != "live":
-                    self._refresh_unit_asset_specs_from_local(unit, None)
+                self._refresh_unit_asset_specs_from_local(unit, None)
                 runtime_dir = workspace_unit_runtime.sync_trading_unit_runtime(
                     unit,
                     normalized_workspace_settings,
@@ -1995,6 +1991,7 @@ class TradingWorkspaceService:
                     }
                 )
             except Exception as exc:
+                logger.exception("Trading unit %s start failed", unit.id)
                 unit.run_status = "failed"
                 unit.trading_snapshot = self.default_snapshot(
                     unit=unit,

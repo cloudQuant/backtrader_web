@@ -396,6 +396,7 @@ class BacktestService:
 
     async def _notify_progress(self, task_id: str, progress: int, message: str) -> None:
         """Send a backtest progress event via WebSocket."""
+        await self.task_manager.update_task_progress(task_id, progress, message)
         await ws_manager.send_to_task(
             task_id,
             BacktestProgressEvent(task_id=task_id, progress=progress, message=message).model_dump(
@@ -514,10 +515,7 @@ class BacktestService:
             if not (
                 task.status == TaskStatus.COMPLETED
                 and task.log_dir
-                and (
-                    (not cached_payload.get("equity_curve") and not cached_payload.get("trades"))
-                    or str(cached_payload.get("metrics_source") or "") != "fincore"
-                )
+                and (not cached_payload.get("equity_curve") and not cached_payload.get("trades"))
             ):
                 return BacktestResult(**cached_payload)
 
@@ -534,7 +532,6 @@ class BacktestService:
                     not getattr(result_model, "equity_curve", None)
                     and not getattr(result_model, "trades", None)
                 )
-                or str(getattr(result_model, "metrics_source", "") or "") != "fincore"
             )
         ):
             from app.services.fincore_metrics_helper import calculate_metrics_from_log_data

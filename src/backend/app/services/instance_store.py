@@ -10,6 +10,8 @@ import os
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,20 @@ from app.utils.backend_data_paths import get_backend_data_path
 
 _DATA_DIR = get_backend_data_path()
 _INSTANCES_FILE = _DATA_DIR / "live_trading_instances.json"
+
+
+def _json_safe_value(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item) for item in value]
+    return value
 
 
 @contextmanager
@@ -84,7 +100,7 @@ class InstanceStore:
         Args:
             data: The instances dictionary to save.
         """
-        payload = json.dumps(data, ensure_ascii=False, indent=2)
+        payload = json.dumps(_json_safe_value(data), ensure_ascii=False, indent=2)
         target = Path(self._file)
         target.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(

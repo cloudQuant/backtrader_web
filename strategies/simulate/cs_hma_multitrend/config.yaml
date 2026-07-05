@@ -4,7 +4,7 @@
 strategy:
   name: "玉米淀粉HMA多趋势策略"
   description: "基于Hull移动平均线的多趋势策略 - 玉米淀粉期货"
-  author: "ai-for-trader"
+  author: "ai-for-investor"
   category: "simulate"
   
 # ============================================================

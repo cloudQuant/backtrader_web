@@ -1,10 +1,10 @@
 # Getting Started
 
-Welcome to AI for Trader! This section will help you get started with the platform.
+Welcome to AI for Investor! This section will help you get started with the platform.
 
-## What is AI for Trader?
+## What is AI for Investor?
 
-AI for Trader is a **full-featured quantitative trading management platform** that provides a complete workflow from strategy development, backtesting, paper trading to live trading monitoring.
+AI for Investor is a **full-featured quantitative trading management platform** that provides a complete workflow from strategy development, backtesting, paper trading to live trading monitoring.
 
 ## Supported Features
 

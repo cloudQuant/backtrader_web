@@ -2,7 +2,7 @@
 
 ## 背景
 
-目标是把 `http://localhost:3000/analysis/single` 代表的单股分析能力整合进当前 AI for Trader 的 AI 助手，但实现上必须完全摆脱 `TradingAgents-CN`。
+目标是把 `http://localhost:3000/analysis/single` 代表的单股分析能力整合进当前 AI for Investor 的 AI 助手，但实现上必须完全摆脱 `TradingAgents-CN`。
 
 这里的“摆脱”定义为：
 

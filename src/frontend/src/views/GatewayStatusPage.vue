@@ -1,16 +1,21 @@
 <template>
-  <div class="space-y-6">
-    <teleport
-      v-if="headerActionsTargetReady"
-      to="#page-header-actions"
+  <div
+    class="gateway-page"
+    data-test="gateway-page"
+  >
+    <section
+      class="gateway-hero"
+      data-test="gateway-hero"
     >
-      <div class="flex items-center gap-2 flex-wrap">
-        <el-tag
-          :type="healthyCount > 0 ? 'success' : 'info'"
-          size="small"
-        >
-          {{ t('gatewayStatus.headerHealthSummary', { healthy: healthyCount, total: visibleGateways.length }) }}
-        </el-tag>
+      <div class="gateway-hero-copy">
+        <div class="gateway-kicker">
+          {{ t('gatewayStatus.heroKicker') }}
+        </div>
+        <h1>{{ t('gatewayStatus.heroTitle') }}</h1>
+        <p>{{ t('gatewayStatus.heroDesc') }}</p>
+      </div>
+
+      <div class="gateway-hero-actions">
         <el-radio-group
           v-model="viewMode"
           size="small"
@@ -23,21 +28,55 @@
           </el-radio-button>
         </el-radio-group>
         <el-button
-          type="primary"
-          size="small"
-          @click="openConnectDialog"
-        >
-          <el-icon><Connection /></el-icon>{{ t('gatewayStatus.btnConnect') }}
-        </el-button>
-        <el-button
-          size="small"
+          :icon="Refresh"
           :loading="loading"
           @click="fetchHealth"
         >
-          <el-icon><Refresh /></el-icon>{{ t('gatewayStatus.btnRefresh') }}
+          {{ t('gatewayStatus.btnRefresh') }}
+        </el-button>
+        <el-button
+          type="primary"
+          :icon="Connection"
+          @click="openConnectDialog"
+        >
+          {{ t('gatewayStatus.btnConnect') }}
         </el-button>
       </div>
-    </teleport>
+
+      <div
+        class="gateway-metrics"
+        data-test="gateway-metrics"
+      >
+        <article class="gateway-metric">
+          <el-icon aria-hidden="true">
+            <Connection />
+          </el-icon>
+          <span>{{ t('gatewayStatus.statConnectedGateways') }}</span>
+          <strong>{{ visibleGateways.length }}</strong>
+        </article>
+        <article class="gateway-metric">
+          <el-icon aria-hidden="true">
+            <CircleCheckFilled />
+          </el-icon>
+          <span>{{ t('gatewayStatus.statHealthyGateways') }}</span>
+          <strong>{{ healthyCount }}</strong>
+        </article>
+        <article class="gateway-metric">
+          <el-icon aria-hidden="true">
+            <Grid />
+          </el-icon>
+          <span>{{ t('gatewayStatus.statSymbolCount') }}</span>
+          <strong>{{ totalSymbolCount }}</strong>
+        </article>
+        <article class="gateway-metric">
+          <el-icon aria-hidden="true">
+            <List />
+          </el-icon>
+          <span>{{ t('gatewayStatus.statOrderCount') }}</span>
+          <strong>{{ totalOrderCount }}</strong>
+        </article>
+      </div>
+    </section>
 
     <el-alert
       v-if="loadError"
@@ -45,64 +84,224 @@
       type="error"
       :closable="false"
       show-icon
+      class="gateway-alert"
+      data-test="gateway-alert"
     />
 
-    <!-- Loading -->
-    <div
-      v-if="loading && visibleGateways.length === 0"
-      class="flex justify-center py-12"
+    <el-card
+      class="gateway-panel gateway-workbench"
+      data-test="gateway-workbench"
     >
-      <el-icon class="is-loading text-4xl text-blue-500">
-        <Loading />
-      </el-icon>
-    </div>
+      <template #header>
+        <div class="gateway-panel-heading">
+          <div>
+            <div class="gateway-kicker">
+              {{ t('gatewayStatus.workbenchKicker') }}
+            </div>
+            <div class="gateway-panel-title">
+              {{ t('gatewayStatus.workbenchTitle') }}
+            </div>
+            <p>{{ t('gatewayStatus.workbenchDesc') }}</p>
+          </div>
+          <div class="gateway-count">
+            {{ t('gatewayStatus.headerHealthSummary', { healthy: healthyCount, total: visibleGateways.length }) }}
+            <span>{{ t('gatewayStatus.staleHeartbeatSummary', { count: staleHeartbeatCount }) }}</span>
+          </div>
+        </div>
+      </template>
 
-    <!-- Empty -->
-    <div
-      v-else-if="visibleGateways.length === 0"
-      class="text-center py-12"
-    >
-      <el-empty :description="t('gatewayStatus.emptyDesc')" />
-    </div>
+      <div class="gateway-toolbar">
+        <el-input
+          v-model="gatewaySearch"
+          clearable
+          class="toolbar-search"
+          :prefix-icon="Search"
+          :placeholder="t('gatewayStatus.searchPlaceholder')"
+        />
+        <el-select
+          v-model="stateFilter"
+          class="toolbar-item"
+        >
+          <el-option
+            :label="t('gatewayStatus.filterAllStates')"
+            value="all"
+          />
+          <el-option
+            :label="t('gatewayStatus.stateRunning')"
+            value="running"
+          />
+          <el-option
+            :label="t('gatewayStatus.stateError')"
+            value="error"
+          />
+          <el-option
+            :label="t('gatewayStatus.stateRegistered')"
+            value="registered"
+          />
+        </el-select>
+        <el-select
+          v-model="healthFilter"
+          class="toolbar-item"
+        >
+          <el-option
+            :label="t('gatewayStatus.filterAllHealth')"
+            value="all"
+          />
+          <el-option
+            :label="t('gatewayStatus.filterHealthy')"
+            value="healthy"
+          />
+          <el-option
+            :label="t('gatewayStatus.filterUnhealthy')"
+            value="unhealthy"
+          />
+        </el-select>
+      </div>
 
-    <!-- Gateway Cards -->
-    <div
-      v-else-if="viewMode === 'card'"
-      class="grid grid-cols-1 lg:grid-cols-2 gap-4"
-    >
-      <el-card
-        v-for="gw in visibleGateways"
-        :key="gw.gateway_key"
-        shadow="hover"
+      <div
+        v-if="loading && visibleGateways.length === 0"
+        class="gateway-loading"
       >
-        <!-- Card Header -->
-        <template #header>
-          <div class="flex justify-between items-center">
-            <div class="flex items-center gap-2">
-              <el-icon
-                :color="gw.is_healthy ? 'var(--el-color-success)' : 'var(--el-color-danger)'"
-                :size="18"
-              >
-                <CircleCheckFilled v-if="gw.is_healthy" />
-                <CircleCloseFilled v-else />
-              </el-icon>
-              <span class="font-bold text-base">{{ gw.strategy_name || gw.gateway_key }}</span>
+        <el-icon class="is-loading">
+          <Loading />
+        </el-icon>
+      </div>
+
+      <div
+        v-else-if="visibleGateways.length === 0"
+        class="gateway-empty"
+        data-test="gateway-empty"
+      >
+        <el-icon aria-hidden="true">
+          <Connection />
+        </el-icon>
+        <strong>{{ t('gatewayStatus.emptyTitle') }}</strong>
+        <span>{{ t('gatewayStatus.emptyDesc') }}</span>
+        <el-button
+          type="primary"
+          :icon="Connection"
+          @click="openConnectDialog"
+        >
+          {{ t('gatewayStatus.btnConnect') }}
+        </el-button>
+      </div>
+
+      <template v-else>
+        <div
+          v-if="viewMode === 'card'"
+          class="gateway-card-grid"
+          data-test="gateway-card-grid"
+        >
+          <article
+            v-for="gw in visibleGateways"
+            :key="gw.gateway_key"
+            class="gateway-card"
+          >
+            <div class="gateway-card-head">
+              <div>
+                <div class="gateway-title-line">
+                  <el-icon
+                    :class="gw.is_healthy ? 'is-healthy' : 'is-unhealthy'"
+                    aria-hidden="true"
+                  >
+                    <CircleCheckFilled v-if="gw.is_healthy" />
+                    <CircleCloseFilled v-else />
+                  </el-icon>
+                  <strong>{{ gw.strategy_name || gw.gateway_key }}</strong>
+                </div>
+                <span>{{ gw.gateway_key }}</span>
+              </div>
+              <div class="gateway-card-state">
+                <el-tag
+                  :type="stateTagType(gw.state)"
+                  size="small"
+                >
+                  {{ stateLabel(gw.state) }}
+                </el-tag>
+                <el-tag
+                  v-if="gw.gateway_key.startsWith('manual:')"
+                  type="warning"
+                  size="small"
+                  effect="plain"
+                >
+                  {{ t('gatewayStatus.tagManual') }}
+                </el-tag>
+              </div>
+            </div>
+
+            <div class="gateway-info-grid">
+              <span>{{ t('gatewayStatus.fieldExchange') }}</span>
+              <strong>{{ gw.exchange || '-' }}</strong>
+              <span>{{ t('gatewayStatus.fieldAssetType') }}</span>
+              <strong>{{ gw.asset_type || '-' }}</strong>
+              <span>{{ t('gatewayStatus.fieldAccount') }}</span>
+              <strong>{{ gw.account_id || '-' }}</strong>
+              <span>{{ t('gatewayStatus.fieldUptime') }}</span>
+              <strong>{{ formatUptime(gw.uptime_sec) }}</strong>
+              <span>{{ t('gatewayStatus.fieldMarketConn') }}</span>
+              <strong>{{ connLabel(gw.market_connection) }}</strong>
+              <span>{{ t('gatewayStatus.fieldTradeConn') }}</span>
+              <strong>{{ connLabel(gw.trade_connection) }}</strong>
+            </div>
+
+            <div class="gateway-stat-grid">
+              <div>
+                <span>{{ t('gatewayStatus.statStrategyCount') }}</span>
+                <strong>{{ gw.strategy_count }}</strong>
+              </div>
+              <div>
+                <span>{{ t('gatewayStatus.statSymbolCount') }}</span>
+                <strong>{{ gw.symbol_count }}</strong>
+              </div>
+              <div>
+                <span>{{ t('gatewayStatus.statTickCount') }}</span>
+                <strong>{{ formatNumber(gw.tick_count) }}</strong>
+              </div>
+              <div>
+                <span>{{ t('gatewayStatus.statOrderCount') }}</span>
+                <strong>{{ gw.order_count }}</strong>
+              </div>
+            </div>
+
+            <div class="gateway-meta-row">
+              <span>{{ t('gatewayStatus.fieldHeartbeat') }}</span>
+              <strong :class="heartbeatClass(getHeartbeatAge(gw, nowMs, lastHealthFetchMs))">
+                {{ formatHeartbeatAge(gw, nowMs, lastHealthFetchMs) }}
+              </strong>
+              <span>{{ t('gatewayStatus.fieldRefCount') }}</span>
+              <strong>{{ gw.ref_count }}</strong>
+            </div>
+
+            <div
+              v-if="gw.instances.length > 0"
+              class="gateway-tag-list"
+            >
+              <span>{{ t('gatewayStatus.fieldInstances') }}</span>
               <el-tag
-                v-if="gw.gateway_key.startsWith('direct:')"
+                v-for="iid in gw.instances.slice(0, 4)"
+                :key="iid"
                 size="small"
-                type="warning"
                 effect="plain"
               >
-                {{ t('gatewayStatus.tagDirect') }}
+                {{ iid.slice(0, 8) }}
               </el-tag>
             </div>
-            <div class="flex items-center gap-2">
-              <el-tag
-                :type="stateTagType(gw.state)"
-                size="small"
+
+            <div
+              v-if="gw.recent_errors?.length"
+              class="gateway-error-list"
+            >
+              <strong>{{ t('gatewayStatus.recentErrors', { n: gw.recent_errors.length }) }}</strong>
+              <span
+                v-for="(err, idx) in gw.recent_errors.slice(-3)"
+                :key="idx"
+                :title="err.message"
               >
-                {{ stateLabel(gw.state) }}
-              </el-tag>
+                [{{ err.source }}] {{ err.message }}
+              </span>
+            </div>
+
+            <div class="gateway-card-actions">
               <el-popconfirm
                 v-if="gw.gateway_key.startsWith('manual:')"
                 :title="t('gatewayStatus.tagDisconnect')"
@@ -120,371 +319,116 @@
                 </template>
               </el-popconfirm>
             </div>
-          </div>
-        </template>
-
-        <!-- Info Grid -->
-        <div class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-          <div>
-            <span class="text-gray-500">{{ t('gatewayStatus.fieldExchange') }}</span>
-            <div class="font-medium">
-              {{ gw.exchange || '-' }}
-            </div>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('gatewayStatus.fieldAssetType') }}</span>
-            <div class="font-medium">
-              {{ gw.asset_type || '-' }}
-            </div>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('gatewayStatus.fieldAccount') }}</span>
-            <div class="font-medium">
-              {{ gw.account_id || '-' }}
-            </div>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('gatewayStatus.fieldUptime') }}</span>
-            <div class="font-medium">
-              {{ formatUptime(gw.uptime_sec) }}
-            </div>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('gatewayStatus.fieldMarketConn') }}</span>
-            <div>
-              <el-tag
-                :type="connTagType(gw.market_connection)"
-                size="small"
-              >
-                {{ connLabel(gw.market_connection) }}
-              </el-tag>
-            </div>
-          </div>
-          <div>
-            <span class="text-gray-500">{{ t('gatewayStatus.fieldTradeConn') }}</span>
-            <div>
-              <el-tag
-                :type="connTagType(gw.trade_connection)"
-                size="small"
-              >
-                {{ connLabel(gw.trade_connection) }}
-              </el-tag>
-            </div>
-          </div>
+          </article>
         </div>
 
-        <!-- Stats Row -->
-        <el-divider />
-        <div class="grid grid-cols-4 gap-2 text-center text-sm">
-          <div>
-            <div class="text-gray-500">
-              {{ t('gatewayStatus.statStrategyCount') }}
-            </div>
-            <div class="text-lg font-bold text-blue-600">
-              {{ gw.strategy_count }}
-            </div>
-          </div>
-          <div>
-            <div class="text-gray-500">
-              {{ t('gatewayStatus.statSymbolCount') }}
-            </div>
-            <div class="text-lg font-bold text-blue-600">
-              {{ gw.symbol_count }}
-            </div>
-          </div>
-          <div>
-            <div class="text-gray-500">
-              {{ t('gatewayStatus.statTickCount') }}
-            </div>
-            <div class="text-lg font-bold text-green-600">
-              {{ formatNumber(gw.tick_count) }}
-            </div>
-          </div>
-          <div>
-            <div class="text-gray-500">
-              {{ t('gatewayStatus.statOrderCount') }}
-            </div>
-            <div class="text-lg font-bold text-orange-600">
-              {{ gw.order_count }}
-            </div>
-          </div>
-        </div>
-
-        <!-- Heartbeat & Instances -->
-        <el-divider />
-        <div class="text-sm space-y-2">
-          <div class="flex justify-between">
-            <span class="text-gray-500">{{ t('gatewayStatus.fieldHeartbeat') }}</span>
-            <span :class="heartbeatClass(getHeartbeatAge(gw, nowMs, lastHealthFetchMs))">
-              {{ formatHeartbeatAge(gw, nowMs, lastHealthFetchMs) }}
-            </span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-gray-500">{{ t('gatewayStatus.fieldRefCount') }}</span>
-            <span>{{ gw.ref_count }}</span>
-          </div>
-          <div v-if="gw.instances.length > 0">
-            <span class="text-gray-500">{{ t('gatewayStatus.fieldInstances') }}</span>
-            <el-tag
-              v-for="iid in gw.instances"
-              :key="iid"
-              size="small"
-              class="ml-1 mb-1"
-              effect="plain"
-            >
-              {{ iid.slice(0, 8) }}
-            </el-tag>
-          </div>
-        </div>
-
-        <!-- Recent Errors -->
-        <template v-if="gw.recent_errors && gw.recent_errors.length > 0">
-          <el-divider />
-          <div class="text-sm">
-            <div class="text-red-500 font-medium mb-1">
-              {{ t('gatewayStatus.recentErrors', { n: gw.recent_errors.length }) }}
-            </div>
-            <div
-              v-for="(err, idx) in gw.recent_errors.slice(-3)"
-              :key="idx"
-              class="text-xs text-gray-600 truncate"
-              :title="err.message"
-            >
-              [{{ err.source }}] {{ err.message }}
-            </div>
-          </div>
-        </template>
-      </el-card>
-    </div>
-
-    <el-card
-      v-else
-      shadow="never"
-    >
-      <el-table
-        :data="visibleGateways"
-        stripe
-        border
-      >
-        <el-table-column
-          label="Gateway"
-          min-width="240"
-          show-overflow-tooltip
+        <el-table
+          v-else
+          :data="visibleGateways"
+          stripe
+          class="gateway-table"
+          data-test="gateway-table"
         >
-          <template #default="{ row }">
-            <div class="flex items-center gap-2">
-              <el-icon
-                :color="row.is_healthy ? 'var(--el-color-success)' : 'var(--el-color-danger)'"
-                :size="16"
-              >
-                <CircleCheckFilled v-if="row.is_healthy" />
-                <CircleCloseFilled v-else />
-              </el-icon>
-              <span class="font-medium">{{ row.strategy_name || row.gateway_key }}</span>
+          <el-table-column
+            :label="t('gatewayStatus.colGateway')"
+            min-width="240"
+          >
+            <template #default="{ row }">
+              <div class="gateway-table-identity">
+                <strong>{{ row.strategy_name || row.gateway_key }}</strong>
+                <span>{{ row.gateway_key }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="exchange"
+            :label="t('gatewayStatus.fieldExchange')"
+            min-width="110"
+          />
+          <el-table-column
+            prop="asset_type"
+            :label="t('gatewayStatus.fieldAssetType')"
+            min-width="100"
+          />
+          <el-table-column
+            :label="t('gatewayStatus.colState')"
+            width="120"
+          >
+            <template #default="{ row }">
               <el-tag
-                v-if="row.gateway_key.startsWith('direct:')"
+                :type="stateTagType(row.state)"
                 size="small"
-                type="warning"
-                effect="plain"
               >
-                {{ t('gatewayStatus.tagDirect') }}
+                {{ stateLabel(row.state) }}
               </el-tag>
-            </div>
-            <div class="text-xs text-gray-500 mt-1">
-              {{ row.gateway_key }}
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column
-          prop="exchange"
-          :label="t('gatewayStatus.fieldExchange')"
-          min-width="110"
-        />
-        <el-table-column
-          prop="asset_type"
-          :label="t('gatewayStatus.fieldAssetType')"
-          min-width="100"
-        />
-        <el-table-column
-          prop="account_id"
-          :label="t('gatewayStatus.fieldAccount')"
-          min-width="120"
-          show-overflow-tooltip
-        />
-
-        <el-table-column
-          :label="t('gatewayStatus.colState')"
-          min-width="110"
-        >
-          <template #default="{ row }">
-            <el-tag
-              :type="stateTagType(row.state)"
-              size="small"
-            >
-              {{ stateLabel(row.state) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-
-        <el-table-column
-          :label="t('gatewayStatus.fieldMarketConn')"
-          min-width="110"
-        >
-          <template #default="{ row }">
-            <el-tag
-              :type="connTagType(row.market_connection)"
-              size="small"
-            >
-              {{ connLabel(row.market_connection) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-
-        <el-table-column
-          :label="t('gatewayStatus.fieldTradeConn')"
-          min-width="110"
-        >
-          <template #default="{ row }">
-            <el-tag
-              :type="connTagType(row.trade_connection)"
-              size="small"
-            >
-              {{ connLabel(row.trade_connection) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-
-        <el-table-column
-          :label="t('gatewayStatus.fieldUptime')"
-          min-width="110"
-        >
-          <template #default="{ row }">
-            {{ formatUptime(row.uptime_sec) }}
-          </template>
-        </el-table-column>
-
-        <el-table-column
-          prop="strategy_count"
-          :label="t('gatewayStatus.statStrategyCount')"
-          min-width="90"
-        />
-        <el-table-column
-          prop="symbol_count"
-          :label="t('gatewayStatus.statSymbolCount')"
-          min-width="100"
-        />
-
-        <el-table-column
-          :label="t('gatewayStatus.statTickCount')"
-          min-width="100"
-        >
-          <template #default="{ row }">
-            {{ formatNumber(row.tick_count) }}
-          </template>
-        </el-table-column>
-
-        <el-table-column
-          prop="order_count"
-          :label="t('gatewayStatus.statOrderCount')"
-          min-width="90"
-        />
-
-        <el-table-column
-          :label="t('gatewayStatus.fieldHeartbeat')"
-          min-width="100"
-        >
-          <template #default="{ row }">
-            <span :class="heartbeatClass(getHeartbeatAge(row, nowMs, lastHealthFetchMs))">
-              {{ formatHeartbeatAge(row, nowMs, lastHealthFetchMs) }}
-            </span>
-          </template>
-        </el-table-column>
-
-        <el-table-column
-          prop="ref_count"
-          :label="t('gatewayStatus.fieldRefCount')"
-          min-width="100"
-        />
-
-        <el-table-column
-          :label="t('gatewayStatus.colInstances')"
-          min-width="180"
-          show-overflow-tooltip
-        >
-          <template #default="{ row }">
-            <div
-              v-if="row.instances.length > 0"
-              class="flex flex-wrap gap-1"
-            >
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="t('gatewayStatus.fieldMarketConn')"
+            width="125"
+          >
+            <template #default="{ row }">
               <el-tag
-                v-for="iid in row.instances.slice(0, 3)"
-                :key="iid"
+                :type="connTagType(row.market_connection)"
                 size="small"
-                effect="plain"
               >
-                {{ iid.slice(0, 8) }}
+                {{ connLabel(row.market_connection) }}
               </el-tag>
-              <span
-                v-if="row.instances.length > 3"
-                class="text-xs text-gray-500"
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="t('gatewayStatus.fieldTradeConn')"
+            width="125"
+          >
+            <template #default="{ row }">
+              <el-tag
+                :type="connTagType(row.trade_connection)"
+                size="small"
               >
-                +{{ row.instances.length - 3 }}
+                {{ connLabel(row.trade_connection) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="t('gatewayStatus.fieldHeartbeat')"
+            width="120"
+          >
+            <template #default="{ row }">
+              <span :class="heartbeatClass(getHeartbeatAge(row, nowMs, lastHealthFetchMs))">
+                {{ formatHeartbeatAge(row, nowMs, lastHealthFetchMs) }}
               </span>
-            </div>
-            <span
-              v-else
-              class="text-gray-400"
-            >-</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column
-          :label="t('gatewayStatus.colRecentErrors')"
-          min-width="220"
-          show-overflow-tooltip
-        >
-          <template #default="{ row }">
-            <span v-if="row.recent_errors?.length">
-              [{{ row.recent_errors[row.recent_errors.length - 1].source }}]
-              {{ row.recent_errors[row.recent_errors.length - 1].message }}
-            </span>
-            <span
-              v-else
-              class="text-gray-400"
-            >-</span>
-          </template>
-        </el-table-column>
-
-        <el-table-column
-          :label="t('gatewayStatus.colActions')"
-          fixed="right"
-          width="100"
-        >
-          <template #default="{ row }">
-            <el-popconfirm
-              v-if="row.gateway_key.startsWith('manual:')"
-              :title="t('gatewayStatus.tagDisconnect')"
-              @confirm="handleDisconnect(row.gateway_key)"
-            >
-              <template #reference>
-                <el-button
-                  type="danger"
-                  size="small"
-                  plain
-                  :loading="disconnecting === row.gateway_key"
-                >
-                  {{ t('gatewayStatus.btnDisconnect') }}
-                </el-button>
-              </template>
-            </el-popconfirm>
-            <span
-              v-else
-              class="text-gray-400 text-sm"
-            >-</span>
-          </template>
-        </el-table-column>
-      </el-table>
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="t('gatewayStatus.colActions')"
+            fixed="right"
+            width="110"
+          >
+            <template #default="{ row }">
+              <el-popconfirm
+                v-if="row.gateway_key.startsWith('manual:')"
+                :title="t('gatewayStatus.tagDisconnect')"
+                @confirm="handleDisconnect(row.gateway_key)"
+              >
+                <template #reference>
+                  <el-button
+                    type="danger"
+                    size="small"
+                    plain
+                    :loading="disconnecting === row.gateway_key"
+                  >
+                    {{ t('gatewayStatus.btnDisconnect') }}
+                  </el-button>
+                </template>
+              </el-popconfirm>
+              <span
+                v-else
+                class="gateway-muted"
+              >-</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
     </el-card>
 
     <!-- Connect Gateway Dialog -->
@@ -980,8 +924,7 @@
 </template>
 
 <script setup lang="ts">
-import { stateTagType, stateLabel, connTagType, connLabel, heartbeatClass, getHeartbeatAge, formatHeartbeatAge, formatUptime, formatNumber } from './gatewayStatusHelpers'
-import { ref, reactive, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Refresh,
@@ -991,11 +934,23 @@ import {
   Connection,
   Grid,
   List,
+  Search,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getErrorMessage } from '@/api'
 import { liveTradingApi } from '@/api/liveTrading'
 import type { GatewayHealthInfo } from '@/api/liveTrading'
+import {
+  connLabel,
+  connTagType,
+  formatHeartbeatAge,
+  formatNumber,
+  formatUptime,
+  getHeartbeatAge,
+  heartbeatClass,
+  stateLabel,
+  stateTagType,
+} from './gatewayStatusHelpers'
 
 const { t } = useI18n()
 
@@ -1003,15 +958,47 @@ const loading = ref(false)
 const gateways = ref<GatewayHealthInfo[]>([])
 const loadError = ref('')
 const viewMode = ref<'card' | 'table'>('card')
-const headerActionsTargetReady = ref(false)
+const gatewaySearch = ref('')
+const stateFilter = ref('all')
+const healthFilter = ref('all')
 const nowMs = ref(Date.now())
 const lastHealthFetchMs = ref(Date.now())
 let pollTimer: ReturnType<typeof setInterval> | null = null
-let headerTargetTimer: ReturnType<typeof setInterval> | null = null
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
-const visibleGateways = computed(() => gateways.value.filter((g) => !g.gateway_key.startsWith('direct:')))
+const baseGateways = computed(() => gateways.value.filter((g) => !g.gateway_key.startsWith('direct:')))
+const visibleGateways = computed(() => {
+  const keyword = gatewaySearch.value.trim().toLowerCase()
+  return baseGateways.value.filter((gateway) => {
+    if (stateFilter.value !== 'all' && gateway.state !== stateFilter.value) return false
+    if (healthFilter.value === 'healthy' && !gateway.is_healthy) return false
+    if (healthFilter.value === 'unhealthy' && gateway.is_healthy) return false
+    if (!keyword) return true
+    return [
+      gateway.gateway_key,
+      gateway.strategy_name,
+      gateway.exchange,
+      gateway.asset_type,
+      gateway.account_id,
+      gateway.state,
+      gateway.market_connection,
+      gateway.trade_connection,
+      ...gateway.instances,
+      ...(gateway.recent_errors || []).map((item) => `${item.source} ${item.message}`),
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(keyword))
+  })
+})
 const healthyCount = computed(() => visibleGateways.value.filter((g) => g.is_healthy).length)
+const totalSymbolCount = computed(() => visibleGateways.value.reduce((sum, item) => sum + item.symbol_count, 0))
+const totalOrderCount = computed(() => visibleGateways.value.reduce((sum, item) => sum + item.order_count, 0))
+const staleHeartbeatCount = computed(() =>
+  visibleGateways.value.filter((gateway) => {
+    const age = getHeartbeatAge(gateway, nowMs.value, lastHealthFetchMs.value)
+    return age != null && age >= 30
+  }).length
+)
 
 // ---- Connect Dialog ----
 const showConnectDialog = ref(false)
@@ -1266,27 +1253,9 @@ async function fetchHealth() {
 }
 
 
-function updateHeaderActionsTargetReady() {
-  if (typeof document === 'undefined') {
-    headerActionsTargetReady.value = false
-    return false
-  }
-  headerActionsTargetReady.value = document.getElementById('page-header-actions') !== null
-  return headerActionsTargetReady.value
-}
-
-onMounted(async () => {
-  await nextTick()
-  if (!updateHeaderActionsTargetReady()) {
-    headerTargetTimer = setInterval(() => {
-      if (updateHeaderActionsTargetReady() && headerTargetTimer) {
-        clearInterval(headerTargetTimer)
-        headerTargetTimer = null
-      }
-    }, 100)
-  }
-  fetchHealth()
-  fetchSavedCredentials()
+onMounted(() => {
+  void fetchHealth()
+  void fetchSavedCredentials()
   heartbeatTimer = setInterval(() => {
     nowMs.value = Date.now()
   }, 1_000)
@@ -1295,7 +1264,467 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
-  if (headerTargetTimer) clearInterval(headerTargetTimer)
   if (heartbeatTimer) clearInterval(heartbeatTimer)
 })
 </script>
+
+<style scoped>
+.gateway-page {
+  display: grid;
+  gap: 24px;
+}
+
+.gateway-hero,
+.gateway-panel {
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--bg-color);
+  color: var(--text-color-primary);
+  box-shadow: 0 1px 2px var(--shadow-color);
+}
+
+.gateway-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  padding: 24px;
+}
+
+.gateway-hero-copy {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.gateway-kicker {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.gateway-hero h1 {
+  margin: 0;
+  color: var(--text-color-primary);
+  font-size: 30px;
+  line-height: 1.12;
+}
+
+.gateway-hero p,
+.gateway-panel-heading p {
+  max-width: 840px;
+  margin: 0;
+  color: var(--text-color-regular);
+  line-height: 1.65;
+}
+
+.gateway-hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.gateway-metrics {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gateway-metric {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+}
+
+.gateway-metric .el-icon {
+  color: var(--primary-color);
+  font-size: 18px;
+}
+
+.gateway-metric span,
+.gateway-stat-grid span,
+.gateway-info-grid span,
+.gateway-meta-row span,
+.gateway-tag-list > span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.gateway-metric strong {
+  color: var(--text-color-primary);
+  font-size: 18px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.gateway-alert {
+  border-radius: 8px;
+}
+
+.gateway-panel {
+  min-width: 0;
+  box-shadow: none;
+}
+
+.gateway-panel :deep(.el-card__header) {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-color-light);
+}
+
+.gateway-panel :deep(.el-card__body) {
+  padding: 18px;
+}
+
+.gateway-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.gateway-panel-title {
+  margin: 4px 0 6px;
+  color: var(--text-color-primary);
+  font-size: 18px;
+  font-weight: 780;
+  line-height: 1.25;
+}
+
+.gateway-count {
+  display: grid;
+  flex: none;
+  gap: 4px;
+  min-width: 150px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+  color: var(--text-color-primary);
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.gateway-count span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.gateway-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.toolbar-search {
+  width: min(420px, 100%);
+}
+
+.toolbar-item {
+  width: 180px;
+}
+
+.gateway-loading,
+.gateway-empty {
+  display: grid;
+  gap: 10px;
+  min-height: 220px;
+  place-items: center;
+  padding: 28px;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+  text-align: center;
+}
+
+.gateway-loading .el-icon,
+.gateway-empty .el-icon {
+  color: var(--primary-color);
+  font-size: 28px;
+}
+
+.gateway-empty strong {
+  color: var(--text-color-primary);
+  font-size: 18px;
+}
+
+.gateway-empty span {
+  max-width: 560px;
+  color: var(--text-color-secondary);
+  line-height: 1.5;
+}
+
+.gateway-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.gateway-card {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+}
+
+.gateway-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.gateway-card-head > div:first-child {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.gateway-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gateway-title-line strong,
+.gateway-table-identity strong {
+  color: var(--text-color-primary);
+  font-weight: 760;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.gateway-title-line .el-icon {
+  flex: none;
+}
+
+.gateway-title-line .is-healthy {
+  color: var(--success-color);
+}
+
+.gateway-title-line .is-unhealthy {
+  color: var(--danger-color);
+}
+
+.gateway-card-head span,
+.gateway-table-identity span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.gateway-card-state,
+.gateway-card-actions,
+.gateway-tag-list {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gateway-card-state {
+  justify-content: flex-end;
+  flex: none;
+}
+
+.gateway-info-grid,
+.gateway-meta-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.36fr) minmax(0, 1fr);
+  gap: 8px 10px;
+  padding: 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--bg-color);
+}
+
+.gateway-info-grid strong,
+.gateway-meta-row strong {
+  color: var(--text-color-primary);
+  overflow-wrap: break-word;
+}
+
+.gateway-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.gateway-stat-grid div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--bg-color);
+}
+
+.gateway-stat-grid strong {
+  color: var(--text-color-primary);
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.gateway-tag-list {
+  align-items: flex-start;
+}
+
+.gateway-error-list {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger-color) 35%, var(--border-color-light) 65%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--danger-color) 16%);
+}
+
+.gateway-error-list strong {
+  color: var(--danger-color);
+  font-size: 12px;
+}
+
+.gateway-error-list span {
+  color: var(--text-color-primary);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.gateway-card-actions {
+  justify-content: flex-end;
+}
+
+.gateway-table {
+  width: 100%;
+}
+
+.gateway-table :deep(.el-table__header-wrapper th) {
+  background: var(--fill-color-lighter);
+  color: var(--text-color-secondary);
+  font-weight: 760;
+}
+
+.gateway-table-identity {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gateway-muted {
+  color: var(--text-color-secondary);
+}
+
+.text-gray-400 {
+  color: var(--text-color-secondary);
+}
+
+.text-green-600 {
+  color: var(--success-color);
+}
+
+.text-yellow-600 {
+  color: var(--warning-color);
+}
+
+.text-red-600 {
+  color: var(--danger-color);
+}
+
+.font-medium {
+  font-weight: 760;
+}
+
+@media (max-width: 1180px) {
+  .gateway-metrics,
+  .gateway-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .gateway-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .gateway-hero-actions {
+    justify-content: flex-start;
+  }
+
+  .gateway-panel-heading {
+    display: grid;
+  }
+
+  .gateway-count {
+    width: 100%;
+    text-align: left;
+  }
+
+  .toolbar-search,
+  .toolbar-item {
+    width: 100%;
+  }
+
+  .gateway-table {
+    display: none;
+  }
+
+  .gateway-card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .gateway-page {
+    gap: 16px;
+  }
+
+  .gateway-hero {
+    padding: 18px;
+  }
+
+  .gateway-hero h1 {
+    font-size: 24px;
+  }
+
+  .gateway-metrics,
+  .gateway-info-grid,
+  .gateway-meta-row,
+  .gateway-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gateway-panel :deep(.el-card__body) {
+    padding: 14px;
+  }
+
+  .gateway-card-head {
+    display: grid;
+  }
+
+  .gateway-card-state,
+  .gateway-card-actions {
+    justify-content: flex-start;
+  }
+}
+</style>

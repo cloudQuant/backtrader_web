@@ -246,6 +246,16 @@ def build_ai_param_specs(prompt: str) -> dict[str, ParamSpec]:
             description="Take-profit percentage for the default template",
         ),
     )
+    add_param(
+        "max_hold_bars",
+        ParamSpec(
+            type="int",
+            default=72,
+            min=1,
+            max=2000,
+            description="Maximum bars to hold a position before forcing an exit",
+        ),
+    )
     return params
 
 

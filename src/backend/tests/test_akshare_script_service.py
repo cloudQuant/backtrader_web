@@ -3,9 +3,6 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from app.services.akshare.data import AkshareDataService
-from app.services.akshare import script as script_module
-from app.services.akshare.script import AkshareScriptService
 from app.data_fetch.scripts.common.daily.article_rlab_rv import ArticleRlabRv
 from app.data_fetch.scripts.common.daily.get_receipt import GetReceipt
 from app.data_fetch.scripts.common.daily.get_roll_yield import GetRollYield
@@ -13,27 +10,25 @@ from app.data_fetch.scripts.common.daily.migration_area_baidu import MigrationAr
 from app.data_fetch.scripts.common.weekly.get_cffex_rank_table import GetCffexRankTable
 from app.data_fetch.scripts.common.weekly.get_rank_table_czce import GetRankTableCzce
 from app.data_fetch.scripts.common.weekly.get_shfe_rank_table import GetShfeRankTable
-from app.data_fetch.scripts.funds.weekly.option_hist_czce import OptionHistCzce
-from app.data_fetch.scripts.funds.weekly.option_hist_shfe import OptionHistShfe
 from app.data_fetch.scripts.funds.daily.option_current_em import OptionCurrentEm
 from app.data_fetch.scripts.funds.hourly.option_minute_em import OptionMinuteEm
 from app.data_fetch.scripts.funds.hourly.option_sse_minute_sina import OptionSseMinuteSina
 from app.data_fetch.scripts.funds.weekly.fund_individual_analysis_xq import FundAnalysisXq
 from app.data_fetch.scripts.funds.weekly.fund_scale_open_sina import FundScaleOpenSina
 from app.data_fetch.scripts.funds.weekly.fund_value_estimation_em import FundValueEstimationEm
-from app.data_fetch.scripts.futures.weekly.futures_gfex_warehouse_receipt import (
-    FuturesGfexWarehouseReceipt,
-)
+from app.data_fetch.scripts.funds.weekly.option_hist_czce import OptionHistCzce
+from app.data_fetch.scripts.funds.weekly.option_hist_shfe import OptionHistShfe
+from app.data_fetch.scripts.futures.daily.futures_hold_pos_sina import FuturesHoldPosSina
 from app.data_fetch.scripts.futures.hourly.futures_foreign_commodity_realtime import (
     FuturesForeignCommodityRealtime,
 )
-from app.data_fetch.scripts.futures.daily.futures_hold_pos_sina import FuturesHoldPosSina
 from app.data_fetch.scripts.futures.weekly._dict_result import flatten_dict_result
+from app.data_fetch.scripts.futures.weekly.daily_market_data import FuturesDailyMarket
 from app.data_fetch.scripts.futures.weekly.futures_gfex_position_rank import (
     FuturesGfexPositionRank,
 )
-from app.data_fetch.scripts.futures.weekly.member_position_rank import (
-    FuturesMemberPositionRank,
+from app.data_fetch.scripts.futures.weekly.futures_gfex_warehouse_receipt import (
+    FuturesGfexWarehouseReceipt,
 )
 from app.data_fetch.scripts.futures.weekly.futures_shfe_warehouse_receipt import (
     FuturesShfeWarehouseReceipt,
@@ -41,16 +36,11 @@ from app.data_fetch.scripts.futures.weekly.futures_shfe_warehouse_receipt import
 from app.data_fetch.scripts.futures.weekly.futures_warehouse_receipt_czce import (
     FuturesWarehouseReceiptCzce,
 )
+from app.data_fetch.scripts.futures.weekly.member_position_rank import (
+    FuturesMemberPositionRank,
+)
 from app.data_fetch.scripts.indexs.daily.index_zh_a_hist import IndexZhAHist
-from app.data_fetch.scripts.stocks.hourly.stock_board_industry_hist_min_em import (
-    StockBoardIndustryHistMinEm,
-)
-from app.data_fetch.scripts.stocks.hourly.stock_us_hist_min_em import StockUsHistMinEm
-from app.data_fetch.scripts.stocks.hourly.stock_us_spot_em import StockUsSpotEm
-from app.data_fetch.scripts.stocks.daily.stock_sse_deal_daily import StockSseDealDaily
-from app.data_fetch.scripts.stocks.weekly.stock_concept_fund_flow_hist import (
-    StockConceptFundFlowHist,
-)
+from app.data_fetch.scripts.stocks.daily.stock_bid_ask_em import StockBidAskEm
 from app.data_fetch.scripts.stocks.daily.stock_dzjy_mrtj import StockDzjyMrtj
 from app.data_fetch.scripts.stocks.daily.stock_esg_hz_sina import StockEsgHzSina
 from app.data_fetch.scripts.stocks.daily.stock_esg_rate_sina import StockEsgRateSina
@@ -70,6 +60,10 @@ from app.data_fetch.scripts.stocks.daily.stock_gdfx_free_holding_teamwork_em imp
 from app.data_fetch.scripts.stocks.daily.stock_gdfx_holding_statistics_em import (
     StockGdfxHoldingStatisticsEm,
 )
+from app.data_fetch.scripts.stocks.daily.stock_hk_hot_rank_em import StockHkHotRankEm
+from app.data_fetch.scripts.stocks.daily.stock_hot_follow_xq import StockHotFollowXq
+from app.data_fetch.scripts.stocks.daily.stock_hot_rank_em import StockHotRankEm
+from app.data_fetch.scripts.stocks.daily.stock_hot_up_em import StockHotUpEm
 from app.data_fetch.scripts.stocks.daily.stock_hsgt_board_rank_em import (
     StockHsgtBoardRankEm,
 )
@@ -79,16 +73,11 @@ from app.data_fetch.scripts.stocks.daily.stock_hsgt_individual_detail_em import 
 from app.data_fetch.scripts.stocks.daily.stock_hsgt_institution_statistics_em import (
     StockHsgtInstitutionStatisticsEm,
 )
-from app.data_fetch.scripts.stocks.daily.stock_hk_hot_rank_em import StockHkHotRankEm
-from app.data_fetch.scripts.stocks.daily.stock_hot_follow_xq import StockHotFollowXq
-from app.data_fetch.scripts.stocks.daily.stock_hot_rank_em import StockHotRankEm
-from app.data_fetch.scripts.stocks.daily.stock_hot_up_em import StockHotUpEm
-from app.data_fetch.scripts.stocks.daily.stock_bid_ask_em import StockBidAskEm
-from app.data_fetch.scripts.stocks.daily.stock_individual_info_em import StockIndividualInfoEm
-from app.data_fetch.scripts.stocks.daily.stock_intraday_sina import StockIntradaySina
 from app.data_fetch.scripts.stocks.daily.stock_individual_fund_flow import (
     StockIndividualFundFlow,
 )
+from app.data_fetch.scripts.stocks.daily.stock_individual_info_em import StockIndividualInfoEm
+from app.data_fetch.scripts.stocks.daily.stock_intraday_sina import StockIntradaySina
 from app.data_fetch.scripts.stocks.daily.stock_jgdy_detail_em import StockJgdyDetailEm
 from app.data_fetch.scripts.stocks.daily.stock_jgdy_tj_em import StockJgdyTjEm
 from app.data_fetch.scripts.stocks.daily.stock_lh_yyb_capital import StockLhYybCapital
@@ -96,13 +85,20 @@ from app.data_fetch.scripts.stocks.daily.stock_lh_yyb_most import StockLhYybMost
 from app.data_fetch.scripts.stocks.daily.stock_main_fund_flow import StockMainFundFlow
 from app.data_fetch.scripts.stocks.daily.stock_market_fund_flow import StockMarketFundFlow
 from app.data_fetch.scripts.stocks.daily.stock_repurchase_em import StockRepurchaseEm
-from app.data_fetch.scripts.stocks.weekly.stock_sector_fund_flow_hist import (
-    StockSectorFundFlowHist,
-)
+from app.data_fetch.scripts.stocks.daily.stock_sse_deal_daily import StockSseDealDaily
 from app.data_fetch.scripts.stocks.daily.stock_sy_yq_em import StockSyYqEm
 from app.data_fetch.scripts.stocks.daily.stock_xgsr_ths import StockXgsrThs
 from app.data_fetch.scripts.stocks.daily.stock_yysj_em import StockYysjEm
+from app.data_fetch.scripts.stocks.daily.stock_zh_a_hist import StockZhAHist
 from app.data_fetch.scripts.stocks.daily.stock_zh_vote_baidu import StockZhVoteBaidu
+from app.data_fetch.scripts.stocks.hourly.stock_board_industry_hist_min_em import (
+    StockBoardIndustryHistMinEm,
+)
+from app.data_fetch.scripts.stocks.hourly.stock_us_hist_min_em import StockUsHistMinEm
+from app.data_fetch.scripts.stocks.hourly.stock_us_spot_em import StockUsSpotEm
+from app.data_fetch.scripts.stocks.weekly.stock_concept_fund_flow_hist import (
+    StockConceptFundFlowHist,
+)
 from app.data_fetch.scripts.stocks.weekly.stock_individual_fund_flow_rank import (
     StockIndividualFundFlowRank,
 )
@@ -110,7 +106,18 @@ from app.data_fetch.scripts.stocks.weekly.stock_industry_clf_hist_sw import (
     StockIndustryClfHistSw,
 )
 from app.data_fetch.scripts.stocks.weekly.stock_rank_cxd_ths import StockRankCxdThs
+from app.data_fetch.scripts.stocks.weekly.stock_sector_fund_flow_hist import (
+    StockSectorFundFlowHist,
+)
 from app.data_fetch.scripts.stocks.weekly.stock_sns_sseinfo import StockSnsSseinfo
+from app.services.akshare import script as script_module
+from app.services.akshare.data import AkshareDataService
+from app.services.akshare.script import AkshareScriptService
+from scripts.backfill_market_history import (
+    CacheCandidate,
+    _fund_sina_symbol,
+    _history_cache_payloads,
+)
 
 
 def test_default_script_root_resolves_to_app_data_fetch_scripts(monkeypatch):
@@ -133,6 +140,52 @@ def test_akshare_catalog_endpoint_has_safe_default_parameters():
 
     assert params["endpoint_name"] == "air_city_table"
     assert params["call_timeout"] == 30
+
+
+def test_market_history_cache_payloads_normalize_rows():
+    candidate = CacheCandidate(
+        asset_type="fund",
+        symbol="510300",
+        name="沪深300ETF",
+        market="CN",
+        history_rows=0,
+        latest_history_date=None,
+    )
+
+    payloads = _history_cache_payloads(
+        candidate,
+        "daily",
+        [
+            {
+                "date": "2026-07-03",
+                "open": "4.1",
+                "high": "4.2",
+                "low": "4.0",
+                "close": "4.15",
+                "volume": "1000",
+                "change_pct": "1.2",
+                "turnover_rate": float("nan"),
+            },
+            {"open": 1.0},
+        ],
+    )
+
+    assert len(payloads) == 1
+    assert payloads[0]["r_id"] == "fund|510300|daily|2026-07-03"
+    assert payloads[0]["symbol"] == "510300"
+    assert payloads[0]["name"] == "沪深300ETF"
+    assert payloads[0]["open"] == 4.1
+    assert payloads[0]["volume"] == 1000
+    assert payloads[0]["change_pct"] == 1.2
+    assert payloads[0]["turnover_rate"] is None
+    assert payloads[0]["provider"] == "akshare"
+
+
+def test_fund_sina_symbol_adds_exchange_prefix():
+    assert _fund_sina_symbol("513090") == "sh513090"
+    assert _fund_sina_symbol("159707") == "sz159707"
+    assert _fund_sina_symbol("SH510300") == "sh510300"
+    assert _fund_sina_symbol("510300.SH") == "sh510300"
 
 
 def test_bond_info_cm_has_page_limited_default():
@@ -1209,10 +1262,15 @@ def test_stock_lh_yyb_rank_scripts_map_rank_symbol_and_name(monkeypatch):
             ),
         )
         monkeypatch.setattr(script, "create_table_if_not_exists", lambda *args, **kwargs: None)
+
+        def fake_save_data(df, table, ignore_duplicates=False, bucket=saved):
+            bucket.append(df.copy())
+            return len(df)
+
         monkeypatch.setattr(
             script,
             "save_data",
-            lambda df, table, ignore_duplicates=False: saved.append(df.copy()) or len(df),
+            fake_save_data,
         )
 
         result = script.fetch_data()
@@ -1674,6 +1732,144 @@ def test_stock_history_scripts_have_narrow_safe_defaults():
     assert index_hist_params["symbol"] == "000928"
     assert index_hist_params["start_date"].isdigit()
     assert index_hist_params["end_date"].isdigit()
+
+
+def test_stock_zh_a_hist_upserts_by_symbol_date_without_date_wide_delete(monkeypatch):
+    script = StockZhAHist()
+    saved = {}
+
+    monkeypatch.setattr(
+        script,
+        "fetch_ak_data",
+        lambda *args, **kwargs: pd.DataFrame(
+            {
+                "日期": ["2026-06-19", "2026-06-22"],
+                "开盘": [10.0, 10.2],
+                "收盘": [10.1, 10.4],
+                "最高": [10.3, 10.6],
+                "最低": [9.9, 10.1],
+                "成交量": [100, 200],
+                "成交额": [1000.0, 2200.0],
+            }
+        ),
+    )
+    monkeypatch.setattr(script, "create_table_if_not_exists", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        script,
+        "delete_data",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not delete by date")),
+    )
+
+    def fake_save_data(df, table, **kwargs):
+        saved["df"] = df.copy()
+        saved["table"] = table
+        saved["kwargs"] = kwargs
+        return len(df)
+
+    monkeypatch.setattr(script, "save_data", fake_save_data)
+
+    result = script.fetch_data(symbol="000002", start_date="20260601", end_date="20260703")
+
+    assert result["symbol"].tolist() == ["000002", "000002"]
+    assert result["data_date"].tolist() == ["2026-06-19", "2026-06-22"]
+    assert saved["table"] == "STOCK_ZH_A_HIST"
+    assert saved["kwargs"] == {
+        "on_duplicate_update": True,
+        "unique_keys": ["symbol", "data_date"],
+    }
+
+
+def test_stock_zh_a_hist_can_fetch_directly_from_tencent(monkeypatch):
+    script = StockZhAHist()
+    calls = []
+    saved = {}
+
+    def fake_fetch_ak_data(name, **kwargs):
+        calls.append((name, kwargs))
+        if name == "stock_zh_a_hist":
+            raise AssertionError("eastmoney should be skipped in tencent mode")
+        return pd.DataFrame(
+            {
+                "date": ["2026-06-19"],
+                "open": [10.0],
+                "close": [10.1],
+                "high": [10.2],
+                "low": [9.9],
+                "amount": [100],
+            }
+        )
+
+    monkeypatch.setattr(script, "fetch_ak_data", fake_fetch_ak_data)
+    monkeypatch.setattr(script, "create_table_if_not_exists", lambda *args, **kwargs: None)
+    monkeypatch.setattr(script, "save_data", lambda df, table, **kwargs: saved.update(df=df.copy()))
+
+    result = script.fetch_data(
+        symbol="000002",
+        start_date="20260601",
+        end_date="20260703",
+        source="tencent",
+    )
+
+    assert [call[0] for call in calls] == ["stock_zh_a_hist_tx"]
+    assert calls[0][1]["symbol"] == "sz000002"
+    assert result["symbol"].tolist() == ["000002"]
+    assert saved["df"]["data_date"].tolist() == ["2026-06-19"]
+
+
+def test_futures_daily_market_falls_back_to_sina_dce_main_contracts(monkeypatch):
+    script = FuturesDailyMarket()
+    script.DCE_SINA_MAIN_SYMBOLS = ("M0", "Y0")
+    calls = []
+    saved = {}
+    next_id = iter(["RID1", "RID2"])
+
+    def fake_fetch_ak_data(function_name, **kwargs):
+        calls.append((function_name, kwargs))
+        return pd.DataFrame(
+            {
+                "date": ["2025-07-02", "2026-07-03"],
+                "open": [3000, 2980],
+                "high": [3010, 2986],
+                "low": [2990, 2957],
+                "close": [3005, 2962],
+                "volume": [100, 721030],
+                "hold": [200, 1831847],
+                "settle": [3001, 2969],
+            }
+        )
+
+    def fake_save_data(df, table_name, **kwargs):
+        saved["df"] = df.copy()
+        saved["table_name"] = table_name
+        saved["kwargs"] = kwargs
+        return True
+
+    monkeypatch.setattr(script, "fetch_ak_data", fake_fetch_ak_data)
+    monkeypatch.setattr(script, "get_uuid", lambda: next(next_id))
+    monkeypatch.setattr(script, "save_data", fake_save_data)
+
+    result = script._backfill_dce_sina_main_contracts(
+        start_date="2025-07-03",
+        end_date="2026-07-03",
+        table_name="FUTURES_DAILY_MARKET",
+        _call_timeout=7,
+    )
+
+    assert result is True
+    assert [call[0] for call in calls] == ["futures_zh_daily_sina", "futures_zh_daily_sina"]
+    assert [call[1]["symbol"] for call in calls] == ["M0", "Y0"]
+    assert all(call[1]["_call_timeout"] == 7 for call in calls)
+    assert saved["table_name"] == "FUTURES_DAILY_MARKET"
+    assert saved["kwargs"] == {
+        "on_duplicate_update": True,
+        "unique_keys": ["MARKET", "SYMBOL", "TRADE_DATE"],
+    }
+    assert saved["df"]["SYMBOL"].tolist() == ["M0", "Y0"]
+    assert saved["df"]["VARIETY"].tolist() == ["M", "Y"]
+    assert saved["df"]["TRADE_DATE"].tolist() == ["2026-07-03", "2026-07-03"]
+    assert saved["df"]["MARKET"].tolist() == ["DCE", "DCE"]
+    assert saved["df"]["OPEN_INTEREST"].tolist() == [1831847, 1831847]
+    assert saved["df"]["DATA_SOURCE"].tolist() == ["新浪期货兜底", "新浪期货兜底"]
 
 
 def test_intraday_history_scripts_have_recent_datetime_defaults():

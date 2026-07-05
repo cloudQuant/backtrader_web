@@ -309,10 +309,13 @@ export interface StrategyUnit {
   trading_instance_id: string | null
   trading_snapshot: TradingSnapshot
   run_status: UnitRunStatus
+  run_progress?: number | null
+  run_message?: string | null
   run_count: number
   last_run_time: number | null
   last_task_id: string | null
   last_optimization_task_id: string | null
+  error_message?: string | null
   bar_count: number | null
   metrics_snapshot: Record<string, unknown>
   // Optimization progress (populated by polling)
@@ -419,7 +422,10 @@ export interface UnitStatusResponse {
   id: string
   run_status: UnitRunStatus
   last_task_id: string | null
+  error_message?: string | null
   metrics_snapshot: Record<string, unknown>
+  run_progress: number | null
+  run_message: string | null
   run_count: number
   last_run_time: number | null
   bar_count: number | null

@@ -1,4 +1,5 @@
 import logging
+from calendar import monthrange
 from datetime import datetime
 
 import akshare as ak
@@ -191,9 +192,15 @@ class FundAssetAllocationXq(AkshareToMySql):
             # 如果未提供报告日期，则使用上季度末日期
             if report_date is None:
                 today = datetime.now()
-                quarter = (today.month - 1) // 3
-                last_quarter = (quarter - 1) % 4 + 1
-                report_date = f"{today.year}{last_quarter * 3:02d}31"
+                current_quarter = (today.month - 1) // 3 + 1
+                if current_quarter == 1:
+                    report_year = today.year - 1
+                    report_month = 12
+                else:
+                    report_year = today.year
+                    report_month = (current_quarter - 1) * 3
+                report_day = monthrange(report_year, report_month)[1]
+                report_date = f"{report_year}{report_month:02d}{report_day:02d}"
                 self.logger.info(f"未指定报告日期，默认使用上季度末日期: {report_date}")
 
             # 创建表（如果不存在）

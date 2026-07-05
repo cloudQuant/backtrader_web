@@ -2,7 +2,7 @@
 
 ## 概述
 
-AI for Trader 的回测引擎基于 **Backtrader**，使用 **fincore** 提供标准化金融指标。
+AI for Investor 的回测引擎基于 **Backtrader**，使用 **fincore** 提供标准化金融指标。
 
 ## 主要特性
 

@@ -1,5 +1,5 @@
 """
-Test Data Factories for AI for Trader
+Test Data Factories for AI for Investor
 
 Provides factory functions for generating test data with sensible defaults
 and support for overrides. This reduces boilerplate in tests and ensures

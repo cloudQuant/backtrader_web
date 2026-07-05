@@ -1,12 +1,12 @@
 [project]
-name = "ai-for-trader-backend"
+name = "ai-for-investor-backend"
 version = "0.1.0"
-description = "AI for Trader Backend Service"
+description = "AI for Investor Backend Service"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
-    {name = "AI for Trader Team"}
+    {name = "AI for Investor Team"}
 ]
 
 dependencies = [

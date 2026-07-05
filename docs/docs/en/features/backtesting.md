@@ -2,7 +2,7 @@
 
 ## Overview
 
-AI for Trader's backtesting engine is built on **Backtrader** with **fincore** for standardized financial metrics.
+AI for Investor's backtesting engine is built on **Backtrader** with **fincore** for standardized financial metrics.
 
 ## Key Features
 

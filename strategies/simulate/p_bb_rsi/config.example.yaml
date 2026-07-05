@@ -4,7 +4,7 @@
 strategy:
   name: "棕榈油布林带+RSI策略"
   description: "结合布林带和RSI的策略 - 棕榈油期货"
-  author: "ai-for-trader"
+  author: "ai-for-investor"
   category: "simulate"
   
 # ============================================================

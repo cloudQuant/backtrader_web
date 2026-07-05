@@ -197,11 +197,20 @@ vi.mock('@/api/analytics', () => ({
 }))
 
 describe('BacktestResultPage', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    const { analyticsApi } = await import('@/api/analytics')
+    const { strategyApi } = await import('@/api/strategy')
     setActivePinia(createPinia())
     mockPush.mockReset()
     mockRoute.params = { id: 't1' }
     mockRoute.query = {}
+    vi.mocked(analyticsApi.getBacktestDetail).mockClear()
+    vi.mocked(analyticsApi.getKlineWithSignals).mockClear()
+    vi.mocked(analyticsApi.getMonthlyReturns).mockClear()
+    vi.mocked(strategyApi.createScore).mockClear()
+    vi.mocked(strategyApi.createOverfittingTask).mockClear()
+    vi.mocked(strategyApi.getOverfittingTask).mockClear()
+    vi.mocked(strategyApi.explainStrategy).mockClear()
   })
 
   it('mounts without error', () => {
@@ -231,9 +240,35 @@ describe('BacktestResultPage', () => {
     expect(wrapper.text()).toContain('78')
     expect(wrapper.text()).toContain('评分仅供研究参考')
     expect(wrapper.text()).toContain('过拟合诊断')
-    expect(wrapper.text()).toContain('Monte Carlo 检测完成')
+    expect(wrapper.text()).toContain('暂无过拟合检测结果')
     expect(wrapper.text()).toContain('策略解释')
     expect(wrapper.text()).toContain('SMA 策略通过均线交叉识别趋势')
+  })
+
+  it('loads heavy report data lazily', async () => {
+    const { analyticsApi } = await import('@/api/analytics')
+    const { strategyApi } = await import('@/api/strategy')
+    mount(BacktestResultPage, {
+      global: {
+        stubs: {
+          ...elStubs,
+          EquityCurve: true,
+          DrawdownChart: true,
+          TradeRecordsTable: true,
+          TradeSignalChart: true,
+          ReturnHeatmap: true,
+          MetricCard: true,
+          PerformancePanel: true,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(analyticsApi.getBacktestDetail).toHaveBeenCalledTimes(1)
+    expect(analyticsApi.getKlineWithSignals).not.toHaveBeenCalled()
+    expect(analyticsApi.getMonthlyReturns).not.toHaveBeenCalled()
+    expect(strategyApi.createOverfittingTask).not.toHaveBeenCalled()
   })
 
   it('reruns overfitting analysis from the panel action', async () => {

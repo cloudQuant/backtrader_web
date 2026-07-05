@@ -207,106 +207,17 @@ class FundRatingSh(AkshareToMySql):
             return False
 
         try:
-            # 获取已存在的数据ID
-            existing_ids = self._get_existing_ids()
-
-            # 过滤掉已存在的数据
-            new_data = df[~df["r_id"].isin(existing_ids)]
-            updated_data = df[df["r_id"].isin(existing_ids)]
-
-            # 插入新数据
-            if not new_data.empty:
-                # 准备插入数据
-                columns = [
-                    "r_id",
-                    "fund_code",
-                    "fund_name",
-                    "fund_manager",
-                    "fund_company",
-                    "rating_3y",
-                    "rating_3y_change",
-                    "rating_5y",
-                    "rating_5y_change",
-                    "unit_nav",
-                    "nav_date",
-                    "daily_return",
-                    "return_1y",
-                    "return_3y",
-                    "return_5y",
-                    "fee_rate",
-                    "fund_type",
-                    "update_date",
-                    "is_active",
-                    "data_source",
-                ]
-
-                # 添加系统字段
-                new_data["is_active"] = 1
-                new_data["data_source"] = "天天基金"
-
-                # 插入新数据
-                self.insert_data(new_data, self.table_name, columns)
-                self.logger.info(f"成功插入 {len(new_data)} 条上海证券基金评级数据")
-
-            # 更新已有数据
-            if not updated_data.empty:
-                updated_count = 0
-                for _, row in updated_data.iterrows():
-                    # 构建更新SQL
-                    update_sql = f"""  # nosec B608
-                    UPDATE {self.table_name}
-                    SET
-                        fund_name = %s,
-                        fund_manager = %s,
-                        fund_company = %s,
-                        rating_3y = %s,
-                        rating_3y_change = %s,
-                        rating_5y = %s,
-                        rating_5y_change = %s,
-                        unit_nav = %s,
-                        nav_date = %s,
-                        daily_return = %s,
-                        return_1y = %s,
-                        return_3y = %s,
-                        return_5y = %s,
-                        fee_rate = %s,
-                        fund_type = %s,
-                        update_date = %s,
-                        updatedate = CURRENT_TIMESTAMP
-                    WHERE r_id = %s
-                    """
-
-                    # 执行更新
-                    params = (
-                        row["fund_name"],
-                        row["fund_manager"],
-                        row["fund_company"],
-                        row["rating_3y"],
-                        row["rating_3y_change"],
-                        row["rating_5y"],
-                        row["rating_5y_change"],
-                        row["unit_nav"],
-                        row["nav_date"],
-                        row["daily_return"],
-                        row["return_1y"],
-                        row["return_3y"],
-                        row["return_5y"],
-                        row["fee_rate"],
-                        row["fund_type"],
-                        row["update_date"],
-                        row["r_id"],
-                    )
-
-                    self.execute_sql(update_sql, params)
-                    updated_count += 1
-
-                if updated_count > 0:
-                    self.logger.info(f"成功更新 {updated_count} 条上海证券基金评级数据")
-
-            if new_data.empty and updated_data.empty:
-                self.logger.info("没有新的上海证券基金评级数据需要更新")
-
-            return True
+            save_df = df.copy()
+            save_df["is_active"] = 1
+            save_df["data_source"] = "天天基金"
+            saved_rows = self.save_data(
+                save_df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["R_ID"],
+            )
+            self.logger.info("批量写入/更新 %s 条上海证券基金评级数据", saved_rows)
+            return bool(saved_rows)
 
         except Exception as e:
             self.logger.error(f"保存上海证券基金评级数据失败: {e}")

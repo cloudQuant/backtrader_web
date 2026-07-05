@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Migrate akshare_web management metadata into ai_for_trader.
+Migrate akshare_web management metadata into ai_for_investor.
 
 This script only migrates akshare management tables into the main application
 database. Runtime warehouse data in ``akshare_data`` remains in place.

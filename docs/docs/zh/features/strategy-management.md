@@ -2,7 +2,7 @@
 
 ## 概述
 
-AI for Trader 提供全面的策略管理功能，支持类似 Git 的版本控制。
+AI for Investor 提供全面的策略管理功能，支持类似 Git 的版本控制。
 
 ## 内置模板
 

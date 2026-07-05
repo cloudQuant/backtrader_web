@@ -13,23 +13,27 @@
   gap: 4px;
   padding: 14px 16px;
   border: 1px solid var(--info-border-color);
-  border-radius: 12px;
-  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--info-surface) 100%);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+  box-shadow: inset 3px 0 0 var(--primary-color);
 }
 
 .overview-card.is-success {
   border-color: var(--success-border-color);
-  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--success-surface) 100%);
+  background: var(--fill-color-lighter);
+  box-shadow: inset 3px 0 0 var(--success-color);
 }
 
 .overview-card.is-warning {
   border-color: var(--warning-border-color);
-  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--warning-surface) 100%);
+  background: var(--fill-color-lighter);
+  box-shadow: inset 3px 0 0 var(--warning-color);
 }
 
 .overview-card.is-danger {
   border-color: var(--danger-border-color);
-  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--danger-surface) 100%);
+  background: var(--fill-color-lighter);
+  box-shadow: inset 3px 0 0 var(--danger-color);
 }
 
 .overview-card__label {
@@ -39,6 +43,7 @@
 
 .overview-card__value {
   font-size: 24px;
+  font-weight: 760;
   line-height: 1.1;
   color: var(--text-color-primary);
 }
@@ -55,8 +60,8 @@
   margin-bottom: 12px;
   padding: 12px 14px;
   border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-color-card);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
 }
 
 .trading-schedule-bar__item {

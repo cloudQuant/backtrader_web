@@ -1,43 +1,799 @@
 <template>
-  <div class="space-y-6">
-    <!-- Page action bar -->
-    <div class="flex justify-end items-center">
-      <el-button
-        type="primary"
-        :aria-label="t('strategy.createStrategy')"
-        @click="showCreateDialog"
-      >
-        <el-icon
-          class="mr-1"
-          aria-hidden="true"
+  <div
+    class="strategy-page"
+    :class="{
+      'strategy-page--ai-research': showAIResearchTab,
+      'strategy-page--management': showStrategyManagementTabs,
+    }"
+  >
+    <section
+      v-if="showStrategyManagementTabs"
+      class="strategy-management-hero"
+      data-test="strategy-management-hero"
+      aria-labelledby="strategy-management-title"
+    >
+      <div class="strategy-management-copy">
+        <span class="strategy-management-kicker">{{ t('strategy.managementHeroKicker') }}</span>
+        <h1 id="strategy-management-title">
+          {{ t('strategy.managementHeroTitle') }}
+        </h1>
+        <p>{{ t('strategy.managementHeroSubtitle') }}</p>
+      </div>
+
+      <div class="strategy-management-actions">
+        <el-button
+          type="primary"
+          size="large"
+          :aria-label="t('strategy.createStrategy')"
+          @click="showCreateDialog"
         >
-          <Plus />
-        </el-icon>
-        {{ t('strategy.createStrategy') }}
-      </el-button>
-    </div>
+          <el-icon aria-hidden="true">
+            <Plus />
+          </el-icon>
+          {{ t('strategy.createStrategy') }}
+        </el-button>
+      </div>
+
+      <div class="strategy-management-metrics">
+        <div
+          v-for="item in strategyManagementStats"
+          :key="item.key"
+          class="strategy-management-metric"
+        >
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+        </div>
+      </div>
+    </section>
+
+    <section
+      v-if="showAIResearchTab"
+      class="ai-research-hero"
+      data-test="ai-research-hero"
+      aria-labelledby="ai-research-hero-title"
+    >
+      <div class="ai-research-hero-copy">
+        <span class="ai-research-hero-kicker">{{ t('strategy.aiResearchHeroKicker') }}</span>
+        <h1 id="ai-research-hero-title">
+          {{ t('strategy.aiResearchHeroTitle') }}
+        </h1>
+        <p>{{ t('strategy.aiResearchHeroSubtitle') }}</p>
+      </div>
+
+      <div class="ai-research-hero-steps">
+        <span
+          v-for="step in aiResearchHeroSteps"
+          :key="step.key"
+          class="ai-research-hero-step"
+        >
+          <span class="ai-research-hero-step-index">{{ step.index }}</span>
+          <span>{{ step.label }}</span>
+        </span>
+      </div>
+
+      <div class="ai-research-hero-metrics">
+        <div
+          v-for="item in aiResearchHeroMetrics"
+          :key="item.key"
+          class="ai-research-hero-metric"
+        >
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+        </div>
+      </div>
+    </section>
 
     <!-- Main tabs: Gallery / My strategies -->
     <el-tabs
       v-model="activeTab"
       type="border-card"
+      class="strategy-tabs"
     >
       <!-- ========== AI Research Loop ========== -->
       <el-tab-pane
+        v-if="showAIResearchTab"
         :label="t('strategy.aiResearch')"
         name="aiResearch"
       >
         <div class="ai-research-grid">
-          <section class="ai-research-panel">
+          <section class="ai-research-panel ai-research-control-panel">
+            <div class="ai-research-panel-head">
+              <span class="ai-research-kicker">{{ t('strategy.aiResearchControlKicker') }}</span>
+              <h2>{{ t('strategy.aiResearchControlTitle') }}</h2>
+              <p>{{ t('strategy.aiResearchControlSubtitle') }}</p>
+            </div>
+
+            <div
+              class="ai-research-plan-bar"
+              data-test="ai-research-plan-bar"
+            >
+              <div class="ai-research-plan-select">
+                <span>投研方案</span>
+                <el-select
+                  v-model="aiResearchSelectedConfigProfileId"
+                  class="w-full"
+                  filterable
+                  :loading="aiResearchConfigProfilesLoading"
+                  placeholder="选择配置方案"
+                  data-test="ai-research-profile-select"
+                  @change="selectAIResearchConfigProfile"
+                >
+                  <el-option
+                    v-for="profile in aiResearchConfigProfiles"
+                    :key="profile.id"
+                    :label="profile.name"
+                    :value="profile.id"
+                  >
+                    <span>{{ profile.name }}</span>
+                    <span class="ai-research-plan-option">
+                      {{ aiResearchConfigProfileValue(profile, 'symbol') }}
+                      · {{ aiResearchConfigProfileValue(profile, 'timeframe') }}
+                    </span>
+                  </el-option>
+                </el-select>
+              </div>
+              <div class="ai-research-plan-summary">
+                <strong>{{ aiResearchSelectedProfileSummary }}</strong>
+                <span>
+                  {{ aiResearchSelectedConfigProfile?.description || '方案控制标的、周期、质量门槛、回测口径和晋级设置。' }}
+                </span>
+              </div>
+              <el-button
+                type="primary"
+                plain
+                data-test="ai-research-config-open"
+                @click="openAIResearchConfigDialog"
+              >
+                <el-icon aria-hidden="true">
+                  <EditPen />
+                </el-icon>
+                配置方案
+              </el-button>
+            </div>
+
+            <el-dialog
+              v-model="aiResearchConfigDialogVisible"
+              title="配置投研方案"
+              width="1100px"
+              class="ai-research-config-dialog"
+              destroy-on-close
+            >
+              <div
+                class="ai-research-config-sheet"
+                data-test="ai-research-config-profiles"
+              >
+                <div class="ai-research-config-head">
+                  <div>
+                    <strong>配置表</strong>
+                    <span v-if="aiResearchConfigProfileFilePath">
+                      {{ aiResearchConfigProfileFilePath }}
+                    </span>
+                  </div>
+                  <div class="ai-research-config-head-actions">
+                    <el-button
+                      size="small"
+                      :loading="aiResearchConfigProfileImporting"
+                      data-test="ai-research-config-import"
+                      @click="triggerAIResearchConfigProfileImport"
+                    >
+                      <el-icon aria-hidden="true">
+                        <Upload />
+                      </el-icon>
+                      导入 YAML
+                    </el-button>
+                    <el-button
+                      size="small"
+                      :loading="aiResearchConfigProfilesLoading"
+                      data-test="ai-research-config-refresh"
+                      @click="loadAIResearchConfigProfiles({ showError: true })"
+                    >
+                      <el-icon aria-hidden="true">
+                        <RefreshRight />
+                      </el-icon>
+                      刷新
+                    </el-button>
+                  </div>
+                </div>
+
+                <input
+                  ref="aiResearchConfigProfileFileInput"
+                  class="ai-research-config-file-input"
+                  type="file"
+                  accept=".yaml,.yml,text/yaml,application/x-yaml"
+                  @change="importAIResearchConfigProfileFile"
+                >
+
+                <el-table
+                  v-loading="aiResearchConfigProfilesLoading"
+                  class="ai-research-config-table"
+                  :data="aiResearchConfigProfiles"
+                  size="small"
+                  row-key="id"
+                  highlight-current-row
+                  :empty-text="'暂无配置，可从当前表单新建或导入 YAML'"
+                  @row-click="row => applyAIResearchConfigProfile(row)"
+                >
+                  <el-table-column
+                    label="名称"
+                    min-width="150"
+                  >
+                    <template #default="{ row }">
+                      <div class="ai-research-config-name">
+                        <strong>{{ row.name }}</strong>
+                        <span>{{ row.id }}</span>
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="标的"
+                    min-width="110"
+                  >
+                    <template #default="{ row }">
+                      {{ aiResearchConfigProfileValue(row, 'symbol') }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="周期"
+                    width="76"
+                  >
+                    <template #default="{ row }">
+                      {{ aiResearchConfigProfileValue(row, 'timeframe') }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="Sharpe"
+                    width="86"
+                  >
+                    <template #default="{ row }">
+                      {{ aiResearchConfigProfileMetric(row, 'target_sharpe') }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="轮数"
+                    width="72"
+                  >
+                    <template #default="{ row }">
+                      {{ aiResearchConfigProfileMetric(row, 'max_iterations', 0) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="样本外"
+                    width="86"
+                  >
+                    <template #default="{ row }">
+                      {{ aiResearchConfigProfileOos(row) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="操作"
+                    width="174"
+                    fixed="right"
+                  >
+                    <template #default="{ row }">
+                      <el-button
+                        link
+                        size="small"
+                        type="primary"
+                        @click.stop="applyAIResearchConfigProfile(row)"
+                      >
+                        加载
+                      </el-button>
+                      <el-button
+                        link
+                        size="small"
+                        type="warning"
+                        :loading="aiResearchConfigProfileSaving && aiResearchSelectedConfigProfileId === row.id"
+                        @click.stop="saveAIResearchConfigProfile(row.id)"
+                      >
+                        保存
+                      </el-button>
+                      <el-button
+                        link
+                        size="small"
+                        type="danger"
+                        :loading="aiResearchConfigProfileDeletingId === row.id"
+                        @click.stop="deleteAIResearchConfigProfile(row)"
+                      >
+                        删除
+                      </el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+
+                <div
+                  v-if="aiResearchSelectedConfigProfile"
+                  class="ai-research-config-detail"
+                  data-test="ai-research-config-detail"
+                >
+                  <div class="ai-research-config-detail-head">
+                    <strong>{{ aiResearchSelectedConfigProfile.name }}</strong>
+                    <span>
+                      {{ aiResearchSelectedConfigProfile.description || '当前配置没有填写说明。' }}
+                    </span>
+                  </div>
+                  <div class="ai-research-config-detail-grid">
+                    <div
+                      v-for="item in aiResearchSelectedConfigDetails"
+                      :key="item.label"
+                      class="ai-research-config-detail-item"
+                    >
+                      <span>{{ item.label }}</span>
+                      <strong>{{ item.value }}</strong>
+                    </div>
+                  </div>
+                  <pre
+                    v-if="aiResearchSelectedConfigPromptPreview"
+                    class="ai-research-config-prompt-preview"
+                  >{{ aiResearchSelectedConfigPromptPreview }}</pre>
+                </div>
+
+                <div class="ai-research-config-editor">
+                  <el-input
+                    v-model="aiResearchConfigProfileName"
+                    placeholder="配置名称"
+                    data-test="ai-research-config-name"
+                  />
+                  <el-input
+                    v-model="aiResearchConfigProfileDescription"
+                    placeholder="配置说明"
+                    data-test="ai-research-config-description"
+                  />
+                  <el-button
+                    type="primary"
+                    plain
+                    :disabled="!aiResearchSelectedConfigProfile"
+                    :loading="aiResearchConfigProfileSaving"
+                    data-test="ai-research-config-save"
+                    @click="saveAIResearchConfigProfile()"
+                  >
+                    <el-icon aria-hidden="true">
+                      <EditPen />
+                    </el-icon>
+                    保存修改
+                  </el-button>
+                  <el-button
+                    type="success"
+                    plain
+                    :loading="aiResearchConfigProfileSaving"
+                    data-test="ai-research-config-create"
+                    @click="createAIResearchConfigProfile"
+                  >
+                    <el-icon aria-hidden="true">
+                      <Plus />
+                    </el-icon>
+                    新建配置
+                  </el-button>
+                  <el-button
+                    type="danger"
+                    plain
+                    :disabled="!aiResearchSelectedConfigProfile"
+                    :loading="aiResearchConfigProfileDeletingId === aiResearchSelectedConfigProfileId"
+                    data-test="ai-research-config-delete"
+                    @click="aiResearchSelectedConfigProfile && deleteAIResearchConfigProfile(aiResearchSelectedConfigProfile)"
+                  >
+                    <el-icon aria-hidden="true">
+                      <Delete />
+                    </el-icon>
+                    删除配置
+                  </el-button>
+                </div>
+              </div>
+
+              <el-form
+                label-position="top"
+                :model="aiResearchForm"
+              >
+                <el-form-item label="投研方式">
+                  <el-radio-group
+                    v-model="aiResearchForm.workflow_mode"
+                    data-test="ai-research-workflow-mode"
+                  >
+                    <el-radio-button label="auto">
+                      自动规划
+                    </el-radio-button>
+                    <el-radio-button label="prompt">
+                      按提示执行
+                    </el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
+
+                <el-form-item :label="t('strategy.aiResearchPrompt')">
+                  <el-input
+                    v-model="aiResearchForm.prompt"
+                    type="textarea"
+                    :rows="5"
+                    :placeholder="t('strategy.aiResearchPromptPlaceholder')"
+                    data-test="ai-research-prompt-config"
+                  />
+                  <div class="ai-research-prompt-tools">
+                    <el-button
+                      size="small"
+                      type="primary"
+                      data-test="ai-research-generate-prompt-config"
+                      @click="generateAIResearchPrompt"
+                    >
+                      <el-icon
+                        class="mr-1"
+                        aria-hidden="true"
+                      >
+                        <MagicStick />
+                      </el-icon>
+                      {{ t('strategy.aiResearchGeneratePrompt') }}
+                    </el-button>
+                  </div>
+                </el-form-item>
+
+                <div class="ai-research-form-grid">
+                  <el-form-item :label="t('strategy.aiResearchSymbol')">
+                    <el-input
+                      v-model="aiResearchForm.symbol"
+                      data-test="ai-research-symbol"
+                    />
+                  </el-form-item>
+                  <el-form-item :label="t('strategy.aiResearchSymbolName')">
+                    <el-input v-model="aiResearchForm.symbol_name" />
+                  </el-form-item>
+                  <el-form-item label="知识库 ID">
+                    <el-input
+                      v-model="aiResearchForm.knowledge_base_id"
+                      clearable
+                      placeholder="可选"
+                      data-test="ai-research-knowledge-base"
+                    />
+                  </el-form-item>
+                  <el-form-item label="生成模式">
+                    <el-checkbox
+                      v-model="aiResearchForm.thinking_mode"
+                      data-test="ai-research-thinking-mode"
+                    >
+                      深度思考
+                    </el-checkbox>
+                  </el-form-item>
+                  <el-form-item :label="t('strategy.aiResearchTimeframe')">
+                    <el-select
+                      v-model="aiResearchForm.timeframe"
+                      class="w-full"
+                    >
+                      <el-option
+                        label="1d"
+                        value="1d"
+                      />
+                      <el-option
+                        label="1h"
+                        value="1h"
+                      />
+                      <el-option
+                        label="30m"
+                        value="30m"
+                      />
+                      <el-option
+                        label="5m"
+                        value="5m"
+                      />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item :label="t('strategy.aiResearchTargetSharpe')">
+                    <el-input-number
+                      v-model="aiResearchForm.target_sharpe"
+                      :min="-5"
+                      :max="10"
+                      :step="0.1"
+                      class="w-full"
+                    />
+                  </el-form-item>
+                  <el-form-item :label="t('strategy.aiResearchMaxIterations')">
+                    <el-input-number
+                      v-model="aiResearchForm.max_iterations"
+                      :min="1"
+                      :max="8"
+                      class="w-full"
+                    />
+                  </el-form-item>
+                  <el-form-item :label="t('strategy.aiResearchMinTrades')">
+                    <el-input-number
+                      v-model="aiResearchForm.min_total_trades"
+                      :min="0"
+                      :max="9999"
+                      class="w-full"
+                    />
+                  </el-form-item>
+                  <el-form-item label="最大回撤上限 %">
+                    <div class="ai-research-gate-control">
+                      <el-checkbox v-model="aiResearchForm.use_max_drawdown_limit" />
+                      <el-input-number
+                        v-model="aiResearchForm.max_drawdown_limit"
+                        :disabled="!aiResearchForm.use_max_drawdown_limit"
+                        :min="0"
+                        :max="100"
+                        :step="1"
+                        class="w-full"
+                        data-test="ai-research-max-drawdown"
+                      />
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="最小总收益 %">
+                    <div class="ai-research-gate-control">
+                      <el-checkbox v-model="aiResearchForm.use_min_total_return" />
+                      <el-input-number
+                        v-model="aiResearchForm.min_total_return"
+                        :disabled="!aiResearchForm.use_min_total_return"
+                        :min="-100"
+                        :max="1000"
+                        :step="1"
+                        class="w-full"
+                      />
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="最小年化收益 %">
+                    <div class="ai-research-gate-control">
+                      <el-checkbox v-model="aiResearchForm.use_min_annual_return" />
+                      <el-input-number
+                        v-model="aiResearchForm.min_annual_return"
+                        :disabled="!aiResearchForm.use_min_annual_return"
+                        :min="-100"
+                        :max="1000"
+                        :step="1"
+                        class="w-full"
+                      />
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="最小胜率 %">
+                    <div class="ai-research-gate-control">
+                      <el-checkbox v-model="aiResearchForm.use_min_win_rate" />
+                      <el-input-number
+                        v-model="aiResearchForm.min_win_rate"
+                        :disabled="!aiResearchForm.use_min_win_rate"
+                        :min="0"
+                        :max="100"
+                        :step="1"
+                        class="w-full"
+                      />
+                    </div>
+                  </el-form-item>
+                  <el-form-item :label="t('strategy.aiResearchInitialCash')">
+                    <el-input-number
+                      v-model="aiResearchForm.initial_cash"
+                      :min="1"
+                      :step="10000"
+                      class="w-full"
+                    />
+                  </el-form-item>
+                  <el-form-item :label="t('strategy.aiResearchCommission')">
+                    <div class="ai-research-gate-control">
+                      <el-checkbox
+                        v-model="aiResearchForm.use_manual_commission"
+                        data-test="ai-research-manual-commission"
+                      />
+                      <el-input-number
+                        v-model="aiResearchForm.commission"
+                        :disabled="!aiResearchForm.use_manual_commission"
+                        :min="0"
+                        :max="0.1"
+                        :step="0.0001"
+                        class="w-full"
+                        data-test="ai-research-commission"
+                      />
+                    </div>
+                  </el-form-item>
+                  <el-form-item :label="t('strategy.aiResearchAnnualDays')">
+                    <el-input-number
+                      v-model="aiResearchForm.annual_days"
+                      :min="1"
+                      :max="366"
+                      :step="1"
+                      class="w-full"
+                      data-test="ai-research-annual-days"
+                    />
+                  </el-form-item>
+                  <el-form-item :label="t('strategy.aiResearchCalcMethod')">
+                    <el-select
+                      v-model="aiResearchForm.calc_method"
+                      class="w-full"
+                      data-test="ai-research-calc-method"
+                    >
+                      <el-option
+                        label="simple"
+                        value="simple"
+                      />
+                      <el-option
+                        label="log"
+                        value="log"
+                      />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item :label="t('strategy.aiResearchWeightMode')">
+                    <el-select
+                      v-model="aiResearchForm.weight_mode"
+                      class="w-full"
+                      data-test="ai-research-weight-mode"
+                    >
+                      <el-option
+                        label="equal"
+                        value="equal"
+                      />
+                      <el-option
+                        label="value"
+                        value="value"
+                      />
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item :label="t('strategy.aiResearchGroupName')">
+                    <el-input
+                      v-model="aiResearchForm.group_name"
+                      data-test="ai-research-group-name"
+                    />
+                  </el-form-item>
+                  <el-form-item label="单轮回测超时(秒)">
+                    <el-input-number
+                      v-model="aiResearchForm.backtest_timeout_seconds"
+                      :min="1"
+                      :max="3600"
+                      :step="60"
+                      class="w-full"
+                      data-test="ai-research-backtest-timeout"
+                    />
+                  </el-form-item>
+                  <el-form-item label="回测轮询间隔(秒)">
+                    <el-input-number
+                      v-model="aiResearchForm.poll_interval_seconds"
+                      :min="0.1"
+                      :max="30"
+                      :step="0.5"
+                      class="w-full"
+                      data-test="ai-research-poll-interval"
+                    />
+                  </el-form-item>
+                  <el-form-item label="模拟工作区名称">
+                    <el-input
+                      v-model="aiResearchForm.paper_workspace_name"
+                      clearable
+                      placeholder="自动命名"
+                      data-test="ai-research-paper-workspace-name"
+                    />
+                  </el-form-item>
+                  <el-form-item label="模拟工作区 ID">
+                    <el-input
+                      v-model="aiResearchForm.trading_workspace_id"
+                      clearable
+                      placeholder="可选，复用已有模拟工作区"
+                      data-test="ai-research-trading-workspace-id"
+                    />
+                  </el-form-item>
+                  <el-form-item label="模拟网关配置 JSON">
+                    <el-input
+                      v-model="aiResearchForm.gateway_config_json"
+                      type="textarea"
+                      :rows="3"
+                      :placeholder="PAPER_GATEWAY_CONFIG_PLACEHOLDER"
+                      data-test="ai-research-gateway-config"
+                    />
+                  </el-form-item>
+                  <el-form-item label="实盘工作区名称">
+                    <el-input
+                      v-model="aiResearchForm.live_workspace_name"
+                      clearable
+                      placeholder="自动命名"
+                      data-test="ai-research-live-workspace-name"
+                    />
+                  </el-form-item>
+                  <el-form-item label="实盘工作区 ID">
+                    <el-input
+                      v-model="aiResearchForm.live_trading_workspace_id"
+                      clearable
+                      placeholder="可选，复用已有实盘工作区"
+                      data-test="ai-research-live-workspace-id"
+                    />
+                  </el-form-item>
+                  <el-form-item label="实盘网关配置 JSON">
+                    <el-input
+                      v-model="aiResearchForm.live_gateway_config_json"
+                      type="textarea"
+                      :rows="3"
+                      :placeholder="LIVE_GATEWAY_CONFIG_PLACEHOLDER"
+                      data-test="ai-research-live-gateway-config"
+                    />
+                  </el-form-item>
+                  <el-form-item :label="t('strategy.aiResearchStartDate')">
+                    <el-input
+                      v-model="aiResearchForm.start_date"
+                      placeholder="2020-01-01"
+                    />
+                  </el-form-item>
+                  <el-form-item :label="t('strategy.aiResearchEndDate')">
+                    <el-input
+                      v-model="aiResearchForm.end_date"
+                      placeholder="2026-01-01"
+                    />
+                  </el-form-item>
+                  <el-form-item label="样本外比例 %">
+                    <div class="ai-research-gate-control">
+                      <el-checkbox
+                        v-model="aiResearchForm.out_of_sample_validation"
+                        data-test="ai-research-oos-enabled"
+                      />
+                      <el-input-number
+                        v-model="aiResearchForm.out_of_sample_ratio_pct"
+                        :disabled="!aiResearchForm.out_of_sample_validation"
+                        :min="5"
+                        :max="50"
+                        :step="5"
+                        class="w-full"
+                        data-test="ai-research-oos-ratio"
+                      />
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="晋级必须通过样本外">
+                    <el-checkbox
+                      v-model="aiResearchForm.require_out_of_sample_validation"
+                      :disabled="!aiResearchForm.out_of_sample_validation"
+                      data-test="ai-research-oos-required"
+                    >
+                      达标后先完成样本外验证
+                    </el-checkbox>
+                  </el-form-item>
+                  <el-form-item label="样本外最小 Sharpe">
+                    <div class="ai-research-gate-control">
+                      <el-checkbox
+                        v-model="aiResearchForm.use_min_out_of_sample_sharpe"
+                        :disabled="!aiResearchForm.out_of_sample_validation"
+                      />
+                      <el-input-number
+                        v-model="aiResearchForm.min_out_of_sample_sharpe"
+                        :disabled="
+                          !aiResearchForm.out_of_sample_validation
+                            || !aiResearchForm.use_min_out_of_sample_sharpe
+                        "
+                        :min="-5"
+                        :max="10"
+                        :step="0.1"
+                        class="w-full"
+                        data-test="ai-research-oos-sharpe"
+                      />
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="样本外最少交易">
+                    <div class="ai-research-gate-control">
+                      <el-checkbox
+                        v-model="aiResearchForm.use_min_out_of_sample_trades"
+                        :disabled="!aiResearchForm.out_of_sample_validation"
+                      />
+                      <el-input-number
+                        v-model="aiResearchForm.min_out_of_sample_trades"
+                        :disabled="
+                          !aiResearchForm.out_of_sample_validation
+                            || !aiResearchForm.use_min_out_of_sample_trades
+                        "
+                        :min="0"
+                        :max="9999"
+                        class="w-full"
+                        data-test="ai-research-oos-trades"
+                      />
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="最少模拟观察天数">
+                    <el-input-number
+                      v-model="aiResearchForm.min_paper_trading_days"
+                      :min="0"
+                      :max="365"
+                      :step="1"
+                      class="w-full"
+                      data-test="ai-research-min-paper-days"
+                    />
+                  </el-form-item>
+                </div>
+              </el-form>
+            </el-dialog>
+
             <el-form
               label-position="top"
               :model="aiResearchForm"
+              class="ai-research-main-form"
             >
               <el-form-item :label="t('strategy.aiResearchPrompt')">
                 <el-input
                   v-model="aiResearchForm.prompt"
                   type="textarea"
-                  :rows="5"
+                  :rows="7"
                   :placeholder="t('strategy.aiResearchPromptPlaceholder')"
                   data-test="ai-research-prompt"
                 />
@@ -58,541 +814,233 @@
                   </el-button>
                 </div>
               </el-form-item>
+            </el-form>
 
-              <div class="ai-research-form-grid">
-                <el-form-item :label="t('strategy.aiResearchSymbol')">
-                  <el-input
-                    v-model="aiResearchForm.symbol"
-                    data-test="ai-research-symbol"
-                  />
-                </el-form-item>
-                <el-form-item :label="t('strategy.aiResearchSymbolName')">
-                  <el-input v-model="aiResearchForm.symbol_name" />
-                </el-form-item>
-                <el-form-item label="知识库 ID">
-                  <el-input
-                    v-model="aiResearchForm.knowledge_base_id"
-                    clearable
-                    placeholder="可选"
-                    data-test="ai-research-knowledge-base"
-                  />
-                </el-form-item>
-                <el-form-item label="生成模式">
-                  <el-checkbox
-                    v-model="aiResearchForm.thinking_mode"
-                    data-test="ai-research-thinking-mode"
-                  >
-                    深度思考
-                  </el-checkbox>
-                </el-form-item>
-                <el-form-item :label="t('strategy.aiResearchTimeframe')">
-                  <el-select
-                    v-model="aiResearchForm.timeframe"
-                    class="w-full"
-                  >
-                    <el-option
-                      label="1d"
-                      value="1d"
-                    />
-                    <el-option
-                      label="1h"
-                      value="1h"
-                    />
-                    <el-option
-                      label="30m"
-                      value="30m"
-                    />
-                    <el-option
-                      label="5m"
-                      value="5m"
-                    />
-                  </el-select>
-                </el-form-item>
-                <el-form-item :label="t('strategy.aiResearchTargetSharpe')">
-                  <el-input-number
-                    v-model="aiResearchForm.target_sharpe"
-                    :min="-5"
-                    :max="10"
-                    :step="0.1"
-                    class="w-full"
-                  />
-                </el-form-item>
-                <el-form-item :label="t('strategy.aiResearchMaxIterations')">
-                  <el-input-number
-                    v-model="aiResearchForm.max_iterations"
-                    :min="1"
-                    :max="8"
-                    class="w-full"
-                  />
-                </el-form-item>
-                <el-form-item :label="t('strategy.aiResearchMinTrades')">
-                  <el-input-number
-                    v-model="aiResearchForm.min_total_trades"
-                    :min="0"
-                    :max="9999"
-                    class="w-full"
-                  />
-                </el-form-item>
-                <el-form-item label="最大回撤上限 %">
-                  <div class="ai-research-gate-control">
-                    <el-checkbox v-model="aiResearchForm.use_max_drawdown_limit" />
-                    <el-input-number
-                      v-model="aiResearchForm.max_drawdown_limit"
-                      :disabled="!aiResearchForm.use_max_drawdown_limit"
-                      :min="0"
-                      :max="100"
-                      :step="1"
-                      class="w-full"
-                      data-test="ai-research-max-drawdown"
-                    />
-                  </div>
-                </el-form-item>
-                <el-form-item label="最小总收益 %">
-                  <div class="ai-research-gate-control">
-                    <el-checkbox v-model="aiResearchForm.use_min_total_return" />
-                    <el-input-number
-                      v-model="aiResearchForm.min_total_return"
-                      :disabled="!aiResearchForm.use_min_total_return"
-                      :min="-100"
-                      :max="1000"
-                      :step="1"
-                      class="w-full"
-                    />
-                  </div>
-                </el-form-item>
-                <el-form-item label="最小年化收益 %">
-                  <div class="ai-research-gate-control">
-                    <el-checkbox v-model="aiResearchForm.use_min_annual_return" />
-                    <el-input-number
-                      v-model="aiResearchForm.min_annual_return"
-                      :disabled="!aiResearchForm.use_min_annual_return"
-                      :min="-100"
-                      :max="1000"
-                      :step="1"
-                      class="w-full"
-                    />
-                  </div>
-                </el-form-item>
-                <el-form-item label="最小胜率 %">
-                  <div class="ai-research-gate-control">
-                    <el-checkbox v-model="aiResearchForm.use_min_win_rate" />
-                    <el-input-number
-                      v-model="aiResearchForm.min_win_rate"
-                      :disabled="!aiResearchForm.use_min_win_rate"
-                      :min="0"
-                      :max="100"
-                      :step="1"
-                      class="w-full"
-                    />
-                  </div>
-                </el-form-item>
-                <el-form-item :label="t('strategy.aiResearchInitialCash')">
-                  <el-input-number
-                    v-model="aiResearchForm.initial_cash"
-                    :min="1"
-                    :step="10000"
-                    class="w-full"
-                  />
-                </el-form-item>
-                <el-form-item :label="t('strategy.aiResearchCommission')">
-                  <div class="ai-research-gate-control">
-                    <el-checkbox
-                      v-model="aiResearchForm.use_manual_commission"
-                      data-test="ai-research-manual-commission"
-                    />
-                    <el-input-number
-                      v-model="aiResearchForm.commission"
-                      :disabled="!aiResearchForm.use_manual_commission"
-                      :min="0"
-                      :max="0.1"
-                      :step="0.0001"
-                      class="w-full"
-                      data-test="ai-research-commission"
-                    />
-                  </div>
-                </el-form-item>
-                <el-form-item :label="t('strategy.aiResearchAnnualDays')">
-                  <el-input-number
-                    v-model="aiResearchForm.annual_days"
-                    :min="1"
-                    :max="366"
-                    :step="1"
-                    class="w-full"
-                    data-test="ai-research-annual-days"
-                  />
-                </el-form-item>
-                <el-form-item :label="t('strategy.aiResearchCalcMethod')">
-                  <el-select
-                    v-model="aiResearchForm.calc_method"
-                    class="w-full"
-                    data-test="ai-research-calc-method"
-                  >
-                    <el-option
-                      label="simple"
-                      value="simple"
-                    />
-                    <el-option
-                      label="log"
-                      value="log"
-                    />
-                  </el-select>
-                </el-form-item>
-                <el-form-item :label="t('strategy.aiResearchWeightMode')">
-                  <el-select
-                    v-model="aiResearchForm.weight_mode"
-                    class="w-full"
-                    data-test="ai-research-weight-mode"
-                  >
-                    <el-option
-                      label="equal"
-                      value="equal"
-                    />
-                    <el-option
-                      label="value"
-                      value="value"
-                    />
-                  </el-select>
-                </el-form-item>
-                <el-form-item :label="t('strategy.aiResearchGroupName')">
-                  <el-input
-                    v-model="aiResearchForm.group_name"
-                    data-test="ai-research-group-name"
-                  />
-                </el-form-item>
-                <el-form-item label="单轮回测超时(秒)">
-                  <el-input-number
-                    v-model="aiResearchForm.backtest_timeout_seconds"
-                    :min="1"
-                    :max="3600"
-                    :step="60"
-                    class="w-full"
-                    data-test="ai-research-backtest-timeout"
-                  />
-                </el-form-item>
-                <el-form-item label="回测轮询间隔(秒)">
-                  <el-input-number
-                    v-model="aiResearchForm.poll_interval_seconds"
-                    :min="0.1"
-                    :max="30"
-                    :step="0.5"
-                    class="w-full"
-                    data-test="ai-research-poll-interval"
-                  />
-                </el-form-item>
-                <el-form-item label="模拟工作区名称">
-                  <el-input
-                    v-model="aiResearchForm.paper_workspace_name"
-                    clearable
-                    placeholder="自动命名"
-                    data-test="ai-research-paper-workspace-name"
-                  />
-                </el-form-item>
-                <el-form-item label="模拟工作区 ID">
-                  <el-input
-                    v-model="aiResearchForm.trading_workspace_id"
-                    clearable
-                    placeholder="可选，复用已有模拟工作区"
-                    data-test="ai-research-trading-workspace-id"
-                  />
-                </el-form-item>
-                <el-form-item label="模拟网关配置 JSON">
-                  <el-input
-                    v-model="aiResearchForm.gateway_config_json"
-                    type="textarea"
-                    :rows="3"
-                    placeholder='{"name":"paper_gateway","params":{}}'
-                    data-test="ai-research-gateway-config"
-                  />
-                </el-form-item>
-                <el-form-item label="实盘工作区名称">
-                  <el-input
-                    v-model="aiResearchForm.live_workspace_name"
-                    clearable
-                    placeholder="自动命名"
-                    data-test="ai-research-live-workspace-name"
-                  />
-                </el-form-item>
-                <el-form-item label="实盘工作区 ID">
-                  <el-input
-                    v-model="aiResearchForm.live_trading_workspace_id"
-                    clearable
-                    placeholder="可选，复用已有实盘工作区"
-                    data-test="ai-research-live-workspace-id"
-                  />
-                </el-form-item>
-                <el-form-item label="实盘网关配置 JSON">
-                  <el-input
-                    v-model="aiResearchForm.live_gateway_config_json"
-                    type="textarea"
-                    :rows="3"
-                    placeholder='{"name":"ctp_live","params":{}}'
-                    data-test="ai-research-live-gateway-config"
-                  />
-                </el-form-item>
-                <el-form-item :label="t('strategy.aiResearchStartDate')">
-                  <el-input
-                    v-model="aiResearchForm.start_date"
-                    placeholder="2020-01-01"
-                  />
-                </el-form-item>
-                <el-form-item :label="t('strategy.aiResearchEndDate')">
-                  <el-input
-                    v-model="aiResearchForm.end_date"
-                    placeholder="2026-01-01"
-                  />
-                </el-form-item>
-                <el-form-item label="样本外比例 %">
-                  <div class="ai-research-gate-control">
-                    <el-checkbox
-                      v-model="aiResearchForm.out_of_sample_validation"
-                      data-test="ai-research-oos-enabled"
-                    />
-                    <el-input-number
-                      v-model="aiResearchForm.out_of_sample_ratio_pct"
-                      :disabled="!aiResearchForm.out_of_sample_validation"
-                      :min="5"
-                      :max="50"
-                      :step="5"
-                      class="w-full"
-                      data-test="ai-research-oos-ratio"
-                    />
-                  </div>
-                </el-form-item>
-                <el-form-item label="晋级必须通过样本外">
-                  <el-checkbox
-                    v-model="aiResearchForm.require_out_of_sample_validation"
-                    :disabled="!aiResearchForm.out_of_sample_validation"
-                    data-test="ai-research-oos-required"
-                  >
-                    达标后先完成样本外验证
-                  </el-checkbox>
-                </el-form-item>
-                <el-form-item label="样本外最小 Sharpe">
-                  <div class="ai-research-gate-control">
-                    <el-checkbox
-                      v-model="aiResearchForm.use_min_out_of_sample_sharpe"
-                      :disabled="!aiResearchForm.out_of_sample_validation"
-                    />
-                    <el-input-number
-                      v-model="aiResearchForm.min_out_of_sample_sharpe"
-                      :disabled="
-                        !aiResearchForm.out_of_sample_validation
-                          || !aiResearchForm.use_min_out_of_sample_sharpe
-                      "
-                      :min="-5"
-                      :max="10"
-                      :step="0.1"
-                      class="w-full"
-                      data-test="ai-research-oos-sharpe"
-                    />
-                  </div>
-                </el-form-item>
-                <el-form-item label="样本外最少交易">
-                  <div class="ai-research-gate-control">
-                    <el-checkbox
-                      v-model="aiResearchForm.use_min_out_of_sample_trades"
-                      :disabled="!aiResearchForm.out_of_sample_validation"
-                    />
-                    <el-input-number
-                      v-model="aiResearchForm.min_out_of_sample_trades"
-                      :disabled="
-                        !aiResearchForm.out_of_sample_validation
-                          || !aiResearchForm.use_min_out_of_sample_trades
-                      "
-                      :min="0"
-                      :max="9999"
-                      class="w-full"
-                      data-test="ai-research-oos-trades"
-                    />
-                  </div>
-                </el-form-item>
-                <el-form-item label="最少模拟观察天数">
-                  <el-input-number
-                    v-model="aiResearchForm.min_paper_trading_days"
-                    :min="0"
-                    :max="365"
-                    :step="1"
-                    class="w-full"
-                    data-test="ai-research-min-paper-days"
-                  />
-                </el-form-item>
-              </div>
-
-              <div class="ai-research-actions">
-                <div class="ai-research-action-options">
-                  <el-checkbox v-model="aiResearchForm.start_paper_trading">
-                    {{ t('strategy.aiResearchPaper') }}
-                  </el-checkbox>
-                  <el-tag
-                    v-if="aiResearchContinuationEnabled"
-                    closable
-                    type="info"
-                    @close="clearAIResearchContinuation"
-                  >
-                    {{ aiResearchContinuationLabel }}
-                  </el-tag>
-                </div>
-                <el-button
-                  type="primary"
-                  :loading="aiResearchRunning"
-                  data-test="ai-research-run"
-                  @click="runAIResearchLoop"
-                >
-                  <el-icon
-                    class="mr-1"
-                    aria-hidden="true"
-                  >
-                    <MagicStick />
-                  </el-icon>
-                  {{ aiResearchRunning ? t('strategy.aiResearchRunning') : t('strategy.aiResearchRun') }}
-                </el-button>
-                <el-button
-                  v-if="canCancelAIResearchTask"
-                  data-test="ai-research-cancel"
-                  :loading="aiResearchCancelling"
-                  @click="cancelAIResearchTask"
-                >
-                  取消任务
-                </el-button>
+            <div class="ai-research-actions">
+              <div class="ai-research-action-options">
+                <el-checkbox v-model="aiResearchForm.start_paper_trading">
+                  {{ t('strategy.aiResearchPaper') }}
+                </el-checkbox>
                 <el-tag
-                  v-if="aiResearchTaskId"
-                  size="small"
+                  v-if="aiResearchContinuationEnabled"
+                  closable
                   type="info"
+                  @close="clearAIResearchContinuation"
                 >
-                  任务 {{ aiResearchTaskStageLabel }}
-                  {{ formatTaskProgress(aiResearchTaskProgress) }}
-                  <template v-if="aiResearchTaskIteration">
-                    第 {{ aiResearchTaskIteration }} 轮
-                  </template>
-                  <template v-if="aiResearchBacktestTaskId">
-                    回测 {{ aiResearchBacktestTaskId }}
-                  </template>
-                  <template v-else-if="aiResearchCancelledBacktestTaskId">
-                    已取消回测 {{ aiResearchCancelledBacktestTaskId }}
-                  </template>
+                  {{ aiResearchContinuationLabel }}
                 </el-tag>
               </div>
-              <div
+              <el-button
+                type="primary"
+                :loading="aiResearchRunning"
+                data-test="ai-research-run"
+                @click="runAIResearchLoop"
+              >
+                <el-icon
+                  class="mr-1"
+                  aria-hidden="true"
+                >
+                  <MagicStick />
+                </el-icon>
+                {{ aiResearchRunning ? t('strategy.aiResearchRunning') : t('strategy.aiResearchRun') }}
+              </el-button>
+              <el-button
+                v-if="canCancelAIResearchTask"
+                data-test="ai-research-cancel"
+                :loading="aiResearchCancelling"
+                @click="cancelAIResearchTask"
+              >
+                取消任务
+              </el-button>
+              <el-button
+                v-if="canContinueAIResearchTask"
+                type="warning"
+                plain
+                data-test="ai-research-continue-task"
+                :loading="aiResearchRunning"
+                @click="continueAIResearchFromTaskSnapshot"
+              >
+                从任务继续
+              </el-button>
+              <el-button
+                v-if="canRetryAIResearchTask"
+                type="warning"
+                plain
+                data-test="ai-research-retry-task"
+                :loading="aiResearchRunning"
+                @click="retryAIResearchFromTaskSnapshot"
+              >
+                重新启动任务
+              </el-button>
+              <el-tag
                 v-if="aiResearchTaskId"
-                class="ai-research-task-progress"
-                data-test="ai-research-task-progress"
+                size="small"
+                type="info"
               >
-                <strong>任务进度</strong>
-                <span v-if="aiResearchTaskObjectiveText">{{ aiResearchTaskObjectiveText }}</span>
-                <span v-if="aiResearchTaskSymbolText">{{ aiResearchTaskSymbolText }}</span>
-                <span v-if="aiResearchTaskTimeframeText">{{ aiResearchTaskTimeframeText }}</span>
-                <span
-                  v-if="aiResearchTaskContinuationSummary"
-                  data-test="ai-research-task-continuation"
-                >
-                  继续来源 {{ aiResearchTaskContinuationSummary }}
-                </span>
-                <span>阶段 {{ aiResearchTaskStageLabel }}</span>
-                <span>{{ formatTaskProgress(aiResearchTaskProgress) }}</span>
-                <span v-if="aiResearchTaskIteration">第 {{ aiResearchTaskIteration }} 轮</span>
-                <span v-if="aiResearchBacktestTaskId">回测 {{ aiResearchBacktestTaskId }}</span>
-                <span v-else-if="aiResearchCancelledBacktestTaskId">
+                任务 {{ aiResearchTaskStageLabel }}
+                {{ formatTaskProgress(aiResearchTaskProgress) }}
+                <template v-if="aiResearchTaskIteration">
+                  第 {{ aiResearchTaskIteration }} 轮
+                </template>
+                <template v-if="aiResearchBacktestTaskId">
+                  回测 {{ aiResearchBacktestTaskId }}
+                </template>
+                <template v-else-if="aiResearchCancelledBacktestTaskId">
                   已取消回测 {{ aiResearchCancelledBacktestTaskId }}
-                </span>
-                <span v-if="aiResearchTaskPaperStatusText">{{ aiResearchTaskPaperStatusText }}</span>
-                <span v-if="aiResearchTaskPaperUnitId">模拟单元 {{ aiResearchTaskPaperUnitId }}</span>
-                <span v-if="aiResearchTaskLiveStatusText">{{ aiResearchTaskLiveStatusText }}</span>
-                <span v-if="aiResearchTaskLiveUnitId">实盘单元 {{ aiResearchTaskLiveUnitId }}</span>
-                <span v-if="aiResearchTaskMessage">{{ aiResearchTaskMessage }}</span>
-                <span
-                  v-if="aiResearchTaskRuntimeItems.length"
-                  class="ai-research-task-runtime"
-                  data-test="ai-research-task-runtime"
-                >
-                  <strong>运行环境</strong>
-                  <span
-                    v-for="item in aiResearchTaskRuntimeItems"
-                    :key="item.key"
-                  >
-                    {{ item.label }} {{ item.value }}
-                  </span>
-                </span>
-                <span v-if="aiResearchTaskLatestIteration">
-                  最近{{ taskLatestIterationLabel(aiResearchTaskLatestIteration) }}
-                  Sharpe {{ formatMetric(taskLatestIterationMetric(aiResearchTaskLatestIteration, 'sharpe_ratio', 'sharpe')) }}
-                  交易 {{ formatMetric(taskLatestIterationMetric(aiResearchTaskLatestIteration, 'total_trades', 'trades')) }}
-                </span>
-                <span
-                  v-if="taskLatestIterationProgress(aiResearchTaskLatestIteration)"
-                  class="ai-research-task-iteration-progress"
-                  data-test="ai-research-task-iteration-progress"
-                >
-                  <el-tag
-                    size="small"
-                    :type="iterationProgressTagType(taskLatestIterationProgress(aiResearchTaskLatestIteration)?.status)"
-                  >
-                    {{ iterationProgressLabel(taskLatestIterationProgress(aiResearchTaskLatestIteration)?.status) }}
-                  </el-tag>
-                  <template v-if="taskLatestIterationProgress(aiResearchTaskLatestIteration)?.previous_iteration">
-                    对比第 {{ taskLatestIterationProgress(aiResearchTaskLatestIteration)?.previous_iteration }} 轮
-                  </template>
-                  <template v-if="iterationProgressDeltaText(taskLatestIterationProgress(aiResearchTaskLatestIteration), 'sharpe_delta')">
-                    Sharpe {{ iterationProgressDeltaText(taskLatestIterationProgress(aiResearchTaskLatestIteration), 'sharpe_delta') }}
-                  </template>
-                </span>
-                <span
-                  v-if="aiResearchTaskLatestDiagnostics"
-                  class="ai-research-task-diagnostics"
-                  data-test="ai-research-task-latest-diagnostics"
-                >
-                  <strong>最近诊断</strong>
-                  <span v-if="aiResearchTaskLatestDiagnostics.summary">
-                    {{ aiResearchTaskLatestDiagnostics.summary }}
-                  </span>
-                  <span
-                    v-for="failure in aiResearchTaskLatestDiagnostics.failures"
-                    :key="`task-failure-${failure}`"
-                    class="ai-research-warning-text"
-                  >
-                    {{ failure }}
-                  </span>
-                  <span
-                    v-for="plan in aiResearchTaskLatestDiagnostics.improvementPlan"
-                    :key="`task-plan-${plan}`"
-                  >
-                    改稿 {{ plan }}
-                  </span>
-                  <span
-                    v-for="action in aiResearchTaskLatestDiagnostics.nextActions"
-                    :key="`task-action-${action}`"
-                  >
-                    下一步 {{ action }}
-                  </span>
-                </span>
-                <span
-                  v-if="aiResearchTaskPipelineSteps.length"
-                  class="ai-research-task-pipeline"
-                  data-test="ai-research-task-pipeline"
-                >
-                  <span
-                    v-for="step in aiResearchTaskPipelineSteps"
-                    :key="step.key"
-                  >
-                    {{ step.label || aiResearchStageLabel(step.key) }}
-                    {{ pipelineStepStatusLabel(step.status) }}
-                    <template v-if="pipelineStepDetailText(step, aiResearchTaskPipeline)">
-                      {{ pipelineStepDetailText(step, aiResearchTaskPipeline) }}
-                    </template>
-                  </span>
-                </span>
-              </div>
-              <div
-                v-if="aiResearchTaskError"
-                class="ai-research-task-error"
-                data-test="ai-research-task-error"
+                </template>
+              </el-tag>
+            </div>
+            <div
+              v-if="aiResearchTaskId"
+              class="ai-research-task-progress"
+              data-test="ai-research-task-progress"
+            >
+              <strong>任务进度</strong>
+              <span
+                v-if="aiResearchTaskContinuationSummary"
+                data-test="ai-research-task-continuation"
               >
-                <strong>任务异常</strong>
-                <span>{{ aiResearchTaskError }}</span>
-              </div>
-            </el-form>
+                继续来源 {{ aiResearchTaskContinuationSummary }}
+              </span>
+              <span>阶段 {{ aiResearchTaskStageLabel }}</span>
+              <span>{{ formatTaskProgress(aiResearchTaskProgress) }}</span>
+              <span v-if="aiResearchTaskIteration">第 {{ aiResearchTaskIteration }} 轮</span>
+              <span v-if="aiResearchBacktestTaskId">回测 {{ aiResearchBacktestTaskId }}</span>
+              <span v-else-if="aiResearchCancelledBacktestTaskId">
+                已取消回测 {{ aiResearchCancelledBacktestTaskId }}
+              </span>
+              <span v-if="aiResearchTaskPaperStatusText">{{ aiResearchTaskPaperStatusText }}</span>
+              <span v-if="aiResearchTaskPaperUnitId">模拟单元 {{ aiResearchTaskPaperUnitId }}</span>
+              <span v-if="aiResearchTaskLiveStatusText">{{ aiResearchTaskLiveStatusText }}</span>
+              <span v-if="aiResearchTaskLiveUnitId">实盘单元 {{ aiResearchTaskLiveUnitId }}</span>
+              <span v-if="aiResearchTaskMessage">{{ aiResearchTaskMessage }}</span>
+              <span v-if="aiResearchTaskLatestIteration">
+                最近{{ taskLatestIterationLabel(aiResearchTaskLatestIteration) }}
+                Sharpe {{ formatMetric(taskLatestIterationMetric(aiResearchTaskLatestIteration, 'sharpe_ratio', 'sharpe')) }}
+                交易 {{ formatMetric(taskLatestIterationMetric(aiResearchTaskLatestIteration, 'total_trades', 'trades')) }}
+              </span>
+              <span
+                v-if="aiResearchTaskBestIterationDisplay"
+                data-test="ai-research-task-best-iteration"
+              >
+                当前最佳{{ taskLatestIterationLabel(aiResearchTaskBestIterationDisplay) }}
+                Sharpe {{ formatMetric(taskLatestIterationMetric(aiResearchTaskBestIterationDisplay, 'sharpe_ratio', 'sharpe')) }}
+                交易 {{ formatMetric(taskLatestIterationMetric(aiResearchTaskBestIterationDisplay, 'total_trades', 'trades')) }}
+              </span>
+              <span
+                v-if="taskLatestIterationProgress(aiResearchTaskLatestIteration)"
+                class="ai-research-task-iteration-progress"
+                data-test="ai-research-task-iteration-progress"
+              >
+                <el-tag
+                  size="small"
+                  :type="iterationProgressTagType(taskLatestIterationProgress(aiResearchTaskLatestIteration)?.status)"
+                >
+                  {{ iterationProgressLabel(taskLatestIterationProgress(aiResearchTaskLatestIteration)?.status) }}
+                </el-tag>
+                <template v-if="taskLatestIterationProgress(aiResearchTaskLatestIteration)?.previous_iteration">
+                  对比第 {{ taskLatestIterationProgress(aiResearchTaskLatestIteration)?.previous_iteration }} 轮
+                </template>
+                <template v-if="iterationProgressDeltaText(taskLatestIterationProgress(aiResearchTaskLatestIteration), 'sharpe_delta')">
+                  Sharpe {{ iterationProgressDeltaText(taskLatestIterationProgress(aiResearchTaskLatestIteration), 'sharpe_delta') }}
+                </template>
+              </span>
+              <span
+                v-if="aiResearchTaskLatestDiagnostics"
+                class="ai-research-task-diagnostics"
+                data-test="ai-research-task-latest-diagnostics"
+              >
+                <strong>最近诊断</strong>
+                <span v-if="aiResearchTaskLatestDiagnostics.summary">
+                  {{ aiResearchTaskLatestDiagnostics.summary }}
+                </span>
+                <span v-if="aiResearchTaskLatestDiagnostics.generationText">
+                  {{ aiResearchTaskLatestDiagnostics.generationText }}
+                </span>
+                <span
+                  v-for="gap in aiResearchTaskLatestDiagnostics.gateGaps"
+                  :key="`task-gap-${gap.key || gap.label}`"
+                  class="ai-research-warning-text"
+                >
+                  差距 {{ gateGapText(gap) }}
+                </span>
+                <span
+                  v-for="failure in aiResearchTaskLatestDiagnostics.failures"
+                  :key="`task-failure-${failure}`"
+                  class="ai-research-warning-text"
+                >
+                  {{ failure }}
+                </span>
+                <span
+                  v-for="plan in aiResearchTaskLatestDiagnostics.improvementPlan"
+                  :key="`task-plan-${plan}`"
+                >
+                  改稿 {{ plan }}
+                </span>
+                <span
+                  v-for="action in aiResearchTaskLatestDiagnostics.nextActions"
+                  :key="`task-action-${action}`"
+                >
+                  下一步 {{ action }}
+                </span>
+              </span>
+              <span
+                v-if="aiResearchTaskPipelineSteps.length"
+                class="ai-research-task-pipeline"
+                data-test="ai-research-task-pipeline"
+              >
+                <span
+                  v-for="step in aiResearchTaskPipelineSteps"
+                  :key="step.key"
+                >
+                  {{ step.label || aiResearchStageLabel(step.key) }}
+                  {{ pipelineStepStatusLabel(step.status) }}
+                  <template v-if="pipelineStepDetailText(step, aiResearchTaskPipeline)">
+                    {{ pipelineStepDetailText(step, aiResearchTaskPipeline) }}
+                  </template>
+                </span>
+              </span>
+              <span
+                v-if="aiResearchTaskPromotionAudit.length"
+                class="ai-research-task-promotion-audit"
+                data-test="ai-research-task-promotion-audit"
+              >
+                <strong>晋级审计</strong>
+                <span
+                  v-for="item in aiResearchTaskPromotionAudit"
+                  :key="item.key"
+                >
+                  {{ item.label }} {{ pipelineStepStatusLabel(item.status) }}
+                  <template v-if="item.evidence">
+                    {{ item.evidence }}
+                  </template>
+                </span>
+              </span>
+            </div>
+            <div
+              v-if="aiResearchTaskError"
+              class="ai-research-task-error"
+              data-test="ai-research-task-error"
+            >
+              <strong>任务异常</strong>
+              <span>{{ aiResearchTaskError }}</span>
+            </div>
           </section>
 
           <section class="ai-research-panel ai-research-result">
+            <div class="ai-research-panel-head">
+              <span class="ai-research-kicker">{{ t('strategy.aiResearchResultKicker') }}</span>
+              <h2>{{ t('strategy.aiResearchResultTitle') }}</h2>
+              <p>{{ t('strategy.aiResearchResultSubtitle') }}</p>
+            </div>
+            <div
+              v-if="aiResearchSelectedConfigProfile"
+              class="ai-research-result-context"
+              data-test="ai-research-result-context"
+            >
+              <strong>当前方案 {{ aiResearchSelectedConfigProfile.name }}</strong>
+              <span>{{ aiResearchSelectedProfileSummary }}</span>
+            </div>
             <div
               v-if="aiResearchResult"
               data-test="ai-research-result"
@@ -952,6 +1400,7 @@
                   >
                     {{ rule.label }} {{ paperReviewRuleStatusLabel(rule.status) }}
                     {{ formatMetric(rule.actual) }} / {{ formatMetric(rule.threshold) }}
+                    {{ paperReviewRuleGapText(rule) }}
                   </span>
                   <span v-if="aiResearchCurrentPaperReview.live_readiness_expires_at">
                     候选有效期 {{ formatDateTime(aiResearchCurrentPaperReview.live_readiness_expires_at) }}
@@ -1113,6 +1562,9 @@
                   {{ aiResearchBestDiagnostics.summary }}
                 </p>
                 <div class="ai-research-diagnostics-items">
+                  <span v-if="aiResearchBestDiagnostics.generationText">
+                    {{ aiResearchBestDiagnostics.generationText }}
+                  </span>
                   <span
                     v-for="category in aiResearchBestDiagnostics.failureCategories"
                     :key="`category-${category}`"
@@ -1125,6 +1577,13 @@
                     class="ai-research-warning-text"
                   >
                     {{ weakness }}
+                  </span>
+                  <span
+                    v-for="gap in aiResearchBestDiagnostics.gateGaps"
+                    :key="`best-gap-${gap.key || gap.label}`"
+                    class="ai-research-warning-text"
+                  >
+                    差距 {{ gateGapText(gap) }}
                   </span>
                   <span
                     v-for="strength in aiResearchBestDiagnostics.strengths"
@@ -1224,6 +1683,19 @@
                     <span>{{ t('strategy.aiResearchSharpe') }}: {{ formatMetric(item.sharpe_ratio) }}</span>
                     <span>质量分: {{ formatMetric(item.quality_score) }}</span>
                     <span>{{ t('strategy.aiResearchTrades') }}: {{ item.total_trades }}</span>
+                  </div>
+                  <div
+                    v-if="researchIterationBacktestSummary(item).length"
+                    class="ai-research-backtest-summary"
+                    data-test="ai-research-iteration-backtest-summary"
+                  >
+                    <strong>回测结果</strong>
+                    <span
+                      v-for="metric in researchIterationBacktestSummary(item)"
+                      :key="metric.key"
+                    >
+                      {{ metric.label }} {{ metric.value }}
+                    </span>
                   </div>
                   <div
                     v-if="iterationProgress(item)"
@@ -1327,7 +1799,7 @@
             </div>
             <el-empty
               v-else
-              :description="t('strategy.aiResearchNoResult')"
+              :description="aiResearchNoResultDescription"
             />
 
             <div
@@ -1345,7 +1817,7 @@
                   size="small"
                   type="info"
                 >
-                  {{ aiResearchRuns.length }}
+                  {{ aiResearchVisibleRuns.length }}
                 </el-tag>
               </div>
 
@@ -1356,18 +1828,18 @@
                 {{ t('common.loading') }}
               </div>
               <div
-                v-else-if="aiResearchRuns.length"
+                v-else-if="aiResearchVisibleRuns.length"
                 class="ai-research-history-list"
               >
                 <div
-                  v-for="record in aiResearchRuns"
+                  v-for="record in aiResearchVisibleRuns"
                   :key="record.run_id"
                   class="ai-research-history-item"
                 >
                   <button
                     type="button"
                     class="ai-research-history-select"
-                    @click="useAIResearchRecord(record)"
+                    @click="selectAIResearchRunRecord(record)"
                   >
                     <span class="ai-research-history-main">
                       <strong>{{ record.prompt }}</strong>
@@ -1562,6 +2034,7 @@
                       >
                         {{ rule.label }} {{ paperReviewRuleStatusLabel(rule.status) }}
                         {{ formatMetric(rule.actual) }} / {{ formatMetric(rule.threshold) }}
+                        {{ paperReviewRuleGapText(rule) }}
                       </span>
                       <span v-if="paperReviewForRecord(record)?.live_readiness_expires_at">
                         候选有效期 {{ formatDateTime(paperReviewForRecord(record)?.live_readiness_expires_at) }}
@@ -1739,7 +2212,7 @@
                 v-else
                 class="ai-research-history-empty"
               >
-                {{ t('strategy.aiResearchNoResult') }}
+                {{ aiResearchNoResultDescription }}
               </div>
             </div>
           </section>
@@ -1748,144 +2221,179 @@
 
       <!-- ========== Gallery ========== -->
       <el-tab-pane
+        v-if="showStrategyManagementTabs"
         :label="t('strategy.gallery')"
         name="gallery"
       >
-        <!-- Search and filter bar -->
-        <div class="flex flex-wrap gap-4 mb-6">
-          <el-input
-            v-model="searchKeyword"
-            :placeholder="t('strategy.searchPlaceholder')"
-            :aria-label="t('strategy.searchAriaLabel')"
-            clearable
-            class="w-64"
-            prefix-icon="Search"
-          />
-          <el-radio-group
-            v-model="categoryFilter"
-            size="default"
-            :aria-label="t('strategy.filterAriaLabel')"
-          >
-            <el-radio-button label="">
-              {{ t('strategy.categoryAll') }}
-            </el-radio-button>
-            <el-radio-button label="trend">
-              {{ t('strategy.categoryTrend') }}
-            </el-radio-button>
-            <el-radio-button label="mean_reversion">
-              {{ t('strategy.categoryMeanReversion') }}
-            </el-radio-button>
-            <el-radio-button label="volatility">
-              {{ t('strategy.categoryVolatility') }}
-            </el-radio-button>
-            <el-radio-button label="indicator">
-              {{ t('strategy.categoryIndicator') }}
-            </el-radio-button>
-            <el-radio-button label="arbitrage">
-              {{ t('strategy.categoryArbitrage') }}
-            </el-radio-button>
-            <el-radio-button label="custom">
-              {{ t('strategy.categoryOther') }}
-            </el-radio-button>
-          </el-radio-group>
-          <span class="text-gray-400 text-sm self-center ml-auto">
-            {{ t('strategy.customCount', { count: filteredTemplates.length }) }}
-          </span>
-        </div>
+        <section class="strategy-library-panel">
+          <div class="strategy-panel-head">
+            <div>
+              <span>{{ t('strategy.searchAndFilter') }}</span>
+              <h2>{{ t('strategy.gallery') }}</h2>
+            </div>
+            <el-tag
+              effect="plain"
+              round
+            >
+              {{ t('strategy.customCount', { count: filteredTemplates.length }) }}
+            </el-tag>
+          </div>
 
-        <!-- Strategy card grid -->
-        <div
-          v-if="filteredTemplates.length"
-          class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
-        >
-          <StrategyTemplateCard
-            v-for="tpl in displayedTemplates"
-            :key="tpl.id"
-            :tpl="tpl"
-            @detail="openTemplateDetail"
-            @use="useTemplate"
-            @backtest="goBacktest"
+          <div class="strategy-filter-bar">
+            <el-input
+              v-model="searchKeyword"
+              :placeholder="t('strategy.searchPlaceholder')"
+              :aria-label="t('strategy.searchAriaLabel')"
+              clearable
+              class="strategy-search-input"
+              prefix-icon="Search"
+            />
+            <el-radio-group
+              v-model="categoryFilter"
+              class="strategy-category-filter"
+              size="default"
+              :aria-label="t('strategy.filterAriaLabel')"
+            >
+              <el-radio-button label="">
+                {{ t('strategy.categoryAll') }}
+              </el-radio-button>
+              <el-radio-button label="trend">
+                {{ t('strategy.categoryTrend') }}
+              </el-radio-button>
+              <el-radio-button label="mean_reversion">
+                {{ t('strategy.categoryMeanReversion') }}
+              </el-radio-button>
+              <el-radio-button label="volatility">
+                {{ t('strategy.categoryVolatility') }}
+              </el-radio-button>
+              <el-radio-button label="indicator">
+                {{ t('strategy.categoryIndicator') }}
+              </el-radio-button>
+              <el-radio-button label="arbitrage">
+                {{ t('strategy.categoryArbitrage') }}
+              </el-radio-button>
+              <el-radio-button label="custom">
+                {{ t('strategy.categoryOther') }}
+              </el-radio-button>
+            </el-radio-group>
+          </div>
+
+          <div
+            v-if="filteredTemplates.length"
+            class="strategy-template-grid"
+          >
+            <StrategyTemplateCard
+              v-for="tpl in displayedTemplates"
+              :key="tpl.id"
+              :tpl="tpl"
+              @detail="openTemplateDetail"
+              @use="useTemplate"
+              @backtest="goBacktest"
+            />
+          </div>
+          <el-empty
+            v-else
+            class="strategy-empty-state"
+            :description="t('strategy.noMatch')"
           />
-        </div>
-        <el-empty
-          v-else
-          :description="t('strategy.noMatch')"
-        />
+        </section>
       </el-tab-pane>
 
       <!-- ========== My strategies ========== -->
       <el-tab-pane
+        v-if="showStrategyManagementTabs"
         :label="t('strategy.myStrategies')"
         name="my"
       >
-        <el-table
-          v-loading="loading"
-          :data="strategies"
-          stripe
-          :empty-text="t('strategy.customEmpty')"
-        >
-          <el-table-column
-            prop="name"
-            :label="t('strategy.strategyName')"
-            width="200"
-          />
-          <el-table-column
-            prop="description"
-            :label="t('strategy.paramDescription')"
-            show-overflow-tooltip
-          />
-          <el-table-column
-            prop="category"
-            :label="$t('common.action')"
-            width="120"
+        <section class="strategy-table-panel">
+          <div class="strategy-panel-head">
+            <div>
+              <span>{{ t('strategy.listDialog') }}</span>
+              <h2>{{ t('strategy.myStrategies') }}</h2>
+            </div>
+            <el-button
+              type="primary"
+              plain
+              @click="showCreateDialog"
+            >
+              <el-icon aria-hidden="true">
+                <Plus />
+              </el-icon>
+              {{ t('strategy.createStrategy') }}
+            </el-button>
+          </div>
+
+          <el-table
+            v-loading="loading"
+            class="strategy-owned-table"
+            :data="strategies"
+            stripe
+            :empty-text="t('strategy.customEmpty')"
           >
-            <template #default="{ row }">
-              <el-tag
-                size="small"
-                :type="getCategoryType(row.category)"
-              >
-                {{ getCategoryLabel(row.category) }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column
-            prop="created_at"
-            :label="t('strategy.createdAt')"
-            width="180"
-          />
-          <el-table-column
-            :label="$t('common.action')"
-            width="220"
-            fixed="right"
-          >
-            <template #default="{ row }">
-              <el-button
-                type="primary"
-                link
-                size="small"
-                @click="viewStrategy(row)"
-              >
-                {{ t('strategy.actionView') }}
-              </el-button>
-              <el-button
-                type="warning"
-                link
-                size="small"
-                @click="editStrategy(row)"
-              >
-                {{ t('strategy.actionEdit') }}
-              </el-button>
-              <el-button
-                type="danger"
-                link
-                size="small"
-                @click="deleteStrategy(row.id)"
-              >
-                {{ t('strategy.actionDelete') }}
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
+            <el-table-column
+              prop="name"
+              :label="t('strategy.strategyName')"
+              min-width="180"
+            />
+            <el-table-column
+              prop="description"
+              :label="t('strategy.paramDescription')"
+              min-width="260"
+              show-overflow-tooltip
+            />
+            <el-table-column
+              prop="category"
+              :label="t('strategy.strategyType')"
+              width="140"
+            >
+              <template #default="{ row }">
+                <el-tag
+                  size="small"
+                  :type="getCategoryType(row.category)"
+                >
+                  {{ getCategoryLabel(row.category) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column
+              prop="created_at"
+              :label="t('strategy.createdAt')"
+              width="180"
+            />
+            <el-table-column
+              :label="$t('common.action')"
+              width="220"
+              fixed="right"
+            >
+              <template #default="{ row }">
+                <el-button
+                  type="primary"
+                  link
+                  size="small"
+                  @click="viewStrategy(row)"
+                >
+                  {{ t('strategy.actionView') }}
+                </el-button>
+                <el-button
+                  type="warning"
+                  link
+                  size="small"
+                  @click="editStrategy(row)"
+                >
+                  {{ t('strategy.actionEdit') }}
+                </el-button>
+                <el-button
+                  type="danger"
+                  link
+                  size="small"
+                  @click="deleteStrategy(row.id)"
+                >
+                  {{ t('strategy.actionDelete') }}
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </section>
       </el-tab-pane>
     </el-tabs>
 
@@ -1949,7 +2457,16 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Link, MagicStick, Plus, VideoPlay } from '@element-plus/icons-vue'
+import {
+  Delete,
+  EditPen,
+  Link,
+  MagicStick,
+  Plus,
+  RefreshRight,
+  Upload,
+  VideoPlay,
+} from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '@/stores/strategy'
@@ -1965,6 +2482,7 @@ import type {
   AIStrategyLiveHandoffApprovalRequest,
   AIStrategyLiveHandoffPackage,
   AIStrategyLiveTradingPrepare,
+  AIStrategyGateGap,
   AIStrategyIterationProgress,
   AIStrategyOutOfSampleValidation,
   AIStrategyPaperReviewLock,
@@ -1976,6 +2494,7 @@ import type {
   AIStrategyPipelineStep,
   AIStrategyPromotionAuditItem,
   AIStrategyQualityGateEvaluation,
+  AIStrategyResearchConfigProfile,
   AIStrategyResearchRunRequest,
   AIStrategyResearchRunRecord,
   AIStrategyResearchRunResponse,
@@ -1990,7 +2509,12 @@ const router = useRouter()
 const strategyStore = useStrategyStore()
 
 // ---- State ----
-const activeTab = ref('aiResearch')
+const isInvestmentStrategyResearchRoute = computed(() =>
+  String(route.path || '').startsWith('/investment/strategies')
+)
+const showAIResearchTab = computed(() => isInvestmentStrategyResearchRoute.value)
+const showStrategyManagementTabs = computed(() => !isInvestmentStrategyResearchRoute.value)
+const activeTab = ref(showAIResearchTab.value ? 'aiResearch' : 'gallery')
 const searchKeyword = ref('')
 const categoryFilter = ref('')
 
@@ -2034,8 +2558,10 @@ const aiResearchTaskContinuationContext = ref<Record<string, unknown>>({})
 const aiResearchTaskError = ref('')
 const aiResearchTaskMessage = ref('')
 const aiResearchTaskLatestIteration = ref<Record<string, unknown> | null>(null)
+const aiResearchTaskBestIteration = ref<Record<string, unknown> | null>(null)
 const aiResearchTaskAssetSpecs = ref<Record<string, Record<string, unknown>>>({})
 const aiResearchTaskBacktestEnvironment = ref<Record<string, unknown>>({})
+const aiResearchTaskPromotionAudit = ref<AIStrategyPromotionAuditItem[]>([])
 const aiResearchCancelling = ref(false)
 const aiResearchCancelRequested = ref(false)
 const aiResearchPaperStartingRunId = ref('')
@@ -2046,6 +2572,17 @@ const aiResearchPaperReviews = reactive<Record<string, AIStrategyPaperTradingRev
 const aiResearchLiveHandoffs = reactive<Record<string, AIStrategyLiveHandoffPackage>>({})
 const aiResearchLiveHandoffApprovingRunId = ref('')
 const aiResearchLiveTradingPreparingRunId = ref('')
+const aiResearchConfigDialogVisible = ref(false)
+const aiResearchConfigProfiles = ref<AIStrategyResearchConfigProfile[]>([])
+const aiResearchConfigProfilesLoading = ref(false)
+const aiResearchConfigProfileSaving = ref(false)
+const aiResearchConfigProfileImporting = ref(false)
+const aiResearchConfigProfileDeletingId = ref('')
+const aiResearchSelectedConfigProfileId = ref('')
+const aiResearchConfigProfileName = ref('')
+const aiResearchConfigProfileDescription = ref('')
+const aiResearchConfigProfileFilePath = ref('')
+const aiResearchConfigProfileFileInput = ref<HTMLInputElement | null>(null)
 
 const AI_RESEARCH_STAGE_LABELS: Record<string, string> = {
   queued: '排队中',
@@ -2054,13 +2591,18 @@ const AI_RESEARCH_STAGE_LABELS: Record<string, string> = {
   initializing: '初始化',
   workspace_ready: '工作区已就绪',
   configuration_invalid: '配置无效',
+  strategy_idea: '策略构思',
   drafting: '生成策略脚本',
+  draft: '策略生成',
   draft_generation_failed: '脚本生成失败',
   repairing_code: '修复策略脚本',
   backtesting: '运行回测',
+  backtest_loop: '策略回测',
   backtest_failed: '回测失败',
   backtest_submission_failed: '回测提交失败',
   backtest_timeout: '回测超时',
+  strategy_review: '策略审查',
+  optimization_loop: '策略优化',
   improving: '改进策略',
   validating: '样本外验证',
   evaluating: '评估策略',
@@ -2072,6 +2614,7 @@ const AI_RESEARCH_STAGE_LABELS: Record<string, string> = {
   live_handoff: '实盘交接',
   live_trading_prepare: '实盘准备',
   research_iteration: '投研迭代',
+  interrupted: '任务中断',
   completed: '已完成',
   failed: '失败',
   cancelled: '已取消',
@@ -2082,6 +2625,7 @@ const AI_RESEARCH_RUN_STATUS_LABELS: Record<string, string> = {
   achieved: '已达标',
   completed: '已完成',
   failed: '未达标',
+  interrupted: '任务中断',
   cancelled: '已取消',
   timeout: '超时',
   backtest_submission_failed: '回测提交失败',
@@ -2129,9 +2673,25 @@ const AI_RESEARCH_PIPELINE_STEP_STATUS_LABELS: Record<string, string> = {
   skipped: '已跳过',
 }
 
+type AIResearchWorkflowMode = NonNullable<AIStrategyResearchRunRequest['workflow_mode']>
+
+const AI_RESEARCH_WORKFLOW_STEPS: NonNullable<AIStrategyResearchRunRequest['workflow_steps']> = [
+  'ideation',
+  'generation',
+  'backtest',
+  'review',
+  'optimization',
+]
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10)
+}
+
 const DEFAULT_AI_RESEARCH_START_DATE = '2020-01-01'
-const DEFAULT_AI_RESEARCH_END_DATE = '2026-01-01'
+const DEFAULT_AI_RESEARCH_END_DATE = todayIsoDate()
 const DEFAULT_AI_RESEARCH_MIN_PAPER_TRADING_DAYS = 7
+const PAPER_GATEWAY_CONFIG_PLACEHOLDER = '{"name":"paper_gateway","params":{}}'
+const LIVE_GATEWAY_CONFIG_PLACEHOLDER = '{"name":"ctp_live","params":{}}'
 
 class AIResearchConfigError extends Error {
   constructor(message: string) {
@@ -2158,6 +2718,7 @@ const form = reactive({
 
 const aiResearchForm = reactive({
   prompt: '',
+  workflow_mode: 'auto' as AIResearchWorkflowMode,
   symbol: '000001.SZ',
   symbol_name: '',
   timeframe: '1d',
@@ -2207,6 +2768,41 @@ const aiResearchForm = reactive({
   live_gateway_config_json: '',
 })
 
+const aiResearchHeroSteps = computed(() => [
+  { key: 'idea', index: '01', label: t('strategy.aiResearchHeroStepIdea') },
+  { key: 'code', index: '02', label: t('strategy.aiResearchHeroStepCode') },
+  { key: 'backtest', index: '03', label: t('strategy.aiResearchHeroStepBacktest') },
+  { key: 'review', index: '04', label: t('strategy.aiResearchHeroStepReview') },
+  { key: 'optimize', index: '05', label: t('strategy.aiResearchHeroStepOptimize') },
+])
+
+const aiResearchHeroMetrics = computed(() => [
+  {
+    key: 'workflow',
+    label: t('strategy.aiResearchHeroWorkflow'),
+    value: aiResearchForm.workflow_mode === 'auto'
+      ? t('strategy.aiResearchWorkflowAuto')
+      : t('strategy.aiResearchWorkflowPrompt'),
+  },
+  {
+    key: 'target',
+    label: t('strategy.aiResearchHeroTarget'),
+    value: formatMetric(aiResearchForm.target_sharpe),
+  },
+  {
+    key: 'iterations',
+    label: t('strategy.aiResearchHeroIterations'),
+    value: formatMetric(aiResearchForm.max_iterations, 0),
+  },
+  {
+    key: 'validation',
+    label: t('strategy.aiResearchHeroValidation'),
+    value: aiResearchForm.out_of_sample_validation
+      ? `${formatMetric(aiResearchForm.out_of_sample_ratio_pct, 0)}%`
+      : t('common.disable'),
+  },
+])
+
 // ---- Computed ----
 const strategies = computed(() => strategyStore.strategies)
 const templates = computed(() => strategyStore.templates)
@@ -2229,6 +2825,118 @@ const filteredTemplates = computed(() => {
 })
 
 const displayedTemplates = computed(() => filteredTemplates.value)
+const aiResearchSelectedConfigProfile = computed(() =>
+  aiResearchConfigProfiles.value.find(
+    profile => profile.id === aiResearchSelectedConfigProfileId.value
+  ) ?? null
+)
+const aiResearchSelectedProfileSummary = computed(() => {
+  const profile = aiResearchSelectedConfigProfile.value
+  if (!profile) return '未选择方案'
+  const parts = [
+    aiResearchConfigProfileValue(profile, 'symbol'),
+    aiResearchConfigProfileValue(profile, 'timeframe'),
+    `Sharpe ${aiResearchConfigProfileMetric(profile, 'target_sharpe')}`,
+    `最多 ${aiResearchConfigProfileMetric(profile, 'max_iterations', 0)} 轮`,
+  ].filter(part => part && !String(part).includes('-'))
+  return parts.length ? parts.join(' · ') : profile.name
+})
+const aiResearchSelectedConfigDetails = computed(() => {
+  const profile = aiResearchSelectedConfigProfile.value
+  if (!profile) return []
+  const config = profile.config
+  const symbol = stringFromUnknown(config.symbol, '-')
+  const symbolName = stringFromUnknown(config.symbol_name).trim()
+  const timeframe = stringFromUnknown(config.timeframe, '-')
+  const timeframeN = optionalNumber(config.timeframe_n)
+  const startDate = stringFromUnknown(config.start_date, '-')
+  const endDate = stringFromUnknown(config.end_date, '最新')
+  const targetSharpe = aiResearchConfigProfileMetric(profile, 'target_sharpe')
+  const minTrades = aiResearchConfigProfileMetric(profile, 'min_total_trades', 0)
+  const oosRatio = aiResearchConfigProfileOos(profile)
+  const oosSharpe = optionalBoolean(config.use_min_out_of_sample_sharpe, false)
+    ? aiResearchConfigProfileMetric(profile, 'min_out_of_sample_sharpe')
+    : '不限制'
+  const initialCash = aiResearchConfigProfileMetric(profile, 'initial_cash', 0)
+  const commission = aiResearchConfigProfileMetric(profile, 'commission', 6)
+  const workflowMode = stringFromUnknown(config.workflow_mode) === 'prompt' ? '按提示执行' : '自动规划'
+  return [
+    {
+      label: '标的',
+      value: symbolName ? `${symbol} · ${symbolName}` : symbol,
+    },
+    {
+      label: '周期',
+      value: timeframeN && timeframeN !== 1 ? `${timeframeN}${timeframe}` : timeframe,
+    },
+    {
+      label: '区间',
+      value: `${startDate} 至 ${endDate}`,
+    },
+    {
+      label: '质量门槛',
+      value: `Sharpe ${targetSharpe} · 交易 ${minTrades}`,
+    },
+    {
+      label: '样本外',
+      value: `${oosRatio} · Sharpe ${oosSharpe}`,
+    },
+    {
+      label: '资金/费用',
+      value: `${initialCash} · ${commission}`,
+    },
+    {
+      label: '轮数',
+      value: aiResearchConfigProfileMetric(profile, 'max_iterations', 0),
+    },
+    {
+      label: '方式',
+      value: workflowMode,
+    },
+  ]
+})
+const aiResearchSelectedConfigPromptPreview = computed(() => {
+  const profile = aiResearchSelectedConfigProfile.value
+  if (!profile) return ''
+  const prompt = stringFromUnknown(profile.config.prompt).trim().replace(/\n{3,}/g, '\n\n')
+  if (!prompt) return ''
+  return prompt.length > 900 ? `${prompt.slice(0, 900)}...` : prompt
+})
+const aiResearchVisibleRuns = computed(() => {
+  const profile = aiResearchSelectedConfigProfile.value
+  if (!profile) return aiResearchRuns.value
+  return aiResearchRuns.value.filter(record => aiResearchRunMatchesConfigProfile(record, profile))
+})
+const aiResearchNoResultDescription = computed(() => {
+  const profile = aiResearchSelectedConfigProfile.value
+  if (!profile) return t('strategy.aiResearchNoResult')
+  return `${profile.name} 暂无投研结果，运行该方案后会在这里显示。`
+})
+const strategyCategoryCount = computed(() =>
+  new Set(templates.value.map((template) => template.category || 'custom')).size
+)
+const strategyManagementStats = computed(() => [
+  {
+    key: 'templates',
+    label: t('strategy.metricTemplates'),
+    value: templates.value.length,
+  },
+  {
+    key: 'owned',
+    label: t('strategy.metricMyStrategies'),
+    value: strategies.value.length,
+  },
+  {
+    key: 'filtered',
+    label: t('strategy.metricFiltered'),
+    value: filteredTemplates.value.length,
+  },
+  {
+    key: 'categories',
+    label: t('strategy.metricCategories'),
+    value: strategyCategoryCount.value,
+  },
+])
 
 const aiBestSharpe = computed(() => {
   const metrics = aiResearchResult.value?.best_metrics
@@ -2250,6 +2958,9 @@ const aiResearchBestDiagnostics = computed(() => {
   const strengths = diagnostics.strengths ?? []
   const weaknesses = diagnostics.weaknesses ?? []
   const improvementPlan = diagnostics.improvement_plan ?? []
+  const diagnosticsPayload = diagnostics as Record<string, unknown>
+  const gateGaps = gateGapListFromUnknown(diagnosticsPayload.gate_gaps).slice(0, 4)
+  const generationText = strategyGenerationText(diagnosticsPayload.strategy_generation)
   const promotionReady = typeof diagnostics.promotion_ready === 'boolean'
     ? diagnostics.promotion_ready
     : null
@@ -2258,7 +2969,9 @@ const aiResearchBestDiagnostics = computed(() => {
     && !failureCategories.length
     && !strengths.length
     && !weaknesses.length
+    && !gateGaps.length
     && !improvementPlan.length
+    && !generationText
     && promotionReady === null
   ) {
     return null
@@ -2268,7 +2981,9 @@ const aiResearchBestDiagnostics = computed(() => {
     failureCategories,
     strengths,
     weaknesses,
+    gateGaps,
     improvementPlan,
+    generationText,
     promotionReady,
   }
 })
@@ -2314,28 +3029,6 @@ const aiResearchPaperStatusText = computed(() => {
 const aiResearchTaskStageLabel = computed(() =>
   aiResearchStageLabel(aiResearchTaskStage.value || aiResearchTaskStatus.value)
 )
-const aiResearchTaskObjectiveText = computed(() => {
-  const snapshot = aiResearchTaskRequestSnapshot.value
-  if (!snapshot) return ''
-  const prompt = stringFromUnknown(snapshot.prompt)
-  return prompt ? `目标 ${prompt}` : ''
-})
-const aiResearchTaskSymbolText = computed(() => {
-  const snapshot = aiResearchTaskRequestSnapshot.value
-  if (!snapshot) return ''
-  const symbol = stringFromUnknown(snapshot.symbol)
-  const symbolName = stringFromUnknown(snapshot.symbol_name)
-  if (!symbol && !symbolName) return ''
-  return symbolName ? `标的 ${symbol} ${symbolName}` : `标的 ${symbol}`
-})
-const aiResearchTaskTimeframeText = computed(() => {
-  const snapshot = aiResearchTaskRequestSnapshot.value
-  if (!snapshot) return ''
-  const timeframe = stringFromUnknown(snapshot.timeframe)
-  const timeframeN = optionalNumber(snapshot.timeframe_n) ?? 1
-  if (!timeframe) return ''
-  return /^\d/.test(timeframe) ? `周期 ${timeframe}` : `周期 ${timeframeN}${timeframe}`
-})
 const aiResearchTaskContinuationSummary = computed(() => {
   const snapshot = aiResearchTaskRequestSnapshot.value ?? {}
   const context = Object.keys(aiResearchTaskContinuationContext.value).length
@@ -2389,16 +3082,19 @@ const aiResearchTaskPipelineSteps = computed<AIStrategyPipelineStep[]>(() => {
     },
   ]
 })
-const aiResearchTaskRuntimeItems = computed(() =>
-  runtimeItemsFromPayloads(
-    aiResearchTaskBacktestEnvironment.value,
-    aiResearchTaskAssetSpecs.value,
-    aiResearchTaskRequestSnapshot.value
-  )
-)
 const aiResearchTaskLatestDiagnostics = computed(() =>
   taskLatestIterationDiagnostics(aiResearchTaskLatestIteration.value)
 )
+const aiResearchTaskBestIterationDisplay = computed(() => {
+  const best = aiResearchTaskBestIteration.value
+  if (!best) return null
+  const latest = aiResearchTaskLatestIteration.value
+  if (!latest) return best
+  const bestIteration = optionalNumber(best.iteration)
+  const latestIteration = optionalNumber(latest.iteration)
+  if (bestIteration === null || latestIteration === null) return best
+  return bestIteration === latestIteration ? null : best
+})
 const aiResearchContinuationEnabled = computed(() =>
   Boolean(aiResearchForm.seed_strategy_id || aiResearchForm.continue_from_run_id)
 )
@@ -2413,6 +3109,30 @@ const canCancelAIResearchTask = computed(() =>
   aiResearchRunning.value
   && Boolean(aiResearchTaskId.value)
   && typeof (strategyApi as { cancelAIResearchTask?: unknown }).cancelAIResearchTask === 'function'
+)
+const canContinueAIResearchTask = computed(() =>
+  !aiResearchRunning.value
+  && Boolean(aiResearchTaskId.value)
+  && ['failed', 'cancelled'].includes(String(aiResearchTaskStatus.value || '').toLowerCase())
+  && Boolean(
+    (
+      aiResearchResult.value?.run_record
+      && (
+        canContinueResearchFromRunRecord(aiResearchResult.value.run_record)
+        || canContinueResearchFromPaperIssue(aiResearchResult.value.run_record)
+      )
+    )
+    || aiResearchTaskBestIteration.value
+    || aiResearchTaskLatestIteration.value
+  )
+  && typeof (strategyApi as { continueAIResearchTask?: unknown }).continueAIResearchTask === 'function'
+)
+const canRetryAIResearchTask = computed(() =>
+  !aiResearchRunning.value
+  && Boolean(aiResearchTaskId.value)
+  && ['failed', 'cancelled'].includes(String(aiResearchTaskStatus.value || '').toLowerCase())
+  && isRecord(aiResearchTaskRequestSnapshot.value)
+  && !canContinueAIResearchTask.value
 )
 const canViewBestStrategyFromCurrentResult = computed(() =>
   Boolean(
@@ -2543,6 +3263,46 @@ function formatMetric(value: unknown, digits = 2) {
   return number.toFixed(digits)
 }
 
+function gateGapListFromUnknown(value: unknown): AIStrategyGateGap[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter(isRecord)
+    .map(item => ({
+      key: stringFromUnknown(item.key),
+      label: stringFromUnknown(item.label),
+      actual: optionalNumber(item.actual),
+      target: optionalNumber(item.target),
+      direction: stringFromUnknown(item.direction),
+      gap: optionalNumber(item.gap),
+      gap_ratio: optionalNumber(item.gap_ratio),
+      distance_to_pass: optionalNumber(item.distance_to_pass),
+      score: optionalNumber(item.score),
+      status: stringFromUnknown(item.status),
+    }))
+    .filter(item => item.key || item.label)
+}
+
+function gateGapText(gap: AIStrategyGateGap) {
+  const label = gap.label || gap.key || '质量门槛'
+  const distance = gap.distance_to_pass ?? gap.gap
+  const parts = [label]
+  if (distance !== null && distance !== undefined) {
+    parts.push(`还差 ${formatMetric(distance)}`)
+  } else if (gap.status === 'unavailable') {
+    parts.push('缺少指标')
+  }
+  const actual = gap.actual !== null && gap.actual !== undefined
+    ? `当前 ${formatMetric(gap.actual)}`
+    : ''
+  const target = gap.target !== null && gap.target !== undefined
+    ? `目标 ${formatMetric(gap.target)}`
+    : ''
+  const ratio = gap.gap_ratio !== null && gap.gap_ratio !== undefined
+    ? `差距 ${formatMetric(Number(gap.gap_ratio) * 100, 0)}%`
+    : ''
+  return [parts.join(' '), actual, target, ratio].filter(Boolean).join('，')
+}
+
 function formatTaskProgress(value: unknown) {
   const number = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(number) || number <= 0) return ''
@@ -2595,16 +3355,52 @@ function taskLatestIterationDiagnostics(iteration: Record<string, unknown> | nul
     ...stringArrayFromUnknown(iteration.improvement_plan),
     ...stringArrayFromUnknown(diagnostics.improvement_plan),
   ]).slice(0, 4)
+  const gateGaps = gateGapListFromUnknown(diagnostics.gate_gaps).slice(0, 3)
   const nextActions = uniqueTextItems(stringArrayFromUnknown(iteration.next_actions)).slice(0, 3)
-  if (!summary && !failures.length && !improvementPlan.length && !nextActions.length) {
+  const generationText = strategyGenerationText(diagnostics.strategy_generation)
+  if (
+    !summary
+    && !failures.length
+    && !gateGaps.length
+    && !improvementPlan.length
+    && !nextActions.length
+    && !generationText
+  ) {
     return null
   }
   return {
     summary,
     failures,
+    gateGaps,
     improvementPlan,
     nextActions,
+    generationText,
   }
+}
+
+function strategyGenerationText(value: unknown) {
+  if (!isRecord(value)) return ''
+  const source = stringFromUnknown(value.source)
+  const model = stringFromUnknown(value.model_id)
+  const provider = stringFromUnknown(value.provider)
+  const fallbackReason = stringFromUnknown(value.fallback_reason)
+  const sourceLabel: Record<string, string> = {
+    ai_initial_draft: 'AI初稿',
+    ai_model: 'AI改稿',
+    local_rules: '本地规则改稿',
+    local_fallback: '本地回退改稿',
+    local_initial_fallback: '本地初稿回退',
+    local_code_repair_fallback: '本地代码修复',
+    seed_strategy: '种子策略',
+    continued_run_seed: '历史记录种子',
+    local_seed: '本地种子',
+  }
+  const label = sourceLabel[source] || source || '草案来源'
+  const parts = [label]
+  if (model) parts.push(`模型 ${model}`)
+  else if (provider && provider !== 'local') parts.push(provider)
+  if (fallbackReason) parts.push(`回退 ${fallbackReason}`)
+  return parts.join(' · ')
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -2682,12 +3478,33 @@ function aiResearchSymbolLabel() {
   return symbolName ? `${symbolName}（${symbol}）` : symbol
 }
 
+const AI_RESEARCH_FUTURES_PREFIXES = [
+  'IF', 'IC', 'IH', 'IM', 'T', 'TF', 'TL', 'TS',
+  'AU', 'AG', 'CU', 'AL', 'ZN', 'PB', 'NI', 'SN', 'AO', 'RB', 'HC', 'SS',
+  'BU', 'RU', 'BR', 'FU', 'SP', 'WR',
+  'SC', 'LU', 'NR', 'BC', 'EC',
+  'A', 'B', 'C', 'CS', 'EB', 'EG', 'I', 'J', 'JD', 'JM', 'L', 'LH',
+  'M', 'P', 'PG', 'PP', 'RR', 'V', 'Y',
+  'SA', 'FG', 'MA', 'TA', 'SR', 'CF', 'OI', 'RM', 'AP', 'CJ', 'CY',
+  'PF', 'PK', 'SF', 'SM', 'UR', 'WH', 'ZC',
+  'SI', 'LC',
+].sort((left, right) => right.length - left.length)
+
+function isAIResearchFuturesSymbol(symbol: string) {
+  const normalized = symbol.trim().toUpperCase()
+  if (!normalized) return false
+  if (/\.(CFE|CFFEX|SHFE|INE|DCE|CZCE|GFEX)$/.test(normalized)) return true
+  return AI_RESEARCH_FUTURES_PREFIXES.some(prefix => {
+    if (!normalized.startsWith(prefix)) return false
+    const suffix = normalized.slice(prefix.length)
+    if (/\d/.test(suffix)) return true
+    return !suffix && prefix.length >= 2
+  })
+}
+
 function aiResearchAssetConstraintLine() {
   const symbol = aiResearchForm.symbol.trim().toUpperCase()
-  if (
-    /\.(CFE|CFFEX|SHFE|INE|DCE|CZCE|GFEX)$/.test(symbol)
-    || /^(IF|IC|IH|IM|TF|T|TS|AU|AG|CU|AL|ZN|RB|HC|SC|FU|RU|MA|TA|M|Y|P|A|C|I|J|JM|SR|CF|OI|RM)\d+/.test(symbol)
-  ) {
+  if (isAIResearchFuturesSymbol(symbol)) {
     return '按期货/合约资产处理，必须使用交易所或本地资产规格中的合约乘数、保证金、杠杆、最小变动价位和真实手续费估算仓位与风险。'
   }
   if (/(USDT|USDC|PERP|SWAP|BTC|ETH)/.test(symbol)) {
@@ -2753,8 +3570,19 @@ function aiResearchValidationLines() {
 
 function buildGeneratedAIResearchPrompt() {
   const signalFamilies = '趋势跟随、均值回归、波动率过滤、突破确认和风险预算'
+  const workflowModeLine = aiResearchForm.workflow_mode === 'prompt'
+    ? '模式：按用户提示执行指定投研流水线。'
+    : '模式：自动规划并执行完整投研流水线。'
   return [
     `请为 ${aiResearchSymbolLabel()} 生成一套 ${aiResearchForm.timeframe} 级别的可执行 Backtrader 策略，并自动迭代回测直到达到质量门槛。`,
+    '',
+    '专业流水线：',
+    workflowModeLine,
+    '1. 策略构思：比较候选信号家族，明确入场、出场、仓位和风控假设。',
+    '2. 策略生成：生成完整可运行的 Backtrader Strategy 脚本，next 方法必须包含真实 self.buy/self.sell/self.close 或 order_target_* 调用，不能留 pass、TODO 或伪代码。',
+    '3. 策略回测：自动提交回测并记录 Sharpe、收益、回撤、交易次数和质量门槛差距。',
+    '4. 策略审查：审查回测结果、失败原因、过拟合风险和实盘可执行性。',
+    '5. 策略优化：根据审查意见继续优化代码、参数和风控，必要时进入下一轮回测。',
     '',
     '研究方向：',
     `1. 先比较 ${signalFamilies} 等候选逻辑，再选择最适合该标的的可执行方案。`,
@@ -2774,6 +3602,407 @@ function buildGeneratedAIResearchPrompt() {
 function generateAIResearchPrompt() {
   aiResearchForm.prompt = buildGeneratedAIResearchPrompt()
   ElMessage.success(t('strategy.aiResearchPromptGenerated'))
+}
+
+type AIResearchConfigProfileApi = typeof strategyApi & {
+  listAIResearchConfigProfiles?: typeof strategyApi.listAIResearchConfigProfiles
+  createAIResearchConfigProfile?: typeof strategyApi.createAIResearchConfigProfile
+  updateAIResearchConfigProfile?: typeof strategyApi.updateAIResearchConfigProfile
+  deleteAIResearchConfigProfile?: typeof strategyApi.deleteAIResearchConfigProfile
+  importAIResearchConfigProfileYaml?: typeof strategyApi.importAIResearchConfigProfileYaml
+}
+
+function aiResearchConfigProfileApi(): AIResearchConfigProfileApi {
+  return strategyApi as AIResearchConfigProfileApi
+}
+
+function hasConfigKey(config: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(config, key)
+}
+
+function configStringValue(config: Record<string, unknown>, key: string, fallback = '') {
+  if (!hasConfigKey(config, key)) return fallback
+  const value = config[key]
+  return typeof value === 'string' ? value.trim() : fallback
+}
+
+function snapshotAIResearchConfigForm(): Record<string, unknown> {
+  return {
+    ...JSON.parse(JSON.stringify(aiResearchForm)),
+    seed_strategy_id: '',
+    continue_from_run_id: '',
+    continuation_source: '',
+  }
+}
+
+function formatAIResearchConfigJson(value: unknown) {
+  return isRecord(value) && Object.keys(value).length ? JSON.stringify(value) : ''
+}
+
+function applyAIResearchConfigToForm(config: Record<string, unknown>) {
+  aiResearchForm.prompt = stringFromUnknown(config.prompt)
+  aiResearchForm.workflow_mode = config.workflow_mode === 'prompt' ? 'prompt' : 'auto'
+  aiResearchForm.symbol = stringFromUnknown(config.symbol, aiResearchForm.symbol)
+  aiResearchForm.symbol_name = stringFromUnknown(config.symbol_name)
+  aiResearchForm.timeframe = stringFromUnknown(config.timeframe, aiResearchForm.timeframe)
+  aiResearchForm.timeframe_n = optionalNumber(config.timeframe_n) ?? aiResearchForm.timeframe_n
+  aiResearchForm.start_date = configStringValue(config, 'start_date', aiResearchForm.start_date)
+  aiResearchForm.end_date = configStringValue(config, 'end_date', aiResearchForm.end_date)
+  aiResearchForm.knowledge_base_id = stringFromUnknown(config.knowledge_base_id)
+  aiResearchForm.thinking_mode = optionalBoolean(config.thinking_mode, aiResearchForm.thinking_mode)
+  aiResearchForm.target_sharpe = optionalNumber(config.target_sharpe) ?? aiResearchForm.target_sharpe
+  aiResearchForm.min_total_trades =
+    optionalNumber(config.min_total_trades) ?? aiResearchForm.min_total_trades
+
+  const maxDrawdownLimit = optionalNumber(config.max_drawdown_limit)
+  aiResearchForm.use_max_drawdown_limit = optionalBoolean(
+    config.use_max_drawdown_limit,
+    maxDrawdownLimit !== null
+  )
+  aiResearchForm.max_drawdown_limit = maxDrawdownLimit ?? aiResearchForm.max_drawdown_limit
+  const minTotalReturn = optionalNumber(config.min_total_return)
+  aiResearchForm.use_min_total_return = optionalBoolean(
+    config.use_min_total_return,
+    minTotalReturn !== null
+  )
+  aiResearchForm.min_total_return = minTotalReturn ?? aiResearchForm.min_total_return
+  const minAnnualReturn = optionalNumber(config.min_annual_return)
+  aiResearchForm.use_min_annual_return = optionalBoolean(
+    config.use_min_annual_return,
+    minAnnualReturn !== null
+  )
+  aiResearchForm.min_annual_return = minAnnualReturn ?? aiResearchForm.min_annual_return
+  const minWinRate = optionalNumber(config.min_win_rate)
+  aiResearchForm.use_min_win_rate = optionalBoolean(
+    config.use_min_win_rate,
+    minWinRate !== null
+  )
+  aiResearchForm.min_win_rate = minWinRate ?? aiResearchForm.min_win_rate
+
+  aiResearchForm.max_iterations = optionalNumber(config.max_iterations) ?? aiResearchForm.max_iterations
+  aiResearchForm.out_of_sample_validation = optionalBoolean(
+    config.out_of_sample_validation,
+    aiResearchForm.out_of_sample_validation
+  )
+  aiResearchForm.require_out_of_sample_validation = optionalBoolean(
+    config.require_out_of_sample_validation,
+    aiResearchForm.require_out_of_sample_validation
+  )
+  aiResearchForm.out_of_sample_ratio_pct =
+    optionalNumber(config.out_of_sample_ratio_pct)
+    ?? outOfSampleRatioPct(config.out_of_sample_ratio)
+  const minOutOfSampleSharpe = optionalNumber(config.min_out_of_sample_sharpe)
+  aiResearchForm.use_min_out_of_sample_sharpe = optionalBoolean(
+    config.use_min_out_of_sample_sharpe,
+    minOutOfSampleSharpe !== null
+  )
+  aiResearchForm.min_out_of_sample_sharpe =
+    minOutOfSampleSharpe ?? aiResearchForm.min_out_of_sample_sharpe
+  const minOutOfSampleTrades = optionalNumber(config.min_out_of_sample_trades)
+  aiResearchForm.use_min_out_of_sample_trades = optionalBoolean(
+    config.use_min_out_of_sample_trades,
+    minOutOfSampleTrades !== null
+  )
+  aiResearchForm.min_out_of_sample_trades =
+    minOutOfSampleTrades ?? aiResearchForm.min_out_of_sample_trades
+
+  aiResearchForm.initial_cash = optionalNumber(config.initial_cash) ?? aiResearchForm.initial_cash
+  aiResearchForm.use_manual_commission = optionalBoolean(
+    config.use_manual_commission,
+    hasConfigKey(config, 'commission')
+  )
+  aiResearchForm.commission = optionalNumber(config.commission) ?? aiResearchForm.commission
+  aiResearchForm.annual_days = optionalNumber(config.annual_days) ?? aiResearchForm.annual_days
+  aiResearchForm.calc_method = stringFromUnknown(config.calc_method, aiResearchForm.calc_method)
+  aiResearchForm.weight_mode = stringFromUnknown(config.weight_mode, aiResearchForm.weight_mode)
+  aiResearchForm.group_name = stringFromUnknown(config.group_name)
+  aiResearchForm.backtest_timeout_seconds =
+    optionalNumber(config.backtest_timeout_seconds) ?? aiResearchForm.backtest_timeout_seconds
+  aiResearchForm.poll_interval_seconds =
+    optionalNumber(config.poll_interval_seconds) ?? aiResearchForm.poll_interval_seconds
+  aiResearchForm.research_workspace_id = stringFromUnknown(config.research_workspace_id)
+  aiResearchForm.seed_strategy_id = stringFromUnknown(config.seed_strategy_id)
+  aiResearchForm.continue_from_run_id = stringFromUnknown(config.continue_from_run_id)
+  aiResearchForm.continuation_source = stringFromUnknown(config.continuation_source)
+  aiResearchForm.start_paper_trading = optionalBoolean(
+    config.start_paper_trading,
+    aiResearchForm.start_paper_trading
+  )
+  aiResearchForm.min_paper_trading_days =
+    optionalNumber(config.min_paper_trading_days) ?? aiResearchForm.min_paper_trading_days
+  aiResearchForm.paper_workspace_name = stringFromUnknown(config.paper_workspace_name)
+  aiResearchForm.trading_workspace_id = stringFromUnknown(config.trading_workspace_id)
+  aiResearchForm.gateway_config_json =
+    stringFromUnknown(config.gateway_config_json) || formatAIResearchConfigJson(config.gateway_config)
+  aiResearchForm.live_workspace_name = stringFromUnknown(config.live_workspace_name)
+  aiResearchForm.live_trading_workspace_id = stringFromUnknown(config.live_trading_workspace_id)
+  aiResearchForm.live_gateway_config_json =
+    stringFromUnknown(config.live_gateway_config_json)
+    || formatAIResearchConfigJson(config.live_gateway_config)
+}
+
+function upsertAIResearchConfigProfile(profile: AIStrategyResearchConfigProfile) {
+  const index = aiResearchConfigProfiles.value.findIndex(item => item.id === profile.id)
+  if (index < 0) {
+    aiResearchConfigProfiles.value = [...aiResearchConfigProfiles.value, profile].sort(
+      (left, right) => left.name.localeCompare(right.name)
+    )
+    return
+  }
+  aiResearchConfigProfiles.value = aiResearchConfigProfiles.value.map(item =>
+    item.id === profile.id ? profile : item
+  )
+}
+
+function setAIResearchConfigProfileEditor(profile: AIStrategyResearchConfigProfile | null) {
+  aiResearchSelectedConfigProfileId.value = profile?.id ?? ''
+  aiResearchConfigProfileName.value = profile?.name ?? ''
+  aiResearchConfigProfileDescription.value = profile?.description ?? ''
+}
+
+function ensureAIResearchVisiblePrompt() {
+  if (aiResearchForm.prompt.trim()) return
+  aiResearchForm.prompt = buildGeneratedAIResearchPrompt()
+}
+
+function applyAIResearchConfigProfile(
+  profile: AIStrategyResearchConfigProfile,
+  options: { notify?: boolean; syncResult?: boolean } = {}
+) {
+  setAIResearchConfigProfileEditor(profile)
+  applyAIResearchConfigToForm(profile.config)
+  ensureAIResearchVisiblePrompt()
+  if (options.syncResult ?? true) {
+    syncAIResearchDisplayedOutputWithSelectedProfile()
+  }
+  if (options.notify ?? true) ElMessage.success(`已加载配置：${profile.name}`)
+}
+
+function openAIResearchConfigDialog() {
+  aiResearchConfigDialogVisible.value = true
+}
+
+function selectAIResearchConfigProfile(profileId: string | number | boolean | undefined) {
+  const selectedId = String(profileId || '')
+  const profile = aiResearchConfigProfiles.value.find(item => item.id === selectedId)
+  if (!profile) return
+  applyAIResearchConfigProfile(profile)
+}
+
+function clearAIResearchDisplayedOutput() {
+  aiResearchResult.value = null
+  resetAIResearchTaskState()
+  aiResearchForm.seed_strategy_id = ''
+  aiResearchForm.continue_from_run_id = ''
+  aiResearchForm.continuation_source = ''
+}
+
+function currentAIResearchResultMatchesConfigProfile(profile: AIStrategyResearchConfigProfile) {
+  const record = aiResearchResult.value?.run_record
+  return Boolean(record && aiResearchRunMatchesConfigProfile(record, profile))
+}
+
+function aiResearchConfigProfileForRunRecord(record: AIStrategyResearchRunRecord) {
+  return aiResearchConfigProfiles.value.find(profile =>
+    aiResearchRunMatchesConfigProfile(record, profile)
+  ) ?? null
+}
+
+function setAIResearchConfigProfileFromRunRecord(record: AIStrategyResearchRunRecord) {
+  const profile = aiResearchConfigProfileForRunRecord(record)
+  if (profile) setAIResearchConfigProfileEditor(profile)
+}
+
+function syncAIResearchDisplayedOutputWithSelectedProfile() {
+  const profile = aiResearchSelectedConfigProfile.value
+  if (!profile || aiResearchRunning.value) return
+  if (currentAIResearchResultMatchesConfigProfile(profile)) return
+  const matchedRun = aiResearchRuns.value.find(record =>
+    aiResearchRunMatchesConfigProfile(record, profile)
+  )
+  if (matchedRun) {
+    selectAIResearchRunRecord(matchedRun, { keepSelectedProfile: true })
+  } else {
+    clearAIResearchDisplayedOutput()
+  }
+}
+
+function aiResearchRunMatchesConfigProfile(
+  record: AIStrategyResearchRunRecord,
+  profile: AIStrategyResearchConfigProfile
+) {
+  const config = profile.config || {}
+  const symbol = stringFromUnknown(config.symbol).trim().toUpperCase()
+  const timeframe = stringFromUnknown(config.timeframe).trim().toLowerCase()
+  const timeframeN = optionalNumber(config.timeframe_n)
+  if (symbol && record.symbol.trim().toUpperCase() !== symbol) return false
+  if (timeframe && record.timeframe.trim().toLowerCase() !== timeframe) return false
+  if (timeframeN !== null && Number(record.timeframe_n || 1) !== timeframeN) return false
+  return Boolean(symbol || timeframe || timeframeN !== null)
+}
+
+function aiResearchConfigProfileValue(profile: AIStrategyResearchConfigProfile, key: string) {
+  return stringFromUnknown(profile.config[key], '-')
+}
+
+function aiResearchConfigProfileMetric(
+  profile: AIStrategyResearchConfigProfile,
+  key: string,
+  digits = 2
+) {
+  const value = optionalNumber(profile.config[key])
+  return value === null ? '-' : formatMetric(value, digits)
+}
+
+function aiResearchConfigProfileOos(profile: AIStrategyResearchConfigProfile) {
+  if (!optionalBoolean(profile.config.out_of_sample_validation, false)) return '关闭'
+  const ratioPct = optionalNumber(profile.config.out_of_sample_ratio_pct)
+    ?? outOfSampleRatioPct(profile.config.out_of_sample_ratio)
+  return `${formatMetric(ratioPct, 0)}%`
+}
+
+async function loadAIResearchConfigProfiles(options: { showError?: boolean } = {}) {
+  const api = aiResearchConfigProfileApi()
+  if (typeof api.listAIResearchConfigProfiles !== 'function') return
+  if (aiResearchConfigProfilesLoading.value) return
+  aiResearchConfigProfilesLoading.value = true
+  try {
+    const response = await api.listAIResearchConfigProfiles()
+    aiResearchConfigProfiles.value = response.items
+    aiResearchConfigProfileFilePath.value = response.file_path
+    const selected = aiResearchSelectedConfigProfile.value
+    if (selected) applyAIResearchConfigProfile(selected, { notify: false })
+    if (!selected && response.items[0]) {
+      applyAIResearchConfigProfile(response.items[0], { notify: false })
+    }
+  } catch {
+    if (options.showError) ElMessage.error('配置表加载失败')
+  } finally {
+    aiResearchConfigProfilesLoading.value = false
+  }
+}
+
+async function createAIResearchConfigProfile() {
+  const api = aiResearchConfigProfileApi()
+  if (typeof api.createAIResearchConfigProfile !== 'function') return
+  const name = aiResearchConfigProfileName.value.trim()
+  if (!name) {
+    ElMessage.warning('请输入配置名称')
+    return
+  }
+  aiResearchConfigProfileSaving.value = true
+  try {
+    const profile = await api.createAIResearchConfigProfile({
+      name,
+      description: aiResearchConfigProfileDescription.value.trim(),
+      config: snapshotAIResearchConfigForm(),
+    })
+    upsertAIResearchConfigProfile(profile)
+    setAIResearchConfigProfileEditor(profile)
+    ElMessage.success('配置已创建')
+  } catch {
+    ElMessage.error('配置创建失败')
+  } finally {
+    aiResearchConfigProfileSaving.value = false
+  }
+}
+
+async function saveAIResearchConfigProfile(profileId = aiResearchSelectedConfigProfileId.value) {
+  const api = aiResearchConfigProfileApi()
+  if (typeof api.updateAIResearchConfigProfile !== 'function') return
+  const profile = aiResearchConfigProfiles.value.find(item => item.id === profileId)
+  if (!profile) {
+    ElMessage.warning('请选择要修改的配置')
+    return
+  }
+  const isEditingSelected = profile.id === aiResearchSelectedConfigProfileId.value
+  const name = isEditingSelected
+    ? aiResearchConfigProfileName.value.trim() || profile.name
+    : profile.name
+  const description = isEditingSelected
+    ? aiResearchConfigProfileDescription.value.trim()
+    : profile.description
+  aiResearchConfigProfileSaving.value = true
+  try {
+    const updated = await api.updateAIResearchConfigProfile(profile.id, {
+      name,
+      description,
+      config: snapshotAIResearchConfigForm(),
+    })
+    upsertAIResearchConfigProfile(updated)
+    setAIResearchConfigProfileEditor(updated)
+    ElMessage.success('配置已保存')
+  } catch {
+    ElMessage.error('配置保存失败')
+  } finally {
+    aiResearchConfigProfileSaving.value = false
+  }
+}
+
+async function deleteAIResearchConfigProfile(profile: AIStrategyResearchConfigProfile) {
+  const api = aiResearchConfigProfileApi()
+  if (typeof api.deleteAIResearchConfigProfile !== 'function') return
+  try {
+    await ElMessageBox.confirm(`确认删除配置「${profile.name}」？`, '删除配置表', {
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  aiResearchConfigProfileDeletingId.value = profile.id
+  try {
+    await api.deleteAIResearchConfigProfile(profile.id)
+    aiResearchConfigProfiles.value = aiResearchConfigProfiles.value.filter(
+      item => item.id !== profile.id
+    )
+    if (aiResearchSelectedConfigProfileId.value === profile.id) {
+      setAIResearchConfigProfileEditor(null)
+    }
+    ElMessage.success('配置已删除')
+  } catch {
+    ElMessage.error('配置删除失败')
+  } finally {
+    aiResearchConfigProfileDeletingId.value = ''
+  }
+}
+
+function triggerAIResearchConfigProfileImport() {
+  aiResearchConfigProfileFileInput.value?.click()
+}
+
+function readSelectedAIResearchConfigFile(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error ?? new Error('读取 YAML 文件失败'))
+    reader.readAsText(file)
+  })
+}
+
+async function importAIResearchConfigProfileFile(event: Event) {
+  const api = aiResearchConfigProfileApi()
+  if (typeof api.importAIResearchConfigProfileYaml !== 'function') return
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  aiResearchConfigProfileImporting.value = true
+  try {
+    const rawYaml = await readSelectedAIResearchConfigFile(file)
+    const fallbackName = file.name.replace(/\.(ya?ml)$/i, '')
+    const response = await api.importAIResearchConfigProfileYaml({
+      raw_yaml: rawYaml,
+      name: fallbackName,
+    })
+    aiResearchConfigProfileFilePath.value = response.file_path
+    response.items.forEach(upsertAIResearchConfigProfile)
+    if (response.items[0]) applyAIResearchConfigProfile(response.items[0])
+    ElMessage.success(`已导入 ${response.total} 个配置`)
+  } catch {
+    ElMessage.error('YAML 配置导入失败')
+  } finally {
+    aiResearchConfigProfileImporting.value = false
+  }
 }
 
 function validationWindowFromUnknown(value: unknown): Record<string, string> | null {
@@ -3036,6 +4265,55 @@ function iterationOutOfSampleValidation(
   }
 }
 
+function formatBacktestPercent(value: unknown, { absolute = false } = {}) {
+  const number = optionalNumber(value)
+  if (number === null) return ''
+  return `${formatMetric(absolute ? Math.abs(number) : number)}%`
+}
+
+function researchIterationBacktestSummary(
+  item: AIStrategyResearchRunResponse['iterations'][number]
+) {
+  const metrics = isRecord(item.metrics) ? item.metrics : {}
+  const rows: { key: string; label: string; value: string }[] = []
+  const appendMetric = (
+    key: string,
+    label: string,
+    keys: string[],
+    formatter: (value: unknown) => string = value => formatMetric(value)
+  ) => {
+    const value = keys
+      .map(metricKey => metrics[metricKey])
+      .find(metricValue => optionalNumber(metricValue) !== null)
+    if (value === undefined || value === null || value === '') return
+    const formatted = formatter(value)
+    if (!formatted || formatted === '-') return
+    rows.push({ key, label, value: formatted })
+  }
+  const runStatus = stringFromUnknown(item.unit_status?.run_status, item.run_result.status)
+  if (runStatus) rows.push({ key: 'run_status', label: '状态', value: runStatus })
+  if (item.run_result.task_id) {
+    rows.push({ key: 'task_id', label: '任务', value: item.run_result.task_id })
+  }
+  appendMetric('total_return', '总收益', ['total_return', 'return'], value =>
+    formatBacktestPercent(value)
+  )
+  appendMetric('annual_return', '年化', ['annual_return', 'annualized_return'], value =>
+    formatBacktestPercent(value)
+  )
+  appendMetric('max_drawdown', '最大回撤', ['max_drawdown', 'max_drawdown_rate'], value =>
+    formatBacktestPercent(value, { absolute: true })
+  )
+  appendMetric('win_rate', '胜率', ['win_rate'], value => formatBacktestPercent(value))
+  appendMetric('net_profit', '净利润', ['net_profit', 'total_pnl', 'pnl'])
+  appendMetric('final_value', '最终权益', ['final_value', 'portfolio_value'])
+  appendMetric('trading_cost', '交易成本', ['trading_cost', 'commission'])
+  if (item.unit_status?.bar_count) {
+    rows.push({ key: 'bar_count', label: 'K线', value: formatMetric(item.unit_status.bar_count, 0) })
+  }
+  return rows
+}
+
 function formatOutOfSampleWindow(window: Record<string, string> | null | undefined) {
   if (!window) return ''
   const trainStart = window.train_start
@@ -3255,9 +4533,10 @@ async function loadAIResearchRuns(options: { showLoading?: boolean } = {}) {
   const showLoading = options.showLoading ?? true
   if (showLoading) aiResearchRunsLoading.value = true
   try {
-    const response = await strategyApi.listAIResearchRuns(undefined, 10)
+    const response = await strategyApi.listAIResearchRuns(undefined, 50)
     aiResearchRuns.value = response.items
     response.items.forEach(hydrateLiveHandoffFromRunRecord)
+    syncAIResearchDisplayedOutputWithSelectedProfile()
   } finally {
     if (showLoading) aiResearchRunsLoading.value = false
     scheduleAIResearchRunsAutoRefresh()
@@ -3269,7 +4548,7 @@ function upsertAIResearchRunRecord(record: AIStrategyResearchRunRecord) {
   aiResearchRuns.value = [
     record,
     ...aiResearchRuns.value.filter(item => item.run_id !== record.run_id),
-  ].slice(0, 10)
+  ].slice(0, 50)
   scheduleAIResearchRunsAutoRefresh()
 }
 
@@ -3302,9 +4581,142 @@ async function refreshAIResearchRunRecord(
   return record
 }
 
+function aiResearchRequestSnapshotFromRunRecord(record: AIStrategyResearchRunRecord) {
+  const gates = record.quality_gates || {}
+  return {
+    prompt: record.prompt,
+    workflow_mode: record.workflow_mode ?? 'auto',
+    workflow_steps: record.workflow_steps ?? [...AI_RESEARCH_WORKFLOW_STEPS],
+    symbol: record.symbol,
+    symbol_name: record.symbol_name || '',
+    timeframe: record.timeframe || '1d',
+    timeframe_n: record.timeframe_n || 1,
+    start_date: record.start_date ?? null,
+    end_date: record.end_date ?? null,
+    target_sharpe: record.target_sharpe,
+    min_total_trades: record.min_total_trades,
+    max_drawdown_limit: gates.max_drawdown_limit,
+    min_total_return: gates.min_total_return,
+    min_annual_return: gates.min_annual_return,
+    min_win_rate: gates.min_win_rate,
+    max_iterations: record.max_iterations,
+    out_of_sample_validation: optionalBoolean(gates.out_of_sample_validation, true),
+    require_out_of_sample_validation: optionalBoolean(
+      gates.require_out_of_sample_validation,
+      false
+    ),
+    out_of_sample_ratio: optionalNumber(gates.out_of_sample_ratio) ?? 0.25,
+    min_out_of_sample_sharpe: gates.min_out_of_sample_sharpe,
+    min_out_of_sample_trades: gates.min_out_of_sample_trades,
+    backtest_timeout_seconds: record.backtest_timeout_seconds,
+    poll_interval_seconds: record.poll_interval_seconds,
+    initial_cash: record.initial_cash,
+    commission: record.commission,
+    annual_days: record.annual_days,
+    calc_method: record.calc_method,
+    weight_mode: record.weight_mode,
+    research_workspace_id: record.research_workspace_id,
+    seed_strategy_id: record.seed_strategy_id,
+    continue_from_run_id: record.continued_from_run_id,
+    start_paper_trading: record.paper_trading_started,
+    min_paper_trading_days:
+      optionalNumber(gates.min_paper_trading_days) ?? DEFAULT_AI_RESEARCH_MIN_PAPER_TRADING_DAYS,
+    paper_workspace_name: record.paper_workspace_name,
+    group_name: record.group_name,
+    knowledge_base_id: record.knowledge_base_id,
+    thinking_mode: Boolean(record.thinking_mode),
+    continuation_context: record.continuation_context ?? {},
+  } as AIStrategyResearchRunRequest & Record<string, unknown>
+}
+
+function aiResearchTaskFromRunRecord(
+  record: AIStrategyResearchRunRecord
+): AIStrategyResearchTaskResponse {
+  const iterations = (record.iterations || []).filter(isRecord)
+  const bestIterationPayload =
+    iterations.find(item => optionalNumber(item.iteration) === record.best_iteration)
+    ?? null
+  const latestIteration = iterations[iterations.length - 1] ?? bestIterationPayload
+  return {
+    task_id: `run-${record.run_id}`,
+    status: 'completed',
+    submitted_at: record.started_at,
+    started_at: record.started_at,
+    completed_at: record.completed_at,
+    run_id: record.run_id,
+    research_workspace_id: record.research_workspace_id,
+    request_snapshot: aiResearchRequestSnapshotFromRunRecord(record),
+    continued_from_run_id: record.continued_from_run_id,
+    continuation_source: record.continuation_source,
+    continuation_context: record.continuation_context ?? {},
+    current_stage: record.pipeline?.current_stage || record.status || 'completed',
+    progress: optionalNumber(record.pipeline?.progress) ?? 100,
+    current_iteration: record.best_iteration ?? record.iteration_count ?? null,
+    iteration_count: record.iteration_count,
+    max_iterations: record.max_iterations,
+    latest_iteration: latestIteration,
+    best_iteration_payload: bestIterationPayload,
+    run_status: record.status,
+    achieved: record.achieved,
+    target_sharpe: record.target_sharpe,
+    best_iteration: record.best_iteration,
+    best_sharpe: record.best_sharpe,
+    best_quality_score: record.best_quality_score,
+    best_quality_gate_evaluations: record.best_quality_gate_evaluations ?? [],
+    best_diagnostics: record.best_diagnostics,
+    best_metrics: record.best_metrics,
+    best_strategy_id: record.best_strategy_id,
+    best_strategy_name: record.best_strategy_name,
+    asset_specs: record.asset_specs,
+    backtest_environment: record.backtest_environment,
+    paper_workspace_id: record.paper_workspace_id,
+    paper_workspace_name: record.paper_workspace_name,
+    paper_unit_id: record.paper_unit_id,
+    paper_trading_started: record.paper_trading_started,
+    paper_monitoring_plan: record.paper_monitoring_plan,
+    paper_handoff: record.paper_handoff,
+    paper_review_status: record.paper_review_status,
+    paper_review_ready_for_live: record.paper_review_ready_for_live,
+    paper_reviewed_at: record.paper_reviewed_at,
+    paper_review_evaluations: record.paper_review_evaluations,
+    paper_review_next_actions: record.paper_review_next_actions,
+    live_readiness_checklist: record.live_readiness_checklist,
+    live_readiness_expires_at: record.live_readiness_expires_at,
+    live_handoff: record.live_handoff,
+    live_handoff_approval: record.live_handoff_approval,
+    live_workspace_id: record.live_workspace_id,
+    live_workspace_name: record.live_workspace_name,
+    live_unit_id: record.live_unit_id,
+    live_trading_prepared: record.live_trading_prepared,
+    live_trading_prepared_at: record.live_trading_prepared_at,
+    pipeline: record.pipeline,
+    promotion_audit: record.promotion_audit,
+    next_actions: record.next_actions,
+    message: 'AI research result restored from run history',
+  }
+}
+
+function selectAIResearchRunRecord(
+  record: AIStrategyResearchRunRecord,
+  options: { keepSelectedProfile?: boolean } = {}
+) {
+  const selectedProfileId = aiResearchSelectedConfigProfileId.value
+  hydrateLiveHandoffFromRunRecord(record)
+  aiResearchResult.value = researchResultFromRunRecord(record)
+  useAIResearchRecord(record)
+  resetAIResearchTaskState()
+  applyAIResearchTaskStatus(aiResearchTaskFromRunRecord(record))
+  if (options.keepSelectedProfile) {
+    aiResearchSelectedConfigProfileId.value = selectedProfileId
+  } else {
+    setAIResearchConfigProfileFromRunRecord(record)
+  }
+}
+
 function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   const gates = record.quality_gates || {}
   aiResearchForm.prompt = record.prompt
+  aiResearchForm.workflow_mode = record.workflow_mode === 'prompt' ? 'prompt' : 'auto'
   aiResearchForm.symbol = record.symbol
   aiResearchForm.symbol_name = record.symbol_name || ''
   aiResearchForm.timeframe = record.timeframe || '1d'
@@ -3372,10 +4784,53 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.continuation_source = continuationSourceForRecord(record)
 }
 
+function syncAIResearchFormFromResult(result: AIStrategyResearchRunResponse | null | undefined) {
+  const record = result?.run_record
+  if (record) useAIResearchRecord(record)
+}
+
 function researchRecordUsesManualCommission(record: AIStrategyResearchRunRecord) {
   const environment = record.backtest_environment
   if (!isRecord(environment)) return false
   return String(environment.commission_source || '').trim() === 'user_override'
+}
+
+function resolvedAIResearchTaskBacktestEnvironment(
+  task: AIStrategyResearchTaskResponse,
+  snapshot: Record<string, unknown>
+) {
+  if (isRecord(task.backtest_environment)) return task.backtest_environment
+  if (isRecord(snapshot.backtest_environment)) return snapshot.backtest_environment
+  return null
+}
+
+function aiResearchTaskExplicitFields(task: AIStrategyResearchTaskResponse) {
+  return Array.isArray(task.request_explicit_fields)
+    ? task.request_explicit_fields.map(item => String(item).trim()).filter(Boolean)
+    : []
+}
+
+function aiResearchTaskUsesManualCommission(
+  task: AIStrategyResearchTaskResponse,
+  snapshot: Record<string, unknown>
+) {
+  const environment = resolvedAIResearchTaskBacktestEnvironment(task, snapshot)
+  if (environment) {
+    const source = String(environment.commission_source || '').trim()
+    if (source) return source === 'user_override'
+  }
+  const explicitFields = aiResearchTaskExplicitFields(task)
+  if (explicitFields.length) return explicitFields.includes('commission')
+  return optionalNumber(snapshot.commission) !== null
+}
+
+function aiResearchTaskRestoredCommission(
+  task: AIStrategyResearchTaskResponse,
+  snapshot: Record<string, unknown>
+) {
+  const environment = resolvedAIResearchTaskBacktestEnvironment(task, snapshot)
+  const environmentCommission = environment ? optionalNumber(environment.commission) : null
+  return environmentCommission ?? optionalNumber(snapshot.commission)
 }
 
 function enabledQualityGate(enabled: boolean, value: number) {
@@ -3569,10 +5024,13 @@ function canContinueResearchFromRunRecord(record: AIStrategyResearchRunRecord) {
     && !record.achieved
     && (
       record.iteration_count > 0
+      || (record.iterations ?? []).length > 0
       || record.status === 'backtest_submission_failed'
       || record.status === 'cancelled'
+      || record.status === 'interrupted'
       || record.pipeline?.current_stage === 'backtest_failed'
       || record.pipeline?.current_stage === 'cancelled'
+      || record.pipeline?.current_stage === 'interrupted'
     )
   )
 }
@@ -3594,6 +5052,12 @@ function continuationSourceForRecord(record: AIStrategyResearchRunRecord) {
   ) {
     return 'research_cancelled'
   }
+  if (
+    canContinueResearchFromRunRecord(record)
+    && (record.status === 'interrupted' || record.pipeline?.current_stage === 'interrupted')
+  ) {
+    return 'research_interrupted'
+  }
   if (canContinueResearchFromRunRecord(record)) return 'research_failure'
   return ''
 }
@@ -3603,6 +5067,7 @@ function continuationSourceLabel(source?: string | null) {
   if (source === 'paper_trading_failed') return '从模拟启动失败继续'
   if (source === 'live_handoff_rejected') return '从实盘交接驳回继续'
   if (source === 'research_cancelled') return '从已取消任务继续'
+  if (source === 'research_interrupted') return '从中断任务继续'
   if (source === 'research_failure') return '从未达标结果继续'
   return '从历史最佳策略继续'
 }
@@ -3803,6 +5268,18 @@ function paperReviewRuleStatusLabel(status?: string | null) {
   return AI_RESEARCH_PAPER_RULE_STATUS_LABELS[normalized] ?? liveReadinessStatusLabel(normalized)
 }
 
+function paperReviewRuleGapText(rule: AIStrategyPaperTradingRuleEvaluation) {
+  const distance = optionalNumber(rule.distance_to_pass ?? rule.gap)
+  if (distance !== null && distance > 0) {
+    return `差距 ${formatMetric(distance)}`
+  }
+  const margin = optionalNumber(rule.margin)
+  if (margin !== null && margin > 0) {
+    return `余量 ${formatMetric(margin)}`
+  }
+  return ''
+}
+
 function paperReviewDispositionLabel(review: AIStrategyPaperTradingReview | null | undefined) {
   const status = String(review?.status || '').trim()
   if (review?.ready_for_live) return '实盘候选'
@@ -3982,19 +5459,48 @@ function clearAIResearchContinuation() {
   aiResearchForm.continuation_source = ''
 }
 
+function paperHandoffRunRecordAssetSpecs(
+  record: AIStrategyResearchRunRecord,
+  handoff: Record<string, unknown>
+): Record<string, Record<string, unknown>> | undefined {
+  const specs: Record<string, Record<string, unknown>> = {}
+  const merge = (source: unknown) => {
+    if (!isRecord(source)) return
+    for (const [symbol, spec] of Object.entries(source)) {
+      if (isRecord(spec)) specs[symbol] = { ...spec }
+    }
+  }
+  merge(record.asset_specs)
+  merge(handoff.asset_specs)
+  return Object.keys(specs).length ? specs : record.asset_specs
+}
+
+function paperHandoffRunRecordBacktestEnvironment(
+  record: AIStrategyResearchRunRecord,
+  handoff: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  const environment: Record<string, unknown> = {}
+  if (isRecord(record.backtest_environment)) Object.assign(environment, record.backtest_environment)
+  if (isRecord(handoff.backtest_environment)) Object.assign(environment, handoff.backtest_environment)
+  return Object.keys(environment).length ? environment : record.backtest_environment
+}
+
 function paperStartedRunRecord(
   record: AIStrategyResearchRunRecord,
   paper: AIStrategyPaperTradingStart
 ): AIStrategyResearchRunRecord {
+  const handoff = isRecord(paper.handoff) ? paper.handoff : {}
   return {
     ...record,
+    asset_specs: paperHandoffRunRecordAssetSpecs(record, handoff),
+    backtest_environment: paperHandoffRunRecordBacktestEnvironment(record, handoff),
     paper_trading_started: paper.started,
     paper_workspace_id: paper.workspace.id,
     paper_workspace_name: paper.workspace.name,
     paper_unit_id: paper.unit.id,
-    paper_handoff: paper.handoff ?? {},
+    paper_handoff: handoff,
     paper_monitoring_plan:
-      paperMonitoringPlanFromHandoff(paper.handoff) ?? record.paper_monitoring_plan,
+      paperMonitoringPlanFromHandoff(handoff) ?? record.paper_monitoring_plan,
     paper_review_status: null,
     paper_review_ready_for_live: false,
     paper_reviewed_at: null,
@@ -4019,12 +5525,28 @@ function paperStartedPipeline(record: AIStrategyResearchRunRecord) {
     paper_trading_error: null,
     live_readiness_checklist: [],
     live_readiness_expires_at: null,
+    workflow_mode: record.workflow_mode ?? 'auto',
+    workflow_steps: record.workflow_steps ?? [...AI_RESEARCH_WORKFLOW_STEPS],
     steps: [
+      { key: 'strategy_idea', label: '策略构思', status: 'completed' },
       { key: 'draft', label: '策略生成', status: 'completed' },
       {
         key: 'backtest_loop',
-        label: '自动回测迭代',
+        label: '策略回测',
         status: record.iteration_count > 0 ? 'completed' : 'pending',
+        iteration_count: record.iteration_count,
+        max_iterations: record.max_iterations,
+      },
+      {
+        key: 'strategy_review',
+        label: '策略审查',
+        status: record.iteration_count > 0 ? 'completed' : 'pending',
+        iteration_count: record.iteration_count,
+      },
+      {
+        key: 'optimization_loop',
+        label: '策略优化',
+        status: record.iteration_count > 1 ? 'completed' : record.achieved ? 'skipped' : 'running',
         iteration_count: record.iteration_count,
         max_iterations: record.max_iterations,
       },
@@ -4199,6 +5721,23 @@ function researchResultFromTaskSummary(
     ? task.request_snapshot
     : {}
   const latestIteration = isRecord(task.latest_iteration) ? task.latest_iteration : null
+  const bestIterationPayload = isRecord(task.best_iteration_payload)
+    ? task.best_iteration_payload
+    : null
+  const taskIterations: Record<string, unknown>[] = []
+  const appendTaskIteration = (payload: Record<string, unknown> | null) => {
+    if (!payload) return
+    const iteration = optionalNumber(payload.iteration)
+    if (
+      iteration !== null
+      && taskIterations.some(item => optionalNumber(item.iteration) === iteration)
+    ) {
+      return
+    }
+    taskIterations.push(payload)
+  }
+  appendTaskIteration(bestIterationPayload)
+  appendTaskIteration(latestIteration)
   const bestMetrics = isRecord(task.best_metrics) ? task.best_metrics : {}
   const bestSharpe = optionalNumber(task.best_sharpe)
     ?? optionalNumber(bestMetrics.sharpe_ratio)
@@ -4207,6 +5746,7 @@ function researchResultFromTaskSummary(
     ?? optionalNumber(latestIteration?.sharpe)
     ?? 0
   const bestIteration = optionalNumber(task.best_iteration)
+    ?? optionalNumber(bestIterationPayload?.iteration)
     ?? optionalNumber(latestIteration?.iteration)
     ?? optionalNumber(task.current_iteration)
     ?? null
@@ -4214,7 +5754,11 @@ function researchResultFromTaskSummary(
     task.achieved,
     Boolean(task.paper_trading_started && String(task.status || '').toLowerCase() === 'completed')
   )
-  const runStatus = String(task.run_status || (achieved ? 'achieved' : task.status || 'completed'))
+  const runStatus = String(
+    task.current_stage === 'interrupted'
+      ? 'interrupted'
+      : task.run_status || (achieved ? 'achieved' : task.status || 'completed')
+  )
   const targetSharpe = optionalNumber(task.target_sharpe) ?? optionalNumber(request.target_sharpe) ?? 0
   const paperHandoff = isRecord(task.paper_handoff) ? task.paper_handoff : {}
   const bestDiagnostics = isRecord(task.best_diagnostics) ? task.best_diagnostics : {}
@@ -4266,11 +5810,24 @@ function researchResultFromTaskSummary(
     timeframe_n: optionalNumber(request.timeframe_n) ?? 1,
     start_date: stringFromUnknown(request.start_date) || null,
     end_date: stringFromUnknown(request.end_date) || null,
-    initial_cash: optionalNumber(request.initial_cash) ?? undefined,
-    commission: optionalNumber(request.commission) ?? undefined,
-    annual_days: optionalNumber(request.annual_days) ?? undefined,
-    calc_method: stringFromUnknown(request.calc_method) || undefined,
-    weight_mode: stringFromUnknown(request.weight_mode) || undefined,
+    initial_cash:
+      optionalNumber(backtestEnvironment.initial_cash)
+      ?? optionalNumber(request.initial_cash)
+      ?? undefined,
+    commission:
+      optionalNumber(backtestEnvironment.commission)
+      ?? optionalNumber(request.commission)
+      ?? undefined,
+    annual_days:
+      optionalNumber(backtestEnvironment.annual_days)
+      ?? optionalNumber(request.annual_days)
+      ?? undefined,
+    calc_method:
+      stringFromUnknown(backtestEnvironment.calc_method, stringFromUnknown(request.calc_method))
+      || undefined,
+    weight_mode:
+      stringFromUnknown(backtestEnvironment.weight_mode, stringFromUnknown(request.weight_mode))
+      || undefined,
     group_name: stringFromUnknown(request.group_name) || undefined,
     asset_specs: assetSpecs,
     backtest_environment: backtestEnvironment,
@@ -4297,7 +5854,11 @@ function researchResultFromTaskSummary(
     },
     min_total_trades: optionalNumber(request.min_total_trades) ?? 0,
     max_iterations: optionalNumber(task.max_iterations) ?? optionalNumber(request.max_iterations) ?? 0,
-    iteration_count: optionalNumber(task.iteration_count) ?? (latestIteration ? 1 : 0),
+    iteration_count: Math.max(
+      optionalNumber(task.iteration_count) ?? 0,
+      taskIterations.length,
+      latestIteration ? 1 : 0
+    ),
     best_iteration: bestIteration,
     best_sharpe: bestSharpe,
     best_quality_score: optionalNumber(task.best_quality_score) ?? 0,
@@ -4345,7 +5906,7 @@ function researchResultFromTaskSummary(
     next_actions: task.next_actions ?? [],
     started_at: task.started_at ?? task.submitted_at,
     completed_at: task.completed_at ?? task.started_at ?? task.submitted_at,
-    iterations: latestIteration ? [latestIteration] : [],
+    iterations: taskIterations,
   }
   hydrateLiveHandoffFromRunRecord(record)
   return {
@@ -4712,6 +6273,8 @@ function unitStatusFromIterationRecord(
     run_status: statusRunStatus as UnitStatusResponse['run_status'],
     last_task_id: statusTaskId,
     metrics_snapshot: statusMetrics,
+    run_progress: optionalNumber(status.run_progress),
+    run_message: nullableString(status.run_message),
     run_count: optionalNumber(status.run_count) ?? unit.run_count,
     last_run_time: optionalNumber(status.last_run_time) ?? unit.last_run_time,
     bar_count: optionalNumber(status.bar_count) ?? unit.bar_count,
@@ -4794,6 +6357,30 @@ function aiResearchRouteWorkspaceId() {
   )
 }
 
+function applyAIResearchRoutePrefill() {
+  const prompt = routeQueryText(route.query.prompt)
+    || routeQueryText(route.query.strategy_prompt)
+  const symbol = routeQueryText(route.query.symbol)
+  const symbolName = routeQueryText(route.query.symbol_name)
+    || routeQueryText(route.query.symbolName)
+  const timeframe = routeQueryText(route.query.timeframe)
+  const knowledgeBaseId = routeQueryText(route.query.knowledge_base_id)
+    || routeQueryText(route.query.kbId)
+
+  if (!prompt && !symbol && !symbolName && !timeframe && !knowledgeBaseId) return false
+
+  activeTab.value = 'aiResearch'
+  if (prompt) {
+    aiResearchForm.prompt = prompt
+    aiResearchForm.workflow_mode = 'prompt'
+  }
+  if (symbol) aiResearchForm.symbol = symbol
+  if (symbolName) aiResearchForm.symbol_name = symbolName
+  if (timeframe) aiResearchForm.timeframe = timeframe
+  if (knowledgeBaseId) aiResearchForm.knowledge_base_id = knowledgeBaseId
+  return true
+}
+
 function nullableString(value: unknown) {
   const text = typeof value === 'string' ? value.trim() : ''
   return text || null
@@ -4849,8 +6436,7 @@ async function restoreAIResearchRunFromRoute() {
   try {
     const record = await refreshAIResearchRunRecord(runId, aiResearchRouteWorkspaceId())
     if (!record) return false
-    aiResearchResult.value = researchResultFromRunRecord(record)
-    useAIResearchRecord(record)
+    selectAIResearchRunRecord(record)
     activeTab.value = 'aiResearch'
     return true
   } catch {
@@ -5170,7 +6756,8 @@ async function prepareLiveTradingFromResearchRecord(record: AIStrategyResearchRu
   try {
     const prepared = await strategyApi.prepareAIResearchLiveTrading(
       record.run_id,
-      aiResearchLivePrepareRequest(record)
+      aiResearchLivePrepareRequest(record),
+      record.research_workspace_id
     )
     const updatedRecord = liveTradingPreparedRunRecord(record, prepared)
     upsertAIResearchRunRecord(updatedRecord)
@@ -5316,7 +6903,23 @@ async function continueResearchFromPaperReview(record: AIStrategyResearchRunReco
 
 async function continueResearchFromRecord(record: AIStrategyResearchRunRecord) {
   useAIResearchRecord(record)
-  await runAIResearchLoop()
+  prepareContinuationPromotion(record)
+  const continueRun = (strategyApi as typeof strategyApi & {
+    continueAIResearchRun?: typeof strategyApi.continueAIResearchRun
+    getAIResearchTask?: typeof strategyApi.getAIResearchTask
+  }).continueAIResearchRun
+  if (typeof continueRun !== 'function') {
+    await runAIResearchLoop()
+    return
+  }
+  await continueAIResearchFromRunRecord(record, continueRun)
+}
+
+function prepareContinuationPromotion(record: AIStrategyResearchRunRecord) {
+  const source = continuationSourceForRecord(record)
+  if (source) {
+    aiResearchForm.start_paper_trading = true
+  }
 }
 
 function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResearchRunRequest {
@@ -5324,6 +6927,8 @@ function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResea
   const gatewayConfig = parseAIResearchGatewayConfig()
   const request: AIStrategyResearchRunRequest = {
     prompt,
+    workflow_mode: aiResearchForm.workflow_mode === 'prompt' ? 'prompt' : 'auto',
+    workflow_steps: [...AI_RESEARCH_WORKFLOW_STEPS],
     symbol,
     symbol_name: aiResearchForm.symbol_name.trim(),
     timeframe: aiResearchForm.timeframe,
@@ -5513,6 +7118,10 @@ function isAIResearchTaskCancelled(task: AIStrategyResearchTaskResponse) {
   return String(task.status || '').toLowerCase() === 'cancelled'
 }
 
+function isRestorableAIResearchTask(task: AIStrategyResearchTaskResponse) {
+  return isAIResearchTaskTerminal(task) && Boolean(task.result || task.run_id)
+}
+
 function sleep(ms: number) {
   return new Promise(resolve => window.setTimeout(resolve, ms))
 }
@@ -5562,6 +7171,8 @@ function aiResearchTaskPollTimeoutMs(
 
 function applyAIResearchTaskStatus(task: AIStrategyResearchTaskResponse) {
   const pipeline = task.pipeline ?? null
+  const sameTask = aiResearchTaskId.value === task.task_id
+  const hasTaskKey = (key: string) => Object.prototype.hasOwnProperty.call(task, key)
   aiResearchTaskId.value = task.task_id
   aiResearchTaskStatus.value = task.status
   aiResearchTaskStage.value = task.current_stage || task.status
@@ -5578,28 +7189,49 @@ function applyAIResearchTaskStatus(task: AIStrategyResearchTaskResponse) {
     task.live_trading_prepared || pipeline?.live_trading_prepared
   )
   aiResearchTaskPipeline.value = pipeline
-  aiResearchTaskContinuedFromRunId.value = task.continued_from_run_id || ''
-  aiResearchTaskContinuationSource.value = task.continuation_source || ''
-  aiResearchTaskContinuationContext.value = isRecord(task.continuation_context)
-    ? { ...task.continuation_context }
-    : {}
+  if (hasTaskKey('continued_from_run_id') || !sameTask) {
+    aiResearchTaskContinuedFromRunId.value = stringFromUnknown(task.continued_from_run_id)
+  }
+  if (hasTaskKey('continuation_source') || !sameTask) {
+    aiResearchTaskContinuationSource.value = stringFromUnknown(task.continuation_source)
+  }
+  if (hasTaskKey('continuation_context') || !sameTask) {
+    aiResearchTaskContinuationContext.value = isRecord(task.continuation_context)
+      ? { ...task.continuation_context }
+      : {}
+  }
   if (isRecord(task.request_snapshot)) {
     aiResearchTaskRequestSnapshot.value = task.request_snapshot
+  } else if (hasTaskKey('request_snapshot') || !sameTask) {
+    aiResearchTaskRequestSnapshot.value = {}
   }
-  aiResearchTaskAssetSpecs.value = isRecord(task.asset_specs)
-    ? task.asset_specs as Record<string, Record<string, unknown>>
-    : {}
-  aiResearchTaskBacktestEnvironment.value = isRecord(task.backtest_environment)
-    ? task.backtest_environment
-    : {}
+  if (hasTaskKey('asset_specs') || !sameTask) {
+    aiResearchTaskAssetSpecs.value = isRecord(task.asset_specs)
+      ? task.asset_specs as Record<string, Record<string, unknown>>
+      : {}
+  }
+  if (hasTaskKey('backtest_environment') || !sameTask) {
+    aiResearchTaskBacktestEnvironment.value = isRecord(task.backtest_environment)
+      ? task.backtest_environment
+      : {}
+  }
+  if (hasTaskKey('promotion_audit') || !sameTask) {
+    aiResearchTaskPromotionAudit.value = promotionAuditFromPayload(task.promotion_audit)
+  }
   aiResearchTaskError.value = aiResearchTaskFailureMessage(task)
   aiResearchTaskMessage.value = String(task.message || '').trim()
   aiResearchTaskLatestIteration.value = task.latest_iteration ?? null
+  if (hasTaskKey('best_iteration_payload') || !sameTask) {
+    aiResearchTaskBestIteration.value = isRecord(task.best_iteration_payload)
+      ? task.best_iteration_payload
+      : null
+  }
 }
 
 function applyAIResearchTaskSnapshotToForm(task: AIStrategyResearchTaskResponse) {
   const snapshot = isRecord(task.request_snapshot) ? task.request_snapshot : null
   if (!snapshot) return
+  const environment = resolvedAIResearchTaskBacktestEnvironment(task, snapshot)
   const prompt = stringFromUnknown(snapshot.prompt)
   const symbol = stringFromUnknown(snapshot.symbol)
   const symbolName = stringFromUnknown(snapshot.symbol_name)
@@ -5607,6 +7239,7 @@ function applyAIResearchTaskSnapshotToForm(task: AIStrategyResearchTaskResponse)
   const startDate = stringFromUnknown(snapshot.start_date)
   const endDate = stringFromUnknown(snapshot.end_date)
   if (prompt) aiResearchForm.prompt = prompt
+  aiResearchForm.workflow_mode = snapshot.workflow_mode === 'prompt' ? 'prompt' : 'auto'
   if (symbol) aiResearchForm.symbol = symbol
   if (symbolName || snapshot.symbol_name !== undefined) aiResearchForm.symbol_name = symbolName
   if (timeframe) aiResearchForm.timeframe = timeframe
@@ -5619,15 +7252,27 @@ function applyAIResearchTaskSnapshotToForm(task: AIStrategyResearchTaskResponse)
   aiResearchForm.min_total_trades =
     optionalNumber(snapshot.min_total_trades) ?? aiResearchForm.min_total_trades
   aiResearchForm.max_iterations = optionalNumber(snapshot.max_iterations) ?? aiResearchForm.max_iterations
-  aiResearchForm.initial_cash = optionalNumber(snapshot.initial_cash) ?? aiResearchForm.initial_cash
-  const commission = optionalNumber(snapshot.commission)
+  aiResearchForm.initial_cash =
+    (environment ? optionalNumber(environment.initial_cash) : null)
+    ?? optionalNumber(snapshot.initial_cash)
+    ?? aiResearchForm.initial_cash
+  const commission = aiResearchTaskRestoredCommission(task, snapshot)
   if (commission !== null) {
     aiResearchForm.commission = commission
-    aiResearchForm.use_manual_commission = true
+    aiResearchForm.use_manual_commission = aiResearchTaskUsesManualCommission(task, snapshot)
+  } else {
+    aiResearchForm.use_manual_commission = false
   }
-  aiResearchForm.annual_days = optionalNumber(snapshot.annual_days) ?? aiResearchForm.annual_days
-  aiResearchForm.calc_method = stringFromUnknown(snapshot.calc_method, aiResearchForm.calc_method)
-  aiResearchForm.weight_mode = stringFromUnknown(snapshot.weight_mode, aiResearchForm.weight_mode)
+  aiResearchForm.annual_days =
+    (environment ? optionalNumber(environment.annual_days) : null)
+    ?? optionalNumber(snapshot.annual_days)
+    ?? aiResearchForm.annual_days
+  aiResearchForm.calc_method = environment
+    ? stringFromUnknown(environment.calc_method, stringFromUnknown(snapshot.calc_method, aiResearchForm.calc_method))
+    : stringFromUnknown(snapshot.calc_method, aiResearchForm.calc_method)
+  aiResearchForm.weight_mode = environment
+    ? stringFromUnknown(environment.weight_mode, stringFromUnknown(snapshot.weight_mode, aiResearchForm.weight_mode))
+    : stringFromUnknown(snapshot.weight_mode, aiResearchForm.weight_mode)
   aiResearchForm.group_name = stringFromUnknown(snapshot.group_name)
   aiResearchForm.backtest_timeout_seconds =
     optionalNumber(snapshot.backtest_timeout_seconds) ?? aiResearchForm.backtest_timeout_seconds
@@ -5705,12 +7350,26 @@ function aiResearchErrorMessage(error: unknown) {
   return message || t('strategy.aiResearchRunFailed')
 }
 
+function isAIResearchResultPaperStartFailure(result: AIStrategyResearchRunResponse) {
+  const pipeline = result.pipeline ?? result.run_record?.pipeline
+  return Boolean(
+    pipeline?.current_stage === 'paper_trading_failed'
+    || pipeline?.paper_trading_error
+    || result.run_record?.pipeline?.current_stage === 'paper_trading_failed'
+    || result.run_record?.pipeline?.paper_trading_error
+  )
+}
+
 function notifyAIResearchResult(result: AIStrategyResearchRunResponse) {
   const status = String(result.status || '').toLowerCase()
   if (status === 'cancelled') {
     if (!aiResearchCancelRequested.value) {
       ElMessage.success('AI投研任务已取消')
     }
+    return
+  }
+  if (isAIResearchResultPaperStartFailure(result)) {
+    ElMessage.error('模拟交易启动失败')
     return
   }
   if (result.achieved || status === 'achieved') {
@@ -5721,12 +7380,106 @@ function notifyAIResearchResult(result: AIStrategyResearchRunResponse) {
     ElMessage.warning('AI投研回测超时，已保存结果，可继续投研')
     return
   }
+  if (status === 'interrupted' || result.pipeline?.current_stage === 'interrupted') {
+    ElMessage.warning('AI投研任务中断，已恢复最近快照，可继续投研')
+    return
+  }
   if (status === 'configuration_invalid' || result.pipeline?.current_stage === 'configuration_invalid') {
     const message = String(result.message || result.next_actions?.[0] || '').trim()
     ElMessage.warning(message ? `AI投研配置未通过：${message}` : 'AI投研配置未通过，请调整参数后重新启动')
     return
   }
   ElMessage.warning('AI投研未达标，已保存结果，可继续投研')
+}
+
+function resetAIResearchTaskState() {
+  aiResearchTaskId.value = ''
+  aiResearchTaskStatus.value = ''
+  aiResearchTaskStage.value = ''
+  aiResearchTaskProgress.value = 0
+  aiResearchTaskIteration.value = null
+  aiResearchBacktestTaskId.value = ''
+  aiResearchCancelledBacktestTaskId.value = ''
+  aiResearchTaskPaperWorkspaceId.value = ''
+  aiResearchTaskPaperUnitId.value = ''
+  aiResearchTaskPaperStarted.value = false
+  aiResearchTaskLiveWorkspaceId.value = ''
+  aiResearchTaskLiveUnitId.value = ''
+  aiResearchTaskLivePrepared.value = false
+  aiResearchTaskPipeline.value = null
+  aiResearchTaskRequestSnapshot.value = null
+  aiResearchTaskContinuedFromRunId.value = ''
+  aiResearchTaskContinuationSource.value = ''
+  aiResearchTaskContinuationContext.value = {}
+  aiResearchTaskError.value = ''
+  aiResearchTaskMessage.value = ''
+  aiResearchTaskLatestIteration.value = null
+  aiResearchTaskAssetSpecs.value = {}
+  aiResearchTaskBacktestEnvironment.value = {}
+  aiResearchTaskPromotionAudit.value = []
+}
+
+function aiResearchRunnableInput() {
+  let prompt = aiResearchForm.prompt.trim()
+  const promptRequired = aiResearchForm.workflow_mode === 'prompt'
+  const shouldUseServerGeneratedPrompt = !prompt && !promptRequired
+  const symbol = aiResearchForm.symbol.trim()
+  if (!symbol) {
+    ElMessage.warning(t('strategy.aiResearchSymbolRequired'))
+    return null
+  }
+  if (!prompt && promptRequired) {
+    ElMessage.warning('请输入策略研究提示，或切换为自动规划')
+    return null
+  }
+  if (shouldUseServerGeneratedPrompt) {
+    aiResearchForm.prompt = buildGeneratedAIResearchPrompt()
+    prompt = ''
+  }
+  const outOfSampleError = requiredOutOfSampleValidationError()
+  if (outOfSampleError) {
+    ElMessage.warning(outOfSampleError)
+    return null
+  }
+  return { prompt, symbol, shouldUseServerGeneratedPrompt }
+}
+
+function applyCanonicalAIResearchPrompt(
+  result: AIStrategyResearchRunResponse,
+  shouldUseServerGeneratedPrompt: boolean
+) {
+  if (!shouldUseServerGeneratedPrompt) return
+  const canonicalPrompt = stringFromUnknown(result.run_record?.prompt)
+  if (canonicalPrompt) aiResearchForm.prompt = canonicalPrompt
+}
+
+async function applyCompletedAIResearchResult(result: AIStrategyResearchRunResponse) {
+  aiResearchResult.value = result
+  if (result.run_record) {
+    setAIResearchConfigProfileFromRunRecord(result.run_record)
+    upsertAIResearchRunRecord(result.run_record)
+  } else {
+    await loadAIResearchRuns()
+  }
+  notifyAIResearchResult(result)
+}
+
+function handleAIResearchRunError(error: unknown) {
+  if (
+    error instanceof Error
+    && error.message === 'AI_RESEARCH_CANCELLED'
+    && aiResearchCancelRequested.value
+  ) {
+    aiResearchTaskError.value = ''
+    return true
+  }
+  if (notifyAIResearchConfigError(error)) {
+    aiResearchTaskError.value = ''
+    return true
+  }
+  aiResearchTaskError.value = aiResearchErrorMessage(error)
+  ElMessage.error(t('strategy.aiResearchRunFailed'))
+  return true
 }
 
 async function runAIResearchRequest(
@@ -5747,15 +7500,49 @@ async function runAIResearchRequest(
   return pollAIResearchTask(task, aiResearchTaskPollTimeoutMs(payload, task))
 }
 
+async function continueAIResearchFromRunRecord(
+  record: AIStrategyResearchRunRecord,
+  continueRun: NonNullable<typeof strategyApi.continueAIResearchRun>
+) {
+  const input = aiResearchRunnableInput()
+  if (!input) return
+
+  aiResearchRunning.value = true
+  resetAIResearchTaskState()
+  aiResearchCancelRequested.value = false
+  try {
+    const request = buildAIResearchRequest(input.prompt, input.symbol)
+    const overrides: Partial<AIStrategyResearchRunRequest> & Record<string, unknown> = {
+      ...request,
+    }
+    delete overrides.continue_from_run_id
+    delete overrides.seed_strategy_id
+    delete overrides.continuation_context
+    const task = await continueRun(
+      record.run_id,
+      { overrides },
+      record.research_workspace_id
+    )
+    const result = await pollAIResearchTask(
+      task,
+      aiResearchTaskPollTimeoutMs(request, task)
+    )
+    applyCanonicalAIResearchPrompt(result, input.shouldUseServerGeneratedPrompt)
+    await applyCompletedAIResearchResult(result)
+  } catch (error) {
+    handleAIResearchRunError(error)
+  } finally {
+    aiResearchRunning.value = false
+    scheduleAIResearchRunsAutoRefresh()
+  }
+}
+
 async function pollAIResearchTask(
   task: AIStrategyResearchTaskResponse,
   timeoutMs = aiResearchTaskPollTimeoutMs(undefined, task)
 ): Promise<AIStrategyResearchRunResponse> {
   const apiWithTasks = strategyApi as typeof strategyApi & {
     getAIResearchTask?: typeof strategyApi.getAIResearchTask
-  }
-  if (typeof apiWithTasks.getAIResearchTask !== 'function') {
-    throw new Error('AI research task polling is unavailable')
   }
   applyAIResearchTaskStatus(task)
   const deadline = Date.now() + timeoutMs
@@ -5776,10 +7563,15 @@ async function pollAIResearchTask(
       throw new Error('AI_RESEARCH_CANCELLED')
     }
     if (isAIResearchTaskTerminal(task)) {
+      const restoredResult = await restoreAIResearchResultFromTask(task)
+      if (restoredResult) return restoredResult
       throw new Error(task.error || task.message || 'AI research task failed')
     }
     if (Date.now() > deadline) {
       break
+    }
+    if (typeof apiWithTasks.getAIResearchTask !== 'function') {
+      throw new Error('AI research task polling is unavailable')
     }
     task = await apiWithTasks.getAIResearchTask(task.task_id)
     applyAIResearchTaskStatus(task)
@@ -5798,11 +7590,23 @@ async function restoreActiveAIResearchTask() {
   try {
     const response = await apiWithTasks.listAIResearchTasks(true, 5)
     const task = response.items.find(item => !isAIResearchTaskTerminal(item))
-    if (!task) return
-    aiResearchRunning.value = true
-    applyAIResearchTaskSnapshotToForm(task)
-    aiResearchResult.value = await pollAIResearchTask(task)
+    if (task) {
+      aiResearchRunning.value = true
+      applyAIResearchTaskSnapshotToForm(task)
+      aiResearchResult.value = await pollAIResearchTask(task)
+    } else {
+      if (aiResearchResult.value) return
+      const recentResponse = await apiWithTasks.listAIResearchTasks(false, 5)
+      const restoredTask = recentResponse.items.find(isRestorableAIResearchTask)
+      if (!restoredTask) return
+      applyAIResearchTaskSnapshotToForm(restoredTask)
+      applyAIResearchTaskStatus(restoredTask)
+      aiResearchResult.value = restoredTask.result ?? await restoreAIResearchResultFromTask(restoredTask)
+    }
+    if (!aiResearchResult.value) return
+    syncAIResearchFormFromResult(aiResearchResult.value)
     if (aiResearchResult.value.run_record) {
+      setAIResearchConfigProfileFromRunRecord(aiResearchResult.value.run_record)
       upsertAIResearchRunRecord(aiResearchResult.value.run_record)
     } else {
       await loadAIResearchRuns()
@@ -5850,16 +7654,25 @@ async function cancelAIResearchTask() {
   }
 }
 
-async function runAIResearchLoop() {
+async function continueAIResearchFromTaskSnapshot() {
+  const taskId = aiResearchTaskId.value
+  const continueTask = (strategyApi as {
+    continueAIResearchTask?: (
+      taskId: string,
+      data: { overrides?: Partial<AIStrategyResearchRunRequest> & Record<string, unknown> }
+    ) => Promise<AIStrategyResearchTaskResponse>
+  }).continueAIResearchTask
+  if (!taskId || typeof continueTask !== 'function' || aiResearchRunning.value) return
   let prompt = aiResearchForm.prompt.trim()
+  const shouldUseServerGeneratedPrompt = !prompt
   const symbol = aiResearchForm.symbol.trim()
   if (!symbol) {
     ElMessage.warning(t('strategy.aiResearchSymbolRequired'))
     return
   }
-  if (!prompt) {
+  if (shouldUseServerGeneratedPrompt) {
     aiResearchForm.prompt = buildGeneratedAIResearchPrompt()
-    prompt = aiResearchForm.prompt.trim()
+    prompt = ''
   }
   const outOfSampleError = requiredOutOfSampleValidationError()
   if (outOfSampleError) {
@@ -5868,33 +7681,22 @@ async function runAIResearchLoop() {
   }
 
   aiResearchRunning.value = true
-  aiResearchTaskId.value = ''
-  aiResearchTaskStatus.value = ''
-  aiResearchTaskStage.value = ''
-  aiResearchTaskProgress.value = 0
-  aiResearchTaskIteration.value = null
-  aiResearchBacktestTaskId.value = ''
-  aiResearchCancelledBacktestTaskId.value = ''
-  aiResearchTaskPaperWorkspaceId.value = ''
-  aiResearchTaskPaperUnitId.value = ''
-  aiResearchTaskPaperStarted.value = false
-  aiResearchTaskLiveWorkspaceId.value = ''
-  aiResearchTaskLiveUnitId.value = ''
-  aiResearchTaskLivePrepared.value = false
-  aiResearchTaskPipeline.value = null
-  aiResearchTaskRequestSnapshot.value = null
-  aiResearchTaskContinuedFromRunId.value = ''
-  aiResearchTaskContinuationSource.value = ''
-  aiResearchTaskContinuationContext.value = {}
-  aiResearchTaskError.value = ''
-  aiResearchTaskMessage.value = ''
-  aiResearchTaskLatestIteration.value = null
-  aiResearchTaskAssetSpecs.value = {}
-  aiResearchTaskBacktestEnvironment.value = {}
   aiResearchCancelRequested.value = false
+  aiResearchTaskError.value = ''
   try {
-    aiResearchResult.value = await runAIResearchRequest(buildAIResearchRequest(prompt, symbol))
+    const request = buildAIResearchRequest(prompt, symbol)
+    const overrides: Partial<AIStrategyResearchRunRequest> & Record<string, unknown> = { ...request }
+    const task = await continueTask(taskId, { overrides })
+    aiResearchResult.value = await pollAIResearchTask(
+      task,
+      aiResearchTaskPollTimeoutMs(request, task)
+    )
+    if (shouldUseServerGeneratedPrompt) {
+      const canonicalPrompt = stringFromUnknown(aiResearchResult.value.run_record?.prompt)
+      if (canonicalPrompt) aiResearchForm.prompt = canonicalPrompt
+    }
     if (aiResearchResult.value.run_record) {
+      setAIResearchConfigProfileFromRunRecord(aiResearchResult.value.run_record)
       upsertAIResearchRunRecord(aiResearchResult.value.run_record)
     } else {
       await loadAIResearchRuns()
@@ -5915,6 +7717,33 @@ async function runAIResearchLoop() {
     }
     aiResearchTaskError.value = aiResearchErrorMessage(error)
     ElMessage.error(t('strategy.aiResearchRunFailed'))
+  } finally {
+    aiResearchRunning.value = false
+    scheduleAIResearchRunsAutoRefresh()
+  }
+}
+
+async function retryAIResearchFromTaskSnapshot() {
+  if (!canRetryAIResearchTask.value || aiResearchRunning.value) return
+  clearAIResearchContinuation()
+  await runAIResearchLoop()
+}
+
+async function runAIResearchLoop() {
+  const input = aiResearchRunnableInput()
+  if (!input) return
+
+  aiResearchRunning.value = true
+  resetAIResearchTaskState()
+  aiResearchCancelRequested.value = false
+  try {
+    const result = await runAIResearchRequest(
+      buildAIResearchRequest(input.prompt, input.symbol)
+    )
+    applyCanonicalAIResearchPrompt(result, input.shouldUseServerGeneratedPrompt)
+    await applyCompletedAIResearchResult(result)
+  } catch (error) {
+    handleAIResearchRunError(error)
   } finally {
     aiResearchRunning.value = false
     scheduleAIResearchRunsAutoRefresh()
@@ -6017,14 +7846,21 @@ async function deleteStrategy(id: string) {
 onMounted(async () => {
   aiResearchRunsAutoRefreshActive = true
   try {
-    await Promise.all([
+    const initialLoads: Array<Promise<unknown>> = [
       strategyStore.fetchStrategies(),
       strategyStore.fetchTemplates(),
-      loadAIResearchRuns(),
-    ])
-    const restoredFromRoute = await restoreAIResearchRunFromRoute()
-    if (!restoredFromRoute) {
-      void restoreActiveAIResearchTask()
+    ]
+    if (showAIResearchTab.value) {
+      initialLoads.push(loadAIResearchRuns())
+      initialLoads.push(loadAIResearchConfigProfiles())
+    }
+    await Promise.all(initialLoads)
+    if (showAIResearchTab.value) {
+      const restoredFromRoute = await restoreAIResearchRunFromRoute()
+      const prefilledFromRoute = !restoredFromRoute && applyAIResearchRoutePrefill()
+      if (!restoredFromRoute && !prefilledFromRoute) {
+        void restoreActiveAIResearchTask()
+      }
     }
   } catch {
     ElMessage.error(t('strategy.loadFailed'))
@@ -6032,12 +7868,34 @@ onMounted(async () => {
 })
 
 watch(activeTab, tab => {
+  if (!showAIResearchTab.value && tab === 'aiResearch') {
+    activeTab.value = 'gallery'
+    return
+  }
+  if (!showStrategyManagementTabs.value && tab !== 'aiResearch') {
+    activeTab.value = 'aiResearch'
+    return
+  }
   if (tab === 'aiResearch') {
     scheduleAIResearchRunsAutoRefresh()
   } else {
     clearAIResearchRunsAutoRefresh()
   }
 })
+
+watch(showAIResearchTab, visible => {
+  if (visible && activeTab.value !== 'aiResearch') {
+    activeTab.value = 'aiResearch'
+    void loadAIResearchConfigProfiles()
+    return
+  }
+  if (visible) {
+    void loadAIResearchConfigProfiles()
+  }
+  if (!visible && activeTab.value === 'aiResearch') {
+    activeTab.value = 'gallery'
+  }
+}, { immediate: true })
 
 onUnmounted(() => {
   aiResearchRunsAutoRefreshActive = false
@@ -6046,23 +7904,743 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.strategy-page {
+  display: grid;
+  gap: 24px;
+}
+
+.strategy-page--management {
+  gap: 18px;
+  color: var(--text-color-primary);
+}
+
+.strategy-management-hero,
+.strategy-library-panel,
+.strategy-table-panel {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-color);
+  box-shadow: 0 10px 28px var(--shadow-color);
+}
+
+.strategy-management-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  padding: 20px;
+}
+
+.strategy-management-copy {
+  min-width: 0;
+}
+
+.strategy-management-kicker,
+.strategy-panel-head span {
+  display: inline-flex;
+  margin-bottom: 6px;
+  color: var(--primary-color);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.strategy-management-copy h1 {
+  margin: 0;
+  color: var(--text-color-primary);
+  font-size: 26px;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
+.strategy-management-copy p {
+  max-width: 760px;
+  margin: 8px 0 0;
+  color: var(--text-color-regular);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.strategy-management-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+
+.strategy-management-actions :deep(.el-button),
+.strategy-table-panel :deep(.el-button) {
+  gap: 6px;
+}
+
+.strategy-management-actions :deep(.el-icon),
+.strategy-table-panel :deep(.el-icon) {
+  margin-right: 4px;
+}
+
+.strategy-management-metrics {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.strategy-management-metric {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+}
+
+.strategy-management-metric span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.strategy-management-metric strong {
+  display: block;
+  color: var(--text-color-primary);
+  font-size: 20px;
+  line-height: 1.15;
+}
+
+.strategy-page--management :deep(.el-tabs--border-card) {
+  overflow: hidden;
+  border-color: var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-color);
+  box-shadow: 0 10px 28px var(--shadow-color);
+}
+
+.strategy-page--management :deep(.el-tabs--border-card > .el-tabs__header) {
+  border-color: var(--border-color-light);
+  background: var(--fill-color-lighter);
+}
+
+.strategy-page--management :deep(.el-tabs--border-card > .el-tabs__content) {
+  padding: 18px;
+  background: var(--bg-color);
+}
+
+.strategy-page--management :deep(.el-tabs__item) {
+  color: var(--text-color-secondary);
+  font-weight: 650;
+}
+
+.strategy-page--management :deep(.el-tabs__item.is-active) {
+  color: var(--primary-color);
+  background: var(--bg-color);
+}
+
+.strategy-library-panel,
+.strategy-table-panel {
+  padding: 18px;
+  box-shadow: none;
+}
+
+.strategy-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-color-light);
+}
+
+.strategy-panel-head h2 {
+  margin: 0;
+  color: var(--text-color-primary);
+  font-size: 18px;
+  font-weight: 720;
+  line-height: 1.3;
+}
+
+.strategy-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  margin-bottom: 18px;
+}
+
+.strategy-search-input {
+  width: 100%;
+}
+
+.strategy-category-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.strategy-category-filter :deep(.el-radio-button__inner) {
+  border: 1px solid var(--border-color-light);
+  border-radius: 999px;
+  background: var(--bg-color);
+  color: var(--text-color-regular);
+  white-space: normal;
+}
+
+.strategy-category-filter :deep(.el-radio-button:first-child .el-radio-button__inner),
+.strategy-category-filter :deep(.el-radio-button:last-child .el-radio-button__inner) {
+  border-radius: 999px;
+}
+
+.strategy-category-filter :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  border-color: var(--primary-color);
+  background: var(--fill-color-light);
+  color: var(--primary-color);
+  box-shadow: none;
+}
+
+.strategy-template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.strategy-template-grid :deep(.strategy-card) {
+  height: 100%;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--bg-color);
+  color: var(--text-color-primary);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.strategy-template-grid :deep(.strategy-card:hover),
+.strategy-template-grid :deep(.strategy-card:focus-within) {
+  border-color: var(--primary-color);
+  box-shadow: 0 10px 24px var(--shadow-color);
+  transform: translateY(-2px);
+}
+
+.strategy-template-grid :deep(.strategy-card .el-card__body) {
+  height: 100%;
+}
+
+.strategy-template-grid :deep(.strategy-card h3) {
+  color: var(--text-color-primary);
+}
+
+.strategy-template-grid :deep(.strategy-card p),
+.strategy-template-grid :deep(.strategy-card .text-gray-500),
+.strategy-template-grid :deep(.strategy-card .text-gray-400) {
+  color: var(--text-color-secondary) !important;
+}
+
+.strategy-template-grid :deep(.strategy-card .border-t) {
+  border-color: var(--border-color-light) !important;
+}
+
+.strategy-template-grid :deep(.strategy-card .el-button + .el-button) {
+  margin-left: 0;
+}
+
+.strategy-template-grid :deep(.strategy-card .flex.gap-2) {
+  flex-wrap: wrap;
+}
+
+.strategy-owned-table {
+  width: 100%;
+}
+
+.strategy-empty-state {
+  min-height: 280px;
+}
+
+.strategy-page--ai-research {
+  gap: 18px;
+}
+
+.strategy-page--ai-research :deep(.el-tabs--border-card) {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.strategy-page--ai-research :deep(.el-tabs__header) {
+  display: none;
+}
+
+.strategy-page--ai-research :deep(.el-tabs__content) {
+  padding: 0;
+}
+
+.strategy-page--ai-research :deep(.el-radio-group) {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.strategy-page--ai-research :deep(.el-radio-button__inner) {
+  white-space: normal;
+}
+
+:global(html.dark) .strategy-page--ai-research :deep(.el-input__wrapper),
+:global(html.dark) .strategy-page--ai-research :deep(.el-textarea__inner),
+:global(html.dark) .strategy-page--ai-research :deep(.el-select__wrapper) {
+  background: var(--fill-color) !important;
+  box-shadow: 0 0 0 1px var(--border-color) inset !important;
+  color: var(--text-color-primary);
+}
+
+:global(html.dark) .strategy-page--ai-research :deep(.el-input__inner),
+:global(html.dark) .strategy-page--ai-research :deep(.el-textarea__inner),
+:global(html.dark) .strategy-page--ai-research :deep(.el-select__placeholder),
+:global(html.dark) .strategy-page--ai-research :deep(.el-select__selected-item) {
+  color: var(--text-color-primary) !important;
+}
+
+:global(html.dark) .strategy-page--ai-research :deep(.el-input-number__decrease),
+:global(html.dark) .strategy-page--ai-research :deep(.el-input-number__increase) {
+  border-color: var(--border-color) !important;
+  background: var(--fill-color-light) !important;
+  color: var(--text-color-primary) !important;
+}
+
+:global(html.dark) .strategy-page--ai-research :deep(.el-input-number__decrease.is-disabled),
+:global(html.dark) .strategy-page--ai-research :deep(.el-input-number__increase.is-disabled),
+:global(html.dark) .strategy-page--ai-research :deep(.el-input.is-disabled .el-input__wrapper) {
+  background: var(--fill-color-lighter) !important;
+  color: var(--text-color-secondary) !important;
+}
+
+:global(html.dark) .ai-research-plan-bar,
+:global(html.dark) .ai-research-metrics > div {
+  background: var(--fill-color-lighter);
+}
+
+:global(html.dark) .ai-research-task-progress,
+:global(html.dark) .ai-research-result-context {
+  background: var(--bg-color);
+}
+
+.ai-research-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-color);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+}
+
+.ai-research-hero-copy {
+  min-width: 0;
+}
+
+.ai-research-hero-kicker {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--info-border-color);
+  border-radius: 999px;
+  color: var(--info-text-color);
+  background: var(--info-surface);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ai-research-hero h1 {
+  margin: 12px 0 8px;
+  color: var(--text-color-primary);
+  font-size: 28px;
+  font-weight: 760;
+  line-height: 1.18;
+}
+
+.ai-research-hero p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--text-color-regular);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.ai-research-hero-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+  align-content: start;
+}
+
+.ai-research-hero-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+  color: var(--text-color-regular);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ai-research-hero-step-index {
+  flex: 0 0 auto;
+  color: var(--text-color-secondary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ai-research-hero-metrics {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ai-research-hero-metric {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+}
+
+.ai-research-hero-metric span,
+.ai-research-metrics span {
+  overflow-wrap: anywhere;
+}
+
+.ai-research-hero-metric span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.ai-research-hero-metric strong {
+  display: block;
+  color: var(--text-color-primary);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
 .ai-research-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 0.95fr) minmax(360px, 1.05fr);
-  gap: 20px;
+  grid-template-columns: minmax(360px, 0.9fr) minmax(520px, 1.1fr);
+  gap: 18px;
   align-items: start;
 }
 
 .ai-research-panel {
-  border: 1px solid var(--el-border-color-light);
+  min-width: 0;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 20px;
-  background: var(--el-bg-color);
+  padding: 18px;
+  background: var(--bg-color);
+  box-shadow: 0 10px 24px rgb(15 23 42 / 5%);
+  overflow: hidden;
+}
+
+.ai-research-panel-head {
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-color-light);
+}
+
+.ai-research-panel-head h2 {
+  margin: 4px 0 6px;
+  color: var(--text-color-primary);
+  font-size: 18px;
+  font-weight: 720;
+  line-height: 1.3;
+}
+
+.ai-research-panel-head p {
+  margin: 0;
+  color: var(--text-color-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ai-research-control-panel :deep(.el-form-item) {
+  margin-bottom: 14px;
+}
+
+.ai-research-control-panel :deep(.el-form-item__label) {
+  color: var(--text-color-primary);
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.ai-research-plan-bar {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.75fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 18px;
+  padding: 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 56%), rgb(255 255 255 / 0%)),
+    var(--fill-color-lighter);
+}
+
+.ai-research-plan-bar > :deep(.el-button) {
+  align-self: end;
+  justify-self: end;
+  min-width: 104px;
+}
+
+.ai-research-plan-select {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ai-research-plan-select > span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.ai-research-plan-summary {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  align-self: end;
+  padding: 2px 0;
+}
+
+.ai-research-plan-summary strong {
+  color: var(--text-color-primary);
+  font-size: 13px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.ai-research-plan-summary span,
+.ai-research-plan-option {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ai-research-plan-option {
+  float: right;
+  margin-left: 12px;
+}
+
+:global(.ai-research-config-dialog) {
+  max-width: calc(100vw - 32px);
+}
+
+:global(.ai-research-config-dialog .el-dialog__body) {
+  padding-top: 10px;
+}
+
+.ai-research-main-form {
+  margin: 0;
+}
+
+.ai-research-main-form :deep(.el-form-item:last-child) {
+  margin-bottom: 0;
+}
+
+.ai-research-config-sheet {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+}
+
+.ai-research-config-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ai-research-config-head > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ai-research-config-head strong {
+  color: var(--text-color-primary);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.ai-research-config-head span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.ai-research-config-head-actions,
+.ai-research-config-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-research-config-head-actions :deep(.el-button + .el-button),
+.ai-research-config-editor :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+
+.ai-research-config-file-input {
+  display: none;
+}
+
+.ai-research-config-table {
+  width: 100%;
+}
+
+.ai-research-config-detail {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--bg-color);
+}
+
+.ai-research-config-detail-head {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ai-research-config-detail-head strong {
+  color: var(--text-color-primary);
+  font-size: 14px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.ai-research-config-detail-head span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.ai-research-config-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ai-research-config-detail-item {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border-color-lighter);
+  border-radius: 6px;
+  background: var(--fill-color-lighter);
+}
+
+.ai-research-config-detail-item span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.ai-research-config-detail-item strong {
+  color: var(--text-color-primary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.ai-research-config-prompt-preview {
+  max-height: 170px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--border-color-lighter);
+  border-radius: 6px;
+  background: var(--fill-color-blank);
+  color: var(--text-color-regular);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.ai-research-config-name {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ai-research-config-name strong {
+  color: var(--text-color-primary);
+  font-size: 13px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.ai-research-config-name span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.ai-research-config-editor {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(160px, 1.2fr) repeat(3, auto);
+}
+
+.ai-research-result-context {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgb(64 158 255 / 8%), rgb(64 158 255 / 0%) 56%),
+    var(--fill-color-lighter);
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+
+.ai-research-result-context strong {
+  color: var(--text-color-primary);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.ai-research-result-context span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .ai-research-form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
   gap: 12px 16px;
 }
 
@@ -6074,10 +8652,17 @@ onUnmounted(() => {
 
 .ai-research-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color-light);
+}
+
+.ai-research-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .ai-research-action-options {
@@ -6089,20 +8674,55 @@ onUnmounted(() => {
 }
 
 .ai-research-task-progress {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
-  margin-top: 8px;
-  color: var(--el-text-color-secondary);
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  color: var(--text-color-secondary);
+  background:
+    linear-gradient(180deg, rgb(64 158 255 / 7%), rgb(64 158 255 / 0%) 58%),
+    var(--bg-color);
+  font-size: 12px;
+  line-height: 1.4;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.ai-research-task-progress strong {
+  color: var(--text-color-primary);
   font-size: 12px;
   line-height: 1.4;
 }
 
-.ai-research-task-progress strong {
-  color: var(--el-text-color-primary);
-  font-size: 12px;
-  line-height: 1.4;
+.ai-research-task-progress > strong {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 2px;
+  font-size: 13px;
+}
+
+.ai-research-task-progress > strong::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--primary-color);
+  box-shadow: 0 0 0 4px rgb(64 158 255 / 12%);
+}
+
+.ai-research-task-progress > span {
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border-color-lighter);
+  border-radius: 6px;
+  background: var(--fill-color-blank);
+  color: var(--text-color-regular);
+  overflow-wrap: anywhere;
 }
 
 .ai-research-task-iteration-progress {
@@ -6112,21 +8732,62 @@ onUnmounted(() => {
   align-items: center;
 }
 
-.ai-research-task-runtime {
-  display: inline-flex;
-  flex-wrap: wrap;
+.ai-research-task-pipeline {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 6px;
-  align-items: center;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.ai-research-task-pipeline > span {
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border-color-lighter);
+  border-radius: 6px;
+  background: var(--fill-color-blank);
+  overflow-wrap: anywhere;
 }
 
 .ai-research-task-diagnostics {
-  flex-basis: 100%;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px 10px;
+  border-top: 1px solid var(--border-color-light);
+  padding-top: 8px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.ai-research-task-promotion-audit {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px 10px;
+  border-top: 1px solid var(--border-color-light);
+  padding-top: 8px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.ai-research-task-error {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 10px;
-  align-items: center;
-  border-top: 1px solid var(--el-border-color-lighter);
-  padding-top: 8px;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--danger-border-color);
+  border-radius: 8px;
+  color: var(--danger-text-color);
+  background: var(--danger-surface);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ai-research-task-error strong {
+  color: var(--danger-text-color);
 }
 
 .ai-research-gate-control {
@@ -6141,12 +8802,12 @@ onUnmounted(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .ai-research-kicker {
   display: block;
-  color: var(--el-text-color-secondary);
+  color: var(--text-color-secondary);
   font-size: 12px;
   line-height: 1.2;
   margin-bottom: 4px;
@@ -6157,35 +8818,40 @@ onUnmounted(() => {
   font-weight: 700;
   line-height: 1.3;
   margin: 0;
-  color: var(--el-text-color-primary);
+  color: var(--text-color-primary);
 }
 
 .ai-research-metrics {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
   margin-bottom: 16px;
 }
 
 .ai-research-metrics > div {
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid var(--border-color-lighter);
   border-radius: 8px;
-  padding: 10px;
+  padding: 11px 12px;
   min-width: 0;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 54%), rgb(255 255 255 / 0%)),
+    var(--fill-color-lighter);
 }
 
 .ai-research-metrics span {
   display: block;
-  color: var(--el-text-color-secondary);
+  color: var(--text-color-secondary);
   font-size: 12px;
   margin-bottom: 6px;
 }
 
 .ai-research-metrics strong {
   display: block;
-  color: var(--el-text-color-primary);
-  font-size: 18px;
+  color: var(--text-color-primary);
+  font-size: 19px;
+  font-weight: 720;
   line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .ai-research-links {
@@ -6193,18 +8859,24 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 16px;
+  padding-bottom: 2px;
+}
+
+.ai-research-links :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .ai-research-pipeline {
-  border-top: 1px solid var(--el-border-color-lighter);
-  border-bottom: 1px solid var(--el-border-color-lighter);
-  padding: 10px 0;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  padding: 11px 12px;
   margin-bottom: 16px;
+  background: var(--fill-color-lighter);
 }
 
 .ai-research-pipeline > strong {
   display: block;
-  color: var(--el-text-color-primary);
+  color: var(--text-color-primary);
   font-size: 13px;
   margin-bottom: 8px;
 }
@@ -6220,23 +8892,27 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   min-height: 28px;
-  color: var(--el-text-color-regular);
+  padding: 5px 8px;
+  border: 1px solid var(--border-color-lighter);
+  border-radius: 6px;
+  background: var(--fill-color-blank);
+  color: var(--text-color-regular);
   font-size: 12px;
 }
 
 .ai-research-pipeline-step small {
-  color: var(--el-text-color-secondary);
+  color: var(--text-color-secondary);
 }
 
 .ai-research-promotion-audit {
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid var(--border-color-light);
   padding: 0 0 12px;
   margin-bottom: 16px;
 }
 
 .ai-research-promotion-audit > strong {
   display: block;
-  color: var(--el-text-color-primary);
+  color: var(--text-color-primary);
   font-size: 13px;
   margin-bottom: 8px;
 }
@@ -6251,25 +8927,25 @@ onUnmounted(() => {
   grid-template-columns: minmax(96px, 140px) auto minmax(180px, 1fr) minmax(180px, 1fr);
   align-items: center;
   gap: 8px;
-  color: var(--el-text-color-regular);
+  color: var(--text-color-regular);
   font-size: 12px;
 }
 
 .ai-research-promotion-audit-item small {
-  color: var(--el-text-color-secondary);
+  color: var(--text-color-secondary);
 }
 
 .ai-research-action-plan {
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid var(--info-border-color);
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 16px;
-  background: var(--el-fill-color-light);
+  background: var(--info-surface);
 }
 
 .ai-research-action-plan strong {
   display: block;
-  color: var(--el-text-color-primary);
+  color: var(--info-text-color);
   font-size: 13px;
   margin-bottom: 8px;
 }
@@ -6278,7 +8954,7 @@ onUnmounted(() => {
 .ai-research-next-actions {
   margin: 0;
   padding-left: 18px;
-  color: var(--el-text-color-regular);
+  color: var(--text-color-regular);
   font-size: 13px;
 }
 
@@ -6293,16 +8969,16 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--el-text-color-regular);
+  color: var(--text-color-regular);
   font-size: 13px;
 }
 
 .ai-research-oos-summary {
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid var(--border-color-light);
   border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 16px;
-  background: var(--el-fill-color-lighter);
+  background: var(--fill-color-lighter);
 }
 
 .ai-research-oos-summary-compact {
@@ -6320,21 +8996,21 @@ onUnmounted(() => {
 .ai-research-oos-head {
   justify-content: space-between;
   margin-bottom: 6px;
-  color: var(--el-text-color-primary);
+  color: var(--text-color-primary);
   font-size: 13px;
 }
 
 .ai-research-oos-details {
-  color: var(--el-text-color-regular);
+  color: var(--text-color-regular);
   font-size: 12px;
 }
 
 .ai-research-warning-text {
-  color: var(--el-color-warning);
+  color: var(--warning-text-strong);
 }
 
 .ai-research-muted-text {
-  color: var(--el-text-color-secondary);
+  color: var(--text-color-secondary);
 }
 
 .ai-research-iterations {
@@ -6343,9 +9019,10 @@ onUnmounted(() => {
 }
 
 .ai-research-iteration {
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid var(--border-color-lighter);
   border-radius: 8px;
   padding: 12px;
+  background: var(--fill-color-blank);
 }
 
 .ai-research-iteration-head,
@@ -6370,8 +9047,22 @@ onUnmounted(() => {
 }
 
 .ai-research-iteration-metrics {
-  color: var(--el-text-color-regular);
+  color: var(--text-color-regular);
   font-size: 13px;
+}
+
+.ai-research-backtest-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin-top: 8px;
+  color: var(--text-color-regular);
+  font-size: 12px;
+}
+
+.ai-research-backtest-summary strong {
+  color: var(--text-color-primary);
 }
 
 .ai-research-iteration-progress {
@@ -6380,36 +9071,36 @@ onUnmounted(() => {
   gap: 8px;
   align-items: center;
   margin-top: 8px;
-  color: var(--el-text-color-secondary);
+  color: var(--text-color-secondary);
   font-size: 12px;
 }
 
 .ai-research-warning {
   margin: 8px 0 0;
-  color: var(--el-color-warning);
+  color: var(--warning-text-strong);
   font-size: 13px;
 }
 
 .ai-research-notes {
   margin: 8px 0 0;
   padding-left: 18px;
-  color: var(--el-text-color-secondary);
+  color: var(--text-color-secondary);
   font-size: 13px;
 }
 
 .ai-research-warning-list {
-  color: var(--el-color-warning);
+  color: var(--warning-text-strong);
 }
 
 .ai-research-next-actions {
   margin-top: 8px;
-  color: var(--el-color-primary);
+  color: var(--primary-color);
 }
 
 .ai-research-history {
   margin-top: 18px;
-  border-top: 1px solid var(--el-border-color-lighter);
-  padding-top: 16px;
+  border-top: 1px solid var(--border-color-light);
+  padding-top: 14px;
 }
 
 .ai-research-history-head {
@@ -6420,25 +9111,31 @@ onUnmounted(() => {
   margin: 0;
   font-size: 16px;
   line-height: 1.3;
-  color: var(--el-text-color-primary);
+  color: var(--text-color-primary);
 }
 
 .ai-research-history-list {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .ai-research-history-item {
   width: 100%;
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid var(--border-color-lighter);
   border-radius: 8px;
-  padding: 10px 12px;
-  background: var(--el-bg-color);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
+  padding: 12px;
+  background: var(--fill-color-blank);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 10px;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.ai-research-history-item:hover,
+.ai-research-history-item:focus-within {
+  border-color: var(--primary-color);
+  box-shadow: 0 8px 20px rgb(15 23 42 / 7%);
 }
 
 .ai-research-history-select {
@@ -6447,12 +9144,13 @@ onUnmounted(() => {
   background: transparent;
   text-align: left;
   cursor: pointer;
-  flex: 1;
   min-width: 0;
+  display: grid;
+  gap: 6px;
 }
 
 .ai-research-history-select:focus-visible {
-  outline: 2px solid var(--el-color-primary);
+  outline: 2px solid var(--primary-color);
   outline-offset: 2px;
 }
 
@@ -6465,26 +9163,50 @@ onUnmounted(() => {
 }
 
 .ai-research-history-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   justify-content: space-between;
-  margin-bottom: 6px;
+  align-items: start;
+  margin-bottom: 0;
 }
 
 .ai-research-history-main strong {
   min-width: 0;
-  color: var(--el-text-color-primary);
+  color: var(--text-color-primary);
   font-size: 13px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .ai-research-history-meta {
-  color: var(--el-text-color-secondary);
+  color: var(--text-color-secondary);
   font-size: 12px;
 }
 
+.ai-research-history-meta > span {
+  min-height: 22px;
+  padding: 3px 7px;
+  border: 1px solid var(--border-color-lighter);
+  border-radius: 999px;
+  background: var(--fill-color-lighter);
+  line-height: 1.2;
+}
+
+.ai-research-history-item > :deep(.el-button) {
+  justify-self: end;
+}
+
 .ai-research-paper-review {
-  flex-basis: 100%;
-  border-top: 1px solid var(--el-border-color-lighter);
-  padding-top: 8px;
+  grid-column: 1 / -1;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--bg-color);
 }
 
 .ai-research-current-paper-review {
@@ -6496,12 +9218,14 @@ onUnmounted(() => {
 }
 
 .ai-research-diagnostics {
-  flex-basis: 100%;
+  grid-column: 1 / -1;
   display: grid;
   gap: 6px;
-  border-top: 1px solid var(--el-border-color-lighter);
-  padding-top: 8px;
-  color: var(--el-text-color-secondary);
+  padding: 10px 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  color: var(--text-color-secondary);
+  background: var(--fill-color-lighter);
   font-size: 12px;
 }
 
@@ -6514,28 +9238,31 @@ onUnmounted(() => {
 }
 
 .ai-research-diagnostics-head strong {
-  color: var(--el-text-color-primary);
+  color: var(--text-color-primary);
 }
 
 .ai-research-diagnostics p {
   margin: 0;
-  color: var(--el-text-color-primary);
+  color: var(--text-color-primary);
 }
 
 .ai-research-paper-env {
-  flex-basis: 100%;
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  border-top: 1px solid var(--el-border-color-lighter);
-  padding-top: 8px;
-  color: var(--el-text-color-secondary);
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  color: var(--text-color-secondary);
+  background: var(--fill-color-lighter);
   font-size: 12px;
 }
 
 .ai-research-paper-env strong {
-  color: var(--el-text-color-primary);
+  color: var(--text-color-primary);
   font-size: 12px;
 }
 
@@ -6550,43 +9277,182 @@ onUnmounted(() => {
 
 .ai-research-paper-review-head {
   margin-bottom: 6px;
-  color: var(--el-text-color-primary);
+  color: var(--text-color-primary);
 }
 
 .ai-research-paper-review-rules {
-  color: var(--el-text-color-secondary);
+  color: var(--text-color-secondary);
+}
+
+.ai-research-paper-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
 }
 
 .ai-research-live-readiness {
   display: grid;
   gap: 4px;
   margin-top: 6px;
-  color: var(--el-text-color-secondary);
+  color: var(--text-color-secondary);
   font-size: 12px;
   line-height: 1.45;
 }
 
 .ai-research-live-readiness strong {
-  color: var(--el-text-color-primary);
+  color: var(--text-color-primary);
   font-size: 12px;
 }
 
 .ai-research-history-empty {
-  color: var(--el-text-color-secondary);
+  color: var(--text-color-secondary);
   font-size: 13px;
-  padding: 8px 0;
+  padding: 14px 0;
+}
+
+@media (max-width: 1180px) {
+  .strategy-management-hero,
+  .strategy-filter-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-management-actions,
+  .strategy-category-filter {
+    justify-content: flex-start;
+  }
+
+  .strategy-management-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ai-research-hero,
+  .ai-research-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-research-hero-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1024px) {
   .ai-research-grid,
+  .ai-research-plan-bar,
   .ai-research-form-grid,
-  .ai-research-metrics {
+  .ai-research-config-editor {
     grid-template-columns: 1fr;
+  }
+
+  .ai-research-config-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .ai-research-promotion-audit-item {
     grid-template-columns: 1fr;
     align-items: start;
+  }
+}
+
+@media (max-width: 640px) {
+  .strategy-page {
+    gap: 16px;
+  }
+
+  .strategy-management-hero,
+  .strategy-library-panel,
+  .strategy-table-panel,
+  .ai-research-hero,
+  .ai-research-panel {
+    padding: 14px;
+  }
+
+  .strategy-management-copy h1,
+  .ai-research-hero h1 {
+    font-size: 22px;
+  }
+
+  .strategy-management-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-research-hero-metrics,
+  .ai-research-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .strategy-page--management :deep(.el-tabs--border-card > .el-tabs__content) {
+    padding: 12px;
+  }
+
+  .strategy-panel-head {
+    flex-direction: column;
+  }
+
+  .strategy-management-actions :deep(.el-button),
+  .strategy-table-panel :deep(.el-button),
+  .strategy-template-grid :deep(.strategy-card .el-button) {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .strategy-category-filter,
+  .strategy-category-filter :deep(.el-radio-button),
+  .strategy-category-filter :deep(.el-radio-button__inner) {
+    width: 100%;
+  }
+
+  .ai-research-actions,
+  .ai-research-links,
+  .ai-research-iteration-head,
+  .ai-research-summary {
+    align-items: stretch;
+  }
+
+  .ai-research-actions :deep(.el-button),
+  .ai-research-plan-bar :deep(.el-button),
+  .ai-research-config-head-actions :deep(.el-button),
+  .ai-research-config-editor :deep(.el-button),
+  .ai-research-links :deep(.el-button),
+  .ai-research-iteration-actions :deep(.el-button) {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .ai-research-task-progress {
+    grid-template-columns: 1fr;
+    max-height: 300px;
+  }
+
+  .ai-research-task-diagnostics,
+  .ai-research-task-pipeline,
+  .ai-research-task-promotion-audit {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-research-config-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-research-history-item {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-research-history-main {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-research-history-main strong {
+    -webkit-line-clamp: 5;
+  }
+
+  .ai-research-history-item > :deep(.el-button) {
+    width: 100%;
+    justify-self: stretch;
+    justify-content: center;
   }
 }
 
@@ -6597,7 +9463,7 @@ onUnmounted(() => {
   transform: translateY(-2px);
 }
 .strategy-card:focus-visible {
-  outline: 2px solid var(--el-color-primary, #409eff);
+  outline: 2px solid var(--primary-color);
   outline-offset: 2px;
 }
 .line-clamp-2 {

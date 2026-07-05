@@ -31,12 +31,12 @@ class SyncConfig(BaseModel):
     remote_user: str = "root"
     remote_ssh_key: str = "~/.ssh/id_rsa"
     remote_container: str = "backtrader_mysql"
-    remote_install_dir: str = "/opt/ai-for-trader"
+    remote_install_dir: str = "/opt/ai-for-investor"
     remote_mysql_host: str = ""
     remote_mysql_port: int = 3306
     remote_mysql_user: str = "root"
     remote_mysql_password: str = ""
-    sync_databases: list[str] = Field(default_factory=lambda: ["ai_for_trader", "akshare_data"])
+    sync_databases: list[str] = Field(default_factory=lambda: ["ai_for_investor", "akshare_data"])
 
 
 class SyncRequest(BaseModel):

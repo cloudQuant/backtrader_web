@@ -1,6 +1,6 @@
 # 代码规范
 
-本文档定义 AI for Trader 项目的代码风格和最佳实践。
+本文档定义 AI for Investor 项目的代码风格和最佳实践。
 
 ## 1. 后端 (Python)
 

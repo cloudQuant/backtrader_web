@@ -1,519 +1,570 @@
 <template>
-  <div class="space-y-6">
-    <!-- Loading state -->
+  <div
+    class="portfolio-page"
+    data-test="portfolio-page"
+  >
     <div
       v-if="loading"
-      class="flex justify-center py-16"
+      class="portfolio-loading"
     >
-      <el-icon class="is-loading text-4xl text-blue-500">
+      <el-icon class="is-loading portfolio-loading__icon">
         <Loading />
       </el-icon>
+      <span>{{ t('common.loading') }}</span>
     </div>
 
     <template v-else>
-      <!-- Overview cards -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
-        <el-card shadow="hover">
-          <div class="text-center">
-            <div class="text-gray-500 text-sm mb-1">
-              {{ t('portfolio.cardTotalAssets') }}
-            </div>
-            <div class="text-3xl font-bold">
-              {{ formatMoney(overview.total_assets) }}
-            </div>
-          </div>
-        </el-card>
-        <el-card shadow="hover">
-          <div class="text-center">
-            <div class="text-gray-500 text-sm mb-1">
-              {{ t('portfolio.cardTotalPnl') }}
-            </div>
-            <div
-              class="text-3xl font-bold"
-              :class="overview.total_pnl >= 0 ? 'text-green-600' : 'text-red-600'"
+      <section
+        class="portfolio-hero"
+        data-test="portfolio-hero"
+      >
+        <div class="portfolio-hero__copy">
+          <span class="portfolio-kicker">{{ t('portfolio.heroKicker') }}</span>
+          <h1>{{ t('portfolio.heroTitle') }}</h1>
+          <p>
+            {{ t('portfolio.heroSubtitle', { selected: selectedWorkspaceIds.length, running: runningWorkspaces.length }) }}
+          </p>
+          <div class="portfolio-hero__badges">
+            <span
+              v-for="badge in heroBadges"
+              :key="badge.label"
+              class="portfolio-badge"
             >
-              {{ overview.total_pnl >= 0 ? '+' : '' }}{{ formatMoney(overview.total_pnl) }}
-              <span class="text-sm ml-1">({{ overview.total_pnl_pct >= 0 ? '+' : '' }}{{ overview.total_pnl_pct.toFixed(2) }}%)</span>
-            </div>
+              <span>{{ badge.label }}</span>
+              <strong>{{ badge.value }}</strong>
+            </span>
           </div>
-        </el-card>
-        <el-card shadow="hover">
-          <div class="text-center">
-            <div class="text-gray-500 text-sm mb-1">
-              {{ t('portfolio.cardPositionValue') }}
-            </div>
-            <div class="text-2xl font-bold text-blue-600">
-              {{ formatMoney(selectedPositionValue || overview.total_position_value) }}
-            </div>
-          </div>
-        </el-card>
-        <el-card shadow="hover">
-          <div class="text-center">
-            <div class="text-gray-500 text-sm mb-1">
-              {{ t('portfolio.cardWorkspaceRunning') }}
-            </div>
-            <div class="text-3xl font-bold">
-              <span class="text-gray-700">{{ selectedWorkspaceIds.length }}</span>
-              <span class="text-gray-400 mx-1">/</span>
-              <span class="text-green-600">{{ runningWorkspaces.length }}</span>
-            </div>
-          </div>
-        </el-card>
-      </div>
+        </div>
 
-      <el-card>
-        <div class="flex items-start justify-between gap-4 mb-4">
-          <div>
-            <h3 class="text-base font-semibold text-gray-900">
-              {{ t('portfolio.workspaceSelectorTitle') }}
-            </h3>
-            <p class="text-sm text-gray-500 mt-1">
-              {{ t('portfolio.workspaceSelectorDesc') }}
-            </p>
+        <div class="portfolio-hero__status">
+          <span class="portfolio-status-chip">
+            <span class="portfolio-status-dot" />
+            {{ portfolioHealthLabel }}
+          </span>
+          <div class="portfolio-hero__asset">
+            <span>{{ t('portfolio.cardTotalAssets') }}</span>
+            <strong>{{ formatMoney(overview.total_assets) }}</strong>
+          </div>
+          <div
+            class="portfolio-hero__pnl"
+            :class="signedValueClass(overview.total_pnl)"
+          >
+            {{ formatSignedMoney(overview.total_pnl) }}
+            <span>{{ formatSignedPercent(overview.total_pnl_pct) }}</span>
           </div>
           <el-button
-            size="small"
+            class="portfolio-refresh"
+            :icon="Refresh"
             @click="loadData"
           >
             {{ t('portfolio.btnRefresh') }}
           </el-button>
         </div>
-        <div
-          v-if="runningWorkspaces.length === 0"
-          class="text-center text-gray-400 py-6"
+      </section>
+
+      <section
+        class="portfolio-overview"
+        data-test="portfolio-overview"
+        :aria-label="t('portfolio.overviewTitle')"
+      >
+        <article
+          v-for="card in summaryCards"
+          :key="card.label"
+          class="portfolio-metric"
+          :class="'portfolio-metric--' + card.tone"
         >
-          {{ t('portfolio.emptyRunningWorkspaces') }}
-        </div>
-        <div
-          v-else
-          class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"
+          <span class="portfolio-metric__icon">
+            <el-icon aria-hidden="true">
+              <component :is="card.icon" />
+            </el-icon>
+          </span>
+          <span class="portfolio-metric__label">{{ card.label }}</span>
+          <strong :class="card.valueClass">{{ card.value }}</strong>
+          <small>{{ card.helper }}</small>
+        </article>
+      </section>
+
+      <section class="portfolio-layout">
+        <aside
+          class="portfolio-selector"
+          data-test="portfolio-selector"
         >
-          <label
-            v-for="workspace in runningWorkspaces"
-            :key="workspace.id"
-            class="flex items-start gap-3 rounded border border-gray-200 p-3 hover:border-blue-300"
+          <div class="portfolio-panel-heading">
+            <span class="portfolio-kicker">{{ t('portfolio.selectorKicker') }}</span>
+            <h2>{{ t('portfolio.workspaceSelectorTitle') }}</h2>
+            <p>{{ t('portfolio.workspaceSelectorDesc') }}</p>
+          </div>
+
+          <div class="portfolio-selector__summary">
+            <strong>{{ selectedWorkspaceIds.length }} / {{ runningWorkspaces.length }}</strong>
+            <span>{{ t('portfolio.cardWorkspaceRunning') }}</span>
+          </div>
+
+          <div
+            v-if="runningWorkspaces.length === 0"
+            class="portfolio-empty portfolio-empty--compact"
           >
-            <input
-              type="checkbox"
-              class="mt-1"
-              :checked="selectedWorkspaceIds.includes(workspace.id)"
-              @change="toggleWorkspace(workspace.id, ($event.target as HTMLInputElement).checked)"
+            <el-icon aria-hidden="true">
+              <Connection />
+            </el-icon>
+            <span>{{ t('portfolio.emptyRunningWorkspaces') }}</span>
+          </div>
+          <div
+            v-else
+            class="portfolio-workspace-list"
+          >
+            <label
+              v-for="workspace in runningWorkspaces"
+              :key="workspace.id"
+              class="portfolio-workspace-option"
+              :class="{ 'is-selected': selectedWorkspaceIds.includes(workspace.id) }"
             >
-            <span>
-              <span class="block font-medium text-gray-900">{{ workspace.name }}</span>
-              <span class="block text-xs text-gray-500">
-                {{ workspace.unit_count }} {{ t('portfolio.workspaceUnitSuffix') }} · {{ workspaceStatusLabel(workspace.status) }}
+              <input
+                type="checkbox"
+                :checked="selectedWorkspaceIds.includes(workspace.id)"
+                @change="toggleWorkspace(workspace.id, ($event.target as HTMLInputElement).checked)"
+              >
+              <span class="portfolio-workspace-option__body">
+                <span class="portfolio-workspace-option__name">{{ workspace.name }}</span>
+                <span class="portfolio-workspace-option__meta">
+                  {{ workspace.unit_count }} {{ t('portfolio.workspaceUnitSuffix') }} · {{ workspaceStatusLabel(workspace.status) }}
+                </span>
               </span>
-            </span>
-          </label>
-        </div>
-      </el-card>
+            </label>
+          </div>
+        </aside>
 
-      <!-- Main content -->
-      <el-tabs v-model="activeTab">
-        <!-- Workspaces tab -->
-        <el-tab-pane
-          :label="t('portfolio.tabWorkspaces')"
-          name="workspaces"
+        <section
+          class="portfolio-workbench"
+          data-test="portfolio-workbench"
         >
-          <el-card>
-            <el-table
-              :data="runningWorkspaces"
-              stripe
-              size="small"
-              class="w-full"
-            >
-              <el-table-column
-                prop="name"
-                :label="t('portfolio.colWorkspaceName')"
-                min-width="140"
-              />
-              <el-table-column
-                :label="t('portfolio.colStatus')"
-                width="80"
-                align="center"
-              >
-                <template #default="{ row }">
-                  <el-tag
-                    :type="row.status === 'running' ? 'success' : row.status === 'error' ? 'danger' : 'info'"
-                    size="small"
-                  >
-                    {{ workspaceStatusLabel(row.status) }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column
-                prop="unit_count"
-                :label="t('portfolio.colWorkspaceUnits')"
-                width="110"
-                align="right"
-              />
-              <el-table-column
-                :label="t('portfolio.colSelected')"
-                width="90"
-                align="center"
-              >
-                <template #default="{ row }">
-                  <el-tag
-                    :type="selectedWorkspaceIds.includes(row.id) ? 'success' : 'info'"
-                    size="small"
-                  >
-                    {{ selectedWorkspaceIds.includes(row.id) ? t('portfolio.selected') : t('portfolio.notSelected') }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-card>
-        </el-tab-pane>
+          <div class="portfolio-panel-heading portfolio-panel-heading--inline">
+            <div>
+              <span class="portfolio-kicker">{{ t('portfolio.workbenchKicker') }}</span>
+              <h2>{{ t('portfolio.workbenchTitle') }}</h2>
+              <p>{{ t('portfolio.workbenchDesc') }}</p>
+            </div>
+          </div>
 
-        <!-- Positions tab -->
-        <el-tab-pane
-          :label="t('portfolio.tabPositions')"
-          name="positions"
-        >
-          <el-card>
-            <div
-              v-if="positions.length > 0"
-              class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4"
+          <el-tabs
+            v-model="activeTab"
+            class="portfolio-tabs"
+          >
+            <el-tab-pane
+              :label="t('portfolio.tabWorkspaces')"
+              name="workspaces"
             >
-              <div class="rounded border border-gray-200 px-3 py-2">
-                <div class="text-xs text-gray-500">
-                  {{ t('portfolio.cardLongValue') }}
+              <div class="portfolio-tab-panel">
+                <div class="portfolio-section-heading">
+                  <h3>{{ t('portfolio.tabWorkspaces') }}</h3>
+                  <span>{{ t('portfolio.workspacesDesc') }}</span>
                 </div>
-                <div class="text-lg font-semibold text-red-600">
-                  {{ formatMoney(positionSummary.total_long_value) }}
-                </div>
+                <el-table
+                  :data="runningWorkspaces"
+                  stripe
+                  size="small"
+                  class="portfolio-table"
+                >
+                  <el-table-column
+                    prop="name"
+                    :label="t('portfolio.colWorkspaceName')"
+                    min-width="180"
+                  />
+                  <el-table-column
+                    :label="t('portfolio.colStatus')"
+                    width="110"
+                    align="center"
+                  >
+                    <template #default="{ row }">
+                      <el-tag
+                        :type="row.status === 'running' ? 'success' : row.status === 'error' ? 'danger' : 'info'"
+                        size="small"
+                      >
+                        {{ workspaceStatusLabel(row.status) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    prop="unit_count"
+                    :label="t('portfolio.colWorkspaceUnits')"
+                    width="130"
+                    align="right"
+                  />
+                  <el-table-column
+                    :label="t('portfolio.colSelected')"
+                    width="120"
+                    align="center"
+                  >
+                    <template #default="{ row }">
+                      <el-tag
+                        :type="selectedWorkspaceIds.includes(row.id) ? 'success' : 'info'"
+                        size="small"
+                      >
+                        {{ selectedWorkspaceIds.includes(row.id) ? t('portfolio.selected') : t('portfolio.notSelected') }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                </el-table>
               </div>
-              <div class="rounded border border-gray-200 px-3 py-2">
-                <div class="text-xs text-gray-500">
-                  {{ t('portfolio.cardShortValue') }}
+            </el-tab-pane>
+
+            <el-tab-pane
+              :label="t('portfolio.tabPositions')"
+              name="positions"
+            >
+              <div class="portfolio-tab-panel">
+                <div class="portfolio-section-heading">
+                  <h3>{{ t('portfolio.tabPositions') }}</h3>
+                  <span>{{ t('portfolio.positionsDesc') }}</span>
                 </div>
-                <div class="text-lg font-semibold text-green-600">
-                  {{ formatMoney(positionSummary.total_short_value) }}
+
+                <div
+                  v-if="positions.length > 0"
+                  class="portfolio-exposure-grid"
+                >
+                  <article
+                    v-for="card in positionMetricCards"
+                    :key="card.label"
+                    class="portfolio-exposure-card"
+                  >
+                    <span>{{ card.label }}</span>
+                    <strong :class="card.valueClass">{{ card.value }}</strong>
+                  </article>
                 </div>
+
+                <div
+                  v-if="positions.length === 0"
+                  class="portfolio-empty"
+                >
+                  <el-icon aria-hidden="true">
+                    <Operation />
+                  </el-icon>
+                  <span>{{ t('portfolio.emptyPositions') }}</span>
+                </div>
+                <el-table
+                  v-else
+                  :data="positions"
+                  stripe
+                  size="small"
+                  class="portfolio-table"
+                >
+                  <el-table-column
+                    prop="strategy_name"
+                    :label="t('portfolio.colStrategy')"
+                    min-width="180"
+                  />
+                  <el-table-column
+                    prop="data_name"
+                    :label="t('portfolio.colSymbol')"
+                    width="120"
+                  />
+                  <el-table-column
+                    :label="t('portfolio.colDirection')"
+                    width="90"
+                    align="center"
+                  >
+                    <template #default="{ row }">
+                      <el-tag
+                        :type="positionDirectionTag(row)"
+                        size="small"
+                      >
+                        {{ directionLabel(row.direction) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('portfolio.colLongPosition')"
+                    width="100"
+                    align="right"
+                  >
+                    <template #default="{ row }">
+                      {{ formatPositionSize(row.long_position) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('portfolio.colShortPosition')"
+                    width="100"
+                    align="right"
+                  >
+                    <template #default="{ row }">
+                      {{ formatPositionSize(row.short_position) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('portfolio.colSize')"
+                    width="100"
+                    align="right"
+                  >
+                    <template #default="{ row }">
+                      {{ formatPositionSize(row.size) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('portfolio.colCostPrice')"
+                    width="110"
+                    align="right"
+                  >
+                    <template #default="{ row }">
+                      {{ formatNumber(row.price, 4) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('portfolio.colLatestPrice')"
+                    width="110"
+                    align="right"
+                  >
+                    <template #default="{ row }">
+                      {{ formatNumber(row.latest_price ?? row.price, 4) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('portfolio.colMarketValue')"
+                    width="130"
+                    align="right"
+                  >
+                    <template #default="{ row }">
+                      {{ formatMoney(row.market_value) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('portfolio.colPositionPnl')"
+                    width="120"
+                    align="right"
+                  >
+                    <template #default="{ row }">
+                      <span :class="signedValueClass(row.position_pnl || 0)">
+                        {{ formatSignedMoney(row.position_pnl || 0) }}
+                      </span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('portfolio.colMarginValue')"
+                    width="110"
+                    align="right"
+                  >
+                    <template #default="{ row }">
+                      {{ formatOptionalMoney(row.margin_value) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('workspaceDialogs.leverage')"
+                    width="90"
+                    align="right"
+                  >
+                    <template #default="{ row }">
+                      {{ formatNumber(row.leverage, 2) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('portfolio.colCommission')"
+                    width="100"
+                    align="right"
+                  >
+                    <template #default="{ row }">
+                      {{ formatNumber(row.commission, 2) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('portfolio.colValuationStatus')"
+                    width="130"
+                    align="center"
+                  >
+                    <template #default="{ row }">
+                      <el-tooltip
+                        :content="valuationTooltip(row)"
+                        placement="top"
+                      >
+                        <el-tag
+                          :type="valuationStatusTag(row)"
+                          size="small"
+                        >
+                          {{ valuationStatusLabel(row) }}
+                        </el-tag>
+                      </el-tooltip>
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    prop="updated_at"
+                    :label="t('portfolio.colUpdatedAt')"
+                    width="160"
+                  >
+                    <template #default="{ row }">
+                      {{ formatDateTime(row.updated_at) }}
+                    </template>
+                  </el-table-column>
+                </el-table>
               </div>
-              <div class="rounded border border-gray-200 px-3 py-2">
-                <div class="text-xs text-gray-500">
-                  {{ t('portfolio.cardNetExposure') }}
+            </el-tab-pane>
+
+            <el-tab-pane
+              :label="t('portfolio.tabTrades')"
+              name="trades"
+            >
+              <div class="portfolio-tab-panel">
+                <div class="portfolio-section-heading">
+                  <h3>{{ t('portfolio.tabTrades') }}</h3>
+                  <span>{{ t('portfolio.tradesDesc') }}</span>
                 </div>
                 <div
-                  class="text-lg font-semibold"
-                  :class="exposureValueClass(positionSummary.net_market_value)"
+                  v-if="trades.length === 0"
+                  class="portfolio-empty"
                 >
-                  {{ formatSignedMoney(positionSummary.net_market_value) }}
+                  <el-icon aria-hidden="true">
+                    <DataLine />
+                  </el-icon>
+                  <span>{{ t('portfolio.emptyTrades') }}</span>
+                </div>
+                <el-table
+                  v-else
+                  :data="trades"
+                  stripe
+                  size="small"
+                  class="portfolio-table"
+                  max-height="500"
+                >
+                  <el-table-column
+                    prop="strategy_name"
+                    :label="t('portfolio.colStrategy')"
+                    min-width="180"
+                  />
+                  <el-table-column
+                    prop="data_name"
+                    :label="t('portfolio.colSymbolShort')"
+                    width="100"
+                  />
+                  <el-table-column
+                    :label="t('portfolio.colDirection')"
+                    width="80"
+                    align="center"
+                  >
+                    <template #default="{ row }">
+                      <span :class="tradeDirectionClass(row.direction)">
+                        {{ tradeDirectionLabel(row.direction) }}
+                      </span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    prop="dtopen"
+                    :label="t('portfolio.colOpenDate')"
+                    width="160"
+                  />
+                  <el-table-column
+                    prop="dtclose"
+                    :label="t('portfolio.colCloseDate')"
+                    width="160"
+                  />
+                  <el-table-column
+                    :label="t('portfolio.colPrice')"
+                    width="100"
+                    align="right"
+                  >
+                    <template #default="{ row }">
+                      {{ row.price.toFixed(2) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('portfolio.colSizeShort')"
+                    width="80"
+                    align="right"
+                  >
+                    <template #default="{ row }">
+                      {{ row.size }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('portfolio.colCommission')"
+                    width="100"
+                    align="right"
+                  >
+                    <template #default="{ row }">
+                      {{ row.commission.toFixed(2) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('portfolio.colNetPnl')"
+                    width="120"
+                    align="right"
+                    sortable
+                  >
+                    <template #default="{ row }">
+                      <span :class="row.pnlcomm >= 0 ? 'text-green-600' : 'text-red-600'">
+                        {{ row.pnlcomm >= 0 ? '+' : '' }}{{ row.pnlcomm.toFixed(2) }}
+                      </span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    :label="t('portfolio.colHoldingDays')"
+                    prop="barlen"
+                    width="100"
+                    align="center"
+                  />
+                </el-table>
+              </div>
+            </el-tab-pane>
+
+            <el-tab-pane
+              :label="t('portfolio.tabEquity')"
+              name="equity"
+            >
+              <div
+                v-if="activeTab === 'equity'"
+                class="portfolio-tab-panel"
+              >
+                <div class="portfolio-section-heading">
+                  <h3>{{ t('portfolio.tabEquity') }}</h3>
+                  <span>{{ t('portfolio.equityDesc') }}</span>
+                </div>
+                <div class="portfolio-chart-stack">
+                  <div
+                    ref="equityChartRef"
+                    class="portfolio-chart portfolio-chart--equity"
+                  />
+                  <div
+                    ref="drawdownChartRef"
+                    class="portfolio-chart portfolio-chart--drawdown"
+                  />
                 </div>
               </div>
-              <div class="rounded border border-gray-200 px-3 py-2">
-                <div class="text-xs text-gray-500">
-                  {{ t('portfolio.cardPositionPnl') }}
+            </el-tab-pane>
+
+            <el-tab-pane
+              :label="t('portfolio.tabAllocation')"
+              name="allocation"
+            >
+              <div
+                v-if="activeTab === 'allocation'"
+                class="portfolio-tab-panel"
+              >
+                <div class="portfolio-section-heading">
+                  <h3>{{ t('portfolio.tabAllocation') }}</h3>
+                  <span>{{ t('portfolio.allocationDesc') }}</span>
                 </div>
                 <div
-                  class="text-lg font-semibold"
-                  :class="signedValueClass(positionSummary.total_pnl)"
-                >
-                  {{ formatSignedMoney(positionSummary.total_pnl) }}
-                </div>
+                  ref="allocationChartRef"
+                  class="portfolio-chart portfolio-chart--allocation"
+                />
               </div>
-            </div>
-            <div
-              v-if="positions.length === 0"
-              class="text-center text-gray-400 py-8"
-            >
-              {{ t('portfolio.emptyPositions') }}
-            </div>
-            <el-table
-              v-else
-              :data="positions"
-              stripe
-              size="small"
-              class="w-full"
-            >
-              <el-table-column
-                prop="strategy_name"
-                :label="t('portfolio.colStrategy')"
-                min-width="120"
-              />
-              <el-table-column
-                prop="data_name"
-                :label="t('portfolio.colSymbol')"
-                width="120"
-              />
-              <el-table-column
-                :label="t('portfolio.colDirection')"
-                width="70"
-                align="center"
-              >
-                <template #default="{ row }">
-                  <el-tag
-                    :type="positionDirectionTag(row)"
-                    size="small"
-                  >
-                    {{ directionLabel(row.direction) }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colLongPosition')"
-                width="90"
-                align="right"
-              >
-                <template #default="{ row }">
-                  {{ formatPositionSize(row.long_position) }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colShortPosition')"
-                width="90"
-                align="right"
-              >
-                <template #default="{ row }">
-                  {{ formatPositionSize(row.short_position) }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colSize')"
-                width="100"
-                align="right"
-              >
-                <template #default="{ row }">
-                  {{ formatPositionSize(row.size) }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colCostPrice')"
-                width="100"
-                align="right"
-              >
-                <template #default="{ row }">
-                  {{ formatNumber(row.price, 4) }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colLatestPrice')"
-                width="100"
-                align="right"
-              >
-                <template #default="{ row }">
-                  {{ formatNumber(row.latest_price ?? row.price, 4) }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colMarketValue')"
-                width="130"
-                align="right"
-              >
-                <template #default="{ row }">
-                  {{ formatMoney(row.market_value) }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colPositionPnl')"
-                width="110"
-                align="right"
-              >
-                <template #default="{ row }">
-                  <span :class="signedValueClass(row.position_pnl || 0)">
-                    {{ formatSignedMoney(row.position_pnl || 0) }}
-                  </span>
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colMarginValue')"
-                width="110"
-                align="right"
-              >
-                <template #default="{ row }">
-                  {{ formatOptionalMoney(row.margin_value) }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('workspaceDialogs.leverage')"
-                width="80"
-                align="right"
-              >
-                <template #default="{ row }">
-                  {{ formatNumber(row.leverage, 2) }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colCommission')"
-                width="95"
-                align="right"
-              >
-                <template #default="{ row }">
-                  {{ formatNumber(row.commission, 2) }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colValuationStatus')"
-                width="125"
-                align="center"
-              >
-                <template #default="{ row }">
-                  <el-tooltip
-                    :content="valuationTooltip(row)"
-                    placement="top"
-                  >
-                    <el-tag
-                      :type="valuationStatusTag(row)"
-                      size="small"
-                    >
-                      {{ valuationStatusLabel(row) }}
-                    </el-tag>
-                  </el-tooltip>
-                </template>
-              </el-table-column>
-              <el-table-column
-                prop="updated_at"
-                :label="t('portfolio.colUpdatedAt')"
-                width="150"
-              >
-                <template #default="{ row }">
-                  {{ formatDateTime(row.updated_at) }}
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-card>
-        </el-tab-pane>
-
-        <!-- Trades tab -->
-        <el-tab-pane
-          :label="t('portfolio.tabTrades')"
-          name="trades"
-        >
-          <el-card>
-            <div
-              v-if="trades.length === 0"
-              class="text-center text-gray-400 py-8"
-            >
-              {{ t('portfolio.emptyTrades') }}
-            </div>
-            <el-table
-              v-else
-              :data="trades"
-              stripe
-              size="small"
-              class="w-full"
-              max-height="500"
-            >
-              <el-table-column
-                prop="strategy_name"
-                :label="t('portfolio.colStrategy')"
-                min-width="100"
-              />
-              <el-table-column
-                prop="data_name"
-                :label="t('portfolio.colSymbolShort')"
-                width="90"
-              />
-              <el-table-column
-                :label="t('portfolio.colDirection')"
-                width="60"
-                align="center"
-              >
-                <template #default="{ row }">
-                  <span :class="tradeDirectionClass(row.direction)">
-                    {{ tradeDirectionLabel(row.direction) }}
-                  </span>
-                </template>
-              </el-table-column>
-              <el-table-column
-                prop="dtopen"
-                :label="t('portfolio.colOpenDate')"
-                width="150"
-              />
-              <el-table-column
-                prop="dtclose"
-                :label="t('portfolio.colCloseDate')"
-                width="150"
-              />
-              <el-table-column
-                :label="t('portfolio.colPrice')"
-                width="90"
-                align="right"
-              >
-                <template #default="{ row }">
-                  {{ row.price.toFixed(2) }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colSizeShort')"
-                width="70"
-                align="right"
-              >
-                <template #default="{ row }">
-                  {{ row.size }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colCommission')"
-                width="80"
-                align="right"
-              >
-                <template #default="{ row }">
-                  {{ row.commission.toFixed(2) }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colNetPnl')"
-                width="100"
-                align="right"
-                sortable
-              >
-                <template #default="{ row }">
-                  <span :class="row.pnlcomm >= 0 ? 'text-green-600' : 'text-red-600'">
-                    {{ row.pnlcomm >= 0 ? '+' : '' }}{{ row.pnlcomm.toFixed(2) }}
-                  </span>
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colHoldingDays')"
-                prop="barlen"
-                width="80"
-                align="center"
-              />
-            </el-table>
-          </el-card>
-        </el-tab-pane>
-
-        <!-- Equity curve tab -->
-        <el-tab-pane
-          :label="t('portfolio.tabEquity')"
-          name="equity"
-        >
-          <el-card v-if="activeTab === 'equity'">
-            <div
-              ref="equityChartRef"
-              style="width:100%;height:400px"
-            />
-            <div
-              ref="drawdownChartRef"
-              style="width:100%;height:180px;margin-top:8px"
-            />
-          </el-card>
-        </el-tab-pane>
-
-        <!-- Allocation tab -->
-        <el-tab-pane
-          :label="t('portfolio.tabAllocation')"
-          name="allocation"
-        >
-          <el-card v-if="activeTab === 'allocation'">
-            <div
-              ref="allocationChartRef"
-              style="width:100%;height:400px"
-            />
-          </el-card>
-        </el-tab-pane>
-      </el-tabs>
+            </el-tab-pane>
+          </el-tabs>
+        </section>
+      </section>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, watch, nextTick, onBeforeUnmount, computed, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Loading } from '@element-plus/icons-vue'
+import {
+  Connection,
+  DataLine,
+  Histogram,
+  Loading,
+  Operation,
+  Refresh,
+  TrendCharts,
+  Wallet,
+} from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import { getErrorMessage } from '@/api'
@@ -568,6 +619,11 @@ function formatMoney(v: number) {
 
 function formatSignedMoney(v: number) {
   return `${v >= 0 ? '+' : ''}${formatMoney(v)}`
+}
+
+function formatSignedPercent(v: number) {
+  const n = Number(v || 0)
+  return `(${n >= 0 ? '+' : ''}${n.toFixed(2)}%)`
 }
 
 function formatNumber(v: number | null | undefined, digits = 2) {
@@ -662,6 +718,83 @@ const selectedWorkspaces = computed(() => (
 const selectedPositionValue = computed(() => (
   positionSummary.value.gross_market_value
 ))
+type MetricTone = 'primary' | 'success' | 'warning' | 'danger' | 'neutral'
+
+interface PortfolioMetricCard {
+  label: string
+  value: string
+  helper: string
+  icon: Component
+  tone: MetricTone
+  valueClass?: string
+}
+
+const portfolioHealthLabel = computed(() => {
+  if (overview.value.total_pnl > 0) return t('portfolio.riskPosturePositive')
+  if (overview.value.total_pnl < 0) return t('portfolio.riskPostureNegative')
+  return t('portfolio.riskPostureNeutral')
+})
+
+const heroBadges = computed(() => [
+  { label: t('portfolio.heroCash'), value: formatMoney(overview.value.total_cash) },
+  { label: t('portfolio.heroStrategies'), value: String(overview.value.strategy_count) },
+  { label: t('portfolio.heroSelected'), value: `${selectedWorkspaceIds.value.length}/${runningWorkspaces.value.length}` },
+])
+
+const summaryCards = computed<PortfolioMetricCard[]>(() => [
+  {
+    label: t('portfolio.cardTotalAssets'),
+    value: formatMoney(overview.value.total_assets),
+    helper: t('portfolio.cardTotalAssetsHelper'),
+    icon: Wallet,
+    tone: 'primary',
+  },
+  {
+    label: t('portfolio.cardTotalPnl'),
+    value: `${formatSignedMoney(overview.value.total_pnl)} ${formatSignedPercent(overview.value.total_pnl_pct)}`,
+    helper: t('portfolio.cardTotalPnlHelper'),
+    icon: TrendCharts,
+    tone: overview.value.total_pnl >= 0 ? 'success' : 'danger',
+    valueClass: signedValueClass(overview.value.total_pnl),
+  },
+  {
+    label: t('portfolio.cardPositionValue'),
+    value: formatMoney(selectedPositionValue.value || overview.value.total_position_value),
+    helper: t('portfolio.cardPositionValueHelper'),
+    icon: Histogram,
+    tone: 'warning',
+  },
+  {
+    label: t('portfolio.cardWorkspaceRunning'),
+    value: `${selectedWorkspaceIds.value.length}/${runningWorkspaces.value.length}`,
+    helper: t('portfolio.cardWorkspaceRunningHelper'),
+    icon: Connection,
+    tone: 'neutral',
+  },
+])
+
+const positionMetricCards = computed(() => [
+  {
+    label: t('portfolio.cardLongValue'),
+    value: formatMoney(positionSummary.value.total_long_value),
+    valueClass: 'text-red-600',
+  },
+  {
+    label: t('portfolio.cardShortValue'),
+    value: formatMoney(positionSummary.value.total_short_value),
+    valueClass: 'text-green-600',
+  },
+  {
+    label: t('portfolio.cardNetExposure'),
+    value: formatSignedMoney(positionSummary.value.net_market_value),
+    valueClass: exposureValueClass(positionSummary.value.net_market_value),
+  },
+  {
+    label: t('portfolio.cardPositionPnl'),
+    value: formatSignedMoney(positionSummary.value.total_pnl),
+    valueClass: signedValueClass(positionSummary.value.total_pnl),
+  },
+])
 
 function workspaceStatusLabel(status: string) {
   const map: Record<string, string> = {
@@ -873,6 +1006,19 @@ function tradeSortKey(item: TradeItem) {
   return String(item.dtclose || item.datetime || item.dtopen || '')
 }
 
+function readThemeColor(name: string, fallback = 'currentColor') {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+}
+
+function chartThemeColors() {
+  return {
+    text: readThemeColor('--text-color-secondary'),
+    primaryText: readThemeColor('--text-color-primary'),
+    border: readThemeColor('--border-color-light'),
+    surface: readThemeColor('--bg-color'),
+  }
+}
+
 async function toggleWorkspace(workspaceId: string, checked: boolean) {
   if (checked) {
     selectedWorkspaceIds.value = Array.from(new Set([...selectedWorkspaceIds.value, workspaceId]))
@@ -890,6 +1036,7 @@ function renderEquityChart() {
   if (!equityChart) equityChart = echarts.init(equityChartRef.value)
 
   const data = equityData.value
+  const colors = chartThemeColors()
   const series: echarts.SeriesOption[] = []
 
   // 各策略堆叠面积
@@ -918,11 +1065,32 @@ function renderEquityChart() {
   })
 
   equityChart.setOption({
-    tooltip: { trigger: 'axis' },
-    legend: { top: 0, type: 'scroll' },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      textStyle: { color: colors.primaryText },
+    },
+    legend: {
+      top: 0,
+      type: 'scroll',
+      textStyle: { color: colors.text },
+    },
     grid: { left: 80, right: 20, top: 40, bottom: 30 },
-    xAxis: { type: 'category', data: data.dates, boundaryGap: false },
-    yAxis: { type: 'value', axisLabel: { formatter: (v: number) => formatMoney(v) } },
+    xAxis: {
+      type: 'category',
+      data: data.dates,
+      boundaryGap: false,
+      axisLabel: { color: colors.text },
+      axisLine: { lineStyle: { color: colors.border } },
+      axisTick: { lineStyle: { color: colors.border } },
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: colors.text, formatter: (v: number) => formatMoney(v) },
+      axisLine: { lineStyle: { color: colors.border } },
+      splitLine: { lineStyle: { color: colors.border } },
+    },
     series,
   }, true)
 }
@@ -932,17 +1100,31 @@ function renderDrawdownChart() {
   if (!drawdownChart) drawdownChart = echarts.init(drawdownChartRef.value)
 
   const data = equityData.value
+  const colors = chartThemeColors()
   drawdownChart.setOption({
     tooltip: {
       trigger: 'axis',
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      textStyle: { color: colors.primaryText },
       formatter: (params: { axisValue?: string; value?: number } | { axisValue?: string; value?: number }[]) => {
         const p = Array.isArray(params) ? params[0] : params
         return `${p?.axisValue ?? ''}<br/>${t('portfolio.drawdownTooltip', { value: ((p?.value ?? 0) * 100).toFixed(2) })}`
       },
     },
     grid: { left: 80, right: 20, top: 10, bottom: 30 },
-    xAxis: { type: 'category', data: data.dates, boundaryGap: false, show: false },
-    yAxis: { type: 'value', axisLabel: { formatter: (v: number) => (v * 100).toFixed(1) + '%' } },
+    xAxis: {
+      type: 'category',
+      data: data.dates,
+      boundaryGap: false,
+      show: false,
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: colors.text, formatter: (v: number) => (v * 100).toFixed(1) + '%' },
+      axisLine: { lineStyle: { color: colors.border } },
+      splitLine: { lineStyle: { color: colors.border } },
+    },
     series: [{
       type: 'line',
       data: data.total_drawdown,
@@ -957,6 +1139,7 @@ function renderDrawdownChart() {
 function renderAllocationChart() {
   if (!allocationChartRef.value || allocationItems.value.length === 0) return
   if (!allocationChart) allocationChart = echarts.init(allocationChartRef.value)
+  const colors = chartThemeColors()
 
   const pieData = allocationItems.value.map(item => ({
     name: item.strategy_name,
@@ -964,15 +1147,27 @@ function renderAllocationChart() {
   }))
 
   allocationChart.setOption({
-    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-    legend: { orient: 'vertical', right: 20, top: 'center', type: 'scroll' },
+    tooltip: {
+      trigger: 'item',
+      formatter: '{b}: {c} ({d}%)',
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      textStyle: { color: colors.primaryText },
+    },
+    legend: {
+      orient: 'vertical',
+      right: 20,
+      top: 'center',
+      type: 'scroll',
+      textStyle: { color: colors.text },
+    },
     series: [{
       type: 'pie',
       radius: ['40%', '70%'],
       center: ['40%', '50%'],
       avoidLabelOverlap: true,
-      itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
-      label: { show: true, formatter: '{b}\n{d}%' },
+      itemStyle: { borderRadius: 6, borderColor: colors.surface, borderWidth: 2 },
+      label: { show: true, color: colors.text, formatter: '{b}\n{d}%' },
       data: pieData,
     }],
   }, true)
@@ -1005,3 +1200,622 @@ onBeforeUnmount(() => {
   allocationChart?.dispose()
 })
 </script>
+
+<style scoped>
+.portfolio-page {
+  display: grid;
+  gap: 20px;
+  color: var(--text-color-primary);
+}
+
+.portfolio-loading {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 72px 16px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--bg-color);
+  color: var(--text-color-secondary);
+}
+
+.portfolio-loading__icon {
+  color: var(--primary-color);
+  font-size: 34px;
+}
+
+.portfolio-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 18px;
+  align-items: stretch;
+  padding: 22px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--bg-color) 90%, var(--primary-color) 10%), transparent),
+    var(--bg-color);
+}
+
+.portfolio-hero__copy {
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.portfolio-kicker {
+  color: var(--primary-color);
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.portfolio-hero h1,
+.portfolio-panel-heading h2,
+.portfolio-section-heading h3 {
+  margin: 0;
+  color: var(--text-color-primary);
+  line-height: 1.2;
+}
+
+.portfolio-hero h1 {
+  max-width: 780px;
+  font-size: 40px;
+  font-weight: 800;
+}
+
+.portfolio-hero p,
+.portfolio-panel-heading p,
+.portfolio-section-heading span {
+  margin: 0;
+  color: var(--text-color-secondary);
+  line-height: 1.6;
+}
+
+.portfolio-hero p {
+  max-width: 760px;
+  font-size: 14px;
+}
+
+.portfolio-hero__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.portfolio-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-color) 82%, var(--fill-color-light) 18%);
+  color: var(--text-color-secondary);
+  font-size: 12px;
+}
+
+.portfolio-badge strong {
+  color: var(--text-color-primary);
+  font-weight: 760;
+}
+
+.portfolio-hero__status {
+  display: grid;
+  align-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--fill-color-light) 16%);
+}
+
+.portfolio-status-chip {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  gap: 8px;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid var(--success-border-color);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-color) 82%, var(--success-color) 18%);
+  color: var(--success-color);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.portfolio-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentcolor;
+}
+
+.portfolio-hero__asset,
+.portfolio-hero__pnl {
+  display: grid;
+  gap: 4px;
+}
+
+.portfolio-hero__asset span,
+.portfolio-hero__pnl span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.portfolio-hero__asset strong,
+.portfolio-hero__pnl {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 34px;
+  font-weight: 820;
+  line-height: 1.1;
+}
+
+.portfolio-refresh {
+  justify-self: start;
+  --el-button-bg-color: var(--fill-color-lighter);
+  --el-button-border-color: var(--border-color);
+  --el-button-text-color: var(--text-color-primary);
+  --el-button-hover-bg-color: var(--fill-color-light);
+  --el-button-hover-border-color: var(--info-border-color);
+  --el-button-hover-text-color: var(--primary-color);
+}
+
+.portfolio-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.portfolio-metric,
+.portfolio-selector,
+.portfolio-workbench,
+.portfolio-tab-panel {
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--bg-color);
+}
+
+.portfolio-metric {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 10px;
+  align-items: start;
+  min-width: 0;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.portfolio-metric::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--primary-color);
+  content: "";
+}
+
+.portfolio-metric--success::before {
+  background: var(--success-color);
+}
+
+.portfolio-metric--danger::before {
+  background: var(--danger-color);
+}
+
+.portfolio-metric--warning::before {
+  background: var(--warning-color);
+}
+
+.portfolio-metric--neutral::before {
+  background: var(--text-color-placeholder);
+}
+
+.portfolio-metric__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+  color: var(--primary-color);
+  grid-row: span 3;
+}
+
+.portfolio-metric__label {
+  min-width: 0;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.portfolio-metric strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-color-primary);
+  font-size: 22px;
+  font-weight: 820;
+  line-height: 1.15;
+}
+
+.portfolio-metric small {
+  min-width: 0;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.portfolio-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.portfolio-selector,
+.portfolio-workbench {
+  min-width: 0;
+  padding: 16px;
+}
+
+.portfolio-selector {
+  position: sticky;
+  top: 88px;
+  display: grid;
+  gap: 16px;
+}
+
+.portfolio-panel-heading {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.portfolio-panel-heading--inline {
+  margin-bottom: 14px;
+}
+
+.portfolio-panel-heading h2 {
+  font-size: 18px;
+  font-weight: 780;
+}
+
+.portfolio-panel-heading p {
+  font-size: 13px;
+}
+
+.portfolio-selector__summary {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--info-border-color);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--primary-color) 16%);
+}
+
+.portfolio-selector__summary strong {
+  color: var(--primary-color);
+  font-size: 24px;
+  font-weight: 820;
+  line-height: 1;
+}
+
+.portfolio-selector__summary span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+}
+
+.portfolio-workspace-list {
+  display: grid;
+  gap: 10px;
+}
+
+.portfolio-workspace-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.portfolio-workspace-option:hover {
+  border-color: var(--info-border-color);
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--primary-color) 16%);
+}
+
+.portfolio-workspace-option.is-selected {
+  border-color: var(--success-border-color);
+  background: color-mix(in srgb, var(--bg-color) 84%, var(--success-color) 16%);
+}
+
+.portfolio-workspace-option.is-selected .portfolio-workspace-option__name {
+  color: var(--text-color-primary);
+}
+
+.portfolio-workspace-option.is-selected .portfolio-workspace-option__meta {
+  color: var(--text-color-secondary);
+}
+
+.portfolio-workspace-option input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--primary-color);
+}
+
+.portfolio-workspace-option__body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.portfolio-workspace-option__name {
+  overflow: hidden;
+  color: var(--text-color-primary);
+  font-size: 14px;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portfolio-workspace-option__meta {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.portfolio-workbench {
+  overflow: hidden;
+}
+
+.portfolio-tabs {
+  min-width: 0;
+}
+
+.portfolio-tabs :deep(.el-tabs__header) {
+  margin: 0 0 12px;
+}
+
+.portfolio-tabs :deep(.el-tabs__nav-wrap::after) {
+  background: var(--border-color-light);
+}
+
+.portfolio-tabs :deep(.el-tabs__item) {
+  color: var(--text-color-secondary);
+  font-weight: 700;
+}
+
+.portfolio-tabs :deep(.el-tabs__item.is-active),
+.portfolio-tabs :deep(.el-tabs__active-bar) {
+  color: var(--primary-color);
+}
+
+.portfolio-tab-panel {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.portfolio-section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.portfolio-section-heading h3 {
+  font-size: 16px;
+  font-weight: 780;
+}
+
+.portfolio-section-heading span {
+  max-width: 560px;
+  font-size: 12px;
+}
+
+.portfolio-exposure-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.portfolio-exposure-card {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+}
+
+.portfolio-exposure-card span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.portfolio-exposure-card strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.portfolio-empty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  min-height: 180px;
+  padding: 28px 16px;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+  color: var(--text-color-secondary);
+  text-align: center;
+}
+
+.portfolio-empty--compact {
+  min-height: 120px;
+}
+
+.portfolio-empty .el-icon {
+  color: var(--primary-color);
+  font-size: 28px;
+}
+
+.portfolio-table {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  --el-table-bg-color: var(--bg-color);
+  --el-table-tr-bg-color: var(--bg-color);
+  --el-table-header-bg-color: var(--fill-color-lighter);
+  --el-table-row-hover-bg-color: var(--fill-color-light);
+  --el-table-border-color: var(--border-color-light);
+  --el-table-text-color: var(--text-color-regular);
+  --el-table-header-text-color: var(--text-color-secondary);
+}
+
+.portfolio-table :deep(.el-table__empty-block) {
+  background: var(--bg-color);
+}
+
+.portfolio-chart-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.portfolio-chart {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+}
+
+.portfolio-chart--equity {
+  height: 400px;
+}
+
+.portfolio-chart--drawdown {
+  height: 180px;
+}
+
+.portfolio-chart--allocation {
+  height: 430px;
+}
+
+.text-green-600 {
+  color: var(--success-color);
+  font-weight: 760;
+}
+
+.text-red-600 {
+  color: var(--danger-color);
+  font-weight: 760;
+}
+
+.text-gray-700 {
+  color: var(--text-color-primary);
+  font-weight: 760;
+}
+
+@media (max-width: 1180px) {
+  .portfolio-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .portfolio-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .portfolio-selector {
+    position: static;
+  }
+
+  .portfolio-workspace-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
+  .portfolio-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .portfolio-hero h1 {
+    font-size: 34px;
+  }
+}
+
+@media (max-width: 760px) {
+  .portfolio-page {
+    gap: 14px;
+  }
+
+  .portfolio-hero {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+
+  .portfolio-hero h1 {
+    font-size: 28px;
+  }
+
+  .portfolio-hero__asset strong,
+  .portfolio-hero__pnl {
+    font-size: 28px;
+  }
+
+  .portfolio-overview,
+  .portfolio-exposure-grid,
+  .portfolio-workspace-list {
+    grid-template-columns: 1fr;
+  }
+
+  .portfolio-selector,
+  .portfolio-workbench,
+  .portfolio-tab-panel {
+    padding: 12px;
+  }
+
+  .portfolio-section-heading {
+    align-items: flex-start;
+  }
+
+  .portfolio-chart--equity {
+    height: 320px;
+  }
+
+  .portfolio-chart--drawdown {
+    height: 160px;
+  }
+
+  .portfolio-chart--allocation {
+    height: 340px;
+  }
+}
+</style>

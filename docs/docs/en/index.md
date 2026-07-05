@@ -3,7 +3,7 @@ title: Home
 description: Modern Quantitative Trading Platform based on Backtrader
 ---
 
-# AI for Trader
+# AI for Investor
 
 <div align="center">
 
@@ -47,8 +47,8 @@ description: Modern Quantitative Trading Platform based on Backtrader
 
 ```bash
 # Clone the project
-git clone https://github.com/cloudQuant/ai-for-trader.git
-cd ai-for-trader
+git clone https://github.com/cloudQuant/ai-for-investor.git
+cd ai-for-investor
 
 # Backend installation
 cd src/backend
@@ -93,4 +93,4 @@ docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
 
 ## License
 
-[MIT License](https://github.com/cloudQuant/ai-for-trader/blob/main/LICENSE)
+[MIT License](https://github.com/cloudQuant/ai-for-investor/blob/main/LICENSE)

@@ -1,11 +1,11 @@
 # Development
 
-This section covers development guidelines for AI for Trader.
+This section covers development guidelines for AI for Investor.
 
 ## Project Structure
 
 ```
-ai-for-trader/
+ai-for-investor/
 ├── src/
 │   ├── backend/              # FastAPI Backend
 │   │   ├── app/

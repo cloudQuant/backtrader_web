@@ -4,7 +4,7 @@
 strategy:
   name: "PTACCI指标策略"
   description: "基于CCI指标的趋势策略 - PTA期货"
-  author: "ai-for-trader"
+  author: "ai-for-investor"
   category: "simulate"
   
 # ============================================================
