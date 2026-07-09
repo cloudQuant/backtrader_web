@@ -38,6 +38,7 @@ from app.schemas.ai_strategy_research import (
     AIStrategyResearchRunResponse,
     AIStrategyResearchTaskResponse,
 )
+from app.schemas.market_data_trust import RobustnessValidationRequest
 from app.schemas.strategy import (
     AIStrategyBacktestSpec,
     AIStrategyDataSourceSpec,
@@ -64,6 +65,11 @@ from app.services.ai_router.preferences import (
     ResolvedAIModelPreference,
 )
 from app.services.ai_router.router import AIChatRouter, get_ai_chat_router
+from app.services.ai_strategy_research_version_service import AIStrategyResearchVersionService
+from app.services.investment_mandate_service import InvestmentMandateService
+from app.services.research_pipeline_event_service import ResearchPipelineEventService
+from app.services.risk_gate_service import RiskGateService
+from app.services.robustness_validation_service import get_robustness_validation_service
 from app.services.strategy.ai_draft import build_ai_strategy_draft
 from app.services.strategy.inference import render_param_default
 from app.services.strategy_service import StrategyService
@@ -157,6 +163,7 @@ class LocalStrategyImprover:
             "drawdown" in item.lower() or "回撤" in item for item in failures
         )
         out_of_sample_failed = "out_of_sample" in failure_categories
+        robustness_failed = "robustness" in failure_categories
         execution_cost_failed = "execution_cost" in failure_categories
         valuation_context_failed = "valuation_context" in failure_categories
         live_handoff_rejected = "live_handoff_rejected" in failure_categories
@@ -204,6 +211,8 @@ class LocalStrategyImprover:
             notes.append("上一轮自动改稿基本停滞，本轮将扩大信号和风控结构调整幅度。")
         if out_of_sample_failed:
             notes.append("样本外验证未通过，本轮降低参数敏感度并优先保留稳健信号。")
+        if robustness_failed:
+            notes.append("稳健性验证未通过，本轮降低过拟合和参数敏感性风险。")
         if execution_cost_failed:
             notes.append("执行成本或滑点压力偏高，本轮降低换手和无效交易。")
         if valuation_context_failed:
@@ -437,13 +446,82 @@ class AIStrategyResearchService:
         workspace_service: WorkspaceService | None = None,
         backtest_service: Any | None = None,
         improver: Any | None = None,
+        mandate_service: InvestmentMandateService | None = None,
+        event_service: ResearchPipelineEventService | None = None,
+        version_service: AIStrategyResearchVersionService | None = None,
+        risk_gate_service: RiskGateService | None = None,
         sleep: Callable[[float], Awaitable[None]] | None = None,
     ) -> None:
         self.strategy_service = strategy_service or StrategyService()
         self.workspace_service = workspace_service or WorkspaceService()
         self.backtest_service = backtest_service
         self.improver = improver or AIStrategyImprover()
+        self.mandate_service = mandate_service or InvestmentMandateService()
+        self.event_service = event_service or ResearchPipelineEventService()
+        self.version_service = version_service or AIStrategyResearchVersionService()
+        self.risk_gate_service = risk_gate_service or RiskGateService()
         self.sleep = sleep or asyncio.sleep
+
+    async def _record_pipeline_event(
+        self,
+        *,
+        user_id: str,
+        run_id: str,
+        request: AIStrategyResearchRunRequest,
+        stage: str,
+        status: str,
+        workspace_id: str | None = None,
+        iteration: int | None = None,
+        summary: str | None = None,
+        input_payload: dict[str, Any] | None = None,
+        output_payload: dict[str, Any] | None = None,
+        metrics: dict[str, Any] | None = None,
+        error: str | None = None,
+    ) -> None:
+        await self.event_service.safe_create_event(
+            user_id=user_id,
+            run_id=run_id,
+            workspace_id=workspace_id or request.research_workspace_id,
+            mandate_id=request.mandate_id,
+            stage=stage,
+            status=status,
+            iteration=iteration,
+            summary=summary,
+            input_payload=input_payload,
+            output_payload=output_payload,
+            metrics=metrics,
+            error=error,
+        )
+
+    async def _persist_iteration_version(
+        self,
+        *,
+        user_id: str,
+        run_id: str,
+        request: AIStrategyResearchRunRequest,
+        workspace_id: str | None,
+        iteration: AIStrategyResearchIteration,
+    ) -> None:
+        try:
+            await self.version_service.create_from_iteration(
+                user_id=user_id,
+                run_id=run_id,
+                workspace_id=workspace_id,
+                mandate_id=request.mandate_id,
+                iteration=iteration,
+            )
+        except Exception:
+            await self._record_pipeline_event(
+                user_id=user_id,
+                run_id=run_id,
+                request=request,
+                workspace_id=workspace_id,
+                stage="versioning",
+                status="failed",
+                iteration=iteration.iteration,
+                summary="策略版本落库失败，但投研主流程继续运行。",
+                error="Failed to persist AI research strategy version",
+            )
 
     async def run(
         self,
@@ -454,6 +532,31 @@ class AIStrategyResearchService:
     ) -> AIStrategyResearchRunResponse:
         run_id = str(uuid.uuid4())
         started_at = _utc_iso_now()
+        mandate = await self.mandate_service.ensure_for_request(user_id, request)
+        request = request.model_copy(update={"mandate_id": mandate.id})
+        await self._record_pipeline_event(
+            user_id=user_id,
+            run_id=run_id,
+            request=request,
+            stage="mandate",
+            status="completed",
+            summary="投资需求已结构化并确认。",
+            output_payload=mandate.model_dump(mode="json"),
+        )
+        await self._record_pipeline_event(
+            user_id=user_id,
+            run_id=run_id,
+            request=request,
+            stage="initializing",
+            status="started",
+            summary="AI投研流水线开始初始化。",
+            input_payload={
+                "symbol": request.symbol,
+                "timeframe": request.timeframe,
+                "target_sharpe": request.target_sharpe,
+                "max_iterations": request.max_iterations,
+            },
+        )
         await _emit_research_progress(
             progress_callback,
             {
@@ -467,6 +570,16 @@ class AIStrategyResearchService:
         )
         request, draft = await self._prepare_initial_draft(user_id, request)
         research_workspace = await self._ensure_research_workspace(user_id, request)
+        await self._record_pipeline_event(
+            user_id=user_id,
+            run_id=run_id,
+            request=request,
+            workspace_id=research_workspace.id,
+            stage="workspace_ready",
+            status="completed",
+            summary="AI投研研究工作区已就绪。",
+            output_payload={"research_workspace_id": research_workspace.id},
+        )
         await _emit_research_progress(
             progress_callback,
             {
@@ -479,8 +592,18 @@ class AIStrategyResearchService:
                 "message": "AI research workspace is ready",
             },
         )
-        configuration_failure = _required_out_of_sample_validation_failure(request)
+        configuration_failure = _required_research_configuration_failure(request)
         if configuration_failure:
+            await self._record_pipeline_event(
+                user_id=user_id,
+                run_id=run_id,
+                request=request,
+                workspace_id=research_workspace.id,
+                stage="configuration_invalid",
+                status="failed",
+                summary="AI投研配置校验未通过。",
+                error=configuration_failure,
+            )
             await _emit_research_progress(
                 progress_callback,
                 {
@@ -501,6 +624,8 @@ class AIStrategyResearchService:
                 max_iterations=request.max_iterations,
                 out_of_sample_validation=request.out_of_sample_validation,
                 validation_status=None,
+                robustness_validation=request.robustness_validation,
+                robustness_status=None,
                 paper_trading_started=False,
                 paper_trading_error=None,
                 paper_review_status=None,
@@ -521,6 +646,7 @@ class AIStrategyResearchService:
                 best_diagnostics=_configuration_failure_diagnostics(configuration_failure),
                 best_metrics={},
                 research_workspace=research_workspace,
+                mandate_id=request.mandate_id,
                 iterations=[],
                 best_strategy=None,
                 paper_trading=None,
@@ -562,6 +688,15 @@ class AIStrategyResearchService:
         selected_iteration: AIStrategyResearchIteration | None = None
         run_failures: list[str] = []
         if draft is None:
+            await self._record_pipeline_event(
+                user_id=user_id,
+                run_id=run_id,
+                request=request,
+                workspace_id=research_workspace.id,
+                stage="drafting",
+                status="started",
+                summary="开始生成首轮策略草案。",
+            )
             await _emit_research_progress(
                 progress_callback,
                 {
@@ -610,6 +745,16 @@ class AIStrategyResearchService:
                 )
                 raise
             except Exception as exc:
+                await self._record_pipeline_event(
+                    user_id=user_id,
+                    run_id=run_id,
+                    request=request,
+                    workspace_id=research_workspace.id,
+                    stage="drafting",
+                    status="failed",
+                    summary="AI首轮策略草案生成失败，准备使用本地可运行草案继续。",
+                    error=str(exc),
+                )
                 await _emit_research_progress(
                     progress_callback,
                     {
@@ -633,6 +778,21 @@ class AIStrategyResearchService:
         else:
             draft, initial_draft_notes = _ensure_runnable_seed_draft(draft, request)
             initial_draft_metadata = _seed_generation_metadata(request)
+
+        await self._record_pipeline_event(
+            user_id=user_id,
+            run_id=run_id,
+            request=request,
+            workspace_id=research_workspace.id,
+            stage="drafting",
+            status="completed",
+            summary="首轮策略草案已准备完成。",
+            output_payload={
+                "strategy_name": draft.name,
+                "metadata": initial_draft_metadata,
+                "notes": initial_draft_notes,
+            },
+        )
 
         pending_improvement_notes: list[str] = initial_draft_notes
         pending_generation_metadata: dict[str, Any] = dict(initial_draft_metadata)
@@ -693,6 +853,16 @@ class AIStrategyResearchService:
         achieved = False
 
         for iteration in range(1, request.max_iterations + 1):
+            await self._record_pipeline_event(
+                user_id=user_id,
+                run_id=run_id,
+                request=request,
+                workspace_id=research_workspace.id,
+                stage="backtesting",
+                status="started",
+                iteration=iteration,
+                summary=f"开始第 {iteration} 轮回测。",
+            )
             await _emit_research_progress(
                 progress_callback,
                 {
@@ -771,6 +941,21 @@ class AIStrategyResearchService:
             except Exception as exc:
                 failure_reason = f"Backtest submission failed before iteration {iteration}: {exc}"
                 run_failures.append(failure_reason)
+                await self._record_pipeline_event(
+                    user_id=user_id,
+                    run_id=run_id,
+                    request=request,
+                    workspace_id=research_workspace.id,
+                    stage="backtest_submission_failed",
+                    status="failed",
+                    iteration=iteration,
+                    summary="回测任务提交失败。",
+                    metrics={
+                        "backtest_submission_failed": True,
+                        "failure_count": len(run_failures),
+                    },
+                    error=failure_reason,
+                )
                 await _emit_research_progress(
                     progress_callback,
                     {
@@ -784,6 +969,17 @@ class AIStrategyResearchService:
                     },
                 )
                 if iteration < request.max_iterations:
+                    await self._record_pipeline_event(
+                        user_id=user_id,
+                        run_id=run_id,
+                        request=request,
+                        workspace_id=research_workspace.id,
+                        stage="optimization_loop",
+                        status="started",
+                        iteration=iteration + 1,
+                        summary=f"根据第 {iteration} 轮提交失败原因准备下一版策略。",
+                        input_payload={"failure_reason": failure_reason},
+                    )
                     await _emit_research_progress(
                         progress_callback,
                         {
@@ -835,8 +1031,37 @@ class AIStrategyResearchService:
                         phase="backtest_submission_repair",
                         iteration=iteration + 1,
                     )
+                    await self._record_pipeline_event(
+                        user_id=user_id,
+                        run_id=run_id,
+                        request=request,
+                        workspace_id=research_workspace.id,
+                        stage="optimization_loop",
+                        status="completed",
+                        iteration=iteration + 1,
+                        summary="提交失败修复版策略已生成。",
+                        output_payload={
+                            "notes": pending_improvement_notes,
+                            "metadata": pending_generation_metadata,
+                        },
+                    )
                     continue
                 break
+            await self._record_pipeline_event(
+                user_id=user_id,
+                run_id=run_id,
+                request=request,
+                workspace_id=research_workspace.id,
+                stage="backtesting",
+                status="submitted",
+                iteration=iteration,
+                summary=f"第 {iteration} 轮回测任务已提交。",
+                output_payload={
+                    "strategy_id": backtest_response.strategy.id,
+                    "unit_id": backtest_response.unit.id,
+                    "task_id": backtest_response.run_result.task_id,
+                },
+            )
             await _emit_research_progress(
                 progress_callback,
                 {
@@ -917,6 +1142,11 @@ class AIStrategyResearchService:
             validation_failures: list[str] = []
             validation_failure_reason: str | None = None
             validation_window_payload = validation_window.as_dict() if validation_window else None
+            robustness_status: str | None = None
+            robustness_result: dict[str, Any] = {}
+            robustness_gate_evaluations: list[dict[str, Any]] = []
+            robustness_failures: list[str] = []
+            robustness_failure_reason: str | None = None
 
             if passed and request.out_of_sample_validation:
                 if validation_window is None:
@@ -931,6 +1161,17 @@ class AIStrategyResearchService:
                         failure_reason = validation_failure_reason
                         passed = False
                 else:
+                    await self._record_pipeline_event(
+                        user_id=user_id,
+                        run_id=run_id,
+                        request=request,
+                        workspace_id=research_workspace.id,
+                        stage="validating",
+                        status="started",
+                        iteration=iteration,
+                        summary=f"开始第 {iteration} 轮样本外验证。",
+                        input_payload={"validation_window": validation_window_payload},
+                    )
                     await _emit_research_progress(
                         progress_callback,
                         {
@@ -1036,6 +1277,117 @@ class AIStrategyResearchService:
                         quality_gate_failures = [*quality_gate_failures, validation_failure_reason]
                         failure_reason = validation_failure_reason
                         passed = False
+            if validation_status:
+                await self._record_pipeline_event(
+                    user_id=user_id,
+                    run_id=run_id,
+                    request=request,
+                    workspace_id=research_workspace.id,
+                    stage="validating",
+                    status="completed" if validation_status == "passed" else "failed",
+                    iteration=iteration,
+                    summary=f"第 {iteration} 轮样本外验证{validation_status}。",
+                    output_payload={
+                        "validation_status": validation_status,
+                        "validation_window": validation_window_payload,
+                        "gate_evaluations": validation_gate_evaluations,
+                        "failures": validation_failures,
+                    },
+                    metrics=validation_metrics,
+                    error=validation_failure_reason,
+                )
+            if passed and request.robustness_validation:
+                await self._record_pipeline_event(
+                    user_id=user_id,
+                    run_id=run_id,
+                    request=request,
+                    workspace_id=research_workspace.id,
+                    stage="robustness_validation",
+                    status="started",
+                    iteration=iteration,
+                    summary=f"开始第 {iteration} 轮稳健性验证。",
+                    input_payload={
+                        "backtest_id": backtest_response.run_result.task_id,
+                        "methods": request.robustness_methods,
+                        "min_robustness_score": request.min_robustness_score,
+                    },
+                )
+                await _emit_research_progress(
+                    progress_callback,
+                    {
+                        "current_stage": "robustness_validation",
+                        "progress": min(
+                            _research_loop_progress(iteration, request.max_iterations) + 1.5,
+                            84.5,
+                        ),
+                        "current_iteration": iteration,
+                        "iteration_count": len(iterations),
+                        "max_iterations": request.max_iterations,
+                        "current_backtest_task_id": backtest_response.run_result.task_id,
+                        "latest_iteration": {
+                            "iteration": iteration,
+                            "robustness_status": "running",
+                        },
+                        "message": f"Running robustness validation for iteration {iteration}",
+                    },
+                )
+                robustness_status = "failed"
+                try:
+                    task_id = str(backtest_response.run_result.task_id or "").strip()
+                    if not task_id:
+                        raise ValueError(
+                            "Robustness validation requires a completed backtest task id"
+                        )
+                    robustness = await get_robustness_validation_service().run_for_backtest(
+                        backtest_id=task_id,
+                        user_id=user_id,
+                        request=_robustness_validation_request(request, run_id=run_id),
+                    )
+                    robustness_result = robustness.model_dump(mode="json")
+                    robustness_status = robustness.status
+                    robustness_gate_evaluations = _robustness_gate_payloads(robustness_result)
+                    robustness_failures = _robustness_failures_from_result(
+                        robustness_result,
+                        require_robustness=request.require_robustness_validation,
+                    )
+                    if robustness_failures:
+                        robustness_failure_reason = "; ".join(robustness_failures)
+                        if request.require_robustness_validation:
+                            quality_gate_failures = [
+                                *quality_gate_failures,
+                                *robustness_failures,
+                            ]
+                            failure_reason = robustness_failure_reason
+                            passed = False
+                except Exception as exc:
+                    robustness_failure_reason = f"Robustness validation failed to run: {exc}"
+                    robustness_failures = [robustness_failure_reason]
+                    robustness_result = {"status": "failed", "error_message": str(exc)}
+                    if request.require_robustness_validation:
+                        quality_gate_failures = [
+                            *quality_gate_failures,
+                            robustness_failure_reason,
+                        ]
+                        failure_reason = robustness_failure_reason
+                        passed = False
+                await self._record_pipeline_event(
+                    user_id=user_id,
+                    run_id=run_id,
+                    request=request,
+                    workspace_id=research_workspace.id,
+                    stage="robustness_validation",
+                    status="completed" if not robustness_failures else "failed",
+                    iteration=iteration,
+                    summary=f"第 {iteration} 轮稳健性验证{robustness_status}。",
+                    output_payload={
+                        "robustness_status": robustness_status,
+                        "gate_evaluations": robustness_gate_evaluations,
+                        "failures": robustness_failures,
+                        "result": robustness_result,
+                    },
+                    metrics=dict(robustness_result.get("metrics") or {}),
+                    error=robustness_failure_reason,
+                )
             previous_iteration = iterations[-1] if iterations else None
             diagnostics = _iteration_diagnostics(
                 request,
@@ -1063,6 +1415,20 @@ class AIStrategyResearchService:
                         f"第 {iteration} 轮训练样本达标，但样本外验证未通过："
                         + "；".join(validation_failures)
                     )
+            if request.robustness_validation:
+                diagnostics["robustness_validation"] = {
+                    "status": robustness_status or "not_required",
+                    "result": robustness_result,
+                    "gate_evaluations": robustness_gate_evaluations,
+                    "failures": robustness_failures,
+                    "failure_reason": robustness_failure_reason,
+                }
+                if robustness_failures:
+                    diagnostics["promotion_ready"] = False
+                    diagnostics["summary"] = (
+                        f"第 {iteration} 轮训练/验证门槛达标，但稳健性验证未通过："
+                        + "；".join(robustness_failures)
+                    )
             generation_metadata = _strategy_generation_metadata(
                 pending_generation_metadata,
                 iteration=iteration,
@@ -1089,6 +1455,11 @@ class AIStrategyResearchService:
                 validation_gate_evaluations=validation_gate_evaluations,
                 validation_failures=validation_failures,
                 validation_failure_reason=validation_failure_reason,
+                robustness_status=robustness_status,
+                robustness_result=robustness_result,
+                robustness_gate_evaluations=robustness_gate_evaluations,
+                robustness_failures=robustness_failures,
+                robustness_failure_reason=robustness_failure_reason,
                 quality_score=quality_score,
                 quality_gate_evaluations=quality_gate_evaluations,
                 passed=passed,
@@ -1107,6 +1478,49 @@ class AIStrategyResearchService:
                 ),
             )
             iterations.append(item)
+            await self._record_pipeline_event(
+                user_id=user_id,
+                run_id=run_id,
+                request=request,
+                workspace_id=research_workspace.id,
+                stage="backtesting",
+                status="completed" if passed or unit_status is not None else "failed",
+                iteration=iteration,
+                summary=f"第 {iteration} 轮回测完成。",
+                output_payload={
+                    "unit_id": item.unit.id,
+                    "task_id": item.run_result.task_id,
+                    "run_status": unit_status.run_status if unit_status else None,
+                    "robustness_status": robustness_status,
+                    "quality_gate_failures": quality_gate_failures,
+                },
+                metrics=metrics,
+                error=None if passed else failure_reason,
+            )
+            await self._record_pipeline_event(
+                user_id=user_id,
+                run_id=run_id,
+                request=request,
+                workspace_id=research_workspace.id,
+                stage="strategy_review",
+                status="completed",
+                iteration=iteration,
+                summary=str(diagnostics.get("summary") or "策略审查已完成。"),
+                output_payload={
+                    "diagnostics": diagnostics,
+                    "improvement_plan": improvement_plan,
+                    "quality_gate_evaluations": quality_gate_evaluations,
+                },
+                metrics=metrics,
+                error=None if passed else failure_reason,
+            )
+            await self._persist_iteration_version(
+                user_id=user_id,
+                run_id=run_id,
+                request=request,
+                workspace_id=research_workspace.id,
+                iteration=item,
+            )
             await _emit_research_progress(
                 progress_callback,
                 {
@@ -1127,6 +1541,20 @@ class AIStrategyResearchService:
                 break
 
             if iteration < request.max_iterations:
+                await self._record_pipeline_event(
+                    user_id=user_id,
+                    run_id=run_id,
+                    request=request,
+                    workspace_id=research_workspace.id,
+                    stage="optimization_loop",
+                    status="started",
+                    iteration=iteration + 1,
+                    summary=f"根据第 {iteration} 轮审查结果准备下一版策略。",
+                    input_payload={
+                        "quality_gate_failures": quality_gate_failures,
+                        "metrics": metrics,
+                    },
+                )
                 await _emit_research_progress(
                     progress_callback,
                     {
@@ -1200,11 +1628,35 @@ class AIStrategyResearchService:
                     phase="quality_gate_improvement",
                     iteration=iteration + 1,
                 )
+                await self._record_pipeline_event(
+                    user_id=user_id,
+                    run_id=run_id,
+                    request=request,
+                    workspace_id=research_workspace.id,
+                    stage="optimization_loop",
+                    status="completed",
+                    iteration=iteration + 1,
+                    summary=f"第 {iteration + 1} 轮策略改稿已完成。",
+                    output_payload={
+                        "notes": pending_improvement_notes,
+                        "metadata": pending_generation_metadata,
+                    },
+                )
 
         paper_trading = None
         paper_trading_error = None
         result_iteration = selected_iteration or best_iteration
         if achieved and request.start_paper_trading and result_iteration is not None:
+            await self._record_pipeline_event(
+                user_id=user_id,
+                run_id=run_id,
+                request=request,
+                workspace_id=research_workspace.id,
+                stage="paper_trading",
+                status="started",
+                iteration=result_iteration.iteration,
+                summary="达标策略开始进入模拟交易。",
+            )
             await _emit_research_progress(
                 progress_callback,
                 {
@@ -1226,6 +1678,17 @@ class AIStrategyResearchService:
                 )
                 paper_trading_error = _paper_trading_start_error(paper_trading)
                 if paper_trading_error:
+                    await self._record_pipeline_event(
+                        user_id=user_id,
+                        run_id=run_id,
+                        request=request,
+                        workspace_id=research_workspace.id,
+                        stage="paper_trading",
+                        status="failed",
+                        iteration=result_iteration.iteration,
+                        summary="模拟交易启动失败。",
+                        error=paper_trading_error,
+                    )
                     await _emit_research_progress(
                         progress_callback,
                         {
@@ -1252,6 +1715,17 @@ class AIStrategyResearchService:
                 raise
             except Exception as exc:
                 paper_trading_error = str(exc)
+                await self._record_pipeline_event(
+                    user_id=user_id,
+                    run_id=run_id,
+                    request=request,
+                    workspace_id=research_workspace.id,
+                    stage="paper_trading",
+                    status="failed",
+                    iteration=result_iteration.iteration,
+                    summary="模拟交易启动异常。",
+                    error=paper_trading_error,
+                )
                 await _emit_research_progress(
                     progress_callback,
                     {
@@ -1261,6 +1735,21 @@ class AIStrategyResearchService:
                         "max_iterations": request.max_iterations,
                         "latest_iteration": _compact_research_iteration(result_iteration),
                         "message": f"Paper trading start failed: {paper_trading_error}",
+                    },
+                )
+            if paper_trading is not None and not paper_trading_error:
+                await self._record_pipeline_event(
+                    user_id=user_id,
+                    run_id=run_id,
+                    request=request,
+                    workspace_id=research_workspace.id,
+                    stage="paper_trading",
+                    status="completed",
+                    iteration=result_iteration.iteration,
+                    summary="模拟交易已启动。",
+                    output_payload={
+                        "paper_workspace_id": paper_trading.workspace.id,
+                        "paper_unit_id": paper_trading.unit.id,
                     },
                 )
 
@@ -1307,6 +1796,8 @@ class AIStrategyResearchService:
             max_iterations=request.max_iterations,
             out_of_sample_validation=request.out_of_sample_validation,
             validation_status=result_iteration.validation_status if result_iteration else None,
+            robustness_validation=request.robustness_validation,
+            robustness_status=result_iteration.robustness_status if result_iteration else None,
             paper_trading_started=bool(paper_trading.started) if paper_trading else False,
             paper_trading_error=paper_trading_error,
             paper_review_status=None,
@@ -1326,11 +1817,13 @@ class AIStrategyResearchService:
             best_quality_gate_evaluations=_promotion_gate_evaluations(result_iteration)
             if result_iteration
             else [],
+            robustness_validation=_iteration_robustness_payload(result_iteration),
             best_diagnostics=result_iteration.diagnostics
             if result_iteration
             else run_failure_diagnostics,
             best_metrics=best_metrics,
             research_workspace=research_workspace,
+            mandate_id=request.mandate_id,
             iterations=iterations,
             best_strategy=result_iteration.strategy if result_iteration else fallback_strategy,
             paper_trading=paper_trading,
@@ -1361,6 +1854,18 @@ class AIStrategyResearchService:
             response_updates["promotion_audit"] = run_record.promotion_audit
         if response_updates:
             response = response.model_copy(update=response_updates)
+        await self._record_pipeline_event(
+            user_id=user_id,
+            run_id=run_id,
+            request=request,
+            workspace_id=research_workspace.id,
+            stage=status,
+            status="completed" if achieved else "failed",
+            summary=message,
+            output_payload={"pipeline": response.pipeline, "next_actions": response.next_actions},
+            metrics=best_metrics,
+            error=run_failures[-1] if run_failures and not achieved else paper_trading_error,
+        )
         research_workspace = await self._persist_research_run_record(
             user_id,
             research_workspace,
@@ -1713,6 +2218,9 @@ class AIStrategyResearchService:
             raise ValueError("AI research run record not found")
         if not record.achieved:
             raise ValueError("AI research run has not achieved its quality gates")
+        robustness_failure = _record_robustness_promotion_failure(record)
+        if robustness_failure:
+            raise ValueError(robustness_failure)
         if record.paper_trading_started:
             target_missing, reusable_workspace = await self._paper_trading_target_missing(
                 user_id,
@@ -2155,6 +2663,10 @@ class AIStrategyResearchService:
         existing = await self._prepared_live_trading_target(user_id, record)
         if existing is not None:
             workspace, unit = existing
+            self.risk_gate_service.assert_trading_unit_pre_run(
+                unit,
+                workspace_settings=dict(workspace.settings or {}),
+            )
             return AIStrategyLiveTradingPrepare(
                 workspace=workspace,
                 unit=unit,
@@ -2168,6 +2680,20 @@ class AIStrategyResearchService:
             record,
         )
         package = _build_live_handoff_package(record)
+        risk_gate = self.risk_gate_service.evaluate_live_preparation(
+            record=record,
+            package=package,
+            request=request,
+            source_unit=source_unit,
+        )
+        if not risk_gate.get("passed"):
+            blockers = [
+                str(item).strip()
+                for item in risk_gate.get("blockers", [])
+                if str(item).strip()
+            ]
+            detail = "；".join(blockers[:3]) if blockers else "存在未通过的风控项"
+            raise ValueError(f"风控检查未通过: {detail}")
         workspace = None
         if request.trading_workspace_id:
             workspace = await self.workspace_service.get_workspace(
@@ -2193,6 +2719,7 @@ class AIStrategyResearchService:
             strategy=strategy,
             source_unit=source_unit,
             request=request,
+            risk_gate=risk_gate,
         )
         created_unit = await self.workspace_service.create_unit(
             workspace.id,
@@ -2203,7 +2730,13 @@ class AIStrategyResearchService:
             raise ValueError("Failed to create live trading unit")
         unit = StrategyUnitResponse.model_validate(created_unit)
 
-        handoff = _live_trading_prepare_handoff(record, package, workspace, unit)
+        handoff = _live_trading_prepare_handoff(
+            record,
+            package,
+            workspace,
+            unit,
+            risk_gate=risk_gate,
+        )
         unit = unit.model_copy(
             update={
                 "data_config": {
@@ -2809,6 +3342,8 @@ class AIStrategyResearchService:
                 max_iterations=request.max_iterations,
                 out_of_sample_validation=request.out_of_sample_validation,
                 validation_status=None,
+                robustness_validation=request.robustness_validation,
+                robustness_status=None,
                 paper_trading_started=False,
                 paper_trading_error=None,
                 paper_review_status=None,
@@ -2829,6 +3364,7 @@ class AIStrategyResearchService:
                 best_diagnostics=diagnostics,
                 best_metrics={},
                 research_workspace=research_workspace,
+                mandate_id=request.mandate_id,
                 iterations=[],
                 best_strategy=fallback_strategy,
                 paper_trading=None,
@@ -2837,6 +3373,17 @@ class AIStrategyResearchService:
                 promotion_audit=[],
                 next_actions=next_actions,
                 message="AI research task cancelled before any backtest iteration completed",
+            )
+            await self._record_pipeline_event(
+                user_id=user_id,
+                run_id=run_id,
+                request=request,
+                workspace_id=research_workspace.id,
+                stage="cancelled",
+                status="cancelled",
+                summary="AI投研任务在首轮回测前取消。",
+                output_payload={"next_actions": next_actions},
+                error=failures[-1] if failures else None,
             )
             run_record = _build_research_run_record(
                 run_id=run_id,
@@ -2865,6 +3412,8 @@ class AIStrategyResearchService:
             max_iterations=request.max_iterations,
             out_of_sample_validation=request.out_of_sample_validation,
             validation_status=result_iteration.validation_status,
+            robustness_validation=request.robustness_validation,
+            robustness_status=result_iteration.robustness_status,
             paper_trading_started=False,
             paper_trading_error=None,
             paper_review_status=None,
@@ -2885,6 +3434,7 @@ class AIStrategyResearchService:
             best_diagnostics=result_iteration.diagnostics,
             best_metrics=best_metrics,
             research_workspace=research_workspace,
+            mandate_id=request.mandate_id,
             iterations=iterations,
             best_strategy=result_iteration.strategy,
             paper_trading=None,
@@ -2893,6 +3443,18 @@ class AIStrategyResearchService:
             promotion_audit=[],
             next_actions=next_actions,
             message="AI research task cancelled after saving completed iterations",
+        )
+        await self._record_pipeline_event(
+            user_id=user_id,
+            run_id=run_id,
+            request=request,
+            workspace_id=research_workspace.id,
+            stage="cancelled",
+            status="cancelled",
+            summary="AI投研任务取消，已保存已完成迭代。",
+            output_payload={"next_actions": next_actions},
+            metrics=best_metrics,
+            error=failures[-1] if failures else None,
         )
         run_record = _build_research_run_record(
             run_id=run_id,
@@ -3402,6 +3964,10 @@ class AIStrategyResearchService:
                             (record.quality_gates or {}).get("out_of_sample_validation", False)
                         ),
                         validation_status=_record_best_validation_status(record),
+                        robustness_validation=bool(
+                            (record.quality_gates or {}).get("robustness_validation", False)
+                        ),
+                        robustness_status=_record_best_robustness_status(record),
                         paper_trading_started=False,
                         paper_trading_error=paper_trading_error,
                         paper_review_status=None,
@@ -4462,6 +5028,46 @@ def _research_run_record_from_task_snapshot(
     elif stage == "interrupted":
         status = "interrupted"
     continuation_context = _task_snapshot_continuation_context(task, pipeline)
+    quality_gates = {
+        "target_sharpe": _runtime_float(
+            request.get("target_sharpe"),
+            float(task.target_sharpe or 0.0),
+        ),
+        "min_total_trades": _runtime_int(request.get("min_total_trades"), 0),
+        "max_drawdown_limit": request.get("max_drawdown_limit"),
+        "min_total_return": request.get("min_total_return"),
+        "min_annual_return": request.get("min_annual_return"),
+        "min_win_rate": request.get("min_win_rate"),
+        "out_of_sample_validation": bool(request.get("out_of_sample_validation", True)),
+        "require_out_of_sample_validation": bool(
+            request.get("require_out_of_sample_validation", False)
+        ),
+        "out_of_sample_ratio": _runtime_float(request.get("out_of_sample_ratio"), 0.25),
+        "min_out_of_sample_sharpe": request.get("min_out_of_sample_sharpe"),
+        "min_out_of_sample_trades": request.get("min_out_of_sample_trades"),
+        "min_paper_trading_days": _runtime_int(request.get("min_paper_trading_days"), 7),
+    }
+    if bool(request.get("robustness_validation", False)) or bool(
+        request.get("require_robustness_validation", False)
+    ):
+        quality_gates.update(
+            {
+                "robustness_validation": bool(request.get("robustness_validation", False)),
+                "require_robustness_validation": bool(
+                    request.get("require_robustness_validation", False)
+                ),
+                "robustness_methods": list(request.get("robustness_methods") or ["monte_carlo"]),
+                "min_robustness_score": _runtime_float(
+                    request.get("min_robustness_score"),
+                    55.0,
+                ),
+                "robustness_monte_carlo_iterations": _runtime_int(
+                    request.get("robustness_monte_carlo_iterations"),
+                    300,
+                ),
+            }
+        )
+
     record = AIStrategyResearchRunRecord(
         run_id=run_id,
         prompt=str(request.get("prompt") or task.message or "AI research task snapshot"),
@@ -4511,25 +5117,7 @@ def _research_run_record_from_task_snapshot(
         status=status,
         achieved=bool(task.achieved),
         target_sharpe=_runtime_float(request.get("target_sharpe"), float(task.target_sharpe or 0.0)),
-        quality_gates={
-            "target_sharpe": _runtime_float(
-                request.get("target_sharpe"),
-                float(task.target_sharpe or 0.0),
-            ),
-            "min_total_trades": _runtime_int(request.get("min_total_trades"), 0),
-            "max_drawdown_limit": request.get("max_drawdown_limit"),
-            "min_total_return": request.get("min_total_return"),
-            "min_annual_return": request.get("min_annual_return"),
-            "min_win_rate": request.get("min_win_rate"),
-            "out_of_sample_validation": bool(request.get("out_of_sample_validation", True)),
-            "require_out_of_sample_validation": bool(
-                request.get("require_out_of_sample_validation", False)
-            ),
-            "out_of_sample_ratio": _runtime_float(request.get("out_of_sample_ratio"), 0.25),
-            "min_out_of_sample_sharpe": request.get("min_out_of_sample_sharpe"),
-            "min_out_of_sample_trades": request.get("min_out_of_sample_trades"),
-            "min_paper_trading_days": _runtime_int(request.get("min_paper_trading_days"), 7),
-        },
+        quality_gates=quality_gates,
         min_total_trades=_runtime_int(request.get("min_total_trades"), 0),
         max_iterations=_runtime_int(task.max_iterations, _runtime_int(request.get("max_iterations"), 1)),
         backtest_timeout_seconds=_runtime_float(request.get("backtest_timeout_seconds"), 600.0),
@@ -4542,6 +5130,7 @@ def _research_run_record_from_task_snapshot(
         ),
         best_quality_score=_runtime_float(task.best_quality_score, 0.0),
         best_quality_gate_evaluations=list(task.best_quality_gate_evaluations or []),
+        robustness_validation=_task_snapshot_robustness_payload(task, best_payload),
         best_diagnostics=dict(task.best_diagnostics or {}),
         best_metrics=best_metrics,
         best_strategy_id=task.best_strategy_id
@@ -4549,6 +5138,7 @@ def _research_run_record_from_task_snapshot(
         or None,
         best_strategy_name=task.best_strategy_name,
         research_workspace_id=str(workspace.id),
+        mandate_id=_runtime_text(request.get("mandate_id"), None),
         seed_strategy_id=_runtime_text(request.get("seed_strategy_id"), None),
         continued_from_run_id=_runtime_text(
             task.continued_from_run_id,
@@ -4585,6 +5175,28 @@ def _task_snapshot_iterations_for_run_record(
             seen_iterations.add(iteration)
         result.append(payload)
     return result
+
+
+def _task_snapshot_robustness_payload(
+    task: AIStrategyResearchTaskResponse,
+    best_payload: dict[str, Any],
+) -> dict[str, Any]:
+    if isinstance(task.robustness_validation, dict) and task.robustness_validation:
+        return dict(task.robustness_validation)
+    status = best_payload.get("robustness_status")
+    result = best_payload.get("robustness_result")
+    gates = best_payload.get("robustness_gate_evaluations")
+    failures = best_payload.get("robustness_failures")
+    failure_reason = best_payload.get("robustness_failure_reason")
+    if not any(value not in (None, "", [], {}) for value in (status, result, gates, failures)):
+        return {}
+    return {
+        "status": status,
+        "result": dict(result) if isinstance(result, dict) else {},
+        "gate_evaluations": list(gates) if isinstance(gates, list) else [],
+        "failures": list(failures) if isinstance(failures, list) else [],
+        "failure_reason": failure_reason,
+    }
 
 
 def _task_iteration_payload_for_run_record(payload: dict[str, Any]) -> dict[str, Any]:
@@ -4818,6 +5430,10 @@ def _run_record_with_missing_paper_target(
             (record.quality_gates or {}).get("out_of_sample_validation", False)
         ),
         validation_status=_record_best_validation_status(record),
+        robustness_validation=bool(
+            (record.quality_gates or {}).get("robustness_validation", False)
+        ),
+        robustness_status=_record_best_robustness_status(record),
         paper_trading_started=False,
         paper_trading_error=paper_trading_error,
         paper_review_status=None,
@@ -5423,6 +6039,21 @@ def _required_out_of_sample_validation_failure(
     )
 
 
+def _required_research_configuration_failure(
+    request: AIStrategyResearchRunRequest,
+) -> str | None:
+    out_of_sample_failure = _required_out_of_sample_validation_failure(request)
+    if out_of_sample_failure:
+        return out_of_sample_failure
+    if request.require_robustness_validation and not request.robustness_validation:
+        return (
+            "Required robustness validation is enabled but robustness_validation is false"
+        )
+    if request.robustness_validation and not request.robustness_methods:
+        return "Robustness validation requires at least one robustness method"
+    return None
+
+
 def _out_of_sample_min_sharpe(request: AIStrategyResearchRunRequest) -> float:
     if request.min_out_of_sample_sharpe is not None:
         return request.min_out_of_sample_sharpe
@@ -5533,6 +6164,90 @@ def _out_of_sample_gate_evaluations(
     return evaluations
 
 
+def _robustness_validation_request(
+    request: AIStrategyResearchRunRequest,
+    *,
+    run_id: str,
+) -> RobustnessValidationRequest:
+    return RobustnessValidationRequest(
+        methods=list(request.robustness_methods or ["monte_carlo"]),
+        min_robustness_score=request.min_robustness_score,
+        require_no_high_risk=True,
+        monte_carlo_iterations=request.robustness_monte_carlo_iterations,
+        random_seed=request.robustness_random_seed,
+        run_id=run_id,
+    )
+
+
+def _robustness_gate_payloads(result: dict[str, Any]) -> list[dict[str, Any]]:
+    gates = result.get("gate_evaluations")
+    if not isinstance(gates, list):
+        return []
+    return [dict(item) for item in gates if isinstance(item, dict)]
+
+
+def _robustness_failures_from_result(
+    result: dict[str, Any],
+    *,
+    require_robustness: bool,
+) -> list[str]:
+    if not require_robustness:
+        return []
+    failures: list[str] = []
+    for gate in _robustness_gate_payloads(result):
+        if gate.get("passed") is True:
+            continue
+        message = str(gate.get("message") or gate.get("label") or gate.get("key") or "").strip()
+        failures.append(message or "Robustness validation gate failed")
+    status = str(result.get("status") or "").strip()
+    if status and status != "passed" and not failures:
+        failures.append(str(result.get("error_message") or "Robustness validation failed"))
+    return failures
+
+
+def _robustness_gate_evaluations_for_promotion(
+    iteration: AIStrategyResearchIteration,
+) -> list[dict[str, Any]]:
+    evaluations: list[dict[str, Any]] = []
+    for item in iteration.robustness_gate_evaluations:
+        if not isinstance(item, dict):
+            continue
+        payload = dict(item)
+        payload.setdefault("target", payload.get("threshold"))
+        payload.setdefault("direction", _robustness_gate_direction(payload.get("operator")))
+        payload.setdefault("passed", bool(payload.get("passed")))
+        payload.setdefault("score", 1.0 if payload["passed"] else 0.0)
+        payload.setdefault("status", "passed" if payload["passed"] else "failed")
+        payload.setdefault("failure_reason", payload.get("message") or "")
+        evaluations.append(payload)
+    if (
+        iteration.robustness_status == "failed"
+        and not evaluations
+        and iteration.robustness_failure_reason
+    ):
+        evaluations.append(
+            {
+                "key": "robustness_validation",
+                "label": "稳健性验证",
+                "actual": 0.0,
+                "target": 1.0,
+                "direction": "min",
+                "passed": False,
+                "score": 0.0,
+                "status": "failed",
+                "failure_reason": iteration.robustness_failure_reason,
+            }
+        )
+    return evaluations
+
+
+def _robustness_gate_direction(operator: Any) -> str:
+    text = str(operator or "").strip()
+    if text in {"<", "<=", "!="}:
+        return "max"
+    return "min"
+
+
 def _improvement_metrics(
     metrics: dict[str, Any],
     validation_metrics: dict[str, Any],
@@ -5552,6 +6267,7 @@ def _improvement_metrics(
             "improvement_plan",
             "promotion_ready",
             "out_of_sample_validation",
+            "robustness_validation",
         ):
             if key in feedback:
                 merged[key] = feedback[key]
@@ -5587,6 +6303,7 @@ def _improvement_feedback_payload(diagnostics: dict[str, Any] | None) -> dict[st
         "improvement_plan",
         "promotion_ready",
         "out_of_sample_validation",
+        "robustness_validation",
     ):
         value = diagnostics.get(key)
         if isinstance(value, dict):
@@ -5634,6 +6351,14 @@ def _promotion_gate_evaluations(
     for item in iteration.validation_gate_evaluations:
         if not isinstance(item, dict):
             continue
+        key = str(item.get("key") or "").strip()
+        if key and key in seen:
+            continue
+        evaluations.append(dict(item))
+        if key:
+            seen.add(key)
+
+    for item in _robustness_gate_evaluations_for_promotion(iteration):
         key = str(item.get("key") or "").strip()
         if key and key in seen:
             continue
@@ -5904,6 +6629,16 @@ def _quality_gates_payload(request: AIStrategyResearchRunRequest) -> dict[str, A
     if request.out_of_sample_validation:
         payload["min_out_of_sample_sharpe"] = _out_of_sample_min_sharpe(request)
         payload["min_out_of_sample_trades"] = _out_of_sample_min_trades(request)
+    if request.robustness_validation or request.require_robustness_validation:
+        payload.update(
+            {
+                "robustness_validation": request.robustness_validation,
+                "require_robustness_validation": request.require_robustness_validation,
+                "robustness_methods": list(request.robustness_methods or []),
+                "min_robustness_score": request.min_robustness_score,
+                "robustness_monte_carlo_iterations": request.robustness_monte_carlo_iterations,
+            }
+        )
     for key in (
         "max_drawdown_limit",
         "min_total_return",
@@ -5937,6 +6672,10 @@ def _pipeline_summary_from_record(
             (record.quality_gates or {}).get("out_of_sample_validation", False)
         ),
         validation_status=_record_best_validation_status(record),
+        robustness_validation=bool(
+            (record.quality_gates or {}).get("robustness_validation", False)
+        ),
+        robustness_status=_record_best_robustness_status(record),
         paper_trading_started=record.paper_trading_started
         if paper_trading_started is None
         else paper_trading_started,
@@ -5970,6 +6709,8 @@ def _pipeline_summary(
     paper_trading_error: str | None,
     paper_review_status: str | None,
     paper_review_ready_for_live: bool,
+    robustness_validation: bool = False,
+    robustness_status: str | None = None,
     live_readiness_checklist: list[dict[str, Any]] | None = None,
     live_readiness_expires_at: str | None = None,
     workflow_mode: str = "auto",
@@ -5994,6 +6735,12 @@ def _pipeline_summary(
         status=status,
         out_of_sample_validation=out_of_sample_validation,
         validation_status=validation_status,
+        iteration_count=iteration_count,
+    )
+    robustness_step_status = _robustness_step_status(
+        status=status,
+        robustness_validation=robustness_validation,
+        robustness_status=robustness_status,
         iteration_count=iteration_count,
     )
 
@@ -6062,6 +6809,12 @@ def _pipeline_summary(
             "label": "样本外验证",
             "status": validation_step_status,
             "validation_status": validation_status,
+        },
+        {
+            "key": "robustness_validation",
+            "label": "稳健性验证",
+            "status": robustness_step_status,
+            "robustness_status": robustness_status,
         },
         {"key": "quality_gate", "label": "质量门槛", "status": gate_status},
         {
@@ -6162,6 +6915,19 @@ def _record_best_validation_status(record: AIStrategyResearchRunRecord) -> str |
     return status or None
 
 
+def _record_best_robustness_status(record: AIStrategyResearchRunRecord) -> str | None:
+    robustness = _record_robustness_validation_payload(record)
+    if robustness:
+        status = str(robustness.get("status") or "").strip()
+        if status:
+            return status
+    payload = _best_iteration_payload(record)
+    if not isinstance(payload, dict):
+        return None
+    status = str(payload.get("robustness_status") or "").strip()
+    return status or None
+
+
 def _validation_step_status(
     *,
     status: str,
@@ -6178,6 +6944,29 @@ def _validation_step_status(
         return "failed"
     if normalized in {"skipped", "not_required"}:
         return "skipped"
+    if status == "configuration_invalid":
+        return "failed"
+    if status == "cancelled":
+        return "cancelled"
+    if iteration_count <= 0 or status == "backtest_submission_failed":
+        return "pending"
+    return "pending"
+
+
+def _robustness_step_status(
+    *,
+    status: str,
+    robustness_validation: bool,
+    robustness_status: str | None,
+    iteration_count: int,
+) -> str:
+    if not robustness_validation:
+        return "skipped"
+    normalized = str(robustness_status or "").strip()
+    if normalized == "passed":
+        return "completed"
+    if normalized == "failed":
+        return "failed"
     if status == "configuration_invalid":
         return "failed"
     if status == "cancelled":
@@ -6233,6 +7022,7 @@ def _promotion_audit_from_record(record: AIStrategyResearchRunRecord) -> list[di
         _audit_backtest_loop_item(record),
         _audit_quality_gate_item(record),
         _audit_out_of_sample_item(record),
+        _audit_robustness_item(record),
         _audit_paper_trading_item(record, pipeline),
         _audit_paper_review_item(record),
         _audit_live_handoff_item(record, pipeline),
@@ -6464,6 +7254,62 @@ def _audit_out_of_sample_item(record: AIStrategyResearchRunRecord) -> dict[str, 
             "window": payload.get("validation_window"),
             "metrics": payload.get("validation_metrics") or {},
             "failures": failures,
+        },
+    )
+
+
+def _audit_robustness_item(record: AIStrategyResearchRunRecord) -> dict[str, Any]:
+    gates = record.quality_gates or {}
+    if not bool(gates.get("robustness_validation", False)):
+        return _audit_item(
+            key="robustness_validation",
+            label="稳健性验证",
+            status="skipped",
+            evidence="本轮未启用稳健性验证。",
+            action="进入模拟前建议补跑稳健性验证，尤其关注过拟合和参数敏感性。",
+            details={"enabled": False},
+        )
+    payload = _record_robustness_validation_payload(record)
+    status_text = str(payload.get("status") or "").strip()
+    failures = [
+        str(item).strip()
+        for item in payload.get("failures") or []
+        if str(item or "").strip()
+    ]
+    failure_reason = str(payload.get("failure_reason") or "").strip()
+    if failure_reason and failure_reason not in failures:
+        failures.append(failure_reason)
+    if status_text == "passed":
+        status = "completed"
+    elif status_text == "failed" or failures:
+        status = "failed"
+    else:
+        status = "pending"
+    metrics = dict((payload.get("result") or {}).get("metrics") or {})
+    robustness_score = metrics.get("robustness_score")
+    evidence = (
+        f"稳健性状态：{status_text or 'pending'}；"
+        f"得分 {_format_gate_value(robustness_score)} / "
+        f"{_format_gate_value(gates.get('min_robustness_score'))}。"
+    )
+    if failures:
+        evidence += " 失败原因：" + "；".join(failures)
+    return _audit_item(
+        key="robustness_validation",
+        label="稳健性验证",
+        status=status,
+        evidence=evidence,
+        action=(
+            "稳健性验证已通过，可作为晋级证据。"
+            if status == "completed"
+            else "稳健性未通过或缺失时，需继续降低过拟合/参数敏感性风险后重跑验证。"
+        ),
+        details={
+            "enabled": True,
+            "required": bool(gates.get("require_robustness_validation", True)),
+            "methods": list(gates.get("robustness_methods") or []),
+            "min_robustness_score": gates.get("min_robustness_score"),
+            "validation": payload,
         },
     )
 
@@ -7205,10 +8051,18 @@ def _paper_start_request_from_record(
         out_of_sample_ratio=float(gates.get("out_of_sample_ratio") or 0.25),
         min_out_of_sample_sharpe=_optional_gate_number(gates.get("min_out_of_sample_sharpe")),
         min_out_of_sample_trades=_optional_gate_int(gates.get("min_out_of_sample_trades")),
+        robustness_validation=bool(gates.get("robustness_validation", False)),
+        require_robustness_validation=bool(gates.get("require_robustness_validation", False)),
+        robustness_methods=list(gates.get("robustness_methods") or ["monte_carlo"]),
+        min_robustness_score=float(gates.get("min_robustness_score") or 55.0),
+        robustness_monte_carlo_iterations=int(
+            gates.get("robustness_monte_carlo_iterations") or 300
+        ),
         max_iterations=max(int(record.max_iterations or 1), 1),
         backtest_timeout_seconds=record.backtest_timeout_seconds,
         poll_interval_seconds=record.poll_interval_seconds,
         research_workspace_id=record.research_workspace_id,
+        mandate_id=record.mandate_id,
         trading_workspace_id=request.trading_workspace_id,
         seed_strategy_id=record.best_strategy_id
         or _strategy_id_from_iteration_payload(iteration_payload)
@@ -7234,6 +8088,7 @@ def _live_trading_unit_payload_from_record(
     strategy: StrategyResponse,
     source_unit: StrategyUnitResponse,
     request: AIStrategyLiveTradingPrepareRequest,
+    risk_gate: dict[str, Any] | None = None,
 ) -> StrategyUnitCreate:
     runtime_context = _record_runtime_context(record)
     asset_specs = (
@@ -7267,6 +8122,9 @@ def _live_trading_unit_payload_from_record(
             }
         ),
     }
+    if risk_gate:
+        unit_settings["live_risk_gate"] = dict(risk_gate)
+        unit_settings["risk_limits"] = dict(risk_gate.get("risk_limits") or {})
     if asset_specs:
         _merge_contract_metadata(data_config, asset_specs)
         _merge_contract_metadata(unit_settings, asset_specs)
@@ -7312,6 +8170,8 @@ def _live_trading_prepare_handoff(
     package: AIStrategyLiveHandoffPackage,
     workspace: WorkspaceResponse,
     unit: StrategyUnitResponse,
+    *,
+    risk_gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     prepared_at = _utc_iso_now()
     return _redact_sensitive_handoff(
@@ -7331,6 +8191,7 @@ def _live_trading_prepare_handoff(
             "paper_unit_id": record.paper_unit_id,
             "asset_specs": dict(record.asset_specs or {}),
             "backtest_environment": dict(record.backtest_environment or {}),
+            "live_risk_gate": dict(risk_gate or {}),
             "next_actions": _live_trading_prepare_next_actions(unit),
             "reason": "Approved AI live handoff materialized as a locked live trading unit.",
         }
@@ -7495,6 +8356,11 @@ def _iteration_from_record_payload(
         validation_gate_evaluations=list(payload.get("validation_gate_evaluations") or []),
         validation_failures=list(payload.get("validation_failures") or []),
         validation_failure_reason=payload.get("validation_failure_reason"),
+        robustness_status=payload.get("robustness_status"),
+        robustness_result=dict(payload.get("robustness_result") or {}),
+        robustness_gate_evaluations=list(payload.get("robustness_gate_evaluations") or []),
+        robustness_failures=list(payload.get("robustness_failures") or []),
+        robustness_failure_reason=payload.get("robustness_failure_reason"),
         quality_score=float(payload.get("quality_score") or record.best_quality_score or 0.0),
         quality_gate_evaluations=list(
             payload.get("quality_gate_evaluations")
@@ -8071,6 +8937,24 @@ def _continuation_quality_gate_failures(context: dict[str, Any]) -> list[str]:
     return [str(item).strip() for item in failures if str(item or "").strip()]
 
 
+def _iteration_robustness_payload(
+    iteration: AIStrategyResearchIteration | None,
+) -> dict[str, Any]:
+    if iteration is None:
+        return {}
+    return {
+        "status": iteration.robustness_status,
+        "result": dict(iteration.robustness_result or {}),
+        "gate_evaluations": [
+            dict(item)
+            for item in iteration.robustness_gate_evaluations
+            if isinstance(item, dict)
+        ],
+        "failures": list(iteration.robustness_failures or []),
+        "failure_reason": iteration.robustness_failure_reason,
+    }
+
+
 def _build_research_run_record(
     *,
     run_id: str,
@@ -8137,6 +9021,7 @@ def _build_research_run_record(
         else _metric_float(response.best_metrics, "sharpe_ratio", "sharpe", "sharpeRatio"),
         best_quality_score=_promotion_quality_score(best_iteration),
         best_quality_gate_evaluations=_promotion_gate_evaluations(best_iteration),
+        robustness_validation=_iteration_robustness_payload(best_iteration),
         best_diagnostics=best_iteration.diagnostics
         if best_iteration is not None
         else response.best_diagnostics,
@@ -8144,6 +9029,7 @@ def _build_research_run_record(
         best_strategy_id=best_strategy.id if best_strategy else None,
         best_strategy_name=best_strategy.name if best_strategy else None,
         research_workspace_id=response.research_workspace.id,
+        mandate_id=request.mandate_id,
         seed_strategy_id=request.seed_strategy_id,
         continued_from_run_id=request.continue_from_run_id,
         continuation_source=_continuation_source_from_context(request.continuation_context),
@@ -8305,6 +9191,7 @@ def _build_paper_trading_handoff(
             "failures": best_iteration.validation_failures,
             "failure_reason": best_iteration.validation_failure_reason,
         },
+        "robustness_validation": _iteration_robustness_payload(best_iteration),
         "paper_monitoring_plan": _paper_monitoring_plan(request, best_iteration),
         "symbol": request.symbol,
         "symbol_name": request.symbol_name or request.symbol,
@@ -8341,6 +9228,11 @@ def _compact_research_iteration(item: AIStrategyResearchIteration) -> dict[str, 
         "validation_run_status": item.validation_unit_status.run_status
         if item.validation_unit_status
         else None,
+        "robustness_status": item.robustness_status,
+        "robustness_result": item.robustness_result,
+        "robustness_gate_evaluations": item.robustness_gate_evaluations,
+        "robustness_failures": item.robustness_failures,
+        "robustness_failure_reason": item.robustness_failure_reason,
         "quality_score": item.quality_score,
         "quality_gate_evaluations": item.quality_gate_evaluations,
         "passed": item.passed,
@@ -8587,6 +9479,14 @@ def _failure_categories(
         lowered = failure.lower()
         if "out-of-sample" in lowered or "out of sample" in lowered or "样本外" in failure:
             categories.append("out_of_sample")
+        if (
+            "robustness" in lowered
+            or "overfitting" in lowered
+            or "monte carlo" in lowered
+            or "稳健" in failure
+            or "过拟合" in failure
+        ):
+            categories.append("robustness")
         if _is_paper_trading_start_failure(failure):
             categories.append("paper_trading_start")
         elif "drawdown" in lowered or "回撤" in failure:
@@ -8708,10 +9608,12 @@ def _improvement_plan_from_failures(
         plan.append("优先复核模拟交易单元创建、网关配置、策略脚本依赖和资产参数后再重试。")
     if "out_of_sample" in categories:
         plan.append("样本外验证未通过，降低过拟合风险，优先保留稳健信号、减少参数敏感度并扩大验证样本。")
+    if "robustness" in categories:
+        plan.append("稳健性验证未通过，减少参数自由度、降低换手和信号噪声，优先通过 Monte Carlo/参数扰动复核。")
     if "trade_count" in categories:
         plan.append(
-            "放宽入场过滤、缩短慢速指标窗口或降低确认条件，并加入止损、止盈、反向信号"
-            "或最长持仓 bars 退出，确保至少产生闭合交易。"
+            "有效交易样本数不足，放宽入场过滤、缩短慢速指标窗口或降低确认条件，"
+            "并加入止损、止盈、反向信号或最长持仓 bars 退出，确保至少产生闭合交易。"
         )
     if "sharpe" in categories:
         plan.append("减少低质量入场，增加趋势/波动过滤，并优化止盈止损以提升收益波动比。")
@@ -9760,6 +10662,7 @@ def _build_live_handoff_package(
     handoff = _redact_sensitive_handoff(
         {
             **dict(record.paper_handoff or {}),
+            "robustness_validation": _record_robustness_validation_payload(record),
             "live_handoff_generated_at": _utc_iso_now(),
             "live_handoff_ready_for_live": ready_for_live,
             "approval_required": True,
@@ -9789,6 +10692,7 @@ def _build_live_handoff_package(
         best_metrics=dict(record.best_metrics or {}),
         asset_specs=dict(record.asset_specs or {}),
         backtest_environment=dict(record.backtest_environment or {}),
+        robustness_validation=_record_robustness_validation_payload(record),
         paper_review_status=record.paper_review_status,
         paper_reviewed_at=record.paper_reviewed_at,
         paper_review_evaluations=[
@@ -9993,6 +10897,10 @@ def _live_readiness_checklist(
     out_of_sample_item = _live_readiness_out_of_sample_item(record)
     if out_of_sample_item is not None:
         checklist.insert(2, out_of_sample_item)
+    robustness_item = _live_readiness_robustness_item(record)
+    if robustness_item is not None:
+        insert_at = 3 if out_of_sample_item is not None else 2
+        checklist.insert(insert_at, robustness_item)
     return checklist
 
 
@@ -10065,6 +10973,10 @@ def _ensure_live_readiness_research_evidence(
         out_of_sample_item = _live_readiness_out_of_sample_item(record)
         if out_of_sample_item is not None:
             additions.append(out_of_sample_item)
+    if "robustness_validation_confirmed" not in existing_keys:
+        robustness_item = _live_readiness_robustness_item(record)
+        if robustness_item is not None:
+            additions.append(robustness_item)
     if not additions:
         return checklist
 
@@ -10257,6 +11169,58 @@ def _live_readiness_out_of_sample_item(
     }
 
 
+def _live_readiness_robustness_item(
+    record: AIStrategyResearchRunRecord,
+) -> dict[str, Any] | None:
+    gates = dict(record.quality_gates or {})
+    required = bool(gates.get("require_robustness_validation", False))
+    enabled = bool(gates.get("robustness_validation", False)) or required
+    if not enabled:
+        return None
+    payload = _record_robustness_validation_payload(record)
+    raw_status = str(payload.get("status") or "").strip()
+    if raw_status == "passed":
+        status = "passed"
+    elif raw_status == "failed" or required:
+        status = "failed"
+    else:
+        status = "pending"
+    result = dict(payload.get("result") or {})
+    metrics = dict(result.get("metrics") or {})
+    robustness_score = metrics.get("robustness_score")
+    failures = [
+        str(item).strip()
+        for item in payload.get("failures") or []
+        if str(item or "").strip()
+    ]
+    failure_reason = str(payload.get("failure_reason") or "").strip()
+    if failure_reason and failure_reason not in failures:
+        failures.append(failure_reason)
+    evidence = (
+        f"稳健性状态 {raw_status or 'pending'}，得分 "
+        f"{_format_live_readiness_value(robustness_score)} / "
+        f"{_format_live_readiness_value(gates.get('min_robustness_score'))}。"
+    )
+    if failures:
+        evidence += " 失败原因：" + "；".join(failures)
+    return {
+        "key": "robustness_validation_confirmed",
+        "label": "稳健性验证",
+        "status": status,
+        "evidence": evidence,
+        "action": (
+            "稳健性未通过或缺少证据时，先回到研究工作区补跑稳健性验证，不能直接进入实盘。"
+            if status != "passed"
+            else "保留稳健性验证报告，作为实盘审批证据。"
+        ),
+        "details": {
+            "required": required,
+            "quality_gates": gates,
+            "robustness_validation": payload,
+        },
+    }
+
+
 def _record_out_of_sample_validation_payload(
     record: AIStrategyResearchRunRecord,
 ) -> dict[str, Any]:
@@ -10295,6 +11259,67 @@ def _record_out_of_sample_validation_payload(
         "failures": list(failures) if isinstance(failures, list) else [],
         "failure_reason": failure_reason,
     }
+
+
+def _record_robustness_validation_payload(
+    record: AIStrategyResearchRunRecord,
+) -> dict[str, Any]:
+    if isinstance(record.robustness_validation, dict) and record.robustness_validation:
+        return dict(record.robustness_validation)
+
+    handoff_payload = record.paper_handoff.get("robustness_validation")
+    if isinstance(handoff_payload, dict) and handoff_payload:
+        return dict(handoff_payload)
+
+    diagnostics = dict(record.best_diagnostics or {})
+    diagnostics_payload = diagnostics.get("robustness_validation")
+    if isinstance(diagnostics_payload, dict) and diagnostics_payload:
+        return dict(diagnostics_payload)
+
+    payload = _best_iteration_payload(record)
+    if not payload:
+        return {}
+    status = payload.get("robustness_status")
+    result = payload.get("robustness_result")
+    gate_evaluations = payload.get("robustness_gate_evaluations")
+    failures = payload.get("robustness_failures")
+    failure_reason = payload.get("robustness_failure_reason")
+    if not any(
+        value not in (None, "", [], {})
+        for value in (status, result, gate_evaluations, failures, failure_reason)
+    ):
+        return {}
+    return {
+        "status": status,
+        "result": dict(result) if isinstance(result, dict) else {},
+        "gate_evaluations": list(gate_evaluations)
+        if isinstance(gate_evaluations, list)
+        else [],
+        "failures": list(failures) if isinstance(failures, list) else [],
+        "failure_reason": failure_reason,
+    }
+
+
+def _record_robustness_promotion_failure(record: AIStrategyResearchRunRecord) -> str | None:
+    gates = dict(record.quality_gates or {})
+    if not bool(gates.get("require_robustness_validation", False)):
+        return None
+    if not bool(gates.get("robustness_validation", False)):
+        return "Robustness validation is required before paper trading"
+    payload = _record_robustness_validation_payload(record)
+    status = str(payload.get("status") or "").strip()
+    if status == "passed":
+        return None
+    failures = [
+        str(item).strip()
+        for item in payload.get("failures") or []
+        if str(item or "").strip()
+    ]
+    failure_reason = str(payload.get("failure_reason") or "").strip()
+    if failure_reason and failure_reason not in failures:
+        failures.append(failure_reason)
+    suffix = ": " + "；".join(failures) if failures else ""
+    return f"Robustness validation has not passed{suffix}"
 
 
 def _live_readiness_out_of_sample_evidence(
@@ -10423,6 +11448,13 @@ def _iteration_next_actions(
             actions.append("优先复核模拟交易单元创建、网关配置、策略脚本依赖和资产参数。")
         elif "out-of-sample" in lowered or "out of sample" in lowered or "样本外" in failure:
             actions.append("样本外验证未通过，优先降低过拟合、减少参数敏感度并扩大验证样本。")
+        elif (
+            "robustness" in lowered
+            or "overfitting" in lowered
+            or "稳健" in failure
+            or "过拟合" in failure
+        ):
+            actions.append("稳健性验证未通过，优先减少参数自由度和信号噪声后重新验证。")
         elif "trade" in lowered or "trades" in lowered or "交易" in failure:
             actions.append("放宽入场过滤或缩短信号窗口，先保证样本内有足够交易次数。")
         elif "drawdown" in lowered or "回撤" in failure:

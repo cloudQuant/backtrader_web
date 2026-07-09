@@ -2,6 +2,11 @@
  * 回测分析类型定义
  */
 
+import type {
+  DataPrecheckResponse,
+  RobustnessTestResultResponse,
+} from './trust'
+
 export interface PerformanceMetrics {
   initial_capital: number
   final_assets: number
@@ -106,6 +111,11 @@ export interface BacktestDetailResponse {
   artifact_summary_path?: string | null
   artifact_status?: string | null
   artifact_error?: string | null
+  metrics_source?: string | null
+  standard_metrics?: Record<string, unknown>
+  result_summary?: Record<string, unknown>
+  data_precheck?: DataPrecheckResponse | null
+  robustness?: RobustnessTestResultResponse | null
 }
 
 export interface KlineWithSignalsResponse {

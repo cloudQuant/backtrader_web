@@ -770,6 +770,80 @@
                       />
                     </div>
                   </el-form-item>
+                  <el-form-item label="数据预检">
+                    <div class="ai-research-precheck-control">
+                      <el-button
+                        size="small"
+                        :loading="aiResearchPrecheckLoading"
+                        data-test="ai-research-data-precheck"
+                        @click="runAIResearchDataPrecheck"
+                      >
+                        <el-icon aria-hidden="true">
+                          <RefreshRight />
+                        </el-icon>
+                        运行预检
+                      </el-button>
+                      <el-tag
+                        v-if="aiResearchPrecheckResult || aiResearchPrecheckError"
+                        size="small"
+                        :type="aiResearchPrecheckTagType"
+                      >
+                        {{ aiResearchPrecheckSummary }}
+                      </el-tag>
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="稳健性验证">
+                    <div class="ai-research-gate-control">
+                      <el-checkbox
+                        v-model="aiResearchForm.robustness_validation"
+                        data-test="ai-research-robustness-enabled"
+                      />
+                      <el-input-number
+                        v-model="aiResearchForm.min_robustness_score"
+                        :disabled="!aiResearchForm.robustness_validation"
+                        :min="0"
+                        :max="100"
+                        :step="5"
+                        class="w-full"
+                        data-test="ai-research-robustness-score"
+                      />
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="晋级必须通过稳健性">
+                    <el-checkbox
+                      v-model="aiResearchForm.require_robustness_validation"
+                      :disabled="!aiResearchForm.robustness_validation"
+                      data-test="ai-research-robustness-required"
+                    >
+                      达标后先完成稳健性验证
+                    </el-checkbox>
+                  </el-form-item>
+                  <el-form-item label="稳健性方法">
+                    <el-checkbox-group
+                      v-model="aiResearchForm.robustness_methods"
+                      :disabled="!aiResearchForm.robustness_validation"
+                    >
+                      <el-checkbox label="monte_carlo">
+                        Monte Carlo
+                      </el-checkbox>
+                      <el-checkbox label="parameter_sensitivity">
+                        参数扰动
+                      </el-checkbox>
+                      <el-checkbox label="walk_forward">
+                        Walk Forward
+                      </el-checkbox>
+                    </el-checkbox-group>
+                  </el-form-item>
+                  <el-form-item label="Monte Carlo 次数">
+                    <el-input-number
+                      v-model="aiResearchForm.robustness_monte_carlo_iterations"
+                      :disabled="!aiResearchForm.robustness_validation"
+                      :min="50"
+                      :max="5000"
+                      :step="50"
+                      class="w-full"
+                    />
+                  </el-form-item>
                   <el-form-item label="最少模拟观察天数">
                     <el-input-number
                       v-model="aiResearchForm.min_paper_trading_days"
@@ -815,6 +889,56 @@
                 </div>
               </el-form-item>
             </el-form>
+
+            <div
+              class="ai-research-mandate"
+              data-test="ai-research-mandate"
+            >
+              <div class="ai-research-mandate-head">
+                <div>
+                  <span class="ai-research-kicker">投资需求</span>
+                  <strong>{{ aiResearchMandate?.objective || '待确认' }}</strong>
+                </div>
+                <el-tag
+                  size="small"
+                  :type="aiResearchMandateConfirmed ? 'success' : 'warning'"
+                >
+                  {{ aiResearchMandateConfirmed ? '已确认' : '待确认' }}
+                </el-tag>
+              </div>
+              <div class="ai-research-mandate-actions">
+                <el-button
+                  size="small"
+                  plain
+                  :loading="aiResearchMandateLoading"
+                  data-test="ai-research-parse-mandate"
+                  @click="parseAIResearchMandate()"
+                >
+                  解析需求
+                </el-button>
+                <el-button
+                  size="small"
+                  type="primary"
+                  :disabled="!aiResearchMandate"
+                  data-test="ai-research-confirm-mandate"
+                  @click="confirmAIResearchMandate"
+                >
+                  确认需求
+                </el-button>
+              </div>
+              <div
+                v-if="aiResearchMandate"
+                class="ai-research-mandate-grid"
+              >
+                <span
+                  v-for="item in aiResearchMandateDetails"
+                  :key="item.key"
+                >
+                  <small>{{ item.label }}</small>
+                  <strong>{{ item.value }}</strong>
+                </span>
+              </div>
+            </div>
 
             <div class="ai-research-actions">
               <div class="ai-research-action-options">
@@ -1494,6 +1618,173 @@
                       {{ step.error }}
                     </small>
                   </span>
+                </div>
+              </div>
+
+              <div
+                class="ai-research-timeline"
+                data-test="ai-research-timeline"
+              >
+                <div class="ai-research-section-head">
+                  <strong>投研时间线</strong>
+                  <el-tag
+                    size="small"
+                    type="info"
+                  >
+                    {{ aiResearchTimeline.length }}
+                  </el-tag>
+                </div>
+                <div
+                  v-if="aiResearchTimelineLoading"
+                  class="ai-research-history-empty"
+                >
+                  {{ t('common.loading') }}
+                </div>
+                <el-timeline v-else-if="aiResearchTimeline.length">
+                  <el-timeline-item
+                    v-for="event in aiResearchTimeline"
+                    :key="event.id"
+                    :timestamp="formatDateTime(event.created_at)"
+                    placement="top"
+                  >
+                    <div class="ai-research-timeline-item">
+                      <div>
+                        <strong>{{ aiResearchStageLabel(event.stage) }}</strong>
+                        <el-tag
+                          size="small"
+                          :type="aiResearchEventTagType(event.status)"
+                        >
+                          {{ pipelineStepStatusLabel(event.status) || event.status }}
+                        </el-tag>
+                        <span v-if="event.iteration">第 {{ event.iteration }} 轮</span>
+                      </div>
+                      <p v-if="event.summary">
+                        {{ event.summary }}
+                      </p>
+                      <span
+                        v-if="event.error"
+                        class="ai-research-warning-text"
+                      >
+                        {{ event.error }}
+                      </span>
+                    </div>
+                  </el-timeline-item>
+                </el-timeline>
+                <div
+                  v-else
+                  class="ai-research-history-empty"
+                >
+                  暂无时间线记录
+                </div>
+              </div>
+
+              <div
+                class="ai-research-versions"
+                data-test="ai-research-versions"
+              >
+                <div class="ai-research-section-head">
+                  <strong>策略版本</strong>
+                  <div class="ai-research-version-compare-tools">
+                    <el-select
+                      v-model="aiResearchSelectedVersionIds"
+                      multiple
+                      collapse-tags
+                      collapse-tags-tooltip
+                      :multiple-limit="2"
+                      size="small"
+                      placeholder="选择两个版本"
+                    >
+                      <el-option
+                        v-for="version in aiResearchVersions"
+                        :key="version.id"
+                        :label="`${version.version_name} · ${version.strategy_name || '策略'}`"
+                        :value="version.id"
+                      />
+                    </el-select>
+                    <el-button
+                      size="small"
+                      plain
+                      :disabled="!aiResearchCanCompareVersions"
+                      :loading="aiResearchVersionCompareLoading"
+                      data-test="ai-research-compare-versions"
+                      @click="compareSelectedAIResearchVersions"
+                    >
+                      对比版本
+                    </el-button>
+                  </div>
+                </div>
+                <el-table
+                  v-loading="aiResearchVersionsLoading"
+                  :data="aiResearchVersions"
+                  size="small"
+                  class="ai-research-version-table"
+                  :empty-text="'暂无版本记录'"
+                >
+                  <el-table-column
+                    prop="version_name"
+                    label="版本"
+                    width="90"
+                  />
+                  <el-table-column
+                    label="修改原因"
+                    min-width="240"
+                  >
+                    <template #default="{ row }">
+                      <span>{{ row.ai_rationale || row.change_summary || '-' }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="质量"
+                    width="100"
+                  >
+                    <template #default="{ row }">
+                      <el-tag
+                        size="small"
+                        :type="aiResearchVersionStatusTagType(row.quality_gate_status)"
+                      >
+                        {{ row.quality_gate_status }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="指标"
+                    min-width="240"
+                  >
+                    <template #default="{ row }">
+                      <span class="ai-research-version-metrics">
+                        <span
+                          v-for="key in aiResearchVersionMetricKeys"
+                          :key="key"
+                        >
+                          {{ aiResearchVersionMetricLabel(key) }}
+                          {{ aiResearchVersionMetric(row, key) }}
+                        </span>
+                      </span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    label="操作"
+                    width="110"
+                  >
+                    <template #default="{ row }">
+                      <el-button
+                        size="small"
+                        link
+                        data-test="ai-research-view-version-code"
+                        @click="viewAIResearchVersionCode(row)"
+                      >
+                        查看代码
+                      </el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <div
+                  v-if="aiResearchVersionCompare"
+                  class="ai-research-version-compare"
+                  data-test="ai-research-version-compare"
+                >
+                  <strong>{{ aiResearchVersionCompare.summary }}</strong>
+                  <pre v-if="aiResearchVersionCompare.code_diff">{{ aiResearchVersionCompare.code_diff }}</pre>
                 </div>
               </div>
 
@@ -2470,6 +2761,7 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '@/stores/strategy'
+import { marketDataApi } from '@/api/marketData'
 import { strategyApi } from '@/api/strategy'
 import { getCategoryType, getCategoryLabel, stripStrategyMeta } from '@/constants/strategy'
 import MonacoEditor from '@/components/common/MonacoEditor.vue'
@@ -2500,7 +2792,12 @@ import type {
   AIStrategyResearchRunResponse,
   AIStrategyResearchIteration,
   AIStrategyResearchTaskResponse,
+  AIStrategyResearchVersion,
+  AIStrategyResearchVersionCompareResponse,
+  InvestmentMandateResponse,
+  ResearchPipelineEvent,
 } from '@/api/strategy'
+import type { DataPrecheckResponse } from '@/types/trust'
 import type { Workspace, StrategyUnit, TradingSnapshot, UnitStatusResponse } from '@/types/workspace'
 
 const { t } = useI18n()
@@ -2583,6 +2880,19 @@ const aiResearchConfigProfileName = ref('')
 const aiResearchConfigProfileDescription = ref('')
 const aiResearchConfigProfileFilePath = ref('')
 const aiResearchConfigProfileFileInput = ref<HTMLInputElement | null>(null)
+const aiResearchMandate = ref<InvestmentMandateResponse | null>(null)
+const aiResearchMandateConfirmed = ref(false)
+const aiResearchMandateLoading = ref(false)
+const aiResearchTimeline = ref<ResearchPipelineEvent[]>([])
+const aiResearchTimelineLoading = ref(false)
+const aiResearchVersions = ref<AIStrategyResearchVersion[]>([])
+const aiResearchVersionsLoading = ref(false)
+const aiResearchVersionCompare = ref<AIStrategyResearchVersionCompareResponse | null>(null)
+const aiResearchVersionCompareLoading = ref(false)
+const aiResearchSelectedVersionIds = ref<string[]>([])
+const aiResearchPrecheckLoading = ref(false)
+const aiResearchPrecheckResult = ref<DataPrecheckResponse | null>(null)
+const aiResearchPrecheckError = ref('')
 
 const AI_RESEARCH_STAGE_LABELS: Record<string, string> = {
   queued: '排队中',
@@ -2605,6 +2915,8 @@ const AI_RESEARCH_STAGE_LABELS: Record<string, string> = {
   optimization_loop: '策略优化',
   improving: '改进策略',
   validating: '样本外验证',
+  robustness_validation: '稳健性验证',
+  robustness_failed: '稳健性失败',
   evaluating: '评估策略',
   quality_achieved: '质量达标',
   paper_trading: '模拟交易',
@@ -2745,6 +3057,12 @@ const aiResearchForm = reactive({
   min_out_of_sample_sharpe: 0.6,
   use_min_out_of_sample_trades: false,
   min_out_of_sample_trades: 1,
+  robustness_validation: false,
+  require_robustness_validation: false,
+  robustness_methods: ['monte_carlo'] as string[],
+  min_robustness_score: 55,
+  robustness_monte_carlo_iterations: 300,
+  robustness_random_seed: null as number | null,
   initial_cash: 100000,
   use_manual_commission: false,
   commission: 0.001,
@@ -2798,10 +3116,30 @@ const aiResearchHeroMetrics = computed(() => [
     key: 'validation',
     label: t('strategy.aiResearchHeroValidation'),
     value: aiResearchForm.out_of_sample_validation
-      ? `${formatMetric(aiResearchForm.out_of_sample_ratio_pct, 0)}%`
+      ? aiResearchForm.robustness_validation
+        ? `${formatMetric(aiResearchForm.out_of_sample_ratio_pct, 0)}% / R${formatMetric(aiResearchForm.min_robustness_score, 0)}`
+        : `${formatMetric(aiResearchForm.out_of_sample_ratio_pct, 0)}%`
       : t('common.disable'),
   },
 ])
+
+const aiResearchPrecheckTagType = computed(() => {
+  if (aiResearchPrecheckError.value) return 'danger'
+  const status = aiResearchPrecheckResult.value?.status
+  if (status === 'pass') return 'success'
+  if (status === 'failed') return 'danger'
+  if (status === 'warning') return 'warning'
+  return 'info'
+})
+
+const aiResearchPrecheckSummary = computed(() => {
+  if (aiResearchPrecheckError.value) return aiResearchPrecheckError.value
+  const result = aiResearchPrecheckResult.value
+  if (!result) return '未预检'
+  const issueCount = (result.reasons?.length || 0) + (result.warnings?.length || 0)
+  const label = result.passed ? '预检通过' : '预检未通过'
+  return issueCount ? `${label} · ${issueCount} 项` : label
+})
 
 // ---- Computed ----
 const strategies = computed(() => strategyStore.strategies)
@@ -2911,6 +3249,42 @@ const aiResearchNoResultDescription = computed(() => {
   const profile = aiResearchSelectedConfigProfile.value
   if (!profile) return t('strategy.aiResearchNoResult')
   return `${profile.name} 暂无投研结果，运行该方案后会在这里显示。`
+})
+const aiResearchMandateDetails = computed(() => {
+  const mandate = aiResearchMandate.value
+  if (!mandate) return []
+  const goal = mandate.structured_goal || {}
+  const asset = mandate.asset_scope || {}
+  return [
+    { key: 'asset', label: '资产', value: stringFromUnknown(asset.asset_class, '-') },
+    { key: 'symbol', label: '标的', value: stringFromUnknown(asset.symbol, '-') },
+    { key: 'timeframe', label: '周期', value: mandate.timeframe || stringFromUnknown(goal.timeframe, '-') },
+    { key: 'objective', label: '目标', value: mandate.objective || stringFromUnknown(goal.objective, '-') },
+    {
+      key: 'risk',
+      label: '风险约束',
+      value: Object.keys(mandate.risk_constraints || {}).length
+        ? Object.keys(mandate.risk_constraints).join('、')
+        : '未显式约束',
+    },
+    {
+      key: 'gates',
+      label: '质量门槛',
+      value: mandateQualityGateSummary(mandate.quality_gates),
+    },
+  ]
+})
+const aiResearchCanCompareVersions = computed(() => aiResearchSelectedVersionIds.value.length === 2)
+const aiResearchVersionMetricKeys = computed(() => {
+  const keys = new Set<string>()
+  aiResearchVersions.value.forEach(version => {
+    Object.keys(version.backtest_metrics || {}).forEach(key => {
+      if (['sharpe_ratio', 'sharpe', 'total_return', 'annual_return', 'max_drawdown', 'total_trades'].includes(key)) {
+        keys.add(key)
+      }
+    })
+  })
+  return [...keys]
 })
 const strategyCategoryCount = computed(() =>
   new Set(templates.value.map((template) => template.category || 'custom')).size
@@ -3472,6 +3846,44 @@ function requiredOutOfSampleValidationError() {
   return ''
 }
 
+function aiResearchPrecheckAssetType() {
+  const symbol = aiResearchForm.symbol.trim().toUpperCase()
+  if (isAIResearchFuturesSymbol(symbol)) return 'futures'
+  if (/(USDT|USDC|PERP|SWAP|BTC|ETH)/.test(symbol)) return 'crypto'
+  if (/\.(SZ|SH|BJ)$/.test(symbol) || /^\d{6}$/.test(symbol)) return 'stock'
+  return undefined
+}
+
+async function runAIResearchDataPrecheck() {
+  const symbol = aiResearchForm.symbol.trim()
+  if (!symbol) {
+    ElMessage.warning(t('strategy.aiResearchSymbolRequired'))
+    return
+  }
+  aiResearchPrecheckLoading.value = true
+  aiResearchPrecheckError.value = ''
+  try {
+    aiResearchPrecheckResult.value = await marketDataApi.runPrecheck({
+      asset_type: aiResearchPrecheckAssetType(),
+      symbol,
+      timeframe: aiResearchForm.timeframe,
+      start_date: aiResearchForm.start_date || null,
+      end_date: aiResearchForm.end_date || null,
+    })
+    if (aiResearchPrecheckResult.value.passed) {
+      ElMessage.success('数据预检通过')
+    } else {
+      ElMessage.warning('数据预检存在阻塞项')
+    }
+  } catch {
+    aiResearchPrecheckResult.value = null
+    aiResearchPrecheckError.value = '预检失败'
+    ElMessage.error('数据预检失败')
+  } finally {
+    aiResearchPrecheckLoading.value = false
+  }
+}
+
 function aiResearchSymbolLabel() {
   const symbol = aiResearchForm.symbol.trim() || '待研究标的'
   const symbolName = aiResearchForm.symbol_name.trim()
@@ -3558,6 +3970,21 @@ function aiResearchValidationLines() {
   } else {
     lines.push('暂不启用样本外验证，但策略说明中必须提示过拟合风险。')
   }
+  if (aiResearchForm.robustness_validation) {
+    const methods = aiResearchForm.robustness_methods.length
+      ? aiResearchForm.robustness_methods.join('、')
+      : 'monte_carlo'
+    const requirements = [
+      `方法 ${methods}`,
+      `稳健性得分不低于 ${formatMetric(aiResearchForm.min_robustness_score)}`,
+    ]
+    if (aiResearchForm.require_robustness_validation) {
+      requirements.push('达标后必须通过稳健性验证才能进入模拟交易')
+    }
+    lines.push(`晋级前完成稳健性验证，${requirements.join('，')}。`)
+  } else {
+    lines.push('暂不启用稳健性验证，策略说明中必须显式提示参数敏感性和过拟合风险。')
+  }
   if (aiResearchForm.start_paper_trading) {
     lines.push(
       `质量门槛达成后进入模拟交易，至少观察 ${formatMetric(aiResearchForm.min_paper_trading_days, 0)} 天，重点复核真实手续费、滑点、估值置信度、回撤和滚动 Sharpe。`
@@ -3601,7 +4028,156 @@ function buildGeneratedAIResearchPrompt() {
 
 function generateAIResearchPrompt() {
   aiResearchForm.prompt = buildGeneratedAIResearchPrompt()
+  clearAIResearchMandate()
   ElMessage.success(t('strategy.aiResearchPromptGenerated'))
+}
+
+function aiResearchMandateQualityGatesFromForm(): Record<string, unknown> {
+  return {
+    target_sharpe: aiResearchForm.target_sharpe,
+    min_total_trades: aiResearchForm.min_total_trades,
+    max_drawdown_limit: aiResearchForm.use_max_drawdown_limit
+      ? aiResearchForm.max_drawdown_limit
+      : null,
+    min_total_return: aiResearchForm.use_min_total_return
+      ? aiResearchForm.min_total_return
+      : null,
+    min_annual_return: aiResearchForm.use_min_annual_return
+      ? aiResearchForm.min_annual_return
+      : null,
+    min_win_rate: aiResearchForm.use_min_win_rate ? aiResearchForm.min_win_rate : null,
+    out_of_sample_validation: aiResearchForm.out_of_sample_validation,
+    require_out_of_sample_validation: aiResearchForm.require_out_of_sample_validation,
+    out_of_sample_ratio: outOfSampleRatioValue(),
+    min_out_of_sample_sharpe:
+      aiResearchForm.out_of_sample_validation && aiResearchForm.use_min_out_of_sample_sharpe
+        ? aiResearchForm.min_out_of_sample_sharpe
+        : null,
+    min_out_of_sample_trades:
+      aiResearchForm.out_of_sample_validation && aiResearchForm.use_min_out_of_sample_trades
+        ? aiResearchForm.min_out_of_sample_trades
+        : null,
+    robustness_validation: aiResearchForm.robustness_validation,
+    require_robustness_validation: aiResearchForm.require_robustness_validation,
+    robustness_methods: aiResearchForm.robustness_methods,
+    min_robustness_score: aiResearchForm.min_robustness_score,
+    robustness_monte_carlo_iterations: aiResearchForm.robustness_monte_carlo_iterations,
+    robustness_random_seed: aiResearchForm.robustness_random_seed,
+  }
+}
+
+function aiResearchMandateInputPrompt(input?: { prompt: string; symbol: string } | null) {
+  return input?.prompt || aiResearchForm.prompt.trim() || buildGeneratedAIResearchPrompt()
+}
+
+function aiResearchMandatePayload(input?: { prompt: string; symbol: string } | null) {
+  const prompt = aiResearchMandateInputPrompt(input)
+  return {
+    raw_prompt: prompt,
+    symbol: input?.symbol || aiResearchForm.symbol.trim() || null,
+    symbol_name: aiResearchForm.symbol_name.trim() || null,
+    timeframe: aiResearchForm.timeframe || null,
+    risk_constraints: {
+      max_drawdown_limit: aiResearchForm.use_max_drawdown_limit
+        ? aiResearchForm.max_drawdown_limit
+        : null,
+      min_win_rate: aiResearchForm.use_min_win_rate ? aiResearchForm.min_win_rate : null,
+      out_of_sample_validation: aiResearchForm.out_of_sample_validation,
+    },
+    trading_constraints: {
+      initial_cash: aiResearchForm.initial_cash,
+      annual_days: aiResearchForm.annual_days,
+      calc_method: aiResearchForm.calc_method,
+      weight_mode: aiResearchForm.weight_mode,
+      start_paper_trading: aiResearchForm.start_paper_trading,
+    },
+    quality_gates: aiResearchMandateQualityGatesFromForm(),
+  }
+}
+
+async function parseAIResearchMandate(input?: { prompt: string; symbol: string } | null) {
+  aiResearchMandateLoading.value = true
+  try {
+    aiResearchMandate.value = await strategyApi.createAIResearchMandate(
+      aiResearchMandatePayload(input)
+    )
+    aiResearchMandateConfirmed.value = false
+    ElMessage.success('投资需求已结构化，请确认后启动投研')
+    return aiResearchMandate.value
+  } catch {
+    ElMessage.error('投资需求结构化失败')
+    return null
+  } finally {
+    aiResearchMandateLoading.value = false
+  }
+}
+
+function confirmAIResearchMandate() {
+  if (!aiResearchMandate.value) return
+  aiResearchMandateConfirmed.value = true
+  ElMessage.success('投资需求已确认')
+}
+
+function clearAIResearchMandate() {
+  aiResearchMandate.value = null
+  aiResearchMandateConfirmed.value = false
+}
+
+async function loadAIResearchMandate(mandateId: string | null | undefined) {
+  const id = stringFromUnknown(mandateId)
+  if (!id) {
+    clearAIResearchMandate()
+    return
+  }
+  try {
+    aiResearchMandate.value = await strategyApi.getAIResearchMandate(id)
+    aiResearchMandateConfirmed.value = true
+  } catch {
+    aiResearchMandate.value = null
+    aiResearchMandateConfirmed.value = false
+  }
+}
+
+async function ensureAIResearchMandateConfirmed(input: { prompt: string; symbol: string }) {
+  if (
+    aiResearchMandate.value
+    && aiResearchMandateConfirmed.value
+    && aiResearchMandateMatchesInput(aiResearchMandate.value, input)
+  ) {
+    return aiResearchMandate.value
+  }
+  await parseAIResearchMandate(input)
+  ElMessage.warning('请先确认结构化投资需求，再启动 AI 投研')
+  return null
+}
+
+function aiResearchMandateMatchesInput(
+  mandate: InvestmentMandateResponse,
+  input: { prompt: string; symbol: string }
+) {
+  const prompt = aiResearchMandateInputPrompt(input).trim()
+  const symbol = input.symbol.trim().toUpperCase()
+  const mandateSymbol = stringFromUnknown(mandate.asset_scope.symbol).trim().toUpperCase()
+  const mandateTimeframe = stringFromUnknown(mandate.timeframe || mandate.structured_goal.timeframe)
+  return (
+    mandate.raw_prompt.trim() === prompt
+    && (!mandateSymbol || mandateSymbol === symbol)
+    && (!mandateTimeframe || mandateTimeframe === aiResearchForm.timeframe)
+  )
+}
+
+function mandateQualityGateSummary(gates: Record<string, unknown>) {
+  const parts = [
+    `Sharpe ${formatMetric(gates.target_sharpe)}`,
+    `交易 ${formatMetric(gates.min_total_trades, 0)}`,
+  ]
+  if (gates.max_drawdown_limit !== null && gates.max_drawdown_limit !== undefined) {
+    parts.push(`回撤 ${formatMetric(gates.max_drawdown_limit)}`)
+  }
+  if (gates.min_win_rate !== null && gates.min_win_rate !== undefined) {
+    parts.push(`胜率 ${formatMetric(gates.min_win_rate)}`)
+  }
+  return parts.join(' · ')
 }
 
 type AIResearchConfigProfileApi = typeof strategyApi & {
@@ -3706,6 +4282,26 @@ function applyAIResearchConfigToForm(config: Record<string, unknown>) {
   aiResearchForm.min_out_of_sample_trades =
     minOutOfSampleTrades ?? aiResearchForm.min_out_of_sample_trades
 
+  aiResearchForm.robustness_validation = optionalBoolean(
+    config.robustness_validation,
+    aiResearchForm.robustness_validation
+  )
+  aiResearchForm.require_robustness_validation = optionalBoolean(
+    config.require_robustness_validation,
+    aiResearchForm.require_robustness_validation
+  )
+  const robustnessMethods = stringArrayFromUnknown(config.robustness_methods)
+  aiResearchForm.robustness_methods = robustnessMethods.length
+    ? robustnessMethods
+    : aiResearchForm.robustness_methods
+  aiResearchForm.min_robustness_score =
+    optionalNumber(config.min_robustness_score) ?? aiResearchForm.min_robustness_score
+  aiResearchForm.robustness_monte_carlo_iterations =
+    optionalNumber(config.robustness_monte_carlo_iterations)
+    ?? aiResearchForm.robustness_monte_carlo_iterations
+  aiResearchForm.robustness_random_seed =
+    optionalNumber(config.robustness_random_seed)
+
   aiResearchForm.initial_cash = optionalNumber(config.initial_cash) ?? aiResearchForm.initial_cash
   aiResearchForm.use_manual_commission = optionalBoolean(
     config.use_manual_commission,
@@ -3772,6 +4368,7 @@ function applyAIResearchConfigProfile(
   setAIResearchConfigProfileEditor(profile)
   applyAIResearchConfigToForm(profile.config)
   ensureAIResearchVisiblePrompt()
+  clearAIResearchMandate()
   if (options.syncResult ?? true) {
     syncAIResearchDisplayedOutputWithSelectedProfile()
   }
@@ -3791,6 +4388,8 @@ function selectAIResearchConfigProfile(profileId: string | number | boolean | un
 
 function clearAIResearchDisplayedOutput() {
   aiResearchResult.value = null
+  clearAIResearchArtifacts()
+  clearAIResearchMandate()
   resetAIResearchTaskState()
   aiResearchForm.seed_strategy_id = ''
   aiResearchForm.continue_from_run_id = ''
@@ -4578,7 +5177,97 @@ async function refreshAIResearchRunRecord(
   if (!record) return null
   upsertAIResearchRunRecord(record)
   applyResearchRunRecordToCurrentResult(record)
+  if (aiResearchResult.value?.run_id === record.run_id) {
+    void loadAIResearchRunArtifacts(record)
+  }
   return record
+}
+
+function clearAIResearchArtifacts() {
+  aiResearchTimeline.value = []
+  aiResearchVersions.value = []
+  aiResearchVersionCompare.value = null
+  aiResearchSelectedVersionIds.value = []
+}
+
+async function loadAIResearchRunArtifacts(record: AIStrategyResearchRunRecord) {
+  await Promise.allSettled([
+    loadAIResearchTimeline(record),
+    loadAIResearchVersions(record),
+    loadAIResearchMandate(record.mandate_id),
+  ])
+}
+
+async function loadAIResearchTimeline(record: AIStrategyResearchRunRecord) {
+  aiResearchTimelineLoading.value = true
+  try {
+    const response = await strategyApi.getAIResearchTimeline(
+      record.run_id,
+      record.research_workspace_id
+    )
+    aiResearchTimeline.value = response.items
+  } finally {
+    aiResearchTimelineLoading.value = false
+  }
+}
+
+async function loadAIResearchVersions(record: AIStrategyResearchRunRecord) {
+  aiResearchVersionsLoading.value = true
+  try {
+    const response = await strategyApi.listAIResearchVersions(
+      record.run_id,
+      record.research_workspace_id
+    )
+    aiResearchVersions.value = response.items
+    aiResearchSelectedVersionIds.value = response.items.slice(-2).map(item => item.id)
+    aiResearchVersionCompare.value = null
+  } finally {
+    aiResearchVersionsLoading.value = false
+  }
+}
+
+async function compareSelectedAIResearchVersions() {
+  if (!aiResearchCanCompareVersions.value) return
+  const [leftId, rightId] = aiResearchSelectedVersionIds.value
+  aiResearchVersionCompareLoading.value = true
+  try {
+    aiResearchVersionCompare.value = await strategyApi.compareAIResearchVersions(leftId, rightId)
+  } catch {
+    ElMessage.error('版本对比失败')
+  } finally {
+    aiResearchVersionCompareLoading.value = false
+  }
+}
+
+function aiResearchEventTagType(status?: string | null) {
+  const normalized = stringFromUnknown(status)
+  if (normalized === 'completed' || normalized === 'submitted') return 'success'
+  if (normalized === 'failed') return 'danger'
+  if (normalized === 'started' || normalized === 'running') return 'warning'
+  return 'info'
+}
+
+function aiResearchVersionStatusTagType(status?: string | null) {
+  const normalized = stringFromUnknown(status)
+  if (normalized === 'passed') return 'success'
+  if (normalized === 'failed') return 'warning'
+  return 'info'
+}
+
+function aiResearchVersionMetric(version: AIStrategyResearchVersion, key: string) {
+  return formatMetric(version.backtest_metrics?.[key])
+}
+
+function aiResearchVersionMetricLabel(key: string) {
+  const labels: Record<string, string> = {
+    sharpe_ratio: 'Sharpe',
+    sharpe: 'Sharpe',
+    total_return: '总收益',
+    annual_return: '年化收益',
+    max_drawdown: '最大回撤',
+    total_trades: '交易次数',
+  }
+  return labels[key] ?? key
 }
 
 function aiResearchRequestSnapshotFromRunRecord(record: AIStrategyResearchRunRecord) {
@@ -4608,6 +5297,18 @@ function aiResearchRequestSnapshotFromRunRecord(record: AIStrategyResearchRunRec
     out_of_sample_ratio: optionalNumber(gates.out_of_sample_ratio) ?? 0.25,
     min_out_of_sample_sharpe: gates.min_out_of_sample_sharpe,
     min_out_of_sample_trades: gates.min_out_of_sample_trades,
+    robustness_validation: optionalBoolean(gates.robustness_validation, true),
+    require_robustness_validation: optionalBoolean(
+      gates.require_robustness_validation,
+      true
+    ),
+    robustness_methods: stringArrayFromUnknown(gates.robustness_methods).length
+      ? stringArrayFromUnknown(gates.robustness_methods)
+      : ['monte_carlo'],
+    min_robustness_score: optionalNumber(gates.min_robustness_score) ?? 55,
+    robustness_monte_carlo_iterations:
+      optionalNumber(gates.robustness_monte_carlo_iterations) ?? 300,
+    robustness_random_seed: optionalNumber(gates.robustness_random_seed),
     backtest_timeout_seconds: record.backtest_timeout_seconds,
     poll_interval_seconds: record.poll_interval_seconds,
     initial_cash: record.initial_cash,
@@ -4616,6 +5317,7 @@ function aiResearchRequestSnapshotFromRunRecord(record: AIStrategyResearchRunRec
     calc_method: record.calc_method,
     weight_mode: record.weight_mode,
     research_workspace_id: record.research_workspace_id,
+    mandate_id: record.mandate_id,
     seed_strategy_id: record.seed_strategy_id,
     continue_from_run_id: record.continued_from_run_id,
     start_paper_trading: record.paper_trading_started,
@@ -4645,6 +5347,7 @@ function aiResearchTaskFromRunRecord(
     completed_at: record.completed_at,
     run_id: record.run_id,
     research_workspace_id: record.research_workspace_id,
+    mandate_id: record.mandate_id,
     request_snapshot: aiResearchRequestSnapshotFromRunRecord(record),
     continued_from_run_id: record.continued_from_run_id,
     continuation_source: record.continuation_source,
@@ -4711,6 +5414,7 @@ function selectAIResearchRunRecord(
   } else {
     setAIResearchConfigProfileFromRunRecord(record)
   }
+  void loadAIResearchRunArtifacts(record)
 }
 
 function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
@@ -4773,6 +5477,18 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.use_min_out_of_sample_trades =
     optionalNumber(gates.min_out_of_sample_trades) !== null
   aiResearchForm.min_out_of_sample_trades = Number(gates.min_out_of_sample_trades ?? 1)
+  aiResearchForm.robustness_validation = optionalBoolean(gates.robustness_validation, true)
+  aiResearchForm.require_robustness_validation = optionalBoolean(
+    gates.require_robustness_validation,
+    true
+  )
+  const robustnessMethods = stringArrayFromUnknown(gates.robustness_methods)
+  aiResearchForm.robustness_methods = robustnessMethods.length ? robustnessMethods : ['monte_carlo']
+  aiResearchForm.min_robustness_score = Number(gates.min_robustness_score ?? 55)
+  aiResearchForm.robustness_monte_carlo_iterations = Number(
+    gates.robustness_monte_carlo_iterations ?? 300
+  )
+  aiResearchForm.robustness_random_seed = optionalNumber(gates.robustness_random_seed)
   aiResearchForm.min_paper_trading_days = Math.max(
     0,
     Number(gates.min_paper_trading_days ?? aiResearchForm.min_paper_trading_days)
@@ -5849,6 +6565,16 @@ function researchResultFromTaskSummary(
       out_of_sample_ratio: optionalNumber(request.out_of_sample_ratio) ?? 0.25,
       min_out_of_sample_sharpe: optionalNumber(request.min_out_of_sample_sharpe),
       min_out_of_sample_trades: optionalNumber(request.min_out_of_sample_trades),
+      robustness_validation: optionalBoolean(request.robustness_validation, true),
+      require_robustness_validation: optionalBoolean(
+        request.require_robustness_validation,
+        true
+      ),
+      robustness_methods: request.robustness_methods ?? ['monte_carlo'],
+      min_robustness_score: optionalNumber(request.min_robustness_score) ?? 55,
+      robustness_monte_carlo_iterations:
+        optionalNumber(request.robustness_monte_carlo_iterations) ?? 300,
+      robustness_random_seed: optionalNumber(request.robustness_random_seed),
       min_paper_trading_days:
         optionalNumber(request.min_paper_trading_days) ?? DEFAULT_AI_RESEARCH_MIN_PAPER_TRADING_DAYS,
     },
@@ -5868,6 +6594,7 @@ function researchResultFromTaskSummary(
     best_strategy_id: task.best_strategy_id ?? null,
     best_strategy_name: task.best_strategy_name ?? null,
     research_workspace_id: task.research_workspace_id,
+    mandate_id: (task.mandate_id ?? stringFromUnknown(request.mandate_id)) || null,
     seed_strategy_id: stringFromUnknown(request.seed_strategy_id) || null,
     continued_from_run_id: stringFromUnknown(
       task.continued_from_run_id,
@@ -6615,6 +7342,20 @@ async function viewStrategyFromResearchRecord(record: AIStrategyResearchRunRecor
   }
 }
 
+function viewAIResearchVersionCode(version: AIStrategyResearchVersion) {
+  viewStrategy({
+    id: version.strategy_id || version.id,
+    user_id: '',
+    name: version.strategy_name || version.version_name,
+    description: version.change_summary || version.ai_rationale || '',
+    code: version.code,
+    params: {},
+    category: 'custom',
+    created_at: version.created_at,
+    updated_at: version.updated_at,
+  })
+}
+
 function paperMonitoringPlanFromHandoff(
   handoff: Record<string, unknown> | null | undefined
 ): AIStrategyPaperMonitoringRule[] | undefined {
@@ -6903,6 +7644,9 @@ async function continueResearchFromPaperReview(record: AIStrategyResearchRunReco
 
 async function continueResearchFromRecord(record: AIStrategyResearchRunRecord) {
   useAIResearchRecord(record)
+  if (record.mandate_id) {
+    await loadAIResearchMandate(record.mandate_id)
+  }
   prepareContinuationPromotion(record)
   const continueRun = (strategyApi as typeof strategyApi & {
     continueAIResearchRun?: typeof strategyApi.continueAIResearchRun
@@ -6972,11 +7716,23 @@ function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResea
           aiResearchForm.min_out_of_sample_trades
         )
       : null,
+    robustness_validation: aiResearchForm.robustness_validation,
+    require_robustness_validation: Boolean(
+      aiResearchForm.robustness_validation
+        && aiResearchForm.require_robustness_validation
+    ),
+    robustness_methods: aiResearchForm.robustness_validation
+      ? [...aiResearchForm.robustness_methods]
+      : [],
+    min_robustness_score: aiResearchForm.min_robustness_score,
+    robustness_monte_carlo_iterations: aiResearchForm.robustness_monte_carlo_iterations,
+    robustness_random_seed: aiResearchForm.robustness_random_seed,
     initial_cash: aiResearchForm.initial_cash,
     annual_days: aiResearchForm.annual_days,
     calc_method: aiResearchForm.calc_method,
     weight_mode: aiResearchForm.weight_mode,
     research_workspace_id: aiResearchForm.research_workspace_id || null,
+    mandate_id: aiResearchMandateConfirmed.value ? aiResearchMandate.value?.id ?? null : null,
     seed_strategy_id: aiResearchForm.seed_strategy_id || null,
     continue_from_run_id: aiResearchForm.continue_from_run_id || null,
     start_paper_trading: aiResearchForm.start_paper_trading,
@@ -7159,7 +7915,10 @@ function aiResearchTaskPollTimeoutMs(
     3600
   )
   const outOfSampleValidation = payload?.out_of_sample_validation ?? snapshot.out_of_sample_validation
-  const validationFactor = outOfSampleValidation === false ? 1 : 2
+  const robustnessValidation = payload?.robustness_validation ?? snapshot.robustness_validation ?? false
+  const validationFactor = 1
+    + (outOfSampleValidation === false ? 0 : 1)
+    + (robustnessValidation === false ? 0 : 1)
   const estimatedSeconds = maxIterations * validationFactor * backtestTimeoutSeconds + 240
   return boundedNumber(
     estimatedSeconds * 1000,
@@ -7332,6 +8091,22 @@ function applyAIResearchTaskSnapshotToForm(task: AIStrategyResearchTaskResponse)
   aiResearchForm.use_min_out_of_sample_trades = minOutOfSampleTrades !== null
   aiResearchForm.min_out_of_sample_trades =
     minOutOfSampleTrades ?? aiResearchForm.min_out_of_sample_trades
+  aiResearchForm.robustness_validation =
+    optionalBoolean(snapshot.robustness_validation, aiResearchForm.robustness_validation)
+  aiResearchForm.require_robustness_validation = optionalBoolean(
+    snapshot.require_robustness_validation,
+    aiResearchForm.require_robustness_validation
+  )
+  const robustnessMethods = stringArrayFromUnknown(snapshot.robustness_methods)
+  aiResearchForm.robustness_methods = robustnessMethods.length
+    ? robustnessMethods
+    : aiResearchForm.robustness_methods
+  aiResearchForm.min_robustness_score =
+    optionalNumber(snapshot.min_robustness_score) ?? aiResearchForm.min_robustness_score
+  aiResearchForm.robustness_monte_carlo_iterations =
+    optionalNumber(snapshot.robustness_monte_carlo_iterations)
+    ?? aiResearchForm.robustness_monte_carlo_iterations
+  aiResearchForm.robustness_random_seed = optionalNumber(snapshot.robustness_random_seed)
   const minPaperTradingDays = optionalNumber(snapshot.min_paper_trading_days)
   if (minPaperTradingDays !== null) {
     aiResearchForm.min_paper_trading_days = Math.max(0, minPaperTradingDays)
@@ -7458,6 +8233,7 @@ async function applyCompletedAIResearchResult(result: AIStrategyResearchRunRespo
   if (result.run_record) {
     setAIResearchConfigProfileFromRunRecord(result.run_record)
     upsertAIResearchRunRecord(result.run_record)
+    await loadAIResearchRunArtifacts(result.run_record)
   } else {
     await loadAIResearchRuns()
   }
@@ -7506,6 +8282,8 @@ async function continueAIResearchFromRunRecord(
 ) {
   const input = aiResearchRunnableInput()
   if (!input) return
+  const mandate = await ensureAIResearchMandateConfirmed(input)
+  if (!mandate) return
 
   aiResearchRunning.value = true
   resetAIResearchTaskState()
@@ -7679,6 +8457,8 @@ async function continueAIResearchFromTaskSnapshot() {
     ElMessage.warning(outOfSampleError)
     return
   }
+  const mandate = await ensureAIResearchMandateConfirmed({ prompt, symbol })
+  if (!mandate) return
 
   aiResearchRunning.value = true
   aiResearchCancelRequested.value = false
@@ -7732,6 +8512,8 @@ async function retryAIResearchFromTaskSnapshot() {
 async function runAIResearchLoop() {
   const input = aiResearchRunnableInput()
   if (!input) return
+  const mandate = await ensureAIResearchMandateConfirmed(input)
+  if (!mandate) return
 
   aiResearchRunning.value = true
   resetAIResearchTaskState()
@@ -7896,6 +8678,19 @@ watch(showAIResearchTab, visible => {
     activeTab.value = 'gallery'
   }
 }, { immediate: true })
+
+watch(
+  () => [
+    aiResearchForm.symbol,
+    aiResearchForm.timeframe,
+    aiResearchForm.start_date,
+    aiResearchForm.end_date,
+  ],
+  () => {
+    aiResearchPrecheckResult.value = null
+    aiResearchPrecheckError.value = ''
+  },
+)
 
 onUnmounted(() => {
   aiResearchRunsAutoRefreshActive = false
@@ -8611,6 +9406,80 @@ onUnmounted(() => {
   grid-template-columns: minmax(120px, 0.8fr) minmax(160px, 1.2fr) repeat(3, auto);
 }
 
+.ai-research-mandate {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+}
+
+.ai-research-mandate-head,
+.ai-research-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ai-research-mandate-head > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ai-research-mandate-head strong,
+.ai-research-section-head strong {
+  color: var(--text-color-primary);
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.ai-research-mandate-actions,
+.ai-research-version-compare-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-research-mandate-actions :deep(.el-button + .el-button),
+.ai-research-version-compare-tools :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+
+.ai-research-mandate-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ai-research-mandate-grid > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border-color-lighter);
+  border-radius: 6px;
+  background: var(--fill-color-blank);
+}
+
+.ai-research-mandate-grid small {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+}
+
+.ai-research-mandate-grid strong {
+  color: var(--text-color-primary);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .ai-research-result-context {
   display: grid;
   gap: 4px;
@@ -8797,6 +9666,18 @@ onUnmounted(() => {
   align-items: center;
 }
 
+.ai-research-precheck-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ai-research-precheck-control :deep(.el-button) {
+  gap: 6px;
+}
+
 .ai-research-summary {
   display: flex;
   align-items: flex-start;
@@ -8902,6 +9783,95 @@ onUnmounted(() => {
 
 .ai-research-pipeline-step small {
   color: var(--text-color-secondary);
+}
+
+.ai-research-timeline,
+.ai-research-versions {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  padding: 11px 12px;
+  margin-bottom: 16px;
+  background: var(--fill-color-lighter);
+}
+
+.ai-research-timeline :deep(.el-timeline) {
+  padding-left: 4px;
+}
+
+.ai-research-timeline-item {
+  display: grid;
+  gap: 5px;
+  color: var(--text-color-regular);
+  font-size: 13px;
+}
+
+.ai-research-timeline-item > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-research-timeline-item p {
+  margin: 0;
+  color: var(--text-color-secondary);
+  line-height: 1.45;
+}
+
+.ai-research-version-compare-tools :deep(.el-select) {
+  width: 260px;
+}
+
+.ai-research-version-table {
+  border: 1px solid var(--border-color-lighter);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ai-research-version-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-research-version-metrics > span {
+  padding: 3px 6px;
+  border: 1px solid var(--border-color-lighter);
+  border-radius: 6px;
+  background: var(--fill-color-blank);
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ai-research-version-compare {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-color-lighter);
+  border-radius: 8px;
+  background: var(--fill-color-blank);
+}
+
+.ai-research-version-compare strong {
+  color: var(--text-color-primary);
+  font-size: 13px;
+}
+
+.ai-research-version-compare pre {
+  max-height: 220px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--fill-color-lighter);
+  color: var(--text-color-regular);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
 }
 
 .ai-research-promotion-audit {
@@ -9351,6 +10321,10 @@ onUnmounted(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .ai-research-mandate-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .ai-research-promotion-audit-item {
     grid-template-columns: 1fr;
     align-items: start;
@@ -9408,6 +10382,8 @@ onUnmounted(() => {
   .ai-research-actions,
   .ai-research-links,
   .ai-research-iteration-head,
+  .ai-research-mandate-head,
+  .ai-research-section-head,
   .ai-research-summary {
     align-items: stretch;
   }
@@ -9417,9 +10393,21 @@ onUnmounted(() => {
   .ai-research-config-head-actions :deep(.el-button),
   .ai-research-config-editor :deep(.el-button),
   .ai-research-links :deep(.el-button),
+  .ai-research-mandate-actions :deep(.el-button),
+  .ai-research-version-compare-tools :deep(.el-button),
+  .ai-research-precheck-control :deep(.el-button),
   .ai-research-iteration-actions :deep(.el-button) {
     width: 100%;
     justify-content: center;
+  }
+
+  .ai-research-precheck-control {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ai-research-version-compare-tools :deep(.el-select) {
+    width: 100%;
   }
 
   .ai-research-task-progress {
@@ -9434,6 +10422,10 @@ onUnmounted(() => {
   }
 
   .ai-research-config-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-research-mandate-grid {
     grid-template-columns: 1fr;
   }
 

@@ -241,11 +241,35 @@ class BacktestExecutionManager:
         drawdown_curve: list[float],
         trades: list[dict[str, Any]],
         metrics_source: str = "manual",
+        standard_metrics: dict[str, Any] | None = None,
     ) -> BacktestResultModel:
         """Create and persist one backtest result."""
         from app.utils.tracing import business_span
 
         with business_span("backtrader.backtest.collect", backtest_id=task_id):
+            normalized_metrics = standard_metrics or metrics
+            task = await self.get_task(task_id)
+            result_summary = {
+                "task_id": task_id,
+                "strategy_id": str(task.strategy_id) if task else "",
+                "symbol": str(task.symbol) if task else "",
+                "status": TaskStatus.COMPLETED.value,
+                "metrics": {
+                    key: normalized_metrics.get(key)
+                    for key in (
+                        "total_return",
+                        "annual_return",
+                        "sharpe_ratio",
+                        "max_drawdown",
+                        "win_rate",
+                        "total_trades",
+                        "profit_loss_ratio",
+                        "max_consecutive_wins",
+                        "max_consecutive_losses",
+                        "avg_holding_bars",
+                    )
+                },
+            }
             result = BacktestResultModel(
                 task_id=task_id,
                 total_return=metrics.get("total_return", 0),
@@ -254,6 +278,12 @@ class BacktestExecutionManager:
                 max_drawdown=metrics.get("max_drawdown", 0),
                 win_rate=metrics.get("win_rate", 0),
                 metrics_source=metrics_source,
+                average_holding_bars=normalized_metrics.get("avg_holding_bars", 0),
+                max_consecutive_wins=normalized_metrics.get("max_consecutive_wins", 0),
+                max_consecutive_losses=normalized_metrics.get("max_consecutive_losses", 0),
+                profit_loss_ratio=normalized_metrics.get("profit_loss_ratio", 0),
+                standard_metrics=normalized_metrics,
+                result_summary=result_summary,
                 total_trades=metrics.get("total_trades", 0),
                 profitable_trades=metrics.get("profitable_trades", 0),
                 losing_trades=metrics.get("losing_trades", 0),

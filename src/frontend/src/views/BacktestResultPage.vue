@@ -139,7 +139,17 @@
       </section>
 
       <section
-        v-if="strategyScore || !isOptimizationArtifactMode || overfittingTask || overfittingLoading || strategyExplanation"
+        v-if="
+          strategyScore
+            || !isOptimizationArtifactMode
+            || overfittingTask
+            || overfittingLoading
+            || strategyExplanation
+            || resultSummaryCards.length
+            || dataPrecheckSnapshot
+            || robustnessSnapshot
+            || robustnessLoading
+        "
         class="backtest-result-panel backtest-result-panel--diagnostics"
       >
         <header class="backtest-result-panel-head">
@@ -151,6 +161,106 @@
         </header>
 
         <div class="backtest-result-diagnostics-grid">
+          <article
+            v-if="resultSummaryCards.length || dataPrecheckSnapshot"
+            class="backtest-diagnostic-card backtest-trust-card"
+            data-test="backtest-trust-summary"
+          >
+            <div class="backtest-trust-card-head">
+              <div>
+                <span>可信度摘要</span>
+                <strong>数据预检与标准指标</strong>
+              </div>
+              <el-tag
+                size="small"
+                :type="dataPrecheckTagType"
+              >
+                {{ dataPrecheckStatusLabel }}
+              </el-tag>
+            </div>
+            <div
+              v-if="resultSummaryCards.length"
+              class="backtest-trust-summary-grid"
+            >
+              <div
+                v-for="item in resultSummaryCards"
+                :key="item.label"
+              >
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </div>
+            </div>
+            <div
+              v-if="dataPrecheckMessages.length"
+              class="backtest-trust-message-list"
+            >
+              <p
+                v-for="message in dataPrecheckMessages"
+                :key="message"
+              >
+                {{ message }}
+              </p>
+            </div>
+          </article>
+
+          <article
+            v-if="!isOptimizationArtifactMode"
+            class="backtest-diagnostic-card backtest-robustness-card"
+            data-test="backtest-robustness-panel"
+          >
+            <div class="backtest-robustness-head">
+              <div>
+                <span>稳健性验证</span>
+                <strong>{{ robustnessTitle }}</strong>
+              </div>
+              <el-tag
+                size="small"
+                :type="robustnessStatusTagType"
+              >
+                {{ robustnessStatusLabel }}
+              </el-tag>
+            </div>
+            <div class="backtest-robustness-score">
+              <span>稳健分</span>
+              <strong>{{ robustnessScoreText }}</strong>
+            </div>
+            <div
+              v-if="robustnessGateRows.length"
+              class="backtest-robustness-gates"
+            >
+              <div
+                v-for="gate in robustnessGateRows"
+                :key="gate.key"
+              >
+                <span>{{ gate.label }}</span>
+                <el-tag
+                  size="small"
+                  :type="gate.passed ? 'success' : 'danger'"
+                >
+                  {{ gate.passed ? '通过' : '未通过' }}
+                </el-tag>
+              </div>
+            </div>
+            <p
+              v-if="robustnessSnapshot?.error_message"
+              class="backtest-robustness-error"
+            >
+              {{ robustnessSnapshot.error_message }}
+            </p>
+            <div class="backtest-robustness-actions">
+              <el-button
+                size="small"
+                type="primary"
+                plain
+                :loading="robustnessLoading"
+                data-test="run-robustness-validation"
+                @click="runRobustnessValidation"
+              >
+                运行稳健性验证
+              </el-button>
+            </div>
+          </article>
+
           <StrategyScoreCard
             v-if="strategyScore"
             :score="strategyScore"
@@ -291,6 +401,7 @@ import { Loading, CircleCloseFilled, Download, Back, FolderOpened } from '@eleme
 import { useI18n } from 'vue-i18n'
 import { getErrorMessage } from '@/api'
 import { analyticsApi } from '@/api/analytics'
+import { backtestApi } from '@/api/backtest'
 import { strategyApi } from '@/api/strategy'
 import type {
   StrategyExplanation,
@@ -298,6 +409,7 @@ import type {
   StrategyOverfittingTaskResult,
   StrategyScoreResponse,
 } from '@/api/strategy'
+import type { BacktestResult } from '@/types'
 import { workspaceApi } from '@/api/workspace'
 import { useOverfittingRuntime } from '@/composables/useOverfittingRuntime'
 import OverfittingPanel from '@/components/backtest/OverfittingPanel.vue'
@@ -314,6 +426,11 @@ import type {
   KlineWithSignalsResponse,
   MonthlyReturnsResponse,
 } from '@/types/analytics'
+import type {
+  DataPrecheckResponse,
+  QualityGateEvaluation,
+  RobustnessTestResultResponse,
+} from '@/types/trust'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -352,6 +469,9 @@ const monthlyReturns = ref<MonthlyReturnsResponse | null>(null)
 const strategyScore = ref<StrategyScoreResponse | null>(null)
 const strategyExplanation = ref<StrategyExplanation | null>(null)
 const overfittingTask = ref<StrategyOverfittingTaskResult | null>(null)
+const backtestResult = ref<BacktestResult | null>(null)
+const robustnessResult = ref<RobustnessTestResultResponse | null>(null)
+const robustnessLoading = ref(false)
 
 const {
   loading: overfittingLoading,
@@ -437,6 +557,98 @@ const annualReturnEntries = computed(() => {
     .sort((a, b) => Number(a.year) - Number(b.year))
 })
 
+const resultSummarySnapshot = computed(() => (
+  backtestResult.value?.result_summary
+  ?? detail.value?.result_summary
+  ?? {}
+))
+
+const dataPrecheckSnapshot = computed<DataPrecheckResponse | null>(() => (
+  backtestResult.value?.data_precheck
+  ?? detail.value?.data_precheck
+  ?? null
+))
+
+const robustnessSnapshot = computed<RobustnessTestResultResponse | null>(() => (
+  robustnessResult.value
+  ?? backtestResult.value?.robustness
+  ?? detail.value?.robustness
+  ?? null
+))
+
+const resultSummaryCards = computed(() => {
+  const summary = resultSummarySnapshot.value
+  const rows = [
+    summaryMetric('策略', summary.strategy_id),
+    summaryMetric('标的', summary.symbol),
+    summaryMetric('交易', summary.total_trades),
+    summaryMetric('Sharpe', summary.sharpe_ratio, 2),
+    summaryMetric('收益', summary.total_return, 2),
+    summaryMetric('回撤', summary.max_drawdown, 2),
+  ]
+  return rows.filter((item) => item.value !== '-')
+})
+
+const dataPrecheckTagType = computed(() => {
+  const status = dataPrecheckSnapshot.value?.status
+  if (status === 'pass') return 'success'
+  if (status === 'failed') return 'danger'
+  if (status === 'warning') return 'warning'
+  return 'info'
+})
+
+const dataPrecheckStatusLabel = computed(() => {
+  const status = dataPrecheckSnapshot.value?.status || 'unknown'
+  const labels: Record<string, string> = {
+    pass: '预检通过',
+    warning: '存在告警',
+    failed: '预检失败',
+    unknown: '未预检',
+  }
+  return labels[status] || status
+})
+
+const dataPrecheckMessages = computed(() => {
+  const snapshot = dataPrecheckSnapshot.value
+  if (!snapshot) return []
+  return [...(snapshot.reasons || []), ...(snapshot.warnings || [])].slice(0, 4)
+})
+
+const robustnessTitle = computed(() => {
+  const snapshot = robustnessSnapshot.value
+  if (!snapshot) return '尚未运行'
+  return snapshot.method || 'overfitting_suite'
+})
+
+const robustnessStatusTagType = computed(() => {
+  const status = robustnessSnapshot.value?.status
+  if (status === 'passed') return 'success'
+  if (status === 'failed') return 'danger'
+  if (status === 'running' || robustnessLoading.value) return 'warning'
+  return 'info'
+})
+
+const robustnessStatusLabel = computed(() => {
+  if (robustnessLoading.value) return '运行中'
+  const status = robustnessSnapshot.value?.status || 'pending'
+  const labels: Record<string, string> = {
+    passed: '已通过',
+    failed: '未通过',
+    running: '运行中',
+    pending: '未验证',
+  }
+  return labels[status] || status
+})
+
+const robustnessScoreText = computed(() => {
+  const score = numericFromRecord(robustnessSnapshot.value?.metrics, 'robustness_score')
+  return score === null ? '-' : formatNumber(score, 1)
+})
+
+const robustnessGateRows = computed<QualityGateEvaluation[]>(() => (
+  robustnessSnapshot.value?.gate_evaluations || []
+))
+
 async function loadData() {
   stopOverfittingRuntime()
   loading.value = true
@@ -444,6 +656,8 @@ async function loadData() {
   strategyScore.value = null
   strategyExplanation.value = null
   overfittingTask.value = null
+  backtestResult.value = null
+  robustnessResult.value = null
   klineData.value = null
   monthlyReturns.value = null
 
@@ -461,6 +675,7 @@ async function loadData() {
       : detailRes
 
     if (!isOptimizationArtifactMode.value) {
+      void loadBacktestTrustSnapshot()
       void loadDiagnostics()
     }
     if (activeTab.value === 'kline') {
@@ -473,6 +688,14 @@ async function loadData() {
     error.value = getErrorMessage(e, t('backtest.loadFailed'))
   } finally {
     loading.value = false
+  }
+}
+
+async function loadBacktestTrustSnapshot() {
+  try {
+    backtestResult.value = await backtestApi.getResult(taskId.value)
+  } catch {
+    backtestResult.value = null
   }
 }
 
@@ -541,6 +764,24 @@ async function loadOverfitting(
   }
 }
 
+async function runRobustnessValidation() {
+  robustnessLoading.value = true
+  try {
+    robustnessResult.value = await backtestApi.runRobustness(taskId.value, {
+      methods: ['monte_carlo'],
+      monte_carlo_iterations: 300,
+      min_robustness_score: 55,
+      require_no_high_risk: true,
+    })
+    ElMessage.success('稳健性验证已完成')
+  } catch {
+    robustnessResult.value = null
+    ElMessage.error('稳健性验证失败')
+  } finally {
+    robustnessLoading.value = false
+  }
+}
+
 function handleExport(format: 'csv' | 'json') {
   analyticsApi.exportResults(taskId.value, format)
 }
@@ -599,6 +840,24 @@ function formatPercent(value: number | null | undefined): string {
 function formatNumber(value: number | null | undefined, precision = 2): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '--'
   return value.toFixed(precision)
+}
+
+function summaryMetric(label: string, value: unknown, precision = 0) {
+  const numeric = typeof value === 'number' ? value : null
+  return {
+    label,
+    value: numeric === null ? String(value || '-') : formatNumber(numeric, precision),
+  }
+}
+
+function numericFromRecord(payload: Record<string, unknown> | undefined, key: string) {
+  const value = payload?.[key]
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
 }
 
 function formatTime(iso: string): string {
@@ -812,6 +1071,119 @@ function formatTime(iso: string): string {
   gap: 14px;
 }
 
+.backtest-trust-card,
+.backtest-robustness-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+}
+
+.backtest-trust-card-head,
+.backtest-robustness-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.backtest-trust-card-head > div,
+.backtest-robustness-head > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.backtest-trust-card-head span,
+.backtest-robustness-head span,
+.backtest-robustness-score span,
+.backtest-trust-summary-grid span,
+.backtest-robustness-gates span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.backtest-trust-card-head strong,
+.backtest-robustness-head strong {
+  color: var(--text-color-primary);
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.backtest-trust-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.backtest-trust-summary-grid > div {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--bg-color);
+}
+
+.backtest-trust-summary-grid strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-color-primary);
+  font-size: 14px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.backtest-trust-message-list {
+  display: grid;
+  gap: 6px;
+}
+
+.backtest-trust-message-list p,
+.backtest-robustness-error {
+  margin: 0;
+  color: var(--text-color-regular);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.backtest-robustness-score {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--bg-color);
+}
+
+.backtest-robustness-score strong {
+  color: var(--primary-color);
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.backtest-robustness-gates {
+  display: grid;
+  gap: 8px;
+}
+
+.backtest-robustness-gates > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.backtest-robustness-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .backtest-diagnostic-card--wide {
   grid-column: 1 / -1;
 }
@@ -1019,6 +1391,10 @@ function formatTime(iso: string): string {
   .backtest-diagnostic-card--wide {
     grid-column: auto;
   }
+
+  .backtest-trust-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 700px) {
@@ -1048,6 +1424,23 @@ function formatTime(iso: string): string {
 
   .backtest-result-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .backtest-trust-card-head,
+  .backtest-robustness-head,
+  .backtest-robustness-score,
+  .backtest-robustness-gates > div {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .backtest-trust-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .backtest-robustness-actions :deep(.el-button) {
+    width: 100%;
+    justify-content: center;
   }
 
   .backtest-result-panel-head,

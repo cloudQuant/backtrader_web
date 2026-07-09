@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 class OverfittingMethod(str, Enum):
     WALK_FORWARD = "walk_forward"
     OUT_OF_SAMPLE = "out_of_sample"
+    PARAMETER_SENSITIVITY = "parameter_sensitivity"
     MONTE_CARLO = "monte_carlo"
 
 

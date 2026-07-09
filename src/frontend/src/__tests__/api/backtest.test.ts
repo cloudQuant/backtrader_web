@@ -95,4 +95,17 @@ describe('backtestApi', () => {
     await backtestApi.delete('t1')
     expect(api.delete).toHaveBeenCalledWith('/backtests/t1')
   })
+
+  it('runRobustness calls POST /backtests/:id/robustness', async () => {
+    const payload = { methods: ['monte_carlo'], monte_carlo_iterations: 300 }
+    vi.mocked(api.post).mockResolvedValue({ id: 'r1', status: 'passed' })
+    await backtestApi.runRobustness('t1', payload)
+    expect(api.post).toHaveBeenCalledWith('/backtests/t1/robustness', payload)
+  })
+
+  it('getRobustness calls GET /backtests/:id/robustness', async () => {
+    vi.mocked(api.get).mockResolvedValue({ id: 'r1', status: 'passed' })
+    await backtestApi.getRobustness('t1')
+    expect(api.get).toHaveBeenCalledWith('/backtests/t1/robustness')
+  })
 })

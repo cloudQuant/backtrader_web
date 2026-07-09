@@ -80,6 +80,17 @@ class BacktestRequest(BaseModel):
         description="Commission rate",
         examples=[0.001, 0.0003, 0.01],
     )
+    runtime_dir: str | None = Field(None, description="Optional unit runtime directory")
+    timeframe: str = Field("1d", description="K-line timeframe e.g. 1d, 1h, 5m")
+    timeframe_n: int = Field(1, ge=1, description="Timeframe multiplier")
+    bar_count: int | None = Field(None, description="Number of bars to load")
+    asset_type: str | None = Field(None, description="Optional asset type for data precheck")
+    data_provider: str | None = Field(None, description="Optional market data provider")
+    require_data_precheck: bool = Field(
+        False,
+        description="Reject the task when precheck finds blocking data/spec issues",
+    )
+    data_precheck: dict[str, Any] = Field(default_factory=dict, description="Precheck snapshot")
 
     # Strategy parameters (with type and range validation)
     params: dict[str, Any] = Field(
@@ -274,6 +285,15 @@ class BacktestResult(BaseModel):
     sharpe_ratio: float = Field(0, description="Sharpe ratio")
     max_drawdown: float = Field(0, ge=-100, le=100, description="Maximum drawdown (%)")
     win_rate: float = Field(0, ge=0, le=100, description="Win rate (%)")
+    metrics_source: str = Field("manual", description="Source of metric calculations")
+    average_holding_bars: float = Field(0, description="Average holding period in bars")
+    max_consecutive_wins: int = Field(0, description="Maximum consecutive winning trades")
+    max_consecutive_losses: int = Field(0, description="Maximum consecutive losing trades")
+    profit_loss_ratio: float = Field(0, description="Average profit / average loss ratio")
+    standard_metrics: dict[str, Any] = Field(default_factory=dict)
+    result_summary: dict[str, Any] = Field(default_factory=dict)
+    data_precheck: dict[str, Any] = Field(default_factory=dict)
+    robustness: dict[str, Any] | None = None
 
     # Trade statistics
     total_trades: int = Field(0, ge=0, description="Total trades")

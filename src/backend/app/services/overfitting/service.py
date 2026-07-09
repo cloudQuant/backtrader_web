@@ -5,6 +5,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from app.db.sql_repository import SQLRepository
 from app.models.backtest import BacktestTask
@@ -18,15 +19,18 @@ from app.schemas.overfitting import (
     OverfittingTaskResult,
     OverfittingTaskSubmission,
 )
-from app.services.backtest_service import BacktestService
 from app.services.overfitting.monte_carlo import run_monte_carlo_analysis
 from app.services.overfitting.out_of_sample import run_out_of_sample_analysis
+from app.services.overfitting.parameter_sensitivity import run_parameter_sensitivity_analysis
 from app.services.overfitting.walk_forward import run_walk_forward_analysis
 from app.websocket_manager import MessageType
 from app.websocket_manager import manager as ws_manager
 
 _PENDING_SUMMARY = "过拟合检测任务已提交，等待执行。"
 AnalysisProgressCallback = Callable[[int, str], Awaitable[None]]
+
+if TYPE_CHECKING:
+    from app.services.backtest_service import BacktestService
 
 
 def _overfitting_ws_channel(task_id: str) -> str:
@@ -35,7 +39,11 @@ def _overfitting_ws_channel(task_id: str) -> str:
 
 class OverfittingService:
     def __init__(self, backtest_service: BacktestService | None = None) -> None:
-        self.backtest_service = backtest_service or BacktestService()
+        if backtest_service is None:
+            from app.services.backtest_service import BacktestService
+
+            backtest_service = BacktestService()
+        self.backtest_service = backtest_service
         self.backtest_task_repo = SQLRepository(BacktestTask)
         self.repo = SQLRepository(OverfittingResultModel)
         self._tasks: dict[str, asyncio.Task[None]] = {}
@@ -244,6 +252,20 @@ class OverfittingService:
                                 slice_request,
                             ),
                             out_of_sample_ratio=request.out_of_sample_ratio,
+                        )
+                    )
+            elif method is OverfittingMethod.PARAMETER_SENSITIVITY:
+                if resolved_base_request is None or user_id is None:
+                    methods.append(self._degraded_placeholder(method))
+                else:
+                    methods.append(
+                        await run_parameter_sensitivity_analysis(
+                            resolved_base_request,
+                            backtest_result,
+                            execute_slice=lambda slice_request: self._execute_slice_backtest(
+                                user_id,
+                                slice_request,
+                            ),
                         )
                     )
             else:

@@ -32,6 +32,7 @@ from app.schemas.backtest_enhanced import (
     BacktestFailedEvent,
     BacktestProgressEvent,
 )
+from app.schemas.market_data_trust import DataPrecheckRequest
 from app.services.backtest.manager import BacktestExecutionManager
 from app.services.backtest.runner import BacktestExecutionRunner
 from app.services.backtest.sanitize import (
@@ -70,6 +71,9 @@ from app.services.backtest.workspace_setup import (
 from app.services.backtest.workspace_setup import (
     write_temp_config as _write_temp_config,
 )
+from app.services.market_data_precheck_service import get_market_data_precheck_service
+from app.services.metrics_service import get_metrics_service
+from app.services.robustness_validation_service import get_robustness_validation_service
 from app.services.strategy.runtime_support import has_log_artifacts
 from app.utils.response_cache import invalidate_cache
 from app.websocket_manager import manager as ws_manager
@@ -158,6 +162,45 @@ class BacktestService:
     def _build_backtest_result(
         task: BacktestTask, result_model: BacktestResultModel | None
     ) -> BacktestResult:
+        request_data = BacktestService._get_request_data(task)
+        standard_metrics = (
+            dict(getattr(result_model, "standard_metrics", None) or {})
+            if result_model
+            else {}
+        )
+        if not standard_metrics and result_model is not None:
+            standard_metrics = get_metrics_service().normalize(
+                {
+                    "total_return": result_model.total_return,
+                    "annual_return": result_model.annual_return,
+                    "sharpe_ratio": result_model.sharpe_ratio,
+                    "max_drawdown": result_model.max_drawdown,
+                    "win_rate": result_model.win_rate,
+                    "total_trades": result_model.total_trades,
+                    "profitable_trades": result_model.profitable_trades,
+                    "losing_trades": result_model.losing_trades,
+                    "avg_holding_bars": getattr(result_model, "average_holding_bars", 0.0),
+                    "max_consecutive_wins": getattr(result_model, "max_consecutive_wins", 0),
+                    "max_consecutive_losses": getattr(result_model, "max_consecutive_losses", 0),
+                    "profit_loss_ratio": getattr(result_model, "profit_loss_ratio", 0.0),
+                    "metrics_source": getattr(result_model, "metrics_source", "manual"),
+                },
+                trades=getattr(result_model, "trades", []),
+            )
+        result_summary = (
+            dict(getattr(result_model, "result_summary", None) or {})
+            if result_model
+            else {}
+        )
+        if not result_summary:
+            result_summary = get_metrics_service().result_summary(
+                task_id=cast(str, task.id),
+                strategy_id=cast(str, task.strategy_id),
+                symbol=cast(str, task.symbol),
+                status=str(task.status),
+                metrics=standard_metrics,
+                data_precheck=dict(request_data.get("data_precheck") or {}),
+            )
         return BacktestResult(
             task_id=cast(str, task.id),
             strategy_id=cast(str, task.strategy_id),
@@ -186,6 +229,26 @@ class BacktestService:
                 0.0,
             ),
             metrics_source=getattr(result_model, "metrics_source", None) or "manual",
+            average_holding_bars=BacktestService._coerce_float(
+                getattr(result_model, "average_holding_bars", None) if result_model else None,
+                float(standard_metrics.get("avg_holding_bars") or 0.0),
+            ),
+            max_consecutive_wins=BacktestService._coerce_int(
+                getattr(result_model, "max_consecutive_wins", None) if result_model else None,
+                int(standard_metrics.get("max_consecutive_wins") or 0),
+            ),
+            max_consecutive_losses=BacktestService._coerce_int(
+                getattr(result_model, "max_consecutive_losses", None) if result_model else None,
+                int(standard_metrics.get("max_consecutive_losses") or 0),
+            ),
+            profit_loss_ratio=BacktestService._coerce_float(
+                getattr(result_model, "profit_loss_ratio", None) if result_model else None,
+                float(standard_metrics.get("profit_loss_ratio") or 0.0),
+            ),
+            standard_metrics=standard_metrics,
+            result_summary=result_summary,
+            data_precheck=dict(request_data.get("data_precheck") or {}),
+            robustness=None,
             total_trades=BacktestService._coerce_int(
                 result_model.total_trades if result_model else None,
                 0,
@@ -222,6 +285,27 @@ class BacktestService:
         Raises:
             ValueError: If global or user concurrent task limits are exceeded.
         """
+        precheck = await get_market_data_precheck_service().precheck(
+            DataPrecheckRequest(
+                asset_type=getattr(request, "asset_type", None),
+                symbol=request.symbol,
+                timeframe=getattr(request, "timeframe", "1d") or "1d",
+                provider=getattr(request, "data_provider", None),
+                start_date=str(request.start_date.date())
+                if isinstance(request.start_date, datetime)
+                else str(request.start_date),
+                end_date=str(request.end_date.date())
+                if isinstance(request.end_date, datetime)
+                else str(request.end_date),
+            )
+        )
+        if getattr(request, "require_data_precheck", False) and not precheck.passed:
+            raise ValueError("Backtest data precheck failed: " + "; ".join(precheck.reasons))
+        if hasattr(request, "model_copy"):
+            request = request.model_copy(
+                update={"data_precheck": precheck.model_dump(mode="json")}
+            )
+
         # Use BacktestExecutionManager for database-backed task creation
         task = await self.task_manager.create_task(user_id, request)
 
@@ -346,7 +430,6 @@ class BacktestService:
         persist_in_runtime_dir: bool = False,
     ) -> None:
         """Parse logs, calculate metrics, persist results and notify completion."""
-        from app.services.fincore_metrics_helper import calculate_metrics_from_log_data
         from app.services.log_parser_service import parse_all_logs, parse_log_dir
 
         task_log_dir = task_work_dir / "logs" / f"task_{task_id}"
@@ -357,7 +440,7 @@ class BacktestService:
         if not log_result:
             raise ValueError("Backtest completed but no log file found")
 
-        metrics = calculate_metrics_from_log_data(log_result, use_fincore=True)
+        metrics = get_metrics_service().calculate_from_log_data(log_result, use_fincore=True)
 
         persist_log_dir = (
             task_work_dir / "logs" / f"task_{task_id}"
@@ -376,6 +459,7 @@ class BacktestService:
             drawdown_curve=log_result.get("drawdown_curve", []),
             trades=log_result.get("trades", []),
             metrics_source=metrics.get("metrics_source", "manual"),
+            standard_metrics=metrics,
         )
         await self.task_manager.update_task_status(
             task_id,
@@ -517,7 +601,10 @@ class BacktestService:
                 and task.log_dir
                 and (not cached_payload.get("equity_curve") and not cached_payload.get("trades"))
             ):
-                return BacktestResult(**cached_payload)
+                return await self._attach_latest_robustness(
+                    BacktestResult(**cached_payload),
+                    user_id=user_id,
+                )
 
         # Query result
         results = await self.result_repo.list(filters={"task_id": task_id}, limit=1)
@@ -534,14 +621,17 @@ class BacktestService:
                 )
             )
         ):
-            from app.services.fincore_metrics_helper import calculate_metrics_from_log_data
             from app.services.log_parser_service import parse_log_dir
 
             persisted_log_dir = Path(task.log_dir)
             if persisted_log_dir.is_dir():
                 log_result = parse_log_dir(persisted_log_dir)
                 if log_result:
-                    metrics = calculate_metrics_from_log_data(log_result, use_fincore=True)
+                    metrics = get_metrics_service().calculate_from_log_data(
+                        log_result,
+                        use_fincore=True,
+                    )
+                    request_data = BacktestService._get_request_data(task)
                     result = BacktestResult(
                         task_id=cast(str, task.id),
                         strategy_id=cast(str, task.strategy_id),
@@ -567,6 +657,33 @@ class BacktestService:
                         ),
                         win_rate=BacktestService._coerce_float(metrics.get("win_rate"), 0.0),
                         metrics_source=str(metrics.get("metrics_source") or "manual"),
+                        average_holding_bars=BacktestService._coerce_float(
+                            metrics.get("avg_holding_bars"),
+                            0.0,
+                        ),
+                        max_consecutive_wins=BacktestService._coerce_int(
+                            metrics.get("max_consecutive_wins"),
+                            0,
+                        ),
+                        max_consecutive_losses=BacktestService._coerce_int(
+                            metrics.get("max_consecutive_losses"),
+                            0,
+                        ),
+                        profit_loss_ratio=BacktestService._coerce_float(
+                            metrics.get("profit_loss_ratio"),
+                            0.0,
+                        ),
+                        standard_metrics=metrics,
+                        result_summary=get_metrics_service().result_summary(
+                            task_id=cast(str, task.id),
+                            strategy_id=cast(str, task.strategy_id),
+                            symbol=cast(str, task.symbol),
+                            status=TaskStatus(task.status).value,
+                            metrics=metrics,
+                            data_precheck=dict(request_data.get("data_precheck") or {}),
+                        ),
+                        data_precheck=dict(request_data.get("data_precheck") or {}),
+                        robustness=None,
                         total_trades=BacktestService._coerce_int(metrics.get("total_trades"), 0),
                         profitable_trades=BacktestService._coerce_int(
                             metrics.get("profitable_trades"),
@@ -584,7 +701,7 @@ class BacktestService:
                         error_message=cast("str | None", task.error_message),
                     )
                     await self.cache.set(cache_key, result.model_dump(mode="json"), ttl=3600)
-                    return result
+                    return await self._attach_latest_robustness(result, user_id=user_id)
 
         # Use unified result builder to avoid code duplication
         result = self._build_backtest_result(task, result_model)
@@ -593,7 +710,31 @@ class BacktestService:
         if task.status == TaskStatus.COMPLETED:
             await self.cache.set(cache_key, result.model_dump(mode="json"), ttl=3600)
 
-        return result
+        return await self._attach_latest_robustness(result, user_id=user_id)
+
+    async def _attach_latest_robustness(
+        self,
+        result: BacktestResult,
+        *,
+        user_id: str | None,
+    ) -> BacktestResult:
+        if user_id is None:
+            return result
+        latest = await get_robustness_validation_service().get_latest(
+            backtest_id=result.task_id,
+            user_id=user_id,
+        )
+        if latest is None:
+            return result
+        robustness_payload = latest.model_dump(mode="json")
+        summary = dict(result.result_summary or {})
+        summary["robustness"] = robustness_payload
+        return result.model_copy(
+            update={
+                "robustness": robustness_payload,
+                "result_summary": summary,
+            }
+        )
 
     async def cancel_task(self, task_id: str, user_id: str) -> bool:
         """Cancel a running backtest task.
@@ -691,6 +832,10 @@ class BacktestService:
 
         items = [
             self._build_backtest_result(task, result_by_task_id.get(str(task.id))) for task in tasks
+        ]
+        items = [
+            await self._attach_latest_robustness(item, user_id=user_id)
+            for item in items
         ]
 
         return BacktestListResponse(total=total, items=items)

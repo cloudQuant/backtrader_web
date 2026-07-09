@@ -9,6 +9,8 @@ import type { MarketAssetType } from '@/api/marketData'
 const apiMocks = vi.hoisted(() => ({
   lookupInstrument: vi.fn(),
   listInstrumentOptions: vi.fn(),
+  listCoverage: vi.fn(),
+  refreshLocalCoverage: vi.fn(),
   listTables: vi.fn(),
 }))
 
@@ -20,6 +22,8 @@ vi.mock('@/api/marketData', () => ({
   marketDataApi: {
     listInstrumentOptions: apiMocks.listInstrumentOptions,
     lookupInstrument: apiMocks.lookupInstrument,
+    listCoverage: apiMocks.listCoverage,
+    refreshLocalCoverage: apiMocks.refreshLocalCoverage,
   },
 }))
 
@@ -204,6 +208,33 @@ describe('DataPage', () => {
     apiMocks.listInstrumentOptions.mockImplementation(
       ({ asset_type }: { asset_type: MarketAssetType }) => Promise.resolve(createInstrumentOptionsFixture(asset_type)),
     )
+    apiMocks.listCoverage.mockResolvedValue({
+      total: 1,
+      refreshed: false,
+      items: [
+        {
+          id: 'coverage-1',
+          asset_type: 'stock',
+          symbol: '000001',
+          timeframe: '1d',
+          provider: 'local_csv',
+          start_date: '2026-01-01',
+          end_date: '2026-06-19',
+          row_count: 120,
+          missing_count: 0,
+          missing_ratio: 0,
+          latest_bar_time: '2026-06-19',
+          quality_status: 'pass',
+          source_path: 'data/datas/000001.csv',
+          updated_at: '2026-06-19T09:30:00',
+        },
+      ],
+    })
+    apiMocks.refreshLocalCoverage.mockResolvedValue({
+      total: 0,
+      refreshed: true,
+      items: [],
+    })
     apiMocks.listTables.mockResolvedValue({
       items: [
         {

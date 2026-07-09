@@ -184,6 +184,7 @@ async def start_instance(
         inst["pid"] = proc.pid
         inst["error"] = None
         inst["started_at"] = now
+        inst["stopped_at"] = None
         normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
         latest[instance_id] = inst
         save_instances(latest)

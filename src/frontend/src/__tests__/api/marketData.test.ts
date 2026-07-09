@@ -6,6 +6,7 @@ import { marketDataApi } from '@/api/marketData'
 vi.mock('@/api/index', () => ({
   default: {
     get: vi.fn(),
+    post: vi.fn(),
   },
 }))
 
@@ -53,6 +54,28 @@ describe('marketDataApi', () => {
         period: 'daily',
         market: 'CF',
       },
+    })
+  })
+
+  it('listCoverage calls the data trust coverage endpoint', async () => {
+    vi.mocked(api.get).mockResolvedValue({ items: [], total: 0, refreshed: false })
+
+    await marketDataApi.listCoverage({ asset_type: 'stock', timeframe: '1d', provider: 'local_csv' })
+
+    expect(api.get).toHaveBeenCalledWith('/data/trust/coverage', {
+      params: { asset_type: 'stock', timeframe: '1d', provider: 'local_csv' },
+    })
+  })
+
+  it('runPrecheck posts to the data trust precheck endpoint', async () => {
+    vi.mocked(api.post).mockResolvedValue({ passed: true })
+
+    await marketDataApi.runPrecheck({ asset_type: 'stock', symbol: '000001', timeframe: '1d' })
+
+    expect(api.post).toHaveBeenCalledWith('/data/trust/precheck', {
+      asset_type: 'stock',
+      symbol: '000001',
+      timeframe: '1d',
     })
   })
 })

@@ -1,3 +1,8 @@
+import type {
+  DataPrecheckResponse,
+  RobustnessTestResultResponse,
+} from './trust'
+
 // 用户相关类型
 export interface UserInfo {
   id: string
@@ -33,7 +38,15 @@ export interface BacktestRequest {
   end_date: string
   initial_cash?: number
   commission?: number
-  params?: Record<string, number | string>
+  params?: Record<string, number | string | boolean | null>
+  runtime_dir?: string
+  timeframe?: string
+  timeframe_n?: number
+  bar_count?: number | null
+  asset_type?: string | null
+  data_provider?: string | null
+  require_data_precheck?: boolean
+  data_precheck?: Record<string, unknown>
 }
 
 export interface BacktestResponse {
@@ -64,6 +77,15 @@ export interface BacktestResult {
   total_trades: number
   profitable_trades: number
   losing_trades: number
+  average_holding_bars?: number | null
+  max_consecutive_wins?: number
+  max_consecutive_losses?: number
+  profit_loss_ratio?: number | null
+  metrics_source?: string | null
+  standard_metrics?: Record<string, unknown>
+  result_summary?: Record<string, unknown>
+  data_precheck?: DataPrecheckResponse | null
+  robustness?: RobustnessTestResultResponse | null
   equity_curve: number[]
   equity_dates: string[]
   drawdown_curve: number[]

@@ -88,6 +88,7 @@ _UNIT_RUN_PY = textwrap.dedent(
     import logging
     import os
     import sys
+    import time
     from pathlib import Path
 
     import backtrader as bt
@@ -139,6 +140,19 @@ _UNIT_RUN_PY = textwrap.dedent(
         if isinstance(value, bool):
             return value
         return str(value).strip().lower() not in {'0', 'false', 'no', 'off', ''}
+
+
+    def _keepalive_seconds(config: dict) -> float:
+        env_keepalive = os.environ.get('BACKTRADER_KEEPALIVE_AFTER_RUN')
+        if _safe_bool(env_keepalive, False):
+            return _safe_float(os.environ.get('BACKTRADER_KEEPALIVE_SECONDS'), 3600.0)
+        for section_key in ('unit_settings', 'live', 'simulate'):
+            section = config.get(section_key) or {}
+            if not isinstance(section, dict):
+                continue
+            if _safe_bool(section.get('keepalive_after_run'), False):
+                return _safe_float(section.get('keepalive_seconds'), 3600.0)
+        return 0.0
 
 
     def _first_number(*values, default=None):
@@ -868,6 +882,12 @@ _UNIT_RUN_PY = textwrap.dedent(
         results = cerebro.run()
         final_value = cerebro.broker.getvalue()
         logger.info('Final value: %s', final_value)
+        keepalive_seconds = _keepalive_seconds(config)
+        if keepalive_seconds > 0:
+            deadline = time.monotonic() + keepalive_seconds
+            logger.info('Keeping local paper runtime alive for %.1fs', keepalive_seconds)
+            while time.monotonic() < deadline:
+                time.sleep(min(5.0, max(deadline - time.monotonic(), 0.1)))
         return results, final_value
 
 

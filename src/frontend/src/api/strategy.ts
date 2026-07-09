@@ -15,6 +15,10 @@ import type {
   WorkspaceReportCreateRequest,
   WorkspaceReportResponse,
 } from '@/types/workspace'
+import type {
+  QualityGateEvaluation,
+  RobustnessTestResultResponse,
+} from '@/types/trust'
 
 export interface StrategyCopilotDataSource {
   type: string
@@ -127,6 +131,7 @@ export interface AIStrategyResearchRunRequest {
     | 'review'
     | 'optimization'
     | 'validation'
+    | 'robustness'
     | 'paper_trading'
   >
   symbol: string
@@ -147,6 +152,12 @@ export interface AIStrategyResearchRunRequest {
   out_of_sample_ratio?: number
   min_out_of_sample_sharpe?: number | null
   min_out_of_sample_trades?: number | null
+  robustness_validation?: boolean
+  require_robustness_validation?: boolean
+  robustness_methods?: string[]
+  min_robustness_score?: number
+  robustness_monte_carlo_iterations?: number
+  robustness_random_seed?: number | null
   backtest_timeout_seconds?: number
   poll_interval_seconds?: number
   initial_cash?: number
@@ -155,6 +166,7 @@ export interface AIStrategyResearchRunRequest {
   calc_method?: string
   weight_mode?: string
   research_workspace_id?: string | null
+  mandate_id?: string | null
   trading_workspace_id?: string | null
   seed_strategy_id?: string | null
   continue_from_run_id?: string | null
@@ -169,6 +181,33 @@ export interface AIStrategyResearchRunRequest {
   optimization_config?: Record<string, unknown>
   gateway_config?: Record<string, unknown>
   continuation_context?: Record<string, unknown>
+}
+
+export interface InvestmentMandateCreateRequest {
+  raw_prompt: string
+  symbol?: string | null
+  symbol_name?: string | null
+  timeframe?: string | null
+  objective?: string | null
+  risk_constraints?: Record<string, unknown>
+  trading_constraints?: Record<string, unknown>
+  quality_gates?: Record<string, unknown>
+}
+
+export interface InvestmentMandateResponse {
+  id: string
+  raw_prompt: string
+  structured_goal: Record<string, unknown>
+  asset_scope: Record<string, unknown>
+  timeframe?: string | null
+  objective?: string | null
+  risk_constraints: Record<string, unknown>
+  trading_constraints: Record<string, unknown>
+  quality_gates: Record<string, unknown>
+  status: string
+  source: string
+  created_at: string
+  updated_at: string
 }
 
 export interface AIStrategyResearchConfigProfile {
@@ -250,6 +289,7 @@ export interface AIStrategyResearchDiagnostics {
   improvement_plan?: string[]
   promotion_ready?: boolean
   out_of_sample_validation?: AIStrategyOutOfSampleValidation
+  robustness_validation?: Record<string, unknown>
 }
 
 export interface AIStrategyIterationProgress {
@@ -301,6 +341,11 @@ export interface AIStrategyResearchIteration {
   validation_gate_evaluations?: AIStrategyQualityGateEvaluation[]
   validation_failures?: string[]
   validation_failure_reason?: string | null
+  robustness_status?: string | null
+  robustness_result?: RobustnessTestResultResponse | Record<string, unknown>
+  robustness_gate_evaluations?: Array<QualityGateEvaluation | AIStrategyQualityGateEvaluation>
+  robustness_failures?: string[]
+  robustness_failure_reason?: string | null
   quality_score: number
   quality_gate_evaluations: AIStrategyQualityGateEvaluation[]
   passed: boolean
@@ -389,11 +434,13 @@ export interface AIStrategyResearchRunRecord {
   best_sharpe: number
   best_quality_score: number
   best_quality_gate_evaluations: AIStrategyQualityGateEvaluation[]
+  robustness_validation?: Record<string, unknown>
   best_diagnostics?: AIStrategyResearchDiagnostics
   best_metrics: Record<string, unknown>
   best_strategy_id?: string | null
   best_strategy_name?: string | null
   research_workspace_id: string
+  mandate_id?: string | null
   seed_strategy_id?: string | null
   continued_from_run_id?: string | null
   continuation_source?: string | null
@@ -441,9 +488,11 @@ export interface AIStrategyResearchRunResponse {
   best_iteration?: number | null
   best_quality_score: number
   best_quality_gate_evaluations: AIStrategyQualityGateEvaluation[]
+  robustness_validation?: Record<string, unknown>
   best_diagnostics?: AIStrategyResearchDiagnostics
   best_metrics: Record<string, unknown>
   research_workspace: Workspace
+  mandate_id?: string | null
   iterations: AIStrategyResearchIteration[]
   best_strategy?: Strategy | null
   paper_trading?: AIStrategyPaperTradingStart | null
@@ -463,6 +512,7 @@ export interface AIStrategyResearchTaskResponse {
   completed_at?: string | null
   run_id?: string | null
   research_workspace_id?: string | null
+  mandate_id?: string | null
   request_snapshot?: AIStrategyResearchRunRequest & Record<string, unknown>
   request_explicit_fields?: string[]
   continued_from_run_id?: string | null
@@ -482,6 +532,7 @@ export interface AIStrategyResearchTaskResponse {
   best_sharpe?: number | null
   best_quality_score?: number | null
   best_quality_gate_evaluations?: AIStrategyQualityGateEvaluation[]
+  robustness_validation?: Record<string, unknown>
   best_diagnostics?: AIStrategyResearchDiagnostics
   best_metrics?: Record<string, unknown>
   best_strategy_id?: string | null
@@ -517,6 +568,69 @@ export interface AIStrategyResearchTaskResponse {
   error?: string | null
   message: string
   result?: AIStrategyResearchRunResponse | null
+}
+
+export interface ResearchPipelineEvent {
+  id: string
+  run_id: string
+  workspace_id?: string | null
+  mandate_id?: string | null
+  stage: string
+  status: string
+  iteration?: number | null
+  summary?: string | null
+  input_payload: Record<string, unknown>
+  output_payload: Record<string, unknown>
+  metrics: Record<string, unknown>
+  error?: string | null
+  created_at: string
+}
+
+export interface ResearchTimelineResponse {
+  run_id: string
+  total: number
+  items: ResearchPipelineEvent[]
+}
+
+export interface AIStrategyResearchVersion {
+  id: string
+  run_id: string
+  workspace_id?: string | null
+  mandate_id?: string | null
+  strategy_id?: string | null
+  unit_id?: string | null
+  backtest_task_id?: string | null
+  version_no: number
+  version_name: string
+  parent_version_id?: string | null
+  strategy_name?: string | null
+  code: string
+  params: Record<string, unknown>
+  ai_rationale?: string | null
+  change_summary?: string | null
+  backtest_metrics: Record<string, unknown>
+  quality_gate_evaluations: AIStrategyQualityGateEvaluation[]
+  quality_gate_status: string
+  review: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface AIStrategyResearchVersionListResponse {
+  run_id: string
+  total: number
+  items: AIStrategyResearchVersion[]
+}
+
+export interface AIStrategyResearchVersionCompareResponse {
+  run_id: string
+  left: AIStrategyResearchVersion
+  right: AIStrategyResearchVersion
+  metric_deltas: Record<string, unknown>
+  gate_deltas: Record<string, unknown>
+  code_diff: string
+  verdict: string
+  summary: string
 }
 
 export interface AIStrategyResearchTaskListResponse {
@@ -611,6 +725,7 @@ export interface AIStrategyLiveHandoffPackage {
   best_metrics: Record<string, unknown>
   asset_specs: Record<string, unknown>
   backtest_environment: Record<string, unknown>
+  robustness_validation?: Record<string, unknown>
   paper_review_status?: string | null
   paper_reviewed_at?: string | null
   paper_review_evaluations: AIStrategyPaperTradingRuleEvaluation[]
@@ -649,6 +764,7 @@ export interface AIStrategyPipelineStep {
   max_iterations?: number
   review_status?: string | null
   validation_status?: string | null
+  robustness_status?: string | null
   live_trading_prepared?: boolean
   live_workspace_id?: string | null
   live_unit_id?: string | null
@@ -710,7 +826,11 @@ export interface StrategyScoreResponse {
   dimensions: StrategyScoreDimension[]
 }
 
-export type StrategyOverfittingMethod = 'walk_forward' | 'out_of_sample' | 'monte_carlo'
+export type StrategyOverfittingMethod =
+  | 'walk_forward'
+  | 'out_of_sample'
+  | 'monte_carlo'
+  | 'parameter_sensitivity'
 export type StrategyOverfittingRiskLevel = 'low' | 'medium' | 'high'
 
 export interface StrategyOverfittingAnalysisRequest {
@@ -888,6 +1008,19 @@ export const strategyApi = {
     )
   },
 
+  async createAIResearchMandate(
+    data: InvestmentMandateCreateRequest
+  ): Promise<InvestmentMandateResponse> {
+    return api.post<InvestmentMandateResponse, InvestmentMandateCreateRequest>(
+      '/strategy/ai-research/mandates',
+      data
+    )
+  },
+
+  async getAIResearchMandate(mandateId: string): Promise<InvestmentMandateResponse> {
+    return api.get<InvestmentMandateResponse>(`/strategy/ai-research/mandates/${mandateId}`)
+  },
+
   async submitAIResearchTask(
     data: AIStrategyResearchRunRequest
   ): Promise<AIStrategyResearchTaskResponse> {
@@ -952,6 +1085,38 @@ export const strategyApi = {
     return api.get<AIStrategyResearchRunRecord>(`/strategy/ai-research/runs/${runId}`, {
       params: { research_workspace_id: researchWorkspaceId || undefined },
     })
+  },
+
+  async getAIResearchTimeline(
+    runId: string,
+    researchWorkspaceId?: string | null
+  ): Promise<ResearchTimelineResponse> {
+    return api.get<ResearchTimelineResponse>(`/strategy/ai-research/runs/${runId}/timeline`, {
+      params: { research_workspace_id: researchWorkspaceId || undefined },
+    })
+  },
+
+  async listAIResearchVersions(
+    runId: string,
+    researchWorkspaceId?: string | null
+  ): Promise<AIStrategyResearchVersionListResponse> {
+    return api.get<AIStrategyResearchVersionListResponse>(
+      `/strategy/ai-research/runs/${runId}/versions`,
+      { params: { research_workspace_id: researchWorkspaceId || undefined } }
+    )
+  },
+
+  async getAIResearchVersion(versionId: string): Promise<AIStrategyResearchVersion> {
+    return api.get<AIStrategyResearchVersion>(`/strategy/ai-research/versions/${versionId}`)
+  },
+
+  async compareAIResearchVersions(
+    leftId: string,
+    rightId: string
+  ): Promise<AIStrategyResearchVersionCompareResponse> {
+    return api.get<AIStrategyResearchVersionCompareResponse>(
+      `/strategy/ai-research/versions/${leftId}/compare/${rightId}`
+    )
   },
 
   async startAIResearchPaperTrading(

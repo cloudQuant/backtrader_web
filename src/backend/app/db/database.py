@@ -577,6 +577,23 @@ def _ensure_scanner_plan_schema_compatibility_sync(bind) -> None:
         )
 
 
+def _ensure_ai_research_schema_compatibility_sync(bind) -> None:
+    from app.models.ai_research import (
+        AIStrategyResearchVersion,
+        AIStrategyResearchVersionComparison,
+        InvestmentMandate,
+        ResearchPipelineEvent,
+    )
+
+    for table in (
+        InvestmentMandate.__table__,
+        ResearchPipelineEvent.__table__,
+        AIStrategyResearchVersion.__table__,
+        AIStrategyResearchVersionComparison.__table__,
+    ):
+        table.create(bind=bind, checkfirst=True)
+
+
 async def ensure_schema_compatibility() -> None:
     """Patch legacy databases with columns required by the current ORM schema."""
     async with engine.begin() as conn:
@@ -590,6 +607,7 @@ async def ensure_schema_compatibility() -> None:
         await conn.run_sync(_ensure_news_intelligence_schema_compatibility_sync)
         await conn.run_sync(_ensure_stock_analysis_schema_compatibility_sync)
         await conn.run_sync(_ensure_scanner_plan_schema_compatibility_sync)
+        await conn.run_sync(_ensure_ai_research_schema_compatibility_sync)
 
 
 async def create_tables() -> None:
@@ -608,6 +626,7 @@ async def create_tables() -> None:
         await conn.run_sync(_ensure_news_intelligence_schema_compatibility_sync)
         await conn.run_sync(_ensure_stock_analysis_schema_compatibility_sync)
         await conn.run_sync(_ensure_scanner_plan_schema_compatibility_sync)
+        await conn.run_sync(_ensure_ai_research_schema_compatibility_sync)
 
 
 async def init_db():

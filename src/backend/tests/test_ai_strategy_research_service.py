@@ -4468,6 +4468,13 @@ async def test_prepare_live_trading_from_approved_handoff_creates_locked_live_un
     assert prepared.unit.gateway_config["name"] == "ctp_live"
     assert prepared.unit.unit_settings["ai_research_live_handoff"]["run_id"] == "live-prepare-run"
     assert prepared.unit.unit_settings["asset_spec_source"] == "exchange"
+    assert prepared.unit.unit_settings["live_risk_gate"]["passed"] is True
+    assert prepared.unit.unit_settings["live_risk_gate"]["status"] == "passed"
+    assert any(
+        item["key"] == "risk_limits_confirmed" and item["passed"] is True
+        for item in prepared.unit.unit_settings["live_risk_gate"]["evaluations"]
+    )
+    assert prepared.handoff["live_risk_gate"]["passed"] is True
     assert "锁定的实盘交易单元" in prepared.next_actions[0]
 
     persisted_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
@@ -4484,6 +4491,113 @@ async def test_prepare_live_trading_from_approved_handoff_creates_locked_live_un
     ] == "live-unit"
     live_handoff = workspace_service.workspaces["live-ws"].settings["ai_research_live_handoff"]
     assert live_handoff["last_handoff"]["live_unit_id"] == "live-unit"
+
+
+@pytest.mark.asyncio
+async def test_prepare_live_trading_blocks_blacklisted_symbol_risk_gate():
+    workspace_service = FakeWorkspaceService()
+    workspace_service.workspaces["live-ws"] = _workspace("live-ws", "trading")
+    live_readiness_checklist = [
+        {
+            "key": "paper_monitoring_passed",
+            "label": "模拟监控通过",
+            "status": "passed",
+            "evidence": "模拟交易滚动 Sharpe 0.8 / 0.6。",
+            "action": "继续监控同一组指标。",
+        },
+        {
+            "key": "human_approval_required",
+            "label": "人工实盘审批",
+            "status": "pending_manual_confirmation",
+            "evidence": "模拟复核已达到实盘候选状态。",
+            "action": "确认账户权限和上线窗口后再切换实盘。",
+        },
+    ]
+    run = {
+        **_run_record(
+            "live-prepare-risk-block-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-02T00:00:00+00:00",
+        ),
+        "paper_review_status": "ready_for_live_candidate",
+        "paper_review_ready_for_live": True,
+        "paper_reviewed_at": "2026-01-02T00:00:00+00:00",
+        "paper_review_evaluations": [
+            {
+                "key": "rolling_sharpe",
+                "label": "模拟交易滚动 Sharpe",
+                "metric": "rolling_sharpe",
+                "window": "30 trading days",
+                "direction": "min",
+                "threshold": 0.6,
+                "actual": 0.8,
+                "source": "unit_status.metrics_snapshot",
+                "status": "passed",
+                "passed": True,
+                "action": "继续观察",
+            }
+        ],
+        "paper_review_next_actions": ["模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。"],
+        "live_readiness_checklist": live_readiness_checklist,
+        "live_readiness_expires_at": "2999-01-08T00:00:00+00:00",
+        "paper_handoff": {
+            "run_id": "live-prepare-risk-block-run",
+            "gateway_config": {"name": "paper_gateway", "params": {"exchange": "sim"}},
+        },
+        "pipeline": {
+            "current_stage": "live_candidate",
+            "status": "achieved",
+            "progress": 100,
+            "ready_for_live": True,
+            "live_readiness_checklist": live_readiness_checklist,
+            "live_readiness_expires_at": "2999-01-08T00:00:00+00:00",
+            "steps": [],
+        },
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [run]}}},
+    )
+    strategy = _strategy("strategy-2", build_ai_strategy_draft("生成趋势策略"))
+    service = AIStrategyResearchService(
+        strategy_service=FakeStrategyService(
+            workspace_service,
+            [],
+            strategies={strategy.id: strategy},
+        ),
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+    await service.record_live_handoff_approval(
+        "user-1",
+        "live-prepare-risk-block-run",
+        AIStrategyLiveHandoffApprovalRequest(
+            decision="approved",
+            approver="risk-manager",
+            comment="账户和风控已确认",
+            account_confirmed=True,
+            risk_limit_confirmed=True,
+            deployment_window="2026-01-03 09:30",
+        ),
+        research_workspace_id="research-ws",
+    )
+
+    with pytest.raises(ValueError, match="风控检查未通过"):
+        await service.prepare_live_trading_from_run(
+            "user-1",
+            "live-prepare-risk-block-run",
+            AIStrategyLiveTradingPrepareRequest(
+                research_workspace_id="research-ws",
+                trading_workspace_id="live-ws",
+                gateway_config={
+                    "name": "ctp_live",
+                    "params": {"broker_id": "sim"},
+                    "risk_limits": {"blacklisted_symbols": ["000001.SZ"]},
+                },
+            ),
+        )
+
+    assert workspace_service.created_units == []
 
 
 @pytest.mark.asyncio

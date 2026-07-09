@@ -5,6 +5,12 @@ schema creation helpers and tests can safely call ``create_all()``.
 """
 
 from app.models.ai_call_log import AICallLog
+from app.models.ai_research import (
+    AIStrategyResearchVersion,
+    AIStrategyResearchVersionComparison,
+    InvestmentMandate,
+    ResearchPipelineEvent,
+)
 from app.models.akshare_mgmt import (
     DataInterface,
     DataScript,
@@ -34,6 +40,12 @@ from app.models.knowledge_base import (
     KnowledgeBase,
     ModelConfig,
     ModelUsageLog,
+)
+from app.models.market_data_trust import (
+    AssetSpecModel,
+    MarketDataCoverageModel,
+    MarketDataQualityReportModel,
+    RobustnessTestResultModel,
 )
 from app.models.news_intelligence import NewsAnalysisModel, NewsArticleModel, NewsSourceModel
 from app.models.optimization import OptimizationTask
@@ -68,9 +80,12 @@ from app.models.workspace import StrategyUnit, Workspace
 __all__ = [
     "Account",
     "AICallLog",
+    "AIStrategyResearchVersion",
+    "AIStrategyResearchVersionComparison",
     "Alert",
     "AlertNotification",
     "AlertRule",
+    "AssetSpecModel",
     "AuditRecord",
     "BacktestResultModel",
     "BacktestTask",
@@ -87,6 +102,9 @@ __all__ = [
     "DataTable",
     "InterfaceCategory",
     "InterfaceParameter",
+    "InvestmentMandate",
+    "MarketDataCoverageModel",
+    "MarketDataQualityReportModel",
     "KnowledgeBase",
     "KBDocument",
     "DocumentChunk",
@@ -108,7 +126,9 @@ __all__ = [
     "PortfolioLedgerSnapshotModel",
     "PortfolioLedgerTransactionModel",
     "RefreshToken",
+    "ResearchPipelineEvent",
     "Role",
+    "RobustnessTestResultModel",
     "PromptTemplate",
     "ScannerPlanModel",
     "ScannerPlanRunModel",

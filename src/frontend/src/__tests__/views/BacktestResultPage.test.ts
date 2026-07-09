@@ -196,9 +196,67 @@ vi.mock('@/api/analytics', () => ({
   },
 }))
 
+vi.mock('@/api/backtest', () => ({
+  backtestApi: {
+    getResult: vi.fn().mockResolvedValue({
+      task_id: 't1',
+      strategy_id: 's1',
+      symbol: 'BTC',
+      start_date: '2024-01-01',
+      end_date: '2024-01-31',
+      status: 'completed',
+      total_return: 15,
+      annual_return: 20,
+      sharpe_ratio: 1.5,
+      max_drawdown: -10,
+      win_rate: 60,
+      total_trades: 50,
+      profitable_trades: 30,
+      losing_trades: 20,
+      equity_curve: [100000],
+      equity_dates: ['2024-01-01'],
+      drawdown_curve: [0],
+      trades: [],
+      created_at: '2024-02-01T00:00:00',
+      result_summary: {
+        strategy_id: 's1',
+        symbol: 'BTC',
+        total_trades: 50,
+        sharpe_ratio: 1.5,
+      },
+      data_precheck: {
+        passed: true,
+        status: 'pass',
+        asset_type: 'crypto',
+        symbol: 'BTC',
+        timeframe: '1d',
+        provider: 'local_csv',
+        reasons: [],
+        warnings: [],
+        quality_reports: [],
+        gate_evaluations: [],
+      },
+      robustness: null,
+    }),
+    runRobustness: vi.fn().mockResolvedValue({
+      id: 'robust-1',
+      user_id: 'u1',
+      backtest_id: 't1',
+      method: 'overfitting_suite',
+      status: 'passed',
+      metrics: { robustness_score: 82 },
+      gate_evaluations: [],
+      report: {},
+      error_message: null,
+      created_at: '2024-02-01T00:00:00',
+    }),
+  },
+}))
+
 describe('BacktestResultPage', () => {
   beforeEach(async () => {
     const { analyticsApi } = await import('@/api/analytics')
+    const { backtestApi } = await import('@/api/backtest')
     const { strategyApi } = await import('@/api/strategy')
     setActivePinia(createPinia())
     mockPush.mockReset()
@@ -207,6 +265,8 @@ describe('BacktestResultPage', () => {
     vi.mocked(analyticsApi.getBacktestDetail).mockClear()
     vi.mocked(analyticsApi.getKlineWithSignals).mockClear()
     vi.mocked(analyticsApi.getMonthlyReturns).mockClear()
+    vi.mocked(backtestApi.getResult).mockClear()
+    vi.mocked(backtestApi.runRobustness).mockClear()
     vi.mocked(strategyApi.createScore).mockClear()
     vi.mocked(strategyApi.createOverfittingTask).mockClear()
     vi.mocked(strategyApi.getOverfittingTask).mockClear()

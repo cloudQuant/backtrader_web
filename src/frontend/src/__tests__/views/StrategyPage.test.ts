@@ -19,6 +19,7 @@ const strategyTemplates = vi.hoisted(() => [
 const routerPush = vi.hoisted(() => vi.fn())
 const routeQuery = vi.hoisted(() => ({} as Record<string, unknown>))
 const routePath = vi.hoisted(() => ({ value: '/investment/strategies' }))
+const aiResearchMandates = vi.hoisted(() => new Map<string, any>())
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({
@@ -69,6 +70,7 @@ vi.mock('@/api/strategy', () => ({
       items: [
         {
           run_id: 'history-run',
+          mandate_id: 'test-mandate',
           prompt: '历史趋势策略',
           symbol: '000001.SZ',
           symbol_name: '平安银行',
@@ -293,6 +295,7 @@ vi.mock('@/api/strategy', () => ({
       ],
       run_record: {
         run_id: 'run-1',
+        mandate_id: 'test-mandate',
         prompt: '生成一个趋势策略',
         symbol: '000001.SZ',
         symbol_name: '',
@@ -383,6 +386,42 @@ vi.mock('@/api/strategy', () => ({
       },
       message: 'ok',
     }),
+    createAIResearchMandate: vi.fn().mockImplementation((payload: Record<string, unknown>) => {
+      const mandate = {
+        id: 'test-mandate',
+        raw_prompt: String(payload.raw_prompt || '生成一个趋势策略'),
+        structured_goal: { objective: payload.raw_prompt || '生成一个趋势策略' },
+        asset_scope: { symbol: payload.symbol || '000001.SZ' },
+        timeframe: payload.timeframe || '1d',
+        objective: payload.raw_prompt || '生成一个趋势策略',
+        risk_constraints: payload.risk_constraints || {},
+        trading_constraints: payload.trading_constraints || {},
+        quality_gates: payload.quality_gates || {},
+        status: 'confirmed',
+        source: 'test',
+        created_at: '2026-06-27T00:00:00Z',
+        updated_at: '2026-06-27T00:00:00Z',
+      }
+      aiResearchMandates.set(mandate.id, mandate)
+      return Promise.resolve(mandate)
+    }),
+    getAIResearchMandate: vi.fn().mockImplementation((mandateId: string) => Promise.resolve(
+      aiResearchMandates.get(mandateId) || {
+        id: mandateId,
+        raw_prompt: '生成一个趋势策略',
+        structured_goal: { objective: '生成一个趋势策略' },
+        asset_scope: { symbol: '000001.SZ' },
+        timeframe: '1d',
+        objective: '生成一个趋势策略',
+        risk_constraints: {},
+        trading_constraints: {},
+        quality_gates: {},
+        status: 'confirmed',
+        source: 'test',
+        created_at: '2026-06-27T00:00:00Z',
+        updated_at: '2026-06-27T00:00:00Z',
+      }
+    )),
     startAIResearchPaperTrading: vi.fn().mockResolvedValue({
       workspace: {
         id: 'paper-ws',
@@ -815,9 +854,28 @@ describe('StrategyPage', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    aiResearchMandates.clear()
     Object.keys(routeQuery).forEach(key => delete routeQuery[key])
     routePath.value = '/investment/strategies'
   })
+
+  const setConfirmedAIResearchMandate = async (
+    wrapper: any,
+    overrides: Record<string, unknown> = {}
+  ) => {
+    const vm = wrapper.vm as any
+    await vm.parseAIResearchMandate({
+      prompt: vm.aiResearchForm?.prompt || '',
+      symbol: vm.aiResearchForm?.symbol || '000001.SZ',
+    })
+    if (Object.keys(overrides).length) {
+      vm.aiResearchMandate = {
+        ...vm.aiResearchMandate,
+        ...overrides,
+      }
+    }
+    vm.confirmAIResearchMandate()
+  }
 
   const doMount = () => mount(StrategyPage, { global: { stubs: elStubs } })
 
@@ -1142,6 +1200,7 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.weight_mode = 'value'
 
     vm.generateAIResearchPrompt()
+    await setConfirmedAIResearchMandate(wrapper)
 
     expect(vm.aiResearchForm.prompt).toContain('请为 沪深300股指期货（IF2409.CFE）')
     expect(vm.aiResearchForm.prompt).toContain('1h 级别的可执行 Backtrader 策略')
@@ -1164,6 +1223,8 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.prompt).toContain('样本外交易数不少于 3')
     expect(vm.aiResearchForm.prompt).toContain('至少观察 14 天')
     expect(ElMessage.success).toHaveBeenCalledWith('已生成策略研究目标')
+
+    await setConfirmedAIResearchMandate(wrapper)
 
     await vm.runAIResearchLoop()
 
@@ -1213,6 +1274,8 @@ describe('StrategyPage', () => {
     })
     vi.mocked(ElMessage.warning).mockClear()
 
+    await setConfirmedAIResearchMandate(wrapper)
+
     await vm.runAIResearchLoop()
 
     expect(vm.aiResearchForm.prompt).toContain('请为 沪深300股指期货（IF2409.CFE）')
@@ -1252,6 +1315,8 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.prompt = ''
     vm.aiResearchForm.symbol = '000001.SZ'
 
+    await setConfirmedAIResearchMandate(wrapper)
+
     await vm.runAIResearchLoop()
 
     expect(ElMessage.warning).toHaveBeenCalledWith('请输入策略研究提示，或切换为自动规划')
@@ -1290,6 +1355,7 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.live_gateway_config_json = (
       '{"name":"ctp_live","params":{"broker_id":"9999","exchange":"sim-live"}}'
     )
+    await setConfirmedAIResearchMandate(wrapper)
     await vm.runAIResearchLoop()
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
       prompt: '生成一个趋势策略',
@@ -1577,6 +1643,7 @@ describe('StrategyPage', () => {
     const vm = wrapper.vm as any
     vm.aiResearchForm.prompt = '生成一个先改进再达标的趋势策略'
     vm.aiResearchForm.symbol = '000001.SZ'
+    await setConfirmedAIResearchMandate(wrapper)
     await vm.runAIResearchLoop()
     await wrapper.vm.$nextTick()
 
@@ -1614,6 +1681,8 @@ describe('StrategyPage', () => {
       params: { exchange: 'sim', secret_key: '***' },
     })
 
+    await setConfirmedAIResearchMandate(wrapper)
+
     await vm.runAIResearchLoop()
 
     expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
@@ -1635,6 +1704,8 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.require_out_of_sample_validation = true
     vm.aiResearchForm.start_date = ''
     vm.aiResearchForm.end_date = ''
+
+    await setConfirmedAIResearchMandate(wrapper)
 
     await vm.runAIResearchLoop()
 
@@ -1720,6 +1791,8 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.prompt = '生成一个趋势策略'
     vm.aiResearchForm.symbol = '000001.SZ'
 
+    await setConfirmedAIResearchMandate(wrapper)
+
     await vm.runAIResearchLoop()
     await wrapper.vm.$nextTick()
 
@@ -1769,6 +1842,7 @@ describe('StrategyPage', () => {
     const vm = wrapper.vm as any
     vm.aiResearchForm.prompt = '生成一个趋势策略'
     vm.aiResearchForm.symbol = '000001.SZ'
+    await setConfirmedAIResearchMandate(wrapper)
     await vm.runAIResearchLoop()
     await wrapper.vm.$nextTick()
 
@@ -1788,6 +1862,7 @@ describe('StrategyPage', () => {
     const vm = wrapper.vm as any
     vm.aiResearchForm.prompt = '生成一个趋势策略'
     vm.aiResearchForm.symbol = '000001.SZ'
+    await setConfirmedAIResearchMandate(wrapper)
     await vm.runAIResearchLoop()
     const first = vm.aiResearchResult.iterations[0]
     vm.aiResearchResult = {
@@ -1889,6 +1964,8 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.prompt = '生成一个趋势策略'
     vm.aiResearchForm.symbol = '000001.SZ'
 
+    await setConfirmedAIResearchMandate(wrapper)
+
     await vm.runAIResearchLoop()
     await flushPromises()
 
@@ -1954,6 +2031,8 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.prompt = '生成一个趋势策略'
     vm.aiResearchForm.symbol = '000001.SZ'
 
+    await setConfirmedAIResearchMandate(wrapper)
+
     await vm.runAIResearchLoop()
     await flushPromises()
 
@@ -2008,6 +2087,8 @@ describe('StrategyPage', () => {
     vm.aiResearchForm.prompt = '生成一个趋势策略'
     vm.aiResearchForm.symbol = '000001.SZ'
 
+    await setConfirmedAIResearchMandate(wrapper)
+
     await vm.runAIResearchLoop()
     await flushPromises()
     await wrapper.vm.$nextTick()
@@ -2030,6 +2111,7 @@ describe('StrategyPage', () => {
     )
     expect(continueButton).toBeTruthy()
     vm.aiResearchForm.start_paper_trading = false
+    await setConfirmedAIResearchMandate(wrapper)
     await continueButton!.trigger('click')
     await flushPromises()
 
@@ -2189,6 +2271,7 @@ describe('StrategyPage', () => {
       const vm = wrapper.vm as any
       vm.aiResearchForm.prompt = '生成一个趋势策略'
       vm.aiResearchForm.symbol = '000001.SZ'
+      await setConfirmedAIResearchMandate(wrapper)
       await vm.runAIResearchLoop()
 
       expect((strategyApi as any).submitAIResearchTask).toHaveBeenCalledWith(expect.objectContaining({
@@ -2293,6 +2376,7 @@ describe('StrategyPage', () => {
       const vm = wrapper.vm as any
       vm.aiResearchForm.prompt = '继续优化股指期货策略'
       vm.aiResearchForm.symbol = 'IF2409.CFE'
+      await setConfirmedAIResearchMandate(wrapper)
       await vm.runAIResearchLoop()
 
       expect((strategyApi as any).getAIResearchTask).toHaveBeenCalledWith('continuation-runtime-task')
@@ -2403,6 +2487,7 @@ describe('StrategyPage', () => {
       const vm = wrapper.vm as any
       vm.aiResearchForm.prompt = '生成一个趋势策略'
       vm.aiResearchForm.symbol = '000001.SZ'
+      await setConfirmedAIResearchMandate(wrapper)
       await vm.runAIResearchLoop()
 
       expect((strategyApi as any).getAIResearchTask).toHaveBeenCalledWith('live-task-1')
@@ -2585,6 +2670,7 @@ describe('StrategyPage', () => {
       const vm = wrapper.vm as any
       vm.aiResearchForm.prompt = '生成一个趋势策略'
       vm.aiResearchForm.symbol = 'IF2409.CFE'
+      await setConfirmedAIResearchMandate(wrapper)
       await vm.runAIResearchLoop()
 
       expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
@@ -2737,6 +2823,7 @@ describe('StrategyPage', () => {
       vm.aiResearchForm.symbol_name = '沪深300股指期货'
       vm.aiResearchForm.timeframe = '1h'
       vm.aiResearchForm.target_sharpe = 1
+      await setConfirmedAIResearchMandate(wrapper)
       await vm.runAIResearchLoop()
       await wrapper.vm.$nextTick()
 
@@ -2895,6 +2982,7 @@ describe('StrategyPage', () => {
       const vm = wrapper.vm as any
       vm.aiResearchForm.prompt = '生成一个趋势策略'
       vm.aiResearchForm.symbol = '000001.SZ'
+      await setConfirmedAIResearchMandate(wrapper)
       await vm.runAIResearchLoop()
       await wrapper.vm.$nextTick()
 
@@ -3021,6 +3109,7 @@ describe('StrategyPage', () => {
       } as any)
       vm.aiResearchForm.prompt = '轮询取消的趋势策略'
       vm.aiResearchForm.symbol = '000001.SZ'
+      await setConfirmedAIResearchMandate(wrapper)
       await vm.runAIResearchLoop()
 
       expect((strategyApi as any).getAIResearchTask).toHaveBeenCalledWith('cancelled-poll-task')
@@ -3185,6 +3274,7 @@ describe('StrategyPage', () => {
       const vm = wrapper.vm as any
       vm.aiResearchForm.prompt = '恢复的趋势策略'
       vm.aiResearchForm.symbol = '000001.SZ'
+      await setConfirmedAIResearchMandate(wrapper)
       await vm.runAIResearchLoop()
 
       expect((strategyApi as any).getAIResearchTask).toHaveBeenCalledWith('research-task-without-result')
@@ -3478,6 +3568,7 @@ describe('StrategyPage', () => {
       vm.aiResearchForm.prompt = '生成一个趋势策略'
       vm.aiResearchForm.symbol = '000001.SZ'
       vm.aiResearchForm.max_iterations = 8
+      await setConfirmedAIResearchMandate(wrapper)
       await vm.runAIResearchLoop()
 
       expect((strategyApi as any).getAIResearchTask).toHaveBeenCalledTimes(245)
@@ -3720,6 +3811,7 @@ describe('StrategyPage', () => {
       const vm = wrapper.vm as any
       vm.aiResearchForm.prompt = '生成一个趋势策略'
       vm.aiResearchForm.symbol = '000001.SZ'
+      await setConfirmedAIResearchMandate(wrapper)
       await vm.runAIResearchLoop()
 
       expect(vm.aiResearchResult.run_id).toBe('summary-run')
@@ -3878,6 +3970,7 @@ describe('StrategyPage', () => {
     const vm = wrapper.vm as any
     vm.aiResearchForm.prompt = '生成一个趋势策略'
     vm.aiResearchForm.symbol = '000001.SZ'
+    await setConfirmedAIResearchMandate(wrapper)
     await vm.runAIResearchLoop()
     const startPaperButton = wrapper.findAll('button').find(button => button.text().includes('启动模拟'))
     expect(startPaperButton).toBeTruthy()
@@ -3906,6 +3999,7 @@ describe('StrategyPage', () => {
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续改进'))
     expect(continueButton).toBeTruthy()
     vm.aiResearchForm.start_paper_trading = false
+    await setConfirmedAIResearchMandate(wrapper)
     await continueButton!.trigger('click')
     await flushPromises()
 
@@ -3981,6 +4075,7 @@ describe('StrategyPage', () => {
     const vm = wrapper.vm as any
     vm.aiResearchForm.prompt = '生成一个趋势策略'
     vm.aiResearchForm.symbol = '000001.SZ'
+    await setConfirmedAIResearchMandate(wrapper)
     await vm.runAIResearchLoop()
     const startPaperButton = wrapper.findAll('button').find(button => button.text().includes('启动模拟'))
     expect(startPaperButton).toBeTruthy()
@@ -4000,6 +4095,7 @@ describe('StrategyPage', () => {
     )
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续改进'))
     expect(continueButton).toBeTruthy()
+    await setConfirmedAIResearchMandate(wrapper)
     await continueButton!.trigger('click')
     await flushPromises()
 
@@ -4688,6 +4784,7 @@ describe('StrategyPage', () => {
         .findAll('button')
         .find(button => button.text().includes('从任务继续'))
       expect(continueButton?.exists()).toBe(true)
+      await setConfirmedAIResearchMandate(wrapper)
       await continueButton!.trigger('click')
       await flushPromises()
 
@@ -4810,6 +4907,7 @@ describe('StrategyPage', () => {
         .find(button => button.text().includes('重新启动任务'))
       expect(retryButton?.exists()).toBe(true)
 
+      await setConfirmedAIResearchMandate(wrapper)
       await retryButton!.trigger('click')
       await flushPromises()
 
@@ -4883,6 +4981,7 @@ describe('StrategyPage', () => {
     const { strategyApi } = await import('@/api/strategy')
     const cancelledRecord: AIStrategyResearchRunRecord = {
       run_id: 'cancelled-run',
+      mandate_id: 'test-mandate',
       prompt: '取消中的趋势策略',
       symbol: '000001.SZ',
       symbol_name: '平安银行',
@@ -4981,6 +5080,8 @@ describe('StrategyPage', () => {
       expect(vm.aiResearchResult.run_record.best_strategy_id).toBe('saved-strategy-1')
       expect(vm.aiResearchRuns[0].run_id).toBe('cancelled-run')
       expect(vm.canContinueResearchFromCurrentRunRecord).toBe(true)
+      vm.useAIResearchRecord(cancelledRecord)
+      await setConfirmedAIResearchMandate(wrapper)
       await vm.continueResearchFromCurrentRunRecord()
       await flushPromises()
       expect(vm.aiResearchForm.continuation_source).toBe('research_cancelled')
@@ -5357,6 +5458,7 @@ describe('StrategyPage', () => {
     const vm = wrapper.vm as any
     const record: AIStrategyResearchRunRecord = {
       run_id: 'snapshot-run',
+      mandate_id: 'test-mandate',
       prompt: '历史快照策略',
       symbol: '600000.SH',
       symbol_name: '浦发银行',
@@ -5405,6 +5507,7 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.seed_strategy_id).toBe('snapshot-run-strategy')
     expect(vm.aiResearchForm.continue_from_run_id).toBe('snapshot-run')
 
+    await setConfirmedAIResearchMandate(wrapper)
     await vm.continueResearchFromRecord(record)
     await flushPromises()
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
@@ -5422,6 +5525,7 @@ describe('StrategyPage', () => {
     const vm = wrapper.vm as any
     const record: AIStrategyResearchRunRecord = {
       run_id: 'paper-review-run',
+      mandate_id: 'test-mandate',
       prompt: '历史模拟复核失败策略',
       symbol: '600000.SH',
       symbol_name: '浦发银行',
@@ -5546,6 +5650,8 @@ describe('StrategyPage', () => {
     })
     vi.mocked(strategyApi.runAIResearchLoop).mockClear()
     try {
+      vm.useAIResearchRecord(record)
+      await setConfirmedAIResearchMandate(wrapper)
       await vm.continueResearchFromRecord(record)
       await flushPromises()
 
@@ -5658,6 +5764,7 @@ describe('StrategyPage', () => {
     const vm = wrapper.vm as any
     const record = {
       run_id: 'history-run',
+      mandate_id: 'test-mandate',
       prompt: '历史趋势策略',
       symbol: '600000.SH',
       symbol_name: '浦发银行',
@@ -5699,7 +5806,9 @@ describe('StrategyPage', () => {
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续投研'))
     expect(continueButton).toBeTruthy()
     vm.aiResearchForm.start_paper_trading = false
-    await continueButton!.trigger('click')
+    vm.useAIResearchRecord(record)
+    await setConfirmedAIResearchMandate(wrapper)
+    await vm.continueResearchFromRecord(record)
     await flushPromises()
     expect(wrapper.text()).toContain('从未达标结果继续')
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
@@ -5720,6 +5829,7 @@ describe('StrategyPage', () => {
     const vm = wrapper.vm as any
     const record = {
       run_id: 'cancelled-run',
+      mandate_id: 'test-mandate',
       prompt: '历史趋势策略',
       symbol: '600000.SH',
       symbol_name: '浦发银行',
@@ -5764,7 +5874,9 @@ describe('StrategyPage', () => {
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续投研'))
     expect(continueButton).toBeTruthy()
     vm.aiResearchForm.start_paper_trading = false
-    await continueButton!.trigger('click')
+    vm.useAIResearchRecord(record)
+    await setConfirmedAIResearchMandate(wrapper)
+    await vm.continueResearchFromRecord(record)
     await flushPromises()
     expect(vm.aiResearchForm.continuation_source).toBe('research_cancelled')
     expect(wrapper.text()).toContain('从已取消任务继续')
@@ -5873,6 +5985,7 @@ describe('StrategyPage', () => {
     const vm = wrapper.vm as any
     const record = {
       run_id: 'backtest-failed-run',
+      mandate_id: 'test-mandate',
       prompt: '历史趋势策略',
       symbol: '600000.SH',
       symbol_name: '浦发银行',
@@ -5916,7 +6029,9 @@ describe('StrategyPage', () => {
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续投研'))
     expect(continueButton).toBeTruthy()
     vm.aiResearchForm.start_paper_trading = false
-    await continueButton!.trigger('click')
+    vm.useAIResearchRecord(record)
+    await setConfirmedAIResearchMandate(wrapper)
+    await vm.continueResearchFromRecord(record)
     await flushPromises()
     expect(wrapper.text()).toContain('从未达标结果继续')
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
@@ -7308,6 +7423,7 @@ describe('StrategyPage', () => {
       items: [
         {
           run_id: 'paper-failed-run',
+          mandate_id: 'test-mandate',
           prompt: '历史趋势策略',
           symbol: '600000.SH',
           symbol_name: '浦发银行',
@@ -7388,7 +7504,10 @@ describe('StrategyPage', () => {
     expect(lockPanel.text()).toContain('停止结果 paper-unit 已取消')
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续改进'))
     expect(continueButton).toBeTruthy()
-    await continueButton!.trigger('click')
+    const record = vm.aiResearchRuns[0]
+    vm.useAIResearchRecord(record)
+    await setConfirmedAIResearchMandate(wrapper)
+    await vm.continueResearchFromRecord(record)
     await flushPromises()
 
     expect(vm.aiResearchForm.continuation_source).toBe('paper_review')
@@ -7476,6 +7595,8 @@ describe('StrategyPage', () => {
     expect(vm.continuationSourceForRecord(record)).toBe('live_handoff_rejected')
     expect(vm.canContinueResearchFromPaperReview(record)).toBe(true)
     vm.aiResearchForm.start_paper_trading = false
+    vm.useAIResearchRecord(record)
+    await setConfirmedAIResearchMandate(wrapper)
     await vm.continueResearchFromRecord(record)
     await flushPromises()
 

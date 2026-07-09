@@ -30,6 +30,12 @@ from app.schemas.ai_strategy_research import (
     AIStrategyResearchTaskContinueRequest,
     AIStrategyResearchTaskListResponse,
     AIStrategyResearchTaskResponse,
+    AIStrategyResearchVersionCompareResponse,
+    AIStrategyResearchVersionListResponse,
+    AIStrategyResearchVersionResponse,
+    InvestmentMandateCreate,
+    InvestmentMandateResponse,
+    ResearchTimelineResponse,
 )
 from app.schemas.strategy import (
     StrategyCopilotBacktestRequest,
@@ -54,6 +60,9 @@ from app.services.ai_strategy_research_task_manager import (
     AIStrategyResearchTaskManager,
     get_ai_strategy_research_task_manager,
 )
+from app.services.ai_strategy_research_version_service import AIStrategyResearchVersionService
+from app.services.investment_mandate_service import InvestmentMandateService
+from app.services.research_pipeline_event_service import ResearchPipelineEventService
 from app.services.strategy_service import (
     StrategyService,
     get_strategy_dir,
@@ -85,6 +94,21 @@ def get_ai_strategy_research_tasks():
 @lru_cache
 def get_ai_strategy_research_config_profiles():
     return AIStrategyResearchConfigProfileService()
+
+
+@lru_cache
+def get_investment_mandate_service():
+    return InvestmentMandateService()
+
+
+@lru_cache
+def get_research_pipeline_event_service():
+    return ResearchPipelineEventService()
+
+
+@lru_cache
+def get_ai_strategy_research_version_service():
+    return AIStrategyResearchVersionService()
 
 
 @router.post("/", response_model=StrategyResponse, summary="Create strategy")
@@ -272,6 +296,38 @@ async def run_ai_strategy_research_loop(
         return redact_ai_strategy_research_payload(await service.run(current_user.sub, data))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/ai-research/mandates",
+    response_model=InvestmentMandateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Parse and confirm an AI investment research mandate",
+)
+async def create_ai_research_mandate(
+    data: InvestmentMandateCreate,
+    current_user=Depends(get_current_user),
+    service: InvestmentMandateService = Depends(get_investment_mandate_service),
+):
+    """Create a structured investment demand before launching AI research."""
+    return await service.create_mandate(current_user.sub, data)
+
+
+@router.get(
+    "/ai-research/mandates/{mandate_id}",
+    response_model=InvestmentMandateResponse,
+    summary="Get an AI investment research mandate",
+)
+async def get_ai_research_mandate(
+    mandate_id: str,
+    current_user=Depends(get_current_user),
+    service: InvestmentMandateService = Depends(get_investment_mandate_service),
+):
+    """Return one confirmed investment mandate."""
+    mandate = await service.get_mandate(current_user.sub, mandate_id)
+    if mandate is None:
+        raise HTTPException(status_code=404, detail="Investment mandate not found")
+    return mandate
 
 
 @router.get(
@@ -561,6 +617,112 @@ async def get_ai_strategy_research_run(
             status_code=status.HTTP_404_NOT_FOUND, detail="AI research run not found"
         )
     return record
+
+
+@router.get(
+    "/ai-research/runs/{run_id}/timeline",
+    response_model=ResearchTimelineResponse,
+    summary="Get AI strategy research timeline",
+)
+async def get_ai_strategy_research_timeline(
+    run_id: str,
+    current_user=Depends(get_current_user),
+    run_service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+    event_service: ResearchPipelineEventService = Depends(get_research_pipeline_event_service),
+    research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
+):
+    """Return persisted stage events for a research run, with legacy fallback."""
+    try:
+        timeline = await event_service.list_events(
+            current_user.sub,
+            run_id,
+            workspace_id=research_workspace_id,
+        )
+        if timeline.items:
+            return timeline
+        record = await run_service.get_run_record(
+            current_user.sub,
+            run_id,
+            research_workspace_id=research_workspace_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AI research run not found"
+        )
+    return event_service.synthesize_from_run_record(record)
+
+
+@router.get(
+    "/ai-research/runs/{run_id}/versions",
+    response_model=AIStrategyResearchVersionListResponse,
+    summary="List AI strategy research versions for a run",
+)
+async def list_ai_strategy_research_versions(
+    run_id: str,
+    current_user=Depends(get_current_user),
+    run_service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+    version_service: AIStrategyResearchVersionService = Depends(
+        get_ai_strategy_research_version_service
+    ),
+    research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
+):
+    """Return strategy code versions produced by a research run."""
+    versions = await version_service.list_versions(current_user.sub, run_id)
+    if versions.items:
+        return versions
+    try:
+        record = await run_service.get_run_record(
+            current_user.sub,
+            run_id,
+            research_workspace_id=research_workspace_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AI research run not found"
+        )
+    return version_service.synthesize_from_run_record(record)
+
+
+@router.get(
+    "/ai-research/versions/{left_id}/compare/{right_id}",
+    response_model=AIStrategyResearchVersionCompareResponse,
+    summary="Compare two AI strategy research versions",
+)
+async def compare_ai_strategy_research_versions(
+    left_id: str,
+    right_id: str,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchVersionService = Depends(get_ai_strategy_research_version_service),
+):
+    """Compare metrics, gate status and code between two persisted AI research versions."""
+    try:
+        comparison = await service.compare_versions(current_user.sub, left_id, right_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if comparison is None:
+        raise HTTPException(status_code=404, detail="AI research version not found")
+    return comparison
+
+
+@router.get(
+    "/ai-research/versions/{version_id}",
+    response_model=AIStrategyResearchVersionResponse,
+    summary="Get one AI strategy research version",
+)
+async def get_ai_strategy_research_version(
+    version_id: str,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchVersionService = Depends(get_ai_strategy_research_version_service),
+):
+    """Return one persisted AI research strategy version."""
+    version = await service.get_version(current_user.sub, version_id)
+    if version is None:
+        raise HTTPException(status_code=404, detail="AI research version not found")
+    return version
 
 
 @router.post(

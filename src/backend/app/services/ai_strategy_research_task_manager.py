@@ -206,6 +206,7 @@ class AIStrategyResearchTaskManager:
             task_id=task_id,
             status="pending",
             submitted_at=_utc_iso_now(),
+            mandate_id=request.mandate_id,
             request_snapshot=_research_request_snapshot(request),
             request_explicit_fields=_research_request_explicit_fields(request),
             current_stage="queued",
@@ -1067,6 +1068,7 @@ def _research_progress_pipeline(
     max_iterations = _optional_int(payload.get("max_iterations")) or request.max_iterations
     paper_trading_error = _paper_trading_error_from_progress(payload)
     validation_status = _progress_validation_status(payload)
+    robustness_status = _progress_robustness_status(payload)
     steps = [
         {"key": "draft", "label": "策略生成", "status": _draft_step_status(stage)},
         {
@@ -1087,6 +1089,17 @@ def _research_progress_pipeline(
                 iteration_count=iteration_count,
             ),
             "validation_status": validation_status,
+        },
+        {
+            "key": "robustness_validation",
+            "label": "稳健性验证",
+            "status": _robustness_step_status(
+                stage,
+                request=request,
+                robustness_status=robustness_status,
+                iteration_count=iteration_count,
+            ),
+            "robustness_status": robustness_status,
         },
         {"key": "quality_gate", "label": "质量门槛", "status": _quality_step_status(stage)},
         {
@@ -1120,6 +1133,14 @@ def _progress_validation_status(payload: dict[str, Any]) -> str | None:
     return status or None
 
 
+def _progress_robustness_status(payload: dict[str, Any]) -> str | None:
+    latest = payload.get("latest_iteration")
+    if not isinstance(latest, dict):
+        return None
+    status = str(latest.get("robustness_status") or "").strip()
+    return status or None
+
+
 def _draft_step_status(stage: str) -> str:
     if stage in {"draft_generation_failed"}:
         return "failed"
@@ -1133,7 +1154,7 @@ def _draft_step_status(stage: str) -> str:
 def _backtest_step_status(stage: str) -> str:
     if stage in {"backtest_submission_failed", "backtest_failed", "backtest_timeout"}:
         return "failed"
-    if stage in {"backtesting", "validating", "evaluating", "improving"}:
+    if stage in {"backtesting", "validating", "robustness_validation", "evaluating", "improving"}:
         return "running"
     if stage in {
         "quality_achieved",
@@ -1176,6 +1197,31 @@ def _validation_step_status(
     return "pending"
 
 
+def _robustness_step_status(
+    stage: str,
+    *,
+    request: AIStrategyResearchRunRequest,
+    robustness_status: str | None,
+    iteration_count: int,
+) -> str:
+    if not request.robustness_validation:
+        return "skipped"
+    normalized = str(robustness_status or "").strip()
+    if normalized == "passed":
+        return "completed"
+    if normalized == "failed":
+        return "failed"
+    if stage == "configuration_invalid":
+        return "failed"
+    if stage == "robustness_validation":
+        return "running"
+    if stage == "cancelled":
+        return "cancelled"
+    if iteration_count <= 0 or stage in {"queued", "starting", "initializing", "workspace_ready"}:
+        return "pending"
+    return "pending"
+
+
 def _quality_step_status(stage: str) -> str:
     if stage == "configuration_invalid":
         return "failed"
@@ -1191,7 +1237,7 @@ def _quality_step_status(stage: str) -> str:
         return "completed"
     if stage in {"backtest_submission_failed", "backtest_failed", "backtest_timeout"}:
         return "failed"
-    if stage in {"backtesting", "validating", "evaluating", "improving"}:
+    if stage in {"backtesting", "validating", "robustness_validation", "evaluating", "improving"}:
         return "running"
     return "pending"
 
@@ -1277,6 +1323,11 @@ def _research_result_task_updates(result: Any) -> dict[str, Any]:
         getattr(record, "best_quality_gate_evaluations", None),
         getattr(result, "best_quality_gate_evaluations", None),
     )
+    robustness_validation = _first_non_empty_dict(
+        getattr(record, "robustness_validation", None),
+        getattr(result, "robustness_validation", None),
+        handoff.get("robustness_validation"),
+    )
     best_diagnostics = _first_non_empty_dict(
         getattr(record, "best_diagnostics", None),
         getattr(result, "best_diagnostics", None),
@@ -1323,6 +1374,7 @@ def _research_result_task_updates(result: Any) -> dict[str, Any]:
             getattr(result, "best_quality_score", None),
         ),
         "best_quality_gate_evaluations": best_quality_gate_evaluations,
+        "robustness_validation": robustness_validation,
         "best_diagnostics": best_diagnostics,
         "best_metrics": best_metrics,
         "best_strategy_id": getattr(record, "best_strategy_id", None)

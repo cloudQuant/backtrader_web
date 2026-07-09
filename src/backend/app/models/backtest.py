@@ -87,6 +87,12 @@ class BacktestResultModel(Base):
     max_drawdown = Column(Float, default=0)
     win_rate = Column(Float, default=0)
     metrics_source = Column(String(20), default="manual")  # 'manual' or 'fincore'
+    average_holding_bars = Column(Float, default=0)
+    max_consecutive_wins = Column(Integer, default=0)
+    max_consecutive_losses = Column(Integer, default=0)
+    profit_loss_ratio = Column(Float, default=0)
+    standard_metrics = Column(JSON, default=dict)
+    result_summary = Column(JSON, default=dict)
 
     # Trade statistics
     total_trades = Column(Integer, default=0)

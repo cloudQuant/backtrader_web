@@ -26,6 +26,7 @@ from app.services.log_parser_service import (
     parse_position_log,
 )
 from app.services.position_valuation import EPSILON, contract_spec_for, value_position
+from app.services.risk_gate_service import RiskGateService
 from app.services.trading_asset_info_service import (
     LONG_POSITION_FIELD_KEYS,
     POSITION_SIZE_FIELD_KEYS,
@@ -1912,6 +1913,7 @@ class TradingWorkspaceService:
         workspace_settings: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         manager = get_live_trading_manager()
+        risk_gate_service = RiskGateService()
         results: list[dict[str, Any]] = []
         normalized_workspace_settings = dict(workspace_settings or {})
 
@@ -1923,6 +1925,10 @@ class TradingWorkspaceService:
                     raise ValueError("该策略单元已锁定交易")
                 if not str(unit.strategy_id or "").strip():
                     raise ValueError("策略单元缺少策略模板")
+                risk_gate_service.assert_trading_unit_pre_run(
+                    unit,
+                    workspace_settings=normalized_workspace_settings,
+                )
 
                 instance = None
                 self._refresh_unit_asset_specs_from_local(unit, None)

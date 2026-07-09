@@ -168,6 +168,158 @@
       :description="result.warnings.join('；')"
     />
 
+    <section
+      v-loading="coverageLoading"
+      class="market-coverage-section"
+      data-test="market-coverage-matrix"
+    >
+      <div class="market-coverage-header">
+        <div>
+          <span>数据覆盖矩阵</span>
+          <p>{{ coverageMatrixSubtitle }}</p>
+        </div>
+        <div class="market-coverage-actions">
+          <el-select
+            v-model="coverageTimeframe"
+            size="small"
+            class="coverage-timeframe-select"
+            @change="loadCoverageMatrix()"
+          >
+            <el-option
+              label="1d"
+              value="1d"
+            />
+            <el-option
+              label="1h"
+              value="1h"
+            />
+            <el-option
+              label="30m"
+              value="30m"
+            />
+            <el-option
+              label="5m"
+              value="5m"
+            />
+          </el-select>
+          <el-input
+            v-model="coverageProvider"
+            size="small"
+            clearable
+            class="coverage-provider-input"
+            placeholder="provider"
+            @change="loadCoverageMatrix()"
+          />
+          <el-button
+            size="small"
+            :loading="coverageRefreshing"
+            data-test="market-coverage-refresh"
+            @click="refreshCoverageMatrix"
+          >
+            <el-icon aria-hidden="true">
+              <Refresh />
+            </el-icon>
+            <span>刷新覆盖</span>
+          </el-button>
+        </div>
+      </div>
+
+      <div class="market-coverage-summary">
+        <article
+          v-for="item in coverageSummaryCards"
+          :key="item.label"
+        >
+          <span>{{ item.label }}</span>
+          <strong :class="item.tone">{{ item.value }}</strong>
+        </article>
+      </div>
+
+      <el-alert
+        v-if="coverageError"
+        class="history-alert"
+        type="warning"
+        show-icon
+        :closable="false"
+        :title="coverageError"
+      />
+
+      <el-table
+        v-if="coverageRows.length"
+        :data="coverageRows"
+        stripe
+        max-height="360"
+      >
+        <el-table-column
+          label="状态"
+          width="96"
+        >
+          <template #default="{ row }">
+            <el-tag
+              size="small"
+              :type="coverageStatusTagType(row.quality_status)"
+            >
+              {{ coverageStatusLabel(row.quality_status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="symbol"
+          label="标的"
+          min-width="120"
+        />
+        <el-table-column
+          prop="asset_type"
+          label="资产"
+          width="100"
+        />
+        <el-table-column
+          prop="timeframe"
+          label="周期"
+          width="88"
+        />
+        <el-table-column
+          prop="provider"
+          label="来源"
+          min-width="120"
+        />
+        <el-table-column
+          label="区间"
+          min-width="180"
+        >
+          <template #default="{ row }">
+            {{ coverageDateRange(row) }}
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="行数"
+          width="110"
+          align="right"
+        >
+          <template #default="{ row }">
+            {{ formatNumber(row.row_count) }}
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="缺口"
+          width="110"
+          align="right"
+        >
+          <template #default="{ row }">
+            {{ formatCoverageRatio(row.missing_ratio) }}
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="latest_bar_time"
+          label="最新 Bar"
+          min-width="150"
+        />
+      </el-table>
+      <el-empty
+        v-else-if="!coverageLoading"
+        description="暂无本地覆盖扫描结果"
+      />
+    </section>
+
     <section class="market-workbench-grid">
       <el-card class="market-chart-card">
         <template #header>
@@ -526,6 +678,7 @@ import {
 } from '@/api/marketData'
 import { CANDLE_DOWN_COLOR, CANDLE_ITEM_STYLE, CANDLE_UP_COLOR } from '@/constants/chartColors'
 import type { DataTable } from '@/types'
+import type { MarketDataCoverageResponse } from '@/types/trust'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -1064,9 +1217,16 @@ const instrumentOptionsLoading = ref(false)
 const relatedTablesLoading = ref(false)
 const relatedTables = ref<DataTable[]>([])
 const relatedTablesError = ref('')
+const coverageRows = ref<MarketDataCoverageResponse[]>([])
+const coverageLoading = ref(false)
+const coverageRefreshing = ref(false)
+const coverageError = ref('')
+const coverageTimeframe = ref('1d')
+const coverageProvider = ref('local_csv')
 let marketChart: echarts.ECharts | null = null
 let instrumentOptionsRequestId = 0
 let relatedTableRequestId = 0
+let coverageRequestId = 0
 
 const snapshot = computed<Record<string, unknown>>(() => result.value?.snapshot || {})
 const historyRows = computed(() => result.value?.history.rows || [])
@@ -1134,6 +1294,24 @@ const heroStats = computed<KpiCard[]>(() => [
   metricCard('dataMgmt.heroStatRows', formatNumber(result.value?.history.total)),
   metricCard('dataMgmt.heroStatCoverage', `${coverageScore.value}%`),
 ])
+const coverageMatrixSubtitle = computed(() => {
+  const provider = coverageProvider.value.trim() || '全部来源'
+  return `${assetLabel(form.asset_type)} · ${coverageTimeframe.value} · ${provider}`
+})
+const coverageSummaryCards = computed<KpiCard[]>(() => {
+  const rows = coverageRows.value
+  const passed = rows.filter((row) => row.quality_status === 'pass').length
+  const warnings = rows.filter((row) => row.quality_status === 'warning').length
+  const failed = rows.filter((row) => row.quality_status === 'failed').length
+  const totalRows = rows.reduce((sum, row) => sum + (row.row_count || 0), 0)
+  return [
+    { label: '覆盖标的', value: formatNumber(rows.length), tone: '' },
+    { label: '通过', value: formatNumber(passed), tone: passed ? 'is-positive' : '' },
+    { label: '告警', value: formatNumber(warnings), tone: warnings ? 'is-warning' : '' },
+    { label: '失败', value: formatNumber(failed), tone: failed ? 'is-negative' : '' },
+    { label: '总行数', value: formatNumber(totalRows), tone: '' },
+  ]
+})
 const assetDataFamilies = computed<DataFamilyView[]>(() => buildAssetDataFamilies())
 const relatedTablesBadge = computed(() => {
   if (relatedTablesError.value) return t('dataMgmt.relatedTablesUnavailable')
@@ -1173,6 +1351,7 @@ const historyTableColumns = computed<HistoryTableColumn[]>(() => [
 onMounted(() => {
   applyRouteTab(route.query.tab, false)
   void loadInstrumentOptions(formSymbolText())
+  void loadCoverageMatrix()
   void lookupInstrument()
   window.addEventListener('resize', resizeMarketChart)
 })
@@ -1187,6 +1366,7 @@ watch(
   (tab) => {
     if (applyRouteTab(tab, true)) {
       void loadInstrumentOptions(formSymbolText())
+      void loadCoverageMatrix()
       void lookupInstrument()
     }
   },
@@ -1232,6 +1412,7 @@ function assetLabel(assetType: MarketAssetType) {
 function setAssetType(assetType: MarketAssetType) {
   if (applyAssetType(assetType)) {
     void loadInstrumentOptions(formSymbolText())
+    void loadCoverageMatrix()
     void lookupInstrument()
   }
 }
@@ -1286,6 +1467,50 @@ async function lookupInstrument() {
     ElMessage.error(t('dataMgmt.msgQueryFail'))
   } finally {
     loading.value = false
+  }
+}
+
+async function loadCoverageMatrix() {
+  const requestId = ++coverageRequestId
+  coverageLoading.value = true
+  coverageError.value = ''
+  try {
+    const response = await marketDataApi.listCoverage({
+      asset_type: form.asset_type,
+      timeframe: coverageTimeframe.value || undefined,
+      provider: coverageProvider.value.trim() || undefined,
+      limit: 200,
+    })
+    if (requestId !== coverageRequestId) return
+    coverageRows.value = response.items
+  } catch {
+    if (requestId === coverageRequestId) {
+      coverageRows.value = []
+      coverageError.value = '覆盖矩阵加载失败'
+    }
+  } finally {
+    if (requestId === coverageRequestId) {
+      coverageLoading.value = false
+    }
+  }
+}
+
+async function refreshCoverageMatrix() {
+  coverageRefreshing.value = true
+  coverageError.value = ''
+  try {
+    const response = await marketDataApi.refreshLocalCoverage({
+      asset_type: form.asset_type,
+      timeframe: coverageTimeframe.value || undefined,
+      limit: 500,
+    })
+    coverageRows.value = response.items
+    ElMessage.success('覆盖矩阵已刷新')
+  } catch {
+    coverageError.value = '覆盖矩阵刷新失败'
+    ElMessage.error(coverageError.value)
+  } finally {
+    coverageRefreshing.value = false
   }
 }
 
@@ -2124,6 +2349,35 @@ function formatPercent(value: unknown) {
   return `${numericValue >= 0 ? '+' : ''}${numericValue.toFixed(2)}%`
 }
 
+function coverageStatusTagType(status: string) {
+  if (status === 'pass') return 'success'
+  if (status === 'failed') return 'danger'
+  if (status === 'warning') return 'warning'
+  return 'info'
+}
+
+function coverageStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    pass: '通过',
+    warning: '告警',
+    failed: '失败',
+    unknown: '未知',
+  }
+  return labels[status] || status
+}
+
+function coverageDateRange(row: MarketDataCoverageResponse) {
+  const start = row.start_date || '-'
+  const end = row.end_date || '-'
+  return `${start} 至 ${end}`
+}
+
+function formatCoverageRatio(value: unknown) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return '-'
+  return `${(numeric * 100).toFixed(2)}%`
+}
+
 function toneClass(value: unknown) {
   const numericValue = Number(value)
   if (!Number.isFinite(numericValue) || numericValue === 0) return ''
@@ -2243,6 +2497,12 @@ function hasValue(value: unknown) {
   border-color: color-mix(in srgb, var(--warning-color) 38%, var(--market-border));
   background: color-mix(in srgb, var(--warning-color) 12%, var(--market-card-bg));
   color: var(--warning-color);
+}
+
+.history-data-page :deep(.el-tag.el-tag--danger) {
+  border-color: color-mix(in srgb, var(--danger-color) 38%, var(--market-border));
+  background: color-mix(in srgb, var(--danger-color) 12%, var(--market-card-bg));
+  color: var(--danger-color);
 }
 
 .history-data-page :deep(.el-tag.el-tag--info) {
@@ -2554,6 +2814,103 @@ function hasValue(value: unknown) {
 
 .history-alert {
   margin: 0;
+}
+
+.market-coverage-section {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--market-border);
+  border-radius: 8px;
+  background: var(--market-card-bg);
+  box-shadow: var(--market-shadow);
+}
+
+.market-coverage-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.market-coverage-header > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.market-coverage-header span {
+  color: var(--text-color-primary);
+  font-size: 15px;
+  font-weight: 740;
+  line-height: 1.3;
+}
+
+.market-coverage-header p {
+  margin: 0;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.market-coverage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.coverage-timeframe-select {
+  width: 92px;
+}
+
+.coverage-provider-input {
+  width: 150px;
+}
+
+.market-coverage-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.market-coverage-summary article {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--market-border);
+  border-radius: 8px;
+  background: var(--market-soft-bg);
+}
+
+.market-coverage-summary span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-color-secondary);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.market-coverage-summary strong {
+  display: block;
+  color: var(--text-color-primary);
+  font-size: 15px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.is-warning {
+  color: var(--warning-color) !important;
+}
+
+.market-coverage-section :deep(.el-table) {
+  --el-table-bg-color: var(--market-card-bg);
+  --el-table-tr-bg-color: var(--market-card-bg);
+  --el-table-header-bg-color: var(--market-soft-bg);
+  --el-table-row-hover-bg-color: var(--market-hover-bg);
+  --el-table-border-color: var(--market-border);
+  --el-table-text-color: var(--text-color-primary);
+  --el-table-header-text-color: var(--text-color-secondary);
 }
 
 .market-workbench-grid {
@@ -2971,6 +3328,10 @@ function hasValue(value: unknown) {
     grid-template-columns: 1fr;
   }
 
+  .market-coverage-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .data-family-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2991,6 +3352,7 @@ function hasValue(value: unknown) {
   .asset-detail-card :deep(.el-card__body),
   .history-table-card :deep(.el-card__header),
   .history-table-card :deep(.el-card__body),
+  .market-coverage-section,
   .data-catalog-section {
     padding: 14px;
   }
@@ -3012,9 +3374,25 @@ function hasValue(value: unknown) {
   }
 
   .market-chart-header,
+  .market-coverage-header,
   .data-catalog-header,
   .related-table-header {
     flex-direction: column;
+  }
+
+  .market-coverage-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .coverage-timeframe-select,
+  .coverage-provider-input,
+  .market-coverage-actions :deep(.el-button) {
+    width: 100%;
+  }
+
+  .market-coverage-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .market-chart-header {

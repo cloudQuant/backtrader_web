@@ -32,6 +32,13 @@ class BacktestRequest(BaseModel):
     timeframe: str = Field("1d", description="K-line timeframe e.g. 1d, 1h, 5m")
     timeframe_n: int = Field(1, ge=1, description="Timeframe multiplier")
     bar_count: int | None = Field(None, description="Number of bars to load (None = all)")
+    asset_type: str | None = Field(None, description="Optional asset type for data precheck")
+    data_provider: str | None = Field(None, description="Optional market data provider")
+    require_data_precheck: bool = Field(
+        False,
+        description="Reject the task when precheck finds blocking data/spec issues",
+    )
+    data_precheck: dict[str, Any] = Field(default_factory=dict, description="Precheck snapshot")
     params: dict[str, Any] = Field(default_factory=dict, description="Strategy parameters")
 
     model_config = ConfigDict(
@@ -123,6 +130,20 @@ class BacktestResult(BaseModel):
     max_drawdown: float = Field(0, description="Maximum drawdown (%)")
     win_rate: float = Field(0, description="Win rate (%)")
     metrics_source: str = Field("manual", description="Source of metric calculations")
+    average_holding_bars: float = Field(0, description="Average holding period in bars")
+    max_consecutive_wins: int = Field(0, description="Maximum consecutive winning trades")
+    max_consecutive_losses: int = Field(0, description="Maximum consecutive losing trades")
+    profit_loss_ratio: float = Field(0, description="Average profit / average loss ratio")
+    standard_metrics: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Unified metrics calculated by MetricsService",
+    )
+    result_summary: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Cached summary for fast first-screen rendering",
+    )
+    data_precheck: dict[str, Any] = Field(default_factory=dict, description="Data precheck snapshot")
+    robustness: dict[str, Any] | None = Field(None, description="Latest robustness result")
 
     # Trade statistics
     total_trades: int = Field(0, description="Total trades")

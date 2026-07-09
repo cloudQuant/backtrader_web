@@ -1,4 +1,11 @@
 import request from './index'
+import type {
+  AssetSpecResponse,
+  DataPrecheckRequest,
+  DataPrecheckResponse,
+  ExecutionModelResponse,
+  MarketDataCoverageMatrixResponse,
+} from '@/types/trust'
 
 export type MarketAssetType = 'stock' | 'futures' | 'bond' | 'fund' | 'option' | 'fx' | 'crypto'
 
@@ -110,6 +117,22 @@ export interface MarketInstrumentLookupResponse {
   warnings: string[]
 }
 
+export interface MarketDataCoverageQuery {
+  asset_type?: MarketAssetType | string | null
+  symbol?: string | null
+  timeframe?: string | null
+  provider?: string | null
+  refresh_if_empty?: boolean
+  limit?: number
+}
+
+export interface MarketDataCoverageRefreshQuery {
+  asset_type?: MarketAssetType | string | null
+  symbol?: string | null
+  timeframe?: string | null
+  limit?: number
+}
+
 export const marketDataApi = {
   listInstrumentOptions(params: MarketInstrumentOptionsParams) {
     return request.get<MarketInstrumentOptionsResponse>('/data/market-instruments/options', {
@@ -120,5 +143,29 @@ export const marketDataApi = {
     return request.get<MarketInstrumentLookupResponse>('/data/market-instruments/lookup', {
       params,
     })
+  },
+  getAssetSpec(symbol: string, params?: { asset_type?: MarketAssetType | string | null }) {
+    return request.get<AssetSpecResponse>(`/data/trust/asset-specs/${encodeURIComponent(symbol)}`, {
+      params,
+    })
+  },
+  getExecutionModel(symbol: string, params?: { asset_type?: MarketAssetType | string | null }) {
+    return request.get<ExecutionModelResponse>(
+      `/data/trust/asset-specs/${encodeURIComponent(symbol)}/execution-model`,
+      { params },
+    )
+  },
+  listCoverage(params: MarketDataCoverageQuery = {}) {
+    return request.get<MarketDataCoverageMatrixResponse>('/data/trust/coverage', {
+      params,
+    })
+  },
+  refreshLocalCoverage(params: MarketDataCoverageRefreshQuery = {}) {
+    return request.post<MarketDataCoverageMatrixResponse>('/data/trust/coverage/refresh-local', undefined, {
+      params,
+    })
+  },
+  runPrecheck(data: DataPrecheckRequest) {
+    return request.post<DataPrecheckResponse, DataPrecheckRequest>('/data/trust/precheck', data)
   },
 }

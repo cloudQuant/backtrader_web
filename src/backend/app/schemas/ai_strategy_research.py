@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.strategy import StrategyCopilotRunResult, StrategyResponse
 from app.schemas.workspace import StrategyUnitResponse, UnitStatusResponse, WorkspaceResponse
@@ -17,6 +17,7 @@ AIStrategyResearchWorkflowStep = Literal[
     "review",
     "optimization",
     "validation",
+    "robustness",
     "paper_trading",
 ]
 
@@ -35,6 +36,7 @@ AI_STRATEGY_RESEARCH_WORKFLOW_STEP_LABELS: dict[AIStrategyResearchWorkflowStep, 
     "review": "策略审查",
     "optimization": "策略优化",
     "validation": "样本外验证",
+    "robustness": "稳健性验证",
     "paper_trading": "模拟交易",
 }
 
@@ -45,6 +47,7 @@ AI_STRATEGY_RESEARCH_WORKFLOW_STEP_DESCRIPTIONS: dict[AIStrategyResearchWorkflow
     "review": "审查回测结果、失败原因、过拟合风险和实盘可执行性。",
     "optimization": "根据审查意见继续优化代码、参数和风控，必要时进入下一轮回测。",
     "validation": "对达标策略执行样本外验证，确认稳健性后再晋级。",
+    "robustness": "执行过拟合、参数扰动和 Monte Carlo 等稳健性验证，未通过不得晋级。",
     "paper_trading": "达标后进入模拟交易，复核滑点、费用、估值置信度和滚动表现。",
 }
 
@@ -120,6 +123,116 @@ class AIStrategyResearchConfigProfileImportResponse(BaseModel):
     file_path: str
     total: int
     items: list[AIStrategyResearchConfigProfile]
+
+
+class InvestmentMandateCreate(BaseModel):
+    """Create and parse a structured investment demand for AI research."""
+
+    raw_prompt: str = Field(..., min_length=1, description="Original user investment demand")
+    symbol: str | None = Field(None, max_length=50, description="Optional target symbol")
+    symbol_name: str | None = Field(None, max_length=200, description="Optional symbol display name")
+    timeframe: str | None = Field(None, max_length=20, description="Optional target timeframe")
+    objective: str | None = Field(None, max_length=500, description="Optional user-edited goal")
+    risk_constraints: dict[str, Any] = Field(default_factory=dict)
+    trading_constraints: dict[str, Any] = Field(default_factory=dict)
+    quality_gates: dict[str, Any] = Field(default_factory=dict)
+
+
+class InvestmentMandateResponse(BaseModel):
+    """Structured investment demand confirmed before running AI research."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    raw_prompt: str
+    structured_goal: dict[str, Any] = Field(default_factory=dict)
+    asset_scope: dict[str, Any] = Field(default_factory=dict)
+    timeframe: str | None = None
+    objective: str | None = None
+    risk_constraints: dict[str, Any] = Field(default_factory=dict)
+    trading_constraints: dict[str, Any] = Field(default_factory=dict)
+    quality_gates: dict[str, Any] = Field(default_factory=dict)
+    status: str = "confirmed"
+    source: str = "rule"
+    created_at: str
+    updated_at: str
+
+
+class ResearchPipelineEventResponse(BaseModel):
+    """One persisted stage event for an AI research run."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    run_id: str
+    workspace_id: str | None = None
+    mandate_id: str | None = None
+    stage: str
+    status: str
+    iteration: int | None = None
+    summary: str | None = None
+    input_payload: dict[str, Any] = Field(default_factory=dict)
+    output_payload: dict[str, Any] = Field(default_factory=dict)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+    created_at: str
+
+
+class ResearchTimelineResponse(BaseModel):
+    """Timeline response for one AI research run."""
+
+    run_id: str
+    total: int
+    items: list[ResearchPipelineEventResponse] = Field(default_factory=list)
+
+
+class AIStrategyResearchVersionResponse(BaseModel):
+    """Strategy code version generated inside one AI research run."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    run_id: str
+    workspace_id: str | None = None
+    mandate_id: str | None = None
+    strategy_id: str | None = None
+    unit_id: str | None = None
+    backtest_task_id: str | None = None
+    version_no: int
+    version_name: str
+    parent_version_id: str | None = None
+    strategy_name: str | None = None
+    code: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    ai_rationale: str | None = None
+    change_summary: str | None = None
+    backtest_metrics: dict[str, Any] = Field(default_factory=dict)
+    quality_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
+    quality_gate_status: str = "pending"
+    review: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+    updated_at: str
+
+
+class AIStrategyResearchVersionListResponse(BaseModel):
+    """List response for AI research strategy versions."""
+
+    run_id: str
+    total: int
+    items: list[AIStrategyResearchVersionResponse] = Field(default_factory=list)
+
+
+class AIStrategyResearchVersionCompareResponse(BaseModel):
+    """Comparison between two AI research strategy versions."""
+
+    run_id: str
+    left: AIStrategyResearchVersionResponse
+    right: AIStrategyResearchVersionResponse
+    metric_deltas: dict[str, Any] = Field(default_factory=dict)
+    gate_deltas: dict[str, Any] = Field(default_factory=dict)
+    code_diff: str = ""
+    verdict: str = "mixed"
+    summary: str = ""
 
 
 def _default_ai_research_workflow_steps() -> list[AIStrategyResearchWorkflowStep]:
@@ -309,6 +422,14 @@ def _build_default_ai_research_prompt(request: AIStrategyResearchRunRequest) -> 
     else:
         validation_lines.append("暂不启用样本外验证，但策略说明中必须提示过拟合风险。")
 
+    if request.robustness_validation:
+        robustness_methods = "、".join(request.robustness_methods or ["monte_carlo"])
+        validation_lines.append(
+            "晋级前必须完成稳健性验证："
+            f"方法 {robustness_methods}，"
+            f"稳健性得分不低于 {_format_research_number(request.min_robustness_score)}。"
+        )
+
     if request.start_paper_trading:
         validation_lines.append(
             "质量门槛达成后进入模拟交易，至少观察 "
@@ -424,6 +545,38 @@ class AIStrategyResearchRunRequest(BaseModel):
         ge=0,
         description="Optional minimum trades for out-of-sample validation",
     )
+    robustness_validation: bool = Field(
+        False,
+        description="Run robustness/overfitting validation before paper trading",
+    )
+    require_robustness_validation: bool = Field(
+        False,
+        description=(
+            "When enabled, an achieved backtest cannot be promoted to paper trading "
+            "unless robustness validation runs and passes"
+        ),
+    )
+    robustness_methods: list[str] = Field(
+        default_factory=lambda: ["monte_carlo"],
+        description="Robustness methods, e.g. monte_carlo, parameter_sensitivity, walk_forward",
+    )
+    min_robustness_score: float = Field(
+        55.0,
+        ge=0,
+        le=100,
+        description="Minimum robustness score required for promotion",
+    )
+    robustness_monte_carlo_iterations: int = Field(
+        300,
+        ge=50,
+        le=5000,
+        description="Monte Carlo iterations used by robustness validation",
+    )
+    robustness_random_seed: int | None = Field(
+        None,
+        ge=0,
+        description="Optional deterministic random seed for robustness validation",
+    )
     backtest_timeout_seconds: float = Field(
         600.0, ge=1.0, le=3600.0, description="Per-round backtest wait timeout"
     )
@@ -438,6 +591,10 @@ class AIStrategyResearchRunRequest(BaseModel):
     weight_mode: str = Field("equal", description="Portfolio weight mode")
 
     research_workspace_id: str | None = Field(None, description="Existing research workspace")
+    mandate_id: str | None = Field(
+        None,
+        description="Confirmed investment mandate ID used to audit this research run",
+    )
     trading_workspace_id: str | None = Field(None, description="Existing trading workspace")
     seed_strategy_id: str | None = Field(
         None,
@@ -506,6 +663,11 @@ class AIStrategyResearchIteration(BaseModel):
     validation_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
     validation_failures: list[str] = Field(default_factory=list)
     validation_failure_reason: str | None = None
+    robustness_status: str | None = None
+    robustness_result: dict[str, Any] = Field(default_factory=dict)
+    robustness_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
+    robustness_failures: list[str] = Field(default_factory=list)
+    robustness_failure_reason: str | None = None
     quality_score: float = 0.0
     quality_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
     passed: bool = False
@@ -639,6 +801,7 @@ class AIStrategyLiveHandoffPackage(BaseModel):
     best_metrics: dict[str, Any] = Field(default_factory=dict)
     asset_specs: dict[str, Any] = Field(default_factory=dict)
     backtest_environment: dict[str, Any] = Field(default_factory=dict)
+    robustness_validation: dict[str, Any] = Field(default_factory=dict)
     paper_review_status: str | None = None
     paper_reviewed_at: str | None = None
     paper_review_evaluations: list[dict[str, Any]] = Field(default_factory=list)
@@ -719,11 +882,13 @@ class AIStrategyResearchRunRecord(BaseModel):
     best_sharpe: float = 0.0
     best_quality_score: float = 0.0
     best_quality_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
+    robustness_validation: dict[str, Any] = Field(default_factory=dict)
     best_diagnostics: dict[str, Any] = Field(default_factory=dict)
     best_metrics: dict[str, Any] = Field(default_factory=dict)
     best_strategy_id: str | None = None
     best_strategy_name: str | None = None
     research_workspace_id: str
+    mandate_id: str | None = None
     seed_strategy_id: str | None = None
     continued_from_run_id: str | None = None
     continuation_source: str | None = None
@@ -781,9 +946,11 @@ class AIStrategyResearchRunResponse(BaseModel):
     best_iteration: int | None = None
     best_quality_score: float = 0.0
     best_quality_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
+    robustness_validation: dict[str, Any] = Field(default_factory=dict)
     best_diagnostics: dict[str, Any] = Field(default_factory=dict)
     best_metrics: dict[str, Any] = Field(default_factory=dict)
     research_workspace: WorkspaceResponse
+    mandate_id: str | None = None
     iterations: list[AIStrategyResearchIteration] = Field(default_factory=list)
     best_strategy: StrategyResponse | None = None
     paper_trading: AIStrategyPaperTradingStart | None = None
@@ -805,6 +972,7 @@ class AIStrategyResearchTaskResponse(BaseModel):
     completed_at: str | None = None
     run_id: str | None = None
     research_workspace_id: str | None = None
+    mandate_id: str | None = None
     request_snapshot: dict[str, Any] = Field(default_factory=dict)
     request_explicit_fields: list[str] = Field(default_factory=list)
     continued_from_run_id: str | None = None
@@ -824,6 +992,7 @@ class AIStrategyResearchTaskResponse(BaseModel):
     best_sharpe: float | None = None
     best_quality_score: float | None = None
     best_quality_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
+    robustness_validation: dict[str, Any] = Field(default_factory=dict)
     best_diagnostics: dict[str, Any] = Field(default_factory=dict)
     best_metrics: dict[str, Any] = Field(default_factory=dict)
     best_strategy_id: str | None = None

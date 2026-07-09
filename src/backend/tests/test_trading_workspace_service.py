@@ -4853,6 +4853,65 @@ async def test_start_units_injects_local_asset_specs_before_paper_runtime_sync(
 
 
 @pytest.mark.asyncio
+async def test_start_units_blocks_ai_live_unit_when_risk_gate_fails(monkeypatch):
+    unit = SimpleNamespace(
+        id="unit-live-risk-block",
+        workspace_id="ws-1",
+        group_name="AI实盘",
+        strategy_id="simulate/gateway_dual_ma",
+        strategy_name="AI Live Risk Block",
+        symbol="IF2609",
+        symbol_name="沪深300",
+        timeframe="1m",
+        timeframe_n=1,
+        category="future",
+        data_config={"ai_research_run_id": "run-risk"},
+        unit_settings={
+            "ai_research_live_handoff": {
+                "run_id": "run-risk",
+                "live_handoff_status": "approved_for_live",
+                "approval": {
+                    "approved": True,
+                    "risk_limit_confirmed": True,
+                },
+            },
+            "risk_limits": {"blacklisted_symbols": ["IF2609"]},
+        },
+        params={},
+        optimization_config={},
+        gateway_config={},
+        trading_mode="live",
+        lock_running=False,
+        lock_trading=False,
+        trading_instance_id=None,
+        run_status="idle",
+        run_count=0,
+        trading_snapshot={},
+        metrics_snapshot={},
+        bar_count=None,
+        last_run_time=None,
+    )
+
+    class FakeManager:
+        def add_instance(self, *_args, **_kwargs):
+            raise AssertionError("risk gate should run before live instance creation")
+
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "get_live_trading_manager",
+        lambda: FakeManager(),
+    )
+
+    results = await TradingWorkspaceService().start_units([unit], user_id="user-1")
+
+    assert results[0]["unit_id"] == "unit-live-risk-block"
+    assert results[0]["status"] == "failed"
+    assert "风控检查未通过" in results[0]["error"]
+    assert unit.run_status == "failed"
+    assert unit.trading_snapshot["instance_status"] == "error"
+
+
+@pytest.mark.asyncio
 async def test_start_units_injects_local_asset_specs_before_live_runtime_sync(
     tmp_path,
     monkeypatch,

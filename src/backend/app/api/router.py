@@ -19,6 +19,7 @@ from app.api.backtest_enhanced import router as backtest_enhanced_router
 from app.api.brokers import router as brokers_router
 from app.api.data.governance import router as data_governance_router
 from app.api.data.topics import router as data_topics_router
+from app.api.data.trust import router as data_trust_router
 from app.api.docs import router as docs_router
 from app.api.factor_lib import router as factor_lib_router
 from app.api.live_trading import router as live_trading_router
@@ -99,6 +100,7 @@ api_router.include_router(perf_attribution_router)
 api_router.include_router(brokers_router)
 api_router.include_router(data_governance_router)
 api_router.include_router(data_topics_router)
+api_router.include_router(data_trust_router, prefix="/data/trust", tags=["Data Trust"])
 api_router.include_router(news_intelligence_router)
 api_router.include_router(options_chain_router)
 api_router.include_router(scanners_router)

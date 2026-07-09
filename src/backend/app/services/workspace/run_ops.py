@@ -275,9 +275,10 @@ class WorkspaceRunOpsMixin:
             units = list(result.scalars().all())
 
             if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
-                changed = await self.trading_service.hydrate_units(units, user_id)
-                if changed:
-                    await session.commit()
+                # The status endpoint is polled frequently by the trading workspace UI.
+                # Persisting every hydrated runtime snapshot here causes concurrent
+                # polling requests to lock large batches of strategy_units rows.
+                await self.trading_service.hydrate_units(units, user_id, full_log=False)
                 return self.trading_service.build_status_responses(units)
 
             from app.services.backtest.service import BacktestService

@@ -42,8 +42,13 @@ from app.schemas.backtest_enhanced import (
     BacktestTaskCreatedEvent,
     TaskStatus,
 )
+from app.schemas.market_data_trust import RobustnessTestResultResponse, RobustnessValidationRequest
 from app.services.backtest_service import BacktestService
 from app.services.report_service import ReportService
+from app.services.robustness_validation_service import (
+    RobustnessValidationService,
+    get_robustness_validation_service,
+)
 from app.services.strategy_service import STRATEGIES_DIR, get_template_by_id
 from app.utils.response_cache import cache_response
 from app.websocket_manager import manager as ws_manager
@@ -61,6 +66,11 @@ def get_backtest_service():
 @lru_cache
 def get_report_service():
     return ReportService()
+
+
+@lru_cache
+def get_robustness_service():
+    return get_robustness_validation_service()
 
 
 def _build_strategy_report_metadata(strategy_id: str) -> dict[str, str]:
@@ -186,6 +196,45 @@ async def get_backtest_result(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Backtest result not found",
         )
+    return result
+
+
+@router.post(
+    "/{task_id}/robustness",
+    response_model=RobustnessTestResultResponse,
+    summary="Run robustness validation for a backtest",
+)
+async def run_backtest_robustness(
+    task_id: str,
+    data: RobustnessValidationRequest | None = None,
+    current_user=Depends(get_current_user),
+    service: RobustnessValidationService = Depends(get_robustness_service),
+):
+    """Run robustness validation and persist the result."""
+    try:
+        return await service.run_for_backtest(
+            backtest_id=task_id,
+            user_id=current_user.sub,
+            request=data or RobustnessValidationRequest(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{task_id}/robustness",
+    response_model=RobustnessTestResultResponse,
+    summary="Get latest robustness validation result",
+)
+async def get_backtest_robustness(
+    task_id: str,
+    current_user=Depends(get_current_user),
+    service: RobustnessValidationService = Depends(get_robustness_service),
+):
+    """Return the latest robustness validation result for one backtest."""
+    result = await service.get_latest(backtest_id=task_id, user_id=current_user.sub)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Robustness result not found")
     return result
 
 
