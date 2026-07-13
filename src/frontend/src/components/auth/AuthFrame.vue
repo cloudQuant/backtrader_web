@@ -391,9 +391,13 @@ onMounted(() => {
   border: 1px solid var(--success-border-color);
   border-radius: 8px;
   background: var(--fill-color-light);
-  color: var(--success-color);
+  color: var(--text-color-regular);
   font-size: 13px;
   font-weight: 650;
+}
+
+.auth-preview-status .el-icon {
+  color: var(--success-color);
 }
 
 @media (max-width: 920px) {

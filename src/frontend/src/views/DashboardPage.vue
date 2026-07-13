@@ -80,7 +80,10 @@
           :key="action.id"
           type="button"
           class="dashboard-action-card"
-          :class="`dashboard-action-card--${action.tone}`"
+          :class="[
+            `dashboard-action-card--${action.tone}`,
+            `dashboard-action-card--priority-${action.priority}`,
+          ]"
           :aria-label="action.title"
           @click="navigateTo(action.to)"
         >
@@ -269,6 +272,7 @@ interface DashboardAction {
   to: string
   icon: Component
   tone: DashboardTone
+  priority: 'primary' | 'secondary'
 }
 
 const dashboardIcons = {
@@ -323,6 +327,7 @@ const quickActions = computed<DashboardAction[]>(() => [
     to: '/research/workspaces',
     icon: dashboardIcons.backtests,
     tone: 'primary',
+    priority: 'primary',
   },
   {
     id: 'create-strategy',
@@ -331,6 +336,7 @@ const quickActions = computed<DashboardAction[]>(() => [
     to: '/research/strategies',
     icon: dashboardIcons.strategies,
     tone: 'success',
+    priority: 'secondary',
   },
   {
     id: 'query-data',
@@ -339,6 +345,7 @@ const quickActions = computed<DashboardAction[]>(() => [
     to: '/data/market',
     icon: dashboardIcons.data,
     tone: 'warning',
+    priority: 'secondary',
   },
 ])
 
@@ -696,17 +703,19 @@ onMounted(async () => {
 }
 
 .dashboard-action-card:hover {
-  border-color: var(--primary-color);
-  background: var(--bg-color-hover);
+  border-color: color-mix(in srgb, var(--primary-color) 42%, var(--border-color) 58%);
+  background: var(--fill-color-light);
   transform: translateY(-1px);
 }
 
-.dashboard-action-card--success:hover {
-  border-color: var(--success-border-color);
+.dashboard-action-card--priority-primary {
+  border-color: color-mix(in srgb, var(--primary-color) 52%, var(--border-color) 48%);
+  background: color-mix(in srgb, var(--bg-color) 86%, var(--primary-color) 14%);
 }
 
-.dashboard-action-card--warning:hover {
-  border-color: var(--warning-border-color);
+.dashboard-action-card--priority-primary:hover {
+  border-color: var(--primary-color);
+  background: color-mix(in srgb, var(--bg-color) 78%, var(--primary-color) 22%);
 }
 
 .dashboard-action-card:focus-visible {
@@ -736,6 +745,10 @@ onMounted(async () => {
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.dashboard-action-card--priority-primary .dashboard-action-copy span {
+  color: var(--text-color-regular);
 }
 
 .dashboard-action-arrow {

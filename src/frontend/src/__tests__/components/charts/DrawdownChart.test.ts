@@ -18,5 +18,7 @@ describe('DrawdownChart', () => {
       global: { stubs: elStubs },
     })
     expect(wrapper.exists()).toBe(true)
+    expect(wrapper.find('.chart-empty-state').exists()).toBe(true)
+    expect(wrapper.find('[role="img"]').attributes('aria-label')).toContain('个数据点')
   })
 })

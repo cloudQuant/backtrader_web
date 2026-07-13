@@ -17,15 +17,27 @@
         </el-button-group>
         <el-button
           size="small"
+          :aria-label="t('charts.tscExport')"
           @click="handleExport"
         >
           <el-icon><Download /></el-icon>
         </el-button>
       </div>
     </div>
+    <p class="sr-only">
+      {{ t('charts.tscA11ySummary', { candles: klines.length, buys: buySignalCount, sells: sellSignalCount }) }}
+    </p>
     <div
+      v-show="hasChartData"
       ref="chartRef"
+      role="img"
+      :aria-label="t('charts.tscA11ySummary', { candles: klines.length, buys: buySignalCount, sells: sellSignalCount })"
       :style="{ height: computedHeight + 'px' }"
+    />
+    <ChartEmptyState
+      v-if="!hasChartData"
+      :title="t('charts.chartNoDataTitle')"
+      :description="t('charts.chartNoDataDesc')"
     />
   </div>
 </template>
@@ -37,7 +49,9 @@ import type * as echarts from 'echarts'
 import { Download } from '@element-plus/icons-vue'
 import type { KlineData, TradeSignal } from '@/types/analytics'
 import { useChartResize } from '@/composables/useChartResize'
-import { CANDLE_DOWN_COLOR, CANDLE_ITEM_STYLE, CANDLE_UP_COLOR, TRADE_SIGNAL_MA_COLORS, TRADE_SIGNAL_SUB_COLORS } from '@/constants/chartColors'
+import ChartEmptyState from './ChartEmptyState.vue'
+import { getChartThemeColors } from '@/utils/chartTheme'
+import { TRADE_SIGNAL_MA_COLORS, TRADE_SIGNAL_SUB_COLORS } from '@/constants/chartColors'
 
 const { t } = useI18n()
 
@@ -73,6 +87,9 @@ const periods = computed(() => [
   { label: t('charts.tscPeriodAll'), value: 'all' },
 ])
 const selectedPeriod = ref('all')
+const hasChartData = computed(() => props.klines.length > 0)
+const buySignalCount = computed(() => props.signals.filter(signal => signal.type === 'buy').length)
+const sellSignalCount = computed(() => props.signals.filter(signal => signal.type === 'sell').length)
 
 watch(
   () => `${props.klines?.length}:${props.signals?.length}:${Object.keys(props.indicators ?? {}).length}`,
@@ -151,7 +168,8 @@ function classifyIndicators(): {
 
 function renderChart() {
   const chartInstance = getChart()
-  if (!chartInstance || !props.klines.length) return
+  if (!chartInstance || !hasChartData.value) return
+  const colors = getChartThemeColors()
 
   const dates = props.klines.map(k => k.date)
   const ohlc = props.klines.map(k => [k.open, k.close, k.low, k.high])
@@ -220,14 +238,34 @@ function renderChart() {
   // Buy/sell point markers
   const buyPoints = props.signals
     .filter(s => s.type === 'buy')
-    .map(s => ({ coord: [s.date, s.price * 0.98], value: s.price, itemStyle: { color: CANDLE_UP_COLOR }, symbol: 'triangle', symbolSize: 15 }))
+    .map(s => ({
+      coord: [s.date, s.price * 0.98],
+      value: s.price,
+      itemStyle: { color: colors.success },
+      symbol: 'triangle',
+      symbolSize: 15,
+      label: { show: true, formatter: t('charts.tscBuyMarker') },
+    }))
   const sellPoints = props.signals
     .filter(s => s.type === 'sell')
-    .map(s => ({ coord: [s.date, s.price * 1.02], value: s.price, itemStyle: { color: CANDLE_DOWN_COLOR }, symbol: 'triangle', symbolSize: 15, symbolRotate: 180 }))
+    .map(s => ({
+      coord: [s.date, s.price * 1.02],
+      value: s.price,
+      itemStyle: { color: colors.danger },
+      symbol: 'triangle',
+      symbolSize: 15,
+      symbolRotate: 180,
+      label: { show: true, formatter: t('charts.tscSellMarker') },
+    }))
 
   series.push({
     name: t('charts.tscDailyKline'), type: 'candlestick', data: ohlc,
-    itemStyle: CANDLE_ITEM_STYLE,
+    itemStyle: {
+      color: colors.success,
+      color0: colors.danger,
+      borderColor: colors.success,
+      borderColor0: colors.danger,
+    },
     markPoint: { data: [...buyPoints, ...sellPoints], label: { show: false } },
   } as unknown as echarts.SeriesOption)
 
@@ -243,7 +281,7 @@ function renderChart() {
   const volSeriesIdx = series.length
   series.push({
     name: t('charts.tscVolume'), type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: volumes,
-    itemStyle: { color: (_params: unknown) => ((_params as { data?: unknown[] }).data?.[2] === 1 ? CANDLE_UP_COLOR : CANDLE_DOWN_COLOR) },
+    itemStyle: { color: (_params: unknown) => ((_params as { data?: unknown[] }).data?.[2] === 1 ? colors.success : colors.danger) },
   } as unknown as echarts.SeriesOption)
 
   // 副图指标
@@ -275,10 +313,10 @@ function renderChart() {
     legend: { top: 0, left: 'center', data: legendData, selected: legendSelected, textStyle: { fontSize: 11 } },
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'cross' },
-      backgroundColor: 'rgba(255, 255, 255, 0.9)', borderWidth: 1, borderColor: '#ccc', padding: 10, textStyle: { color: '#333' },
+      backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 10, textStyle: { color: colors.text },
     },
     axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#777' } },
-    visualMap: { show: false, seriesIndex: volSeriesIdx, dimension: 2, pieces: [{ value: 1, color: CANDLE_UP_COLOR }, { value: -1, color: CANDLE_DOWN_COLOR }] },
+    visualMap: { show: false, seriesIndex: volSeriesIdx, dimension: 2, pieces: [{ value: 1, color: colors.success }, { value: -1, color: colors.danger }] },
     grid: grids,
     xAxis: xAxes,
     yAxis: yAxes,

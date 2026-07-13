@@ -20,11 +20,16 @@ describe('TradeSignalChart', () => {
   })
 
   it('mounts with empty data', () => {
-    expect(doMount().exists()).toBe(true)
+    const wrapper = doMount()
+    expect(wrapper.exists()).toBe(true)
+    expect(wrapper.find('.chart-empty-state').exists()).toBe(true)
+    expect(wrapper.find('[role="img"]').attributes('aria-label')).toContain('0')
   })
 
   it('mounts with kline data and signals', () => {
-    expect(doMount({ klines: sampleKlines, signals: sampleSignals }).exists()).toBe(true)
+    const wrapper = doMount({ klines: sampleKlines, signals: sampleSignals })
+    expect(wrapper.exists()).toBe(true)
+    expect(wrapper.find('.chart-empty-state').exists()).toBe(false)
   })
 
   it('renders chart container', () => {

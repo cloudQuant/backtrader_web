@@ -3,7 +3,10 @@
     trigger="click"
     @command="handleThemeChange"
   >
-    <el-button circle>
+    <el-button
+      circle
+      :aria-label="t('commonUi.themeCurrentLabel', { label: themeStore.currentThemeLabel })"
+    >
       <span class="theme-icon">{{ themeStore.currentThemeIcon }}</span>
     </el-button>
     <template #dropdown>
@@ -35,8 +38,10 @@
 
 <script setup lang="ts">
 import { Check } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 import { useThemeStore, type ThemeMode } from '@/stores/theme'
 
+const { t } = useI18n()
 const themeStore = useThemeStore()
 
 function handleThemeChange(theme: ThemeMode) {

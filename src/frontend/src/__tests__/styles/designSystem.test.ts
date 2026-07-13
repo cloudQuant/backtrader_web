@@ -13,14 +13,21 @@ describe('design system contract', () => {
     for (const theme of ['aurora', 'obsidian', 'nebula', 'solaris', 'glacier', 'meridian', 'verdant']) {
       expect(designSystem).toContain(`--theme-${theme}-bg-color`)
       expect(designSystem).toContain(`--theme-${theme}-accent-color`)
+      expect(designSystem).toContain(`--theme-${theme}-primary-on-color`)
+      expect(designSystem).toContain(`--theme-${theme}-warning-color`)
       expect(designSystem).toContain(`--theme-${theme}-danger-color`)
     }
   })
 
   it('maps runtime semantic variables from raw tokens', () => {
     expect(styleCss).toContain('--primary-color: var(--color-primary-500);')
-    expect(styleCss).toContain('--info-surface: var(--color-primary-50);')
-    expect(styleCss).toContain('--success-surface: var(--color-success-50);')
+    expect(styleCss).toContain('--info-surface: color-mix(in srgb, var(--bg-color) 86%, var(--primary-color) 14%);')
+    expect(styleCss).toContain('--success-surface: color-mix(in srgb, var(--bg-color) 86%, var(--success-color) 14%);')
+    expect(styleCss).toContain('--warning-surface: color-mix(in srgb, var(--bg-color) 86%, var(--warning-color) 14%);')
+    expect(styleCss).toContain('--el-color-warning: var(--warning-color);')
+    expect(styleCss).toContain('--primary-on-color: #FFFFFF;')
+    expect(styleCss).toContain('--el-text-color-secondary: var(--text-color-secondary);')
+    expect(styleCss).toContain('--el-bg-color-overlay: var(--bg-color-overlay);')
     expect(styleCss).toContain('--code-bg-color: var(--color-code-bg);')
   })
 })

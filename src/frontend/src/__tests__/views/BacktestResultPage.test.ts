@@ -305,6 +305,114 @@ describe('BacktestResultPage', () => {
     expect(wrapper.text()).toContain('SMA 策略通过均线交叉识别趋势')
   })
 
+  it('shows a completed research workflow and returns to the canonical backtest list', async () => {
+    const wrapper = mount(BacktestResultPage, {
+      global: {
+        stubs: {
+          ...elStubs,
+          EquityCurve: true,
+          DrawdownChart: true,
+          TradeRecordsTable: true,
+          TradeSignalChart: true,
+          ReturnHeatmap: true,
+          MetricCard: true,
+          PerformancePanel: true,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    const guide = wrapper.get('[data-test="backtest-workflow-guide"]')
+    expect(guide.text()).toContain('审阅并决定下一步')
+    await guide.find('button').trigger('click')
+    expect(mockPush).toHaveBeenCalledWith('/backtest')
+  })
+
+  it('treats a cancelled result as an attention state', async () => {
+    const wrapper = mount(BacktestResultPage, {
+      global: {
+        stubs: {
+          ...elStubs,
+          EquityCurve: true,
+          DrawdownChart: true,
+          TradeRecordsTable: true,
+          TradeSignalChart: true,
+          ReturnHeatmap: true,
+          MetricCard: true,
+          PerformancePanel: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.detail = { ...vm.detail, artifact_status: 'cancelled', artifact_error: 'Stopped by user' }
+    await wrapper.vm.$nextTick()
+
+    expect(vm.resultStatusLabel).toBe('已取消')
+    expect(vm.statusTagType).toBe('danger')
+    expect(wrapper.find('.research-workflow-guide__step--attention').exists()).toBe(true)
+  })
+
+  it('opens the mobile diagnostics drawer and restores focus after closing it', async () => {
+    const wrapper = mount(BacktestResultPage, {
+      attachTo: document.body,
+      global: {
+        stubs: {
+          ...elStubs,
+          EquityCurve: true,
+          DrawdownChart: true,
+          TradeRecordsTable: true,
+          TradeSignalChart: true,
+          ReturnHeatmap: true,
+          MetricCard: true,
+          PerformancePanel: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    const trigger = wrapper.get('[data-test="backtest-open-diagnostics"]')
+    await trigger.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.backtest-result-panel--mobile-open').attributes('role')).toBe('dialog')
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('关闭诊断')
+
+    await wrapper.find('.backtest-mobile-diagnostics-close').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(document.activeElement).toBe(trigger.element)
+    wrapper.unmount()
+  })
+
+  it('closes the mobile diagnostics drawer with Escape', async () => {
+    const wrapper = mount(BacktestResultPage, {
+      attachTo: document.body,
+      global: {
+        stubs: {
+          ...elStubs,
+          EquityCurve: true,
+          DrawdownChart: true,
+          TradeRecordsTable: true,
+          TradeSignalChart: true,
+          ReturnHeatmap: true,
+          MetricCard: true,
+          PerformancePanel: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="backtest-open-diagnostics"]').trigger('click')
+    await wrapper.find('.backtest-result-panel--diagnostics').trigger('keydown', { key: 'Escape' })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.backtest-result-panel--mobile-open').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('loads heavy report data lazily', async () => {
     const { analyticsApi } = await import('@/api/analytics')
     const { strategyApi } = await import('@/api/strategy')

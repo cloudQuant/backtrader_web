@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test'
+import { APP_PATHS } from '../../src/navigation/routes'
+import { prepareStaticPreviewPage } from '../support/static-preview'
 
 /**
  * Iteration 175 §4.8 / §4.9 — when the UI is in en-US locale, no
@@ -13,12 +15,15 @@ import { test, expect } from '@playwright/test'
  */
 
 const PAGES_AUTHENTICATED = [
-  '/',
-  '/ai-chat',
-  '/backtest',
-  '/backtest/result/1',
-  '/knowledge-base',
-  '/strategy',
+  APP_PATHS.dashboard,
+  APP_PATHS.ai.chat,
+  APP_PATHS.backtest.list,
+  APP_PATHS.backtest.result(1),
+  APP_PATHS.ai.knowledgeBase,
+  APP_PATHS.research.strategies,
+  APP_PATHS.trading.workspaces,
+  APP_PATHS.config.gateways,
+  APP_PATHS.config.dataScripts,
 ] as const
 
 test.describe('en-US locale should never render Chinese characters', () => {
@@ -34,6 +39,7 @@ test.describe('en-US locale should never render Chinese characters', () => {
         /* private mode — fail open, the assertion below catches CJK leaks */
       }
     })
+    await prepareStaticPreviewPage(page, { authenticated: false })
     await page.goto('/login')
     await page.waitForLoadState('networkidle')
     const text = await page.locator('body').innerText()
@@ -46,6 +52,7 @@ test.describe('en-US locale should never render Chinese characters', () => {
   for (const url of PAGES_AUTHENTICATED) {
     test(`page ${url}`, async ({ page }) => {
       test.setTimeout(45_000)
+      await prepareStaticPreviewPage(page)
       await page.addInitScript(() => {
         try {
           window.localStorage.setItem('locale', 'en-US')

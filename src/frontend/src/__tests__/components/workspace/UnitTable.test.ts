@@ -38,6 +38,15 @@ describe('UnitTable', () => {
     expect(wrapper.exists()).toBe(true)
   })
 
+  it('renders a compact mobile card with a details action for every unit', async () => {
+    const wrapper = doMount()
+    expect(wrapper.findAll('.trading-unit-card')).toHaveLength(2)
+    expect(wrapper.find('.trading-unit-card').text()).toContain('Alpha')
+
+    await wrapper.find('.trading-unit-card__identity').trigger('click')
+    expect(wrapper.emitted('open-detail')?.[0]).toEqual([units[0]])
+  })
+
   it('exposes clearSelection and toggleRowSelection that delegate to the inner table', () => {
     const wrapper = doMount()
     const vm = wrapper.vm as any

@@ -32,16 +32,16 @@ class TestAuthPages:
         """测试注册页面加载"""
         page.goto(f"{FRONTEND_URL}/register")
         page.wait_for_load_state("networkidle")
-        
-        # 检查页面标题
-        expect(page.locator("h1")).to_contain_text("注册账号")
-        
-        # 检查表单元素
-        expect(page.locator('input[placeholder="用户名"]')).to_be_visible()
-        expect(page.locator('input[placeholder="邮箱"]')).to_be_visible()
-        expect(page.locator('input[placeholder="密码"]')).to_be_visible()
-        expect(page.locator('input[placeholder="确认密码"]')).to_be_visible()
-        expect(page.locator('button:has-text("注册")')).to_be_visible()
+
+        # 检查页面标题 (i18n: auth.registerTitle = "创建 AI for Investor 账号")
+        expect(page.locator("h1")).to_contain_text("账号")
+
+        # 检查表单元素（优先用稳定的 data-testid）
+        expect(page.locator('[data-testid="register-username"]')).to_be_visible()
+        expect(page.locator('[data-testid="register-email"]')).to_be_visible()
+        expect(page.locator('[data-testid="register-password"]')).to_be_visible()
+        expect(page.locator('[data-testid="register-confirm-password"]')).to_be_visible()
+        expect(page.locator('[data-testid="register-submit"]')).to_be_visible()
     
     def test_register_new_user(self, page: Page):
         """测试新用户注册"""
@@ -94,8 +94,8 @@ class TestAuthPages:
         # 等待跳转到首页
         page.wait_for_url(f"{FRONTEND_URL}/", timeout=10000)
         
-        # 验证登录成功 - 应该显示用户名
-        expect(page.locator("text=仪表盘")).to_be_visible()
+        # 验证登录成功 - 应该显示仪表盘 (sidebar/title/button 都可能含"仪表盘"，取首个)
+        expect(page.locator("text=仪表盘").first).to_be_visible()
     
     def test_login_with_wrong_password(self, page: Page):
         """测试错误密码登录"""

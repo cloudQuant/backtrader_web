@@ -6,21 +6,52 @@
 import pytest
 from playwright.sync_api import Page, expect
 import uuid
+import re
 
 from conftest import FRONTEND_URL
+
+
+def _safe_wait(page: Page, timeout: int = 800) -> None:
+    """安全等待页面就绪。
+
+    vite dev server 下 ``networkidle`` 可能长时间不触发（HMR/SSE 常驻连接），
+    因此包裹 try/except 并追加固定毫秒兜底等待，避免测试不稳定。
+    """
+    try:
+        page.wait_for_load_state("networkidle")
+    except Exception:
+        pass
+    page.wait_for_timeout(timeout)
 
 
 class TestStrategyPage:
     """策略页面测试"""
 
     def test_strategy_page_loads(self, authenticated_page: Page):
-        """测试策略页面加载"""
-        page = authenticated_page
-        page.goto(f"{FRONTEND_URL}/strategy")
-        page.wait_for_load_state("networkidle")
+        """测试策略页面加载
 
-        # 检查创建策略按钮
-        expect(page.locator('button:has-text("创建策略")')).to_be_visible()
+        直接访问规范路径 /research/strategies（旧路径 /strategy 会重定向到此），
+        校验管理 Hero 标题、创建策略按钮以及「策略库 / 我的策略」标签页均正常渲染。
+        """
+        page = authenticated_page
+        # 规范路径；旧 /strategy 仅作兼容重定向，测试以真实路径为准
+        page.goto(f"{FRONTEND_URL}/research/strategies")
+        _safe_wait(page)
+
+        # 页面主标题（strategy.managementHeroTitle = "策略库与我的策略"）
+        # 在 /research/strategies 下 showStrategyManagementTabs 为真，hero 区会渲染
+        heading = page.locator("#strategy-management-title")
+        expect(heading).to_be_visible()
+        expect(heading).to_contain_text("策略")
+
+        # 顶部"创建策略"按钮可见（hero 区与"我的策略"面板各有一个按钮，
+        # 用 .first 避免 strict 模式下多元素冲突）
+        expect(page.locator('button:has-text("创建策略")').first).to_be_visible()
+
+        # 标签页应渲染：策略库（gallery，默认激活）与 我的策略
+        # 用 .el-tabs__item 限定到标签页，避免与面板内 <h2> 同名文本冲突
+        expect(page.locator(".el-tabs__item").filter(has_text="策略库").first).to_be_visible()
+        expect(page.locator(".el-tabs__item").filter(has_text="我的策略").first).to_be_visible()
 
     def test_strategy_gallery_section(self, authenticated_page: Page):
         """测试策略库区域"""
@@ -122,21 +153,29 @@ class TestStrategyTemplates:
             expect(page.locator("text=创建策略").last).to_be_visible()
 
     def test_template_card_display(self, authenticated_page: Page):
-        """测试模板卡片显示"""
+        """测试策略模板卡片显示
+
+        gallery 标签页为默认激活页（activeTab 初值为 'gallery'），无需手动切换。
+        模板卡片由后端数据驱动：有数据时渲染 .strategy-card，无数据时渲染 el-empty 空状态。
+        注意："策略库"文本在页面中出现多次（标签页、<h2> 标题、指标卡），
+        必须使用 .first 避免 strict 模式下多元素冲突。
+        """
         page = authenticated_page
-        page.goto(f"{FRONTEND_URL}/strategy")
-        page.wait_for_load_state("networkidle")
+        page.goto(f"{FRONTEND_URL}/research/strategies")
+        _safe_wait(page)
 
-        # 切换到策略库标签
-        template_tab = page.locator("text=策略库")
-        if template_tab.is_visible():
-            template_tab.click()
-            page.wait_for_timeout(500)
+        # gallery 为默认激活标签页；"策略库"文本有多处匹配，用 .first 取首个可见元素
+        expect(page.locator("text=策略库").first).to_be_visible()
 
-            # 检查是否有策略卡片
-            content = page.content()
-            # 模板相关的内容
-            assert "策略" in content
+        # 模板网格区域：有数据时校验卡片可见，无数据时校验空状态存在
+        cards = page.locator(".strategy-template-grid .strategy-card")
+        if cards.count() > 0:
+            # 有模板数据：至少第一张卡片应可见
+            expect(cards.first).to_be_visible()
+        else:
+            # 无模板数据：应渲染空状态（.strategy-empty-state 或 Element Plus 的 .el-empty）
+            empty = page.locator(".strategy-empty-state, .el-empty")
+            expect(empty.first).to_be_visible()
 
 
 class TestStrategyCodeEditor:
@@ -224,17 +263,25 @@ class TestStrategyNavigation:
     """策略相关导航测试"""
 
     def test_navigate_to_strategy_from_dashboard(self, authenticated_page: Page):
-        """测试从仪表盘导航到策略页面"""
+        """测试从仪表盘导航到策略页面
+
+        仪表盘「创建策略」快捷入口（dashboard-action-card）会跳转到规范路径
+        /research/strategies（旧 /strategy 仅作兼容重定向）。用 .first 避免
+        strict 模式冲突，并用宽松的 URL 断言（包含 strategies）兼容重定向。
+        """
         page = authenticated_page
         page.goto(f"{FRONTEND_URL}/")
-        page.wait_for_load_state("networkidle")
+        _safe_wait(page)
 
-        # 点击策略管理菜单
-        page.click('text=策略管理')
-        page.wait_for_load_state("networkidle")
+        # 仪表盘快捷入口「创建策略」卡片按钮（.first 避免 strict 模式冲突）
+        create_btn = page.locator('button:has-text("创建策略")').first
+        expect(create_btn).to_be_visible()
+        create_btn.click()
+        _safe_wait(page)
 
-        # 应该导航到策略页面
-        expect(page).to_have_url(f"{FRONTEND_URL}/strategy")
+        # 规范路径 /research/strategies；旧 /strategy 会重定向到此。
+        # 用正则宽松断言 URL 包含 strategies，兼容重定向中间态。
+        expect(page).to_have_url(re.compile(r"strategies"))
 
     def test_strategy_breadcrumb(self, authenticated_page: Page):
         """测试面包屑导航"""

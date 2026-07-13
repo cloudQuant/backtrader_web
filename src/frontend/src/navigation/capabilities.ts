@@ -1,3 +1,5 @@
+import { APP_PATHS, LEGACY_PATHS } from '@/navigation/routes'
+
 export type ProductDomainId =
   | 'home'
   | 'data'
@@ -33,7 +35,7 @@ export interface Capability {
 }
 
 export const productDomains: ProductDomain[] = [
-  { id: 'home', path: '/', labelKey: 'nav.home', icon: 'HomeFilled' },
+  { id: 'home', path: APP_PATHS.dashboard, labelKey: 'nav.home', icon: 'HomeFilled' },
   { id: 'data', path: '/data', labelKey: 'nav.marketData', icon: 'Grid' },
   { id: 'investment', path: '/investment', labelKey: 'nav.investmentResearch', icon: 'Document' },
   { id: 'research', path: '/research', labelKey: 'nav.strategyResearch', icon: 'Aim' },
@@ -53,7 +55,7 @@ export const capabilities: Capability[] = [
   {
     id: 'home.dashboard',
     domainId: 'home',
-    path: '/',
+    path: APP_PATHS.dashboard,
     labelKey: 'nav.dashboard',
     icon: 'HomeFilled',
   },
@@ -117,18 +119,18 @@ export const capabilities: Capability[] = [
   {
     id: 'research.strategies',
     domainId: 'research',
-    path: '/research/strategies',
+    path: APP_PATHS.research.strategies,
     labelKey: 'nav.strategy',
     icon: 'Document',
-    legacyPaths: ['/strategy'],
+    legacyPaths: [LEGACY_PATHS.strategy],
   },
   {
     id: 'research.workspaces',
     domainId: 'research',
-    path: '/research/workspaces',
+    path: APP_PATHS.research.workspaces,
     labelKey: 'nav.workspace',
     icon: 'Aim',
-    legacyPaths: ['/workspace', '/backtest'],
+    legacyPaths: [LEGACY_PATHS.workspace, APP_PATHS.backtest.list],
   },
   {
     id: 'research.backtestResult',
@@ -186,18 +188,18 @@ export const capabilities: Capability[] = [
   {
     id: 'ai.chat',
     domainId: 'ai',
-    path: '/ai/chat',
+    path: APP_PATHS.ai.chat,
     labelKey: 'nav.aiChat',
     icon: 'ChatDotRound',
-    legacyPaths: ['/ai-chat'],
+    legacyPaths: [LEGACY_PATHS.aiChat],
   },
   {
     id: 'ai.knowledgeBase',
     domainId: 'ai',
-    path: '/ai/knowledge-base',
+    path: APP_PATHS.ai.knowledgeBase,
     labelKey: 'nav.knowledgeBase',
     icon: 'Collection',
-    legacyPaths: ['/knowledge-base'],
+    legacyPaths: [LEGACY_PATHS.knowledgeBase],
   },
   {
     id: 'config.data',

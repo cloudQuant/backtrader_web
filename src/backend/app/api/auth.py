@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.api._dependencies import get_current_user
+from app.config import get_settings
 from app.rate_limit import limiter
 from app.schemas.auth import (
     ChangePassword,
@@ -25,6 +26,12 @@ from app.utils.logger import audit_logger, get_logger
 router = APIRouter()
 logger = get_logger(__name__)
 
+# Rate limits are configurable so dev/test environments can raise the quota for
+# repeated e2e runs without weakening production brute-force protection.
+_settings = get_settings()
+_REGISTER_LIMIT = _settings.RATE_LIMIT_REGISTER
+_LOGIN_LIMIT = _settings.RATE_LIMIT_LOGIN
+
 
 @lru_cache
 def get_auth_service() -> AuthService:
@@ -32,7 +39,7 @@ def get_auth_service() -> AuthService:
 
 
 @router.post("/register", response_model=UserResponse, summary="User registration")
-@limiter.limit("5/hour")
+@limiter.limit(_REGISTER_LIMIT)
 async def register(
     user_create: UserCreate,
     request: Request,
@@ -64,7 +71,7 @@ async def register(
 
 
 @router.post("/login", response_model=Token, summary="User login")
-@limiter.limit("10/minute")
+@limiter.limit(_LOGIN_LIMIT)
 async def login(
     user_login: UserLogin,
     request: Request,

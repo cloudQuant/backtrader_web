@@ -192,6 +192,19 @@
                     </el-icon>
                   </a>
                 </div>
+                <button
+                  type="button"
+                  class="kb-doc-mobile-side-trigger"
+                  data-test="kb-doc-open-side-panel"
+                  :aria-expanded="mobileSidePanelOpen"
+                  aria-haspopup="dialog"
+                  @click="openMobileSidePanel($event)"
+                >
+                  <el-icon aria-hidden="true">
+                    <Reading />
+                  </el-icon>
+                  {{ t('kbDoc.openSidePanel') }}
+                </button>
               </div>
             </div>
           </template>
@@ -243,9 +256,27 @@
         </el-card>
 
         <aside
+          ref="sidePanel"
           class="kb-doc-side"
+          :class="{ 'kb-doc-side--mobile-open': mobileSidePanelOpen }"
+          :role="mobileSidePanelOpen ? 'dialog' : undefined"
+          :aria-modal="mobileSidePanelOpen ? 'true' : undefined"
+          :aria-label="mobileSidePanelOpen ? t('kbDoc.sidePanelTitle') : undefined"
           data-test="kb-doc-side-panel"
+          @keydown="handleMobileSidePanelKeydown"
         >
+          <button
+            v-if="mobileSidePanelOpen"
+            ref="sidePanelClose"
+            type="button"
+            class="kb-doc-mobile-side-close"
+            :aria-label="t('kbDoc.closeSidePanel')"
+            @click="closeMobileSidePanel"
+          >
+            <el-icon aria-hidden="true">
+              <Close />
+            </el-icon>
+          </button>
           <KnowledgeBaseDocSidePanel
             :document-summary="documentSummary"
             :source-file-name="sourceFileName"
@@ -261,12 +292,20 @@
           />
         </aside>
       </div>
+      <button
+        v-if="mobileSidePanelOpen"
+        type="button"
+        class="kb-doc-mobile-side-backdrop"
+        tabindex="-1"
+        :aria-label="t('kbDoc.closeSidePanel')"
+        @click="closeMobileSidePanel"
+      />
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -278,6 +317,7 @@ import KnowledgeBaseDocMetadata from './knowledge-base-components/KnowledgeBaseD
 import KnowledgeBaseDocSourceView from './knowledge-base-components/KnowledgeBaseDocSourceView.vue'
 import {
   ArrowLeft,
+  Close,
   DataAnalysis,
   Document,
   Download,
@@ -298,6 +338,10 @@ const loading = ref(false)
 const errorMessage = ref('')
 const docData = ref<KBDocumentItem | null>(null)
 const sourcePreviewUrl = ref('')
+const mobileSidePanelOpen = ref(false)
+const sidePanel = ref<HTMLElement | null>(null)
+const sidePanelClose = ref<HTMLButtonElement | null>(null)
+let sidePanelTrigger: HTMLElement | null = null
 
 // Tab state
 const activeTab = ref<'source' | 'markdown' | 'metadata'>('source')
@@ -444,6 +488,45 @@ function downloadSourceFile() {
 function openQuickChat(prompt: string) {
   const kbId = String(route.params.kbId || '')
   router.push({ path: '/ai/chat', query: { kbId, prompt } })
+}
+
+async function openMobileSidePanel(event: MouseEvent) {
+  sidePanelTrigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  mobileSidePanelOpen.value = true
+  await nextTick()
+  sidePanelClose.value?.focus()
+}
+
+function closeMobileSidePanel() {
+  mobileSidePanelOpen.value = false
+  void nextTick(() => sidePanelTrigger?.focus())
+}
+
+function handleMobileSidePanelKeydown(event: KeyboardEvent) {
+  if (!mobileSidePanelOpen.value) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeMobileSidePanel()
+    return
+  }
+  if (event.key !== 'Tab') return
+
+  const focusable = sidePanel.value
+    ? Array.from(sidePanel.value.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ))
+    : []
+  if (focusable.length === 0) return
+
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
 }
 
 function onTabChange(tab: string | number) {
@@ -743,6 +826,12 @@ if (typeof window !== 'undefined') {
   gap: 14px;
 }
 
+.kb-doc-mobile-side-trigger,
+.kb-doc-mobile-side-close,
+.kb-doc-mobile-side-backdrop {
+  display: none;
+}
+
 .kb-doc-panel-title {
   margin-top: 3px;
   color: var(--text-color-primary);
@@ -944,6 +1033,67 @@ if (typeof window !== 'undefined') {
 
   .kb-doc-reader-controls {
     width: 100%;
+  }
+
+  .kb-doc-mobile-side-trigger {
+    display: inline-flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 36px;
+    border: 1px solid var(--kb-doc-border);
+    border-radius: 8px;
+    background: var(--kb-doc-surface);
+    color: var(--text-color-regular);
+    cursor: pointer;
+  }
+
+  .kb-doc-side {
+    display: none;
+  }
+
+  .kb-doc-side.kb-doc-side--mobile-open {
+    position: fixed;
+    z-index: 1001;
+    top: max(12px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    display: block;
+    width: min(420px, calc(100vw - 24px));
+    overflow-y: auto;
+    border: 1px solid var(--kb-doc-border);
+    border-radius: 8px;
+    background: var(--kb-doc-surface);
+    padding: 14px;
+    box-shadow: var(--shadow-lg, var(--shadow-sm));
+    overscroll-behavior: contain;
+  }
+
+  .kb-doc-mobile-side-close {
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    margin: 0 0 12px auto;
+    border: 1px solid var(--kb-doc-border);
+    border-radius: 8px;
+    background: var(--kb-doc-surface);
+    color: var(--text-color-regular);
+    cursor: pointer;
+  }
+
+  .kb-doc-mobile-side-backdrop {
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: color-mix(in srgb, var(--text-color-primary) 34%, transparent);
+    cursor: default;
   }
 }
 

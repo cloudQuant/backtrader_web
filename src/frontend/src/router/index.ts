@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { APP_PATHS, LEGACY_PATHS, toAppChildPath } from '@/navigation/routes'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -21,7 +22,7 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
     children: [
       {
-        path: '',
+        path: toAppChildPath(APP_PATHS.dashboard),
         name: 'Dashboard',
         component: () => import('@/views/DashboardPage.vue'),
       },
@@ -44,18 +45,18 @@ const routes: RouteRecordRaw[] = [
         redirect: { name: 'ResearchWorkspaces' },
       },
       {
-        path: 'research/strategies',
+        path: toAppChildPath(APP_PATHS.research.strategies),
         name: 'ResearchStrategies',
         component: () => import('@/views/StrategyPage.vue'),
       },
       {
-        path: 'research/workspaces',
+        path: toAppChildPath(APP_PATHS.research.workspaces),
         name: 'ResearchWorkspaces',
         component: () => import('@/views/workspace/WorkspaceListPage.vue'),
         meta: { workspaceType: 'research' },
       },
       {
-        path: 'research/workspaces/:id',
+        path: toAppChildPath(APP_PATHS.research.workspacePattern),
         name: 'ResearchWorkspaceDetail',
         component: () => import('@/views/workspace/WorkspaceDetailPage.vue'),
         meta: { workspaceType: 'research' },
@@ -80,12 +81,12 @@ const routes: RouteRecordRaw[] = [
         redirect: { name: 'AIChatCanonical' },
       },
       {
-        path: 'ai/chat',
+        path: toAppChildPath(APP_PATHS.ai.chat),
         name: 'AIChatCanonical',
         component: () => import('@/views/AIChatPage.vue'),
       },
       {
-        path: 'ai/knowledge-base',
+        path: toAppChildPath(APP_PATHS.ai.knowledgeBase),
         name: 'AIKnowledgeBase',
         component: () => import('@/views/KnowledgeBasePage.vue'),
       },
@@ -223,9 +224,8 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresAdmin: true },
       },
       {
-        path: 'ai-chat',
-        name: 'AIChat',
-        component: () => import('@/views/AIChatPage.vue'),
+        path: toAppChildPath(LEGACY_PATHS.aiChat),
+        redirect: { name: 'AIChatCanonical' },
       },
       {
         path: 'admin/ai-observability',
@@ -245,7 +245,7 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/AITradingPage.vue'),
       },
       {
-        path: 'backtest',
+        path: toAppChildPath(APP_PATHS.backtest.list),
         name: 'Backtest',
         component: () => import('@/views/workspace/WorkspaceListPage.vue'),
         meta: { workspaceType: 'research' },
@@ -262,18 +262,17 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/BacktestPage.vue'),
       },
       {
-        path: 'backtest/result/:id',
+        path: toAppChildPath(APP_PATHS.backtest.resultPattern),
         name: 'BacktestResult',
         component: () => import('@/views/BacktestResultPage.vue'),
       },
       {
-        path: 'backtest/:id',
-        redirect: to => ({ path: `/backtest/result/${String(to.params.id ?? '')}` }),
+        path: toAppChildPath(LEGACY_PATHS.backtestResultPattern),
+        redirect: to => ({ path: APP_PATHS.backtest.result(String(to.params.id ?? '')) }),
       },
       {
-        path: 'strategy',
-        name: 'Strategy',
-        component: () => import('@/views/StrategyPage.vue'),
+        path: toAppChildPath(LEGACY_PATHS.strategy),
+        redirect: { name: 'ResearchStrategies' },
       },
       {
         path: 'data',
@@ -396,16 +395,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/QuotePage.vue'),
       },
       {
-        path: 'workspace',
-        name: 'WorkspaceList',
-        component: () => import('@/views/workspace/WorkspaceListPage.vue'),
-        meta: { workspaceType: 'research' },
+        path: toAppChildPath(LEGACY_PATHS.workspace),
+        redirect: { name: 'ResearchWorkspaces' },
       },
       {
-        path: 'workspace/:id',
-        name: 'WorkspaceDetail',
-        component: () => import('@/views/workspace/WorkspaceDetailPage.vue'),
-        meta: { workspaceType: 'research' },
+        path: toAppChildPath(LEGACY_PATHS.workspaceDetailPattern),
+        redirect: to => ({ name: 'ResearchWorkspaceDetail', params: { id: String(to.params.id ?? '') } }),
       },
       {
         path: 'trading',
@@ -480,9 +475,8 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/QuantToolsPage.vue'),
       },
       {
-        path: 'knowledge-base',
-        name: 'KnowledgeBase',
-        component: () => import('@/views/KnowledgeBasePage.vue'),
+        path: toAppChildPath(LEGACY_PATHS.knowledgeBase),
+        redirect: to => ({ name: 'AIKnowledgeBase', query: to.query }),
       },
       {
         path: 'knowledge-base/:id',

@@ -102,6 +102,7 @@
         <el-select
           v-model="filters.category"
           clearable
+          :aria-label="t('dataPages.scriptsCategoryPh')"
           :placeholder="t('dataPages.scriptsCategoryPh')"
           class="toolbar-item"
           @change="reloadFirstPage"
@@ -116,6 +117,7 @@
 
         <el-select
           v-model="activeFilter"
+          :aria-label="t('dataPages.scriptsActivePh')"
           :placeholder="t('dataPages.scriptsActivePh')"
           class="toolbar-item"
           @change="reloadFirstPage"
@@ -151,8 +153,13 @@
         </el-button>
       </div>
 
+      <DataTableSkeleton
+        v-if="loading && scripts.length === 0"
+        :label="t('common.loading')"
+      />
+
       <div
-        v-if="!loading && scripts.length === 0"
+        v-else-if="scripts.length === 0"
         class="scripts-empty"
       >
         <el-icon aria-hidden="true">
@@ -239,7 +246,7 @@
           <el-table-column
             :label="t('dataPages.scriptsColActions')"
             fixed="right"
-            min-width="270"
+            min-width="170"
           >
             <template #default="{ row }">
               <div class="table-actions">
@@ -250,36 +257,44 @@
                 >
                   {{ t('dataPages.scriptsActionDetail') }}
                 </el-button>
-                <el-button
+                <el-dropdown
                   v-if="isAdmin"
-                  link
-                  type="success"
-                  @click="runScript(row.script_id)"
+                  trigger="click"
+                  @command="(action) => handleScriptAction(row, action)"
                 >
-                  {{ t('dataPages.scriptsActionRun') }}
-                </el-button>
-                <el-button
-                  v-if="isAdmin"
-                  link
-                  @click="toggleScript(row.script_id)"
-                >
-                  {{ row.is_active ? t('dataPages.scriptsActionDisable') : t('dataPages.scriptsActionEnable') }}
-                </el-button>
-                <el-button
-                  v-if="isAdmin && row.is_custom"
-                  link
-                  @click="openEditDialog(row)"
-                >
-                  {{ t('dataPages.scriptsActionEdit') }}
-                </el-button>
-                <el-button
-                  v-if="isAdmin && row.is_custom"
-                  link
-                  type="danger"
-                  @click="deleteScript(row)"
-                >
-                  {{ t('dataPages.scriptsActionDelete') }}
-                </el-button>
+                  <el-button
+                    link
+                    :aria-label="t('dataPages.scriptsMoreActions')"
+                  >
+                    <el-icon aria-hidden="true">
+                      <MoreFilled />
+                    </el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="run">
+                        {{ t('dataPages.scriptsActionRun') }}
+                      </el-dropdown-item>
+                      <el-dropdown-item command="toggle">
+                        {{ row.is_active ? t('dataPages.scriptsActionDisable') : t('dataPages.scriptsActionEnable') }}
+                      </el-dropdown-item>
+                      <el-dropdown-item
+                        v-if="row.is_custom"
+                        command="edit"
+                      >
+                        {{ t('dataPages.scriptsActionEdit') }}
+                      </el-dropdown-item>
+                      <el-dropdown-item
+                        v-if="row.is_custom"
+                        command="delete"
+                        divided
+                        class="scripts-action-more-menu__danger"
+                      >
+                        {{ t('dataPages.scriptsActionDelete') }}
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
               </div>
             </template>
           </el-table-column>
@@ -321,26 +336,53 @@
               </el-icon>
               {{ t('dataPages.scriptsActionDetail') }}
             </button>
-            <button
+            <details
               v-if="isAdmin"
-              type="button"
-              @click="runScript(script.script_id)"
+              class="scripts-action-more"
             >
-              <el-icon aria-hidden="true">
-                <VideoPlay />
-              </el-icon>
-              {{ t('dataPages.scriptsActionRun') }}
-            </button>
-            <button
-              v-if="isAdmin && script.is_custom"
-              type="button"
-              @click="openEditDialog(script)"
-            >
-              <el-icon aria-hidden="true">
-                <Edit />
-              </el-icon>
-              {{ t('dataPages.scriptsActionEdit') }}
-            </button>
+              <summary :aria-label="t('dataPages.scriptsMoreActions')">
+                <el-icon aria-hidden="true">
+                  <MoreFilled />
+                </el-icon>
+                <span>{{ t('dataPages.scriptsMoreActions') }}</span>
+              </summary>
+              <div
+                class="scripts-action-more-menu"
+                role="menu"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  @click="runScript(script.script_id)"
+                >
+                  {{ t('dataPages.scriptsActionRun') }}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  @click="toggleScript(script.script_id)"
+                >
+                  {{ script.is_active ? t('dataPages.scriptsActionDisable') : t('dataPages.scriptsActionEnable') }}
+                </button>
+                <button
+                  v-if="script.is_custom"
+                  type="button"
+                  role="menuitem"
+                  @click="openEditDialog(script)"
+                >
+                  {{ t('dataPages.scriptsActionEdit') }}
+                </button>
+                <button
+                  v-if="script.is_custom"
+                  type="button"
+                  role="menuitem"
+                  class="scripts-action-more-menu__danger"
+                  @click="deleteScript(script)"
+                >
+                  {{ t('dataPages.scriptsActionDelete') }}
+                </button>
+              </div>
+            </details>
           </div>
         </article>
       </div>
@@ -351,7 +393,7 @@
           v-model:page-size="pageSize"
           :page-sizes="[10, 20, 50, 100]"
           :total="total"
-          layout="total, sizes, prev, pager, next, jumper"
+          layout="total, prev, pager, next, jumper"
           @current-change="loadScripts"
           @size-change="handleSizeChange"
         />
@@ -464,16 +506,16 @@ import {
   CircleCheck,
   Collection,
   Document,
-  Edit,
+  MoreFilled,
   Operation,
   Plus,
   Refresh,
   Search,
-  VideoPlay,
   View,
 } from '@element-plus/icons-vue'
 import { akshareScriptsApi } from '@/api/akshare'
 import { getErrorMessage } from '@/api/index'
+import DataTableSkeleton from '@/components/common/DataTableSkeleton.vue'
 import { useAuthStore } from '@/stores/auth'
 import type { DataScript, DataScriptFormPayload, ScriptStatsResponse } from '@/types'
 import { formatDateTime, parseJsonText, toJsonText } from '@/views/data/utils'
@@ -588,6 +630,18 @@ function handleSizeChange() {
 
 function goDetail(scriptId: string) {
   void router.push({ name: 'ConfigDataScriptDetail', params: { id: scriptId } })
+}
+
+function handleScriptAction(script: DataScript, action: string) {
+  if (action === 'run') {
+    void runScript(script.script_id)
+  } else if (action === 'toggle') {
+    void toggleScript(script.script_id)
+  } else if (action === 'edit') {
+    openEditDialog(script)
+  } else if (action === 'delete') {
+    void deleteScript(script)
+  }
 }
 
 function openCreateDialog() {
@@ -1030,6 +1084,81 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
+}
+
+.table-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scripts-action-more {
+  position: relative;
+}
+
+.scripts-action-more summary {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--scripts-border);
+  border-radius: 8px;
+  background: var(--scripts-surface);
+  padding: 5px 8px;
+  color: var(--text-color-regular);
+  cursor: pointer;
+  font-size: 12px;
+  list-style: none;
+}
+
+.scripts-action-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.scripts-action-more[open] summary {
+  border-color: color-mix(in srgb, var(--primary-color) 48%, var(--scripts-border) 52%);
+  color: var(--primary-color);
+}
+
+.scripts-action-more-menu {
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  bottom: calc(100% + 6px);
+  display: grid;
+  min-width: 138px;
+  gap: 4px;
+  border: 1px solid var(--scripts-border);
+  border-radius: 8px;
+  background: var(--scripts-surface);
+  padding: 6px;
+  box-shadow: var(--shadow-sm, none);
+}
+
+.scripts-action-more-menu button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 7px 9px;
+  color: var(--text-color-regular);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.scripts-action-more-menu button:hover,
+.scripts-action-more-menu button:focus-visible {
+  background: var(--scripts-primary-soft);
+  color: var(--primary-color);
+  outline: none;
+}
+
+.scripts-action-more-menu .scripts-action-more-menu__danger:hover,
+.scripts-action-more-menu .scripts-action-more-menu__danger:focus-visible {
+  background: color-mix(in srgb, var(--scripts-surface) 84%, var(--danger-color) 16%);
+  color: var(--danger-color);
 }
 
 .script-card-meta span {

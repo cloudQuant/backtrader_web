@@ -53,7 +53,7 @@
   --theme-aurora-sidebar-border-color: #E8ECEF;
   --theme-aurora-text-color-primary: #1E2329;
   --theme-aurora-text-color-regular: #474D57;
-  --theme-aurora-text-color-secondary: #707A8A;
+  --theme-aurora-text-color-secondary: #626A76;
   --theme-aurora-text-color-placeholder: #AEB4BC;
   --theme-aurora-border-color: #E8ECEF;
   --theme-aurora-border-color-light: #F0F2F5;
@@ -63,7 +63,9 @@
   --theme-aurora-fill-color-lighter: #FAFBFC;
   --theme-aurora-shadow-color: rgba(0, 0, 0, 0.08);
   --theme-aurora-accent-color: #1652F0;
+  --theme-aurora-primary-on-color: #FFFFFF;
   --theme-aurora-success-color: #05B169;
+  --theme-aurora-warning-color: #B45309;
   --theme-aurora-danger-color: #CF304A;
 
   --theme-obsidian-bg-color: #191C1F;
@@ -72,7 +74,7 @@
   --theme-obsidian-bg-color-sidebar: #141618;
   --theme-obsidian-sidebar-text-color: #F0F2F5;
   --theme-obsidian-sidebar-text-color-muted: #8A919E;
-  --theme-obsidian-sidebar-active-color: #6C7BFF;
+  --theme-obsidian-sidebar-active-color: #8491FF;
   --theme-obsidian-sidebar-active-bg: rgba(108, 123, 255, 0.12);
   --theme-obsidian-sidebar-hover-bg: rgba(255, 255, 255, 0.04);
   --theme-obsidian-sidebar-border-color: #2C3038;
@@ -88,7 +90,9 @@
   --theme-obsidian-fill-color-lighter: #191C1F;
   --theme-obsidian-shadow-color: rgba(0, 0, 0, 0.5);
   --theme-obsidian-accent-color: #6C7BFF;
+  --theme-obsidian-primary-on-color: #101319;
   --theme-obsidian-success-color: #00D68F;
+  --theme-obsidian-warning-color: #F5A524;
   --theme-obsidian-danger-color: #FF4D6A;
 
   --theme-nebula-bg-color: #1B1426;
@@ -113,7 +117,9 @@
   --theme-nebula-fill-color-lighter: #1B1426;
   --theme-nebula-shadow-color: rgba(0, 0, 0, 0.5);
   --theme-nebula-accent-color: #B07FFF;
+  --theme-nebula-primary-on-color: #161021;
   --theme-nebula-success-color: #00E5A0;
+  --theme-nebula-warning-color: #F5A524;
   --theme-nebula-danger-color: #FF5C7C;
 
   --theme-solaris-bg-color: #1E1E1E;
@@ -138,7 +144,9 @@
   --theme-solaris-fill-color-lighter: #1E1C16;
   --theme-solaris-shadow-color: rgba(0, 0, 0, 0.5);
   --theme-solaris-accent-color: #F0B90B;
+  --theme-solaris-primary-on-color: #1E1E1E;
   --theme-solaris-success-color: #0ECB81;
+  --theme-solaris-warning-color: #F0B90B;
   --theme-solaris-danger-color: #F6465D;
 
   --theme-glacier-bg-color: #FFFFFF;
@@ -146,14 +154,14 @@
   --theme-glacier-bg-color-overlay: #FFFFFF;
   --theme-glacier-bg-color-sidebar: #F6F9FC;
   --theme-glacier-sidebar-text-color: #32325D;
-  --theme-glacier-sidebar-text-color-muted: #6B7C93;
-  --theme-glacier-sidebar-active-color: #635BFF;
+  --theme-glacier-sidebar-text-color-muted: #52627C;
+  --theme-glacier-sidebar-active-color: #5148DE;
   --theme-glacier-sidebar-active-bg: rgba(99, 91, 255, 0.08);
   --theme-glacier-sidebar-hover-bg: rgba(99, 91, 255, 0.04);
   --theme-glacier-sidebar-border-color: #E3E8EE;
   --theme-glacier-text-color-primary: #32325D;
   --theme-glacier-text-color-regular: #525F7F;
-  --theme-glacier-text-color-secondary: #6B7C93;
+  --theme-glacier-text-color-secondary: #52627C;
   --theme-glacier-text-color-placeholder: #ADB5BD;
   --theme-glacier-border-color: #E3E8EE;
   --theme-glacier-border-color-light: #EDF0F4;
@@ -163,7 +171,9 @@
   --theme-glacier-fill-color-lighter: #FAFCFE;
   --theme-glacier-shadow-color: rgba(50, 50, 93, 0.1);
   --theme-glacier-accent-color: #635BFF;
+  --theme-glacier-primary-on-color: #FFFFFF;
   --theme-glacier-success-color: #3ECF8E;
+  --theme-glacier-warning-color: #B45309;
   --theme-glacier-danger-color: #E25950;
 
   --theme-meridian-bg-color: #FFFBF5;
@@ -172,13 +182,13 @@
   --theme-meridian-bg-color-sidebar: #FFFBF5;
   --theme-meridian-sidebar-text-color: #2D2926;
   --theme-meridian-sidebar-text-color-muted: #6B5E54;
-  --theme-meridian-sidebar-active-color: #CF4500;
+  --theme-meridian-sidebar-active-color: #B63C00;
   --theme-meridian-sidebar-active-bg: rgba(207, 69, 0, 0.08);
   --theme-meridian-sidebar-hover-bg: rgba(207, 69, 0, 0.04);
   --theme-meridian-sidebar-border-color: #EDE5DA;
   --theme-meridian-text-color-primary: #2D2926;
   --theme-meridian-text-color-regular: #4A4340;
-  --theme-meridian-text-color-secondary: #6B5E54;
+  --theme-meridian-text-color-secondary: #5C5048;
   --theme-meridian-text-color-placeholder: #A89B90;
   --theme-meridian-border-color: #EDE5DA;
   --theme-meridian-border-color-light: #F5EFE7;
@@ -188,7 +198,9 @@
   --theme-meridian-fill-color-lighter: #FFFCF8;
   --theme-meridian-shadow-color: rgba(45, 41, 38, 0.08);
   --theme-meridian-accent-color: #CF4500;
+  --theme-meridian-primary-on-color: #FFFFFF;
   --theme-meridian-success-color: #2E7D32;
+  --theme-meridian-warning-color: #B45309;
   --theme-meridian-danger-color: #C62828;
 
   --theme-verdant-bg-color: #FFFFFF;
@@ -197,13 +209,13 @@
   --theme-verdant-bg-color-sidebar: #FFFFFF;
   --theme-verdant-sidebar-text-color: #1A3A2A;
   --theme-verdant-sidebar-text-color-muted: #4A6B5A;
-  --theme-verdant-sidebar-active-color: #00B856;
+  --theme-verdant-sidebar-active-color: #007D3D;
   --theme-verdant-sidebar-active-bg: rgba(0, 184, 86, 0.08);
   --theme-verdant-sidebar-hover-bg: rgba(0, 184, 86, 0.04);
   --theme-verdant-sidebar-border-color: #DCE8E0;
   --theme-verdant-text-color-primary: #1A3A2A;
   --theme-verdant-text-color-regular: #37574A;
-  --theme-verdant-text-color-secondary: #4A6B5A;
+  --theme-verdant-text-color-secondary: #405E4C;
   --theme-verdant-text-color-placeholder: #8FA89A;
   --theme-verdant-border-color: #DCE8E0;
   --theme-verdant-border-color-light: #E8F0EA;
@@ -212,8 +224,10 @@
   --theme-verdant-fill-color-light: #F2F7F2;
   --theme-verdant-fill-color-lighter: #F8FBF8;
   --theme-verdant-shadow-color: rgba(26, 58, 42, 0.08);
-  --theme-verdant-accent-color: #00B856;
+  --theme-verdant-accent-color: #008743;
+  --theme-verdant-primary-on-color: #FFFFFF;
   --theme-verdant-success-color: #00B856;
+  --theme-verdant-warning-color: #B45309;
   --theme-verdant-danger-color: #D32F2F;
 }
 

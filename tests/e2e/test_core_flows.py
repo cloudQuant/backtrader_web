@@ -17,7 +17,7 @@ import time
 import uuid
 
 import pytest
-from playwright.sync_api import Page, expect, sync_playwright
+from playwright.sync_api import Page, expect
 
 BASE_URL = "http://localhost:3000"
 API_URL = "http://localhost:8000"
@@ -27,23 +27,10 @@ TEST_USER = f"e2e_user_{uuid.uuid4().hex[:8]}"
 TEST_EMAIL = f"{TEST_USER}@test.com"
 TEST_PASSWORD = "E2eTest123456!"
 
-
-@pytest.fixture(scope="module")
-def browser():
-    """Launch browser for the test module."""
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        yield browser
-        browser.close()
-
-
-@pytest.fixture
-def page(browser):
-    """Create a new page for each test."""
-    context = browser.new_context()
-    page = context.new_page()
-    yield page
-    context.close()
+# NOTE: `browser` and `page` fixtures are provided by conftest.py (session-scoped
+# browser, function-scoped page). Defining them here again starts a second
+# sync_playwright() event loop which conflicts with conftest's when the files
+# run in the same pytest session ("Sync API inside the asyncio loop").
 
 
 @pytest.fixture(scope="module")
@@ -223,10 +210,11 @@ class TestDashboard:
         page = logged_in_page
 
         # Navigate to strategy page via direct URL (sidebar click may have timing issues)
+        # /strategy is a legacy alias that redirects to the canonical /research/strategies
         page.goto(f"{BASE_URL}/strategy")
         time.sleep(2)
         page.wait_for_load_state("networkidle")
-        assert "/strategy" in page.url
+        assert "/research/strategies" in page.url or "/strategy" in page.url
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -39,20 +39,21 @@ describe('StrategyTemplateCard', () => {
     expect(html).not.toContain('meta-junk')
   })
 
-  it('emits detail when the card body is activated', async () => {
+  it('exposes a single primary action without making the whole card a nested button', () => {
     const wrapper = doMount()
-    await wrapper.find('.strategy-card').trigger('click')
-    expect(wrapper.emitted('detail')?.[0]?.[0]).toEqual(tpl)
+    expect(wrapper.find('.strategy-card').attributes('role')).toBeUndefined()
+    expect(wrapper.findAll('.strategy-card-actions > .el-button')).toHaveLength(1)
+    expect(wrapper.find('summary').attributes('aria-label')).toBe('strategy.moreActions')
   })
 
-  it('emits use and backtest from the action buttons', async () => {
+  it('emits use as the primary action and detail/backtest from the overflow menu', async () => {
     const wrapper = doMount()
-    const buttons = wrapper.findAll('button')
-    // detail / use / backtest order in template
-    expect(buttons.length).toBeGreaterThanOrEqual(3)
-    await buttons[1].trigger('click')
-    await buttons[2].trigger('click')
+    await wrapper.find('.strategy-card-actions > .el-button').trigger('click')
+    await wrapper.findAll('[role="menuitem"]')[0].trigger('click')
+    await wrapper.findAll('[role="menuitem"]')[1].trigger('click')
+
     expect(wrapper.emitted('use')?.[0]?.[0]).toEqual(tpl)
+    expect(wrapper.emitted('detail')?.[0]?.[0]).toEqual(tpl)
     expect(wrapper.emitted('backtest')?.[0]?.[0]).toEqual(tpl)
   })
 })

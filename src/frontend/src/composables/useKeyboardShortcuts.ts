@@ -15,6 +15,7 @@ import { onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import i18n from '@/i18n'
+import { APP_PATHS } from '@/navigation/routes'
 
 function tt(key: string): string {
   return i18n.global.t(key)
@@ -134,14 +135,14 @@ export function useKeyboardShortcuts() {
     registerShortcut({
       key: '2',
       description: tt('kbShortcuts.descNavStrategy'),
-      action: () => router.push('/strategy')
+      action: () => router.push(APP_PATHS.research.strategies)
     })
 
     // Navigate to backtest: 3
     registerShortcut({
       key: '3',
       description: tt('kbShortcuts.descNavBacktest'),
-      action: () => router.push('/workspace')
+      action: () => router.push(APP_PATHS.research.workspaces)
     })
 
     // Navigate to live trading: 5

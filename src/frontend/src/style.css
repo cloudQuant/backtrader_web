@@ -14,26 +14,53 @@
   --primary-color: var(--color-primary-500);
   --primary-color-light: var(--color-primary-400);
   --primary-color-dark: var(--color-primary-600);
+  --primary-on-color: #FFFFFF;
   --accent-color: var(--primary-color);
 
   /* Semantic */
   --success-color: var(--color-success-500);
   --danger-color: var(--color-danger-500);
   --warning-color: var(--color-warning-500);
-  --info-surface: var(--color-primary-50);
-  --info-border-color: var(--color-primary-200);
-  --info-text-color: var(--color-primary-900);
-  --success-surface: var(--color-success-50);
-  --success-border-color: var(--color-success-200);
-  --success-text-color: var(--color-success-700);
-  --success-text-strong: var(--color-success-800);
-  --warning-surface: var(--color-warning-50);
-  --warning-border-color: var(--color-warning-200);
-  --warning-text-color: var(--color-warning-800);
-  --warning-text-strong: var(--color-warning-700);
-  --danger-surface: var(--color-danger-50);
-  --danger-border-color: var(--color-danger-200);
-  --danger-text-color: var(--color-danger-800);
+  --info-surface: color-mix(in srgb, var(--bg-color) 86%, var(--primary-color) 14%);
+  --info-border-color: color-mix(in srgb, var(--border-color) 58%, var(--primary-color) 42%);
+  --info-text-color: var(--primary-color);
+  --success-surface: color-mix(in srgb, var(--bg-color) 86%, var(--success-color) 14%);
+  --success-border-color: color-mix(in srgb, var(--border-color) 58%, var(--success-color) 42%);
+  --success-text-color: var(--success-color);
+  --success-text-strong: var(--success-color);
+  --warning-surface: color-mix(in srgb, var(--bg-color) 86%, var(--warning-color) 14%);
+  --warning-border-color: color-mix(in srgb, var(--border-color) 58%, var(--warning-color) 42%);
+  --warning-text-color: var(--warning-color);
+  --warning-text-strong: var(--warning-color);
+  --danger-surface: color-mix(in srgb, var(--bg-color) 86%, var(--danger-color) 14%);
+  --danger-border-color: color-mix(in srgb, var(--border-color) 58%, var(--danger-color) 42%);
+  --danger-text-color: var(--danger-color);
+
+  /* Element Plus consumes these semantic variables for all seven themes. */
+  --el-color-primary: var(--primary-color);
+  --el-color-primary-light-3: color-mix(in srgb, var(--primary-color) 70%, var(--bg-color) 30%);
+  --el-color-primary-light-5: color-mix(in srgb, var(--primary-color) 50%, var(--bg-color) 50%);
+  --el-color-primary-light-7: color-mix(in srgb, var(--primary-color) 30%, var(--bg-color) 70%);
+  --el-color-primary-light-8: color-mix(in srgb, var(--primary-color) 20%, var(--bg-color) 80%);
+  --el-color-primary-light-9: color-mix(in srgb, var(--primary-color) 10%, var(--bg-color) 90%);
+  --el-color-primary-dark-2: color-mix(in srgb, var(--primary-color) 80%, var(--text-color-primary) 20%);
+  --el-color-success: var(--success-color);
+  --el-color-warning: var(--warning-color);
+  --el-color-danger: var(--danger-color);
+  --el-bg-color: var(--bg-color);
+  --el-bg-color-page: var(--bg-color-page);
+  --el-bg-color-overlay: var(--bg-color-overlay);
+  --el-fill-color: var(--fill-color);
+  --el-fill-color-light: var(--fill-color-light);
+  --el-fill-color-lighter: var(--fill-color-lighter);
+  --el-fill-color-blank: var(--bg-color);
+  --el-text-color-primary: var(--text-color-primary);
+  --el-text-color-regular: var(--text-color-regular);
+  --el-text-color-secondary: var(--text-color-secondary);
+  --el-text-color-placeholder: var(--text-color-placeholder);
+  --el-border-color: var(--border-color);
+  --el-border-color-light: var(--border-color-light);
+  --el-border-color-lighter: var(--border-color-lighter);
 
   /* Text */
   --text-color-primary: var(--color-text-primary);
@@ -77,6 +104,28 @@ body {
 .el-button--primary {
   --el-button-bg-color: var(--primary-color);
   --el-button-border-color: var(--primary-color);
+  --el-button-text-color: var(--primary-on-color);
+  --el-button-hover-text-color: var(--primary-on-color);
+  --el-button-active-text-color: var(--primary-on-color);
+}
+
+.el-table {
+  --el-table-bg-color: var(--bg-color);
+  --el-table-tr-bg-color: var(--bg-color);
+  --el-table-header-bg-color: var(--fill-color);
+  --el-table-row-hover-bg-color: var(--fill-color-light);
+  --el-table-striped-bg-color: var(--fill-color-lighter);
+  --el-table-text-color: var(--text-color-primary);
+  --el-table-header-text-color: var(--text-color-secondary);
+  --el-table-border-color: var(--border-color);
+}
+
+.el-input.is-disabled .el-input__wrapper,
+.el-textarea.is-disabled .el-textarea__inner,
+.el-select .el-select__wrapper.is-disabled {
+  background-color: var(--fill-color-lighter) !important;
+  color: var(--text-color-secondary) !important;
+  box-shadow: 0 0 0 1px var(--border-color) inset !important;
 }
 
 /* K-line chart colors (domain-specific, not theme tokens) */

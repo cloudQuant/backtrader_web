@@ -37,6 +37,12 @@
       >
         {{ t('backtest.retry') }}
       </el-button>
+      <el-button
+        :aria-label="t('common.back')"
+        @click="handleBack"
+      >
+        {{ t('common.back') }}
+      </el-button>
     </div>
 
     <!-- Content -->
@@ -126,6 +132,19 @@
         </div>
       </section>
 
+      <ResearchWorkflowGuide
+        v-if="!isOptimizationArtifactMode"
+        data-test="backtest-workflow-guide"
+        :kicker="t('workspace.flowKicker')"
+        :title="t('workspace.flowTitle')"
+        :steps="backtestWorkflowSteps"
+        :complete-label="t('workspace.flowStateComplete')"
+        :current-label="t('workspace.flowStateCurrent')"
+        :upcoming-label="t('workspace.flowStateUpcoming')"
+        :attention-label="t('workspace.flowStateAttention')"
+        @action="handleWorkflowAction"
+      />
+
       <!-- Performance metrics panel -->
       <section class="backtest-result-panel backtest-result-panel--performance">
         <header class="backtest-result-panel-head">
@@ -138,19 +157,27 @@
         <PerformancePanel :metrics="detail.metrics" />
       </section>
 
+      <button
+        v-if="hasDiagnostics"
+        type="button"
+        class="backtest-mobile-diagnostics-trigger"
+        data-test="backtest-open-diagnostics"
+        :aria-expanded="mobileDiagnosticsOpen"
+        aria-haspopup="dialog"
+        @click="openMobileDiagnostics($event)"
+      >
+        {{ t('backtest.openDiagnostics') }}
+      </button>
+
       <section
-        v-if="
-          strategyScore
-            || !isOptimizationArtifactMode
-            || overfittingTask
-            || overfittingLoading
-            || strategyExplanation
-            || resultSummaryCards.length
-            || dataPrecheckSnapshot
-            || robustnessSnapshot
-            || robustnessLoading
-        "
+        v-if="hasDiagnostics"
+        ref="diagnosticsPanel"
         class="backtest-result-panel backtest-result-panel--diagnostics"
+        :class="{ 'backtest-result-panel--mobile-open': mobileDiagnosticsOpen }"
+        :role="mobileDiagnosticsOpen ? 'dialog' : undefined"
+        :aria-modal="mobileDiagnosticsOpen ? 'true' : undefined"
+        :aria-label="mobileDiagnosticsOpen ? t('backtest.diagnosticsTitle') : undefined"
+        @keydown="handleMobileDiagnosticsKeydown"
       >
         <header class="backtest-result-panel-head">
           <div>
@@ -158,6 +185,18 @@
             <h2>{{ t('backtest.diagnosticsTitle') }}</h2>
           </div>
           <p>{{ t('backtest.diagnosticsSubtitle') }}</p>
+          <button
+            v-if="mobileDiagnosticsOpen"
+            ref="diagnosticsPanelClose"
+            type="button"
+            class="backtest-mobile-diagnostics-close"
+            :aria-label="t('backtest.closeDiagnostics')"
+            @click="closeMobileDiagnostics"
+          >
+            <el-icon aria-hidden="true">
+              <Close />
+            </el-icon>
+          </button>
         </header>
 
         <div class="backtest-result-diagnostics-grid">
@@ -284,6 +323,15 @@
         </div>
       </section>
 
+      <button
+        v-if="mobileDiagnosticsOpen"
+        type="button"
+        class="backtest-mobile-diagnostics-backdrop"
+        tabindex="-1"
+        :aria-label="t('backtest.closeDiagnostics')"
+        @click="closeMobileDiagnostics"
+      />
+
       <!-- Charts area -->
       <section class="backtest-result-panel backtest-result-panel--charts">
         <header class="backtest-result-panel-head">
@@ -394,12 +442,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Loading, CircleCloseFilled, Download, Back, FolderOpened } from '@element-plus/icons-vue'
+import { Loading, CircleCloseFilled, Download, Back, Close, FolderOpened } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { getErrorMessage } from '@/api'
+import ResearchWorkflowGuide from '@/components/research/ResearchWorkflowGuide.vue'
+import { APP_PATHS } from '@/navigation/routes'
+import type { ResearchWorkflowStep } from '@/types/researchWorkflow'
 import { analyticsApi } from '@/api/analytics'
 import { backtestApi } from '@/api/backtest'
 import { strategyApi } from '@/api/strategy'
@@ -462,6 +513,10 @@ const isOptimizationArtifactMode = computed(() => (
 const loading = ref(true)
 const error = ref<string | null>(null)
 const activeTab = ref('equity')
+const mobileDiagnosticsOpen = ref(false)
+const diagnosticsPanel = ref<HTMLElement | null>(null)
+const diagnosticsPanelClose = ref<HTMLButtonElement | null>(null)
+let diagnosticsPanelTrigger: HTMLElement | null = null
 
 const detail = ref<BacktestDetailResponse | null>(null)
 const klineData = ref<KlineWithSignalsResponse | null>(null)
@@ -505,6 +560,7 @@ const resultStatusLabel = computed(() => {
   const map: Record<string, string> = {
     completed: t('backtest.completed'),
     failed: t('backtest.failed'),
+    cancelled: t('backtest.cancelled'),
     running: t('backtest.running'),
     pending: t('backtest.pending'),
   }
@@ -513,9 +569,52 @@ const resultStatusLabel = computed(() => {
 
 const statusTagType = computed(() => {
   const status = detail.value?.artifact_status || 'completed'
-  if (status === 'failed' || status === 'error') return 'danger'
+  if (status === 'failed' || status === 'error' || status === 'cancelled') return 'danger'
   if (status === 'running' || status === 'pending') return 'warning'
   return 'success'
+})
+
+const backtestWorkflowSteps = computed<ResearchWorkflowStep[]>(() => {
+  const status = detail.value?.artifact_status || 'completed'
+  const runState = status === 'completed'
+    ? 'complete'
+    : status === 'failed' || status === 'error' || status === 'cancelled'
+      ? 'attention'
+      : 'current'
+  const reviewState = runState === 'complete' ? 'current' : 'upcoming'
+
+  return [
+    {
+      id: 'workspace',
+      label: t('workspace.flowCreateTitle'),
+      description: t('workspace.flowCreateDesc'),
+      state: 'complete',
+    },
+    {
+      id: 'configure',
+      label: t('workspace.flowConfigureTitle'),
+      description: t('workspace.flowConfigureDesc'),
+      state: 'complete',
+    },
+    {
+      id: 'backtest',
+      label: t('workspace.flowBacktestTitle'),
+      description: status === 'completed'
+        ? t('workspace.flowBacktestDesc')
+        : detail.value?.artifact_error || t('workspace.flowBacktestDesc'),
+      state: runState,
+      action: runState === 'attention' ? 'return-to-workspace' : undefined,
+      actionLabel: runState === 'attention' ? t('common.back') : undefined,
+    },
+    {
+      id: 'review',
+      label: t('workspace.flowReviewTitle'),
+      description: t('workspace.flowReviewDesc'),
+      state: reviewState,
+      action: reviewState === 'current' ? 'return-to-workspace' : undefined,
+      actionLabel: reviewState === 'current' ? t('common.back') : undefined,
+    },
+  ]
 })
 
 const heroMetrics = computed(() => {
@@ -648,6 +747,59 @@ const robustnessScoreText = computed(() => {
 const robustnessGateRows = computed<QualityGateEvaluation[]>(() => (
   robustnessSnapshot.value?.gate_evaluations || []
 ))
+
+const hasDiagnostics = computed(() => (
+  Boolean(
+    strategyScore.value
+      || !isOptimizationArtifactMode.value
+      || overfittingTask.value
+      || overfittingLoading.value
+      || strategyExplanation.value
+      || resultSummaryCards.value.length
+      || dataPrecheckSnapshot.value
+      || robustnessSnapshot.value
+      || robustnessLoading.value,
+  )
+))
+
+async function openMobileDiagnostics(event: MouseEvent) {
+  diagnosticsPanelTrigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  mobileDiagnosticsOpen.value = true
+  await nextTick()
+  diagnosticsPanelClose.value?.focus()
+}
+
+function closeMobileDiagnostics() {
+  mobileDiagnosticsOpen.value = false
+  void nextTick(() => diagnosticsPanelTrigger?.focus())
+}
+
+function handleMobileDiagnosticsKeydown(event: KeyboardEvent) {
+  if (!mobileDiagnosticsOpen.value) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeMobileDiagnostics()
+    return
+  }
+  if (event.key !== 'Tab') return
+
+  const focusable = diagnosticsPanel.value
+    ? Array.from(diagnosticsPanel.value.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ))
+    : []
+  if (focusable.length === 0) return
+
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
 
 async function loadData() {
   stopOverfittingRuntime()
@@ -829,7 +981,13 @@ function handleBack() {
     })
     return
   }
-  router.push('/backtest/legacy')
+  router.push(APP_PATHS.backtest.list)
+}
+
+function handleWorkflowAction(action: string) {
+  if (action === 'return-to-workspace') {
+    handleBack()
+  }
 }
 
 function formatPercent(value: number | null | undefined): string {
@@ -1034,6 +1192,12 @@ function formatTime(iso: string): string {
 
 .backtest-result-panel {
   padding: 18px;
+}
+
+.backtest-mobile-diagnostics-trigger,
+.backtest-mobile-diagnostics-close,
+.backtest-mobile-diagnostics-backdrop {
+  display: none;
 }
 
 .backtest-result-panel-head {
@@ -1397,7 +1561,7 @@ function formatTime(iso: string): string {
   }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 768px) {
   .backtest-result-page {
     gap: 14px;
   }
@@ -1424,6 +1588,64 @@ function formatTime(iso: string): string {
 
   .backtest-result-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .backtest-mobile-diagnostics-trigger {
+    display: inline-flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-color);
+    color: var(--text-color-regular);
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .backtest-result-panel--diagnostics {
+    display: none;
+  }
+
+  .backtest-result-panel--diagnostics.backtest-result-panel--mobile-open {
+    position: fixed;
+    z-index: 1001;
+    top: max(12px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    display: block;
+    width: min(560px, calc(100vw - 24px));
+    overflow-y: auto;
+    background: var(--bg-color);
+    box-shadow: var(--shadow-lg, 0 10px 28px var(--shadow-color));
+    overscroll-behavior: contain;
+  }
+
+  .backtest-mobile-diagnostics-close {
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    align-self: flex-end;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-color);
+    color: var(--text-color-regular);
+    cursor: pointer;
+  }
+
+  .backtest-mobile-diagnostics-backdrop {
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: color-mix(in srgb, var(--text-color-primary) 34%, transparent);
+    cursor: default;
   }
 
   .backtest-trust-card-head,

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin } from '../support/auth';
+import { APP_PATHS } from '../../src/navigation/routes';
 
 /**
  * 基本 E2E 测试 - 验证关键页面加载
@@ -29,7 +30,7 @@ test.describe('基本页面测试 - 已登录路由', () => {
 
   test('访问策略页面', async ({ page }) => {
     // 访问策略页面
-    await page.goto('/strategy');
+    await page.goto(APP_PATHS.research.strategies);
 
     await expect(page.getByText('策略中心')).toBeVisible();
     await expect(page.locator('button:has-text("创建策略")')).toBeVisible();

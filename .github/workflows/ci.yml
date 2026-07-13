@@ -906,7 +906,7 @@ jobs:
       - name: Run a11y suite
         env:
           BASE_URL: http://localhost:4173
-        run: npx playwright test e2e/a11y/ --reporter=list
+        run: npx playwright test --config=playwright.a11y.config.ts
 
       - name: Upload a11y trace
         if: always()
@@ -979,9 +979,7 @@ jobs:
         working-directory: src/frontend
         env:
           BASE_URL: http://localhost:4173
-        run: npx playwright test e2e/i18n/ --reporter=list || true
-        # Marked || true while the project still has Chinese leaks; flip to
-        # a blocking call once baseline is cleared.
+        run: npx playwright test --config=playwright.i18n.config.ts
 
   frontend-e2e-smoke:
     name: Frontend - E2E Smoke (175 §6)

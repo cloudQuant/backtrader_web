@@ -192,22 +192,36 @@
         v-else-if="store.workspaces.length === 0"
         class="workspace-empty"
       >
-        <el-empty
-          :description="emptyDescription"
+        <ResearchWorkflowGuide
+          v-if="!isTradingWorkspace"
+          data-test="research-workflow-guide"
+          :kicker="t('workspace.flowKicker')"
+          :title="t('workspace.flowTitle')"
+          :steps="researchStartSteps"
+          :complete-label="t('workspace.flowStateComplete')"
+          :current-label="t('workspace.flowStateCurrent')"
+          :upcoming-label="t('workspace.flowStateUpcoming')"
+          :attention-label="t('workspace.flowStateAttention')"
+          @action="handleResearchFlowAction"
         />
-        <el-button
-          type="primary"
-          :aria-label="t('workspace.createNew')"
-          @click="showCreateDialog = true"
-        >
-          <el-icon
-            class="button-icon"
-            aria-hidden="true"
+        <template v-else>
+          <el-empty
+            :description="emptyDescription"
+          />
+          <el-button
+            type="primary"
+            :aria-label="t('workspace.createNew')"
+            @click="showCreateDialog = true"
           >
-            <Plus />
-          </el-icon>
-          {{ t('workspace.createNew') }}
-        </el-button>
+            <el-icon
+              class="button-icon"
+              aria-hidden="true"
+            >
+              <Plus />
+            </el-icon>
+            {{ t('workspace.createNew') }}
+          </el-button>
+        </template>
       </div>
 
       <div
@@ -357,7 +371,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Grid, List, Loading, Plus } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { getErrorMessage } from '@/api/index'
+import ResearchWorkflowGuide from '@/components/research/ResearchWorkflowGuide.vue'
+import { APP_PATHS } from '@/navigation/routes'
 import { useWorkspaceStore } from '@/stores/workspace'
+import type { ResearchWorkflowStep } from '@/types/researchWorkflow'
 import type { ViewMode, Workspace, WorkspaceType } from '@/types/workspace'
 import CreateWorkspaceDialog from '@/components/workspace/CreateWorkspaceDialog.vue'
 import WorkspaceCard from '@/components/workspace/WorkspaceCard.vue'
@@ -411,6 +428,35 @@ const workspaceHero = computed(() => {
     subtitle: t('workspace.researchHeroSubtitle'),
   }
 })
+
+const researchStartSteps = computed<ResearchWorkflowStep[]>(() => [
+  {
+    id: 'workspace',
+    label: t('workspace.flowCreateTitle'),
+    description: t('workspace.flowCreateDesc'),
+    state: 'current',
+    action: 'create-workspace',
+    actionLabel: t('workspace.createNew'),
+  },
+  {
+    id: 'configure',
+    label: t('workspace.flowConfigureTitle'),
+    description: t('workspace.flowConfigureDesc'),
+    state: 'upcoming',
+  },
+  {
+    id: 'backtest',
+    label: t('workspace.flowBacktestTitle'),
+    description: t('workspace.flowBacktestDesc'),
+    state: 'upcoming',
+  },
+  {
+    id: 'review',
+    label: t('workspace.flowReviewTitle'),
+    description: t('workspace.flowReviewDesc'),
+    state: 'upcoming',
+  },
+])
 
 const workspaceStats = computed(() => {
   const total = store.total || store.workspaces.length
@@ -505,7 +551,7 @@ function goToDetail(id: string) {
     router.push(`/backtest/workspace/${id}`)
     return
   }
-  router.push(`/workspace/${id}`)
+  router.push(APP_PATHS.research.workspace(id))
 }
 
 function toggleSelect(id: string) {
@@ -519,6 +565,12 @@ function toggleSelect(id: string) {
 
 function onTableSelectionChange(rows: Workspace[]) {
   selectedIds.value = rows.map(row => row.id)
+}
+
+function handleResearchFlowAction(action: string) {
+  if (action === 'create-workspace') {
+    showCreateDialog.value = true
+  }
 }
 
 function handleEdit(workspace: Workspace) {

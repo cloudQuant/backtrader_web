@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { prepareStaticPreviewPage } from '../support/static-preview'
 
 // Login page — no auth state required; uses the project's default storageState.
 // Iteration 175 §3.2 / Requirement 3 acceptance test.
@@ -9,6 +10,7 @@ test.use({ storageState: { cookies: [], origins: [] } })
 
 test('a11y - /login (Critical_Page_Set #1)', async ({ page }) => {
   test.setTimeout(60_000)
+  await prepareStaticPreviewPage(page, { authenticated: false })
   await page.goto('/login')
   await page.waitForLoadState('networkidle')
 

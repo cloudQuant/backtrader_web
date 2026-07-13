@@ -1,8 +1,6 @@
 """
 Playwright E2E 测试配置
 """
-import re
-
 import pytest
 import requests
 from playwright.sync_api import Page, Browser, BrowserContext
@@ -17,11 +15,26 @@ TEST_USER = {
 
 # 服务配置
 FRONTEND_URL = "http://localhost:3000"
-BACKEND_URL = "http://localhost:8001"
+BACKEND_URL = "http://localhost:8000"
 
 
 def _ensure_test_user_exists(user: dict):
-    """通过 API 确保测试用户已注册（比 UI 注册更快更可靠）"""
+    """通过 API 确保测试用户已注册（比 UI 注册更快更可靠）
+
+    先尝试登录：登录成功说明用户已存在，直接返回，避免反复调用 /auth/register
+    触发 slowapi 注册限流（in-memory 计数器跨用例累积，200/hour 在全量 e2e 套件下会耗尽）。
+    """
+    try:
+        login_resp = requests.post(
+            f"{BACKEND_URL}/api/v1/auth/login",
+            json={"username": user["username"], "password": user["password"]},
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+        if login_resp.status_code == 200:
+            return  # 用户已存在，无需注册
+    except Exception:
+        pass
     try:
         resp = requests.post(
             f"{BACKEND_URL}/api/v1/auth/register",
@@ -91,30 +104,33 @@ def authenticated_page(context: BrowserContext, test_user: dict):
     page.fill('input[placeholder="密码"]', test_user["password"])
     page.click('button:has-text("登录")')
 
-    # 等待登录成功跳转（使用正则匹配，更宽松）
-    try:
-        page.wait_for_url(re.compile(r"http://localhost:3000(?:/)?(?:\?.*)?$"), timeout=15000)
-    except Exception:
-        # 如果 URL 匹配失败，检查是否至少离开了登录页
+    # 等待登录成功跳转：放宽为“离开登录页”即视为成功（最多等 30s）。
+    # 既匹配跳转到根路径，也匹配带 redirect query 的中间态最终落地。
+    login_ok = False
+    deadline = 30
+    for _ in range(deadline * 2):
+        page.wait_for_timeout(500)
         current_url = page.url
         if "/login" not in current_url:
-            pass  # 已经跳转到其他页面，认为登录成功
-        else:
-            raise RuntimeError(
-                f"登录失败：仍在登录页 {current_url}。"
-                f"请确认后端 ({BACKEND_URL}) 正在运行。"
-            )
+            login_ok = True
+            break
+    if not login_ok:
+        raise RuntimeError(
+            f"登录失败：仍在登录页 {page.url}。"
+            f"请确认后端 ({BACKEND_URL}) 正在运行且响应正常。"
+        )
 
     yield page
     page.close()
 
 
 def _get_auth_token(user: dict) -> str | None:
-    """通过 API 登录获取 JWT token"""
+    """通过 API 登录获取 JWT token（后端 /auth/login 接受 JSON 请求体）"""
     try:
         resp = requests.post(
             f"{BACKEND_URL}/api/v1/auth/login",
-            data={"username": user["username"], "password": user["password"]},
+            json={"username": user["username"], "password": user["password"]},
+            headers={"Content-Type": "application/json"},
             timeout=10,
         )
         if resp.status_code == 200:

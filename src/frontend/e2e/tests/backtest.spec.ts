@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { APP_PATHS } from '../../src/navigation/routes';
 
 /**
  * 回测功能 E2E 测试
@@ -11,14 +12,14 @@ test.describe('回测功能', () => {
 
   test('回测页面加载', async ({ page }) => {
     // 访问回测页面
-    await page.goto('/backtest');
+    await page.goto(APP_PATHS.backtest.list);
 
     await expect(page).toHaveURL(/\/backtest$/);
     await expect(page.locator('button:has-text("新建工作区")')).toBeVisible();
   });
 
   test('研究工作区标题可见', async ({ page }) => {
-    await page.goto('/backtest');
+    await page.goto(APP_PATHS.backtest.list);
 
     await expect(page.locator('header .text-lg.font-medium')).toHaveText('策略研究');
   });
@@ -31,22 +32,23 @@ test.describe('回测功能', () => {
         const hasEmpty = (await page.locator('.workspace-list-page .el-empty').count()) > 0;
         const hasTable = (await page.locator('.workspace-list-page .el-table').count()) > 0;
         const hasCards = (await page.locator('.workspace-list-page .workspace-card').count()) > 0;
-        return hasEmpty || hasTable || hasCards;
+        const hasResearchFlow = (await page.locator('[data-test="research-workflow-guide"]').count()) > 0;
+        return hasEmpty || hasTable || hasCards || hasResearchFlow;
       }, {
         timeout: 10000,
-        message: 'workspace list should eventually render empty state, table, or cards',
+        message: 'workspace list should eventually render a workflow, empty state, table, or cards',
       })
       .toBe(true);
   });
 
   test('新建工作区按钮存在', async ({ page }) => {
-    await page.goto('/backtest');
+    await page.goto(APP_PATHS.backtest.list);
 
     await expect(page.locator('button:has-text("新建工作区")')).toBeVisible();
   });
 
   test('删除工作区按钮存在', async ({ page }) => {
-    await page.goto('/backtest');
+    await page.goto(APP_PATHS.backtest.list);
 
     await expect(page.locator('button:has-text("删除工作区")')).toBeVisible();
   });

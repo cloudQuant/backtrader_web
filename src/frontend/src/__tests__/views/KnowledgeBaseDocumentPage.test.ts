@@ -62,4 +62,37 @@ describe('KnowledgeBaseDocumentPage', () => {
     expect(wrapper.text()).toContain('快捷 AI 问答')
   })
 
+  it('opens the document context drawer and restores focus after closing it', async () => {
+    const wrapper = mount(KnowledgeBaseDocumentPage, {
+      attachTo: document.body,
+      global: { stubs: { ...elStubs, KnowledgeBaseDocSourceView: true } },
+    })
+    await flushPromises()
+    const trigger = wrapper.get('[data-test="kb-doc-open-side-panel"]')
+    await trigger.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.kb-doc-side--mobile-open').attributes('role')).toBe('dialog')
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('关闭文档上下文')
+
+    await wrapper.find('.kb-doc-mobile-side-close').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(document.activeElement).toBe(trigger.element)
+    wrapper.unmount()
+  })
+
+  it('closes the document context drawer with Escape', async () => {
+    const wrapper = mount(KnowledgeBaseDocumentPage, {
+      attachTo: document.body,
+      global: { stubs: { ...elStubs, KnowledgeBaseDocSourceView: true } },
+    })
+    await flushPromises()
+    await wrapper.get('[data-test="kb-doc-open-side-panel"]').trigger('click')
+    await wrapper.find('.kb-doc-side').trigger('keydown', { key: 'Escape' })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.kb-doc-side--mobile-open').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
 })

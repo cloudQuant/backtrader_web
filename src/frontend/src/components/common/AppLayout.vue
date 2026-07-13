@@ -704,7 +704,7 @@ function handleCommand(command: string) {
 .domain-subnav-item:focus-visible,
 .domain-subnav-item-active {
   border-color: var(--info-border-color);
-  color: var(--primary-color);
+  color: var(--text-color-primary);
   background: var(--fill-color-light);
 }
 

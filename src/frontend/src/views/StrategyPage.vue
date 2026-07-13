@@ -388,10 +388,10 @@
                     v-model="aiResearchForm.workflow_mode"
                     data-test="ai-research-workflow-mode"
                   >
-                    <el-radio-button label="auto">
+                    <el-radio-button value="auto">
                       自动规划
                     </el-radio-button>
-                    <el-radio-button label="prompt">
+                    <el-radio-button value="prompt">
                       按提示执行
                     </el-radio-button>
                   </el-radio-group>
@@ -2545,25 +2545,25 @@
               size="default"
               :aria-label="t('strategy.filterAriaLabel')"
             >
-              <el-radio-button label="">
+              <el-radio-button value="">
                 {{ t('strategy.categoryAll') }}
               </el-radio-button>
-              <el-radio-button label="trend">
+              <el-radio-button value="trend">
                 {{ t('strategy.categoryTrend') }}
               </el-radio-button>
-              <el-radio-button label="mean_reversion">
+              <el-radio-button value="mean_reversion">
                 {{ t('strategy.categoryMeanReversion') }}
               </el-radio-button>
-              <el-radio-button label="volatility">
+              <el-radio-button value="volatility">
                 {{ t('strategy.categoryVolatility') }}
               </el-radio-button>
-              <el-radio-button label="indicator">
+              <el-radio-button value="indicator">
                 {{ t('strategy.categoryIndicator') }}
               </el-radio-button>
-              <el-radio-button label="arbitrage">
+              <el-radio-button value="arbitrage">
                 {{ t('strategy.categoryArbitrage') }}
               </el-radio-button>
-              <el-radio-button label="custom">
+              <el-radio-button value="custom">
                 {{ t('strategy.categoryOther') }}
               </el-radio-button>
             </el-radio-group>

@@ -187,6 +187,8 @@ describe('QuotePage', () => {
     expect(quoteApiMocks.getQuotes).toHaveBeenCalledWith('eastmoney')
     expect(quoteApiMocks.getSymbols).toHaveBeenCalledWith('eastmoney')
     expect(store.filteredTicks).toHaveLength(1)
+    expect(wrapper.findAll('.quote-mobile-card')).toHaveLength(1)
+    expect(wrapper.find('.quote-mobile-card').text()).toContain('RB2405')
 
     const vm = wrapper.vm as any
     vm.addKeyword = 'rb'

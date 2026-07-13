@@ -57,6 +57,7 @@
           <el-select
             v-model="selectedKnowledgeBaseId"
             :placeholder="t('aiChat.selectKnowledgeBasePrompt')"
+            :aria-label="t('aiChat.knowledgeBase')"
           >
             <el-option
               v-for="kb in kbStore.knowledgeBases"
@@ -113,6 +114,7 @@
         <el-switch
           v-model="thinkingMode"
           size="small"
+          :aria-label="t('aiChat.deepMode')"
         />
         <span>{{ t('aiChat.deepMode') }}</span>
       </div>
@@ -126,9 +128,17 @@
       }"
     >
       <aside
+        ref="conversationPanel"
         class="ai-panel conversation-panel"
-        :class="{ collapsed: leftPanelCollapsed }"
+        :class="{
+          collapsed: leftPanelCollapsed,
+          'mobile-open': mobilePanel === 'conversations',
+        }"
+        :role="mobilePanel === 'conversations' ? 'dialog' : undefined"
+        :aria-modal="mobilePanel === 'conversations' ? 'true' : undefined"
+        :aria-label="mobilePanel === 'conversations' ? t('aiChat.conversations') : undefined"
         data-test="ai-chat-conversations"
+        @keydown="handleMobilePanelKeydown"
       >
         <button
           v-if="leftPanelCollapsed"
@@ -154,6 +164,18 @@
               </div>
             </div>
             <div class="panel-header-actions">
+              <button
+                v-if="mobilePanel === 'conversations'"
+                ref="conversationPanelClose"
+                type="button"
+                class="mobile-panel-close"
+                :aria-label="t('aiChat.closeMobilePanel')"
+                @click="closeMobilePanel"
+              >
+                <el-icon aria-hidden="true">
+                  <Close />
+                </el-icon>
+              </button>
               <el-button
                 circle
                 size="small"
@@ -250,6 +272,35 @@
               <el-icon><Delete /></el-icon>
               {{ t('aiChat.clearConversation') }}
             </el-button>
+          </div>
+          <div
+            class="mobile-workspace-actions"
+            :aria-label="t('aiChat.mobilePanelActions')"
+          >
+            <button
+              type="button"
+              data-test="ai-chat-open-conversations"
+              :aria-expanded="mobilePanel === 'conversations'"
+              aria-haspopup="dialog"
+              @click="openMobilePanel('conversations', $event)"
+            >
+              <el-icon aria-hidden="true">
+                <ChatDotRound />
+              </el-icon>
+              <span>{{ t('aiChat.conversations') }}</span>
+            </button>
+            <button
+              type="button"
+              data-test="ai-chat-open-context"
+              :aria-expanded="mobilePanel === 'context'"
+              aria-haspopup="dialog"
+              @click="openMobilePanel('context', $event)"
+            >
+              <el-icon aria-hidden="true">
+                <Collection />
+              </el-icon>
+              <span>{{ t('aiChat.contextPanel') }}</span>
+            </button>
           </div>
         </div>
 
@@ -364,9 +415,17 @@
       </main>
 
       <aside
+        ref="contextPanel"
         class="ai-panel insight-panel"
-        :class="{ collapsed: rightPanelCollapsed }"
+        :class="{
+          collapsed: rightPanelCollapsed,
+          'mobile-open': mobilePanel === 'context',
+        }"
+        :role="mobilePanel === 'context' ? 'dialog' : undefined"
+        :aria-modal="mobilePanel === 'context' ? 'true' : undefined"
+        :aria-label="mobilePanel === 'context' ? t('aiChat.contextPanel') : undefined"
         data-test="ai-chat-context"
+        @keydown="handleMobilePanelKeydown"
       >
         <button
           v-if="rightPanelCollapsed"
@@ -392,6 +451,18 @@
               </div>
             </div>
             <div class="panel-header-actions">
+              <button
+                v-if="mobilePanel === 'context'"
+                ref="contextPanelClose"
+                type="button"
+                class="mobile-panel-close"
+                :aria-label="t('aiChat.closeMobilePanel')"
+                @click="closeMobilePanel"
+              >
+                <el-icon aria-hidden="true">
+                  <Close />
+                </el-icon>
+              </button>
               <span
                 class="status-dot"
                 :class="{ active: !requiresKnowledgeBase || Boolean(selectedKnowledgeBaseId) }"
@@ -507,6 +578,15 @@
       </aside>
     </div>
 
+    <button
+      v-if="mobilePanel"
+      type="button"
+      class="mobile-panel-backdrop"
+      tabindex="-1"
+      :aria-label="t('aiChat.closeMobilePanel')"
+      @click="closeMobilePanel"
+    />
+
     <el-dialog
       v-model="showAddToWorkspaceDialog"
       :title="t('aiChat.addStrategyDraftToWorkspace')"
@@ -599,7 +679,7 @@
         <div class="dialog-actions">
           <el-button
             v-if="researchWorkspaces.length === 0"
-            @click="router.push({ name: 'WorkspaceList' })"
+            @click="router.push({ name: 'ResearchWorkspaces' })"
           >
             {{ t('aiChat.goCreateWorkspace') }}
           </el-button>
@@ -627,9 +707,11 @@
 </template>
 
 <script setup lang="ts">
+import { nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   ChatDotRound,
+  Close,
   Collection,
   Compass,
   CopyDocument,
@@ -646,6 +728,68 @@ import ChatMessageBubble from '@/components/aichat/ChatMessageBubble.vue'
 import { useAIChatPage } from '@/composables/useAIChatPage'
 
 const { t } = useI18n()
+
+type MobilePanel = 'conversations' | 'context'
+
+const mobilePanel = ref<MobilePanel | null>(null)
+const conversationPanel = ref<HTMLElement | null>(null)
+const contextPanel = ref<HTMLElement | null>(null)
+const conversationPanelClose = ref<HTMLButtonElement | null>(null)
+const contextPanelClose = ref<HTMLButtonElement | null>(null)
+let mobilePanelTrigger: HTMLElement | null = null
+
+function getMobilePanelRoot(panel: MobilePanel): HTMLElement | null {
+  return panel === 'conversations' ? conversationPanel.value : contextPanel.value
+}
+
+function getMobilePanelCloseButton(panel: MobilePanel): HTMLButtonElement | null {
+  return panel === 'conversations' ? conversationPanelClose.value : contextPanelClose.value
+}
+
+async function openMobilePanel(panel: MobilePanel, event: MouseEvent) {
+  mobilePanelTrigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  if (panel === 'conversations') {
+    leftPanelCollapsed.value = false
+  } else {
+    rightPanelCollapsed.value = false
+  }
+  mobilePanel.value = panel
+  await nextTick()
+  getMobilePanelCloseButton(panel)?.focus()
+}
+
+function closeMobilePanel() {
+  mobilePanel.value = null
+  void nextTick(() => mobilePanelTrigger?.focus())
+}
+
+function handleMobilePanelKeydown(event: KeyboardEvent) {
+  if (!mobilePanel.value) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeMobilePanel()
+    return
+  }
+  if (event.key !== 'Tab') return
+
+  const panel = getMobilePanelRoot(mobilePanel.value)
+  const focusable = panel
+    ? Array.from(panel.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ))
+    : []
+  if (focusable.length === 0) return
+
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
 
 const {
   kbStore,

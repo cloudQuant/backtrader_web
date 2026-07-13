@@ -123,4 +123,22 @@ describe('DataScriptsPage', () => {
     await vm.toggleScript('s-1')
     expect(api.toggle).toHaveBeenCalledWith('s-1')
   })
+
+  it('routes secondary script actions through the overflow handler', async () => {
+    const vm = doMount().vm as any
+    const script = {
+      script_id: 's-1',
+      script_name: 'One',
+      category: 'stock',
+      frequency: 'daily',
+      is_custom: true,
+      is_active: true,
+    }
+    await vm.handleScriptAction(script, 'run')
+    vm.handleScriptAction(script, 'edit')
+
+    expect(api.run).toHaveBeenCalledWith('s-1', { parameters: {} })
+    expect(vm.dialogVisible).toBe(true)
+    expect(vm.dialogMode).toBe('edit')
+  })
 })

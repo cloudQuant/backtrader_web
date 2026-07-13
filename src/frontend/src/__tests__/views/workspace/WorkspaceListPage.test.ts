@@ -133,6 +133,16 @@ describe('WorkspaceListPage', () => {
     expect(vm.emptyDescription).toBe('workspace.emptyResearch')
   })
 
+  it('shows the first-run research workflow and opens workspace creation from its action', async () => {
+    storeState.workspaces = []
+    storeState.total = 0
+    const wrapper = doMount()
+
+    expect(wrapper.find('[data-test="research-workflow-guide"]').exists()).toBe(true)
+    await wrapper.find('[data-test="research-workflow-guide"] button').trigger('click')
+    expect((wrapper.vm as any).showCreateDialog).toBe(true)
+  })
+
   it('renders trading operations summary and fetches trading workspaces for trading routes', async () => {
     routeState.meta.workspaceType = 'trading'
     routeState.path = '/trading/workspaces'
@@ -184,7 +194,7 @@ describe('WorkspaceListPage', () => {
   it('goToDetail routes to the research workspace path', () => {
     const vm = doMount().vm as any
     vm.goToDetail('w-9')
-    expect(push).toHaveBeenCalledWith('/workspace/w-9')
+    expect(push).toHaveBeenCalledWith('/research/workspaces/w-9')
   })
 
   it('goToDetail routes trading workspaces to trading detail paths', () => {

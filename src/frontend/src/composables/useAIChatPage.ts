@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 
 import { getErrorMessage } from '@/api'
+import { APP_PATHS } from '@/navigation/routes'
 import { aiObservabilityApi, type AIModelOption } from '@/api/aiObservability'
 import type { KBAssistantMode, KBStockAnalysisParams, KBStrategyDraft } from '@/api/kbChat'
 import type { KnowledgeBaseSettings } from '@/api/knowledgeBase'
@@ -634,16 +635,16 @@ export function useAIChatPage() {
       return
     }
     await router.push({
-      path: `/knowledge-base/${currentKnowledgeBaseId.value}/documents/${documentId}`,
+      path: `${APP_PATHS.ai.knowledgeBase}/${currentKnowledgeBaseId.value}/documents/${documentId}`,
     })
   }
 
   function goToKnowledgeBase() {
-    router.push({ path: '/knowledge-base', query: { kbId: currentKnowledgeBaseId.value } })
+    router.push({ path: APP_PATHS.ai.knowledgeBase, query: { kbId: currentKnowledgeBaseId.value } })
   }
 
   function goToReindex() {
-    router.push({ path: '/knowledge-base', query: { kbId: currentKnowledgeBaseId.value, action: 'reindex' } })
+    router.push({ path: APP_PATHS.ai.knowledgeBase, query: { kbId: currentKnowledgeBaseId.value, action: 'reindex' } })
   }
 
   watch(selectedKnowledgeBaseId, async (value) => {

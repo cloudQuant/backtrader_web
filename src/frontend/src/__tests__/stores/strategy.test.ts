@@ -55,6 +55,16 @@ describe('useStrategyStore', () => {
     expect(store.total).toBe(1)
   })
 
+  it('keeps the list usable when a legacy response omits pagination fields', async () => {
+    vi.mocked(strategyApi.list).mockResolvedValueOnce([] as never)
+    const store = useStrategyStore()
+
+    await store.fetchStrategies()
+
+    expect(store.strategies).toEqual([])
+    expect(store.total).toBe(0)
+  })
+
   it('should fetch and store current strategy detail', async () => {
     const store = useStrategyStore()
     const result = await store.fetchStrategy('s1')

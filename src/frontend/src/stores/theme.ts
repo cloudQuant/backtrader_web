@@ -82,8 +82,11 @@ const THEME_VARIABLES: Record<string, Record<string, string>> = {
     '--fill-color-light': 'var(--theme-aurora-fill-color-light)',
     '--fill-color-lighter': 'var(--theme-aurora-fill-color-lighter)',
     '--shadow-color': 'var(--theme-aurora-shadow-color)',
+    '--primary-color': 'var(--theme-aurora-accent-color)',
+    '--primary-on-color': 'var(--theme-aurora-primary-on-color)',
     '--accent-color': 'var(--theme-aurora-accent-color)',
     '--success-color': 'var(--theme-aurora-success-color)',
+    '--warning-color': 'var(--theme-aurora-warning-color)',
     '--danger-color': 'var(--theme-aurora-danger-color)',
   },
 
@@ -110,8 +113,11 @@ const THEME_VARIABLES: Record<string, Record<string, string>> = {
     '--fill-color-light': 'var(--theme-obsidian-fill-color-light)',
     '--fill-color-lighter': 'var(--theme-obsidian-fill-color-lighter)',
     '--shadow-color': 'var(--theme-obsidian-shadow-color)',
+    '--primary-color': 'var(--theme-obsidian-accent-color)',
+    '--primary-on-color': 'var(--theme-obsidian-primary-on-color)',
     '--accent-color': 'var(--theme-obsidian-accent-color)',
     '--success-color': 'var(--theme-obsidian-success-color)',
+    '--warning-color': 'var(--theme-obsidian-warning-color)',
     '--danger-color': 'var(--theme-obsidian-danger-color)',
   },
 
@@ -138,8 +144,11 @@ const THEME_VARIABLES: Record<string, Record<string, string>> = {
     '--fill-color-light': 'var(--theme-nebula-fill-color-light)',
     '--fill-color-lighter': 'var(--theme-nebula-fill-color-lighter)',
     '--shadow-color': 'var(--theme-nebula-shadow-color)',
+    '--primary-color': 'var(--theme-nebula-accent-color)',
+    '--primary-on-color': 'var(--theme-nebula-primary-on-color)',
     '--accent-color': 'var(--theme-nebula-accent-color)',
     '--success-color': 'var(--theme-nebula-success-color)',
+    '--warning-color': 'var(--theme-nebula-warning-color)',
     '--danger-color': 'var(--theme-nebula-danger-color)',
   },
 
@@ -167,8 +176,11 @@ const THEME_VARIABLES: Record<string, Record<string, string>> = {
     '--fill-color-light': 'var(--theme-solaris-fill-color-light)',
     '--fill-color-lighter': 'var(--theme-solaris-fill-color-lighter)',
     '--shadow-color': 'var(--theme-solaris-shadow-color)',
+    '--primary-color': 'var(--theme-solaris-accent-color)',
+    '--primary-on-color': 'var(--theme-solaris-primary-on-color)',
     '--accent-color': 'var(--theme-solaris-accent-color)',
     '--success-color': 'var(--theme-solaris-success-color)',
+    '--warning-color': 'var(--theme-solaris-warning-color)',
     '--danger-color': 'var(--theme-solaris-danger-color)',
   },
 
@@ -195,8 +207,11 @@ const THEME_VARIABLES: Record<string, Record<string, string>> = {
     '--fill-color-light': 'var(--theme-glacier-fill-color-light)',
     '--fill-color-lighter': 'var(--theme-glacier-fill-color-lighter)',
     '--shadow-color': 'var(--theme-glacier-shadow-color)',
+    '--primary-color': 'var(--theme-glacier-accent-color)',
+    '--primary-on-color': 'var(--theme-glacier-primary-on-color)',
     '--accent-color': 'var(--theme-glacier-accent-color)',
     '--success-color': 'var(--theme-glacier-success-color)',
+    '--warning-color': 'var(--theme-glacier-warning-color)',
     '--danger-color': 'var(--theme-glacier-danger-color)',
   },
 
@@ -223,8 +238,11 @@ const THEME_VARIABLES: Record<string, Record<string, string>> = {
     '--fill-color-light': 'var(--theme-meridian-fill-color-light)',
     '--fill-color-lighter': 'var(--theme-meridian-fill-color-lighter)',
     '--shadow-color': 'var(--theme-meridian-shadow-color)',
+    '--primary-color': 'var(--theme-meridian-accent-color)',
+    '--primary-on-color': 'var(--theme-meridian-primary-on-color)',
     '--accent-color': 'var(--theme-meridian-accent-color)',
     '--success-color': 'var(--theme-meridian-success-color)',
+    '--warning-color': 'var(--theme-meridian-warning-color)',
     '--danger-color': 'var(--theme-meridian-danger-color)',
   },
 
@@ -251,8 +269,11 @@ const THEME_VARIABLES: Record<string, Record<string, string>> = {
     '--fill-color-light': 'var(--theme-verdant-fill-color-light)',
     '--fill-color-lighter': 'var(--theme-verdant-fill-color-lighter)',
     '--shadow-color': 'var(--theme-verdant-shadow-color)',
+    '--primary-color': 'var(--theme-verdant-accent-color)',
+    '--primary-on-color': 'var(--theme-verdant-primary-on-color)',
     '--accent-color': 'var(--theme-verdant-accent-color)',
     '--success-color': 'var(--theme-verdant-success-color)',
+    '--warning-color': 'var(--theme-verdant-warning-color)',
     '--danger-color': 'var(--theme-verdant-danger-color)',
   },
 }
@@ -318,6 +339,9 @@ export const useThemeStore = defineStore('theme', () => {
     Object.entries(variables).forEach(([key, value]) => {
       html.style.setProperty(key, value)
     })
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('themechange', { detail: { theme } }))
+    }
 
     // Update meta theme-color
     const metaThemeColor = document.querySelector('meta[name="theme-color"]')

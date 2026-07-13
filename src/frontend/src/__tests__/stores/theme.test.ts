@@ -110,8 +110,13 @@ describe('useThemeStore', () => {
     for (const theme of themes) {
       store.setTheme(theme)
       expect(document.documentElement.style.getPropertyValue('--bg-color')).toBeTruthy()
+      expect(document.documentElement.style.getPropertyValue('--primary-color')).toBeTruthy()
+      expect(document.documentElement.style.getPropertyValue('--primary-on-color')).toBeTruthy()
       expect(document.documentElement.style.getPropertyValue('--bg-color-sidebar')).toBeTruthy()
       expect(document.documentElement.style.getPropertyValue('--sidebar-active-color')).toBeTruthy()
+      expect(document.documentElement.style.getPropertyValue('--success-color')).toBeTruthy()
+      expect(document.documentElement.style.getPropertyValue('--warning-color')).toBeTruthy()
+      expect(document.documentElement.style.getPropertyValue('--danger-color')).toBeTruthy()
       expect(document.documentElement.dataset.theme).toBe(theme)
     }
   })

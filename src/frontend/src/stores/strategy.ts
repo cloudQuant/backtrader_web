@@ -22,8 +22,10 @@ export const useStrategyStore = defineStore('strategy', () => {
   async function fetchStrategies(limit = 20, offset = 0, category?: string) {
     await withLoading(async () => {
       const response = await strategyApi.list(limit, offset, category)
-      strategies.value = response.items
-      total.value = response.total
+      // Keep the management surface safe if an older endpoint/mock returns an
+      // unpaginated payload while the API contract is being upgraded.
+      strategies.value = response.items ?? []
+      total.value = response.total ?? strategies.value.length
     })
   }
 

@@ -68,6 +68,8 @@ describe('EquityCurve', () => {
       },
     })
     expect(wrapper.find('.equity-curve').exists()).toBe(true)
+    expect(wrapper.find('.chart-empty-state').exists()).toBe(true)
+    expect(wrapper.find('[role="img"]').attributes('aria-label')).toContain('个数据点')
   })
 
   it('should accept equity array prop', () => {
@@ -78,6 +80,7 @@ describe('EquityCurve', () => {
       },
     })
     expect(wrapper.find('.equity-curve').exists()).toBe(true)
+    expect(wrapper.find('.chart-empty-state').exists()).toBe(false)
   })
 
   it('should accept drawdown array prop', () => {

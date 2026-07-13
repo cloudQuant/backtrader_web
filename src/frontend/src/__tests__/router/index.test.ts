@@ -51,6 +51,7 @@ vi.mock('@/views/KnowledgeBaseDocumentPage.vue', () => ({ default: { template: '
 vi.mock('@/components/common/AppLayout.vue', () => ({ default: { template: '<div><router-view /></div>' } }))
 
 import { useAuthStore } from '@/stores/auth'
+import { APP_PATHS, LEGACY_PATHS } from '@/navigation/routes'
 import router from '@/router/index'
 
 function mockAuthStore(isAuthenticated: boolean, isAdmin = false) {
@@ -77,7 +78,6 @@ describe('router', () => {
     expect(names).toContain('Dashboard')
     expect(names).toContain('Backtest')
     expect(names).toContain('BacktestResult')
-    expect(names).toContain('Strategy')
     expect(names).toContain('Settings')
     expect(names).toContain('Portfolio')
     expect(names).toContain('NewsIntelligence')
@@ -91,7 +91,6 @@ describe('router', () => {
     expect(names).toContain('ConfigAIProviders')
     expect(names).toContain('ConfigAIObservability')
     expect(names).toContain('ConfigPromptTemplates')
-    expect(names).toContain('AIChat')
     expect(names).toContain('AIChatCanonical')
     expect(names).toContain('AIObservability')
     expect(names).not.toContain('AIObservabilityLegacyRedirect')
@@ -99,11 +98,11 @@ describe('router', () => {
     expect(names).not.toContain('PromptTemplatesLegacyRedirect')
     expect(names).not.toContain('AIObservabilityCanonical')
     expect(names).not.toContain('PromptTemplatesCanonical')
-    expect(names).toContain('KnowledgeBase')
     expect(names).toContain('AIKnowledgeBase')
     expect(names).toContain('KnowledgeBaseDocument')
     expect(names).toContain('ResearchStrategies')
     expect(names).toContain('ResearchWorkspaces')
+    expect(names).toContain('ResearchWorkspaceDetail')
     expect(names).toContain('ResearchBacktestResult')
     expect(names).toContain('InvestmentStrategies')
     expect(names).toContain('InvestmentStockAnalysis')
@@ -174,23 +173,26 @@ describe('router', () => {
     expect(router.currentRoute.value.name).toBe('TradingWorkspaceList')
   })
 
-  it('guard allows authenticated user on /ai-chat', async () => {
+  it('redirects the legacy AI chat link to the canonical route', async () => {
     mockAuthStore(true)
-    await router.push('/ai-chat')
+    await router.push(LEGACY_PATHS.aiChat)
     await router.isReady()
-    expect(router.currentRoute.value.name).toBe('AIChat')
+    expect(router.currentRoute.value.name).toBe('AIChatCanonical')
+    expect(router.currentRoute.value.path).toBe(APP_PATHS.ai.chat)
   })
 
-  it('guard allows authenticated user on /knowledge-base', async () => {
+  it('redirects the legacy knowledge-base link to the canonical route', async () => {
     mockAuthStore(true)
-    await router.push('/knowledge-base')
+    await router.push(`${LEGACY_PATHS.knowledgeBase}?kbId=42`)
     await router.isReady()
-    expect(router.currentRoute.value.name).toBe('KnowledgeBase')
+    expect(router.currentRoute.value.name).toBe('AIKnowledgeBase')
+    expect(router.currentRoute.value.path).toBe(APP_PATHS.ai.knowledgeBase)
+    expect(router.currentRoute.value.query.kbId).toBe('42')
   })
 
   it('guard allows authenticated user on canonical /research/strategies', async () => {
     mockAuthStore(true)
-    await router.push('/research/strategies')
+    await router.push(APP_PATHS.research.strategies)
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('ResearchStrategies')
   })
@@ -273,16 +275,51 @@ describe('router', () => {
 
   it('guard allows authenticated user on canonical /ai/chat', async () => {
     mockAuthStore(true)
-    await router.push('/ai/chat')
+    await router.push(APP_PATHS.ai.chat)
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('AIChatCanonical')
   })
 
   it('guard allows authenticated user on canonical /ai/knowledge-base', async () => {
     mockAuthStore(true)
-    await router.push('/ai/knowledge-base')
+    await router.push(APP_PATHS.ai.knowledgeBase)
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('AIKnowledgeBase')
+  })
+
+  it('keeps the canonical backtest list and result routes resolvable', async () => {
+    mockAuthStore(true)
+    await router.push(APP_PATHS.backtest.list)
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('Backtest')
+
+    await router.push(APP_PATHS.backtest.result(42))
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('BacktestResult')
+    expect(router.currentRoute.value.params.id).toBe('42')
+  })
+
+  it('redirects legacy strategy, workspace, and result links to canonical destinations', async () => {
+    mockAuthStore(true)
+    await router.push(LEGACY_PATHS.strategy)
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('ResearchStrategies')
+    expect(router.currentRoute.value.path).toBe(APP_PATHS.research.strategies)
+
+    await router.push(LEGACY_PATHS.workspace)
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('ResearchWorkspaces')
+    expect(router.currentRoute.value.path).toBe(APP_PATHS.research.workspaces)
+
+    await router.push('/workspace/42')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('ResearchWorkspaceDetail')
+    expect(router.currentRoute.value.path).toBe(APP_PATHS.research.workspace(42))
+
+    await router.push('/backtest/42')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('BacktestResult')
+    expect(router.currentRoute.value.path).toBe(APP_PATHS.backtest.result(42))
   })
 
   it('guard passes redirect query for protected routes', async () => {

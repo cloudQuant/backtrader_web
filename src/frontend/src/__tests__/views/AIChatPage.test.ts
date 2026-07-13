@@ -348,6 +348,33 @@ describe('AIChatPage', () => {
     expect(wrapper.find('.insight-panel.collapsed').exists()).toBe(false)
   })
 
+  it('opens a mobile conversation drawer and restores focus after closing it', async () => {
+    const wrapper = mount(AIChatPage, { attachTo: document.body, global: { stubs: { ...elStubs } } })
+    const trigger = wrapper.get('[data-test="ai-chat-open-conversations"]')
+    await trigger.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.conversation-panel.mobile-open').attributes('role')).toBe('dialog')
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('关闭面板')
+
+    await wrapper.find('.conversation-panel .mobile-panel-close').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.conversation-panel.mobile-open').exists()).toBe(false)
+    expect(document.activeElement).toBe(trigger.element)
+    wrapper.unmount()
+  })
+
+  it('closes a mobile context drawer with Escape', async () => {
+    const wrapper = mount(AIChatPage, { attachTo: document.body, global: { stubs: { ...elStubs } } })
+    await wrapper.get('[data-test="ai-chat-open-context"]').trigger('click')
+    await wrapper.find('.insight-panel').trigger('keydown', { key: 'Escape' })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.insight-panel.mobile-open').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('renders conversation title in sidebar', () => {
     mocks.conversations.splice(0, mocks.conversations.length, {
       id: 'conv-1',
@@ -390,7 +417,7 @@ describe('AIChatPage', () => {
     await citationButton!.trigger('click')
 
     expect(routerMocks.push).toHaveBeenCalledWith({
-      path: '/knowledge-base/kb-1/documents/doc-1',
+      path: '/ai/knowledge-base/kb-1/documents/doc-1',
     })
   })
 

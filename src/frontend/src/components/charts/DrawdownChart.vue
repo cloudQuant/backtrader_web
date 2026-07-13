@@ -3,9 +3,20 @@
     <h4 class="text-md font-medium mb-4">
       {{ t('charts.drawdownTitle') }}
     </h4>
+    <p class="sr-only">
+      {{ t('charts.drawdownA11ySummary', { points: data.length }) }}
+    </p>
     <div
+      v-show="data.length > 0"
       ref="chartRef"
+      role="img"
+      :aria-label="t('charts.drawdownA11ySummary', { points: data.length })"
       :style="{ height: height + 'px' }"
+    />
+    <ChartEmptyState
+      v-if="data.length === 0"
+      :title="t('charts.chartNoDataTitle')"
+      :description="t('charts.chartNoDataDesc')"
     />
   </div>
 </template>
@@ -16,7 +27,9 @@ import { useI18n } from 'vue-i18n'
 import * as echarts from 'echarts'
 import type { DrawdownPoint } from '@/types/analytics'
 import { useChartResize } from '@/composables/useChartResize'
-import { DRAWDOWN_AREA_END, DRAWDOWN_AREA_START, DRAWDOWN_COLOR } from '@/constants/chartColors'
+import ChartEmptyState from './ChartEmptyState.vue'
+import { getChartThemeColors } from '@/utils/chartTheme'
+import { DRAWDOWN_AREA_END, DRAWDOWN_AREA_START } from '@/constants/chartColors'
 
 const { t } = useI18n()
 
@@ -38,6 +51,7 @@ watch(
 function renderChart() {
   const chartInstance = getChart()
   if (!chartInstance || !props.data.length) return
+  const colors = getChartThemeColors()
 
   const dates = props.data.map(d => d.date)
   const drawdowns = props.data.map(d => (d.drawdown * 100).toFixed(2))
@@ -72,7 +86,7 @@ function renderChart() {
       type: 'category',
       data: dates,
       axisLabel: { show: false },
-      axisLine: { lineStyle: { color: '#ddd' } },
+      axisLine: { lineStyle: { color: colors.border } },
     },
     yAxis: {
       type: 'value',
@@ -93,7 +107,7 @@ function renderChart() {
             { offset: 1, color: DRAWDOWN_AREA_END },
           ]),
         },
-        lineStyle: { color: DRAWDOWN_COLOR, width: 1 },
+        lineStyle: { color: colors.danger, width: 1 },
         showSymbol: false,
         markPoint: {
           data: [
@@ -101,7 +115,7 @@ function renderChart() {
               name: t('charts.drawdownMaxLabel'),
               coord: [dates[maxDdIndex], drawdowns[maxDdIndex]],
               value: `${drawdowns[maxDdIndex]}%`,
-              itemStyle: { color: DRAWDOWN_COLOR },
+              itemStyle: { color: colors.danger },
             },
           ],
           label: {

@@ -97,4 +97,10 @@ describe('Dashboard', () => {
 
     expect(routerMocks.push).toHaveBeenCalledWith('/research/workspaces')
   })
+
+  it('visually distinguishes one primary task from secondary shortcuts', () => {
+    const wrapper = doMount()
+    expect(wrapper.findAll('.dashboard-action-card--priority-primary')).toHaveLength(1)
+    expect(wrapper.findAll('.dashboard-action-card--priority-secondary')).toHaveLength(2)
+  })
 })

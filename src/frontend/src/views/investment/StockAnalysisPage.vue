@@ -159,7 +159,7 @@
                 <el-checkbox
                   v-for="module in moduleOptions"
                   :key="module.value"
-                  :label="module.value"
+                  :value="module.value"
                   class="module-tile"
                 >
                   <span class="module-name">{{ module.label }}</span>

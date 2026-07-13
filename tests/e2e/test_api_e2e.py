@@ -236,7 +236,8 @@ class TestStrategy:
             "category": "custom",
         })
         assert resp.status_code in (200, 201)
-        return resp.json()
+        data = resp.json()
+        assert "id" in data, f"Strategy create response missing id: {data}"
 
     def test_list_strategies(self, client, test_headers):
         """List user strategies."""
@@ -409,8 +410,7 @@ class TestPaperTrading:
         })
         assert resp.status_code == 200
         data = resp.json()
-        assert "id" in data
-        return data["id"]
+        assert "id" in data, f"Account create response missing id: {data}"
 
     def test_list_accounts(self, client, admin_headers):
         """List paper trading accounts."""

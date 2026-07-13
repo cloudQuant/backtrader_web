@@ -243,6 +243,7 @@
                   active-text=""
                   inactive-text=""
                   size="small"
+                  :aria-label="t('quote.autoRefreshTooltip')"
                   @change="v => store.setAutoRefresh(Boolean(v))"
                 />
               </el-tooltip>
@@ -252,6 +253,7 @@
               v-model="refreshIntervalLocal"
               size="small"
               class="quote-interval-select"
+              :aria-label="t('quote.autoRefreshInterval')"
               @change="(v: number) => store.setRefreshInterval(v)"
             >
               <el-option
@@ -279,7 +281,7 @@
             <el-button
               :loading="store.quotesLoading"
               size="default"
-              :aria-label="t('quote.refreshing')"
+              :aria-label="t('common.refresh')"
               @click="store.fetchQuotes()"
             >
               <el-icon aria-hidden="true">
@@ -317,12 +319,7 @@
         v-if="store.quotesLoading && store.ticks.length === 0"
         class="quote-loading-state"
       >
-        <el-icon
-          class="is-loading"
-          aria-hidden="true"
-        >
-          <Loading />
-        </el-icon>
+        <DataTableSkeleton :label="t('quote.refreshing')" />
       </div>
 
       <!-- Error state -->
@@ -377,166 +374,251 @@
             {{ t('quote.countDisplay', { filtered: store.filteredTicks.length, total: store.ticks.length }) }}
           </el-tag>
         </div>
-        <el-table
-          :data="store.filteredTicks"
-          stripe
-          border
-          size="small"
-          class="quote-table"
-          highlight-current-row
-          max-height="calc(100vh - 320px)"
-          :default-sort="tableSortProp"
-          :row-class-name="rowClassName"
-          @sort-change="handleSortChange"
-          @row-click="handleRowClick"
-        >
-          <el-table-column
-            type="index"
-            label="#"
-            width="50"
-            fixed="left"
-          />
-          <!-- Dynamic columns based on columnConfig -->
-          <template
-            v-for="col in visibleColumns"
-            :key="col.prop"
-          >
-            <el-table-column
-              v-if="col.prop === 'symbol'"
-              prop="symbol"
-              :label="col.label"
-              width="160"
-              fixed="left"
-              sortable="custom"
-              show-overflow-tooltip
+        <ResponsiveDataGrid :mobile-label="t('quote.tableTitle')">
+          <template #desktop>
+            <el-table
+              :data="store.filteredTicks"
+              stripe
+              border
+              size="small"
+              class="quote-table"
+              highlight-current-row
+              max-height="calc(100vh - 320px)"
+              :default-sort="tableSortProp"
+              :row-class-name="rowClassName"
+              @sort-change="handleSortChange"
+              @row-click="handleRowClick"
             >
-              <template #default="{ row }">
-                <span class="quote-symbol-cell">{{ row.symbol }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              v-else-if="col.prop === 'name'"
-              prop="name"
-              :label="col.label"
-              width="130"
-              fixed="left"
-              show-overflow-tooltip
-            />
-            <el-table-column
-              v-else-if="col.prop === 'category'"
-              prop="category"
-              :label="col.label"
-              width="90"
-              show-overflow-tooltip
-            />
-            <el-table-column
-              v-else-if="col.prop === 'last_price'"
-              prop="last_price"
-              :label="col.label"
-              width="100"
-              sortable="custom"
-              align="right"
-            >
-              <template #default="{ row }">
-                <span :class="priceClass(row)">{{ fmtPrice(row.last_price, row) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              v-else-if="col.prop === 'change'"
-              prop="change"
-              :label="col.label"
-              width="90"
-              sortable="custom"
-              align="right"
-            >
-              <template #default="{ row }">
-                <span :class="changeClass(row.change)">{{ fmtChange(row.change, row) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              v-else-if="col.prop === 'change_pct'"
-              prop="change_pct"
-              :label="col.label"
-              width="90"
-              sortable="custom"
-              align="right"
-            >
-              <template #default="{ row }">
-                <span :class="changeClass(row.change_pct)">{{ fmtPct(row.change_pct) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              v-else-if="col.prop === 'update_time'"
-              prop="update_time"
-              :label="col.label"
-              width="100"
-              sortable="custom"
-              align="center"
-            >
-              <template #default="{ row }">
-                <span class="quote-time-cell">{{ formatTime(row.update_time) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              v-else-if="['volume', 'turnover', 'open_interest'].includes(col.prop)"
-              :prop="col.prop"
-              :label="col.label"
-              :width="col.prop === 'volume' || col.prop === 'turnover' ? 100 : 90"
-              sortable="custom"
-              align="right"
-            >
-              <template #default="{ row }">
-                {{ fmtVol(row[col.prop]) }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              v-else
-              :prop="col.prop"
-              :label="col.label"
-              width="90"
-              sortable="custom"
-              align="right"
-            >
-              <template #default="{ row }">
-                {{ fmtPrice(row[col.prop], row) }}
-              </template>
-            </el-table-column>
-          </template>
-          <!-- Actions column -->
-          <el-table-column
-            :label="t('quote.colActions')"
-            width="100"
-            fixed="right"
-            align="center"
-          >
-            <template #default="{ row }">
-              <el-button
-                type="primary"
-                size="small"
-                link
-                @click.stop="store.openChart(row.symbol)"
+              <el-table-column
+                type="index"
+                label="#"
+                width="50"
+                fixed="left"
+              />
+              <!-- Dynamic columns based on columnConfig -->
+              <template
+                v-for="col in visibleColumns"
+                :key="col.prop"
               >
-                <el-icon><DataLine /></el-icon>
-              </el-button>
-              <el-popconfirm
-                v-if="isCustomSymbol(row.symbol)"
-                :title="t('quote.confirmRemoveSymbol')"
-                @confirm="store.removeSymbol(row.symbol)"
+                <el-table-column
+                  v-if="col.prop === 'symbol'"
+                  prop="symbol"
+                  :label="col.label"
+                  width="160"
+                  fixed="left"
+                  sortable="custom"
+                  show-overflow-tooltip
+                >
+                  <template #default="{ row }">
+                    <span class="quote-symbol-cell">{{ row.symbol }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  v-else-if="col.prop === 'name'"
+                  prop="name"
+                  :label="col.label"
+                  width="130"
+                  fixed="left"
+                  show-overflow-tooltip
+                />
+                <el-table-column
+                  v-else-if="col.prop === 'category'"
+                  prop="category"
+                  :label="col.label"
+                  width="90"
+                  show-overflow-tooltip
+                />
+                <el-table-column
+                  v-else-if="col.prop === 'last_price'"
+                  prop="last_price"
+                  :label="col.label"
+                  width="100"
+                  sortable="custom"
+                  align="right"
+                >
+                  <template #default="{ row }">
+                    <span :class="priceClass(row)">{{ fmtPrice(row.last_price, row) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  v-else-if="col.prop === 'change'"
+                  prop="change"
+                  :label="col.label"
+                  width="90"
+                  sortable="custom"
+                  align="right"
+                >
+                  <template #default="{ row }">
+                    <span :class="changeClass(row.change)">{{ fmtChange(row.change, row) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  v-else-if="col.prop === 'change_pct'"
+                  prop="change_pct"
+                  :label="col.label"
+                  width="90"
+                  sortable="custom"
+                  align="right"
+                >
+                  <template #default="{ row }">
+                    <span :class="changeClass(row.change_pct)">{{ fmtPct(row.change_pct) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  v-else-if="col.prop === 'update_time'"
+                  prop="update_time"
+                  :label="col.label"
+                  width="100"
+                  sortable="custom"
+                  align="center"
+                >
+                  <template #default="{ row }">
+                    <span class="quote-time-cell">{{ formatTime(row.update_time) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  v-else-if="['volume', 'turnover', 'open_interest'].includes(col.prop)"
+                  :prop="col.prop"
+                  :label="col.label"
+                  :width="col.prop === 'volume' || col.prop === 'turnover' ? 100 : 90"
+                  sortable="custom"
+                  align="right"
+                >
+                  <template #default="{ row }">
+                    {{ fmtVol(row[col.prop]) }}
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  v-else
+                  :prop="col.prop"
+                  :label="col.label"
+                  width="90"
+                  sortable="custom"
+                  align="right"
+                >
+                  <template #default="{ row }">
+                    {{ fmtPrice(row[col.prop], row) }}
+                  </template>
+                </el-table-column>
+              </template>
+              <!-- Actions column -->
+              <el-table-column
+                :label="t('quote.colActions')"
+                width="100"
+                fixed="right"
+                align="center"
               >
-                <template #reference>
+                <template #default="{ row }">
                   <el-button
-                    type="danger"
+                    type="primary"
                     size="small"
                     link
-                    @click.stop
+                    @click.stop="store.openChart(row.symbol)"
                   >
-                    <el-icon><Delete /></el-icon>
+                    <el-icon><DataLine /></el-icon>
                   </el-button>
+                  <el-popconfirm
+                    v-if="isCustomSymbol(row.symbol)"
+                    :title="t('quote.confirmRemoveSymbol')"
+                    @confirm="store.removeSymbol(row.symbol)"
+                  >
+                    <template #reference>
+                      <el-button
+                        type="danger"
+                        size="small"
+                        link
+                        @click.stop
+                      >
+                        <el-icon><Delete /></el-icon>
+                      </el-button>
+                    </template>
+                  </el-popconfirm>
                 </template>
-              </el-popconfirm>
-            </template>
-          </el-table-column>
-        </el-table>
+              </el-table-column>
+            </el-table>
+          </template>
+
+          <template #mobile>
+            <ol class="quote-mobile-list">
+              <li
+                v-for="row in store.filteredTicks"
+                :key="row.symbol"
+              >
+                <article
+                  class="quote-mobile-card"
+                  :aria-label="`${row.symbol} ${row.name || ''}`"
+                >
+                  <button
+                    type="button"
+                    class="quote-mobile-card__overview"
+                    :aria-label="t('quote.chartDrawerTitleTpl', { symbol: row.symbol })"
+                    @click="handleRowClick(row)"
+                  >
+                    <span class="quote-mobile-card__identity">
+                      <strong>{{ row.symbol }}</strong>
+                      <span>{{ row.name || row.category || '--' }}</span>
+                    </span>
+                    <span :class="priceClass(row)">{{ fmtPrice(row.last_price, row) }}</span>
+                  </button>
+
+                  <dl class="quote-mobile-card__metrics">
+                    <div>
+                      <dt>{{ t('quote.colChangePct') }}</dt>
+                      <dd :class="changeClass(row.change_pct)">
+                        {{ fmtPct(row.change_pct) }}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{{ t('quote.colChange') }}</dt>
+                      <dd :class="changeClass(row.change)">
+                        {{ fmtChange(row.change, row) }}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{{ t('quote.colCategory') }}</dt>
+                      <dd>{{ row.category || '--' }}</dd>
+                    </div>
+                    <div>
+                      <dt>{{ t('quote.colUpdateTime') }}</dt>
+                      <dd>{{ formatTime(row.update_time) }}</dd>
+                    </div>
+                  </dl>
+
+                  <div class="quote-mobile-card__actions">
+                    <el-button
+                      type="primary"
+                      size="small"
+                      :aria-label="t('quote.chartDrawerTitleTpl', { symbol: row.symbol })"
+                      @click="store.openChart(row.symbol)"
+                    >
+                      <el-icon aria-hidden="true">
+                        <DataLine />
+                      </el-icon>
+                      {{ t('quote.chartDrawerTitleTpl', { symbol: row.symbol }) }}
+                    </el-button>
+                    <el-popconfirm
+                      v-if="isCustomSymbol(row.symbol)"
+                      :title="t('quote.confirmRemoveSymbol')"
+                      @confirm="store.removeSymbol(row.symbol)"
+                    >
+                      <template #reference>
+                        <el-button
+                          type="danger"
+                          size="small"
+                          :aria-label="t('quote.confirmRemoveSymbol')"
+                        >
+                          <el-icon aria-hidden="true">
+                            <Delete />
+                          </el-icon>
+                        </el-button>
+                      </template>
+                    </el-popconfirm>
+                  </div>
+                </article>
+              </li>
+            </ol>
+          </template>
+        </ResponsiveDataGrid>
         <!-- Table footer -->
         <div class="quote-table-footer">
           <span>
@@ -783,6 +865,8 @@ import {
 } from '@element-plus/icons-vue'
 import { useQuoteStore } from '@/stores/quote'
 import type { DataSourceInfo, QuoteTick } from '@/api/quote'
+import ResponsiveDataGrid from '@/components/common/ResponsiveDataGrid.vue'
+import DataTableSkeleton from '@/components/common/DataTableSkeleton.vue'
 import { formatQuoteChange, formatQuotePrice } from '@/utils/quoteFormat'
 import { CANDLE_DOWN_COLOR, CANDLE_ITEM_STYLE, CANDLE_UP_COLOR } from '@/constants/chartColors'
 
@@ -1568,6 +1652,106 @@ onUnmounted(() => {
   background: var(--quote-soft-bg);
   color: var(--text-color-secondary);
   font-size: 12px;
+}
+
+.quote-mobile-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0 14px 14px;
+  list-style: none;
+}
+
+.quote-mobile-card {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--quote-border);
+  border-radius: 8px;
+  background: var(--quote-soft-bg);
+}
+
+.quote-mobile-card__overview {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-color-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.quote-mobile-card__overview:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 3px;
+}
+
+.quote-mobile-card__identity {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.quote-mobile-card__identity strong {
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-mobile-card__identity span {
+  overflow: hidden;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-mobile-card__overview > :last-child {
+  flex: none;
+  font-size: 16px;
+  font-weight: 760;
+}
+
+.quote-mobile-card__metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.quote-mobile-card__metrics > div {
+  min-width: 0;
+}
+
+.quote-mobile-card__metrics dt {
+  margin-bottom: 3px;
+  color: var(--text-color-secondary);
+  font-size: 11px;
+}
+
+.quote-mobile-card__metrics dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-color-primary);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-mobile-card__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.quote-mobile-card__actions :deep(.el-button:first-child) {
+  flex: 1;
 }
 
 /* Tick flash animation (P1) */

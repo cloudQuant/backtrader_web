@@ -94,6 +94,19 @@ describe('SettingsPage', () => {
     expect(wrapper.text()).toContain('$0.003000')
   })
 
+  it('switches the mobile settings section without removing desktop content', async () => {
+    const wrapper = mountWithPlugins(SettingsPage)
+    const preferences = wrapper.findAll('[role="tab"]').find(tab => tab.text() === '偏好')
+    expect(preferences).toBeTruthy()
+
+    await preferences!.trigger('click')
+
+    expect(wrapper.find('#settings-section-preferences').classes()).toContain('settings-section--active')
+    expect(wrapper.find('#settings-section-account').classes()).not.toContain('settings-section--active')
+    expect(wrapper.find('[data-test="settings-profile-card"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="settings-ai-model-card"]').exists()).toBe(true)
+  })
+
   it('loads and renders AI model preferences on mount', async () => {
     const wrapper = mountWithPlugins(SettingsPage)
     await flushPromises()

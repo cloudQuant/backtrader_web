@@ -87,8 +87,32 @@
       </div>
     </section>
 
+    <nav
+      class="settings-section-nav"
+      :aria-label="t('userSettings.sectionNavLabel')"
+      role="tablist"
+    >
+      <button
+        v-for="section in settingsSections"
+        :key="section.id"
+        type="button"
+        role="tab"
+        :aria-selected="activeSettingsSection === section.id"
+        :aria-controls="`settings-section-${section.id}`"
+        :class="{ active: activeSettingsSection === section.id }"
+        @click="activeSettingsSection = section.id"
+      >
+        {{ section.label }}
+      </button>
+    </nav>
+
     <div class="settings-layout">
-      <section class="settings-stack">
+      <section
+        id="settings-section-account"
+        class="settings-stack settings-section"
+        :class="{ 'settings-section--active': activeSettingsSection === 'account' }"
+        role="tabpanel"
+      >
         <el-card
           class="settings-panel"
           data-test="settings-profile-card"
@@ -179,141 +203,155 @@
       </section>
 
       <section class="settings-stack">
-        <el-card
-          class="settings-panel"
-          data-test="settings-ai-usage-card"
+        <div
+          id="settings-section-preferences"
+          class="settings-section settings-section-group"
+          :class="{ 'settings-section--active': activeSettingsSection === 'preferences' }"
+          role="tabpanel"
         >
-          <template #header>
-            <div class="settings-panel-heading">
-              <div>
-                <div class="settings-kicker">
-                  {{ t('userSettings.cardAiUsage') }}
-                </div>
-                <h2>{{ t('userSettings.aiUsageTitle') }}</h2>
-                <p>{{ t('userSettings.aiUsageDesc') }}</p>
-              </div>
-              <el-icon aria-hidden="true">
-                <Money />
-              </el-icon>
-            </div>
-          </template>
-
-          <div class="settings-usage-grid">
-            <div>
-              <span>{{ t('userSettings.formAiCallCount') }}</span>
-              <strong>{{ formatInteger(aiUsageSummary.total_calls) }}</strong>
-            </div>
-            <div>
-              <span>{{ t('userSettings.formAiTokens') }}</span>
-              <strong>{{ formatInteger(aiUsageSummary.total_tokens) }}</strong>
-            </div>
-            <div>
-              <span>{{ t('userSettings.formAiCost') }}</span>
-              <strong>{{ formatUsd(aiUsageSummary.estimated_cost_usd) }}</strong>
-            </div>
-          </div>
-        </el-card>
-
-        <el-card
-          class="settings-panel"
-          data-test="settings-ai-model-card"
-        >
-          <template #header>
-            <div class="settings-panel-heading">
-              <div>
-                <div class="settings-kicker">
-                  {{ t('userSettings.cardAiModelPref') }}
-                </div>
-                <h2>{{ t('userSettings.modelPrefTitle') }}</h2>
-                <p>{{ t('userSettings.modelPrefDesc') }}</p>
-              </div>
-              <el-icon aria-hidden="true">
-                <Setting />
-              </el-icon>
-            </div>
-          </template>
-
-          <el-form
-            class="settings-form"
-            label-position="top"
+          <el-card
+            class="settings-panel"
+            data-test="settings-ai-usage-card"
           >
-            <el-form-item :label="t('userSettings.formDefaultModel')">
-              <el-select
-                v-model="aiModelPreference.selectedModelKey"
-                :placeholder="t('userSettings.selectSystemDefault')"
-                class="settings-select"
-              >
-                <el-option
-                  :label="t('userSettings.selectSystemDefault')"
-                  value=""
-                />
-                <el-option
-                  v-for="model in aiModelPreference.models"
-                  :key="`${model.provider}::${model.model}`"
-                  :label="model.display_name"
-                  :value="`${model.provider}::${model.model}`"
-                />
-              </el-select>
-            </el-form-item>
-
-            <div class="settings-model-summary">
-              <span>{{ t('userSettings.currentSelected', { label: selectedAIModelLabel }) }}</span>
-              <strong>
-                {{ t('userSettings.availableModels', { count: aiModelPreference.models.length }) }}
-              </strong>
-            </div>
-
-            <div class="settings-action-row">
-              <el-button
-                type="primary"
-                :icon="CircleCheck"
-                :loading="aiModelPreference.saving"
-                @click="saveAIModelPreference"
-              >
-                {{ t('userSettings.btnSavePref') }}
-              </el-button>
-              <el-button
-                :icon="Connection"
-                :loading="aiModelPreference.testing"
-                @click="testAIModelPreference"
-              >
-                {{ t('userSettings.btnTestConnect') }}
-              </el-button>
-            </div>
-          </el-form>
-        </el-card>
-
-        <el-card
-          class="settings-panel"
-          data-test="settings-about-card"
-        >
-          <template #header>
-            <div class="settings-panel-heading">
-              <div>
-                <div class="settings-kicker">
-                  {{ t('userSettings.cardAbout') }}
+            <template #header>
+              <div class="settings-panel-heading">
+                <div>
+                  <div class="settings-kicker">
+                    {{ t('userSettings.cardAiUsage') }}
+                  </div>
+                  <h2>{{ t('userSettings.aiUsageTitle') }}</h2>
+                  <p>{{ t('userSettings.aiUsageDesc') }}</p>
                 </div>
-                <h2>{{ t('userSettings.aboutTitle') }}</h2>
-                <p>{{ t('userSettings.aboutPanelDesc') }}</p>
+                <el-icon aria-hidden="true">
+                  <Money />
+                </el-icon>
               </div>
-              <el-icon aria-hidden="true">
-                <Document />
-              </el-icon>
-            </div>
-          </template>
+            </template>
 
-          <div class="settings-about">
-            <div>
-              <span>{{ t('userSettings.version') }}</span>
-              <strong>AI for Investor v1.0.0</strong>
+            <div class="settings-usage-grid">
+              <div>
+                <span>{{ t('userSettings.formAiCallCount') }}</span>
+                <strong>{{ formatInteger(aiUsageSummary.total_calls) }}</strong>
+              </div>
+              <div>
+                <span>{{ t('userSettings.formAiTokens') }}</span>
+                <strong>{{ formatInteger(aiUsageSummary.total_tokens) }}</strong>
+              </div>
+              <div>
+                <span>{{ t('userSettings.formAiCost') }}</span>
+                <strong>{{ formatUsd(aiUsageSummary.estimated_cost_usd) }}</strong>
+              </div>
             </div>
-            <div>
-              <span>{{ t('userSettings.stack') }}</span>
-              <strong>{{ t('userSettings.aboutTechStack') }}</strong>
+          </el-card>
+
+          <el-card
+            class="settings-panel"
+            data-test="settings-ai-model-card"
+          >
+            <template #header>
+              <div class="settings-panel-heading">
+                <div>
+                  <div class="settings-kicker">
+                    {{ t('userSettings.cardAiModelPref') }}
+                  </div>
+                  <h2>{{ t('userSettings.modelPrefTitle') }}</h2>
+                  <p>{{ t('userSettings.modelPrefDesc') }}</p>
+                </div>
+                <el-icon aria-hidden="true">
+                  <Setting />
+                </el-icon>
+              </div>
+            </template>
+
+            <el-form
+              class="settings-form"
+              label-position="top"
+            >
+              <el-form-item :label="t('userSettings.formDefaultModel')">
+                <el-select
+                  v-model="aiModelPreference.selectedModelKey"
+                  :placeholder="t('userSettings.selectSystemDefault')"
+                  class="settings-select"
+                >
+                  <el-option
+                    :label="t('userSettings.selectSystemDefault')"
+                    value=""
+                  />
+                  <el-option
+                    v-for="model in aiModelPreference.models"
+                    :key="`${model.provider}::${model.model}`"
+                    :label="model.display_name"
+                    :value="`${model.provider}::${model.model}`"
+                  />
+                </el-select>
+              </el-form-item>
+
+              <div class="settings-model-summary">
+                <span>{{ t('userSettings.currentSelected', { label: selectedAIModelLabel }) }}</span>
+                <strong>
+                  {{ t('userSettings.availableModels', { count: aiModelPreference.models.length }) }}
+                </strong>
+              </div>
+
+              <div class="settings-action-row">
+                <el-button
+                  type="primary"
+                  :icon="CircleCheck"
+                  :loading="aiModelPreference.saving"
+                  @click="saveAIModelPreference"
+                >
+                  {{ t('userSettings.btnSavePref') }}
+                </el-button>
+                <el-button
+                  :icon="Connection"
+                  :loading="aiModelPreference.testing"
+                  @click="testAIModelPreference"
+                >
+                  {{ t('userSettings.btnTestConnect') }}
+                </el-button>
+              </div>
+            </el-form>
+          </el-card>
+        </div>
+
+        <div
+          id="settings-section-about"
+          class="settings-section settings-section-group"
+          :class="{ 'settings-section--active': activeSettingsSection === 'about' }"
+          role="tabpanel"
+        >
+          <el-card
+            class="settings-panel"
+            data-test="settings-about-card"
+          >
+            <template #header>
+              <div class="settings-panel-heading">
+                <div>
+                  <div class="settings-kicker">
+                    {{ t('userSettings.cardAbout') }}
+                  </div>
+                  <h2>{{ t('userSettings.aboutTitle') }}</h2>
+                  <p>{{ t('userSettings.aboutPanelDesc') }}</p>
+                </div>
+                <el-icon aria-hidden="true">
+                  <Document />
+                </el-icon>
+              </div>
+            </template>
+
+            <div class="settings-about">
+              <div>
+                <span>{{ t('userSettings.version') }}</span>
+                <strong>AI for Investor v1.0.0</strong>
+              </div>
+              <div>
+                <span>{{ t('userSettings.stack') }}</span>
+                <strong>{{ t('userSettings.aboutTechStack') }}</strong>
+              </div>
+              <p>{{ t('userSettings.aboutDesc') }}</p>
             </div>
-            <p>{{ t('userSettings.aboutDesc') }}</p>
-          </div>
-        </el-card>
+          </el-card>
+        </div>
       </section>
     </div>
   </div>
@@ -341,6 +379,13 @@ import { useAuthStore } from '@/stores/auth'
 const { t, locale } = useI18n()
 const authStore = useAuthStore()
 const changingPassword = ref(false)
+type SettingsSection = 'account' | 'preferences' | 'about'
+const activeSettingsSection = ref<SettingsSection>('account')
+const settingsSections = computed<Array<{ id: SettingsSection; label: string }>>(() => [
+  { id: 'account', label: t('userSettings.sectionAccount') },
+  { id: 'preferences', label: t('userSettings.sectionPreferences') },
+  { id: 'about', label: t('userSettings.sectionAbout') },
+])
 
 const userForm = reactive({
   username: '',
@@ -670,6 +715,15 @@ onMounted(() => {
   align-items: start;
 }
 
+.settings-section-nav {
+  display: none;
+}
+
+.settings-section-group {
+  display: grid;
+  gap: 20px;
+}
+
 .settings-stack {
   display: grid;
   gap: 20px;
@@ -803,6 +857,43 @@ onMounted(() => {
 
   .settings-hero h1 {
     font-size: 24px;
+  }
+
+  .settings-section-nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid var(--border-color-light);
+    border-radius: 8px;
+    background: var(--bg-color);
+  }
+
+  .settings-section-nav button {
+    min-width: 0;
+    min-height: 38px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-color-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+  }
+
+  .settings-section-nav button.active {
+    border-color: color-mix(in srgb, var(--primary-color) 38%, var(--border-color-light) 62%);
+    background: color-mix(in srgb, var(--bg-color) 82%, var(--primary-color) 18%);
+    color: var(--primary-color);
+  }
+
+  .settings-section {
+    display: none;
+  }
+
+  .settings-section.settings-section--active {
+    display: grid;
   }
 
   .settings-metrics,

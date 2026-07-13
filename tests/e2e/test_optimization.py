@@ -8,6 +8,11 @@ from playwright.sync_api import Page, expect
 
 from conftest import FRONTEND_URL
 
+# /optimization 路由已移除（参数优化功能下线），整个文件跳过。
+# 路由表中已不存在 /optimization 及对应视图，导航到该地址只会渲染空的
+# catch-all 组件，因此保留原测试代码但整体 skip。
+pytestmark = pytest.mark.skip(reason="/optimization 路由已移除（参数优化功能下线），测试不再适用")
+
 
 class TestOptimizationPage:
     """参数优化页面测试"""

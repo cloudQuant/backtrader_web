@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { APP_PATHS } from '../../src/navigation/routes'
 
 /**
  * Iteration 175 §6.1 — User_Journey_Set, the 5 PR-blocking smoke journeys.
@@ -43,12 +44,12 @@ test('Journey A — login & logout (#1)', async ({ page }) => {
 })
 
 test('Journey B — create & view backtest (#2)', async ({ page }) => {
-  await page.goto('/backtests')
+  await page.goto(APP_PATHS.backtest.list)
   await page.waitForLoadState('networkidle')
 
   // The smoke seed script (scripts/dev/seed_e2e_smoke.py) creates one
   // completed backtest at id=1. Navigate directly to its detail.
-  await page.goto('/backtests/1')
+  await page.goto(APP_PATHS.backtest.result(1))
   await page.waitForLoadState('networkidle')
 
   // Equity-curve canvas/svg + status text confirm the result rendered.
@@ -62,7 +63,7 @@ test('Journey B — create & view backtest (#2)', async ({ page }) => {
 })
 
 test('Journey C — AI chat replies (#3)', async ({ page }) => {
-  await page.goto('/ai-chat')
+  await page.goto(APP_PATHS.ai.chat)
   await page.waitForLoadState('networkidle')
 
   const input = page.locator(
@@ -85,7 +86,7 @@ test('Journey C — AI chat replies (#3)', async ({ page }) => {
 })
 
 test('Journey D — knowledge base Q&A (#4)', async ({ page }) => {
-  await page.goto('/knowledge-base')
+  await page.goto(APP_PATHS.ai.knowledgeBase)
   await page.waitForLoadState('networkidle')
 
   const input = page.locator(
@@ -107,7 +108,7 @@ test('Journey D — knowledge base Q&A (#4)', async ({ page }) => {
 })
 
 test('Journey E — create strategy & see in list (#5)', async ({ page }) => {
-  await page.goto('/strategies')
+  await page.goto(APP_PATHS.research.strategies)
   await page.waitForLoadState('networkidle')
 
   // Smoke-uniqueness — name carries timestamp.
@@ -129,7 +130,7 @@ test('Journey E — create strategy & see in list (#5)', async ({ page }) => {
   await submit.click()
 
   // Back to the list — assert the new row exists.
-  await page.goto('/strategies')
+  await page.goto(APP_PATHS.research.strategies)
   await page.waitForLoadState('networkidle')
   await expect(page.locator(`text=${name}`)).toBeVisible({ timeout: 10_000 })
 })

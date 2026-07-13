@@ -397,16 +397,29 @@ class TestLiveTradingExtended:
         # Should have exchange type keys
         assert any(k in data for k in ("CTP", "MT5", "BINANCE", "OKX", "IB_WEB"))
 
+    @pytest.mark.skip(
+        reason="start-all iterates every live-trading instance and attempts to spin up "
+        "CTP/MT5 gateways that each take ~90s to time out without a real broker; "
+        "this blocks the backend event loop. Requires real gateway credentials."
+    )
     def test_start_all(self, client, auth_headers):
         """Start all instances (may be empty)."""
         resp = client.post("/live-trading/start-all", headers=auth_headers)
         assert resp.status_code == 200
 
+    @pytest.mark.skip(
+        reason="stop-all can also block on gateway teardown without a real broker; "
+        "requires real gateway credentials."
+    )
     def test_stop_all(self, client, auth_headers):
         """Stop all instances."""
         resp = client.post("/live-trading/stop-all", headers=auth_headers)
         assert resp.status_code == 200
 
+    @pytest.mark.skip(
+        reason="instance lifecycle calls start/stop which block on gateway readiness; "
+        "requires real gateway credentials."
+    )
     def test_instance_lifecycle(self, client, auth_headers):
         """Create and delete a live trading instance."""
         # Get a template for strategy_id

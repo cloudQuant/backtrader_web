@@ -3,9 +3,20 @@
     <h4 class="text-md font-medium mb-4">
       {{ t('charts.equityTitle') }}
     </h4>
+    <p class="sr-only">
+      {{ t('charts.equityA11ySummary', { points: chartDates.length, trades: trades.length }) }}
+    </p>
     <div
+      v-show="hasChartData"
       ref="chartRef"
+      role="img"
+      :aria-label="t('charts.equityA11ySummary', { points: chartDates.length, trades: trades.length })"
       :style="{ height: height + 'px' }"
+    />
+    <ChartEmptyState
+      v-if="!hasChartData"
+      :title="t('charts.chartNoDataTitle')"
+      :description="t('charts.chartNoDataDesc')"
     />
   </div>
 </template>
@@ -16,16 +27,12 @@ import { useI18n } from 'vue-i18n'
 import * as echarts from 'echarts'
 import type { EquityPoint } from '@/types/analytics'
 import { useChartResize } from '@/composables/useChartResize'
+import ChartEmptyState from './ChartEmptyState.vue'
+import { getChartThemeColors } from '@/utils/chartTheme'
 import {
-  EQUITY_BUY_SIGNAL_COLOR,
-  EQUITY_CASH_COLOR,
   EQUITY_CURVE_AREA_END,
   EQUITY_CURVE_AREA_START,
-  EQUITY_CURVE_COLOR,
   EQUITY_DRAWDOWN_AREA_COLOR,
-  EQUITY_DRAWDOWN_COLOR,
-  EQUITY_POSITION_COLOR,
-  EQUITY_SELL_SIGNAL_COLOR,
 } from '@/constants/chartColors'
 
 const { t } = useI18n()
@@ -68,10 +75,12 @@ const chartDrawdown = computed(() => {
   if (props.drawdown?.length) return props.drawdown
   return []
 })
+const hasChartData = computed(() => chartDates.value.length > 0 && chartEquity.value.length > 0)
 
 function renderChart() {
   const chart = getChart()
-  if (!chart || !chartDates.value.length) return
+  if (!chart || !hasChartData.value) return
+  const colors = getChartThemeColors()
   
   const hasDrawdown = chartDrawdown.value.length > 0
   const hasDetailData = props.data?.length > 0 && props.data[0].cash !== undefined
@@ -130,7 +139,7 @@ function renderChart() {
     {
       name: t('charts.equityTotal'), type: 'line', data: chartEquity.value,
       smooth: true, showSymbol: false,
-      lineStyle: { width: 2, color: EQUITY_CURVE_COLOR },
+      lineStyle: { width: 2, color: colors.primary },
       areaStyle: {
         opacity: 0.15,
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
@@ -147,13 +156,13 @@ function renderChart() {
         name: t('charts.equityCash'), type: 'line',
         data: props.data.map(d => d.cash),
         smooth: true, showSymbol: false,
-        lineStyle: { width: 1.5, type: 'dashed', color: EQUITY_CASH_COLOR },
+        lineStyle: { width: 1.5, type: 'dashed', color: colors.success },
       },
       {
         name: t('charts.equityPosition'), type: 'line',
         data: props.data.map(d => d.position_value),
         smooth: true, showSymbol: false,
-        lineStyle: { width: 1.5, type: 'dotted', color: EQUITY_POSITION_COLOR },
+        lineStyle: { width: 1.5, type: 'dotted', color: colors.warning },
       },
     )
   }
@@ -164,7 +173,7 @@ function renderChart() {
       xAxisIndex: 1, yAxisIndex: 1,
       data: chartDrawdown.value,
       smooth: true, showSymbol: false,
-      lineStyle: { width: 1, color: EQUITY_DRAWDOWN_COLOR },
+      lineStyle: { width: 1, color: colors.danger },
       areaStyle: {
         opacity: 0.3,
         color: EQUITY_DRAWDOWN_AREA_COLOR,
@@ -193,7 +202,7 @@ function renderChart() {
     if (buyData.length) {
       series.push({
         name: t('charts.equityBuy'), type: 'scatter', data: buyData,
-        itemStyle: { color: EQUITY_BUY_SIGNAL_COLOR },
+        itemStyle: { color: colors.success },
         z: 10,
       })
       legendData.push(t('charts.equityBuy'))
@@ -201,7 +210,7 @@ function renderChart() {
     if (sellData.length) {
       series.push({
         name: t('charts.equitySell'), type: 'scatter', data: sellData,
-        itemStyle: { color: EQUITY_SELL_SIGNAL_COLOR },
+        itemStyle: { color: colors.danger },
         z: 10,
       })
       legendData.push(t('charts.equitySell'))
