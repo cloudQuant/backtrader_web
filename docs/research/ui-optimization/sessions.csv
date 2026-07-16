@@ -1,0 +1,2 @@
+session_id,session_date,role,participant_alias,device_viewport,task_id,completed,elapsed_seconds,moderator_intervened,error_or_misoperation,observed_friction,follow_up_ui_ids
+EXAMPLE-001,YYYY-MM-DD,trader,anonymous-01,390x844,quote-mobile,yes,0,no,,,UI-201;UI-209
