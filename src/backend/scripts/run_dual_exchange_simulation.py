@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Seed and run the CTP + MT5 simulated trading stress suite."""
+"""Seed and run the CTP, IB, and MT5 simulated trading stress suite."""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ from seed_simulated_workspaces import (  # noqa: E402
     seed_workspace,
 )
 
-TARGET_WORKSPACE_KEYS = ("futures", "mt5")
+TARGET_WORKSPACE_KEYS = ("futures", "ib", "mt5")
 DEFAULT_STATUS_INTERVAL_SECONDS = 30
 DEFAULT_HOLD_GRACE_SECONDS = 120
 DEFAULT_STALE_HEARTBEAT_SECONDS = 180
@@ -92,7 +92,7 @@ DEFAULT_TOTAL_LOG_ALERT_MB = 1024.0
 DEFAULT_TOTAL_TICK_LOG_ALERT_MB = 250.0
 DEFAULT_ROLLING_BATCH_START_ATTEMPTS = 2
 DEFAULT_ROLLING_BATCH_RETRY_WAIT_SECONDS = 30
-TARGET_KEY_CHOICES = {"futures", "mt5"}
+TARGET_KEY_CHOICES = set(TARGET_WORKSPACE_KEYS)
 DATA_ACTIVITY_LOG_NAMES = ("bar.log", "value.log", "position.log")
 _CTP_CFFEX_DAY_PREFIXES = {"IF", "IC", "IH", "IM", "T", "TF", "TS", "TL"}
 _CTP_SYMBOL_RE = re.compile(r"^([A-Za-z]+)\d+$")
@@ -121,7 +121,7 @@ _PROCESS_CPU_SAMPLES: dict[int, tuple[float, float]] = {}
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Seed and start 50 CTP + 50 MT5 simulated trading units."
+        description="Seed and start CTP, IB, and MT5 simulated trading units."
     )
     parser.add_argument(
         "--skip-seed",
@@ -158,7 +158,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--targets",
         default="futures,mt5",
-        help="Comma-separated target workspace keys to run: futures,mt5.",
+        help="Comma-separated target workspace keys to run: futures,ib,mt5.",
     )
     parser.add_argument(
         "--unit-ids",

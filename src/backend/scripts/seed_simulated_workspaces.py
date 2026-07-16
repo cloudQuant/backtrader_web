@@ -24,9 +24,11 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.db.database import create_default_admin  # noqa: E402
-from app.db.database import async_session_maker  # noqa: E402
 from app.config import get_settings  # noqa: E402
+from app.db.database import (
+    async_session_maker,  # noqa: E402
+    create_default_admin,  # noqa: E402
+)
 from app.models.user import User  # noqa: E402
 from app.models.workspace import StrategyUnit, Workspace  # noqa: E402
 from app.schemas.workspace import (  # noqa: E402
@@ -224,7 +226,46 @@ def build_ctp_gateway_config(credentials: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_ib_gateway_config(credentials: dict[str, Any]) -> dict[str, Any]:
-    account_id = str(credentials.get("account_id") or "").strip()
+    settings = get_settings()
+    account_id = str(
+        credentials.get("account_id") or settings.IB_WEB_ACCOUNT_ID or settings.IB_ACCOUNT_ID or ""
+    ).strip()
+    base_url = str(
+        credentials.get("base_url")
+        or settings.IB_WEB_BASE_URL
+        or settings.IB_BASE_URL
+        or "https://localhost:5000"
+    ).strip()
+    verify_ssl = bool(
+        credentials.get(
+            "verify_ssl",
+            settings.IB_WEB_VERIFY_SSL if settings.IB_WEB_BASE_URL else settings.IB_VERIFY_SSL,
+        )
+    )
+    timeout = float(
+        credentials.get("timeout")
+        or settings.IB_WEB_TIMEOUT
+        or settings.IB_TIMEOUT
+        or 10
+    )
+    cookie_source = str(
+        credentials.get("cookie_source")
+        or settings.IB_WEB_COOKIE_SOURCE
+        or settings.IB_COOKIE_SOURCE
+        or ""
+    ).strip()
+    cookie_browser = str(
+        credentials.get("cookie_browser")
+        or settings.IB_WEB_COOKIE_BROWSER
+        or settings.IB_COOKIE_BROWSER
+        or "chrome"
+    ).strip()
+    cookie_path = str(
+        credentials.get("cookie_path")
+        or settings.IB_WEB_COOKIE_PATH
+        or settings.IB_COOKIE_PATH
+        or "/sso"
+    ).strip()
     return {
         "preset_id": "ib_web_stock_gateway",
         "name": "IB Web Stock Gateway",
@@ -235,23 +276,21 @@ def build_ib_gateway_config(credentials: dict[str, Any]) -> dict[str, Any]:
                 "exchange_type": "IB_WEB",
                 "asset_type": "STK",
                 "account_id": account_id,
-                "base_url": str(credentials.get("base_url") or "https://localhost:5000").strip(),
-                "verify_ssl": bool(credentials.get("verify_ssl", False)),
-                "access_token": str(credentials.get("access_token") or "").strip(),
-                "cookie_source": str(credentials.get("cookie_source") or "").strip(),
-                "cookie_browser": str(credentials.get("cookie_browser") or "chrome").strip(),
-                "cookie_path": str(credentials.get("cookie_path") or "/sso").strip(),
-                "timeout": float(credentials.get("timeout") or 10),
+                "base_url": base_url,
+                "verify_ssl": verify_ssl,
+                "cookie_source": cookie_source,
+                "cookie_browser": cookie_browser,
+                "cookie_path": cookie_path,
+                "timeout": timeout,
             },
             "ib_web": {
                 "account_id": account_id,
-                "base_url": str(credentials.get("base_url") or "https://localhost:5000").strip(),
-                "verify_ssl": bool(credentials.get("verify_ssl", False)),
-                "timeout": float(credentials.get("timeout") or 10),
-                "access_token": str(credentials.get("access_token") or "").strip(),
-                "cookie_source": str(credentials.get("cookie_source") or "").strip(),
-                "cookie_browser": str(credentials.get("cookie_browser") or "chrome").strip(),
-                "cookie_path": str(credentials.get("cookie_path") or "/sso").strip(),
+                "base_url": base_url,
+                "verify_ssl": verify_ssl,
+                "timeout": timeout,
+                "cookie_source": cookie_source,
+                "cookie_browser": cookie_browser,
+                "cookie_path": cookie_path,
             },
         },
     }
@@ -271,6 +310,12 @@ def build_mt5_gateway_config(credentials: dict[str, Any]) -> dict[str, Any]:
         or settings.MT5_DEMO_WS_URI
         or "wss://web.metatrader.app/terminal"
     ).strip()
+    server = str(
+        credentials.get("server")
+        or settings.MT5_SERVER
+        or settings.MT5_DEMO_SERVER
+        or ""
+    ).strip()
     return {
         "preset_id": "mt5_forex_gateway",
         "name": "MT5 Forex Gateway",
@@ -283,11 +328,13 @@ def build_mt5_gateway_config(credentials: dict[str, Any]) -> dict[str, Any]:
                 "account_id": login,
                 "login": login,
                 "ws_uri": ws_uri,
+                "server": server,
                 "symbol_suffix": str(credentials.get("symbol_suffix") or "").strip(),
             },
             "mt5": {
                 "login": login,
                 "ws_uri": ws_uri,
+                "server": server,
                 "symbol_suffix": str(credentials.get("symbol_suffix") or "").strip(),
             },
         },
@@ -355,6 +402,7 @@ def build_stress_unit_specs(
 def build_workspace_specs() -> dict[str, list[dict[str, Any]]]:
     symbols = load_default_symbols()
     gateways = load_manual_gateways()
+    duration_seconds = stress_duration_seconds()
 
     futures_gateway = build_ctp_gateway_config(gateways.get("CTP") or {})
     ib_gateway = build_ib_gateway_config(gateways.get("IB_WEB") or {})
@@ -405,8 +453,8 @@ def build_workspace_specs() -> dict[str, list[dict[str, Any]]]:
                     "initial_cash": 100000,
                     "commission": 0.0005,
                     "slippage": 0.0001,
-                    "duration_seconds": 7200,
-                    "session_timeout": 7260,
+                    "duration_seconds": duration_seconds,
+                    "session_timeout": duration_seconds + 60,
                 },
                 "gateway_config": ib_gateway,
             }
@@ -428,8 +476,8 @@ def build_workspace_specs() -> dict[str, list[dict[str, Any]]]:
                     "initial_cash": 100000,
                     "commission": 0.0005,
                     "slippage": 0.0001,
-                    "duration_seconds": 7200,
-                    "session_timeout": 7260,
+                    "duration_seconds": duration_seconds,
+                    "session_timeout": duration_seconds + 60,
                 },
                 "gateway_config": ib_gateway,
             }

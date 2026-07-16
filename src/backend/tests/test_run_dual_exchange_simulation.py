@@ -112,6 +112,12 @@ def test_parse_args_supports_unit_id_filter(monkeypatch):
     assert module.parse_unit_ids(args.unit_ids) == {"unit-a", "unit-b"}
 
 
+def test_parse_target_keys_supports_all_three_gateway_workspaces():
+    module = _load_script_module()
+
+    assert module.parse_target_keys("futures,ib,mt5") == ("futures", "ib", "mt5")
+
+
 def test_parse_args_supports_rolling_restart_options(monkeypatch):
     module = _load_script_module()
 

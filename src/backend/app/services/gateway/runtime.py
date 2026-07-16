@@ -545,8 +545,17 @@ def acquire_gateway_for_instance(
             exc,
         )
         return None
+    runtime_kwargs = launch["runtime_kwargs"]
+    if str(runtime_kwargs.get("exchange_type") or "").upper() == "IB_WEB":
+        from app.services.gateway.manual import _ensure_ib_clientportal_running
+
+        _ensure_ib_clientportal_running(
+            str(runtime_kwargs.get("base_url") or "https://localhost:5000"),
+            logger,
+            startup_wait_sec=float(runtime_kwargs.get("gateway_startup_timeout_sec") or 30.0),
+        )
     key = launch["config"].runtime_name
-    session_key = build_gateway_session_key_from_runtime_kwargs(launch["runtime_kwargs"])
+    session_key = build_gateway_session_key_from_runtime_kwargs(runtime_kwargs)
     state = gateways.get(key)
     if state is None:
         matched_key = _find_gateway_key_by_session_key(gateways, session_key)

@@ -308,9 +308,6 @@ def _find_ib_clientportal_dir() -> Path | None:
     for candidate in candidates:
         if candidate.is_dir() and (candidate / "dist" / jar_name).is_file():
             return candidate
-    for candidate in candidates:
-        if candidate.is_dir():
-            return candidate
     return None
 
 
@@ -770,7 +767,11 @@ def _ensure_ib_clientportal_running(
             return
         clientportal_dir = _find_ib_clientportal_dir()
         if clientportal_dir is None:
-            raise FileNotFoundError("IB clientportal directory not found at src/clientportal.gw")
+            raise FileNotFoundError(
+                "IB Client Portal runtime is incomplete. Install a supported Java runtime and "
+                "place ibgroup.web.core.iblink.router.clientportal.gw.jar under "
+                "src/clientportal.gw/dist/."
+            )
         process = _ib_clientportal_process
         if process is None or process.poll() is not None:
             _ib_clientportal_process = _start_ib_clientportal_background(clientportal_dir)

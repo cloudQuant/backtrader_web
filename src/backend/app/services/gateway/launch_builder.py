@@ -1,7 +1,7 @@
 import json
 import socket
-from datetime import datetime, time
 from collections.abc import Callable
+from datetime import datetime, time
 from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -733,6 +733,12 @@ def build_mt5_gateway_runtime_kwargs(
         or str(login)
     )
     ws_uri = env_data.get("MT5_WS_URI") or gateway_params.get("ws_uri") or mt5.get("ws_uri", "")
+    server = (
+        gateway_params.get("server")
+        or env_data.get("MT5_SERVER")
+        or env_data.get("MT5_DEMO_SERVER")
+        or mt5.get("server", "")
+    )
     symbol_suffix = (
         gateway_params.get("symbol_suffix")
         or env_data.get("MT5_SYMBOL_SUFFIX")
@@ -755,6 +761,8 @@ def build_mt5_gateway_runtime_kwargs(
         "gateway_startup_timeout_sec": 60.0,
         "gateway_command_timeout_sec": 30.0,
     }
+    if server:
+        runtime_kwargs["server"] = str(server)
     symbol_map = mt5.get("symbol_map")
     if isinstance(symbol_map, dict) and symbol_map:
         runtime_kwargs["symbol_map"] = symbol_map
