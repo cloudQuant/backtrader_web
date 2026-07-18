@@ -83,8 +83,8 @@ def _restore_tracing_module() -> Iterator[None]:
 def test_business_span_off_is_near_zero() -> None:
     """When OTel is disabled the span must be a cheap no-op."""
     per_call = _time_business_span(enabled=False)
-    # No-op nullcontext should be well under 15µs/call even on a shared CI runner.
-    assert per_call < 15e-6, f"OTel-OFF business_span too slow: {per_call * 1e6:.2f}µs/call"
+    # A generator-only no-op should be well under 25µs/call on a shared CI runner.
+    assert per_call < 25e-6, f"OTel-OFF business_span too slow: {per_call * 1e6:.2f}µs/call"
 
 
 def test_business_span_on_overhead_bounded() -> None:

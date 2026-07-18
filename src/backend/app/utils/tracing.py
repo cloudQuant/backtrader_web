@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from typing import Any
 
 from opentelemetry import trace
@@ -97,9 +97,9 @@ def business_span(name: str, **attrs: Any) -> Iterator[Any]:
         the span ERROR and recording the exception event.
     """
     if not _otel_enabled():
-        # Cold-path no-op: avoid even allocating a NoOpSpan.
-        with nullcontext() as ctx:
-            yield ctx
+        # Cold-path no-op: avoid allocating either an OTel span or a nested
+        # nullcontext for every traced business operation.
+        yield None
         return
 
     with _TRACER.start_as_current_span(name) as span:
