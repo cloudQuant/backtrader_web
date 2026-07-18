@@ -63,8 +63,12 @@ from app.utils.backtrader_commission import (  # noqa: E402
     ComminfoFuturesMixed,
     ComminfoFuturesPercent,
 )
-from backtrader.feeds.btapifeed import BtApiFeed  # noqa: E402
-from backtrader.stores.btapistore import BtApiStore  # noqa: E402
+try:
+    from backtrader.feeds.btapifeed import BtApiFeed  # noqa: E402
+    from backtrader.stores.btapistore import BtApiStore  # noqa: E402
+except ImportError:  # Public Backtrader lacks the optional gateway adapter.
+    BtApiFeed = None
+    BtApiStore = None
 
 BASE_DIR = Path(__file__).resolve().parent
 logger = logging.getLogger(__name__)
@@ -1159,6 +1163,8 @@ def run():
     runtime = build_store_runtime(config)
     provider = runtime["provider"]
     store_cfg = dict(runtime["config"])
+    if BtApiFeed is None or BtApiStore is None:
+        raise SystemExit("Gateway runner requires the bt_api_py Backtrader feed and store adapters")
 
     print("=" * 60)
     print("Gateway Paper Trading Runner")

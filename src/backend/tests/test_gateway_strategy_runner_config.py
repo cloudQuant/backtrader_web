@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -66,6 +67,33 @@ def test_gateway_runner_disables_tick_logging_by_default():
     assert module._resolve_trade_logger_option({}, "log_indicators", False) is False
     assert module._resolve_trade_logger_option({}, "log_signals", True) is True
     assert module._resolve_dispatch_ticks({}) is False
+
+
+def test_gateway_runner_configuration_helpers_import_without_local_backtrader(monkeypatch):
+    """Public Backtrader lacks gateway adapters but must not block config inspection."""
+    repo_root = Path(__file__).resolve().parents[3]
+    local_backtrader = repo_root.parent / "backtrader"
+    path_exists = Path.exists
+
+    def _without_local_backtrader(path: Path) -> bool:
+        if path == local_backtrader:
+            return False
+        return path_exists(path)
+
+    for module_name in tuple(sys.modules):
+        if module_name == "backtrader" or module_name.startswith("backtrader."):
+            monkeypatch.delitem(sys.modules, module_name)
+    monkeypatch.setattr(
+        sys,
+        "path",
+        [entry for entry in sys.path if Path(entry).resolve() != local_backtrader],
+    )
+    monkeypatch.setattr(Path, "exists", _without_local_backtrader)
+    module = _load_runner("gateway_dual_ma")
+
+    assert module.BtApiFeed is None
+    assert module.BtApiStore is None
+    assert module._resolve_log_ticks({}) is False
 
 
 def test_gateway_runner_allows_explicit_live_logging_overrides():
