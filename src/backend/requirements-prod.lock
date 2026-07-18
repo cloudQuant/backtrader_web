@@ -136,7 +136,9 @@ pygments==2.20.0
 pyjwt==2.13.0
     # via ai-for-investor-backend (pyproject.toml)
 pymysql==1.2.0
-    # via aiomysql
+    # via
+    #   ai-for-investor-backend (pyproject.toml)
+    #   aiomysql
 python-dateutil==2.9.0.post0
     # via pandas
 python-dotenv==1.2.2

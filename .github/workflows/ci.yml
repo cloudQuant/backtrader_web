@@ -124,7 +124,7 @@ jobs:
   check-openapi:
     name: Check - OpenAPI Schema
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 5
 
     steps:
       - name: Checkout code
@@ -414,20 +414,22 @@ jobs:
         id: cache-backend-venv-test
         with:
           path: src/backend/.venv
-          key: venv-test-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('src/backend/pyproject.toml', 'config/requirements-dev.lock') }}
+          key: venv-test-v2-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('src/backend/pyproject.toml', 'config/requirements-dev.lock') }}
           restore-keys: |
-            venv-test-${{ runner.os }}-py${{ matrix.python-version }}-
+            venv-test-v2-${{ runner.os }}-py${{ matrix.python-version }}-
 
       - name: Install dependencies
         if: steps.cache-backend-venv-test.outputs.cache-hit != 'true'
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
-          lock_args=()
           if [ "${{ matrix.python-version }}" = "${{ env.PYTHON_VERSION }}" ]; then
-            lock_args=(--constraint ../../config/requirements-dev.lock)
+            .venv/bin/pip install --requirement ../../config/requirements-dev.lock
+            .venv/bin/pip install --no-deps -e .
+          else
+            .venv/bin/pip install -e ".[dev,backtrader,data,redis]"
           fi
-          .venv/bin/pip install "${lock_args[@]}" -e ".[dev,backtrader,data,redis]" pytest-cov pytest-xdist
+          .venv/bin/pip install pytest-cov pytest-xdist
 
       - name: Activate virtualenv
         run: echo "$PWD/.venv/bin" >> $GITHUB_PATH

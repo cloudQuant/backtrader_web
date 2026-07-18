@@ -27,6 +27,7 @@ REQUIRED_DEPS = {
     "sqlalchemy",
     "aiosqlite",
     "PyJWT",
+    "PyMySQL",
     "passlib",
     "loguru",
     "python-multipart",

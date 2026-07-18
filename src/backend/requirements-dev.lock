@@ -129,6 +129,8 @@ pygments==2.20.0
     # via pytest
 pyjwt==2.13.0
     # via ai-for-investor-backend (pyproject.toml)
+pymysql==1.2.0
+    # via ai-for-investor-backend (pyproject.toml)
 pytest==9.0.3
     # via
     #   ai-for-investor-backend (pyproject.toml)
