@@ -94,7 +94,10 @@ def _scan_file(path: Path) -> list[Violation]:
 
     # Block-level state — only surface findings inside <template>, <script>,
     # ElMessage* call positions, and Element Plus label/placeholder props.
-    in_template = path.suffix != ".vue"  # .ts files: always "in code"
+    # TypeScript files are script-only.  Keeping ``in_template`` false here is
+    # important: otherwise every string in an extracted composable is treated
+    # as Vue template text, bypassing the targeted script checks below.
+    in_template = False
     in_script = path.suffix == ".ts"
 
     for idx, raw in enumerate(lines, start=1):

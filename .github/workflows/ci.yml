@@ -498,9 +498,10 @@ jobs:
       #
       # Iteration 178 §C — flipped to BLOCKING. The baseline was taken against
       # the pinned locks via OSV (see docs/iterations/迭代178-安全纵深收口与质量债治理/
-      # pip-audit-baseline.md): the only finding was starlette 1.0.0
-      # (CVE-2026-48710 "BadHost"), bumped to 1.0.1 in the lock files. The
-      # baseline is now clean, so a new vulnerability fails the build.
+      # pip-audit-baseline.md). Iteration 183 refreshed the clean baseline after
+      # newly published 2026 advisories required patch-level bumps for
+      # cryptography, pydantic-settings, PyJWT, python-multipart, and Starlette.
+      # A new vulnerability still fails the build.
       #
       # Audits the pinned production lock (the deployable dependency set) so the
       # result is deterministic and matches what ships in the image.

@@ -152,8 +152,11 @@ describe('useKnowledgeBaseStore', () => {
       items: [{ ...baseKb }],
     })
     vi.mocked(knowledgeBaseApi.listDocuments).mockResolvedValue({
-      total: 1,
-      items: [{ ...baseDocSummary }],
+      total: 2,
+      items: [
+        { ...baseDocSummary },
+        { ...baseDocSummary, id: 'doc-2', title: '文档2' },
+      ],
     })
     vi.mocked(knowledgeBaseApi.getDocument).mockResolvedValue({ ...baseDoc, content: '完整正文' })
 
@@ -166,6 +169,21 @@ describe('useKnowledgeBaseStore', () => {
     expect(detail?.content).toBe('完整正文')
     expect(store.currentDocument?.content).toBe('完整正文')
     expect(store.documents[0].content).toBe('完整正文')
+    expect(store.documents[1].title).toBe('文档2')
+
+    store.clearCurrentDocument()
+    expect(store.currentDocument).toBeNull()
+  })
+
+  it('fetchDocumentDetail returns null without a selected knowledge base', async () => {
+    const store = useKnowledgeBaseStore()
+
+    const detail = await store.fetchDocumentDetail('doc-1')
+
+    expect(detail).toBeNull()
+    expect(store.currentDocument).toBeNull()
+    expect(store.documentDetailLoading).toBe(false)
+    expect(knowledgeBaseApi.getDocument).not.toHaveBeenCalled()
   })
 
   it('createDocument should create and refresh current knowledge base documents', async () => {
@@ -401,15 +419,20 @@ describe('useKnowledgeBaseStore', () => {
     vi.mocked(knowledgeBaseApi.listDocuments)
       .mockResolvedValueOnce({ total: 1, items: [{ ...baseDocSummary }] })
       .mockResolvedValueOnce({ total: 0, items: [] })
+    vi.mocked(knowledgeBaseApi.getDocument).mockResolvedValue({ ...baseDoc })
     vi.mocked(knowledgeBaseApi.deleteDocument).mockResolvedValue(undefined as never)
 
     const store = useKnowledgeBaseStore()
     await store.fetchKnowledgeBases()
     await store.selectKnowledgeBase('kb-1')
+    await store.fetchDocumentDetail('doc-1')
+    expect(store.currentDocument?.id).toBe('doc-1')
+
     const result = await store.deleteDocument('doc-1')
 
     expect(result).toBe(true)
     expect(knowledgeBaseApi.deleteDocument).toHaveBeenCalledWith('kb-1', 'doc-1')
+    expect(store.currentDocument).toBeNull()
     expect(store.documents).toHaveLength(0)
   })
 })

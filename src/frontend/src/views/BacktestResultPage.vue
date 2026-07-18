@@ -207,8 +207,8 @@
           >
             <div class="backtest-trust-card-head">
               <div>
-                <span>可信度摘要</span>
-                <strong>数据预检与标准指标</strong>
+                <span>{{ t('backtest.trustSummary') }}</span>
+                <strong>{{ t('backtest.precheckAndMetrics') }}</strong>
               </div>
               <el-tag
                 size="small"
@@ -249,7 +249,7 @@
           >
             <div class="backtest-robustness-head">
               <div>
-                <span>稳健性验证</span>
+                <span>{{ t('backtest.robustnessValidation') }}</span>
                 <strong>{{ robustnessTitle }}</strong>
               </div>
               <el-tag
@@ -260,7 +260,7 @@
               </el-tag>
             </div>
             <div class="backtest-robustness-score">
-              <span>稳健分</span>
+              <span>{{ t('backtest.robustnessScore') }}</span>
               <strong>{{ robustnessScoreText }}</strong>
             </div>
             <div
@@ -276,7 +276,7 @@
                   size="small"
                   :type="gate.passed ? 'success' : 'danger'"
                 >
-                  {{ gate.passed ? '通过' : '未通过' }}
+                  {{ gate.passed ? t('backtest.passed') : t('backtest.notPassed') }}
                 </el-tag>
               </div>
             </div>
@@ -295,7 +295,7 @@
                 data-test="run-robustness-validation"
                 @click="runRobustnessValidation"
               >
-                运行稳健性验证
+                {{ t('backtest.runRobustnessValidation') }}
               </el-button>
             </div>
           </article>
@@ -925,10 +925,10 @@ async function runRobustnessValidation() {
       min_robustness_score: 55,
       require_no_high_risk: true,
     })
-    ElMessage.success('稳健性验证已完成')
+    ElMessage.success(t('backtest.robustnessValidationCompleted'))
   } catch {
     robustnessResult.value = null
-    ElMessage.error('稳健性验证失败')
+    ElMessage.error(t('backtest.robustnessValidationFailed'))
   } finally {
     robustnessLoading.value = false
   }

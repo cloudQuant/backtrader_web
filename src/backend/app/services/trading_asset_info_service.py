@@ -1432,9 +1432,7 @@ def _clear_split_aggregate_fields(item: dict[str, Any]) -> None:
 def split_bidirectional_position_row(row: dict[str, Any]) -> list[dict[str, Any]]:
     """Split a single exchange hedge-mode row into side-specific rows.
 
-    Some gateways expose one row containing both long and short quantities for
-    the same instrument. Valuation must run per side; netting that row to zero
-    hides the position and loses the side-specific commission and PnL.
+    Valuation must run per side so netting cannot hide positions or side-specific fees and PnL.
     """
     if not isinstance(row, dict):
         return []

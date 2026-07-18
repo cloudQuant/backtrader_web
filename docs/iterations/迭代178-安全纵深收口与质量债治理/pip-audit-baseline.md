@@ -64,3 +64,31 @@ OSV 批量查询（prod 67 + dev 121 包）
 - 依赖变更后按 `CONTRIBUTING.md` 重新生成锁文件，CI `pip-audit` 会对新依赖集重新审计。
 - 若出现暂时无法升级的漏洞，用 `pip-audit --ignore-vuln <ID>` 显式 ignore 并在本文件追加
   一行（含理由 + 复查日期），保持基线"0 未解释漏洞"。
+
+## 7. 2026-07-18 基线刷新（迭代 183）
+
+发布后 CI run `29637645538` 运行到 blocking `pip-audit` 时，实时漏洞库对 5 个锁定包返回
+18 条记录（同一漏洞可能同时以 GHSA / PYSEC ID 出现）。全部都有兼容的修复版本，因此不做
+ignore，直接升级：
+
+| 包 | 旧版本 | 修复版本 |
+| --- | --- | --- |
+| cryptography | 48.0.0 | 48.0.1 |
+| pydantic-settings | 2.14.1 | 2.14.2 |
+| PyJWT | 2.12.1 | 2.13.0 |
+| python-multipart | 0.0.29 | 0.0.31 |
+| starlette | 1.0.1 | 1.3.1 |
+
+处置同步覆盖 `config/` 和 `src/backend/` 下的生产/开发锁，并在 `pyproject.toml` 提高安全
+版本下限，避免非锁安装回退到受影响版本。修复后验证：
+
+```text
+pip-audit --requirement config/requirements-prod.lock --no-deps
+  → No known vulnerabilities found  (exit 0)
+
+pip check
+  → No broken requirements found.
+
+认证、安全、同步传输相关测试
+  → 101 passed
+```

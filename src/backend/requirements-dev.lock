@@ -29,8 +29,11 @@ cffi==2.0.0
     # via cryptography
 click==8.4.0
     # via uvicorn
-cryptography==48.0.0
-    # via python-jose
+cryptography==48.0.1
+    # via
+    #   ai-for-investor-backend (pyproject.toml)
+    #   pyjwt
+    #   python-jose
 deprecated==1.3.1
     # via limits
 dnspython==2.8.0
@@ -120,10 +123,12 @@ pydantic==2.13.4
     #   pydantic-settings
 pydantic-core==2.46.4
     # via pydantic
-pydantic-settings==2.14.1
+pydantic-settings==2.14.2
     # via ai-for-investor-backend (pyproject.toml)
 pygments==2.20.0
     # via pytest
+pyjwt==2.13.0
+    # via ai-for-investor-backend (pyproject.toml)
 pytest==9.0.3
     # via
     #   ai-for-investor-backend (pyproject.toml)
@@ -146,7 +151,7 @@ python-dotenv==1.2.2
     #   uvicorn
 python-jose==3.5.0
     # via ai-for-investor-backend (pyproject.toml)
-python-multipart==0.0.29
+python-multipart==0.0.31
     # via ai-for-investor-backend (pyproject.toml)
 pytz==2026.2
     # via fincore
@@ -172,8 +177,10 @@ sqlalchemy==2.0.49
     # via
     #   ai-for-investor-backend (pyproject.toml)
     #   alembic
-starlette==1.0.1
-    # via fastapi
+starlette==1.3.1
+    # via
+    #   ai-for-investor-backend (pyproject.toml)
+    #   fastapi
 typing-extensions==4.15.0
     # via
     #   alembic

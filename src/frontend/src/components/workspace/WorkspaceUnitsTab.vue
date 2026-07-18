@@ -176,7 +176,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="查看回测结果"
+              :content="t('units.viewBacktestResults')"
               placement="top"
             >
               <el-button
@@ -527,7 +527,7 @@
               @click.stop="openBacktestResult(row)"
             >
               <el-icon aria-hidden="true"><View /></el-icon>
-              查看
+              {{ t('units.viewResult') }}
             </el-button>
           </div>
         </template>

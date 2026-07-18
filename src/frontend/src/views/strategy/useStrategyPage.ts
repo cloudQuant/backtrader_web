@@ -441,35 +441,35 @@ export function useStrategyPage() {
     const workflowMode = stringFromUnknown(config.workflow_mode) === 'prompt' ? '按提示执行' : '自动规划'
     return [
       {
-        label: '标的',
+        label: t('strategy.aiResearchSymbol'),
         value: symbolName ? `${symbol} · ${symbolName}` : symbol,
       },
       {
-        label: '周期',
+        label: t('strategy.aiResearchTimeframe'),
         value: timeframeN && timeframeN !== 1 ? `${timeframeN}${timeframe}` : timeframe,
       },
       {
-        label: '区间',
+        label: t('strategy.aiResearchPeriod'),
         value: `${startDate} 至 ${endDate}`,
       },
       {
-        label: '质量门槛',
+        label: t('strategy.aiResearchQualityGates'),
         value: `Sharpe ${targetSharpe} · 交易 ${minTrades}`,
       },
       {
-        label: '样本外',
+        label: t('strategy.aiResearchOutOfSample'),
         value: `${oosRatio} · Sharpe ${oosSharpe}`,
       },
       {
-        label: '资金/费用',
+        label: t('strategy.aiResearchCapitalAndFees'),
         value: `${initialCash} · ${commission}`,
       },
       {
-        label: '轮数',
+        label: t('strategy.aiResearchMaxIterations'),
         value: aiResearchConfigProfileMetric(profile, 'max_iterations', 0),
       },
       {
-        label: '方式',
+        label: t('strategy.aiResearchHeroWorkflow'),
         value: workflowMode,
       },
     ]
@@ -497,20 +497,20 @@ export function useStrategyPage() {
     const goal = mandate.structured_goal || {}
     const asset = mandate.asset_scope || {}
     return [
-      { key: 'asset', label: '资产', value: stringFromUnknown(asset.asset_class, '-') },
-      { key: 'symbol', label: '标的', value: stringFromUnknown(asset.symbol, '-') },
-      { key: 'timeframe', label: '周期', value: mandate.timeframe || stringFromUnknown(goal.timeframe, '-') },
-      { key: 'objective', label: '目标', value: mandate.objective || stringFromUnknown(goal.objective, '-') },
+      { key: 'asset', label: t('strategy.aiResearchAsset'), value: stringFromUnknown(asset.asset_class, '-') },
+      { key: 'symbol', label: t('strategy.aiResearchSymbol'), value: stringFromUnknown(asset.symbol, '-') },
+      { key: 'timeframe', label: t('strategy.aiResearchTimeframe'), value: mandate.timeframe || stringFromUnknown(goal.timeframe, '-') },
+      { key: 'objective', label: t('strategy.aiResearchObjective'), value: mandate.objective || stringFromUnknown(goal.objective, '-') },
       {
         key: 'risk',
-        label: '风险约束',
+        label: t('strategy.aiResearchRiskConstraints'),
         value: Object.keys(mandate.risk_constraints || {}).length
           ? Object.keys(mandate.risk_constraints).join('、')
           : '未显式约束',
       },
       {
         key: 'gates',
-        label: '质量门槛',
+        label: t('strategy.aiResearchQualityGates'),
         value: mandateQualityGateSummary(mandate.quality_gates),
       },
     ]
@@ -1112,14 +1112,14 @@ export function useStrategyPage() {
         end_date: aiResearchForm.end_date || null,
       })
       if (aiResearchPrecheckResult.value.passed) {
-        ElMessage.success('数据预检通过')
+        ElMessage.success(t('strategy.aiResearchPrecheckPassed'))
       } else {
-        ElMessage.warning('数据预检存在阻塞项')
+        ElMessage.warning(t('strategy.aiResearchPrecheckBlocked'))
       }
     } catch {
       aiResearchPrecheckResult.value = null
       aiResearchPrecheckError.value = '预检失败'
-      ElMessage.error('数据预检失败')
+      ElMessage.error(t('strategy.aiResearchPrecheckFailed'))
     } finally {
       aiResearchPrecheckLoading.value = false
     }
@@ -1343,10 +1343,10 @@ export function useStrategyPage() {
         aiResearchMandatePayload(input)
       )
       aiResearchMandateConfirmed.value = false
-      ElMessage.success('投资需求已结构化，请确认后启动投研')
+      ElMessage.success(t('strategy.aiResearchMandateStructured'))
       return aiResearchMandate.value
     } catch {
-      ElMessage.error('投资需求结构化失败')
+      ElMessage.error(t('strategy.aiResearchMandateStructureFailed'))
       return null
     } finally {
       aiResearchMandateLoading.value = false
@@ -1356,7 +1356,7 @@ export function useStrategyPage() {
   function confirmAIResearchMandate() {
     if (!aiResearchMandate.value) return
     aiResearchMandateConfirmed.value = true
-    ElMessage.success('投资需求已确认')
+    ElMessage.success(t('strategy.aiResearchMandateConfirmed'))
   }
 
   function clearAIResearchMandate() {
@@ -1388,7 +1388,7 @@ export function useStrategyPage() {
       return aiResearchMandate.value
     }
     await parseAIResearchMandate(input)
-    ElMessage.warning('请先确认结构化投资需求，再启动 AI 投研')
+    ElMessage.warning(t('strategy.aiResearchMandateConfirmationRequired'))
     return null
   }
 
@@ -1613,7 +1613,7 @@ export function useStrategyPage() {
     if (options.syncResult ?? true) {
       syncAIResearchDisplayedOutputWithSelectedProfile()
     }
-    if (options.notify ?? true) ElMessage.success(`已加载配置：${profile.name}`)
+    if (options.notify ?? true) ElMessage.success(t('strategy.aiResearchConfigLoaded', { name: profile.name }))
   }
 
   function openAIResearchConfigDialog() {
@@ -1716,7 +1716,7 @@ export function useStrategyPage() {
         applyAIResearchConfigProfile(response.items[0], { notify: false })
       }
     } catch {
-      if (options.showError) ElMessage.error('配置表加载失败')
+      if (options.showError) ElMessage.error(t('strategy.aiResearchConfigLoadFailed'))
     } finally {
       aiResearchConfigProfilesLoading.value = false
     }
@@ -1727,7 +1727,7 @@ export function useStrategyPage() {
     if (typeof api.createAIResearchConfigProfile !== 'function') return
     const name = aiResearchConfigProfileName.value.trim()
     if (!name) {
-      ElMessage.warning('请输入配置名称')
+      ElMessage.warning(t('strategy.aiResearchConfigNameRequired'))
       return
     }
     aiResearchConfigProfileSaving.value = true
@@ -1739,9 +1739,9 @@ export function useStrategyPage() {
       })
       upsertAIResearchConfigProfile(profile)
       setAIResearchConfigProfileEditor(profile)
-      ElMessage.success('配置已创建')
+      ElMessage.success(t('strategy.aiResearchConfigCreated'))
     } catch {
-      ElMessage.error('配置创建失败')
+      ElMessage.error(t('strategy.aiResearchConfigCreateFailed'))
     } finally {
       aiResearchConfigProfileSaving.value = false
     }
@@ -1752,7 +1752,7 @@ export function useStrategyPage() {
     if (typeof api.updateAIResearchConfigProfile !== 'function') return
     const profile = aiResearchConfigProfiles.value.find(item => item.id === profileId)
     if (!profile) {
-      ElMessage.warning('请选择要修改的配置')
+      ElMessage.warning(t('strategy.aiResearchConfigSelectionRequired'))
       return
     }
     const isEditingSelected = profile.id === aiResearchSelectedConfigProfileId.value
@@ -1771,9 +1771,9 @@ export function useStrategyPage() {
       })
       upsertAIResearchConfigProfile(updated)
       setAIResearchConfigProfileEditor(updated)
-      ElMessage.success('配置已保存')
+      ElMessage.success(t('strategy.aiResearchConfigSaved'))
     } catch {
-      ElMessage.error('配置保存失败')
+      ElMessage.error(t('strategy.aiResearchConfigSaveFailed'))
     } finally {
       aiResearchConfigProfileSaving.value = false
     }
@@ -1783,9 +1783,8 @@ export function useStrategyPage() {
     const api = aiResearchConfigProfileApi()
     if (typeof api.deleteAIResearchConfigProfile !== 'function') return
     try {
-      await ElMessageBox.confirm(`确认删除配置「${profile.name}」？`, '删除配置表', {
-        type: 'warning',
-      })
+      await ElMessageBox.confirm(t('strategy.aiResearchDeleteConfigConfirm', { name: profile.name }),
+        t('strategy.aiResearchDeleteConfigTitle'), { type: 'warning' })
     } catch {
       return
     }
@@ -1798,9 +1797,9 @@ export function useStrategyPage() {
       if (aiResearchSelectedConfigProfileId.value === profile.id) {
         setAIResearchConfigProfileEditor(null)
       }
-      ElMessage.success('配置已删除')
+      ElMessage.success(t('strategy.aiResearchConfigDeleted'))
     } catch {
-      ElMessage.error('配置删除失败')
+      ElMessage.error(t('strategy.aiResearchConfigDeleteFailed'))
     } finally {
       aiResearchConfigProfileDeletingId.value = ''
     }
@@ -1837,9 +1836,9 @@ export function useStrategyPage() {
       aiResearchConfigProfileFilePath.value = response.file_path
       response.items.forEach(upsertAIResearchConfigProfile)
       if (response.items[0]) applyAIResearchConfigProfile(response.items[0])
-      ElMessage.success(`已导入 ${response.total} 个配置`)
+      ElMessage.success(t('strategy.aiResearchConfigsImported', { count: response.total }))
     } catch {
-      ElMessage.error('YAML 配置导入失败')
+      ElMessage.error(t('strategy.aiResearchConfigImportFailed'))
     } finally {
       aiResearchConfigProfileImporting.value = false
     }
@@ -1910,7 +1909,7 @@ export function useStrategyPage() {
     if (!asset) return items
 
     if (!existing.has('asset_symbol')) {
-      items.unshift({ key: 'asset_symbol', label: '资产', value: asset.symbol })
+      items.unshift({ key: 'asset_symbol', label: t('strategy.aiResearchAsset'), value: asset.symbol })
       existing.add('asset_symbol')
     }
     const appendSpecNumber = (key: string, label: string, digits = 2) => {
@@ -2044,7 +2043,7 @@ export function useStrategyPage() {
     if (startDate || endDate) {
       items.push({
         key: 'date_range',
-        label: '区间',
+        label: t('strategy.aiResearchPeriod'),
         value: `${startDate || '-'} 至 ${endDate || '-'}`,
       })
     }
@@ -2131,9 +2130,9 @@ export function useStrategyPage() {
       rows.push({ key, label, value: formatted })
     }
     const runStatus = stringFromUnknown(item.unit_status?.run_status, item.run_result.status)
-    if (runStatus) rows.push({ key: 'run_status', label: '状态', value: runStatus })
+    if (runStatus) rows.push({ key: 'run_status', label: t('common.status'), value: runStatus })
     if (item.run_result.task_id) {
-      rows.push({ key: 'task_id', label: '任务', value: item.run_result.task_id })
+      rows.push({ key: 'task_id', label: t('strategy.aiResearchTask'), value: item.run_result.task_id })
     }
     appendMetric('total_return', '总收益', ['total_return', 'return'], value =>
       formatBacktestPercent(value)
@@ -2149,7 +2148,7 @@ export function useStrategyPage() {
     appendMetric('final_value', '最终权益', ['final_value', 'portfolio_value'])
     appendMetric('trading_cost', '交易成本', ['trading_cost', 'commission'])
     if (item.unit_status?.bar_count) {
-      rows.push({ key: 'bar_count', label: 'K线', value: formatMetric(item.unit_status.bar_count, 0) })
+      rows.push({ key: 'bar_count', label: t('strategy.aiResearchKline'), value: formatMetric(item.unit_status.bar_count, 0) })
     }
     return rows
   }
@@ -2474,7 +2473,7 @@ export function useStrategyPage() {
     try {
       aiResearchVersionCompare.value = await strategyApi.compareAIResearchVersions(leftId, rightId)
     } catch {
-      ElMessage.error('版本对比失败')
+      ElMessage.error(t('strategy.aiResearchVersionCompareFailed'))
     } finally {
       aiResearchVersionCompareLoading.value = false
     }
@@ -3485,42 +3484,42 @@ export function useStrategyPage() {
       workflow_mode: record.workflow_mode ?? 'auto',
       workflow_steps: record.workflow_steps ?? [...AI_RESEARCH_WORKFLOW_STEPS],
       steps: [
-        { key: 'strategy_idea', label: '策略构思', status: 'completed' },
-        { key: 'draft', label: '策略生成', status: 'completed' },
+        { key: 'strategy_idea', label: t('strategy.aiResearchHeroStepIdea'), status: 'completed' },
+        { key: 'draft', label: t('strategy.aiResearchStageDraft'), status: 'completed' },
         {
           key: 'backtest_loop',
-          label: '策略回测',
+          label: t('strategy.aiResearchHeroStepBacktest'),
           status: record.iteration_count > 0 ? 'completed' : 'pending',
           iteration_count: record.iteration_count,
           max_iterations: record.max_iterations,
         },
         {
           key: 'strategy_review',
-          label: '策略审查',
+          label: t('strategy.aiResearchStageReview'),
           status: record.iteration_count > 0 ? 'completed' : 'pending',
           iteration_count: record.iteration_count,
         },
         {
           key: 'optimization_loop',
-          label: '策略优化',
+          label: t('strategy.aiResearchStageOptimization'),
           status: record.iteration_count > 1 ? 'completed' : record.achieved ? 'skipped' : 'running',
           iteration_count: record.iteration_count,
           max_iterations: record.max_iterations,
         },
         {
           key: 'quality_gate',
-          label: '质量门槛',
+          label: t('strategy.aiResearchQualityGates'),
           status: record.achieved ? 'completed' : 'running',
         },
         {
           key: 'paper_trading',
-          label: '模拟交易',
+          label: t('strategy.aiResearchPaperStatus'),
           status: 'completed',
           error: null,
         },
         {
           key: 'paper_review',
-          label: '模拟复核',
+          label: t('strategy.aiResearchPaperReview'),
           status: 'pending',
           review_status: null,
         },
@@ -3550,7 +3549,7 @@ export function useStrategyPage() {
           ...previousSteps,
           {
             key: 'paper_trading',
-            label: '模拟交易',
+            label: t('strategy.aiResearchPaperStatus'),
             status: 'failed',
             error,
           },
@@ -4504,7 +4503,7 @@ export function useStrategyPage() {
         } catch {
           // Keep the local failed start state visible even if history refresh fails.
         }
-        ElMessage.error('模拟交易启动失败')
+        ElMessage.error(t('strategy.aiResearchPaperStartFailed'))
         return
       }
       const updatedRecord = responseRecord ?? paperStartedRunRecord(record, paper)
@@ -4515,7 +4514,7 @@ export function useStrategyPage() {
       } catch {
         // Keep the local started state visible even if history refresh fails.
       }
-      ElMessage.success('模拟交易已启动')
+      ElMessage.success(t('strategy.aiResearchPaperStartedSuccess'))
     } catch (error) {
       if (notifyAIResearchConfigError(error)) return
       try {
@@ -4620,11 +4619,9 @@ export function useStrategyPage() {
       }
       upsertAIResearchRunRecord(updatedRecord)
       applyPaperReviewToCurrentResult(record.run_id, updatedRecord)
-      ElMessage.success(review.ready_for_live ? '模拟交易已满足实盘候选条件' : '模拟交易复核已更新')
+      ElMessage.success(review.ready_for_live ? t('strategy.aiResearchPaperReadyForLive') : t('strategy.aiResearchPaperReviewUpdated'))
       if (review.live_handoff) {
-        ElMessage.success(
-          review.live_handoff.ready_for_live ? '实盘交接包已生成' : '实盘交接包存在阻塞项'
-        )
+        ElMessage.success(review.live_handoff.ready_for_live ? t('strategy.aiResearchLiveHandoffGenerated') : t('strategy.aiResearchLiveHandoffBlocked'))
       } else if (review.ready_for_live) {
         await buildLiveHandoffFromResearchRecord(updatedRecord)
       }
@@ -4670,9 +4667,7 @@ export function useStrategyPage() {
       const updatedRecord = liveHandoffRunRecord(record, handoff)
       upsertAIResearchRunRecord(updatedRecord)
       applyResearchRunRecordToCurrentResult(updatedRecord)
-      ElMessage.success(
-        handoff.ready_for_live ? '实盘交接包已生成' : '实盘交接包存在阻塞项'
-      )
+      ElMessage.success(handoff.ready_for_live ? t('strategy.aiResearchLiveHandoffGenerated') : t('strategy.aiResearchLiveHandoffBlocked'))
     } catch {
       ElMessage.error(t('strategy.aiResearchRunFailed'))
     } finally {
@@ -4687,10 +4682,10 @@ export function useStrategyPage() {
     const handoff = liveHandoffForRecord(record)
     if (!handoff || !canApproveLiveHandoff(handoff)) return
     const confirmMessage = decision === 'approved'
-      ? '确认已核对账户权限、风险限额和上线窗口，并批准该实盘交接包？'
-      : '确认驳回该实盘交接包？'
+      ? t('strategy.aiResearchApproveLiveHandoffConfirm')
+      : t('strategy.aiResearchRejectLiveHandoffConfirm')
     try {
-      await ElMessageBox.confirm(confirmMessage, '实盘交接审批', {
+      await ElMessageBox.confirm(confirmMessage, t('strategy.aiResearchLiveHandoffApproval'), {
         type: decision === 'approved' ? 'success' : 'warning',
       })
     } catch {
@@ -4724,7 +4719,7 @@ export function useStrategyPage() {
       const updatedRecord = liveHandoffRunRecord(record, updatedHandoff)
       upsertAIResearchRunRecord(updatedRecord)
       applyResearchRunRecordToCurrentResult(updatedRecord)
-      ElMessage.success(decision === 'approved' ? '实盘交接已审批通过' : '实盘交接已驳回')
+      ElMessage.success(decision === 'approved' ? t('strategy.aiResearchLiveHandoffApproved') : t('strategy.aiResearchLiveHandoffRejected'))
     } catch {
       ElMessage.error(t('strategy.aiResearchRunFailed'))
     } finally {
@@ -4744,7 +4739,7 @@ export function useStrategyPage() {
       const updatedRecord = liveTradingPreparedRunRecord(record, prepared)
       upsertAIResearchRunRecord(updatedRecord)
       applyResearchRunRecordToCurrentResult(updatedRecord)
-      ElMessage.success('实盘交易单元已准备，默认锁定等待人工上线')
+      ElMessage.success(t('strategy.aiResearchLiveUnitPrepared'))
     } catch (error) {
       if (notifyAIResearchConfigError(error)) return
       ElMessage.error(t('strategy.aiResearchRunFailed'))
@@ -4807,12 +4802,12 @@ export function useStrategyPage() {
     const nextSteps = upsertPipelineStep(
       upsertPipelineStep(previousSteps, {
         key: 'live_handoff',
-        label: '实盘交接',
+        label: t('strategy.aiResearchLiveHandoff'),
         status: 'completed',
       }),
       {
         key: 'live_trading_prepare',
-        label: '实盘准备',
+        label: t('strategy.aiResearchLivePreparation'),
         status: 'completed',
         live_trading_prepared: prepared.prepared,
         live_workspace_id: prepared.workspace.id,
@@ -5380,12 +5375,12 @@ export function useStrategyPage() {
     const status = String(result.status || '').toLowerCase()
     if (status === 'cancelled') {
       if (!aiResearchCancelRequested.value) {
-        ElMessage.success('AI投研任务已取消')
+        ElMessage.success(t('strategy.aiResearchTaskCancelled'))
       }
       return
     }
     if (isAIResearchResultPaperStartFailure(result)) {
-      ElMessage.error('模拟交易启动失败')
+      ElMessage.error(t('strategy.aiResearchPaperStartFailed'))
       return
     }
     if (result.achieved || status === 'achieved') {
@@ -5393,19 +5388,19 @@ export function useStrategyPage() {
       return
     }
     if (status === 'timeout' || result.pipeline?.current_stage === 'backtest_timeout') {
-      ElMessage.warning('AI投研回测超时，已保存结果，可继续投研')
+      ElMessage.warning(t('strategy.aiResearchBacktestTimedOut'))
       return
     }
     if (status === 'interrupted' || result.pipeline?.current_stage === 'interrupted') {
-      ElMessage.warning('AI投研任务中断，已恢复最近快照，可继续投研')
+      ElMessage.warning(t('strategy.aiResearchTaskInterrupted'))
       return
     }
     if (status === 'configuration_invalid' || result.pipeline?.current_stage === 'configuration_invalid') {
       const message = String(result.message || result.next_actions?.[0] || '').trim()
-      ElMessage.warning(message ? `AI投研配置未通过：${message}` : 'AI投研配置未通过，请调整参数后重新启动')
+      ElMessage.warning(message ? t('strategy.aiResearchConfigInvalidDetail', { message }) : t('strategy.aiResearchConfigInvalid'))
       return
     }
-    ElMessage.warning('AI投研未达标，已保存结果，可继续投研')
+    ElMessage.warning(t('strategy.aiResearchTargetNotMet'))
   }
 
   function resetAIResearchTaskState() {
@@ -5445,7 +5440,7 @@ export function useStrategyPage() {
       return null
     }
     if (!prompt && promptRequired) {
-      ElMessage.warning('请输入策略研究提示，或切换为自动规划')
+      ElMessage.warning(t('strategy.aiResearchPromptOrAutoRequired'))
       return null
     }
     if (shouldUseServerGeneratedPrompt) {

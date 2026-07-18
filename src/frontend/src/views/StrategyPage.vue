@@ -108,13 +108,13 @@
               data-test="ai-research-plan-bar"
             >
               <div class="ai-research-plan-select">
-                <span>投研方案</span>
+                <span>{{ t('strategy.aiResearchPlan') }}</span>
                 <el-select
                   v-model="aiResearchSelectedConfigProfileId"
                   class="w-full"
                   filterable
                   :loading="aiResearchConfigProfilesLoading"
-                  placeholder="选择配置方案"
+                  :placeholder="t('strategy.aiResearchSelectConfig')"
                   data-test="ai-research-profile-select"
                   @change="selectAIResearchConfigProfile"
                 >
@@ -135,7 +135,7 @@
               <div class="ai-research-plan-summary">
                 <strong>{{ aiResearchSelectedProfileSummary }}</strong>
                 <span>
-                  {{ aiResearchSelectedConfigProfile?.description || '方案控制标的、周期、质量门槛、回测口径和晋级设置。' }}
+                  {{ aiResearchSelectedConfigProfile?.description || t('strategy.aiResearchConfigDescription') }}
                 </span>
               </div>
               <el-button
@@ -147,13 +147,13 @@
                 <el-icon aria-hidden="true">
                   <EditPen />
                 </el-icon>
-                配置方案
+                {{ t('strategy.aiResearchConfigurePlan') }}
               </el-button>
             </div>
 
             <el-dialog
               v-model="aiResearchConfigDialogVisible"
-              title="配置投研方案"
+              :title="t('strategy.aiResearchConfigDialogTitle')"
               width="1100px"
               class="ai-research-config-dialog"
               destroy-on-close
@@ -164,7 +164,7 @@
               >
                 <div class="ai-research-config-head">
                   <div>
-                    <strong>配置表</strong>
+                    <strong>{{ t('strategy.aiResearchConfigTable') }}</strong>
                     <span v-if="aiResearchConfigProfileFilePath">
                       {{ aiResearchConfigProfileFilePath }}
                     </span>
@@ -179,7 +179,7 @@
                       <el-icon aria-hidden="true">
                         <Upload />
                       </el-icon>
-                      导入 YAML
+                      {{ t('strategy.aiResearchImportYaml') }}
                     </el-button>
                     <el-button
                       size="small"
@@ -190,7 +190,7 @@
                       <el-icon aria-hidden="true">
                         <RefreshRight />
                       </el-icon>
-                      刷新
+                      {{ t('common.refresh') }}
                     </el-button>
                   </div>
                 </div>
@@ -210,11 +210,11 @@
                   size="small"
                   row-key="id"
                   highlight-current-row
-                  :empty-text="'暂无配置，可从当前表单新建或导入 YAML'"
-                  @row-click="handleAIResearchConfigProfileRowClick"
+                  :empty-text="t('strategy.aiResearchConfigEmpty')"
+                  @row-click="applyAIResearchConfigProfile"
                 >
                   <el-table-column
-                    label="名称"
+                    :label="t('strategy.strategyName')"
                     min-width="150"
                   >
                     <template #default="{ row }">
@@ -276,7 +276,7 @@
                         type="primary"
                         @click.stop="applyAIResearchConfigProfile(row)"
                       >
-                        加载
+                        {{ t('strategy.aiResearchLoadConfig') }}
                       </el-button>
                       <el-button
                         link
@@ -285,7 +285,7 @@
                         :loading="aiResearchConfigProfileSaving && aiResearchSelectedConfigProfileId === row.id"
                         @click.stop="saveAIResearchConfigProfile(row.id)"
                       >
-                        保存
+                        {{ t('common.save') }}
                       </el-button>
                       <el-button
                         link
@@ -294,7 +294,7 @@
                         :loading="aiResearchConfigProfileDeletingId === row.id"
                         @click.stop="deleteAIResearchConfigProfile(row)"
                       >
-                        删除
+                        {{ t('common.delete') }}
                       </el-button>
                     </template>
                   </el-table-column>
@@ -1004,13 +1004,13 @@
                 任务 {{ aiResearchTaskStageLabel }}
                 {{ formatTaskProgress(aiResearchTaskProgress) }}
                 <template v-if="aiResearchTaskIteration">
-                  第 {{ aiResearchTaskIteration }} 轮
+                  {{ t('strategy.aiResearchTaskIterationLabel', { iteration: aiResearchTaskIteration }) }}
                 </template>
                 <template v-if="aiResearchBacktestTaskId">
-                  回测 {{ aiResearchBacktestTaskId }}
+                  {{ t('strategy.aiResearchBacktestTaskLabel', { taskId: aiResearchBacktestTaskId }) }}
                 </template>
                 <template v-else-if="aiResearchCancelledBacktestTaskId">
-                  已取消回测 {{ aiResearchCancelledBacktestTaskId }}
+                  {{ t('strategy.aiResearchCancelledBacktestTaskLabel', { taskId: aiResearchCancelledBacktestTaskId }) }}
                 </template>
               </el-tag>
             </div>
@@ -1063,7 +1063,7 @@
                   {{ iterationProgressLabel(taskLatestIterationProgress(aiResearchTaskLatestIteration)?.status) }}
                 </el-tag>
                 <template v-if="taskLatestIterationProgress(aiResearchTaskLatestIteration)?.previous_iteration">
-                  对比第 {{ taskLatestIterationProgress(aiResearchTaskLatestIteration)?.previous_iteration }} 轮
+                  {{ t('strategy.aiResearchCompareIteration', { iteration: taskLatestIterationProgress(aiResearchTaskLatestIteration)?.previous_iteration }) }}
                 </template>
                 <template v-if="iterationProgressDeltaText(taskLatestIterationProgress(aiResearchTaskLatestIteration), 'sharpe_delta')">
                   Sharpe {{ iterationProgressDeltaText(taskLatestIterationProgress(aiResearchTaskLatestIteration), 'sharpe_delta') }}
@@ -1773,7 +1773,7 @@
                         data-test="ai-research-view-version-code"
                         @click="viewAIResearchVersionCode(row)"
                       >
-                        查看代码
+                        {{ t('strategy.aiResearchViewCode') }}
                       </el-button>
                     </template>
                   </el-table-column>
@@ -2753,7 +2753,6 @@ import StrategyEditDialog from './strategy-components/StrategyEditDialog.vue'
 import StrategyDetailDialog from './strategy-components/StrategyDetailDialog.vue'
 import StrategyTemplateCard from './strategy-components/StrategyTemplateCard.vue'
 import { useStrategyPage } from './strategy/useStrategyPage'
-import type { AIStrategyResearchConfigProfile } from '@/api/strategy'
 
 const strategyPage = useStrategyPage()
 
@@ -2992,10 +2991,6 @@ const {
   saveStrategy,
   deleteStrategy,
 } = strategyPage
-
-function handleAIResearchConfigProfileRowClick(profile: AIStrategyResearchConfigProfile) {
-  applyAIResearchConfigProfile(profile)
-}
 
 defineExpose(strategyPage)
 </script>
