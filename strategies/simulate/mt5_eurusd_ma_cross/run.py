@@ -28,8 +28,12 @@ if _pymt5.exists() and str(_pymt5) not in sys.path:
 
 import yaml
 import backtrader as bt
-from backtrader.feeds.btapifeed import BtApiFeed
-from backtrader.stores.btapistore import BtApiStore
+try:
+    from backtrader.feeds.btapifeed import BtApiFeed
+    from backtrader.stores.btapistore import BtApiStore
+except ImportError:
+    BtApiFeed = None
+    BtApiStore = None
 
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
@@ -267,6 +271,8 @@ def run():
     session_timeout = int(sim_cfg.get("session_timeout", duration_seconds + 100))
 
     store_cfg = build_mt5_store_config(config)
+    if BtApiFeed is None or BtApiStore is None:
+        raise SystemExit("Gateway runner requires the bt_api_py Backtrader feed and store adapters")
     if not store_cfg.get("login") or not store_cfg.get("password"):
         raise SystemExit(
             "MT5 凭证不完整。请设置 MT5_LOGIN/MT5_PASSWORD，或在 config.yaml 的 mt5 节点配置 login 和 password。"

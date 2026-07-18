@@ -15,6 +15,9 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
+
+_CHINA_TZ = ZoneInfo("Asia/Shanghai")
 
 
 def _suppress_default_admin_warning_for_stress_script() -> None:
@@ -744,10 +747,10 @@ async def status_summary(
 
 
 def status_timestamp(now: datetime | None = None) -> str:
-    current = now if now is not None else datetime.now().astimezone()
+    current = now if now is not None else datetime.now(_CHINA_TZ)
     if current.tzinfo is None:
-        current = current.astimezone()
-    return current.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        current = current.replace(tzinfo=_CHINA_TZ)
+    return current.astimezone(_CHINA_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
 def print_log(
@@ -885,7 +888,7 @@ def is_ctp_data_quiet_time(symbol: str, now: float | None = None) -> bool:
     prefix = ctp_product_prefix(symbol)
     if not prefix:
         return False
-    current = datetime.fromtimestamp(time.time() if now is None else now).astimezone()
+    current = datetime.fromtimestamp(time.time() if now is None else now, _CHINA_TZ)
     minute_of_day = current.hour * 60 + current.minute
     if prefix in _CTP_CFFEX_DAY_PREFIXES:
         return (
