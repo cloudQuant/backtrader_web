@@ -54,7 +54,7 @@ def build_ai_strategy_draft(prompt: str, references: list[str] | None = None) ->
         )
     if "rsi_period" in params:
         setup_lines.append(
-            "        self.rsi = bt.indicators.RSI(self.data.close, period=self.p.rsi_period)"
+            "        self.rsi = bt.indicators.RSI_Safe(self.data.close, period=self.p.rsi_period)"
         )
     if "atr_period" in params:
         setup_lines.append(

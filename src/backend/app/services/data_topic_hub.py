@@ -124,7 +124,7 @@ class DataTopicHub:
                 producer.refresh([topic]),
                 timeout=max(state.policy.refresh_timeout_ms, 1) / 1000,
             )
-        except TimeoutError:
+        except asyncio.TimeoutError:
             self._emit_error({"topic": topic, "code": "refresh_timeout"})
             return state.value
         except Exception as exc:

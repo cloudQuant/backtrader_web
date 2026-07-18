@@ -51,10 +51,13 @@ if _BT_API_PY.exists() and str(_BT_API_PY) not in sys.path:
 _PYMT5 = _BT_WEB.parent / "pymt5"
 if _PYMT5.exists() and str(_PYMT5) not in sys.path:
     sys.path.insert(0, str(_PYMT5))
+_BACKEND_SRC = _BT_WEB / "src" / "backend"
+if _BACKEND_SRC.exists() and str(_BACKEND_SRC) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_SRC))
 
 import backtrader as bt  # noqa: E402
 import yaml  # noqa: E402
-from backtrader.comminfo import (  # noqa: E402
+from app.utils.backtrader_commission import (  # noqa: E402
     ComminfoFuturesFixed,
     ComminfoFuturesInverse,
     ComminfoFuturesMixed,

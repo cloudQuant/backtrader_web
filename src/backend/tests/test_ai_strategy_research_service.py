@@ -1714,7 +1714,19 @@ async def test_research_loop_auto_builds_live_handoff_after_ready_initial_paper_
 
 
 @pytest.mark.asyncio
-async def test_research_loop_runs_full_generated_goal_to_live_handoff():
+async def test_research_loop_runs_full_generated_goal_to_live_handoff(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.ai_strategy_research_service.resolve_asset_specs",
+        lambda instance, strategy_dir, gateway=None, symbols=None: {
+            "IF2409.CFE": {
+                "symbol": "IF2409.CFE",
+                "source": "test_contract_metadata",
+                "multiplier": 300,
+                "margin_rate": 0.1,
+                "commission_rate": 0.000023,
+            }
+        },
+    )
     workspace_service = FakeLiveReadyPaperWorkspaceService()
     strategy_service = FakeStrategyService(
         workspace_service,
@@ -12143,7 +12155,20 @@ async def test_ai_strategy_research_task_api_generates_prompt_when_omitted(
 async def test_ai_strategy_research_task_api_runs_generated_goal_full_pipeline(
     client: AsyncClient,
     auth_headers: dict,
+    monkeypatch,
 ):
+    monkeypatch.setattr(
+        "app.services.ai_strategy_research_service.resolve_asset_specs",
+        lambda instance, strategy_dir, gateway=None, symbols=None: {
+            "IF2409.CFE": {
+                "symbol": "IF2409.CFE",
+                "source": "test_contract_metadata",
+                "multiplier": 300,
+                "margin_rate": 0.1,
+                "commission_rate": 0.000023,
+            }
+        },
+    )
     workspace_service = FakeLiveReadyPaperWorkspaceService()
     strategy_service = FakeStrategyService(
         workspace_service,
