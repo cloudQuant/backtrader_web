@@ -66,5 +66,5 @@ def cache_response(
 def generate_cache_key(prefix: str, data: Any) -> str:
     """Generate a stable cache key from data object."""
     data_str = json.dumps(data, sort_keys=True)
-    hash_obj = hashlib.md5(data_str.encode())
+    hash_obj = hashlib.md5(data_str.encode(), usedforsecurity=False)
     return f"{prefix}:{hash_obj.hexdigest()}"

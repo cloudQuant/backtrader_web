@@ -63,7 +63,8 @@
 
 ## 2. 项目目录结构
 
-> 📁 完整的标注源码树请参阅 **[source-tree-analysis.md](source-tree-analysis.md)**
+> 📁 完整的标注源码树请参阅
+> **[source-tree-analysis.md](../reports/archive/source-tree-analysis.md)**
 
 项目采用 Multi-Part 架构：
 - **`src/backend/`** — FastAPI 后端（15 个 API 模块 + 18 个 Service）
@@ -229,7 +230,7 @@ erDiagram
 
 ## 5. API 模块详细文档
 
-> 📡 完整的 API 端点列表（15 个模块、80+ 端点）请参阅 **[API.md](API.md)**
+> 📡 完整的 API 端点列表（15 个模块、80+ 端点）请参阅 **[API_OVERVIEW.md](API_OVERVIEW.md)**
 
 本系统 API 按功能分为以下模块：
 
@@ -258,10 +259,10 @@ WebSocket 端点共 6 个，覆盖回测进度、模拟账户、策略版本、�
 ## 6. 部署运维
 
 > 🚀 详细的部署和运维指南请参阅：
-> - **[部署指南](DEPLOYMENT.md)** — 环境要求、配置清单、后端/前端部署、Nginx 配置
-> - **[运维手册](OPERATIONS.md)** — 监控指标、日志管理、备份策略、健康检查
-> - **[安装指南](INSTALLATION.md)** — 快速本地安装
-> - **[Backtrader 导入问题排查](BACKTRADER_IMPORT_TROUBLESHOOTING.md)** — backtrader 模块导入问题详细排查
+> - **[部署指南](../operations/DEPLOYMENT.md)** — 环境要求、配置清单、后端/前端部署、Nginx 配置
+> - **[运维手册](../operations/OPERATIONS.md)** — 监控指标、日志管理、备份策略、健康检查
+> - **[安装指南](../guides/INSTALLATION.md)** — 快速本地安装
+> - **[Backtrader 导入问题排查](../operations/BACKTRADER_IMPORT_TROUBLESHOOTING.md)** — backtrader 模块导入问题详细排查
 
 ### 开发环境校验
 
@@ -289,7 +290,8 @@ cd src/frontend && npm ci && npm run dev
 
 ### 常见问题
 
-如果遇到 `AttributeError: module 'backtrader' has no attribute 'Analyzer'` 错误，请参考 [Backtrader 导入问题排查指南](BACKTRADER_IMPORT_TROUBLESHOOTING.md)。
+如果遇到 `AttributeError: module 'backtrader' has no attribute 'Analyzer'` 错误，请参考
+[Backtrader 导入问题排查指南](../operations/BACKTRADER_IMPORT_TROUBLESHOOTING.md)。
 
 ---
 

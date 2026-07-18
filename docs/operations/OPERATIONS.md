@@ -418,7 +418,7 @@ sudo systemctl start backtrader
 
 ## Support Resources
 
-- **Installation Guide**: [INSTALLATION.md](INSTALLATION.md)
+- **Installation Guide**: [INSTALLATION.md](../guides/INSTALLATION.md)
 - **Deployment Guide**: [DEPLOYMENT.md](DEPLOYMENT.md)
 - **API Documentation**: http://your-domain.com/docs
 - **GitHub Issues**: https://github.com/cloudQuant/ai-for-investor/issues

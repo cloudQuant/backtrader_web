@@ -56,7 +56,7 @@ class FuturesGfexWarehouseReceipt(AkshareToMySql):
         parsed_date = pd.to_datetime(row["data_date"], errors="coerce")
         date_part = "unknown" if pd.isna(parsed_date) else parsed_date.strftime("%Y%m%d")
         key = f"{row.get('symbol', '')}|{row.get('仓库/分库', '')}|{date_part}"
-        digest = hashlib.md5(key.encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.md5(key.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
         return f"GFEX_{date_part}_{row.get('symbol', '')}_{digest}"[:64]
 
     def fetch_data(self, **kwargs):
@@ -92,7 +92,11 @@ class FuturesGfexWarehouseReceipt(AkshareToMySql):
                 df["WAREHOUSE_ID"] = (
                     df["WAREHOUSE_NAME"]
                     .astype(str)
-                    .map(lambda value: hashlib.md5(value.encode("utf-8")).hexdigest()[:16])
+                    .map(
+                        lambda value: hashlib.md5(
+                            value.encode("utf-8"), usedforsecurity=False
+                        ).hexdigest()[:16]
+                    )
                 )
                 df["IS_SUBTOTAL"] = df["WAREHOUSE_NAME"].str.contains("小计", na=False).astype(int)
                 df["IS_TOTAL"] = df["WAREHOUSE_NAME"].str.contains("总计", na=False).astype(int)

@@ -747,10 +747,7 @@ def test_live_trading_service_import_and_run_branches(tmp_path: Path, monkeypatc
 
     # _load_strategy_from_code delegates to the sandbox and returns a class
     # without mutating class-level defaults.
-    code = (
-        "class S(bt.Strategy):\n"
-        "  params = (('p', 1),)\n"
-    )
+    code = "class S(bt.Strategy):\n  params = (('p', 1),)\n"
     strat_cls = svc._load_strategy_from_code(code, {"p": 123})
     assert isinstance(strat_cls, type)
     assert strat_cls.__name__ == "S"

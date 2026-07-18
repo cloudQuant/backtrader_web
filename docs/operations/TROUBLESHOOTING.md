@@ -238,7 +238,7 @@ npx playwright show-report
 ## 9. 获取帮助
 
 如果以上方案无法解决问题：
-1. 查看 [完整技术文档](TECHNICAL_DOCS.md)
+1. 查看 [完整技术文档](../reference/TECHNICAL_DOCS.md)
 2. 查看 [运维手册](OPERATIONS.md) 的监控和诊断部分
 3. 提交 Issue 并附上：
    - 错误截图或日志

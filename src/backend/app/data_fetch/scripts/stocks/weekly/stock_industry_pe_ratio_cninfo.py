@@ -59,7 +59,7 @@ class StockIndustryPeRatioCninfo(AkshareToMySql):
                 str(row.get("INDUSTRY_LEVEL", "")),
             ]
         )
-        return hashlib.md5(key.encode("utf-8")).hexdigest().upper()
+        return hashlib.md5(key.encode("utf-8"), usedforsecurity=False).hexdigest().upper()
 
     @staticmethod
     def _normalize_date(value) -> str:

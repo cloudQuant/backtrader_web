@@ -54,7 +54,7 @@
 
       <el-tabs
         :model-value="detailTab"
-        @update:model-value="(v) => emit('update:detailTab', String(v))"
+        @update:model-value="(v: string | number) => emit('update:detailTab', String(v))"
       >
         <el-tab-pane
           :label="t('strategy.docs')"

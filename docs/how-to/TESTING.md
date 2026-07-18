@@ -264,6 +264,7 @@ open htmlcov/index.html
 
 ## 7. 持续集成
 
-参见 [CI/CD 文档](CI_CD.md) 了解测试在 CI 流水线中的集成方式。
+参见 [CI/CD 文档](../operations/CI_CD.md) 了解测试在 CI 流水线中的集成方式。
 
-详细的 E2E 测试覆盖率分析参见 [E2E 测试覆盖率分析](E2E_TEST_COVERAGE_ANALYSIS.md)。
+详细的 E2E 测试覆盖率分析参见
+[E2E 测试覆盖率分析](../reports/archive/E2E_TEST_COVERAGE_ANALYSIS.md)。

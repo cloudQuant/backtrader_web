@@ -64,5 +64,5 @@ uvicorn app.main:app --reload --port 8000
 ## 下一步
 
 - 阅读 [策略开发指南](STRATEGY_DEVELOPMENT.md)
-- 了解 [参数优化功能](OPTIMIZATION.md)
-- 查看 [完整 API 文档](API.md)
+- 了解 [参数优化功能](PARAMETER_OPTIMIZATION.md)
+- 查看 [完整 API 文档](API_GUIDE.md)

@@ -12,6 +12,14 @@ StockAnalysisExportFormat = Literal["markdown", "html", "docx", "pdf"]
 StockAnalysisModule = Literal["market", "social", "news", "fundamentals", "risk"]
 
 
+def _default_stock_analysis_modules() -> list[StockAnalysisModule]:
+    return ["market", "social", "news", "fundamentals", "risk"]
+
+
+def _default_stock_analysis_export_formats() -> list[StockAnalysisExportFormat]:
+    return ["markdown", "html", "docx", "pdf"]
+
+
 class StockAnalysisParams(BaseModel):
     """User-facing stock analysis parameters."""
 
@@ -20,7 +28,7 @@ class StockAnalysisParams(BaseModel):
     analysis_date: date | None = None
     research_depth: str = Field("标准", max_length=32)
     selected_modules: list[StockAnalysisModule] = Field(
-        default_factory=lambda: ["market", "social", "news", "fundamentals", "risk"]
+        default_factory=_default_stock_analysis_modules
     )
     include_sentiment: bool = True
     include_risk: bool = True
@@ -57,7 +65,7 @@ class StockAnalysisReportCard(BaseModel):
     risk_level: str
     confidence_score: float | None = None
     export_formats: list[StockAnalysisExportFormat] = Field(
-        default_factory=lambda: ["markdown", "html", "docx", "pdf"]
+        default_factory=_default_stock_analysis_export_formats
     )
 
 

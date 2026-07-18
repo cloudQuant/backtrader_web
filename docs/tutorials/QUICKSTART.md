@@ -185,10 +185,10 @@ DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/backtrader
 
 | 目标 | 文档 |
 |------|------|
-| 编写自定义策略 | [策略开发指南](STRATEGY_DEVELOPMENT.md) |
-| 了解完整 API | [API 文档](API_OVERVIEW.md) |
-| 参数优化 | [API 文档 - 优化模块](API_OVERVIEW.md#5-optimization参数优化) |
-| 模拟交易 | [API 文档 - 模拟交易](API_OVERVIEW.md#9-paper-trading模拟交易) |
-| AI 策略助手 | [AI 策略 Copilot](AI_STRATEGY_COPILOT.md) |
-| 本地开发环境 | [开发指南](DEVELOPMENT.md) |
+| 编写自定义策略 | [策略开发指南](../guides/STRATEGY_DEVELOPMENT.md) |
+| 了解完整 API | [API 文档](../reference/API_OVERVIEW.md) |
+| 参数优化 | [API 文档 - 优化模块](../reference/API_OVERVIEW.md#5-optimization参数优化) |
+| 模拟交易 | [API 文档 - 模拟交易](../reference/API_OVERVIEW.md#9-paper-trading模拟交易) |
+| AI 策略助手 | [AI 策略 Copilot](../guides/AI_STRATEGY_COPILOT.md) |
+| 本地开发环境 | [开发指南](../how-to/DEVELOPMENT.md) |
 | Docker 部署 | `docker/compose/prod.yml` 配合根目录 `docker-compose.yml` base |

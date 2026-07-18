@@ -14,7 +14,7 @@ import ipaddress
 import socket
 import urllib.request
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from urllib.parse import SplitResult, urlsplit
 
 
@@ -87,34 +87,38 @@ def _validated_target(url: str) -> _WebhookTarget:
 class _PinnedHTTPConnection(http.client.HTTPConnection):
     """HTTP connection that keeps the validated hostname-to-IP binding."""
 
-    def __init__(self, target: _WebhookTarget, **kwargs: object) -> None:
+    def __init__(self, target: _WebhookTarget, **kwargs: Any) -> None:
         self._pinned_address = target.address
         super().__init__(target.hostname, port=target.port, **kwargs)
 
     def connect(self) -> None:
+        source_address = cast(tuple[str, int] | None, getattr(self, "source_address", None))
         self.sock = socket.create_connection(
             (self._pinned_address, self.port),
             self.timeout,
-            self.source_address,
+            source_address,
         )
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     """HTTPS connection pinned to a validated IP while preserving SNI."""
 
-    def __init__(self, target: _WebhookTarget, **kwargs: object) -> None:
+    def __init__(self, target: _WebhookTarget, **kwargs: Any) -> None:
         self._pinned_address = target.address
         super().__init__(target.hostname, port=target.port, **kwargs)
 
     def connect(self) -> None:
+        source_address = cast(tuple[str, int] | None, getattr(self, "source_address", None))
         self.sock = socket.create_connection(
             (self._pinned_address, self.port),
             self.timeout,
-            self.source_address,
+            source_address,
         )
-        if self._tunnel_host:
-            self._tunnel()
-        self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
+        tunnel_host = cast(str | None, getattr(self, "_tunnel_host", None))
+        if tunnel_host:
+            self._tunnel()  # type: ignore[attr-defined]
+        context = self._context  # type: ignore[attr-defined]
+        self.sock = context.wrap_socket(self.sock, server_hostname=self.host)
 
 
 class _PinnedHTTPHandler(urllib.request.HTTPHandler):
@@ -131,7 +135,7 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
         return self.do_open(
             lambda _host, **kwargs: _PinnedHTTPSConnection(target, **kwargs),
             request,
-            context=self._context,
+            context=self._context,  # type: ignore[attr-defined]
         )
 
 

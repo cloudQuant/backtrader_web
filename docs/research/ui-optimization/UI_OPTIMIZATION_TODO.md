@@ -1042,7 +1042,7 @@ Product Brief、PRD、架构与实施产物，且当前任务属于已上线界�
 ### UI-210 真实任务研究执行卡（待产品方安排）
 
 可执行的主持脚本、匿名会话表和决策日志位于
-[`docs/research/ui-optimization/`](docs/research/ui-optimization/README.md)；开始研究时先复制模板，再填写真实会话，
+[`docs/research/ui-optimization/`](README.md)；开始研究时先复制模板，再填写真实会话，
 不要以示例行作为参与者证据。
 
 | 角色 | 无引导任务 | 成功定义 | 记录字段 |

@@ -11882,8 +11882,8 @@ async def test_ai_strategy_research_task_manager_keeps_cancelled_terminal_state(
 
 @pytest.mark.asyncio
 async def test_ai_strategy_research_api_endpoint(client: AsyncClient, auth_headers: dict):
-    app.dependency_overrides[get_ai_strategy_research_service] = (
-        lambda: FakeResearchAPISecretIterationService()
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: (
+        FakeResearchAPISecretIterationService()
     )
     try:
         response = await client.post(
@@ -12342,8 +12342,8 @@ async def test_ai_strategy_research_task_api_returns_paper_pipeline_summary(
     auth_headers: dict,
 ):
     task_manager = AIStrategyResearchTaskManager()
-    app.dependency_overrides[get_ai_strategy_research_service] = (
-        lambda: FakeResearchAPIPaperService()
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: (
+        FakeResearchAPIPaperService()
     )
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
     try:

@@ -169,7 +169,7 @@ def _build_cache_key(key_prefix: str, path: str, query_params: dict[str, Any]) -
     """
     sorted_params = sorted(query_params.items())
     params_str = json.dumps(sorted_params, sort_keys=True, default=str)
-    params_hash = hashlib.md5(params_str.encode()).hexdigest()
+    params_hash = hashlib.md5(params_str.encode(), usedforsecurity=False).hexdigest()
     return f"{key_prefix}:{path}:{params_hash}"
 
 

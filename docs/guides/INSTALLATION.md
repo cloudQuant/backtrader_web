@@ -66,7 +66,7 @@ python scripts/init_db.py --init-all
 cd ../..
 ```
 
-For more detail, see [Database Initialization Guide](DATABASE_INIT.md).
+For more detail, see [Database Initialization Guide](../operations/DATABASE_INIT.md).
 
 ## 7. Start the Application
 

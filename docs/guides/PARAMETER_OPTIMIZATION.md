@@ -210,4 +210,4 @@ curl -X POST http://localhost:8000/api/v1/backtests/optimization/bayesian \
 
 - [回测指南](BACKTEST_GUIDE.md) — 回测基础使用
 - [策略开发](STRATEGY_DEVELOPMENT.md) — 编写自定义策略
-- [API 文档](API.md) — 完整 API 接口说明
+- [API 文档](API_GUIDE.md) — 完整 API 接口说明

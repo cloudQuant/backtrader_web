@@ -5,13 +5,14 @@ Validate local relative links in docs/*.md files.
 Checks that linked files exist to reduce documentation drift.
 Run from project root: python scripts/check_doc_links.py
 """
+
 from __future__ import annotations
 
 import re
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DOCS_DIR = PROJECT_ROOT / "docs"
 
 

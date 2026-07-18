@@ -181,10 +181,10 @@ DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/backtrader
 
 | Goal | Documentation |
 |------|---------------|
-| Write custom strategies | [Strategy Development](STRATEGY_DEVELOPMENT.md) |
-| Full API reference | [API Reference (EN)](API_REFERENCE_EN.md) |
-| Parameter optimization | [API Reference - Optimization](API_REFERENCE_EN.md#parameter-optimization) |
-| Paper trading | [API Reference - Paper Trading](API_REFERENCE_EN.md#paper-trading) |
-| AI Strategy Copilot | [AI Strategy Copilot](AI_STRATEGY_COPILOT.md) |
-| Local development | [Development Guide](DEVELOPMENT.md) |
+| Write custom strategies | [Strategy Development](../guides/STRATEGY_DEVELOPMENT.md) |
+| Full API reference | [API Reference (EN)](../reference/API_REFERENCE_EN.md) |
+| Parameter optimization | [API Reference - Optimization](../reference/API_REFERENCE_EN.md#parameter-optimization) |
+| Paper trading | [API Reference - Paper Trading](../reference/API_REFERENCE_EN.md#paper-trading) |
+| AI Strategy Copilot | [AI Strategy Copilot](../guides/AI_STRATEGY_COPILOT.md) |
+| Local development | [Development Guide](../how-to/DEVELOPMENT.md) |
 | Production deployment | `docker/compose/prod.yml` with root `docker-compose.yml` base |

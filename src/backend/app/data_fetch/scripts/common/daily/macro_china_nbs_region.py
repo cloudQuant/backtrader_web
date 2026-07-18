@@ -71,7 +71,7 @@ OUTPUT_COLUMNS = [
 
 def _record_key(*parts: object) -> str:
     raw = "\x1f".join("" if part is None else str(part) for part in parts)
-    return hashlib.md5(raw.encode("utf-8")).hexdigest()
+    return hashlib.md5(raw.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 def _normalise_queries(kwargs: dict) -> list[dict]:

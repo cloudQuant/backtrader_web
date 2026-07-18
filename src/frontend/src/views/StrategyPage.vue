@@ -211,7 +211,7 @@
                   row-key="id"
                   highlight-current-row
                   :empty-text="'暂无配置，可从当前表单新建或导入 YAML'"
-                  @row-click="row => applyAIResearchConfigProfile(row)"
+                  @row-click="handleAIResearchConfigProfileRowClick"
                 >
                   <el-table-column
                     label="名称"
@@ -2753,6 +2753,7 @@ import StrategyEditDialog from './strategy-components/StrategyEditDialog.vue'
 import StrategyDetailDialog from './strategy-components/StrategyDetailDialog.vue'
 import StrategyTemplateCard from './strategy-components/StrategyTemplateCard.vue'
 import { useStrategyPage } from './strategy/useStrategyPage'
+import type { AIStrategyResearchConfigProfile } from '@/api/strategy'
 
 const strategyPage = useStrategyPage()
 
@@ -2991,6 +2992,10 @@ const {
   saveStrategy,
   deleteStrategy,
 } = strategyPage
+
+function handleAIResearchConfigProfileRowClick(profile: AIStrategyResearchConfigProfile) {
+  applyAIResearchConfigProfile(profile)
+}
 
 defineExpose(strategyPage)
 </script>

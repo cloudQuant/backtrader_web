@@ -116,7 +116,8 @@ docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
 
 ### Backtrader Import Issues
 
-If you encounter backtrader import errors, see [Backtrader Import Troubleshooting](../../../BACKTRADER_IMPORT_TROUBLESHOOTING.md).
+If you encounter backtrader import errors, see
+[Backtrader Import Troubleshooting](../../../operations/BACKTRADER_IMPORT_TROUBLESHOOTING.md).
 
 ### Database Connection Issues
 

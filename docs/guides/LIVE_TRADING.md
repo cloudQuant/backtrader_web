@@ -177,5 +177,5 @@ ws.onmessage = (event) => {
 
 - [策略开发](STRATEGY_DEVELOPMENT.md) — 编写交易策略
 - [回测指南](BACKTEST_GUIDE.md) — 回测验证策略
-- [参数优化](OPTIMIZATION.md) — 优化策略参数
-- [运维手册](OPERATIONS.md) — 系统监控和维护
+- [参数优化](PARAMETER_OPTIMIZATION.md) — 优化策略参数
+- [运维手册](../operations/OPERATIONS.md) — 系统监控和维护

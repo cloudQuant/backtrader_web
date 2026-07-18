@@ -10,8 +10,8 @@
         size="small"
         class="trading-units-table"
         :empty-text="t('workspaceDialogs.emptyUnits') + ', ' + t('workspaceDialogs.clickPrefix') + ' \u300c' + t('workspaceDialogs.newUnit') + '\u300d ' + t('workspaceDialogs.rangeStart')"
-        @selection-change="rows => emit('selection-change', rows)"
-        @row-dblclick="(row, column, event) => emit('row-dblclick', row, column, event)"
+        @selection-change="handleSelectionChange"
+        @row-dblclick="handleRowDoubleClick"
       >
         <el-table-column
           type="selection"
@@ -346,6 +346,14 @@ const tableRef = ref<{
   clearSelection: () => void
   toggleRowSelection: (row: StrategyUnit, selected?: boolean) => void
 } | null>(null)
+
+function handleSelectionChange(rows: StrategyUnit[]) {
+  emit('selection-change', rows)
+}
+
+function handleRowDoubleClick(row: StrategyUnit, column: { type?: string }, event: Event) {
+  emit('row-dblclick', row, column, event)
+}
 
 function clearSelection() {
   tableRef.value?.clearSelection()

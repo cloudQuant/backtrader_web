@@ -2202,6 +2202,7 @@ def _open_trade_commission_for_position(
 def __getattr__(name: str) -> Any:
     """Lazily expose moved compatibility helpers without an import cycle."""
     from app.services import asset_info
+
     try:
         value = getattr(asset_info, name)
     except AttributeError:

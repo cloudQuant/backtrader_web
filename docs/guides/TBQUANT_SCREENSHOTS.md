@@ -10,7 +10,7 @@
 
 ### 截图: 主界面 (行情报价)
 
-![主界面](./tbquant_screenshots/01_main_interface.png)
+![主界面](../assets/tbquant_screenshots/01_main_interface.png)
 
 ### 1.1 顶部菜单栏
 
@@ -44,7 +44,7 @@ TBQuant3 采用 **菜单栏 + 双行工具栏 + Tab页** 三层顶部结构：
 
 #### 策略菜单 (截图: 17_strategy_trading.png)
 
-![策略菜单](./tbquant_screenshots/17_strategy_trading.png)
+![策略菜单](../assets/tbquant_screenshots/17_strategy_trading.png)
 
 | 菜单项 | 功能说明 | AI for Investor 对应 |
 |-------|---------|-------------------|
@@ -82,7 +82,7 @@ TBQuant3 采用 **菜单栏 + 双行工具栏 + Tab页** 三层顶部结构：
 
 ### 截图: 行情报价主界面
 
-![行情报价](./tbquant_screenshots/tbquant_main.png)
+![行情报价](../assets/tbquant_screenshots/tbquant_main.png)
 
 ### 2.1 数据表格
 
@@ -129,7 +129,7 @@ TBQuant3 采用 **菜单栏 + 双行工具栏 + Tab页** 三层顶部结构：
 
 ### 截图: T型报价
 
-![T型报价](./tbquant_screenshots/08_after_dialog.png)
+![T型报价](../assets/tbquant_screenshots/08_after_dialog.png)
 
 ### 3.1 布局结构
 
@@ -164,7 +164,7 @@ TBQuant3 采用 **菜单栏 + 双行工具栏 + Tab页** 三层顶部结构：
 
 ### 截图: 指数报价
 
-![指数报价](./tbquant_screenshots/25_account_menu.png)
+![指数报价](../assets/tbquant_screenshots/25_account_menu.png)
 
 ### 4.1 布局
 
@@ -182,7 +182,7 @@ TBQuant3 采用 **菜单栏 + 双行工具栏 + Tab页** 三层顶部结构：
 
 ### 截图: 生成器界面
 
-![生成器](./tbquant_screenshots/19_data_center.png)
+![生成器](../assets/tbquant_screenshots/19_data_center.png)
 
 ### 5.1 三栏布局
 
@@ -236,7 +236,7 @@ TBQuant3 采用 **菜单栏 + 双行工具栏 + Tab页** 三层顶部结构：
 
 ### 截图: 策略交易工作区选择
 
-![策略交易工作区](./tbquant_screenshots/20_pattern_run.png)
+![策略交易工作区](../assets/tbquant_screenshots/20_pattern_run.png)
 
 ### 6.1 工作区管理
 

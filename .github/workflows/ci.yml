@@ -101,7 +101,10 @@ jobs:
       - name: Check for unmigrated model changes
         working-directory: src/backend
         run: |
-          alembic check || echo "::error::ORM models have changes not covered by migrations" && exit 1
+          if ! alembic check; then
+            echo "::error::ORM models have changes not covered by migrations"
+            exit 1
+          fi
 
       # Iteration 175 §8 — fully-fledged drift detection beyond `alembic check`.
       # Compares ORM Base.metadata against the schema produced by upgrading a

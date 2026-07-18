@@ -8,7 +8,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.services.orchestration.exceptions import DAGGenerationError
 from app.utils.logger import get_logger
@@ -32,6 +32,7 @@ class DAGGenerator:
         tpl_dir = Path(template_dir) if template_dir else _TEMPLATE_DIR
         self._env = Environment(
             loader=FileSystemLoader(str(tpl_dir)),
+            autoescape=select_autoescape(),
             keep_trailing_newline=True,
         )
 

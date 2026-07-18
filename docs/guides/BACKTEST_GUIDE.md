@@ -161,5 +161,5 @@ curl -X DELETE http://localhost:8000/api/v1/backtest/{task_id} \
 ## 7. 相关文档
 
 - [策略开发](STRATEGY_DEVELOPMENT.md) — 如何编写自定义策略
-- [参数优化](OPTIMIZATION.md) — 如何优化策略参数
-- [API 文档](API.md) — 完整 API 接口说明
+- [参数优化](PARAMETER_OPTIMIZATION.md) — 如何优化策略参数
+- [API 文档](API_GUIDE.md) — 完整 API 接口说明

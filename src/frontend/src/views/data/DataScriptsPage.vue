@@ -260,7 +260,7 @@
                 <el-dropdown
                   v-if="isAdmin"
                   trigger="click"
-                  @command="(action) => handleScriptAction(row, action)"
+                  @command="(action: string) => handleScriptAction(row, action)"
                 >
                   <el-button
                     link

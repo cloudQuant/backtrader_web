@@ -545,9 +545,9 @@ class TestManualGatewayOrderCancellation:
     def test_cancel_gateway_open_orders_uses_order_map_owner(self):
         adapter = _FakeOrderAdapter([{"order_ref": "ref-3", "data_name": "IF2609", "remaining": 1}])
         order_map = SimpleNamespace(
-            by_client=lambda value: SimpleNamespace(strategy_id="unit-1")
-            if value == "ref-3"
-            else None
+            by_client=lambda value: (
+                SimpleNamespace(strategy_id="unit-1") if value == "ref-3" else None
+            )
         )
         gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}}
 
@@ -587,9 +587,9 @@ class TestManualGatewayOrderCancellation:
             [{"instId": "BTC-USDT-SWAP", "clOrdId": "client-1", "remaining": 1}]
         )
         order_map = SimpleNamespace(
-            by_client=lambda value: SimpleNamespace(strategy_id="unit-1")
-            if value == "client-1"
-            else None
+            by_client=lambda value: (
+                SimpleNamespace(strategy_id="unit-1") if value == "client-1" else None
+            )
         )
         gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}}
 
@@ -609,9 +609,9 @@ class TestManualGatewayOrderCancellation:
             [{"symbol": "ETHUSDT", "orderLinkId": "client-link-1", "remaining": 1}]
         )
         order_map = SimpleNamespace(
-            by_client=lambda value: SimpleNamespace(strategy_id="unit-1")
-            if value == "client-link-1"
-            else None
+            by_client=lambda value: (
+                SimpleNamespace(strategy_id="unit-1") if value == "client-link-1" else None
+            )
         )
         gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}}
 
@@ -630,9 +630,9 @@ class TestManualGatewayOrderCancellation:
     def test_cancel_gateway_open_orders_leaves_other_owner_orders_as_ok(self):
         adapter = _FakeOrderAdapter([{"order_ref": "ref-4", "data_name": "IF2609", "remaining": 1}])
         order_map = SimpleNamespace(
-            by_client=lambda value: SimpleNamespace(strategy_id="unit-2")
-            if value == "ref-4"
-            else None
+            by_client=lambda value: (
+                SimpleNamespace(strategy_id="unit-2") if value == "ref-4" else None
+            )
         )
         gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}}
 

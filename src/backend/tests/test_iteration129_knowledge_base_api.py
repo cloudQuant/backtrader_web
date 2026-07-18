@@ -51,7 +51,9 @@ class TestIteration129RouterRegistration:
         ]
 
         assert knowledge_base_operations
-        assert all("Knowledge Base" in operation.get("tags", []) for operation in knowledge_base_operations)
+        assert all(
+            "Knowledge Base" in operation.get("tags", []) for operation in knowledge_base_operations
+        )
 
 
 class TestIteration129KnowledgeBaseAPI:

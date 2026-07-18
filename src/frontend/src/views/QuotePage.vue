@@ -244,7 +244,7 @@
                   inactive-text=""
                   size="small"
                   :aria-label="t('quote.autoRefreshTooltip')"
-                  @change="v => store.setAutoRefresh(Boolean(v))"
+                  @change="(v: boolean | string | number) => store.setAutoRefresh(Boolean(v))"
                 />
               </el-tooltip>
             </span>
@@ -768,7 +768,7 @@
         <el-radio-group
           :model-value="store.chartTimeframe"
           size="small"
-          @change="v => store.setChartTimeframe(String(v))"
+          @change="(v: boolean | string | number | undefined) => store.setChartTimeframe(String(v))"
         >
           <el-radio-button label="M1">
             {{ t('quote.tf1m') }}
