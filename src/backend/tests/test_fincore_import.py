@@ -5,7 +5,14 @@ This test verifies that fincore is correctly installed and can be imported.
 Part of Story 1.1: Install and configure fincore library.
 """
 
+import sys
+
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="fincore requires Python 3.11+; Python 3.10 uses the manual metrics fallback",
+)
 
 
 def test_fincore_import():

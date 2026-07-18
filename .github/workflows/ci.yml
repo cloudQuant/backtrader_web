@@ -423,13 +423,19 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/pip install -e ".[dev,backtrader,data,redis]"
-          .venv/bin/pip install pytest-cov pytest-xdist
+          lock_args=()
+          if [ "${{ matrix.python-version }}" = "${{ env.PYTHON_VERSION }}" ]; then
+            lock_args=(--constraint ../../config/requirements-dev.lock)
+          fi
+          .venv/bin/pip install "${lock_args[@]}" -e ".[dev,backtrader,data,redis]" pytest-cov pytest-xdist
 
       - name: Activate virtualenv
         run: echo "$PWD/.venv/bin" >> $GITHUB_PATH
 
       - name: Check lockfile sync
+        # The committed lock is generated for the canonical CI Python version.
+        # Other matrix versions still prove that dependency resolution and tests work.
+        if: matrix.python-version == env.PYTHON_VERSION
         working-directory: .
         run: |
           python scripts/ci/check_lockfile_sync.py config/requirements-dev.lock

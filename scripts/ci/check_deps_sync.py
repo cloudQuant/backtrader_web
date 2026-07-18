@@ -6,6 +6,7 @@ Ensures key runtime dependencies exist in pyproject.toml.
 If requirements.txt exists, also checks it stays in sync (legacy compatibility).
 Run from project root: python scripts/check_deps_sync.py
 """
+
 from __future__ import annotations
 
 import re
@@ -54,10 +55,9 @@ def parse_pyproject_deps() -> set[str]:
         if in_deps:
             if s.startswith("[") or s == "]":
                 break
-            for m in re.finditer(r'["\']([a-zA-Z0-9_-]+)', line):
-                pkg = m.group(1)
-                if "=" in line or ">" in line or "[" in line:
-                    deps.add(pkg)
+            match = re.match(r'["\']([a-zA-Z0-9_.-]+)', s)
+            if match:
+                deps.add(match.group(1))
     return deps
 
 
@@ -98,7 +98,9 @@ def main() -> int:
             print("WARN: requirements.txt is outdated (pyproject is source of truth):")
             for p in sorted(missing_in_req):
                 print(f"  - {p}")
-            print("\nTip: Use pip install -e \".[postgres,redis,backtrader,data]\" for install.")
+            print(
+                '\nTip: Use pip install -e ".[postgres,redis,backtrader,data]" for install.'
+            )
         else:
             print("OK: pyproject.toml and requirements.txt are consistent")
     else:

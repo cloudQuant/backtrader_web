@@ -1,5 +1,6 @@
 """Tests for fincore_metrics_helper - financial metric calculations."""
 
+import builtins
 from datetime import datetime, timedelta
 
 from app.services.backtest.analyzers import FincoreAdapter
@@ -247,16 +248,23 @@ class TestCalculateMetricsFromLogData:
         assert result["total_trades"] == 2
         assert result["avg_holding_bars"] == 3.0
 
-    def test_use_fincore_flag_without_fincore(self):
+    def test_use_fincore_flag_without_fincore(self, monkeypatch):
         """When fincore is not installed, falls back to manual."""
+        original_import = builtins.__import__
+
+        def import_without_fincore(name, *args, **kwargs):
+            if name == "fincore":
+                raise ImportError("simulated unsupported Python runtime")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", import_without_fincore)
         log_data = {
             "equity_curve": [100000.0, 110000.0],
             "trades": [],
         }
         result = calculate_metrics_from_log_data(log_data, use_fincore=True)
-        # Should still work regardless of fincore availability
         assert result["total_return"] > 0
-        assert result["metrics_source"] in (MetricsSource.MANUAL, MetricsSource.FINCORE)
+        assert result["metrics_source"] == MetricsSource.MANUAL
 
     def test_intraday_equity_dates_use_period_risk_free_rate(self):
         start = datetime(2026, 1, 1, 9, 0, 0)
