@@ -86,28 +86,17 @@ _UNIT_RUN_PY = textwrap.dedent(
     from __future__ import annotations
 
     import importlib.util
-    import logging
-    import os
-    import sys
-    import time
+    import logging, os, sys, time
     from pathlib import Path
 
     BASE_DIR = Path(__file__).resolve().parent
-    for candidate in (BASE_DIR, *BASE_DIR.parents):
-        backend_src = candidate / 'src' / 'backend'
-        if backend_src.exists() and str(backend_src) not in sys.path:
-            sys.path.insert(0, str(backend_src))
-            break
+    _BACKEND_SRC = next((candidate / 'src' / 'backend' for candidate in (BASE_DIR, *BASE_DIR.parents) if (candidate / 'src' / 'backend').exists()), None)
+    if _BACKEND_SRC and str(_BACKEND_SRC) not in sys.path: sys.path.insert(0, str(_BACKEND_SRC))
 
     import backtrader as bt
     import pandas as pd
     import yaml
-    from app.utils.backtrader_commission import (
-        ComminfoFuturesFixed,
-        ComminfoFuturesInverse,
-        ComminfoFuturesMixed,
-        ComminfoFuturesPercent,
-    )
+    from app.utils.backtrader_commission import ComminfoFuturesFixed, ComminfoFuturesInverse, ComminfoFuturesMixed, ComminfoFuturesPercent
 
     logger = logging.getLogger(__name__)
     _PANDAS_DATA_CLASS = getattr(bt.feeds, 'PandasData', None)
