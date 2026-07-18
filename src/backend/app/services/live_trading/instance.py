@@ -16,6 +16,31 @@ _logger = logging.getLogger(__name__)
 _Cb = Callable[..., Any]
 
 
+class InstanceAccessError(ValueError):
+    """Raised when an instance is absent or outside the caller's scope.
+
+    The same error is intentionally used for both cases so API callers cannot
+    enumerate another user's instance IDs.
+    """
+
+
+def require_instance_access(
+    instance_id: str,
+    user_id: str | None,
+    load_instances: _Cb,
+) -> dict[str, Any]:
+    """Return an instance only when it belongs to the supplied user scope.
+
+    ``None`` is reserved for trusted in-process maintenance callers. Every
+    request-facing path must pass a concrete user ID. Historical ownerless
+    records are deliberately invisible to such callers.
+    """
+    inst = load_instances().get(instance_id)
+    if not isinstance(inst, dict) or (user_id is not None and inst.get("user_id") != user_id):
+        raise InstanceAccessError("Instance not found")
+    return inst
+
+
 def _resolve_instance_strategy_dir(
     inst: dict[str, Any],
     resolve_strategy_dir: _Cb,
@@ -38,7 +63,9 @@ def _runtime_dir_key(value: Any) -> str | None:
         return str(Path(text).expanduser())
 
 
-def _running_runtime_preference(instance_id: str, inst: dict[str, Any]) -> tuple[bool, str, str, str]:
+def _running_runtime_preference(
+    instance_id: str, inst: dict[str, Any]
+) -> tuple[bool, str, str, str]:
     return (
         inst.get("error") in (None, ""),
         str(inst.get("started_at") or ""),
@@ -120,9 +147,7 @@ def list_instances(
                     inst["status"] = "running"
                     inst["pid"] = running_pids[run_py_path]
                     inst["error"] = None
-                    normalize_instance_metadata(
-                        inst, instance_id=instance_id, now=now, touch=True
-                    )
+                    normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
                     changed = True
             except ValueError as e:
                 _logger.debug(f"Failed to resolve strategy dir for {inst.get('strategy_id')}: {e}")
@@ -208,7 +233,7 @@ def add_instance(
             (instance_id, inst)
             for instance_id, inst in instances.items()
             if _runtime_dir_key(inst.get("runtime_dir")) == runtime_key
-            and (not user_id or not inst.get("user_id") or inst.get("user_id") == user_id)
+            and (user_id is None or inst.get("user_id") == user_id)
         ]
         running = [
             (instance_id, inst)
@@ -221,10 +246,10 @@ def add_instance(
                 key=lambda item: _running_runtime_preference(*item),
             )
             dirty = False
-            for instance_id, _inst in matching:
-                if instance_id == keep_id:
+            for existing_instance_id, _inst in matching:
+                if existing_instance_id == keep_id:
                     continue
-                instances.pop(instance_id, None)
+                instances.pop(existing_instance_id, None)
                 dirty = True
             keep_inst["id"] = keep_id
             if normalize_instance_metadata(keep_inst, instance_id=keep_id, now=now):
@@ -233,8 +258,8 @@ def add_instance(
             if dirty:
                 save_instances(instances)
             return keep_inst
-        for instance_id, _inst in matching:
-            instances.pop(instance_id, None)
+        for existing_instance_id, _inst in matching:
+            instances.pop(existing_instance_id, None)
 
     instances[instance_id] = inst
     save_instances(instances)
@@ -254,7 +279,7 @@ def remove_instance(
     if instance_id not in instances:
         return False
     inst = instances[instance_id]
-    if user_id and inst.get("user_id") and inst["user_id"] != user_id:
+    if user_id is not None and inst.get("user_id") != user_id:
         return False
     if inst.get("status") == "running" and inst.get("pid"):
         kill_pid(inst["pid"])
@@ -279,7 +304,7 @@ def get_instance(
     inst = instances.get(instance_id)
     if not inst:
         return None
-    if user_id and inst.get("user_id") and inst["user_id"] != user_id:
+    if user_id is not None and inst.get("user_id") != user_id:
         return None
     inst["id"] = instance_id
     now = instance_timestamp()

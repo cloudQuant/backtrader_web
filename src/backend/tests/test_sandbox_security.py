@@ -155,16 +155,14 @@ class TestSafeImport:
     def test_import_bt_allowed(self):
         """Importing bt (backtrader) should be allowed."""
         result = StrategySandbox._safe_import("bt")
-        import backtrader
 
-        assert result is backtrader
+        assert result is StrategySandbox._ALLOWED_MODULES["bt"]
 
     def test_import_backtrader_allowed(self):
         """Importing the canonical backtrader module name should be allowed."""
         result = StrategySandbox._safe_import("backtrader")
-        import backtrader
 
-        assert result is backtrader
+        assert result is StrategySandbox._ALLOWED_MODULES["backtrader"]
 
     def test_import_math_allowed(self):
         """Importing math should be allowed."""

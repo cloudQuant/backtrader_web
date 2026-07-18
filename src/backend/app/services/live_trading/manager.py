@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
+from types import TracebackType
 from typing import Any, cast
 
 from app.services.gateway import health as gateway_health_service
@@ -46,6 +47,8 @@ from app.types.live_trading import (
     StopResult,
 )
 from app.utils.backend_data_paths import get_backend_data_path
+from app.utils.secure_file import write_private_text
+from app.utils.tracing import business_span
 
 _logger: Any
 try:
@@ -114,7 +117,7 @@ def _save_instances(data: dict[str, dict]) -> None:
     InstanceStore(instances_file=_INSTANCES_FILE).save_all(data)
 
 
-def _instance_store_lock():
+def _instance_store_lock() -> contextlib.AbstractContextManager[None]:
     return InstanceStore(instances_file=_INSTANCES_FILE).locked()
 
 
@@ -124,7 +127,7 @@ class _AsyncInstanceStoreLock:
         self._file_lock: contextlib.AbstractContextManager | None = None
         self._async_lock_acquired = False
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "_AsyncInstanceStoreLock":
         if self._async_lock is not None:
             await self._async_lock.acquire()
             self._async_lock_acquired = True
@@ -139,7 +142,12 @@ class _AsyncInstanceStoreLock:
             raise
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool:
         try:
             if self._file_lock is not None:
                 self._file_lock.__exit__(exc_type, exc, tb)
@@ -182,11 +190,10 @@ def _load_manual_gateways() -> list[dict[str, Any]]:
 
 
 def _save_manual_gateways(data: list[dict[str, Any]]) -> None:
-    """Persist manually connected gateways to disk."""
-    _DATA_DIR.mkdir(parents=True, exist_ok=True)
-    _MANUAL_GATEWAYS_FILE.write_text(
+    """Persist manual-gateway credentials with owner-only file permissions."""
+    write_private_text(
+        _MANUAL_GATEWAYS_FILE,
         json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8",
     )
 
 
@@ -651,8 +658,8 @@ class LiveTradingManager:
 
         try:
             from app.services.trading_asset_info_service import (
-                persist_asset_specs,
                 normalize_asset_spec,
+                persist_asset_specs,
                 query_gateway_asset_spec,
                 query_gateway_last_price,
                 query_local_asset_spec,
@@ -922,53 +929,74 @@ class LiveTradingManager:
 
     # ---- Start/Stop ----
 
-    async def start_instance(self, instance_id: str) -> StartResult:
+    async def start_instance(self, instance_id: str, user_id: str | None = None) -> StartResult:
         async with self._instance_op_lock:
-            return cast(
-                StartResult,
-                await live_execution_service.start_instance(
-                    instance_id=instance_id,
-                    load_instances=_load_instances,
-                    save_instances=_save_instances,
-                    is_pid_alive=_is_pid_alive,
-                    resolve_strategy_dir=self._resolve_strategy_dir,
-                    build_subprocess_env=self._build_subprocess_env,
-                    release_gateway_for_instance=self._release_gateway_for_instance,
-                    wait_process_callback=self._wait_process,
-                    processes=self._processes,
-                    stopping_instances=self._stopping_instances,
-                    instance_lock=_AsyncInstanceStoreLock(),
-                ),
-            )
-
-    async def stop_instance(self, instance_id: str) -> StopResult:
-        async with self._instance_op_lock:
-            instances = _load_instances()
-            inst = instances.get(instance_id, {})
-            open_order_cancel = (
-                self._cancel_open_orders_for_instance(instance_id, inst)
-                if isinstance(inst, dict)
-                else None
-            )
-            self._raise_on_failed_open_order_cancel(instance_id, open_order_cancel)
-            return cast(
-                StopResult,
-                self._attach_stop_metadata(
-                    instance_id,
-                    await live_execution_service.stop_instance(
+            with business_span(
+                "backtrader.live.instance_start", user_id=user_id, instance_id=instance_id
+            ):
+                if user_id is not None:
+                    live_instance_service.require_instance_access(
                         instance_id=instance_id,
+                        user_id=user_id,
+                        load_instances=_load_instances,
+                    )
+                return cast(
+                    StartResult,
+                    await live_execution_service.start_instance(
+                        instance_id=instance_id,
+                        user_id=user_id,
                         load_instances=_load_instances,
                         save_instances=_save_instances,
                         is_pid_alive=_is_pid_alive,
-                        kill_pid=self._kill_pid,
+                        resolve_strategy_dir=self._resolve_strategy_dir,
+                        build_subprocess_env=self._build_subprocess_env,
                         release_gateway_for_instance=self._release_gateway_for_instance,
+                        wait_process_callback=self._wait_process,
                         processes=self._processes,
                         stopping_instances=self._stopping_instances,
                         instance_lock=_AsyncInstanceStoreLock(),
                     ),
-                    open_order_cancel,
-                ),
-            )
+                )
+
+    async def stop_instance(self, instance_id: str, user_id: str | None = None) -> StopResult:
+        async with self._instance_op_lock:
+            with business_span(
+                "backtrader.live.instance_stop", user_id=user_id, instance_id=instance_id
+            ):
+                inst = (
+                    live_instance_service.require_instance_access(
+                        instance_id=instance_id,
+                        user_id=user_id,
+                        load_instances=_load_instances,
+                    )
+                    if user_id is not None
+                    else _load_instances().get(instance_id)
+                )
+                open_order_cancel = (
+                    self._cancel_open_orders_for_instance(instance_id, inst)
+                    if isinstance(inst, dict)
+                    else None
+                )
+                self._raise_on_failed_open_order_cancel(instance_id, open_order_cancel)
+                return cast(
+                    StopResult,
+                    self._attach_stop_metadata(
+                        instance_id,
+                        await live_execution_service.stop_instance(
+                            instance_id=instance_id,
+                            user_id=user_id,
+                            load_instances=_load_instances,
+                            save_instances=_save_instances,
+                            is_pid_alive=_is_pid_alive,
+                            kill_pid=self._kill_pid,
+                            release_gateway_for_instance=self._release_gateway_for_instance,
+                            processes=self._processes,
+                            stopping_instances=self._stopping_instances,
+                            instance_lock=_AsyncInstanceStoreLock(),
+                        ),
+                        open_order_cancel,
+                    ),
+                )
 
     def _attach_stop_metadata(
         self,
@@ -987,18 +1015,32 @@ class LiveTradingManager:
         return result
 
     async def start_all(self, user_id: str | None = None) -> dict[str, StartResult]:
+        start_instance_callback = self.start_instance
+        if user_id is not None:
+
+            async def start_owned_instance(instance_id: str) -> StartResult:
+                return await self.start_instance(instance_id, user_id=user_id)
+
+            start_instance_callback = start_owned_instance
         return await live_execution_service.start_all(
             user_id=user_id,
             load_instances=_load_instances,
             is_pid_alive=_is_pid_alive,
-            start_instance_callback=self.start_instance,
+            start_instance_callback=start_instance_callback,
         )
 
     async def stop_all(self, user_id: str | None = None) -> dict[str, StopResult]:
+        stop_instance_callback = self.stop_instance
+        if user_id is not None:
+
+            async def stop_owned_instance(instance_id: str) -> StopResult:
+                return await self.stop_instance(instance_id, user_id=user_id)
+
+            stop_instance_callback = stop_owned_instance
         return await live_execution_service.stop_all(
             user_id=user_id,
             load_instances=_load_instances,
-            stop_instance_callback=self.stop_instance,
+            stop_instance_callback=stop_instance_callback,
         )
 
     # ---- Internal Methods ----

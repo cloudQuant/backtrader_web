@@ -9,6 +9,7 @@ Provides endpoints for the unified quote display page:
 """
 
 import logging
+import typing
 
 from fastapi import APIRouter, Depends, Query
 
@@ -38,9 +39,9 @@ router = APIRouter()
     summary="List available data sources with status",
 )
 async def list_data_sources(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     svc: QuoteService = Depends(get_quote_service),
-):
+) -> typing.Any:
     """Return all data sources (CTP, IB, MT5, Binance, OKX) with their
     current availability status derived from gateway connections."""
     sources = svc.get_data_sources()
@@ -57,9 +58,9 @@ async def list_data_sources(
 )
 async def get_symbols(
     source: str = Query(..., description="Backend data-source id, e.g. CTP"),
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     svc: QuoteService = Depends(get_quote_service),
-):
+) -> typing.Any:
     """Return the default symbol list and the user's custom symbols for the
     specified data source."""
     return svc.get_symbols(source, current_user.sub)
@@ -72,9 +73,9 @@ async def get_symbols(
 )
 async def add_custom_symbols(
     req: CustomSymbolsRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     svc: QuoteService = Depends(get_quote_service),
-):
+) -> typing.Any:
     """Add one or more custom symbols for the current user and data source."""
     updated = svc.add_custom_symbols(req.source, current_user.sub, req.symbols)
     return {"source": req.source, "symbols": updated}
@@ -87,9 +88,9 @@ async def add_custom_symbols(
 )
 async def remove_custom_symbols(
     req: CustomSymbolsRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     svc: QuoteService = Depends(get_quote_service),
-):
+) -> typing.Any:
     """Remove one or more custom symbols for the current user and data source."""
     updated = svc.remove_custom_symbols(req.source, current_user.sub, req.symbols)
     return {"source": req.source, "symbols": updated}
@@ -103,9 +104,9 @@ async def remove_custom_symbols(
 async def search_symbols(
     source: str = Query(..., description="Backend data-source id"),
     keyword: str = Query(..., min_length=1, description="Search keyword"),
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     svc: QuoteService = Depends(get_quote_service),
-):
+) -> typing.Any:
     """Search symbols by code or name within the specified data source."""
     results = svc.search_symbols(source, keyword)
     return {"source": source, "keyword": keyword, "results": results}
@@ -122,9 +123,9 @@ async def search_symbols(
 async def get_quotes(
     source: str = Query(..., description="Backend data-source id"),
     symbols: str | None = Query(None, description="Comma-separated symbols (optional)"),
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     svc: QuoteService = Depends(get_quote_service),
-):
+) -> typing.Any:
     """Fetch batch quotes for the given data source.
 
     If *symbols* is omitted, returns quotes for all default + custom symbols.
@@ -146,8 +147,8 @@ async def get_chart_data(
     symbol: str = Query(..., description="Instrument symbol"),
     timeframe: str = Query("M1", description="Timeframe: M1, M5, M15, M30, H1, H4, D1"),
     count: int = Query(200, ge=10, le=1000, description="Number of bars"),
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     svc: QuoteService = Depends(get_quote_service),
-):
+) -> typing.Any:
     """Fetch OHLCV bars for chart rendering via gateway command channel."""
     return svc.get_chart_data(source, symbol, timeframe, count)

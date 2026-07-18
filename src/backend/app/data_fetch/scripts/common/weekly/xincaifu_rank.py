@@ -41,9 +41,11 @@ class XincaifuRank(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
-            year_list = [str(kwargs["year"])] if "year" in kwargs else [
-                str(pd.Timestamp.today().year - offset) for offset in range(0, 6)
-            ]
+            year_list = (
+                [str(kwargs["year"])]
+                if "year" in kwargs
+                else [str(pd.Timestamp.today().year - offset) for offset in range(0, 6)]
+            )
 
             for year in year_list:
                 call_kwargs = dict(kwargs)

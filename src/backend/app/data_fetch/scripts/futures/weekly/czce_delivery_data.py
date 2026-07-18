@@ -39,7 +39,9 @@ class FuturesDeliveryCzce(AkshareToMySql):
 
                                 """
 
-    def run(self, start_date=None, end_date=None, sleep_seconds=0, lookback_days=None, max_days=None):
+    def run(
+        self, start_date=None, end_date=None, sleep_seconds=0, lookback_days=None, max_days=None
+    ):
         """
         更新郑州商品交易所交割统计数据
         Args:

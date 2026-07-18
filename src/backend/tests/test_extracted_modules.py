@@ -1979,12 +1979,12 @@ class TestManualGatewayService:
         runtime_b = Mock()
         runtime_b.adapter = None
         runtime_b.positions = None
-        runtime_b._positions = {"a": {"symbol": "rb"}}
+        runtime_b._positions = {"a": {"symbol": "rb", "size": 1}}
         result_b = manual_gateway_service.query_gateway_positions(
             {"gw2": {"runtime": runtime_b}},
             "gw2",
         )
-        assert result_b == [{"symbol": "rb"}]
+        assert result_b == [{"symbol": "rb", "size": 1}]
 
     def test_query_gateway_positions_reads_runtime_adapter_positions(self):
         adapter = Mock()
@@ -2992,6 +2992,42 @@ class TestGatewayRuntimeService:
             sleep=Mock(),
         )
 
+    def test_wait_gateway_runtime_ready_accepts_market_ready_gateway(self):
+        config = Mock(startup_timeout_sec=5)
+        health = Mock(
+            state="running",
+            market_connection="connected",
+            trade_connection="disconnected",
+            recent_errors=[],
+        )
+        runtime = Mock(health=health, running=True)
+
+        gateway_runtime_service.wait_gateway_runtime_ready(
+            {"config": config, "runtime": runtime},
+            sleep=Mock(),
+        )
+
+    def test_wait_gateway_runtime_ready_reads_gateway_health_snapshot(self):
+        config = Mock(startup_timeout_sec=5)
+        health = Mock(
+            state="running",
+            market_connection="",
+            trade_connection="",
+            recent_errors=[],
+        )
+        health.snapshot.return_value = {
+            "state": "running",
+            "market_connection": "connected",
+            "trade_connection": "disconnected",
+            "recent_errors": [],
+        }
+        runtime = Mock(health=health, running=True)
+
+        gateway_runtime_service.wait_gateway_runtime_ready(
+            {"config": config, "runtime": runtime},
+            sleep=Mock(),
+        )
+
     def test_wait_gateway_runtime_ready_raises_runtime_error_detail(self):
         config = Mock(startup_timeout_sec=5)
         health = Mock(
@@ -3071,6 +3107,37 @@ class TestGatewayRuntimeService:
         assert state1["instances"] == {"inst1", "inst2"}
         assert state1["ref_count"] == 2
         assert instance_gateways == {"inst1": "ctp-future-acc-1", "inst2": "ctp-future-acc-1"}
+
+    def test_acquire_gateway_for_instance_preconnects_ctp_adapter(self):
+        logger = Mock()
+        config = Mock(
+            runtime_name="ctp-future-acc-1",
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+        )
+        runtime = Mock()
+        runtime.adapter = Mock()
+        launch = {
+            "config": config,
+            "runtime_cls": Mock(return_value=runtime),
+            "runtime_kwargs": {"exchange_type": "CTP", "account_id": "acc-1"},
+        }
+
+        gateway_runtime_service.acquire_gateway_for_instance(
+            instance_id="inst1",
+            instance={"params": {"gateway": {"enabled": True}}},
+            strategy_dir=Path("/tmp/strategy"),
+            get_gateway_params=lambda instance: {"enabled": True},
+            build_gateway_launch=lambda instance, strategy_dir, gateway_params: launch,
+            gateways={},
+            instance_gateways={},
+            logger=logger,
+        )
+
+        runtime.adapter.connect.assert_called_once()
+        runtime.adapter.get_balance.assert_called_once()
+        runtime.start_in_thread.assert_called_once()
 
     def test_acquire_gateway_for_instance_captures_gateway_start_native_stderr(self, tmp_path):
         logger = Mock()
@@ -3217,6 +3284,30 @@ class TestGatewayRuntimeService:
         runtime.stop.assert_not_called()
         assert gateways["manual:CTP:acc-1"]["instances"] == set()
         assert gateways["manual:CTP:acc-1"]["ref_count"] == 0
+
+    def test_release_gateway_for_instance_keeps_idle_ctp_runtime_alive(self):
+        logger = Mock()
+        runtime = Mock()
+        gateways = {
+            "ctp-future-acc-1": {
+                "runtime": runtime,
+                "instances": {"inst1"},
+                "ref_count": 1,
+                "exchange_type": "CTP",
+            }
+        }
+        instance_gateways = {"inst1": "ctp-future-acc-1"}
+
+        gateway_runtime_service.release_gateway_for_instance(
+            instance_id="inst1",
+            gateways=gateways,
+            instance_gateways=instance_gateways,
+            logger=logger,
+        )
+
+        runtime.stop.assert_not_called()
+        assert gateways["ctp-future-acc-1"]["instances"] == set()
+        assert gateways["ctp-future-acc-1"]["ref_count"] == 0
 
     def test_release_gateway_for_instance_stops_on_last_reference(self):
         logger = Mock()

@@ -1,6 +1,7 @@
-import pytest
-import pandas as pd
 from datetime import datetime
+
+import pandas as pd
+import pytest
 
 from app.data_fetch.core.mysql_base import MysqlBase
 from app.data_fetch.providers.akshare_to_mysql import FuncThread

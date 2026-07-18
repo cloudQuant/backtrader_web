@@ -8,6 +8,27 @@ from typing import Any
 from urllib.parse import urlparse
 
 
+def _ib_web_session_module() -> Any:
+    """Load either the legacy helper or the standalone IB Web runtime package."""
+    try:
+        from bt_api_py.functions import ib_web_session
+    except ModuleNotFoundError as exc:
+        if exc.name not in {
+            "bt_api_py",
+            "bt_api_py.functions",
+            "bt_api_py.functions.ib_web_session",
+        }:
+            raise
+        import sys
+
+        ib_web_source = Path(__file__).resolve().parents[5].parent / "bt_api_ib_web" / "src"
+        if ib_web_source.is_dir() and str(ib_web_source) not in sys.path:
+            sys.path.insert(0, str(ib_web_source))
+        from bt_api_ib_web.runtime import session as ib_web_session
+
+    return ib_web_session
+
+
 def ib_web_cookie_base_dir(
     installed_bt_api_py_dir: Callable[[], Path | None],
     backend_env_file: Callable[[], Path],
@@ -66,15 +87,9 @@ def load_ib_web_session_state(
     cookie_base_dir: Callable[[], Path],
     backend_env_file_for_helpers: Callable[[], Path],
 ) -> tuple[dict[str, Any], dict[str, str], bool, list[dict[str, Any]], str]:
-    from bt_api_py.functions.ib_web_session import (
-        cookies_are_authenticated,
-        current_cookie_payload,
-        fetch_accounts,
-        load_ib_web_settings,
-        pick_account_id,
-    )
+    session_helpers = _ib_web_session_module()
 
-    settings = load_ib_web_settings(
+    settings = session_helpers.load_ib_web_settings(
         overrides={
             "base_url": base_url,
             "account_id": credentials.get("account_id", ""),
@@ -88,10 +103,12 @@ def load_ib_web_session_state(
         base_dir=cookie_base_dir(),
         env_file=backend_env_file_for_helpers(),
     )
-    cookies = current_cookie_payload(settings)
-    authenticated = cookies_are_authenticated(settings, cookies) if cookies else False
+    cookies = session_helpers.current_cookie_payload(settings)
+    authenticated = (
+        session_helpers.cookies_are_authenticated(settings, cookies) if cookies else False
+    )
     accounts = (
-        fetch_accounts(
+        session_helpers.fetch_accounts(
             str(settings.get("base_url") or base_url),
             cookies,
             verify_ssl=bool(settings.get("verify_ssl", verify_ssl)),
@@ -101,7 +118,9 @@ def load_ib_web_session_state(
         else []
     )
     account_id = (
-        pick_account_id(accounts, str(settings.get("login_mode") or "paper")) if accounts else ""
+        session_helpers.pick_account_id(accounts, str(settings.get("login_mode") or "paper"))
+        if accounts
+        else ""
     )
     return settings, cookies, authenticated, accounts, account_id
 

@@ -59,7 +59,9 @@ class PortfolioLedgerService:
         result = await self.db.execute(
             select(PortfolioLedgerModel)
             .where(PortfolioLedgerModel.owner_id == user_id)
-            .order_by(PortfolioLedgerModel.updated_at.desc(), PortfolioLedgerModel.created_at.desc())
+            .order_by(
+                PortfolioLedgerModel.updated_at.desc(), PortfolioLedgerModel.created_at.desc()
+            )
         )
         portfolios = list(result.scalars().all())
         items = [

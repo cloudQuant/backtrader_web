@@ -14,7 +14,6 @@ import requests
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
-
 EASTMONEY_DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 EASTMONEY_REFERER = "https://data.eastmoney.com/hsgtcg/list.html"
 REPORT_NAME = "RPT_MUTUAL_STOCK_NORTHSTA_NEW"
@@ -154,7 +153,7 @@ class StockHsgtHoldStockEm(AkshareToMySql):
             "filter": self._filter_expr(market=market, interval_code=interval_code),
         }
         data_json = self._request_eastmoney(params)
-        records = ((data_json.get("result") or {}).get("data") or [])
+        records = (data_json.get("result") or {}).get("data") or []
         if not records:
             return None
         value = records[0].get("HOLD_DATE")
@@ -226,9 +225,7 @@ class StockHsgtHoldStockEm(AkshareToMySql):
     @staticmethod
     def _join_unique(values: pd.Series) -> str | None:
         unique_values = [
-            str(value).strip()
-            for value in values.dropna().tolist()
-            if str(value).strip()
+            str(value).strip() for value in values.dropna().tolist() if str(value).strip()
         ]
         if not unique_values:
             return None

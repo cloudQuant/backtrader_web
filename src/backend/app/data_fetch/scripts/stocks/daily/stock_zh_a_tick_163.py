@@ -49,8 +49,7 @@ class StockZhATick163(AkshareToMySql):
                     "%Y-%m-%d"
                 )
                 for offset in range(0, 14)
-                if (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=offset)).weekday()
-                < 5
+                if (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=offset)).weekday() < 5
             ]
         trading_days = sorted(trading_days)
         return [item.replace("-", "") for item in trading_days[-max_days:]][::-1]
@@ -65,8 +64,10 @@ class StockZhATick163(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
-            trade_dates = [str(kwargs["trade_date"]).replace("-", "")] if "trade_date" in kwargs else (
-                self._candidate_trade_dates()
+            trade_dates = (
+                [str(kwargs["trade_date"]).replace("-", "")]
+                if "trade_date" in kwargs
+                else (self._candidate_trade_dates())
             )
 
             for trade_date in trade_dates:

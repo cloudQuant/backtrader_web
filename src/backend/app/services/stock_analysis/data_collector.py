@@ -68,7 +68,9 @@ class StockAnalysisDataCollector:
 
     async def _collect_news(self, user_id: str, symbol: str) -> dict[str, Any]:
         try:
-            return await get_news_intelligence_service(self.db).list_articles(user_id, ticker=symbol)
+            return await get_news_intelligence_service(self.db).list_articles(
+                user_id, ticker=symbol
+            )
         except Exception:
             return {"items": [], "total": 0, "status": "degraded"}
 

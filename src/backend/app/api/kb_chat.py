@@ -1,5 +1,6 @@
 """KB chat API routes for iteration 129."""
 
+import typing
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -31,7 +32,7 @@ async def list_conversations(
     knowledge_base_id: str | None = Query(None),
     current_user: TokenPayload = Depends(get_current_user),
     service: KBChatService = Depends(get_kb_chat_service),
-):
+) -> typing.Any:
     items = await service.list_conversations(knowledge_base_id, current_user.sub)
     if items is None:
         raise HTTPException(
@@ -53,7 +54,7 @@ async def create_conversation(
     data: ConversationCreate,
     current_user: TokenPayload = Depends(get_current_user),
     service: KBChatService = Depends(get_kb_chat_service),
-):
+) -> typing.Any:
     conversation = await service.create_conversation(current_user.sub, data)
     if conversation is None:
         raise HTTPException(
@@ -67,7 +68,7 @@ async def get_history(
     conversation_id: str,
     current_user: TokenPayload = Depends(get_current_user),
     service: KBChatService = Depends(get_kb_chat_service),
-):
+) -> typing.Any:
     result = await service.get_history(conversation_id, current_user.sub)
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
@@ -78,12 +79,14 @@ async def get_history(
     )
 
 
-@router.delete("/conversations/{conversation_id}", summary="Delete conversation")
+@router.delete(
+    "/conversations/{conversation_id}", summary="Delete conversation", response_model=None
+)
 async def delete_conversation(
     conversation_id: str,
     current_user: TokenPayload = Depends(get_current_user),
     service: KBChatService = Depends(get_kb_chat_service),
-):
+) -> typing.Any:
     success = await service.delete_conversation(conversation_id, current_user.sub)
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
@@ -95,7 +98,7 @@ async def send_message(
     data: KBChatRequest,
     current_user: TokenPayload = Depends(get_current_user),
     service: KBChatService = Depends(get_kb_chat_service),
-):
+) -> typing.Any:
     try:
         result = await service.send(current_user.sub, data)
     except StockAnalysisConcurrencyLimitExceeded as exc:

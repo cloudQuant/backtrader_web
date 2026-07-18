@@ -45,7 +45,9 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), nullable=True),
     )
     op.create_index("ix_stock_analysis_tasks_user_id", "stock_analysis_tasks", ["user_id"])
-    op.create_index("ix_stock_analysis_tasks_conversation_id", "stock_analysis_tasks", ["conversation_id"])
+    op.create_index(
+        "ix_stock_analysis_tasks_conversation_id", "stock_analysis_tasks", ["conversation_id"]
+    )
     op.create_index(
         "ix_stock_analysis_tasks_assistant_message_id",
         "stock_analysis_tasks",

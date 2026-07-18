@@ -79,9 +79,10 @@ async def _fetch_candidates(args: argparse.Namespace) -> list[TaskCandidate]:
 
     async with async_session_maker() as session:
         rows = (
-            await session.execute(
-                text(
-                    f"""
+            (
+                await session.execute(
+                    text(
+                        f"""
                     SELECT
                         t.id,
                         t.script_id,
@@ -107,10 +108,13 @@ async def _fetch_candidates(args: argparse.Namespace) -> list[TaskCandidate]:
                     ORDER BY t.id ASC
                     {limit_sql}
                     """
-                ),
-                params,
+                    ),
+                    params,
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
 
     return [
         TaskCandidate(

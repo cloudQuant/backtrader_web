@@ -1,5 +1,6 @@
 """Performance attribution API routes."""
 
+import typing
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends
@@ -33,7 +34,7 @@ def get_fama_french_attribution_service() -> FamaFrenchAttributionService:
 )
 async def calculate_brinson_attribution(
     request: BrinsonAttributionRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: BrinsonAttributionService = Depends(get_brinson_attribution_service),
 ) -> BrinsonAttributionResult:
     """Calculate Brinson attribution effects."""
@@ -52,7 +53,7 @@ async def calculate_brinson_attribution(
 )
 async def calculate_fama_french_attribution(
     request: FamaFrenchAttributionRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: FamaFrenchAttributionService = Depends(get_fama_french_attribution_service),
 ) -> FamaFrenchAttributionResult:
     """Estimate Fama-French three-factor attribution."""

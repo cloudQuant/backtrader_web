@@ -3,6 +3,7 @@
 import uuid
 from types import SimpleNamespace
 
+from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
@@ -39,16 +40,18 @@ class TestIteration129RouterRegistration:
     def test_knowledge_base_optional_router_registered(self):
         from app.api.router import api_router
 
-        routes = [
-            route
-            for route in api_router.routes
-            if getattr(route, "path", "").startswith("/knowledge-base")
+        app = FastAPI()
+        app.include_router(api_router)
+        paths = app.openapi()["paths"]
+        knowledge_base_operations = [
+            operation
+            for path, methods in paths.items()
+            if path.startswith("/knowledge-base")
+            for operation in methods.values()
         ]
-        http_routes = [route for route in routes if getattr(route, "methods", None)]
 
-        assert routes
-        assert http_routes
-        assert all("Knowledge Base" in getattr(route, "tags", []) for route in http_routes)
+        assert knowledge_base_operations
+        assert all("Knowledge Base" in operation.get("tags", []) for operation in knowledge_base_operations)
 
 
 class TestIteration129KnowledgeBaseAPI:

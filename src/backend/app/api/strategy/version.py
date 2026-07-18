@@ -6,10 +6,11 @@ Supports versioning, branch management, rollback, and comparisons.
 
 import asyncio
 import logging
+import typing
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_websocket_current_user
 from app.schemas.strategy_version import (
     BranchCreate,
     BranchListResponse,
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def get_version_control_service():
+def get_version_control_service() -> typing.Any:
     """Dependency injection for VersionControlService.
 
     Returns:
@@ -46,9 +47,9 @@ def get_version_control_service():
 @router.post("/versions", response_model=VersionResponse, summary="Create strategy version")
 async def create_strategy_version(
     request: VersionCreate,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
-):
+) -> typing.Any:
     """Create a new strategy version.
 
     Args:
@@ -108,13 +109,13 @@ async def create_strategy_version(
 )
 async def list_strategy_versions(
     strategy_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
     branch: str | None = Query(None, description="Branch name"),
     status: str | None = Query(None, description="Version status"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-):
+) -> typing.Any:
     """Get all versions of a strategy.
 
     Args:
@@ -146,9 +147,9 @@ async def list_strategy_versions(
 )
 async def get_strategy_version(
     version_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
-):
+) -> typing.Any:
     """Get strategy version details by ID.
 
     Args:
@@ -185,9 +186,9 @@ async def get_strategy_version(
 async def update_strategy_version(
     version_id: str,
     request: VersionUpdate,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
-):
+) -> typing.Any:
     """Update a strategy version.
 
     Args:
@@ -220,12 +221,14 @@ async def update_strategy_version(
     return service._to_response(version)
 
 
-@router.post("/versions/{version_id}/set-default", summary="Set as default version")
+@router.post(
+    "/versions/{version_id}/set-default", summary="Set as default version", response_model=None
+)
 async def set_version_default(
     version_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
-):
+) -> typing.Any:
     """Set a strategy version as the default version for its branch.
 
     Each branch can have only one default version.
@@ -252,12 +255,14 @@ async def set_version_default(
     return {"message": "Version has been set as default"}
 
 
-@router.post("/versions/{version_id}/activate", summary="Activate strategy version")
+@router.post(
+    "/versions/{version_id}/activate", summary="Activate strategy version", response_model=None
+)
 async def activate_strategy_version(
     version_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
-):
+) -> typing.Any:
     """Activate a strategy version.
 
     Each branch can have only one active version (currently in use).
@@ -294,9 +299,9 @@ async def activate_strategy_version(
 )
 async def compare_strategy_versions(
     request: VersionComparisonRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
-):
+) -> typing.Any:
     """Compare two strategy versions.
 
     Args:
@@ -359,9 +364,9 @@ async def compare_strategy_versions(
 )
 async def rollback_strategy_version(
     request: VersionRollbackRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
-):
+) -> typing.Any:
     """Rollback a strategy to a previous version.
 
     Creates a new version containing the target version's code and parameters.
@@ -412,9 +417,9 @@ async def rollback_strategy_version(
 @router.post("/branches", response_model=BranchResponse, summary="Create strategy branch")
 async def create_strategy_branch(
     request: BranchCreate,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
-):
+) -> typing.Any:
     """Create a new strategy branch.
 
     Args:
@@ -462,11 +467,11 @@ async def create_strategy_branch(
 )
 async def list_strategy_branches(
     strategy_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-):
+) -> typing.Any:
     """Get all branches of a strategy.
 
     Args:
@@ -507,9 +512,9 @@ async def list_strategy_branches(
 
 @router.websocket("/ws/strategies/{strategy_id}")
 async def strategy_version_websocket(
-    websocket,
+    websocket: WebSocket,
     strategy_id: str,
-):
+) -> typing.Any:
     """WebSocket endpoint for strategy version real-time updates.
 
     Pushes:
@@ -546,15 +551,28 @@ async def strategy_version_websocket(
         websocket: The WebSocket connection instance.
         strategy_id: The unique identifier of the strategy.
     """
+    current_user, accepted_subprotocol = get_websocket_current_user(websocket)
+    if current_user is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    service = get_version_control_service()
+    try:
+        await service._require_strategy_owner(strategy_id=strategy_id, user_id=current_user.sub)
+    except (PermissionError, ValueError):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     client_id = f"ws-version-client-{id(websocket)}"
+    channel = f"strategy:{strategy_id}"
 
     # Establish connection
-    await ws_manager.connect(websocket, f"strategy:{strategy_id}", client_id)
+    await ws_manager.connect(websocket, channel, client_id, accepted_subprotocol)
 
     try:
         # Send initial message
         await ws_manager.send_to_task(
-            f"strategy:{strategy_id}",
+            channel,
             {
                 "type": MessageType.CONNECTED,
                 "strategy_id": strategy_id,
@@ -570,6 +588,9 @@ async def strategy_version_websocket(
             # and pushed via WebSocket
             # Temporarily using polling; should use event-driven in production
 
-    except Exception as e:
-        logger.error(f"Strategy version WebSocket error: {e}")
-        ws_manager.disconnect(websocket, f"strategy:{strategy_id}", client_id)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logger.exception("Strategy version WebSocket error for strategy %s", strategy_id)
+    finally:
+        ws_manager.disconnect(websocket, channel, client_id)

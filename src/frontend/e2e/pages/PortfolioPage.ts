@@ -37,11 +37,8 @@ export class PortfolioPage extends BasePage {
    * 断言在投资组合页面
    */
   async assertOnPortfolioPage() {
-    // 等待页面加载
-    await this.page.waitForTimeout(1000);
     // 至少应该有一些卡片或内容
-    const hasContent = await this.page.locator('.el-card').count() > 0;
-    expect(hasContent).toBeTruthy();
+    await expect(this.page.locator('.el-card').first()).toBeVisible();
   }
 
   /**
@@ -49,7 +46,6 @@ export class PortfolioPage extends BasePage {
    */
   async goToStrategiesTab() {
     await this.page.click(this.strategiesTab);
-    await this.page.waitForTimeout(500);
   }
 
   /**
@@ -57,7 +53,6 @@ export class PortfolioPage extends BasePage {
    */
   async goToPositionsTab() {
     await this.page.click(this.positionsTab);
-    await this.page.waitForTimeout(500);
   }
 
   /**
@@ -65,7 +60,6 @@ export class PortfolioPage extends BasePage {
    */
   async goToTradesTab() {
     await this.page.click(this.tradesTab);
-    await this.page.waitForTimeout(500);
   }
 
   /**
@@ -73,7 +67,6 @@ export class PortfolioPage extends BasePage {
    */
   async goToEquityTab() {
     await this.page.click(this.equityTab);
-    await this.page.waitForTimeout(500);
   }
 
   /**
@@ -81,14 +74,12 @@ export class PortfolioPage extends BasePage {
    */
   async goToAllocationTab() {
     await this.page.click(this.allocationTab);
-    await this.page.waitForTimeout(500);
   }
 
   /**
    * 获取策略表格行数
    */
   async getStrategyCount(): Promise<number> {
-    await this.page.waitForTimeout(500);
     const rows = this.page.locator(this.tableRow);
     return await rows.count();
   }
@@ -98,6 +89,5 @@ export class PortfolioPage extends BasePage {
    */
   async waitForDataLoad() {
     await this.page.waitForSelector('.el-card', { state: 'visible', timeout: 10000 });
-    await this.page.waitForTimeout(500);
   }
 }

@@ -5,6 +5,8 @@ Provides endpoints for configuring and querying the automatic
 start/stop scheduler for Chinese futures market hours.
 """
 
+import typing
+
 from fastapi import APIRouter, Depends
 
 from app.api.deps import get_current_user
@@ -18,11 +20,11 @@ def _get_scheduler() -> AutoTradingScheduler:
     return get_auto_trading_scheduler()
 
 
-@router.get("/config", summary="Get auto-trading configuration")
+@router.get("/config", summary="Get auto-trading configuration", response_model=None)
 async def get_config(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     sched: AutoTradingScheduler = Depends(_get_scheduler),
-):
+) -> typing.Any:
     """Return the current auto-trading configuration.
 
     Returns:
@@ -31,12 +33,12 @@ async def get_config(
     return sched.get_config()
 
 
-@router.put("/config", summary="Update auto-trading configuration")
+@router.put("/config", summary="Update auto-trading configuration", response_model=None)
 async def update_config(
     body: dict,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     sched: AutoTradingScheduler = Depends(_get_scheduler),
-):
+) -> typing.Any:
     """Update auto-trading configuration.
 
     Accepts any subset of: enabled, buffer_minutes, sessions, scope.
@@ -52,11 +54,11 @@ async def update_config(
     )
 
 
-@router.get("/schedule", summary="Get today's computed schedule")
+@router.get("/schedule", summary="Get today's computed schedule", response_model=None)
 async def get_schedule(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     sched: AutoTradingScheduler = Depends(_get_scheduler),
-):
+) -> typing.Any:
     """Return today's computed start/stop times.
 
     Returns:

@@ -40,6 +40,7 @@ set -euo pipefail
 # 177 §5.3) and CLOSURE.md. Directory entries scrub everything beneath them.
 # ---------------------------------------------------------------------------
 PATHS_TO_PURGE=(
+  "src/bt_api_py/configs/ibkr_cookies.json"
   "src/backend/data/manual_gateways.json"
   "src/backend/data/manual_gateways"
   "src/backend/data/sync_config.json"
@@ -132,6 +133,7 @@ cat <<'EOF'
 NEXT STEPS (manual, by the repo owner):
 
   1. Verify the secrets are gone from history:
+       git log --all --oneline -- src/bt_api_py/configs/ibkr_cookies.json # expect empty
        git log --all --oneline -- src/backend/data/manual_gateways.json   # expect empty
        gitleaks detect --config .gitleaks.toml --no-banner --redact       # expect 0 findings
 

@@ -12,7 +12,6 @@ from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 from app.data_fetch.scripts.common.scalar_result import normalize_scalar_result
 
-
 PREFER_LOCAL_SCRIPT = True
 
 

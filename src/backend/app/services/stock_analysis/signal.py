@@ -82,7 +82,7 @@ class StockSignalExtractor:
 
     def _extract_ratio(self, text: str, labels: tuple[str, ...], *, default: float) -> float:
         for label in labels:
-            match = re.search(fr"{label}[：:\s]*(\d+(?:\.\d+)?)\s*%?", text, flags=re.IGNORECASE)
+            match = re.search(rf"{label}[：:\s]*(\d+(?:\.\d+)?)\s*%?", text, flags=re.IGNORECASE)
             if not match:
                 continue
             try:

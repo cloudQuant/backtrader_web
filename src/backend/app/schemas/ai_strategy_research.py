@@ -130,7 +130,9 @@ class InvestmentMandateCreate(BaseModel):
 
     raw_prompt: str = Field(..., min_length=1, description="Original user investment demand")
     symbol: str | None = Field(None, max_length=50, description="Optional target symbol")
-    symbol_name: str | None = Field(None, max_length=200, description="Optional symbol display name")
+    symbol_name: str | None = Field(
+        None, max_length=200, description="Optional symbol display name"
+    )
     timeframe: str | None = Field(None, max_length=20, description="Optional target timeframe")
     objective: str | None = Field(None, max_length=500, description="Optional user-edited goal")
     risk_constraints: dict[str, Any] = Field(default_factory=dict)

@@ -116,9 +116,7 @@ class IndexHistAdjustCNI(AkshareToMySql):
                 on_duplicate_update=True,
                 unique_keys=["INDEX_CODE", "STOCK_CODE", "START_DATE"],
             )
-            self.logger.info(
-                f"Saved {len(df)} historical adjustment records for index {symbol}"
-            )
+            self.logger.info(f"Saved {len(df)} historical adjustment records for index {symbol}")
 
     def _fetch_hist_adjust_jobs(self, symbol_list, max_workers):
         worker_count = max(1, min(max_workers, len(symbol_list)))
@@ -163,9 +161,7 @@ class IndexHistAdjustCNI(AkshareToMySql):
             if max_symbols is not None and len(symbol_list) > max_symbols:
                 symbol_list = symbol_list[:max_symbols]
                 self.logger.info(f"Limiting CNI historical adjustments to {max_symbols} symbols")
-            for symbol, df in self._fetch_hist_adjust_jobs(
-                symbol_list, int(max_workers or 1)
-            ):
+            for symbol, df in self._fetch_hist_adjust_jobs(symbol_list, int(max_workers or 1)):
                 self._save_hist_adjust_data(symbol, df)
 
             return True
@@ -176,7 +172,6 @@ class IndexHistAdjustCNI(AkshareToMySql):
 
 
 def main():
-
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,

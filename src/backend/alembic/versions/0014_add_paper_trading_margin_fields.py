@@ -17,10 +17,16 @@ depends_on = None
 
 def upgrade() -> None:
     with op.batch_alter_table("paper_trading_positions") as batch_op:
-        batch_op.add_column(sa.Column("margin_value", sa.Float(), nullable=False, server_default="0"))
+        batch_op.add_column(
+            sa.Column("margin_value", sa.Float(), nullable=False, server_default="0")
+        )
         batch_op.add_column(sa.Column("multiplier", sa.Float(), nullable=False, server_default="1"))
-        batch_op.add_column(sa.Column("margin_rate", sa.Float(), nullable=False, server_default="1"))
-        batch_op.add_column(sa.Column("commission_rate", sa.Float(), nullable=False, server_default="0"))
+        batch_op.add_column(
+            sa.Column("margin_rate", sa.Float(), nullable=False, server_default="1")
+        )
+        batch_op.add_column(
+            sa.Column("commission_rate", sa.Float(), nullable=False, server_default="0")
+        )
         batch_op.add_column(
             sa.Column("commission_amount", sa.Float(), nullable=False, server_default="0")
         )

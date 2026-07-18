@@ -15,6 +15,52 @@ type SortKey = 'sort_order' | 'title' | 'updated_at' | 'status'
 type BulkMode = 'publish' | 'draft' | 'move_root' | 'mark_not_indexed' | 'delete'
 export type TreeRow = KBDocumentItem & { depth: number }
 
+export interface KnowledgeBaseCreateDialogState {
+  open: boolean
+  isFolder: boolean
+  title: string
+  content: string
+  parentId: string | null
+}
+
+export interface KnowledgeBaseRenameDialogState {
+  open: boolean
+  target: KBDocumentItem | null
+  title: string
+}
+
+export interface KnowledgeBaseImportDialogState {
+  open: boolean
+  title: string
+  content: string
+}
+
+export interface KnowledgeBaseBulkDialogState {
+  open: boolean
+  mode: BulkMode
+}
+
+export interface KnowledgeBaseDeleteDialogState {
+  open: boolean
+  target: KBDocumentItem | null
+}
+
+export interface KnowledgeBaseRenameCollectionDialogState {
+  open: boolean
+  target: KnowledgeBaseItem | null
+  name: string
+}
+
+export interface KnowledgeBaseDeleteCollectionDialogState {
+  open: boolean
+  target: KnowledgeBaseItem | null
+}
+
+export interface KnowledgeBaseSettingsDialogState {
+  open: boolean
+  form: KnowledgeBaseSettings
+}
+
 export function useKnowledgeBasePage() {
   const { t } = useI18n()
   const route = useRoute()
@@ -31,7 +77,7 @@ export function useKnowledgeBasePage() {
   const expandedFolderIds = ref<Set<string>>(new Set())
   const selectedDocumentIds = ref<Set<string>>(new Set())
 
-  const createDialog = reactive({
+  const createDialog = reactive<KnowledgeBaseCreateDialogState>({
     open: false,
     isFolder: false,
     title: '',
@@ -39,35 +85,35 @@ export function useKnowledgeBasePage() {
     parentId: null as string | null,
   })
 
-  const renameDialog = reactive({
+  const renameDialog = reactive<KnowledgeBaseRenameDialogState>({
     open: false,
     target: null as KBDocumentItem | null,
     title: '',
   })
 
-  const importDialog = reactive({
+  const importDialog = reactive<KnowledgeBaseImportDialogState>({
     open: false,
     title: '',
     content: '',
   })
 
-  const bulkDialog = reactive({
+  const bulkDialog = reactive<KnowledgeBaseBulkDialogState>({
     open: false,
     mode: 'publish' as BulkMode,
   })
 
-  const deleteDialog = reactive({
+  const deleteDialog = reactive<KnowledgeBaseDeleteDialogState>({
     open: false,
     target: null as KBDocumentItem | null,
   })
 
-  const knowledgeBaseRenameDialog = reactive({
+  const knowledgeBaseRenameDialog = reactive<KnowledgeBaseRenameCollectionDialogState>({
     open: false,
     target: null as KnowledgeBaseItem | null,
     name: '',
   })
 
-  const knowledgeBaseDeleteDialog = reactive({
+  const knowledgeBaseDeleteDialog = reactive<KnowledgeBaseDeleteCollectionDialogState>({
     open: false,
     target: null as KnowledgeBaseItem | null,
   })
@@ -92,7 +138,7 @@ export function useKnowledgeBasePage() {
     }
   }
 
-  const knowledgeBaseSettingsDialog = reactive({
+  const knowledgeBaseSettingsDialog = reactive<KnowledgeBaseSettingsDialogState>({
     open: false,
     form: createDefaultKnowledgeBaseSettings(),
   })

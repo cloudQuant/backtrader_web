@@ -33,7 +33,9 @@ class ScannerPlanService:
         name = str(payload.get("name") or "").strip()
         if not name:
             raise ValueError("scanner_plan_name_required")
-        universe_pool_id = str(payload.get("universe_pool_id") or payload.get("pool_id") or "").strip()
+        universe_pool_id = str(
+            payload.get("universe_pool_id") or payload.get("pool_id") or ""
+        ).strip()
         if not universe_pool_id:
             raise ValueError("scanner_plan_universe_pool_required")
         condition = str(payload.get("condition") or "").strip()
@@ -76,7 +78,9 @@ class ScannerPlanService:
         name = str(payload.get("name") or "").strip()
         if not name:
             raise ValueError("scanner_plan_name_required")
-        universe_pool_id = str(payload.get("universe_pool_id") or payload.get("pool_id") or "").strip()
+        universe_pool_id = str(
+            payload.get("universe_pool_id") or payload.get("pool_id") or ""
+        ).strip()
         if not universe_pool_id:
             raise ValueError("scanner_plan_universe_pool_required")
         condition = str(payload.get("condition") or "").strip()

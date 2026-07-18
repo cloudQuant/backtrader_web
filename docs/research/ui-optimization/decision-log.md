@@ -14,5 +14,5 @@
 
 ## 回写格式
 
-对每项进入 backlog 的记录，在 `UI_OPTIMIZATION_TODO.md` 追加：问题 ID、受影响 UI-ID、决定、实现 PR/提交、
+对每项进入 backlog 的记录，在 [UI_OPTIMIZATION_TODO.md](UI_OPTIMIZATION_TODO.md) 追加：问题 ID、受影响 UI-ID、决定、实现 PR/提交、
 复验会话 ID 和结果。没有复验结果的决定保持 `open`，不得标记 UI-210 完成。

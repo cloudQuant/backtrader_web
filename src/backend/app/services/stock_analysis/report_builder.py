@@ -78,7 +78,9 @@ class StockAnalysisReportBuilder:
                 self._section("fundamental", "基本面分析", compat["fundamentals_report"], scores),
                 self._section("news", "新闻与情绪", compat["news_report"], scores),
                 self._section("sentiment", "社媒情绪", compat["sentiment_report"], scores),
-                self._section("investment_debate", "多空研究与投资计划", compat["investment_plan"], scores),
+                self._section(
+                    "investment_debate", "多空研究与投资计划", compat["investment_plan"], scores
+                ),
                 self._section("trader", "交易员计划", compat["trader_investment_plan"], scores),
                 self._section("risk", "风险评估与终审", compat["final_trade_decision"], scores),
             ],

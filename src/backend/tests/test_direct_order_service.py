@@ -682,9 +682,10 @@ class TestDirectOrderServiceBuildOrderPayload:
         assert DirectOrderService._gateway_order_result_ok(
             {"newClientOrderId": "binance-client-123"}
         ) == (True, None)
-        assert DirectOrderService._gateway_order_result_ok(
-            {"orderLinkId": "bybit-client-123"}
-        ) == (True, None)
+        assert DirectOrderService._gateway_order_result_ok({"orderLinkId": "bybit-client-123"}) == (
+            True,
+            None,
+        )
         assert DirectOrderService._gateway_order_result_ok("live-123") == (True, None)
 
     def test_gateway_order_result_accepts_bybit_v5_ret_code_success(self):
@@ -816,9 +817,7 @@ class TestDirectOrderServiceBuildOrderPayload:
         )
         monkeypatch.setitem(sys.modules, "zmq", fake_zmq)
 
-        result = DirectOrderService._send_gateway_command(
-            "tcp://localhost:5555", "place_order", {}
-        )
+        result = DirectOrderService._send_gateway_command("tcp://localhost:5555", "place_order", {})
 
         assert result == {
             "request_id": "req-1",
@@ -1397,7 +1396,9 @@ class TestDirectOrderServiceLiveTrade:
             confidence=0.9,
         )
 
-        with patch.object(service, "_find_available_gateway", return_value="manual:CTP:real") as find:
+        with patch.object(
+            service, "_find_available_gateway", return_value="manual:CTP:real"
+        ) as find:
             result = await service.execute_live_trade(intent, user_id="user1")
 
         assert result["success"] is False
@@ -1631,9 +1632,7 @@ class TestDirectOrderServiceLiveTrade:
             patch.object(service, "_get_gateways_dict", return_value=gateways),
             patch.object(service, "_send_gateway_command") as send_cmd,
         ):
-            result = await service.execute_live_trade(
-                intent, user_id="user1", gateway_id="gw1"
-            )
+            result = await service.execute_live_trade(intent, user_id="user1", gateway_id="gw1")
 
         assert result["success"] is False
         assert result["error"] == "invalid_order"

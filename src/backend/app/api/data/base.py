@@ -3,6 +3,7 @@ Market data API routes.
 """
 
 import logging
+import typing
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -18,14 +19,14 @@ def get_market_instrument_service() -> MarketInstrumentService:
     return MarketInstrumentService()
 
 
-@router.get("/kline", summary="Query K-line data")
+@router.get("/kline", summary="Query K-line data", response_model=None)
 async def get_kline_data(
     symbol: str = Query(..., description="Stock code, e.g., 000001.SZ"),
     start_date: str = Query(..., description="Start date YYYY-MM-DD"),
     end_date: str = Query(..., description="End date YYYY-MM-DD"),
     period: str = Query("daily", description="Period: daily/weekly/monthly"),
-    current_user=Depends(get_current_user),
-):
+    current_user: typing.Any = Depends(get_current_user),
+) -> typing.Any:
     """Fetch A-share kline OHLCV data via AkShare.
 
     Args:
@@ -112,7 +113,11 @@ async def get_kline_data(
         raise HTTPException(status_code=500, detail=f"Query failed: {e}") from e
 
 
-@router.get("/market-instruments/lookup", summary="Lookup aggregated market instrument data")
+@router.get(
+    "/market-instruments/lookup",
+    summary="Lookup aggregated market instrument data",
+    response_model=None,
+)
 async def lookup_market_instrument(
     symbol: str = Query(..., min_length=1, description="Instrument code, e.g. 000001 or RB2510"),
     asset_type: MarketAssetType = Query("stock", description="Instrument type"),
@@ -120,9 +125,9 @@ async def lookup_market_instrument(
     end_date: date | None = Query(None, description="End date YYYY-MM-DD"),
     period: str = Query("daily", description="Period: daily/weekly/monthly"),
     market: str | None = Query(None, description="Futures market, default CF"),
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: MarketInstrumentService = Depends(get_market_instrument_service),
-):
+) -> typing.Any:
     """Return a normalized snapshot, historical rows, and derived indicators."""
     try:
         return await service.lookup(
@@ -137,14 +142,16 @@ async def lookup_market_instrument(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.get("/market-instruments/options", summary="List selectable market instruments")
+@router.get(
+    "/market-instruments/options", summary="List selectable market instruments", response_model=None
+)
 async def list_market_instrument_options(
     asset_type: MarketAssetType = Query("stock", description="Instrument type"),
     search: str = Query("", description="Search by symbol, name, market, or variety"),
     limit: int = Query(80, ge=1, le=200, description="Maximum number of options"),
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: MarketInstrumentService = Depends(get_market_instrument_service),
-):
+) -> typing.Any:
     """Return selectable instruments for the market data query page."""
     try:
         return await service.list_instruments(

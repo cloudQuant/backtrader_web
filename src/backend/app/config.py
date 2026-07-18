@@ -52,6 +52,14 @@ def _is_production(debug: object | None = None, *, debug_was_explicit: bool = Fa
     return False
 
 
+def production_security_mode(settings: "Settings") -> bool:
+    """Return whether production-only runtime security guards apply."""
+    return _is_production(
+        settings.DEBUG,
+        debug_was_explicit="DEBUG" in settings.model_fields_set,
+    )
+
+
 class Settings(BaseSettings):
     """Application settings.
 
@@ -215,6 +223,14 @@ class Settings(BaseSettings):
 
     # Backtest subprocess timeout (seconds)
     BACKTEST_TIMEOUT: int = Field(default=300, description="Backtest subprocess timeout in seconds")
+    AI_STRATEGY_SANDBOX_USE_DOCKER: bool = Field(
+        default=True,
+        description="Require Docker isolation for AI strategy draft validation in production",
+    )
+    AI_STRATEGY_SANDBOX_DOCKER_IMAGE: str = Field(
+        default="backtrader-sandbox:latest",
+        description="Docker image used for AI strategy draft validation",
+    )
 
     # Monitoring check intervals (seconds)
     MONITORING_SYSTEM_INTERVAL: int = Field(
@@ -339,7 +355,7 @@ class Settings(BaseSettings):
     IB_ASSET_TYPE: str = Field(default="STK", description="IB asset type")
     IB_BASE_URL: str = Field(default="https://localhost:5000", description="IB Web base URL")
     IB_ACCESS_TOKEN: str = Field(default="", description="IB access token")
-    IB_VERIFY_SSL: bool = Field(default=False, description="IB Web verify SSL")
+    IB_VERIFY_SSL: bool = Field(default=True, description="IB Web verify SSL")
     IB_TIMEOUT: float = Field(default=10.0, description="IB Web request timeout in seconds")
     IB_COOKIE_SOURCE: str = Field(default="", description="IB Web cookie source")
     IB_COOKIE_BROWSER: str = Field(default="chrome", description="IB Web cookie browser")
@@ -354,7 +370,7 @@ class Settings(BaseSettings):
     IB_WEB_ASSET_TYPE: str = Field(default="", description="IB Web asset type")
     IB_WEB_BASE_URL: str = Field(default="", description="IB Web base URL override")
     IB_WEB_ACCESS_TOKEN: str = Field(default="", description="IB Web access token override")
-    IB_WEB_VERIFY_SSL: bool = Field(default=False, description="IB Web verify SSL override")
+    IB_WEB_VERIFY_SSL: bool = Field(default=True, description="IB Web verify SSL override")
     IB_WEB_TIMEOUT: float = Field(default=0.0, description="IB Web request timeout override")
     IB_WEB_COOKIE_SOURCE: str = Field(default="", description="IB Web cookie source override")
     IB_WEB_COOKIE_BROWSER: str = Field(default="", description="IB Web cookie browser override")
@@ -370,7 +386,7 @@ class Settings(BaseSettings):
     IB_PAPER_ASSET_TYPE: str = Field(default="", description="IB paper asset type")
     IB_PAPER_BASE_URL: str = Field(default="", description="IB paper base URL")
     IB_PAPER_ACCESS_TOKEN: str = Field(default="", description="IB paper access token")
-    IB_PAPER_VERIFY_SSL: bool = Field(default=False, description="IB paper verify SSL")
+    IB_PAPER_VERIFY_SSL: bool = Field(default=True, description="IB paper verify SSL")
     IB_PAPER_TIMEOUT: float = Field(default=0.0, description="IB paper request timeout in seconds")
     IB_PAPER_COOKIE_SOURCE: str = Field(default="", description="IB paper cookie source")
     IB_PAPER_COOKIE_BROWSER: str = Field(default="", description="IB paper cookie browser")
@@ -379,7 +395,7 @@ class Settings(BaseSettings):
     IB_LIVE_ASSET_TYPE: str = Field(default="", description="IB live asset type")
     IB_LIVE_BASE_URL: str = Field(default="", description="IB live base URL")
     IB_LIVE_ACCESS_TOKEN: str = Field(default="", description="IB live access token")
-    IB_LIVE_VERIFY_SSL: bool = Field(default=False, description="IB live verify SSL")
+    IB_LIVE_VERIFY_SSL: bool = Field(default=True, description="IB live verify SSL")
     IB_LIVE_TIMEOUT: float = Field(default=0.0, description="IB live request timeout in seconds")
     IB_LIVE_COOKIE_SOURCE: str = Field(default="", description="IB live cookie source")
     IB_LIVE_COOKIE_BROWSER: str = Field(default="", description="IB live cookie browser")
@@ -414,7 +430,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_runtime_security_guards(self) -> "Settings":
         """Validate production-only secret and admin-password guards."""
-        if _is_production(self.DEBUG, debug_was_explicit="DEBUG" in self.model_fields_set):
+        if production_security_mode(self):
             cors_origins = {
                 origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()
             }
@@ -432,6 +448,22 @@ class Settings(BaseSettings):
             if self.ADMIN_PASSWORD.lower() in _DEFAULT_PASSWORDS:
                 raise ValueError(
                     "Default admin password detected. Set ADMIN_PASSWORD to a secure password in production."
+                )
+            for field_name in (
+                "IB_VERIFY_SSL",
+                "IB_WEB_VERIFY_SSL",
+                "IB_PAPER_VERIFY_SSL",
+                "IB_LIVE_VERIFY_SSL",
+            ):
+                if not getattr(self, field_name):
+                    raise ValueError(
+                        f"{field_name}=False is not allowed in production. "
+                        "Install the gateway CA certificate and enable TLS verification."
+                    )
+            if not self.AI_STRATEGY_SANDBOX_USE_DOCKER:
+                raise ValueError(
+                    "AI_STRATEGY_SANDBOX_USE_DOCKER must be enabled in production. "
+                    "AI-generated strategy code cannot run in the application process."
                 )
         return self
 

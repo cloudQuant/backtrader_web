@@ -121,9 +121,7 @@ class EtfFundHistEm(AkshareToMySql):
                 else:
                     start_date = "20000101"
 
-            if datetime.strptime(start_date, "%Y%m%d") > datetime.strptime(
-                end_date, "%Y%m%d"
-            ):
+            if datetime.strptime(start_date, "%Y%m%d") > datetime.strptime(end_date, "%Y%m%d"):
                 self.logger.info(f"ETF基金[{fund_code}]历史数据已是最新")
                 return pd.DataFrame()
 

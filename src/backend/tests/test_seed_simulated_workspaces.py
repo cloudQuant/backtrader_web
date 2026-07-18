@@ -69,12 +69,10 @@ def test_all_seeded_workspaces_use_the_same_long_running_duration(monkeypatch):
 
     for workspace_key in ("futures", "ib", "mt5"):
         assert specs[workspace_key]
-        assert {
-            item["unit_settings"]["duration_seconds"] for item in specs[workspace_key]
-        } == {7200}
-        assert {
-            item["unit_settings"]["session_timeout"] for item in specs[workspace_key]
-        } == {7260}
+        assert {item["unit_settings"]["duration_seconds"] for item in specs[workspace_key]} == {
+            7200
+        }
+        assert {item["unit_settings"]["session_timeout"] for item in specs[workspace_key]} == {7260}
 
 
 def test_stress_slot_from_legacy_name():

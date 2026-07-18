@@ -6180,6 +6180,9 @@ describe('StrategyPage', () => {
     vm.aiResearchRuns = [record]
     vm.aiResearchRunsLoading = false
     vi.mocked(strategyApi.listAIResearchRuns).mockClear()
+    vi.mocked(strategyApi.getAIResearchRun).mockRejectedValue(
+      new Error('detail unavailable')
+    )
     vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({
       total: 1,
       items: [refreshedRecord],

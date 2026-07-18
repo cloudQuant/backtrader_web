@@ -1,6 +1,6 @@
 # UI-210 真实任务研究工具包
 
-本工具包用于验证 `UI_OPTIMIZATION_TODO.md` 中已交付的 UI-201 至 UI-207。
+本工具包用于验证 [UI_OPTIMIZATION_TODO.md](UI_OPTIMIZATION_TODO.md) 中已交付的 UI-201 至 UI-207。
 它不是产品可用性的替代证明：只有独立参与者完成受控任务后，UI-210 才能关闭。
 
 ## 准备
@@ -47,5 +47,5 @@
 
 - 每个角色至少 3 名独立参与者完成对应任务；
 - `sessions.csv` 中包含完成状态、耗时、错误和干预情况；
-- 每个达标问题都有 `decision-log.md` 记录，且已回写到 `UI_OPTIMIZATION_TODO.md` 的对应 UI-ID；
+- 每个达标问题都有 `decision-log.md` 记录，且已回写到 [UI_OPTIMIZATION_TODO.md](UI_OPTIMIZATION_TODO.md) 的对应 UI-ID；
 - 修复项完成后，补充代码/浏览器验收证据。

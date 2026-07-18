@@ -1,3 +1,5 @@
+import typing
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,29 +12,31 @@ from app.services.scanner_universe import parse_symbol_text
 router = APIRouter(prefix="/scanners", tags=["Scanners"])
 
 
-def _user_id(current_user) -> str:
+def _user_id(current_user: typing.Any) -> str:
     return str(getattr(current_user, "sub", "") or "default")
 
 
-@router.get("/universe-pools")
-async def list_universe_pools(current_user=Depends(get_current_user)):
+@router.get("/universe-pools", response_model=None)
+async def list_universe_pools(current_user: typing.Any = Depends(get_current_user)) -> typing.Any:
     return get_scanner_service().universe_service.list_pools(_user_id(current_user))
 
 
-@router.post("/universe-pools/{pool_id}/refresh")
-async def refresh_universe_pool(pool_id: str, current_user=Depends(get_current_user)):
+@router.post("/universe-pools/{pool_id}/refresh", response_model=None)
+async def refresh_universe_pool(
+    pool_id: str, current_user: typing.Any = Depends(get_current_user)
+) -> typing.Any:
     try:
         return get_scanner_service().universe_service.refresh_pool(pool_id, _user_id(current_user))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.post("/universe-pools/{pool_id}/precompute")
+@router.post("/universe-pools/{pool_id}/precompute", response_model=None)
 async def precompute_universe_pool_metrics(
     pool_id: str,
     payload: dict | None = None,
-    current_user=Depends(get_current_user),
-):
+    current_user: typing.Any = Depends(get_current_user),
+) -> typing.Any:
     try:
         payload = payload or {}
         return get_scanner_service().universe_service.precompute_pool_metrics(
@@ -45,8 +49,10 @@ async def precompute_universe_pool_metrics(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.post("/universe-pools/custom")
-async def save_custom_universe_pool(payload: dict, current_user=Depends(get_current_user)):
+@router.post("/universe-pools/custom", response_model=None)
+async def save_custom_universe_pool(
+    payload: dict, current_user: typing.Any = Depends(get_current_user)
+) -> typing.Any:
     try:
         instruments = payload.get("instruments")
         if not instruments and payload.get("symbols_text"):
@@ -59,12 +65,12 @@ async def save_custom_universe_pool(payload: dict, current_user=Depends(get_curr
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.post("/plans")
+@router.post("/plans", response_model=None)
 async def save_scanner_plan(
     payload: dict,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     try:
         return await ScannerPlanService(db, get_scanner_service()).save_plan(
             _user_id(current_user),
@@ -74,21 +80,21 @@ async def save_scanner_plan(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.get("/plans")
+@router.get("/plans", response_model=None)
 async def list_scanner_plans(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     return await ScannerPlanService(db, get_scanner_service()).list_plans(_user_id(current_user))
 
 
-@router.patch("/plans/{plan_id}")
+@router.patch("/plans/{plan_id}", response_model=None)
 async def update_scanner_plan(
     plan_id: str,
     payload: dict,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     try:
         result = await ScannerPlanService(db, get_scanner_service()).update_plan(
             _user_id(current_user),
@@ -102,12 +108,12 @@ async def update_scanner_plan(
     return result
 
 
-@router.delete("/plans/{plan_id}")
+@router.delete("/plans/{plan_id}", response_model=None)
 async def delete_scanner_plan(
     plan_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     result = await ScannerPlanService(db, get_scanner_service()).delete_plan(
         _user_id(current_user),
         plan_id,
@@ -117,12 +123,12 @@ async def delete_scanner_plan(
     return {"deleted": True}
 
 
-@router.post("/plans/daily-runs")
+@router.post("/plans/daily-runs", response_model=None)
 async def run_daily_scanner_plans(
     payload: dict | None = None,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     payload = payload or {}
     return await ScannerPlanService(db, get_scanner_service()).run_daily_plans(
         _user_id(current_user),
@@ -130,12 +136,12 @@ async def run_daily_scanner_plans(
     )
 
 
-@router.post("/plans/{plan_id}/result-table")
+@router.post("/plans/{plan_id}/result-table", response_model=None)
 async def create_scanner_plan_result_table(
     plan_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     try:
         result = await ScannerPlanService(db, get_scanner_service()).create_result_table(
             _user_id(current_user),
@@ -148,12 +154,12 @@ async def create_scanner_plan_result_table(
     return result
 
 
-@router.delete("/plans/{plan_id}/result-table")
+@router.delete("/plans/{plan_id}/result-table", response_model=None)
 async def delete_scanner_plan_result_table(
     plan_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     try:
         result = await ScannerPlanService(db, get_scanner_service()).delete_result_table(
             _user_id(current_user),
@@ -166,13 +172,13 @@ async def delete_scanner_plan_result_table(
     return result
 
 
-@router.post("/plans/{plan_id}/runs")
+@router.post("/plans/{plan_id}/runs", response_model=None)
 async def run_scanner_plan(
     plan_id: str,
     payload: dict | None = None,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     payload = payload or {}
     result = await ScannerPlanService(db, get_scanner_service()).run_plan(
         _user_id(current_user),
@@ -185,12 +191,12 @@ async def run_scanner_plan(
     return result
 
 
-@router.get("/plans/{plan_id}/runs")
+@router.get("/plans/{plan_id}/runs", response_model=None)
 async def list_scanner_plan_runs(
     plan_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     result = await ScannerPlanService(db, get_scanner_service()).list_runs(
         _user_id(current_user),
         plan_id,
@@ -200,8 +206,10 @@ async def list_scanner_plan_runs(
     return result
 
 
-@router.post("/run")
-async def run_scanner(payload: dict, current_user=Depends(get_current_user)):
+@router.post("/run", response_model=None)
+async def run_scanner(
+    payload: dict, current_user: typing.Any = Depends(get_current_user)
+) -> typing.Any:
     try:
         return get_scanner_service().run(
             list(payload.get("universe") or []),
@@ -215,8 +223,10 @@ async def run_scanner(payload: dict, current_user=Depends(get_current_user)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.get("/tasks/{task_id}")
-async def get_scanner_task(task_id: str, current_user=Depends(get_current_user)):
+@router.get("/tasks/{task_id}", response_model=None)
+async def get_scanner_task(
+    task_id: str, current_user: typing.Any = Depends(get_current_user)
+) -> typing.Any:
     payload = get_scanner_service().get_task(task_id)
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scanner_task_not_found")

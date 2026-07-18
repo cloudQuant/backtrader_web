@@ -287,15 +287,16 @@ async def test_analytics_api_detail_kline_monthly_export_and_error():
 @pytest.mark.asyncio
 async def test_analytics_get_backtest_data_internal_exception_and_monthly_branch(monkeypatch):
     from app.api import analytics as analytics_api
+    from app.services.backtest import logs as backtest_logs
 
     # _resolve_log_dir exception branch
     class _RepoBoom:
         def __init__(self, *_a, **_k):
             raise RuntimeError("boom")
 
-    monkeypatch.setattr(analytics_api, "SQLRepository", _RepoBoom, raising=True)
+    monkeypatch.setattr(backtest_logs, "SQLRepository", _RepoBoom, raising=True)
     monkeypatch.setattr(
-        analytics_api, "find_latest_log_dir", lambda p: Path("/tmp/fallback"), raising=True
+        backtest_logs, "find_latest_log_dir", lambda p: Path("/tmp/fallback"), raising=True
     )
     out = await analytics_api._resolve_log_dir("t1", "s1")
     assert isinstance(out, Path)

@@ -10,9 +10,9 @@ from io import StringIO
 
 import pandas as pd
 import requests
+from akshare.stock_feature.stock_technology_ths import _get_file_content_ths
 from bs4 import BeautifulSoup
 from py_mini_racer import py_mini_racer
-from akshare.stock_feature.stock_technology_ths import _get_file_content_ths
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql

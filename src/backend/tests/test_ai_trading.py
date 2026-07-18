@@ -805,7 +805,7 @@ class TestAITradingAPI:
                         "exchange_type": "CTP",
                         "account_id": "investor-stale",
                         "connected": False,
-                    }
+                    },
                 ],
             ),
             patch.object(

@@ -17,7 +17,7 @@ errors are fixed:
 This is deliberately count-based (not a per-error allowlist) to stay simple and
 fast. It is only meaningful when the mypy version matches the one used to
 generate the baseline, so the baseline file pins that version and this script
-warns loudly on mismatch.
+fails on mismatch.
 
 Usage
 -----
@@ -127,10 +127,11 @@ def main() -> int:
 
     if base_version != version:
         print(
-            f"::warning::mypy_ratchet: mypy version mismatch "
+            f"::error::mypy_ratchet: mypy version mismatch "
             f"(baseline={base_version!r}, running={version!r}); "
-            "counts may not be comparable. Regenerate the baseline with --update."
+            "install the pinned version or regenerate the baseline intentionally."
         )
+        return 0 if args.advisory else 1
 
     delta = count - expected
     print(f"mypy_ratchet: errors={count} baseline={expected} delta={delta:+d}")

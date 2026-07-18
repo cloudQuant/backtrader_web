@@ -4,6 +4,8 @@ Provides risk control configuration management and alert query endpoints.
 提供风控配置管理和告警查询接口。
 """
 
+import typing
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
@@ -123,7 +125,7 @@ def get_risk_service() -> RiskControlService:
 
 @router.get("/config", summary="Get risk control config / 获取风控配置")
 async def get_config(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: RiskControlService = Depends(get_risk_service),
 ) -> RiskControlConfigResponse:
     """
@@ -150,7 +152,7 @@ async def get_config(
 @router.put("/config", summary="Update risk control config / 更新风控配置")
 async def update_config(
     request: RiskControlConfigRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: RiskControlService = Depends(get_risk_service),
 ) -> RiskControlConfigResponse:
     """
@@ -194,7 +196,7 @@ async def get_alerts(
     instance_id: str | None = None,
     level: str | None = None,
     limit: int = 100,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: RiskControlService = Depends(get_risk_service),
 ) -> AlertListResponse:
     """
@@ -242,7 +244,7 @@ async def get_alerts(
 @router.delete("/alerts", summary="Clear risk alerts / 清除风控告警")
 async def clear_alerts(
     instance_id: str | None = None,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: RiskControlService = Depends(get_risk_service),
 ) -> dict:
     """
@@ -264,7 +266,7 @@ async def clear_alerts(
 @router.post("/reset-daily", summary="Reset daily counters / 重置每日计数器")
 async def reset_daily_counters(
     instance_id: str | None = None,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: RiskControlService = Depends(get_risk_service),
 ) -> dict:
     """

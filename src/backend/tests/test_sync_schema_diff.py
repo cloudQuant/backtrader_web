@@ -23,7 +23,9 @@ class TestQuoting:
 
 class TestIdentifierValidation:
     def test_validate_mysql_identifier_accepts_expected_names(self):
-        assert sd.validate_mysql_identifier("ai_for_investor_01", "database") == "ai_for_investor_01"
+        assert (
+            sd.validate_mysql_identifier("ai_for_investor_01", "database") == "ai_for_investor_01"
+        )
 
     def test_validate_mysql_identifier_rejects_shell_sql_metacharacters(self):
         with pytest.raises(ValueError, match="非法 MySQL database"):

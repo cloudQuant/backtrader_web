@@ -139,8 +139,8 @@ def test_akshare_proxy_detection_reads_proxy_port_from_env_file(monkeypatch, tmp
 
 @pytest.mark.asyncio
 async def test_akshare_script_execution_configures_network_proxy(monkeypatch):
-    from app.services.akshare.script import AkshareScriptService
     import app.services.akshare.script as script_module
+    from app.services.akshare.script import AkshareScriptService
 
     calls = []
 

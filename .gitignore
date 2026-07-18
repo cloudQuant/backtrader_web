@@ -98,6 +98,16 @@ runtime/
 *.sqlite
 *.sqlite3
 data/manual_gateways.json
+reports/
+var/reports/
+src/frontend/artifacts/
+data/datas/*/
+tests/e2e/explore_report.json
+tests/e2e/*_report.json
+MagicMock/
+lost_codes.pkl
+# Real IBKR sessions are runtime-only. Use the adjacent .example file as a schema.
+src/bt_api_py/configs/ibkr_cookies.json
 # Runtime-generated backend state & live-trading credentials (iteration 177 §D).
 # These are written by the app at runtime and have historically leaked real
 # API keys / passwords into git. Keep them out of version control; the backend
@@ -111,6 +121,8 @@ src/backend/data/live_trading_instances.json
 src/backend/data/ai_provider_config.json
 src/backend/data/quote_custom_symbols.json
 src/backend/data/reqdocs_source_files/
+# Runtime-generated stock-analysis exports (PDF/DOCX/HTML/Markdown).
+src/backend/data/exports/
 # slowapi optional runtime config-override file (iteration 179 §A). Written by
 # the rate limiter at runtime; not a secret today but is runtime state that
 # should never be tracked. The limiter only loads it when present.

@@ -54,8 +54,7 @@ class GetDceRankTable(AkshareToMySql):
                     "%Y-%m-%d"
                 )
                 for offset in range(0, 14)
-                if (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=offset)).weekday()
-                < 5
+                if (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=offset)).weekday() < 5
             ]
         trading_days = sorted(trading_days)
         return [item.replace("-", "") for item in trading_days[-max_days:]][::-1]
@@ -88,8 +87,10 @@ class GetDceRankTable(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
-            date_list = [str(kwargs["date"]).replace("-", "")] if "date" in kwargs else (
-                self._candidate_dce_trade_dates()
+            date_list = (
+                [str(kwargs["date"]).replace("-", "")]
+                if "date" in kwargs
+                else (self._candidate_dce_trade_dates())
             )
 
             for date_str in date_list:

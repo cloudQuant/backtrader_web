@@ -4,6 +4,7 @@ Routes only handle request parsing, schema mapping, and HTTP error coding.
 All DB access lives in :class:`app.services.rag_service.RAGService`.
 """
 
+import typing
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -34,7 +35,7 @@ async def index_document(
     data: RAGIndexRequest,
     current_user: TokenPayload = Depends(get_current_user),
     service: RAGService = Depends(get_rag_service),
-):
+) -> typing.Any:
     stored = await service.index_document_by_id(
         knowledge_base_id=data.knowledge_base_id,
         document_id=data.document_id,
@@ -55,7 +56,7 @@ async def search_chunks(
     data: RAGSearchRequest,
     current_user: TokenPayload = Depends(get_current_user),
     service: RAGService = Depends(get_rag_service),
-):
+) -> typing.Any:
     payload = await service.search_with_diagnostics(
         data.knowledge_base_id,
         current_user.sub,
@@ -77,7 +78,7 @@ async def ask_knowledge_base(
     data: RAGAskRequest,
     current_user: TokenPayload = Depends(get_current_user),
     service: RAGService = Depends(get_rag_service),
-):
+) -> typing.Any:
     result = await service.ask(
         data.knowledge_base_id,
         current_user.sub,

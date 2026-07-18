@@ -27,7 +27,7 @@ def _suppress_default_admin_warning_for_stress_script() -> None:
 
 _suppress_default_admin_warning_for_stress_script()
 
-from sqlalchemy import select
+from sqlalchemy import select  # noqa: E402
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -70,10 +70,6 @@ for path in (BACKEND_DIR, SCRIPTS_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from app.db.database import async_session_maker, ensure_database_ready  # noqa: E402
-from app.models.workspace import StrategyUnit, Workspace  # noqa: E402
-from app.services import workspace_unit_runtime  # noqa: E402
-from app.services.workspace_service import WorkspaceService  # noqa: E402
 from seed_simulated_workspaces import (  # noqa: E402
     STRESS_UNIT_PREFIXES,
     WORKSPACE_NAMES,
@@ -81,6 +77,11 @@ from seed_simulated_workspaces import (  # noqa: E402
     load_workspaces,
     seed_workspace,
 )
+
+from app.db.database import async_session_maker, ensure_database_ready  # noqa: E402
+from app.models.workspace import StrategyUnit, Workspace  # noqa: E402
+from app.services import workspace_unit_runtime  # noqa: E402
+from app.services.workspace_service import WorkspaceService  # noqa: E402
 
 TARGET_WORKSPACE_KEYS = ("futures", "ib", "mt5")
 DEFAULT_STATUS_INTERVAL_SECONDS = 30
@@ -157,7 +158,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--targets",
-        default="futures,mt5",
+        default="futures,ib,mt5",
         help="Comma-separated target workspace keys to run: futures,ib,mt5.",
     )
     parser.add_argument(
@@ -228,11 +229,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def parse_target_keys(value: str) -> tuple[str, ...]:
-    keys = tuple(
-        key.strip().lower()
-        for key in str(value or "").split(",")
-        if key.strip()
-    )
+    keys = tuple(key.strip().lower() for key in str(value or "").split(",") if key.strip())
     invalid = [key for key in keys if key not in TARGET_KEY_CHOICES]
     if invalid:
         raise ValueError(f"invalid target key(s): {', '.join(invalid)}")
@@ -240,11 +237,7 @@ def parse_target_keys(value: str) -> tuple[str, ...]:
 
 
 def parse_unit_ids(value: str) -> set[str]:
-    return {
-        item.strip()
-        for item in str(value or "").split(",")
-        if item.strip()
-    }
+    return {item.strip() for item in str(value or "").split(",") if item.strip()}
 
 
 def target_specs_by_key() -> dict[str, list[dict[str, Any]]]:
@@ -340,7 +333,12 @@ async def start_target_workspace(
 ) -> tuple[str, list[dict[str, Any]], list[str], set[str]]:
     units, missing = await load_target_units(workspace, specs, unit_ids)
     if missing:
-        return key, [{"status": "failed", "error": f"missing {len(missing)} target units"}], missing, set()
+        return (
+            key,
+            [{"status": "failed", "error": f"missing {len(missing)} target units"}],
+            missing,
+            set(),
+        )
     results = await WorkspaceService().run_units(
         str(workspace.id),
         str(workspace.user_id),
@@ -513,7 +511,6 @@ def filter_units_for_rolling_restart(
     return selected
 
 
-
 async def restart_target_batch(
     key: str,
     workspace: Workspace,
@@ -556,17 +553,14 @@ async def restart_target_batch(
             for item in results
             if str(item.get("status") or "").lower() == "failed"
         ]
-        attempt_label = (
-            f" attempt {attempt}/{attempts}" if attempts > 1 else ""
-        )
+        attempt_label = f" attempt {attempt}/{attempts}" if attempts > 1 else ""
         print_log(
             f"{WORKSPACE_NAMES[key]} rolling batch start{attempt_label}: "
             f"running={counter.get('running', 0)}, failed={counter.get('failed', 0)}"
         )
         if failed_examples:
             print_log(
-                f"{WORKSPACE_NAMES[key]} rolling batch first error: "
-                f"{failed_examples[0][:500]}"
+                f"{WORKSPACE_NAMES[key]} rolling batch first error: {failed_examples[0][:500]}"
             )
         running_ids = {
             str(item.get("unit_id"))
@@ -591,10 +585,7 @@ async def restart_target_batch(
         if retry_wait > 0:
             await asyncio.sleep(retry_wait)
 
-    final_items = [
-        final_results.get(str(unit.id), {"status": "unknown"})
-        for unit in units
-    ]
+    final_items = [final_results.get(str(unit.id), {"status": "unknown"}) for unit in units]
     return Counter(str(item.get("status") or "unknown") for item in final_items), owned_unit_ids
 
 
@@ -635,9 +626,7 @@ async def rolling_restart_targets(
         batches = chunked_units(selected_units, batch_size)
         for index, batch in enumerate(batches, start=1):
             names = ", ".join(str(unit.strategy_name or unit.id) for unit in batch)
-            print_log(
-                f"{WORKSPACE_NAMES[key]} rolling batch {index}/{len(batches)}: {names[:500]}"
-            )
+            print_log(f"{WORKSPACE_NAMES[key]} rolling batch {index}/{len(batches)}: {names[:500]}")
             batch_counter, batch_owned = await restart_target_batch(
                 key,
                 workspace,
@@ -678,7 +667,9 @@ async def stop_owned_targets(
     current_owner_pid = os.getpid() if owner_pid is None else owner_pid
     current_live_processes = running_unit_processes() if live_processes is None else live_processes
     for key in TARGET_WORKSPACE_KEYS:
-        owned_unit_ids = {str(unit_id) for unit_id in unit_ids_by_key.get(key, set()) if str(unit_id)}
+        owned_unit_ids = {
+            str(unit_id) for unit_id in unit_ids_by_key.get(key, set()) if str(unit_id)
+        }
         if not owned_unit_ids:
             continue
         workspace = workspaces[WORKSPACE_NAMES[key]]
@@ -736,7 +727,7 @@ async def status_summary(
     summaries: dict[str, Counter[str]] = {}
     service = WorkspaceService()
     live_processes = running_unit_processes()
-    for key in (target_keys or TARGET_WORKSPACE_KEYS):
+    for key in target_keys or TARGET_WORKSPACE_KEYS:
         workspace = workspaces[WORKSPACE_NAMES[key]]
         units, missing = await load_target_units(workspace, specs_by_key[key], unit_ids)
         target_ids = {str(unit.id) for unit in units}
@@ -778,7 +769,7 @@ def print_status(
     target_keys: tuple[str, ...] | None = None,
 ) -> None:
     parts = []
-    for key in (target_keys or TARGET_WORKSPACE_KEYS):
+    for key in target_keys or TARGET_WORKSPACE_KEYS:
         counter = summaries.get(key, Counter())
         alerts = resource_alerts(counter)
         parts.append(
@@ -867,7 +858,9 @@ def unit_log_dir(unit: StrategyUnit) -> Path:
 def unit_live_symbol(unit: StrategyUnit) -> str:
     if not hasattr(unit, "workspace_id") or not hasattr(unit, "id"):
         return ""
-    config_path = workspace_unit_runtime.unit_dir(str(unit.workspace_id), str(unit.id)) / "config.yaml"
+    config_path = (
+        workspace_unit_runtime.unit_dir(str(unit.workspace_id), str(unit.id)) / "config.yaml"
+    )
     try:
         lines = config_path.read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -1031,8 +1024,10 @@ def read_process_resource(
         page_size = os.sysconf(os.sysconf_names["SC_PAGE_SIZE"])
         process_seconds = (float(fields[11]) + float(fields[12])) / float(clock_ticks)
         started_seconds = float(fields[19]) / float(clock_ticks)
-        uptime = uptime_seconds if uptime_seconds is not None else float(
-            Path("/proc/uptime").read_text(encoding="utf-8").split()[0]
+        uptime = (
+            uptime_seconds
+            if uptime_seconds is not None
+            else float(Path("/proc/uptime").read_text(encoding="utf-8").split()[0])
         )
         elapsed_seconds = max(uptime - started_seconds, 0.001)
         rss_mb = float(statm_fields[1]) * float(page_size) / 1024.0 / 1024.0

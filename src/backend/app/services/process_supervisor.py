@@ -187,14 +187,10 @@ def _scan_running_strategy_pids_ps() -> dict[str, int]:
     import subprocess as _sp
 
     result: dict[str, int] = {}
-    out = _sp.check_output(
-        ["ps", "-eo", "pid,args"], text=True, timeout=5, stderr=_sp.DEVNULL
-    )
+    out = _sp.check_output(["ps", "-eo", "pid,args"], text=True, timeout=5, stderr=_sp.DEVNULL)
     for line in out.splitlines():
         line = line.strip()
-        if "run.py" not in line or (
-            "strategies" not in line and "workspace_units" not in line
-        ):
+        if "run.py" not in line or ("strategies" not in line and "workspace_units" not in line):
             continue
         parts = line.split(None, 1)
         if len(parts) < 2:

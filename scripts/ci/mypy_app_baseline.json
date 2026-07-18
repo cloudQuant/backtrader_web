@@ -1,6 +1,6 @@
 {
-  "_comment": "Iteration 177 §E mypy repo-wide ratchet baseline (lowered in 178 §E 1065->1017 via app/api/live_trading; lowered in 179 §C 1017->958 via app/api/workspace_api strict-clean). CI fails when `mypy app` reports MORE errors than baseline_errors. Lower this number whenever the count drops (the ratchet only turns one way). Regenerate with the pinned mypy version below via --update.",
-  "baseline_errors": 958,
+  "_comment": "Iteration 177 §E mypy repo-wide ratchet baseline. CI fails when `mypy app` reports MORE errors than baseline_errors. Lower this number whenever the count drops (the ratchet only turns one way). Regenerate with the pinned mypy version below via --update.",
+  "baseline_errors": 714,
   "mypy_version": "mypy 1.20.2 (compiled: yes)",
-  "baseline_date": "2026-05-31"
+  "baseline_date": "2026-07-18"
 }

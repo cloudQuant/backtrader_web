@@ -91,9 +91,7 @@ class FuturesRules(AkshareToMySql):
             latest_date = "2023-12-05"
             self.logger.info(f"获取最新日期失败，从 {latest_date} 开始")
         if lookback_days is not None:
-            lookback_start = (datetime.now() - timedelta(days=lookback_days)).strftime(
-                "%Y-%m-%d"
-            )
+            lookback_start = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
             if latest_date < lookback_start:
                 latest_date = lookback_start
                 self.logger.info(f"限制为最近{lookback_days}天")

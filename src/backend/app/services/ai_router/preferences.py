@@ -48,7 +48,9 @@ class AIModelPreferenceService:
         self.provider_specs = provider_specs or get_default_provider_specs()
 
     def get_available_models_payload(self, user: User) -> dict:
-        providers = [self._provider_option(spec).model_dump() for spec in self._enabled_provider_specs()]
+        providers = [
+            self._provider_option(spec).model_dump() for spec in self._enabled_provider_specs()
+        ]
         models = [option.model_dump() for option in self._model_options()]
         return {
             "providers": providers,

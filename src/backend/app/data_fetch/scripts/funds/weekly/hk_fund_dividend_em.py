@@ -10,7 +10,6 @@ from app.data_fetch.scripts.funds.weekly._fund_codes import (
     normalize_fund_codes,
 )
 
-
 DEFAULT_HK_DIVIDEND_FUND_CODES = ["1002200683"]
 
 

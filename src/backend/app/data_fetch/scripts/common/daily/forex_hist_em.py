@@ -8,11 +8,10 @@ Forex Hist Em
 
 import pandas as pd
 from akshare.forex.forex_em import symbol_market_map
-from akshare.utils.request import request_eastmoney
+from akshare.utils.request import request_with_retry as request_eastmoney
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
-
 
 PREFER_LOCAL_SCRIPT = True
 
@@ -41,8 +40,8 @@ class ForexHistEm(AkshareToMySql):
         super().__init__(db_config, logger)
         self.table_name = "FOREX_HIST_EM"
         self.create_table_sql = """
-	    CREATE TABLE IF NOT EXISTS `FOREX_HIST_EM` (
-	        `R_ID` BIGINT AUTO_INCREMENT PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS `FOREX_HIST_EM` (
+            `R_ID` BIGINT AUTO_INCREMENT PRIMARY KEY,
             `日期` DATE COMMENT '交易日期',
             `代码` VARCHAR(32) COMMENT '品种代码',
             `名称` VARCHAR(100) COMMENT '品种名称',
@@ -53,10 +52,10 @@ class ForexHistEm(AkshareToMySql):
             `振幅` DOUBLE COMMENT '振幅',
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
             `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-	        UNIQUE KEY uk_code_date (`代码`, `日期`),
-	        INDEX idx_date (`日期`)
-	    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Forex Hist Em'
-	    """
+            UNIQUE KEY uk_code_date (`代码`, `日期`),
+            INDEX idx_date (`日期`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Forex Hist Em'
+        """
 
     def _fetch_daily_from_trends(self, symbol):
         market_code = symbol_market_map.get(symbol)

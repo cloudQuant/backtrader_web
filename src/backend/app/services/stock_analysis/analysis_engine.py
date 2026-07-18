@@ -245,7 +245,9 @@ class StockAnalysisEngine:
                 base_url=preference.base_url if preference else str(self.settings.AI_CHAT_BASE_URL),
                 api_key=preference.api_key if preference else str(self.settings.AI_CHAT_API_KEY),
                 timeout=float(getattr(self.settings, "AI_CHAT_TIMEOUT", 60.0) or 60.0),
-                temperature=min(float(getattr(self.settings, "AI_CHAT_TEMPERATURE", 0.2) or 0.2), 0.2),
+                temperature=min(
+                    float(getattr(self.settings, "AI_CHAT_TEMPERATURE", 0.2) or 0.2), 0.2
+                ),
             )
             if not response.content:
                 raise ValueError("AI provider returned empty stock analysis stage")

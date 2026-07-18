@@ -25,6 +25,17 @@ from sqlalchemy.pool import StaticPool
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite://")
 os.environ.setdefault("SQL_ECHO", "false")
 os.environ.setdefault("ADMIN_PASSWORD", "TestAdmin@12345")
+# Keep rate-limit assertions independent of a developer's permissive local
+# `.env` values.  These are the documented security defaults exercised by the
+# auth and header integration tests.
+os.environ["RATE_LIMIT_REGISTER"] = "5/hour"
+os.environ["RATE_LIMIT_LOGIN"] = "10/minute"
+# Tests must never inherit a developer's configured AI endpoint or credentials.
+# Individual provider tests patch their own settings explicitly.
+os.environ["AI_CHAT_ENABLED"] = "false"
+os.environ["AI_CHAT_BASE_URL"] = ""
+os.environ["AI_CHAT_API_KEY"] = ""
+os.environ["AI_CHAT_MODEL"] = ""
 _TEST_LOG_DIR = Path(tempfile.mkdtemp(prefix="backtrader_web_pytest_logs_"))
 os.environ["LOG_DIR"] = str(_TEST_LOG_DIR)
 
@@ -58,6 +69,7 @@ for module_name in [
     importlib.import_module(module_name).async_session_maker = _test_session_maker
 
 app = importlib.import_module("app.main").app
+_ai_log_module = importlib.import_module("app.services.ai_observability.logger")
 
 
 # ==================== Database Fixtures ====================
@@ -99,6 +111,12 @@ def disable_live_gateway_restore(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def isolate_ai_provider_config(monkeypatch, tmp_path):
+    """Keep provider-catalog tests independent of a developer's local overrides."""
+    monkeypatch.setenv("AI_PROVIDER_CONFIG_PATH", str(tmp_path / "ai_provider_config.json"))
+
+
+@pytest.fixture(autouse=True)
 async def setup_db():
     """Rebuild all tables before each test, cleanup after."""
     limiter.reset()
@@ -107,6 +125,12 @@ async def setup_db():
     async with _test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
+    sink = _ai_log_module._default_sink
+    if sink is not None:
+        try:
+            await sink.shutdown()
+        finally:
+            _ai_log_module._default_sink = None
     async with _test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     limiter.reset()

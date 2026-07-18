@@ -42,51 +42,26 @@ first slice.
 
 ### 3. Real third-party credentials committed to git (runtime data files)
 
-- **Where**:
-  - developer-local `.env` and `strategies/simulate/*/.env` (never committed — OK)
-  - **`src/backend/data/manual_gateways.json` + `manual_gateways/*/config.json`,
-    `sync_config.json`, `sync_history.json`** — these **WERE committed and tracked**.
-- **Symptom**: real OKX / Binance / HTX / CTP / MT5 / IB keys, passphrases and
-  account passwords, plus production MySQL root passwords (local + remote
-  `43.167.221.188`) live in git, both in the working tree and **in history**.
-- **Status (updated 2026-05-31, iteration 177 §D)**: The earlier note "`.env`
-  was never committed, so this is not a code fix" was **only half right**.
-  iteration-177's new gitleaks gate surfaced ~114 history findings, the bulk of
-  them the real credentials above. The original `.gitignore` rule
-  `data/manual_gateways.json` had the wrong path prefix (actual files are under
-  `src/backend/data/`) so it never matched.
-  - **Code-side done (177 §D)**: `git rm --cached` untracked all the runtime
-    secret/state files (disk copies kept; loaders recreate on demand with
-    `is_file()` fallbacks). `.gitignore` corrected to cover the real paths.
-    gitleaks pre-commit hook + CI `secret-scan` job (advisory full-history +
-    **blocking PR-diff**) added so no NEW secret can land. See
-    `docs/iterations/迭代177-质量门禁修复与安全纵深/CLOSURE.md` §5.
-- **⛔ STILL OPEN — P0 ops (cannot be done in-repo, needs owner + team)**:
-  1. Rotate every exposed key/secret/passphrase/password at the provider.
-  2. Purge git history (`git filter-repo`/BFG) + force-push, notify all
-     collaborators to re-clone.
-  3. After history is clean, flip the `secret-scan` full-history step from
-     advisory to blocking.
-- **Code-side prep done (178 §A)**: the ops actions above now have ready-to-run
-  tooling so the owner can execute without improvising:
-  - `scripts/ops/purge_secret_history.sh` — `git filter-repo` wrapper with a
-    `--dry-run` (lists the 7 leaked paths) and a guarded `--execute`
-    (refuses unless rotation + collaborator coordination are confirmed).
-  - `docs/iterations/迭代178-安全纵深收口与质量债治理/ROTATION_RUNBOOK.md` — per-provider
-    rotation checklist + history-purge + force-push + collaborator re-clone steps.
-  - CI flip is now gated by a single repo variable: set
-    `SECRET_SCAN_HISTORY_BLOCKING=true` after the purge to make the full-history
-    `secret-scan` step blocking (no code change needed). See
-    `.github/workflows/ci.yml`.
-- **Re-verified (179 §A, 2026-05-31)**: still OPEN. `git log --all --
-  src/backend/data/manual_gateways.json` still resolves the pre-untrack commits
-  `f575cce6` / `b6d3097a`, so the plaintext credentials remain extractable from
-  history. The 178 tooling is intact (`scripts/ops/purge_secret_history.sh` has
-  the `--dry-run`/guarded `--execute` flags; RUNBOOK present). No new code-side
-  work is possible here — the owner rotation + history rewrite is the only
-  remaining action.
-- **Effort**: 2–4 hours of rotations + a coordinated history rewrite (ops,
-  outside this repo).
+- **Current tree**: runtime credential/state files are untracked and ignored;
+  `ibkr_cookies.json` is replaced by a placeholder-only example. Blocking PR
+  scanning prevents new secrets from landing.
+- **Owner decision (2026-07-18, iteration 183)**: IBKR is paper trading and its
+  historical exposure is accepted. Rewriting history and force-pushing are not
+  required for closure.
+- **Full-history audit**: gitleaks 8.30.1 scanned 485 commits and produced 114
+  findings. The owner confirmed all historical credentials are revoked; all 114
+  audited findings are now recorded by exact fingerprint. The final redacted
+  full-history scan exited 0 with zero findings, and baseline metadata is
+  114/0/ready.
+- **Still open**: publish the changes and retain one passing CI run proving the
+  metadata-driven full-history step is blocking. The repository variable is now
+  only an optional emergency override.
+- **Optional emergency action**: `scripts/ops/purge_secret_history.sh` remains
+  available if the owner later chooses a destructive history rewrite. It is not
+  part of iteration 183's Definition of Done.
+- **Evidence**: `docs/security/gitleaks-history-baseline.md` and
+  `docs/iterations/迭代178-安全纵深收口与质量债治理/ROTATION_RUNBOOK.md`.
+- **Effort**: one published CI run; no collaborator re-clone window is required.
 
 ---
 

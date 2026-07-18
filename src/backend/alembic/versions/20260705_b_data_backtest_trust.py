@@ -95,7 +95,9 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(), nullable=True),
     )
     op.add_column("backtest_results", sa.Column("average_holding_bars", sa.Float(), nullable=True))
-    op.add_column("backtest_results", sa.Column("max_consecutive_wins", sa.Integer(), nullable=True))
+    op.add_column(
+        "backtest_results", sa.Column("max_consecutive_wins", sa.Integer(), nullable=True)
+    )
     op.add_column(
         "backtest_results",
         sa.Column("max_consecutive_losses", sa.Integer(), nullable=True),

@@ -528,9 +528,7 @@ class AITradingService:
         try:
             raw_positions = manager.query_gateway_positions(gateway_id, strict=True)
         except RuntimeError as exc:
-            return self._build_degraded_context(
-                f"网关持仓查询失败，已停止自动交易：{exc}"
-            )
+            return self._build_degraded_context(f"网关持仓查询失败，已停止自动交易：{exc}")
 
         return {
             "account_balance": account_balance,

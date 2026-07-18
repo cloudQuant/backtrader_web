@@ -8,7 +8,7 @@ Option Current Em
 
 import pandas as pd
 from akshare.option.option_em import option_current_cffex_em
-from akshare.stock_feature.stock_hist_em import request_eastmoney
+from akshare.utils.request import request_with_retry as request_eastmoney
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
@@ -113,9 +113,7 @@ class OptionCurrentEm(AkshareToMySql):
                 df[column] = pd.to_numeric(df[column], errors="coerce")
         if {"市场标识", "代码"}.issubset(df.columns):
             df["symbol"] = (
-                df["市场标识"].astype(str).str.strip()
-                + "."
-                + df["代码"].astype(str).str.strip()
+                df["市场标识"].astype(str).str.strip() + "." + df["代码"].astype(str).str.strip()
             )
         elif "代码" in df.columns:
             df["symbol"] = df["代码"].astype(str).str.strip()

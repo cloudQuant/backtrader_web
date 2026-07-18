@@ -33,6 +33,7 @@ from app.services.alert_evaluation import (
 from app.services.backtest_service import BacktestService
 from app.services.live_trading.service import LiveTradingService
 from app.services.paper_trading_service import PaperTradingService
+from app.utils.safe_webhook import open_safe_webhook
 from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -566,7 +567,7 @@ class MonitoringService:
         def _do_request() -> None:
             # Run blocking urlopen in a worker thread; webhooks are best-effort
             # so a 5 s timeout is enough.
-            with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
+            with open_safe_webhook(req, timeout=5) as resp:
                 resp.read()  # drain
 
         try:

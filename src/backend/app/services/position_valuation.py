@@ -1026,9 +1026,7 @@ def contract_spec_for(
             max(open_commission_rate, 0.0) if open_commission_rate is not None else None
         ),
         close_commission_rate=(
-            max(close_commission_rate, 0.0)
-            if close_commission_rate is not None
-            else None
+            max(close_commission_rate, 0.0) if close_commission_rate is not None else None
         ),
         close_today_commission_rate=(
             max(close_today_commission_rate, 0.0)
@@ -1393,9 +1391,9 @@ def _estimate_commission_for_role(
         multiplier,
         inverse_contract=inverse_contract,
     )
-    return notional * _commission_rate_for_role(spec, role) + abs_size * _commission_amount_for_role(
+    return notional * _commission_rate_for_role(
         spec, role
-    )
+    ) + abs_size * _commission_amount_for_role(spec, role)
 
 
 def _compact_symbol(value: Any) -> str:
@@ -1823,7 +1821,9 @@ def _row_commission(
     if inverse_contract:
         effective_entry_price = float(entry_price or 0.0)
     else:
-        fee_base = entry_market_value if entry_market_value and entry_market_value > 0 else market_value
+        fee_base = (
+            entry_market_value if entry_market_value and entry_market_value > 0 else market_value
+        )
         effective_entry_price = (
             fee_base / (abs(size) * effective_multiplier) if abs(size) > EPSILON else 0.0
         )
@@ -2338,11 +2338,7 @@ def value_position(
         inverse_contract=inverse_contract,
     ):
         explicit_gross_pnl = None
-    gross_pnl = (
-        explicit_gross_pnl
-        if explicit_gross_pnl is not None
-        else calculated_gross_pnl
-    )
+    gross_pnl = explicit_gross_pnl if explicit_gross_pnl is not None else calculated_gross_pnl
     commission = _row_commission(
         row,
         row_spec,

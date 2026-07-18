@@ -38,8 +38,8 @@ test.describe('认证功能', () => {
     await page.getByTestId('login-password').fill(credentials.password);
     await page.getByTestId('login-submit').click();
 
-    // 等待错误消息 - Element Plus 使用 el-message
-    await page.waitForTimeout(1000);
+    // Element Plus renders an accessible error message after validation.
+    await expect(page.locator('.el-message--error, [role="alert"]').first()).toBeVisible();
 
     // 验证仍在登录页面
     await expect(page.getByTestId('login-username')).toBeVisible();
@@ -71,12 +71,8 @@ test.describe('认证功能', () => {
     // 提交注册
     await page.getByTestId('register-submit').click();
 
-    // 等待注册完成 - 应该跳转到登录或仪表板
-    await page.waitForTimeout(2000);
-
-    // 验证注册结果 - URL 应该变化
-    const currentUrl = page.url();
-    expect(currentUrl).toMatch(/\/(login|dashboard|strategy)?/);
+    // 注册完成后应跳转到登录或仪表板。
+    await expect(page).toHaveURL(/\/(login|dashboard|strategy)?/);
   });
 
   test('表单验证 - 密码太短', async ({ page }) => {

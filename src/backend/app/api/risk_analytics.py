@@ -1,5 +1,6 @@
 """Risk analytics API routes."""
 
+import typing
 from functools import lru_cache
 from typing import Literal
 
@@ -86,7 +87,7 @@ def get_market_regime_detector() -> MarketRegimeDetector:
 async def get_var_cvar(
     backtest_id: str,
     method: Literal["historical", "parametric", "monte_carlo"] = "historical",
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     var_cvar_service: VarCvarService = Depends(get_var_cvar_service),
 ) -> VarCvarResult:
@@ -111,7 +112,7 @@ async def get_var_cvar(
 async def run_stress_test(
     backtest_id: str,
     request: StressTestRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     stress_test_service: StressTestService = Depends(get_stress_test_service),
 ) -> StressTestResult:
@@ -139,7 +140,7 @@ async def run_stress_test(
 )
 async def get_kelly(
     backtest_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     kelly_service: KellyService = Depends(get_kelly_service),
 ) -> KellyResult:
@@ -166,7 +167,7 @@ async def get_position_sizing(
     target_volatility: float = 0.15,
     max_position: float = 1.0,
     min_observations: int = 5,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     position_sizing_service: PositionSizingService = Depends(get_position_sizing_service),
 ) -> PositionSizingResult:
@@ -197,7 +198,7 @@ async def get_benchmark_returns(
     benchmark_id: str,
     start_date: str,
     end_date: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     benchmark_service: BenchmarkService = Depends(get_benchmark_service),
 ) -> BenchmarkReturnsResult:
     """Fetch benchmark prices and derive return series."""
@@ -213,7 +214,7 @@ async def get_benchmark_metrics(
     backtest_id: str,
     benchmark_id: str = "hs300",
     risk_free_rate: float = 0.0,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     benchmark_service: BenchmarkService = Depends(get_benchmark_service),
     benchmark_metrics_service: BenchmarkMetricsService = Depends(get_benchmark_metrics_service),
@@ -248,7 +249,7 @@ async def get_benchmark_metrics(
 )
 async def get_market_regime(
     backtest_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     detector: MarketRegimeDetector = Depends(get_market_regime_detector),
 ) -> MarketRegimeResult:

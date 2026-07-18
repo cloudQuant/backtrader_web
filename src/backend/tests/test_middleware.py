@@ -18,6 +18,7 @@ from app.middleware.exception_handling import (
     register_exception_handlers,
 )
 from app.middleware.security_headers import add_security_headers
+from app.services.ai_observability.budget import AIBudgetExceededError
 from app.utils.exceptions import (
     InvalidInputError,
     MissingConfigError,
@@ -110,6 +111,35 @@ class TestExceptionHandling:
         content = response.body.decode()
         assert "UserNotFoundError" in content
         assert "test-123" in content
+
+    @pytest.mark.asyncio
+    async def test_handle_budget_error_as_rate_limit(self):
+        """The AI budget domain error is mapped to HTTP only at the API boundary."""
+
+        class MockURL:
+            path = "/api/v1/ai/chat"
+
+        class MockState:
+            request_id = "budget-123"
+
+        class MockRequest:
+            url = MockURL()
+            state = MockState()
+
+        from datetime import datetime, timezone
+
+        response = await handle_base_app_error(
+            MockRequest(),
+            AIBudgetExceededError(
+                reason_code="budget_exceeded",
+                limit_usd=0.01,
+                used_usd=0.02,
+                reset_at=datetime.now(timezone.utc),
+            ),
+        )
+
+        assert response.status_code == 429
+        assert "budget_exceeded" in response.body.decode()
 
     @pytest.mark.asyncio
     async def test_handle_validation_error(self):

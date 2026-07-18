@@ -366,9 +366,7 @@ class StockAnalysisTaskService:
             )
         )
 
-    async def cancel_task(
-        self, *, user_id: str, task_id: str
-    ) -> StockAnalysisTaskModel | None:
+    async def cancel_task(self, *, user_id: str, task_id: str) -> StockAnalysisTaskModel | None:
         task = await self.get_task(user_id=user_id, task_id=task_id)
         if task is None:
             return None
@@ -396,9 +394,7 @@ class StockAnalysisTaskService:
         await self.db.refresh(task)
         return task
 
-    async def retry_task(
-        self, *, user_id: str, task_id: str
-    ) -> StockAnalysisTaskModel | None:
+    async def retry_task(self, *, user_id: str, task_id: str) -> StockAnalysisTaskModel | None:
         task = await self.get_task(user_id=user_id, task_id=task_id)
         if task is None:
             return None
@@ -437,9 +433,7 @@ class StockAnalysisTaskService:
             )
         ).scalar_one_or_none()
 
-    async def get_report(
-        self, *, user_id: str, report_id: str
-    ) -> StockAnalysisReportModel | None:
+    async def get_report(self, *, user_id: str, report_id: str) -> StockAnalysisReportModel | None:
         return (
             await self.db.execute(
                 select(StockAnalysisReportModel).where(

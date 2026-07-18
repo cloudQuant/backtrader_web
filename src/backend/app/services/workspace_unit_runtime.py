@@ -80,6 +80,7 @@ def _exactbars_value(value: Any, default: bool | int = True) -> bool | int:
     except (TypeError, ValueError):
         return _bool_value(value, bool(default))
 
+
 _UNIT_RUN_PY = textwrap.dedent(
     """
     from __future__ import annotations
@@ -986,8 +987,7 @@ def _asset_type_from_symbol(symbol: Any) -> str | None:
     if normalized.endswith(futures_suffixes):
         return "future"
     if any(
-        normalized.startswith(prefix)
-        and any(ch.isdigit() for ch in normalized[len(prefix) :])
+        normalized.startswith(prefix) and any(ch.isdigit() for ch in normalized[len(prefix) :])
         for prefix in futures_prefixes
     ):
         return "future"
@@ -1017,7 +1017,10 @@ def _asset_type_for_unit_config(
         alias = _asset_type_alias(value)
         if alias:
             return alias
-    return _asset_type_from_symbol(symbol or data_cfg.get("symbol") or template.get("symbol")) or "future"
+    return (
+        _asset_type_from_symbol(symbol or data_cfg.get("symbol") or template.get("symbol"))
+        or "future"
+    )
 
 
 def _trading_data_type_for_asset(asset_type: str) -> str:
@@ -1278,8 +1281,15 @@ def _build_trading_unit_config(
     data_section = dict(template_config.get("data") or {})
     data_config = _normalize_unit_data_config(unit.data_config)
     data_section.update(data_config)
-    if unit.symbol:
-        data_section["symbol"] = unit.symbol
+    # ``unit.symbol`` is the user-facing asset code.  Gateways can require a
+    # different, unambiguous identifier at execution time (for example an IB
+    # Client Portal conid).  Keep the display code intact on the unit while
+    # allowing the runtime feed and the live runner to use that identifier.
+    trade_symbol = str(data_config.get("trade_symbol") or unit.symbol or "").strip()
+    if trade_symbol:
+        data_section["symbol"] = trade_symbol
+    if unit.symbol and trade_symbol != str(unit.symbol):
+        data_section["display_symbol"] = unit.symbol
     if unit.symbol_name:
         data_section["symbol_name"] = unit.symbol_name
     if unit.timeframe:
@@ -1290,7 +1300,8 @@ def _build_trading_unit_config(
         data_section["category"] = unit.category
     unit_settings = dict(unit.unit_settings or {})
     asset_type = _asset_type_for_unit_config(
-        category=unit.category or str(data_section.get("data_type") or data_section.get("asset_type") or ""),
+        category=unit.category
+        or str(data_section.get("data_type") or data_section.get("asset_type") or ""),
         symbol=unit.symbol or data_section.get("symbol"),
         data_config=data_config,
         unit_settings=unit_settings,
@@ -1322,8 +1333,8 @@ def _build_trading_unit_config(
         template_config["simulate"] = simulate_section
 
     live_section = dict(template_config.get("live") or {})
-    if unit.symbol:
-        live_section["symbol"] = unit.symbol
+    if trade_symbol:
+        live_section["symbol"] = trade_symbol
     bar_seconds = _timeframe_to_bar_seconds(unit.timeframe, unit.timeframe_n)
     if bar_seconds is not None:
         live_section["bar_seconds"] = bar_seconds

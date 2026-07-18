@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import typing
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,9 +23,9 @@ def get_strategy_score_service() -> StrategyScoreService:
 @router.post("/score", response_model=StrategyScoreResponse, summary="Create strategy score")
 async def create_strategy_score(
     data: StrategyScoreRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: StrategyScoreService = Depends(get_strategy_score_service),
-):
+) -> typing.Any:
     """Create or refresh a strategy score."""
     try:
         return await service.score_backtest(
@@ -43,9 +44,9 @@ async def create_strategy_score(
 )
 async def get_strategy_score(
     backtest_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: StrategyScoreService = Depends(get_strategy_score_service),
-):
+) -> typing.Any:
     """Get persisted strategy score by backtest id."""
     result = await service.get_score_by_backtest_id(backtest_id, user_id=current_user.sub)
     if result is None:

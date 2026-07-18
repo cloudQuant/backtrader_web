@@ -1,3 +1,5 @@
+import typing
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,15 +11,17 @@ from app.services.quant_tools import get_quant_tools_service
 router = APIRouter(prefix="/quant-tools", tags=["Quant Tools"])
 
 
-@router.get("")
-async def list_tools(current_user=Depends(get_current_user)):
+@router.get("", response_model=None)
+async def list_tools(current_user: typing.Any = Depends(get_current_user)) -> typing.Any:
     return get_quant_tools_service().list_tools()
 
 
-@router.post("/call")
+@router.post("/call", response_model=None)
 async def call_tool(
-    payload: dict, db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)
-):
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: typing.Any = Depends(get_current_user),
+) -> typing.Any:
     status_code, body = await get_quant_tools_service().call_tool(
         db,
         user_id=current_user.sub,
@@ -29,10 +33,12 @@ async def call_tool(
     return JSONResponse(status_code=status_code, content=body)
 
 
-@router.post("/chat-simulate")
+@router.post("/chat-simulate", response_model=None)
 async def chat_simulate(
-    payload: dict, db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)
-):
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: typing.Any = Depends(get_current_user),
+) -> typing.Any:
     status_code, body = await get_quant_tools_service().simulate_chat(
         db,
         user_id=current_user.sub,

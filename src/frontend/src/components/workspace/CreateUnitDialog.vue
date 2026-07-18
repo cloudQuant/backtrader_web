@@ -192,14 +192,14 @@
                   :disabled="form.symbols.length <= 1"
                   @click="form.symbols.splice(index, 1)"
                 >
-                  <el-icon><Delete /></el-icon>
+                  <el-icon aria-hidden="true"><Delete /></el-icon>
                 </el-button>
               </div>
               <el-button
                 size="small"
                 @click="form.symbols.push({ code: '', name: '' })"
               >
-                <el-icon class="mr-1">
+                <el-icon class="mr-1" aria-hidden="true">
                   <Plus />
                 </el-icon>{{ t('unitDialog.addSymbol') }}
               </el-button>

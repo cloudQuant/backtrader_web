@@ -4,10 +4,9 @@ Sandbox security execution tests.
 
 from unittest.mock import patch
 
-import backtrader as bt
 import pytest
 
-from app.utils.sandbox import DockerSandbox, StrategySandbox, execute_strategy_safely
+from app.utils.sandbox import DockerSandbox, StrategySandbox, bt, execute_strategy_safely
 
 VALID_STRATEGY = """
 class MyStrategy(bt.Strategy):
@@ -171,9 +170,8 @@ class TestCreateSafeGlobals:
 
     def test_safe_globals_has_bt(self):
         g = StrategySandbox._create_safe_globals()
-        import backtrader as bt
 
-        assert g["bt"] is bt
+        assert g["bt"] is StrategySandbox._safe_import("bt")
 
     def test_safe_globals_has_safe_import(self):
         g = StrategySandbox._create_safe_globals()
@@ -227,9 +225,8 @@ class TestSafeImport:
     def test_allowed_import_backtrader(self):
         """Test allowed import of the canonical backtrader module name."""
         result = StrategySandbox._safe_import("backtrader")
-        import backtrader
 
-        assert result is backtrader
+        assert result is StrategySandbox._ALLOWED_MODULES["backtrader"]
 
     def test_disallowed_import_socket(self):
         """Test disallowed import of socket."""

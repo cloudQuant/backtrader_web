@@ -269,8 +269,9 @@ def clash_api_add_direct_rules(
     ips: list[str],
     logger: Any,
     *,
-    find_controller: Callable[[], tuple[str, str] | tuple[None, None]]
-    = find_clash_external_controller,
+    find_controller: Callable[
+        [], tuple[str, str] | tuple[None, None]
+    ] = find_clash_external_controller,
 ) -> bool:
     """Try to add DIRECT rules for IPs via Clash external controller API."""
     base_url, secret = find_controller()
@@ -324,8 +325,9 @@ def ensure_ctp_direct_routes(
     extract_ips: Callable[..., list[str]] = extract_ips_from_fronts,
     add_bypass_file: Callable[[list[str], Any], bool] = add_ips_to_proxy_bypass_file,
     add_clash_rules: Callable[[list[str], Any], bool] = clash_api_add_direct_rules,
-    get_default_gateway: Callable[[], tuple[str, str] | tuple[None, None]]
-    = get_macos_default_gateway,
+    get_default_gateway: Callable[
+        [], tuple[str, str] | tuple[None, None]
+    ] = get_macos_default_gateway,
     add_direct_route: Callable[[str, str, str, Any], bool] = add_direct_route_for_ip,
 ) -> None:
     """Bypass active TUN proxy routes for CTP server IPs."""

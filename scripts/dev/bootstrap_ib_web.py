@@ -8,40 +8,54 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BACKEND_DIR = PROJECT_ROOT / "src" / "backend"
 BT_API_PY_DIR = PROJECT_ROOT.parent / "bt_api_py"
+BT_API_IB_WEB_SRC = PROJECT_ROOT.parent / "bt_api_ib_web" / "src"
 BACKEND_ENV_FILE = BACKEND_DIR / ".env"
 
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 if str(BT_API_PY_DIR) not in sys.path:
     sys.path.insert(0, str(BT_API_PY_DIR))
+if BT_API_IB_WEB_SRC.is_dir() and str(BT_API_IB_WEB_SRC) not in sys.path:
+    sys.path.insert(0, str(BT_API_IB_WEB_SRC))
 
 
 def load_backend_env_file() -> None:
-    if not BACKEND_ENV_FILE.is_file():
-        return
-    for raw_line in BACKEND_ENV_FILE.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    inherited_keys = set(os.environ)
+    for env_file in (BACKEND_ENV_FILE, PROJECT_ROOT / ".env"):
+        if not env_file.is_file():
             continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        if not key:
-            continue
-        value = value.strip()
-        if value and len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-            value = value[1:-1]
-        os.environ.setdefault(key, value)
+        for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            if not key:
+                continue
+            value = value.strip()
+            if value and len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                value = value[1:-1]
+            # Explicit process environment variables take priority. The root
+            # .env file otherwise overrides backend defaults for local setup.
+            if key not in inherited_keys:
+                os.environ[key] = value
 
 
 load_backend_env_file()
 
 from app.config import get_settings
 from app.services import manual_gateway_service
-from bt_api_py.functions import ib_web_session as ib_web_session_helpers
+try:
+    from bt_api_py.functions import ib_web_session as ib_web_session_helpers
+except ModuleNotFoundError as exc:
+    if exc.name not in {"bt_api_py", "bt_api_py.functions", "bt_api_py.functions.ib_web_session"}:
+        raise
+    from bt_api_ib_web.runtime import session as ib_web_session_helpers
 
 
 def parse_args() -> argparse.Namespace:
@@ -212,6 +226,47 @@ def build_browser_login_settings(
     )
 
 
+def _gateway_origin(base_url: str) -> str:
+    parsed = urlparse(base_url)
+    return f"{parsed.scheme or 'https'}://{parsed.netloc or 'localhost:5000'}"
+
+
+def _set_login_mode(page: Any, login_mode: str) -> None:
+    """Toggle Client Portal's paper/live switch only when it differs from the request."""
+    switch = page.locator("input[name='paperSwitch']")
+    if switch.count() != 1:
+        return
+    is_paper = switch.is_checked()
+    wants_paper = login_mode.strip().lower() == "paper"
+    if is_paper != wants_paper:
+        page.locator("label[for='toggle1']").click(force=True)
+
+
+def _fill_credentials(page: Any, username: str, password: str) -> None:
+    page.locator("input[name='username'], input[id='xyz-field-username']").first.fill(username)
+    page.locator("input[name='password'], input[id='xyz-field-password']").first.fill(password)
+
+
+def _submit_login(page: Any) -> None:
+    submit = page.locator("button[type='submit']:visible, input[type='submit']:visible")
+    if submit.count() == 0:
+        raise RuntimeError("IB Client Portal login form has no visible submit control")
+    submit.first.click()
+
+
+def _cookie_dict_from_context(context: Any, origin: str) -> dict[str, str]:
+    return {
+        str(cookie["name"]): str(cookie["value"])
+        for cookie in context.cookies(origin)
+        if cookie.get("name") and cookie.get("value")
+    }
+
+
+def _response_is_authenticated(response: Any) -> bool:
+    checker = getattr(ib_web_session_helpers, "auth_response_is_authenticated", None)
+    return bool(checker(response)) if checker is not None else response.status_code == 200
+
+
 def login_and_save_cookies_resilient(settings: dict[str, Any]) -> dict[str, Any]:
     username = str(settings.get("username") or "")
     password = str(settings.get("password") or "")
@@ -238,7 +293,7 @@ def login_and_save_cookies_resilient(settings: dict[str, Any]) -> dict[str, Any]
         cookie_output,
         base_dir=settings.get("cookie_base_dir"),
     )
-    origin = ib_web_session_helpers.gateway_origin(base_url)
+    origin = _gateway_origin(base_url)
     login_url = f"{origin}/sso/Login?forwardTo=22&RL=1&ip2loc=US"
     with sync_playwright() as playwright:
         browser_type = playwright.chromium
@@ -279,18 +334,17 @@ def login_and_save_cookies_resilient(settings: dict[str, Any]) -> dict[str, Any]
             raise RuntimeError(
                 "Unable to open IB Client Portal login page: " + " | ".join(navigation_errors)
             )
-        mode_changed = ib_web_session_helpers._click_mode(page, login_mode)
-        if mode_changed:
-            page.wait_for_timeout(1000)
-        ib_web_session_helpers._fill_credentials(page, username, password)
+        _set_login_mode(page, login_mode)
+        page.wait_for_timeout(500)
+        _fill_credentials(page, username, password)
         page.wait_for_timeout(300)
-        ib_web_session_helpers._submit_login(page)
+        _submit_login(page)
         deadline = time.time() + launch_timeout
         cookies: dict[str, str] = {}
         last_status = None
         while time.time() < deadline:
             page.wait_for_timeout(2000)
-            cookies = ib_web_session_helpers._cookie_dict_from_context(context, origin)
+            cookies = _cookie_dict_from_context(context, origin)
             if not cookies:
                 continue
             try:
@@ -303,7 +357,7 @@ def login_and_save_cookies_resilient(settings: dict[str, Any]) -> dict[str, Any]
             except ib_web_session_helpers.requests.RequestException:
                 continue
             last_status = response.status_code
-            if response.status_code != 200:
+            if not _response_is_authenticated(response):
                 continue
             try:
                 accounts = ib_web_session_helpers.fetch_accounts(
@@ -325,7 +379,7 @@ def login_and_save_cookies_resilient(settings: dict[str, Any]) -> dict[str, Any]
                 stable = False
                 while time.time() < settle_deadline:
                     page.wait_for_timeout(2000)
-                    refreshed_cookies = ib_web_session_helpers._cookie_dict_from_context(context, origin)
+                    refreshed_cookies = _cookie_dict_from_context(context, origin)
                     if not refreshed_cookies:
                         continue
                     try:
@@ -337,7 +391,7 @@ def login_and_save_cookies_resilient(settings: dict[str, Any]) -> dict[str, Any]
                         )
                     except ib_web_session_helpers.requests.RequestException:
                         continue
-                    if stable_response.status_code != 200:
+                    if not _response_is_authenticated(stable_response):
                         continue
                     try:
                         stable_accounts = ib_web_session_helpers.fetch_accounts(

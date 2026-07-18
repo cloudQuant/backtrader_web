@@ -38,7 +38,9 @@ def _read_heartbeat(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _wait_for_heartbeat(path: Path, *, status: str | None = None, after_timestamp: float | None = None) -> dict:
+def _wait_for_heartbeat(
+    path: Path, *, status: str | None = None, after_timestamp: float | None = None
+) -> dict:
     deadline = time.monotonic() + 2.0
     last_payload: dict = {}
     while time.monotonic() < deadline:
@@ -140,35 +142,29 @@ def test_gateway_runner_store_configs_include_strategy_identity(monkeypatch):
         monkeypatch.delenv("BT_TRADING_INSTANCE_ID", raising=False)
 
         assert (
-            module._merge_gateway_env_config(
-                config, "ctp_gateway", "CTP", "FUTURE"
-            )["config"]["strategy_id"]
-            == "unit-42"
-        )
-        assert (
-            module._build_ctp_store_config(config, "ctp_gateway", "FUTURE")["config"][
+            module._merge_gateway_env_config(config, "ctp_gateway", "CTP", "FUTURE")["config"][
                 "strategy_id"
             ]
             == "unit-42"
         )
         assert (
-            module._build_ib_store_config(config, "ib_gateway", "STK")["config"][
-                "strategy_id"
-            ]
+            module._build_ctp_store_config(config, "ctp_gateway", "FUTURE")["config"]["strategy_id"]
             == "unit-42"
         )
         assert (
-            module._build_mt5_store_config(config, "mt5_gateway", "OTC")["config"][
-                "strategy_id"
-            ]
+            module._build_ib_store_config(config, "ib_gateway", "STK")["config"]["strategy_id"]
+            == "unit-42"
+        )
+        assert (
+            module._build_mt5_store_config(config, "mt5_gateway", "OTC")["config"]["strategy_id"]
             == "unit-42"
         )
 
         monkeypatch.setenv("BT_TRADING_INSTANCE_ID", "inst-42")
         assert (
-            module._merge_gateway_env_config(
-                config, "ctp_gateway", "CTP", "FUTURE"
-            )["config"]["strategy_id"]
+            module._merge_gateway_env_config(config, "ctp_gateway", "CTP", "FUTURE")["config"][
+                "strategy_id"
+            ]
             == "inst-42"
         )
 
@@ -332,11 +328,18 @@ def test_gateway_runner_resolves_heartbeat_interval_from_config():
 def test_mt5_runner_defaults_to_memory_bounded_headless_live_mode():
     module = _load_runner("mt5_eurusd_ma_cross")
 
-    assert module._resolve_heartbeat_interval({"logging": {"heartbeat_interval_seconds": "8"}}) == 8.0
+    assert (
+        module._resolve_heartbeat_interval({"logging": {"heartbeat_interval_seconds": "8"}}) == 8.0
+    )
     assert module._resolve_feed_qcheck({}) == 0.5
     assert module._resolve_log_ticks({}) is False
     assert module._resolve_trade_logger_option({}, "log_indicators", False) is False
-    assert module._resolve_trade_logger_option({"logging": {"log_indicators": "1"}}, "log_indicators", False) is True
+    assert (
+        module._resolve_trade_logger_option(
+            {"logging": {"log_indicators": "1"}}, "log_indicators", False
+        )
+        is True
+    )
     assert module._resolve_dispatch_ticks({}) is False
     assert module._resolve_exactbars({}) is True
     assert module._resolve_stdstats({}) is False

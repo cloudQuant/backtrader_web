@@ -596,11 +596,39 @@ def _swap_url_scheme(base_url: str, scheme: str) -> str:
 
 
 def _import_ib_web_session_helpers() -> tuple[Any, Any, Any]:
-    from bt_api_py.functions.ib_web_session import (
-        auth_status,
-        ensure_authenticated_session,
-        upsert_env_file,
-    )
+    try:
+        from bt_api_py.functions.ib_web_session import (
+            auth_status,
+            ensure_authenticated_session,
+            upsert_env_file,
+        )
+    except ModuleNotFoundError as exc:
+        if exc.name not in {
+            "bt_api_py",
+            "bt_api_py.functions",
+            "bt_api_py.functions.ib_web_session",
+        }:
+            raise
+        ib_web_source = Path(__file__).resolve().parents[5].parent / "bt_api_ib_web" / "src"
+        if ib_web_source.is_dir() and str(ib_web_source) not in sys.path:
+            sys.path.insert(0, str(ib_web_source))
+        from bt_api_ib_web.runtime.session import auth_status, ensure_authenticated_session
+
+        def upsert_env_file(env_file: Path, updates: dict[str, str]) -> None:
+            """Persist IB session settings when using the standalone runtime package."""
+            path = Path(env_file)
+            existing = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+            remaining = dict(updates)
+            result: list[str] = []
+            for line in existing:
+                key = line.split("=", 1)[0].strip() if "=" in line else ""
+                if key in remaining:
+                    result.append(f"{key}={remaining.pop(key)}")
+                else:
+                    result.append(line)
+            result.extend(f"{key}={value}" for key, value in remaining.items())
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("\n".join(result) + "\n", encoding="utf-8")
 
     return auth_status, ensure_authenticated_session, upsert_env_file
 
@@ -2274,8 +2302,7 @@ def _looks_like_order_row(row: dict[str, Any]) -> bool:
         )
     )
     has_status = any(
-        row.get(key) not in (None, "")
-        for key in ("status", "order_status", "OrderStatus", "state")
+        row.get(key) not in (None, "") for key in ("status", "order_status", "OrderStatus", "state")
     )
     has_size = any(
         row.get(key) not in (None, "")
@@ -2432,19 +2459,11 @@ def _order_owner_id(runtime: Any, row: dict[str, Any]) -> str:
 
 def _cancel_order_payload(row: dict[str, Any]) -> dict[str, Any]:
     payload = dict(row)
-    symbol = (
-        row.get("data_name")
-        or row.get("instrument")
-        or row.get("symbol")
-        or row.get("instId")
-    )
+    symbol = row.get("data_name") or row.get("instrument") or row.get("symbol") or row.get("instId")
     payload.setdefault("symbol", symbol)
     payload.setdefault(
         "data_name",
-        row.get("symbol")
-        or row.get("instrument")
-        or row.get("data_name")
-        or row.get("instId"),
+        row.get("symbol") or row.get("instrument") or row.get("data_name") or row.get("instId"),
     )
     payload.setdefault(
         "order_id",
@@ -2465,7 +2484,9 @@ def _cancel_order_payload(row: dict[str, Any]) -> dict[str, Any]:
         or row.get("clOrdId")
     )
     payload.setdefault("client_order_id", client_order_id)
-    payload.setdefault("order_ref", row.get("order_ref") or row.get("ctp_order_ref") or client_order_id)
+    payload.setdefault(
+        "order_ref", row.get("order_ref") or row.get("ctp_order_ref") or client_order_id
+    )
     return payload
 
 

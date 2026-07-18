@@ -84,10 +84,7 @@ class FundAumHistEm(AkshareToMySql):
 
             # 生成唯一ID
             df["R_ID"] = (
-                "FAHE_"
-                + df["YEAR"].astype(str)
-                + "_"
-                + df["COMPANY_NAME"].str[:30].str.upper()
+                "FAHE_" + df["YEAR"].astype(str) + "_" + df["COMPANY_NAME"].str[:30].str.upper()
             )
 
             # 选择需要的列并重新排序

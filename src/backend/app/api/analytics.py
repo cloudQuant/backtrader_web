@@ -6,9 +6,9 @@ import csv
 import io
 import json
 import logging
+import typing
 from datetime import datetime
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,8 +17,6 @@ from sqlalchemy import select
 
 from app.api.deps import get_current_user
 from app.db.database import async_session_maker
-from app.db.sql_repository import SQLRepository
-from app.models.backtest import BacktestTask
 from app.models.workspace import StrategyUnit, Workspace
 from app.schemas.analytics import (
     BacktestDetailResponse,
@@ -26,10 +24,9 @@ from app.schemas.analytics import (
     MonthlyReturnsResponse,
 )
 from app.services.analytics_service import AnalyticsService
+from app.services.backtest.logs import resolve_log_dir as _resolve_log_dir
 from app.services.backtest_service import BacktestService
-from app.services.log_parser_service import find_latest_log_dir, parse_data_log, parse_value_log
-from app.services.strategy.runtime_support import has_log_artifacts, latest_meaningful_log_subdir
-from app.services.strategy_service import get_strategy_dir
+from app.services.log_parser_service import parse_data_log, parse_value_log
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +34,12 @@ router = APIRouter()
 
 
 @lru_cache
-def get_analytics_service():
+def get_analytics_service() -> typing.Any:
     return AnalyticsService()
 
 
 @lru_cache
-def get_backtest_service():
+def get_backtest_service() -> typing.Any:
     return BacktestService()
 
 
@@ -55,40 +52,6 @@ def _normalize_chart_date(value: Any) -> str:
     if "T" in text:
         return text.split("T")[0]
     return text
-
-
-async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
-    """Resolve a task log directory (prefer DB log_dir, fallback to latest).
-
-    Args:
-        task_id: The unique identifier for the backtest task.
-        strategy_id: The strategy identifier.
-
-    Returns:
-        Path to the log directory.
-    """
-    try:
-        task_repo = SQLRepository(BacktestTask)
-        task = await task_repo.get_by_id(task_id)
-        if task and getattr(task, "log_dir", None):
-            p = Path(task.log_dir)
-            if p.is_dir() and has_log_artifacts(p):
-                return p
-            logs_root = p.parent if p.parent.is_dir() else None
-            latest_sibling = latest_meaningful_log_subdir(logs_root) if logs_root else None
-            if latest_sibling is not None:
-                return latest_sibling
-            if p.is_dir() and p.parent.is_dir() and has_log_artifacts(p.parent):
-                return p.parent
-    except Exception as e:
-        # Task lookup failed; fallback to strategy dir
-        logger.debug("Task log dir lookup failed: %s", e)
-    # Fallback: compatible with old tasks
-    try:
-        strategy_dir = get_strategy_dir(strategy_id)
-    except ValueError:
-        return None
-    return find_latest_log_dir(strategy_dir)
 
 
 async def _resolve_strategy_display_name(
@@ -390,10 +353,10 @@ async def get_backtest_data(
 @router.get("/{task_id}/detail", response_model=BacktestDetailResponse)
 async def get_backtest_detail(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AnalyticsService = Depends(get_analytics_service),
     backtest_service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Get detailed backtest results including metrics and curves.
 
     Args:
@@ -448,10 +411,10 @@ async def get_kline_with_signals(
     task_id: str,
     start_date: str | None = None,
     end_date: str | None = None,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AnalyticsService = Depends(get_analytics_service),
     backtest_service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Get K-line data with trading signals for chart visualization.
 
     Args:
@@ -518,10 +481,10 @@ async def get_kline_with_signals(
 @router.get("/{task_id}/monthly-returns", response_model=MonthlyReturnsResponse)
 async def get_monthly_returns(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AnalyticsService = Depends(get_analytics_service),
     backtest_service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Get monthly returns data for heatmap visualization.
 
     Args:
@@ -550,11 +513,11 @@ async def get_monthly_returns(
     return service.process_monthly_returns(result["monthly_returns"])
 
 
-@router.get("/{task_id}/optimization")
+@router.get("/{task_id}/optimization", response_model=None)
 async def get_optimization_results(
     task_id: str,
-    current_user=Depends(get_current_user),
-):
+    current_user: typing.Any = Depends(get_current_user),
+) -> typing.Any:
     """Get parameter optimization results for a backtest task.
 
     Note: This backtest task has no associated optimization results.
@@ -574,14 +537,14 @@ async def get_optimization_results(
     )
 
 
-@router.get("/{task_id}/export")
+@router.get("/{task_id}/export", response_model=None)
 async def export_backtest_results(
     task_id: str,
     format: str = "csv",
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AnalyticsService = Depends(get_analytics_service),
     backtest_service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Export backtest results to CSV or JSON format.
 
     Args:

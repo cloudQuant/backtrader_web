@@ -1,5 +1,7 @@
 # AI for Investor 核心目标并行迭代计划
 
+> **验收状态（2026-07-17）**: ❌ 未完成（三方向平均 ~73%，核心闭环可运行）。验收结论见 [`ACCEPTANCE.md`](./ACCEPTANCE.md)；收尾缺口移入 [迭代 184](../../iterations/迭代184-核心目标并行迭代计划验收收尾/PLAN.md)。
+
 ## 一、核心目标
 
 AI for Investor 的核心目标是：

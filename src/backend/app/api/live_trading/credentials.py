@@ -13,6 +13,19 @@ from typing import Any
 
 from app.services.gateway import manual as manual_gateway_service
 
+_SENSITIVE_CREDENTIAL_FIELDS = frozenset(
+    {
+        "access_token",
+        "api_key",
+        "auth_code",
+        "cookie_output",
+        "cookie_source",
+        "passphrase",
+        "password",
+        "secret_key",
+    }
+)
+
 
 def _first_non_empty(*values: Any) -> Any:
     for v in values:
@@ -30,8 +43,33 @@ def _env_or_default(value: Any, *fallbacks: Any) -> Any:
     return ""
 
 
+def _is_configured(value: Any) -> bool:
+    """Return whether a credential value exists without exposing it."""
+    return value not in (None, "")
+
+
+def redact_gateway_credentials(payload: dict[str, Any]) -> dict[str, Any]:
+    """Remove credential material from a gateway-form payload.
+
+    The browser only needs public connection defaults.  It must never receive
+    a password, broker token, API secret, or cookie location merely to decide
+    whether the operator needs to fill a field.  Preserve the existing shape
+    for form compatibility and add a boolean status for UI hints.
+    """
+    result: dict[str, Any] = {}
+    for key, value in payload.items():
+        if isinstance(value, dict):
+            result[key] = redact_gateway_credentials(value)
+        elif key in _SENSITIVE_CREDENTIAL_FIELDS:
+            result[key] = ""
+            result[f"{key}_configured"] = _is_configured(value)
+        else:
+            result[key] = value
+    return result
+
+
 def build_gateway_credentials_payload(env_values: dict[str, str] | None = None) -> dict[str, Any]:
-    """Construct the gateway credential payload from configured settings."""
+    """Construct a redacted gateway-form payload from configured settings."""
     from app.config import get_settings
 
     s = get_settings()
@@ -40,7 +78,7 @@ def build_gateway_credentials_payload(env_values: dict[str, str] | None = None) 
     ib_web_login_mode = str(s.IB_WEB_LOGIN_MODE or "").strip().lower()
     ib_web_default_is_paper = ib_web_login_mode == "paper"
     ib_web_default_is_live = ib_web_login_mode == "live"
-    return {
+    payload = {
         "CTP": {
             "broker_id": s.CTP_BROKER_ID,
             "user_id": s.CTP_USER_ID or s.CTP_INVESTOR_ID,
@@ -319,3 +357,4 @@ def build_gateway_credentials_payload(env_values: dict[str, str] | None = None) 
             "base_url": s.OKX_BASE_URL,
         },
     }
+    return redact_gateway_credentials(payload)

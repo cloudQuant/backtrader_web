@@ -1,8 +1,10 @@
+import asyncio as _asyncio
 import sys
 import time as _time
 from typing import Any
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, status
+from fastapi.responses import JSONResponse
 
 from app.api.backtest_enhanced import websocket_endpoint as stream_backtest_progress
 from app.api.data.topics import websocket_pattern_endpoint as stream_data_topic_pattern
@@ -160,6 +162,75 @@ def register_runtime_routes(
             main_module._health_cache_ts = health_cache_ts
         return result
 
+    @app.get("/ready", summary="Readiness check")
+    async def readiness_check():
+        """Report critical and advisory runtime dependencies for orchestrators.
+
+        Database connectivity is the only blocking dependency. Cache, AI
+        providers, and broker gateways remain visible as advisory signals so a
+        temporarily unavailable optional integration does not cause every
+        deployment replica to be evicted.
+        """
+        from sqlalchemy import text
+
+        from app.db.cache import get_cache
+        from app.db.database import async_session_maker
+        from app.services.ai_router.health import (
+            AIProviderHealthService,
+            build_provider_health_payload,
+        )
+        from app.services.live_trading.manager import get_live_trading_manager
+
+        database_status = "ready"
+        try:
+            async with async_session_maker() as session:
+                await session.execute(text("SELECT 1"))
+        except Exception:
+            logger.exception("Readiness database probe failed")
+            database_status = "unavailable"
+
+        cache_payload: dict[str, Any]
+        try:
+            cache_stats = await _asyncio.wait_for(get_cache().get_stats(), timeout=1.0)
+            cache_payload = {"status": "ready", "details": cache_stats}
+            if cache_stats.get("error"):
+                cache_payload["status"] = "degraded"
+        except Exception:
+            logger.warning("Readiness cache probe failed", exc_info=True)
+            cache_payload = {"status": "degraded", "details": {"error": "unavailable"}}
+
+        try:
+            providers = await _asyncio.wait_for(AIProviderHealthService().check_all(), timeout=2.0)
+            ai_payload = {"status": "ready", **build_provider_health_payload(providers)}
+            if not any(provider.available for provider in providers):
+                ai_payload["status"] = "degraded"
+        except Exception:
+            logger.warning("Readiness AI provider probe failed", exc_info=True)
+            ai_payload = {"status": "degraded", "summary": {"error": "unavailable"}}
+
+        try:
+            gateways = await _asyncio.to_thread(get_live_trading_manager().get_gateway_health)
+            unhealthy = sum(1 for gateway in gateways if not gateway.get("is_healthy", False))
+            broker_payload = {
+                "status": "ready" if not unhealthy else "degraded",
+                "total": len(gateways),
+                "unhealthy": unhealthy,
+            }
+        except Exception:
+            logger.warning("Readiness broker gateway probe failed", exc_info=True)
+            broker_payload = {"status": "degraded", "total": 0, "unhealthy": 0}
+
+        payload = {
+            "status": "ready" if database_status == "ready" else "unavailable",
+            "database": database_status,
+            "cache": cache_payload,
+            "ai_providers": ai_payload,
+            "broker_gateways": broker_payload,
+        }
+        if database_status != "ready":
+            return JSONResponse(content=payload, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return payload
+
     @app.get("/info", summary="System information")
     async def system_info():
         return {
@@ -191,6 +262,7 @@ def register_runtime_routes(
         "_get_root_features": _get_root_features,
         "_reset_feature_flags_cache": _reset_feature_flags_cache,
         "health_check": health_check,
+        "readiness_check": readiness_check,
         "root": root,
         "system_info": system_info,
         "websocket_backtest_progress": websocket_backtest_progress,

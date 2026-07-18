@@ -436,6 +436,10 @@ class TestLogLevelPolicy:
             SECRET_KEY="a" * 32,
             JWT_SECRET_KEY="b" * 32,
             ADMIN_PASSWORD="StrongPass123!",
+            IB_VERIFY_SSL=True,
+            IB_WEB_VERIFY_SSL=True,
+            IB_PAPER_VERIFY_SSL=True,
+            IB_LIVE_VERIFY_SSL=True,
         )
         assert settings.DEBUG is False
         assert settings.LOG_LEVEL == ""

@@ -155,9 +155,7 @@ class TradingRiskGuard:
             and account_balance > 0
             and trade_value is None
         ):
-            blocked_reasons.append(
-                "缺少价格或最新价，无法校验单笔金额和账户仓位比例，禁止自动执行"
-            )
+            blocked_reasons.append("缺少价格或最新价，无法校验单笔金额和账户仓位比例，禁止自动执行")
 
         # Rule 9: Single trade amount limit
         if trade_value and trade_value > self.config.max_single_trade_amount:
@@ -440,9 +438,9 @@ class TradingRiskGuard:
         explicit = cls._explicit_inverse_flag(params)
         if explicit is not None:
             return explicit
-        contract_type = str(
-            params.get("contract_type") or params.get("ctType") or ""
-        ).strip().lower()
+        contract_type = (
+            str(params.get("contract_type") or params.get("ctType") or "").strip().lower()
+        )
         if "inverse" in contract_type:
             return True
         if "linear" in contract_type:

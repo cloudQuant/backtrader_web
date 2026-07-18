@@ -5,6 +5,7 @@ workspace router below the 800-line bar.
 """
 
 import io
+import typing
 import zipfile
 from pathlib import Path
 
@@ -29,13 +30,13 @@ from app.services.workspace_service import WorkspaceService
 router = APIRouter()
 
 
-@router.post("/{workspace_id}/optimize", summary="Submit unit optimization")
+@router.post("/{workspace_id}/optimize", summary="Submit unit optimization", response_model=None)
 async def submit_unit_optimization(
     workspace_id: str,
     data: UnitOptimizationRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> typing.Any:
     """Submit parameter optimization for a strategy unit."""
     result = await service.submit_unit_optimization(workspace_id, current_user.sub, data)
     if result is None:
@@ -47,13 +48,17 @@ async def submit_unit_optimization(
     return result
 
 
-@router.get("/{workspace_id}/optimize/{unit_id}/progress", summary="Unit optimization progress")
+@router.get(
+    "/{workspace_id}/optimize/{unit_id}/progress",
+    summary="Unit optimization progress",
+    response_model=None,
+)
 async def get_unit_optimization_progress(
     workspace_id: str,
     unit_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> typing.Any:
     """Get optimization progress for a strategy unit."""
     progress = await service.get_unit_optimization_progress(workspace_id, current_user.sub, unit_id)
     if progress is None:
@@ -63,13 +68,17 @@ async def get_unit_optimization_progress(
     return progress
 
 
-@router.get("/{workspace_id}/optimize/{unit_id}/results", summary="Unit optimization results")
+@router.get(
+    "/{workspace_id}/optimize/{unit_id}/results",
+    summary="Unit optimization results",
+    response_model=None,
+)
 async def get_unit_optimization_results(
     workspace_id: str,
     unit_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> typing.Any:
     """Get optimization results for a strategy unit."""
     results = await service.get_unit_optimization_results(workspace_id, current_user.sub, unit_id)
     if results is None:
@@ -88,9 +97,9 @@ async def get_unit_optimization_result_detail(
     workspace_id: str,
     unit_id: str,
     result_index: int,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> typing.Any:
     payload = await service.get_unit_optimization_result_payload(
         workspace_id,
         current_user.sub,
@@ -134,9 +143,9 @@ async def get_unit_optimization_result_kline(
     result_index: int,
     start_date: str | None = None,
     end_date: str | None = None,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> typing.Any:
     payload = await service.get_unit_optimization_result_payload(
         workspace_id,
         current_user.sub,
@@ -175,9 +184,9 @@ async def get_unit_optimization_result_monthly_returns(
     workspace_id: str,
     unit_id: str,
     result_index: int,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> typing.Any:
     payload = await service.get_unit_optimization_result_payload(
         workspace_id,
         current_user.sub,
@@ -202,9 +211,9 @@ async def get_unit_optimization_result_artifact(
     workspace_id: str,
     unit_id: str,
     result_index: int,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> typing.Any:
     payload = await service.get_unit_optimization_result_artifact_metadata(
         workspace_id,
         current_user.sub,
@@ -221,14 +230,15 @@ async def get_unit_optimization_result_artifact(
 @router.get(
     "/{workspace_id}/optimize/{unit_id}/results/{result_index}/artifact/download",
     summary="Download persisted optimization artifact archive",
+    response_model=None,
 )
 async def download_unit_optimization_result_artifact(
     workspace_id: str,
     unit_id: str,
     result_index: int,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> typing.Any:
     payload = await service.get_unit_optimization_result_artifact_metadata(
         workspace_id,
         current_user.sub,
@@ -273,13 +283,17 @@ async def download_unit_optimization_result_artifact(
     return StreamingResponse(buffer, media_type="application/zip", headers=headers)
 
 
-@router.post("/{workspace_id}/optimize/{unit_id}/cancel", summary="Cancel unit optimization")
+@router.post(
+    "/{workspace_id}/optimize/{unit_id}/cancel",
+    summary="Cancel unit optimization",
+    response_model=None,
+)
 async def cancel_unit_optimization(
     workspace_id: str,
     unit_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> typing.Any:
     """Cancel a running optimization task for a strategy unit."""
     result = await service.cancel_unit_optimization(workspace_id, current_user.sub, unit_id)
     if result is None:
@@ -289,13 +303,15 @@ async def cancel_unit_optimization(
     return result
 
 
-@router.post("/{workspace_id}/optimize/apply", summary="Apply best optimization params")
+@router.post(
+    "/{workspace_id}/optimize/apply", summary="Apply best optimization params", response_model=None
+)
 async def apply_best_params(
     workspace_id: str,
     data: ApplyBestParamsRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: WorkspaceService = Depends(get_workspace_service),
-):
+) -> typing.Any:
     """Apply best parameters from optimization to a strategy unit."""
     result = await service.apply_best_params(workspace_id, current_user.sub, data)
     if result is None:

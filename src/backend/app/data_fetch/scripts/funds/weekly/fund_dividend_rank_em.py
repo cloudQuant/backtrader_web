@@ -126,9 +126,7 @@ class FundDividendRankEm(AkshareToMySql):
         response = requests.get(url, params=params, timeout=30)
         response.raise_for_status()
         data_text = response.text
-        total_page = ast.literal_eval(data_text[data_text.find("=") + 1 : data_text.find(";")])[
-            0
-        ]
+        total_page = ast.literal_eval(data_text[data_text.find("=") + 1 : data_text.find(";")])[0]
         if max_pages is not None:
             total_page = min(int(max_pages), int(total_page))
 

@@ -64,7 +64,7 @@
             v-if="readmeLoading"
             class="flex justify-center py-8"
           >
-            <el-icon class="is-loading text-2xl">
+            <el-icon class="is-loading text-2xl" aria-hidden="true">
               <Loading />
             </el-icon>
           </div>

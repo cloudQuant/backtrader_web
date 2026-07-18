@@ -10,7 +10,6 @@
  */
 
 const PINIA_AUTH_KEY = 'auth'
-const LEGACY_TOKEN_KEY = 'token'
 export const AUTH_EXPIRED_EVENT = 'auth:expired'
 
 function hasWindow(): boolean {
@@ -20,8 +19,7 @@ function hasWindow(): boolean {
 /**
  * Get the current access token.
  *
- * Reads from sessionStorage (Pinia persisted state) first,
- * falls back to localStorage (legacy) for backward compatibility.
+ * Reads only from the session-scoped Pinia persisted state.
  */
 export function getAccessToken(): string | null {
   if (!hasWindow()) {
@@ -38,33 +36,19 @@ export function getAccessToken(): string | null {
       }
     }
   } catch {
-    // JSON parse error — fall through to legacy
+    // Invalid persisted state is treated as unauthenticated.
   }
 
-  // Fallback: legacy localStorage token (for migration)
-  return window.localStorage.getItem(LEGACY_TOKEN_KEY)
+  return null
 }
 
 /**
- * Deprecated compatibility shim.
- *
- * Tokens are persisted by the auth store in sessionStorage. Do not write new
- * credentials to legacy localStorage; keep this no-op only so older imports do
- * not reintroduce persistent browser token storage.
- */
-export function setAccessToken(_token: string): void {
-  return
-}
-
-/**
- * Clear access token from all storage locations.
+ * Clear access token from the session-scoped Pinia payload.
  */
 export function clearAccessToken(): void {
   if (!hasWindow()) {
     return
   }
-  window.localStorage.removeItem(LEGACY_TOKEN_KEY)
-  // Also clear from sessionStorage (Pinia will handle its own state)
   try {
     const raw = window.sessionStorage.getItem(PINIA_AUTH_KEY)
     if (raw) {

@@ -52,7 +52,9 @@ class OptionHistShfe(AkshareToMySql):
             # Add data_date if not exists
             if "data_date" not in df.columns:
                 parsed = pd.to_datetime(kwargs.get("trade_date"), format="%Y%m%d", errors="coerce")
-                df["data_date"] = parsed.date() if not pd.isna(parsed) else pd.Timestamp.now().date()
+                df["data_date"] = (
+                    parsed.date() if not pd.isna(parsed) else pd.Timestamp.now().date()
+                )
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)

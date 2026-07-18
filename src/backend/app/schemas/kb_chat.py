@@ -85,7 +85,7 @@ class ChatMessageResponse(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def extract_metadata_fields(cls, value):
+    def extract_metadata_fields(cls, value: Any) -> Any:
         if isinstance(value, dict):
             metadata = value.get("metadata") or value.get("metadata_json") or {}
             if isinstance(metadata, dict):
@@ -149,7 +149,7 @@ class KBChatRequest(BaseModel):
         return normalized
 
     @model_validator(mode="after")
-    def require_knowledge_base_for_qa(self):
+    def require_knowledge_base_for_qa(self) -> "KBChatRequest":
         if self.assistant_mode == "knowledge_qa" and not self.knowledge_base_id:
             raise ValueError("knowledge_base_id is required for knowledge_qa")
         return self

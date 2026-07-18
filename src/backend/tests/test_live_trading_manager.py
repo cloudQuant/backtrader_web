@@ -13,6 +13,7 @@ Tests:
 import asyncio
 import json
 import os
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -422,7 +423,7 @@ def test_query_instance_asset_specs_merges_runtime_config_gateway_and_last_price
             side_effect=fake_save_instances,
         ),
         patch(
-            "app.services.trading_asset_info_service._query_local_futures_spec",
+            "app.services.asset_info.gateway_specs._query_local_futures_spec",
             return_value={},
         ),
     ):
@@ -477,12 +478,15 @@ def test_build_subprocess_env_rejects_derivative_spec_missing_margin_and_fee(tmp
         "params": {"symbol": "IF2609"},
     }
 
-    with patch(
-        "app.services.gateway.runtime.wait_gateway_runtime_ready",
-        return_value=None,
-    ), patch(
-        "app.services.trading_asset_info_service._query_local_futures_spec",
-        return_value={},
+    with (
+        patch(
+            "app.services.gateway.runtime.wait_gateway_runtime_ready",
+            return_value=None,
+        ),
+        patch(
+            "app.services.asset_info.gateway_specs._query_local_futures_spec",
+            return_value={},
+        ),
     ):
         with pytest.raises(RuntimeError) as exc_info:
             gateway_runtime_service.build_subprocess_env(
@@ -632,6 +636,45 @@ def test_query_instance_gateway_account_raises_for_bound_gateway_without_runtime
 
 
 class TestGatewayLifecycle:
+    def test_save_manual_gateways_uses_owner_only_permissions(self):
+        from app.services import live_trading_manager as manager_module
+
+        target = manager_module._MANUAL_GATEWAYS_FILE
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("[]", encoding="utf-8")
+        target.chmod(0o666)
+
+        manager_module._save_manual_gateways(
+            [
+                {
+                    "gateway_key": "manual:MT5:test",
+                    "exchange_type": "MT5",
+                    "credentials": {"login": 1, "password": "secret"},
+                }
+            ]
+        )
+
+        assert json.loads(target.read_text(encoding="utf-8"))[0]["gateway_key"] == (
+            "manual:MT5:test"
+        )
+        if os.name != "nt":
+            assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+    def test_save_manual_gateways_does_not_follow_symlink_target(self):
+        from app.services import live_trading_manager as manager_module
+
+        target = manager_module._MANUAL_GATEWAYS_FILE
+        target.parent.mkdir(parents=True, exist_ok=True)
+        redirected_target = target.with_name("redirected.json")
+        redirected_target.write_text("unchanged", encoding="utf-8")
+        target.symlink_to(redirected_target)
+
+        manager_module._save_manual_gateways([])
+
+        assert not target.is_symlink()
+        assert json.loads(target.read_text(encoding="utf-8")) == []
+        assert redirected_target.read_text(encoding="utf-8") == "unchanged"
+
     def test_connect_gateway_persists_manual_gateway(self):
         with patch("app.services.live_trading_manager._load_instances", return_value={}):
             with patch("app.services.live_trading_manager._load_manual_gateways", return_value=[]):
@@ -2068,7 +2111,7 @@ class TestStartInstance:
         with patch("app.services.live_trading_manager._load_instances", return_value={}):
             manager = LiveTradingManager()
 
-            with pytest.raises(ValueError, match="Instance does not exist"):
+            with pytest.raises(ValueError, match="Instance not found"):
                 await manager.start_instance("nonexistent")
 
     @pytest.mark.asyncio
@@ -2130,7 +2173,7 @@ class TestStopInstance:
         with patch("app.services.live_trading_manager._load_instances", return_value={}):
             manager = LiveTradingManager()
 
-            with pytest.raises(ValueError, match="Instance does not exist"):
+            with pytest.raises(ValueError, match="Instance not found"):
                 await manager.stop_instance("nonexistent")
 
     @pytest.mark.asyncio

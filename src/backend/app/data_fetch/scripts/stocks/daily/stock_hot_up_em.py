@@ -8,7 +8,7 @@ Stock Hot Up Em
 
 import pandas as pd
 import requests
-from akshare.stock_feature.stock_hist_em import request_eastmoney
+from akshare.utils.request import request_with_retry as request_eastmoney
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
@@ -67,9 +67,7 @@ class StockHotUpEm(AkshareToMySql):
             timeout=20,
         )
         quote_df = pd.DataFrame((quote_response.json().get("data") or {}).get("diff") or [])
-        result = rank_df.rename(
-            columns={"rk": "当前排名", "sc": "代码", "hrc": "排名较昨日变动"}
-        )
+        result = rank_df.rename(columns={"rk": "当前排名", "sc": "代码", "hrc": "排名较昨日变动"})
         if not quote_df.empty:
             quote_df = quote_df.rename(
                 columns={

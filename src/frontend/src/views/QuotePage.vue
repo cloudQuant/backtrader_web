@@ -171,7 +171,7 @@
                   size="default"
                   :type="store.hasAdvancedFilters ? 'primary' : ''"
                 >
-                  <el-icon><Filter /></el-icon> {{ t('quote.advancedFilter') }}
+                  <el-icon aria-hidden="true"><Filter /></el-icon> {{ t('quote.advancedFilter') }}
                   <el-badge
                     v-if="store.hasAdvancedFilters"
                     is-dot
@@ -515,7 +515,7 @@
                     link
                     @click.stop="store.openChart(row.symbol)"
                   >
-                    <el-icon><DataLine /></el-icon>
+                    <el-icon aria-hidden="true"><DataLine /></el-icon>
                   </el-button>
                   <el-popconfirm
                     v-if="isCustomSymbol(row.symbol)"
@@ -529,7 +529,7 @@
                         link
                         @click.stop
                       >
-                        <el-icon><Delete /></el-icon>
+                        <el-icon aria-hidden="true"><Delete /></el-icon>
                       </el-button>
                     </template>
                   </el-popconfirm>
@@ -730,7 +730,7 @@
           @dragover.prevent
           @drop="onColDrop(idx)"
         >
-          <el-icon class="quote-column-drag">
+          <el-icon class="quote-column-drag" aria-hidden="true">
             <Rank />
           </el-icon>
           <el-checkbox

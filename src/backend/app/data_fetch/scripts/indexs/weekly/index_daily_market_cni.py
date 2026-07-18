@@ -158,9 +158,7 @@ class IndexDailyMarketCNI(AkshareToMySql):
         return self.get_current_date().replace("-", "")
 
     def _get_default_start_date_for_symbol(self, symbol: str) -> str:
-        latest_date = self.get_latest_date(
-            self.table_name, "TRADE_DATE", {"INDEX_CODE": symbol}
-        )
+        latest_date = self.get_latest_date(self.table_name, "TRADE_DATE", {"INDEX_CODE": symbol})
         if latest_date is None:
             return self.DEFAULT_START_DATE
         return self._normalize_date_arg(latest_date) or self.DEFAULT_START_DATE
@@ -203,9 +201,7 @@ class IndexDailyMarketCNI(AkshareToMySql):
         if not probe_symbol:
             return requested_end_date
 
-        probe_df = self.fetch_index_market_data(
-            probe_symbol, probe_start_date, requested_end_date
-        )
+        probe_df = self.fetch_index_market_data(probe_symbol, probe_start_date, requested_end_date)
         if probe_df.empty:
             self.logger.info(
                 f"CNI source has no newer data from {probe_start_date} to "
@@ -247,9 +243,7 @@ class IndexDailyMarketCNI(AkshareToMySql):
         else:
             self.logger.warning("No data to process")
 
-    def _fetch_market_data_jobs(
-        self, jobs: list[tuple[str, str, str]], max_workers: int
-    ) -> None:
+    def _fetch_market_data_jobs(self, jobs: list[tuple[str, str, str]], max_workers: int) -> None:
         if not jobs:
             return
 
@@ -262,9 +256,11 @@ class IndexDailyMarketCNI(AkshareToMySql):
 
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             future_map = {
-                executor.submit(
-                    self.fetch_index_market_data, symbol, start_date, end_date
-                ): (symbol, start_date, end_date)
+                executor.submit(self.fetch_index_market_data, symbol, start_date, end_date): (
+                    symbol,
+                    start_date,
+                    end_date,
+                )
                 for symbol, start_date, end_date in jobs
             }
             for future in as_completed(future_map):
@@ -320,8 +316,8 @@ class IndexDailyMarketCNI(AkshareToMySql):
 
             jobs: list[tuple[str, str, str]] = []
             for symbol in symbol_list:
-                resolved_start_date = explicit_start_date or self._get_default_start_date_for_symbol(
-                    symbol
+                resolved_start_date = (
+                    explicit_start_date or self._get_default_start_date_for_symbol(symbol)
                 )
                 if lookback_days is not None:
                     lookback_start = (
@@ -350,7 +346,6 @@ class IndexDailyMarketCNI(AkshareToMySql):
 
 
 def main():
-
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,

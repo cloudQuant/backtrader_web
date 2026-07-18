@@ -3,6 +3,7 @@ API dependencies.
 """
 
 import logging
+import typing
 
 from fastapi import Depends, HTTPException, Request, WebSocket, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -117,7 +118,7 @@ def has_permission(user: User, permission: Permission) -> bool:
     return permission in user_permissions
 
 
-def require_permission(permission: Permission):
+def require_permission(permission: Permission) -> typing.Any:
     """Create a dependency that enforces a permission.
 
     Args:
@@ -147,7 +148,7 @@ RequireManageUsers = Depends(require_permission(Permission.MANAGE_USERS))
 
 
 # Batch permission check
-def require_any_permission(*permissions: Permission):
+def require_any_permission(*permissions: Permission) -> typing.Any:
     """Require any one of the given permissions.
 
     Args:

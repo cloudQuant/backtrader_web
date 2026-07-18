@@ -7,7 +7,7 @@ Stock Individual Info Em
 """
 
 import pandas as pd
-from akshare.stock_feature.stock_hist_em import request_eastmoney
+from akshare.utils.request import request_with_retry as request_eastmoney
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
@@ -53,7 +53,7 @@ class StockIndividualInfoEm(AkshareToMySql):
             "secid": f"{market_code}.{symbol}",
         }
         response = request_eastmoney(url, params=params, timeout=timeout)
-        data = (response.json().get("data") or {})
+        data = response.json().get("data") or {}
         code_name_map = {
             "f57": "股票代码",
             "f58": "股票简称",

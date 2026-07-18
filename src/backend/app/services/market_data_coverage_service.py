@@ -340,7 +340,10 @@ class MarketDataCoverageService:
                     issue_type="missing_bars",
                     severity="warning" if missing_ratio <= 0.2 else "error",
                     issue_count=missing_count,
-                    sample_payload={"expected_rows": expected_rows, "observed_dates": len(set(dates))},
+                    sample_payload={
+                        "expected_rows": expected_rows,
+                        "observed_dates": len(set(dates)),
+                    },
                 )
             )
         quality_status = _quality_status(missing_ratio, reports)

@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { authApi } from '@/api/auth'
 import { setToken } from '@/utils/tokenRef'
 import type { UserInfo, LoginRequest, RegisterRequest } from '@/types'
-import { clearAccessToken, getAccessToken } from '@/utils/session'
+import { clearAccessToken } from '@/utils/session'
 import { useStrategyStore } from '@/stores/strategy'
 import { useBacktestStore } from '@/stores/backtest'
 import { useSimulationStore } from '@/stores/simulation'
@@ -50,14 +50,6 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     initializePromise = (async () => {
-      // Migrate token from localStorage (old approach) to sessionStorage (new persistence)
-      if (!token.value) {
-        const legacyToken = getAccessToken()
-        if (legacyToken) {
-          token.value = legacyToken
-          clearAccessToken() // Remove from localStorage after migration
-        }
-      }
       if (token.value) {
         setToken(token.value)
         await fetchUser()
@@ -78,7 +70,7 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     initialized.value = true
     setToken(null)
-    clearAccessToken() // Clear legacy localStorage token if present
+    clearAccessToken()
     // Clear business store state so stale data doesn't persist after logout
     try {
       const strategyStore = useStrategyStore()

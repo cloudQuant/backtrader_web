@@ -17,7 +17,6 @@ from urllib.parse import urlencode
 import pandas as pd
 import requests
 
-
 BASE_URL = "https://ys.endata.cn"
 API_BASE = f"{BASE_URL}/enlib-api/api"
 

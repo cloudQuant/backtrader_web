@@ -190,15 +190,21 @@ class BacktestExecutionManager:
                 if log_dir:
                     task.log_dir = log_dir
                 if status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
-                    request_data = dict(task.request_data) if isinstance(task.request_data, dict) else {}
+                    request_data = (
+                        dict(task.request_data) if isinstance(task.request_data, dict) else {}
+                    )
                     runtime = dict(request_data.get("_runtime") or {})
                     if status == TaskStatus.COMPLETED:
                         runtime["progress"] = 100
                         runtime["message"] = "Backtest completed"
                     elif status == TaskStatus.FAILED:
-                        runtime["message"] = error_message or task.error_message or "Backtest failed"
+                        runtime["message"] = (
+                            error_message or task.error_message or "Backtest failed"
+                        )
                     elif status == TaskStatus.CANCELLED:
-                        runtime["message"] = error_message or task.error_message or "Backtest cancelled"
+                        runtime["message"] = (
+                            error_message or task.error_message or "Backtest cancelled"
+                        )
                     request_data["_runtime"] = runtime
                     task.request_data = request_data
                     flag_modified(task, "request_data")

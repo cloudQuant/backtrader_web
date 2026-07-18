@@ -2,6 +2,8 @@
 API routes for akshare data tables.
 """
 
+import typing
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,37 +66,37 @@ def _warehouse_error_message(exc: Exception) -> str:
     return "Akshare data warehouse is unavailable"
 
 
-@router.get("/tables")
+@router.get("/tables", response_model=None)
 async def list_tables(
     search: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_db_user),
-):
+    current_user: typing.Any = Depends(get_current_db_user),
+) -> typing.Any:
     service = AkshareDataService(db)
     items, total = await service.list_tables(search=search, page=page, page_size=page_size)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
-@router.get("/tables/{table_id}")
+@router.get("/tables/{table_id}", response_model=None)
 async def get_table(
     table_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_db_user),
-):
+    current_user: typing.Any = Depends(get_current_db_user),
+) -> typing.Any:
     table = await AkshareDataService(db).get_table(table_id)
     if table is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Table not found")
     return table
 
 
-@router.get("/tables/{table_id}/schema")
+@router.get("/tables/{table_id}/schema", response_model=None)
 async def get_table_schema(
     table_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_db_user),
-):
+    current_user: typing.Any = Depends(get_current_db_user),
+) -> typing.Any:
     service = AkshareDataService(db)
     table = await service.get_table(table_id)
     if table is None:
@@ -117,14 +119,14 @@ async def get_table_schema(
     }
 
 
-@router.get("/tables/{table_id}/data")
+@router.get("/tables/{table_id}/data", response_model=None)
 async def get_table_rows(
     table_id: int,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_db_user),
-):
+    current_user: typing.Any = Depends(get_current_db_user),
+) -> typing.Any:
     service = AkshareDataService(db)
     table = await service.get_table(table_id)
     if table is None:

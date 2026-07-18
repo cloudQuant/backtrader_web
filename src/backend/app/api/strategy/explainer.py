@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import typing
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,9 +23,9 @@ def get_strategy_explainer_service() -> StrategyExplainerService:
 @router.post("/explain", response_model=StrategyExplanation, summary="Explain strategy code")
 async def explain_strategy(
     data: StrategyExplainRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: StrategyExplainerService = Depends(get_strategy_explainer_service),
-):
+) -> typing.Any:
     """Explain a strategy from code, strategy id, or backtest id."""
     try:
         return await service.explain(data, user_id=current_user.sub)
@@ -41,9 +42,9 @@ async def explain_strategy(
 )
 async def get_cached_strategy_explanation(
     code_hash: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: StrategyExplainerService = Depends(get_strategy_explainer_service),
-):
+) -> typing.Any:
     """Get cached strategy explanation by code hash."""
     result = await service.get_cached_explanation(code_hash)
     if result is None:

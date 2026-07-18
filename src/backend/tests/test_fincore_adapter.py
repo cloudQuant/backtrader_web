@@ -237,8 +237,8 @@ class TestCalculateWinRate:
         ]
         result = adapter.calculate_win_rate(trades)
 
-        # 1 win (100 > 0) out of 3 trades
-        assert result == pytest.approx(1 / 3, rel=1e-6)
+        # Malformed rows do not represent closed trades and are excluded.
+        assert result == pytest.approx(1 / 2, rel=1e-6)
 
 
 class TestFallbackLogic:

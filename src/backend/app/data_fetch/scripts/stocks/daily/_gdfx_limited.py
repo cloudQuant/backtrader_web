@@ -5,7 +5,6 @@ from __future__ import annotations
 import pandas as pd
 import requests
 
-
 EASTMONEY_DATA_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 
 

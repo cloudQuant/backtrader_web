@@ -28,7 +28,6 @@ from loguru import logger
 
 from app.config import get_settings
 
-
 _NOISY_THIRD_PARTY_LOGGERS = (
     "aiomysql",
     "aiomysql.connection",
@@ -40,9 +39,7 @@ _NOISY_THIRD_PARTY_LOGGERS = (
     "slowapi",
     "slowapi.extension",
 )
-_DATED_LOG_RE = re.compile(
-    r"^(app|errors|audit|backtest)_(?P<date>\d{4}-\d{2}-\d{2})\.log$"
-)
+_DATED_LOG_RE = re.compile(r"^(app|errors|audit|backtest)_(?P<date>\d{4}-\d{2}-\d{2})\.log$")
 _STALE_LOG_ARCHIVE_MIN_AGE_SECONDS = 60
 
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -47,6 +47,38 @@ _EMPTY_POSITION_SUMMARY = {
     "short_count": 0,
     "flat_count": 0,
 }
+
+
+@pytest.mark.asyncio
+async def test_portfolio_sources_uses_workspace_snapshot_for_paper_units(monkeypatch):
+    """Paper workspace units must not fan out broker queries during page refresh."""
+    from app.api import portfolio_api
+
+    source = portfolio_api._PortfolioSource(
+        id="inst-paper",
+        strategy_id="strategy-paper",
+        strategy_name="Paper strategy",
+        status="running",
+        unit_id="unit-paper",
+        workspace_id="workspace-paper",
+        trading_mode="paper",
+        snapshot={"positions": []},
+    )
+    monkeypatch.setattr(
+        portfolio_api,
+        "_active_workspace_sources",
+        AsyncMock(return_value=[source]),
+    )
+
+    class GatewayManager:
+        def has_instance_gateway(self, _instance_id):
+            raise AssertionError("paper workspaces must not query a gateway")
+
+    sources = await portfolio_api._portfolio_sources(_USER, GatewayManager())
+
+    assert sources == [source]
+    assert source.live_positions is None
+    assert source.live_account is None
 
 
 def test_parse_positions_for_portfolio_prefers_position_log_precision(monkeypatch, tmp_path):
@@ -115,9 +147,7 @@ def test_parse_positions_for_portfolio_keeps_dual_side_same_symbol(monkeypatch, 
     assert by_direction["short"]["price"] == 5010.0
 
 
-def test_parse_positions_for_portfolio_keeps_bybit_position_idx_dual_side(
-    monkeypatch, tmp_path
-):
+def test_parse_positions_for_portfolio_keeps_bybit_position_idx_dual_side(monkeypatch, tmp_path):
     """Bybit hedge logs with positive sizes must keep both positionIdx legs."""
     from app.api import portfolio_api
 
@@ -221,9 +251,7 @@ def test_parse_positions_for_portfolio_flat_log_does_not_fallback_to_stale_snaps
     assert result == []
 
 
-def test_parse_positions_for_portfolio_directional_flat_keeps_opposite_side(
-    monkeypatch, tmp_path
-):
+def test_parse_positions_for_portfolio_directional_flat_keeps_opposite_side(monkeypatch, tmp_path):
     """A long-side flat row must not clear a still-open short row for the same symbol."""
     from app.api import portfolio_api
 
@@ -455,6 +483,42 @@ async def test_portfolio_overview_empty():
     assert result["strategy_count"] == 0
     assert result["running_count"] == 0
     assert result["strategies"] == []
+
+
+def test_compact_workspace_overview_reads_only_value_log_endpoints(monkeypatch):
+    """The first-screen response keeps detailed overview totals without curve scans."""
+    from app.api import portfolio_api
+
+    unit = SimpleNamespace(
+        run_status="running",
+        unit_settings={"initial_cash": 100000},
+        params={},
+        trading_snapshot={
+            "long_market_value": 6000,
+            "short_market_value": 2000,
+            "cumulative_pnl": 500,
+        },
+    )
+    monkeypatch.setattr(
+        portfolio_api,
+        "_workspace_unit_value_log_summary",
+        lambda _unit: (100000.0, 100500.0, 96500.0),
+    )
+
+    result = portfolio_api._compact_workspace_overview([(unit, SimpleNamespace())])
+
+    assert result == {
+        "total_assets": 100500.0,
+        "total_cash": 96500.0,
+        "total_position_value": 8000.0,
+        "net_position_value": 4000.0,
+        "total_initial_capital": 100000.0,
+        "total_pnl": 500.0,
+        "total_pnl_pct": 0.5,
+        "strategy_count": 1,
+        "running_count": 1,
+        "strategies": [],
+    }
 
 
 @pytest.mark.asyncio
@@ -1611,6 +1675,32 @@ async def test_portfolio_equity_with_data():
 
 
 @pytest.mark.asyncio
+async def test_portfolio_equity_includes_unit_without_usable_data():
+    """A strategy unit remains selectable even before it has equity data."""
+    from app.api.portfolio_api import get_portfolio_equity
+
+    mgr = _MockManager([_INSTANCE_A])
+    with (
+        patch("app.api.portfolio_api.get_strategy_dir", return_value="/fake/dir"),
+        patch("app.api.portfolio_api.find_latest_log_dir", return_value="/fake/logs"),
+        patch("app.api.portfolio_api.parse_value_log", return_value={}),
+    ):
+        result = await get_portfolio_equity(current_user=_USER, mgr=mgr)
+
+    assert result["dates"] == []
+    assert result["total_equity"] == []
+    assert result["strategies"] == [
+        {
+            "strategy_id": "strat_001",
+            "strategy_name": "MA Cross",
+            "instance_id": "inst-a",
+            "values": [],
+            "value_source": "unavailable",
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_portfolio_equity_prefers_intraday_datetimes():
     """Live equity curves should keep intraday points when value.log has them."""
     from app.api.portfolio_api import get_portfolio_equity
@@ -1728,8 +1818,15 @@ async def test_portfolio_equity_counts_shared_gateway_account_once_without_logs(
         result = await get_portfolio_equity(current_user=_USER, mgr=mgr)
 
     assert result["total_equity"] == [100250.0]
-    assert len(result["strategies"]) == 1
+    assert len(result["strategies"]) == 2
     assert result["strategies"][0]["instance_id"] == "inst-a"
+    assert result["strategies"][1] == {
+        "strategy_id": "strat_002",
+        "strategy_name": "RSI Mean Reversion",
+        "instance_id": "inst-b",
+        "values": [],
+        "value_source": "shared_account",
+    }
 
 
 @pytest.mark.asyncio
@@ -1774,129 +1871,148 @@ async def test_portfolio_allocation_empty():
 
 
 @pytest.mark.asyncio
-async def test_portfolio_allocation_with_data():
-    """Allocation weights are calculated correctly."""
-    from app.api.portfolio_api import get_portfolio_allocation
+async def test_portfolio_allocation_groups_matching_traded_assets(monkeypatch):
+    """Matching symbols must merge across strategies before their weight is calculated."""
+    from app.api import portfolio_api
 
-    mgr = _MockManager([_INSTANCE_A, _INSTANCE_B])
+    first = portfolio_api._PortfolioSource(
+        id="inst-a",
+        strategy_id="strategy-a",
+        strategy_name="Strategy A",
+        status="running",
+        workspace_id="ws-a",
+    )
+    second = portfolio_api._PortfolioSource(
+        id="inst-b",
+        strategy_id="strategy-b",
+        strategy_name="Strategy B",
+        status="running",
+        workspace_id="ws-b",
+    )
+    positions = {
+        "inst-a": [
+            {"data_name": "BTC-USDT", "size": 1.0, "market_value": 100.0},
+            {"data_name": "ETHUSDT", "size": -1.0, "market_value": 50.0},
+        ],
+        "inst-b": [
+            {"data_name": "BTCUSDT", "size": 2.0, "market_value": 200.0},
+        ],
+    }
+    monkeypatch.setattr(
+        portfolio_api,
+        "_portfolio_sources",
+        AsyncMock(return_value=[first, second]),
+    )
+    monkeypatch.setattr(
+        portfolio_api,
+        "_valued_source_positions",
+        lambda source: positions[source.id],
+    )
 
-    def mock_parse_value(log_dir):
-        if "strat_001" in str(log_dir):
-            return {"equity_curve": [100000.0, 75000.0]}  # final = 75000
-        return {"equity_curve": [200000.0, 225000.0]}  # final = 225000
+    result = await portfolio_api.get_portfolio_allocation(current_user=_USER, mgr=_MockManager())
 
-    with (
-        patch("app.api.portfolio_api.get_strategy_dir", side_effect=lambda s: f"/fake/{s}"),
-        patch("app.api.portfolio_api.find_latest_log_dir", side_effect=lambda d: f"{d}/logs"),
-        patch("app.api.portfolio_api.parse_value_log", side_effect=mock_parse_value),
-    ):
-        result = await get_portfolio_allocation(current_user=_USER, mgr=mgr)
-
-    # Total = 75000 + 225000 = 300000
-    assert result["total"] == 300000.0
-    assert len(result["items"]) == 2
-    # strat_001: 75000/300000 = 25%
-    assert result["items"][0]["weight"] == 25.0
-    # strat_002: 225000/300000 = 75%
-    assert result["items"][1]["weight"] == 75.0
+    assert result == {
+        "total": 350.0,
+        "items": [
+            {
+                "asset": "BTCUSDT",
+                "value": 300.0,
+                "long_value": 300.0,
+                "short_value": 0.0,
+                "net_value": 300.0,
+                "position_count": 2,
+                "weight": 85.71,
+            },
+            {
+                "asset": "ETHUSDT",
+                "value": 50.0,
+                "long_value": 0.0,
+                "short_value": 50.0,
+                "net_value": -50.0,
+                "position_count": 1,
+                "weight": 14.29,
+            },
+        ],
+    }
 
 
 @pytest.mark.asyncio
-async def test_portfolio_allocation_uses_live_gateway_account_without_log_dir():
-    """Allocation should include live account equity when no local logs exist."""
-    from app.api.portfolio_api import get_portfolio_allocation
+async def test_portfolio_allocation_excludes_cash_without_open_positions(monkeypatch):
+    """Cash equity is not a tradable asset allocation row."""
+    from app.api import portfolio_api
 
-    class GatewayManager(_MockManager):
-        def has_instance_gateway(self, instance_id):
-            assert instance_id == "inst-a"
-            return True
-
-        def query_instance_gateway_positions(self, instance_id):
-            return []
-
-        def query_instance_asset_specs(self, instance_id, symbols):
-            return {}
-
-        def query_instance_gateway_account(self, instance_id):
-            assert instance_id == "inst-a"
-            return {
-                "gateway_key": "manual:MT5:demo",
-                "account_source": "adapter.get_balance",
-                "value": 100250.0,
-                "cash": 99050.0,
-            }
-
-    mgr = GatewayManager(
-        [
-            {
-                **_INSTANCE_A,
-                "params": {"trading_mode": "live", "symbol": "XAUUSD"},
-            }
-        ]
+    source = portfolio_api._PortfolioSource(
+        id="inst-a",
+        strategy_id="strategy-a",
+        strategy_name="Strategy A",
+        status="running",
+        workspace_id="ws-a",
+        live_account={"value": 100250.0},
     )
+    monkeypatch.setattr(portfolio_api, "_portfolio_sources", AsyncMock(return_value=[source]))
+    monkeypatch.setattr(portfolio_api, "_valued_source_positions", lambda _source: [])
 
-    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
-        result = await get_portfolio_allocation(current_user=_USER, mgr=mgr)
+    result = await portfolio_api.get_portfolio_allocation(current_user=_USER, mgr=_MockManager())
 
-    assert result["total"] == 100250.0
-    assert result["items"] == [
-        {
-            "strategy_id": "strat_001",
-            "strategy_name": "MA Cross",
-            "instance_id": "inst-a",
-            "value": 100250.0,
-            "value_source": "adapter.get_balance",
-            "weight": 100.0,
-        }
-    ]
+    assert result == {"total": 0.0, "items": []}
 
 
 @pytest.mark.asyncio
-async def test_portfolio_allocation_counts_shared_gateway_account_once_without_logs():
-    """Allocation must not double count one shared live account."""
-    from app.api.portfolio_api import get_portfolio_allocation
+async def test_portfolio_allocation_filters_selected_workspaces(monkeypatch):
+    """Allocation scope must follow the portfolio page workspace selection."""
+    from app.api import portfolio_api
 
-    class GatewayManager(_MockManager):
-        def has_instance_gateway(self, instance_id):
-            return instance_id in {"inst-a", "inst-b"}
-
-        def query_instance_gateway_positions(self, instance_id):
-            return []
-
-        def query_instance_asset_specs(self, instance_id, symbols):
-            return {}
-
-        def query_instance_gateway_account(self, instance_id):
-            assert instance_id in {"inst-a", "inst-b"}
-            return {
-                "gateway_key": "manual:MT5:shared",
-                "account_source": "adapter.get_balance",
-                "value": 100250.0,
-                "cash": 99050.0,
+    first = portfolio_api._PortfolioSource(
+        id="inst-a",
+        strategy_id="strategy-a",
+        strategy_name="Strategy A",
+        status="running",
+        workspace_id="ws-a",
+    )
+    second = portfolio_api._PortfolioSource(
+        id="inst-b",
+        strategy_id="strategy-b",
+        strategy_name="Strategy B",
+        status="running",
+        workspace_id="ws-b",
+    )
+    monkeypatch.setattr(
+        portfolio_api,
+        "_portfolio_sources",
+        AsyncMock(return_value=[first, second]),
+    )
+    monkeypatch.setattr(
+        portfolio_api,
+        "_valued_source_positions",
+        lambda source: [
+            {
+                "data_name": "IF2609" if source.id == "inst-a" else "EURUSD",
+                "size": 1.0,
+                "market_value": 100.0 if source.id == "inst-a" else 50.0,
             }
-
-    mgr = GatewayManager(
-        [
-            {
-                **_INSTANCE_A,
-                "id": "inst-a",
-                "params": {"trading_mode": "live", "symbol": "XAUUSD"},
-            },
-            {
-                **_INSTANCE_B,
-                "id": "inst-b",
-                "status": "running",
-                "params": {"trading_mode": "live", "symbol": "EURUSD"},
-            },
-        ]
+        ],
     )
 
-    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
-        result = await get_portfolio_allocation(current_user=_USER, mgr=mgr)
+    result = await portfolio_api.get_portfolio_allocation(
+        workspace_ids=["ws-b"],
+        current_user=_USER,
+        mgr=_MockManager(),
+    )
 
-    assert result["total"] == 100250.0
-    assert len(result["items"]) == 1
-    assert result["items"][0]["value"] == 100250.0
+    assert result == {
+        "total": 50.0,
+        "items": [
+            {
+                "asset": "EURUSD",
+                "value": 50.0,
+                "long_value": 50.0,
+                "short_value": 0.0,
+                "net_value": 50.0,
+                "position_count": 1,
+                "weight": 100.0,
+            }
+        ],
+    }
     assert result["items"][0]["weight"] == 100.0
 
 

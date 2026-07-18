@@ -49,8 +49,7 @@ describe('useAuthStore', () => {
       expect(store.isAuthenticated).toBe(false)
     })
 
-    it('should load token from storage on init (migration from localStorage)', async () => {
-      vi.mocked(getAccessToken).mockReturnValue('stored-token')
+    it('should validate a session-persisted token on init', async () => {
       vi.mocked(authApi.getMe).mockResolvedValue({
         id: '1',
         username: 'testuser',
@@ -60,6 +59,7 @@ describe('useAuthStore', () => {
       })
 
       const store = useAuthStore()
+      store.token = 'stored-token'
       await store.initialize()
 
       expect(store.token).toBe('stored-token')
@@ -199,7 +199,6 @@ describe('useAuthStore', () => {
 
   describe('initialize', () => {
     it('should initialize only once for stored token', async () => {
-      vi.mocked(getAccessToken).mockReturnValue('stored-token')
       vi.mocked(authApi.getMe).mockResolvedValue({
         id: '1',
         username: 'testuser',
@@ -209,11 +208,12 @@ describe('useAuthStore', () => {
       })
 
       const store = useAuthStore()
+      store.token = 'stored-token'
       await store.initialize()
       await store.initialize()
 
       expect(store.initialized).toBe(true)
-      // getMe called once during initialize (migration picks up token from localStorage)
+      // getMe is called once while validating the session-persisted token.
       expect(authApi.getMe).toHaveBeenCalledTimes(1)
     })
   })

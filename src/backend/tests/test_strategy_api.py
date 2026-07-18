@@ -318,9 +318,7 @@ def _run_response_payload() -> dict:
         "completed_at": "2026-06-28T00:20:00Z",
         "best_iteration": 2,
         "best_quality_score": 100,
-        "best_quality_gate_evaluations": _run_record_payload()[
-            "best_quality_gate_evaluations"
-        ],
+        "best_quality_gate_evaluations": _run_record_payload()["best_quality_gate_evaluations"],
         "best_diagnostics": {"promotion_ready": True},
         "best_metrics": {"sharpe_ratio": 1.18, "total_trades": 9},
         "research_workspace": _workspace_payload("research-ws", "AI 投研工作区"),
@@ -395,7 +393,9 @@ class _FakeAIResearchService:
         self.calls.append(("build_live_handoff_package", user_id, research_workspace_id))
         return deepcopy(_live_handoff_payload())
 
-    async def record_live_handoff_approval(self, user_id, run_id, data, *, research_workspace_id=None):
+    async def record_live_handoff_approval(
+        self, user_id, run_id, data, *, research_workspace_id=None
+    ):
         self.calls.append(("record_live_handoff_approval", user_id, data))
         payload = _live_handoff_payload("approved_for_live")
         payload["approval"] = {
@@ -851,9 +851,7 @@ class TestStrategyAPI:
         assert service.calls[0][2].target_sharpe == pytest.approx(1.0)
 
     @pytest.mark.asyncio
-    async def test_ai_research_task_api_lifecycle(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+    async def test_ai_research_task_api_lifecycle(self, client: AsyncClient, auth_headers: dict):
         """Async task routes should submit, list, fetch and cancel a research loop task."""
         service = _FakeAIResearchService()
         task_manager = _FakeAIResearchTaskManager()

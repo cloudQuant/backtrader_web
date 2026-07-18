@@ -455,7 +455,9 @@ class FuturesMemberPositionRank(AkshareToMySql):
             else:
                 self.logger.info(f"上期所中{trading_day} 获取到的数据为空")
 
-    def run(self, exchanges=None, lookback_days=None, max_exchanges=None, start_date=None, end_date=None):
+    def run(
+        self, exchanges=None, lookback_days=None, max_exchanges=None, start_date=None, end_date=None
+    ):
         if not self.table_exists(self.table_name):
             self.create_table(self.create_table_sql)
         self.logger.info("正在获取期货会员持仓表数据")

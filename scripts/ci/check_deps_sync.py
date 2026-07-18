@@ -12,7 +12,7 @@ import re
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT = PROJECT_ROOT / "src" / "backend" / "pyproject.toml"
 REQUIREMENTS = PROJECT_ROOT / "src" / "backend" / "requirements.txt"
 
@@ -25,7 +25,7 @@ REQUIRED_DEPS = {
     "slowapi",
     "sqlalchemy",
     "aiosqlite",
-    "python-jose",
+    "PyJWT",
     "passlib",
     "loguru",
     "python-multipart",

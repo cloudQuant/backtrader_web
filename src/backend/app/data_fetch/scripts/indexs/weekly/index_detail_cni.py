@@ -76,9 +76,7 @@ class IndexDetailCNI(AkshareToMySql):
 
             # Process dates and numeric values
             if "TRADE_DATE_STR" in df.columns:
-                df["TRADE_DATE"] = pd.to_datetime(
-                    df["TRADE_DATE_STR"], errors="coerce"
-                ).dt.date
+                df["TRADE_DATE"] = pd.to_datetime(df["TRADE_DATE_STR"], errors="coerce").dt.date
                 df["TRADE_DATE"] = df["TRADE_DATE"].fillna(trade_date.date())
             else:
                 df["TRADE_DATE"] = trade_date.date()
@@ -223,7 +221,6 @@ class IndexDetailCNI(AkshareToMySql):
 
 
 def main():
-
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,

@@ -5,8 +5,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import { AUTH_EXPIRED_EVENT } from '@/utils/session'
 
-// Mock localStorage
-const localStorageMock = (() => {
+// The auth store persists its session-scoped Pinia payload under this key.
+const sessionStorageMock = (() => {
   let store: Record<string, string> = {}
   return {
     getItem: vi.fn((key: string) => store[key] || null),
@@ -15,7 +15,7 @@ const localStorageMock = (() => {
     clear: vi.fn(() => { store = {} }),
   }
 })()
-Object.defineProperty(global, 'localStorage', { value: localStorageMock })
+Object.defineProperty(global, 'sessionStorage', { value: sessionStorageMock })
 
 // Mock Element Plus
 vi.mock('element-plus', () => ({
@@ -49,7 +49,7 @@ vi.mock('@/i18n', () => ({
 describe('API module', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    localStorageMock.clear()
+    sessionStorageMock.clear()
   })
 
   afterEach(() => {
@@ -89,26 +89,26 @@ describe('API module', () => {
   })
 
   describe('Token 处理', () => {
-    it('应该能够从 localStorage 获取 token', () => {
-      localStorageMock.setItem('token', 'test-token-123')
-      expect(localStorageMock.getItem('token')).toBe('test-token-123')
+    it('应该能够从 sessionStorage 获取 Pinia auth token', () => {
+      sessionStorageMock.setItem('auth', JSON.stringify({ token: 'test-token-123' }))
+      expect(sessionStorageMock.getItem('auth')).toContain('test-token-123')
     })
 
-    it('localStorage 没有 token 时应该返回 null', () => {
-      expect(localStorageMock.getItem('token')).toBeNull()
+    it('sessionStorage 没有 auth payload 时应该返回 null', () => {
+      expect(sessionStorageMock.getItem('auth')).toBeNull()
     })
 
-    it('应该能够清除 token', () => {
-      localStorageMock.setItem('token', 'test-token-123')
-      localStorageMock.removeItem('token')
-      expect(localStorageMock.getItem('token')).toBeNull()
+    it('应该能够清除 auth payload', () => {
+      sessionStorageMock.setItem('auth', JSON.stringify({ token: 'test-token-123' }))
+      sessionStorageMock.removeItem('auth')
+      expect(sessionStorageMock.getItem('auth')).toBeNull()
     })
   })
 
   describe('请求拦截器逻辑', () => {
     it('should add token to request headers when token exists', async () => {
       const api = (await import('@/api/index')).default
-      localStorageMock.setItem('token', 'my-jwt-token')
+      sessionStorageMock.setItem('auth', JSON.stringify({ token: 'my-jwt-token' }))
       const handler = (api.interceptors.request as any).handlers[0]
       const config = { headers: {} as any }
       const result = handler.fulfilled(config)
@@ -144,9 +144,13 @@ describe('API module', () => {
       const api = (await import('@/api/index')).default
       const handler = (api.interceptors.response as any).handlers[0]
       const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
+      sessionStorageMock.setItem('auth', JSON.stringify({ token: 'my-jwt-token' }))
       const error = { response: { status: 401, data: {} } }
       await expect(handler.rejected(error)).rejects.toBe(error)
-      expect(localStorageMock.removeItem).toHaveBeenCalledWith('token')
+      expect(sessionStorageMock.setItem).toHaveBeenCalledWith(
+        'auth',
+        expect.stringContaining('"token":null'),
+      )
       expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ type: AUTH_EXPIRED_EVENT }))
       expect(ElMessage.error).toHaveBeenCalledWith('登录已过期，请重新登录')
     })

@@ -43,7 +43,9 @@ class Workspace(Base):
 
     __tablename__ = "workspaces"
     __table_args__ = (
-        Index("ix_workspaces_user_type_updated_id", "user_id", "workspace_type", "updated_at", "id"),
+        Index(
+            "ix_workspaces_user_type_updated_id", "user_id", "workspace_type", "updated_at", "id"
+        ),
         Index("ix_workspaces_user_updated_id", "user_id", "updated_at", "id"),
     )
 

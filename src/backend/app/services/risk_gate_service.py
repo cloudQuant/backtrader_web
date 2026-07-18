@@ -39,7 +39,9 @@ class RiskGateService:
         risk_limits = self._risk_limits(
             _safe_dict(getattr(record, "backtest_environment", None)).get("risk_limits"),
             _safe_dict(getattr(record, "paper_handoff", None)).get("risk_limits"),
-            _nested(_safe_dict(getattr(record, "paper_handoff", None)), "gateway_config", "risk_limits"),
+            _nested(
+                _safe_dict(getattr(record, "paper_handoff", None)), "gateway_config", "risk_limits"
+            ),
             _safe_dict(getattr(source_unit, "unit_settings", None)).get("risk_limits"),
             _safe_dict(getattr(source_unit, "gateway_config", None)).get("risk_limits"),
             _safe_dict(getattr(request, "gateway_config", None)).get("risk_limits")
@@ -109,6 +111,13 @@ class RiskGateService:
             gateway_config.get("risk_limits"),
             risk_gate.get("risk_limits"),
         )
+
+        if trading_mode != "live":
+            # Paper workspaces use the live runtime plumbing but never submit
+            # real orders. Historical drawdown and capital limits are live
+            # promotion controls, so they must not prevent a simulation from
+            # running and collecting fresh evidence.
+            return self._decision([], risk_limits=risk_limits)
 
         evaluations: list[dict[str, Any]] = []
         is_ai_live_unit = bool(

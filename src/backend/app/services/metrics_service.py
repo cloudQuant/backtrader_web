@@ -84,11 +84,7 @@ class MetricsService:
             _float(metrics.get("final_value"), normalized["initial_cash"]),
         )
         normalized.setdefault("metrics_source", str(metrics.get("metrics_source") or "manual"))
-        return {
-            key: _json_safe(value)
-            for key, value in normalized.items()
-            if value is not None
-        }
+        return {key: _json_safe(value) for key, value in normalized.items() if value is not None}
 
     def result_summary(
         self,

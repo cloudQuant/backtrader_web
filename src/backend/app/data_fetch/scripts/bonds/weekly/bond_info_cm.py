@@ -5,14 +5,37 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
+import requests
 import urllib3
-from akshare.bond.bond_info_cm import _BOND_INFO_CM_COLUMNS, _post_chinamoney_json
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
 # 忽略SSL警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+_BOND_INFO_CM_COLUMNS = [
+    "债券简称",
+    "债券代码",
+    "发行人/受托机构",
+    "债券类型",
+    "发行日期",
+    "最新债项评级",
+    "查询代码",
+]
+
+
+def _post_chinamoney_json(
+    session: requests.Session,
+    url: str,
+    payload: dict[str, str],
+    headers: dict[str, str],
+) -> dict:
+    """Request one ChinaMoney result page without depending on AkShare internals."""
+    response = session.post(url, data=payload, headers=headers, timeout=30)
+    response.raise_for_status()
+    data = response.json()
+    return data if isinstance(data, dict) else {}
 
 
 class BondInfoCm(AkshareToMySql):

@@ -27,6 +27,7 @@ from app.services.sync import progress as sync_progress
 from app.services.sync import schema_diff as sync_schema
 from app.services.sync import transport as sync_transport
 from app.utils.backend_data_paths import get_backend_data_path
+from app.utils.secure_file import write_private_text
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +69,9 @@ class SyncService:
 
     def save_config(self, config: SyncConfig) -> SyncConfig:
         config = self._normalize_config(config)
-        self._config_file.parent.mkdir(parents=True, exist_ok=True)
-        self._config_file.write_text(
+        write_private_text(
+            self._config_file,
             json.dumps(config.model_dump(), ensure_ascii=False, indent=2),
-            encoding="utf-8",
         )
         return config
 

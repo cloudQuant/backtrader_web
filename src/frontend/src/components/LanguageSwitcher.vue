@@ -8,7 +8,7 @@
       class="language-switcher"
       :aria-label="t('nav.languageSwitcher')"
     >
-      <el-icon><Promotion /></el-icon>
+      <el-icon aria-hidden="true"><Promotion /></el-icon>
       <span class="language-label">{{ currentLabel }}</span>
     </button>
     <template #dropdown>

@@ -14,7 +14,6 @@ import requests
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
-
 SHFE_MONTHDATA_URL = "https://www.shfe.com.cn/data/tradedata/future/monthdata"
 PREFER_LOCAL_SCRIPT = True
 
@@ -74,8 +73,7 @@ class FuturesToSpotShfe(AkshareToMySql):
 
     def _ensure_unique_index(self):
         rows = self.execute_sql(
-            "SHOW INDEX FROM `FUTURES_TO_SPOT_SHFE` "
-            "WHERE Key_name = 'IDX_SHFE_TO_SPOT_UNIQUE'",
+            "SHOW INDEX FROM `FUTURES_TO_SPOT_SHFE` WHERE Key_name = 'IDX_SHFE_TO_SPOT_UNIQUE'",
             fetch_all=True,
         )
         if rows:

@@ -8,8 +8,10 @@ Aggregates data across live trading strategy instances:
 - Portfolio equity curve (stacked equity across strategies)
 """
 
+import json
 import logging
 import math
+import typing
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -533,13 +535,11 @@ def _merge_asset_spec_aliases(
     spec = _json_safe_value(spec)
     existing = _asset_spec_for_symbol(specs, symbol)
     merged = dict(existing)
-    contributed = False
     core_contributed = False
     primary_source_contributed = False
     for key, value in spec.items():
         if _can_merge_asset_spec_value(existing, key, value):
             merged[key] = value
-            contributed = True
             if _is_asset_spec_core_key(key):
                 core_contributed = True
             if _is_asset_spec_primary_source_key(existing, key):
@@ -1047,6 +1047,15 @@ async def _portfolio_sources(
         else [_source_from_instance(inst) for inst in _list_user_instances(mgr, current_user)]
     )
     for source in sources:
+        # A paper workspace is a collection of independent simulated portfolios.
+        # Its gateway is only used to feed the running strategy, not to represent
+        # the account/positions of every unit.  Querying that shared gateway here
+        # once per unit both duplicates broker data and makes the risk page block
+        # behind dozens of synchronous requests.  Use each unit's own logs and
+        # persisted snapshot instead.  Keep the legacy instance fallback intact
+        # for callers that do not originate from a workspace unit.
+        if source.unit_id and str(source.trading_mode or "").strip().lower() == "paper":
+            continue
         live_positions = _live_positions_for_source(mgr, source)
         if live_positions is not None:
             source.live_positions = live_positions
@@ -1739,11 +1748,202 @@ def _signed_market_value(size: float, market_value: float) -> float:
 # API surface stable.
 
 
-@router.get("/overview", summary="Portfolio overview (live trading)")
+def _value_log_edge_rows(path: Path) -> tuple[list[str], list[str]]:
+    """Read bounded head/tail samples from a value log without parsing its curve."""
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            head = [handle.readline().strip() for _ in range(32)]
+        with path.open("rb") as handle:
+            handle.seek(0, 2)
+            size = handle.tell()
+            handle.seek(max(size - 65536, 0))
+            tail = handle.read().decode("utf-8", errors="ignore").splitlines()
+    except OSError:
+        return [], []
+    return [line for line in head if line], [line.strip() for line in tail if line.strip()]
+
+
+def _parse_value_log_edge_row(
+    line: str,
+    *,
+    log_format: str,
+    headers: list[str] | None = None,
+) -> dict[str, Any]:
+    """Parse one supported value-log row for the compact portfolio summary."""
+    if log_format == "json":
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+    if log_format == "tsv" and headers:
+        values = line.split("\t")
+        return {
+            header: values[index] if index < len(values) else ""
+            for index, header in enumerate(headers)
+        }
+    if log_format == "pipe":
+        parts = [part.strip() for part in line.split("|")]
+        if len(parts) < 2:
+            return {}
+        row: dict[str, Any] = {}
+        for part in parts[1:]:
+            if "=" not in part:
+                continue
+            key, value = part.split("=", 1)
+            row[key.strip()] = value.strip()
+        return row
+    return {}
+
+
+def _compact_value_log_summary(log_dir: Path | None) -> tuple[float, float, float] | None:
+    """Return initial equity, latest equity and latest cash from a value log.
+
+    Full portfolio analytics need every point in the curve. The first-screen
+    cards only need its two endpoints, so scanning a bounded head/tail window
+    avoids decoding thousands of JSON rows across a large workspace.
+    """
+    path = (log_dir / "value.log") if log_dir is not None else None
+    if path is None or not path.is_file():
+        return None
+    head, tail = _value_log_edge_rows(path)
+    if not head:
+        return None
+
+    first = head[0]
+    if first.startswith("{"):
+        log_format, headers = "json", None
+        head_rows = head
+    elif "\t" in first:
+        log_format, headers = "tsv", first.split("\t")
+        head_rows = head[1:]
+    elif "|" in first:
+        log_format, headers = "pipe", None
+        head_rows = head
+    else:
+        return None
+
+    def extract(lines: list[str], *, reverse: bool = False) -> tuple[float, float] | None:
+        candidates = reversed(lines) if reverse else lines
+        for line in candidates:
+            row = _parse_value_log_edge_row(line, log_format=log_format, headers=headers)
+            value = _first_number(row, "value", "broker_value")
+            if value is None or not math.isfinite(value) or abs(value) > 1e15:
+                continue
+            cash = _first_number(row, "cash", "broker_cash")
+            if cash is None or not math.isfinite(cash) or abs(cash) > 1e15:
+                cash = 0.0
+            if cash and abs(value) > abs(cash) * 1000:
+                continue
+            return value, cash
+        return None
+
+    initial = extract(head_rows)
+    latest = extract(tail, reverse=True)
+    if initial is None or latest is None:
+        return None
+    return initial[0], latest[0], latest[1]
+
+
+def _workspace_unit_value_log_summary(unit: StrategyUnit) -> tuple[float, float, float] | None:
+    return _compact_value_log_summary(_workspace_unit_log_dir(unit))
+
+
+def _compact_workspace_overview(rows: list[tuple[StrategyUnit, Workspace]]) -> dict[str, Any]:
+    """Build a first-screen portfolio summary from persisted workspace snapshots.
+
+    The detailed portfolio view reads strategy logs and, for legacy instances,
+    can query a gateway. That is appropriate for drill-down views but becomes
+    prohibitively expensive when hundreds of paper units are running. The
+    workspace snapshot is refreshed by the trading service, so it is the right
+    source for the page's initial metric cards.
+    """
+    total_assets = 0.0
+    total_cash = 0.0
+    total_initial = 0.0
+    total_position_gross = 0.0
+    total_position_net = 0.0
+    running_count = 0
+    has_position_data = False
+
+    for unit, _workspace in rows:
+        snapshot = _safe_dict(unit.trading_snapshot)
+        long_value = max(
+            _first_number(snapshot, "long_market_value", "long_value", "longMarketValue") or 0.0,
+            0.0,
+        )
+        short_value = max(
+            _first_number(snapshot, "short_market_value", "short_value", "shortMarketValue") or 0.0,
+            0.0,
+        )
+        net_position_value = long_value - short_value
+        value_summary = _workspace_unit_value_log_summary(unit)
+        initial, assets, cash = value_summary if value_summary is not None else (0.0, 0.0, 0.0)
+
+        total_initial += initial
+        total_assets += assets
+        total_cash += cash
+        total_position_gross += long_value + short_value
+        total_position_net += net_position_value
+        if (
+            isinstance(snapshot.get("positions"), list)
+            or long_value > EPSILON
+            or short_value > EPSILON
+        ):
+            has_position_data = True
+        if str(unit.run_status or "").lower() == "running":
+            running_count += 1
+
+    total_pnl = total_assets - total_initial
+    total_pnl_pct = total_pnl / total_initial * 100 if total_initial > 0 else 0.0
+    if not has_position_data:
+        total_position_net = total_assets - total_cash
+        total_position_gross = abs(total_position_net)
+    return {
+        "total_assets": _safe_round(total_assets),
+        "total_cash": _safe_round(total_cash),
+        "total_position_value": _safe_round(total_position_gross),
+        "net_position_value": _safe_round(total_position_net),
+        "total_initial_capital": _safe_round(total_initial),
+        "total_pnl": _safe_round(total_pnl),
+        "total_pnl_pct": _safe_round(total_pnl_pct, 2),
+        "strategy_count": len(rows),
+        "running_count": running_count,
+        # Per-strategy metrics require scanning every value and trade log. They
+        # are not rendered in the first screen and are intentionally omitted in
+        # compact mode to keep the route DB-only.
+        "strategies": [],
+    }
+
+
+async def _compact_portfolio_overview(current_user: Any) -> dict[str, Any] | None:
+    """Load the initial dashboard metrics without runtime-file or gateway I/O."""
+    user_id = _current_user_id(current_user)
+    if not user_id:
+        return _compact_workspace_overview([])
+
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(StrategyUnit, Workspace)
+            .join(Workspace, StrategyUnit.workspace_id == Workspace.id)
+            .where(Workspace.user_id == user_id)
+            .where(Workspace.workspace_type == "trading")
+            .where(StrategyUnit.run_status.in_(_ACTIVE_TRADING_STATUSES))
+        )
+        rows = list(result.all())
+    if any(str(unit.trading_mode or "").strip().lower() == "live" for unit, _workspace in rows):
+        # Live workspaces may require a broker account query to remain accurate.
+        # Retain the detailed path for that smaller, safety-sensitive case.
+        return None
+    return _compact_workspace_overview(rows)
+
+
+@router.get("/overview", summary="Portfolio overview (live trading)", response_model=None)
 async def get_portfolio_overview(
-    current_user=Depends(get_current_user),
+    summary_only: bool = False,
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Return portfolio-level aggregated metrics.
 
     Aggregates data across all live trading instances including total assets,
@@ -1765,6 +1965,11 @@ async def get_portfolio_overview(
             - running_count: Number of running strategies
             - strategies: List of per-strategy summaries
     """
+    if summary_only:
+        compact_overview = await _compact_portfolio_overview(current_user)
+        if compact_overview is not None:
+            return compact_overview
+
     sources = await _portfolio_sources(current_user, mgr)
 
     total_assets = 0.0
@@ -1914,11 +2119,11 @@ async def get_portfolio_overview(
 # ---------- Aggregated Positions ----------
 
 
-@router.get("/positions", summary="Aggregated positions (live trading)")
+@router.get("/positions", summary="Aggregated positions (live trading)", response_model=None)
 async def get_portfolio_positions(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Return current positions across strategies (from current_position.json).
 
     Args:
@@ -1996,13 +2201,13 @@ async def get_portfolio_positions(
 # ---------- Aggregated Trades ----------
 
 
-@router.get("/trades", summary="Aggregated trade records (live trading)")
+@router.get("/trades", summary="Aggregated trade records (live trading)", response_model=None)
 async def get_portfolio_trades(
     limit: int = 200,
     workspace_ids: Annotated[list[str] | None, Query()] = None,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Return historical trades across strategies (from trade.log), sorted by close time.
 
     Args:
@@ -2038,14 +2243,15 @@ async def get_portfolio_trades(
 # ---------- Portfolio Equity Curve ----------
 
 
-@router.get("/equity", summary="Portfolio equity curve (live trading)")
+@router.get("/equity", summary="Portfolio equity curve (live trading)", response_model=None)
 async def get_portfolio_equity(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Return portfolio-level equity curve - aligning and stacking strategy equity by date.
 
-    Also returns individual strategy equity curves for stacked chart visualization.
+    Also returns individual strategy equity curves so the client can switch
+    between the whole portfolio and a strategy unit.
 
     Args:
         current_user: The authenticated user.
@@ -2062,6 +2268,7 @@ async def get_portfolio_equity(
 
     # Each strategy's date -> value mapping
     strategy_curves: list[dict[str, Any]] = []
+    unavailable_strategies: list[dict[str, Any]] = []
     all_dates_set: set = set()
     counted_account_keys: set[str] = set()
 
@@ -2075,9 +2282,27 @@ async def get_portfolio_equity(
         if not dates:
             account_value = _source_account_value(source)
             if account_value is None:
+                unavailable_strategies.append(
+                    {
+                        "strategy_id": source.strategy_id,
+                        "strategy_name": source.strategy_name,
+                        "instance_id": source.id,
+                        "values": [],
+                        "value_source": "unavailable",
+                    }
+                )
                 continue
             account_key = _source_account_key(source)
             if account_key in counted_account_keys:
+                unavailable_strategies.append(
+                    {
+                        "strategy_id": source.strategy_id,
+                        "strategy_name": source.strategy_name,
+                        "instance_id": source.id,
+                        "values": [],
+                        "value_source": "shared_account",
+                    }
+                )
                 continue
             counted_account_keys.add(account_key)
             live_date = _source_account_time(source)
@@ -2108,7 +2333,12 @@ async def get_portfolio_equity(
         )
 
     if not all_dates_set:
-        return {"dates": [], "total_equity": [], "total_drawdown": [], "strategies": []}
+        return {
+            "dates": [],
+            "total_equity": [],
+            "total_drawdown": [],
+            "strategies": unavailable_strategies,
+        }
 
     sorted_dates = sorted(all_dates_set)
 
@@ -2157,66 +2387,92 @@ async def get_portfolio_equity(
         "dates": sorted_dates,
         "total_equity": total_equity,
         "total_drawdown": total_drawdown,
-        "strategies": strategies_out,
+        "strategies": [*strategies_out, *unavailable_strategies],
     }
 
 
-# ---------- Strategy Weights / Asset Allocation ----------
+# ---------- Asset Allocation ----------
 
 
-@router.get("/allocation", summary="Strategy asset allocation (live trading)")
+def _allocation_asset_key(symbol: Any) -> str:
+    """Return a stable display key that groups equivalent broker symbol aliases."""
+    raw_symbol = str(symbol or "").strip()
+    if not raw_symbol:
+        return ""
+    candidates = [
+        "".join(character for character in str(alias).upper() if character.isalnum())
+        for alias in symbol_aliases(raw_symbol)
+    ]
+    candidates = [candidate for candidate in candidates if candidate]
+    return min(candidates, key=len) if candidates else raw_symbol.upper()
+
+
+@router.get(
+    "/allocation", summary="Asset allocation by open positions (live trading)", response_model=None
+)
 async def get_portfolio_allocation(
-    current_user=Depends(get_current_user),
+    workspace_ids: Annotated[list[str] | None, Query()] = None,
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
-    """Return the asset allocation percentage of each strategy in the portfolio.
+) -> typing.Any:
+    """Return the open-position allocation of each traded asset in the portfolio.
 
-    Returns pie chart data showing the value distribution across strategies.
+    Positions from the same asset are merged across strategies and workspaces.
+    Allocation weights use gross market exposure, so long and short legs both
+    contribute to an asset's share of the portfolio.
 
     Args:
+        workspace_ids: Optional trading workspace IDs to include.
         current_user: The authenticated user.
         mgr: The live trading manager.
 
     Returns:
         A dictionary containing:
-            - total: Total portfolio value
-            - items: List of allocation items with strategy_id, strategy_name,
-                instance_id, value, and weight percentage
+            - total: Total gross market exposure of open positions
+            - items: One merged allocation item per traded asset
     """
     sources = await _portfolio_sources(current_user, mgr)
-    items = []
+    workspace_id_set = _parse_query_ids(workspace_ids)
+    if workspace_id_set:
+        sources = [source for source in sources if source.workspace_id in workspace_id_set]
+
+    allocations: dict[str, dict[str, Any]] = {}
     total = 0.0
-    counted_account_keys: set[str] = set()
 
     for source in sources:
-        final = 0.0
-        value_source = "log"
-        account_value = _source_account_value(source)
-        if account_value is not None:
-            account_key = _source_account_key(source)
-            if account_key in counted_account_keys:
+        for position in _valued_source_positions(source):
+            size = _safe_float(position.get("size"), 0.0)
+            market_value = abs(_safe_float(position.get("market_value"), 0.0))
+            asset = _allocation_asset_key(position.get("data_name"))
+            if not asset or abs(size) <= EPSILON or market_value <= EPSILON:
                 continue
-            counted_account_keys.add(account_key)
-            final = account_value
-            value_source = source.account_source or "gateway"
-        elif source.log_dir:
-            value_data = parse_value_log(source.log_dir)
-            equity = value_data.get("equity_curve", [])
-            final = equity[-1] if equity else 0
-        else:
-            continue
-        total += final
-        items.append(
-            {
-                "strategy_id": source.strategy_id,
-                "strategy_name": source.strategy_name,
-                "instance_id": source.id,
-                "value": _safe_round(final),
-                "value_source": value_source,
-            }
-        )
+            item = allocations.setdefault(
+                asset,
+                {
+                    "asset": asset,
+                    "value": 0.0,
+                    "long_value": 0.0,
+                    "short_value": 0.0,
+                    "net_value": 0.0,
+                    "position_count": 0,
+                },
+            )
+            item["value"] += market_value
+            if size > 0:
+                item["long_value"] += market_value
+                item["net_value"] += market_value
+            else:
+                item["short_value"] += market_value
+                item["net_value"] -= market_value
+            item["position_count"] += 1
+            total += market_value
 
+    items = sorted(allocations.values(), key=lambda item: (-item["value"], item["asset"]))
     for item in items:
+        item["value"] = _safe_round(item["value"])
+        item["long_value"] = _safe_round(item["long_value"])
+        item["short_value"] = _safe_round(item["short_value"])
+        item["net_value"] = _safe_round(item["net_value"])
         item["weight"] = _safe_round(item["value"] / total * 100, 2) if total > 0 else 0
 
     return {"total": _safe_round(total), "items": items}
@@ -2227,11 +2483,13 @@ async def get_portfolio_allocation(
 # =====================================================================
 
 
-@router.get("/simulation/overview", summary="Portfolio overview (simulation trading)")
+@router.get(
+    "/simulation/overview", summary="Portfolio overview (simulation trading)", response_model=None
+)
 async def get_simulation_portfolio_overview(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Simulation portfolio overview.
 
     Currently reuses the same aggregation logic as live trading. This keeps the
@@ -2242,11 +2500,15 @@ async def get_simulation_portfolio_overview(
     return await get_portfolio_overview(current_user=current_user, mgr=mgr)
 
 
-@router.get("/simulation/positions", summary="Aggregated positions (simulation trading)")
+@router.get(
+    "/simulation/positions",
+    summary="Aggregated positions (simulation trading)",
+    response_model=None,
+)
 async def get_simulation_portfolio_positions(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Simulation current positions across strategies.
 
     See `get_portfolio_positions` for field details.
@@ -2254,13 +2516,17 @@ async def get_simulation_portfolio_positions(
     return await get_portfolio_positions(current_user=current_user, mgr=mgr)
 
 
-@router.get("/simulation/trades", summary="Aggregated trade records (simulation trading)")
+@router.get(
+    "/simulation/trades",
+    summary="Aggregated trade records (simulation trading)",
+    response_model=None,
+)
 async def get_simulation_portfolio_trades(
     limit: int = 200,
     workspace_ids: Annotated[list[str] | None, Query()] = None,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Simulation historical trades across strategies.
 
     See `get_portfolio_trades` for field details.
@@ -2273,11 +2539,13 @@ async def get_simulation_portfolio_trades(
     )
 
 
-@router.get("/simulation/equity", summary="Portfolio equity curve (simulation trading)")
+@router.get(
+    "/simulation/equity", summary="Portfolio equity curve (simulation trading)", response_model=None
+)
 async def get_simulation_portfolio_equity(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Simulation portfolio-level equity curve.
 
     See `get_portfolio_equity` for field details.
@@ -2287,14 +2555,20 @@ async def get_simulation_portfolio_equity(
 
 @router.get(
     "/simulation/allocation",
-    summary="Strategy asset allocation (simulation trading)",
+    summary="Asset allocation by open positions (simulation trading)",
+    response_model=None,
 )
 async def get_simulation_portfolio_allocation(
-    current_user=Depends(get_current_user),
+    workspace_ids: Annotated[list[str] | None, Query()] = None,
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
-    """Simulation asset allocation across strategies.
+) -> typing.Any:
+    """Simulation allocation across traded assets.
 
     See `get_portfolio_allocation` for field details.
     """
-    return await get_portfolio_allocation(current_user=current_user, mgr=mgr)
+    return await get_portfolio_allocation(
+        workspace_ids=workspace_ids,
+        current_user=current_user,
+        mgr=mgr,
+    )

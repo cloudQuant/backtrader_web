@@ -85,7 +85,9 @@ class StockAnalysisExportModel(Base):
     __tablename__ = "stock_analysis_exports"
 
     id = Column(String(36), primary_key=True, default=_uuid)
-    report_id = Column(String(36), ForeignKey("stock_analysis_reports.id"), nullable=False, index=True)
+    report_id = Column(
+        String(36), ForeignKey("stock_analysis_reports.id"), nullable=False, index=True
+    )
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     format = Column(String(20), nullable=False)
     file_name = Column(String(255), nullable=False)

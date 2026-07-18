@@ -52,9 +52,7 @@ class RobustnessValidationService:
         )
         gates = self._gate_evaluations(analysis, config)
         status = (
-            "passed"
-            if all(item.passed for item in gates if item.severity == "error")
-            else "failed"
+            "passed" if all(item.passed for item in gates if item.severity == "error") else "failed"
         )
         task = await self._get_backtest_task(backtest_id, user_id)
         report = analysis.model_dump(mode="json")
@@ -124,10 +122,7 @@ class RobustnessValidationService:
                 operator=">=",
                 passed=score >= request.min_robustness_score,
                 severity="error",
-                message=(
-                    f"稳健性得分 {score:.2f} 低于 "
-                    f"{request.min_robustness_score:.2f}。"
-                ),
+                message=(f"稳健性得分 {score:.2f} 低于 {request.min_robustness_score:.2f}。"),
             ),
             QualityGateEvaluation(
                 key="overfitting_risk",

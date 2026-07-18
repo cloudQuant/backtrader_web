@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import typing
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 
@@ -76,9 +77,9 @@ def _build_overfitting_runtime_snapshot(
 async def create_overfitting_task(
     backtest_id: str,
     data: OverfittingAnalysisRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: OverfittingService = Depends(get_overfitting_service),
-):
+) -> typing.Any:
     try:
         submission = await service.schedule_analysis(
             backtest_id=backtest_id,
@@ -114,16 +115,16 @@ async def create_overfitting_task(
 )
 async def get_overfitting_task(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: OverfittingService = Depends(get_overfitting_service),
-):
+) -> typing.Any:
     result = await service.get_task_result(task_id, user_id=current_user.sub)
     if result is None:
         raise HTTPException(status_code=404, detail="Overfitting analysis task not found")
     return result
 
 
-async def websocket_endpoint(websocket: WebSocket, task_id: str):
+async def websocket_endpoint(websocket: WebSocket, task_id: str) -> typing.Any:
     current_user, accepted_subprotocol = get_websocket_current_user(websocket)
     if current_user is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)

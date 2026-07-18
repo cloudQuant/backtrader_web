@@ -75,9 +75,7 @@ class TestScanRunningStrategyPids:
         good_pid = proc_dir / "1234"
         good_pid.mkdir()
         good_path = "/home/user/app/workspace_units/ws-1/unit-1/run.py"
-        (good_pid / "cmdline").write_bytes(
-            b"python\0" + good_path.encode() + b"\0--flag\0"
-        )
+        (good_pid / "cmdline").write_bytes(b"python\0" + good_path.encode() + b"\0--flag\0")
 
         shell_pid = proc_dir / "2222"
         shell_pid.mkdir()
@@ -88,9 +86,7 @@ class TestScanRunningStrategyPids:
 
         other_pid = proc_dir / "3333"
         other_pid.mkdir()
-        (other_pid / "cmdline").write_bytes(
-            b"python\0/home/user/other_project/run.py\0"
-        )
+        (other_pid / "cmdline").write_bytes(b"python\0/home/user/other_project/run.py\0")
 
         assert _scan_running_strategy_pids_procfs(proc_dir) == {good_path: 1234}
 

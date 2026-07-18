@@ -14,7 +14,6 @@ import requests
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
-
 EASTMONEY_DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
 EASTMONEY_REFERER = "https://data.eastmoney.com/gpzy/distributeStatistics.aspx"
 REPORT_NAME = "RPT_GDZY_ZYJG_SUM"

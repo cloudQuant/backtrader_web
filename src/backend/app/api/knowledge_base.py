@@ -1,5 +1,6 @@
 """Knowledge base API routes for iteration 129."""
 
+import typing
 from functools import lru_cache
 from pathlib import Path
 
@@ -32,7 +33,7 @@ def get_knowledge_base_service() -> KnowledgeBaseService:
     return KnowledgeBaseService()
 
 
-def _get_source_file_path(entity) -> tuple[Path, str] | None:
+def _get_source_file_path(entity: typing.Any) -> tuple[Path, str] | None:
     metadata = getattr(entity, "metadata_json", None)
     if not isinstance(metadata, dict):
         return None
@@ -58,7 +59,7 @@ async def list_knowledge_bases(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     search: str | None = Query(None),
-):
+) -> typing.Any:
     total, items = await service.list_knowledge_bases(
         current_user.sub, skip=skip, limit=limit, search=search
     )
@@ -80,7 +81,7 @@ async def create_knowledge_base(
     data: KnowledgeBaseCreate,
     current_user: TokenPayload = Depends(get_current_user),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
-):
+) -> typing.Any:
     return await service.create_knowledge_base(current_user.sub, data)
 
 
@@ -89,7 +90,7 @@ async def get_knowledge_base(
     kb_id: str,
     current_user: TokenPayload = Depends(get_current_user),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
-):
+) -> typing.Any:
     entity = await service.get_knowledge_base(kb_id, current_user.sub)
     if entity is None:
         raise HTTPException(
@@ -104,7 +105,7 @@ async def update_knowledge_base(
     data: KnowledgeBaseUpdate,
     current_user: TokenPayload = Depends(get_current_user),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
-):
+) -> typing.Any:
     entity = await service.update_knowledge_base(kb_id, current_user.sub, data)
     if entity is None:
         raise HTTPException(
@@ -113,12 +114,12 @@ async def update_knowledge_base(
     return entity
 
 
-@router.delete("/{kb_id}", summary="Delete knowledge base")
+@router.delete("/{kb_id}", summary="Delete knowledge base", response_model=None)
 async def delete_knowledge_base(
     kb_id: str,
     current_user: TokenPayload = Depends(get_current_user),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
-):
+) -> typing.Any:
     success = await service.delete_knowledge_base(kb_id, current_user.sub)
     if not success:
         raise HTTPException(
@@ -132,7 +133,7 @@ async def list_documents(
     kb_id: str,
     current_user: TokenPayload = Depends(get_current_user),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
-):
+) -> typing.Any:
     items = await service.list_documents(kb_id, current_user.sub)
     if items is None:
         raise HTTPException(
@@ -155,7 +156,7 @@ async def create_document(
     data: KBDocumentCreate,
     current_user: TokenPayload = Depends(get_current_user),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
-):
+) -> typing.Any:
     try:
         entity = await service.create_document(kb_id, current_user.sub, data)
     except ValueError as exc:
@@ -175,7 +176,7 @@ async def get_document(
     doc_id: str,
     current_user: TokenPayload = Depends(get_current_user),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
-):
+) -> typing.Any:
     entity = await service.get_document(kb_id, doc_id, current_user.sub)
     if entity is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
@@ -185,13 +186,14 @@ async def get_document(
 @router.get(
     "/{kb_id}/documents/{doc_id}/source-file",
     summary="Get document source file",
+    response_model=None,
 )
 async def get_document_source_file(
     kb_id: str,
     doc_id: str,
     current_user: TokenPayload = Depends(get_current_user),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
-):
+) -> typing.Any:
     entity = await service.get_document(kb_id, doc_id, current_user.sub)
     if entity is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
@@ -213,7 +215,7 @@ async def update_document(
     data: KBDocumentUpdate,
     current_user: TokenPayload = Depends(get_current_user),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
-):
+) -> typing.Any:
     try:
         entity = await service.update_document(kb_id, doc_id, current_user.sub, data)
     except ValueError as exc:
@@ -223,13 +225,13 @@ async def update_document(
     return entity
 
 
-@router.delete("/{kb_id}/documents/{doc_id}", summary="Delete document")
+@router.delete("/{kb_id}/documents/{doc_id}", summary="Delete document", response_model=None)
 async def delete_document(
     kb_id: str,
     doc_id: str,
     current_user: TokenPayload = Depends(get_current_user),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
-):
+) -> typing.Any:
     success = await service.delete_document(kb_id, doc_id, current_user.sub)
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
@@ -246,7 +248,7 @@ async def import_reqdocs_payload(
     data: ReqDocsImportRequest,
     current_user: TokenPayload = Depends(get_current_user),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
-):
+) -> typing.Any:
     kb, imported = await service.import_reqdocs_payload(current_user.sub, data)
     return ReqDocsImportResponse(
         knowledge_base=KnowledgeBaseResponse.model_validate(kb),

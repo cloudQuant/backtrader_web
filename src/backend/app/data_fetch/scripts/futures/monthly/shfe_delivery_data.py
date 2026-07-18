@@ -7,7 +7,6 @@ import requests
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
-
 SHFE_MONTHDATA_URL = "https://www.shfe.com.cn/data/tradedata/future/monthdata"
 PREFER_LOCAL_SCRIPT = True
 
@@ -48,8 +47,7 @@ class FuturesDeliveryShfe(AkshareToMySql):
 
     def _ensure_unique_index(self):
         rows = self.execute_sql(
-            "SHOW INDEX FROM `FUTURES_DELIVERY_SHFE` "
-            "WHERE Key_name = 'IDX_SHFE_DELIVERY_UNIQUE'",
+            "SHOW INDEX FROM `FUTURES_DELIVERY_SHFE` WHERE Key_name = 'IDX_SHFE_DELIVERY_UNIQUE'",
             fetch_all=True,
         )
         if rows:
@@ -144,9 +142,7 @@ class FuturesDeliveryShfe(AkshareToMySql):
                 if start_month_dt < lookback_start:
                     start_month_dt = lookback_start
                     start_month = start_month_dt.strftime("%Y%m")
-                    self.logger.info(
-                        f"限制上海期货交易所交割统计更新为最近 {lookback_months} 个月"
-                    )
+                    self.logger.info(f"限制上海期货交易所交割统计更新为最近 {lookback_months} 个月")
 
             if start_month_dt > end_month_dt:
                 self.logger.info(f"开始月份 {start_month} 不能晚于结束月份 {end_month}")

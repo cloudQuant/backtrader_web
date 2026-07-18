@@ -1,5 +1,10 @@
 import pytest
 
+pytest.importorskip(
+    "bt_api_py.brokers",
+    reason="broker contract is supplied by the external bt_api_py package",
+)
+
 
 @pytest.mark.asyncio
 async def test_mock_broker_adapter_passes_contract_cases():

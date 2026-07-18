@@ -23,7 +23,9 @@ def test_any_targets_running_detects_active_units():
     module = _load_script_module()
 
     assert module.any_targets_running({"futures": Counter({"running": 1})}) is True
-    assert module.any_targets_running({"futures": Counter({"idle": 50, "process_alive": 50})}) is True
+    assert (
+        module.any_targets_running({"futures": Counter({"idle": 50, "process_alive": 50})}) is True
+    )
     assert module.any_targets_running({"futures": Counter({"idle": 50})}) is False
 
 
@@ -37,7 +39,7 @@ def test_stress_script_suppresses_default_admin_password_warning():
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("default")
         module._suppress_default_admin_warning_for_stress_script()
-        warnings.warn(message, UserWarning)
+        warnings.warn(message, UserWarning, stacklevel=2)
 
     assert caught == []
 
@@ -48,7 +50,7 @@ def test_stress_script_keeps_unrelated_user_warnings_visible():
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("default")
         module._suppress_default_admin_warning_for_stress_script()
-        warnings.warn("different operational warning", UserWarning)
+        warnings.warn("different operational warning", UserWarning, stacklevel=2)
 
     assert len(caught) == 1
 
@@ -203,11 +205,14 @@ def test_filter_units_for_rolling_restart_skips_only_fresh_heartbeats(monkeypatc
     )
 
     assert [unit.id for unit in selected] == ["stale", "missing", "not-running"]
-    assert module.filter_units_for_rolling_restart(
-        units,
-        skip_fresh_heartbeats=False,
-        live_processes={},
-    ) == units
+    assert (
+        module.filter_units_for_rolling_restart(
+            units,
+            skip_fresh_heartbeats=False,
+            live_processes={},
+        )
+        == units
+    )
 
 
 def test_filter_units_for_rolling_restart_skips_fresh_data_logs(monkeypatch):

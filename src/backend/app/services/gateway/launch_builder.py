@@ -126,9 +126,7 @@ def _tcp_front_reachable(value: Any, timeout: float) -> bool:
 
 
 def _tcp_fronts_reachable(td_front: str, md_front: str, timeout: float) -> bool:
-    return _tcp_front_reachable(td_front, timeout) and _tcp_front_reachable(
-        md_front, timeout
-    )
+    return _tcp_front_reachable(td_front, timeout) and _tcp_front_reachable(md_front, timeout)
 
 
 def _ctp_proxy_tunnel_enabled(
@@ -196,12 +194,13 @@ def resolve_ctp_front_selection(
     """
 
     front = dict(front or {})
-    requested_env = str(
-        gateway_params.get("ctp_env") or env_data.get("CTP_ENV") or ""
-    ).strip().lower()
-    set1_group = str(
-        gateway_params.get("set1_group") or env_data.get("CTP_SET1_GROUP") or "1"
-    ).strip() or "1"
+    requested_env = (
+        str(gateway_params.get("ctp_env") or env_data.get("CTP_ENV") or "").strip().lower()
+    )
+    set1_group = (
+        str(gateway_params.get("set1_group") or env_data.get("CTP_SET1_GROUP") or "1").strip()
+        or "1"
+    )
     explicit_td = (
         gateway_params.get("td_front")
         or gateway_params.get("td_address")
@@ -478,9 +477,9 @@ def build_ctp_gateway_runtime_kwargs(
         or gateway_params.get("auth_code")
         or ctp.get("auth_code", "0000000000000000")
     )
-    requested_ctp_env = str(
-        gateway_params.get("ctp_env") or env_data.get("CTP_ENV") or ""
-    ).strip().lower()
+    requested_ctp_env = (
+        str(gateway_params.get("ctp_env") or env_data.get("CTP_ENV") or "").strip().lower()
+    )
     probe_fronts = coerce_bool(
         gateway_params.get("probe_fronts")
         if gateway_params.get("probe_fronts") is not None
@@ -494,11 +493,15 @@ def build_ctp_gateway_runtime_kwargs(
     )
     fronts_reachable = None
     if requested_ctp_env == "auto" and probe_fronts:
-        fronts_reachable = lambda td_front, md_front: _tcp_fronts_reachable(
-            td_front,
-            md_front,
-            timeout=front_probe_timeout_sec,
-        )
+
+        def _fronts_reachable(td_front: str, md_front: str) -> bool:
+            return _tcp_fronts_reachable(
+                td_front,
+                md_front,
+                timeout=front_probe_timeout_sec,
+            )
+
+        fronts_reachable = _fronts_reachable
     ctp_front_selection = resolve_ctp_front_selection(
         gateway_params=gateway_params,
         env_data=env_data,

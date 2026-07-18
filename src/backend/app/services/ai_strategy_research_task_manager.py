@@ -17,6 +17,7 @@ from app.schemas.ai_strategy_research import (
     AIStrategyResearchRunResponse,
     AIStrategyResearchTaskResponse,
 )
+from app.utils.logger import get_logger
 
 _CANCEL_CLEANUP_TIMEOUT_SECONDS = 1.0
 _DEFAULT_MAX_TERMINAL_TASKS_PER_USER = 50
@@ -34,6 +35,7 @@ _SENSITIVE_REQUEST_KEYS = (
     "authorization",
 )
 _SENSITIVE_REQUEST_OMITTED = object()
+logger = get_logger(__name__)
 
 
 def _utc_iso_now() -> str:
@@ -71,6 +73,9 @@ class AIStrategyResearchWorkspaceTaskSnapshotStore:
         try:
             workspace = await workspace_service.get_workspace(workspace_id, user_id)
         except Exception:
+            logger.opt(exception=True).warning(
+                "Unable to load AI research task snapshot workspace {}", workspace_id
+            )
             return
         if workspace is None:
             return
@@ -104,6 +109,9 @@ class AIStrategyResearchWorkspaceTaskSnapshotStore:
                 WorkspaceUpdate(settings={"ai_research": ai_research}),
             )
         except Exception:
+            logger.opt(exception=True).warning(
+                "Unable to update AI research task snapshot workspace {}", workspace_id
+            )
             updated = None
         if updated is not None:
             return
@@ -111,6 +119,9 @@ class AIStrategyResearchWorkspaceTaskSnapshotStore:
         try:
             workspace.settings = settings
         except Exception:
+            logger.opt(exception=True).warning(
+                "Unable to assign AI research task snapshot settings for workspace {}", workspace_id
+            )
             return
 
     async def get_task(
@@ -159,6 +170,9 @@ class AIStrategyResearchWorkspaceTaskSnapshotStore:
                 workspace_type="research",
             )
         except Exception:
+            logger.opt(exception=True).warning(
+                "Unable to list AI research workspaces for task snapshot recovery"
+            )
             return []
         return list(workspaces)
 
@@ -463,6 +477,9 @@ class AIStrategyResearchTaskManager:
             if inspect.isawaitable(result):
                 await result
         except Exception:
+            logger.opt(exception=True).warning(
+                "Unable to persist AI research task snapshot {}", response.task_id
+            )
             return
 
     async def _load_task_snapshot(
@@ -481,6 +498,9 @@ class AIStrategyResearchTaskManager:
             if inspect.isawaitable(result):
                 result = await result
         except Exception:
+            logger.opt(exception=True).warning(
+                "Unable to load AI research task snapshot {}", task_id
+            )
             return None
         if isinstance(result, AIStrategyResearchTaskResponse):
             return _freshened_task_response_for_read(result.model_copy(deep=True))
@@ -504,6 +524,7 @@ class AIStrategyResearchTaskManager:
             if inspect.isawaitable(result):
                 result = await result
         except Exception:
+            logger.opt(exception=True).warning("Unable to list AI research task snapshots")
             return []
         if not isinstance(result, list):
             return []
@@ -522,6 +543,7 @@ class AIStrategyResearchTaskManager:
                 service = BacktestService()
             return bool(await service.cancel_task(task_id, user_id))
         except Exception:
+            logger.opt(exception=True).warning("Unable to cancel child backtest task {}", task_id)
             return False
 
     async def _wait_for_cancel_cleanup(
@@ -561,7 +583,7 @@ class AIStrategyResearchTaskManager:
             return
 
         terminal_items.sort(reverse=True)
-        for _, task_id in terminal_items[self._max_terminal_tasks_per_user:]:
+        for _, task_id in terminal_items[self._max_terminal_tasks_per_user :]:
             self._tasks.pop(task_id, None)
 
 
@@ -658,11 +680,7 @@ def _task_continuation_run_id(task: AIStrategyResearchTaskResponse) -> str:
 def _task_continuation_context_for_submit(
     task: AIStrategyResearchTaskResponse,
 ) -> dict[str, Any]:
-    context = (
-        dict(task.continuation_context)
-        if isinstance(task.continuation_context, dict)
-        else {}
-    )
+    context = dict(task.continuation_context) if isinstance(task.continuation_context, dict) else {}
     source = str(context.get("source") or task.continuation_source or "").strip()
     if not source:
         source = _task_continuation_source(task)
@@ -841,6 +859,7 @@ def _coerce_task_snapshot(raw: Any) -> AIStrategyResearchTaskResponse | None:
     try:
         return AIStrategyResearchTaskResponse.model_validate(raw)
     except Exception:
+        logger.opt(exception=True).warning("Discarding invalid persisted AI research task snapshot")
         return None
 
 
@@ -889,9 +908,7 @@ def _recovered_task_response_for_read(
 
 def _task_has_reusable_strategy_snapshot(response: AIStrategyResearchTaskResponse) -> bool:
     return bool(
-        response.best_strategy_id
-        or response.best_iteration_payload
-        or response.latest_iteration
+        response.best_strategy_id or response.best_iteration_payload or response.latest_iteration
     )
 
 
@@ -1003,6 +1020,9 @@ def _research_request_runtime_task_updates(
         updates.update(continuation_updates)
         return updates
     except Exception:
+        logger.opt(exception=True).warning(
+            "Unable to resolve AI research runtime metadata; using request defaults"
+        )
         return {
             **continuation_updates,
             "backtest_environment": {
@@ -1014,7 +1034,7 @@ def _research_request_runtime_task_updates(
                 "weight_mode": request.weight_mode,
                 **({"start_date": request.start_date} if request.start_date else {}),
                 **({"end_date": request.end_date} if request.end_date else {}),
-            }
+            },
         }
 
 
@@ -1033,6 +1053,7 @@ async def _service_continuation_task_updates(
         if inspect.isawaitable(result):
             result = await result
     except Exception:
+        logger.opt(exception=True).warning("Unable to load AI research continuation metadata")
         return {}
     if not isinstance(result, dict) or not result:
         return {}
@@ -1421,8 +1442,7 @@ def _research_result_task_updates(result: Any) -> dict[str, Any]:
         or pipeline.get("live_workspace_name"),
         "live_unit_id": getattr(record, "live_unit_id", None) or pipeline.get("live_unit_id"),
         "live_trading_prepared": bool(
-            getattr(record, "live_trading_prepared", False)
-            or pipeline.get("live_trading_prepared")
+            getattr(record, "live_trading_prepared", False) or pipeline.get("live_trading_prepared")
         ),
         "live_trading_prepared_at": getattr(record, "live_trading_prepared_at", None)
         or pipeline.get("live_trading_prepared_at")
@@ -1580,8 +1600,7 @@ def _paper_trading_started_for_task(
     if stage == "paper_trading_failed" or error:
         return False
     return bool(
-        getattr(record, "paper_trading_started", False)
-        or getattr(paper_trading, "started", False)
+        getattr(record, "paper_trading_started", False) or getattr(paper_trading, "started", False)
     )
 
 
@@ -1664,6 +1683,7 @@ def _freshened_research_run_record(record: Any) -> Any:
 
         return _research_run_record_with_live_readiness_freshness(record)
     except Exception:
+        logger.opt(exception=True).warning("Unable to refresh AI research live-readiness state")
         return record
 
 
@@ -1765,6 +1785,7 @@ def _redacted_research_result_for_task(result: Any) -> AIStrategyResearchRunResp
         redacted = _redact_sensitive_values(payload)
         return AIStrategyResearchRunResponse.model_validate(redacted)
     except Exception:
+        logger.opt(exception=True).warning("Unable to redact AI research result for task storage")
         return None
 
 
@@ -1780,6 +1801,7 @@ def _redacted_model_for_task(value: Any, model_cls: Any) -> Any:
             return None
         return model_cls.model_validate(_redact_sensitive_values(payload))
     except Exception:
+        logger.opt(exception=True).warning("Unable to redact AI research model for task storage")
         return None
 
 

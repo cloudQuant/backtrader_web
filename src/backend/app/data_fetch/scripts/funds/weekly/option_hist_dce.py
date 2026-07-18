@@ -56,8 +56,7 @@ class OptionHistDce(AkshareToMySql):
                     "%Y-%m-%d"
                 )
                 for offset in range(0, 14)
-                if (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=offset)).weekday()
-                < 5
+                if (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=offset)).weekday() < 5
             ]
         trading_days = sorted(trading_days)
         return [item.replace("-", "") for item in trading_days[-max_days:]][::-1]
@@ -119,7 +118,9 @@ class OptionHistDce(AkshareToMySql):
                     continue
 
                 if chain_df is None or chain_df.empty:
-                    self.logger.warning(f"Sina fallback returned no option chain for {symbol} {contract}")
+                    self.logger.warning(
+                        f"Sina fallback returned no option chain for {symbol} {contract}"
+                    )
                     continue
 
                 frames.extend(

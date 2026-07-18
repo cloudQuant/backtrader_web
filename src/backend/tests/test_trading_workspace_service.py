@@ -9,6 +9,7 @@ import yaml
 from app.services import trading_workspace_service as trading_workspace_service_module
 from app.services import workspace_unit_runtime
 from app.services.position_valuation import PositionSpec, contract_spec_for, value_position
+from app.services.risk_gate_service import RiskGateService
 from app.services.trading_asset_info_service import (
     load_runtime_config,
     normalize_asset_spec,
@@ -101,6 +102,33 @@ def test_build_instance_params_keeps_explicit_gateway_for_paper_units():
     assert params["trading_mode"] == "paper"
     assert params["gateway"]["exchange_type"] == "IB_WEB"
     assert params["ib_web"]["account_id"] == "DU123456"
+
+
+def test_risk_gate_does_not_apply_live_drawdown_blockers_to_paper_units():
+    paper_unit = SimpleNamespace(
+        trading_mode="paper",
+        symbol="EURUSD",
+        unit_settings={},
+        gateway_config={},
+        data_config={},
+        metrics_snapshot={"max_drawdown": -0.95},
+    )
+    live_unit = SimpleNamespace(
+        trading_mode="live",
+        symbol="EURUSD",
+        unit_settings={},
+        gateway_config={},
+        data_config={},
+        metrics_snapshot={"max_drawdown": -0.95},
+    )
+
+    paper_decision = RiskGateService().evaluate_trading_unit_pre_run(paper_unit)
+    live_decision = RiskGateService().evaluate_trading_unit_pre_run(live_unit)
+
+    assert paper_decision["passed"] is True
+    assert paper_decision["evaluations"] == []
+    assert live_decision["passed"] is False
+    assert "策略回撤超过实盘准入限制。" in live_decision["blockers"]
 
 
 def test_build_instance_params_serializes_json_values_for_instance_store():
@@ -441,6 +469,41 @@ def test_build_snapshot_prefers_live_gateway_positions(monkeypatch, tmp_path):
     assert snapshot["position_source"] == "gateway"
     assert snapshot["valuation_status"] == "confirmed"
     assert snapshot["position_pnl"] == 98.5
+
+
+def test_build_snapshot_uses_paper_workspace_state_without_gateway_query(monkeypatch, tmp_path):
+    """Refreshing a paper workspace must not issue one broker query per unit."""
+    unit = SimpleNamespace(
+        workspace_id="ws-paper",
+        id="unit-paper",
+        trading_instance_id="inst-paper",
+        trading_mode="paper",
+        gateway_config={},
+        symbol="IF2609",
+        symbol_name="沪深300期货",
+        strategy_name="Paper IF",
+        unit_settings={},
+        params={},
+        data_config={},
+    )
+
+    def fail_gateway_query(cls, _unit, _instance):
+        raise AssertionError("paper workspace snapshots must not query gateway positions")
+
+    monkeypatch.setattr(
+        TradingWorkspaceService,
+        "_gateway_position_rows",
+        classmethod(fail_gateway_query),
+    )
+
+    snapshot, _metrics, _bar_count, _elapsed = TradingWorkspaceService._build_snapshot(
+        unit,
+        {"id": "inst-paper", "status": "running", "log_dir": str(tmp_path)},
+        full_log=False,
+    )
+
+    assert snapshot["instance_status"] == "running"
+    assert snapshot["position_source"] is None
 
 
 def test_build_snapshot_uses_gateway_asset_spec_fee_for_position_pnl(monkeypatch, tmp_path):
@@ -3487,6 +3550,69 @@ def test_resolve_asset_specs_uses_local_mt5_defaults_without_gateway(tmp_path):
     assert spec["multiplier"] == pytest.approx(100.0)
 
 
+def test_resolve_asset_specs_uses_configured_fee_and_mt5_account_leverage(tmp_path):
+    strategy_dir = tmp_path / "strategy"
+    strategy_dir.mkdir()
+    (strategy_dir / "config.yaml").write_text(
+        yaml.safe_dump({"simulate": {"commission": 0.00007}}), encoding="utf-8"
+    )
+    instance = {"params": {"symbol": "EURUSD"}}
+
+    class Adapter:
+        def __init__(self):
+            self.balance_calls = 0
+
+        def get_balance(self):
+            self.balance_calls += 1
+            return {"leverage": 200}
+
+    adapter = Adapter()
+    gateway = {
+        "config": SimpleNamespace(exchange_type="MT5"),
+        "runtime": SimpleNamespace(adapter=adapter),
+    }
+
+    specs = resolve_asset_specs(instance, strategy_dir, gateway, symbols=["EURUSD"])
+
+    spec = specs["EURUSD"]
+    assert spec["commission_rate"] == pytest.approx(0.00007)
+    assert spec["leverage"] == pytest.approx(200)
+    assert spec["margin_rate"] == pytest.approx(0.005)
+    assert adapter.balance_calls == 1
+
+
+def test_resolve_asset_specs_does_not_block_mt5_preflight_on_remote_symbol_lookup(tmp_path):
+    strategy_dir = tmp_path / "strategy"
+    strategy_dir.mkdir()
+    (strategy_dir / "config.yaml").write_text(
+        yaml.safe_dump({"simulate": {"commission": 0.00007}}), encoding="utf-8"
+    )
+    instance = {"params": {"symbol": "GBPUSD"}}
+
+    class Adapter:
+        def __init__(self):
+            self.symbol_lookup_calls = 0
+
+        def get_balance(self):
+            return {"leverage": 100}
+
+        def get_symbol_info(self, _symbol):
+            self.symbol_lookup_calls += 1
+            raise AssertionError("MT5 preflight must not issue a remote symbol lookup")
+
+    adapter = Adapter()
+    gateway = {
+        "config": SimpleNamespace(exchange_type="MT5"),
+        "runtime": SimpleNamespace(adapter=adapter),
+    }
+
+    specs = resolve_asset_specs(instance, strategy_dir, gateway, symbols=["GBPUSD"])
+
+    assert specs["GBPUSD"]["commission_rate"] == pytest.approx(0.00007)
+    assert specs["GBPUSD"]["leverage"] == pytest.approx(100)
+    assert adapter.symbol_lookup_calls == 0
+
+
 def test_sync_trading_unit_runtime_copies_template_and_merges_unit_config(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path)
     template_dir = _make_strategy_template(
@@ -3504,7 +3630,11 @@ def test_sync_trading_unit_runtime_copies_template_and_merges_unit_config(tmp_pa
         timeframe="1m",
         timeframe_n=1,
         category="stock",
-        data_config={"range_type": "sample", "sample_count": 300},
+        data_config={
+            "range_type": "sample",
+            "sample_count": 300,
+            "trade_symbol": "265598",
+        },
         unit_settings={
             "duration_seconds": 1800,
             "session_timeout": 1860,
@@ -3553,6 +3683,9 @@ def test_sync_trading_unit_runtime_copies_template_and_merges_unit_config(tmp_pa
     assert config["live"]["dispatch_ticks"] is True
     assert config["live"]["exactbars"] == -1
     assert config["live"]["stdstats"] is True
+    assert config["data"]["symbol"] == "265598"
+    assert config["data"]["display_symbol"] == "AAPL"
+    assert config["live"]["symbol"] == "265598"
 
 
 def test_sync_trading_unit_runtime_refreshes_existing_template_sources(tmp_path, monkeypatch):
@@ -3584,9 +3717,7 @@ def test_sync_trading_unit_runtime_writes_fallback_run_py_for_generated_strategy
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path)
-    template_dir = _make_strategy_template(
-        tmp_path, "generated/ai-strategy", "strategy_generated"
-    )
+    template_dir = _make_strategy_template(tmp_path, "generated/ai-strategy", "strategy_generated")
     (template_dir / "run.py").unlink()
     monkeypatch.setattr(workspace_unit_runtime, "get_strategy_dir", lambda _sid: template_dir)
     unit = _make_basic_trading_unit("generated/ai-strategy")
@@ -3603,9 +3734,7 @@ def test_sync_trading_unit_runtime_refreshes_fallback_run_py_for_generated_strat
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path)
-    template_dir = _make_strategy_template(
-        tmp_path, "generated/ai-strategy", "strategy_generated"
-    )
+    template_dir = _make_strategy_template(tmp_path, "generated/ai-strategy", "strategy_generated")
     (template_dir / "run.py").unlink()
     monkeypatch.setattr(workspace_unit_runtime, "get_strategy_dir", lambda _sid: template_dir)
     unit = _make_basic_trading_unit("generated/ai-strategy")

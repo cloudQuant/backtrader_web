@@ -63,13 +63,20 @@ else
 fi
 
 # --- Advisory: total + largest ---
-TOTAL_BYTES=$(find "$DIST_DIR" -type f \( -name "*.js" -o -name "*.css" \) -exec stat -f%z {} + 2>/dev/null | awk '{s+=$1} END {print s+0}' || \
-              find "$DIST_DIR" -type f \( -name "*.js" -o -name "*.css" \) -exec stat --format=%s {} + 2>/dev/null | awk '{s+=$1} END {print s+0}')
+# Reuse the portable helper above for every file.  Chaining BSD and GNU `stat`
+# in a pipeline made Linux collect both outputs, which produced an invalid
+# arithmetic value such as `0\n18954728` under `set -u`.
+TOTAL_BYTES=0
+LARGEST_BYTES=0
+while IFS= read -r -d '' asset_file; do
+  asset_bytes=$(filesize "$asset_file")
+  TOTAL_BYTES=$((TOTAL_BYTES + asset_bytes))
+  if [ "$asset_bytes" -gt "$LARGEST_BYTES" ]; then
+    LARGEST_BYTES=$asset_bytes
+  fi
+done < <(find "$DIST_DIR" -type f \( -name "*.js" -o -name "*.css" \) -print0)
 TOTAL_KB=$((TOTAL_BYTES / 1024))
-
-LARGEST_FILE=$(find "$DIST_DIR/assets" -name "*.js" -type f -exec stat -f"%z %N" {} + 2>/dev/null | sort -rn | head -1 || \
-               find "$DIST_DIR/assets" -name "*.js" -type f -printf "%s %p\n" 2>/dev/null | sort -rn | head -1)
-LARGEST_KB=$(echo "$LARGEST_FILE" | awk '{print int($1/1024)}')
+LARGEST_KB=$((LARGEST_BYTES / 1024))
 
 # --- Print 175 §7 budget table ---
 STATUS=PASS

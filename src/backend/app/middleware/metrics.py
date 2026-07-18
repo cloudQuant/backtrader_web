@@ -48,6 +48,7 @@ MetricHistogram = HistogramProtocol | None
 _prometheus_client: Any
 try:
     import prometheus_client as _prometheus_client
+
     PROMETHEUS_AVAILABLE = True
 except ImportError:
     _prometheus_client = None

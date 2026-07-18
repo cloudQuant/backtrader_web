@@ -613,8 +613,12 @@ def calculate_extended_metrics(
                 result.append((v1 - v0) / v0)
         return result
 
-    weekly_returns = _calendar_period_returns(daily_equity, daily_dates, "week") or _period_returns(5)
-    monthly_returns = _calendar_period_returns(daily_equity, daily_dates, "month") or _period_returns(21)
+    weekly_returns = _calendar_period_returns(daily_equity, daily_dates, "week") or _period_returns(
+        5
+    )
+    monthly_returns = _calendar_period_returns(
+        daily_equity, daily_dates, "month"
+    ) or _period_returns(21)
 
     wr = np.array(weekly_returns) if weekly_returns else np.array([0.0])
     mr = np.array(monthly_returns) if monthly_returns else np.array([0.0])

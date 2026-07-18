@@ -488,18 +488,14 @@ class AkshareScriptService:
         script_timeout = getattr(script, "timeout", None) if script is not None else None
         if script_timeout is not None and float(script_timeout) > 0:
             return max(float(script_timeout), min_timeout)
-        raw_timeout = os.getenv("AKSHARE_SCRIPT_TIMEOUT") or os.getenv(
-            "AKSHARE_CALL_TIMEOUT", "60"
-        )
+        raw_timeout = os.getenv("AKSHARE_SCRIPT_TIMEOUT") or os.getenv("AKSHARE_CALL_TIMEOUT", "60")
         try:
             return max(float(raw_timeout), min_timeout)
         except ValueError:
             return max(60.0, min_timeout)
 
     @staticmethod
-    async def _execute_callable(
-        callable_obj: Any, params: dict[str, Any], timeout_s: float
-    ) -> Any:
+    async def _execute_callable(callable_obj: Any, params: dict[str, Any], timeout_s: float) -> Any:
         configure_akshare_network_proxy()
         if inspect.iscoroutinefunction(callable_obj):
             awaitable = callable_obj(**params)
@@ -535,7 +531,9 @@ class AkshareScriptService:
         raise TypeError("Script parameters must be a JSON object")
 
     @staticmethod
-    def _apply_safe_default_parameters(script_id: str, parameters: dict[str, Any]) -> dict[str, Any]:
+    def _apply_safe_default_parameters(
+        script_id: str, parameters: dict[str, Any]
+    ) -> dict[str, Any]:
         today = datetime.now().strftime("%Y%m%d")
         lookback_30 = (datetime.now() - timedelta(days=30)).strftime("%Y%m%d")
         lookback_730 = (datetime.now() - timedelta(days=730)).strftime("%Y%m%d")

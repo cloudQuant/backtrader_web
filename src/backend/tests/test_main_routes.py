@@ -25,6 +25,15 @@ class TestMainRoutes:
         assert data["status"] in ["healthy", "degraded"]
         assert "database" in data
 
+    async def test_readiness_exposes_critical_and_advisory_dependencies(self, client: AsyncClient):
+        """Readiness keeps optional integration failures visible but non-blocking."""
+        resp = await client.get("/ready")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ready"
+        assert data["database"] == "ready"
+        assert {"cache", "ai_providers", "broker_gateways"}.issubset(data)
+
     async def test_info(self, client: AsyncClient):
         """Test API info endpoint."""
         resp = await client.get("/info")

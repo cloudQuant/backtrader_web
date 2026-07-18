@@ -13,6 +13,7 @@ from cryptography.fernet import Fernet, InvalidToken
 
 from app.config import get_settings
 from app.utils.backend_data_paths import get_backend_data_path
+from app.utils.secure_file import write_private_text
 
 _PROVIDER_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 _ENCRYPTED_PREFIX = "fernet:"
@@ -143,15 +144,10 @@ def _read_raw_config() -> dict[str, Any]:
 
 def _write_raw_config(payload: Mapping[str, Any]) -> None:
     path = get_provider_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    write_private_text(
+        path,
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
     )
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass
 
 
 def _decrypt_provider_config(config: Mapping[str, Any]) -> dict[str, Any]:

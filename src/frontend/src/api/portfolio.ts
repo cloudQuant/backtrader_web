@@ -111,17 +111,21 @@ export interface PortfolioEquity {
 }
 
 export interface AllocationItem {
-  strategy_id: string
-  strategy_name: string
-  instance_id: string
+  asset: string
   value: number
   weight: number
-  value_source?: string
+  long_value: number
+  short_value: number
+  net_value: number
+  position_count: number
 }
 
 export const portfolioApi = {
-  getOverview(): Promise<PortfolioOverview> {
-    return request.get('/portfolio/overview')
+  getOverview(summaryOnly = false): Promise<PortfolioOverview> {
+    if (!summaryOnly) return request.get('/portfolio/overview')
+    return request.get('/portfolio/overview', {
+      params: { summary_only: true },
+    })
   },
 
   getPositions(): Promise<{ total: number; positions: PositionItem[]; summary?: PositionSummary; warnings?: string[] }> {
@@ -139,7 +143,10 @@ export const portfolioApi = {
     return request.get('/portfolio/equity')
   },
 
-  getAllocation(): Promise<{ total: number; items: AllocationItem[] }> {
-    return request.get('/portfolio/allocation')
+  getAllocation(workspaceIds: string[] = []): Promise<{ total: number; items: AllocationItem[] }> {
+    const ids = workspaceIds.filter(Boolean)
+    const params: { workspace_ids?: string } = {}
+    if (ids.length > 0) params.workspace_ids = ids.join(',')
+    return request.get('/portfolio/allocation', { params })
   },
 }

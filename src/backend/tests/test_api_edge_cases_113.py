@@ -169,6 +169,11 @@ async def test_realtime_data_websocket_disconnect_on_exception(monkeypatch):
     from app.api.data import realtime as api
 
     ws = object()
+    monkeypatch.setattr(
+        api,
+        "get_websocket_current_user",
+        lambda _websocket: (SimpleNamespace(sub="user-1"), "access-token"),
+    )
     monkeypatch.setattr(api.ws_manager, "connect", AsyncMock())
     monkeypatch.setattr(api.ws_manager, "send_to_task", AsyncMock())
     monkeypatch.setattr(api.ws_manager, "disconnect", MagicMock())
@@ -180,7 +185,7 @@ async def test_realtime_data_websocket_disconnect_on_exception(monkeypatch):
     await api.realtime_tick_websocket(ws, broker_id="binance")
     api.ws_manager.send_to_task.assert_awaited_once()
     task_id, payload = api.ws_manager.send_to_task.await_args.args
-    assert task_id == "ticks:binance"
+    assert task_id == "ticks:user-1:binance"
     assert payload["type"] == api.MessageType.CONNECTED
     assert payload["streaming_enabled"] is False
     assert payload["push_mode"] == "keepalive_only"

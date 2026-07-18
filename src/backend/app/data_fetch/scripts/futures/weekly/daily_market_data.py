@@ -99,7 +99,9 @@ class FuturesDailyMarket(AkshareToMySql):
             if columns == ["MARKET", "SYMBOL", "TRADE_DATE"]:
                 return
             self.logger.info("Updating FUTURES_DAILY_MARKET unique key to include MARKET")
-            self.cursor.execute("ALTER TABLE `FUTURES_DAILY_MARKET` DROP INDEX `IDX_DAILY_MARKET_UNIQUE`")
+            self.cursor.execute(
+                "ALTER TABLE `FUTURES_DAILY_MARKET` DROP INDEX `IDX_DAILY_MARKET_UNIQUE`"
+            )
             self.cursor.execute(
                 "ALTER TABLE `FUTURES_DAILY_MARKET` "
                 "ADD UNIQUE KEY `IDX_DAILY_MARKET_UNIQUE` (`MARKET`, `SYMBOL`, `TRADE_DATE`)"
@@ -260,9 +262,7 @@ class FuturesDailyMarket(AkshareToMySql):
 
             symbol_df = symbol_df.copy()
             symbol_df["date"] = pd.to_datetime(symbol_df["date"], errors="coerce")
-            symbol_df = symbol_df[
-                (symbol_df["date"] >= start_ts) & (symbol_df["date"] <= end_ts)
-            ]
+            symbol_df = symbol_df[(symbol_df["date"] >= start_ts) & (symbol_df["date"] <= end_ts)]
             if symbol_df.empty:
                 continue
 

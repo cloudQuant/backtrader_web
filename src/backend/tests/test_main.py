@@ -334,9 +334,8 @@ class TestAppIntegration:
         """Test that API router is included."""
         from app.main import app
 
-        routes = [route for route in app.routes if hasattr(route, "path")]
-        api_routes = [r for r in routes if r.path.startswith("/api/v1")]
-        assert len(api_routes) > 0
+        paths = app.openapi()["paths"]
+        assert any(path.startswith("/api/v1") for path in paths)
 
     async def test_openapi_schema(self, client: AsyncClient):
         """Test OpenAPI schema."""

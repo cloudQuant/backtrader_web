@@ -14,7 +14,6 @@ import pandas as pd
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
-
 PREFER_LOCAL_SCRIPT = True
 
 
@@ -105,12 +104,8 @@ class StockIndustryPeRatioCninfo(AkshareToMySql):
             return pd.DataFrame()
 
         normalized = df[list(column_map)].rename(columns=column_map).copy()
-        normalized["TRADE_DATE"] = pd.to_datetime(
-            normalized["TRADE_DATE"], errors="coerce"
-        ).dt.date
-        normalized["INDUSTRY_LEVEL"] = pd.to_numeric(
-            normalized["INDUSTRY_LEVEL"], errors="coerce"
-        )
+        normalized["TRADE_DATE"] = pd.to_datetime(normalized["TRADE_DATE"], errors="coerce").dt.date
+        normalized["INDUSTRY_LEVEL"] = pd.to_numeric(normalized["INDUSTRY_LEVEL"], errors="coerce")
         for column in [
             "COMPANY_COUNT",
             "CALC_COMPANY_COUNT",
@@ -125,9 +120,7 @@ class StockIndustryPeRatioCninfo(AkshareToMySql):
             subset=["TRADE_DATE", "INDUSTRY_CATEGORY", "INDUSTRY_CODE"],
             inplace=True,
         )
-        normalized["R_ID"] = normalized.apply(
-            StockIndustryPeRatioCninfo._stable_id, axis=1
-        )
+        normalized["R_ID"] = normalized.apply(StockIndustryPeRatioCninfo._stable_id, axis=1)
         normalized["DATA_SOURCE"] = "巨潮资讯"
         return normalized[
             [

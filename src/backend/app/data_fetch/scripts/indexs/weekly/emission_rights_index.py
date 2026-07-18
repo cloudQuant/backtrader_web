@@ -10,7 +10,6 @@ import requests
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
-
 SCREEN_API_BASE = "https://screen.zjpwq.com/pwq-index-webapi"
 SCREEN_REFERER = "https://screen.zjpwq.com/"
 

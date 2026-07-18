@@ -9,6 +9,7 @@ import pytest
 from app.db.session_provider import unit_of_work
 from app.models.ai_call_log import AICallLog
 from app.models.user import User
+from app.utils.exceptions import BaseAppError
 
 
 async def _insert_ai_log(**overrides) -> AICallLog:
@@ -115,6 +116,7 @@ async def test_budget_service_hard_budget_raises_structured_error() -> None:
     with pytest.raises(AIBudgetExceededError) as exc_info:
         await service.ensure_budget_available(user_id="user-1")
 
+    assert isinstance(exc_info.value, BaseAppError)
     assert exc_info.value.detail["reason_code"] == "budget_exceeded"
     assert exc_info.value.detail["limit_usd"] == pytest.approx(0.01)
     assert exc_info.value.detail["used_usd"] == pytest.approx(0.02)

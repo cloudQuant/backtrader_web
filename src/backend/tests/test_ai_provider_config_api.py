@@ -6,7 +6,9 @@ from tests.conftest import register_and_login
 
 
 @pytest.mark.asyncio
-async def test_admin_can_save_ai_provider_config_without_exposing_secret(client, monkeypatch, tmp_path):
+async def test_admin_can_save_ai_provider_config_without_exposing_secret(
+    client, monkeypatch, tmp_path
+):
     monkeypatch.setenv("AI_PROVIDER_CONFIG_PATH", str(tmp_path / "ai_provider_config.json"))
 
     _, admin_headers = await register_and_login(

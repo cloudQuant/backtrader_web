@@ -196,9 +196,7 @@ class SWIndustryThirdCons(AkshareToMySql):
             #         f"UPDATE {self.table_name} SET IS_ACTIVE = 0 WHERE INDUSTRY_CODE = %s",
             #         (industry_code,)
             #     )
-            for industry_code, df in self._fetch_industry_jobs(
-                code_list, int(max_workers or 1)
-            ):
+            for industry_code, df in self._fetch_industry_jobs(code_list, int(max_workers or 1)):
                 self._save_industry_cons(industry_code, df)
 
             return True

@@ -45,9 +45,9 @@ def test_build_instances_defaults_to_manual_strategy_config_fronts():
 
 
 def test_build_instances_accepts_explicit_ctp_env():
-    instance = smoke_ctp_gateway.build_instances(
-        "inst1", "simulate/p_bb_rsi", ctp_env="auto"
-    )["inst1"]
+    instance = smoke_ctp_gateway.build_instances("inst1", "simulate/p_bb_rsi", ctp_env="auto")[
+        "inst1"
+    ]
 
     assert instance["params"]["gateway"]["ctp_env"] == "auto"
 

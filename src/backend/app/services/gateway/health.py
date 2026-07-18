@@ -200,7 +200,9 @@ def _normalize_runtime_snapshot(
         "session_id",
         "trading_day",
     ):
-        snap[key] = _coerce_string(snapshot.get(key), _coerce_string(state.get(key), snap.get(key, "")))
+        snap[key] = _coerce_string(
+            snapshot.get(key), _coerce_string(state.get(key), snap.get(key, ""))
+        )
     snap["ref_count"] = max(_resolve_ref_count(state), _coerce_int(snapshot.get("ref_count"), 0))
     snap["instances"] = _normalize_instances(
         snapshot.get("instances", state.get("instances", set()))

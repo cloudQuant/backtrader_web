@@ -10,6 +10,7 @@ Includes:
 
 import asyncio
 import logging
+import typing
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -59,17 +60,17 @@ router = APIRouter()
 
 
 @lru_cache
-def get_backtest_service():
+def get_backtest_service() -> typing.Any:
     return BacktestService()
 
 
 @lru_cache
-def get_report_service():
+def get_report_service() -> typing.Any:
     return ReportService()
 
 
 @lru_cache
-def get_robustness_service():
+def get_robustness_service() -> typing.Any:
     return get_robustness_validation_service()
 
 
@@ -166,9 +167,9 @@ def _build_backtest_runtime_snapshot(
 @router.post("/run", response_model=BacktestResponse, summary="Run backtest")
 async def run_backtest(
     request: BacktestRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Submit a backtest task (enhanced)."""
     result = await service.run_backtest(current_user.sub, request)
 
@@ -186,9 +187,9 @@ async def run_backtest(
 async def get_backtest_result(
     task_id: str,
     request: Request,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Get backtest result."""
     result = await service.get_result(task_id, user_id=current_user.sub)
     if not result:
@@ -207,9 +208,9 @@ async def get_backtest_result(
 async def run_backtest_robustness(
     task_id: str,
     data: RobustnessValidationRequest | None = None,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: RobustnessValidationService = Depends(get_robustness_service),
-):
+) -> typing.Any:
     """Run robustness validation and persist the result."""
     try:
         return await service.run_for_backtest(
@@ -228,13 +229,15 @@ async def run_backtest_robustness(
 )
 async def get_backtest_robustness(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: RobustnessValidationService = Depends(get_robustness_service),
-):
+) -> typing.Any:
     """Return the latest robustness validation result for one backtest."""
     result = await service.get_latest(backtest_id=task_id, user_id=current_user.sub)
     if result is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Robustness result not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Robustness result not found"
+        )
     return result
 
 
@@ -245,9 +248,9 @@ async def get_backtest_robustness(
 )
 async def get_backtest_status(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Get backtest task status."""
     task_status = await service.get_task_status(task_id, user_id=current_user.sub)
     if not task_status:
@@ -260,7 +263,7 @@ async def get_backtest_status(
 
 @router.get("/", response_model=BacktestListResponse, summary="List backtest history")
 async def list_backtests(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     offset: int = Query(0, ge=0, description="Offset"),
@@ -268,7 +271,7 @@ async def list_backtests(
         "created_at", description="Sort field: created_at/sharpe_ratio/total_return"
     ),
     sort_order: str = Query("desc", description="Sort direction: asc/desc"),
-):
+) -> typing.Any:
     """List user's backtest history (enhanced, supports sorting)."""
     sort_desc = str(sort_order).lower() != "asc"
     results = await service.list_results(
@@ -281,12 +284,12 @@ async def list_backtests(
     return results
 
 
-@router.post("/{task_id}/cancel", summary="Cancel backtest task")
+@router.post("/{task_id}/cancel", summary="Cancel backtest task", response_model=None)
 async def cancel_backtest(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Cancel a running backtest task."""
     success = await service.cancel_task(task_id, current_user.sub)
     if not success:
@@ -300,12 +303,12 @@ async def cancel_backtest(
     return {"message": "Task cancelled", "task_id": task_id}
 
 
-@router.delete("/{task_id}", summary="Delete backtest result")
+@router.delete("/{task_id}", summary="Delete backtest result", response_model=None)
 async def delete_backtest(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Delete backtest result."""
     success = await service.delete_result(task_id, current_user.sub)
     if not success:
@@ -333,9 +336,9 @@ async def get_paginated_trades(
     task_id: str,
     limit: int = Query(50, ge=1, le=500, description="Items per page"),
     offset: int = Query(0, ge=0, description="Offset"),
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Get paginated trade records for a backtest task.
 
     This endpoint supports pagination for large trade datasets.
@@ -373,13 +376,13 @@ async def get_paginated_trades(
 # ==================== Backtest Report Export API ====================
 
 
-@router.get("/{task_id}/report/html", summary="Export HTML report")
+@router.get("/{task_id}/report/html", summary="Export HTML report", response_model=None)
 async def get_html_report(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     report_service: ReportService = Depends(get_report_service),
-):
+) -> typing.Any:
     """Export backtest report in HTML format."""
     result = await backtest_service.get_result(task_id, user_id=current_user.sub)
     if not result:
@@ -408,13 +411,13 @@ async def get_html_report(
     )
 
 
-@router.get("/{task_id}/report/pdf", summary="Export PDF report")
+@router.get("/{task_id}/report/pdf", summary="Export PDF report", response_model=None)
 async def get_pdf_report(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     report_service: ReportService = Depends(get_report_service),
-):
+) -> typing.Any:
     """Export backtest report in PDF format."""
     result = await backtest_service.get_result(task_id, user_id=current_user.sub)
     if not result:
@@ -444,13 +447,13 @@ async def get_pdf_report(
         ) from e
 
 
-@router.get("/{task_id}/report/excel", summary="Export Excel report")
+@router.get("/{task_id}/report/excel", summary="Export Excel report", response_model=None)
 async def get_excel_report(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     report_service: ReportService = Depends(get_report_service),
-):
+) -> typing.Any:
     """Export backtest report in Excel format."""
     result = await backtest_service.get_result(task_id, user_id=current_user.sub)
     if not result:
@@ -486,7 +489,7 @@ async def get_excel_report(
 async def websocket_endpoint(
     websocket: WebSocket,
     task_id: str,
-):
+) -> typing.Any:
     """WebSocket endpoint for authenticated backtest runtime updates.
 
     Args:

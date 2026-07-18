@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Iteration 175 §9.2 — single entry that runs lint / typecheck / unit tests
-# in both Python workspace members. Fail-fast (any step → exit non-zero).
+# in Python workspace members and the frontend. Fail-fast (any step → exit non-zero).
 #
 # Hard wall-clock cap: 1800 seconds.
 #
@@ -20,6 +20,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 MEMBERS=("src/backend" "src/bt_api_py")
+FRONTEND_MEMBER="src/frontend"
 
 # Best-effort detection of mypy strict scope per member.
 detect_mypy_scope() {
@@ -95,5 +96,18 @@ for member in "${MEMBERS[@]}"; do
     echo "WARN: pytest not in PATH — skipping pytest in $member" >&2
   fi
 done
+
+if [ -d "$REPO_ROOT/$FRONTEND_MEMBER" ]; then
+  if ! command -v npm > /dev/null 2>&1; then
+    echo "WARN: npm not in PATH — skipping frontend checks" >&2
+  else
+    if [ ! -d "$REPO_ROOT/$FRONTEND_MEMBER/node_modules" ]; then
+      run_step "$FRONTEND_MEMBER" "npm ci" npm ci
+    fi
+    run_step "$FRONTEND_MEMBER" "npm run lint" npm run lint
+    run_step "$FRONTEND_MEMBER" "npm run typecheck" npm run typecheck
+    run_step "$FRONTEND_MEMBER" "npm run test -- --run" npm run test -- --run
+  fi
+fi
 
 echo "OK: check_all.sh — all members green ($(elapsed)s)"

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from datetime import datetime, timezone
-from typing import Iterable
 
 
 def _normalize_identifier(value: str) -> str:
@@ -23,8 +23,10 @@ def normalize_mysql_column_names(columns: Iterable[str]) -> list[str]:
     for index, column in enumerate(columns, start=1):
         raw_column = str(column)
         base_name = _normalize_identifier(raw_column)
-        if base_name == "data" and raw_column.strip() and not re.search(
-            r"[A-Za-z0-9_]", raw_column
+        if (
+            base_name == "data"
+            and raw_column.strip()
+            and not re.search(r"[A-Za-z0-9_]", raw_column)
         ):
             base_name = f"col_{index}"
 

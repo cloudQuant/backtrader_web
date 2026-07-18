@@ -164,9 +164,7 @@ class BacktestService:
     ) -> BacktestResult:
         request_data = BacktestService._get_request_data(task)
         standard_metrics = (
-            dict(getattr(result_model, "standard_metrics", None) or {})
-            if result_model
-            else {}
+            dict(getattr(result_model, "standard_metrics", None) or {}) if result_model else {}
         )
         if not standard_metrics and result_model is not None:
             standard_metrics = get_metrics_service().normalize(
@@ -188,9 +186,7 @@ class BacktestService:
                 trades=getattr(result_model, "trades", []),
             )
         result_summary = (
-            dict(getattr(result_model, "result_summary", None) or {})
-            if result_model
-            else {}
+            dict(getattr(result_model, "result_summary", None) or {}) if result_model else {}
         )
         if not result_summary:
             result_summary = get_metrics_service().result_summary(
@@ -302,9 +298,7 @@ class BacktestService:
         if getattr(request, "require_data_precheck", False) and not precheck.passed:
             raise ValueError("Backtest data precheck failed: " + "; ".join(precheck.reasons))
         if hasattr(request, "model_copy"):
-            request = request.model_copy(
-                update={"data_precheck": precheck.model_dump(mode="json")}
-            )
+            request = request.model_copy(update={"data_precheck": precheck.model_dump(mode="json")})
 
         # Use BacktestExecutionManager for database-backed task creation
         task = await self.task_manager.create_task(user_id, request)
@@ -833,10 +827,7 @@ class BacktestService:
         items = [
             self._build_backtest_result(task, result_by_task_id.get(str(task.id))) for task in tasks
         ]
-        items = [
-            await self._attach_latest_robustness(item, user_id=user_id)
-            for item in items
-        ]
+        items = [await self._attach_latest_robustness(item, user_id=user_id) for item in items]
 
         return BacktestListResponse(total=total, items=items)
 

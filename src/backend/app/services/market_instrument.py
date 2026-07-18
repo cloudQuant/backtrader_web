@@ -306,7 +306,7 @@ class MarketInstrumentService:
     @staticmethod
     def _payload_has_data(payload: dict[str, Any]) -> bool:
         snapshot = payload.get("snapshot") or {}
-        rows = ((payload.get("history") or {}).get("rows") or [])
+        rows = (payload.get("history") or {}).get("rows") or []
         return any(value is not None for value in snapshot.values()) or bool(rows)
 
     async def _fill_history_gap(
@@ -388,13 +388,18 @@ class MarketInstrumentService:
             "rows": rows,
             "total": len(rows),
         }
-        merged["provider"] = f"{warehouse_payload.get('provider') or _WAREHOUSE_PROVIDER}+{provider_suffix}"
+        merged["provider"] = (
+            f"{warehouse_payload.get('provider') or _WAREHOUSE_PROVIDER}+{provider_suffix}"
+        )
         snapshot_values = {
-            key: value for key, value in (merged.get("snapshot") or {}).items()
+            key: value
+            for key, value in (merged.get("snapshot") or {}).items()
             if key != "data_source_table"
         }
         if not any(value is not None for value in snapshot_values.values()):
-            merged["snapshot"] = self._snapshot_from_latest_history(merged.get("symbol") or "", rows)
+            merged["snapshot"] = self._snapshot_from_latest_history(
+                merged.get("symbol") or "", rows
+            )
         return merged
 
     def _lookup_history_online(
@@ -817,7 +822,9 @@ class MarketInstrumentService:
             source_table = _safe_str(_first_value(row, "source_table"))
             if source_table and source_table not in str(option["source_table"] or ""):
                 option["source_table"] = (
-                    f"{option['source_table']}/{source_table}" if option["source_table"] else source_table
+                    f"{option['source_table']}/{source_table}"
+                    if option["source_table"]
+                    else source_table
                 )
             name = _safe_str(_first_value(row, "name"))
             if name and option["name"] == option["symbol"]:
@@ -1161,8 +1168,10 @@ class MarketInstrumentService:
             {"code": code},
         )
 
-        history_table = "STOCK_ZH_A_HIST_TX" if code == "000001" else (
-            "STOCK_ZH_A_DAILY" if code == "600000" else None
+        history_table = (
+            "STOCK_ZH_A_HIST_TX"
+            if code == "000001"
+            else ("STOCK_ZH_A_DAILY" if code == "600000" else None)
         )
         history_rows: list[dict[str, Any]] = []
         if history_table:
@@ -1396,7 +1405,9 @@ class MarketInstrumentService:
             if fallback:
                 exchange_symbol = str(fallback["symbol"])
                 plain_code = exchange_symbol[2:]
-                warnings.append(f"akshare_data 未找到 {symbol}，已展示最新可转债样例 {exchange_symbol}")
+                warnings.append(
+                    f"akshare_data 未找到 {symbol}，已展示最新可转债样例 {exchange_symbol}"
+                )
                 rows = await self._fetch_rows(
                     """
                     SELECT *
@@ -1616,18 +1627,24 @@ class MarketInstrumentService:
                 normalized = str(_first_value(current, "symbol", "代码") or normalized)
                 warnings.append(f"akshare_data 未找到 {symbol}，已展示最新期权样例 {normalized}")
 
-        latest_date_row = await self._fetch_one("SELECT MAX(data_date) AS latest_date FROM OPTION_CURRENT_EM")
+        latest_date_row = await self._fetch_one(
+            "SELECT MAX(data_date) AS latest_date FROM OPTION_CURRENT_EM"
+        )
         latest_date = latest_date_row.get("latest_date") if latest_date_row else None
-        rows = await self._fetch_rows(
-            """
+        rows = (
+            await self._fetch_rows(
+                """
             SELECT *
             FROM OPTION_CURRENT_EM
             WHERE data_date = :latest_date
             ORDER BY `成交量` DESC, `持仓量` DESC
             LIMIT 80
             """,
-            {"latest_date": latest_date},
-        ) if latest_date else []
+                {"latest_date": latest_date},
+            )
+            if latest_date
+            else []
+        )
         history_rows = [
             {
                 "date": _iso_date(_first_value(row, "data_date")),
@@ -1645,7 +1662,8 @@ class MarketInstrumentService:
         ]
         snapshot = {
             "symbol": normalized,
-            "name": _safe_str(_first_value(current or {}, "名称", "name", "代码", "symbol")) or normalized,
+            "name": _safe_str(_first_value(current or {}, "名称", "name", "代码", "symbol"))
+            or normalized,
             "price": _safe_float(_first_value(current or {}, "最新价")),
             "change": _safe_float(_first_value(current or {}, "涨跌额")),
             "change_pct": _safe_float(_first_value(current or {}, "涨跌幅")),
@@ -1794,21 +1812,31 @@ class MarketInstrumentService:
             )
             if spot:
                 normalized = str(_first_value(spot, "交易品种") or normalized)
-                warnings.append(f"akshare_data 未找到 {symbol}，已展示最新数字货币样例 {normalized}")
+                warnings.append(
+                    f"akshare_data 未找到 {symbol}，已展示最新数字货币样例 {normalized}"
+                )
 
-        latest_date_row = await self._fetch_one("SELECT MAX(data_date) AS latest_date FROM CRYPTO_BITCOIN_CME")
+        latest_date_row = await self._fetch_one(
+            "SELECT MAX(data_date) AS latest_date FROM CRYPTO_BITCOIN_CME"
+        )
         latest_date = latest_date_row.get("latest_date") if latest_date_row else None
-        cme_rows = await self._fetch_rows(
-            """
+        cme_rows = (
+            await self._fetch_rows(
+                """
             SELECT *
             FROM CRYPTO_BITCOIN_CME
             WHERE data_date = :latest_date
             ORDER BY `未平仓合约` DESC
             LIMIT 20
             """,
-            {"latest_date": latest_date},
-        ) if latest_date else []
-        history_rows = self._normalize_crypto_cme_rows(pd.DataFrame(cme_rows), latest_date or date.today())
+                {"latest_date": latest_date},
+            )
+            if latest_date
+            else []
+        )
+        history_rows = self._normalize_crypto_cme_rows(
+            pd.DataFrame(cme_rows), latest_date or date.today()
+        )
         snapshot = {
             "symbol": normalized,
             "name": _safe_str(_first_value(spot or {}, "交易品种")) or normalized,
@@ -1854,9 +1882,7 @@ class MarketInstrumentService:
         previous_close: float | None = None
         for row in rows:
             close_value = _safe_float(_first_value(row, close_key)) if close_key else None
-            change_pct = (
-                _safe_float(_first_value(row, change_pct_key)) if change_pct_key else None
-            )
+            change_pct = _safe_float(_first_value(row, change_pct_key)) if change_pct_key else None
             if change_pct is None and previous_close and close_value is not None:
                 change_pct = ((close_value / previous_close) - 1) * 100
             normalized_rows.append(
@@ -1867,7 +1893,9 @@ class MarketInstrumentService:
                     "low": _safe_float(_first_value(row, low_key)) if low_key else close_value,
                     "close": close_value,
                     "volume": _safe_int(_first_value(row, volume_key)) if volume_key else None,
-                    "turnover": _safe_float(_first_value(row, turnover_key)) if turnover_key else None,
+                    "turnover": _safe_float(_first_value(row, turnover_key))
+                    if turnover_key
+                    else None,
                     "change": _safe_float(_first_value(row, change_key)) if change_key else None,
                     "change_pct": change_pct,
                     "turnover_rate": _safe_float(_first_value(row, turnover_rate_key))
@@ -2207,7 +2235,9 @@ class MarketInstrumentService:
                     "high": _safe_float(_first_present(row, "最高", "high")),
                     "low": _safe_float(_first_present(row, "最低", "low")),
                     "previous_close": _safe_float(_first_present(row, "昨收", "previous_close")),
-                    "update_time": _safe_str(_first_present(row, "更新时间", "时间", "update_time")),
+                    "update_time": _safe_str(
+                        _first_present(row, "更新时间", "时间", "update_time")
+                    ),
                 }
         except Exception as exc:
             warnings.append(f"外汇实时快照不可用: {exc}")

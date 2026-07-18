@@ -804,7 +804,9 @@ def _backfill_one_cache_asset(
         raise RuntimeError(result)
     rows, warnings = result
     if warnings:
-        LOGGER.debug("%s %s warnings: %s", candidate.asset_type, candidate.symbol, "; ".join(warnings))
+        LOGGER.debug(
+            "%s %s warnings: %s", candidate.asset_type, candidate.symbol, "; ".join(warnings)
+        )
     saved = _save_history_cache(candidate, args.cache_period, rows)
     if saved:
         LOGGER.info(
@@ -818,9 +820,7 @@ def _backfill_one_cache_asset(
 
 def _backfill_cache_assets(args: argparse.Namespace) -> tuple[int, int, int]:
     asset_types = [
-        asset.strip().lower()
-        for asset in str(args.cache_asset_types).split(",")
-        if asset.strip()
+        asset.strip().lower() for asset in str(args.cache_asset_types).split(",") if asset.strip()
     ]
     selected = 0
     successful_assets = 0
@@ -860,7 +860,9 @@ def _backfill_cache_assets(args: argparse.Namespace) -> tuple[int, int, int]:
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
             future_to_candidate = {
-                executor.submit(_backfill_one_cache_asset, candidate, args, index, len(candidates)): candidate
+                executor.submit(
+                    _backfill_one_cache_asset, candidate, args, index, len(candidates)
+                ): candidate
                 for index, candidate in enumerate(candidates, start=1)
             }
             for completed, future in enumerate(as_completed(future_to_candidate), start=1):
@@ -924,7 +926,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--futures-markets", default=None, help="Comma list, e.g. CFFEX,DCE,SHFE")
     parser.add_argument("--futures-lookback-days", type=int, default=60)
     parser.add_argument("--futures-max-windows", type=int, default=None)
-    parser.add_argument("--cache-asset-types", default="bond,fund,fx", help="Comma list: bond,fund,fx,option")
+    parser.add_argument(
+        "--cache-asset-types", default="bond,fund,fx", help="Comma list: bond,fund,fx,option"
+    )
     parser.add_argument("--cache-limit", type=int, default=50)
     parser.add_argument("--cache-min-rows", type=int, default=30)
     parser.add_argument("--cache-include-existing", action="store_true")

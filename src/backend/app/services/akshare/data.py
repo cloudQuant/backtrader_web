@@ -4,8 +4,8 @@ Storage and query service for akshare data warehouse tables.
 
 from __future__ import annotations
 
-import re
 import json
+import re
 from datetime import datetime
 from typing import Any
 
@@ -138,16 +138,16 @@ class AkshareDataService:
         for index, column in enumerate(normalized.columns, start=1):
             raw_column = str(column)
             base_column_name = self._normalize_identifier(raw_column)
-            if base_column_name == "data" and raw_column.strip() and not re.search(
-                r"[A-Za-z0-9_]", raw_column
+            if (
+                base_column_name == "data"
+                and raw_column.strip()
+                and not re.search(r"[A-Za-z0-9_]", raw_column)
             ):
                 base_column_name = f"col_{index}"
 
             column_name = base_column_name
             while column_name in used_columns:
-                suffix_counters[base_column_name] = (
-                    suffix_counters.get(base_column_name, 1) + 1
-                )
+                suffix_counters[base_column_name] = suffix_counters.get(base_column_name, 1) + 1
                 column_name = f"{base_column_name}_{suffix_counters[base_column_name]}"
             used_columns.add(column_name)
             normalized_columns.append(column_name)

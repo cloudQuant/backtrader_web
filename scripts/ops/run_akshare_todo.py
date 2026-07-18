@@ -29,7 +29,7 @@ from app.db.database import async_session_maker  # noqa: E402
 from app.models.akshare_mgmt import TriggeredBy  # noqa: E402
 from app.services.akshare.script import AkshareScriptService  # noqa: E402
 
-TODO_PATH = ROOT / "AKSHARE_TASK_TODO.md"
+TODO_PATH = ROOT / "docs/operations/akshare/AKSHARE_TASK_TODO.md"
 TASK_LINE_RE = re.compile(
     r"^- \[(?P<checked>[ x])\] "
     r"task_id=(?P<task_id>\d+) "

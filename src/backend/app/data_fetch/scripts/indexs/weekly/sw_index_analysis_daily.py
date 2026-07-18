@@ -195,9 +195,8 @@ class SWIndexAnalysisDaily(AkshareToMySql):
                     ).strftime("%Y%m%d")
                     default_start_date = max(default_start_date, lookback_start)
             for symbol in symbol_list:
-                resolved_start_date = (
-                    explicit_start_date
-                    or ("20050104" if update_all else default_start_date)
+                resolved_start_date = explicit_start_date or (
+                    "20050104" if update_all else default_start_date
                 )
                 if resolved_start_date > requested_end_date:
                     self.logger.info(

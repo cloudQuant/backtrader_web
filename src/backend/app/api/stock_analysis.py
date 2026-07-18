@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import typing
 from io import BytesIO
 from urllib.parse import quote
 
@@ -15,8 +16,8 @@ from app.db.database import get_db
 from app.models.stock_analysis import StockAnalysisTaskModel
 from app.schemas.auth import TokenPayload
 from app.schemas.stock_analysis import (
-    StockAnalysisParams,
     StockAnalysisExportFormat,
+    StockAnalysisParams,
     StockAnalysisSaveToKnowledgeBaseRequest,
     StockAnalysisSaveToKnowledgeBaseResponse,
     StockAnalysisSaveToWorkspaceRequest,
@@ -58,12 +59,12 @@ def _task_response(task: StockAnalysisTaskModel) -> dict:
     }
 
 
-@router.post("/tasks", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/tasks", status_code=status.HTTP_202_ACCEPTED, response_model=None)
 async def create_stock_analysis_task(
     data: StockAnalysisParams,
     current_user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     service = StockAnalysisTaskService(db)
     try:
         task = await service.create_pending(
@@ -88,24 +89,24 @@ async def create_stock_analysis_task(
     return _task_response(task)
 
 
-@router.get("/tasks/{task_id}")
+@router.get("/tasks/{task_id}", response_model=None)
 async def get_stock_analysis_task(
     task_id: str,
     current_user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     task = await StockAnalysisTaskService(db).get_task(user_id=current_user.sub, task_id=task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task_not_found")
     return _task_response(task)
 
 
-@router.post("/tasks/{task_id}/cancel")
+@router.post("/tasks/{task_id}/cancel", response_model=None)
 async def cancel_stock_analysis_task(
     task_id: str,
     current_user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     task = await StockAnalysisTaskService(db).cancel_task(
         user_id=current_user.sub,
         task_id=task_id,
@@ -115,12 +116,12 @@ async def cancel_stock_analysis_task(
     return _task_response(task)
 
 
-@router.post("/tasks/{task_id}/retry")
+@router.post("/tasks/{task_id}/retry", response_model=None)
 async def retry_stock_analysis_task(
     task_id: str,
     current_user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     service = StockAnalysisTaskService(db)
     try:
         task = await service.retry_task(user_id=current_user.sub, task_id=task_id)
@@ -134,12 +135,12 @@ async def retry_stock_analysis_task(
     return _task_response(task)
 
 
-@router.get("/tasks/{task_id}/result")
+@router.get("/tasks/{task_id}/result", response_model=None)
 async def get_stock_analysis_result(
     task_id: str,
     current_user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     service = StockAnalysisTaskService(db)
     task = await service.get_task(user_id=current_user.sub, task_id=task_id)
     if task is None:
@@ -153,13 +154,13 @@ async def get_stock_analysis_result(
     }
 
 
-@router.get("/reports/{report_id}/export")
+@router.get("/reports/{report_id}/export", response_model=None)
 async def export_stock_analysis_report(
     report_id: str,
     format: StockAnalysisExportFormat = Query("markdown"),
     current_user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     service = StockAnalysisTaskService(db)
     result = await service.export_report(
         user_id=current_user.sub,
@@ -186,7 +187,7 @@ async def save_stock_analysis_report_to_knowledge_base(
     data: StockAnalysisSaveToKnowledgeBaseRequest,
     current_user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     service = StockAnalysisTaskService(db)
     try:
         document = await service.save_report_to_knowledge_base(
@@ -222,7 +223,7 @@ async def save_stock_analysis_report_to_workspace(
     data: StockAnalysisSaveToWorkspaceRequest,
     current_user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     service = StockAnalysisTaskService(db)
     try:
         saved = await service.save_report_to_workspace(

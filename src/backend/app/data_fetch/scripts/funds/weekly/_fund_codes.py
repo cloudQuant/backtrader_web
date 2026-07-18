@@ -2,7 +2,6 @@ from collections.abc import Iterable
 
 import pandas as pd
 
-
 DEFAULT_FUND_CODE_LIMIT = 5
 
 
@@ -27,7 +26,9 @@ def normalize_fund_codes(
     return result
 
 
-def get_codes_from_table(fetcher, table_name: str, column_name: str, limit: int | None = None) -> list[str]:
+def get_codes_from_table(
+    fetcher, table_name: str, column_name: str, limit: int | None = None
+) -> list[str]:
     max_rows = DEFAULT_FUND_CODE_LIMIT if limit is None else max(int(limit), 1)
     fetcher.connect_db()
     sql = f"""

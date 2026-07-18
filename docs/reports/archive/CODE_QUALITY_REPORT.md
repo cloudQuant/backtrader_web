@@ -41,7 +41,7 @@
 
 ### 3.2 待改进项
 
-根据 `_bmad-output/code-review-adversarial-findings.md` 与 `PROJECT_OPTIMIZATION_RECOMMENDATIONS.md`，以下问题仍可优先处理：
+根据 `.kiro/bmad/output/code-review-adversarial-findings.md` 与 `PROJECT_OPTIMIZATION_RECOMMENDATIONS.md`，以下问题仍可优先处理：
 
 | 优先级 | 问题 | 建议 |
 |--------|------|------|

@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from app.services.live_trading import instance as live_instance_service
 from app.services.live_trading.metadata import (
     instance_timestamp,
     normalize_instance_metadata,
@@ -19,7 +20,7 @@ _SUBPROCESS_STDOUT_LOG = "subprocess.stdout.log"
 _SUBPROCESS_STDERR_LOG = "subprocess.stderr.log"
 
 
-def _optional_lock(lock: Any | None):
+def _optional_lock(lock: Any | None) -> contextlib.AbstractContextManager[Any]:
     return lock if lock is not None else contextlib.nullcontext()
 
 
@@ -66,7 +67,9 @@ def _merge_runtime_contract_metadata(
     if not isinstance(contract_metadata, dict) or not contract_metadata:
         return
 
-    target_params = dict(target.get("params") or {}) if isinstance(target.get("params"), dict) else {}
+    target_params = (
+        dict(target.get("params") or {}) if isinstance(target.get("params"), dict) else {}
+    )
     target_metadata = (
         dict(target_params.get("contract_metadata") or {})
         if isinstance(target_params.get("contract_metadata"), dict)
@@ -93,11 +96,14 @@ async def start_instance(
     processes: dict[str, Any],
     stopping_instances: set[str],
     instance_lock: Any | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     instances = load_instances()
     if instance_id not in instances:
-        raise ValueError("Instance does not exist")
+        raise live_instance_service.InstanceAccessError("Instance not found")
     inst = instances[instance_id]
+    if user_id is not None and inst.get("user_id") != user_id:
+        raise live_instance_service.InstanceAccessError("Instance not found")
 
     if inst["status"] == "running" and inst.get("pid") and is_pid_alive(inst["pid"]):
         raise ValueError("Strategy is already running")
@@ -203,11 +209,14 @@ async def stop_instance(
     processes: dict[str, Any],
     stopping_instances: set[str],
     instance_lock: Any | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     instances = load_instances()
     if instance_id not in instances:
-        raise ValueError("Instance does not exist")
+        raise live_instance_service.InstanceAccessError("Instance not found")
     inst = instances[instance_id]
+    if user_id is not None and inst.get("user_id") != user_id:
+        raise live_instance_service.InstanceAccessError("Instance not found")
     stopping_instances.add(instance_id)
 
     pid = inst.get("pid")
@@ -248,7 +257,7 @@ async def start_all(
     failed = 0
     details = []
     for instance_id, inst in instances.items():
-        if user_id and inst.get("user_id") and inst["user_id"] != user_id:
+        if user_id is not None and inst.get("user_id") != user_id:
             continue
         if inst["status"] == "running" and inst.get("pid") and is_pid_alive(inst["pid"]):
             continue
@@ -276,7 +285,7 @@ async def stop_all(
     failed = 0
     details = []
     for instance_id, inst in instances.items():
-        if user_id and inst.get("user_id") and inst["user_id"] != user_id:
+        if user_id is not None and inst.get("user_id") != user_id:
             continue
         if inst["status"] != "running":
             continue

@@ -9,6 +9,30 @@ from pydantic import ValidationError
 
 from app.config import Settings, get_settings
 
+_SETTINGS_ENV_KEYS = (
+    "DEBUG",
+    "SECRET_KEY",
+    "JWT_SECRET_KEY",
+    "IB_VERIFY_SSL",
+    "IB_WEB_VERIFY_SSL",
+    "IB_PAPER_VERIFY_SSL",
+    "IB_LIVE_VERIFY_SSL",
+)
+_ORIGINAL_SETTINGS_ENV = {key: os.environ.get(key) for key in _SETTINGS_ENV_KEYS}
+
+
+@pytest.fixture(autouse=True)
+def isolate_settings_security_environment(monkeypatch):
+    """Keep test-local production flags from leaking into later settings tests."""
+    for key in _SETTINGS_ENV_KEYS[3:]:
+        monkeypatch.setenv(key, "true")
+    yield
+    for key, value in _ORIGINAL_SETTINGS_ENV.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
 
 class TestSettingsValidation:
     """Test suite for Settings validation."""

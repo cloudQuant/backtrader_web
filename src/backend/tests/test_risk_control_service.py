@@ -99,9 +99,7 @@ class TestPositionLimit:
         assert alert.details["total_position_pct"] == pytest.approx(60.0)
 
     async def test_zero_account_balance_rejected(self, strict_svc: RiskControlService):
-        ok, alert = await strict_svc.check_position_limit(
-            INSTANCE_ID, "BTCUSDT", 1000, 0, {}
-        )
+        ok, alert = await strict_svc.check_position_limit(INSTANCE_ID, "BTCUSDT", 1000, 0, {})
         assert ok is False
         assert alert is not None
         assert alert.level == RiskAlertLevel.CRITICAL

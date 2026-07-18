@@ -12,8 +12,11 @@ class TestConfig:
         settings = get_settings()
         assert isinstance(settings, Settings)
 
-    def test_default_values(self):
-        settings = get_settings()
+    def test_default_values(self, monkeypatch):
+        """Defaults do not inherit a developer's dotenv schema flags."""
+        monkeypatch.delenv("DB_AUTO_CREATE_SCHEMA", raising=False)
+        monkeypatch.delenv("DB_AUTO_CREATE_DEFAULT_ADMIN", raising=False)
+        settings = Settings(_env_file=None, DEBUG=True)
         assert settings.APP_NAME == "ai-for-investor"
         assert settings.JWT_ALGORITHM == "HS256"
         assert settings.JWT_EXPIRE_MINUTES > 0

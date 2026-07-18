@@ -130,10 +130,13 @@ class TestManualCtpProxy:
         logger = Mock()
 
         with patch("builtins.__import__", side_effect=fake_import):
-            assert manual_ctp_proxy.count_utun_interfaces(
-                run_command=run_command,
-                logger=logger,
-            ) == 2
+            assert (
+                manual_ctp_proxy.count_utun_interfaces(
+                    run_command=run_command,
+                    logger=logger,
+                )
+                == 2
+            )
 
         run_command.assert_called_once_with(["ifconfig"], capture_output=True, text=True, timeout=5)
 
@@ -221,9 +224,7 @@ class TestCtpTunnel:
         monkeypatch.setattr(ctp_tunnel.sys, "platform", "linux")
         monkeypatch.setattr(ctp_tunnel.shutil, "which", Mock(return_value=None))
         run_scutil = Mock(
-            return_value=Mock(
-                stdout="HTTPEnable : 1\nHTTPProxy : 127.0.0.1\nHTTPPort : 7890\n"
-            )
+            return_value=Mock(stdout="HTTPEnable : 1\nHTTPProxy : 127.0.0.1\nHTTPPort : 7890\n")
         )
 
         endpoint = ctp_tunnel._get_http_proxy_endpoint(
@@ -364,9 +365,7 @@ class TestManualGatewayPositions:
         assert rows == [{"symbol": "BTCUSDT", "positionAmt": "0.25"}]
 
     def test_query_gateway_positions_unwraps_result_symbol_map(self):
-        adapter = _FakePositionAdapter(
-            {"result": {"BTCUSDT": {"symbol": "BTCUSDT", "size": 0.25}}}
-        )
+        adapter = _FakePositionAdapter({"result": {"BTCUSDT": {"symbol": "BTCUSDT", "size": 0.25}}})
         gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
 
         rows = manual_gateway_service.query_gateway_positions(gateways, "gw-1")
@@ -382,9 +381,7 @@ class TestManualGatewayPositions:
         assert rows == [{"symbol": "IF2609", "Position": 1}]
 
     def test_query_gateway_positions_accepts_okx_single_position_row(self):
-        adapter = _FakePositionAdapter(
-            {"instId": "BTC-USDT-SWAP", "pos": "1", "avgPx": "60000"}
-        )
+        adapter = _FakePositionAdapter({"instId": "BTC-USDT-SWAP", "pos": "1", "avgPx": "60000"})
         gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
 
         rows = manual_gateway_service.query_gateway_positions(gateways, "gw-1", strict=True)
@@ -512,9 +509,7 @@ class TestManualGatewayTrades:
 
 class TestManualGatewayOrderCancellation:
     def test_cancel_gateway_open_orders_cancels_unowned_when_exclusive(self):
-        adapter = _FakeOrderAdapter(
-            [{"order_ref": "ref-1", "data_name": "IF2609", "remaining": 1}]
-        )
+        adapter = _FakeOrderAdapter([{"order_ref": "ref-1", "data_name": "IF2609", "remaining": 1}])
         gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
 
         result = manual_gateway_service.cancel_gateway_open_orders(
@@ -530,9 +525,7 @@ class TestManualGatewayOrderCancellation:
         assert adapter.cancelled[0]["symbol"] == "IF2609"
 
     def test_cancel_gateway_open_orders_skips_unknown_owner_on_shared_gateway(self):
-        adapter = _FakeOrderAdapter(
-            [{"order_ref": "ref-2", "data_name": "IF2609", "remaining": 1}]
-        )
+        adapter = _FakeOrderAdapter([{"order_ref": "ref-2", "data_name": "IF2609", "remaining": 1}])
         gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
 
         result = manual_gateway_service.cancel_gateway_open_orders(
@@ -550,17 +543,13 @@ class TestManualGatewayOrderCancellation:
         assert adapter.cancelled == []
 
     def test_cancel_gateway_open_orders_uses_order_map_owner(self):
-        adapter = _FakeOrderAdapter(
-            [{"order_ref": "ref-3", "data_name": "IF2609", "remaining": 1}]
-        )
+        adapter = _FakeOrderAdapter([{"order_ref": "ref-3", "data_name": "IF2609", "remaining": 1}])
         order_map = SimpleNamespace(
             by_client=lambda value: SimpleNamespace(strategy_id="unit-1")
             if value == "ref-3"
             else None
         )
-        gateways = {
-            "gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}
-        }
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}}
 
         result = manual_gateway_service.cancel_gateway_open_orders(
             gateways,
@@ -580,9 +569,7 @@ class TestManualGatewayOrderCancellation:
         order_map = SimpleNamespace(
             strategy_for_venue=lambda value: "unit-1" if value == "venue-1" else None
         )
-        gateways = {
-            "gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}
-        }
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}}
 
         result = manual_gateway_service.cancel_gateway_open_orders(
             gateways,
@@ -604,9 +591,7 @@ class TestManualGatewayOrderCancellation:
             if value == "client-1"
             else None
         )
-        gateways = {
-            "gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}
-        }
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}}
 
         result = manual_gateway_service.cancel_gateway_open_orders(
             gateways,
@@ -628,9 +613,7 @@ class TestManualGatewayOrderCancellation:
             if value == "client-link-1"
             else None
         )
-        gateways = {
-            "gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}
-        }
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}}
 
         result = manual_gateway_service.cancel_gateway_open_orders(
             gateways,
@@ -645,17 +628,13 @@ class TestManualGatewayOrderCancellation:
         assert adapter.cancelled[0]["order_ref"] == "client-link-1"
 
     def test_cancel_gateway_open_orders_leaves_other_owner_orders_as_ok(self):
-        adapter = _FakeOrderAdapter(
-            [{"order_ref": "ref-4", "data_name": "IF2609", "remaining": 1}]
-        )
+        adapter = _FakeOrderAdapter([{"order_ref": "ref-4", "data_name": "IF2609", "remaining": 1}])
         order_map = SimpleNamespace(
             by_client=lambda value: SimpleNamespace(strategy_id="unit-2")
             if value == "ref-4"
             else None
         )
-        gateways = {
-            "gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}
-        }
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}}
 
         result = manual_gateway_service.cancel_gateway_open_orders(
             gateways,

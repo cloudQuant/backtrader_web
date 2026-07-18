@@ -20,8 +20,6 @@ omit =
     app/api/live_trading_common.py
     # Migration service (one-time use)
     app/services/reqdocs_migration_service.py
-    # Workspace subpackage (covered by E2E and integration tests)
-    app/services/workspace/*
 
 [report]
 omit =
@@ -40,7 +38,6 @@ omit =
     app/services/process_supervisor.py
     app/api/live_trading_common.py
     app/services/reqdocs_migration_service.py
-    app/services/workspace/*
 exclude_lines =
     pragma: no cover
     def __repr__

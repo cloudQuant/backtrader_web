@@ -539,11 +539,7 @@ def _merge_asset_spec_update(
         _ASSET_SPEC_MARGIN_KEYS,
         _ASSET_SPEC_FEE_KEYS,
     ):
-        group_items = {
-            key: update.get(key)
-            for key in group
-            if update.get(key) not in (None, "")
-        }
+        group_items = {key: update.get(key) for key in group if update.get(key) not in (None, "")}
         if not group_items:
             continue
         for key in group:
@@ -1757,7 +1753,14 @@ class TradingWorkspaceService:
                 if position_rows:
                     position_rows_source = "snapshot"
 
-        gateway_position_rows = cls._gateway_position_rows(unit, instance)
+        # Paper workspaces must display their own simulated state.  Their shared
+        # market-data gateway is not an account for each strategy unit, and a
+        # gateway request per unit makes the portfolio/risk page unresponsive.
+        # Explicitly configured live units retain the broker-confirmed path.
+        is_explicit_paper = str(getattr(unit, "trading_mode", "")).strip().lower() == "paper"
+        gateway_position_rows = (
+            None if is_explicit_paper else cls._gateway_position_rows(unit, instance)
+        )
         if gateway_position_rows is not None:
             position_rows = gateway_position_rows
             position_rows_source = "gateway"
@@ -1870,12 +1873,14 @@ class TradingWorkspaceService:
                 instance,
             ):
                 changed = True
-            if self._refresh_unit_asset_specs_from_manager(manager, unit, instance):
-                changed = True
-            if (
-                not self._unit_has_asset_valuation_config(unit)
-                and self._refresh_unit_asset_specs_from_local(unit, instance)
+            is_explicit_paper = str(getattr(unit, "trading_mode", "")).strip().lower() == "paper"
+            if not is_explicit_paper and self._refresh_unit_asset_specs_from_manager(
+                manager, unit, instance
             ):
+                changed = True
+            if not self._unit_has_asset_valuation_config(
+                unit
+            ) and self._refresh_unit_asset_specs_from_local(unit, instance):
                 changed = True
             snapshot, metrics_snapshot, bar_count, elapsed_seconds = self._build_snapshot(
                 unit,
@@ -2217,9 +2222,8 @@ class TradingWorkspaceService:
         ):
             return True
 
-        return (
-            cls._has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS)
-            and not cls._has_any(row, "valuation_status")
+        return cls._has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS) and not cls._has_any(
+            row, "valuation_status"
         )
 
     @classmethod

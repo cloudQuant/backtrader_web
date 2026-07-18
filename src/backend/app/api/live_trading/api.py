@@ -7,12 +7,14 @@ including starting, stopping, and monitoring live trading operations.
 
 import asyncio
 import logging
+import typing
 from pathlib import Path
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api._dependencies import get_current_user
+from app.api.data.deps import require_data_admin_user
 from app.api.live_trading.credentials import build_gateway_credentials_payload
 from app.schemas.analytics import (
     BacktestDetailResponse,
@@ -31,6 +33,7 @@ from app.schemas.live_trading_instance import (
     LiveInstanceListResponse,
 )
 from app.services.gateway import manual as manual_gateway_service
+from app.services.live_trading import instance as live_instance_service
 from app.services.live_trading.manager import LiveTradingManager, get_live_trading_manager
 from app.services.log_parser_service import (
     find_latest_log_dir,
@@ -99,11 +102,12 @@ async def list_gateway_presets(
     summary="Get saved gateway credentials for form pre-fill",
 )
 async def get_gateway_credentials(
-    current_user: TokenPayload = Depends(get_current_user),
+    current_user: typing.Any = Depends(require_data_admin_user),
 ) -> dict[str, Any]:
-    """Return credentials from .env for pre-filling the connect form.
+    """Return public gateway defaults and credential-presence indicators.
 
-    All fields are returned as-is; the frontend can override any value.
+    Passwords, API secrets, tokens, and cookie locations remain server-side;
+    operators must enter any required secret in the connect form.
     """
     env_values = manual_gateway_service._load_backend_gateway_env_values()
     return build_gateway_credentials_payload(env_values=env_values)
@@ -337,7 +341,11 @@ async def start_instance(
         HTTPException: If the instance cannot be started.
     """
     try:
-        return await mgr.start_instance(instance_id)
+        return await mgr.start_instance(instance_id, user_id=current_user.sub)
+    except live_instance_service.InstanceAccessError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found"
+        ) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -364,7 +372,11 @@ async def stop_instance(
         HTTPException: If the instance cannot be stopped.
     """
     try:
-        return await mgr.stop_instance(instance_id)
+        return await mgr.stop_instance(instance_id, user_id=current_user.sub)
+    except live_instance_service.InstanceAccessError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found"
+        ) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 

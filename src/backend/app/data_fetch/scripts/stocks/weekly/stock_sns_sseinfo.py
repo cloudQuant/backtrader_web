@@ -8,8 +8,8 @@ Stock Sns Sseinfo
 
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
 from akshare.stock_feature.stock_sns_sseinfo import _fetch_stock_uid
+from bs4 import BeautifulSoup
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
@@ -54,7 +54,9 @@ class StockSnsSseinfo(AkshareToMySql):
 
         q_list = [item.split(")")[1] for index, item in enumerate(content_list) if index % 2 == 0]
         stock_name = [
-            item.split("(")[0].strip(":") for index, item in enumerate(content_list) if index % 2 == 0
+            item.split("(")[0].strip(":")
+            for index, item in enumerate(content_list)
+            if index % 2 == 0
         ]
         stock_code = [
             item.split("(")[1].split(")")[0]

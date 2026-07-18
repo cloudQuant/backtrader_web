@@ -12,6 +12,7 @@ Analytics endpoints (detail, kline, monthly-returns) are in simulation_analytics
 """
 
 import logging
+import typing
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -25,6 +26,7 @@ from app.schemas.live_trading_instance import (
     LiveInstanceInfo,
     LiveInstanceListResponse,
 )
+from app.services.live_trading import instance as live_instance_service
 from app.services.live_trading_manager import LiveTradingManager, get_live_trading_manager
 from app.services.log_parser_service import find_latest_log_dir
 from app.services.strategy_service import get_strategy_dir
@@ -49,9 +51,9 @@ def _get_manager() -> LiveTradingManager:
 
 @router.get("/", response_model=LiveInstanceListResponse, summary="List simulation instances")
 async def list_instances(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """List all simulation trading instances for the current user.
 
     Args:
@@ -68,9 +70,9 @@ async def list_instances(
 @router.post("/", response_model=LiveInstanceInfo, summary="Add simulation instance")
 async def add_instance(
     req: LiveInstanceCreate,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Add a new simulation trading instance.
 
     Args:
@@ -90,12 +92,12 @@ async def add_instance(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
-@router.delete("/{instance_id}", summary="Delete simulation instance")
+@router.delete("/{instance_id}", summary="Delete simulation instance", response_model=None)
 async def remove_instance(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Delete a simulation trading instance.
 
     Args:
@@ -119,9 +121,9 @@ async def remove_instance(
 )
 async def get_instance(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Get details of a specific simulation trading instance.
 
     Args:
@@ -148,9 +150,9 @@ async def get_instance(
 )
 async def start_instance(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Start a simulation trading instance.
 
     Args:
@@ -165,7 +167,11 @@ async def start_instance(
         HTTPException: If the instance cannot be started.
     """
     try:
-        return await mgr.start_instance(instance_id)
+        return await mgr.start_instance(instance_id, user_id=current_user.sub)
+    except live_instance_service.InstanceAccessError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found"
+        ) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -177,9 +183,9 @@ async def start_instance(
 )
 async def stop_instance(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Stop a simulation trading instance.
 
     Args:
@@ -194,7 +200,11 @@ async def stop_instance(
         HTTPException: If the instance cannot be stopped.
     """
     try:
-        return await mgr.stop_instance(instance_id)
+        return await mgr.stop_instance(instance_id, user_id=current_user.sub)
+    except live_instance_service.InstanceAccessError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found"
+        ) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -203,9 +213,9 @@ async def stop_instance(
     "/start-all", response_model=LiveBatchResponse, summary="Start all simulation instances"
 )
 async def start_all(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Start all simulation trading instances for the current user.
 
     Args:
@@ -220,9 +230,9 @@ async def start_all(
 
 @router.post("/stop-all", response_model=LiveBatchResponse, summary="Stop all simulation instances")
 async def stop_all(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Stop all simulation trading instances for the current user.
 
     Args:
@@ -284,12 +294,13 @@ def _safe_log_filename(filename: str) -> bool:
 @router.get(
     "/{instance_id}/logs",
     summary="List simulation log files",
+    response_model=None,
 )
 async def list_simulation_logs(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """List log files available for a simulation instance.
 
     Returns:
@@ -311,14 +322,15 @@ async def list_simulation_logs(
     "/{instance_id}/logs/{filename}",
     response_class=PlainTextResponse,
     summary="Get simulation log content",
+    response_model=None,
 )
 async def get_simulation_log(
     instance_id: str,
     filename: str,
     tail: int | None = Query(default=None, ge=1, le=50000, description="Return last N lines"),
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Get content of a log file. Use tail param for large files."""
     if not _safe_log_filename(filename):
         raise HTTPException(status_code=400, detail="Invalid filename")
@@ -341,13 +353,14 @@ async def get_simulation_log(
     "/{instance_id}/logs/{filename}/download",
     response_class=FileResponse,
     summary="Download simulation log file",
+    response_model=None,
 )
 async def download_simulation_log(
     instance_id: str,
     filename: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Download a log file."""
     if not _safe_log_filename(filename):
         raise HTTPException(status_code=400, detail="Invalid filename")
@@ -388,12 +401,13 @@ def _get_strategy_config_path(mgr: LiveTradingManager, instance_id: str, user_id
 @router.get(
     "/{instance_id}/config",
     summary="Get simulation instance config",
+    response_model=None,
 )
 async def get_instance_config(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Get the full config.yaml content for a simulation instance.
 
     Args:
@@ -426,13 +440,14 @@ async def get_instance_config(
 @router.put(
     "/{instance_id}/config",
     summary="Update simulation instance config",
+    response_model=None,
 )
 async def update_instance_config(
     instance_id: str,
     body: dict,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Update the config.yaml for a simulation instance.
 
     Accepts either raw YAML text (field ``raw``) or a parsed config dict
@@ -491,13 +506,14 @@ async def update_instance_config(
 @router.delete(
     "/{instance_id}/logs/{filename}",
     summary="Clear a simulation log file",
+    response_model=None,
 )
 async def clear_simulation_log(
     instance_id: str,
     filename: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Clear (truncate) a single log file for a simulation instance.
 
     Args:
@@ -529,12 +545,13 @@ async def clear_simulation_log(
 @router.delete(
     "/{instance_id}/logs",
     summary="Clear all simulation log files",
+    response_model=None,
 )
 async def clear_all_simulation_logs(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Clear (truncate) all log files for a simulation instance.
 
     Args:

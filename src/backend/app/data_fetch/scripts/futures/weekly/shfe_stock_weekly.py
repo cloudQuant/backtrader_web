@@ -9,10 +9,7 @@ import requests
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
-
-JIN10_SHFE_WEEKLY_STOCK_ALL_URL = (
-    "https://cdn.jin10.com/dc/reports/dc_shfe_weekly_stock_all.js"
-)
+JIN10_SHFE_WEEKLY_STOCK_ALL_URL = "https://cdn.jin10.com/dc/reports/dc_shfe_weekly_stock_all.js"
 PREFER_LOCAL_SCRIPT = True
 
 
@@ -209,9 +206,8 @@ class FuturesStockWeeklyShfe(AkshareToMySql):
                 self.logger.warning("未获取到上海期货交易所库存周报全量数据")
                 return pd.DataFrame()
 
-            mask = (
-                (pd.to_datetime(df["REPORT_DATE"]).dt.date >= start_date_dt)
-                & (pd.to_datetime(df["REPORT_DATE"]).dt.date <= end_date_dt)
+            mask = (pd.to_datetime(df["REPORT_DATE"]).dt.date >= start_date_dt) & (
+                pd.to_datetime(df["REPORT_DATE"]).dt.date <= end_date_dt
             )
             df = df.loc[mask].copy()
             if max_reports is not None and not df.empty:

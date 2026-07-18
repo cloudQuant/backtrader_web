@@ -7,7 +7,7 @@
       v-if="loading"
       class="portfolio-loading"
     >
-      <el-icon class="is-loading portfolio-loading__icon">
+      <el-icon class="is-loading portfolio-loading__icon" aria-hidden="true">
         <Loading />
       </el-icon>
       <span>{{ t('common.loading') }}</span>
@@ -22,7 +22,7 @@
           <span class="portfolio-kicker">{{ t('portfolio.heroKicker') }}</span>
           <h1>{{ t('portfolio.heroTitle') }}</h1>
           <p>
-            {{ t('portfolio.heroSubtitle', { selected: selectedWorkspaceIds.length, running: runningWorkspaces.length }) }}
+            {{ t('portfolio.heroSubtitle', { running: runningWorkspaces.length }) }}
           </p>
           <div class="portfolio-hero__badges">
             <span
@@ -85,55 +85,6 @@
       </section>
 
       <section class="portfolio-layout">
-        <aside
-          class="portfolio-selector"
-          data-test="portfolio-selector"
-        >
-          <div class="portfolio-panel-heading">
-            <span class="portfolio-kicker">{{ t('portfolio.selectorKicker') }}</span>
-            <h2>{{ t('portfolio.workspaceSelectorTitle') }}</h2>
-            <p>{{ t('portfolio.workspaceSelectorDesc') }}</p>
-          </div>
-
-          <div class="portfolio-selector__summary">
-            <strong>{{ selectedWorkspaceIds.length }} / {{ runningWorkspaces.length }}</strong>
-            <span>{{ t('portfolio.cardWorkspaceRunning') }}</span>
-          </div>
-
-          <div
-            v-if="runningWorkspaces.length === 0"
-            class="portfolio-empty portfolio-empty--compact"
-          >
-            <el-icon aria-hidden="true">
-              <Connection />
-            </el-icon>
-            <span>{{ t('portfolio.emptyRunningWorkspaces') }}</span>
-          </div>
-          <div
-            v-else
-            class="portfolio-workspace-list"
-          >
-            <label
-              v-for="workspace in runningWorkspaces"
-              :key="workspace.id"
-              class="portfolio-workspace-option"
-              :class="{ 'is-selected': selectedWorkspaceIds.includes(workspace.id) }"
-            >
-              <input
-                type="checkbox"
-                :checked="selectedWorkspaceIds.includes(workspace.id)"
-                @change="toggleWorkspace(workspace.id, ($event.target as HTMLInputElement).checked)"
-              >
-              <span class="portfolio-workspace-option__body">
-                <span class="portfolio-workspace-option__name">{{ workspace.name }}</span>
-                <span class="portfolio-workspace-option__meta">
-                  {{ workspace.unit_count }} {{ t('portfolio.workspaceUnitSuffix') }} · {{ workspaceStatusLabel(workspace.status) }}
-                </span>
-              </span>
-            </label>
-          </div>
-        </aside>
-
         <section
           class="portfolio-workbench"
           data-test="portfolio-workbench"
@@ -190,20 +141,6 @@
                     width="130"
                     align="right"
                   />
-                  <el-table-column
-                    :label="t('portfolio.colSelected')"
-                    width="120"
-                    align="center"
-                  >
-                    <template #default="{ row }">
-                      <el-tag
-                        :type="selectedWorkspaceIds.includes(row.id) ? 'success' : 'info'"
-                        size="small"
-                      >
-                        {{ selectedWorkspaceIds.includes(row.id) ? t('portfolio.selected') : t('portfolio.notSelected') }}
-                      </el-tag>
-                    </template>
-                  </el-table-column>
                 </el-table>
               </div>
             </el-tab-pane>
@@ -219,35 +156,44 @@
                 </div>
 
                 <div
-                  v-if="positions.length > 0"
-                  class="portfolio-exposure-grid"
+                  v-if="isTabLoading('positions')"
+                  class="portfolio-querying"
                 >
-                  <article
-                    v-for="card in positionMetricCards"
-                    :key="card.label"
-                    class="portfolio-exposure-card"
-                  >
-                    <span>{{ card.label }}</span>
-                    <strong :class="card.valueClass">{{ card.value }}</strong>
-                  </article>
-                </div>
-
-                <div
-                  v-if="positions.length === 0"
-                  class="portfolio-empty"
-                >
-                  <el-icon aria-hidden="true">
-                    <Operation />
+                  <el-icon class="is-loading" aria-hidden="true">
+                    <Loading />
                   </el-icon>
-                  <span>{{ t('portfolio.emptyPositions') }}</span>
+                  <span>{{ t('portfolio.querying') }}</span>
                 </div>
-                <el-table
-                  v-else
-                  :data="positions"
-                  stripe
-                  size="small"
-                  class="portfolio-table"
-                >
+                <template v-else>
+                  <div
+                    v-if="positions.length > 0"
+                    class="portfolio-exposure-grid"
+                  >
+                    <article
+                      v-for="card in positionMetricCards"
+                      :key="card.label"
+                      class="portfolio-exposure-card"
+                    >
+                      <span>{{ card.label }}</span>
+                      <strong :class="card.valueClass">{{ card.value }}</strong>
+                    </article>
+                  </div>
+                  <div
+                    v-if="positions.length === 0"
+                    class="portfolio-empty"
+                  >
+                    <el-icon aria-hidden="true">
+                      <Operation />
+                    </el-icon>
+                    <span>{{ t('portfolio.emptyPositions') }}</span>
+                  </div>
+                  <el-table
+                    v-else
+                    :data="positions"
+                    stripe
+                    size="small"
+                    class="portfolio-table"
+                  >
                   <el-table-column
                     prop="strategy_name"
                     :label="t('portfolio.colStrategy')"
@@ -392,7 +338,8 @@
                       {{ formatDateTime(row.updated_at) }}
                     </template>
                   </el-table-column>
-                </el-table>
+                  </el-table>
+                </template>
               </div>
             </el-tab-pane>
 
@@ -406,22 +353,32 @@
                   <span>{{ t('portfolio.tradesDesc') }}</span>
                 </div>
                 <div
-                  v-if="trades.length === 0"
-                  class="portfolio-empty"
+                  v-if="isTabLoading('trades')"
+                  class="portfolio-querying"
                 >
-                  <el-icon aria-hidden="true">
-                    <DataLine />
+                  <el-icon class="is-loading" aria-hidden="true">
+                    <Loading />
                   </el-icon>
-                  <span>{{ t('portfolio.emptyTrades') }}</span>
+                  <span>{{ t('portfolio.querying') }}</span>
                 </div>
-                <el-table
-                  v-else
-                  :data="trades"
-                  stripe
-                  size="small"
-                  class="portfolio-table"
-                  max-height="500"
-                >
+                <template v-else>
+                  <div
+                    v-if="trades.length === 0"
+                    class="portfolio-empty"
+                  >
+                    <el-icon aria-hidden="true">
+                      <DataLine />
+                    </el-icon>
+                    <span>{{ t('portfolio.emptyTrades') }}</span>
+                  </div>
+                  <el-table
+                    v-else
+                    :data="trades"
+                    stripe
+                    size="small"
+                    class="portfolio-table"
+                    max-height="500"
+                  >
                   <el-table-column
                     prop="strategy_name"
                     :label="t('portfolio.colStrategy')"
@@ -498,7 +455,8 @@
                     width="100"
                     align="center"
                   />
-                </el-table>
+                  </el-table>
+                </template>
               </div>
             </el-tab-pane>
 
@@ -510,11 +468,52 @@
                 v-if="activeTab === 'equity'"
                 class="portfolio-tab-panel"
               >
-                <div class="portfolio-section-heading">
-                  <h3>{{ t('portfolio.tabEquity') }}</h3>
-                  <span>{{ t('portfolio.equityDesc') }}</span>
+                <div class="portfolio-section-heading portfolio-section-heading--chart">
+                  <div>
+                    <h3>{{ t('portfolio.tabEquity') }}</h3>
+                    <span>{{ t('portfolio.equityDesc') }}</span>
+                  </div>
+                  <el-select
+                    v-if="equityData?.strategies.length"
+                    v-model="selectedEquitySeries"
+                    class="portfolio-equity-selector"
+                    size="small"
+                    :placeholder="t('portfolio.equitySelectorPlaceholder')"
+                  >
+                    <el-option
+                      value="portfolio"
+                      :label="t('portfolio.seriesTotalEquity')"
+                    />
+                    <el-option
+                      v-for="strategy in equityData.strategies"
+                      :key="strategy.instance_id"
+                      :value="strategy.instance_id"
+                      :label="strategy.strategy_name"
+                    />
+                  </el-select>
                 </div>
-                <div class="portfolio-chart-stack">
+                <div
+                  v-if="isTabLoading('equity')"
+                  class="portfolio-querying"
+                >
+                  <el-icon class="is-loading" aria-hidden="true">
+                    <Loading />
+                  </el-icon>
+                  <span>{{ t('portfolio.querying') }}</span>
+                </div>
+                <div
+                  v-else-if="selectedEquityCurve.values.length === 0"
+                  class="portfolio-empty"
+                >
+                  <el-icon aria-hidden="true">
+                    <DataLine />
+                  </el-icon>
+                  <span>{{ t('portfolio.emptyEquity') }}</span>
+                </div>
+                <div
+                  v-else
+                  class="portfolio-chart-stack"
+                >
                   <div
                     ref="equityChartRef"
                     class="portfolio-chart portfolio-chart--equity"
@@ -540,6 +539,25 @@
                   <span>{{ t('portfolio.allocationDesc') }}</span>
                 </div>
                 <div
+                  v-if="isTabLoading('allocation')"
+                  class="portfolio-querying"
+                >
+                  <el-icon class="is-loading" aria-hidden="true">
+                    <Loading />
+                  </el-icon>
+                  <span>{{ t('portfolio.querying') }}</span>
+                </div>
+                <div
+                  v-else-if="allocationItems.length === 0"
+                  class="portfolio-empty"
+                >
+                  <el-icon aria-hidden="true">
+                    <DataLine />
+                  </el-icon>
+                  <span>{{ t('portfolio.emptyAllocation') }}</span>
+                </div>
+                <div
+                  v-else
                   ref="allocationChartRef"
                   class="portfolio-chart portfolio-chart--allocation"
                 />
@@ -566,7 +584,7 @@ import {
   Wallet,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import * as echarts from 'echarts'
+import type * as echarts from 'echarts'
 import { getErrorMessage } from '@/api'
 import { portfolioApi } from '@/api/portfolio'
 import { workspaceApi } from '@/api/workspace'
@@ -599,9 +617,49 @@ const trades = ref<TradeItem[]>([])
 const equityData = ref<PortfolioEquity | null>(null)
 const allocationItems = ref<AllocationItem[]>([])
 const runningWorkspaces = ref<Workspace[]>([])
-const selectedWorkspaceIds = ref<string[]>([])
 const positionSummary = ref<PositionSummary>(emptyPositionSummary())
+const selectedEquitySeries = ref('portfolio')
+const loadingTabs = ref<Set<string>>(new Set())
 const POSITION_EPSILON = 1e-12
+
+interface EquityCurveSelection {
+  name: string
+  dates: string[]
+  values: number[]
+  drawdown: number[]
+}
+
+const selectedEquityCurve = computed<EquityCurveSelection>(() => {
+  const data = equityData.value
+  if (!data) return { name: '', dates: [], values: [], drawdown: [] }
+
+  let name = t('portfolio.seriesTotalEquity')
+  let sourceValues = data.total_equity
+  if (selectedEquitySeries.value !== 'portfolio') {
+    const strategy = data.strategies.find(item => item.instance_id === selectedEquitySeries.value)
+    if (!strategy) return { name: '', dates: [], values: [], drawdown: [] }
+    name = strategy.strategy_name
+    sourceValues = strategy.values
+  }
+
+  const pointCount = Math.min(data.dates.length, sourceValues.length)
+  const normalizedValues = sourceValues
+    .slice(0, pointCount)
+    .map(value => Number(value))
+  const firstValueIndex = normalizedValues.findIndex(value => (
+    Number.isFinite(value) && Math.abs(value) > POSITION_EPSILON
+  ))
+  if (firstValueIndex === -1) return { name, dates: [], values: [], drawdown: [] }
+
+  const values = normalizedValues.slice(firstValueIndex)
+  const dates = data.dates.slice(firstValueIndex, pointCount)
+  let peak = values[0]
+  const drawdown = values.map(value => {
+    peak = Math.max(peak, value)
+    return peak > 0 && value < peak ? -((peak - value) / peak) : 0
+  })
+  return { name, dates, values, drawdown }
+})
 
 // Chart refs
 const equityChartRef = ref<HTMLElement | null>(null)
@@ -610,6 +668,12 @@ const allocationChartRef = ref<HTMLElement | null>(null)
 let equityChart: echarts.ECharts | null = null
 let drawdownChart: echarts.ECharts | null = null
 let allocationChart: echarts.ECharts | null = null
+let echartsLoader: Promise<typeof import('echarts')> | null = null
+
+function loadEcharts() {
+  echartsLoader ??= import('echarts')
+  return echartsLoader
+}
 
 function formatMoney(v: number) {
   if (Math.abs(v) >= 1e8) return (v / 1e8).toFixed(2) + t('portfolio.unitYi')
@@ -712,9 +776,7 @@ function emptyPositionSummary(): PositionSummary {
 }
 
 const loadedTabs = ref<Set<string>>(new Set(['workspaces']))
-const selectedWorkspaces = computed(() => (
-  runningWorkspaces.value.filter(workspace => selectedWorkspaceIds.value.includes(workspace.id))
-))
+const runningWorkspaceIds = computed(() => runningWorkspaces.value.map(workspace => workspace.id))
 const selectedPositionValue = computed(() => (
   positionSummary.value.gross_market_value
 ))
@@ -738,7 +800,7 @@ const portfolioHealthLabel = computed(() => {
 const heroBadges = computed(() => [
   { label: t('portfolio.heroCash'), value: formatMoney(overview.value.total_cash) },
   { label: t('portfolio.heroStrategies'), value: String(overview.value.strategy_count) },
-  { label: t('portfolio.heroSelected'), value: `${selectedWorkspaceIds.value.length}/${runningWorkspaces.value.length}` },
+  { label: t('portfolio.heroWorkspaces'), value: String(runningWorkspaces.value.length) },
 ])
 
 const summaryCards = computed<PortfolioMetricCard[]>(() => [
@@ -766,7 +828,7 @@ const summaryCards = computed<PortfolioMetricCard[]>(() => [
   },
   {
     label: t('portfolio.cardWorkspaceRunning'),
-    value: `${selectedWorkspaceIds.value.length}/${runningWorkspaces.value.length}`,
+    value: String(runningWorkspaces.value.length),
     helper: t('portfolio.cardWorkspaceRunningHelper'),
     icon: Connection,
     tone: 'neutral',
@@ -841,15 +903,17 @@ function valuationTooltip(row: PositionItem) {
 async function loadData() {
   loading.value = true
   loadedTabs.value = new Set(['workspaces'])
+  loadingTabs.value = new Set()
   try {
     const [dashboard, workspaceList] = await Promise.all([
-      portfolioApi.getOverview(),
+      portfolioApi.getOverview(true),
       workspaceApi.list(0, 100, 'trading'),
     ])
     overview.value = dashboard
     runningWorkspaces.value = workspaceList.items.filter(workspace => workspace.status === 'running')
-    selectedWorkspaceIds.value = runningWorkspaces.value.map(workspace => workspace.id)
-    await loadWorkspaceAggregates()
+    if (activeTab.value !== 'workspaces') {
+      await loadTabData(activeTab.value)
+    }
   } catch (e: unknown) {
     ElMessage.error(getErrorMessage(e, t('portfolio.msgLoadFailed')))
   } finally {
@@ -857,45 +921,68 @@ async function loadData() {
   }
 }
 
+function isTabLoading(tab: string) {
+  return loadingTabs.value.has(tab)
+}
+
+function setTabLoading(tab: string, isLoading: boolean) {
+  const next = new Set(loadingTabs.value)
+  if (isLoading) next.add(tab)
+  else next.delete(tab)
+  loadingTabs.value = next
+}
+
 async function loadTabData(tab: string) {
-  if (loadedTabs.value.has(tab)) return
+  if (loadedTabs.value.has(tab) || isTabLoading(tab)) return
+  setTabLoading(tab, true)
   try {
-    if (tab === 'positions' || tab === 'trades') {
-      await loadWorkspaceAggregates()
+    if (tab === 'positions') {
+      await loadWorkspacePositions()
+    } else if (tab === 'trades') {
+      await loadWorkspaceTrades()
     } else if (tab === 'equity') {
       equityData.value = await portfolioApi.getEquity()
+      selectedEquitySeries.value = 'portfolio'
     } else if (tab === 'allocation') {
-      allocationItems.value = (await portfolioApi.getAllocation()).items
+      allocationItems.value = (await portfolioApi.getAllocation(runningWorkspaceIds.value)).items
     }
-    loadedTabs.value.add(tab)
+    loadedTabs.value = new Set([...loadedTabs.value, tab])
   } catch (e: unknown) {
     ElMessage.error(getErrorMessage(e, t('portfolio.msgLoadTabFailed')))
+  } finally {
+    setTabLoading(tab, false)
   }
 }
 
-async function loadWorkspaceAggregates() {
-  const workspaces = selectedWorkspaces.value
+async function loadWorkspacePositions() {
+  const workspaces = runningWorkspaces.value
   if (workspaces.length === 0) {
     positions.value = []
-    trades.value = []
     positionSummary.value = emptyPositionSummary()
     return
   }
 
-  const [positionResults, tradeResults] = await Promise.all([
-    Promise.all(workspaces.map(workspace => workspaceApi.getTradingPositions(workspace.id))),
-    Promise.all(workspaces.map(workspace => portfolioApi.getTrades(1000, [workspace.id]))),
-  ])
+  const positionResults = await Promise.all(
+    workspaces.map(workspace => workspaceApi.getTradingPositions(workspace.id)),
+  )
 
   const nextPositions = positionResults.flatMap((result, index) => (
     result.positions.map(item => mapWorkspacePosition(workspaces[index], item))
   )).filter(item => hasOpenPosition(item))
   positions.value = nextPositions
   positionSummary.value = buildWorkspacePositionSummary(nextPositions)
-  trades.value = tradeResults
-    .flatMap((result, index) => (
-      result.trades.filter(item => isTradeInSelectedWorkspaces(item, [workspaces[index]]))
-    ))
+}
+
+async function loadWorkspaceTrades() {
+  const workspaces = runningWorkspaces.value
+  if (workspaces.length === 0) {
+    trades.value = []
+    return
+  }
+
+  const result = await portfolioApi.getTrades(1000, runningWorkspaceIds.value)
+  trades.value = result.trades
+    .filter(item => isTradeInSelectedWorkspaces(item, workspaces))
     .sort((a, b) => tradeSortKey(b).localeCompare(tradeSortKey(a)))
 }
 
@@ -1019,50 +1106,19 @@ function chartThemeColors() {
   }
 }
 
-async function toggleWorkspace(workspaceId: string, checked: boolean) {
-  if (checked) {
-    selectedWorkspaceIds.value = Array.from(new Set([...selectedWorkspaceIds.value, workspaceId]))
-  } else {
-    selectedWorkspaceIds.value = selectedWorkspaceIds.value.filter(id => id !== workspaceId)
-  }
-  loadedTabs.value = new Set(['workspaces'])
-  await loadWorkspaceAggregates()
-}
-
 // ---- Charts ----
 
-function renderEquityChart() {
-  if (!equityChartRef.value || !equityData.value) return
+async function renderEquityChart() {
+  const curve = selectedEquityCurve.value
+  if (!equityChartRef.value || curve.values.length === 0) return
+  const echarts = await loadEcharts()
+  if (equityChart && equityChart.getDom() !== equityChartRef.value) {
+    equityChart.dispose()
+    equityChart = null
+  }
   if (!equityChart) equityChart = echarts.init(equityChartRef.value)
 
-  const data = equityData.value
   const colors = chartThemeColors()
-  const series: echarts.SeriesOption[] = []
-
-  // 各策略堆叠面积
-  for (const s of data.strategies) {
-    series.push({
-      name: s.strategy_name,
-      type: 'line',
-      stack: 'total',
-      areaStyle: { opacity: 0.3 },
-      emphasis: { focus: 'series' },
-      data: s.values,
-      symbol: 'none',
-      lineStyle: { width: 1 },
-    })
-  }
-
-  // 组合总资产
-  series.push({
-    name: t('portfolio.seriesTotalEquity'),
-    type: 'line',
-    data: data.total_equity,
-    symbol: 'none',
-    lineStyle: { width: 2, color: PORTFOLIO_EQUITY_COLOR },
-    itemStyle: { color: PORTFOLIO_EQUITY_COLOR },
-    z: 10,
-  })
 
   equityChart.setOption({
     tooltip: {
@@ -1071,15 +1127,10 @@ function renderEquityChart() {
       borderColor: colors.border,
       textStyle: { color: colors.primaryText },
     },
-    legend: {
-      top: 0,
-      type: 'scroll',
-      textStyle: { color: colors.text },
-    },
-    grid: { left: 80, right: 20, top: 40, bottom: 30 },
+    grid: { left: 80, right: 20, top: 20, bottom: 30 },
     xAxis: {
       type: 'category',
-      data: data.dates,
+      data: curve.dates,
       boundaryGap: false,
       axisLabel: { color: colors.text },
       axisLine: { lineStyle: { color: colors.border } },
@@ -1087,19 +1138,35 @@ function renderEquityChart() {
     },
     yAxis: {
       type: 'value',
+      // The curve is trimmed to its first valid balance. Keep the visual scale
+      // aligned with those values instead of forcing the axis to include zero.
+      scale: true,
       axisLabel: { color: colors.text, formatter: (v: number) => formatMoney(v) },
       axisLine: { lineStyle: { color: colors.border } },
       splitLine: { lineStyle: { color: colors.border } },
     },
-    series,
+    series: [{
+      name: curve.name,
+      type: 'line',
+      data: curve.values,
+      symbol: 'none',
+      lineStyle: { width: 2, color: PORTFOLIO_EQUITY_COLOR },
+      itemStyle: { color: PORTFOLIO_EQUITY_COLOR },
+    }],
   }, true)
+  equityChart.resize()
 }
 
-function renderDrawdownChart() {
-  if (!drawdownChartRef.value || !equityData.value) return
+async function renderDrawdownChart() {
+  const curve = selectedEquityCurve.value
+  if (!drawdownChartRef.value || curve.values.length === 0) return
+  const echarts = await loadEcharts()
+  if (drawdownChart && drawdownChart.getDom() !== drawdownChartRef.value) {
+    drawdownChart.dispose()
+    drawdownChart = null
+  }
   if (!drawdownChart) drawdownChart = echarts.init(drawdownChartRef.value)
 
-  const data = equityData.value
   const colors = chartThemeColors()
   drawdownChart.setOption({
     tooltip: {
@@ -1115,7 +1182,7 @@ function renderDrawdownChart() {
     grid: { left: 80, right: 20, top: 10, bottom: 30 },
     xAxis: {
       type: 'category',
-      data: data.dates,
+      data: curve.dates,
       boundaryGap: false,
       show: false,
     },
@@ -1127,22 +1194,28 @@ function renderDrawdownChart() {
     },
     series: [{
       type: 'line',
-      data: data.total_drawdown,
+      data: curve.drawdown,
       areaStyle: { color: PORTFOLIO_DRAWDOWN_AREA_COLOR },
       lineStyle: { color: PORTFOLIO_DRAWDOWN_COLOR, width: 1 },
       itemStyle: { color: PORTFOLIO_DRAWDOWN_COLOR },
       symbol: 'none',
     }],
   }, true)
+  drawdownChart.resize()
 }
 
-function renderAllocationChart() {
+async function renderAllocationChart() {
   if (!allocationChartRef.value || allocationItems.value.length === 0) return
+  const echarts = await loadEcharts()
+  if (allocationChart && allocationChart.getDom() !== allocationChartRef.value) {
+    allocationChart.dispose()
+    allocationChart = null
+  }
   if (!allocationChart) allocationChart = echarts.init(allocationChartRef.value)
   const colors = chartThemeColors()
 
   const pieData = allocationItems.value.map(item => ({
-    name: item.strategy_name,
+    name: item.asset,
     value: item.value,
   }))
 
@@ -1171,6 +1244,7 @@ function renderAllocationChart() {
       data: pieData,
     }],
   }, true)
+  allocationChart.resize()
 }
 
 function handleResize() {
@@ -1182,10 +1256,21 @@ function handleResize() {
 watch(activeTab, async (tab) => {
   await loadTabData(tab)
   if (tab === 'equity') {
-    nextTick(() => { renderEquityChart(); renderDrawdownChart() })
+    nextTick(() => {
+      void renderEquityChart()
+      void renderDrawdownChart()
+    })
   } else if (tab === 'allocation') {
-    nextTick(() => renderAllocationChart())
+    nextTick(() => { void renderAllocationChart() })
   }
+})
+
+watch(selectedEquitySeries, () => {
+  if (activeTab.value !== 'equity') return
+  nextTick(() => {
+    void renderEquityChart()
+    void renderDrawdownChart()
+  })
 })
 
 onMounted(() => {
@@ -1375,7 +1460,6 @@ onBeforeUnmount(() => {
 }
 
 .portfolio-metric,
-.portfolio-selector,
 .portfolio-workbench,
 .portfolio-tab-panel {
   border: 1px solid var(--border-color-light);
@@ -1455,23 +1539,12 @@ onBeforeUnmount(() => {
 }
 
 .portfolio-layout {
-  display: grid;
-  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
+  min-width: 0;
 }
 
-.portfolio-selector,
 .portfolio-workbench {
   min-width: 0;
   padding: 16px;
-}
-
-.portfolio-selector {
-  position: sticky;
-  top: 88px;
-  display: grid;
-  gap: 16px;
 }
 
 .portfolio-panel-heading {
@@ -1491,95 +1564,6 @@ onBeforeUnmount(() => {
 
 .portfolio-panel-heading p {
   font-size: 13px;
-}
-
-.portfolio-selector__summary {
-  display: grid;
-  gap: 4px;
-  padding: 12px;
-  border: 1px solid var(--info-border-color);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-color) 84%, var(--primary-color) 16%);
-}
-
-.portfolio-selector__summary strong {
-  color: var(--primary-color);
-  font-size: 24px;
-  font-weight: 820;
-  line-height: 1;
-}
-
-.portfolio-selector__summary span {
-  color: var(--text-color-secondary);
-  font-size: 12px;
-}
-
-.portfolio-workspace-list {
-  display: grid;
-  gap: 10px;
-}
-
-.portfolio-workspace-option {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid var(--border-color-light);
-  border-radius: 8px;
-  background: var(--fill-color-lighter);
-  cursor: pointer;
-  transition:
-    border-color 0.16s ease,
-    background-color 0.16s ease,
-    transform 0.16s ease;
-}
-
-.portfolio-workspace-option:hover {
-  border-color: var(--info-border-color);
-  background: color-mix(in srgb, var(--bg-color) 84%, var(--primary-color) 16%);
-}
-
-.portfolio-workspace-option.is-selected {
-  border-color: var(--success-border-color);
-  background: color-mix(in srgb, var(--bg-color) 84%, var(--success-color) 16%);
-}
-
-.portfolio-workspace-option.is-selected .portfolio-workspace-option__name {
-  color: var(--text-color-primary);
-}
-
-.portfolio-workspace-option.is-selected .portfolio-workspace-option__meta {
-  color: var(--text-color-secondary);
-}
-
-.portfolio-workspace-option input {
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  accent-color: var(--primary-color);
-}
-
-.portfolio-workspace-option__body {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.portfolio-workspace-option__name {
-  overflow: hidden;
-  color: var(--text-color-primary);
-  font-size: 14px;
-  font-weight: 760;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.portfolio-workspace-option__meta {
-  color: var(--text-color-secondary);
-  font-size: 12px;
-  line-height: 1.35;
 }
 
 .portfolio-workbench {
@@ -1633,6 +1617,15 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
+.portfolio-section-heading--chart > div {
+  display: grid;
+  gap: 4px;
+}
+
+.portfolio-equity-selector {
+  width: min(100%, 260px);
+}
+
 .portfolio-exposure-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1678,6 +1671,24 @@ onBeforeUnmount(() => {
 
 .portfolio-empty--compact {
   min-height: 120px;
+}
+
+.portfolio-querying {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  min-height: 180px;
+  padding: 28px 16px;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+  color: var(--text-color-secondary);
+  text-align: center;
+}
+
+.portfolio-querying .el-icon {
+  color: var(--primary-color);
+  font-size: 28px;
 }
 
 .portfolio-empty .el-icon {
@@ -1747,18 +1758,6 @@ onBeforeUnmount(() => {
   .portfolio-overview {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .portfolio-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .portfolio-selector {
-    position: static;
-  }
-
-  .portfolio-workspace-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 980px) {
@@ -1791,12 +1790,10 @@ onBeforeUnmount(() => {
   }
 
   .portfolio-overview,
-  .portfolio-exposure-grid,
-  .portfolio-workspace-list {
+  .portfolio-exposure-grid {
     grid-template-columns: 1fr;
   }
 
-  .portfolio-selector,
   .portfolio-workbench,
   .portfolio-tab-panel {
     padding: 12px;

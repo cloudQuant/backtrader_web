@@ -16,7 +16,7 @@ import os
 import re
 import sys
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -83,7 +83,8 @@ def db_config_from_url(env_name: str, default_database: str) -> DbConfig:
             port=parsed.port or 3306,
             user=unquote(parsed.username or ""),
             password=unquote(parsed.password or ""),
-            database=(parsed.path or f"/{default_database}").lstrip("/") or default_database,
+            database=(parsed.path or f"/{default_database}").lstrip("/")
+            or default_database,
         )
     return DbConfig(
         host=os.environ.get("DB_HOST", "127.0.0.1"),
@@ -129,7 +130,9 @@ def parse_json(value: Any) -> Any:
     return value
 
 
-def fetch_dicts(conn: mysql.connector.MySQLConnection, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+def fetch_dicts(
+    conn: mysql.connector.MySQLConnection, sql: str, params: tuple[Any, ...] = ()
+) -> list[dict[str, Any]]:
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute(sql, params)
@@ -150,7 +153,9 @@ def read_scripts(conn: mysql.connector.MySQLConnection) -> dict[str, dict[str, A
     return {str(row["script_id"]): row for row in rows}
 
 
-def read_latest_executions(conn: mysql.connector.MySQLConnection) -> dict[int, dict[str, Any]]:
+def read_latest_executions(
+    conn: mysql.connector.MySQLConnection,
+) -> dict[int, dict[str, Any]]:
     rows = fetch_dicts(
         conn,
         """
@@ -172,7 +177,9 @@ def read_latest_executions(conn: mysql.connector.MySQLConnection) -> dict[int, d
     return result
 
 
-def read_all_executions_summary(conn: mysql.connector.MySQLConnection) -> dict[str, Any]:
+def read_all_executions_summary(
+    conn: mysql.connector.MySQLConnection,
+) -> dict[str, Any]:
     by_status = fetch_dicts(
         conn,
         "SELECT status, COUNT(*) AS count FROM ak_task_executions GROUP BY status",
@@ -195,7 +202,9 @@ def read_all_executions_summary(conn: mysql.connector.MySQLConnection) -> dict[s
     }
 
 
-def read_physical_tables(conn: mysql.connector.MySQLConnection, data_db: str) -> dict[str, dict[str, Any]]:
+def read_physical_tables(
+    conn: mysql.connector.MySQLConnection, data_db: str
+) -> dict[str, dict[str, Any]]:
     rows = fetch_dicts(
         conn,
         """
@@ -221,7 +230,9 @@ def read_physical_tables(conn: mysql.connector.MySQLConnection, data_db: str) ->
     return tables
 
 
-def read_columns(conn: mysql.connector.MySQLConnection, data_db: str) -> dict[str, list[dict[str, str]]]:
+def read_columns(
+    conn: mysql.connector.MySQLConnection, data_db: str
+) -> dict[str, list[dict[str, str]]]:
     rows = fetch_dicts(
         conn,
         """
@@ -253,12 +264,21 @@ def choose_date_column(columns: list[dict[str, str]]) -> str | None:
             return by_lower[name.lower()]
     for column in columns:
         lowered = column["name"].lower()
-        if "date" in lowered or "time" in lowered or "日期" in column["name"] or "时间" in column["name"]:
+        if (
+            "date" in lowered
+            or "time" in lowered
+            or "日期" in column["name"]
+            or "时间" in column["name"]
+        ):
             return column["name"]
     return None
 
 
-def enrich_table_stats(conn: mysql.connector.MySQLConnection, tables: dict[str, dict[str, Any]], columns_by_table: dict[str, list[dict[str, str]]]) -> None:
+def enrich_table_stats(
+    conn: mysql.connector.MySQLConnection,
+    tables: dict[str, dict[str, Any]],
+    columns_by_table: dict[str, list[dict[str, str]]],
+) -> None:
     cursor = conn.cursor()
     try:
         for table_name, table in sorted(tables.items()):
@@ -318,7 +338,9 @@ def add_candidate(candidates: list[str], value: Any) -> None:
             candidates.append(item)
 
 
-def candidate_tables(task: TodoTask, script: dict[str, Any] | None, execution: dict[str, Any] | None) -> list[str]:
+def candidate_tables(
+    task: TodoTask, script: dict[str, Any] | None, execution: dict[str, Any] | None
+) -> list[str]:
     candidates: list[str] = []
     target = (script or {}).get("target_table")
     add_candidate(candidates, target)
@@ -334,12 +356,16 @@ def candidate_tables(task: TodoTask, script: dict[str, Any] | None, execution: d
     symbol = params.get("symbol") or params.get("code") or params.get("ticker")
     if symbol:
         for base in base_values:
-            generated = f"{normalize_identifier(str(base))}_{normalize_identifier(str(symbol))}"
+            generated = (
+                f"{normalize_identifier(str(base))}_{normalize_identifier(str(symbol))}"
+            )
             add_candidate(candidates, generated)
     return candidates
 
 
-def match_table(candidates: list[str], physical_tables: dict[str, dict[str, Any]]) -> tuple[str | None, str | None, list[str]]:
+def match_table(
+    candidates: list[str], physical_tables: dict[str, dict[str, Any]]
+) -> tuple[str | None, str | None, list[str]]:
     lower_map: dict[str, list[str]] = defaultdict(list)
     for table_name in physical_tables:
         lower_map[table_name.lower()].append(table_name)
@@ -353,7 +379,9 @@ def match_table(candidates: list[str], physical_tables: dict[str, dict[str, Any]
         folded_matches.extend(lower_map.get(candidate.lower(), []))
     folded_matches = sorted(set(folded_matches))
     if folded_matches:
-        best = max(folded_matches, key=lambda name: physical_tables[name].get("row_count") or 0)
+        best = max(
+            folded_matches, key=lambda name: physical_tables[name].get("row_count") or 0
+        )
         return best, "case_insensitive", folded_matches
     return None, None, []
 
@@ -388,7 +416,9 @@ def build_audit(
         execution = executions.get(task.task_id)
         extras = todo_extras(lines, task)
         candidates = candidate_tables(task, script, execution)
-        matched_table, match_type, matched_candidates = match_table(candidates, physical_tables)
+        matched_table, match_type, matched_candidates = match_table(
+            candidates, physical_tables
+        )
         table = physical_tables.get(matched_table) if matched_table else None
         row_count = int(table.get("row_count") or 0) if table else None
 
@@ -407,9 +437,8 @@ def build_audit(
 
         execution_rows_after = execution.get("rows_after") if execution else None
         todo_rows_after = extras.get("rows_after")
-        rows_after_zero_but_physical_data = (
-            bool(row_count and row_count > 0)
-            and (execution_rows_after == 0 or todo_rows_after == 0)
+        rows_after_zero_but_physical_data = bool(row_count and row_count > 0) and (
+            execution_rows_after == 0 or todo_rows_after == 0
         )
         if rows_after_zero_but_physical_data:
             counters["rows_after_zero_but_physical_data"] += 1
@@ -443,14 +472,22 @@ def build_audit(
                 "latest_execution": json_safe(
                     {
                         "id": execution.get("id") if execution else None,
-                        "execution_id": execution.get("execution_id") if execution else None,
+                        "execution_id": execution.get("execution_id")
+                        if execution
+                        else None,
                         "status": execution.get("status") if execution else None,
-                        "start_time": execution.get("start_time") if execution else None,
+                        "start_time": execution.get("start_time")
+                        if execution
+                        else None,
                         "end_time": execution.get("end_time") if execution else None,
                         "duration": execution.get("duration") if execution else None,
-                        "rows_before": execution.get("rows_before") if execution else None,
+                        "rows_before": execution.get("rows_before")
+                        if execution
+                        else None,
                         "rows_after": execution_rows_after,
-                        "error_message": execution.get("error_message") if execution else None,
+                        "error_message": execution.get("error_message")
+                        if execution
+                        else None,
                         "result": execution.get("result") if execution else None,
                     }
                 ),
@@ -462,7 +499,8 @@ def build_audit(
     orphan_tables = [
         table
         for table in physical_tables.values()
-        if table["table_name"] not in mapped_tables and int(table.get("row_count") or 0) > 0
+        if table["table_name"] not in mapped_tables
+        and int(table.get("row_count") or 0) > 0
     ]
     orphan_tables.sort(key=lambda item: int(item.get("row_count") or 0), reverse=True)
 
@@ -485,13 +523,18 @@ def build_audit(
             "total": len(physical_tables),
             "non_empty": physical_counts["non_empty"],
             "empty": physical_counts["empty"],
-            "mapped_non_empty": len({record["matched_table"] for record in task_records if record["data_status"] == "has_data"}),
+            "mapped_non_empty": len(
+                {
+                    record["matched_table"]
+                    for record in task_records
+                    if record["data_status"] == "has_data"
+                }
+            ),
             "orphan_non_empty": len(orphan_tables),
         },
         "task_data_status": dict(counters),
         "category_breakdown": {
-            category: dict(counter)
-            for category, counter in sorted(by_category.items())
+            category: dict(counter) for category, counter in sorted(by_category.items())
         },
     }
 
@@ -506,7 +549,9 @@ def write_markdown(report: dict[str, Any], path: Path) -> None:
     summary = report["summary"]
     tasks = report["tasks"]
     missing_or_empty = [
-        task for task in tasks if task["data_status"] in {"missing_table", "empty_table"}
+        task
+        for task in tasks
+        if task["data_status"] in {"missing_table", "empty_table"}
     ]
     rows_after_zero_recovered = [
         task for task in tasks if task["rows_after_zero_but_physical_data"]
@@ -560,7 +605,9 @@ def write_markdown(report: dict[str, Any], path: Path) -> None:
                 data_status=task["data_status"],
                 target=task.get("target_table") or "",
                 matched=task.get("matched_table") or "",
-                rows=task.get("physical_row_count") if task.get("physical_row_count") is not None else "",
+                rows=task.get("physical_row_count")
+                if task.get("physical_row_count") is not None
+                else "",
                 exec_status=latest.get("status"),
                 exec_rows=latest.get("rows_after"),
             )
@@ -585,8 +632,17 @@ def write_markdown(report: dict[str, Any], path: Path) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--todo", type=Path, default=TODO_PATH)
-    parser.add_argument("--json-output", type=Path, default=ROOT / "reports/akshare_data_completeness_audit.json")
-    parser.add_argument("--markdown-output", type=Path, default=ROOT / "reports/akshare_data_completeness_audit.md")
+    report_dir = ROOT / "var/reports"
+    parser.add_argument(
+        "--json-output",
+        type=Path,
+        default=report_dir / "akshare_data_completeness_audit.json",
+    )
+    parser.add_argument(
+        "--markdown-output",
+        type=Path,
+        default=report_dir / "akshare_data_completeness_audit.md",
+    )
     return parser.parse_args()
 
 

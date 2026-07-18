@@ -209,8 +209,7 @@ def test_akshare_catalog_endpoint_defaults_do_not_override_explicit_parameters()
 
 def test_existing_legacy_table_name_preserves_case():
     assert (
-        AkshareDataService.normalize_existing_table_name("STOCK_ZT_POOL_EM")
-        == "STOCK_ZT_POOL_EM"
+        AkshareDataService.normalize_existing_table_name("STOCK_ZT_POOL_EM") == "STOCK_ZT_POOL_EM"
     )
 
 
@@ -339,22 +338,14 @@ def test_long_fund_scripts_have_bounded_default_codes():
 
 
 def test_recoverable_cross_asset_history_scripts_have_short_window_defaults():
-    bond_params = AkshareScriptService._apply_safe_default_parameters(
-        "bond_buy_back_hist_em", {}
-    )
-    bond_spot_params = AkshareScriptService._apply_safe_default_parameters(
-        "bond_zh_hs_spot", {}
-    )
+    bond_params = AkshareScriptService._apply_safe_default_parameters("bond_buy_back_hist_em", {})
+    bond_spot_params = AkshareScriptService._apply_safe_default_parameters("bond_zh_hs_spot", {})
     bond_detail_params = AkshareScriptService._apply_safe_default_parameters(
         "bond_info_detail_cm", {}
     )
     etf_params = AkshareScriptService._apply_safe_default_parameters("fund_etf_hist_em", {})
-    etf_min_params = AkshareScriptService._apply_safe_default_parameters(
-        "fund_etf_hist_min_em", {}
-    )
-    lof_min_params = AkshareScriptService._apply_safe_default_parameters(
-        "fund_lof_hist_min_em", {}
-    )
+    etf_min_params = AkshareScriptService._apply_safe_default_parameters("fund_etf_hist_min_em", {})
+    lof_min_params = AkshareScriptService._apply_safe_default_parameters("fund_lof_hist_min_em", {})
     fund_hold_params = AkshareScriptService._apply_safe_default_parameters(
         "fund_portfolio_hold_em", {}
     )
@@ -380,9 +371,7 @@ def test_recoverable_cross_asset_history_scripts_have_short_window_defaults():
 
 
 def test_recoverable_common_macro_scripts_have_defaults():
-    bank_params = AkshareScriptService._apply_safe_default_parameters(
-        "bank_fjcf_table_detail", {}
-    )
+    bank_params = AkshareScriptService._apply_safe_default_parameters("bank_fjcf_table_detail", {})
 
     assert bank_params["page"] == 1
     assert bank_params["item"] == "分局本级"
@@ -401,9 +390,7 @@ def test_recoverable_common_macro_scripts_have_defaults():
 
 
 def test_recoverable_common_static_scripts_have_defaults():
-    air_params = AkshareScriptService._apply_safe_default_parameters(
-        "air_quality_watch_point", {}
-    )
+    air_params = AkshareScriptService._apply_safe_default_parameters("air_quality_watch_point", {})
     assert air_params["city"] == "北京"
     assert air_params["start_date"] == "20220408"
     assert air_params["end_date"] == "20220409"
@@ -443,15 +430,11 @@ def test_recoverable_common_static_scripts_have_defaults():
         assert params["max_pages"] == 1
         assert params["_call_timeout"] == 60
 
-    article_params = AkshareScriptService._apply_safe_default_parameters(
-        "article_rlab_rv", {}
-    )
+    article_params = AkshareScriptService._apply_safe_default_parameters("article_rlab_rv", {})
     assert article_params["symbol"] == "39693"
     assert article_params["_call_timeout"] == 60
 
-    us_stock_params = AkshareScriptService._apply_safe_default_parameters(
-        "get_us_stock_name", {}
-    )
+    us_stock_params = AkshareScriptService._apply_safe_default_parameters("get_us_stock_name", {})
     assert us_stock_params["max_pages"] == 1
     assert us_stock_params["_call_timeout"] == 60
 
@@ -470,15 +453,9 @@ def test_recoverable_common_static_scripts_have_defaults():
 
 
 def test_recoverable_common_exchange_rank_scripts_have_defaults_and_nonunique_indexes():
-    cffex_params = AkshareScriptService._apply_safe_default_parameters(
-        "get_cffex_rank_table", {}
-    )
-    czce_params = AkshareScriptService._apply_safe_default_parameters(
-        "get_rank_table_czce", {}
-    )
-    shfe_params = AkshareScriptService._apply_safe_default_parameters(
-        "get_shfe_rank_table", {}
-    )
+    cffex_params = AkshareScriptService._apply_safe_default_parameters("get_cffex_rank_table", {})
+    czce_params = AkshareScriptService._apply_safe_default_parameters("get_rank_table_czce", {})
+    shfe_params = AkshareScriptService._apply_safe_default_parameters("get_shfe_rank_table", {})
 
     assert cffex_params["date"] == "20240223"
     assert czce_params["date"] == "20240223"
@@ -634,18 +611,10 @@ def test_recoverable_option_and_stock_gap_scripts_have_defaults():
     industry_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_industry_clf_hist_sw", {}
     )
-    sse_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_sse_deal_daily", {}
-    )
-    dzjy_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_dzjy_mrtj", {}
-    )
-    vote_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_zh_vote_baidu", {}
-    )
-    hot_rank_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_hot_rank_em", {}
-    )
+    sse_params = AkshareScriptService._apply_safe_default_parameters("stock_sse_deal_daily", {})
+    dzjy_params = AkshareScriptService._apply_safe_default_parameters("stock_dzjy_mrtj", {})
+    vote_params = AkshareScriptService._apply_safe_default_parameters("stock_zh_vote_baidu", {})
+    hot_rank_params = AkshareScriptService._apply_safe_default_parameters("stock_hot_rank_em", {})
 
     assert czce_params["symbol"] == "白糖期权"
     assert czce_params["trade_date"] == "20191017"
@@ -715,9 +684,7 @@ def test_dated_option_and_sse_wrappers_use_parameter_data_date(monkeypatch):
             "fetch_ak_data",
             lambda *args, **fetch_kwargs: pd.DataFrame({"value": [1, 2]}),
         )
-        monkeypatch.setattr(
-            script, "create_table_if_not_exists", lambda *args, **kwargs: None
-        )
+        monkeypatch.setattr(script, "create_table_if_not_exists", lambda *args, **kwargs: None)
         monkeypatch.setattr(
             script,
             "save_data",
@@ -798,7 +765,7 @@ def test_option_sse_minute_resolves_active_symbol_and_maps_date(monkeypatch):
 
 def test_fund_scale_open_sina_normalizes_codes_and_system_fields(monkeypatch):
     script = FundScaleOpenSina()
-    inserted = []
+    saved = []
 
     monkeypatch.setattr(
         script,
@@ -807,8 +774,8 @@ def test_fund_scale_open_sina_normalizes_codes_and_system_fields(monkeypatch):
     )
     monkeypatch.setattr(
         script,
-        "insert_data",
-        lambda df, table, columns: inserted.append((df.copy(), table, columns)) or True,
+        "save_data",
+        lambda df, table, **kwargs: saved.append((df.copy(), table, kwargs)) or len(df),
     )
     monkeypatch.setattr(
         script,
@@ -836,12 +803,11 @@ def test_fund_scale_open_sina_normalizes_codes_and_system_fields(monkeypatch):
     assert df["r_id"].tolist() == ["FSOS_股票_000123", "FSOS_股票_510300"]
 
     assert script.save_fund_scale(df)
-    saved_df, table, columns = inserted[0]
+    saved_df, table, options = saved[0]
     assert table == "FUND_SCALE_OPEN_SINA"
     assert saved_df["is_active"].tolist() == [1, 1]
     assert saved_df["data_source"].tolist() == ["新浪财经", "新浪财经"]
-    assert "is_active" in columns
-    assert "data_source" in columns
+    assert options == {"on_duplicate_update": True, "unique_keys": ["R_ID"]}
 
 
 def test_fund_value_estimation_maps_dynamic_trade_date_columns():
@@ -878,8 +844,7 @@ def test_fund_analysis_xq_fetches_with_bounded_timeouts(monkeypatch):
     monkeypatch.setattr(
         script,
         "fetch_ak_data",
-        lambda *args, **kwargs: calls.append((args, kwargs))
-        or pd.DataFrame({"周期": ["近1年"]}),
+        lambda *args, **kwargs: calls.append((args, kwargs)) or pd.DataFrame({"周期": ["近1年"]}),
     )
 
     result = script.fetch_analysis_data("000001")
@@ -954,9 +919,7 @@ def test_stock_individual_fund_flow_maps_symbol_and_date(monkeypatch):
     monkeypatch.setattr(
         script,
         "fetch_ak_data",
-        lambda *args, **kwargs: pd.DataFrame(
-            {"日期": ["2026-06-22"], "主力净流入-净额": [100.0]}
-        ),
+        lambda *args, **kwargs: pd.DataFrame({"日期": ["2026-06-22"], "主力净流入-净额": [100.0]}),
     )
     monkeypatch.setattr(script, "create_table_if_not_exists", lambda *args, **kwargs: None)
     monkeypatch.setattr(
@@ -1335,9 +1298,9 @@ def test_slow_market_scripts_have_bounded_safe_defaults():
     assert reits_params["max_symbols"] == 3
     assert minute_params["max_symbols"] == 5
     assert minute_params["max_workers"] == 2
-    assert daily_params["markets"] == "CFFEX"
-    assert daily_params["lookback_days"] == 10
-    assert daily_params["max_windows"] == 1
+    assert daily_params["markets"] == "CFFEX,INE,CZCE,DCE,SHFE,GFEX"
+    assert daily_params["lookback_days"] == 30
+    assert daily_params["max_windows"] == 4
 
 
 def test_slow_futures_history_scripts_have_window_safe_defaults():
@@ -1347,9 +1310,7 @@ def test_slow_futures_history_scripts_have_window_safe_defaults():
     czce_delivery_params = AkshareScriptService._apply_safe_default_parameters(
         "czce_delivery_data", {}
     )
-    czce_to_spot_params = AkshareScriptService._apply_safe_default_parameters(
-        "czce_to_spot", {}
-    )
+    czce_to_spot_params = AkshareScriptService._apply_safe_default_parameters("czce_to_spot", {})
     delivery_match_params = AkshareScriptService._apply_safe_default_parameters(
         "futures_delivery_match_czce", {}
     )
@@ -1358,7 +1319,8 @@ def test_slow_futures_history_scripts_have_window_safe_defaults():
     assert shfe_delivery_params["max_months"] == 1
     assert czce_delivery_params["lookback_days"] == 10
     assert czce_delivery_params["max_days"] == 1
-    assert czce_to_spot_params["lookback_days"] == 10
+    assert czce_to_spot_params["start_date"] == "20231228"
+    assert czce_to_spot_params["end_date"] == "20231228"
     assert czce_to_spot_params["max_days"] == 1
     assert delivery_match_params["lookback_days"] == 10
     assert delivery_match_params["max_days"] == 1
@@ -1455,19 +1417,13 @@ def test_slow_futures_contract_info_scripts_have_window_safe_defaults():
 
 
 def test_slow_futures_weekly_scripts_have_bounded_safe_defaults():
-    inventory_params = AkshareScriptService._apply_safe_default_parameters(
-        "inventory_data", {}
-    )
-    member_params = AkshareScriptService._apply_safe_default_parameters(
-        "member_position_rank", {}
-    )
+    inventory_params = AkshareScriptService._apply_safe_default_parameters("inventory_data", {})
+    member_params = AkshareScriptService._apply_safe_default_parameters("member_position_rank", {})
     rank_params = AkshareScriptService._apply_safe_default_parameters("rank_sum_daily", {})
     stock_weekly_params = AkshareScriptService._apply_safe_default_parameters(
         "shfe_stock_weekly", {}
     )
-    trading_rules_params = AkshareScriptService._apply_safe_default_parameters(
-        "trading_rules", {}
-    )
+    trading_rules_params = AkshareScriptService._apply_safe_default_parameters("trading_rules", {})
 
     assert inventory_params["max_symbols"] == 5
     assert member_params["exchanges"] == "郑商所,中金所,广期所,上期所"
@@ -1551,9 +1507,7 @@ def test_member_position_rank_maps_named_shfe_rank_columns():
 
 
 def test_slow_warehouse_receipt_scripts_have_bounded_safe_defaults():
-    czce_params = AkshareScriptService._apply_safe_default_parameters(
-        "warehouse_receipt_czce", {}
-    )
+    czce_params = AkshareScriptService._apply_safe_default_parameters("warehouse_receipt_czce", {})
     dce_params = AkshareScriptService._apply_safe_default_parameters("warehouse_receipt_dce", {})
 
     assert czce_params["start_date"] == "20240223"
@@ -1570,9 +1524,7 @@ def test_slow_index_history_scripts_have_bounded_safe_defaults():
     cni_market_params = AkshareScriptService._apply_safe_default_parameters(
         "index_daily_market_cni", {}
     )
-    min_params = AkshareScriptService._apply_safe_default_parameters(
-        "index_zh_a_hist_min_em", {}
-    )
+    min_params = AkshareScriptService._apply_safe_default_parameters("index_zh_a_hist_min_em", {})
     em_daily_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_zh_index_daily_em", {}
     )
@@ -1588,9 +1540,7 @@ def test_slow_index_history_scripts_have_bounded_safe_defaults():
     assert em_daily_params["lookback_days"] == 30
     assert em_daily_params["max_workers"] == 2
 
-    detail_params = AkshareScriptService._apply_safe_default_parameters(
-        "index_detail_cni", {}
-    )
+    detail_params = AkshareScriptService._apply_safe_default_parameters("index_detail_cni", {})
     assert detail_params["max_symbols"] == 3
     assert detail_params["max_months"] == 1
 
@@ -1601,9 +1551,7 @@ def test_slow_index_list_scripts_have_bounded_safe_defaults():
 
         assert params["max_indices"] == 3
 
-    adjust_params = AkshareScriptService._apply_safe_default_parameters(
-        "index_hist_adjust_cni", {}
-    )
+    adjust_params = AkshareScriptService._apply_safe_default_parameters("index_hist_adjust_cni", {})
     assert adjust_params["max_symbols"] == 3
     assert adjust_params["max_workers"] == 2
 
@@ -1616,9 +1564,7 @@ def test_slow_index_list_scripts_have_bounded_safe_defaults():
 
         assert params["max_symbols"] == 5
 
-    tx_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_zh_index_daily_tx", {}
-    )
+    tx_params = AkshareScriptService._apply_safe_default_parameters("stock_zh_index_daily_tx", {})
     assert tx_params["max_symbols"] == 1
 
 
@@ -1640,17 +1586,13 @@ def test_slow_sw_index_scripts_have_bounded_safe_defaults():
     assert analysis_params["lookback_days"] == 30
     assert analysis_params["max_workers"] == 2
 
-    cons_params = AkshareScriptService._apply_safe_default_parameters(
-        "sw_industry_third_cons", {}
-    )
+    cons_params = AkshareScriptService._apply_safe_default_parameters("sw_industry_third_cons", {})
     assert cons_params["max_codes"] == 3
     assert cons_params["max_workers"] == 2
 
 
 def test_stock_board_industry_min_has_bounded_safe_default():
-    params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_board_industry_min_em", {}
-    )
+    params = AkshareScriptService._apply_safe_default_parameters("stock_board_industry_min_em", {})
     concept_hist_min_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_board_concept_hist_min_em", {}
     )
@@ -1667,7 +1609,9 @@ def test_stock_board_industry_min_has_bounded_safe_default():
 
     industry_hist_min_script = StockBoardIndustryHistMinEm()
     assert "UNIQUE KEY uk_symbol_date" not in industry_hist_min_script.create_table_sql
-    assert "INDEX idx_symbol_date (`symbol`, `data_date`)" in industry_hist_min_script.create_table_sql
+    assert (
+        "INDEX idx_symbol_date (`symbol`, `data_date`)" in industry_hist_min_script.create_table_sql
+    )
 
 
 def test_stock_board_industry_hist_min_maps_symbol_and_datetime(monkeypatch):
@@ -1711,9 +1655,7 @@ def test_stock_history_scripts_have_narrow_safe_defaults():
     ah_params = AkshareScriptService._apply_safe_default_parameters("stock_zh_ah_daily", {})
     b_params = AkshareScriptService._apply_safe_default_parameters("stock_zh_b_daily", {})
     b_min_params = AkshareScriptService._apply_safe_default_parameters("stock_zh_b_minute", {})
-    cdr_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_zh_a_cdr_daily", {}
-    )
+    cdr_params = AkshareScriptService._apply_safe_default_parameters("stock_zh_a_cdr_daily", {})
     kcb_params = AkshareScriptService._apply_safe_default_parameters("stock_zh_kcb_daily", {})
     index_hist_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_zh_index_hist_csindex", {}
@@ -1886,18 +1828,12 @@ def test_intraday_history_scripts_have_recent_datetime_defaults():
     us_hist_min_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_us_hist_min_em", {}
     )
-    us_spot_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_us_spot", {}
-    )
-    us_hist_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_us_hist", {}
-    )
+    us_spot_params = AkshareScriptService._apply_safe_default_parameters("stock_us_spot", {})
+    us_hist_params = AkshareScriptService._apply_safe_default_parameters("stock_us_hist", {})
     pre_min_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_zh_a_hist_pre_min_em", {}
     )
-    tick_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_zh_a_tick_tx_js", {}
-    )
+    tick_params = AkshareScriptService._apply_safe_default_parameters("stock_zh_a_tick_tx_js", {})
     assert us_hist_min_params["symbol"] == "105.AAPL"
     assert us_hist_min_params["start_date"] == "1979-09-01 09:32:00"
     assert us_hist_min_params["end_date"] == "2222-01-01 09:32:00"
@@ -1959,9 +1895,7 @@ def test_recoverable_stock_gap_scripts_have_explicit_fetch_defaults():
     sector_summary_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_sector_fund_flow_summary", {}
     )
-    hsgt_hist_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_hsgt_hist_em", {}
-    )
+    hsgt_hist_params = AkshareScriptService._apply_safe_default_parameters("stock_hsgt_hist_em", {})
     hsgt_board_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_hsgt_board_rank_em", {}
     )
@@ -1980,15 +1914,11 @@ def test_recoverable_stock_gap_scripts_have_explicit_fetch_defaults():
     hold_num_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_hold_num_cninfo", {}
     )
-    hot_deal_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_hot_deal_xq", {}
-    )
+    hot_deal_params = AkshareScriptService._apply_safe_default_parameters("stock_hot_deal_xq", {})
     lhb_detail_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_lhb_detail_em", {}
     )
-    lhb_ggtj_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_lhb_ggtj_sina", {}
-    )
+    lhb_ggtj_params = AkshareScriptService._apply_safe_default_parameters("stock_lhb_ggtj_sina", {})
 
     assert profit_params["symbol"] == "00700"
     assert profit_params["indicator"] == "盈利预测概览"
@@ -2049,9 +1979,7 @@ def test_recoverable_report_scripts_have_explicit_fetch_defaults():
     analysis_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_financial_analysis_indicator", {}
     )
-    notice_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_notice_report", {}
-    )
+    notice_params = AkshareScriptService._apply_safe_default_parameters("stock_notice_report", {})
     profit_forecast_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_profit_forecast_em", {}
     )
@@ -2067,9 +1995,7 @@ def test_recoverable_report_scripts_have_explicit_fetch_defaults():
     research_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_research_report_em", {}
     )
-    zcfz_bj_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_zcfz_bj_em", {}
-    )
+    zcfz_bj_params = AkshareScriptService._apply_safe_default_parameters("stock_zcfz_bj_em", {})
     kcb_report_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_zh_kcb_report_em", {}
     )
@@ -2147,9 +2073,7 @@ def test_recoverable_option_and_base_info_scripts_have_defaults():
     cffex_zz1000_params = AkshareScriptService._apply_safe_default_parameters(
         "option_cffex_zz1000_list_sina", {}
     )
-    comm_info_params = AkshareScriptService._apply_safe_default_parameters(
-        "option_comm_info", {}
-    )
+    comm_info_params = AkshareScriptService._apply_safe_default_parameters("option_comm_info", {})
     sse_codes_params = AkshareScriptService._apply_safe_default_parameters(
         "option_sse_codes_sina", {}
     )
@@ -2174,9 +2098,7 @@ def test_recoverable_option_and_base_info_scripts_have_defaults():
     concept_cons_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_board_concept_cons_em", {}
     )
-    changes_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_changes_em", {}
-    )
+    changes_params = AkshareScriptService._apply_safe_default_parameters("stock_changes_em", {})
 
     assert etf_info_params["fund"] == "510300"
     assert etf_info_params["start_date"].isdigit()
@@ -2219,9 +2141,7 @@ def test_recoverable_stock_basic_info_scripts_have_defaults():
     individual_info_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_individual_info_em", {}
     )
-    bid_ask_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_bid_ask_em", {}
-    )
+    bid_ask_params = AkshareScriptService._apply_safe_default_parameters("stock_bid_ask_em", {})
     xq_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_individual_basic_info_xq", {}
     )
@@ -2250,9 +2170,7 @@ def test_recoverable_stock_basic_info_scripts_have_defaults():
     recommend_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_institute_recommend", {}
     )
-    intraday_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_intraday_em", {}
-    )
+    intraday_params = AkshareScriptService._apply_safe_default_parameters("stock_intraday_em", {})
     intraday_sina_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_intraday_sina", {}
     )
@@ -2378,9 +2296,7 @@ def test_recoverable_stock_shareholder_scripts_have_defaults():
     teamwork_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_gdfx_holding_teamwork_em", {}
     )
-    top10_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_gdfx_top_10_em", {}
-    )
+    top10_params = AkshareScriptService._apply_safe_default_parameters("stock_gdfx_top_10_em", {})
     institute_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_institute_hold_detail", {}
     )
@@ -2531,15 +2447,11 @@ def test_recoverable_stock_hot_lhb_and_rank_scripts_have_defaults():
     hot_search_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_hot_search_baidu", {}
     )
-    hot_tweet_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_hot_tweet_xq", {}
-    )
+    hot_tweet_params = AkshareScriptService._apply_safe_default_parameters("stock_hot_tweet_xq", {})
     hot_follow_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_hot_follow_xq", {}
     )
-    hot_up_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_hot_up_em", {}
-    )
+    hot_up_params = AkshareScriptService._apply_safe_default_parameters("stock_hot_up_em", {})
     hk_hot_rank_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_hk_hot_rank_em", {}
     )
@@ -2549,21 +2461,11 @@ def test_recoverable_stock_hot_lhb_and_rank_scripts_have_defaults():
     yyb_detail_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_lhb_yyb_detail_em", {}
     )
-    yybph_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_lhb_yybph_em", {}
-    )
-    yytj_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_lhb_yytj_sina", {}
-    )
-    cxd_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_rank_cxd_ths", {}
-    )
-    xstp_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_rank_xstp_ths", {}
-    )
-    xxtp_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_rank_xxtp_ths", {}
-    )
+    yybph_params = AkshareScriptService._apply_safe_default_parameters("stock_lhb_yybph_em", {})
+    yytj_params = AkshareScriptService._apply_safe_default_parameters("stock_lhb_yytj_sina", {})
+    cxd_params = AkshareScriptService._apply_safe_default_parameters("stock_rank_cxd_ths", {})
+    xstp_params = AkshareScriptService._apply_safe_default_parameters("stock_rank_xstp_ths", {})
+    xxtp_params = AkshareScriptService._apply_safe_default_parameters("stock_rank_xxtp_ths", {})
     fund_flow_rank_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_individual_fund_flow_rank", {}
     )
@@ -2796,9 +2698,7 @@ def test_stock_sns_sseinfo_has_bounded_defaults_and_standard_columns():
 
 def test_slow_esg_scripts_have_defaults_and_standard_columns():
     hz_params = AkshareScriptService._apply_safe_default_parameters("stock_esg_hz_sina", {})
-    rate_params = AkshareScriptService._apply_safe_default_parameters(
-        "stock_esg_rate_sina", {}
-    )
+    rate_params = AkshareScriptService._apply_safe_default_parameters("stock_esg_rate_sina", {})
     zd_params = AkshareScriptService._apply_safe_default_parameters("stock_esg_zd_sina", {})
 
     assert hz_params["_call_timeout"] >= 300
@@ -2846,9 +2746,7 @@ def test_recoverable_realtime_gap_scripts_have_explicit_defaults():
     foreign_params = AkshareScriptService._apply_safe_default_parameters(
         "futures_foreign_commodity_realtime", {}
     )
-    futures_spot_params = AkshareScriptService._apply_safe_default_parameters(
-        "futures_zh_spot", {}
-    )
+    futures_spot_params = AkshareScriptService._apply_safe_default_parameters("futures_zh_spot", {})
     bj_params = AkshareScriptService._apply_safe_default_parameters("stock_bj_a_spot_em", {})
     concept_params = AkshareScriptService._apply_safe_default_parameters(
         "stock_board_concept_spot_em", {}

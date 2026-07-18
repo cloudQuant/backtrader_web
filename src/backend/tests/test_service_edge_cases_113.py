@@ -723,53 +723,34 @@ def test_live_trading_service_import_and_run_branches(tmp_path: Path, monkeypatc
     monkeypatch.setattr(mod.threading, "Thread", _DeferredThread)
 
     svc.tasks = {}
-    task_id = asyncio.run(
-        svc.submit_live_strategy(
-            user_id="u1",
-            strategy_code=(
-                "import backtrader as bt\n"
-                "class PObj:\n"
-                "  def __init__(self):\n"
-                "    self.default = None\n"
-                "class Params:\n"
-                "  def __init__(self):\n"
-                "    self._m = {'p': PObj()}\n"
-                "  def _get(self, k):\n"
-                "    return self._m[k]\n"
-                "class S(bt.Strategy):\n"
-                "  params = Params()\n"
-            ),
-            exchange="binance",
-            symbols=["BTC/USDT"],
-            api_key="k",
-            secret="s",
-            strategy_params={"p": 1},
-            sandbox=False,
+    # The branch under test is live-run orchestration; sandbox execution has
+    # its own exhaustive suite and binds its Backtrader runtime at app import.
+    # Keep this legacy fake Backtrader tree confined to the orchestration seam.
+    with monkeypatch.context() as run_patch:
+        run_patch.setattr(svc, "_load_strategy_from_code", lambda _code, _params: _BTStrategy)
+        task_id = asyncio.run(
+            svc.submit_live_strategy(
+                user_id="u1",
+                strategy_code="class S(bt.Strategy): pass",
+                exchange="binance",
+                symbols=["BTC/USDT"],
+                api_key="k",
+                secret="s",
+                strategy_params={"p": 1},
+                sandbox=False,
+            )
         )
-    )
-    assert task_id in svc.tasks
-    assert len(targets) == 1
-    targets[0]()  # run inline after task record exists
-    assert svc.tasks[task_id]["status"] in ("running", "failed")
+        assert task_id in svc.tasks
+        assert len(targets) == 1
+        targets[0]()  # run inline after task record exists
+        assert svc.tasks[task_id]["status"] in ("running", "failed")
 
-    # _load_strategy_from_code: sandbox now executes code via StrategySandbox
-    # and returns the class WITHOUT mutating ``params._get(k).default`` (which
-    # would leak across all instantiations of the strategy class). Verify the
-    # class is returned and ``params`` is left intact for ``cerebro.addstrategy``.
+    # _load_strategy_from_code delegates to the sandbox and returns a class
+    # without mutating class-level defaults.
     code = (
-        "class PObj:\n"
-        "  def __init__(self):\n"
-        "    self.default = None\n"
-        "class Params:\n"
-        "  def __init__(self):\n"
-        "    self._m = {'p': PObj()}\n"
-        "  def _get(self, k):\n"
-        "    return self._m[k]\n"
         "class S(bt.Strategy):\n"
-        "  params = Params()\n"
+        "  params = (('p', 1),)\n"
     )
     strat_cls = svc._load_strategy_from_code(code, {"p": 123})
-    # Sandbox no longer mutates class-level defaults; just confirm we got the
-    # class back.
     assert isinstance(strat_cls, type)
     assert strat_cls.__name__ == "S"

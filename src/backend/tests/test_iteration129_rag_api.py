@@ -173,7 +173,11 @@ class TestIteration129RAGAPI:
         async def fake_generate_answer(self, **kwargs):
             return None
 
+        async def fake_can_generate(self, **kwargs):
+            return True
+
         monkeypatch.setattr(AIChatService, "is_enabled", lambda self: True)
+        monkeypatch.setattr(AIChatService, "can_generate", fake_can_generate)
         monkeypatch.setattr(AIChatService, "generate_answer", fake_generate_answer)
 
         kb_resp = await client.post(

@@ -5,8 +5,7 @@ from app.data_fetch.scripts.futures.daily.minute_market import FuturesMinuteMark
 
 def test_format_latest_datetime_accepts_string_and_datetime():
     assert (
-        FuturesMinuteMarket._format_latest_datetime("2026-06-20 09:31:00")
-        == "2026-06-20 09:31:00"
+        FuturesMinuteMarket._format_latest_datetime("2026-06-20 09:31:00") == "2026-06-20 09:31:00"
     )
     assert (
         FuturesMinuteMarket._format_latest_datetime(datetime(2026, 6, 20, 9, 31))

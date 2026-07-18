@@ -240,7 +240,7 @@ jobs:
           python -c "from app.main import app; print(app.title)"
 
       - name: Run Mypy type check (repo-wide ratchet, 177 §E)
-        # The whole-`app` type check carries ~1055 legacy errors that predate
+        # The whole-`app` type check carries 958 legacy errors that predate
         # CI ever running on `dev` (the F1 root cause). Rather than block on a
         # green-field 0 (unrealistic) or silently ignore regressions, this
         # ratchet fails only when the count *increases*. Per-package strict
@@ -249,6 +249,10 @@ jobs:
         # whenever the count drops. See docs/iterations/迭代177-*/CLOSURE.md §E.
         run: |
           python ../../scripts/ci/mypy_ratchet.py
+
+      - name: Enforce production source-size ratchet (iteration 183)
+        run: |
+          python ../../scripts/ci/large_file_ratchet.py
 
   backend-mypy-ratchet:
     name: Backend - Mypy Ratchet (utils + schemas)
@@ -535,6 +539,9 @@ jobs:
           # the current tree.
           fetch-depth: 0
 
+      - name: Validate audited gitleaks history baseline
+        run: python scripts/ci/check_gitleaks_history_baseline.py
+
       - name: Install gitleaks
         run: |
           GITLEAKS_VERSION=8.30.1
@@ -545,29 +552,24 @@ jobs:
 
       # Iteration 177 §D — ADVISORY by default; gated blocking flip (178 §A).
       #
-      # The full-history scan currently reports ~114 findings, the bulk of which
-      # are REAL credentials that were committed to runtime files before they
-      # were untracked (manual_gateways/*, sync_config.json, ...). See
-      # docs/iterations/迭代177-质量门禁修复与安全纵深/CLOSURE.md.
+      # Iteration 183 audited all 114 historical findings. 103 intentional
+      # public/test values and false positives are suppressed by exact
+      # fingerprints in .gitleaksignore, so future findings in the same files
+      # remain visible. Eleven runtime-credential findings remain advisory until
+      # the owner confirms they are inert or rotates them and records the risk
+      # acceptance. Rewriting git history is optional, not a prerequisite.
       #
-      # Those leaks live in git *history*, so this scan keeps flagging them until
-      # two ops actions land (see docs/iterations/迭代178-安全纵深收口与质量债治理/
-      # ROTATION_RUNBOOK.md):
-      #   1. Rotate every exposed key/password at the provider.
-      #   2. Purge history (scripts/ops/purge_secret_history.sh) + force-push,
-      #      coordinated with all collaborators.
-      #
-      # Once history is clean, set the repo/org variable
-      # SECRET_SCAN_HISTORY_BLOCKING=true to flip this step to a hard fail —
-      # no code change or redeploy needed. Until then it stays advisory so the
-      # known historical leaks don't false-fail every build.
+      # When the audited metadata says blocking_ready=true, findings hard-fail
+      # automatically. SECRET_SCAN_HISTORY_BLOCKING=true remains an emergency
+      # override that can force blocking before the baseline is marked ready.
       #
       # The allowlist in .gitleaks.toml covers the project's intentional
       # placeholders so the gate stays signal-rich.
-      - name: Scan full history for secrets (advisory unless SECRET_SCAN_HISTORY_BLOCKING=true)
+      - name: Scan full history for secrets (blocking when audited baseline is ready)
         env:
           HISTORY_BLOCKING: ${{ vars.SECRET_SCAN_HISTORY_BLOCKING }}
         run: |
+          BASELINE_BLOCKING="$(python -c 'import json; print(str(json.load(open("scripts/ci/gitleaks_history_baseline.json", encoding="utf-8"))["blocking_ready"]).lower())')"
           if gitleaks detect \
             --config .gitleaks.toml \
             --report-format sarif \
@@ -577,11 +579,11 @@ jobs:
             --exit-code 1; then
             echo "gitleaks full-history scan: no findings."
           else
-            if [ "${HISTORY_BLOCKING}" = "true" ]; then
-              echo "::error::gitleaks reported secrets in history and SECRET_SCAN_HISTORY_BLOCKING=true (blocking)."
+            if [ "${BASELINE_BLOCKING}" = "true" ] || [ "${HISTORY_BLOCKING}" = "true" ]; then
+              echo "::error::gitleaks reported secrets while the audited full-history gate is blocking."
               exit 1
             fi
-            echo "::warning::gitleaks reported potential secrets (advisory; see gitleaks-report.sarif artifact). Set SECRET_SCAN_HISTORY_BLOCKING=true after the history purge to make this blocking."
+            echo "::warning::gitleaks reported unresolved historical findings (advisory; see gitleaks-report.sarif artifact). Resolve or explicitly baseline them before setting SECRET_SCAN_HISTORY_BLOCKING=true."
           fi
 
       - name: Upload gitleaks report
@@ -595,7 +597,7 @@ jobs:
       # BLOCKING — only the commits introduced by this PR are scanned, so the
       # historical leaks above don't false-fail it. This makes the gate have
       # teeth *now*: any NEW secret in a PR fails the build immediately, while
-      # the history purge (P0 ops follow-up) is still pending.
+      # the finite historical baseline is reviewed separately.
       - name: Scan PR commits for newly introduced secrets (blocking)
         if: github.event_name == 'pull_request'
         run: |
@@ -641,14 +643,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit frontend dependencies (high/critical)
-        run: npm audit --audit-level=high
+      - name: Audit frontend dependencies (high/critical baseline ratchet)
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/ci/npm_audit_ratchet.py
 
       - name: Verify ESLint version
         run: npx eslint --version
 
       - name: Run ESLint
         run: npx eslint .
+
+      - name: Enforce Element Plus icon accessibility annotations
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/ci/check_frontend_icon_a11y.py
 
       - name: TypeScript type check
         run: npx vue-tsc --noEmit --skipLibCheck

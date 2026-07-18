@@ -35,9 +35,9 @@ def test_default_provider_specs_include_core_providers() -> None:
     assert next(provider for provider in providers if provider.name == "ollama").base_url == (
         "http://localhost:11434"
     )
-    assert next(provider for provider in providers if provider.name == "volcengine_ark").base_url == (
-        "https://ark.cn-beijing.volces.com/api/coding/v3"
-    )
+    assert next(
+        provider for provider in providers if provider.name == "volcengine_ark"
+    ).base_url == ("https://ark.cn-beijing.volces.com/api/coding/v3")
     volcengine_ark = next(provider for provider in providers if provider.name == "volcengine_ark")
     assert "doubao-seed-2.0-code" in volcengine_ark.models
     assert "doubao-seed-2.0-pro" in volcengine_ark.models

@@ -20,10 +20,7 @@ def fetch_sina_macro_pages(
 ) -> pd.DataFrame:
     """Fetch paged Sina macro data from the same source used by AkShare."""
 
-    url = (
-        "https://quotes.sina.cn/mac/api/jsonp_v3.php/"
-        f"{callback}/MacPage_Service.get_pagedata"
-    )
+    url = f"https://quotes.sina.cn/mac/api/jsonp_v3.php/{callback}/MacPage_Service.get_pagedata"
     params = {
         "cate": cate,
         "event": event,

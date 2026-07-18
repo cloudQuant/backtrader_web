@@ -7,16 +7,18 @@ Macro China Nbs Region
 """
 
 import hashlib
+
 import pandas as pd
 import requests
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
-
 PREFER_LOCAL_SCRIPT = True
 SOURCE_URL = "https://data.stats.gov.cn/dg/website/publicrelease/web/external/stream/esData"
-REGION_LIST_URL = "https://data.stats.gov.cn/dg/website/publicrelease/web/external/getDasByDaCatalogId"
+REGION_LIST_URL = (
+    "https://data.stats.gov.cn/dg/website/publicrelease/web/external/getDasByDaCatalogId"
+)
 FS_QUARTER_REFERER = "https://data.stats.gov.cn/dg/website/page.html#/pc/national/fsQuarterData"
 FS_QUARTER_ROOT_ID = "854f819b04104191a5ae2f2cba270e6c"
 FS_QUARTER_REGION_CATALOG_ID = "a10dceae75d245008bf4b9a0e6fe1d55"
@@ -156,11 +158,7 @@ def _fetch_regions(da_catalog_id: str, region: str | None = None) -> list[dict]:
     ]
     if not region:
         return regions
-    matched = [
-        item
-        for item in regions
-        if region in {item.get("text"), item.get("value")}
-    ]
+    matched = [item for item in regions if region in {item.get("text"), item.get("value")}]
     if matched:
         return matched
     if str(region).isdigit():
@@ -237,8 +235,8 @@ class MacroChinaNbsRegion(AkshareToMySql):
         super().__init__(db_config, logger)
         self.table_name = "MACRO_CHINA_NBS_REGION"
         self.create_table_sql = """
-	    CREATE TABLE IF NOT EXISTS `MACRO_CHINA_NBS_REGION` (
-	        `R_ID` BIGINT AUTO_INCREMENT PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS `MACRO_CHINA_NBS_REGION` (
+            `R_ID` BIGINT AUTO_INCREMENT PRIMARY KEY,
             `record_key` CHAR(32) NOT NULL COMMENT '配置和数据期唯一键',
             `kind` VARCHAR(32) COMMENT '数据类别',
             `path` VARCHAR(255) COMMENT '数据路径',
@@ -258,11 +256,11 @@ class MacroChinaNbsRegion(AkshareToMySql):
             `fetched_at` DATETIME COMMENT '抓取时间',
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
             `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-	        UNIQUE KEY uk_record_key (`record_key`),
-	        INDEX idx_kind_period (`kind`, `data_period`),
+            UNIQUE KEY uk_record_key (`record_key`),
+            INDEX idx_kind_period (`kind`, `data_period`),
             INDEX idx_item_name (`item_name`)
-	    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Macro China Nbs Region'
-	    """
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Macro China Nbs Region'
+        """
 
     def fetch_data(self, **kwargs):
         """Fetch data from AkShare and save to database.
@@ -285,9 +283,7 @@ class MacroChinaNbsRegion(AkshareToMySql):
             frames.append(df)
 
         result = (
-            pd.concat(frames, ignore_index=True)
-            if frames
-            else pd.DataFrame(columns=OUTPUT_COLUMNS)
+            pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=OUTPUT_COLUMNS)
         )
         if result.empty:
             self.logger.warning("No NBS region data found")

@@ -1,3 +1,4 @@
+import typing
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -30,7 +31,7 @@ async def _load_profile_for_user(
     current_user: User,
     db: AsyncSession,
     service: BrokerProfileService,
-):
+) -> typing.Any:
     profile = await service.get_profile(
         profile_id,
         user_id=current_user.id,
@@ -43,12 +44,12 @@ async def _load_profile_for_user(
     return profile
 
 
-@router.post("/profiles", status_code=status.HTTP_201_CREATED)
+@router.post("/profiles", status_code=status.HTTP_201_CREATED, response_model=None)
 async def create_broker_profile(
     payload: dict,
     current_user: User = Depends(get_current_db_user),
     service: BrokerProfileService = Depends(_get_service),
-):
+) -> typing.Any:
     return await service.create_profile(
         user_id=current_user.id,
         broker_id=str(payload.get("broker_id") or "gateway_bridge"),
@@ -65,81 +66,81 @@ async def create_broker_profile(
     )
 
 
-@router.get("/profiles")
+@router.get("/profiles", response_model=None)
 async def list_broker_profiles(
     current_user: User = Depends(get_current_db_user),
     service: BrokerProfileService = Depends(_get_service),
-):
+) -> typing.Any:
     return await service.list_profiles(user_id=current_user.id)
 
 
-@router.get("/profiles/{profile_id}/health")
+@router.get("/profiles/{profile_id}/health", response_model=None)
 async def get_broker_profile_health(
     profile_id: str,
     current_user: User = Depends(get_current_db_user),
     db: AsyncSession = Depends(get_db),
     service: BrokerProfileService = Depends(_get_service),
-):
+) -> typing.Any:
     profile = await _load_profile_for_user(profile_id, current_user, db, service)
     return await service.health(profile)
 
 
-@router.get("/profiles/{profile_id}/accounts")
+@router.get("/profiles/{profile_id}/accounts", response_model=None)
 async def get_broker_profile_accounts(
     profile_id: str,
     current_user: User = Depends(get_current_db_user),
     db: AsyncSession = Depends(get_db),
     service: BrokerProfileService = Depends(_get_service),
-):
+) -> typing.Any:
     profile = await _load_profile_for_user(profile_id, current_user, db, service)
     items = await service.list_accounts(profile)
     return {"items": items, "total": len(items)}
 
 
-@router.get("/profiles/{profile_id}/positions")
+@router.get("/profiles/{profile_id}/positions", response_model=None)
 async def get_broker_profile_positions(
     profile_id: str,
     current_user: User = Depends(get_current_db_user),
     db: AsyncSession = Depends(get_db),
     service: BrokerProfileService = Depends(_get_service),
-):
+) -> typing.Any:
     profile = await _load_profile_for_user(profile_id, current_user, db, service)
     items = await service.list_positions(profile)
     return {"items": items, "total": len(items)}
 
 
-@router.get("/profiles/{profile_id}/orders")
+@router.get("/profiles/{profile_id}/orders", response_model=None)
 async def get_broker_profile_orders(
     profile_id: str,
     current_user: User = Depends(get_current_db_user),
     db: AsyncSession = Depends(get_db),
     service: BrokerProfileService = Depends(_get_service),
-):
+) -> typing.Any:
     profile = await _load_profile_for_user(profile_id, current_user, db, service)
     items = await service.list_orders(profile)
     return {"items": items, "total": len(items)}
 
 
-@router.get("/profiles/{profile_id}/quotes")
+@router.get("/profiles/{profile_id}/quotes", response_model=None)
 async def get_broker_profile_quote(
     profile_id: str,
     symbol: str = Query(...),
     current_user: User = Depends(get_current_db_user),
     db: AsyncSession = Depends(get_db),
     service: BrokerProfileService = Depends(_get_service),
-):
+) -> typing.Any:
     profile = await _load_profile_for_user(profile_id, current_user, db, service)
     return await service.get_quote(profile, symbol, user_id=current_user.id)
 
 
-@router.post("/profiles/{profile_id}/enable-write")
+@router.post("/profiles/{profile_id}/enable-write", response_model=None)
 async def enable_broker_profile_live_write(
     profile_id: str,
     payload: dict,
     current_user: User = Depends(require_data_admin_user),
     db: AsyncSession = Depends(get_db),
     service: BrokerProfileService = Depends(_get_service),
-):
+) -> typing.Any:
     profile = await service.get_profile(profile_id, user_id=current_user.id, allow_admin=True)
     if profile is None:
         raise HTTPException(

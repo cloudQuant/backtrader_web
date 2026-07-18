@@ -6,6 +6,7 @@ realtime, monitoring, live_trading, optimization and other low-coverage API rout
 import sys
 
 import pandas as pd
+from fastapi import FastAPI
 from httpx import AsyncClient
 
 
@@ -15,16 +16,18 @@ class TestRouterMetadata:
     def test_live_trading_routes_are_not_deprecated(self):
         from app.api.router import api_router
 
-        live_trading_routes = [
-            route
-            for route in api_router.routes
-            if getattr(route, "path", "").startswith("/live-trading")
-            and not getattr(route, "path", "").startswith("/live-trading-crypto")
+        app = FastAPI()
+        app.include_router(api_router)
+        openapi_paths = app.openapi()["paths"]
+        http_routes = [
+            operation
+            for path, methods in openapi_paths.items()
+            if path.startswith("/live-trading") and not path.startswith("/live-trading-crypto")
+            for operation in methods.values()
         ]
-        http_routes = [route for route in live_trading_routes if getattr(route, "methods", None)]
 
         assert http_routes
-        assert all(getattr(route, "deprecated", False) is not True for route in http_routes)
+        assert all(route.get("deprecated") is not True for route in http_routes)
 
 
 # ==================== Data API ====================

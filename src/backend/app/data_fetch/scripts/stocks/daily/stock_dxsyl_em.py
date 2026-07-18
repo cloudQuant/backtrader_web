@@ -12,7 +12,6 @@ import requests
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
-
 OUTPUT_COLUMNS = [
     "序号",
     "股票代码",

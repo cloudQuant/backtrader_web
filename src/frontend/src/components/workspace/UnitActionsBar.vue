@@ -13,7 +13,7 @@
             size="small"
             @click="emit('selectAll')"
           >
-            <el-icon><Select /></el-icon>
+            <el-icon aria-hidden="true"><Select /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -28,7 +28,7 @@
             :disabled="autoTradingEnabled"
             @click="emit('enableAutoTrading')"
           >
-            <el-icon><Timer /></el-icon>
+            <el-icon aria-hidden="true"><Timer /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -43,7 +43,7 @@
             :disabled="!autoTradingEnabled"
             @click="emit('disableAutoTrading')"
           >
-            <el-icon><SwitchButton /></el-icon>
+            <el-icon aria-hidden="true"><SwitchButton /></el-icon>
           </el-button>
         </el-tooltip>
       </el-button-group>
@@ -58,7 +58,7 @@
             :disabled="!hasSelection"
             @click="emit('lockTrading')"
           >
-            <el-icon><Lock /></el-icon>
+            <el-icon aria-hidden="true"><Lock /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -70,7 +70,7 @@
             :disabled="!hasSelection"
             @click="emit('lockRunning')"
           >
-            <el-icon><Files /></el-icon>
+            <el-icon aria-hidden="true"><Files /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -82,7 +82,7 @@
             :disabled="!hasSelection"
             @click="emit('unlock')"
           >
-            <el-icon><Unlock /></el-icon>
+            <el-icon aria-hidden="true"><Unlock /></el-icon>
           </el-button>
         </el-tooltip>
       </el-button-group>
@@ -98,7 +98,7 @@
             :disabled="!hasSelection || running"
             @click="emit('startSelected')"
           >
-            <el-icon><VideoPlay /></el-icon>
+            <el-icon aria-hidden="true"><VideoPlay /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -112,7 +112,7 @@
             :disabled="!hasSelection"
             @click="emit('stopSelected')"
           >
-            <el-icon><CircleCloseFilled /></el-icon>
+            <el-icon aria-hidden="true"><CircleCloseFilled /></el-icon>
           </el-button>
         </el-tooltip>
       </el-button-group>
@@ -127,7 +127,7 @@
             type="primary"
             @click="emit('createUnit')"
           >
-            <el-icon><Plus /></el-icon>
+            <el-icon aria-hidden="true"><Plus /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -139,7 +139,7 @@
             :disabled="!hasSelection"
             @click="emit('bulkDelete')"
           >
-            <el-icon><Delete /></el-icon>
+            <el-icon aria-hidden="true"><Delete /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -150,7 +150,7 @@
             size="small"
             @click="emit('importUnits')"
           >
-            <el-icon><FolderOpened /></el-icon>
+            <el-icon aria-hidden="true"><FolderOpened /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -162,7 +162,7 @@
             :disabled="!hasSelection"
             @click="emit('exportUnits')"
           >
-            <el-icon><Download /></el-icon>
+            <el-icon aria-hidden="true"><Download /></el-icon>
           </el-button>
         </el-tooltip>
       </el-button-group>
@@ -177,7 +177,7 @@
             :disabled="!hasSingleSelection"
             @click="emit('openDataSource')"
           >
-            <el-icon><DataLine /></el-icon>
+            <el-icon aria-hidden="true"><DataLine /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -189,7 +189,7 @@
             :disabled="!hasSingleSelection"
             @click="emit('openUnitSettings')"
           >
-            <el-icon><Setting /></el-icon>
+            <el-icon aria-hidden="true"><Setting /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -201,7 +201,7 @@
             :disabled="!hasSingleSelection"
             @click="emit('openStrategyParams')"
           >
-            <el-icon><Document /></el-icon>
+            <el-icon aria-hidden="true"><Document /></el-icon>
           </el-button>
         </el-tooltip>
       </el-button-group>
@@ -216,7 +216,7 @@
             :disabled="unitCount === 0"
             @click="emit('openPositionManager')"
           >
-            <el-icon><Wallet /></el-icon>
+            <el-icon aria-hidden="true"><Wallet /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -228,7 +228,7 @@
             :disabled="!hasSingleSelection"
             @click="emit('openKline')"
           >
-            <el-icon><TrendCharts /></el-icon>
+            <el-icon aria-hidden="true"><TrendCharts /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -240,7 +240,7 @@
             :disabled="!hasSelection"
             @click="emit('openReport')"
           >
-            <el-icon><PieChart /></el-icon>
+            <el-icon aria-hidden="true"><PieChart /></el-icon>
           </el-button>
         </el-tooltip>
       </el-button-group>
@@ -254,7 +254,7 @@
             size="small"
             @click="emit('openAutoTradingConfig')"
           >
-            <el-icon><Tools /></el-icon>
+            <el-icon aria-hidden="true"><Tools /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -266,7 +266,7 @@
             :disabled="!hasSelection"
             @click="emit('createOptimizationTask')"
           >
-            <el-icon><Promotion /></el-icon>
+            <el-icon aria-hidden="true"><Promotion /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -278,7 +278,7 @@
             :disabled="!hasSingleSelection"
             @click="emit('openOptimization')"
           >
-            <el-icon><DataAnalysis /></el-icon>
+            <el-icon aria-hidden="true"><DataAnalysis /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -289,7 +289,7 @@
             size="small"
             @click="emit('openScheduledOptimization')"
           >
-            <el-icon><Calendar /></el-icon>
+            <el-icon aria-hidden="true"><Calendar /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -301,7 +301,7 @@
             :disabled="unitCount === 0"
             @click="emit('openTradingDayStats')"
           >
-            <el-icon><Histogram /></el-icon>
+            <el-icon aria-hidden="true"><Histogram /></el-icon>
           </el-button>
         </el-tooltip>
         <el-tooltip
@@ -313,7 +313,7 @@
             :disabled="!hasSelection"
             @click="emit('openGroupLink')"
           >
-            <el-icon><Share /></el-icon>
+            <el-icon aria-hidden="true"><Share /></el-icon>
           </el-button>
         </el-tooltip>
       </el-button-group>

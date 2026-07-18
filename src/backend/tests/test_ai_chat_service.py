@@ -582,14 +582,13 @@ class TestAIChatServiceGenerateAnswer:
                     total_tokens=7,
                 )
 
-            service.ai_router.chat_completion = fake_chat_completion
-
-            result = await service.generate_answer(
-                question="什么是均线策略？",
-                citations=[],
-                assistant_mode="knowledge_qa",
-                thinking_mode=False,
-            )
+            with patch.object(service.ai_router, "chat_completion", fake_chat_completion):
+                result = await service.generate_answer(
+                    question="什么是均线策略？",
+                    citations=[],
+                    assistant_mode="knowledge_qa",
+                    thinking_mode=False,
+                )
 
         assert result["answer"] == "路由层回答"
         assert result["tokens_used"] == 7
@@ -636,15 +635,14 @@ class TestAIChatServiceGenerateAnswer:
                     total_tokens=9,
                 )
 
-            service.ai_router.chat_completion = fake_chat_completion
-
-            result = await service.generate_answer(
-                question="什么是均线策略？",
-                citations=[],
-                assistant_mode="knowledge_qa",
-                thinking_mode=False,
-                user_id="user-1",
-            )
+            with patch.object(service.ai_router, "chat_completion", fake_chat_completion):
+                result = await service.generate_answer(
+                    question="什么是均线策略？",
+                    citations=[],
+                    assistant_mode="knowledge_qa",
+                    thinking_mode=False,
+                    user_id="user-1",
+                )
 
         assert result["answer"] == "本地模型回答"
         assert captured["model"] == "ollama/qwen2.5-coder:7b"
@@ -678,16 +676,15 @@ class TestAIChatServiceGenerateAnswer:
                     total_tokens=8,
                 )
 
-            service.ai_router.chat_completion = fake_chat_completion
-
-            result = await service.generate_answer(
-                question="什么是均线策略？",
-                citations=[],
-                assistant_mode="knowledge_qa",
-                thinking_mode=False,
-                user_id="missing-user",
-                model_id="ollama::ollama/llama3.1:8b",
-            )
+            with patch.object(service.ai_router, "chat_completion", fake_chat_completion):
+                result = await service.generate_answer(
+                    question="什么是均线策略？",
+                    citations=[],
+                    assistant_mode="knowledge_qa",
+                    thinking_mode=False,
+                    user_id="missing-user",
+                    model_id="ollama::ollama/llama3.1:8b",
+                )
 
         assert result["answer"] == "会话模型回答"
         assert captured["model"] == "ollama/llama3.1:8b"

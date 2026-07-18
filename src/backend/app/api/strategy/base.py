@@ -3,6 +3,7 @@ Strategy API routes.
 """
 
 import logging
+import typing
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -77,46 +78,46 @@ router = APIRouter()
 
 
 @lru_cache
-def get_strategy_service():
+def get_strategy_service() -> typing.Any:
     return StrategyService()
 
 
 @lru_cache
-def get_ai_strategy_research_service():
+def get_ai_strategy_research_service() -> typing.Any:
     return AIStrategyResearchService()
 
 
 @lru_cache
-def get_ai_strategy_research_tasks():
+def get_ai_strategy_research_tasks() -> typing.Any:
     return get_ai_strategy_research_task_manager()
 
 
 @lru_cache
-def get_ai_strategy_research_config_profiles():
+def get_ai_strategy_research_config_profiles() -> typing.Any:
     return AIStrategyResearchConfigProfileService()
 
 
 @lru_cache
-def get_investment_mandate_service():
+def get_investment_mandate_service() -> typing.Any:
     return InvestmentMandateService()
 
 
 @lru_cache
-def get_research_pipeline_event_service():
+def get_research_pipeline_event_service() -> typing.Any:
     return ResearchPipelineEventService()
 
 
 @lru_cache
-def get_ai_strategy_research_version_service():
+def get_ai_strategy_research_version_service() -> typing.Any:
     return AIStrategyResearchVersionService()
 
 
 @router.post("/", response_model=StrategyResponse, summary="Create strategy")
 async def create_strategy(
     strategy: StrategyCreate,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: StrategyService = Depends(get_strategy_service),
-):
+) -> typing.Any:
     """Create a new strategy.
 
     Args:
@@ -135,12 +136,12 @@ async def create_strategy(
 @cache_response(ttl=30, key_prefix="strategies")
 async def list_strategies(
     request: Request,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: StrategyService = Depends(get_strategy_service),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     category: str = Query(None, description="Filter by category"),
-):
+) -> typing.Any:
     """List strategies for the current user.
 
     Args:
@@ -157,14 +158,14 @@ async def list_strategies(
     return results
 
 
-@router.get("/templates", summary="Get strategy templates")
+@router.get("/templates", summary="Get strategy templates", response_model=None)
 async def get_templates(
     category: str = Query(None, description="Filter by category"),
     strategy_type: str = Query(
         None, description="Filter by strategy type (backtest/simulate/live)"
     ),
     service: StrategyService = Depends(get_strategy_service),
-):
+) -> typing.Any:
     """Get built-in strategy templates (optionally filtered by category).
 
     Args:
@@ -190,8 +191,12 @@ async def get_templates(
     return {"templates": templates, "total": len(templates)}
 
 
-@router.get("/templates/{template_id:path}/readme", summary="Get strategy README documentation")
-async def get_template_readme(template_id: str):
+@router.get(
+    "/templates/{template_id:path}/readme",
+    summary="Get strategy README documentation",
+    response_model=None,
+)
+async def get_template_readme(template_id: str) -> typing.Any:
     """Get the template README.md content (Markdown).
 
     Args:
@@ -209,8 +214,12 @@ async def get_template_readme(template_id: str):
     return {"template_id": template_id, "content": readme}
 
 
-@router.get("/templates/{template_id:path}/config", summary="Get strategy configuration")
-async def get_template_config(template_id: str):
+@router.get(
+    "/templates/{template_id:path}/config",
+    summary="Get strategy configuration",
+    response_model=None,
+)
+async def get_template_config(template_id: str) -> typing.Any:
     """Read `config.yaml` for a strategy template.
 
     Args:
@@ -248,8 +257,10 @@ async def get_template_config(template_id: str):
     }
 
 
-@router.get("/templates/{template_id:path}", summary="Get strategy template detail")
-async def get_template_detail(template_id: str):
+@router.get(
+    "/templates/{template_id:path}", summary="Get strategy template detail", response_model=None
+)
+async def get_template_detail(template_id: str) -> typing.Any:
     """Get a single strategy template (includes code and params).
 
     Args:
@@ -274,9 +285,9 @@ async def get_template_detail(template_id: str):
 )
 async def generate_strategy_copilot_draft(
     data: StrategyCopilotDraftRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: StrategyService = Depends(get_strategy_service),
-):
+) -> typing.Any:
     """Generate a structured strategy draft from natural language input."""
     return await service.generate_copilot_draft(current_user.sub, data)
 
@@ -288,9 +299,9 @@ async def generate_strategy_copilot_draft(
 )
 async def run_ai_strategy_research_loop(
     data: AIStrategyResearchRunRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
-):
+) -> typing.Any:
     """Generate, backtest, improve, and optionally start paper trading."""
     try:
         return redact_ai_strategy_research_payload(await service.run(current_user.sub, data))
@@ -306,9 +317,9 @@ async def run_ai_strategy_research_loop(
 )
 async def create_ai_research_mandate(
     data: InvestmentMandateCreate,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: InvestmentMandateService = Depends(get_investment_mandate_service),
-):
+) -> typing.Any:
     """Create a structured investment demand before launching AI research."""
     return await service.create_mandate(current_user.sub, data)
 
@@ -320,9 +331,9 @@ async def create_ai_research_mandate(
 )
 async def get_ai_research_mandate(
     mandate_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: InvestmentMandateService = Depends(get_investment_mandate_service),
-):
+) -> typing.Any:
     """Return one confirmed investment mandate."""
     mandate = await service.get_mandate(current_user.sub, mandate_id)
     if mandate is None:
@@ -336,11 +347,11 @@ async def get_ai_research_mandate(
     summary="List local AI strategy research configuration profiles",
 )
 async def list_ai_strategy_research_config_profiles(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchConfigProfileService = Depends(
         get_ai_strategy_research_config_profiles
     ),
-):
+) -> typing.Any:
     """List reusable AI research form profiles from the local YAML file."""
     del current_user
     try:
@@ -357,11 +368,11 @@ async def list_ai_strategy_research_config_profiles(
 )
 async def create_ai_strategy_research_config_profile(
     data: AIStrategyResearchConfigProfileCreate,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchConfigProfileService = Depends(
         get_ai_strategy_research_config_profiles
     ),
-):
+) -> typing.Any:
     """Create a reusable AI research form profile in the local YAML file."""
     del current_user
     try:
@@ -377,11 +388,11 @@ async def create_ai_strategy_research_config_profile(
 )
 async def import_ai_strategy_research_config_profiles(
     data: AIStrategyResearchConfigProfileImportRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchConfigProfileService = Depends(
         get_ai_strategy_research_config_profiles
     ),
-):
+) -> typing.Any:
     """Import selected YAML content into the local AI research profile file."""
     del current_user
     try:
@@ -401,11 +412,11 @@ async def import_ai_strategy_research_config_profiles(
 )
 async def get_ai_strategy_research_config_profile(
     profile_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchConfigProfileService = Depends(
         get_ai_strategy_research_config_profiles
     ),
-):
+) -> typing.Any:
     """Return one reusable AI research form profile."""
     del current_user
     try:
@@ -427,11 +438,11 @@ async def get_ai_strategy_research_config_profile(
 async def update_ai_strategy_research_config_profile(
     profile_id: str,
     data: AIStrategyResearchConfigProfileUpdate,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchConfigProfileService = Depends(
         get_ai_strategy_research_config_profiles
     ),
-):
+) -> typing.Any:
     """Update a reusable AI research form profile in the local YAML file."""
     del current_user
     try:
@@ -449,14 +460,15 @@ async def update_ai_strategy_research_config_profile(
     "/ai-research/config-profiles/{profile_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a local AI strategy research configuration profile",
+    response_model=None,
 )
 async def delete_ai_strategy_research_config_profile(
     profile_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchConfigProfileService = Depends(
         get_ai_strategy_research_config_profiles
     ),
-):
+) -> typing.Any:
     """Delete a reusable AI research form profile from the local YAML file."""
     del current_user
     try:
@@ -477,10 +489,10 @@ async def delete_ai_strategy_research_config_profile(
 )
 async def submit_ai_strategy_research_task(
     data: AIStrategyResearchRunRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
-):
+) -> typing.Any:
     """Submit a long-running AI research loop and poll it by task id."""
     try:
         return await task_manager.submit(current_user.sub, data, service=service)
@@ -494,11 +506,11 @@ async def submit_ai_strategy_research_task(
     summary="List AI strategy research tasks",
 )
 async def list_ai_strategy_research_tasks(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
     active_only: bool = Query(False, description="Only return non-terminal tasks"),
     limit: int = Query(20, ge=1, le=100),
-):
+) -> typing.Any:
     """List in-process AI research tasks for the authenticated user."""
     items = await task_manager.list_tasks(
         current_user.sub,
@@ -515,9 +527,9 @@ async def list_ai_strategy_research_tasks(
 )
 async def get_ai_strategy_research_task(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
-):
+) -> typing.Any:
     """Return task status and result when the AI research loop has finished."""
     task = await task_manager.get_task(current_user.sub, task_id)
     if task is None:
@@ -532,9 +544,9 @@ async def get_ai_strategy_research_task(
 )
 async def cancel_ai_strategy_research_task(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
-):
+) -> typing.Any:
     """Cancel a running AI research loop task."""
     task = await task_manager.cancel_task(current_user.sub, task_id)
     if task is None:
@@ -551,10 +563,10 @@ async def cancel_ai_strategy_research_task(
 async def continue_ai_strategy_research_task(
     task_id: str,
     data: AIStrategyResearchTaskContinueRequest | None = None,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
-):
+) -> typing.Any:
     """Submit a new research task rebuilt from a saved task snapshot."""
     try:
         task = await task_manager.continue_task(
@@ -576,11 +588,11 @@ async def continue_ai_strategy_research_task(
     summary="List AI strategy research runs",
 )
 async def list_ai_strategy_research_runs(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
     limit: int = Query(20, ge=1, le=100),
-):
+) -> typing.Any:
     """List persisted AI strategy research run records."""
     try:
         return await service.list_run_records(
@@ -599,10 +611,10 @@ async def list_ai_strategy_research_runs(
 )
 async def get_ai_strategy_research_run(
     run_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
-):
+) -> typing.Any:
     """Get one persisted AI strategy research run record."""
     try:
         record = await service.get_run_record(
@@ -626,11 +638,11 @@ async def get_ai_strategy_research_run(
 )
 async def get_ai_strategy_research_timeline(
     run_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     run_service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     event_service: ResearchPipelineEventService = Depends(get_research_pipeline_event_service),
     research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
-):
+) -> typing.Any:
     """Return persisted stage events for a research run, with legacy fallback."""
     try:
         timeline = await event_service.list_events(
@@ -661,13 +673,13 @@ async def get_ai_strategy_research_timeline(
 )
 async def list_ai_strategy_research_versions(
     run_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     run_service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     version_service: AIStrategyResearchVersionService = Depends(
         get_ai_strategy_research_version_service
     ),
     research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
-):
+) -> typing.Any:
     """Return strategy code versions produced by a research run."""
     versions = await version_service.list_versions(current_user.sub, run_id)
     if versions.items:
@@ -695,9 +707,9 @@ async def list_ai_strategy_research_versions(
 async def compare_ai_strategy_research_versions(
     left_id: str,
     right_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchVersionService = Depends(get_ai_strategy_research_version_service),
-):
+) -> typing.Any:
     """Compare metrics, gate status and code between two persisted AI research versions."""
     try:
         comparison = await service.compare_versions(current_user.sub, left_id, right_id)
@@ -715,9 +727,9 @@ async def compare_ai_strategy_research_versions(
 )
 async def get_ai_strategy_research_version(
     version_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchVersionService = Depends(get_ai_strategy_research_version_service),
-):
+) -> typing.Any:
     """Return one persisted AI research strategy version."""
     version = await service.get_version(current_user.sub, version_id)
     if version is None:
@@ -734,11 +746,11 @@ async def get_ai_strategy_research_version(
 async def continue_ai_strategy_research_run(
     run_id: str,
     data: AIStrategyResearchRunContinueRequest | None = None,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
     research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
-):
+) -> typing.Any:
     """Submit a new AI research task derived from a saved run record."""
     try:
         request = await service.build_continuation_request_from_run_record(
@@ -765,9 +777,9 @@ async def continue_ai_strategy_research_run(
 async def start_ai_strategy_research_paper_trading(
     run_id: str,
     data: AIStrategyPaperTradingStartRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
-):
+) -> typing.Any:
     """Promote an achieved AI research run into paper trading."""
     try:
         return redact_ai_strategy_research_payload(
@@ -784,10 +796,10 @@ async def start_ai_strategy_research_paper_trading(
 )
 async def review_ai_strategy_research_paper_trading(
     run_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
-):
+) -> typing.Any:
     """Evaluate a promoted paper trading unit against its AI monitoring plan."""
     try:
         return redact_ai_strategy_research_payload(
@@ -808,10 +820,10 @@ async def review_ai_strategy_research_paper_trading(
 )
 async def build_ai_strategy_research_live_handoff(
     run_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
-):
+) -> typing.Any:
     """Build a manual-approval package for a paper-trading live candidate."""
     try:
         return redact_ai_strategy_research_payload(
@@ -833,10 +845,10 @@ async def build_ai_strategy_research_live_handoff(
 async def approve_ai_strategy_research_live_handoff(
     run_id: str,
     data: AIStrategyLiveHandoffApprovalRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
-):
+) -> typing.Any:
     """Persist a human approval or rejection decision for a live handoff package."""
     try:
         return redact_ai_strategy_research_payload(
@@ -859,10 +871,10 @@ async def approve_ai_strategy_research_live_handoff(
 async def prepare_ai_strategy_research_live_trading(
     run_id: str,
     data: AIStrategyLiveTradingPrepareRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
-):
+) -> typing.Any:
     """Create a locked live trading unit after live handoff approval."""
     try:
         if research_workspace_id:
@@ -883,9 +895,9 @@ async def prepare_ai_strategy_research_live_trading(
 async def add_strategy_copilot_draft_to_workspace(
     workspace_id: str,
     data: StrategyDraftWorkspaceAddRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: StrategyService = Depends(get_strategy_service),
-):
+) -> typing.Any:
     """Persist a strategy draft and add it to a workspace unit."""
     result = await service.add_copilot_draft_to_workspace(current_user.sub, workspace_id, data)
     if result is None:
@@ -902,9 +914,9 @@ async def add_strategy_copilot_draft_to_workspace(
 async def backtest_strategy_copilot_draft(
     workspace_id: str,
     data: StrategyCopilotBacktestRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: StrategyService = Depends(get_strategy_service),
-):
+) -> typing.Any:
     """Persist a strategy draft, create a workspace unit, and trigger backtest."""
     result = await service.backtest_copilot_draft(current_user.sub, workspace_id, data)
     if result is None:
@@ -915,9 +927,9 @@ async def backtest_strategy_copilot_draft(
 @router.get("/{strategy_id}", response_model=StrategyResponse, summary="Get strategy detail")
 async def get_strategy(
     strategy_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: StrategyService = Depends(get_strategy_service),
-):
+) -> typing.Any:
     """Get a strategy detail by id.
 
     Args:
@@ -944,9 +956,9 @@ async def get_strategy(
 async def update_strategy(
     strategy_id: str,
     strategy_update: StrategyUpdate,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: StrategyService = Depends(get_strategy_service),
-):
+) -> typing.Any:
     """Update a strategy.
 
     Args:
@@ -970,12 +982,12 @@ async def update_strategy(
     return result
 
 
-@router.delete("/{strategy_id}", summary="Delete strategy")
+@router.delete("/{strategy_id}", summary="Delete strategy", response_model=None)
 async def delete_strategy(
     strategy_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: StrategyService = Depends(get_strategy_service),
-):
+) -> typing.Any:
     """Delete a strategy.
 
     Args:

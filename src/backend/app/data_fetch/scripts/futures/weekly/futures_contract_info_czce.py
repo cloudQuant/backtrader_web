@@ -93,7 +93,9 @@ class FuturesContractInfoCzce(AkshareToMySql):
 
                                 """
 
-    def run(self, start_date=None, end_date=None, lookback_days=None, max_days=None, sleep_seconds=0.5):
+    def run(
+        self, start_date=None, end_date=None, lookback_days=None, max_days=None, sleep_seconds=0.5
+    ):
         """
         Fetches and stores daily contract information from the Zhengzhou Commodity Exchange (CZCE).
         """

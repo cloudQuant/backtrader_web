@@ -7,6 +7,7 @@ Provides endpoints for:
 - Managing AI trading configuration
 """
 
+import typing
 from functools import lru_cache
 from typing import Any
 
@@ -87,7 +88,7 @@ async def execute_trade(
     request: AITradingRequest,
     current_user: TokenPayload = Depends(get_current_user),
     service: AITradingService = Depends(get_ai_trading_service),
-):
+) -> typing.Any:
     """Process a natural language trading instruction.
 
     The AI will:
@@ -125,7 +126,7 @@ async def confirm_trade(
     request: TradeConfirmRequest,
     current_user: TokenPayload = Depends(get_current_user),
     service: AITradingService = Depends(get_ai_trading_service),
-):
+) -> typing.Any:
     """Confirm or reject a trade that requires user confirmation.
 
     Args:
@@ -151,7 +152,7 @@ async def confirm_trade(
 async def get_config(
     current_user: TokenPayload = Depends(get_current_user),
     service: AITradingService = Depends(get_ai_trading_service),
-):
+) -> typing.Any:
     """Get the current AI trading configuration and limits.
 
     Returns:
@@ -177,12 +178,13 @@ async def get_config(
 @router.get(
     "/history",
     summary="Get AI trading history",
+    response_model=None,
 )
 async def get_history(
     limit: int = 20,
     current_user: TokenPayload = Depends(get_current_user),
     service: AITradingService = Depends(get_ai_trading_service),
-):
+) -> typing.Any:
     """Get the user's AI trading history.
 
     Args:
@@ -200,12 +202,13 @@ async def get_history(
 @router.post(
     "/reflect/{trade_id}",
     summary="Generate AI reflection on a trade",
+    response_model=None,
 )
 async def reflect_on_trade(
     trade_id: str,
     current_user: TokenPayload = Depends(get_current_user),
     service: AITradingService = Depends(get_ai_trading_service),
-):
+) -> typing.Any:
     """Generate AI reflection and lessons learned for a completed trade.
 
     Args:
@@ -226,6 +229,7 @@ async def reflect_on_trade(
 @router.post(
     "/conditional-orders",
     summary="Create a conditional (trigger) order",
+    response_model=None,
 )
 async def create_conditional_order(
     condition: str,
@@ -234,7 +238,7 @@ async def create_conditional_order(
     dry_run: bool = True,
     expiry_hours: float = 24.0,
     current_user: TokenPayload = Depends(get_current_user),
-):
+) -> typing.Any:
     """Create a conditional order that triggers when a condition is met.
 
     创建条件单，当条件满足时自动触发交易。
@@ -271,10 +275,11 @@ async def create_conditional_order(
 @router.get(
     "/conditional-orders",
     summary="List conditional orders",
+    response_model=None,
 )
 async def list_conditional_orders(
     current_user: TokenPayload = Depends(get_current_user),
-):
+) -> typing.Any:
     """List all conditional orders for the current user."""
     from app.services.ai_trading_service import get_conditional_order_manager
 
@@ -286,11 +291,12 @@ async def list_conditional_orders(
 @router.delete(
     "/conditional-orders/{order_id}",
     summary="Cancel a conditional order",
+    response_model=None,
 )
 async def cancel_conditional_order(
     order_id: str,
     current_user: TokenPayload = Depends(get_current_user),
-):
+) -> typing.Any:
     """Cancel an active conditional order."""
     from app.services.ai_trading_service import get_conditional_order_manager
 

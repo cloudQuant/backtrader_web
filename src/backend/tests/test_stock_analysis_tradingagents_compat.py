@@ -47,9 +47,7 @@ async def _wait_for_completed_task(
 
 async def _user_id_for_username(username: str) -> str:
     async with async_session_maker() as session:
-        user = (
-            await session.execute(select(User).where(User.username == username))
-        ).scalar_one()
+        user = (await session.execute(select(User).where(User.username == username))).scalar_one()
         return user.id
 
 
@@ -244,13 +242,17 @@ async def test_stock_analysis_engine_enhances_stages_and_logs_ai_calls(client: A
             pipeline_output=base_output,
         )
         logs = (
-            await session.execute(
-                select(AICallLog).where(
-                    AICallLog.request_id == "task-engine-1",
-                    AICallLog.service_name == "stock_analysis",
+            (
+                await session.execute(
+                    select(AICallLog).where(
+                        AICallLog.request_id == "task-engine-1",
+                        AICallLog.service_name == "stock_analysis",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     assert len(fake_router.calls) == 13
     assert enhanced["decision"]["action"] == "买入"
@@ -462,7 +464,11 @@ async def test_stock_analysis_from_ai_chat_generates_compat_report_and_exports(
     workspace = await client.post(
         "/api/v1/workspace/",
         headers=headers,
-        json={"name": "股票研究工作区", "description": "沉淀股票分析报告", "workspace_type": "research"},
+        json={
+            "name": "股票研究工作区",
+            "description": "沉淀股票分析报告",
+            "workspace_type": "research",
+        },
     )
     assert workspace.status_code == 201, workspace.text
     workspace_id = workspace.json()["id"]
@@ -499,16 +505,18 @@ async def test_stock_analysis_from_ai_chat_generates_compat_report_and_exports(
 
     async with async_session_maker() as session:
         markdown_exports = (
-            await session.execute(
-                select(StockAnalysisExportModel).where(
-                    StockAnalysisExportModel.report_id == report_id,
-                    StockAnalysisExportModel.format == "markdown",
+            (
+                await session.execute(
+                    select(StockAnalysisExportModel).where(
+                        StockAnalysisExportModel.report_id == report_id,
+                        StockAnalysisExportModel.format == "markdown",
+                    )
                 )
             )
-        ).scalars().all()
-    assert (
-        len(markdown_exports) <= StockAnalysisTaskService.MAX_EXPORT_RECORDS_PER_REPORT_FORMAT
-    )
+            .scalars()
+            .all()
+        )
+    assert len(markdown_exports) <= StockAnalysisTaskService.MAX_EXPORT_RECORDS_PER_REPORT_FORMAT
 
     saved = await client.post(
         f"/api/v1/stock-analysis/reports/{report_id}/save-to-knowledge-base",

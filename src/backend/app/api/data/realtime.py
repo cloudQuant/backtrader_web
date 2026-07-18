@@ -6,10 +6,11 @@ Supports realtime tick subscription and WebSocket streaming across brokers.
 
 import asyncio
 import logging
+import typing
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_websocket_current_user
 from app.schemas.realtime_data import (
     RealtimeTickSubscribeRequest,
     RealtimeTickUnsubscribeRequest,
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def get_realtime_data_service():
+def get_realtime_data_service() -> typing.Any:
     """Dependency injection for RealTimeDataService.
 
     Returns:
@@ -35,12 +36,12 @@ def get_realtime_data_service():
 # ==================== Realtime Quote Subscription API ====================
 
 
-@router.post("/ticks/subscribe", summary="Subscribe to realtime quotes")
+@router.post("/ticks/subscribe", summary="Subscribe to realtime quotes", response_model=None)
 async def subscribe_realtime_ticks(
     request: RealtimeTickSubscribeRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: RealTimeDataService = Depends(get_realtime_data_service),
-):
+) -> typing.Any:
     """Subscribe to realtime tick data for specified symbols.
 
     Args:
@@ -65,12 +66,12 @@ async def subscribe_realtime_ticks(
     }
 
 
-@router.post("/ticks/unsubscribe", summary="Unsubscribe from realtime quotes")
+@router.post("/ticks/unsubscribe", summary="Unsubscribe from realtime quotes", response_model=None)
 async def unsubscribe_realtime_ticks(
     request: RealtimeTickUnsubscribeRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: RealTimeDataService = Depends(get_realtime_data_service),
-):
+) -> typing.Any:
     """Unsubscribe from realtime tick data for specified symbols.
 
     Args:
@@ -98,13 +99,13 @@ async def unsubscribe_realtime_ticks(
 # ==================== Realtime Quote Data API ====================
 
 
-@router.get("/ticks", summary="Get realtime quotes")
+@router.get("/ticks", summary="Get realtime quotes", response_model=None)
 async def get_realtime_ticks(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: RealTimeDataService = Depends(get_realtime_data_service),
     broker_id: str | None = Query(None, description="Broker ID"),
     symbol: str | None = Query(None, description="Trading symbol"),
-):
+) -> typing.Any:
     """Get the latest tick data (single symbol or all subscribed symbols).
 
     Args:
@@ -127,13 +128,13 @@ async def get_realtime_ticks(
         return {"ticks": ticks_data}
 
 
-@router.get("/ticks/batch", summary="Batch get realtime quotes")
+@router.get("/ticks/batch", summary="Batch get realtime quotes", response_model=None)
 async def get_realtime_ticks_batch(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: RealTimeDataService = Depends(get_realtime_data_service),
     broker_id: str = Query(..., description="Broker ID"),
     symbols: str = Query(..., description="Comma-separated symbol list"),
-):
+) -> typing.Any:
     """Batch fetch tick data for a broker and comma-separated symbol list.
 
     Args:
@@ -157,16 +158,16 @@ async def get_realtime_ticks_batch(
 # ==================== Historical Quote API ====================
 
 
-@router.get("/ticks/historical", summary="Get historical quotes")
+@router.get("/ticks/historical", summary="Get historical quotes", response_model=None)
 async def get_historical_ticks(
     broker_id: str = Query(..., description="Broker ID"),
     symbol: str = Query(..., description="Trading symbol (e.g., BTC/USDT)"),
     start_date: str = Query(..., description="Start date (ISO 8601 format)"),
     end_date: str = Query(..., description="End date (ISO 8601 format)"),
     frequency: str = Query("1d", description="Data frequency"),
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: RealTimeDataService = Depends(get_realtime_data_service),
-):
+) -> typing.Any:
     """Get historical tick data for a symbol.
 
     Args:
@@ -223,9 +224,9 @@ async def get_historical_ticks(
 
 @router.websocket("/ws/ticks/{broker_id}")
 async def realtime_tick_websocket(
-    websocket,
+    websocket: WebSocket,
     broker_id: str,
-):
+) -> typing.Any:
     """WebSocket endpoint for realtime tick streaming.
 
     URL:
@@ -235,15 +236,21 @@ async def realtime_tick_websocket(
         websocket: The WebSocket connection instance.
         broker_id: The broker ID for which to stream tick data.
     """
+    current_user, accepted_subprotocol = get_websocket_current_user(websocket)
+    if current_user is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     client_id = f"ws-realtime-client-{id(websocket)}"
+    channel = f"ticks:{current_user.sub}:{broker_id}"
 
     # Establish connection
-    await ws_manager.connect(websocket, f"ticks:{broker_id}", client_id)
+    await ws_manager.connect(websocket, channel, client_id, accepted_subprotocol)
 
     try:
         # Send initial message
         await ws_manager.send_to_task(
-            f"ticks:{broker_id}",
+            channel,
             {
                 "type": MessageType.CONNECTED,
                 "broker_id": broker_id,
@@ -257,6 +264,9 @@ async def realtime_tick_websocket(
         while True:
             await asyncio.sleep(1)
 
-    except Exception as e:
-        logger.error(f"Realtime tick WebSocket error: {e}")
-        ws_manager.disconnect(websocket, f"ticks:{broker_id}", client_id)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logger.exception("Realtime tick WebSocket error for broker %s", broker_id)
+    finally:
+        ws_manager.disconnect(websocket, channel, client_id)

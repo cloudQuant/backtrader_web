@@ -57,10 +57,20 @@ DEFAULT_POOLS: list[dict[str, Any]] = [
         "is_custom": False,
         "refreshable": True,
         "instruments": [
-            {"symbol": "511030.SH", "name": "公司债ETF", "asset_type": "credit_bond", "exchange": "SSE"},
+            {
+                "symbol": "511030.SH",
+                "name": "公司债ETF",
+                "asset_type": "credit_bond",
+                "exchange": "SSE",
+            },
             {"symbol": "511090.SH", "name": "30年国债ETF", "asset_type": "bond", "exchange": "SSE"},
             {"symbol": "511260.SH", "name": "十年国债ETF", "asset_type": "bond", "exchange": "SSE"},
-            {"symbol": "511220.SH", "name": "城投债ETF", "asset_type": "credit_bond", "exchange": "SSE"},
+            {
+                "symbol": "511220.SH",
+                "name": "城投债ETF",
+                "asset_type": "credit_bond",
+                "exchange": "SSE",
+            },
         ],
     },
     {
@@ -72,10 +82,30 @@ DEFAULT_POOLS: list[dict[str, Any]] = [
         "is_custom": False,
         "refreshable": True,
         "instruments": [
-            {"symbol": "000832.CSI", "name": "中证转债指数", "asset_type": "index", "exchange": "CSI"},
-            {"symbol": "511380.SH", "name": "可转债ETF", "asset_type": "convertible_bond", "exchange": "SSE"},
-            {"symbol": "113052.SH", "name": "兴业转债", "asset_type": "convertible_bond", "exchange": "SSE"},
-            {"symbol": "123107.SZ", "name": "温氏转债", "asset_type": "convertible_bond", "exchange": "SZSE"},
+            {
+                "symbol": "000832.CSI",
+                "name": "中证转债指数",
+                "asset_type": "index",
+                "exchange": "CSI",
+            },
+            {
+                "symbol": "511380.SH",
+                "name": "可转债ETF",
+                "asset_type": "convertible_bond",
+                "exchange": "SSE",
+            },
+            {
+                "symbol": "113052.SH",
+                "name": "兴业转债",
+                "asset_type": "convertible_bond",
+                "exchange": "SSE",
+            },
+            {
+                "symbol": "123107.SZ",
+                "name": "温氏转债",
+                "asset_type": "convertible_bond",
+                "exchange": "SZSE",
+            },
         ],
     },
 ]
@@ -187,17 +217,23 @@ def _asset_type_for_pool(pool_id: str) -> str:
     return "custom"
 
 
-def _normalize_instrument(item: dict[str, Any], *, default_asset_type: str = "custom") -> dict[str, Any]:
+def _normalize_instrument(
+    item: dict[str, Any], *, default_asset_type: str = "custom"
+) -> dict[str, Any]:
     symbol = _canonical_symbol(
         _safe_text(item.get("symbol") or item.get("code") or item.get("成分券代码")),
         _safe_text(item.get("exchange") or item.get("交易所")),
     )
     if not symbol:
         return {}
-    exchange = _safe_text(item.get("exchange") or item.get("交易所") or _detect_exchange(_code_key(symbol)))
+    exchange = _safe_text(
+        item.get("exchange") or item.get("交易所") or _detect_exchange(_code_key(symbol))
+    )
     return {
         "symbol": symbol,
-        "name": _safe_text(item.get("name") or item.get("成分券名称") or item.get("名称") or symbol),
+        "name": _safe_text(
+            item.get("name") or item.get("成分券名称") or item.get("名称") or symbol
+        ),
         "asset_type": _safe_text(item.get("asset_type") or default_asset_type),
         "exchange": exchange,
         "source": _safe_text(item.get("source") or item.get("数据来源") or "custom"),
@@ -390,7 +426,10 @@ class ScannerUniverseService:
         self.market_client = market_client or AkshareScannerMarketDataClient()
 
     def list_pools(self, user_id: str) -> dict[str, Any]:
-        items = [self._with_latest_snapshot(user_id, _pool_summary(pool)) for pool in self._built_in_pools()]
+        items = [
+            self._with_latest_snapshot(user_id, _pool_summary(pool))
+            for pool in self._built_in_pools()
+        ]
         items.extend(
             self._with_latest_snapshot(user_id, _pool_summary(pool))
             for pool in self._custom_pools(user_id)
@@ -490,7 +529,9 @@ class ScannerUniverseService:
             if pool is None:
                 raise ValueError("universe_pool_not_found")
             return _dedupe_instruments(list(pool.get("instruments") or [])), pool_id
-        instruments = [{"symbol": symbol, "name": symbol, "asset_type": "custom"} for symbol in universe or []]
+        instruments = [
+            {"symbol": symbol, "name": symbol, "asset_type": "custom"} for symbol in universe or []
+        ]
         return _dedupe_instruments(instruments), None
 
     def build_symbol_contexts(

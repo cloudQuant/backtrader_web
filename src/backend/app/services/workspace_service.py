@@ -63,6 +63,7 @@ logger = logging.getLogger(__name__)
 def _dict_or_empty(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
+
 _DEFAULT_UNIT_START_DATE = datetime(2020, 1, 1, tzinfo=timezone.utc)
 _ACTIVE_OPTIMIZATION_STATUSES = {"pending", "queued", "running"}
 _TERMINAL_OPTIMIZATION_STATUSES = {
@@ -95,11 +96,11 @@ class WorkspaceService(WorkspaceRunOpsMixin):
             return None
 
         try:
-            from app.api.analytics import _resolve_log_dir
+            from app.services.backtest.logs import resolve_log_dir
 
             strategy_id = str(getattr(task, "strategy_id", "") or "").strip()
             if strategy_id:
-                resolved = await _resolve_log_dir(task_id, strategy_id)
+                resolved = await resolve_log_dir(task_id, strategy_id)
                 if resolved and resolved.is_dir():
                     return resolved
         except Exception as exc:
@@ -546,7 +547,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
                     for unit in units
                     if str(unit.run_status or "").lower() in {"queued", "running"}
                     or str(
-                        (_dict_or_empty(unit.trading_snapshot).get("instance_status") or "")
+                        _dict_or_empty(unit.trading_snapshot).get("instance_status") or ""
                     ).lower()
                     in {"queued", "running"}
                 ]

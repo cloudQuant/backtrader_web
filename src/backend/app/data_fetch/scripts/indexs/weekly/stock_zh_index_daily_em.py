@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 import akshare as ak
 import numpy as np
 import pandas as pd
-from akshare.utils.request import request_eastmoney
+from akshare.utils.request import request_with_retry as request_eastmoney
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
@@ -147,9 +147,7 @@ class StockZhIndexDailyEm(AkshareToMySql):
         return str(value).replace("-", "").replace("/", "").replace(".", "")
 
     def get_default_start_date(self, symbol):
-        latest_date = self.get_latest_date(
-            self.table_name, "TRADE_DATE", {"INDEX_CODE": symbol}
-        )
+        latest_date = self.get_latest_date(self.table_name, "TRADE_DATE", {"INDEX_CODE": symbol})
         if latest_date is None:
             return "19900101"
         return self.normalize_date_arg(latest_date)

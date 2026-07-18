@@ -6,9 +6,9 @@ Air Quality Hist
 频率: weekly
 """
 
+import re
 from datetime import date, datetime, timedelta
 from io import StringIO
-import re
 
 import pandas as pd
 import requests

@@ -1,6 +1,7 @@
 import pytest
 from httpx import AsyncClient
 
+from app.services.data_topic_hub import TopicPolicy, get_shared_data_topic_hub
 from tests.conftest import register_and_login
 
 
@@ -22,29 +23,15 @@ async def test_options_chain_calculates_pcr_max_pain_greeks_and_publishes_topics
     client: AsyncClient,
 ):
     _, headers = await register_and_login(client, username="option_user")
-    await client.post(
-        "/api/v1/data-topics/register",
-        headers=headers,
-        json={"topic": "option:atm_iv:data_governance:RB2510", "policy": {"ttl_ms": 1000}},
-    )
-    await client.post(
-        "/api/v1/data-topics/register",
-        headers=headers,
-        json={"topic": "fno:pcr:data_governance:RB2510", "policy": {"ttl_ms": 1000}},
-    )
-    await client.post(
-        "/api/v1/data-topics/register",
-        headers=headers,
-        json={"topic": "fno:max_pain:data_governance:RB2510", "policy": {"ttl_ms": 1000}},
-    )
-    await client.post(
-        "/api/v1/data-topics/register",
-        headers=headers,
-        json={
-            "topic": "option:chain:data_governance:RB2510:2026-12-31",
-            "policy": {"ttl_ms": 1000},
-        },
-    )
+    hub = get_shared_data_topic_hub()
+    topic_policies = {
+        "option:atm_iv:data_governance:RB2510": TopicPolicy(ttl_ms=1000),
+        "fno:pcr:data_governance:RB2510": TopicPolicy(ttl_ms=1000),
+        "fno:max_pain:data_governance:RB2510": TopicPolicy(ttl_ms=1000),
+        "option:chain:data_governance:RB2510:2026-12-31": TopicPolicy(ttl_ms=1000),
+    }
+    for topic_name, policy in topic_policies.items():
+        hub.register_topic(topic_name, policy)
     real_chain = {
         "underlying": "RB2510",
         "symbol": "RB2510",
@@ -74,33 +61,17 @@ async def test_options_chain_calculates_pcr_max_pain_greeks_and_publishes_topics
         ],
         "timestamp": "2026-05-26T00:00:00+00:00",
     }
-    await client.post(
-        "/api/v1/data-topics/option:chain:data_governance:RB2510:2026-12-31/push",
-        headers=headers,
-        json={"value": real_chain},
-    )
+    await hub.push("option:chain:data_governance:RB2510:2026-12-31", real_chain)
 
     response = await client.get(
         "/api/v1/options-chain/RB2510",
         headers=headers,
         params={"expiry": "2026-12-31", "provider": "data_governance"},
     )
-    topic = await client.get(
-        "/api/v1/data-topics/option:atm_iv:data_governance:RB2510/peek",
-        headers=headers,
-    )
-    pcr_topic = await client.get(
-        "/api/v1/data-topics/fno:pcr:data_governance:RB2510/peek",
-        headers=headers,
-    )
-    max_pain_topic = await client.get(
-        "/api/v1/data-topics/fno:max_pain:data_governance:RB2510/peek",
-        headers=headers,
-    )
-    chain_topic = await client.get(
-        "/api/v1/data-topics/option:chain:data_governance:RB2510:2026-12-31/peek",
-        headers=headers,
-    )
+    topic = hub.peek_raw("option:atm_iv:data_governance:RB2510")
+    pcr_topic = hub.peek_raw("fno:pcr:data_governance:RB2510")
+    max_pain_topic = hub.peek_raw("fno:max_pain:data_governance:RB2510")
+    chain_topic = hub.peek_raw("option:chain:data_governance:RB2510:2026-12-31")
 
     assert response.status_code == 200
     data = response.json()
@@ -120,14 +91,10 @@ async def test_options_chain_calculates_pcr_max_pain_greeks_and_publishes_topics
     assert data["rows"][0]["put"]["volume"] == 32
     assert data["rows"][0]["put"]["iv"] == 0.24
     assert data["rows"][0]["call"]["greeks"]["delta"] is not None
-    assert topic.status_code == 200
-    assert topic.json()["value"] == data["atm_iv"]
-    assert pcr_topic.status_code == 200
-    assert pcr_topic.json()["value"] == data["pcr"]
-    assert max_pain_topic.status_code == 200
-    assert max_pain_topic.json()["value"] == data["max_pain"]
-    assert chain_topic.status_code == 200
-    assert chain_topic.json()["value"]["underlying"] == "RB2510"
+    assert topic == data["atm_iv"]
+    assert pcr_topic == data["pcr"]
+    assert max_pain_topic == data["max_pain"]
+    assert chain_topic["underlying"] == "RB2510"
 
 
 @pytest.mark.asyncio

@@ -127,6 +127,7 @@ const localStorageMock = (() => {
 })()
 
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock })
+Object.defineProperty(globalThis, 'sessionStorage', { value: localStorageMock })
 
 describe('BacktestPage', () => {
   beforeEach(() => {
@@ -216,7 +217,7 @@ describe('BacktestPage', () => {
 
   it('connectWebSocket uses subprotocol token instead of query param', () => {
     vi.useFakeTimers()
-    localStorageMock.setItem('token', 'token-123')
+    localStorageMock.setItem('auth', JSON.stringify({ token: 'token-123' }))
 
     const wsInstance = {
       readyState: 1,

@@ -10,6 +10,7 @@ Tests:
 """
 
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -565,9 +566,18 @@ class TestStrategyVersionWebSocket:
         # Create mock WebSocket object
         mock_ws = MagicMock()
         mock_ws.accept = AsyncMock()
+        service = MagicMock()
+        service._require_strategy_owner = AsyncMock()
 
         # Mock WebSocket manager
-        with patch("app.api.strategy.version.ws_manager") as mock_mgr:
+        with (
+            patch(
+                "app.api.strategy.version.get_websocket_current_user",
+                return_value=(SimpleNamespace(sub="user-1"), "access-token"),
+            ),
+            patch("app.api.strategy.version.get_version_control_service", return_value=service),
+            patch("app.api.strategy.version.ws_manager") as mock_mgr,
+        ):
             mock_mgr.connect = AsyncMock()
             mock_mgr.disconnect = MagicMock()
             mock_mgr.send_to_task = AsyncMock()
@@ -592,7 +602,7 @@ class TestStrategyVersionWebSocket:
 
                 client_id = mock_mgr.connect.await_args.args[2]
                 mock_mgr.connect.assert_awaited_once_with(
-                    mock_ws, "strategy:test_strategy", client_id
+                    mock_ws, "strategy:test_strategy", client_id, "access-token"
                 )
                 mock_mgr.disconnect.assert_called_once_with(
                     mock_ws, "strategy:test_strategy", client_id
@@ -607,9 +617,18 @@ class TestStrategyVersionWebSocket:
 
         # Create mock WebSocket object
         mock_ws = MagicMock()
+        service = MagicMock()
+        service._require_strategy_owner = AsyncMock()
 
         # Mock WebSocket manager
-        with patch("app.api.strategy.version.ws_manager") as mock_mgr:
+        with (
+            patch(
+                "app.api.strategy.version.get_websocket_current_user",
+                return_value=(SimpleNamespace(sub="user-1"), "access-token"),
+            ),
+            patch("app.api.strategy.version.get_version_control_service", return_value=service),
+            patch("app.api.strategy.version.ws_manager") as mock_mgr,
+        ):
             mock_mgr.connect = AsyncMock()
             mock_mgr.disconnect = MagicMock()
             mock_mgr.send_to_task = AsyncMock()
@@ -630,7 +649,7 @@ class TestStrategyVersionWebSocket:
 
                 client_id = mock_mgr.connect.await_args.args[2]
                 mock_mgr.connect.assert_awaited_once_with(
-                    mock_ws, "strategy:test_strategy", client_id
+                    mock_ws, "strategy:test_strategy", client_id, "access-token"
                 )
                 mock_mgr.disconnect.assert_called_once_with(
                     mock_ws, "strategy:test_strategy", client_id

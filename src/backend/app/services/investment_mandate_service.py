@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from app.db.database import async_session_maker
+from app.db import database
 from app.models.ai_research import InvestmentMandate
 from app.schemas.ai_strategy_research import (
     AIStrategyResearchRunRequest,
@@ -39,7 +39,7 @@ class InvestmentMandateService:
             status="confirmed",
             source="rule",
         )
-        async with async_session_maker() as session:
+        async with database.async_session_maker() as session:
             session.add(model)
             await session.commit()
             await session.refresh(model)
@@ -79,7 +79,7 @@ class InvestmentMandateService:
         user_id: str,
         mandate_id: str,
     ) -> InvestmentMandateResponse | None:
-        async with async_session_maker() as session:
+        async with database.async_session_maker() as session:
             result = await session.execute(
                 select(InvestmentMandate).where(
                     InvestmentMandate.id == mandate_id,
@@ -159,7 +159,9 @@ class InvestmentMandateService:
         return constraints
 
     def _symbol_from_prompt(self, prompt: str) -> str:
-        match = re.search(r"\b[A-Z]{1,4}\d{0,4}(?:\.(?:SZ|SH|BJ|SHFE|DCE|CZCE|INE|CFFEX))?\b", prompt)
+        match = re.search(
+            r"\b[A-Z]{1,4}\d{0,4}(?:\.(?:SZ|SH|BJ|SHFE|DCE|CZCE|INE|CFFEX))?\b", prompt
+        )
         return match.group(0) if match else ""
 
     def _timeframe_from_prompt(self, prompt: str) -> str:
@@ -185,7 +187,9 @@ class InvestmentMandateService:
         text = f"{symbol} {prompt}".upper()
         if any(token in prompt for token in ("期货", "合约", "纯碱", "螺纹", "原油", "国债期货")):
             return "futures"
-        if any(token in prompt for token in ("股票", "个股", "A股")) or text.endswith((".SZ", ".SH", ".BJ")):
+        if any(token in prompt for token in ("股票", "个股", "A股")) or text.endswith(
+            (".SZ", ".SH", ".BJ")
+        ):
             return "equity"
         if any(token in prompt for token in ("债券", "国债", "利率债")):
             return "bond"
@@ -245,5 +249,5 @@ class InvestmentMandateService:
         )
 
 
-def _iso(value: datetime | None) -> str:
-    return value.isoformat() if value is not None else ""
+def _iso(value: Any) -> str:
+    return value.isoformat() if isinstance(value, datetime) else ""

@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from app.db.database import async_session_maker
+from app.db import database
 from app.models.ai_research import ResearchPipelineEvent
 from app.schemas.ai_strategy_research import (
     AIStrategyResearchRunRecord,
@@ -52,7 +52,7 @@ class ResearchPipelineEventService:
             metrics=_json_dict(metrics),
             error=error,
         )
-        async with async_session_maker() as session:
+        async with database.async_session_maker() as session:
             session.add(model)
             await session.commit()
             await session.refresh(model)
@@ -78,7 +78,7 @@ class ResearchPipelineEventService:
         ]
         if workspace_id:
             filters.append(ResearchPipelineEvent.workspace_id == workspace_id)
-        async with async_session_maker() as session:
+        async with database.async_session_maker() as session:
             result = await session.execute(
                 select(ResearchPipelineEvent)
                 .where(*filters)
@@ -107,7 +107,11 @@ class ResearchPipelineEventService:
             if not isinstance(payload, dict):
                 continue
             iteration = _optional_int(payload.get("iteration"))
-            metrics = dict(payload.get("metrics") or {}) if isinstance(payload.get("metrics"), dict) else {}
+            metrics = (
+                dict(payload.get("metrics") or {})
+                if isinstance(payload.get("metrics"), dict)
+                else {}
+            )
             failure = str(payload.get("failure_reason") or "").strip() or None
             items.append(
                 _synthetic_event(
@@ -178,8 +182,8 @@ def _json_dict(value: dict[str, Any] | None) -> dict[str, Any]:
     return dict(value or {})
 
 
-def _iso(value: datetime | None) -> str:
-    return value.isoformat() if value is not None else ""
+def _iso(value: Any) -> str:
+    return value.isoformat() if isinstance(value, datetime) else ""
 
 
 def _optional_int(value: Any) -> int | None:

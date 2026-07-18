@@ -214,7 +214,7 @@
             v-if="filteredConversations.length === 0"
             class="empty-rail"
           >
-            <el-icon><ChatDotRound /></el-icon>
+            <el-icon aria-hidden="true"><ChatDotRound /></el-icon>
             <span>{{ t('aiChat.noConversations') }}</span>
           </div>
 
@@ -240,7 +240,7 @@
       <main class="chat-shell">
         <div class="chat-topbar">
           <div class="chat-context">
-            <span class="context-icon"><el-icon><Collection /></el-icon></span>
+            <span class="context-icon"><el-icon aria-hidden="true"><Collection /></el-icon></span>
             <div class="min-w-0">
               <div class="context-title">
                 {{ displayContextTitle }}
@@ -260,7 +260,7 @@
               size="small"
               @click="copyConversation"
             >
-              <el-icon><CopyDocument /></el-icon>
+              <el-icon aria-hidden="true"><CopyDocument /></el-icon>
               {{ t('aiChat.copyConversation') }}
             </el-button>
             <el-button
@@ -269,7 +269,7 @@
               type="danger"
               @click="handleNewConversation"
             >
-              <el-icon><Delete /></el-icon>
+              <el-icon aria-hidden="true"><Delete /></el-icon>
               {{ t('aiChat.clearConversation') }}
             </el-button>
           </div>
@@ -310,7 +310,7 @@
             class="empty-chat"
           >
             <div class="empty-chat-icon">
-              <el-icon><MagicStick /></el-icon>
+              <el-icon aria-hidden="true"><MagicStick /></el-icon>
             </div>
             <h3>{{ currentModeMeta.emptyTitle }}</h3>
             <p>{{ currentModeMeta.emptyDescription }}</p>
@@ -407,7 +407,7 @@
               data-test="ai-chat-send"
               @click="handleAsk"
             >
-              <el-icon><Promotion /></el-icon>
+              <el-icon aria-hidden="true"><Promotion /></el-icon>
               {{ chatStore.loading ? t('aiChat.sending') : t('aiChat.sendButton') }}
             </el-button>
           </div>
@@ -567,7 +567,7 @@
               class="tool-item"
               @click="applyQuickTool(tool)"
             >
-              <el-icon><Compass /></el-icon>
+              <el-icon aria-hidden="true"><Compass /></el-icon>
               <span>
                 <strong>{{ tool.title }}</strong>
                 <small>{{ tool.description }}</small>

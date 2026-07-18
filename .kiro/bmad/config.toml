@@ -13,7 +13,7 @@
 [core]
 project_name = "backtrader_web"
 document_output_language = "English"
-output_folder = "{project-root}/_bmad-output"
+output_folder = "{project-root}/.kiro/bmad/output"
 
 [modules.bmm]
 planning_artifacts = "{project-root}/_bmad-output/planning-artifacts"

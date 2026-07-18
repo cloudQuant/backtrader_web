@@ -441,7 +441,9 @@ class KBChatService:
             thinking_mode=data.thinking_mode,
             conversation_history=conversation_history,
             retrieval_diagnostics=None,
-            knowledge_base_settings={"quant_focus": self._quant_focus_for_mode(data.assistant_mode)},
+            knowledge_base_settings={
+                "quant_focus": self._quant_focus_for_mode(data.assistant_mode)
+            },
             user_id=user_id,
             model_id=data.model_id,
         )
@@ -530,8 +532,9 @@ class KBChatService:
             session.add(user_message)
             await session.flush()
 
-            params = data.stock_analysis_params or StockAnalysisTaskService.parse_params_from_question(
-                data.question
+            params = (
+                data.stock_analysis_params
+                or StockAnalysisTaskService.parse_params_from_question(data.question)
             )
             task_service = StockAnalysisTaskService(session)
             task = await task_service.create_pending(

@@ -150,7 +150,9 @@ class IndexConstituentWeightsCSIndex(AkshareToMySql):
                 if df is None or df.empty or "指数代码" not in df.columns:
                     self.logger.warning("No CSIndex symbol list found")
                     return True
-                symbol_list = df["指数代码"].dropna().astype(str).str.zfill(6).drop_duplicates().to_list()
+                symbol_list = (
+                    df["指数代码"].dropna().astype(str).str.zfill(6).drop_duplicates().to_list()
+                )
             else:
                 symbol_list = [str(symbol).zfill(6)]
             max_symbols = int(max_symbols) if max_symbols is not None else None

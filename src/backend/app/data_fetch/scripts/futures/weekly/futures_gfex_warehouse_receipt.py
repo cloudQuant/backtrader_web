@@ -89,8 +89,10 @@ class FuturesGfexWarehouseReceipt(AkshareToMySql):
                 df["name"] = df["品种"].astype(str).str.slice(0, 100)
             if "仓库/分库" in df.columns:
                 df["WAREHOUSE_NAME"] = df["仓库/分库"].astype(str).str.slice(0, 200)
-                df["WAREHOUSE_ID"] = df["WAREHOUSE_NAME"].astype(str).map(
-                    lambda value: hashlib.md5(value.encode("utf-8")).hexdigest()[:16]
+                df["WAREHOUSE_ID"] = (
+                    df["WAREHOUSE_NAME"]
+                    .astype(str)
+                    .map(lambda value: hashlib.md5(value.encode("utf-8")).hexdigest()[:16])
                 )
                 df["IS_SUBTOTAL"] = df["WAREHOUSE_NAME"].str.contains("小计", na=False).astype(int)
                 df["IS_TOTAL"] = df["WAREHOUSE_NAME"].str.contains("总计", na=False).astype(int)

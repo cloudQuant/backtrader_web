@@ -117,21 +117,19 @@ describe('useAuthStore', () => {
     expect(authApi.getMe).not.toHaveBeenCalled()
   })
 
-  it('initialize migrates legacy token from sessionStorage helper', async () => {
-    vi.mocked(sessionUtils.getAccessToken).mockReturnValueOnce('legacy-token')
+  it('initialize validates a session-persisted token', async () => {
     const { authApi } = await import('@/api/auth')
 
     const store = useAuthStore()
+    store.token = 'session-token'
     await store.initialize()
 
-    expect(store.token).toBe('legacy-token')
-    expect(sessionUtils.clearAccessToken).toHaveBeenCalled()
+    expect(store.token).toBe('session-token')
     expect(authApi.getMe).toHaveBeenCalled()
     expect(store.initialized).toBe(true)
   })
 
-  it('initialize without legacy token does nothing extra', async () => {
-    vi.mocked(sessionUtils.getAccessToken).mockReturnValue(null)
+  it('initialize without a session token does nothing extra', async () => {
     const { authApi } = await import('@/api/auth')
 
     const store = useAuthStore()
@@ -143,10 +141,10 @@ describe('useAuthStore', () => {
   })
 
   it('initialize de-duplicates concurrent calls', async () => {
-    vi.mocked(sessionUtils.getAccessToken).mockReturnValueOnce('token-x').mockReturnValue(null)
     const { authApi } = await import('@/api/auth')
 
     const store = useAuthStore()
+    store.token = 'token-x'
     const p1 = store.initialize()
     const p2 = store.initialize()
     await Promise.all([p1, p2])

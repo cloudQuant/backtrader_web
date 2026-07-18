@@ -174,9 +174,7 @@ class TestLogFileArchival:
             assert archive.namelist() == ["app_2026-06-22.log"]
             assert archive.read("app_2026-06-22.log").decode() == "debug flood\n"
 
-    def test_archive_stale_dated_logs_skips_current_recent_and_non_dated(
-        self, tmp_path: Path
-    ):
+    def test_archive_stale_dated_logs_skips_current_recent_and_non_dated(self, tmp_path: Path):
         current_log = tmp_path / "app_2026-06-25.log"
         recent_old_log = tmp_path / "errors_2026-06-24.log"
         non_dated_log = tmp_path / "backend.log"
@@ -206,9 +204,7 @@ class TestLogRotationPolicy:
         def __str__(self) -> str:
             return self.text
 
-    def test_daily_or_size_rotation_triggers_when_size_cap_would_be_exceeded(
-        self, tmp_path: Path
-    ):
+    def test_daily_or_size_rotation_triggers_when_size_cap_would_be_exceeded(self, tmp_path: Path):
         rotation = _build_daily_or_size_rotation(10)
         log_file = tmp_path / "app_2026-06-25.log"
         log_file.write_text("12345678", encoding="utf-8")

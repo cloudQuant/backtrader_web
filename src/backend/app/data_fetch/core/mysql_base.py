@@ -2,8 +2,8 @@
 MySQL base class for database operations
 """
 
-import logging
 import json
+import logging
 import math
 from datetime import datetime
 from typing import Any
@@ -283,9 +283,7 @@ class MysqlBase(Database):
         # mysql-connector may serialize NaN as bare token `nan` which MySQL treats as an identifier,
         # yielding "Unknown column 'nan' in 'field list'". Convert all NaN/NaT/NA to None first.
         df = df.astype(object).where(pd.notnull(df), None)
-        values = [
-            [self._coerce_mysql_value(value) for value in row] for row in df.values.tolist()
-        ]
+        values = [[self._coerce_mysql_value(value) for value in row] for row in df.values.tolist()]
         total_rows = len(values)
 
         try:

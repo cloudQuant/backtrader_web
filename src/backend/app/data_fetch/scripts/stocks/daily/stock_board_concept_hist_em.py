@@ -8,7 +8,7 @@ Stock Board Concept Hist Em
 
 import akshare as ak
 import pandas as pd
-from akshare.utils.request import request_eastmoney
+from akshare.utils.request import request_with_retry as request_eastmoney
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql

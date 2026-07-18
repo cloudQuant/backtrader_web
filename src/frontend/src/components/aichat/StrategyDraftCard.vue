@@ -20,7 +20,7 @@
           :disabled="saving || saved || Boolean(draftIssue)"
           @click="emit('save')"
         >
-          <el-icon><Document /></el-icon>
+          <el-icon aria-hidden="true"><Document /></el-icon>
           {{ saved ? t('aiChat.savedToCenter') : saving ? t('aiChat.saving') : t('aiChat.saveAsStrategy') }}
         </el-button>
         <el-button
@@ -28,7 +28,7 @@
           :disabled="added || Boolean(draftIssue)"
           @click="emit('addToWorkspace')"
         >
-          <el-icon><Aim /></el-icon>
+          <el-icon aria-hidden="true"><Aim /></el-icon>
           {{ added ? t('aiChat.addedToWorkspace') : t('aiChat.addToWorkspace') }}
         </el-button>
         <el-button
@@ -37,7 +37,7 @@
           :disabled="runningBacktest || Boolean(draftIssue)"
           @click="emit('runBacktest')"
         >
-          <el-icon><Promotion /></el-icon>
+          <el-icon aria-hidden="true"><Promotion /></el-icon>
           {{ runningBacktest ? t('aiChat.backtestSubmitting') : t('aiChat.runOneClickBacktest') }}
         </el-button>
         <el-button
@@ -46,7 +46,7 @@
           :disabled="refreshingStatus"
           @click="emit('refreshExecution')"
         >
-          <el-icon><Refresh /></el-icon>
+          <el-icon aria-hidden="true"><Refresh /></el-icon>
           {{ refreshingStatus ? t('aiChat.refreshing') : t('aiChat.refreshStatus') }}
         </el-button>
         <el-button
@@ -55,14 +55,14 @@
           :disabled="generatingReport || Boolean(draftIssue)"
           @click="emit('generateReport')"
         >
-          <el-icon><DataAnalysis /></el-icon>
+          <el-icon aria-hidden="true"><DataAnalysis /></el-icon>
           {{ generatingReport ? t('aiChat.generatingReport') : t('aiChat.generateReport') }}
         </el-button>
         <el-button
           size="small"
           @click="emit('copyCode')"
         >
-          <el-icon><CopyDocument /></el-icon>
+          <el-icon aria-hidden="true"><CopyDocument /></el-icon>
           {{ t('aiChat.copyCode') }}
         </el-button>
       </div>
@@ -94,7 +94,7 @@
       class="draft-list"
     >
       <div class="draft-list-title">
-        <el-icon><CircleCheck /></el-icon>
+        <el-icon aria-hidden="true"><CircleCheck /></el-icon>
         {{ t('aiChat.keyAssumptions') }}
       </div>
       <div
@@ -110,7 +110,7 @@
       class="draft-list warning"
     >
       <div class="draft-list-title">
-        <el-icon><Warning /></el-icon>
+        <el-icon aria-hidden="true"><Warning /></el-icon>
         {{ t('aiChat.riskNotes') }}
       </div>
       <div

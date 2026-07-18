@@ -108,6 +108,7 @@ async def handle_base_app_error(request: Request, exc: BaseAppError) -> JSONResp
         "InvalidInputError": status.HTTP_400_BAD_REQUEST,
         "MissingFieldError": status.HTTP_400_BAD_REQUEST,
         "PasswordTooWeakError": status.HTTP_400_BAD_REQUEST,
+        "AIBudgetExceededError": status.HTTP_429_TOO_MANY_REQUESTS,
         "ConfigurationError": status.HTTP_500_INTERNAL_SERVER_ERROR,
         "ExternalServiceError": status.HTTP_503_SERVICE_UNAVAILABLE,
     }

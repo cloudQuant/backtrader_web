@@ -138,9 +138,10 @@ class SWFundIndexHistorical(AkshareToMySql):
 
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             future_map = {
-                executor.submit(
-                    self.fetch_historical_data, symbol, period, start_after
-                ): (symbol, period)
+                executor.submit(self.fetch_historical_data, symbol, period, start_after): (
+                    symbol,
+                    period,
+                )
                 for symbol, period, start_after in jobs
             }
             for future in as_completed(future_map):

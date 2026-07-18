@@ -7,12 +7,12 @@ Macro China Nbs Nation
 """
 
 import hashlib
+
 import pandas as pd
 import requests
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
-
 
 PREFER_LOCAL_SCRIPT = True
 SOURCE_URL = "https://data.stats.gov.cn/dg/website/publicrelease/web/external/stream/esData"
@@ -246,9 +246,7 @@ class MacroChinaNbsNation(AkshareToMySql):
             frames.append(df)
 
         result = (
-            pd.concat(frames, ignore_index=True)
-            if frames
-            else pd.DataFrame(columns=OUTPUT_COLUMNS)
+            pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=OUTPUT_COLUMNS)
         )
         if result.empty:
             self.logger.warning("No NBS nation data found")

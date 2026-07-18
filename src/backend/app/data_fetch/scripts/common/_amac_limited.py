@@ -2,12 +2,53 @@
 
 from __future__ import annotations
 
+import time
+from typing import Any
+
 import pandas as pd
 import requests
-from akshare.fund.fund_amac import _post_json, headers
-
 
 AMAC_BASE_URL = "https://gs.amac.org.cn/amac-infodisc/api"
+AMAC_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    )
+}
+
+
+def _post_json(
+    url: str,
+    *,
+    params: dict[str, str],
+    json: dict[str, Any],
+    verify: bool,
+    headers: dict[str, str],
+    session: requests.Session,
+    timeout: float,
+    max_retries: int,
+    retry_delay: float,
+) -> dict[str, Any]:
+    """Post one AMAC page with bounded retries, independent of AkShare internals."""
+    attempts = max(1, int(max_retries) + 1)
+    for attempt in range(attempts):
+        try:
+            response = session.post(
+                url,
+                params=params,
+                json=json,
+                verify=verify,
+                headers=headers,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            return payload if isinstance(payload, dict) else {}
+        except (requests.RequestException, ValueError):
+            if attempt + 1 == attempts:
+                return {}
+            time.sleep(max(0.0, float(retry_delay)))
+    return {}
 
 
 def _fetch_content(endpoint: str, *, page_size: int, max_pages: int) -> pd.DataFrame:
@@ -24,7 +65,7 @@ def _fetch_content(endpoint: str, *, page_size: int, max_pages: int) -> pd.DataF
             params=params,
             json={},
             verify=False,
-            headers=headers,
+            headers=AMAC_HEADERS,
             session=session,
             timeout=8,
             max_retries=1,

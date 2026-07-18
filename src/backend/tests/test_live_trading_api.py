@@ -14,9 +14,25 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 
+from app.config import get_settings
+from app.db.database import create_default_admin
 from app.schemas.live_trading_instance import LiveInstanceCreate
+
+
+@pytest_asyncio.fixture
+async def admin_headers(client: AsyncClient) -> dict[str, str]:
+    """Return credentials for the explicit admin-only gateway defaults endpoint."""
+    await create_default_admin()
+    settings = get_settings()
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"username": settings.ADMIN_USERNAME, "password": settings.ADMIN_PASSWORD},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 @pytest.mark.asyncio
@@ -346,7 +362,7 @@ class TestLiveTradingList:
         assert "CTP连接失败" in str(payload)
 
     async def test_gateway_credentials_prefers_ib_web_env_values(
-        self, client: AsyncClient, auth_headers
+        self, client: AsyncClient, admin_headers
     ):
         fake_settings = SimpleNamespace(
             CTP_BROKER_ID="",
@@ -434,21 +450,23 @@ class TestLiveTradingList:
         )
         with patch("app.config.get_settings", return_value=fake_settings):
             response = await client.get(
-                "/api/v1/live-trading/gateways/credentials", headers=auth_headers
+                "/api/v1/live-trading/gateways/credentials", headers=admin_headers
             )
 
         assert response.status_code == 200
         data = response.json()["IB_WEB"]
         assert data["account_id"] == "DUP447807"
         assert data["base_url"] == "https://localhost:5000/v1/api"
-        assert data["cookie_source"] == "file:../bt_api_py/configs/ibkr_cookies.json"
+        assert data["cookie_source"] == ""
+        assert data["cookie_source_configured"] is True
         assert data["username"] == "test-ib-web-user"
-        assert data["password"] == "test-ib-web-pass"
+        assert data["password"] == ""
+        assert data["password_configured"] is True
         assert data["paper"]["account_id"] == "DUP447807"
         assert data["paper"]["login_mode"] == "paper"
 
     async def test_gateway_credentials_prefers_crypto_legacy_env_keys(
-        self, client: AsyncClient, auth_headers
+        self, client: AsyncClient, admin_headers
     ):
         fake_settings = SimpleNamespace(
             CTP_BROKER_ID="",
@@ -549,19 +567,24 @@ class TestLiveTradingList:
             ),
         ):
             response = await client.get(
-                "/api/v1/live-trading/gateways/credentials", headers=auth_headers
+                "/api/v1/live-trading/gateways/credentials", headers=admin_headers
             )
 
         assert response.status_code == 200
         data = response.json()
-        assert data["BINANCE"]["api_key"] == "legacy-binance-key"
-        assert data["BINANCE"]["secret_key"] == "legacy-binance-secret"
-        assert data["OKX"]["api_key"] == "legacy-okx-key"
-        assert data["OKX"]["secret_key"] == "legacy-okx-secret"
-        assert data["OKX"]["passphrase"] == "legacy-okx-passphrase"
+        assert data["BINANCE"]["api_key"] == ""
+        assert data["BINANCE"]["api_key_configured"] is True
+        assert data["BINANCE"]["secret_key"] == ""
+        assert data["BINANCE"]["secret_key_configured"] is True
+        assert data["OKX"]["api_key"] == ""
+        assert data["OKX"]["api_key_configured"] is True
+        assert data["OKX"]["secret_key"] == ""
+        assert data["OKX"]["secret_key_configured"] is True
+        assert data["OKX"]["passphrase"] == ""
+        assert data["OKX"]["passphrase_configured"] is True
 
     async def test_gateway_credentials_prefers_okx_password_as_passphrase(
-        self, client: AsyncClient, auth_headers
+        self, client: AsyncClient, admin_headers
     ):
         fake_settings = SimpleNamespace(
             CTP_BROKER_ID="",
@@ -662,15 +685,16 @@ class TestLiveTradingList:
             ),
         ):
             response = await client.get(
-                "/api/v1/live-trading/gateways/credentials", headers=auth_headers
+                "/api/v1/live-trading/gateways/credentials", headers=admin_headers
             )
 
         assert response.status_code == 200
         data = response.json()
-        assert data["OKX"]["passphrase"] == "legacy-okx-passphrase"
+        assert data["OKX"]["passphrase"] == ""
+        assert data["OKX"]["passphrase_configured"] is True
 
     async def test_gateway_credentials_prefers_system_env_okx_password(
-        self, client: AsyncClient, auth_headers, monkeypatch
+        self, client: AsyncClient, admin_headers, monkeypatch
     ):
         fake_settings = SimpleNamespace(
             CTP_BROKER_ID="",
@@ -760,15 +784,16 @@ class TestLiveTradingList:
 
         with patch("app.config.get_settings", return_value=fake_settings):
             response = await client.get(
-                "/api/v1/live-trading/gateways/credentials", headers=auth_headers
+                "/api/v1/live-trading/gateways/credentials", headers=admin_headers
             )
 
         assert response.status_code == 200
         data = response.json()["OKX"]
-        assert data["passphrase"] == "system-okx-passphrase"
+        assert data["passphrase"] == ""
+        assert data["passphrase_configured"] is True
 
     async def test_gateway_credentials_prefers_mt5_legacy_env_keys(
-        self, client: AsyncClient, auth_headers
+        self, client: AsyncClient, admin_headers
     ):
         fake_settings = SimpleNamespace(
             CTP_BROKER_ID="",
@@ -869,13 +894,14 @@ class TestLiveTradingList:
             ),
         ):
             response = await client.get(
-                "/api/v1/live-trading/gateways/credentials", headers=auth_headers
+                "/api/v1/live-trading/gateways/credentials", headers=admin_headers
             )
 
         assert response.status_code == 200
         data = response.json()
         assert data["MT5"]["login"] == "legacy-mt5-login"
-        assert data["MT5"]["password"] == "legacy-mt5-password"
+        assert data["MT5"]["password"] == ""
+        assert data["MT5"]["password_configured"] is True
         assert data["MT5"]["server"] == "wss://mt5-live"
         assert data["MT5"]["ws_uri"] == "wss://mt5-live/ws"
         assert data["MT5"]["symbol_suffix"] == ".m"
@@ -983,7 +1009,7 @@ class TestLiveTradingControl:
         response = await client.post(
             "/api/v1/live-trading/non_existent_id/start", headers=auth_headers
         )
-        assert response.status_code == 400
+        assert response.status_code == 404
 
     async def test_stop_instance_not_found(self, client: AsyncClient, auth_headers):
         """Test stopping non-existent instance.
@@ -995,7 +1021,7 @@ class TestLiveTradingControl:
         response = await client.post(
             "/api/v1/live-trading/non_existent_id/stop", headers=auth_headers
         )
-        assert response.status_code == 400
+        assert response.status_code == 404
 
     async def test_start_all(self, client: AsyncClient, auth_headers):
         """Test batch start all instances.

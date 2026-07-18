@@ -748,7 +748,9 @@ def parse_position_log(log_dir: Path) -> list[dict[str, Any]]:
                 size = _position_size(row)
                 price = _position_entry_price(row)
                 market_value = (
-                    explicit_market_value if explicit_market_value is not None else abs(size) * price
+                    explicit_market_value
+                    if explicit_market_value is not None
+                    else abs(size) * price
                 )
                 positions.append(
                     _mark_estimated_market_value(
@@ -784,7 +786,9 @@ def parse_position_log(log_dir: Path) -> list[dict[str, Any]]:
             price = _position_entry_price(row)
             explicit_market_value = row.get("value")
             market_value = _safe_float(
-                explicit_market_value if explicit_market_value not in (None, "") else abs(size) * price
+                explicit_market_value
+                if explicit_market_value not in (None, "")
+                else abs(size) * price
             )
             positions.append(
                 _mark_estimated_market_value(

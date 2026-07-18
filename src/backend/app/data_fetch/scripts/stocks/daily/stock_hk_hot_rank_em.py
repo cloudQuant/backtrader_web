@@ -8,7 +8,7 @@ Stock Hk Hot Rank Em
 
 import pandas as pd
 import requests
-from akshare.stock_feature.stock_hist_em import request_eastmoney
+from akshare.utils.request import request_with_retry as request_eastmoney
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql

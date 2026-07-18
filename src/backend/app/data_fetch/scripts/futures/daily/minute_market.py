@@ -79,9 +79,7 @@ class FuturesMinuteMarket(AkshareToMySql):
             return None
 
     def _fetch_symbol_minute_data(self, symbol: str, period: str, sleep_seconds: float):
-        df = self.fetch_ak_data(
-            "futures_zh_minute_sina", **{"symbol": symbol, "period": period}
-        )
+        df = self.fetch_ak_data("futures_zh_minute_sina", **{"symbol": symbol, "period": period})
         if sleep_seconds > 0:
             time.sleep(sleep_seconds)
         return symbol, df
@@ -204,7 +202,9 @@ class FuturesMinuteMarket(AkshareToMySql):
         if symbols is None:
             raw_symbol_list = self.get_current_futures_contract_list()
             if include_all_contracts:
-                symbol_list = [str(item).strip().upper() for item in raw_symbol_list if str(item).strip()]
+                symbol_list = [
+                    str(item).strip().upper() for item in raw_symbol_list if str(item).strip()
+                ]
             else:
                 symbol_list = self._select_main_continuous_symbols(raw_symbol_list)
                 self.logger.info(

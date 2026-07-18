@@ -25,7 +25,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.config import get_settings  # noqa: E402
-from app.db.database import (
+from app.db.database import (  # noqa: E402
     async_session_maker,  # noqa: E402
     create_default_admin,  # noqa: E402
 )
@@ -62,6 +62,7 @@ def stress_duration_seconds() -> int:
             if value > 0:
                 return value
     return DEFAULT_STRESS_DURATION_SECONDS
+
 
 WORKSPACE_NAMES = {
     "futures": "期货模拟工作区",
@@ -243,10 +244,7 @@ def build_ib_gateway_config(credentials: dict[str, Any]) -> dict[str, Any]:
         )
     )
     timeout = float(
-        credentials.get("timeout")
-        or settings.IB_WEB_TIMEOUT
-        or settings.IB_TIMEOUT
-        or 10
+        credentials.get("timeout") or settings.IB_WEB_TIMEOUT or settings.IB_TIMEOUT or 10
     )
     cookie_source = str(
         credentials.get("cookie_source")
@@ -299,10 +297,7 @@ def build_ib_gateway_config(credentials: dict[str, Any]) -> dict[str, Any]:
 def build_mt5_gateway_config(credentials: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
     login = str(
-        credentials.get("login")
-        or settings.MT5_LOGIN
-        or settings.MT5_DEMO_LOGIN
-        or ""
+        credentials.get("login") or settings.MT5_LOGIN or settings.MT5_DEMO_LOGIN or ""
     ).strip()
     ws_uri = str(
         credentials.get("ws_uri")
@@ -311,10 +306,7 @@ def build_mt5_gateway_config(credentials: dict[str, Any]) -> dict[str, Any]:
         or "wss://web.metatrader.app/terminal"
     ).strip()
     server = str(
-        credentials.get("server")
-        or settings.MT5_SERVER
-        or settings.MT5_DEMO_SERVER
-        or ""
+        credentials.get("server") or settings.MT5_SERVER or settings.MT5_DEMO_SERVER or ""
     ).strip()
     return {
         "preset_id": "mt5_forex_gateway",

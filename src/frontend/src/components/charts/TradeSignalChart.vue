@@ -20,7 +20,7 @@
           :aria-label="t('charts.tscExport')"
           @click="handleExport"
         >
-          <el-icon><Download /></el-icon>
+          <el-icon aria-hidden="true"><Download /></el-icon>
         </el-button>
       </div>
     </div>

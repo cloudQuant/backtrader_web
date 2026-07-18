@@ -24,7 +24,9 @@ async def test_resolve_unit_bar_count_uses_resolved_log_dir_parent_fallback():
         )
     )
 
-    with patch("app.api.analytics._resolve_log_dir", new_callable=AsyncMock) as mock_resolve:
+    with patch(
+        "app.services.backtest.logs.resolve_log_dir", new_callable=AsyncMock
+    ) as mock_resolve:
         mock_resolve.return_value = Path("/tmp/test_logs")
         with patch("pathlib.Path.is_dir", return_value=True):
             with patch("app.services.log_parser_service.parse_log_dir") as mock_parse_log_dir:

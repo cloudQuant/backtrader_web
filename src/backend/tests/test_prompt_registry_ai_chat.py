@@ -117,13 +117,13 @@ class TestAIChatServicePromptRegistry:
                 total_tokens=5,
             )
 
-        service.ai_router.chat_completion = fake_chat_completion
-        result = await service.generate_answer(
-            question="什么是均线策略？",
-            citations=[],
-            assistant_mode="knowledge_qa",
-            thinking_mode=False,
-        )
+        with patch.object(service.ai_router, "chat_completion", fake_chat_completion):
+            result = await service.generate_answer(
+                question="什么是均线策略？",
+                citations=[],
+                assistant_mode="knowledge_qa",
+                thinking_mode=False,
+            )
         sink = get_ai_call_log_sink()
         try:
             await sink.flush()
@@ -254,14 +254,14 @@ class TestAIChatServicePromptRegistry:
                 total_tokens=5,
             )
 
-        service.ai_router.chat_completion = fake_chat_completion
-        result = await service.generate_answer(
-            question="什么是均线策略？",
-            citations=[],
-            assistant_mode="knowledge_qa",
-            thinking_mode=False,
-            user_id="user-stable",
-        )
+        with patch.object(service.ai_router, "chat_completion", fake_chat_completion):
+            result = await service.generate_answer(
+                question="什么是均线策略？",
+                citations=[],
+                assistant_mode="knowledge_qa",
+                thinking_mode=False,
+                user_id="user-stable",
+            )
         sink = get_ai_call_log_sink()
         try:
             await sink.flush()

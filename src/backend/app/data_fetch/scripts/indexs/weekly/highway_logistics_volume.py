@@ -3,15 +3,14 @@ import argparse
 import logging
 import sys
 import time
-import urllib3
 
 import numpy as np
 import pandas as pd
 import requests
+import urllib3
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
-
 
 CFLP_BASE_URL = "https://index.0256.cn"
 CFLP_REFERER = f"{CFLP_BASE_URL}/expx.htm"
@@ -110,9 +109,7 @@ class HighwayLogisticsVolume(AkshareToMySql):
                 return temp_df
             except Exception as exc:
                 last_error = exc
-                self.logger.debug(
-                    "0256 公路物流运量接口第 %s 次请求失败: %s", attempt + 1, exc
-                )
+                self.logger.debug("0256 公路物流运量接口第 %s 次请求失败: %s", attempt + 1, exc)
                 if attempt < len(backoff_seconds):
                     time.sleep(backoff_seconds[attempt])
         self.logger.warning("0256 公路物流运量接口请求失败: %s", last_error)

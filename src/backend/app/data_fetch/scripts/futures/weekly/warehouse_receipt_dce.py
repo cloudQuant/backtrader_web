@@ -137,14 +137,12 @@ class FuturesDceWarehouseReceipt(AkshareToMySql):
                         col for col in required_source_columns if col not in temp_df.columns
                     ]
                     if missing_columns:
-                        self.logger.warning(
-                            f"{date_str} 仓单日报缺少必要字段: {missing_columns}"
-                        )
+                        self.logger.warning(f"{date_str} 仓单日报缺少必要字段: {missing_columns}")
                         continue
 
-                    temp_df["IS_SUBTOTAL"] = temp_df["WAREHOUSE_NAME"].str.contains(
-                        "小计", na=False
-                    ).astype(int)
+                    temp_df["IS_SUBTOTAL"] = (
+                        temp_df["WAREHOUSE_NAME"].str.contains("小计", na=False).astype(int)
+                    )
 
                     for col in ["PREVIOUS_VOLUME", "CURRENT_VOLUME", "DAILY_CHANGE"]:
                         temp_df[col] = pd.to_numeric(temp_df[col], errors="coerce").fillna(0)

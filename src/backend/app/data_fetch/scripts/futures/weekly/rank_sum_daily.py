@@ -7,7 +7,6 @@ import pandas as pd
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
-
 DEFAULT_MAX_SYMBOLS = 5
 DEFAULT_LOOKBACK_DAYS = 30
 DEFAULT_SYMBOLS = ["AG", "CU"]

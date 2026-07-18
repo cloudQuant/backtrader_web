@@ -158,7 +158,9 @@ class FuturesContractInfoShfe(AkshareToMySql):
         if "TRADE_DATE" not in legacy_df.columns and "data_date" in legacy_df.columns:
             legacy_df["TRADE_DATE"] = legacy_df["data_date"]
         if "CONTRACT_CODE" not in legacy_df.columns or "TRADE_DATE" not in legacy_df.columns:
-            self.logger.warning("Legacy SHFE table has no mappable contract/date columns; skip migration")
+            self.logger.warning(
+                "Legacy SHFE table has no mappable contract/date columns; skip migration"
+            )
             return 0
 
         legacy_df = legacy_df.dropna(subset=["CONTRACT_CODE", "TRADE_DATE"]).copy()
@@ -217,7 +219,9 @@ class FuturesContractInfoShfe(AkshareToMySql):
         )
         return migrated_rows
 
-    def run(self, start_date=None, end_date=None, lookback_days=None, max_days=None, sleep_seconds=0.5):
+    def run(
+        self, start_date=None, end_date=None, lookback_days=None, max_days=None, sleep_seconds=0.5
+    ):
         """
         获取并存储上海期货交易所的每日合约信息。
         该函数会记录每个交易日的合约信息。

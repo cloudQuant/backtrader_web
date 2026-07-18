@@ -142,7 +142,9 @@ class BacktestResult(BaseModel):
         default_factory=dict,
         description="Cached summary for fast first-screen rendering",
     )
-    data_precheck: dict[str, Any] = Field(default_factory=dict, description="Data precheck snapshot")
+    data_precheck: dict[str, Any] = Field(
+        default_factory=dict, description="Data precheck snapshot"
+    )
     robustness: dict[str, Any] | None = Field(None, description="Latest robustness result")
 
     # Trade statistics

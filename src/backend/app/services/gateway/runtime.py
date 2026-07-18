@@ -2,7 +2,7 @@ import contextlib
 import os
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +26,7 @@ _GATEWAY_STDERR_LOG = "gateway.stderr.log"
 
 
 @contextlib.contextmanager
-def _redirect_gateway_native_stdio(strategy_dir: Path):
+def _redirect_gateway_native_stdio(strategy_dir: Path) -> Generator[None, None, None]:
     """Capture native gateway stdout/stderr during startup probes."""
     stdout_copy = None
     stderr_copy = None
@@ -280,7 +280,9 @@ def _has_spec_value(spec: dict[str, Any], *keys: str) -> bool:
     return any(spec.get(key) not in (None, "") for key in keys)
 
 
-def _asset_type_requires_contract_spec(gateway: dict[str, Any] | None, spec: dict[str, Any]) -> bool:
+def _asset_type_requires_contract_spec(
+    gateway: dict[str, Any] | None, spec: dict[str, Any]
+) -> bool:
     values = (
         spec.get("asset_type"),
         spec.get("instType"),
@@ -334,7 +336,9 @@ def _validate_runtime_asset_specs(
     symbols: list[str] = []
     seen_symbols: set[str] = set()
     for symbol in (
-        runtime_symbols if runtime_symbols is not None else symbols_for_instance(instance, strategy_dir)
+        runtime_symbols
+        if runtime_symbols is not None
+        else symbols_for_instance(instance, strategy_dir)
     ):
         text = str(symbol or "").strip()
         key = text.upper()
@@ -361,9 +365,7 @@ def _validate_runtime_asset_specs(
                 incomplete.append(f"{symbol}: missing commission/fee metadata")
 
     if missing:
-        raise RuntimeError(
-            "实盘策略启动前未获取到交易资产规格: " + ", ".join(sorted(set(missing)))
-        )
+        raise RuntimeError("实盘策略启动前未获取到交易资产规格: " + ", ".join(sorted(set(missing))))
     if incomplete:
         raise RuntimeError(
             "实盘策略启动前交易资产规格不完整: " + "; ".join(sorted(set(incomplete)))
@@ -421,7 +423,9 @@ def _refresh_runtime_asset_specs(
             raise RuntimeError(f"实盘策略启动前加载资产信息服务失败: {exc}") from exc
         return
     try:
-        runtime_symbols = symbols_for_instance(instance, strategy_dir) if gateway is not None else None
+        runtime_symbols = (
+            symbols_for_instance(instance, strategy_dir) if gateway is not None else None
+        )
         specs = refresh_instance_asset_specs(instance, strategy_dir, gateway)
         _validate_runtime_asset_specs(
             instance,
@@ -440,7 +444,8 @@ def _refresh_runtime_asset_specs(
 
 def _latest_runtime_error(runtime: Any) -> str:
     health = getattr(runtime, "health", None)
-    recent_errors = getattr(health, "recent_errors", None) or []
+    snapshot = _gateway_health_snapshot(health)
+    recent_errors = snapshot.get("recent_errors") or getattr(health, "recent_errors", None) or []
     if not isinstance(recent_errors, (list, tuple)):
         return ""
     if not recent_errors:
@@ -451,6 +456,24 @@ def _latest_runtime_error(runtime: Any) -> str:
         message = str(latest.get("message") or "").strip()
         return f"{source}: {message}" if message else source
     return str(latest)
+
+
+def _gateway_health_snapshot(health: Any) -> dict[str, Any]:
+    """Return a normalized health view for current and legacy runtime implementations."""
+    snapshot_method = getattr(health, "snapshot", None)
+    if callable(snapshot_method):
+        try:
+            snapshot = snapshot_method()
+        except Exception:
+            snapshot = None
+        if isinstance(snapshot, dict):
+            return snapshot
+    return {
+        "state": getattr(health, "state", ""),
+        "market_connection": getattr(health, "market_connection", ""),
+        "trade_connection": getattr(health, "trade_connection", ""),
+        "recent_errors": getattr(health, "recent_errors", []),
+    }
 
 
 def wait_gateway_runtime_ready(
@@ -476,14 +499,16 @@ def wait_gateway_runtime_ready(
 
     deadline = monotonic() + timeout_sec
     while True:
-        state = str(getattr(health, "state", "") or "")
-        market_connection = str(getattr(health, "market_connection", "") or "")
-        trade_connection = str(getattr(health, "trade_connection", "") or "")
-        if (
-            state == "running"
-            and market_connection == "connected"
-            and trade_connection == "connected"
-        ):
+        health_snapshot = _gateway_health_snapshot(health)
+        state = str(health_snapshot.get("state") or "")
+        market_connection = str(health_snapshot.get("market_connection") or "")
+        trade_connection = str(health_snapshot.get("trade_connection") or "")
+        # GatewayRuntime marks a successful adapter connection as market-ready.
+        # Adapters such as CTP authenticate both market and trade streams inside
+        # that single connection step, but do not separately mutate
+        # ``health.trade_connection``.  Requiring both fields here therefore
+        # turns healthy gateways into false startup timeouts.
+        if state == "running" and market_connection == "connected":
             return
 
         runtime_running = bool(getattr(runtime, "running", False))
@@ -502,9 +527,10 @@ def wait_gateway_runtime_ready(
                         thread.join(timeout=min(max(poll_interval_sec, 0.1), 1.0))
                 except RuntimeError:
                     pass
-            state = str(getattr(health, "state", "") or "")
-            market_connection = str(getattr(health, "market_connection", "") or "")
-            trade_connection = str(getattr(health, "trade_connection", "") or "")
+            health_snapshot = _gateway_health_snapshot(health)
+            state = str(health_snapshot.get("state") or "")
+            market_connection = str(health_snapshot.get("market_connection") or "")
+            trade_connection = str(health_snapshot.get("trade_connection") or "")
             if state == "error":
                 detail = _latest_runtime_error(runtime) or state
                 raise RuntimeError(f"Gateway runtime failed to become ready: {detail}")
@@ -575,6 +601,25 @@ def acquire_gateway_for_instance(
         try:
             runtime = launch["runtime_cls"](launch["config"], **launch["runtime_kwargs"])
             with _redirect_gateway_native_stdio(strategy_dir):
+                # The native CTP SDK completes its login callbacks only when
+                # connect() is invoked by the calling thread.  GatewayRuntime
+                # normally invokes adapters from a daemon thread, which leaves
+                # CTP stuck in ``connecting`` even though the same credentials
+                # work through the adapter directly.  Pre-connect CTP here;
+                # GatewayRuntime's background attempt then becomes a no-op and
+                # records the usual healthy runtime state.
+                if str(runtime_kwargs.get("exchange_type") or "").upper() == "CTP":
+                    adapter = getattr(runtime, "adapter", None)
+                    adapter_connect = getattr(adapter, "connect", None)
+                    if callable(adapter_connect):
+                        adapter_connect()
+                    # CTP reports the socket session before the trading client
+                    # can always answer commands.  Verify the read-only account
+                    # path before a strategy is allowed to issue its own first
+                    # balance query; this prevents a false ``running`` state.
+                    adapter_get_balance = getattr(adapter, "get_balance", None)
+                    if callable(adapter_get_balance):
+                        adapter_get_balance()
                 runtime.start_in_thread()
         except (KeyError, TypeError, OSError, RuntimeError) as exc:
             logger.warning(
@@ -629,6 +674,15 @@ def release_gateway_for_instance(
     if state["ref_count"] > 0:
         return
     if state.get("manual"):
+        return
+    exchange_type = str(state.get("exchange_type") or "").strip().upper()
+    if exchange_type == "CTP":
+        # The native CTP SDK owns callback threads beyond the Python adapter
+        # lifecycle.  Tearing the last in-process runtime down can terminate
+        # the API process once those callbacks race with native cleanup.  Keep
+        # the authenticated session warm at ref_count=0 instead; a later unit
+        # reuses it, and the process owner performs final native cleanup.
+        logger.info("Keeping idle CTP gateway %s connected for safe reuse", key)
         return
     runtime = state.get("runtime")
     if runtime is not None:

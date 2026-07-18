@@ -4,10 +4,10 @@
     :class="message.role"
   >
     <div class="message-avatar">
-      <el-icon v-if="message.role === 'assistant'">
+      <el-icon v-if="message.role === 'assistant'" aria-hidden="true">
         <Cpu />
       </el-icon>
-      <el-icon v-else>
+      <el-icon v-else aria-hidden="true">
         <UserFilled />
       </el-icon>
     </div>
@@ -52,7 +52,7 @@
               :title="action.title"
               @click="emit('strategyWorkflowAction', action.key)"
             >
-              <el-icon>
+              <el-icon aria-hidden="true">
                 <component :is="action.icon" />
               </el-icon>
               {{ action.label }}
@@ -64,7 +64,7 @@
             :title="t('aiChat.copyMessage')"
             @click="emit('copyMessage', message.content)"
           >
-            <el-icon><CopyDocument /></el-icon>
+            <el-icon aria-hidden="true"><CopyDocument /></el-icon>
           </el-button>
         </div>
       </div>
@@ -173,7 +173,7 @@
           :disabled="action.disabled"
           @click="emit('strategyWorkflowAction', action.key)"
         >
-          <el-icon>
+          <el-icon aria-hidden="true">
             <component :is="action.icon" />
           </el-icon>
           {{ action.nextLabel || action.label }}

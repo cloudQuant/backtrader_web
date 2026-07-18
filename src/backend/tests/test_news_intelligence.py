@@ -4,18 +4,16 @@ from sqlalchemy import select
 
 from app.db.database import async_session_maker
 from app.models.news_intelligence import NewsAnalysisModel, NewsArticleModel, NewsSourceModel
+from app.services.data_topic_hub import TopicPolicy, get_shared_data_topic_hub
 from app.services.news_intelligence import NewsIntelligenceService
 from tests.conftest import register_and_login
 
 
 @pytest.mark.asyncio
 async def test_news_intelligence_dedup_classify_cluster_and_publish_topic(client: AsyncClient):
-    _, headers = await register_and_login(client, username="news_admin")
-    await client.post(
-        "/api/v1/data-topics/register",
-        headers=headers,
-        json={"topic": "news:general", "policy": {"push_only": True}},
-    )
+    _, headers = await register_and_login(client, username="news_user")
+    hub = get_shared_data_topic_hub()
+    hub.register_topic("news:symbol:RB2510", TopicPolicy(push_only=True))
 
     source = await client.post(
         "/api/v1/news-intelligence/sources",
@@ -43,7 +41,7 @@ async def test_news_intelligence_dedup_classify_cluster_and_publish_topic(client
         },
     )
     latest = await client.get("/api/v1/news-intelligence/articles", headers=headers)
-    topic = await client.get("/api/v1/data-topics/news:symbol:RB2510/peek", headers=headers)
+    topic = hub.peek_raw("news:symbol:RB2510")
 
     assert source.status_code == 201
     assert ingest.status_code == 200
@@ -54,8 +52,7 @@ async def test_news_intelligence_dedup_classify_cluster_and_publish_topic(client
     assert article["impact"] in {"HIGH", "MEDIUM", "LOW"}
     assert article["cluster_id"]
     assert article["summary"]
-    assert topic.status_code == 200
-    assert topic.json()["value"]["headline"].startswith("RB2510")
+    assert topic["headline"].startswith("RB2510")
 
     async with async_session_maker() as session:
         sources = (await session.execute(select(NewsSourceModel))).scalars().all()

@@ -142,9 +142,7 @@ class TestSubmitOrder:
         service.order_repo.create = AsyncMock(return_value=mock_order)
 
         with patch.object(service, "_notify_order_update", new_callable=AsyncMock):
-            await service.submit_order(
-                "acc_123", "BTC/USDT", "market", "buy", 0.25, price=50000.0
-            )
+            await service.submit_order("acc_123", "BTC/USDT", "market", "buy", 0.25, price=50000.0)
 
         created_order = service.order_repo.create.await_args.args[0]
         assert created_order.size == pytest.approx(0.25)
@@ -555,7 +553,9 @@ class TestProcessOrder:
         service.order_repo.get_by_id = AsyncMock(return_value=mock_order)
 
         with patch.object(service, "_reject_order", new_callable=AsyncMock) as mock_reject:
-            with patch.object(service, "_get_simulated_price", new_callable=AsyncMock) as mock_price:
+            with patch.object(
+                service, "_get_simulated_price", new_callable=AsyncMock
+            ) as mock_price:
                 await service._process_order("order_123", "acc_123", mock_account)
 
         mock_reject.assert_awaited_once()
@@ -597,7 +597,9 @@ class TestProcessOrder:
             },
         ):
             with patch.object(service, "_reject_order", new_callable=AsyncMock) as mock_reject:
-                with patch.object(service, "_get_simulated_price", new_callable=AsyncMock) as mock_price:
+                with patch.object(
+                    service, "_get_simulated_price", new_callable=AsyncMock
+                ) as mock_price:
                     await service._process_order("order_123", "acc_123", mock_account)
 
         mock_reject.assert_awaited_once()
@@ -643,7 +645,9 @@ class TestProcessOrder:
             },
         ):
             with patch.object(service, "_reject_order", new_callable=AsyncMock) as mock_reject:
-                with patch.object(service, "_get_simulated_price", new_callable=AsyncMock) as mock_price:
+                with patch.object(
+                    service, "_get_simulated_price", new_callable=AsyncMock
+                ) as mock_price:
                     await service._process_order("order_123", "acc_123", mock_account)
 
         mock_reject.assert_awaited_once()
@@ -734,7 +738,9 @@ class TestProcessOrder:
         with patch.object(service, "_get_simulated_price", return_value=50000.0):
             with patch.object(service, "_fill_order", new_callable=AsyncMock) as mock_fill:
                 with patch.object(service, "_update_position", new_callable=AsyncMock) as mock_pos:
-                    with patch.object(service, "_update_account", new_callable=AsyncMock) as mock_acct:
+                    with patch.object(
+                        service, "_update_account", new_callable=AsyncMock
+                    ) as mock_acct:
                         with patch.object(
                             service,
                             "_reject_order",
@@ -774,7 +780,9 @@ class TestProcessOrder:
         with patch.object(service, "_get_simulated_price", return_value=50000.0):
             with patch.object(service, "_fill_order", new_callable=AsyncMock) as mock_fill:
                 with patch.object(service, "_update_position", new_callable=AsyncMock) as mock_pos:
-                    with patch.object(service, "_update_account", new_callable=AsyncMock) as mock_acct:
+                    with patch.object(
+                        service, "_update_account", new_callable=AsyncMock
+                    ) as mock_acct:
                         await service._process_order("order_123", "acc_123", mock_account)
 
         mock_fill.assert_awaited_once()
@@ -843,7 +851,9 @@ class TestProcessOrder:
         with patch.object(service, "_get_simulated_price", return_value=50000.0):
             with patch.object(service, "_fill_order", new_callable=AsyncMock) as mock_fill:
                 with patch.object(service, "_update_position", new_callable=AsyncMock) as mock_pos:
-                    with patch.object(service, "_update_account", new_callable=AsyncMock) as mock_acct:
+                    with patch.object(
+                        service, "_update_account", new_callable=AsyncMock
+                    ) as mock_acct:
                         await service._process_order("order_123", "acc_123", mock_account)
 
         mock_fill.assert_awaited_once()
@@ -885,7 +895,9 @@ class TestProcessOrder:
         with patch.object(service, "_get_simulated_price", return_value=50000.0):
             with patch.object(service, "_reject_order", new_callable=AsyncMock) as mock_reject:
                 with patch.object(service, "_fill_order", new_callable=AsyncMock) as mock_fill:
-                    with patch.object(service, "_update_position", new_callable=AsyncMock) as mock_pos:
+                    with patch.object(
+                        service, "_update_position", new_callable=AsyncMock
+                    ) as mock_pos:
                         with patch.object(
                             service,
                             "_update_account",
@@ -931,7 +943,9 @@ class TestProcessOrder:
         with patch.object(service, "_get_simulated_price", return_value=50000.0):
             with patch.object(service, "_reject_order", new_callable=AsyncMock) as mock_reject:
                 with patch.object(service, "_fill_order", new_callable=AsyncMock) as mock_fill:
-                    with patch.object(service, "_update_position", new_callable=AsyncMock) as mock_pos:
+                    with patch.object(
+                        service, "_update_position", new_callable=AsyncMock
+                    ) as mock_pos:
                         with patch.object(
                             service,
                             "_update_account",
@@ -978,7 +992,9 @@ class TestProcessOrder:
         with patch.object(service, "_get_simulated_price", return_value=50000.0):
             with patch.object(service, "_reject_order", new_callable=AsyncMock) as mock_reject:
                 with patch.object(service, "_fill_order", new_callable=AsyncMock) as mock_fill:
-                    with patch.object(service, "_update_position", new_callable=AsyncMock) as mock_pos:
+                    with patch.object(
+                        service, "_update_position", new_callable=AsyncMock
+                    ) as mock_pos:
                         mock_pos.return_value = {"cash_delta": 49950.0}
                         with patch.object(
                             service,
@@ -1029,7 +1045,9 @@ class TestProcessOrder:
                 },
             ):
                 with patch.object(service, "_fill_order", new_callable=AsyncMock) as mock_fill:
-                    with patch.object(service, "_update_position", new_callable=AsyncMock) as mock_pos:
+                    with patch.object(
+                        service, "_update_position", new_callable=AsyncMock
+                    ) as mock_pos:
                         mock_pos.return_value = {"cash_delta": -150034.5}
                         with patch.object(
                             service,
@@ -1611,8 +1629,12 @@ class TestUpdatePosition:
         assert service._notional_value(100, 50000.0, spec) == pytest.approx(10000.0)
         assert service._margin_value(100, 50000.0, spec) == pytest.approx(1000.0)
         assert service._commission_value(100, 50000.0, spec, role="open") == pytest.approx(5.0)
-        assert service._realized_gross_pnl(100, 50000.0, 55000.0, 100, spec) == pytest.approx(1000.0)
-        assert service._realized_gross_pnl(-100, 50000.0, 45000.0, 100, spec) == pytest.approx(1000.0)
+        assert service._realized_gross_pnl(100, 50000.0, 55000.0, 100, spec) == pytest.approx(
+            1000.0
+        )
+        assert service._realized_gross_pnl(-100, 50000.0, 45000.0, 100, spec) == pytest.approx(
+            1000.0
+        )
 
         mock_order = Mock()
         mock_order.id = "order_open"
@@ -1936,7 +1958,9 @@ class TestUpdateAccount:
         service.account_repo.update = AsyncMock()
 
         with patch.object(service, "_notify_account_update", new_callable=AsyncMock):
-            with patch.object(service, "_notify_position_update", new_callable=AsyncMock) as notify_pos:
+            with patch.object(
+                service, "_notify_position_update", new_callable=AsyncMock
+            ) as notify_pos:
                 await service._update_account(
                     mock_account,
                     mock_order,

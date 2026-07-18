@@ -229,10 +229,16 @@ class AssetSpecService:
             margin_rate=_float_or_none(normalized.get("margin_rate") or normalized.get("margin")),
             tick_size=_float_or_none(normalized.get("tick_size") or normalized.get("price_tick")),
             lot_size=_float_or_none(
-                normalized.get("lot_size") or normalized.get("volume_step") or defaults.get("lot_size")
+                normalized.get("lot_size")
+                or normalized.get("volume_step")
+                or defaults.get("lot_size")
             ),
-            min_order_size=_float_or_none(normalized.get("min_order_size") or defaults.get("min_order_size")),
-            commission_rate=_float_or_none(normalized.get("commission_rate") or defaults.get("commission_rate")),
+            min_order_size=_float_or_none(
+                normalized.get("min_order_size") or defaults.get("min_order_size")
+            ),
+            commission_rate=_float_or_none(
+                normalized.get("commission_rate") or defaults.get("commission_rate")
+            ),
             commission_fixed=_float_or_none(
                 normalized.get("commission_fixed")
                 or normalized.get("commission_amount")

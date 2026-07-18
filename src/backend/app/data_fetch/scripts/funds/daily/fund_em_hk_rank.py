@@ -49,9 +49,7 @@ class FundEmHkRank(AkshareToMySql):
             },
             inplace=True,
         )
-        normalized["data_date"] = pd.to_datetime(
-            normalized["data_date"], errors="coerce"
-        ).dt.date
+        normalized["data_date"] = pd.to_datetime(normalized["data_date"], errors="coerce").dt.date
         normalized.dropna(subset=["symbol", "data_date"], inplace=True)
         return normalized
 

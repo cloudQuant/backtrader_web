@@ -87,7 +87,9 @@ def _today() -> date:
 def _parse_symbol_list(symbols: str | None) -> list[str]:
     if not symbols:
         return []
-    return [item.strip().upper() for item in str(symbols).replace(";", ",").split(",") if item.strip()]
+    return [
+        item.strip().upper() for item in str(symbols).replace(";", ",").split(",") if item.strip()
+    ]
 
 
 def _currency_filters(symbols: str | None, base: str | None = None) -> list[str]:

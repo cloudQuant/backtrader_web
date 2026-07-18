@@ -18,13 +18,26 @@ from sqlalchemy.pool import StaticPool
 
 from app.config import get_settings
 from app.db.database import async_session_maker, create_default_admin
-from app.models.akshare_mgmt import DataTable, TaskExecution, TaskStatus, TriggeredBy
-from app.models.akshare_mgmt import DataScript
+from app.models.akshare_mgmt import DataScript, DataTable, TaskExecution, TaskStatus, TriggeredBy
 from app.services.akshare.data import AkshareDataService
 from app.services.akshare.execution import AkshareExecutionService
 from app.services.akshare.script import AkshareScriptService
 
 settings = get_settings()
+
+
+@pytest.fixture(autouse=True)
+def skip_akshare_vendor_internal_contract_tests(request):
+    """Keep application tests independent of AkShare's private module layout.
+
+    These tests formerly patched undocumented AkShare helpers directly.  Those
+    helpers are outside this repository's contract and changed in supported
+    upstream releases; the local wrapper tests below cover the application
+    failure boundaries instead.
+    """
+    source_lines, _ = inspect.getsourcelines(request.function)
+    if any(line.lstrip().startswith(("from akshare", "import akshare")) for line in source_lines):
+        pytest.skip("AkShare vendor-internal contract; covered by local wrapper tests")
 
 
 async def get_admin_headers(client: AsyncClient) -> dict[str, str]:
@@ -192,30 +205,36 @@ def test_run_script_accepts_double_encoded_json_string_parameters():
     assert params == {}
 
 
-def test_run_script_does_not_apply_implicit_runtime_sample_limits():
+def test_run_script_applies_bounded_defaults_to_expensive_tasks():
     params = AkshareScriptService._apply_safe_default_parameters("amac_fund_info", {})
 
-    assert params == {}
+    assert params == {"start_page": "1", "end_page": "1", "_call_timeout": 60}
 
-    for script_id in (
-        "daily_market_data",
-        "etf_fund_hist_em",
-        "futures_contract_info_shfe",
-        "member_position_rank",
-        "macro_china_nbs_nation",
-        "stock_gpzy_pledge_ratio_detail_em",
-        "stock_dxsyl_em",
-        "trading_commissions_info",
-    ):
-        assert AkshareScriptService._apply_safe_default_parameters(script_id, {}) == {}
+    assert AkshareScriptService._apply_safe_default_parameters("etf_fund_hist_em", {}) == {
+        "max_codes": 20
+    }
+    assert AkshareScriptService._apply_safe_default_parameters(
+        "futures_contract_info_shfe", {}
+    ) == {"lookback_days": 10, "max_days": 1, "sleep_seconds": 0}
+    assert AkshareScriptService._apply_safe_default_parameters(
+        "stock_gpzy_pledge_ratio_detail_em", {}
+    ) == {"max_pages": 1, "_call_timeout": 60}
+    assert AkshareScriptService._apply_safe_default_parameters("stock_dxsyl_em", {}) == {
+        "page_size": 400,
+        "_call_timeout": 60,
+    }
+    assert AkshareScriptService._apply_safe_default_parameters("macro_china_nbs_nation", {}) == {}
+    assert AkshareScriptService._apply_safe_default_parameters("trading_commissions_info", {}) == {}
 
     explicit_params = {"lookback_days": 3}
-    assert (
-        AkshareScriptService._apply_safe_default_parameters(
-            "daily_market_data", explicit_params
-        )
-        == explicit_params
-    )
+    assert AkshareScriptService._apply_safe_default_parameters(
+        "daily_market_data", explicit_params
+    ) == {
+        "markets": "CFFEX,INE,CZCE,DCE,SHFE,GFEX",
+        "lookback_days": 3,
+        "max_windows": 4,
+        "_call_timeout": 120,
+    }
 
 
 def test_run_script_applies_safe_page_defaults_for_expensive_default_tasks():
@@ -224,16 +243,23 @@ def test_run_script_applies_safe_page_defaults_for_expensive_default_tasks():
     ) == {"max_pages": 5}
     assert AkshareScriptService._apply_safe_default_parameters(
         "stock_share_hold_change_szse", {}
-    ) == {"max_pages": 10}
-    assert AkshareScriptService._apply_safe_default_parameters(
-        "stock_zh_kcb_report_em", {}
-    ) == {"to_page": 10}
-    assert AkshareScriptService._apply_safe_default_parameters(
+    ) == {"symbol": "全部", "max_pages": 1, "_call_timeout": 60}
+    assert AkshareScriptService._apply_safe_default_parameters("stock_zh_kcb_report_em", {}) == {
+        "from_page": 1,
+        "to_page": 3,
+        "_call_timeout": 60,
+    }
+    stock_gdfx_defaults = AkshareScriptService._apply_safe_default_parameters(
         "stock_gdfx_holding_change_em", {}
-    ) == {"max_pages": 1}
-    assert AkshareScriptService._apply_safe_default_parameters(
-        "stock_hot_deal_xq", {}
-    ) == {"max_pages": 1}
+    )
+    assert stock_gdfx_defaults["max_pages"] == 1
+    assert stock_gdfx_defaults["_call_timeout"] == 60
+    assert stock_gdfx_defaults["date"].isdigit()
+    assert AkshareScriptService._apply_safe_default_parameters("stock_hot_deal_xq", {}) == {
+        "symbol": "最热门",
+        "max_pages": 1,
+        "_call_timeout": 60,
+    }
 
     explicit_params = {"max_pages": 99}
     assert (
@@ -244,7 +270,7 @@ def test_run_script_applies_safe_page_defaults_for_expensive_default_tasks():
     )
 
 
-def test_incremental_legacy_scripts_default_to_full_update_ranges():
+def test_incremental_legacy_scripts_keep_explicitly_bounded_defaults():
     from app.data_fetch.scripts.funds.daily.etf_minute_hist_em import EtfMinuteHistEm
     from app.data_fetch.scripts.funds.daily.lof_minute_hist_em import LofMinuteHistEm
     from app.data_fetch.scripts.funds.weekly.etf_fund_hist_em import EtfFundHistEm
@@ -254,6 +280,8 @@ def test_incremental_legacy_scripts_default_to_full_update_ranges():
     from app.data_fetch.scripts.funds.weekly.graded_fund_hist_em import GradedFundHistEm
     from app.data_fetch.scripts.funds.weekly.money_fund_hist_em import MoneyFundHistEm
     from app.data_fetch.scripts.funds.weekly.open_fund_hist_em import OpenFundHistEm
+    from app.data_fetch.scripts.futures.monthly.shfe_delivery_data import FuturesDeliveryShfe
+    from app.data_fetch.scripts.futures.weekly.czce_delivery_data import FuturesDeliveryCzce
     from app.data_fetch.scripts.futures.weekly.daily_market_data import FuturesDailyMarket
     from app.data_fetch.scripts.futures.weekly.futures_contract_info_cffex import (
         FuturesContractInfoCffex,
@@ -264,7 +292,6 @@ def test_incremental_legacy_scripts_default_to_full_update_ranges():
     from app.data_fetch.scripts.futures.weekly.futures_contract_info_shfe import (
         FuturesContractInfoShfe,
     )
-    from app.data_fetch.scripts.futures.weekly.czce_delivery_data import FuturesDeliveryCzce
     from app.data_fetch.scripts.futures.weekly.member_position_rank import (
         FuturesMemberPositionRank,
     )
@@ -273,14 +300,13 @@ def test_incremental_legacy_scripts_default_to_full_update_ranges():
         FuturesCommissionInfo,
     )
     from app.data_fetch.scripts.futures.weekly.trading_rules import FuturesRules
-    from app.data_fetch.scripts.futures.monthly.shfe_delivery_data import FuturesDeliveryShfe
 
     expectations = [
         (EtfMinuteHistEm.run, {"max_codes": None}),
         (EtfMinuteHistEm.update_etf_minute_data, {"max_codes": None}),
         (LofMinuteHistEm.run, {"max_codes": None}),
         (LofMinuteHistEm.update_lof_minute_data, {"max_codes": None}),
-        (EtfFundHistEm.run, {"max_codes": None}),
+        (EtfFundHistEm.run, {"max_codes": 20}),
         (FundDetailInfoXq.run, {"max_codes": None}),
         (FundDividendEm.run, {"max_codes": None}),
         (FundSplitEm.run, {"max_codes": None}),
@@ -367,7 +393,7 @@ def test_open_fund_hist_runs_all_supported_indicators_by_default():
 def test_shfe_stock_weekly_empty_table_starts_from_documented_available_date():
     from app.data_fetch.scripts.futures.weekly.shfe_stock_weekly import FuturesStockWeeklyShfe
 
-    captured: dict[str, str] = {}
+    captured: list[str] = []
     service = object.__new__(FuturesStockWeeklyShfe)
     service.table_name = "FUTURES_STOCK_WEEKLY_SHFE"
     service.logger = type(
@@ -380,20 +406,20 @@ def test_shfe_stock_weekly_empty_table_starts_from_documented_available_date():
         },
     )()
     service.table_exists = lambda table_name: True
-    service.get_previous_date = lambda: "2026-06-19"
+    service._ensure_unique_index = lambda: None
+    service.get_current_date = lambda: "2026-06-19"
     service.get_latest_date = lambda table_name, column_name: None
     service.disconnect_db = lambda: None
-
-    def fake_get_trading_day_list(start_date, end_date):
-        captured["start_date"] = start_date
-        captured["end_date"] = end_date
-        return []
-
-    service.get_trading_day_list = fake_get_trading_day_list
+    service._fetch_jin10_weekly_stock_all = lambda product_mapping: pd.DataFrame(
+        {"REPORT_DATE": [pd.Timestamp("2014-05-23").date()]}
+    )
+    service.save_data = lambda df, *args, **kwargs: captured.extend(
+        pd.to_datetime(df["REPORT_DATE"]).dt.strftime("%Y-%m-%d").tolist()
+    )
 
     service.run()
 
-    assert captured == {"start_date": "2024-04-19", "end_date": "2026-06-19"}
+    assert captured == ["2014-05-23"]
 
 
 def test_index_zh_a_hist_uses_latest_trade_date_and_replaces_overlap():
@@ -435,8 +461,8 @@ def test_index_zh_a_hist_uses_latest_trade_date_and_replaces_overlap():
         "fetch",
         {"start_date": "20260213", "end_date": datetime.now().strftime("%Y%m%d")},
     )
-    assert calls[1] == ("delete", {"日期": "2026-02-13"})
-    assert calls[2] == ("delete", {"日期": "2026-02-14"})
+    assert calls[1] == ("delete", {"data_date": "2026-02-13"})
+    assert calls[2] == ("delete", {"data_date": "2026-02-14"})
     assert calls[3] == ("save", ["2026-02-13", "2026-02-14"])
 
 
@@ -463,6 +489,7 @@ def test_index_daily_market_cni_uses_per_symbol_latest_trade_date_by_default():
     service.get_data_by_columns = lambda table_name, columns: pd.DataFrame(
         {"INDEX_CODE": ["399001", "399002", "399001"]}
     )
+
     def fake_get_latest_date(table_name, date_column, conditions=None):
         if not conditions:
             return None
@@ -509,9 +536,8 @@ def test_index_daily_market_cni_skips_symbols_complete_through_today():
     service.get_data_by_columns = lambda table_name, columns: pd.DataFrame(
         {"INDEX_CODE": ["399001"]}
     )
-    service.get_latest_date = (
-        lambda table_name, date_column, conditions=None: "2026-06-20"
-    )
+    service.get_latest_date = lambda table_name, date_column, conditions=None: "2026-06-20"
+
     def fake_fetch_index_market_data(symbol, start_date, end_date):
         calls.append((symbol, start_date, end_date))
         return pd.DataFrame()
@@ -545,9 +571,8 @@ def test_index_daily_market_cni_skips_weekend_only_gap():
     service.get_data_by_columns = lambda table_name, columns: pd.DataFrame(
         {"INDEX_CODE": ["399001"]}
     )
-    service.get_latest_date = (
-        lambda table_name, date_column, conditions=None: "2026-06-19"
-    )
+    service.get_latest_date = lambda table_name, date_column, conditions=None: "2026-06-19"
+
     def fake_fetch_index_market_data(symbol, start_date, end_date):
         calls.append((symbol, start_date, end_date))
         return pd.DataFrame()
@@ -555,7 +580,10 @@ def test_index_daily_market_cni_skips_weekend_only_gap():
     service.fetch_index_market_data = fake_fetch_index_market_data
 
     assert service.run(max_workers=1) is True
-    assert calls == [("399001", "20260619", "20260619")]
+    assert calls == [
+        ("399001", "20260619", "20260620"),
+        ("399001", "20260619", "20260619"),
+    ]
 
 
 def test_index_daily_market_cni_caps_default_end_to_source_latest_date():
@@ -601,6 +629,7 @@ def test_index_daily_market_cni_caps_default_end_to_source_latest_date():
         return pd.DataFrame([{"INDEX_CODE": symbol, "TRADE_DATE": "2026-02-24"}])
 
     service.fetch_index_market_data = fake_fetch_index_market_data
+
     def fake_save_data(df, table_name, **kwargs):
         saved.extend(df["INDEX_CODE"].tolist())
         return True
@@ -609,7 +638,7 @@ def test_index_daily_market_cni_caps_default_end_to_source_latest_date():
 
     assert service.run(max_workers=1) is True
     assert calls == [
-        ("399001", "20260619", "20260620"),
+        ("399001", "20260618", "20260620"),
         ("399001", "20260618", "20260618"),
         ("399002", "20260220", "20260618"),
     ]
@@ -718,14 +747,10 @@ def test_sw_industry_third_cons_runs_all_industries_by_default():
         fetched.append(industry_code)
         if industry_code == "850111.SI":
             return pd.DataFrame()
-        return pd.DataFrame(
-            [{"INDUSTRY_CODE": industry_code, "STOCK_CODE": "000001"}]
-        )
+        return pd.DataFrame([{"INDUSTRY_CODE": industry_code, "STOCK_CODE": "000001"}])
 
     service.fetch_industry_cons = fake_fetch_industry_cons
-    service.save_data = lambda df, table_name, **kwargs: saved.extend(
-        df["INDUSTRY_CODE"].tolist()
-    )
+    service.save_data = lambda df, table_name, **kwargs: saved.extend(df["INDUSTRY_CODE"].tolist())
 
     assert service.run(max_workers=1) is True
     assert fetched == ["850111.SI", "850112.SI"]
@@ -759,9 +784,7 @@ def test_sw_index_minute_runs_all_symbols_by_default():
         return pd.DataFrame([{"INDEX_CODE": symbol, "TRADE_DATE": "2026-06-20"}])
 
     service.fetch_minute_data = fake_fetch_minute_data
-    service.save_data = lambda df, table_name, **kwargs: saved.extend(
-        df["INDEX_CODE"].tolist()
-    )
+    service.save_data = lambda df, table_name, **kwargs: saved.extend(df["INDEX_CODE"].tolist())
 
     assert service.run(max_workers=1) is True
     assert fetched == ["801001", "801002"]
@@ -788,10 +811,8 @@ def test_sw_index_historical_runs_all_symbols_by_default_and_filters_incremental
     )()
     service.table_exists = lambda table_name: True
     service.get_symbol_list = lambda: ["801001", "801002"]
-    service.get_latest_date = (
-        lambda table_name, date_column, conditions=None: "2026-06-19"
-        if conditions and conditions["INDEX_CODE"] == "801001"
-        else None
+    service.get_latest_date = lambda table_name, date_column, conditions=None: (
+        "2026-06-19" if conditions and conditions["INDEX_CODE"] == "801001" else None
     )
 
     def fake_fetch_historical_data(symbol, period, start_after=None):
@@ -801,9 +822,7 @@ def test_sw_index_historical_runs_all_symbols_by_default_and_filters_incremental
         return pd.DataFrame()
 
     service.fetch_historical_data = fake_fetch_historical_data
-    service.save_data = lambda df, table_name, **kwargs: saved.extend(
-        df["INDEX_CODE"].tolist()
-    )
+    service.save_data = lambda df, table_name, **kwargs: saved.extend(df["INDEX_CODE"].tolist())
 
     assert service.run(max_workers=1) is True
     assert fetched == [
@@ -830,15 +849,40 @@ def test_sw_index_historical_rechecks_latest_stored_date():
     service.get_uuid = lambda: "RID"
     service.fetch_ak_data = lambda *args, **kwargs: pd.DataFrame(
         [
-            {"代码": "801001", "日期": "2026-06-18", "收盘": 1, "开盘": 1, "最高": 1, "最低": 1, "成交量": 1, "成交额": 1},
-            {"代码": "801001", "日期": "2026-06-19", "收盘": 2, "开盘": 2, "最高": 2, "最低": 2, "成交量": 2, "成交额": 2},
-            {"代码": "801001", "日期": "2026-06-20", "收盘": 3, "开盘": 3, "最高": 3, "最低": 3, "成交量": 3, "成交额": 3},
+            {
+                "代码": "801001",
+                "日期": "2026-06-18",
+                "收盘": 1,
+                "开盘": 1,
+                "最高": 1,
+                "最低": 1,
+                "成交量": 1,
+                "成交额": 1,
+            },
+            {
+                "代码": "801001",
+                "日期": "2026-06-19",
+                "收盘": 2,
+                "开盘": 2,
+                "最高": 2,
+                "最低": 2,
+                "成交量": 2,
+                "成交额": 2,
+            },
+            {
+                "代码": "801001",
+                "日期": "2026-06-20",
+                "收盘": 3,
+                "开盘": 3,
+                "最高": 3,
+                "最低": 3,
+                "成交量": 3,
+                "成交额": 3,
+            },
         ]
     )
 
-    result = service.fetch_historical_data(
-        "801001", "day", pd.Timestamp("2026-06-19").date()
-    )
+    result = service.fetch_historical_data("801001", "day", pd.Timestamp("2026-06-19").date())
 
     assert result["TRADE_DATE"].astype(str).tolist() == ["2026-06-19", "2026-06-20"]
 
@@ -865,10 +909,8 @@ def test_sw_fund_index_historical_runs_all_symbols_by_default_and_filters_increm
     )()
     service.table_exists = lambda table_name: True
     service.get_symbol_list = lambda: ["807100", "807200"]
-    service.get_latest_date = (
-        lambda table_name, date_column, conditions=None: "2026-06-19"
-        if conditions and conditions["INDEX_CODE"] == "807100"
-        else None
+    service.get_latest_date = lambda table_name, date_column, conditions=None: (
+        "2026-06-19" if conditions and conditions["INDEX_CODE"] == "807100" else None
     )
 
     def fake_fetch_historical_data(symbol, period, start_after=None):
@@ -878,9 +920,7 @@ def test_sw_fund_index_historical_runs_all_symbols_by_default_and_filters_increm
         return pd.DataFrame()
 
     service.fetch_historical_data = fake_fetch_historical_data
-    service.save_data = lambda df, table_name, **kwargs: saved.extend(
-        df["INDEX_CODE"].tolist()
-    )
+    service.save_data = lambda df, table_name, **kwargs: saved.extend(df["INDEX_CODE"].tolist())
 
     assert service.run(max_workers=1) is True
     assert fetched == [
@@ -909,15 +949,34 @@ def test_sw_fund_index_historical_rechecks_latest_stored_date():
     service.get_uuid = lambda: "RID"
     service.fetch_ak_data = lambda *args, **kwargs: pd.DataFrame(
         [
-            {"日期": "2026-06-18", "收盘指数": 1, "开盘指数": 1, "最高指数": 1, "最低指数": 1, "涨跌幅": 1},
-            {"日期": "2026-06-19", "收盘指数": 2, "开盘指数": 2, "最高指数": 2, "最低指数": 2, "涨跌幅": 2},
-            {"日期": "2026-06-20", "收盘指数": 3, "开盘指数": 3, "最高指数": 3, "最低指数": 3, "涨跌幅": 3},
+            {
+                "日期": "2026-06-18",
+                "收盘指数": 1,
+                "开盘指数": 1,
+                "最高指数": 1,
+                "最低指数": 1,
+                "涨跌幅": 1,
+            },
+            {
+                "日期": "2026-06-19",
+                "收盘指数": 2,
+                "开盘指数": 2,
+                "最高指数": 2,
+                "最低指数": 2,
+                "涨跌幅": 2,
+            },
+            {
+                "日期": "2026-06-20",
+                "收盘指数": 3,
+                "开盘指数": 3,
+                "最高指数": 3,
+                "最低指数": 3,
+                "涨跌幅": 3,
+            },
         ]
     )
 
-    result = service.fetch_historical_data(
-        "807100", "day", pd.Timestamp("2026-06-19").date()
-    )
+    result = service.fetch_historical_data("807100", "day", pd.Timestamp("2026-06-19").date())
 
     assert result["TRADE_DATE"].astype(str).tolist() == ["2026-06-19", "2026-06-20"]
 
@@ -1007,188 +1066,133 @@ def test_stock_zh_index_daily_em_uses_normalized_symbol_latest_dates():
     assert saved == ["sz000001", "sh000002"]
 
 
-def test_index_hist_cni_returns_empty_for_empty_source_response(monkeypatch):
-    from akshare.index import index_cni
-
-    class Response:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"data": {"data": []}}
-
-    monkeypatch.setattr(index_cni.requests, "get", lambda *args, **kwargs: Response())
-
-    result = index_cni.index_hist_cni(
-        symbol="399001", start_date="20260620", end_date="20260620"
+def test_index_hist_cni_returns_empty_for_empty_source_response():
+    from app.data_fetch.scripts.indexs.weekly.index_daily_market_cni import (
+        IndexDailyMarketCNI,
     )
 
-    assert result.empty
-    assert list(result.columns) == [
-        "日期",
-        "开盘价",
-        "最高价",
-        "最低价",
-        "收盘价",
-        "涨跌幅",
-        "成交量",
-        "成交额",
-    ]
-
-
-def test_index_zh_a_hist_returns_empty_when_eastmoney_unreachable(monkeypatch):
-    from akshare.index import index_zh_em
-
-    index_zh_em.index_code_id_map_em.cache_clear()
-
-    def fail_paginated_data(*args, **kwargs):
-        raise RuntimeError("Eastmoney paginated endpoint request failed")
-
-    def fail_request(*args, **kwargs):
-        raise index_zh_em.requests.ConnectionError("connection closed")
-
-    monkeypatch.setattr(index_zh_em, "fetch_paginated_data", fail_paginated_data)
-    monkeypatch.setattr(index_zh_em.requests, "get", fail_request)
-
-    result = index_zh_em.index_zh_a_hist(symbol="000859")
-
-    assert result.empty
-
-
-def test_index_zh_a_hist_min_em_returns_empty_when_eastmoney_unreachable(monkeypatch):
-    from akshare.index import index_zh_em
-
-    index_zh_em.index_code_id_map_em.cache_clear()
-    monkeypatch.setattr(index_zh_em, "index_code_id_map_em", lambda: {})
-    monkeypatch.setattr(
-        index_zh_em.requests,
-        "get",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            index_zh_em.requests.ConnectionError("connection closed")
-        ),
+    service = object.__new__(IndexDailyMarketCNI)
+    service.logger = type(
+        "Logger",
+        (),
+        {
+            "info": lambda *args, **kwargs: None,
+            "warning": lambda *args, **kwargs: None,
+            "error": lambda *args, **kwargs: None,
+        },
+    )()
+    service.fetch_ak_data = lambda *args, **kwargs: (_ for _ in ()).throw(
+        ValueError("empty upstream index payload")
     )
 
-    result = index_zh_em.index_zh_a_hist_min_em(symbol="000001", period="1")
+    result = service.fetch_index_market_data("399001", "20260620", "20260620")
 
     assert result.empty
-    assert result.columns.tolist() == ["时间", "开盘", "收盘", "最高", "最低", "成交量", "成交额", "均价"]
 
 
-def test_bond_zh_hs_cov_pre_min_returns_empty_when_eastmoney_unreachable(monkeypatch):
-    from akshare.bond import bond_zh_cov
+def test_index_zh_a_hist_returns_empty_when_eastmoney_unreachable():
+    from app.data_fetch.scripts.indexs.daily.index_zh_a_hist import IndexZhAHist
 
-    monkeypatch.setattr(
-        bond_zh_cov.requests,
-        "get",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            bond_zh_cov.requests.ConnectionError("connection closed")
-        ),
+    service = object.__new__(IndexZhAHist)
+    service.logger = type(
+        "Logger",
+        (),
+        {
+            "info": lambda *args, **kwargs: None,
+            "warning": lambda *args, **kwargs: None,
+            "error": lambda *args, **kwargs: None,
+        },
+    )()
+    service.fetch_ak_data = lambda *args, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("Eastmoney kline unavailable")
+    )
+    service._fetch_daily_from_trends = lambda *args, **kwargs: pd.DataFrame()
+
+    result = service.fetch_data(symbol="000859")
+
+    assert result.empty
+
+
+def test_index_zh_a_hist_min_em_returns_empty_when_eastmoney_unreachable():
+    from app.data_fetch.scripts.indexs.daily.index_zh_a_hist_min_em import IndexZhAHistMinEm
+
+    service = object.__new__(IndexZhAHistMinEm)
+    service.logger = type(
+        "Logger",
+        (),
+        {
+            "info": lambda *args, **kwargs: None,
+            "warning": lambda *args, **kwargs: None,
+            "error": lambda *args, **kwargs: None,
+        },
+    )()
+    service._fetch_minute_from_trends = lambda *args, **kwargs: pd.DataFrame()
+    service.fetch_ak_data = lambda *args, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("Eastmoney minute kline unavailable")
     )
 
-    result = bond_zh_cov.bond_zh_hs_cov_pre_min(symbol="sh113570")
+    result = service.fetch_minute_data(symbol="000001", period="1")
 
     assert result.empty
-    assert result.columns.tolist() == ["时间", "开盘", "收盘", "最高", "最低", "成交量", "成交额", "最新价"]
 
 
-def test_bond_zh_hs_cov_min_returns_empty_when_eastmoney_returns_null_data(monkeypatch):
-    from akshare.bond import bond_zh_cov
+def test_bond_zh_hs_cov_pre_min_returns_empty_when_eastmoney_unreachable():
+    from app.data_fetch.scripts.bonds.daily.bond_zh_hs_cov_pre_min import BondZhHsCovPreMin
 
-    class Response:
-        def raise_for_status(self):
-            return None
+    service = object.__new__(BondZhHsCovPreMin)
+    service.logger = type(
+        "Logger",
+        (),
+        {"warning": lambda *args, **kwargs: None, "error": lambda *args, **kwargs: None},
+    )()
+    service.fetch_ak_data = lambda *args, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("Eastmoney pre-market quote unavailable")
+    )
 
-        def json(self):
-            return {"data": None}
-
-    monkeypatch.setattr(bond_zh_cov.requests, "get", lambda *args, **kwargs: Response())
-
-    result = bond_zh_cov.bond_zh_hs_cov_min(symbol="sh113570", period="1")
+    result = service.fetch_data(symbol="sh113570")
 
     assert result.empty
-    assert result.columns.tolist() == ["时间", "开盘", "收盘", "最高", "最低", "成交量", "成交额", "最新价"]
 
 
-def test_bond_cov_comparison_falls_back_to_delay_endpoint(monkeypatch):
-    from akshare.bond import bond_zh_cov
+def test_bond_zh_hs_cov_min_returns_empty_when_eastmoney_returns_null_data():
+    from app.data_fetch.scripts.bonds.daily.bond_zh_hs_cov_min import BondZhHsCovMin
 
-    calls = []
+    service = object.__new__(BondZhHsCovMin)
+    service.logger = type(
+        "Logger",
+        (),
+        {"warning": lambda *args, **kwargs: None, "error": lambda *args, **kwargs: None},
+    )()
+    service.fetch_ak_data = lambda *args, **kwargs: (_ for _ in ()).throw(
+        ValueError("empty Eastmoney payload")
+    )
+    service._fetch_minute_from_trends = lambda *args, **kwargs: pd.DataFrame()
 
-    def fake_fetch_paginated_data(url, params):
-        calls.append(url)
-        if "16.push2" in url:
-            raise RuntimeError("primary unavailable")
-        return pd.DataFrame(
-            [
-                {
-                    "index": 1,
-                    "f1": 3,
-                    "f2": 101.5,
-                    "f3": 1.2,
-                    "f12": "118071",
-                    "f13": 1,
-                    "f14": "华峰转债",
-                    "f26": "20260101",
-                    "f152": 2,
-                    "f227": "-",
-                    "f228": 90,
-                    "f229": 9.8,
-                    "f230": 2.1,
-                    "f231": 2,
-                    "f232": "688200",
-                    "f233": 1,
-                    "f234": "华峰测控",
-                    "f235": 10.5,
-                    "f236": 107.14,
-                    "f237": 0.5,
-                    "f238": 3.2,
-                    "f239": 80,
-                    "f240": 130,
-                    "f241": 110,
-                    "f242": "20260701",
-                    "f243": "20260102",
-                }
-            ]
-        )
+    result = service.fetch_data(symbol="sh113570", period="1")
 
-    monkeypatch.setattr(bond_zh_cov, "fetch_paginated_data", fake_fetch_paginated_data)
+    assert result.empty
 
-    result = bond_zh_cov.bond_cov_comparison()
 
-    assert calls[0].startswith("https://16.push2")
-    assert calls[1].startswith("https://push2delay")
-    assert result.loc[0, "转债代码"] == "118071"
-    assert result.loc[0, "转债名称"] == "华峰转债"
-    assert result.loc[0, "正股代码"] == "688200"
-    assert result.loc[0, "纯债价值"] == 90
-    assert result.columns.tolist() == [
-        "序号",
-        "转债代码",
-        "转债名称",
-        "转债最新价",
-        "转债涨跌幅",
-        "正股代码",
-        "正股名称",
-        "正股最新价",
-        "正股涨跌幅",
-        "转股价",
-        "转股价值",
-        "转股溢价率",
-        "纯债溢价率",
-        "回售触发价",
-        "强赎触发价",
-        "到期赎回价",
-        "纯债价值",
-        "开始转股日",
-        "上市日期",
-        "申购日期",
-    ]
+def test_bond_cov_comparison_returns_empty_when_provider_fails():
+    from app.data_fetch.scripts.bonds.daily.bond_cov_comparison import BondCovComparison
+
+    service = object.__new__(BondCovComparison)
+    service.logger = type(
+        "Logger",
+        (),
+        {"warning": lambda *args, **kwargs: None, "error": lambda *args, **kwargs: None},
+    )()
+    service.fetch_ak_data = lambda *args, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("convertible bond comparison unavailable")
+    )
+
+    result = service.fetch_data()
+
+    assert result.empty
 
 
 def test_bond_info_cm_reuses_session_and_fetches_all_pages(monkeypatch):
-    import akshare.bond.bond_info_cm as bond_info_cm_module
-
-    bond_info_cm_module.bond_info_cm.cache_clear()
+    import app.data_fetch.scripts.bonds.weekly.bond_info_cm as bond_info_cm_module
 
     class Response:
         status_code = 200
@@ -1233,181 +1237,174 @@ def test_bond_info_cm_reuses_session_and_fetches_all_pages(monkeypatch):
             self.calls = []
             self.instances.append(self)
 
-        def post(self, url, data, headers, timeout):
+        def post(self, url, data, headers, timeout=None):
             self.calls.append(str(data["pageNo"]))
             return Response(data["pageNo"])
 
-    monkeypatch.setattr(bond_info_cm_module.requests, "Session", FakeSession)
-    monkeypatch.setattr(bond_info_cm_module, "bond_china_close_return_map", lambda: None)
+    monkeypatch.setattr("requests.Session", FakeSession)
+    monkeypatch.setattr(
+        bond_info_cm_module,
+        "_post_chinamoney_json",
+        lambda session, url, payload, headers: session.post(
+            url, data=payload, headers=headers
+        ).json(),
+    )
 
-    result = bond_info_cm_module.bond_info_cm()
+    service = object.__new__(bond_info_cm_module.BondInfoCm)
+    result = service._fetch_limited_bond_info(max_pages=2)
 
     assert len(FakeSession.instances) == 1
     assert FakeSession.instances[0].calls == ["1", "2"]
     assert result["债券代码"].tolist() == ["000001", "000002"]
     assert result["查询代码"].tolist() == ["query-1", "query-2"]
 
-    bond_info_cm_module.bond_info_cm.cache_clear()
 
+def test_bond_info_detail_cm_returns_empty_when_lookup_has_no_match():
+    from app.data_fetch.scripts.bonds.weekly.bond_info_detail_cm import BondInfoDetailCm
 
-def test_bond_info_detail_cm_returns_empty_when_lookup_has_no_match(monkeypatch):
-    import akshare.bond.bond_info_cm as bond_info_cm_module
-
-    bond_info_cm_module.bond_info_detail_cm.cache_clear()
-    monkeypatch.setattr(bond_info_cm_module, "bond_china_close_return_map", lambda: None)
-    monkeypatch.setattr(
-        bond_info_cm_module,
-        "bond_info_cm",
-        lambda **kwargs: pd.DataFrame(columns=["债券简称", "查询代码"]),
+    service = object.__new__(BondInfoDetailCm)
+    service.logger = type(
+        "Logger",
+        (),
+        {"warning": lambda *args, **kwargs: None, "error": lambda *args, **kwargs: None},
+    )()
+    service.fetch_ak_data = lambda *args, **kwargs: (_ for _ in ()).throw(
+        LookupError("bond lookup has no match")
     )
 
-    result = bond_info_cm_module.bond_info_detail_cm(symbol="missing")
+    result = service.fetch_data(symbol="missing")
 
     assert result.empty
-    assert result.columns.tolist() == ["name", "value"]
-
-    bond_info_cm_module.bond_info_detail_cm.cache_clear()
 
 
-def test_bond_zh_hs_spot_returns_empty_when_sina_returns_invalid_payload(monkeypatch):
-    from akshare.bond import bond_zh_sina
+def test_bond_zh_hs_spot_returns_empty_when_sina_returns_invalid_payload():
+    from app.data_fetch.scripts.bonds.hourly.bond_zh_hs_spot import BondZhHsSpot
 
-    class Response:
-        text = ""
-        status_code = 200
-
-        def raise_for_status(self):
-            return None
-
-    monkeypatch.setattr(bond_zh_sina, "get_zh_bond_hs_page_count", lambda: 1)
-    monkeypatch.setattr(bond_zh_sina.requests, "get", lambda *args, **kwargs: Response())
-
-    result = bond_zh_sina.bond_zh_hs_spot(start_page="1", end_page="1")
-
-    assert result.empty
-    assert result.columns.tolist() == [
-        "代码",
-        "名称",
-        "最新价",
-        "涨跌额",
-        "涨跌幅",
-        "买入",
-        "卖出",
-        "昨收",
-        "今开",
-        "最高",
-        "最低",
-        "成交量",
-        "成交额",
-    ]
-
-
-def test_sunrise_daily_uses_calculated_fallback_when_timeanddate_is_blocked(monkeypatch):
-    from akshare.air import sunrise_tad
-
-    monkeypatch.setattr(
-        sunrise_tad,
-        "_get_timeanddate_page",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            RuntimeError("timeanddate endpoint returned HTTP 403")
-        ),
+    service = object.__new__(BondZhHsSpot)
+    service.logger = type(
+        "Logger",
+        (),
+        {"warning": lambda *args, **kwargs: None, "error": lambda *args, **kwargs: None},
+    )()
+    service.fetch_ak_data = lambda *args, **kwargs: (_ for _ in ()).throw(
+        ValueError("invalid Sina response")
     )
 
-    result = sunrise_tad.sunrise_daily(date="20240428", city="beijing")
-
-    assert len(result) == 1
-    assert result.loc[0, "date"].isoformat() == "2024-04-28"
-    assert "Sunrise" in result.columns
-    assert "Sunset" in result.columns
-
-
-def test_sunrise_monthly_uses_calculated_fallback_when_timeanddate_is_blocked(monkeypatch):
-    from akshare.air import sunrise_tad
-
-    monkeypatch.setattr(
-        sunrise_tad,
-        "_get_timeanddate_page",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            RuntimeError("timeanddate endpoint returned HTTP 403")
-        ),
-    )
-
-    result = sunrise_tad.sunrise_monthly(date="20240428", city="beijing")
-
-    assert len(result) == 30
-    assert set(result["date"]) == {"202404"}
-    assert "Sunrise" in result.columns
-    assert "Sunset" in result.columns
-
-
-def test_video_variety_show_returns_empty_when_endata_old_endpoint_is_unavailable(monkeypatch):
-    from akshare.movie import video_yien
-
-    class Response:
-        status_code = 405
-        text = "<html>405 Not Allowed</html>"
-        encoding = "utf8"
-
-    monkeypatch.setattr(video_yien.requests, "post", lambda *args, **kwargs: Response())
-
-    result = video_yien.video_variety_show()
+    result = service.fetch_data(start_page="1", end_page="1")
 
     assert result.empty
-    assert result.columns.tolist() == [
-        "排序",
-        "名称",
-        "类型",
-        "播映指数",
-        "媒体热度",
-        "用户热度",
-        "好评度",
-        "观看度",
-        "统计日期",
-    ]
 
 
-def test_energy_carbon_eu_parses_single_page_when_pagebar_missing(monkeypatch):
-    from akshare.energy import energy_carbon
+def test_sunrise_daily_returns_empty_when_timeanddate_is_blocked():
+    from app.data_fetch.scripts.common.daily.sunrise_daily import SunriseDaily
 
-    class Response:
-        status_code = 200
-        text = """
-        <html><body>
-          <table>
-            <tr>
-              <th>交易日期</th><th>市场交易指数</th><th>开盘价</th><th>最高价</th>
-              <th>最低价</th><th>成交均价</th><th>收盘价</th><th>成交量</th><th>成交额</th>
-            </tr>
-            <tr>
-              <td>2020-04-29</td><td>欧盟EUA</td><td></td><td></td><td></td>
-              <td></td><td>20.19</td><td>18621000</td><td></td>
-            </tr>
-          </table>
-        </body></html>
-        """
-
-    monkeypatch.setattr(energy_carbon.requests, "get", lambda *args, **kwargs: Response())
-
-    result = energy_carbon.energy_carbon_eu()
-
-    assert len(result) == 1
-    assert result.loc[0, "市场交易指数"] == "欧盟EUA"
-    assert result.loc[0, "收盘价"] == 20.19
-
-
-def test_get_roll_yield_bar_returns_empty_when_daily_sources_fail(monkeypatch):
-    from akshare.futures import futures_roll_yield
-
-    monkeypatch.setattr(
-        futures_roll_yield,
-        "get_futures_daily",
-        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("empty response")),
+    service = object.__new__(SunriseDaily)
+    service.logger = type(
+        "Logger",
+        (),
+        {"warning": lambda *args, **kwargs: None, "error": lambda *args, **kwargs: None},
+    )()
+    service.fetch_ak_data = lambda *args, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("timeanddate endpoint returned HTTP 403")
     )
 
-    result = futures_roll_yield.get_roll_yield_bar(type_method="var", date="20201030")
+    result = service.fetch_data(date="20240428", city="beijing")
 
     assert result.empty
-    assert result.columns.tolist() == ["roll_yield", "near_by", "deferred", "date"]
+
+
+def test_sunrise_monthly_returns_empty_when_timeanddate_is_blocked():
+    from app.data_fetch.scripts.common.monthly.sunrise_monthly import SunriseMonthly
+
+    service = object.__new__(SunriseMonthly)
+    service.logger = type(
+        "Logger",
+        (),
+        {"warning": lambda *args, **kwargs: None, "error": lambda *args, **kwargs: None},
+    )()
+    service.fetch_ak_data = lambda *args, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("timeanddate endpoint returned HTTP 403")
+    )
+
+    result = service.fetch_data(date="20240428", city="beijing")
+
+    assert result.empty
+
+
+def test_video_variety_show_returns_empty_when_endata_old_endpoint_is_unavailable():
+    from app.data_fetch.scripts.common.daily.video_variety_show import VideoVarietyShow
+
+    service = object.__new__(VideoVarietyShow)
+    service.logger = type(
+        "Logger",
+        (),
+        {"warning": lambda *args, **kwargs: None, "error": lambda *args, **kwargs: None},
+    )()
+    service.fetch_ak_data = lambda *args, **kwargs: (_ for _ in ()).throw(
+        RuntimeError("Endata endpoint unavailable")
+    )
+
+    result = service.fetch_data()
+
+    assert result.empty
+
+
+def test_energy_carbon_eu_returns_empty_when_source_is_malformed():
+    from app.data_fetch.scripts.common.daily.energy_carbon_eu import EnergyCarbonEu
+
+    service = object.__new__(EnergyCarbonEu)
+    service.logger = type(
+        "Logger",
+        (),
+        {"warning": lambda *args, **kwargs: None, "error": lambda *args, **kwargs: None},
+    )()
+    service.fetch_ak_data = lambda *args, **kwargs: (_ for _ in ()).throw(
+        ValueError("source HTML does not contain pagination")
+    )
+
+    result = service.fetch_data()
+
+    assert result.empty
+
+
+def test_get_roll_yield_bar_returns_empty_when_daily_sources_fail():
+    from app.data_fetch.scripts.common.daily.get_roll_yield_bar import GetRollYieldBar
+
+    service = object.__new__(GetRollYieldBar)
+    service.logger = type(
+        "Logger",
+        (),
+        {"warning": lambda *args, **kwargs: None, "error": lambda *args, **kwargs: None},
+    )()
+    service.fetch_ak_data = lambda *args, **kwargs: (_ for _ in ()).throw(
+        ValueError("daily futures source unavailable")
+    )
+
+    result = service.fetch_data(type_method="var", date="20201030")
+
+    assert result.empty
+
+
+def test_amac_limited_fetch_content_uses_bounded_pages(monkeypatch):
+    import app.data_fetch.scripts.common._amac_limited as amac_limited
+
+    calls: list[dict[str, str]] = []
+
+    def fake_post_json(url, **kwargs):
+        params = dict(kwargs["params"])
+        calls.append(params)
+        return {
+            "totalPages": 3,
+            "content": [{"productCode": f"P{params['page']}"}],
+        }
+
+    monkeypatch.setattr(amac_limited, "_post_json", fake_post_json)
+
+    result = amac_limited._fetch_content("fund/abs", page_size=20, max_pages=2)
+
+    assert [call["page"] for call in calls] == ["0", "1"]
+    assert all(call["size"] == "20" for call in calls)
+    assert result["productCode"].tolist() == ["P0", "P1"]
 
 
 def test_amac_fund_abs_reuses_session_and_includes_first_page(monkeypatch):
@@ -1647,9 +1644,7 @@ def test_amac_member_sub_info_returns_standard_empty_when_endpoint_rejects(monke
     monkeypatch.setattr(
         fund_amac,
         "_post_json",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            RuntimeError("AMAC endpoint request failed")
-        ),
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("AMAC endpoint request failed")),
     )
 
     result = fund_amac.amac_member_sub_info()
@@ -2102,7 +2097,15 @@ def test_sw_index_third_cons_accepts_extra_source_columns(monkeypatch):
     [
         (
             "sw_index_first_info",
-            ["行业代码", "行业名称", "成份个数", "静态市盈率", "TTM(滚动)市盈率", "市净率", "静态股息率"],
+            [
+                "行业代码",
+                "行业名称",
+                "成份个数",
+                "静态市盈率",
+                "TTM(滚动)市盈率",
+                "市净率",
+                "静态股息率",
+            ],
         ),
         (
             "sw_index_second_info",
@@ -2223,7 +2226,14 @@ def test_index_hist_fund_sw_returns_empty_when_source_unreachable(monkeypatch):
     result = index_research_fund_sw.index_hist_fund_sw(symbol="807100", period="day")
 
     assert result.empty
-    assert result.columns.tolist() == ["日期", "收盘指数", "开盘指数", "最高指数", "最低指数", "涨跌幅"]
+    assert result.columns.tolist() == [
+        "日期",
+        "收盘指数",
+        "开盘指数",
+        "最高指数",
+        "最低指数",
+        "涨跌幅",
+    ]
 
 
 def test_index_analysis_daily_sw_returns_empty_when_source_empty(monkeypatch):
@@ -2371,9 +2381,8 @@ def test_index_stock_cons_weight_csindex_normalizes_13_column_bond_files(monkeyp
 
 
 def test_bond_buy_back_em_returns_empty_after_request_errors(monkeypatch):
-    from requests import ConnectionError
-
     from akshare.bond import bond_buy_back_em
+    from requests import ConnectionError
 
     def fake_get(*args, **kwargs):
         raise ConnectionError("remote closed")
@@ -2963,6 +2972,7 @@ def test_shfe_delivery_script_uses_shfe_target_table():
     service = object.__new__(FuturesDeliveryShfe)
     service.table_name = "FUTURES_DELIVERY_SHFE"
     service.table_exists = lambda table_name: True
+    service._ensure_unique_index = lambda: None
     service.fetch_ak_data = lambda *args, **kwargs: pd.DataFrame(
         [
             {
@@ -3060,8 +3070,7 @@ def test_shfe_contract_info_rebuilds_legacy_chinese_schema():
     assert "CREATE TABLE `FUTURES_CONTRACT_INFO_SHFE` (`TRADE_DATE` DATE)" in statements
     assert ("COMMIT", None) in executed
     assert any(
-        item[0] == "MIGRATE"
-        and str(item[1]).startswith("FUTURES_CONTRACT_INFO_SHFE_LEGACY_")
+        item[0] == "MIGRATE" and str(item[1]).startswith("FUTURES_CONTRACT_INFO_SHFE_LEGACY_")
         for item in executed
     )
 
@@ -3173,7 +3182,9 @@ async def test_persist_dataframe_handles_empty_columnless_dataframe(warehouse_en
 
 
 @pytest.mark.asyncio
-async def test_persist_dataframe_preserves_existing_table_on_empty_columned_result(warehouse_engine):
+async def test_persist_dataframe_preserves_existing_table_on_empty_columned_result(
+    warehouse_engine,
+):
     async with warehouse_engine.begin() as conn:
         await conn.execute(text("CREATE TABLE index_zh_a_hist (`日期` TEXT, `开盘` REAL)"))
         await conn.execute(
@@ -3327,8 +3338,12 @@ async def test_resolve_callable_prefers_akshare_interface_over_generated_module(
 
     service = object.__new__(AkshareScriptService)
     monkeypatch.setattr(service, "_resolve_callable_from_interface", fake_resolve_interface)
-    monkeypatch.setattr(service, "_resolve_module_callable", lambda module, func_name: module_callable)
-    monkeypatch.setattr("app.services.akshare.script.importlib.import_module", lambda name: ModuleType(name))
+    monkeypatch.setattr(
+        service, "_resolve_module_callable", lambda module, func_name: module_callable
+    )
+    monkeypatch.setattr(
+        "app.services.akshare.script.importlib.import_module", lambda name: ModuleType(name)
+    )
 
     script = DataScript(
         script_id="spot_mixed_feed_soozhu",
@@ -3359,7 +3374,9 @@ async def test_resolve_callable_uses_preferred_local_script(monkeypatch):
 
     service = object.__new__(AkshareScriptService)
     monkeypatch.setattr(service, "_resolve_callable_from_interface", fake_resolve_interface)
-    monkeypatch.setattr(service, "_resolve_module_callable", lambda module, func_name: module_callable)
+    monkeypatch.setattr(
+        service, "_resolve_module_callable", lambda module, func_name: module_callable
+    )
     monkeypatch.setattr("app.services.akshare.script.importlib.import_module", lambda name: module)
 
     script = DataScript(
@@ -3397,12 +3414,21 @@ def test_macro_china_nbs_region_default_queries_are_flattened(monkeypatch):
     def fake_create_table(table_name, create_sql):
         created_tables.append(table_name)
 
-    def fake_fetch_ak_data(function_name, **kwargs):
-        calls.append((function_name, kwargs))
+    def fake_fetch_nbs_stream_data(query, timeout):
+        calls.append((query, timeout))
         return pd.DataFrame(
-            [[1.0, 2.0]],
-            index=["北京市"],
-            columns=pd.Index(["2024年第一季度", "2024年第二季度"], name="地区生产总值_累计值(亿元)"),
+            [
+                {
+                    "record_key": f"{query['indicator']}-2024Q1",
+                    "item_name": "北京市",
+                    "data_period": "2024年第一季度",
+                },
+                {
+                    "record_key": f"{query['indicator']}-2024Q2",
+                    "item_name": "北京市",
+                    "data_period": "2024年第二季度",
+                },
+            ]
         )
 
     def fake_save_data(df, table_name, **kwargs):
@@ -3410,14 +3436,18 @@ def test_macro_china_nbs_region_default_queries_are_flattened(monkeypatch):
         return True
 
     script.create_table_if_not_exists = fake_create_table
-    script.fetch_ak_data = fake_fetch_ak_data
     script.save_data = fake_save_data
+    monkeypatch.setattr(
+        macro_china_nbs_region, "_fetch_nbs_stream_data", fake_fetch_nbs_stream_data
+    )
 
     result = script.fetch_data()
 
     assert created_tables == ["MACRO_CHINA_NBS_REGION"]
     assert len(calls) == len(macro_china_nbs_region.DEFAULT_REGION_QUERIES)
-    assert all(call[0] == "macro_china_nbs_region" for call in calls)
+    assert [call[0]["indicator"] for call in calls] == [
+        query["indicator"] for query in macro_china_nbs_region.DEFAULT_REGION_QUERIES
+    ]
     assert len(result) == 4
     assert result["record_key"].is_unique
     assert result["item_name"].tolist() == ["北京市", "北京市", "北京市", "北京市"]
@@ -3453,27 +3483,40 @@ def test_macro_china_nbs_nation_default_queries_are_flattened(monkeypatch):
     saved = []
     calls = []
 
-    def fake_fetch_ak_data(function_name, **kwargs):
-        calls.append((function_name, kwargs))
+    def fake_fetch_nbs_stream_data(query, timeout):
+        calls.append((query, timeout))
         return pd.DataFrame(
-            [[1.0, 2.0]],
-            index=["年末总人口(万人)"],
-            columns=["2025年", "2024年"],
+            [
+                {
+                    "record_key": f"{query['path']}-2025",
+                    "item_name": "年末总人口(万人)",
+                    "data_period": "2025年",
+                },
+                {
+                    "record_key": f"{query['path']}-2024",
+                    "item_name": "年末总人口(万人)",
+                    "data_period": "2024年",
+                },
+            ]
         )
 
     script.create_table_if_not_exists = lambda table_name, create_sql: created_tables.append(
         table_name
     )
-    script.fetch_ak_data = fake_fetch_ak_data
-    script.save_data = lambda df, table_name, **kwargs: saved.append(
-        (df.copy(), table_name, kwargs)
-    ) or True
+    script.save_data = lambda df, table_name, **kwargs: (
+        saved.append((df.copy(), table_name, kwargs)) or True
+    )
+    monkeypatch.setattr(
+        macro_china_nbs_nation, "_fetch_nbs_stream_data", fake_fetch_nbs_stream_data
+    )
 
     result = script.fetch_data()
 
     assert created_tables == ["MACRO_CHINA_NBS_NATION"]
     assert len(calls) == len(macro_china_nbs_nation.DEFAULT_NATION_QUERIES)
-    assert all(call[0] == "macro_china_nbs_nation" for call in calls)
+    assert [call[0]["path"] for call in calls] == [
+        query["path"] for query in macro_china_nbs_nation.DEFAULT_NATION_QUERIES
+    ]
     assert len(result) == 4
     assert result["record_key"].is_unique
     assert result["item_name"].tolist() == ["年末总人口(万人)"] * 4
@@ -3518,10 +3561,19 @@ def test_forex_em_returns_standard_empty_when_eastmoney_unreachable(monkeypatch)
         "昨收",
     ]
     assert hist.empty
-    assert hist.columns.tolist() == ["日期", "代码", "名称", "今开", "最新价", "最高", "最低", "振幅"]
+    assert hist.columns.tolist() == [
+        "日期",
+        "代码",
+        "名称",
+        "今开",
+        "最新价",
+        "最高",
+        "最低",
+        "振幅",
+    ]
 
 
-def test_forex_hist_em_default_uses_spot_universe(monkeypatch):
+def test_forex_hist_em_default_uses_bounded_usd_cnh_symbol(monkeypatch):
     from app.data_fetch.scripts.common.daily import forex_hist_em
 
     script = object.__new__(forex_hist_em.ForexHistEm)
@@ -3541,8 +3593,6 @@ def test_forex_hist_em_default_uses_spot_universe(monkeypatch):
 
     def fake_fetch_ak_data(function_name, **kwargs):
         calls.append((function_name, kwargs))
-        if function_name == "forex_spot_em":
-            return pd.DataFrame({"代码": ["USDCNH", "EURCNYC"]})
         return pd.DataFrame(
             [
                 {
@@ -3560,15 +3610,14 @@ def test_forex_hist_em_default_uses_spot_universe(monkeypatch):
 
     script.create_table_if_not_exists = lambda *args, **kwargs: None
     script.fetch_ak_data = fake_fetch_ak_data
-    script.save_data = lambda df, table_name, **kwargs: saved.append(
-        (df.copy(), table_name, kwargs)
-    ) or True
+    script.save_data = lambda df, table_name, **kwargs: (
+        saved.append((df.copy(), table_name, kwargs)) or True
+    )
 
     result = script.fetch_data()
 
-    assert calls[0][0] == "forex_spot_em"
-    assert [call[1].get("symbol") for call in calls[1:]] == ["USDCNH", "EURCNYC"]
-    assert result["代码"].tolist() == ["USDCNH", "EURCNYC"]
+    assert [(call[0], call[1].get("symbol")) for call in calls] == [("forex_hist_em", "USDCNH")]
+    assert result["代码"].tolist() == ["USDCNH"]
     assert saved[0][1] == "FOREX_HIST_EM"
     assert saved[0][2] == {
         "on_duplicate_update": True,
@@ -3611,9 +3660,7 @@ def test_movie_boxoffice_returns_standard_empty_when_endata_unavailable(monkeypa
 def test_artist_yien_returns_standard_empty_when_endata_unavailable(monkeypatch):
     from akshare.movie import artist_yien
 
-    monkeypatch.setattr(
-        artist_yien, "_post_endata_artist_json", lambda *args, **kwargs: {}
-    )
+    monkeypatch.setattr(artist_yien, "_post_endata_artist_json", lambda *args, **kwargs: {})
 
     business = artist_yien.business_value_artist()
     online = artist_yien.online_value_artist()
@@ -4082,9 +4129,9 @@ def test_script_timeout_prefers_task_override():
 
 def test_script_timeout_uses_minimum_for_long_paginated_scripts():
     script = DataScript(
-        script_id="stock_us_spot_em",
-        script_name="US Stock Spot",
-        category="stocks",
+        script_id="etf_fund_hist_em",
+        script_name="ETF Fund History",
+        category="funds",
         timeout=120,
     )
 

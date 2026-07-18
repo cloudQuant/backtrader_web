@@ -96,14 +96,16 @@ class StockAnalysisExporter:
             if key in rendered or not value:
                 continue
             lines.extend([f"## {key}", "", str(value), ""])
-        lines.extend([
-            "## 数据质量、限制与免责声明",
-            "",
-            *(f"- {item}" for item in report.get("limitations") or []),
-            "",
-            str(report.get("disclaimer") or "本报告仅供研究参考，不构成投资建议。"),
-            "",
-        ])
+        lines.extend(
+            [
+                "## 数据质量、限制与免责声明",
+                "",
+                *(f"- {item}" for item in report.get("limitations") or []),
+                "",
+                str(report.get("disclaimer") or "本报告仅供研究参考，不构成投资建议。"),
+                "",
+            ]
+        )
         return "\n".join(lines)
 
     def render_html(self, report: dict[str, Any]) -> str:
@@ -123,7 +125,8 @@ class StockAnalysisExporter:
                 body.append(f"<p>{escaped}</p>")
             else:
                 body.append("")
-        return """<!doctype html>
+        return (
+            """<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
@@ -135,7 +138,10 @@ class StockAnalysisExporter:
   </style>
 </head>
 <body>
-""" + "\n".join(body) + "\n</body>\n</html>\n"
+"""
+            + "\n".join(body)
+            + "\n</body>\n</html>\n"
+        )
 
     def render_docx(self, report: dict[str, Any]) -> bytes:
         document_xml = self._docx_document_xml(self.render_markdown(report))
@@ -224,12 +230,16 @@ class StockAnalysisExporter:
             if not text:
                 continue
             paragraphs.append(f"<w:p><w:r><w:t>{text}</w:t></w:r></w:p>")
-        return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        return (
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
-""" + "\n".join(paragraphs) + """
+"""
+            + "\n".join(paragraphs)
+            + """
   </w:body>
 </w:document>"""
+        )
 
     @staticmethod
     def _pdf_escape(text: str) -> str:

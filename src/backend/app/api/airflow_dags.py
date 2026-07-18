@@ -5,6 +5,8 @@ Provides DAG listing, triggering, status querying, and log viewing
 through the AI for Investor interface. Only available when Airflow backend is active.
 """
 
+import typing
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import get_current_user
@@ -18,13 +20,13 @@ logger = get_logger(__name__)
 _orchestration_backend = None
 
 
-def set_orchestration_backend(backend) -> None:
+def set_orchestration_backend(backend: typing.Any) -> None:
     """Set the active orchestration backend (called during app startup)."""
     global _orchestration_backend
     _orchestration_backend = backend
 
 
-def _get_airflow_adapter():
+def _get_airflow_adapter() -> typing.Any:
     """Get the Airflow adapter, raising 503 if not in Airflow mode."""
     from app.services.orchestration.airflow_backend import AirflowBackend
 

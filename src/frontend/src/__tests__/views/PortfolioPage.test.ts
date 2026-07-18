@@ -107,7 +107,18 @@ vi.mock('@/api/portfolio', () => ({
       ],
     }),
     getEquity: vi.fn().mockResolvedValue({ dates: ['2024-01-01'], total_equity: [100000], total_drawdown: [0], strategies: [] }),
-    getAllocation: vi.fn().mockResolvedValue({ total: 1, items: [{ name: 'BTC', value: 50000, pct: 50 }] }),
+    getAllocation: vi.fn().mockResolvedValue({
+      total: 7200,
+      items: [{
+        asset: 'RB2510',
+        value: 7200,
+        weight: 100,
+        long_value: 7200,
+        short_value: 0,
+        net_value: 7200,
+        position_count: 1,
+      }],
+    }),
   },
 }))
 
@@ -241,16 +252,19 @@ describe('PortfolioPage', () => {
     expect(vm.hasOpenPosition({ size: 0, long_position: 1, short_position: 1 })).toBe(true)
   })
 
-  it('loadData loads dashboard and running trading workspaces', async () => {
+  it('loadData loads dashboard and all running trading workspaces', async () => {
     const vm = doMount().vm as any
     await vm.loadData()
     expect(vm.overview.total_assets).toBe(100000)
     expect(vm.runningWorkspaces).toHaveLength(1)
-    expect(vm.selectedWorkspaceIds).toEqual(['ws-running'])
+    expect(vm.runningWorkspaceIds).toEqual(['ws-running'])
     expect(vm.loading).toBe(false)
+    expect(portfolioApi.getOverview).toHaveBeenCalledWith(true)
+    expect(workspaceApi.getTradingPositions).not.toHaveBeenCalled()
+    expect(portfolioApi.getTrades).not.toHaveBeenCalled()
   })
 
-  it('loadTabData loads selected workspace positions', async () => {
+  it('loadTabData loads running workspace positions', async () => {
     const vm = doMount().vm as any
     await vm.loadData()
     await vm.loadTabData('positions')
@@ -271,7 +285,7 @@ describe('PortfolioPage', () => {
     expect(vm.positionSummary.total_pnl).toBe(200)
   })
 
-  it('loadWorkspaceAggregates keeps hedged positions with zero net size', async () => {
+  it('loadWorkspacePositions keeps hedged positions with zero net size', async () => {
     const vm = doMount().vm as any
     vm.runningWorkspaces = [
       {
@@ -289,7 +303,6 @@ describe('PortfolioPage', () => {
         updated_at: '2026-01-02T00:00:00Z',
       },
     ]
-    vm.selectedWorkspaceIds = ['ws-running']
     vi.mocked(workspaceApi.getTradingPositions).mockResolvedValueOnce({
       positions: [
         {
@@ -322,9 +335,7 @@ describe('PortfolioPage', () => {
       total_short_value: 501_600,
       total_pnl: 120,
     })
-    vi.mocked(portfolioApi.getTrades).mockResolvedValueOnce({ total: 0, trades: [] })
-
-    await vm.loadWorkspaceAggregates()
+    await vm.loadWorkspacePositions()
 
     expect(vm.positions).toHaveLength(1)
     expect(vm.positions[0].direction).toBe('hedged')
@@ -338,7 +349,7 @@ describe('PortfolioPage', () => {
     expect(vm.positionSummary.net_market_value).toBe(-600)
   })
 
-  it('loadTabData loads selected workspace trade records', async () => {
+  it('loadTabData loads running workspace trade records', async () => {
     const vm = doMount().vm as any
     await vm.loadData()
     await vm.loadTabData('trades')
@@ -349,7 +360,7 @@ describe('PortfolioPage', () => {
     expect(portfolioApi.getTrades).toHaveBeenCalledWith(1000, ['ws-running'])
   })
 
-  it('loadWorkspaceAggregates requests trades per selected workspace', async () => {
+  it('loadWorkspaceTrades requests all running workspaces in one aggregate call', async () => {
     const vm = doMount().vm as any
     vm.runningWorkspaces = [
       {
@@ -381,25 +392,68 @@ describe('PortfolioPage', () => {
         updated_at: '2026-01-02T00:00:00Z',
       },
     ]
-    vm.selectedWorkspaceIds = ['ws-running', 'ws-mt5']
-
     vi.mocked(portfolioApi.getTrades).mockClear()
-    await vm.loadWorkspaceAggregates()
+    await vm.loadWorkspaceTrades()
 
-    expect(portfolioApi.getTrades).toHaveBeenCalledWith(1000, ['ws-running'])
-    expect(portfolioApi.getTrades).toHaveBeenCalledWith(1000, ['ws-mt5'])
+    expect(portfolioApi.getTrades).toHaveBeenCalledWith(1000, ['ws-running', 'ws-mt5'])
   })
 
   it('loadTabData loads equity', async () => {
     const vm = doMount().vm as any
     await vm.loadTabData('equity')
     expect(vm.equityData).toBeTruthy()
+    expect(vm.selectedEquitySeries).toBe('portfolio')
+  })
+
+  it('uses the portfolio curve by default and trims leading empty points', () => {
+    const vm = doMount().vm as any
+    vm.equityData = {
+      dates: ['2026-06-20', '2026-06-21', '2026-06-22', '2026-06-23'],
+      total_equity: [0, 0, 100000, 101500],
+      total_drawdown: [0, 0, 0, -0.01],
+      strategies: [{
+        strategy_id: 'unit-1',
+        strategy_name: 'IB 美股趋势',
+        instance_id: 'unit-1',
+        values: [0, 25000, 25200, 25100],
+      }],
+    }
+
+    expect(vm.selectedEquityCurve.name).toBe('组合总资产')
+    expect(vm.selectedEquityCurve.dates).toEqual(['2026-06-22', '2026-06-23'])
+    expect(vm.selectedEquityCurve.values).toEqual([100000, 101500])
+    expect(vm.selectedEquityCurve.drawdown).toEqual([0, 0])
+  })
+
+  it('switches to and trims an individual strategy equity curve', () => {
+    const vm = doMount().vm as any
+    vm.equityData = {
+      dates: ['2026-06-20', '2026-06-21', '2026-06-22'],
+      total_equity: [100000, 101000, 102000],
+      total_drawdown: [0, 0, 0],
+      strategies: [{
+        strategy_id: 'unit-1',
+        strategy_name: 'IB 美股趋势',
+        instance_id: 'unit-1',
+        values: [0, 25000, 24900],
+      }],
+    }
+    vm.selectedEquitySeries = 'unit-1'
+
+    expect(vm.selectedEquityCurve.name).toBe('IB 美股趋势')
+    expect(vm.selectedEquityCurve.dates).toEqual(['2026-06-21', '2026-06-22'])
+    expect(vm.selectedEquityCurve.values).toEqual([25000, 24900])
+    expect(vm.selectedEquityCurve.drawdown[0]).toBe(0)
+    expect(vm.selectedEquityCurve.drawdown[1]).toBeCloseTo(-0.004, 6)
   })
 
   it('loadTabData loads allocation', async () => {
     const vm = doMount().vm as any
+    await vm.loadData()
     await vm.loadTabData('allocation')
     expect(vm.allocationItems.length).toBe(1)
+    expect(vm.allocationItems[0].asset).toBe('RB2510')
+    expect(portfolioApi.getAllocation).toHaveBeenCalledWith(['ws-running'])
   })
 
   it('loadTabData skips already loaded tabs', async () => {

@@ -6,6 +6,7 @@ Safely executes user strategy code in a restricted environment.
 
 import ast
 import math
+import multiprocessing as mp
 import signal
 import threading
 from collections.abc import Sequence
@@ -23,6 +24,74 @@ else:
 
 class _SandboxTimeoutError(Exception):
     """Raised when strategy code execution exceeds the time limit."""
+
+
+class SandboxPreflightError(RuntimeError):
+    """Raised when isolated strategy execution fails the Backtrader smoke run."""
+
+
+def _apply_child_resource_limits(timeout: int) -> None:
+    """Apply best-effort limits before evaluating code in a child process."""
+    try:
+        import resource
+
+        resource.setrlimit(resource.RLIMIT_CPU, (timeout, timeout + 1))
+        # Python scientific stacks reserve substantial virtual address space at
+        # import time. Keep a finite development limit without preventing the
+        # isolated Backtrader preflight from importing its runtime.
+        resource.setrlimit(resource.RLIMIT_AS, (4 * 1024 * 1024 * 1024, 4 * 1024 * 1024 * 1024))
+        resource.setrlimit(resource.RLIMIT_NOFILE, (32, 32))
+    except (ImportError, OSError, ValueError):
+        # Docker is mandatory in production; development platforms that lack
+        # POSIX resource limits still get process isolation and parent timeout.
+        return
+
+
+def _preflight_strategy_class(strategy_class: type) -> None:
+    """Run the minimal Backtrader smoke scenario inside the isolated executor."""
+    import backtrader as backtrader
+    import pandas as pandas
+
+    index = pandas.date_range("2020-01-01", periods=64, freq="D")
+    closes = [100.0 + item * 0.2 for item in range(64)]
+    data = pandas.DataFrame(
+        {
+            "open": closes,
+            "high": [value + 1.0 for value in closes],
+            "low": [max(value - 1.0, 0.01) for value in closes],
+            "close": closes,
+            "volume": [1000] * len(closes),
+            "openinterest": [0] * len(closes),
+        },
+        index=index,
+    )
+    cerebro = backtrader.Cerebro(stdstats=False)
+    cerebro.broker.setcash(100000.0)
+    cerebro.broker.setcommission(commission=0.001)
+    cerebro.adddata(backtrader.feeds.PandasData(dataname=data))
+    cerebro.addstrategy(strategy_class)
+    cerebro.run(runonce=False, preload=False)
+
+
+def _validate_strategy_in_child(
+    result_sender: Any,
+    code: str,
+    params: dict[str, Any],
+    timeout: int,
+) -> None:
+    """Execute and preflight untrusted code without sharing parent memory."""
+    _apply_child_resource_limits(timeout)
+    try:
+        strategy_class = StrategySandbox.execute_strategy_code(code, params, timeout=timeout)
+    except BaseException as exc:
+        result_sender.send(("execution", f"{type(exc).__name__}: {exc}"))
+        return
+    try:
+        _preflight_strategy_class(strategy_class)
+    except BaseException as exc:
+        result_sender.send(("preflight", f"{type(exc).__name__}: {exc}"))
+        return
+    result_sender.send(("ok", strategy_class.__name__))
 
 
 class StrategySandbox:
@@ -229,6 +298,63 @@ class StrategySandbox:
         return strategy_class
 
     @classmethod
+    def validate_strategy_code(
+        cls,
+        code: str,
+        params: dict[str, Any] | None = None,
+        timeout: int | None = None,
+        *,
+        use_docker: bool = False,
+        docker_image: str = "backtrader-sandbox:latest",
+    ) -> str:
+        """Validate and preflight code without executing it in the API process.
+
+        Production callers select Docker isolation. Development and tests use a
+        spawned worker process with CPU, memory, file-descriptor, and wall-clock
+        limits. The dynamic strategy class is intentionally not returned: a
+        class object from untrusted code must never be retained by the parent.
+        """
+        execution_timeout = timeout if timeout is not None else cls._EXECUTION_TIMEOUT
+        cls._check_code_safety(code)
+        if use_docker:
+            DockerSandbox.validate_in_container(
+                code,
+                params or {},
+                docker_image=docker_image,
+                timeout=execution_timeout,
+            )
+            return "docker"
+
+        context = mp.get_context("spawn")
+        result_receiver, result_sender = context.Pipe(duplex=False)
+        process = context.Process(
+            target=_validate_strategy_in_child,
+            args=(result_sender, code, params or {}, execution_timeout),
+            daemon=True,
+        )
+        process.start()
+        result_sender.close()
+        process.join(execution_timeout)
+        if process.is_alive():
+            process.terminate()
+            process.join()
+            result_receiver.close()
+            raise RuntimeError(f"Strategy validation timed out after {execution_timeout} seconds")
+        try:
+            if not result_receiver.poll(1):
+                raise RuntimeError("isolated validator did not send a result")
+            phase, message = result_receiver.recv()
+        except Exception as exc:
+            raise RuntimeError("Isolated strategy validation exited without a result") from exc
+        finally:
+            result_receiver.close()
+        if phase == "preflight":
+            raise SandboxPreflightError(message)
+        if phase != "ok":
+            raise RuntimeError(message)
+        return str(message)
+
+    @classmethod
     def _exec_with_timeout(cls, compiled_code: Any, safe_globals: dict, timeout: int) -> None:
         """Execute compiled code with a timeout.
 
@@ -345,6 +471,7 @@ class StrategySandbox:
             "__builtins__",
             "__subclasses__",
             "__bases__",
+            "__base__",
             "__mro__",
             "__globals__",
             "__code__",
@@ -568,6 +695,86 @@ class DockerSandbox:
                 return json.loads(result.stdout.strip())
             except json.JSONDecodeError as e:
                 raise RuntimeError(f"Cannot parse execution result: {e}") from e
+
+    @staticmethod
+    def validate_in_container(
+        code: str,
+        params: dict[str, Any],
+        docker_image: str = "backtrader-sandbox:latest",
+        timeout: int = 30,
+    ) -> None:
+        """Compile, execute, and smoke-check code inside a hardened container.
+
+        Unlike :meth:`execute_in_container`, this validation path deliberately
+        returns no user-defined objects or output to the application process.
+        """
+        import json
+        import os
+        import subprocess
+        import tempfile
+
+        try:
+            subprocess.run(["docker", "--version"], check=True, capture_output=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            raise RuntimeError("Docker is not available for strategy validation") from None
+
+        validator = (
+            "from pathlib import Path\n"
+            "import backtrader as bt\n"
+            "code = Path('/data/strategy.py').read_text(encoding='utf-8')\n"
+            "namespace = {'__name__': '__sandbox__'}\n"
+            "exec(compile(code, '<strategy>', 'exec'), namespace)\n"
+            "assert any(isinstance(value, type) and issubclass(value, bt.Strategy) "
+            "for value in namespace.values())\n"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            strategy_file = os.path.join(tmpdir, "strategy.py")
+            params_file = os.path.join(tmpdir, "params.json")
+            with open(strategy_file, "w", encoding="utf-8") as file_handle:
+                file_handle.write(code)
+            with open(params_file, "w", encoding="utf-8") as file_handle:
+                json.dump(params, file_handle)
+            os.chmod(tmpdir, 0o755)
+            os.chmod(strategy_file, 0o644)
+            os.chmod(params_file, 0o644)
+
+            try:
+                result = subprocess.run(
+                    [
+                        "docker",
+                        "run",
+                        "--rm",
+                        "--network=none",
+                        "--cap-drop=ALL",
+                        "--security-opt=no-new-privileges",
+                        "--pids-limit=64",
+                        "--cpus=1.0",
+                        "--memory=512m",
+                        "--read-only",
+                        "--tmpfs",
+                        "/tmp:rw,noexec,nosuid,size=100m",
+                        "--user",
+                        "65534:65534",
+                        "-v",
+                        f"{tmpdir}:/data:ro",
+                        "-e",
+                        "PYTHONDONTWRITEBYTECODE=1",
+                        docker_image,
+                        "python",
+                        "-I",
+                        "-c",
+                        validator,
+                    ],
+                    capture_output=True,
+                    timeout=timeout,
+                    text=True,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError(
+                    f"Strategy validation timed out after {timeout} seconds"
+                ) from exc
+            if result.returncode != 0:
+                raise RuntimeError(f"Strategy validation failed: {result.stderr.strip()}")
 
 
 # Convenience function

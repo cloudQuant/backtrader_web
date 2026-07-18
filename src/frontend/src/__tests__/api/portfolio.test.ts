@@ -16,6 +16,15 @@ describe('portfolioApi', () => {
     expect(r).toEqual({ total_assets: 100000 })
   })
 
+  it('getOverview requests the compact first-screen summary', async () => {
+    vi.mocked(request.get).mockResolvedValue({ total_assets: 100000 })
+    await portfolioApi.getOverview(true)
+    expect(request.get).toHaveBeenCalledWith(
+      '/portfolio/overview',
+      { params: { summary_only: true } },
+    )
+  })
+
   it('getPositions', async () => {
     vi.mocked(request.get).mockResolvedValue({ total: 0, positions: [] })
     await portfolioApi.getPositions()
@@ -52,6 +61,15 @@ describe('portfolioApi', () => {
   it('getAllocation', async () => {
     vi.mocked(request.get).mockResolvedValue({ total: 0, items: [] })
     await portfolioApi.getAllocation()
-    expect(request.get).toHaveBeenCalledWith('/portfolio/allocation')
+    expect(request.get).toHaveBeenCalledWith('/portfolio/allocation', { params: {} })
+  })
+
+  it('getAllocation with workspace ids', async () => {
+    vi.mocked(request.get).mockResolvedValue({ total: 0, items: [] })
+    await portfolioApi.getAllocation(['ws-a', 'ws-b'])
+    expect(request.get).toHaveBeenCalledWith(
+      '/portfolio/allocation',
+      { params: { workspace_ids: 'ws-a,ws-b' } },
+    )
   })
 })

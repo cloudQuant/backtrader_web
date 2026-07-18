@@ -347,7 +347,9 @@ class TestBuildCtpGatewayRuntimeKwargs:
 
     def test_ctp_auto_env_runtime_kwargs_include_selected_fronts(self):
         result = build_ctp_gateway_runtime_kwargs(
-            config_data={"ctp": {"investor_id": "inv001", "broker_id": "9999", "password": "secret"}},
+            config_data={
+                "ctp": {"investor_id": "inv001", "broker_id": "9999", "password": "secret"}
+            },
             env_data={
                 "CTP_SET2_TD_FRONT": "tcp://set2-td",
                 "CTP_SET2_MD_FRONT": "tcp://set2-md",
@@ -529,7 +531,9 @@ class TestBuildMt5GatewayRuntimeKwargs:
 
     def test_env_credentials_override_mt5_config_and_gateway_params(self):
         result = build_mt5_gateway_runtime_kwargs(
-            config_data={"mt5": {"login": "111111", "password": "config-pass", "ws_uri": "config-ws"}},
+            config_data={
+                "mt5": {"login": "111111", "password": "config-pass", "ws_uri": "config-ws"}
+            },
             env_data={
                 "MT5_LOGIN": "222222",
                 "MT5_PASSWORD": "env-pass",

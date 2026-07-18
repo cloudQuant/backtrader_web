@@ -1,3 +1,5 @@
+import typing
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,12 +20,12 @@ from app.services.portfolio_ledger_analytics import get_portfolio_ledger_analyti
 router = APIRouter(prefix="/portfolio-ledger", tags=["Portfolio Ledger"])
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=None)
 async def create_portfolio(
     payload: dict,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     return await get_portfolio_ledger_service(db).create_portfolio(
         current_user.sub,
         str(payload["name"]),
@@ -35,33 +37,33 @@ async def create_portfolio(
     )
 
 
-@router.get("")
+@router.get("", response_model=None)
 async def list_portfolios(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     return await get_portfolio_ledger_service(db).list_portfolios(current_user.sub)
 
 
-@router.get("/{portfolio_id}")
+@router.get("/{portfolio_id}", response_model=None)
 async def get_portfolio(
     portfolio_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     result = await get_portfolio_ledger_service(db).get_portfolio(current_user.sub, portfolio_id)
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="portfolio_not_found")
     return result
 
 
-@router.post("/{portfolio_id}/import")
+@router.post("/{portfolio_id}/import", response_model=None)
 async def import_transactions(
     portfolio_id: str,
     payload: dict,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     result = await get_portfolio_ledger_service(db).import_transactions(
         current_user.sub,
         portfolio_id,
@@ -74,24 +76,24 @@ async def import_transactions(
     return result
 
 
-@router.get("/{portfolio_id}/holdings")
+@router.get("/{portfolio_id}/holdings", response_model=None)
 async def get_holdings(
     portfolio_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     result = await get_portfolio_ledger_service(db).holdings(current_user.sub, portfolio_id)
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="portfolio_not_found")
     return result
 
 
-@router.get("/{portfolio_id}/transactions")
+@router.get("/{portfolio_id}/transactions", response_model=None)
 async def get_transactions(
     portfolio_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     result = await get_portfolio_ledger_service(db).list_transactions(
         current_user.sub,
         portfolio_id,
@@ -101,24 +103,24 @@ async def get_transactions(
     return result
 
 
-@router.get("/{portfolio_id}/snapshots")
+@router.get("/{portfolio_id}/snapshots", response_model=None)
 async def get_snapshots(
     portfolio_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     result = await get_portfolio_ledger_service(db).snapshots(current_user.sub, portfolio_id)
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="portfolio_not_found")
     return result
 
 
-@router.post("/{portfolio_id}/snapshots/backfill")
+@router.post("/{portfolio_id}/snapshots/backfill", response_model=None)
 async def backfill_snapshots(
     portfolio_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     result = await get_portfolio_ledger_service(db).backfill_snapshots(
         current_user.sub,
         portfolio_id,
@@ -128,12 +130,12 @@ async def backfill_snapshots(
     return result
 
 
-@router.get("/{portfolio_id}/export")
+@router.get("/{portfolio_id}/export", response_model=None)
 async def export_portfolio(
     portfolio_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     result = await get_portfolio_ledger_service(db).export_portfolio(current_user.sub, portfolio_id)
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="portfolio_not_found")
@@ -147,9 +149,9 @@ async def export_portfolio(
 async def get_portfolio_var_cvar(
     portfolio_id: str,
     method: str = "historical",
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     result = await get_portfolio_ledger_analytics_service(db).get_var_cvar(
         current_user.sub,
         portfolio_id,
@@ -168,9 +170,9 @@ async def get_portfolio_position_sizing(
     portfolio_id: str,
     target_volatility: float = 0.15,
     max_position: float = 1.0,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     result = await get_portfolio_ledger_analytics_service(db).get_position_sizing(
         current_user.sub,
         portfolio_id,
@@ -190,9 +192,9 @@ async def get_portfolio_benchmark_metrics(
     portfolio_id: str,
     benchmark_id: str | None = None,
     risk_free_rate: float = 0.0,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     result = await get_portfolio_ledger_analytics_service(db).get_benchmark_metrics(
         current_user.sub,
         portfolio_id,
@@ -211,9 +213,9 @@ async def get_portfolio_benchmark_metrics(
 async def calculate_portfolio_brinson(
     portfolio_id: str,
     payload: PortfolioLedgerBrinsonRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     result = await get_portfolio_ledger_analytics_service(db).calculate_brinson(
         current_user.sub,
         portfolio_id,
@@ -231,9 +233,9 @@ async def calculate_portfolio_brinson(
 async def calculate_portfolio_fama_french(
     portfolio_id: str,
     payload: PortfolioLedgerFamaFrenchRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> typing.Any:
     result = await get_portfolio_ledger_analytics_service(db).calculate_fama_french(
         current_user.sub,
         portfolio_id,

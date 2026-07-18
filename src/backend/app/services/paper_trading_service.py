@@ -288,7 +288,9 @@ class PaperTradingService:
         if min_size is None and integer_required:
             min_size = 1.0
         if min_size and requested + 1e-12 < min_size:
-            raise ValueError(f"{symbol} quantity {size} is below the minimum allowed size {min_size}")
+            raise ValueError(
+                f"{symbol} quantity {size} is below the minimum allowed size {min_size}"
+            )
 
         order_type_value = cls._order_type_value(order_type or "").strip().lower()
         max_size_keys: tuple[str, ...] = ()
@@ -298,7 +300,9 @@ class PaperTradingService:
             max_size_keys = _LIMIT_MAX_SIZE_KEYS
         max_size = cls._first_asset_number(asset_spec, *max_size_keys, *_MAX_SIZE_KEYS)
         if max_size and requested > max_size + 1e-12:
-            raise ValueError(f"{symbol} quantity {size} exceeds the maximum allowed size {max_size}")
+            raise ValueError(
+                f"{symbol} quantity {size} exceeds the maximum allowed size {max_size}"
+            )
 
         step = cls._first_asset_number(asset_spec, *_SIZE_STEP_KEYS)
         if step is None and integer_required:
@@ -332,7 +336,9 @@ class PaperTradingService:
                 continue
             scaled = float(value) / tick
             if abs(round(scaled) - scaled) > 1e-9:
-                raise ValueError(f"{symbol} {field_name} {value} does not align with tick size {tick}")
+                raise ValueError(
+                    f"{symbol} {field_name} {value} does not align with tick size {tick}"
+                )
 
     @classmethod
     def _validate_asset_order_constraints(
@@ -669,7 +675,10 @@ class PaperTradingService:
             spec,
         )
         opening_margin = cls._margin_value(opening_signed_size, price, spec)
-        return max(opening_margin + abs(float(commission or 0.0)) - released_margin - realized_gross_pnl, 0.0)
+        return max(
+            opening_margin + abs(float(commission or 0.0)) - released_margin - realized_gross_pnl,
+            0.0,
+        )
 
     @classmethod
     def _cash_required_before_fill(
@@ -707,13 +716,10 @@ class PaperTradingService:
         unrealized_pnl = cls._safe_float(getattr(position, "unrealized_pnl", 0.0), 0.0)
         multiplier = cls._safe_float(getattr(position, "multiplier", 1.0), 1.0)
         margin_rate = cls._safe_float(getattr(position, "margin_rate", 1.0), 1.0)
-        uses_margin_accounting = (
-            margin_value > 0
-            and (
-                abs(multiplier - 1.0) > 1e-12
-                or margin_rate < 1.0
-                or abs(margin_value - abs(market_value)) > 1e-9
-            )
+        uses_margin_accounting = margin_value > 0 and (
+            abs(multiplier - 1.0) > 1e-12
+            or margin_rate < 1.0
+            or abs(margin_value - abs(market_value)) > 1e-9
         )
         if uses_margin_accounting:
             return margin_value + unrealized_pnl
@@ -758,15 +764,15 @@ class PaperTradingService:
             same_id = (
                 snapshot_id is not None
                 and getattr(position, "id", None) is not None
-                and str(getattr(position, "id")) == str(snapshot_id)
+                and str(position.id) == str(snapshot_id)
             )
             same_symbol = (
                 snapshot_account_id is not None
                 and snapshot_symbol is not None
                 and getattr(position, "account_id", None) is not None
                 and getattr(position, "symbol", None) is not None
-                and str(getattr(position, "account_id")) == str(snapshot_account_id)
-                and str(getattr(position, "symbol")) == str(snapshot_symbol)
+                and str(position.account_id) == str(snapshot_account_id)
+                and str(position.symbol) == str(snapshot_symbol)
             )
             if same_id or same_symbol:
                 merged.append(snapshot)
@@ -1322,9 +1328,7 @@ class PaperTradingService:
 
             pnl_denominator = self._pnl_denominator(new_size, new_avg_price, spec)
             unrealized_pnl_pct = (
-                (unrealized_pnl / pnl_denominator * 100)
-                if pnl_denominator > 1e-12
-                else 0
+                (unrealized_pnl / pnl_denominator * 100) if pnl_denominator > 1e-12 else 0
             )
 
             now = fill_time or datetime.now(timezone.utc)
@@ -1359,11 +1363,7 @@ class PaperTradingService:
                 pnl = realized_gross_pnl - closing_commission
 
                 pnl_denominator = self._pnl_denominator(closed_size, old_avg_price, spec)
-                pnl_pct = (
-                    (pnl / pnl_denominator * 100)
-                    if pnl_denominator > 1e-12
-                    else 0
-                )
+                pnl_pct = (pnl / pnl_denominator * 100) if pnl_denominator > 1e-12 else 0
 
                 # Update trade record
                 trade = await self._get_last_trade(order.id, trade_repo=trade_repo)
@@ -1377,7 +1377,9 @@ class PaperTradingService:
                     )
 
         if margin_accounting:
-            cash_delta = old_margin_value + realized_gross_pnl - final_margin_value - fill_commission
+            cash_delta = (
+                old_margin_value + realized_gross_pnl - final_margin_value - fill_commission
+            )
         else:
             if side_value == OrderSide.BUY.value:
                 cash_delta = -(self._notional_value(fill_size, price, spec) + fill_commission)
@@ -1435,7 +1437,9 @@ class PaperTradingService:
             if side_value == OrderSide.BUY.value:
                 account.current_cash -= self._notional_value(order.size, price, spec) + commission
             else:
-                account.current_cash += abs(self._notional_value(order.size, price, spec)) - commission
+                account.current_cash += (
+                    abs(self._notional_value(order.size, price, spec)) - commission
+                )
 
         # Update total equity
         account.total_equity = account.current_cash + sum(
@@ -1757,7 +1761,9 @@ class PaperTradingService:
         Returns:
             Slippage amount.
         """
-        order_type_value = str(order_type.value if isinstance(order_type, OrderType) else order_type)
+        order_type_value = str(
+            order_type.value if isinstance(order_type, OrderType) else order_type
+        )
         side_value = str(side.value if isinstance(side, OrderSide) else side)
         if order_type_value == OrderType.MARKET.value:
             # Market order, calculate directly from rate
@@ -1791,7 +1797,9 @@ class PaperTradingService:
         return str(status.value if isinstance(status, OrderStatus) else status)
 
     @classmethod
-    def _signed_slippage(cls, side: str | OrderSide, market_price: float, slippage_rate: float) -> float:
+    def _signed_slippage(
+        cls, side: str | OrderSide, market_price: float, slippage_rate: float
+    ) -> float:
         if cls._order_side_value(side) == OrderSide.BUY.value:
             return market_price * slippage_rate
         return -market_price * slippage_rate
@@ -1833,10 +1841,15 @@ class PaperTradingService:
             if side == OrderSide.BUY.value:
                 if market_price > limit_price:
                     return None
-                return min(market_price + cls._signed_slippage(side, market_price, slippage_rate), limit_price)
+                return min(
+                    market_price + cls._signed_slippage(side, market_price, slippage_rate),
+                    limit_price,
+                )
             if market_price < limit_price:
                 return None
-            return max(market_price + cls._signed_slippage(side, market_price, slippage_rate), limit_price)
+            return max(
+                market_price + cls._signed_slippage(side, market_price, slippage_rate), limit_price
+            )
 
         if order_type == OrderType.STOP.value:
             stop_price = cls._stop_price(order)
@@ -1856,10 +1869,15 @@ class PaperTradingService:
             if side == OrderSide.BUY.value:
                 if market_price < stop_price or market_price > limit_price:
                     return None
-                return min(market_price + cls._signed_slippage(side, market_price, slippage_rate), limit_price)
+                return min(
+                    market_price + cls._signed_slippage(side, market_price, slippage_rate),
+                    limit_price,
+                )
             if market_price > stop_price or market_price < limit_price:
                 return None
-            return max(market_price + cls._signed_slippage(side, market_price, slippage_rate), limit_price)
+            return max(
+                market_price + cls._signed_slippage(side, market_price, slippage_rate), limit_price
+            )
 
         return None
 

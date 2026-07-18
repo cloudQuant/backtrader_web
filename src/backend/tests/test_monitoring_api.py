@@ -9,6 +9,7 @@ Tests:
 - WebSocket endpoints
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -488,7 +489,13 @@ class TestMonitoringWebSocket:
         mock_ws = MagicMock()
         mock_ws.accept = AsyncMock()
 
-        with patch("app.api.monitoring.ws_manager") as mock_mgr:
+        with (
+            patch(
+                "app.api.monitoring.get_websocket_current_user",
+                return_value=(SimpleNamespace(sub="user-1"), "access-token"),
+            ),
+            patch("app.api.monitoring.ws_manager") as mock_mgr,
+        ):
             mock_mgr.connect = AsyncMock()
             mock_mgr.disconnect = MagicMock()
             mock_mgr.send_to_task = AsyncMock()
@@ -505,8 +512,10 @@ class TestMonitoringWebSocket:
                         sys.modules["asyncio"] = old_asyncio
 
                 client_id = mock_mgr.connect.await_args.args[2]
-                mock_mgr.connect.assert_awaited_once_with(mock_ws, "alerts:global", client_id)
-                mock_mgr.disconnect.assert_called_once_with(mock_ws, "alerts:global", client_id)
+                mock_mgr.connect.assert_awaited_once_with(
+                    mock_ws, "alert:user-1", client_id, "access-token"
+                )
+                mock_mgr.disconnect.assert_called_once_with(mock_ws, "alert:user-1", client_id)
 
 
 @pytest.mark.asyncio

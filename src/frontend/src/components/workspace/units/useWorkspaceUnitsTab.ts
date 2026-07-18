@@ -1,0 +1,825 @@
+/** Unit-table state and operations for a workspace. */
+
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import { useWorkspaceStore } from '@/stores/workspace'
+import { workspaceApi } from '@/api/workspace'
+import { getErrorMessage } from '@/api/index'
+import type { StrategyUnit } from '@/types/workspace'
+import type { TagType } from '@/constants/strategy'
+
+export interface WorkspaceUnitsTabProps {
+  workspaceId: string
+  active?: boolean
+  toolbarInHeader?: boolean
+}
+
+export function useWorkspaceUnitsTab(props: WorkspaceUnitsTabProps) {
+  const { t } = useI18n()
+
+  const store = useWorkspaceStore()
+  const router = useRouter()
+
+  const hasSelection = computed(() => store.selectedUnitIds.length > 0)
+  const hasSingleSelection = computed(() => store.selectedUnitIds.length === 1)
+  const selectedUnit = computed<StrategyUnit | null>(() => {
+    if (!hasSingleSelection.value) return null
+    return store.units.find(u => u.id === store.selectedUnitIds[0]) ?? null
+  })
+  const hasOpenableSelectedReport = computed(() => (
+    selectedUnit.value ? canOpenReport(selectedUnit.value) : false
+  ))
+
+  // Dialog visibility flags
+  const showCreateUnit = ref(false)
+  const showDataSource = ref(false)
+  const showUnitSettings = ref(false)
+  const showStrategyParams = ref(false)
+  const showOptConfig = ref(false)
+  const showOptThread = ref(false)
+  const showBatchOptConfig = ref(false)
+  const showChangeSymbol = ref(false)
+  const showGroupRename = ref(false)
+  const showUnitRename = ref(false)
+  const importFileInput = ref<HTMLInputElement | null>(null)
+  const batchSubmittingOptimization = ref(false)
+  const nowMs = ref(Date.now())
+  let clockTimer: ReturnType<typeof setInterval> | null = null
+
+  onMounted(() => {
+    store.startPolling(props.workspaceId)
+    clockTimer = setInterval(() => {
+      nowMs.value = Date.now()
+    }, 1000)
+  })
+  onUnmounted(() => {
+    store.stopPolling()
+    if (clockTimer) {
+      clearInterval(clockTimer)
+      clockTimer = null
+    }
+  })
+
+  function onSelectionChange(rows: StrategyUnit[]) {
+    store.setSelectedUnitIds(rows.map(r => r.id))
+  }
+
+  function canOpenReport(unit: StrategyUnit): boolean {
+    return unit.run_status === 'completed' && !!unit.last_task_id
+  }
+
+  function openBacktestResult(row: StrategyUnit) {
+    if (!canOpenReport(row)) return
+    router.push({
+      name: 'BacktestResult',
+      params: { id: row.last_task_id as string },
+      query: {
+        workspaceId: props.workspaceId,
+        unitId: row.id,
+        strategyName: row.strategy_name || row.group_name || row.strategy_id || '',
+      },
+    })
+  }
+
+  function handleOpenSelectedReport() {
+    if (selectedUnit.value) {
+      openBacktestResult(selectedUnit.value)
+    }
+  }
+
+  function handleRowDblClick(row: StrategyUnit, column?: { type?: string }, event?: Event) {
+    if (!canOpenReport(row)) return
+    if (column?.type === 'selection') return
+    const target = event?.target as HTMLElement | null
+    if (target?.closest('button, a, .el-checkbox')) return
+    openBacktestResult(row)
+  }
+
+  function onUnitCreated() {
+    store.fetchUnits(props.workspaceId)
+  }
+  async function onUnitUpdated() {
+    await store.fetchUnits(props.workspaceId)
+    await store.pollStatus(props.workspaceId)
+  }
+  async function onUnitsRefresh() {
+    await store.fetchUnits(props.workspaceId)
+    await store.pollStatus(props.workspaceId)
+  }
+
+  // --- Bulk delete ---
+  async function handleBulkDelete() {
+    if (!store.selectedUnitIds.length) return
+    try {
+      await ElMessageBox.confirm(`${t('units.confirmDeleteSelected')} ${store.selectedUnitIds.length} ${t('units.nUnitsSuffix')}？`, t('units.deleteConfirm'), { type: 'warning' })
+      await store.bulkDeleteUnits(props.workspaceId, [...store.selectedUnitIds])
+      ElMessage.success(t('units.deleted'))
+    } catch (e: unknown) {
+      if (e !== 'cancel' && (e as { message?: string })?.message !== 'cancel') {
+        ElMessage.error(getErrorMessage(e, t('units.deleteFailed')))
+      }
+    }
+  }
+
+  // --- Run / Stop ---
+  async function handleRunSelected(parallel = false) {
+    if (!store.selectedUnitIds.length) return
+    try {
+      await store.runSelectedUnits(props.workspaceId, parallel)
+      ElMessage.success(parallel ? t('units.parallelStarted') : t('units.serialStarted'))
+    } catch (e: unknown) {
+      ElMessage.error(getErrorMessage(e, t('units.statusFailed')))
+    }
+  }
+
+  async function handleStopSelected() {
+    if (!store.selectedUnitIds.length) return
+    try {
+      await store.stopSelectedUnits(props.workspaceId)
+      ElMessage.success(t('units.stopSent'))
+    } catch (e: unknown) {
+      ElMessage.error(getErrorMessage(e, t('units.stopFailed')))
+    }
+  }
+
+  // --- Move / Reorder ---
+  async function handleMove(direction: 'up' | 'down' | 'top' | 'bottom') {
+    if (!hasSingleSelection.value) return
+    const unitId = store.selectedUnitIds[0]
+    const ids = store.units.map(u => u.id)
+    const idx = ids.indexOf(unitId)
+    if (idx < 0) return
+
+    const newIds = [...ids]
+    newIds.splice(idx, 1)
+    let insertAt = idx
+    if (direction === 'up' && idx > 0) insertAt = idx - 1
+    else if (direction === 'down' && idx < ids.length - 1) insertAt = idx + 1
+    else if (direction === 'top') insertAt = 0
+    else if (direction === 'bottom') insertAt = newIds.length
+    else return
+
+    newIds.splice(insertAt, 0, unitId)
+    try {
+      await store.reorderUnits(props.workspaceId, newIds)
+    } catch (e: unknown) {
+      ElMessage.error(getErrorMessage(e, t('units.sortFailed')))
+    }
+  }
+
+  // --- Reload strategy ---
+  function handleReloadStrategy() {
+    store.fetchUnits(props.workspaceId)
+    ElMessage.success(t('units.strategyReloaded'))
+  }
+
+  // --- Import / Export ---
+  function handleImportUnits() {
+    importFileInput.value?.click()
+  }
+
+  async function onImportFileSelected(event: Event) {
+    const file = (event.target as HTMLInputElement).files?.[0]
+    if (!file) return
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text)
+      const units = Array.isArray(data) ? data : (data.units ?? [])
+      if (!units.length) {
+        ElMessage.warning(t('units.importNoUnits'))
+        return
+      }
+      await store.batchCreateUnits(props.workspaceId, units)
+      ElMessage.success(`${t('units.importSuccess')} ${units.length} ${t('units.nStrategyUnits')}`)
+    } catch (e: unknown) {
+      ElMessage.error(getErrorMessage(e, t('units.importFailed')))
+    } finally {
+      if (importFileInput.value) importFileInput.value.value = ''
+    }
+  }
+
+  function handleExportUnits() {
+    const selected = store.units.filter(u => store.selectedUnitIds.includes(u.id))
+    if (!selected.length) return
+    const exportData = selected.map(u => ({
+      strategy_name: u.strategy_name,
+      strategy_id: u.strategy_id,
+      symbol: u.symbol,
+      symbol_name: u.symbol_name,
+      timeframe: u.timeframe,
+      group_name: u.group_name,
+      category: u.category,
+      data_config: u.data_config,
+      unit_settings: u.unit_settings,
+      params: u.params,
+      optimization_config: u.optimization_config,
+    }))
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `units_export_${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success(`${t('units.exported')} ${selected.length} ${t('units.nStrategyUnits')}`)
+  }
+
+  // --- Open K-line ---
+  function handleOpenKline() {
+    if (!selectedUnit.value) return
+    const u = selectedUnit.value
+    const url = `/backtest/legacy?symbol=${u.symbol}&timeframe=${u.timeframe}`
+    window.open(url, '_blank')
+  }
+
+  function inferBatchParamType(layer: { start: number; end: number; step: number }): 'int' | 'float' {
+    const values = [layer.start, layer.end, layer.step]
+    return values.every(v => Number.isInteger(v)) ? 'int' : 'float'
+  }
+
+  function calculateBatchTotalCombinations(
+    paramRanges: Record<string, { start: number; end: number; step: number; type: string }>,
+  ): number {
+    const counts = Object.values(paramRanges).map(spec => {
+      const distance = spec.end - spec.start
+      if (distance <= 0 || spec.step <= 0) {
+        return 0
+      }
+      return Math.floor(distance / spec.step) + 1
+    })
+    if (!counts.length) {
+      return 0
+    }
+    return counts.reduce((product, count) => product * count, 1)
+  }
+
+  function initializeUnitOptimizationState(
+    unit: StrategyUnit,
+    totalCombinations: number | null,
+    taskId?: string,
+  ) {
+    const now = Date.now()
+    if (taskId) {
+      unit.last_optimization_task_id = taskId
+    }
+    unit.opt_status = 'pending'
+    unit.opt_elapsed_time = 0
+    unit.opt_remaining_time = 0
+    unit.opt_total = totalCombinations
+    unit.opt_completed = totalCombinations == null ? null : 0
+    unit.opt_progress = 0
+    unit.opt_started_at_ms = now
+    unit.opt_last_sync_at_ms = now
+  }
+
+  function sleep(ms: number) {
+    return new Promise(resolve => window.setTimeout(resolve, ms))
+  }
+
+  function isOptimizationActiveStatus(status: string | null | undefined) {
+    return status === 'pending' || status === 'queued' || status === 'running'
+  }
+
+  function isOptimizationPendingStatus(status: string | null | undefined) {
+    return status === 'pending' || status === 'queued'
+  }
+
+  function isOptimizationTerminalStatus(status: string | null | undefined) {
+    return status === 'completed' || status === 'failed' || status === 'cancelled'
+  }
+
+  function getOptimizationTotal(row: StrategyUnit): number {
+    return Math.max(0, Number(row.opt_total ?? 0))
+  }
+
+  function getOptimizationCompleted(row: StrategyUnit): number {
+    return Math.max(0, Number(row.opt_completed ?? 0))
+  }
+
+  function hasOptimizationInProgressSnapshot(row: StrategyUnit): boolean {
+    const total = getOptimizationTotal(row)
+    if (total <= 0) return false
+    return getOptimizationCompleted(row) < total
+  }
+
+  function shouldShowOptimizationProgress(row: StrategyUnit): boolean {
+    if (isOptimizationActiveStatus(row.opt_status)) {
+      return true
+    }
+    if (isOptimizationTerminalStatus(row.opt_status)) {
+      return false
+    }
+    return hasOptimizationInProgressSnapshot(row)
+  }
+
+  function shouldShowOptimizationTerminal(row: StrategyUnit): boolean {
+    if (!isOptimizationTerminalStatus(row.opt_status)) {
+      return false
+    }
+    if (row.opt_status !== 'completed') {
+      return true
+    }
+    const total = getOptimizationTotal(row)
+    return total <= 0 || getOptimizationCompleted(row) >= total
+  }
+
+  async function waitForUnitOptimizationCompletion(unitId: string, pendingUnitIds: string[] = [], timeoutMs = 12 * 60 * 60 * 1000) {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      // Refresh protection window for units still queued in the batch
+      const nowTs = Date.now()
+      for (const pid of pendingUnitIds) {
+        const pu = store.units.find(item => item.id === pid)
+        if (pu && isOptimizationPendingStatus(pu.opt_status)) {
+          pu.opt_started_at_ms = nowTs
+        }
+      }
+      await store.pollStatus(props.workspaceId)
+      const unit = store.units.find(item => item.id === unitId)
+      if (unit && shouldShowOptimizationTerminal(unit)) {
+        return unit.opt_status
+      }
+
+      const progress = await workspaceApi.getOptimizationProgress(props.workspaceId, unitId).catch(() => null)
+      if (unit && progress) {
+        const status = typeof progress.status === 'string' ? progress.status : unit.opt_status ?? null
+        const completed = Number(progress.completed ?? 0)
+        const failed = Number(progress.failed ?? 0)
+        const total = Number(progress.total ?? unit.opt_total ?? 0)
+        const elapsed = Number(progress.elapsed_time ?? unit.opt_elapsed_time ?? 0)
+        const remaining = Number(progress.remaining_time ?? unit.opt_remaining_time ?? 0)
+        const done = completed + failed
+        const prematureCompleted = status === 'completed' && total > 0 && done < total
+        if (!prematureCompleted) {
+          unit.opt_status = status
+        }
+        unit.opt_total = Number.isFinite(total) ? total : unit.opt_total
+        unit.opt_completed = Number.isFinite(done) ? done : unit.opt_completed
+        unit.opt_progress = Number(progress.progress ?? unit.opt_progress ?? 0)
+        unit.opt_elapsed_time = Number.isFinite(elapsed) ? elapsed : unit.opt_elapsed_time
+        unit.opt_remaining_time = Number.isFinite(remaining) ? remaining : unit.opt_remaining_time
+        unit.opt_last_sync_at_ms = nowTs
+        if (unit.opt_status === 'running') {
+          unit.opt_started_at_ms = nowTs - Math.round(Math.max(0, unit.opt_elapsed_time ?? 0) * 1000)
+        } else if (unit.opt_status === 'pending' || unit.opt_status === 'queued') {
+          unit.opt_started_at_ms = nowTs
+          unit.opt_elapsed_time = 0
+          unit.opt_remaining_time = 0
+        } else if (unit.opt_status) {
+          unit.opt_started_at_ms = null
+          unit.opt_last_sync_at_ms = null
+          unit.opt_remaining_time = 0
+        }
+        if (shouldShowOptimizationTerminal(unit)) {
+          return unit.opt_status
+        }
+      }
+      if (unit && shouldShowOptimizationTerminal(unit)) {
+        return unit.opt_status
+      }
+      await sleep(3000)
+    }
+    throw new Error(t('units.waitOptTimeout'))
+  }
+
+  // --- Batch submit optimization ---
+  async function handleBatchSubmitOpt() {
+    const ids = store.selectedUnitIds
+    if (!ids.length) return
+
+    batchSubmittingOptimization.value = true
+    try {
+      await store.fetchUnits(props.workspaceId)
+
+      const unitsWithConfig = store.units.filter(
+        u => ids.includes(u.id) && u.optimization_config && (u.optimization_config as Record<string, unknown>).param_layers
+      )
+      if (!unitsWithConfig.length) {
+        ElMessage.warning(t('units.needParamRange') + '（param_layers），' + t('units.paramRangePleaseSet') + ' "' + t('units.batchParamOpt') + '"')
+        return
+      }
+
+      let validCount = 0
+      const invalidNames: string[] = []
+      for (const u of unitsWithConfig) {
+        const oc = u.optimization_config as Record<string, unknown>
+        const layers = (oc.param_layers || []) as Array<{ param_name: string; opt_type: string; start: number; end: number; step: number }>
+        const hasValid = layers.some(l => l.param_name && l.opt_type === 'equal_diff' && l.step > 0 && l.end > l.start)
+        if (hasValid) {
+          validCount++
+        } else {
+          invalidNames.push(u.strategy_name || u.strategy_id || u.id)
+        }
+      }
+      if (validCount === 0) {
+        ElMessage.warning(t('units.paramRangeAllInvalid') + '（' + t('units.paramRangeEnsure') + ' ' + t('units.rangeEnd') + ' > ' + t('units.rangeStart') + ' ' + t('units.and') + ' ' + t('units.rangeStep') + ' > 0）')
+        return
+      }
+
+      const invalidHint = invalidNames.length > 0 ? `\n（${invalidNames.length} ${t('units.paramRangeInvalid')}）` : ''
+      try {
+        await ElMessageBox.confirm(
+          `${t('units.confirmOrder')} ${validCount} ${t('units.submitNUnits')}？${invalidHint}`,
+          t('units.submitBatchOpt'),
+          { type: 'info' },
+        )
+      } catch { return }
+
+      // Bug8 fix: Pre-initialize optimization status / elapsed / remaining for ALL
+      // selected units so the UI immediately shows a fresh 0/N progress state and
+      // zeroed timers, instead of keeping the previous completed task snapshot.
+      for (const u of unitsWithConfig) {
+        const localUnit = store.units.find(item => item.id === u.id)
+        if (!localUnit) continue
+        const oc = u.optimization_config as Record<string, unknown>
+        const layers = (oc.param_layers || []) as Array<{ param_name: string; opt_type: string; start: number; end: number; step: number }>
+        const ranges: Record<string, { start: number; end: number; step: number; type: string }> = {}
+        for (const l of layers) {
+          if (!l.param_name || l.opt_type !== 'equal_diff' || l.step <= 0 || l.end <= l.start) continue
+          ranges[l.param_name] = {
+            start: l.start,
+            end: l.end,
+            step: l.step,
+            type: inferBatchParamType(l),
+          }
+        }
+        const total = Object.keys(ranges).length ? calculateBatchTotalCombinations(ranges) : 0
+        initializeUnitOptimizationState(localUnit, total || null)
+      }
+
+      const remainingQueue = unitsWithConfig.map(u => u.id)
+
+      let completed = 0
+      let failed = 0
+      let submitFailed = 0
+      const errors: string[] = []
+
+      for (const u of unitsWithConfig) {
+        const name = u.strategy_name || u.id
+        const localUnit = store.units.find(item => item.id === u.id)
+        const qIdx = remainingQueue.indexOf(u.id)
+        if (qIdx >= 0) remainingQueue.splice(qIdx, 1)
+        try {
+          const oc = u.optimization_config as Record<string, unknown>
+          const layers = (oc.param_layers || []) as Array<{ param_name: string; opt_type: string; start: number; end: number; step: number }>
+          const paramRanges: Record<string, { start: number; end: number; step: number; type: string }> = {}
+          for (const l of layers) {
+            if (!l.param_name || l.opt_type !== 'equal_diff' || l.step <= 0 || l.end <= l.start) continue
+            paramRanges[l.param_name] = {
+              start: l.start,
+              end: l.end,
+              step: l.step,
+              type: inferBatchParamType(l),
+            }
+          }
+          if (!Object.keys(paramRanges).length) {
+            errors.push(`${name}: ${t('units.paramRange')}`)
+            submitFailed++
+            continue
+          }
+
+          const totalCombinations = calculateBatchTotalCombinations(paramRanges)
+          if (localUnit) {
+            initializeUnitOptimizationState(localUnit, totalCombinations || null)
+          }
+
+          const nWorkers = (oc.n_workers as number) || 4
+          const mode = (oc.mode as string) || 'grid'
+          const timeout = (oc.timeout as number) || 0
+          const result = await workspaceApi.submitOptimization(props.workspaceId, {
+            unit_id: u.id,
+            param_ranges: paramRanges,
+            n_workers: nWorkers,
+            mode,
+            timeout,
+          })
+
+          if (localUnit) {
+            initializeUnitOptimizationState(localUnit, result.total_combinations, result.task_id)
+          }
+
+          await store.pollStatus(props.workspaceId)
+
+          const terminalStatus = await waitForUnitOptimizationCompletion(u.id, [...remainingQueue])
+          if (terminalStatus === 'completed') {
+            completed++
+          } else {
+            failed++
+            errors.push(`${name}: ${t('units.optEndStatus')} ${terminalStatus}`)
+          }
+        } catch (e: unknown) {
+          errors.push(`${name}: ${getErrorMessage(e, t('units.nSubmitFailed'))}`)
+          submitFailed++
+        }
+      }
+
+      if (failed > 0 || submitFailed > 0) {
+        ElMessage.warning(`${t('units.serialFinished')}: ${completed} ${t('units.nFinished')}, ${failed} ${t('units.nFailed')}, ${submitFailed} ${t('units.nSubmitFailed')}\n${errors.slice(0, 3).join('; ')}`)
+      } else {
+        ElMessage.success(`${t('units.serialFinished')}: ${completed} ${t('units.nUnitsFinished')}`)
+      }
+    } finally {
+      batchSubmittingOptimization.value = false
+      await store.fetchUnits(props.workspaceId)
+    }
+  }
+
+  // --- Copy optimization params ---
+  async function handleCopyOptParams() {
+    if (!selectedUnit.value) return
+    const source = selectedUnit.value
+    if (!source.optimization_config) {
+      ElMessage.warning(t('units.noParamRange'))
+      return
+    }
+    const targets = store.selectedUnitIds.filter(id => id !== source.id)
+    if (!targets.length) {
+      ElMessage.warning(t('units.needCopyTarget'))
+      return
+    }
+    try {
+      for (const id of targets) {
+        await workspaceApi.updateUnit(props.workspaceId, id, {
+          optimization_config: { ...source.optimization_config },
+        })
+      }
+      ElMessage.success(`${t('units.paramCopiedTo')} ${targets.length} ${t('units.nUnitsSuffix')}`)
+      store.fetchUnits(props.workspaceId)
+    } catch (e: unknown) {
+      ElMessage.error(getErrorMessage(e, t('units.paramOptCopyFailed')))
+    }
+  }
+
+  // --- Formatters ---
+  function runStatusTagType(status: string): TagType {
+    const map: Record<string, TagType> = {
+      idle: 'info', queued: 'warning', running: 'primary', completed: 'success', failed: 'danger', cancelled: 'warning',
+    }
+    return map[status] || 'info'
+  }
+
+  function runStatusLabel(status: string) {
+    const map: Record<string, string> = {
+      idle: t('units.statusIdle'), queued: t('units.statusQueued'), running: t('units.statusRunning'), completed: t('units.statusCompleted'), failed: t('units.statusFail'), cancelled: t('units.statusCancelled'),
+    }
+    return map[status] || status
+  }
+
+  function optimizationStatusTagType(status: string | null | undefined): TagType {
+    const map: Record<string, TagType> = {
+      completed: 'success', failed: 'danger', cancelled: 'warning',
+    }
+    return map[status || ''] || 'info'
+  }
+
+  function optimizationStatusLabel(status: string | null | undefined) {
+    const map: Record<string, string> = {
+      completed: t('units.statusCompleted'), failed: t('units.statusFail'), cancelled: t('units.statusCancelled'),
+    }
+    return map[status || ''] || '-'
+  }
+
+  function objectiveLabel(obj: string | undefined) {
+    if (!obj) return '-'
+    const map: Record<string, string> = {
+      sharpe_max: t('units.bestSharpe'), max_return: t('units.bestReturn'), min_drawdown: t('units.leastDrawdown'),
+    }
+    return map[obj] || obj
+  }
+
+  function formatOptimizationCount(row: StrategyUnit): string {
+    const total = getOptimizationTotal(row)
+    if (total <= 0) return '-'
+    return `${getOptimizationCompleted(row)}/${total}`
+  }
+
+  function optimizationProgressPercent(row: StrategyUnit): number {
+    const explicit = Number(row.opt_progress)
+    if (Number.isFinite(explicit) && explicit >= 0) {
+      return Math.min(Math.round(explicit), 100)
+    }
+    const total = getOptimizationTotal(row)
+    if (total <= 0) return 0
+    return Math.min(Math.round((getOptimizationCompleted(row) / total) * 100), 100)
+  }
+
+  function shouldShowRunProgress(row: StrategyUnit): boolean {
+    return !!row.last_task_id && ['queued', 'running', 'completed', 'failed', 'cancelled'].includes(row.run_status)
+  }
+
+  function runProgressPercent(row: StrategyUnit): number {
+    const explicit = Number(row.run_progress)
+    if (Number.isFinite(explicit) && explicit >= 0) {
+      return Math.min(Math.round(explicit), 100)
+    }
+    const fallback: Record<string, number> = {
+      queued: 0,
+      running: 10,
+      completed: 100,
+      failed: 100,
+      cancelled: 100,
+    }
+    return fallback[row.run_status] ?? 0
+  }
+
+  function runProgressLabel(row: StrategyUnit): string {
+    return `${runProgressPercent(row)}%`
+  }
+
+  function runProgressStatus(row: StrategyUnit): 'success' | 'exception' | 'warning' | undefined {
+    if (row.run_status === 'completed') return 'success'
+    if (row.run_status === 'failed') return 'exception'
+    if (row.run_status === 'cancelled') return 'warning'
+    return undefined
+  }
+
+  function numericMetric(metrics: Record<string, unknown>, key: string): number | null {
+    const value = metrics[key]
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value
+    }
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value)
+      return Number.isFinite(parsed) ? parsed : null
+    }
+    return null
+  }
+
+  function percentMetric(value: number | null): string {
+    if (value == null) return '-'
+    const normalized = Math.abs(value) <= 2 ? value * 100 : value
+    return `${normalized.toFixed(2)}%`
+  }
+
+  function decimalMetric(value: number | null): string {
+    return value == null ? '-' : value.toFixed(2)
+  }
+
+  function integerMetric(value: number | null): string {
+    return value == null ? '-' : `${Math.round(value)}`
+  }
+
+  function compactResultText(value: unknown): string | null {
+    const text = typeof value === 'string' ? value.trim() : ''
+    if (!text) return null
+    return text.length > 120 ? `${text.slice(0, 120)}...` : text
+  }
+
+  function unitFailureMessage(row: StrategyUnit): string | null {
+    const metrics = row.metrics_snapshot ?? {}
+    return compactResultText(row.error_message)
+      ?? compactResultText(metrics.error)
+      ?? compactResultText(metrics.message)
+  }
+
+  function unitResultSummary(row: StrategyUnit): string {
+    if (row.run_status === 'failed') {
+      return `失败：${unitFailureMessage(row) ?? '未返回错误详情'}`
+    }
+    if (row.run_status === 'queued') return '排队中'
+    if (row.run_status === 'running') return '运行中'
+    if (row.run_status === 'cancelled') return '已取消'
+    if (row.run_status !== 'completed') return '-'
+
+    const metrics = row.metrics_snapshot ?? {}
+    const totalReturn = numericMetric(metrics, 'total_return')
+    const sharpe = numericMetric(metrics, 'sharpe_ratio')
+    const trades = numericMetric(metrics, 'total_trades')
+    return `收益 ${percentMetric(totalReturn)} · Sharpe ${decimalMetric(sharpe)} · 交易 ${integerMetric(trades)}`
+  }
+
+  function getLiveOptimizationElapsedSeconds(row: StrategyUnit): number {
+    const syncedElapsed = Math.max(0, row.opt_elapsed_time ?? 0)
+    if (row.opt_status !== 'running') {
+      return syncedElapsed
+    }
+    const startedAt = row.opt_started_at_ms
+    if (!startedAt) {
+      return syncedElapsed
+    }
+    const liveElapsed = Math.max(0, (nowMs.value - startedAt) / 1000)
+    return Math.max(syncedElapsed, liveElapsed)
+  }
+
+  function getLiveOptimizationRemainingSeconds(row: StrategyUnit): number {
+    return Math.max(0, row.opt_remaining_time ?? 0)
+  }
+
+  function formatElapsedTime(row: StrategyUnit): string {
+    if (row.opt_status === 'running') {
+      return `${getLiveOptimizationElapsedSeconds(row).toFixed(1)}s`
+    }
+    if (shouldShowOptimizationTerminal(row) && row.opt_elapsed_time != null) {
+      return `${row.opt_elapsed_time.toFixed(1)}s`
+    }
+    if (shouldShowOptimizationProgress(row) && row.opt_elapsed_time != null) {
+      return `${Math.max(0, row.opt_elapsed_time).toFixed(1)}s`
+    }
+    return row.last_run_time != null ? `${row.last_run_time.toFixed(1)}s` : '-'
+  }
+
+  function formatRemainingTime(row: StrategyUnit): string {
+    if (row.opt_status === 'running') {
+      return `${getLiveOptimizationRemainingSeconds(row).toFixed(1)}s`
+    }
+    if (row.opt_status === 'pending' || row.opt_status === 'queued') {
+      return '0.0s'
+    }
+    if (shouldShowOptimizationTerminal(row)) {
+      return '0.0s'
+    }
+    if (shouldShowOptimizationProgress(row)) {
+      return `${Math.max(0, row.opt_remaining_time ?? 0).toFixed(1)}s`
+    }
+    return estimateRemaining(row)
+  }
+
+  function estimateRemaining(row: StrategyUnit): string {
+    if (row.run_status !== 'running') return '-'
+    // Estimate based on average run time from previous runs
+    if (row.run_count && row.run_count > 0 && row.last_run_time && row.last_run_time > 0) {
+      // Simple heuristic: average previous run time as estimate
+      const avgTime = row.last_run_time
+      // We don't track elapsed of current run, so show estimated total
+      return `~${avgTime.toFixed(0)}s`
+    }
+    return '...'
+  }
+
+  function formatDate(dateStr: string | undefined) {
+    if (!dateStr) return '-'
+    return dateStr.slice(0, 10)
+  }
+
+  function formatTime(iso: string) {
+    if (!iso) return ''
+    return new Date(iso).toLocaleString('zh-CN')
+  }
+
+
+  return {
+    batchSubmittingOptimization,
+    canOpenReport,
+    calculateBatchTotalCombinations,
+    formatDate,
+    formatElapsedTime,
+    formatOptimizationCount,
+    formatRemainingTime,
+    formatTime,
+    getOptimizationCompleted,
+    getOptimizationTotal,
+    handleBatchSubmitOpt,
+    handleBulkDelete,
+    handleCopyOptParams,
+    handleExportUnits,
+    handleImportUnits,
+    handleMove,
+    handleOpenKline,
+    handleOpenSelectedReport,
+    handleReloadStrategy,
+    handleRowDblClick,
+    handleRunSelected,
+    handleStopSelected,
+    hasOpenableSelectedReport,
+    hasSelection,
+    hasSingleSelection,
+    inferBatchParamType,
+    isOptimizationActiveStatus,
+    isOptimizationPendingStatus,
+    isOptimizationTerminalStatus,
+    objectiveLabel,
+    onImportFileSelected,
+    onSelectionChange,
+    onUnitCreated,
+    onUnitUpdated,
+    onUnitsRefresh,
+    openBacktestResult,
+    optimizationProgressPercent,
+    optimizationStatusLabel,
+    optimizationStatusTagType,
+    runProgressLabel,
+    runProgressPercent,
+    runProgressStatus,
+    runStatusLabel,
+    runStatusTagType,
+    selectedUnit,
+    shouldShowOptimizationProgress,
+    shouldShowOptimizationTerminal,
+    shouldShowRunProgress,
+    showBatchOptConfig,
+    showChangeSymbol,
+    showCreateUnit,
+    showDataSource,
+    showGroupRename,
+    showOptConfig,
+    showOptThread,
+    showStrategyParams,
+    showUnitRename,
+    showUnitSettings,
+    store,
+    t,
+    unitResultSummary,
+  }
+}

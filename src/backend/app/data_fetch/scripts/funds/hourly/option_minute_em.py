@@ -9,11 +9,11 @@ Option Minute Em
 import json
 
 import pandas as pd
-from akshare.stock_feature.stock_hist_em import request_eastmoney
+from akshare.utils.request import request_with_retry as request_eastmoney
 
 from app.data_fetch.configs.db_config import DB_CONFIG
-from app.data_fetch.scripts.funds.daily.option_current_em import OptionCurrentEm
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+from app.data_fetch.scripts.funds.daily.option_current_em import OptionCurrentEm
 
 
 class OptionMinuteEm(AkshareToMySql):

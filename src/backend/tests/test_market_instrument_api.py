@@ -428,7 +428,9 @@ async def test_market_instrument_stock_snapshot_only_warehouse_fills_online_hist
     async def store_history_cache(self, **_):
         return None
 
-    monkeypatch.setattr(MarketInstrumentService, "_lookup_warehouse", snapshot_only_warehouse_lookup)
+    monkeypatch.setattr(
+        MarketInstrumentService, "_lookup_warehouse", snapshot_only_warehouse_lookup
+    )
     monkeypatch.setattr(MarketInstrumentService, "_lookup_history_cache", empty_history_cache)
     monkeypatch.setattr(MarketInstrumentService, "_store_history_cache", store_history_cache)
     monkeypatch.setattr(dummy_akshare, "stock_zh_a_spot_em", fail_spot_lookup)

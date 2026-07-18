@@ -9,8 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import pymysql
-from pymongo import MongoClient
 from sqlalchemy import select
 
 from app.db.database import async_session_maker
@@ -471,6 +469,14 @@ class ReqDocsMigrationService:
         }
 
     def read_reqdocs_structured_data(self) -> dict[str, Any]:
+        try:
+            import pymysql
+            from pymongo import MongoClient
+        except ImportError as exc:
+            raise RuntimeError(
+                "Live ReqDocs migration requires optional PyMySQL and pymongo dependencies."
+            ) from exc
+
         settings = self._parse_reqdocs_env()
         conn = pymysql.connect(
             host=settings.mysql_host,
@@ -505,7 +511,7 @@ class ReqDocsMigrationService:
         content_map: dict[int, str] = {}
         markdown_map: dict[int, str] = {}
         source_file_map: dict[int, dict[str, Any]] = {}
-        client: MongoClient[Any] | None = None
+        client: Any | None = None
         try:
             client = MongoClient(settings.mongodb_url)
             db = client.get_default_database()
@@ -603,7 +609,8 @@ class ReqDocsMigrationService:
             conv_by_reqdocs_id = {
                 int((settings or {}).get("reqdocs_conversation_id")): str(conv_id)
                 for conv_id, settings in existing_conversations
-                if isinstance(settings, dict) and settings.get("reqdocs_conversation_id") is not None
+                if isinstance(settings, dict)
+                and settings.get("reqdocs_conversation_id") is not None
             }
 
             existing_messages = (
@@ -639,11 +646,22 @@ class ReqDocsMigrationService:
         if document_batch_size < 1:
             raise ValueError("document_batch_size must be >= 1")
 
+        try:
+            import pymysql
+            from pymongo import MongoClient
+        except ImportError as exc:
+            raise RuntimeError(
+                "Live ReqDocs migration requires optional PyMySQL and pymongo dependencies."
+            ) from exc
+
         settings = self._parse_reqdocs_env()
         existing_source_paths = self._build_existing_source_file_map()
-        kb_by_reqdocs_id, doc_by_reqdocs_id, conv_by_reqdocs_id, existing_message_keys = (
-            await self._load_existing_reqdocs_maps(owner_id)
-        )
+        (
+            kb_by_reqdocs_id,
+            doc_by_reqdocs_id,
+            conv_by_reqdocs_id,
+            existing_message_keys,
+        ) = await self._load_existing_reqdocs_maps(owner_id)
         project_id_map = dict(kb_by_reqdocs_id)
         document_id_map = dict(doc_by_reqdocs_id)
         conversation_id_map = dict(conv_by_reqdocs_id)
@@ -663,7 +681,7 @@ class ReqDocsMigrationService:
             charset="utf8mb4",
             cursorclass=pymysql.cursors.DictCursor,
         )
-        mongo_client: MongoClient[Any] | None = None
+        mongo_client: Any | None = None
         try:
             mongo_client = MongoClient(settings.mongodb_url)
             mongo_db = mongo_client.get_default_database()

@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 
-from app.db.database import async_session_maker
+from app.db import database
 from app.models.ai_research import (
     AIStrategyResearchVersion,
     AIStrategyResearchVersionComparison,
@@ -64,7 +64,7 @@ class AIStrategyResearchVersionService:
             quality_gate_status="passed" if iteration.passed else "failed",
             review=review,
         )
-        async with async_session_maker() as session:
+        async with database.async_session_maker() as session:
             session.add(model)
             await session.commit()
             await session.refresh(model)
@@ -75,7 +75,7 @@ class AIStrategyResearchVersionService:
         user_id: str,
         run_id: str,
     ) -> AIStrategyResearchVersionListResponse:
-        async with async_session_maker() as session:
+        async with database.async_session_maker() as session:
             result = await session.execute(
                 select(AIStrategyResearchVersion)
                 .where(
@@ -108,7 +108,10 @@ class AIStrategyResearchVersionService:
         if left.run_id != right.run_id:
             raise ValueError("AI research versions belong to different runs")
 
-        metric_deltas = _metric_deltas(left.backtest_metrics, right.backtest_metrics)
+        metric_deltas = _metric_deltas(
+            _payload_dict(left.backtest_metrics),
+            _payload_dict(right.backtest_metrics),
+        )
         gate_deltas = {
             "left_status": left.quality_gate_status,
             "right_status": right.quality_gate_status,
@@ -128,7 +131,7 @@ class AIStrategyResearchVersionService:
             verdict=verdict,
             summary=summary,
         )
-        async with async_session_maker() as session:
+        async with database.async_session_maker() as session:
             session.add(comparison)
             await session.commit()
 
@@ -151,13 +154,15 @@ class AIStrategyResearchVersionService:
         for index, payload in enumerate(record.iterations or [], start=1):
             if not isinstance(payload, dict):
                 continue
-            strategy = payload.get("strategy_snapshot")
-            if not isinstance(strategy, dict):
-                strategy = payload.get("strategy") if isinstance(payload.get("strategy"), dict) else {}
-            unit = payload.get("unit_snapshot")
-            if not isinstance(unit, dict):
-                unit = payload.get("unit") if isinstance(payload.get("unit"), dict) else {}
-            diagnostics = payload.get("diagnostics") if isinstance(payload.get("diagnostics"), dict) else {}
+            raw_strategy = payload.get("strategy_snapshot")
+            strategy = _payload_dict(raw_strategy)
+            if not isinstance(raw_strategy, dict):
+                strategy = _payload_dict(payload.get("strategy"))
+            raw_unit = payload.get("unit_snapshot")
+            unit = _payload_dict(raw_unit)
+            if not isinstance(raw_unit, dict):
+                unit = _payload_dict(payload.get("unit"))
+            diagnostics = _payload_dict(payload.get("diagnostics"))
             version_no = int(payload.get("iteration") or index)
             items.append(
                 AIStrategyResearchVersionResponse(
@@ -193,7 +198,7 @@ class AIStrategyResearchVersionService:
         )
 
     async def _next_version_context(self, user_id: str, run_id: str) -> tuple[int, str | None]:
-        async with async_session_maker() as session:
+        async with database.async_session_maker() as session:
             max_result = await session.execute(
                 select(func.max(AIStrategyResearchVersion.version_no)).where(
                     AIStrategyResearchVersion.user_id == user_id,
@@ -218,7 +223,7 @@ class AIStrategyResearchVersionService:
         user_id: str,
         version_id: str,
     ) -> AIStrategyResearchVersion | None:
-        async with async_session_maker() as session:
+        async with database.async_session_maker() as session:
             result = await session.execute(
                 select(AIStrategyResearchVersion).where(
                     AIStrategyResearchVersion.user_id == user_id,
@@ -262,6 +267,11 @@ def _params_payload(params: Any) -> dict[str, Any]:
     }
 
 
+def _payload_dict(value: Any) -> dict[str, Any]:
+    """Return a JSON-object payload while keeping ORM values at the boundary."""
+    return dict(value) if isinstance(value, dict) else {}
+
+
 def _ai_rationale(iteration: AIStrategyResearchIteration) -> str:
     notes = [str(item).strip() for item in iteration.improvement_notes if str(item or "").strip()]
     if notes:
@@ -298,7 +308,9 @@ def _metric_deltas(left: dict[str, Any] | None, right: dict[str, Any] | None) ->
         result[key] = {
             "left": left_value,
             "right": right_value,
-            "delta": None if left_value is None or right_value is None else right_value - left_value,
+            "delta": None
+            if left_value is None or right_value is None
+            else right_value - left_value,
         }
     return result
 
@@ -308,8 +320,8 @@ def _code_diff(left: AIStrategyResearchVersion, right: AIStrategyResearchVersion
         difflib.unified_diff(
             (left.code or "").splitlines(),
             (right.code or "").splitlines(),
-            fromfile=left.version_name,
-            tofile=right.version_name,
+            fromfile=str(left.version_name or ""),
+            tofile=str(right.version_name or ""),
             lineterm="",
         )
     )
@@ -375,5 +387,5 @@ def _rationale_from_payload(payload: dict[str, Any]) -> str:
     return "历史投研摘要恢复版本。"
 
 
-def _iso(value: datetime | None) -> str:
-    return value.isoformat() if value is not None else ""
+def _iso(value: Any) -> str:
+    return value.isoformat() if isinstance(value, datetime) else ""

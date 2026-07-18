@@ -180,7 +180,6 @@ python -m pytest test_backtest.py -v
 | `test_data_query.py` | 数据查询流程 (填写/提交/结果) |
 | `test_strategy.py` | 策略管理 (CRUD/模板/搜索) |
 | `test_strategy_crud.py` | 策略 CRUD 完整流程 |
-| `test_optimization.py` | 参数优化 (表单/策略选择/响应式) |
 | `test_live_trading.py` | 实盘交易 (实例/启停/详情) |
 | `test_portfolio.py` | 投资组合 (概览/标签页/响应式) |
 | `test_settings.py` | 设置页面 (个人信息/密码) |

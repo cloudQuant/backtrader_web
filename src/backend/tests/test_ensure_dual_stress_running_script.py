@@ -3,7 +3,6 @@ import subprocess
 import time
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = PROJECT_ROOT / "scripts" / "ops" / "ensure_dual_stress_running.sh"
 
@@ -25,17 +24,13 @@ def _fake_dual_stress_process(*, targets: str, monitor: bool) -> subprocess.Pope
 def _fake_stuck_dual_stress_supervisor(*, targets: str) -> subprocess.Popen:
     script_path = PROJECT_ROOT / "src/backend/scripts/run_dual_exchange_simulation.py"
     argv0 = (
-        f"{script_path} --skip-seed --targets {targets} "
-        "--hold-seconds 604800 --status-interval 30"
+        f"{script_path} --skip-seed --targets {targets} --hold-seconds 604800 --status-interval 30"
     )
     return subprocess.Popen(
         [
             "bash",
             "-c",
-            (
-                f"exec -a '{argv0}' bash -c "
-                "'trap \"\" TERM; while true; do sleep 1; done'"
-            ),
+            (f"exec -a '{argv0}' bash -c 'trap \"\" TERM; while true; do sleep 1; done'"),
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -71,7 +66,10 @@ def test_restart_fails_when_existing_supervisor_does_not_exit(tmp_path: Path) ->
         )
 
         assert result.returncode == 1
-        assert f"dual stress supervisor still running after 1s: pid={stuck_process.pid}" in result.stderr
+        assert (
+            f"dual stress supervisor still running after 1s: pid={stuck_process.pid}"
+            in result.stderr
+        )
         assert "already running" not in result.stdout
         assert "started dual stress supervisor" not in result.stdout
     finally:
@@ -108,9 +106,7 @@ def test_status_discovers_running_monitor_without_pid_file(tmp_path: Path) -> No
         assert result.returncode == 0
         assert "dual stress supervisor not running" in result.stdout
         assert f"dual stress monitor running: pid={monitor_process.pid}" in result.stdout
-        assert monitor_pid_file.read_text(encoding="utf-8").strip() == str(
-            monitor_process.pid
-        )
+        assert monitor_pid_file.read_text(encoding="utf-8").strip() == str(monitor_process.pid)
     finally:
         monitor_process.kill()
         monitor_process.wait(timeout=5)
@@ -289,9 +285,7 @@ def test_start_reports_all_running_split_supervisors(tmp_path: Path) -> None:
             {
                 "DUAL_STRESS_PID_FILE": str(pid_file),
                 "DUAL_STRESS_LOG_FILE": str(log_file),
-                "DUAL_STRESS_SUPERVISOR_PID_FILES": (
-                    f"{first_pid_file} {second_pid_file}"
-                ),
+                "DUAL_STRESS_SUPERVISOR_PID_FILES": (f"{first_pid_file} {second_pid_file}"),
                 "PYTHON_BIN": "/bin/false",
                 "TARGETS": "unit-test-no-primary-supervisor",
             }
@@ -354,9 +348,7 @@ def test_monitor_reuses_discovered_running_monitor(tmp_path: Path) -> None:
 
         assert result.returncode == 0
         assert f"dual stress monitor already running: pid={monitor_process.pid}" in result.stdout
-        assert monitor_pid_file.read_text(encoding="utf-8").strip() == str(
-            monitor_process.pid
-        )
+        assert monitor_pid_file.read_text(encoding="utf-8").strip() == str(monitor_process.pid)
     finally:
         monitor_process.kill()
         monitor_process.wait(timeout=5)

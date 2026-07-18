@@ -14,7 +14,6 @@ import requests
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
-
 REGION_PATHS = {
     "europe": "/cost-of-living/index/europe",
     "north-america": "/cost-of-living/index/north-america",

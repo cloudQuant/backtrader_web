@@ -96,8 +96,7 @@ class SWIndexMinute(AkshareToMySql):
 
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             future_map = {
-                executor.submit(self.fetch_minute_data, symbol): symbol
-                for symbol in symbol_list
+                executor.submit(self.fetch_minute_data, symbol): symbol for symbol in symbol_list
             }
             for future in as_completed(future_map):
                 symbol = future_map[future]

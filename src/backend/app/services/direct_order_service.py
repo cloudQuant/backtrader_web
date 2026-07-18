@@ -66,10 +66,15 @@ class DirectOrderService:
             order_type_str = self._map_order_type(intent.order_type)
             size = self._normalise_order_size(intent.quantity, default=None)
 
-            stop_price = intent.stop_loss if intent.order_type in {
-                OrderType.STOP,
-                OrderType.STOP_LIMIT,
-            } else None
+            stop_price = (
+                intent.stop_loss
+                if intent.order_type
+                in {
+                    OrderType.STOP,
+                    OrderType.STOP_LIMIT,
+                }
+                else None
+            )
 
             order = await service.submit_order(
                 account_id=resolved_account_id,
@@ -382,9 +387,7 @@ class DirectOrderService:
             asset_spec.get("SYMBOL_VOLUME_MIN"),
         )
         if enforce_min and min_order_size and requested + 1e-12 < min_order_size:
-            raise ValueError(
-                f"quantity {size} is below the minimum allowed size {min_order_size}"
-            )
+            raise ValueError(f"quantity {size} is below the minimum allowed size {min_order_size}")
 
         max_order_size = cls._max_live_order_size(asset_spec, order_type=order_type)
         if max_order_size and requested > max_order_size + 1e-12:
@@ -588,7 +591,9 @@ class DirectOrderService:
         gateway_context: str | None = None,
     ) -> bool:
         text = f"{exchange or ''} {gateway_id or ''} {gateway_context or ''}".upper()
-        return any(token in text for token in ("CTP", "CFFEX", "SHFE", "DCE", "CZCE", "INE", "GFEX"))
+        return any(
+            token in text for token in ("CTP", "CFFEX", "SHFE", "DCE", "CZCE", "INE", "GFEX")
+        )
 
     @staticmethod
     def _normalise_order_size(
@@ -790,11 +795,7 @@ class DirectOrderService:
                 if isinstance(nested, dict):
                     current = nested
                     continue
-                if (
-                    isinstance(nested, list)
-                    and nested
-                    and isinstance(nested[0], dict)
-                ):
+                if isinstance(nested, list) and nested and isinstance(nested[0], dict):
                     current = nested[0]
                     continue
             return current
@@ -918,10 +919,14 @@ class DirectOrderService:
         candidates = set(symbol_aliases(raw))
         if "." in raw:
             left, right = raw.split(".", 1)
-            candidates.update({left, left.upper(), left.lower(), right, right.upper(), right.lower()})
+            candidates.update(
+                {left, left.upper(), left.lower(), right, right.upper(), right.lower()}
+            )
         if "_" in raw:
             left, right = raw.split("_", 1)
-            candidates.update({left, left.upper(), left.lower(), right, right.upper(), right.lower()})
+            candidates.update(
+                {left, left.upper(), left.lower(), right, right.upper(), right.lower()}
+            )
         return {item.upper() for item in candidates if item}
 
     @staticmethod
@@ -1305,14 +1310,21 @@ class DirectOrderService:
         symbol_by_exchange: dict[str | None, str] = {}
         for row in matches:
             exchange_id = cls._row_exchange_id(row) or None
-            symbol_by_exchange.setdefault(exchange_id, cls._position_symbol(row) or intent.symbol or "")
+            symbol_by_exchange.setdefault(
+                exchange_id, cls._position_symbol(row) or intent.symbol or ""
+            )
 
         remaining_to_close = target_size
         for row in matches:
             if remaining_to_close <= 1e-12:
                 break
             exchange_id = cls._row_exchange_id(row) or None
-            symbol = symbol_by_exchange.get(exchange_id) or cls._position_symbol(row) or intent.symbol or ""
+            symbol = (
+                symbol_by_exchange.get(exchange_id)
+                or cls._position_symbol(row)
+                or intent.symbol
+                or ""
+            )
             row_size = min(abs(cls._position_size(row)), remaining_to_close)
             if row_size <= 0:
                 continue
@@ -1488,9 +1500,7 @@ class DirectOrderService:
                 "message": "无法解析网关持仓响应",
             }
         nonzero_positions = [
-            pos
-            for pos in positions
-            if isinstance(pos, dict) and abs(self._position_size(pos)) > 0
+            pos for pos in positions if isinstance(pos, dict) and abs(self._position_size(pos)) > 0
         ]
         return {
             "success": True,

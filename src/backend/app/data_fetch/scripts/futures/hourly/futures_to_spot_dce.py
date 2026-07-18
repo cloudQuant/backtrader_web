@@ -42,10 +42,14 @@ class FuturesToSpotDce(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
-            month_list = [str(kwargs["date"])] if "date" in kwargs else [
-                self.get_current_month(),
-                self.get_previous_month(),
-            ]
+            month_list = (
+                [str(kwargs["date"])]
+                if "date" in kwargs
+                else [
+                    self.get_current_month(),
+                    self.get_previous_month(),
+                ]
+            )
 
             for month in month_list:
                 call_kwargs = dict(kwargs)

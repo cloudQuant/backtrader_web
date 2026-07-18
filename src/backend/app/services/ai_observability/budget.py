@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from fastapi import HTTPException, status
 from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.db.session_provider import unit_of_work
 from app.models.ai_call_log import AICallLog
 from app.models.user import User
+from app.utils.exceptions import BaseAppError
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,14 @@ class AIBudgetSnapshot:
     reset_at: datetime
 
 
-class AIBudgetExceededError(HTTPException):
+class AIBudgetExceededError(BaseAppError):
+    """Raised when a hard AI spending limit has been reached.
+
+    This remains a domain error so callers outside FastAPI can use the budget
+    service without importing transport-layer exception types. The application
+    exception handler maps it to HTTP 429 for API requests.
+    """
+
     def __init__(
         self,
         *,
@@ -46,16 +53,23 @@ class AIBudgetExceededError(HTTPException):
         used_usd: float,
         reset_at: datetime,
     ) -> None:
+        details = {
+            "reason_code": reason_code,
+            "message": "AI budget exceeded",
+            "limit_usd": limit_usd,
+            "used_usd": used_usd,
+            "reset_at": reset_at.isoformat(),
+        }
         super().__init__(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "reason_code": reason_code,
-                "message": "AI budget exceeded",
-                "limit_usd": limit_usd,
-                "used_usd": used_usd,
-                "reset_at": reset_at.isoformat(),
-            },
+            "AI budget exceeded",
+            details=details,
+            error_code="AIBudgetExceededError",
         )
+
+    @property
+    def detail(self) -> dict[str, float | str]:
+        """Keep the former structured payload available to direct callers."""
+        return self.details
 
 
 class AIBudgetService:

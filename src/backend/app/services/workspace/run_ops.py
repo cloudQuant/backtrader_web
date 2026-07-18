@@ -400,7 +400,9 @@ class WorkspaceRunOpsMixin:
                     else None
                 )
                 opt_info = opt_progress_map.get(opt_tid, {}) if opt_tid else {}
-                status_task = task_by_id.get(str(u_obj.last_task_id)) if u_obj.last_task_id else None
+                status_task = (
+                    task_by_id.get(str(u_obj.last_task_id)) if u_obj.last_task_id else None
+                )
                 error_message = (
                     str(status_task.error_message)
                     if status_task and status_task.error_message

@@ -1,5 +1,6 @@
 """Factor library API routes."""
 
+import typing
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends
@@ -39,7 +40,7 @@ def get_custom_factor_service() -> CustomFactorService:
 @router.post("/evaluate", response_model=FactorEvaluationResult, summary="Evaluate factor IC/IR")
 async def evaluate_factor(
     request: FactorEvaluationRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     evaluator: FactorEvaluator = Depends(get_factor_evaluator),
 ) -> FactorEvaluationResult:
     """Evaluate a factor value series against future returns."""
@@ -57,7 +58,7 @@ async def evaluate_factor(
 )
 async def analyze_factor_correlation(
     request: FactorCorrelationRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: FactorCorrelationService = Depends(get_factor_correlation_service),
 ) -> FactorCorrelationResult:
     """Analyze correlation between factor value series."""
@@ -71,7 +72,7 @@ async def analyze_factor_correlation(
 )
 async def calculate_custom_factor(
     request: CustomFactorRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: CustomFactorService = Depends(get_custom_factor_service),
 ) -> CustomFactorResult:
     """Calculate values for a safe custom arithmetic factor expression."""

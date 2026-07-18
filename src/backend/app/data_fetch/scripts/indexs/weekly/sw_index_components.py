@@ -118,9 +118,7 @@ class SWIndexComponents(AkshareToMySql):
             symbol_list = self.get_symbol_list() if symbol is None else [symbol]
             if max_symbols is not None:
                 symbol_list = symbol_list[: max(0, int(max_symbols))]
-            for symbol, df in self._fetch_component_jobs(
-                symbol_list, int(max_workers or 1)
-            ):
+            for symbol, df in self._fetch_component_jobs(symbol_list, int(max_workers or 1)):
                 self._save_components_data(symbol, df)
 
             return True
