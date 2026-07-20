@@ -2,7 +2,7 @@
   <div class="backtest-result-page">
     <!-- Loading state -->
     <div
-      v-if="loading"
+      v-if="loading && !backtestSummary"
       class="backtest-result-state"
       role="status"
       :aria-label="t('common.loading')"
@@ -15,6 +15,37 @@
       </el-icon>
       <span>{{ t('common.loading') }}</span>
     </div>
+
+    <!-- Compact response is intentionally rendered before delayed full detail. -->
+    <section
+      v-else-if="backtestSummary && !detail"
+      class="backtest-result-hero backtest-result-summary-first"
+      data-test="backtest-summary-first"
+      aria-live="polite"
+    >
+      <div class="backtest-result-copy">
+        <span class="backtest-result-kicker">{{ t('backtest.resultHeroKicker') }}</span>
+        <div class="backtest-result-title-row">
+          <h1 id="backtest-result-title">{{ strategyNameFromQuery || backtestSummary.strategy_id }}</h1>
+          <el-tag effect="plain">{{ backtestSummary.symbol }}</el-tag>
+        </div>
+        <p>{{ error || '正在加载完整回测明细…' }}</p>
+      </div>
+      <div class="backtest-result-metrics">
+        <article
+          v-for="metric in resultSummaryCards"
+          :key="metric.label"
+          class="backtest-result-metric"
+        >
+          <span>{{ metric.label }}</span>
+          <strong>{{ metric.value }}</strong>
+        </article>
+      </div>
+      <div class="backtest-summary-first-actions">
+        <el-button v-if="error" @click="loadData">{{ t('backtest.retry') }}</el-button>
+        <span v-else class="backtest-summary-first-loading">{{ t('common.loading') }}</span>
+      </div>
+    </section>
 
     <!-- Error state -->
     <div
@@ -460,7 +491,7 @@ import type {
   StrategyOverfittingTaskResult,
   StrategyScoreResponse,
 } from '@/api/strategy'
-import type { BacktestResult } from '@/types'
+import type { BacktestSummaryResponse } from '@/types'
 import { workspaceApi } from '@/api/workspace'
 import { useOverfittingRuntime } from '@/composables/useOverfittingRuntime'
 import OverfittingPanel from '@/components/backtest/OverfittingPanel.vue'
@@ -524,7 +555,7 @@ const monthlyReturns = ref<MonthlyReturnsResponse | null>(null)
 const strategyScore = ref<StrategyScoreResponse | null>(null)
 const strategyExplanation = ref<StrategyExplanation | null>(null)
 const overfittingTask = ref<StrategyOverfittingTaskResult | null>(null)
-const backtestResult = ref<BacktestResult | null>(null)
+const backtestSummary = ref<BacktestSummaryResponse | null>(null)
 const robustnessResult = ref<RobustnessTestResultResponse | null>(null)
 const robustnessLoading = ref(false)
 
@@ -657,20 +688,25 @@ const annualReturnEntries = computed(() => {
 })
 
 const resultSummarySnapshot = computed(() => (
-  backtestResult.value?.result_summary
-  ?? detail.value?.result_summary
-  ?? {}
+  backtestSummary.value
+      ? {
+        strategy_id: backtestSummary.value.strategy_id,
+        symbol: backtestSummary.value.symbol,
+        ...backtestSummary.value.metrics,
+      }
+    : detail.value?.result_summary
+      ?? {}
 ))
 
 const dataPrecheckSnapshot = computed<DataPrecheckResponse | null>(() => (
-  backtestResult.value?.data_precheck
+  backtestSummary.value?.data_precheck
   ?? detail.value?.data_precheck
   ?? null
 ))
 
 const robustnessSnapshot = computed<RobustnessTestResultResponse | null>(() => (
   robustnessResult.value
-  ?? backtestResult.value?.robustness
+  ?? (backtestSummary.value?.robustness as RobustnessTestResultResponse | null)
   ?? detail.value?.robustness
   ?? null
 ))
@@ -808,10 +844,14 @@ async function loadData() {
   strategyScore.value = null
   strategyExplanation.value = null
   overfittingTask.value = null
-  backtestResult.value = null
+  backtestSummary.value = null
   robustnessResult.value = null
   klineData.value = null
   monthlyReturns.value = null
+
+  const summaryRequest = isOptimizationArtifactMode.value
+    ? Promise.resolve()
+    : loadBacktestTrustSnapshot()
 
   try {
     let detailRes: BacktestDetailResponse
@@ -827,7 +867,6 @@ async function loadData() {
       : detailRes
 
     if (!isOptimizationArtifactMode.value) {
-      void loadBacktestTrustSnapshot()
       void loadDiagnostics()
     }
     if (activeTab.value === 'kline') {
@@ -840,14 +879,15 @@ async function loadData() {
     error.value = getErrorMessage(e, t('backtest.loadFailed'))
   } finally {
     loading.value = false
+    await summaryRequest
   }
 }
 
 async function loadBacktestTrustSnapshot() {
   try {
-    backtestResult.value = await backtestApi.getResult(taskId.value)
+    backtestSummary.value = await backtestApi.getSummary(taskId.value)
   } catch {
-    backtestResult.value = null
+    backtestSummary.value = null
   }
 }
 
@@ -1136,6 +1176,20 @@ function formatTime(iso: string): string {
 
 .backtest-result-actions :deep(.el-button) {
   gap: 6px;
+}
+
+.backtest-summary-first-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  color: var(--text-color-secondary);
+  font-size: 13px;
+}
+
+.backtest-summary-first-loading {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
 }
 
 .backtest-result-meta {

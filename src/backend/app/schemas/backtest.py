@@ -2,11 +2,15 @@
 Backtest schemas.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.config import get_settings, production_security_mode
 
 
 class TaskStatus(str, Enum):
@@ -40,6 +44,13 @@ class BacktestRequest(BaseModel):
     )
     data_precheck: dict[str, Any] = Field(default_factory=dict, description="Precheck snapshot")
     params: dict[str, Any] = Field(default_factory=dict, description="Strategy parameters")
+
+    @model_validator(mode="after")
+    def enforce_production_data_precheck(self) -> BacktestRequest:
+        """Keep the production precheck server-side even when the client omits it."""
+        if production_security_mode(get_settings()):
+            object.__setattr__(self, "require_data_precheck", True)
+        return self
 
     model_config = ConfigDict(
         json_schema_extra={

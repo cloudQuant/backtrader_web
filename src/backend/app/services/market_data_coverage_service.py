@@ -33,6 +33,33 @@ _HIGH_KEYS = ("high", "HIGH", "HIGH_PRICE")
 _LOW_KEYS = ("low", "LOW", "LOW_PRICE")
 _CLOSE_KEYS = ("close", "CLOSE", "CLOSE_PRICE", "price")
 _VOLUME_KEYS = ("volume", "VOLUME", "VOL")
+# The local quality checker deliberately keeps a small, versioned calendar
+# baseline instead of calling a network calendar provider during a backtest
+# precheck.  Weekends are handled separately; this set covers the statutory
+# closures exercised by the deterministic RB0 fixtures and can be extended as
+# local fixtures are added.
+_CN_FUTURES_CLOSURE_DATES = {
+    date(2024, 1, 1),
+    date(2024, 2, 9),
+    date(2024, 2, 12),
+    date(2024, 2, 13),
+    date(2024, 2, 14),
+    date(2024, 2, 15),
+    date(2024, 2, 16),
+    date(2024, 4, 4),
+    date(2024, 4, 5),
+    date(2024, 5, 1),
+    date(2024, 5, 2),
+    date(2024, 5, 3),
+    date(2024, 6, 10),
+    date(2024, 9, 16),
+    date(2024, 9, 17),
+    date(2024, 10, 1),
+    date(2024, 10, 2),
+    date(2024, 10, 3),
+    date(2024, 10, 4),
+    date(2024, 10, 7),
+}
 
 
 @dataclass(frozen=True)
@@ -287,12 +314,15 @@ class MarketDataCoverageService:
         samples: dict[str, Any] = {}
         seen_dates: set[date] = set()
         row_count = 0
+        futures_rows: list[dict[str, Any]] = []
 
         try:
             with profile.path.open("r", encoding="utf-8-sig", newline="") as handle:
                 reader = csv.DictReader(handle)
                 for raw_row in reader:
                     row_count += 1
+                    if profile.asset_type == "futures":
+                        futures_rows.append(raw_row)
                     parsed_date = _parse_row_date(raw_row)
                     if parsed_date is not None:
                         dates.append(parsed_date)
@@ -333,6 +363,7 @@ class MarketDataCoverageService:
             },
             samples,
         )
+        reports.extend(_futures_quality_reports(profile, futures_rows))
         if missing_count:
             reports.append(
                 _report_payload(
@@ -379,7 +410,7 @@ class MarketDataCoverageService:
         expected_rows = _expected_rows(dates, profile.timeframe)
         missing_count = max(expected_rows - len(set(dates)), 0) if expected_rows else 0
         missing_ratio = round(missing_count / expected_rows, 6) if expected_rows else 0.0
-        reports: list[dict[str, Any]] = []
+        reports = _futures_quality_reports(profile, rows)
         return (
             {
                 "asset_type": profile.asset_type,
@@ -489,6 +520,150 @@ def _parse_row_date(row: dict[str, Any]) -> date | None:
         except ValueError:
             continue
     return None
+
+
+def _parse_row_datetime(row: dict[str, Any]) -> datetime | None:
+    """Parse a naive local market timestamp from the standard CSV columns."""
+    value = _first_present(row, *_DATE_KEYS)
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parsed.replace(tzinfo=None)
+    except ValueError:
+        pass
+    for fmt, size in (
+        ("%Y-%m-%d %H:%M:%S", 19),
+        ("%Y/%m/%d %H:%M:%S", 19),
+        ("%Y-%m-%d %H:%M", 16),
+        ("%Y/%m/%d %H:%M", 16),
+        ("%Y-%m-%d", 10),
+        ("%Y/%m/%d", 10),
+        ("%Y%m%d", 8),
+    ):
+        try:
+            return datetime.strptime(text[:size], fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _futures_trading_day(value: datetime) -> date:
+    """Map night-session bars to the following futures trading day.
+
+    Chinese futures night sessions start at 21:00.  A bar at 21:00 on
+    Monday and bars after midnight on Tuesday therefore belong to the same
+    Tuesday trading day, which prevents a harmless cross-midnight session
+    from being reported as two separate coverage gaps.
+    """
+    trading_day = value.date()
+    if value.hour >= 21:
+        return trading_day + timedelta(days=1)
+    return trading_day
+
+
+def _futures_quality_reports(
+    profile: LocalCsvProfile,
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return deterministic futures-only roll, session, and calendar checks.
+
+    Large adjacent closing-price jumps are informative around a continuous
+    contract roll, so they are a warning rather than a block.  A missing bar
+    *inside an observed night-session sequence* and data on a known closure
+    date are deterministic coverage violations and remain blocking errors.
+    """
+    if profile.asset_type != "futures" or not rows:
+        return []
+
+    reports: list[dict[str, Any]] = []
+    parsed_rows = [
+        (value, row)
+        for row in rows
+        if (value := _parse_row_datetime(row)) is not None
+    ]
+    parsed_rows.sort(key=lambda item: item[0])
+
+    closure_rows = [
+        (value, row)
+        for value, row in parsed_rows
+        if value.date().weekday() >= 5 or value.date() in _CN_FUTURES_CLOSURE_DATES
+    ]
+    if closure_rows:
+        reports.append(
+            _report_payload(
+                profile,
+                issue_type="futures_holiday_bar",
+                severity="error",
+                issue_count=len(closure_rows),
+                sample_payload={
+                    "datetime": closure_rows[0][0].isoformat(sep=" "),
+                    "trading_day": _futures_trading_day(closure_rows[0][0]).isoformat(),
+                },
+            )
+        )
+
+    jumps = 0
+    jump_sample: dict[str, Any] | None = None
+    previous_close: float | None = None
+    for value, row in parsed_rows:
+        close = _float_or_none(_first_present(row, *_CLOSE_KEYS))
+        if close is None or close <= 0:
+            continue
+        if previous_close is not None and abs(close / previous_close - 1) >= 0.10:
+            jumps += 1
+            jump_sample = {
+                "datetime": value.isoformat(sep=" "),
+                "previous_close": previous_close,
+                "close": close,
+            }
+        previous_close = close
+    if jumps:
+        reports.append(
+            _report_payload(
+                profile,
+                issue_type="futures_roll_price_jump",
+                severity="warning",
+                issue_count=jumps,
+                sample_payload=jump_sample or {},
+            )
+        )
+
+    if profile.timeframe not in {"1h", "1m"}:
+        return reports
+    session_groups: dict[date, list[datetime]] = {}
+    for value, _ in parsed_rows:
+        if value.hour >= 21 or value.hour < 3:
+            session_groups.setdefault(_futures_trading_day(value), []).append(value)
+    gaps: list[dict[str, str]] = []
+    interval = timedelta(hours=1 if profile.timeframe == "1h" else 1 / 60)
+    for trading_day, values in session_groups.items():
+        ordered = sorted(set(values))
+        for left, right in zip(ordered, ordered[1:], strict=False):
+            difference = right - left
+            if difference <= interval or difference > timedelta(hours=3):
+                continue
+            missing = left + interval
+            while missing < right:
+                gaps.append(
+                    {
+                        "trading_day": trading_day.isoformat(),
+                        "missing_at": missing.isoformat(sep=" "),
+                    }
+                )
+                missing += interval
+    if gaps:
+        reports.append(
+            _report_payload(
+                profile,
+                issue_type="futures_night_session_gap",
+                severity="error",
+                issue_count=len(gaps),
+                sample_payload=gaps[0],
+            )
+        )
+    return reports
 
 
 def _first_present(row: dict[str, Any], *keys: str) -> Any:

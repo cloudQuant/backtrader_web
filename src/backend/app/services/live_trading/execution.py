@@ -122,7 +122,11 @@ async def start_instance(
         raise ValueError(f"run.py does not exist: {run_py}")
 
     try:
-        env = build_subprocess_env(instance_id, inst, strategy_dir)
+        # Gateway preparation may wait for an external broker to authenticate.
+        # Keep that synchronous adapter work off the ASGI event loop so a bad
+        # broker credential cannot stall health checks, status polling, or the
+        # portfolio/risk APIs while this instance is being started.
+        env = await asyncio.to_thread(build_subprocess_env, instance_id, inst, strategy_dir)
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
         release_gateway_for_instance(instance_id)
         now = instance_timestamp()

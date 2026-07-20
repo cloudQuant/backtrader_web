@@ -5,6 +5,7 @@ import type {
   BacktestResult,
   BacktestListResponse,
   BacktestStatusResponse,
+  BacktestSummaryResponse,
 } from '@/types'
 import type { RobustnessTestResultResponse, RobustnessValidationRequest } from '@/types/trust'
 
@@ -17,6 +18,10 @@ export const backtestApi = {
 
   async getResult(taskId: string): Promise<BacktestResult> {
     return api.get<BacktestResult>(`${BACKTEST_API_BASE}/${taskId}`)
+  },
+
+  async getSummary(taskId: string): Promise<BacktestSummaryResponse> {
+    return api.get<BacktestSummaryResponse>(`${BACKTEST_API_BASE}/${taskId}/summary`)
   },
 
   async getStatus(taskId: string): Promise<BacktestStatusResponse> {

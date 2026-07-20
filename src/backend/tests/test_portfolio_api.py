@@ -81,6 +81,129 @@ async def test_portfolio_sources_uses_workspace_snapshot_for_paper_units(monkeyp
     assert source.live_account is None
 
 
+@pytest.mark.asyncio
+async def test_portfolio_sources_can_include_inactive_workspace_units(monkeypatch):
+    """History endpoints must be able to request stopped workspace sources."""
+    from app.api import portfolio_api
+
+    source = portfolio_api._PortfolioSource(
+        id="inst-history",
+        strategy_id="strategy-history",
+        strategy_name="Historical strategy",
+        status="idle",
+        unit_id="unit-history",
+        workspace_id="workspace-history",
+        trading_mode="paper",
+        snapshot={"positions": []},
+    )
+    load_sources = AsyncMock(return_value=[source])
+    monkeypatch.setattr(portfolio_api, "_active_workspace_sources", load_sources)
+
+    sources = await portfolio_api._portfolio_sources(
+        _USER,
+        object(),
+        include_inactive=True,
+    )
+
+    assert sources == [source]
+    load_sources.assert_awaited_once_with(_USER, include_inactive=True)
+
+
+@pytest.mark.asyncio
+async def test_portfolio_endpoints_do_not_include_inactive_by_default(monkeypatch):
+    """Filtering by workspace ids still defaults to active-only sources."""
+    from app.api import portfolio_api
+
+    running = portfolio_api._PortfolioSource(
+        id="inst-running",
+        strategy_id="strategy-running",
+        strategy_name="Running strategy",
+        status="running",
+        workspace_id="ws-a",
+        live_account={
+            "value": 1000.0,
+            "cash": 1000.0,
+            "updated_at": "2026-06-26T09:30:00+08:00",
+        },
+    )
+    stopped = portfolio_api._PortfolioSource(
+        id="inst-stopped",
+        strategy_id="strategy-stopped",
+        strategy_name="Stopped strategy",
+        status="stopped",
+        workspace_id="ws-b",
+        live_account={
+            "value": 5000.0,
+            "cash": 5000.0,
+            "updated_at": "2026-06-26T09:31:00+08:00",
+        },
+    )
+    monkeypatch.setattr(
+        portfolio_api,
+        "_portfolio_sources",
+        AsyncMock(return_value=[running, stopped]),
+    )
+
+    result = await portfolio_api.get_portfolio_equity(
+        workspace_ids=["ws-a", "ws-b"],
+        include_inactive=False,
+        current_user=_USER,
+        mgr=_MockManager(),
+    )
+    assert len(result["strategies"]) == 1
+    assert result["strategies"][0]["instance_id"] == "inst-running"
+    assert result["strategies"][0]["values"] == [1000.0]
+    assert result["dates"] == ["2026-06-26T09:30:00+08:00"]
+    assert result["total_equity"] == [1000.0]
+
+
+@pytest.mark.asyncio
+async def test_portfolio_endpoints_allow_active_filter_override(monkeypatch):
+    """`include_inactive=true` keeps stopped workspace units visible."""
+    from app.api import portfolio_api
+
+    running = portfolio_api._PortfolioSource(
+        id="inst-running",
+        strategy_id="strategy-running",
+        strategy_name="Running strategy",
+        status="running",
+        workspace_id="ws-a",
+        live_account={
+            "value": 1000.0,
+            "cash": 1000.0,
+            "updated_at": "2026-06-26T09:30:00+08:00",
+        },
+    )
+    stopped = portfolio_api._PortfolioSource(
+        id="inst-stopped",
+        strategy_id="strategy-stopped",
+        strategy_name="Stopped strategy",
+        status="stopped",
+        workspace_id="ws-b",
+        live_account={
+            "value": 5000.0,
+            "cash": 5000.0,
+            "updated_at": "2026-06-26T09:31:00+08:00",
+        },
+    )
+    monkeypatch.setattr(
+        portfolio_api,
+        "_portfolio_sources",
+        AsyncMock(return_value=[running, stopped]),
+    )
+
+    result = await portfolio_api.get_portfolio_equity(
+        workspace_ids=["ws-a", "ws-b"],
+        include_inactive=True,
+        current_user=_USER,
+        mgr=_MockManager(),
+    )
+    assert len(result["strategies"]) == 2
+    assert {item["instance_id"] for item in result["strategies"]} == {
+        "inst-running",
+        "inst-stopped",
+    }
+
 def test_parse_positions_for_portfolio_prefers_position_log_precision(monkeypatch, tmp_path):
     """Current-position snapshots can be rounded; position.log keeps MT5 precision."""
     from app.api import portfolio_api
@@ -1853,6 +1976,36 @@ async def test_portfolio_equity_does_not_backfill_before_strategy_first_point():
     by_instance = {item["instance_id"]: item for item in result["strategies"]}
     assert by_instance["inst-a"]["values"] == [100.0, 110.0]
     assert by_instance["inst-b"]["values"] == [0.0, 200.0]
+
+
+@pytest.mark.asyncio
+async def test_portfolio_equity_backfills_initial_cash_within_first_trading_day():
+    """Sequential process startup must not create a false intraday capital jump."""
+    from app.api.portfolio_api import get_portfolio_equity
+
+    mgr = _MockManager([_INSTANCE_A, _INSTANCE_B])
+
+    def mock_parse_value(log_dir):
+        if "strat_001" in str(log_dir):
+            return {
+                "datetimes": ["2026-06-25T09:30:00+08:00"],
+                "equity_curve": [100.0],
+            }
+        return {
+            "datetimes": ["2026-06-25T09:31:00+08:00"],
+            "equity_curve": [200.0],
+        }
+
+    with (
+        patch("app.api.portfolio_api.get_strategy_dir", side_effect=lambda s: f"/fake/{s}"),
+        patch("app.api.portfolio_api.find_latest_log_dir", side_effect=lambda d: f"{d}/logs"),
+        patch("app.api.portfolio_api.parse_value_log", side_effect=mock_parse_value),
+    ):
+        result = await get_portfolio_equity(current_user=_USER, mgr=mgr)
+
+    assert result["total_equity"] == [300.0, 300.0]
+    by_instance = {item["instance_id"]: item for item in result["strategies"]}
+    assert by_instance["inst-b"]["values"] == [200.0, 200.0]
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -28,6 +28,7 @@ from app.api.news_intelligence import router as news_intelligence_router
 from app.api.optimization_api import router as optimization_router
 from app.api.options_chain import router as options_chain_router
 from app.api.overfitting import router as overfitting_router
+from app.api.paper_runtime import router as paper_runtime_router
 from app.api.perf_attribution import router as perf_attribution_router
 from app.api.portfolio import router as portfolio_router
 from app.api.prompt_templates import router as prompt_templates_router
@@ -118,6 +119,7 @@ api_router.include_router(live_trading_router, prefix="/live-trading", tags=["Li
 api_router.include_router(portfolio_router)
 api_router.include_router(optimization_router, prefix="/optimization", tags=["Optimization"])
 api_router.include_router(simulation_router, prefix="/simulation", tags=["Simulation"])
+api_router.include_router(paper_runtime_router, prefix="/paper-runtimes", tags=["Paper Runtime"])
 api_router.include_router(workspace_router, prefix="/workspace", tags=["Workspace"])
 api_router.include_router(workspace_optimization_router, prefix="/workspace", tags=["Workspace"])
 api_router.include_router(docs_router, prefix="/docs", tags=["Documentation"])

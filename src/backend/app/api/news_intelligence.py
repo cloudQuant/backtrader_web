@@ -66,6 +66,22 @@ async def list_articles(
     )
 
 
+@router.get("/articles/{article_id}/content", response_model=None)
+async def get_article_content(
+    article_id: str,
+    current_user: typing.Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> typing.Any:
+    """Return content saved during RSS/manual article ingestion."""
+    article = await get_news_intelligence_service(db).get_article_content(
+        current_user.sub,
+        article_id,
+    )
+    if article is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="article_not_found")
+    return article
+
+
 @router.post("/analyze", response_model=None)
 async def analyze(
     payload: dict,

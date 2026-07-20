@@ -112,12 +112,12 @@ class AIStrategyResearchVersionService:
             _payload_dict(left.backtest_metrics),
             _payload_dict(right.backtest_metrics),
         )
-        gate_deltas = {
-            "left_status": left.quality_gate_status,
-            "right_status": right.quality_gate_status,
-            "improved": right.quality_gate_status == "passed"
-            and left.quality_gate_status != "passed",
-        }
+        gate_deltas = _gate_deltas(
+            _payload_list(left.quality_gate_evaluations),
+            _payload_list(right.quality_gate_evaluations),
+            left_status=left.quality_gate_status,
+            right_status=right.quality_gate_status,
+        )
         code_diff = _code_diff(left, right)
         verdict, summary = _comparison_summary(left, right, metric_deltas, gate_deltas)
         comparison = AIStrategyResearchVersionComparison(
@@ -272,6 +272,11 @@ def _payload_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _payload_list(value: Any) -> list[dict[str, Any]]:
+    """Return only object rows from an ORM JSON-list payload."""
+    return [dict(item) for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
 def _ai_rationale(iteration: AIStrategyResearchIteration) -> str:
     notes = [str(item).strip() for item in iteration.improvement_notes if str(item or "").strip()]
     if notes:
@@ -311,6 +316,51 @@ def _metric_deltas(left: dict[str, Any] | None, right: dict[str, Any] | None) ->
             "delta": None
             if left_value is None or right_value is None
             else right_value - left_value,
+            "operator": "delta",
+            "passed": right_value is not None,
+        }
+    return result
+
+
+def _gate_deltas(
+    left: list[dict[str, Any]],
+    right: list[dict[str, Any]],
+    *,
+    left_status: str,
+    right_status: str,
+) -> dict[str, Any]:
+    """Return display-ready gate rows with explicit before/after semantics."""
+    left_by_key = {
+        str(item.get("key") or index): item for index, item in enumerate(left) if isinstance(item, dict)
+    }
+    right_by_key = {
+        str(item.get("key") or index): item for index, item in enumerate(right) if isinstance(item, dict)
+    }
+    result: dict[str, Any] = {
+        "quality_gate_status": {
+            "left": left_status,
+            "right": right_status,
+            "delta": None,
+            "operator": "transition",
+            "passed": right_status == "passed",
+            "improved": right_status == "passed" and left_status != "passed",
+        }
+    }
+    for key in sorted(set(left_by_key) | set(right_by_key)):
+        left_gate = left_by_key.get(key, {})
+        right_gate = right_by_key.get(key, {})
+        left_actual = _optional_number(left_gate.get("actual"))
+        right_actual = _optional_number(right_gate.get("actual"))
+        result[key] = {
+            "left": left_actual,
+            "right": right_actual,
+            "delta": None
+            if left_actual is None or right_actual is None
+            else right_actual - left_actual,
+            "operator": str(right_gate.get("operator") or left_gate.get("operator") or "transition"),
+            "passed": bool(right_gate.get("passed")),
+            "improved": bool(right_gate.get("passed")) and not bool(left_gate.get("passed")),
+            "label": str(right_gate.get("label") or left_gate.get("label") or key),
         }
     return result
 
@@ -336,7 +386,10 @@ def _comparison_summary(
     sharpe_delta = _delta_for(metric_deltas, "sharpe_ratio", "sharpe")
     return_delta = _delta_for(metric_deltas, "annual_return", "total_return")
     drawdown_delta = _delta_for(metric_deltas, "max_drawdown")
-    if gate_deltas.get("improved") or (sharpe_delta is not None and sharpe_delta > 0):
+    gate_improved = any(
+        bool(item.get("improved")) for item in gate_deltas.values() if isinstance(item, dict)
+    )
+    if gate_improved or (sharpe_delta is not None and sharpe_delta > 0):
         verdict = "improved"
     elif sharpe_delta is not None and sharpe_delta < 0:
         verdict = "regressed"

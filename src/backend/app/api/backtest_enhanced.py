@@ -43,6 +43,7 @@ from app.schemas.backtest_enhanced import (
     BacktestTaskCreatedEvent,
     TaskStatus,
 )
+from app.schemas.backtest_summary import BacktestSummaryResponse
 from app.schemas.market_data_trust import RobustnessTestResultResponse, RobustnessValidationRequest
 from app.services.backtest_service import BacktestService
 from app.services.report_service import ReportService
@@ -196,6 +197,25 @@ async def get_backtest_result(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Backtest result not found",
+        )
+    return result
+
+
+@router.get(
+    "/{task_id}/summary",
+    response_model=BacktestSummaryResponse,
+    summary="Get compact backtest result summary",
+)
+async def get_backtest_result_summary(
+    task_id: str,
+    current_user: typing.Any = Depends(get_current_user),
+    service: BacktestService = Depends(get_backtest_service),
+) -> BacktestSummaryResponse:
+    """Return a stable first-screen summary without large curves or trade payloads."""
+    result = await service.get_result_summary(task_id, user_id=current_user.sub)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Backtest result not found"
         )
     return result
 

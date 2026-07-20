@@ -32,6 +32,7 @@ from app.schemas.backtest_enhanced import (
     BacktestFailedEvent,
     BacktestProgressEvent,
 )
+from app.schemas.backtest_summary import BacktestSummaryResponse, CanonicalMetrics
 from app.schemas.market_data_trust import DataPrecheckRequest
 from app.services.backtest.manager import BacktestExecutionManager
 from app.services.backtest.runner import BacktestExecutionRunner
@@ -728,6 +729,54 @@ class BacktestService:
                 "robustness": robustness_payload,
                 "result_summary": summary,
             }
+        )
+
+    async def get_result_summary(
+        self,
+        task_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> BacktestSummaryResponse | None:
+        """Return a compact canonical summary without loading result curves or trades."""
+        task = await self.task_repo.get_by_id(task_id)
+        if task is None or (user_id is not None and task.user_id != user_id):
+            return None
+        result_model = await self.result_repo.get_by_field("task_id", task_id)
+        request_data = self._get_request_data(task)
+        standard_metrics = dict(getattr(result_model, "standard_metrics", None) or {})
+        if not standard_metrics and result_model is not None:
+            standard_metrics = get_metrics_service().normalize(
+                {
+                    "total_return": result_model.total_return,
+                    "annual_return": result_model.annual_return,
+                    "sharpe_ratio": result_model.sharpe_ratio,
+                    "max_drawdown": result_model.max_drawdown,
+                    "win_rate": result_model.win_rate,
+                    "total_trades": result_model.total_trades,
+                    "profit_loss_ratio": getattr(result_model, "profit_loss_ratio", 0.0),
+                    "max_consecutive_wins": getattr(result_model, "max_consecutive_wins", 0),
+                    "max_consecutive_losses": getattr(result_model, "max_consecutive_losses", 0),
+                    "avg_holding_bars": getattr(result_model, "average_holding_bars", 0.0),
+                },
+                trades=None,
+            )
+        summary = dict(getattr(result_model, "result_summary", None) or {})
+        robustness = dict(summary.get("robustness") or {})
+        if user_id is not None:
+            latest = await get_robustness_validation_service().get_latest(
+                backtest_id=task_id,
+                user_id=user_id,
+            )
+            if latest is not None:
+                robustness = latest.model_dump(mode="json")
+        return BacktestSummaryResponse(
+            task_id=str(task.id),
+            strategy_id=str(task.strategy_id),
+            symbol=str(task.symbol),
+            status=TaskStatus(task.status),
+            metrics=CanonicalMetrics.model_validate(standard_metrics),
+            data_precheck=dict(request_data.get("data_precheck") or {}),
+            robustness=robustness,
         )
 
     async def cancel_task(self, task_id: str, user_id: str) -> bool:

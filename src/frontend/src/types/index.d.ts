@@ -94,6 +94,29 @@ export interface BacktestResult {
   error_message?: string
 }
 
+export interface CanonicalMetrics {
+  total_return: number
+  annual_return: number
+  sharpe_ratio: number
+  max_drawdown: number
+  win_rate: number
+  total_trades: number
+  profit_loss_ratio: number
+  max_consecutive_wins: number
+  max_consecutive_losses: number
+  avg_holding_bars: number
+}
+
+export interface BacktestSummaryResponse {
+  task_id: string
+  strategy_id: string
+  symbol: string
+  status: TaskStatus
+  metrics: CanonicalMetrics
+  data_precheck: DataPrecheckResponse
+  robustness: RobustnessTestResultResponse | Record<string, never>
+}
+
 export interface TradeRecord {
   date: string
   type: 'buy' | 'sell'

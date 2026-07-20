@@ -14,6 +14,7 @@ import asyncio
 import json
 import os
 import stat
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -38,6 +39,9 @@ from app.services.live_trading_manager import (
 def disable_restore_background_thread(monkeypatch):
     monkeypatch.setattr(
         LiveTradingManager, "_start_restore_manual_gateways_background", lambda self: None
+    )
+    monkeypatch.setattr(
+        LiveTradingManager, "_start_restore_running_gateway_background", lambda self: None
     )
 
 
@@ -227,6 +231,36 @@ class TestLiveTradingManagerInitialization:
 
         assert _should_restore_manual_gateways() is False
         mock_start_restore.assert_not_called()
+
+    def test_recovery_reacquires_gateway_without_spawning_strategy_process(self, monkeypatch, tmp_path):
+        manager = LiveTradingManager.__new__(LiveTradingManager)
+        manager._gateway_lock = threading.RLock()
+        manager._gateways = {}
+        manager._instance_gateways = {}
+
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        (strategy_dir / "run.py").write_text("# strategy", encoding="utf-8")
+        instance = {
+            "id": "surviving-instance",
+            "status": "running",
+            "strategy_id": "strategy",
+            "runtime_dir": str(strategy_dir),
+            "params": {"gateway": {"enabled": True}},
+        }
+        acquired: list[tuple[str, Path]] = []
+
+        monkeypatch.setattr(manager, "list_instances", lambda: [instance])
+        monkeypatch.setattr(
+            manager,
+            "_acquire_gateway_for_instance",
+            lambda instance_id, payload, path: acquired.append((instance_id, path))
+            or {"config": object()},
+        )
+
+        manager._restore_running_instance_gateways()
+
+        assert acquired == [("surviving-instance", strategy_dir)]
 
 
 def test_query_instance_asset_specs_merges_gateway_last_price():

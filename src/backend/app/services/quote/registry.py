@@ -205,15 +205,24 @@ def first_present(mapping: dict[str, Any], *keys: str) -> Any:
 def resolve_quote_fields(source: str, ticks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Resolve the ordered list of quote fields to expose for ``source``.
 
-    Includes a field if it is configured as ``always_show`` or if at least one
-    tick in ``ticks`` carries a non-empty value.
+    Keep the complete common field set visible even when a market is closed or
+    a gateway has not produced a value yet.  Hiding empty fields made the table
+    appear to have only a handful of columns and, in particular, concealed
+    MT5 bid/ask columns before their first tick.
     """
     configured_fields = QUOTE_FIELDS_BY_SOURCE.get(source, GENERIC_QUOTE_FIELDS)
-    resolved: list[dict[str, Any]] = []
+    configured_by_prop = {
+        str(field.get("prop") or "").strip(): field
+        for field in configured_fields
+        if str(field.get("prop") or "").strip()
+    }
+    resolved = [
+        dict(configured_by_prop.get(str(field["prop"]), field))
+        for field in GENERIC_QUOTE_FIELDS
+    ]
+    known_props = {str(field["prop"]) for field in GENERIC_QUOTE_FIELDS}
     for field in configured_fields:
         prop = str(field.get("prop") or "").strip()
-        if not prop:
-            continue
-        if field.get("always_show") or any(has_quote_field_value(tick.get(prop)) for tick in ticks):
+        if prop and prop not in known_props:
             resolved.append(dict(field))
     return resolved

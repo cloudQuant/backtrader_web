@@ -77,6 +77,47 @@ class TestIteration129KBChatAPI:
         )
         assert create_resp.status_code == 422, create_resp.text
 
+    async def test_public_knowledge_base_is_available_for_other_user_chat(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        kb_resp = await client.post(
+            "/api/v1/knowledge-base/",
+            headers=auth_headers,
+            json={"name": "共享量化知识库", "description": None, "is_public": True},
+        )
+        assert kb_resp.status_code == 201, kb_resp.text
+        kb_id = kb_resp.json()["id"]
+
+        doc_resp = await client.post(
+            f"/api/v1/knowledge-base/{kb_id}/documents/",
+            headers=auth_headers,
+            json={
+                "title": "共享风控规则",
+                "content": "共享知识库中的 ATR 止损可用于控制单笔风险。",
+                "content_type": "markdown",
+            },
+        )
+        assert doc_resp.status_code == 201, doc_resp.text
+        index_resp = await client.post(
+            "/api/v1/rag/index",
+            headers=auth_headers,
+            json={"knowledge_base_id": kb_id, "document_id": doc_resp.json()["id"]},
+        )
+        assert index_resp.status_code == 200, index_resp.text
+
+        other_headers = await _register_and_login(client)
+        list_resp = await client.get("/api/v1/knowledge-base/?limit=100", headers=other_headers)
+        assert list_resp.status_code == 200, list_resp.text
+        assert any(item["id"] == kb_id for item in list_resp.json()["items"])
+
+        send_resp = await client.post(
+            "/api/v1/kb-chat/send",
+            headers=other_headers,
+            json={"knowledge_base_id": kb_id, "question": "ATR 止损有什么作用？"},
+        )
+        assert send_resp.status_code == 200, send_resp.text
+        assert send_resp.json()["citations"][0]["document_id"] == doc_resp.json()["id"]
+
     async def test_send_history_and_delete_conversation(
         self, client: AsyncClient, auth_headers: dict
     ):

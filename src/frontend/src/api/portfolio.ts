@@ -139,8 +139,11 @@ export const portfolioApi = {
     return request.get('/portfolio/trades', { params })
   },
 
-  getEquity(): Promise<PortfolioEquity> {
-    return request.get('/portfolio/equity')
+  getEquity(workspaceIds: string[] = []): Promise<PortfolioEquity> {
+    const ids = workspaceIds.filter(Boolean)
+    const params: { workspace_ids?: string } = {}
+    if (ids.length > 0) params.workspace_ids = ids.join(',')
+    return request.get('/portfolio/equity', { params })
   },
 
   getAllocation(workspaceIds: string[] = []): Promise<{ total: number; items: AllocationItem[] }> {

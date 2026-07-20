@@ -776,7 +776,7 @@
                         size="small"
                         :loading="aiResearchPrecheckLoading"
                         data-test="ai-research-data-precheck"
-                        @click="runAIResearchDataPrecheck"
+                        @click="() => runAIResearchDataPrecheck()"
                       >
                         <el-icon aria-hidden="true">
                           <RefreshRight />
@@ -790,6 +790,22 @@
                       >
                         {{ aiResearchPrecheckSummary }}
                       </el-tag>
+                    </div>
+                    <div
+                      v-if="aiResearchPrecheckResult?.gate_evaluations?.length"
+                      class="ai-research-precheck-issues"
+                      data-test="ai-research-precheck-issues"
+                    >
+                      <div
+                        v-for="issue in aiResearchPrecheckResult.gate_evaluations.filter(item => !item.passed)"
+                        :key="issue.key"
+                        class="ai-research-precheck-issue"
+                      >
+                        <el-tag size="small" :type="issue.severity === 'error' ? 'danger' : 'warning'">
+                          {{ issue.severity === 'error' ? '阻断' : '提示' }}
+                        </el-tag>
+                        <span>{{ issue.message || issue.label }}</span>
+                      </div>
                     </div>
                   </el-form-item>
                   <el-form-item label="稳健性验证">
@@ -1784,6 +1800,30 @@
                   data-test="ai-research-version-compare"
                 >
                   <strong>{{ aiResearchVersionCompare.summary }}</strong>
+                  <div
+                    v-if="aiResearchVersionComparisonRows.length"
+                    class="ai-research-version-delta-table"
+                  >
+                    <div
+                      v-for="row in aiResearchVersionComparisonRows"
+                      :key="`${row.scope}-${row.key}`"
+                      class="ai-research-version-delta-row"
+                      data-test="ai-research-version-delta-row"
+                    >
+                      <span>{{ row.scope === 'metric' ? '指标' : '门控' }} · {{ row.label }}</span>
+                      <span>左 {{ row.left }}</span>
+                      <span>右 {{ row.right }}</span>
+                      <span>变化 {{ row.delta }}</span>
+                      <span>{{ row.operator }}</span>
+                      <el-tag
+                        v-if="row.passed !== null"
+                        size="small"
+                        :type="row.passed ? 'success' : 'danger'"
+                      >
+                        {{ row.passed ? '通过' : '未通过' }}
+                      </el-tag>
+                    </div>
+                  </div>
                   <pre v-if="aiResearchVersionCompare.code_diff">{{ aiResearchVersionCompare.code_diff }}</pre>
                 </div>
               </div>
@@ -2816,6 +2856,7 @@ const {
   aiResearchVersionCompare,
   aiResearchVersionCompareLoading,
   aiResearchSelectedVersionIds,
+  aiResearchVersionComparisonRows,
   aiResearchPrecheckLoading,
   aiResearchPrecheckResult,
   aiResearchPrecheckError,

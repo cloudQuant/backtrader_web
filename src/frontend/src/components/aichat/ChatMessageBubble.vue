@@ -69,7 +69,16 @@
         </div>
       </div>
 
-      <div class="message-content">
+      <!-- eslint-disable-next-line vue/no-v-html -- AI Markdown is rendered then sanitized with DOMPurify. -->
+      <div
+        v-if="message.role === 'assistant'"
+        class="message-content markdown-content"
+        v-html="renderedAssistantContent"
+      />
+      <div
+        v-else
+        class="message-content"
+      >
         {{ message.content }}
       </div>
 
@@ -206,6 +215,7 @@ import {
   getStrategyDraftIssue,
   retrievalProfileLabel,
 } from '@/composables/useAIChatRendering'
+import { renderMarkdown } from '@/utils/markdown-sanitizer'
 import CitationList from './CitationList.vue'
 import StrategyDraftCard from './StrategyDraftCard.vue'
 import StockAnalysisReportCard from './StockAnalysisReportCard.vue'
@@ -244,6 +254,7 @@ const localStockReport = ref<KBStockAnalysisReport | null>(props.message.stockAn
 
 const displayStockTask = computed<DisplayStockTask | null>(() => localStockTask.value)
 const displayStockReport = computed<KBStockAnalysisReport | null>(() => localStockReport.value)
+const renderedAssistantContent = computed(() => renderMarkdown(props.message.content, { allowImages: false }))
 const strategyModes: KBAssistantMode[] = ['strategy_idea', 'backtrader_strategy', 'strategy_review']
 const isStrategyWorkflowMessage = computed(() => (
   props.strategyWorkflowEnabled === true
@@ -429,6 +440,7 @@ const emit = defineEmits<{
 
 .message-card.user .message-content {
   background: color-mix(in srgb, var(--bg-color) 88%, var(--fill-color-light) 12%);
+  white-space: pre-wrap;
 }
 
 .message-avatar {
@@ -508,8 +520,107 @@ const emit = defineEmits<{
   color: var(--text-color-primary);
   font-size: 15px;
   line-height: 1.8;
-  white-space: pre-wrap;
+  white-space: normal;
   word-break: break-word;
+}
+
+.markdown-content :deep(p),
+.markdown-content :deep(ul),
+.markdown-content :deep(ol),
+.markdown-content :deep(blockquote),
+.markdown-content :deep(pre),
+.markdown-content :deep(table) {
+  margin: 0 0 12px;
+}
+
+.markdown-content :deep(p:last-child),
+.markdown-content :deep(ul:last-child),
+.markdown-content :deep(ol:last-child),
+.markdown-content :deep(blockquote:last-child),
+.markdown-content :deep(pre:last-child),
+.markdown-content :deep(table:last-child) {
+  margin-bottom: 0;
+}
+
+.markdown-content :deep(h1),
+.markdown-content :deep(h2),
+.markdown-content :deep(h3),
+.markdown-content :deep(h4),
+.markdown-content :deep(h5),
+.markdown-content :deep(h6) {
+  margin: 18px 0 10px;
+  color: var(--text-color-primary);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.markdown-content :deep(h1:first-child),
+.markdown-content :deep(h2:first-child),
+.markdown-content :deep(h3:first-child),
+.markdown-content :deep(h4:first-child),
+.markdown-content :deep(h5:first-child),
+.markdown-content :deep(h6:first-child) {
+  margin-top: 0;
+}
+
+.markdown-content :deep(h1) { font-size: 1.35em; }
+.markdown-content :deep(h2) { font-size: 1.22em; }
+.markdown-content :deep(h3) { font-size: 1.1em; }
+
+.markdown-content :deep(ul),
+.markdown-content :deep(ol) {
+  padding-left: 1.4em;
+}
+
+.markdown-content :deep(li + li) {
+  margin-top: 4px;
+}
+
+.markdown-content :deep(blockquote) {
+  border-left: 3px solid var(--primary-color);
+  padding-left: 12px;
+  color: var(--text-color-regular);
+}
+
+.markdown-content :deep(code) {
+  border-radius: 4px;
+  background: var(--fill-color-light);
+  padding: 2px 5px;
+  color: var(--text-color-primary);
+  font-family: var(--el-font-family-monospace, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.9em;
+}
+
+.markdown-content :deep(pre) {
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--fill-color-light);
+  padding: 12px;
+  white-space: pre;
+}
+
+.markdown-content :deep(pre code) {
+  background: transparent;
+  padding: 0;
+}
+
+.markdown-content :deep(a) {
+  color: var(--primary-color);
+  text-decoration: underline;
+}
+
+.markdown-content :deep(table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.markdown-content :deep(th),
+.markdown-content :deep(td) {
+  border: 1px solid var(--border-color);
+  padding: 6px 8px;
+  text-align: left;
 }
 
 .diagnostic-box,

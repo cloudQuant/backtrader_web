@@ -32,6 +32,12 @@ python scripts/dev/verify_roadshow_demo.py
 # Verify native stock-analysis AI assistant flow
 python scripts/dev/verify_stock_analysis_ai_assistant.py
 
+# Crawl public yunjinqi.top articles into an AI Chat knowledge base (manifest first)
+python scripts/migrate/crawl_yunjinqi_to_knowledge_base.py --skip-import
+
+# Resume the manifest and create/index documents for AI Chat
+AI_FOR_INVESTOR_TOKEN='...' python scripts/migrate/crawl_yunjinqi_to_knowledge_base.py --import-only
+
 # Run E2E tests
 ./scripts/dev/run-e2e.sh
 ```

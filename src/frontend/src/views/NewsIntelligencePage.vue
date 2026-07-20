@@ -6,7 +6,9 @@
     <section class="news-hero">
       <div class="news-hero-copy">
         <span class="news-eyebrow">{{ t('newsIntel.heroKicker') }}</span>
-        <h1>{{ t('newsIntel.title') }}</h1>
+        <div class="news-hero-title-row">
+          <h1>{{ t('newsIntel.title') }}</h1>
+        </div>
         <p>{{ t('newsIntel.desc') }}</p>
       </div>
 
@@ -23,198 +25,7 @@
       </div>
     </section>
 
-    <section class="news-source-panel">
-      <div class="news-section-heading">
-        <div>
-          <span class="news-section-kicker">{{ t('newsIntel.sourcePanelKicker') }}</span>
-          <h2>{{ t('newsIntel.sourcePanelTitle') }}</h2>
-          <p>{{ t('newsIntel.sourcePanelDesc') }}</p>
-        </div>
-        <button
-          type="button"
-          class="news-icon-command"
-          @click="toggleSourceConfig"
-        >
-          <el-icon aria-hidden="true">
-            <Setting />
-          </el-icon>
-          <span>{{ t('newsIntel.btnConfigureSource') }}</span>
-        </button>
-      </div>
-
-      <div class="news-source-metrics">
-        <div class="news-source-metric">
-          <span>{{ t('newsIntel.sourceCountLabel') }}</span>
-          <strong>{{ configuredSources.length }}</strong>
-        </div>
-        <div class="news-source-metric">
-          <span>{{ t('newsIntel.presetCountLabel') }}</span>
-          <strong>{{ selectedFeedPresetIds.length }}</strong>
-        </div>
-        <div class="news-source-metric">
-          <span>{{ t('newsIntel.manualSourceLabel') }}</span>
-          <strong>{{ sourceName ? t('common.enable') : t('common.disable') }}</strong>
-        </div>
-      </div>
-    </section>
-
     <section class="news-workbench">
-      <div class="news-control-panel news-control-panel--analysis">
-        <div class="news-section-heading news-section-heading--compact">
-          <div>
-            <span class="news-section-kicker">{{ t('newsIntel.analysisKicker') }}</span>
-            <h2>{{ t('newsIntel.analysisTitle') }}</h2>
-            <p>{{ t('newsIntel.analysisDesc') }}</p>
-          </div>
-        </div>
-
-        <div class="news-analysis-toolbar">
-          <el-input
-            v-model="analysisHeadline"
-            :placeholder="t('newsIntel.analysisPh')"
-            class="news-primary-input"
-          />
-          <el-button
-            :loading="loading"
-            @click="analyzeHeadline"
-          >
-            <el-icon aria-hidden="true">
-              <Search />
-            </el-icon>
-            {{ t('newsIntel.btnAnalyze') }}
-          </el-button>
-          <el-button
-            :loading="loading"
-            @click="loadArticles"
-          >
-            <el-icon aria-hidden="true">
-              <Refresh />
-            </el-icon>
-            {{ t('newsIntel.btnRefreshList') }}
-          </el-button>
-          <el-button
-            type="primary"
-            :loading="loading"
-            @click="pullSource"
-          >
-            <el-icon aria-hidden="true">
-              <Connection />
-            </el-icon>
-            {{ t('newsIntel.btnPullRss') }}
-          </el-button>
-          <el-button @click="toggleSourceConfig">
-            <el-icon aria-hidden="true">
-              <Setting />
-            </el-icon>
-            {{ t('newsIntel.btnConfigureSource') }}
-          </el-button>
-        </div>
-
-        <div
-          v-if="pullResult || analysisResult"
-          class="news-result-grid"
-        >
-          <div
-            v-if="pullResult"
-            class="news-result-card"
-          >
-            <span>{{ t('newsIntel.pullStatusLabel') }}</span>
-            <strong>{{ displayValue(pullResult.status) }}</strong>
-            <small>
-              {{ t('newsIntel.pullResultTpl', { status: pullResult.status, fetched: pullResult.fetched_count, inserted: pullResult.inserted_count }) }}
-            </small>
-          </div>
-          <div
-            v-if="analysisResult"
-            class="news-result-card"
-          >
-            <span>{{ t('newsIntel.analysisStatusLabel') }}</span>
-            <strong>{{ displayValue(analysisResult.sentiment) }}</strong>
-            <small>
-              {{ t('newsIntel.analysisResultTpl', { sentiment: analysisResult.sentiment, impact: analysisResult.impact, status: analysisResult.status }) }}
-            </small>
-          </div>
-        </div>
-      </div>
-
-      <div class="news-control-panel">
-        <div class="news-section-heading news-section-heading--compact">
-          <div>
-            <span class="news-section-kicker">{{ t('newsIntel.importKicker') }}</span>
-            <h2>{{ t('newsIntel.importTitle') }}</h2>
-            <p>{{ t('newsIntel.importDesc') }}</p>
-          </div>
-        </div>
-
-        <div class="news-import-row">
-          <el-input
-            v-model="headline"
-            :placeholder="t('newsIntel.headlinePh')"
-          />
-          <el-input
-            v-model="url"
-            :placeholder="t('newsIntel.urlPh')"
-          />
-          <el-button
-            :loading="loading"
-            @click="ingest"
-          >
-            <el-icon aria-hidden="true">
-              <Plus />
-            </el-icon>
-            {{ t('newsIntel.btnIngest') }}
-          </el-button>
-        </div>
-      </div>
-
-      <div class="news-control-panel">
-        <div class="news-section-heading news-section-heading--compact">
-          <div>
-            <span class="news-section-kicker">{{ t('newsIntel.filterKicker') }}</span>
-            <h2>{{ t('newsIntel.filterTitle') }}</h2>
-            <p>{{ t('newsIntel.filterDesc') }}</p>
-          </div>
-        </div>
-
-        <div class="news-filter-grid">
-          <el-select
-            v-model="filterSentiment"
-            clearable
-            :placeholder="t('newsIntel.sentimentPh')"
-          >
-            <el-option
-              label="BULLISH"
-              value="BULLISH"
-            />
-            <el-option
-              label="BEARISH"
-              value="BEARISH"
-            />
-            <el-option
-              label="NEUTRAL"
-              value="NEUTRAL"
-            />
-          </el-select>
-          <el-input
-            v-model="filterTicker"
-            :placeholder="t('newsIntel.tickerPh')"
-          />
-          <el-input
-            v-model="filterClusterId"
-            :placeholder="t('newsIntel.clusterIdPh')"
-          />
-          <el-button
-            :loading="loading"
-            @click="loadArticles"
-          >
-            <el-icon aria-hidden="true">
-              <Filter />
-            </el-icon>
-            {{ t('newsIntel.btnApplyFilter') }}
-          </el-button>
-        </div>
-      </div>
-
       <div class="news-table-panel">
         <div class="news-section-heading">
           <div>
@@ -222,7 +33,68 @@
             <h2>{{ t('newsIntel.tableTitle') }}</h2>
             <p>{{ t('newsIntel.tableDesc') }}</p>
           </div>
-          <span class="news-table-count">{{ t('newsIntel.tableCountTpl', { count: articles.length }) }}</span>
+          <div class="news-section-heading-tools">
+            <span class="news-table-count">{{ t('newsIntel.tableCountTpl', { count: articles.length }) }}</span>
+            <div
+              class="news-table-actions"
+              data-test="news-live-desk-actions"
+            >
+              <button
+                type="button"
+                class="news-desk-command"
+                data-test="news-desk-action-analysis"
+                @click="analysisVisible = true"
+              >
+                <el-icon aria-hidden="true"><Search /></el-icon>
+                <span>{{ t('newsIntel.btnSentimentAnalysis') }}</span>
+              </button>
+              <button
+                type="button"
+                class="news-desk-command"
+                data-test="news-desk-action-import"
+                @click="importVisible = true"
+              >
+                <el-icon aria-hidden="true"><Plus /></el-icon>
+                <span>{{ t('newsIntel.btnArticleImport') }}</span>
+              </button>
+              <button
+                type="button"
+                class="news-desk-command"
+                data-test="news-desk-action-filter"
+                @click="filterVisible = true"
+              >
+                <el-icon aria-hidden="true"><Filter /></el-icon>
+                <span>{{ t('newsIntel.btnFiltering') }}</span>
+              </button>
+              <button
+                type="button"
+                class="news-desk-command"
+                data-test="news-desk-action-rss-refresh"
+                @click="rssRefreshVisible = true"
+              >
+                <el-icon aria-hidden="true"><Refresh /></el-icon>
+                <span>{{ t('newsIntel.btnRefreshRss') }}</span>
+              </button>
+              <button
+                type="button"
+                class="news-desk-command"
+                data-test="news-desk-action-rss-schedule"
+                @click="rssScheduleVisible = true"
+              >
+                <el-icon aria-hidden="true"><Refresh /></el-icon>
+                <span>{{ t('newsIntel.btnAutoRefresh') }}</span>
+              </button>
+              <button
+                type="button"
+                class="news-desk-command"
+                data-test="news-source-governance-button"
+                @click="toggleSourceConfig"
+              >
+                <el-icon aria-hidden="true"><Setting /></el-icon>
+                <span>{{ t('newsIntel.btnSourceGovernance') }}</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <div
@@ -290,9 +162,18 @@
           </el-table-column>
           <el-table-column
             :label="t('newsIntel.colActions')"
-            width="130"
+            width="220"
           >
             <template #default="scope">
+              <el-button
+                link
+                type="primary"
+                :disabled="!scope.row.id"
+                @click="showArticleContent(scope.row)"
+              >
+                <el-icon aria-hidden="true"><Document /></el-icon>
+                {{ t('newsIntel.btnViewContent') }}
+              </el-button>
               <el-button
                 link
                 type="primary"
@@ -311,9 +192,198 @@
     </section>
 
     <el-dialog
+      v-model="articleContentVisible"
+      :title="articleContentTitle || t('newsIntel.articleDetailsTitle')"
+      width="min(780px, calc(100vw - 32px))"
+      class="news-article-content-dialog"
+    >
+      <div
+        v-loading="articleContentLoading"
+        class="news-article-content"
+      >
+        <p v-if="articleContent">{{ articleContent }}</p>
+        <el-empty
+          v-else-if="!articleContentLoading"
+          :description="t('newsIntel.noSummary')"
+        />
+      </div>
+    </el-dialog>
+
+    <el-dialog
+      v-if="analysisVisible"
+      v-model="analysisVisible"
+      :title="t('newsIntel.analysisTitle')"
+      width="min(720px, calc(100vw - 32px))"
+      class="news-workflow-dialog"
+    >
+      <section class="news-dialog-workflow">
+        <p>{{ t('newsIntel.analysisDesc') }}</p>
+        <div class="news-analysis-toolbar">
+          <el-input
+            v-model="analysisHeadline"
+            :placeholder="t('newsIntel.analysisPh')"
+            class="news-primary-input"
+          />
+          <el-button
+            type="primary"
+            :loading="loading"
+            @click="analyzeHeadline"
+          >
+            <el-icon aria-hidden="true"><Search /></el-icon>
+            {{ t('newsIntel.btnAnalyze') }}
+          </el-button>
+        </div>
+        <div
+          v-if="analysisResult"
+          class="news-result-grid news-result-grid--single"
+        >
+          <div class="news-result-card">
+            <span>{{ t('newsIntel.analysisStatusLabel') }}</span>
+            <strong>{{ displayValue(analysisResult.sentiment) }}</strong>
+            <small>
+              {{ t('newsIntel.analysisResultTpl', { sentiment: analysisResult.sentiment, impact: analysisResult.impact, status: analysisResult.status }) }}
+            </small>
+          </div>
+        </div>
+      </section>
+    </el-dialog>
+
+    <el-dialog
+      v-if="importVisible"
+      v-model="importVisible"
+      :title="t('newsIntel.importTitle')"
+      width="min(760px, calc(100vw - 32px))"
+      class="news-workflow-dialog"
+    >
+      <section class="news-dialog-workflow">
+        <p>{{ t('newsIntel.importDesc') }}</p>
+        <div class="news-import-row">
+          <el-input
+            v-model="headline"
+            :placeholder="t('newsIntel.headlinePh')"
+          />
+          <el-input
+            v-model="url"
+            :placeholder="t('newsIntel.urlPh')"
+          />
+          <el-button
+            type="primary"
+            :loading="loading"
+            @click="ingest"
+          >
+            <el-icon aria-hidden="true"><Plus /></el-icon>
+            {{ t('newsIntel.btnIngest') }}
+          </el-button>
+        </div>
+      </section>
+    </el-dialog>
+
+    <el-dialog
+      v-if="filterVisible"
+      v-model="filterVisible"
+      :title="t('newsIntel.filterTitle')"
+      width="min(760px, calc(100vw - 32px))"
+      class="news-workflow-dialog"
+    >
+      <section class="news-dialog-workflow">
+        <p>{{ t('newsIntel.filterDesc') }}</p>
+        <div class="news-filter-grid">
+          <el-select
+            v-model="filterSentiment"
+            clearable
+            :placeholder="t('newsIntel.sentimentPh')"
+          >
+            <el-option label="BULLISH" value="BULLISH" />
+            <el-option label="BEARISH" value="BEARISH" />
+            <el-option label="NEUTRAL" value="NEUTRAL" />
+          </el-select>
+          <el-input
+            v-model="filterTicker"
+            :placeholder="t('newsIntel.tickerPh')"
+          />
+          <el-input
+            v-model="filterClusterId"
+            :placeholder="t('newsIntel.clusterIdPh')"
+          />
+          <el-button
+            type="primary"
+            :loading="loading"
+            @click="loadArticles"
+          >
+            <el-icon aria-hidden="true"><Filter /></el-icon>
+            {{ t('newsIntel.btnApplyFilter') }}
+          </el-button>
+        </div>
+      </section>
+    </el-dialog>
+
+    <el-dialog
+      v-if="rssRefreshVisible"
+      v-model="rssRefreshVisible"
+      :title="t('newsIntel.btnRefreshRss')"
+      width="min(640px, calc(100vw - 32px))"
+      class="news-workflow-dialog"
+    >
+      <section class="news-dialog-workflow">
+        <p>{{ t('newsIntel.sourcePanelDesc') }}</p>
+        <div class="news-configured-source-list">
+          <span
+            v-for="source in configuredSources"
+            :key="source.id"
+            class="news-selected-source"
+          >
+            {{ source.name }}
+          </span>
+        </div>
+        <el-button
+          type="primary"
+          :loading="loading"
+          @click="pullSource"
+        >
+          <el-icon aria-hidden="true"><Refresh /></el-icon>
+          {{ t('newsIntel.btnRefreshRss') }}
+        </el-button>
+        <div
+          v-if="pullResult"
+          class="news-result-grid news-result-grid--single"
+        >
+          <div class="news-result-card">
+            <span>{{ t('newsIntel.pullStatusLabel') }}</span>
+            <strong>{{ displayValue(pullResult.status) }}</strong>
+            <small>
+              {{ t('newsIntel.pullResultTpl', { status: pullResult.status, fetched: pullResult.fetched_count, inserted: pullResult.inserted_count }) }}
+            </small>
+          </div>
+        </div>
+      </section>
+    </el-dialog>
+
+    <el-dialog
+      v-if="rssScheduleVisible"
+      v-model="rssScheduleVisible"
+      :title="t('newsIntel.rssRefreshInterval')"
+      width="min(560px, calc(100vw - 32px))"
+      class="news-workflow-dialog"
+    >
+      <section class="news-dialog-workflow">
+        <p>{{ t('newsIntel.rssRefreshMinutes', { minutes: rssRefreshMinutes }) }}</p>
+        <el-select
+          v-model="rssRefreshMinutes"
+          class="news-refresh-interval"
+          :aria-label="t('newsIntel.rssRefreshInterval')"
+        >
+          <el-option :label="t('newsIntel.rssRefreshMinutes', { minutes: 5 })" :value="5" />
+          <el-option :label="t('newsIntel.rssRefreshMinutes', { minutes: 15 })" :value="15" />
+          <el-option :label="t('newsIntel.rssRefreshMinutes', { minutes: 30 })" :value="30" />
+          <el-option :label="t('newsIntel.rssRefreshMinutes', { minutes: 60 })" :value="60" />
+        </el-select>
+      </section>
+    </el-dialog>
+
+    <el-dialog
       v-if="sourceConfigVisible"
       v-model="sourceConfigVisible"
-      :title="t('newsIntel.btnConfigureSource')"
+      :title="t('newsIntel.sourceGovernanceTitle')"
       width="min(760px, calc(100vw - 32px))"
       class="news-source-config-dialog"
     >
@@ -390,9 +460,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Connection, Document, Filter, Link, Plus, Refresh, Search, Setting } from '@element-plus/icons-vue'
+import { Document, Filter, Link, Plus, Refresh, Search, Setting } from '@element-plus/icons-vue'
 import { marketIntelApi, type NewsArticleItem } from '@/api/marketIntel'
 
 const { t } = useI18n()
@@ -460,7 +530,17 @@ const newsFeedPresets: NewsFeedPreset[] = [
 const defaultFeedPreset = newsFeedPresets[0]
 const loading = ref(false)
 const articles = ref<NewsArticleItem[]>([])
+const analysisVisible = ref(false)
+const importVisible = ref(false)
+const filterVisible = ref(false)
+const rssRefreshVisible = ref(false)
+const rssScheduleVisible = ref(false)
 const sourceConfigVisible = ref(false)
+const articleContentVisible = ref(false)
+const articleContentLoading = ref(false)
+const articleContent = ref('')
+const articleContentTitle = ref('')
+const rssRefreshMinutes = ref(15)
 const selectedFeedPresetIds = ref<string[]>([defaultFeedPreset.id])
 const configuredSources = ref<NewsFeedPreset[]>([defaultFeedPreset])
 const sourceName = ref(defaultFeedPreset.id)
@@ -636,6 +716,20 @@ async function loadArticles() {
   articles.value = response.items
 }
 
+async function showArticleContent(article: NewsArticleItem) {
+  if (!article.id) return
+  articleContentVisible.value = true
+  articleContentLoading.value = true
+  articleContent.value = ''
+  articleContentTitle.value = article.headline
+  try {
+    const response = await marketIntelApi.getArticleContent(article.id)
+    articleContent.value = response.content || response.summary || ''
+  } finally {
+    articleContentLoading.value = false
+  }
+}
+
 function openArticle(article: NewsArticleItem) {
   const articleUrl = String(article.url || '').trim()
   if (!articleUrl) return
@@ -669,7 +763,30 @@ function articleMeta(article: NewsArticleItem) {
   return parts.join(' · ')
 }
 
-void loadArticles()
+let rssRefreshTimer: ReturnType<typeof setInterval> | null = null
+
+function stopRssRefresh() {
+  if (rssRefreshTimer) {
+    clearInterval(rssRefreshTimer)
+    rssRefreshTimer = null
+  }
+}
+
+function startRssRefresh() {
+  stopRssRefresh()
+  rssRefreshTimer = setInterval(() => {
+    void pullSource()
+  }, rssRefreshMinutes.value * 60_000)
+}
+
+watch(rssRefreshMinutes, startRssRefresh)
+
+onMounted(() => {
+  void loadArticles()
+  startRssRefresh()
+})
+
+onUnmounted(stopRssRefresh)
 </script>
 
 <style scoped>
@@ -732,6 +849,13 @@ void loadArticles()
 .news-hero h1 {
   font-size: clamp(30px, 4vw, 46px);
   line-height: 1.06;
+}
+
+.news-hero-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
 }
 
 .news-hero p,
@@ -816,6 +940,14 @@ void loadArticles()
   line-height: 1.28;
 }
 
+.news-section-heading-tools {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .news-section-heading--compact h2 {
   font-size: 16px;
 }
@@ -835,6 +967,19 @@ void loadArticles()
   font: inherit;
   font-size: 13px;
   cursor: pointer;
+}
+
+.news-quick-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.news-refresh-interval {
+  width: 176px;
 }
 
 .news-source-metrics {
@@ -860,6 +1005,28 @@ void loadArticles()
 .news-workbench {
   display: grid;
   gap: 16px;
+}
+
+.news-direct-tools-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.news-control-panel--analysis {
+  grid-column: 1 / -1;
+}
+
+.news-article-content {
+  min-height: 120px;
+  color: var(--text-color-primary);
+}
+
+.news-article-content p {
+  margin: 0;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .news-analysis-toolbar {
@@ -909,6 +1076,34 @@ void loadArticles()
 
 .news-result-card strong {
   font-size: 18px;
+}
+
+.news-result-grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.news-dialog-workflow {
+  display: grid;
+  gap: 16px;
+}
+
+.news-dialog-workflow > p {
+  margin: 0;
+  color: var(--news-text-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.news-dialog-workflow .news-analysis-toolbar,
+.news-dialog-workflow .news-import-row,
+.news-dialog-workflow .news-filter-grid {
+  margin-top: 0;
+}
+
+.news-configured-source-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .news-source-config {
@@ -998,6 +1193,42 @@ void loadArticles()
 .news-table-panel > .news-section-heading {
   padding: 18px 18px 14px;
   border-bottom: 1px solid var(--news-border);
+}
+
+.news-table-actions {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.news-desk-command {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--news-border);
+  border-radius: 7px;
+  color: var(--news-text);
+  background: var(--news-panel-bg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease;
+}
+
+.news-desk-command:hover,
+.news-desk-command:focus-visible {
+  border-color: var(--news-border-strong);
+  color: var(--news-accent);
+  background: var(--news-panel-strong);
+  outline: 0;
 }
 
 .news-table-count {
@@ -1137,6 +1368,23 @@ void loadArticles()
   color: var(--text-color-primary);
 }
 
+:global(.news-workflow-dialog.el-dialog) {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-color);
+}
+
+:global(.news-workflow-dialog.el-dialog .el-dialog__title),
+:global(.news-workflow-dialog.el-dialog .el-dialog__body) {
+  color: var(--text-color-primary);
+}
+
+:global(.news-article-content-dialog.el-dialog) {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-color);
+}
+
 @media (max-width: 1120px) {
   .news-hero {
     grid-template-columns: 1fr;
@@ -1156,6 +1404,7 @@ void loadArticles()
 
   .news-hero-stats,
   .news-source-metrics,
+  .news-direct-tools-grid,
   .news-result-grid,
   .news-import-row,
   .news-filter-grid {
@@ -1166,7 +1415,27 @@ void loadArticles()
     flex-direction: column;
   }
 
+  .news-hero-title-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .news-table-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .news-section-heading-tools {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .news-desk-command {
+    flex: 1 1 calc(50% - 4px);
+  }
+
   .news-icon-command,
+  .news-quick-actions,
   .news-analysis-toolbar .el-button,
   .news-import-row .el-button,
   .news-filter-grid .el-button {
@@ -1174,6 +1443,7 @@ void loadArticles()
   }
 
   .news-analysis-toolbar .el-input,
+  .news-refresh-interval,
   .news-source-form .el-input,
   .news-source-config-main .el-select {
     min-width: 0;

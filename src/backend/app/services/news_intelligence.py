@@ -100,6 +100,7 @@ class NewsIntelligenceService:
             source = sources.get(source_name)
             headline = str(item.get("headline") or "").strip()
             article_summary = str(item.get("summary") or "").strip()
+            article_content = str(item.get("content") or article_summary).strip()
             article = NewsArticleModel(
                 owner_id=user_id,
                 source_id=source.id if source is not None else None,
@@ -120,6 +121,7 @@ class NewsIntelligenceService:
                 threat=classified["threat"],
                 cluster_id=cluster_id,
                 summary=article_summary or self._build_summary(headline, classified),
+                content=article_content or article_summary or self._build_summary(headline, classified),
                 status=classified["status"],
             )
             self.db.add(article)
@@ -228,6 +230,28 @@ class NewsIntelligenceService:
             ]
         items = [self._serialize_article(item) for item in rows]
         return {"items": items, "total": len(items)}
+
+    async def get_article_content(self, user_id: str, article_id: str) -> dict[str, Any] | None:
+        """Return the locally stored article body for the requesting owner only."""
+        self._require_db()
+        result = await self.db.execute(
+            select(NewsArticleModel).where(
+                NewsArticleModel.id == article_id,
+                NewsArticleModel.owner_id == user_id,
+            )
+        )
+        article = result.scalar_one_or_none()
+        if article is None:
+            return None
+        content = str(article.content or article.summary or "").strip()
+        return {
+            "id": article.id,
+            "headline": article.headline,
+            "content": content,
+            "summary": article.summary,
+            "source": article.source,
+            "url": article.url,
+        }
 
     async def latest(self, user_id: str) -> dict[str, Any]:
         self._require_db()
@@ -425,6 +449,7 @@ class NewsIntelligenceService:
             "threat": article.threat,
             "cluster_id": article.cluster_id,
             "summary": article.summary,
+            "has_content": bool(str(article.content or article.summary or "").strip()),
             "status": article.status,
         }
 

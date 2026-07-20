@@ -10,7 +10,9 @@ from app.db.database import Base
 
 config = context.config
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+_FALLBACK_DATABASE_URL = "sqlite+aiosqlite:///../../data/dev/backtrader.db"
+if config.get_main_option("sqlalchemy.url") in {None, "", _FALLBACK_DATABASE_URL}:
+    config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -34,11 +36,20 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+    with context.begin_transaction():
+        context.run_migrations()
 
 
 def run_migrations_online() -> None:
+    existing_connection = config.attributes.get("connection")
+    if existing_connection is not None:
+        do_run_migrations(existing_connection)
+        return
+
+    section = config.get_section(config.config_ini_section, {})
+    section["sqlalchemy.url"] = config.get_main_option("sqlalchemy.url")
     connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        section,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

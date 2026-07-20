@@ -198,6 +198,33 @@ vi.mock('@/api/analytics', () => ({
 
 vi.mock('@/api/backtest', () => ({
   backtestApi: {
+    getSummary: vi.fn().mockResolvedValue({
+      task_id: 't1',
+      strategy_id: 's1',
+      symbol: 'BTC',
+      status: 'completed',
+      metrics: {
+        total_return: 15,
+        annual_return: 20,
+        sharpe_ratio: 1.5,
+        max_drawdown: -10,
+        win_rate: 60,
+        total_trades: 50,
+        profitable_trades: 30,
+        losing_trades: 20,
+        break_even_trades: 0,
+        avg_holding_bars: 0,
+        avg_holding_period: 0,
+        max_consecutive_wins: 0,
+        max_consecutive_losses: 0,
+        profit_loss_ratio: 1.8,
+        initial_cash: 100000,
+        final_value: 115000,
+        metrics_source: 'test',
+      },
+      data_precheck: null,
+      robustness: null,
+    }),
     getResult: vi.fn().mockResolvedValue({
       task_id: 't1',
       strategy_id: 's1',
@@ -265,6 +292,7 @@ describe('BacktestResultPage', () => {
     vi.mocked(analyticsApi.getBacktestDetail).mockClear()
     vi.mocked(analyticsApi.getKlineWithSignals).mockClear()
     vi.mocked(analyticsApi.getMonthlyReturns).mockClear()
+    vi.mocked(backtestApi.getSummary).mockClear()
     vi.mocked(backtestApi.getResult).mockClear()
     vi.mocked(backtestApi.runRobustness).mockClear()
     vi.mocked(strategyApi.createScore).mockClear()
@@ -276,6 +304,62 @@ describe('BacktestResultPage', () => {
   it('mounts without error', () => {
     const wrapper = mount(BacktestResultPage, { global: { stubs: { ...elStubs, EquityCurve: true, DrawdownChart: true, TradeRecordsTable: true, TradeSignalChart: true, ReturnHeatmap: true, MetricCard: true, PerformancePanel: true } } })
     expect(wrapper.exists()).toBe(true)
+  })
+
+  it('renders the compact summary before a delayed detail response', async () => {
+    const { analyticsApi } = await import('@/api/analytics')
+    const { backtestApi } = await import('@/api/backtest')
+    vi.mocked(analyticsApi.getBacktestDetail).mockImplementationOnce(
+      () => new Promise(() => undefined) as never,
+    )
+    vi.mocked(backtestApi.getSummary).mockResolvedValueOnce({
+      task_id: 't1',
+      strategy_id: 'summary-strategy',
+      symbol: 'RB0',
+      status: 'completed',
+      metrics: {
+        total_return: 12.5,
+        annual_return: 6.2,
+        sharpe_ratio: 1.4,
+        max_drawdown: -4.1,
+        win_rate: 55,
+        total_trades: 7,
+        profitable_trades: 4,
+        losing_trades: 3,
+        break_even_trades: 0,
+        avg_holding_bars: 0,
+        avg_holding_period: 0,
+        max_consecutive_wins: 0,
+        max_consecutive_losses: 0,
+        profit_loss_ratio: 1.7,
+        initial_cash: 100000,
+        final_value: 112500,
+        metrics_source: 'test',
+      },
+      data_precheck: null,
+      robustness: null,
+    } as any)
+
+    const wrapper = mount(BacktestResultPage, {
+      global: {
+        stubs: {
+          ...elStubs,
+          EquityCurve: true,
+          DrawdownChart: true,
+          TradeRecordsTable: true,
+          TradeSignalChart: true,
+          ReturnHeatmap: true,
+          MetricCard: true,
+          PerformancePanel: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    const summary = wrapper.get('[data-test="backtest-summary-first"]')
+    expect(summary.text()).toContain('summary-strategy')
+    expect(summary.text()).toContain('RB0')
+    expect(backtestApi.getSummary).toHaveBeenCalledWith('t1')
   })
 
   it('renders strategy score section when score loads', async () => {
@@ -464,7 +548,7 @@ describe('BacktestResultPage', () => {
     await flushPromises()
 
     expect(strategyApi.createOverfittingTask).toHaveBeenLastCalledWith('t1', expect.objectContaining({
-      methods: ['walk_forward', 'out_of_sample', 'monte_carlo'],
+      methods: ['walk_forward', 'out_of_sample', 'monte_carlo', 'parameter_sensitivity'],
       walk_forward_max_concurrency: 4,
     }))
   })

@@ -63,6 +63,25 @@ const result: StrategyOverfittingTaskResult = {
       },
       degraded: false,
     },
+    {
+      method: 'parameter_sensitivity',
+      status: 'completed',
+      risk_level: 'low',
+      score: 75,
+      explanation: '参数扰动后仍保持可接受表现。',
+      metrics: {
+        trials: [
+          {
+            parameter: 'fast_period',
+            direction: '+10%',
+            value: 11,
+            sharpe_ratio: 1.2,
+            sharpe_decay_pct: 14,
+          },
+        ],
+      },
+      degraded: false,
+    },
   ],
   error_message: null,
 }
@@ -79,7 +98,7 @@ describe('OverfittingPanel', () => {
     await button?.trigger('click')
 
     expect(wrapper.emitted('rerun')?.[0]).toEqual([
-      ['walk_forward', 'out_of_sample', 'monte_carlo'],
+      ['walk_forward', 'out_of_sample', 'monte_carlo', 'parameter_sensitivity'],
     ])
   })
 
@@ -95,7 +114,7 @@ describe('OverfittingPanel', () => {
     await button?.trigger('click')
 
     expect(wrapper.emitted('rerun')?.[0]).toEqual([
-      ['out_of_sample', 'monte_carlo'],
+      ['out_of_sample', 'monte_carlo', 'parameter_sensitivity'],
     ])
   })
 
@@ -127,5 +146,18 @@ describe('OverfittingPanel', () => {
 
     expect(wrapper.find('[data-test="overfitting-chart-monte_carlo"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('随机分布')
+  })
+
+  it('renders parameter-sensitivity trials outside the Monte Carlo chart branch', async () => {
+    const wrapper = mount(OverfittingPanel, {
+      props: { result },
+      global: { stubs: elStubs },
+    })
+
+    await wrapper.find('[data-test="method-tab-parameter_sensitivity"]').trigger('click')
+
+    expect(wrapper.find('[data-test="overfitting-chart-parameter_sensitivity"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('fast_period')
+    expect(wrapper.text()).toContain('衰减 14%')
   })
 })

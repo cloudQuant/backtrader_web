@@ -16,6 +16,7 @@ from app.schemas.workspace import StrategyUnitResponse, UnitStatusResponse
 from app.services.ai_strategy_research_version_service import AIStrategyResearchVersionService
 from app.services.investment_mandate_service import InvestmentMandateService
 from app.services.research_pipeline_event_service import ResearchPipelineEventService
+from tests.conftest import register_and_login
 
 pytestmark = pytest.mark.asyncio
 
@@ -123,6 +124,68 @@ async def test_ai_research_direction_a_api(client, auth_headers):
         headers=auth_headers,
     )
     assert missing_timeline.status_code == 404
+
+
+async def test_ai_research_a_version_timeline_api_enforces_owner_scope(client, auth_user):
+    user, headers = auth_user
+    user_id = await _auth_user_id(auth_user)
+    version_service = AIStrategyResearchVersionService()
+    first = await version_service.create_from_iteration(
+        user_id=user_id,
+        run_id="run-api-a",
+        workspace_id="workspace-api-a",
+        mandate_id=None,
+        iteration=_iteration(1, "self.buy()", 0.5, passed=False),
+    )
+    second = await version_service.create_from_iteration(
+        user_id=user_id,
+        run_id="run-api-a",
+        workspace_id="workspace-api-a",
+        mandate_id=None,
+        iteration=_iteration(2, "self.buy()\nself.close()", 1.3, passed=True),
+    )
+    await ResearchPipelineEventService().create_event(
+        user_id=user_id,
+        run_id="run-api-a",
+        workspace_id="workspace-api-a",
+        stage="backtesting",
+        status="failed",
+        summary="回测失败，可定位原因。",
+        error="deterministic fixture failure",
+    )
+    _, other_headers = await register_and_login(client, username="ai-research-a-other")
+
+    timeline = await client.get(
+        "/api/v1/strategy/ai-research/runs/run-api-a/timeline",
+        headers=headers,
+    )
+    versions = await client.get(
+        "/api/v1/strategy/ai-research/runs/run-api-a/versions",
+        headers=headers,
+    )
+    detail = await client.get(
+        f"/api/v1/strategy/ai-research/versions/{second.id}",
+        headers=headers,
+    )
+    comparison = await client.get(
+        f"/api/v1/strategy/ai-research/versions/{first.id}/compare/{second.id}",
+        headers=headers,
+    )
+    cross_user = await client.get(
+        f"/api/v1/strategy/ai-research/versions/{second.id}",
+        headers=other_headers,
+    )
+
+    assert user["username"]
+    assert timeline.status_code == 200
+    assert timeline.json()["items"][0]["error"] == "deterministic fixture failure"
+    assert versions.status_code == 200
+    assert versions.json()["total"] == 2
+    assert detail.status_code == 200
+    assert detail.json()["created_at"]
+    assert comparison.status_code == 200
+    assert comparison.json()["metric_deltas"]["sharpe_ratio"]["delta"] == pytest.approx(0.8)
+    assert cross_user.status_code == 404
 
 
 def _iteration(

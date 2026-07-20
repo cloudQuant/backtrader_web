@@ -4,7 +4,7 @@
 > **最近校准**：2026-07-18<br>
 > **来源计划**：`docs/plans/2026-07-05/ai-for-investor-core-goal-parallel-iteration-plan.md`<br>
 > **来源验收**：`docs/plans/2026-07-05/ACCEPTANCE.md`<br>
-> **状态**：待执行；Gate 0 未关闭<br>
+> **状态**：执行中；Gate 0 待完成 G0-2 运行时外部身份复核，其余决策详见 `GATE0.md`<br>
 > **性质**：原计划承诺的验收缺口闭合，不扩展原计划之外的业务领域<br>
 > **沟通语言**：中文；代码、命令和配置名保留英文<br>
 > **集成负责人**：Integrator（单一集成入口）；各泳道负责人见第 4 节
@@ -27,6 +27,10 @@
    - AI 投研配置已包含 `parameter_sensitivity`，但 `OverfittingPanel` 的重跑选项仍缺该方法；184 只补齐该组件契约与测试，不重复实现后端算法。
    - 183-I 的外部 provider 凭据轮换仍是发布门，不计入 184 开发工作量。
 
+本计划中的状态和“完成”只能由第 8 节的可复现证据推动；代码已存在、页面可打开或
+人工口头确认，均不足以把工作包标为 `done`。计划本身不授权在默认开发库、真实账户或
+外部 broker 上执行迁移、下单和回退演练。
+
 ---
 
 ## 1. 目标、成功标准与基线
@@ -46,6 +50,8 @@
 - PR 确定性 10 步 E2E 全绿；nightly 外部集成冒烟至少取得一次成功证据。
 - 无未关闭 P0/P1 缺陷；发布与数据回退方案已演练或有自动化测试证明。
 - `ACCEPTANCE.md` 只在证据矩阵全部闭合后更新，不把文档勾选本身作为验收证据。
+- 所有会改变运行状态的入口（审核、暂停、风控规则变更、promotion）都可追溯到认证
+  actor、请求/关联 ID、UTC 时间和结果；审计记录不得由普通业务更新覆盖。
 
 ### 1.3 当前基线（2026-07-18）
 
@@ -61,7 +67,7 @@
 | B 测试 | 6 个服务和 `/data/trust` 缺直接、系统化测试 | B2 补齐 |
 | B 过拟合面板 | AI 投研配置已支持；`OverfittingPanel` 重跑选项仍只有三种方法 | B6 补选项、结果展示分支与测试 |
 | C 存储 | 3 个审核/风控模型和资金快照表缺失 | C1 统一建表与回填 |
-| C 模拟运行时 | AI 主闭环使用 paper workspace/unit/instance，独立 paper account 引擎使用 account/order/position/trade | G0-2 冻结数据真源与 ID 映射后才能设计 C1-C4 |
+| C 模拟运行时 | AI 主闭环使用 paper workspace/unit/instance，独立 paper account 引擎使用 account/order/position/trade；`trading_instance_id` 尚无 DB 唯一约束 | G0-2 冻结数据真源、外部身份和 ID 映射后才能设计 C1-C4 |
 | C 产品闭环 | 无独立模拟详情/风控监控 UI；告警与实时风控未完整接线 | C2-C4 补齐 |
 | C 告警存储 | 已有持久化 `Alert`/`AlertRule`，同时存在进程内 `RiskControlService._alerts` | C1/C3 统一为 DB `Alert` 真源，禁止再建第二套告警表 |
 | 183 代码依赖 | 后端研究服务与前端状态层已有基础拆分 | 视为 entry condition 已满足，仍执行热点文件所有权规则 |
@@ -69,6 +75,15 @@
 | 10 步链路测试 | 已有 `test_ai_strategy_research_task_api_runs_generated_goal_full_pipeline` 覆盖大部分流程，但未强制 robustness、未断言 DB 事件/版本 | D1/D2 在既有测试上增强，不从零重复搭建 |
 
 开始实施时必须在证据记录中补充基线 commit、Alembic head、后端/前端测试摘要；未记录基线不得宣称性能或覆盖率“提升”。
+
+### 1.4 可复现验收输入
+
+- 每个性能、迁移和端到端证据都记录代码 revision、fixture 版本/校验和、随机种子、冻结
+  时间、数据库方言及脱敏后的关键开关；同一结论不能混用不同输入。
+- `summary-first` 的 10k 曲线点/1k trades fixture、RB0 行情 fixture 和三类迁移基线均
+  作为版本化测试资产；改动 fixture 必须重新产出受影响的基线证据。
+- CI 只接受隔离临时库与 mock provider。任何需要外部凭据或联网的结果只能作为 nightly
+  冒烟证据，不能替代 PR 的确定性验收。
 
 ---
 
@@ -96,30 +111,36 @@ Should 项若与 Must 修改同一热点文件且能显著降低合并风险，�
 - 不由 agent 伪造 provider 凭据失效或轮换证据，不执行历史 rewrite/force-push。
 - 不把迭代 183 的仓库卫生、通用 IDOR 修复、i18n 或大文件治理重新计入 184 工作量。
 - 不在真实账户、实盘 broker 或开发数据库上执行迁移/回退演练。
+- 不以“先放行、后补风控”的方式切换真实 broker；184 的任何运行时开关仅适用于模拟
+  交易主域，且必须具备默认关闭、可审计和紧急暂停能力。
 
 ---
 
 ## 3. Gate 0：实施前必须冻结的决策
 
-Gate 0 未关闭前，只允许编写 characterization test、固定 fixture 和契约草案，不允许合并 schema、迁移或运行时行为变更。
+Gate 0 未关闭前，只允许编写 characterization test、固定 fixture 和契约草案，不允许合并 schema、迁移或运行时行为变更。2026-07-18 复核发现
+`StrategyUnit.trading_instance_id` 没有数据库唯一约束，因此将 G0-2 从已记录的决策中
+单独重新打开；不得只以 UUID 生成习惯替代身份唯一性证明。
 
 | 决策 ID | 必须冻结的内容 | 本计划默认决策 | 证据 | Owner | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| G0-1 | canonical 指标字段、单位和空值语义 | 内部统一使用 `annual_return`、`profit_loss_ratio`、`total_trades` 等 canonical 字段；旧 API 字段由 adapter 提供一个迭代 | ADR/契约测试 | Lane B | todo |
-| G0-2 | C 模拟交易数据真源 | 当前 AI 主闭环以 `workspace_id/unit_id/instance_id` 为运行时真源；默认沿用该主域，`paper_account_id` 只在明确映射到 account engine 时作为可选关联。若改为 account engine，必须先交付双向 ID 映射、迁移和全链路证明 | ADR + ID mapping + sequence diagram | Lane C / Integrator | todo |
-| G0-3 | 稳健性生产策略 | production 强制且 fail closed；`require=true` 自动蕴含 `robustness_validation=true`；opt-out 仅 test/dev 配置，不能由生产请求参数开启，绕过写审计 | 配置矩阵 + 门控测试设计 | Lane B / Integrator | todo |
-| G0-4 | 迁移拓扑 | A/C 各自 revision，基于实施时 current head；并行产生多 head 时由 Integrator 创建 merge revision | `alembic heads` 基线 | Integrator | todo |
-| G0-5 | API/事件契约 | summary、资金曲线、风控告警、`requested_changes` 状态与事件字段冻结 | OpenAPI diff + schema tests | Integrator | todo |
-| G0-6 | 资金快照容量 | 时区 UTC；幂等键/采样粒度、分页、降采样、保留期和清理策略明确 | ADR + 容量估算 | Lane C | todo |
-| G0-7 | C 结构化存储与告警统一 | 新建 `PaperReviewReport`、`LiveHandoffReview`、`RiskRule`、`PaperEquitySnapshot`，FK 跟随 G0-2；旧 JSON 双读一个迭代；告警统一写既有 `Alert`，按需扩展 workspace/unit/instance scope，废止进程内告警真源 | ADR + schema 草图 + 回填方案 | Lane C | todo |
+| G0-1 | canonical 指标字段、单位和空值语义 | 内部统一使用 `annual_return`、`profit_loss_ratio`、`total_trades` 等 canonical 字段；旧 API 字段由 adapter 提供一个迭代 | `GATE0.md` + 后续契约测试 | Lane B | done |
+| G0-2 | C 模拟交易数据真源 | 当前 AI 主闭环以 `workspace_id/unit_id/instance_id` 为运行时真源；默认沿用该主域，`paper_account_id` 只在明确映射到 account engine 时作为可选关联。`instance_id` 只有在数据库全局唯一且服务端能解析唯一 unit 时才可作为外部路由选择器；否则 API 使用 `unit_id` 或复合身份。若改为 account engine，必须先交付双向 ID 映射、迁移和全链路证明 | `GATE0.md` addendum + ID mapping + sequence diagram + uniqueness test | Lane C / Integrator | review |
+| G0-3 | 稳健性生产策略 | production 强制且 fail closed；`require=true` 自动蕴含 `robustness_validation=true`；策略必须在创建/启动 paper unit 的服务端入口执行，不能只靠 request schema；opt-out 仅 test/dev 配置，不能由生产请求参数开启，绕过写审计 | `GATE0.md` + 门控测试设计 | Lane B / Integrator | done |
+| G0-4 | 迁移拓扑 | A/C 各自 revision，基于实施时 current head；并行产生多 head 时由 Integrator 创建 merge revision | `GATE0.md` + `alembic heads` 基线 | Integrator | done |
+| G0-5 | API/事件契约 | summary、资金曲线、风控告警、`requested_changes` 状态与事件字段冻结 | `GATE0.md` + OpenAPI/schema tests | Integrator | done |
+| G0-6 | 资金快照容量 | 时区 UTC；幂等键/采样粒度、稳定游标排序、降采样算法、保留期和清理策略明确；降采样保留窗口首尾点及聚合语义，清理任务有单实例/幂等约束和监控 | `GATE0.md` + 容量估算 + lifecycle design | Lane C | done |
+| G0-7 | C 结构化存储与告警统一 | 新建 `PaperReviewReport`、`LiveHandoffReview`、`RiskRule`、`PaperEquitySnapshot`，FK 跟随 G0-2；旧 JSON 双读一个迭代；告警统一写既有 `Alert`，按需扩展 workspace/unit/instance scope，废止进程内告警真源；回填有 source ID、计数和校验和对账 | `GATE0.md` + schema 草图 + 回填方案 | Lane C | done |
 
-Gate 0 Exit Criteria：七项均有决策记录，canonical schema 和 OpenAPI 变更通过相关泳道共同 review，无“实现时再决定”的二选一项。
+Gate 0 Exit Criteria：七项均有决策记录，G0-2 的 identity addendum 已明确选择“全局唯一
+`instance_id`”或“`unit_id`/复合身份”之一且通过唯一性/解析测试；canonical schema 和
+OpenAPI 变更通过相关泳道共同 review，无“实现时再决定”的二选一项。
 
 ---
 
 ## 4. 工作分解与并行泳道
 
-状态只允许：`todo`、`doing`、`blocked`、`review`、`done`。`done` 必须有第 8 节规定的证据。
+状态只允许：`todo`、`doing`、`blocked`、`review`、`done`、`deferred`。`done` 必须有第 8 节规定的证据；`deferred` 只允许用于 Should 或明确获批迁出的事项，并必须链接目标迭代、原因和不影响的来源 AC。
 
 | ID | Pri | Owner | 工作包与主要产物 | Depends on | 验收项 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -132,10 +153,10 @@ Gate 0 Exit Criteria：七项均有决策记录，canonical schema 和 OpenAPI �
 | B4 | Must | Lane B UI/API | summary-first 端点/契约、首屏异步明细、性能回归测试 | G0-5 | B-AC4 | todo |
 | B5 | Must | Lane B Data | 期货换月/夜盘专项检查、交易日历 fixture 与测试 | Gate 0 | B-AC5 | todo |
 | B6 | Must | Lane B UI | `OverfittingPanel` 增 `parameter_sensitivity` 重跑选项、结果展示与回归测试 | B1 | B-AC6 | todo |
-| C1 | Must | Lane C | 4 个结构化模型、Alert scope 扩展、迁移策略、旧 JSON/内存告警回填或停用 | G0-2、G0-4、G0-7 | C-AC1 | todo |
-| C2 | Must | Lane C | 复用/收敛既有 simulation analytics，补资金快照写入、幂等/分页/降采样 API、canonical runtime 权限测试 | C1、G0-6 | C-AC2 | todo |
-| C3 | Must | Lane C Runtime | `requested_changes` 状态机、下单前/成交后实时风控、告警接线与去重 | C1、G0-3、G0-5 | C-AC3 | todo |
-| C4 | Must | Lane C UI | 按 G0-2 主域建设独立模拟详情页、风控规则/暂停/告警 UI、权限与空态测试 | C2、C3 API contract | C-AC4 | todo |
+| C1 | Must | Lane C | 4 个结构化模型、Alert scope 扩展、迁移策略、旧 JSON/内存告警回填或停用；回填计数/校验和及写入切换记录 | G0-2、G0-4、G0-7 | C-AC1 | todo |
+| C2 | Must | Lane C | 复用/收敛既有 simulation analytics，补资金快照写入、幂等/分页/降采样 API、canonical runtime 权限测试，以及保留/清理任务、运行指标和重复调度保护 | C1、G0-6 | C-AC2 | todo |
+| C3 | Must | Lane C Runtime | `requested_changes` 状态机及不可变审核审计、下单前/成交后实时风控、告警接线与去重；明确规则版本、决策 ID 和 broker 调用边界 | C1、G0-3、G0-5 | C-AC3 | todo |
+| C4 | Must | Lane C UI | 按 G0-2 主域建设独立模拟详情页、风控规则/暂停/告警 UI、权限与空态测试；每个展示区须标明已接入的 canonical API 或明确不可用状态 | C2、C3 API contract | C-AC4 | todo |
 | C5 | Should | Lane C | `paper_trading/` 子包进一步拆分，行为零变化 | 183-B entry 已满足；C2/C3 稳定后 | C-AC5 | todo |
 | D1 | Must | Lane D Test | 增强既有 full-pipeline 测试：RB0 fixture、mock LLM/provider、强制 robustness、事件/版本断言与清理 fixture | Gate 0；第一波即启动 | D-AC1 | todo |
 | D2 | Must | Integrator | 最终 10 步 E2E、nightly 冒烟、证据矩阵与来源验收更新 | A/B/C Must gates、D1 | D-AC2 | todo |
@@ -208,25 +229,31 @@ Gate 0 Exit Criteria：七项均有决策记录，canonical schema 和 OpenAPI �
 
 - 新增 `PaperReviewReport`、`LiveHandoffReview`、`RiskRule`、`PaperEquitySnapshot`，字段、索引、FK 和 user/workspace/unit/instance 归属跟随 G0-2；存在 account engine 映射时 `paper_account_id` 可选关联。
 - 旧 run record/workspace JSON 可回填；一个迭代内双读，结构化表为写入真源；迁移重复执行/重试不产生重复数据。
+- 回填以 source record ID 作为幂等依据；切换前后按用户、workspace、unit 和状态分组核对
+  行数及校验和，并记录读路径切换时间。对账失败时保持旧读路径且不得宣布 C1 完成。
 - 运行告警复用既有 `Alert` 表并补齐主域 scope；`RiskControlService._alerts` 不再是查询真源，避免内存告警与 DB 告警双写分裂。
+- 审核、暂停和规则变更至少保存 actor、关联 request/decision ID、UTC 时间、前后状态和结果；
+  审核记录追加写入，业务更新不能覆盖历史决定。
 - 方案 B（永久 JSON）已从本迭代移除；如需恢复，必须新 ADR、来源 DoD 例外批准和重新验收。
 
 #### C-AC2：资金曲线
 
-- 创建模拟运行时写初始快照；成交和定时 mark-to-market/估值更新写后续快照，确保无成交期间也能形成连续资金曲线；相同幂等键重试不重复写入。
-- 查询 API 支持时间范围、分页和降采样，统一 UTC 输出；无数据返回空集合而不是伪造 0 点。
+- 创建模拟运行时写初始快照；成交和定时 mark-to-market/估值更新写后续快照，确保无成交期间也能形成连续资金曲线；相同幂等键重试不重复写入。定时任务必须按实例去重，实例暂停/停止时停止调度。
+- 查询 API 支持时间范围、稳定游标分页和降采样，统一 UTC 输出；无数据返回空集合而不是伪造 0 点。降采样响应说明使用的粒度/算法，且保留查询窗口的首尾可用点。
 - 查询标识和 FK 使用 G0-2 的 canonical runtime identity；跨用户访问返回非泄漏的 404/403；长期容量受 Gate G0-6 的保留/清理策略约束。
+- 保留清理任务对 90 天原始点和 365 天日收盘点执行幂等处理、永不删除最后一个快照；记录清理数量、失败数和积压年龄，并有告警阈值。
 
 #### C-AC3：审核、实时风控和告警
 
 - `requested_changes` 是独立合法决策：写审核记录和事件，保持 live 锁定，回到可继续优化状态。
-- 下单前风控拒绝时 broker 的 submit 方法必须未被调用；风控服务异常按 fail closed 处理。
-- 成交后检查账户/持仓/回撤；状态、快照和告警的事务边界明确，失败可重试且不重复告警。
+- 每次审核与风控决定关联生效规则版本和 decision ID；重放同一请求不得重复改变状态或产生第二条业务告警。
+- 下单前风控拒绝时 broker 的 submit 方法必须未被调用；风控服务异常、规则缺失或规则版本无法解析时按 fail closed 处理。
+- 成交后检查账户/持仓/回撤；状态、快照和告警的事务边界明确，失败可重试且不重复告警。外部 broker 成功但本地持久化失败时进入可恢复的 pending 状态，禁止盲目重发订单。
 - 订单失败、连接失败、风控拒单、回撤超限告警持久化到 `Alert`，包含类型、级别、canonical runtime scope 和去重键，可通过 API 查询；重启进程后仍可见。
 
 #### C-AC4：详情与监控 UI
 
-- 详情路由使用 G0-2 冻结的 canonical runtime ID（不得在无映射时硬编码为 `accountId`），展示权益、持仓、订单、成交、资金曲线和信号；各区有查询中、空态、失败和重试状态。
+- 详情路由使用 G0-2 冻结的 canonical runtime ID（不得在无映射时硬编码为 `accountId`），展示权益、持仓、订单、成交、资金曲线和信号；每个区域只能消费已验收的 canonical API，尚未接线的数据明确显示不可用而不展示伪造数据；各区有查询中、空态、失败和重试状态。
 - 风控 UI 支持策略级/账户级规则、一键暂停和告警列表；危险动作有确认与审计结果反馈。
 - 路由和 API 均做归属校验；前端不展示 secret、token、broker 原始凭据或未脱敏事件内容。
 
@@ -267,6 +294,7 @@ Gate 0 Exit Criteria：七项均有决策记录，canonical schema 和 OpenAPI �
 ```text
 Gate 0
   -> C1 结构化模型/兼容迁移
+  -> C2 快照写入、查询与生命周期
   -> C3 实时风控/告警/审核状态机
   -> C4 详情与监控 UI
   -> D2 10 步 E2E
@@ -343,13 +371,13 @@ A1/A2/A3、B1-B6 和 D1 不在 C 主关键路径上，应并行推进。某任�
 | 字段 | 要求 |
 | --- | --- |
 | Work package / AC ID | 如 `B3 / B-AC3 / Source B-4` |
-| Commit / PR / CI | 可定位的 revision 和 CI run |
-| Automated test | 精确 test file 或 node id，含通过数量 |
-| Migration/API evidence | schema assertion、single head、OpenAPI diff 等 |
+| Commit / PR / CI | 可定位的 revision、PR 和 CI build/run URL；未提交变更不得作为最终证据 |
+| Automated test | 精确 test file 或 node id、通过数量、fixture 版本/种子与执行环境 |
+| Migration/API evidence | schema assertion、single head、OpenAPI diff、权限用例及脱敏响应样例等 |
 | Manual check | 仅用于视觉/交互补充，不能替代行为测试 |
 | Result / date / reviewer | pass/fail、日期、reviewer |
 
-测试日志、截图和报告保留在 CI artifact，不提交仓库。`ACCEPTANCE.md` 的最终勾选应引用 `EVIDENCE.md`，不复制无法追踪的结论。
+测试日志、截图和报告保留在 CI artifact，不提交仓库。`ACCEPTANCE.md` 的最终勾选应引用 `EVIDENCE.md`，不复制无法追踪的结论。证据应随对应工作包的 PR 产生；最终收尾阶段只可复跑和复核，不得通过补写文字替代缺失的自动化结果。
 
 ---
 
@@ -362,7 +390,7 @@ A1/A2/A3、B1-B6 和 D1 不在 C 主关键路径上，应并行推进。某任�
 | summary-first | 先 API 后前端 | 完整 detail 端点继续可用 | 前端可临时回退 detail，但记录性能退化 | summary 缺字段或错误率升高 |
 | 稳健性强制 | test -> staging -> production | test/dev 可配置 bypass；prod 无请求级 bypass | 验证服务异常时保持 fail closed，暂停 promotion 而非跳过验证 | promotion 错误率/耗时越阈值 |
 | C 主域与 JSON/告警迁移 | 先冻结 runtime ID 映射，再建表/回填，最后切结构化写入和 DB Alert 真源 | 一个迭代 | 读路径可临时回退 JSON；新表数据不删除；内存告警只作瞬时兼容 | ID 无法映射、回填计数不一致或告警查询缺失 |
-| 实时风控/告警 | staging shadow 观测后切 enforce | shadow 只用于发布观察，不算验收完成 | 发现误拒单时暂停交易并回退规则版本，不关闭总门控 | 误拒单、漏拦截、告警风暴 |
+| 实时风控/告警 | staging shadow 观测后切 enforce；enforce 开关按 workspace/unit 可审计启用 | shadow 只用于发布观察，不算验收完成 | 发现误拒单时暂停交易并回退规则版本，不关闭总门控；broker/local 状态不一致时进入人工恢复队列 | 误拒单、漏拦截、告警风暴、状态不一致 |
 | C5 拆包 | 所有 Must 行为稳定后 | 公共 API 不变 | revert 代码移动 | paper trading 回归失败 |
 
 涉及交易安全的回退原则：宁可暂停 promotion/下单，也不能通过关闭稳健性或风控来恢复可用性。
@@ -377,11 +405,14 @@ A1/A2/A3、B1-B6 和 D1 不在 C 主关键路径上，应并行推进。某任�
 
 ```bash
 cd src/backend && pytest tests/test_iteration_184_migrations.py -q
+cd src/backend && pytest tests/test_iteration_184_contracts.py -q
 cd src/backend && pytest tests/test_ai_research_direction_a.py tests/test_ai_research_versions_api.py -q
 cd src/backend && pytest tests/test_asset_spec_service.py tests/test_market_data_coverage_service.py tests/test_market_data_precheck_service.py -q
 cd src/backend && pytest tests/test_robustness_validation_service.py tests/test_execution_model.py tests/test_metrics_service.py tests/test_data_trust_api.py -q
 cd src/backend && pytest tests/test_paper_equity_snapshot.py tests/test_paper_risk_runtime.py tests/test_paper_review_models.py -q
 cd src/backend && pytest tests/test_iteration_184_full_loop.py -q
+cd src/backend && ruff check app tests
+cd src/backend && alembic check
 ```
 
 迁移测试必须由 `test_iteration_184_migrations.py` 创建隔离临时数据库，覆盖 fresh/current/legacy-create_all 三种基线。禁止直接对默认 `.env` 指向的数据库运行 `alembic upgrade/downgrade` 作为验收。
@@ -393,6 +424,7 @@ cd src/frontend && npm run test -- --run src/__tests__/views/StrategyPage.test.t
 cd src/frontend && npm run test -- --run src/__tests__/views/BacktestResultPage.test.ts src/__tests__/components/OverfittingPanel.test.ts
 cd src/frontend && npm run test -- --run src/__tests__/views/PaperTradingDetailPage.test.ts src/__tests__/views/RiskControlPage.test.ts
 cd src/frontend && npm run typecheck
+cd src/frontend && npm run lint
 cd src/frontend && npm run build
 ```
 
@@ -415,12 +447,15 @@ PR E2E 必须零外网、使用固定 RB0 fixture；nightly 外部冒烟使用�
 | legacy `create_all` 表与 Alembic 冲突 | 中/高 | Integrator | table exists、列/索引差异 | 三基线迁移测试、expand-only、备份 | 停止发布，forward-fix revision |
 | A/C 并行产生多个 migration head | 高/中 | Integrator | `alembic heads` > 1 | 独立 revision + 单一 merge owner | 合并 revision 后重跑三基线 |
 | 两套 paper runtime ID 无法映射 | 高/高 | Lane C / Integrator | 详情、快照或告警只能覆盖其中一套运行时 | G0-2 sequence diagram、真实主闭环 fixture、禁止 account-only FK 先行 | 暂停 C1-C4，先交付映射 adapter 或收敛单一主域 |
+| `instance_id` 不是全局唯一或解析不唯一 | 中/高 | Lane C / Integrator | 同一实例选择器命中多个 unit，或跨 workspace 结果不确定 | 唯一约束/唯一索引与解析测试；无法保证时改用 unit/复合身份 | 停止以 instance 路由的 API 发布，先迁移身份契约 |
 | 指标数值或单位漂移 | 中/高 | Lane B | canonical fixture 差异 | characterization tests、单一计算入口 | 保留 adapter，阻止删除旧字段 |
 | 稳健性强制导致 promotion 大量失败/变慢 | 中/中高 | Lane B | 失败率/P95 超基线 | staging 观测、明确超时、缓存可复用结果 | fail closed 并暂停 promotion 排障 |
 | JSON 回填漏数/重复 | 中/高 | Lane C | 行数、唯一键、checksum 不符 | 幂等回填、双读对账 | 保持 JSON 读路径并 forward-fix |
 | 实时风控误拒单或漏拦截 | 中/高 | Lane C Runtime | shadow/enforce 结果偏差 | 固定规则 fixture、broker-not-called 断言 | 暂停策略，回退规则版本 |
 | 告警重试形成风暴 | 中/中 | Lane C Runtime | 同一事件重复告警 | dedupe key、幂等写、速率限制 | 暂停通知通道但保留审计写入 |
 | 资金快照长期膨胀 | 高/中 | Lane C | 增长率超 G0-6 预算 | 降采样、分页、保留与清理策略 | 降低采样频率，异步归档 |
+| 快照调度重复或停止后仍写入 | 中/中高 | Lane C Runtime | 单位时间写入数异常、暂停实例仍有新点 | 实例级调度锁、生命周期钩子、写入与清理监控 | 关闭该实例调度并保留最后快照，修复后从幂等键恢复 |
+| broker 已受理但本地状态未落库 | 低/高 | Lane C Runtime | 外部订单 ID 与本地订单/告警缺失 | outbox/pending 状态、对账任务、禁止盲目重发 | 暂停单元，按外部订单 ID 人工/自动恢复后再放行 |
 | 新详情/API 引入 IDOR 或敏感数据泄漏 | 中/高 | Lane C / Security reviewer | 跨用户访问成功、原始凭据返回 | 归属测试、response schema、脱敏 | 阻止发布并回滚 API |
 | 共享热点文件冲突 | 高/中 | Integrator | 同时修改同一区块 | 单一写 owner、小 PR、契约优先 | 暂停后合并泳道，重新 rebase/review |
 | E2E 对外部 LLM/行情不稳定 | 高/中 | Lane D | flaky/超时 | PR 固定 fixture + mock；nightly 分离 | 不以外部 job 阻塞 PR，但阻塞发布证据 |
@@ -434,9 +469,11 @@ PR E2E 必须零外网、使用固定 RB0 fixture；nightly 外部冒烟使用�
 - [ ] A/B/C 所有 Must 工作包为 `done`，Should 未完成项已明确迁出。
 - [ ] 来源 A/B/C 15 条验收标准全部由第 6/8 节证据追踪，不能只写主观结论。
 - [ ] fresh/current/legacy-create_all 三类迁移测试通过，最终 Alembic 单一 head。
+- [ ] 对外 runtime 路由的身份唯一性与跨用户解析均有自动化证明；不能证明时已改用冻结的复合身份。
 - [ ] 新增 API 完成认证、跨用户隔离和敏感字段脱敏测试。
 - [ ] canonical 指标、summary-first、自动预检、生产稳健性强制均有确定性自动化测试。
 - [ ] 资金曲线、审核三决策、实时风控、告警、详情/监控 UI 的 Must 契约全部通过。
+- [ ] 快照调度、降采样、保留清理与 broker/local 异常恢复均有确定性测试和运行监控证据。
 - [ ] PR 10 步 E2E 可重复全绿，nightly 外部冒烟至少有一次成功证据。
 - [ ] 全量后端非 E2E、前端 Vitest、typecheck、build 和 blocking CI 全绿且基线不回退。
 - [ ] 发布/回退矩阵已演练；无未关闭 P0/P1。

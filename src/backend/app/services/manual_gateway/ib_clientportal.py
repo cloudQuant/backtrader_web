@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+_IB_WEB_LOGIN_LOCK = threading.Lock()
+
 
 def _ib_web_session_module() -> Any:
     """Load either the legacy helper or the standalone IB Web runtime package."""
@@ -176,6 +178,218 @@ def resolve_ib_web_base_url(
     return normalized
 
 
+def _ib_web_login_url(base_url: str) -> str:
+    """Return the Client Portal login page for an API base URL."""
+    parsed = urlparse(base_url)
+    return parsed._replace(
+        path="/sso/Login",
+        params="",
+        query="forwardTo=22&RL=1&ip2loc=US",
+        fragment="",
+    ).geturl()
+
+
+def _wait_for_browser_authenticated_session(
+    driver: Any,
+    session_helpers: Any,
+    base_url: str,
+    verify_ssl: bool,
+    timeout: float,
+    login_timeout: float,
+    headless: bool,
+    login_mode: str,
+) -> dict[str, str]:
+    """Wait for the browser login flow to produce an authenticated API session."""
+    deadline = time.monotonic() + max(login_timeout, timeout, 1.0)
+    last_cookies: dict[str, str] = {}
+    rejected_credentials = False
+    while time.monotonic() < deadline:
+        last_cookies = {
+            str(cookie["name"]): str(cookie["value"])
+            for cookie in driver.get_cookies()
+            if cookie.get("name") and cookie.get("value")
+        }
+        if last_cookies:
+            try:
+                response = session_helpers.auth_status(
+                    base_url,
+                    last_cookies,
+                    verify_ssl=verify_ssl,
+                    timeout=max(2, int(timeout)),
+                )
+            except Exception:
+                response = None
+            if response is not None and session_helpers.auth_response_is_authenticated(response):
+                return last_cookies
+
+        login_errors = driver.find_elements("css selector", ".xyz-errormessage")
+        if any((error.text or "").strip() for error in login_errors):
+            rejected_credentials = True
+            if headless:
+                mode = "paper" if str(login_mode).strip().lower() == "paper" else "live"
+                raise RuntimeError(
+                    f"IB Client Portal rejected the configured {mode} login credentials"
+                )
+
+        # A security-card or two-factor challenge cannot be completed inside a
+        # headless browser.  Fail promptly with an actionable message instead
+        # of consuming the full gateway startup timeout.
+        if headless:
+            challenge_fields = driver.find_elements(
+                "css selector",
+                "#xyz-field-bronze-response, #xyz-field-silver-response, "
+                "#xyz-field-gold-response, #xyz-field-temp-response",
+            )
+            if any(field.is_displayed() for field in challenge_fields):
+                raise RuntimeError(
+                    "IB Client Portal requires interactive security verification; "
+                    "set IB_WEB_LOGIN_HEADLESS=false and complete it in the opened browser"
+                )
+        time.sleep(1.0)
+
+    if rejected_credentials:
+        mode = "paper" if str(login_mode).strip().lower() == "paper" else "live"
+        raise RuntimeError(
+            f"IB Client Portal rejected the configured {mode} login credentials; "
+            "correct them in the opened browser and retry"
+        )
+    raise RuntimeError("IB Client Portal login did not create an authenticated session")
+
+
+def login_ib_web_session_with_browser(
+    credentials: dict[str, Any],
+    base_url: str,
+    verify_ssl: bool,
+    timeout: float,
+    *,
+    cookie_base_dir: Callable[[], Path],
+    backend_env_file_for_helpers: Callable[[], Path],
+) -> dict[str, Any]:
+    """Log in to the local Client Portal and save the newly issued cookies.
+
+    The IB Web runtime package only validates a pre-existing cookie file.  It
+    does not use the configured username/password itself, so an expired
+    Client Portal session used to fail every strategy start.  This small
+    browser flow is deliberately local-only: it submits credentials to the
+    Client Portal started on the same machine and persists only the returned
+    session cookies.
+    """
+    username = str(credentials.get("username") or "").strip()
+    password = str(credentials.get("password") or "").strip()
+    if not username or not password:
+        raise RuntimeError("IB Client Portal username and password are not configured")
+
+    session_helpers = _ib_web_session_module()
+    settings = session_helpers.load_ib_web_settings(
+        overrides={
+            "base_url": base_url,
+            "account_id": credentials.get("account_id", ""),
+            "verify_ssl": verify_ssl,
+            "timeout": timeout,
+            "cookie_source": credentials.get("cookie_source", ""),
+            "cookie_browser": credentials.get("cookie_browser", "chrome"),
+            "cookie_path": credentials.get("cookie_path", "/sso"),
+            "username": username,
+            "password": password,
+            "login_mode": credentials.get("login_mode", "paper"),
+            "login_browser": credentials.get("login_browser", "chrome"),
+            "login_headless": credentials.get("login_headless", False),
+            "login_timeout": credentials.get("login_timeout", 180),
+            "cookie_output": credentials.get("cookie_output", ""),
+        },
+        base_dir=cookie_base_dir(),
+        env_file=backend_env_file_for_helpers(),
+    )
+    browser = str(settings.get("login_browser") or "chrome").strip().lower()
+    if browser not in {"chrome", "chromium"}:
+        raise RuntimeError(f"Unsupported IB Client Portal login browser: {browser}")
+
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support import expected_conditions as expected
+        from selenium.webdriver.support.ui import WebDriverWait
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("Selenium is required for automatic IB Client Portal login") from exc
+
+    headless = bool(settings.get("login_headless", False))
+    options = Options()
+    if headless:
+        options.add_argument("--headless=new")
+    options.add_argument("--ignore-certificate-errors")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-notifications")
+
+    # A trading workspace can start many strategy units at once.  Keep a
+    # single login flow in flight so an expired shared session does not open a
+    # browser window per unit.  Waiters re-check the cookie file written by
+    # the first successful flow before attempting another login.
+    with _IB_WEB_LOGIN_LOCK:
+        existing_cookies = session_helpers.current_cookie_payload(settings)
+        if existing_cookies and session_helpers.cookies_are_authenticated(
+            settings, existing_cookies
+        ):
+            cookies = existing_cookies
+        else:
+            driver = webdriver.Chrome(options=options)
+            try:
+                driver.get(_ib_web_login_url(base_url))
+                wait = WebDriverWait(driver, max(10, min(int(timeout), 30)))
+                if str(settings.get("login_mode") or "paper").strip().lower() == "paper":
+                    paper_switch = wait.until(
+                        expected.presence_of_element_located((By.ID, "toggle1"))
+                    )
+                    if not paper_switch.is_selected():
+                        driver.execute_script("arguments[0].click();", paper_switch)
+                wait.until(
+                    expected.presence_of_element_located((By.ID, "xyz-field-username"))
+                ).send_keys(username)
+                wait.until(
+                    expected.presence_of_element_located((By.ID, "xyz-field-password"))
+                ).send_keys(password)
+                wait.until(
+                    expected.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
+                ).click()
+                cookies = _wait_for_browser_authenticated_session(
+                    driver,
+                    session_helpers,
+                    base_url,
+                    verify_ssl,
+                    timeout,
+                    float(settings.get("login_timeout") or 180),
+                    headless,
+                    str(settings.get("login_mode") or "paper"),
+                )
+            finally:
+                driver.quit()
+
+    cookie_output = str(settings.get("cookie_output") or "").strip()
+    session_helpers.save_cookies_to_file(cookies, cookie_output)
+    accounts = session_helpers.fetch_accounts(
+        base_url,
+        cookies,
+        verify_ssl=verify_ssl,
+        timeout=max(2, int(timeout)),
+    )
+    account_id = str(credentials.get("account_id") or "").strip() or session_helpers.pick_account_id(
+        accounts,
+        str(settings.get("login_mode") or "paper"),
+    )
+    return {
+        "cookies": cookies,
+        "cookie_output": cookie_output,
+        "cookie_source": session_helpers.normalize_cookie_source(
+            f"file:{cookie_output}",
+            base_dir=settings.get("cookie_base_dir"),
+        ),
+        "account_id": account_id,
+        "status_code": 200,
+        "used_login": True,
+    }
+
+
 def bootstrap_ib_web_session(
     credentials: dict[str, Any],
     base_url: str,
@@ -201,12 +415,11 @@ def bootstrap_ib_web_session(
     has_login_credentials = bool(credentials.get("username") and credentials.get("password"))
     logger.info(
         "IB_WEB bootstrap: has_cookie_config=%s, has_login_credentials=%s, "
-        "cookie_source=%r, cookie_output=%r, username=%r",
+        "cookie_source_configured=%s, cookie_output_configured=%s",
         has_cookie_config,
         has_login_credentials,
-        credentials.get("cookie_source"),
-        credentials.get("cookie_output"),
-        credentials.get("username"),
+        bool(credentials.get("cookie_source")),
+        bool(credentials.get("cookie_output")),
     )
     if has_cookie_config:
         try:
@@ -244,10 +457,25 @@ def bootstrap_ib_web_session(
             return None
         raise RuntimeError("IB Web恢复失败: 未找到有效会话，请在页面中手动重新连接")
     _, ensure_authenticated_session, _ = import_session_helpers()
+    login_credentials = dict(credentials)
     if not has_login_credentials:
         try:
             env_values = load_env_values()
             env_file = backend_env_file_for_helpers()
+            login_credentials.update(
+                {
+                    "username": env_values.get("IB_WEB_USERNAME", ""),
+                    "password": env_values.get("IB_WEB_PASSWORD", ""),
+                    "login_mode": env_values.get("IB_WEB_LOGIN_MODE", "paper"),
+                    "login_browser": env_values.get("IB_WEB_LOGIN_BROWSER", "chrome"),
+                    "login_headless": env_values.get("IB_WEB_LOGIN_HEADLESS", "false"),
+                    "login_timeout": env_values.get("IB_WEB_LOGIN_TIMEOUT", "180"),
+                    "cookie_source": env_values.get("IB_WEB_COOKIE_SOURCE", ""),
+                    "cookie_output": env_values.get("IB_WEB_COOKIE_OUTPUT", ""),
+                    "cookie_browser": env_values.get("IB_WEB_COOKIE_BROWSER", "chrome"),
+                    "cookie_path": env_values.get("IB_WEB_COOKIE_PATH", "/sso"),
+                }
+            )
             return ensure_authenticated_session(
                 overrides={
                     "base_url": base_url,
@@ -270,35 +498,24 @@ def bootstrap_ib_web_session(
             )
         except Exception as exc:
             logger.warning(
-                "IB_WEB auto-session bootstrap failed: %s: %s",
+                "IB_WEB existing-session bootstrap failed; starting browser login: %s",
                 type(exc).__name__,
-                exc,
             )
-            return None
-    return ensure_authenticated_session(
-        overrides={
-            "base_url": base_url,
-            "account_id": credentials.get("account_id", ""),
-            "verify_ssl": verify_ssl,
-            "timeout": timeout,
-            "cookie_source": credentials.get("cookie_source", ""),
-            "cookie_browser": credentials.get("cookie_browser", "chrome"),
-            "cookie_path": credentials.get("cookie_path", "/sso"),
-            "username": credentials.get("username", ""),
-            "password": credentials.get("password", ""),
-            "login_mode": credentials.get("login_mode", "paper"),
-            "login_browser": credentials.get(
-                "login_browser",
-                credentials.get("cookie_browser", "chrome"),
-            ),
-            "login_headless": credentials.get("login_headless", False),
-            "login_timeout": 180
-            if credentials.get("login_timeout") in {None, ""}
-            else credentials.get("login_timeout"),
-            "cookie_output": credentials.get("cookie_output", ""),
-        },
-        base_dir=cookie_base_dir(),
-        env_file=backend_env_file_for_helpers(),
+            return login_ib_web_session_with_browser(
+                login_credentials,
+                base_url,
+                verify_ssl,
+                timeout,
+                cookie_base_dir=cookie_base_dir,
+                backend_env_file_for_helpers=backend_env_file_for_helpers,
+            )
+    return login_ib_web_session_with_browser(
+        login_credentials,
+        base_url,
+        verify_ssl,
+        timeout,
+        cookie_base_dir=cookie_base_dir,
+        backend_env_file_for_helpers=backend_env_file_for_helpers,
     )
 
 

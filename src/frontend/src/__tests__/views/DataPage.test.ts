@@ -304,6 +304,7 @@ describe('DataPage', () => {
     expect((wrapper.vm as any).historyRows).toHaveLength(2)
     expect(wrapper.text()).toContain('+1.29%')
     expect(wrapper.find('[data-test="market-main-chart"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="market-instrument-overview"]').text()).toContain('平安银行')
     expect(wrapper.find('[data-test="market-instrument-select"]').exists()).toBe(true)
     expect(apiMocks.listInstrumentOptions).toHaveBeenCalledWith({
       asset_type: 'stock',
@@ -346,6 +347,7 @@ describe('DataPage', () => {
     expect(wrapper.text()).toContain('结算价')
     expect(wrapper.text()).toContain('买一 / 卖一')
     expect(wrapper.text()).not.toContain('总市值')
+    expect(wrapper.find('[data-test="market-instrument-overview"]').text()).toContain('IM2606')
     expect((wrapper.vm as any).assetKpiCards.map((card: { label: string }) => card.label)).toEqual([
       '最新价',
       '持仓量',

@@ -18,8 +18,17 @@ from app.services.asset_spec_service import get_asset_spec_service
 from app.services.backtest.execution_model import ExecutionModel
 from app.services.market_data_coverage_service import get_market_data_coverage_service
 from app.services.market_data_precheck_service import get_market_data_precheck_service
+from app.utils.logger import get_logger
 
 router = APIRouter()
+logger = get_logger(__name__)
+
+
+def _service_unavailable(exc: Exception) -> HTTPException:
+    """Map an internal trust-service failure to a stable public response."""
+    del exc
+    logger.exception("Market-data trust service failed")
+    return HTTPException(status_code=503, detail="Market-data trust service is temporarily unavailable")
 
 
 @router.get(
@@ -33,7 +42,12 @@ async def get_asset_spec(
     current_user: typing.Any = Depends(get_current_user),
 ) -> typing.Any:
     del current_user
-    return await get_asset_spec_service().get_or_create(symbol=symbol, asset_type=asset_type)
+    try:
+        return await get_asset_spec_service().get_or_create(symbol=symbol, asset_type=asset_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _service_unavailable(exc) from exc
 
 
 @router.get(
@@ -47,9 +61,14 @@ async def get_execution_model(
     current_user: typing.Any = Depends(get_current_user),
 ) -> typing.Any:
     del current_user
-    spec = await get_asset_spec_service().get_or_create(symbol=symbol, asset_type=asset_type)
-    payload = spec.model_dump(mode="python")
-    return ExecutionModel.from_asset_spec(payload).to_response()
+    try:
+        spec = await get_asset_spec_service().get_or_create(symbol=symbol, asset_type=asset_type)
+        payload = spec.model_dump(mode="python")
+        return ExecutionModel.from_asset_spec(payload).to_response()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _service_unavailable(exc) from exc
 
 
 @router.get(
@@ -67,14 +86,19 @@ async def list_market_data_coverage(
     current_user: typing.Any = Depends(get_current_user),
 ) -> typing.Any:
     del current_user
-    return await get_market_data_coverage_service().list_coverage(
-        asset_type=asset_type,
-        symbol=symbol,
-        timeframe=timeframe,
-        provider=provider,
-        limit=limit,
-        refresh_if_empty=refresh_if_empty,
-    )
+    try:
+        return await get_market_data_coverage_service().list_coverage(
+            asset_type=asset_type,
+            symbol=symbol,
+            timeframe=timeframe,
+            provider=provider,
+            limit=limit,
+            refresh_if_empty=refresh_if_empty,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _service_unavailable(exc) from exc
 
 
 @router.post(
@@ -90,12 +114,17 @@ async def refresh_local_coverage(
     current_user: typing.Any = Depends(get_current_user),
 ) -> typing.Any:
     del current_user
-    return await get_market_data_coverage_service().refresh_local_csv_coverage(
-        asset_type=asset_type,
-        symbol=symbol,
-        timeframe=timeframe,
-        limit=limit,
-    )
+    try:
+        return await get_market_data_coverage_service().refresh_local_csv_coverage(
+            asset_type=asset_type,
+            symbol=symbol,
+            timeframe=timeframe,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _service_unavailable(exc) from exc
 
 
 @router.post(
@@ -112,3 +141,5 @@ async def run_data_precheck(
         return await get_market_data_precheck_service().precheck(request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _service_unavailable(exc) from exc

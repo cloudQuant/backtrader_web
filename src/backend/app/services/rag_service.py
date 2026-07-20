@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
 from app.db.database import async_session_maker
 from app.models.knowledge_base import DocumentChunk, KBDocument, KnowledgeBase
@@ -142,31 +142,37 @@ class RAGService:
         if not docs:
             return 0
 
-        existing_document_ids = set(
-            (
-                await session.execute(
-                    select(DocumentChunk.document_id).where(
-                        DocumentChunk.knowledge_base_id == knowledge_base_id
-                    )
+        existing_chunks_by_document: dict[str, list[str]] = {}
+        existing_chunks = (
+            await session.execute(
+                select(DocumentChunk.document_id, DocumentChunk.content).where(
+                    DocumentChunk.knowledge_base_id == knowledge_base_id
                 )
             )
-            .scalars()
-            .all()
-        )
+        ).all()
+        for document_id, chunk_content in existing_chunks:
+            existing_chunks_by_document.setdefault(str(document_id), []).append(
+                str(chunk_content or "")
+            )
 
         stored = 0
         changed = False
         for document in docs:
             content = str(getattr(document, "content", "") or "").strip()
-            has_chunks = document.id in existing_document_ids
+            existing_chunks = existing_chunks_by_document.get(str(document.id), [])
+            has_chunks = bool(existing_chunks)
             is_indexed = getattr(document, "index_status", None) == "indexed"
+            has_legacy_title_only_chunk = chunk_service.has_legacy_title_only_chunk(
+                existing_chunks,
+                str(getattr(document, "title", "") or ""),
+            )
             if not content:
                 if is_indexed:
                     document.index_status = "not_indexed"
                     document.indexed_at = None
                     changed = True
                 continue
-            if has_chunks and is_indexed:
+            if has_chunks and is_indexed and not has_legacy_title_only_chunk:
                 continue
 
             await session.execute(
@@ -496,7 +502,10 @@ class RAGService:
                 await session.execute(
                     select(KnowledgeBase).where(
                         KnowledgeBase.id == knowledge_base_id,
-                        KnowledgeBase.owner_id == owner_id,
+                        or_(
+                            KnowledgeBase.owner_id == owner_id,
+                            KnowledgeBase.is_public.is_(True),
+                        ),
                     )
                 )
             ).scalar_one_or_none()

@@ -7,6 +7,7 @@ live trading manager/runtime while persisting state on workspace units.
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 from datetime import date, datetime
@@ -1711,12 +1712,45 @@ class TradingWorkspaceService:
         return _json_safe_value(params)
 
     @classmethod
+    def _gateway_startup_key(cls, unit: StrategyUnit) -> str | None:
+        """Return a request-local key for units that share one enabled gateway."""
+        gateway_config = cls.normalize_gateway_config(
+            unit.gateway_config if isinstance(unit.gateway_config, dict) else {}
+        )
+        params = gateway_config.get("params")
+        gateway = params.get("gateway") if isinstance(params, dict) else None
+        if not isinstance(gateway, dict) or not gateway.get("enabled"):
+            return None
+        try:
+            return json.dumps(gateway_config, sort_keys=True, default=str, separators=(",", ":"))
+        except (TypeError, ValueError):
+            return str(gateway_config)
+
+    @staticmethod
+    def _is_gateway_startup_failure(exc: Exception) -> bool:
+        message = str(exc).lower()
+        return any(
+            marker in message
+            for marker in (
+                "gateway runtime",
+                "gateway runtime not ready",
+                "gateway startup",
+                "gateway unavailable",
+                "ib client portal",
+                "ib web session",
+                "ib web login",
+                "ib web authentication",
+            )
+        )
+
+    @classmethod
     def _build_snapshot(
         cls,
         unit: StrategyUnit,
         instance: dict[str, Any] | None,
         *,
         full_log: bool = True,
+        include_gateway_positions: bool = True,
     ) -> tuple[dict[str, Any], dict[str, Any], int | None, float | None]:
         instance_status = str((instance or {}).get("status") or "stopped").strip().lower()
         error = str((instance or {}).get("error") or "").strip() or None
@@ -1743,6 +1777,17 @@ class TradingWorkspaceService:
         position_rows: list[dict[str, Any]] = []
         position_rows_source = "none"
         log_dir = _instance_log_dir(instance)
+        if log_dir is None:
+            # The live-trading manager is process-local and is empty after an
+            # API-server restart. Workspace runtimes persist their logs under
+            # the unit directory, so use that durable source for historical
+            # position and trade recovery.
+            workspace_id = str(getattr(unit, "workspace_id", "") or "").strip()
+            unit_id = str(getattr(unit, "id", "") or "").strip()
+            if workspace_id and unit_id:
+                persisted_log_dir = workspace_unit_runtime.unit_dir(workspace_id, unit_id) / "logs"
+                if persisted_log_dir.is_dir():
+                    log_dir = persisted_log_dir
         if log_dir and log_dir.is_dir():
             log_result = parse_log_dir(log_dir) if full_log else None
             position_rows = cls._latest_position_rows(parse_position_log(log_dir))
@@ -1759,7 +1804,9 @@ class TradingWorkspaceService:
         # Explicitly configured live units retain the broker-confirmed path.
         is_explicit_paper = str(getattr(unit, "trading_mode", "")).strip().lower() == "paper"
         gateway_position_rows = (
-            None if is_explicit_paper else cls._gateway_position_rows(unit, instance)
+            None
+            if is_explicit_paper or not include_gateway_positions
+            else cls._gateway_position_rows(unit, instance)
         )
         if gateway_position_rows is not None:
             position_rows = gateway_position_rows
@@ -1858,11 +1905,15 @@ class TradingWorkspaceService:
         user_id: str,
         *,
         full_log: bool = True,
+        refresh_gateway: bool = True,
     ) -> bool:
         manager = get_live_trading_manager()
         changed = False
 
         for unit in units:
+            previous_trade_keys = self._snapshot_trade_keys(
+                _safe_dict(getattr(unit, "trading_snapshot", None))
+            )
             instance = None
             if unit.trading_instance_id:
                 instance = manager.get_instance(unit.trading_instance_id, user_id=user_id)
@@ -1874,7 +1925,7 @@ class TradingWorkspaceService:
             ):
                 changed = True
             is_explicit_paper = str(getattr(unit, "trading_mode", "")).strip().lower() == "paper"
-            if not is_explicit_paper and self._refresh_unit_asset_specs_from_manager(
+            if refresh_gateway and not is_explicit_paper and self._refresh_unit_asset_specs_from_manager(
                 manager, unit, instance
             ):
                 changed = True
@@ -1882,14 +1933,32 @@ class TradingWorkspaceService:
                 unit
             ) and self._refresh_unit_asset_specs_from_local(unit, instance):
                 changed = True
+            snapshot_kwargs: dict[str, Any] = {"full_log": full_log}
+            if not refresh_gateway:
+                snapshot_kwargs["include_gateway_positions"] = False
             snapshot, metrics_snapshot, bar_count, elapsed_seconds = self._build_snapshot(
                 unit,
                 instance,
-                full_log=full_log,
+                **snapshot_kwargs,
             )
-            next_run_status = self._map_run_status(
-                snapshot.get("instance_status", "idle"), snapshot.get("error")
-            )
+            if instance is None:
+                # A manager restart does not mean the external strategy process
+                # stopped. Keep the persisted lifecycle status until a manager
+                # instance or an explicit stop/failure supplies authoritative
+                # state; otherwise merely opening a portfolio page would mark
+                # every restored unit idle.
+                persisted_snapshot = _safe_dict(getattr(unit, "trading_snapshot", None))
+                persisted_status = str(
+                    persisted_snapshot.get("instance_status") or unit.run_status or "idle"
+                ).strip().lower()
+                snapshot["instance_status"] = persisted_status or "idle"
+                if not snapshot.get("error") and persisted_snapshot.get("error"):
+                    snapshot["error"] = persisted_snapshot["error"]
+                next_run_status = str(unit.run_status or "idle").strip().lower() or "idle"
+            else:
+                next_run_status = self._map_run_status(
+                    snapshot.get("instance_status", "idle"), snapshot.get("error")
+                )
 
             if unit.run_status != next_run_status:
                 unit.run_status = next_run_status
@@ -1909,7 +1978,84 @@ class TradingWorkspaceService:
             if _safe_dict(getattr(unit, "params", None)) != params_before:
                 changed = True
 
+            instance_id = str(getattr(unit, "trading_instance_id", "") or "").strip()
+            is_paper = str(getattr(unit, "trading_mode", "") or "").strip().lower() == "paper"
+            new_trade_keys = self._snapshot_trade_keys(snapshot) - previous_trade_keys
+            if full_log and is_paper and instance_id and new_trade_keys:
+                await self._record_post_fill_runtime_state(
+                    user_id=user_id,
+                    instance_id=instance_id,
+                    snapshot=snapshot,
+                    metrics_snapshot=metrics_snapshot,
+                    unit_settings=_safe_dict(getattr(unit, "unit_settings", None)),
+                    trade_keys=new_trade_keys,
+                )
+
         return changed
+
+    @staticmethod
+    def _snapshot_trade_keys(snapshot: dict[str, Any]) -> set[str]:
+        """Return stable identifiers used to detect newly hydrated fills."""
+        values = snapshot.get("trades") if isinstance(snapshot, dict) else None
+        if not isinstance(values, list):
+            return set()
+        keys: set[str] = set()
+        for index, row in enumerate(values):
+            if not isinstance(row, dict):
+                continue
+            value = row.get("id") or row.get("trade_id") or row.get("ref")
+            if value is None:
+                value = f"{row.get('symbol', '')}:{row.get('dtclose', row.get('datetime', ''))}:{index}"
+            keys.add(str(value))
+        return keys
+
+    async def _record_post_fill_runtime_state(
+        self,
+        *,
+        user_id: str,
+        instance_id: str,
+        snapshot: dict[str, Any],
+        metrics_snapshot: dict[str, Any],
+        unit_settings: dict[str, Any],
+        trade_keys: set[str],
+    ) -> None:
+        """Persist one post-fill equity point and evaluate post-fill risk limits."""
+        from app.services.paper_runtime_service import PaperRuntimeService
+
+        service = PaperRuntimeService()
+        try:
+            equity = _safe_float(metrics_snapshot.get("final_value"), 0.0)
+            if equity <= 0:
+                equity = _safe_float(unit_settings.get("initial_cash"), 100000.0) + _safe_float(
+                    snapshot.get("cumulative_pnl"), 0.0
+                )
+            position_value = _safe_float(snapshot.get("long_market_value"), 0.0) + _safe_float(
+                snapshot.get("short_market_value"), 0.0
+            )
+            daily_pnl = _safe_float(snapshot.get("today_pnl"), 0.0)
+            await service.record_valuation_snapshot(
+                user_id,
+                instance_id,
+                trading_snapshot=snapshot,
+                metrics_snapshot=metrics_snapshot,
+                unit_settings=unit_settings,
+                source="post_fill",
+                metadata={"trade_keys": sorted(trade_keys)},
+            )
+            await service.evaluate_post_fill(
+                user_id,
+                instance_id,
+                current_equity=equity,
+                position_value=position_value,
+                drawdown_pct=_safe_float(snapshot.get("max_drawdown_rate"), 0.0),
+                daily_loss_pct=abs(daily_pnl) / equity * 100 if daily_pnl < 0 and equity > 0 else 0.0,
+            )
+        except Exception:
+            logger.warning(
+                "Unable to persist post-fill runtime state for %s",
+                instance_id,
+                exc_info=True,
+            )
 
     async def start_units(
         self,
@@ -1921,8 +2067,10 @@ class TradingWorkspaceService:
         risk_gate_service = RiskGateService()
         results: list[dict[str, Any]] = []
         normalized_workspace_settings = dict(workspace_settings or {})
+        gateway_failures: dict[str, str] = {}
 
         for unit in units:
+            gateway_startup_key = self._gateway_startup_key(unit)
             try:
                 if unit.lock_running:
                     raise ValueError("该策略单元已锁定运行")
@@ -1964,6 +2112,15 @@ class TradingWorkspaceService:
                     started = instance
                     already_running = True
                 else:
+                    known_gateway_failure = (
+                        gateway_failures.get(gateway_startup_key)
+                        if gateway_startup_key is not None
+                        else None
+                    )
+                    if known_gateway_failure:
+                        raise ValueError(
+                            "同一网关配置已启动失败，跳过重复连接: " + known_gateway_failure
+                        )
                     _clear_runtime_logs_before_start(runtime_dir)
                     try:
                         started = await manager.start_instance(str(unit.trading_instance_id))
@@ -1979,12 +2136,13 @@ class TradingWorkspaceService:
                         already_running = True
 
                 self._sync_unit_contract_metadata_from_instance(unit, started)
-                self._refresh_unit_asset_specs_from_manager(manager, unit, started)
+                if self.normalize_trading_mode(unit.trading_mode) == "live":
+                    self._refresh_unit_asset_specs_from_manager(manager, unit, started)
                 unit.run_status = "running"
                 if not already_running:
                     unit.run_count = int(unit.run_count or 0) + 1
                 snapshot, metrics_snapshot, bar_count, elapsed_seconds = self._build_snapshot(
-                    unit, started
+                    unit, started, full_log=False
                 )
                 unit.trading_snapshot = snapshot
                 if metrics_snapshot:
@@ -2003,6 +2161,8 @@ class TradingWorkspaceService:
                 )
             except Exception as exc:
                 logger.exception("Trading unit %s start failed", unit.id)
+                if gateway_startup_key and self._is_gateway_startup_failure(exc):
+                    gateway_failures[gateway_startup_key] = str(exc)
                 unit.run_status = "failed"
                 unit.trading_snapshot = self.default_snapshot(
                     unit=unit,

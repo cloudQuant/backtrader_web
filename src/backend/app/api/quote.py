@@ -8,12 +8,17 @@ Provides endpoints for the unified quote display page:
 - Symbol search
 """
 
+import asyncio
 import logging
 import typing
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.db.database import get_db
+from app.models.workspace import Workspace
 from app.schemas.quote import (
     ChartDataResponse,
     CustomSymbolsRequest,
@@ -30,6 +35,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+async def _get_workspace_names(db: AsyncSession, user_id: str) -> dict[str, str]:
+    """Resolve only the current user's workspace names for quote monitoring."""
+    result = await db.execute(
+        select(Workspace.id, Workspace.name).where(Workspace.user_id == user_id)
+    )
+    return {str(workspace_id): str(name) for workspace_id, name in result.all()}
+
+
 # ==================== Data Sources ====================
 
 
@@ -40,11 +53,13 @@ router = APIRouter()
 )
 async def list_data_sources(
     current_user: typing.Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     svc: QuoteService = Depends(get_quote_service),
 ) -> typing.Any:
     """Return all data sources (CTP, IB, MT5, Binance, OKX) with their
     current availability status derived from gateway connections."""
-    sources = svc.get_data_sources()
+    workspace_names = await _get_workspace_names(db, current_user.sub)
+    sources = await asyncio.to_thread(svc.get_data_sources, current_user.sub, workspace_names)
     return {"sources": sources}
 
 
@@ -63,7 +78,7 @@ async def get_symbols(
 ) -> typing.Any:
     """Return the default symbol list and the user's custom symbols for the
     specified data source."""
-    return svc.get_symbols(source, current_user.sub)
+    return await asyncio.to_thread(svc.get_symbols, source, current_user.sub)
 
 
 @router.post(
@@ -96,6 +111,21 @@ async def remove_custom_symbols(
     return {"source": req.source, "symbols": updated}
 
 
+@router.post(
+    "/subscriptions/remove",
+    response_model=CustomSymbolsResponse,
+    summary="Remove non-workspace quote subscriptions",
+)
+async def remove_subscriptions(
+    req: CustomSymbolsRequest,
+    current_user: typing.Any = Depends(get_current_user),
+    svc: QuoteService = Depends(get_quote_service),
+) -> typing.Any:
+    """Persistently remove user subscriptions while leaving workspace rows to the UI session."""
+    updated = svc.remove_subscriptions(req.source, current_user.sub, req.symbols)
+    return {"source": req.source, "symbols": updated}
+
+
 @router.get(
     "/symbols/search",
     response_model=SymbolSearchResponse,
@@ -124,6 +154,7 @@ async def get_quotes(
     source: str = Query(..., description="Backend data-source id"),
     symbols: str | None = Query(None, description="Comma-separated symbols (optional)"),
     current_user: typing.Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     svc: QuoteService = Depends(get_quote_service),
 ) -> typing.Any:
     """Fetch batch quotes for the given data source.
@@ -131,7 +162,14 @@ async def get_quotes(
     If *symbols* is omitted, returns quotes for all default + custom symbols.
     """
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()] if symbols else None
-    return svc.get_quotes(source, current_user.sub, symbol_list)
+    workspace_names = await _get_workspace_names(db, current_user.sub)
+    return await asyncio.to_thread(
+        svc.get_quotes,
+        source,
+        current_user.sub,
+        symbol_list,
+        workspace_names,
+    )
 
 
 # ==================== Chart Data (P1) ====================
@@ -151,4 +189,4 @@ async def get_chart_data(
     svc: QuoteService = Depends(get_quote_service),
 ) -> typing.Any:
     """Fetch OHLCV bars for chart rendering via gateway command channel."""
-    return svc.get_chart_data(source, symbol, timeframe, count)
+    return await asyncio.to_thread(svc.get_chart_data, source, symbol, timeframe, count)

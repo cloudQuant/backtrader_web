@@ -47,6 +47,27 @@ const STRATEGY_ASSISTANT_MODES = new Set<KBAssistantMode>([
   'backtrader_strategy',
   'strategy_review',
 ])
+const KNOWLEDGE_BASE_SELECTION_STORAGE_KEY = 'ai_for_investor:ai_chat:selected_knowledge_base_id'
+
+function readRememberedKnowledgeBaseId(): string {
+  try {
+    return localStorage.getItem(KNOWLEDGE_BASE_SELECTION_STORAGE_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function rememberKnowledgeBaseId(id: string): void {
+  try {
+    if (id) {
+      localStorage.setItem(KNOWLEDGE_BASE_SELECTION_STORAGE_KEY, id)
+    } else {
+      localStorage.removeItem(KNOWLEDGE_BASE_SELECTION_STORAGE_KEY)
+    }
+  } catch {
+    // Storage can be unavailable in private browsing; selection still works in memory.
+  }
+}
 
 export function useAIChatPage() {
   const { t } = useI18n()
@@ -649,6 +670,7 @@ export function useAIChatPage() {
 
   watch(selectedKnowledgeBaseId, async (value) => {
     if (!requiresKnowledgeBase.value) return
+    rememberKnowledgeBaseId(value)
     chatStore.resetConversationState()
     conversationSearch.value = ''
     if (value) {
@@ -685,8 +707,13 @@ export function useAIChatPage() {
     void loadSessionModelOptions()
     await kbStore.fetchKnowledgeBases()
     const queryKbId = typeof route.query.kbId === 'string' ? route.query.kbId : ''
-    const firstId = kbStore.knowledgeBases[0]?.id
-    selectedKnowledgeBaseId.value = queryKbId || firstId || ''
+    const availableIds = new Set(kbStore.knowledgeBases.map(kb => kb.id))
+    const rememberedKbId = readRememberedKnowledgeBaseId()
+    const firstId = kbStore.knowledgeBases[0]?.id || ''
+    const initialKbId = [queryKbId, rememberedKbId, firstId]
+      .find(id => Boolean(id) && availableIds.has(id)) || ''
+    selectedKnowledgeBaseId.value = initialKbId
+    if (!initialKbId && rememberedKbId) rememberKnowledgeBaseId('')
 
     const mode = route.query.mode
     if (mode === 'knowledge_qa') {

@@ -49,6 +49,13 @@
         >
           Monte Carlo
         </el-checkbox>
+        <el-checkbox
+          :model-value="isMethodSelected('parameter_sensitivity')"
+          :disabled="loading"
+          @update:model-value="toggleMethod('parameter_sensitivity', Boolean($event))"
+        >
+          参数敏感性
+        </el-checkbox>
       </div>
       <el-button
         size="small"
@@ -162,6 +169,32 @@
               </div>
             </div>
           </template>
+          <template v-else-if="activeMethod.method === 'parameter_sensitivity'">
+            <div class="mb-3 text-xs text-gray-500">
+              参数扰动后的 Sharpe 与年化收益衰减。
+            </div>
+            <div
+              v-if="parameterSensitivityTrials.length"
+              class="space-y-2"
+            >
+              <div
+                v-for="trial in parameterSensitivityTrials"
+                :key="`${trial.parameter}-${trial.direction}-${trial.value}`"
+                class="grid grid-cols-4 gap-2 rounded border border-gray-100 p-2 text-xs text-gray-700"
+              >
+                <span>{{ trial.parameter }} {{ trial.direction }}</span>
+                <span>{{ trial.value }}</span>
+                <span>Sharpe {{ trial.sharpe }}</span>
+                <span>衰减 {{ trial.decay }}%</span>
+              </div>
+            </div>
+            <p
+              v-else
+              class="text-sm text-gray-500"
+            >
+              未返回可展示的参数扰动样本。
+            </p>
+          </template>
           <template v-else>
             <div class="mb-3 text-xs text-gray-500">
               {{ t('backtestComp.ofRandomDist') }}
@@ -258,6 +291,7 @@ const selectedMethods = ref<StrategyOverfittingMethod[]>([
   'walk_forward',
   'out_of_sample',
   'monte_carlo',
+  'parameter_sensitivity',
 ])
 const activeMethodKey = ref<StrategyOverfittingMethod>('walk_forward')
 
@@ -315,6 +349,22 @@ const monteCarloBars = computed(() => {
   }))
 })
 
+const parameterSensitivityTrials = computed(() => {
+  if (!activeMethod.value || activeMethod.value.method !== 'parameter_sensitivity') return []
+  const trials = activeMethod.value.metrics.trials
+  if (!Array.isArray(trials)) return []
+  return trials.map((item) => {
+    const record = item as Record<string, unknown>
+    return {
+      parameter: String(record.parameter ?? '-'),
+      direction: String(record.direction ?? '-'),
+      value: formatMetricValue(record.value),
+      sharpe: formatMetricValue(record.sharpe_ratio),
+      decay: formatMetricValue(record.sharpe_decay_pct),
+    }
+  })
+})
+
 watch(
   () => props.result?.methods.map((item) => item.method).join('|'),
   () => {
@@ -330,6 +380,7 @@ function formatMethodName(method: string): string {
   if (method === 'monte_carlo') return 'Monte Carlo'
   if (method === 'walk_forward') return 'Walk-forward'
   if (method === 'out_of_sample') return 'Out-of-Sample'
+  if (method === 'parameter_sensitivity') return '参数敏感性'
   return method
 }
 
@@ -381,6 +432,15 @@ function buildEvidenceItems(method: StrategyOverfittingMethodResult): EvidenceIt
       evidenceFromMetric(method.metrics, 'sharpe_decay_pct', t('backtestComp.ofEvSharpeDecay'), 'percent'),
       evidenceFromMetric(method.metrics, 'return_decay_pct', t('backtestComp.ofEvReturnDecay'), 'percent'),
       evidenceFromMetric(method.metrics, 'p_value', 'p-value'),
+    ])
+  }
+  if (method.method === 'parameter_sensitivity') {
+    return compactEvidence([
+      evidenceFromMetric(method.metrics, 'parameter_count', '参数数量'),
+      evidenceFromMetric(method.metrics, 'trial_count', '扰动样本数'),
+      evidenceFromMetric(method.metrics, 'base_sharpe', '基准 Sharpe'),
+      evidenceFromMetric(method.metrics, 'base_annual_return', '基准年化收益', 'percent'),
+      evidenceFromMetric(method.metrics, 'worst_decay_pct', '最大衰减', 'percent'),
     ])
   }
   return Object.entries(method.metrics).map(([key, value]) => ({

@@ -15,6 +15,7 @@ export interface NewsArticleItem {
   threat?: string
   cluster_id?: string
   summary?: string
+  has_content?: boolean
   status?: string
 }
 
@@ -108,6 +109,11 @@ export const marketIntelApi = {
   },
   listArticles(params: { sentiment?: string; source?: string; ticker?: string; cluster_id?: string } = {}) {
     return request.get<{ items: NewsArticleItem[]; total: number }>('/news-intelligence/articles', { params })
+  },
+  getArticleContent(articleId: string) {
+    return request.get<{ id: string; headline: string; content: string; summary?: string; source?: string; url?: string }>(
+      `/news-intelligence/articles/${articleId}/content`,
+    )
   },
   analyzeHeadline(payload: { headline: string; allow_ai?: boolean }) {
     return request.post<Record<string, unknown>>('/news-intelligence/analyze', payload)

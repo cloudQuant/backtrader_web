@@ -138,6 +138,30 @@ class TestGetGatewayHealth:
         assert results[0]["heartbeat_age_sec"] == 5
         assert results[0]["ref_count"] == 2
 
+    def test_gateway_recovery_uses_saved_instance_count_when_runtime_is_not_registered(self):
+        health_mock = MagicMock()
+        health_mock.snapshot.return_value = _make_health_snap(strategy_count=0)
+        runtime_mock = MagicMock()
+        runtime_mock.health = health_mock
+        gateways = {
+            "ib-workspace-gateway": {
+                "runtime": runtime_mock,
+                "ref_count": 2,
+                "instances": {"inst-1", "inst-2"},
+            }
+        }
+
+        results = get_gateway_health(
+            gateways=gateways,
+            load_instances=lambda: {},
+            is_pid_alive=lambda pid: False,
+            resolve_strategy_dir=lambda s: f"/strategies/{s}",
+            load_strategy_config=lambda d: {},
+            load_strategy_env=lambda d: {},
+        )
+
+        assert results[0]["strategy_count"] == 2
+
     def test_gateway_without_runtime_skipped(self):
         gateways = {"orphan": {"runtime": None}}
         results = get_gateway_health(

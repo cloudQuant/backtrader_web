@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date, datetime
 from functools import lru_cache
 from typing import Any
 
@@ -206,7 +207,7 @@ class AssetSpecService:
             symbol=symbol,
             source=str(local.get("source") or defaults.get("source") or "resolved"),
         )
-        metadata = dict(normalized)
+        metadata = _json_safe_metadata(normalized)
         return AssetSpecCreate(
             asset_type=resolved_type,
             symbol=symbol,
@@ -283,6 +284,19 @@ def _float_or_none(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _json_safe_metadata(value: Any) -> Any:
+    """Make locally resolved metadata safe for the database JSON column."""
+    if isinstance(value, dict):
+        return {str(key): _json_safe_metadata(item) for key, item in value.items()}
+    if isinstance(value, list | tuple | set):
+        return [_json_safe_metadata(item) for item in value]
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    return str(value)
 
 
 @lru_cache

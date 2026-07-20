@@ -23,6 +23,25 @@ _LIVE_SUBPROCESS_THREAD_DEFAULTS = {
 _GATEWAY_STDIO_REDIRECT_LOCK = threading.RLock()
 _GATEWAY_STDOUT_LOG = "gateway.stdout.log"
 _GATEWAY_STDERR_LOG = "gateway.stderr.log"
+_IB_WEB_SESSION_FIELDS = (
+    "account_id",
+    "asset_type",
+    "base_url",
+    "access_token",
+    "verify_ssl",
+    "timeout",
+    "cookie_source",
+    "cookie_browser",
+    "cookie_path",
+    "cookie_output",
+    "cookies",
+    "username",
+    "password",
+    "login_mode",
+    "login_browser",
+    "login_headless",
+    "login_timeout",
+)
 
 
 @contextlib.contextmanager
@@ -137,6 +156,119 @@ def _find_gateway_key_by_session_key(
         if state.get("runtime") is None:
             continue
         return key
+    return None
+
+
+def _refresh_ib_web_session_for_launch(launch: dict[str, Any], logger: Any) -> None:
+    """Ensure an IB Client Portal session is valid before starting a runtime.
+
+    Strategy startup used to only launch Client Portal.  That left an expired
+    browser-cookie session untouched, so the gateway started with stale
+    credentials and failed later with an opaque 401.  Reuse the manual gateway
+    login flow here: it validates existing cookies, opens/reuses the configured
+    login flow when necessary, and injects the refreshed session into the
+    runtime that is about to start.
+    """
+    from app.services.gateway import manual as manual_gateway_service
+
+    runtime_kwargs = launch["runtime_kwargs"]
+    credentials = {
+        key: runtime_kwargs[key]
+        for key in _IB_WEB_SESSION_FIELDS
+        if key in runtime_kwargs and runtime_kwargs[key] is not None and runtime_kwargs[key] != ""
+    }
+    base_url = manual_gateway_service._normalize_ib_web_base_url(
+        str(credentials.get("base_url") or "https://localhost:5000")
+    )
+    verify_ssl = bool(credentials.get("verify_ssl", False))
+    timeout = float(credentials.get("timeout") or 10.0)
+    manual_gateway_service._ensure_ib_clientportal_running(
+        base_url,
+        logger,
+        startup_wait_sec=float(runtime_kwargs.get("gateway_startup_timeout_sec") or 30.0),
+    )
+    base_url = manual_gateway_service._resolve_ib_web_base_url(
+        base_url,
+        verify_ssl,
+        timeout,
+        logger,
+    )
+    credentials["base_url"] = base_url
+    runtime_kwargs["base_url"] = base_url
+
+    session = manual_gateway_service._bootstrap_ib_web_session(
+        credentials,
+        base_url,
+        verify_ssl,
+        timeout,
+        allow_interactive_login=True,
+    )
+    if session is None:
+        has_session_login_config = any(
+            credentials.get(key)
+            for key in ("cookies", "cookie_source", "cookie_output", "username", "password")
+        )
+        if has_session_login_config and not credentials.get("access_token"):
+            raise RuntimeError(
+                "IB Client Portal 会话已失效且自动登录未完成；"
+                "请在打开的 Client Portal 窗口完成登录后重试"
+            )
+        logger.warning(
+            "IB Client Portal did not return a browser session; continuing with configured token auth"
+        )
+        return
+
+    resolved_account_id = str(session.get("account_id") or credentials.get("account_id") or "").strip()
+    if resolved_account_id:
+        credentials["account_id"] = resolved_account_id
+        runtime_kwargs["account_id"] = resolved_account_id
+    cookie_output = str(session.get("cookie_output") or "").strip()
+    if cookie_output:
+        cookie_output = manual_gateway_service._to_backend_env_relative_path(cookie_output)
+        credentials["cookie_output"] = cookie_output
+        credentials["cookie_source"] = f"file:{cookie_output}"
+        runtime_kwargs["cookie_output"] = cookie_output
+        runtime_kwargs["cookie_source"] = f"file:{cookie_output}"
+    elif session.get("cookie_source"):
+        cookie_source = str(session["cookie_source"])
+        credentials["cookie_source"] = cookie_source
+        runtime_kwargs["cookie_source"] = cookie_source
+    if isinstance(session.get("cookies"), dict) and session["cookies"]:
+        runtime_kwargs["cookies"] = session["cookies"]
+
+    manual_gateway_service._persist_ib_web_env_updates(
+        manual_gateway_service._build_ib_web_env_updates(
+            credentials,
+            base_url,
+            verify_ssl,
+            timeout,
+            session,
+        )
+    )
+
+    config_factory = getattr(type(launch["config"]), "from_kwargs", None)
+    if callable(config_factory):
+        launch["config"] = config_factory(**runtime_kwargs)
+
+
+def _discard_idle_ib_gateway_with_auth_failure(
+    key: str,
+    state: dict[str, Any] | None,
+    gateways: dict[str, dict[str, Any]],
+    logger: Any,
+) -> dict[str, Any] | None:
+    """Drop an idle IB runtime whose recorded auth error requires a fresh login."""
+    if not isinstance(state, dict) or int(state.get("ref_count") or 0) > 0:
+        return state
+    runtime = state.get("runtime")
+    if runtime is None or not _is_non_retriable_gateway_error(_latest_runtime_error(runtime)):
+        return state
+    try:
+        runtime.stop()
+    except (AttributeError, OSError, RuntimeError):
+        logger.debug("Failed to stop expired IB gateway %s", key, exc_info=True)
+    gateways.pop(key, None)
+    logger.info("Discarded expired idle IB gateway %s before re-authentication", key)
     return None
 
 
@@ -458,6 +590,23 @@ def _latest_runtime_error(runtime: Any) -> str:
     return str(latest)
 
 
+def _is_non_retriable_gateway_error(message: str) -> bool:
+    """Return whether a runtime error cannot be fixed by waiting for another poll."""
+    normalized = str(message or "").strip().lower()
+    return any(
+        marker in normalized
+        for marker in (
+            "invalid_api_key",
+            "invalid api key",
+            "http 401",
+            "unauthorized",
+            "auth error",
+            "authentication failed",
+            "invalid token",
+        )
+    )
+
+
 def _gateway_health_snapshot(health: Any) -> dict[str, Any]:
     """Return a normalized health view for current and legacy runtime implementations."""
     snapshot_method = getattr(health, "snapshot", None)
@@ -511,11 +660,15 @@ def wait_gateway_runtime_ready(
         if state == "running" and market_connection == "connected":
             return
 
+        latest_error = _latest_runtime_error(runtime)
+        if _is_non_retriable_gateway_error(latest_error):
+            raise RuntimeError(f"Gateway runtime failed to become ready: {latest_error}")
+
         runtime_running = bool(getattr(runtime, "running", False))
         if state == "error" or (
             state and state not in {"created", "connecting"} and not runtime_running
         ):
-            detail = _latest_runtime_error(runtime) or state
+            detail = latest_error or state
             raise RuntimeError(f"Gateway runtime failed to become ready: {detail}")
 
         now = monotonic()
@@ -572,14 +725,6 @@ def acquire_gateway_for_instance(
         )
         return None
     runtime_kwargs = launch["runtime_kwargs"]
-    if str(runtime_kwargs.get("exchange_type") or "").upper() == "IB_WEB":
-        from app.services.gateway.manual import _ensure_ib_clientportal_running
-
-        _ensure_ib_clientportal_running(
-            str(runtime_kwargs.get("base_url") or "https://localhost:5000"),
-            logger,
-            startup_wait_sec=float(runtime_kwargs.get("gateway_startup_timeout_sec") or 30.0),
-        )
     key = launch["config"].runtime_name
     session_key = build_gateway_session_key_from_runtime_kwargs(runtime_kwargs)
     state = gateways.get(key)
@@ -588,6 +733,19 @@ def acquire_gateway_for_instance(
         if matched_key:
             key = matched_key
             state = gateways.get(matched_key)
+    if state is not None and str(runtime_kwargs.get("exchange_type") or "").upper() == "IB_WEB":
+        state = _discard_idle_ib_gateway_with_auth_failure(key, state, gateways, logger)
+    if state is None and str(runtime_kwargs.get("exchange_type") or "").upper() == "IB_WEB":
+        _refresh_ib_web_session_for_launch(launch, logger)
+        runtime_kwargs = launch["runtime_kwargs"]
+        key = launch["config"].runtime_name
+        session_key = build_gateway_session_key_from_runtime_kwargs(runtime_kwargs)
+        state = gateways.get(key)
+        if state is None:
+            matched_key = _find_gateway_key_by_session_key(gateways, session_key)
+            if matched_key:
+                key = matched_key
+                state = gateways.get(matched_key)
     logger.info(
         "Gateway acquire for {}: key={}, existing={}, endpoints={}/{}/{}",
         instance_id,

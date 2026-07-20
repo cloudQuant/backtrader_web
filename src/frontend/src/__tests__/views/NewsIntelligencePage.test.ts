@@ -9,6 +9,7 @@ const apiMocks = vi.hoisted(() => ({
   pullNewsSource: vi.fn(),
   ingestArticles: vi.fn(),
   listArticles: vi.fn(),
+  getArticleContent: vi.fn(),
   analyzeHeadline: vi.fn(),
 }))
 
@@ -25,18 +26,25 @@ describe('NewsIntelligencePage', () => {
     apiMocks.listArticles.mockResolvedValue({
       items: [
         {
+          id: 'article-1',
           headline: 'RB2510 surges after bullish demand shock',
           sentiment: 'BULLISH',
           impact: 'HIGH',
           cluster_id: 'cluster-1',
           source: 'terminal-rss',
           summary: 'Demand shock lifted steel-linked futures.',
+          has_content: true,
           url: 'https://example.com/rss/rb2510',
           tickers: ['RB2510'],
           status: 'ok',
         },
       ],
       total: 1,
+    })
+    apiMocks.getArticleContent.mockResolvedValue({
+      id: 'article-1',
+      headline: 'RB2510 surges after bullish demand shock',
+      content: 'Demand shock lifted steel-linked futures.',
     })
     apiMocks.analyzeHeadline.mockResolvedValue({ sentiment: 'NEUTRAL', impact: 'MEDIUM', status: 'degraded' })
   })
@@ -51,6 +59,7 @@ describe('NewsIntelligencePage', () => {
     await (wrapper.vm as any).pullSource()
     await (wrapper.vm as any).ingest()
     await (wrapper.vm as any).analyzeHeadline()
+    await (wrapper.vm as any).showArticleContent((wrapper.vm as any).articles[0])
     ;(wrapper.vm as any).filterSentiment = 'BULLISH'
     ;(wrapper.vm as any).filterTicker = 'RB2510'
     await (wrapper.vm as any).loadArticles()
@@ -68,13 +77,13 @@ describe('NewsIntelligencePage', () => {
     expect(apiMocks.listArticles).toHaveBeenCalledWith({ sentiment: 'BULLISH', ticker: 'RB2510', cluster_id: undefined })
     expect((wrapper.vm as any).articles).toHaveLength(1)
     expect((wrapper.vm as any).articles[0].sentiment).toBe('BULLISH')
-    expect(wrapper.text()).toContain('degraded')
-    expect(wrapper.text()).toContain('拉取结果')
+    expect((wrapper.vm as any).analysisResult).toMatchObject({ status: 'degraded' })
+    expect((wrapper.vm as any).pullResult).toMatchObject({ status: 'ok' })
     expect(wrapper.text()).not.toContain('展开同簇')
     expect(wrapper.text()).not.toContain('Cluster 展开')
-    expect(wrapper.text()).not.toContain('新闻内容')
-    expect(wrapper.text()).not.toContain('Demand shock lifted steel-linked futures.')
-    expect(wrapper.find('.news-article-details').exists()).toBe(false)
+    expect(apiMocks.getArticleContent).toHaveBeenCalledWith('article-1')
+    expect((wrapper.vm as any).articleContentVisible).toBe(true)
+    expect((wrapper.vm as any).articleContent).toContain('Demand shock')
     expect(openSpy).toHaveBeenCalledWith('https://example.com/rss/rb2510', '_blank', 'noopener,noreferrer')
 
     openSpy.mockRestore()
@@ -96,22 +105,39 @@ describe('NewsIntelligencePage', () => {
     expect(wrapper.find('.news-source-config').exists()).toBe(false)
   })
 
-  it('places rss actions beside refresh and the article import controls on the next row', async () => {
+  it('opens each intelligence workflow from one of six live-desk action buttons', async () => {
     const wrapper = mountWithPlugins(NewsIntelligencePage)
     await flushPromises()
 
-    const actionRow = wrapper.find('.news-analysis-toolbar')
-    const importRow = wrapper.find('.news-import-row')
+    const hero = wrapper.find('.news-hero')
+    const deskActions = hero.find('[data-test="news-live-desk-actions"]')
+    const actionButtons = deskActions.findAll('.news-desk-command')
 
-    expect(actionRow.exists()).toBe(true)
-    expect(importRow.exists()).toBe(true)
-    expect(actionRow.text()).toContain('刷新列表')
-    expect(actionRow.text()).toContain('拉取 RSS')
-    expect(actionRow.text()).toContain('配置来源')
-    expect(actionRow.text().indexOf('刷新列表')).toBeLessThan(actionRow.text().indexOf('拉取 RSS'))
-    expect(actionRow.text().indexOf('拉取 RSS')).toBeLessThan(actionRow.text().indexOf('配置来源'))
-    expect(importRow.text()).toContain('导入文章')
-    expect(actionRow.element.compareDocumentPosition(importRow.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(wrapper.find('.news-source-panel').exists()).toBe(false)
+    expect(wrapper.find('.news-direct-tools-grid').exists()).toBe(false)
+    expect(wrapper.find('.news-table-panel [data-test="news-live-desk-actions"]').exists()).toBe(false)
+    expect(actionButtons).toHaveLength(6)
+    expect(deskActions.text()).toContain('情绪识别')
+    expect(deskActions.text()).toContain('文章导入')
+    expect(deskActions.text()).toContain('筛选')
+    expect(deskActions.text()).toContain('刷新 RSS')
+    expect(deskActions.text()).toContain('自动刷新')
+    expect(deskActions.text()).toContain('来源治理')
+
+    await wrapper.find('[data-test="news-desk-action-analysis"]').trigger('click')
+    await wrapper.find('[data-test="news-desk-action-import"]').trigger('click')
+    await wrapper.find('[data-test="news-desk-action-filter"]').trigger('click')
+    await wrapper.find('[data-test="news-desk-action-rss-refresh"]').trigger('click')
+    await wrapper.find('[data-test="news-desk-action-rss-schedule"]').trigger('click')
+    await wrapper.find('[data-test="news-source-governance-button"]').trigger('click')
+
+    expect((wrapper.vm as any).analysisVisible).toBe(true)
+    expect((wrapper.vm as any).importVisible).toBe(true)
+    expect((wrapper.vm as any).filterVisible).toBe(true)
+    expect((wrapper.vm as any).rssRefreshVisible).toBe(true)
+    expect((wrapper.vm as any).rssScheduleVisible).toBe(true)
+    expect((wrapper.vm as any).sourceConfigVisible).toBe(true)
+    expect((wrapper.vm as any).rssRefreshMinutes).toBe(15)
   })
 
   it('opens source configuration dialog beside pull rss and applies multiple built-in presets', async () => {
@@ -132,7 +158,7 @@ describe('NewsIntelligencePage', () => {
     expect((wrapper.vm as any).sourceName).toBe('bloomberg-mkts')
     expect((wrapper.vm as any).sourceUrl).toBe('https://feeds.bloomberg.com/markets/news.rss')
     expect(wrapper.find('.news-source-config').exists()).toBe(true)
-    expect(wrapper.text()).toContain('配置来源')
+    expect(wrapper.text()).toContain('来源治理')
     expect(wrapper.text()).toContain('CNBC Finance')
     expect(wrapper.text()).toContain('已配置来源')
     expect((wrapper.vm as any).selectedFeedPresetIds).toEqual(['bloomberg-mkts', 'cnbc-finance'])

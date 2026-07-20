@@ -55,7 +55,15 @@ describe('portfolioApi', () => {
   it('getEquity', async () => {
     vi.mocked(request.get).mockResolvedValue({ dates: [], total_equity: [] })
     await portfolioApi.getEquity()
-    expect(request.get).toHaveBeenCalledWith('/portfolio/equity')
+    expect(request.get).toHaveBeenCalledWith('/portfolio/equity', { params: {} })
+  })
+
+  it('getEquity filters by workspace IDs', async () => {
+    vi.mocked(request.get).mockResolvedValue({ dates: [], total_equity: [] })
+    await portfolioApi.getEquity(['ws-running', 'ws-history'])
+    expect(request.get).toHaveBeenCalledWith('/portfolio/equity', {
+      params: { workspace_ids: 'ws-running,ws-history' },
+    })
   })
 
   it('getAllocation', async () => {

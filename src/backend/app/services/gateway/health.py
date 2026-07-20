@@ -185,7 +185,10 @@ def _normalize_runtime_snapshot(
     snap["heartbeat_age_sec"] = _coerce_optional_int(snapshot.get("heartbeat_age_sec"))
     snap["last_tick_time"] = _coerce_timestamp(snapshot.get("last_tick_time"))
     snap["last_order_time"] = _coerce_timestamp(snapshot.get("last_order_time"))
-    snap["strategy_count"] = _coerce_int(snapshot.get("strategy_count"), 0)
+    snap["strategy_count"] = max(
+        _coerce_int(snapshot.get("strategy_count"), 0),
+        len(_normalize_instances(state.get("instances", set()))),
+    )
     snap["symbol_count"] = _coerce_int(snapshot.get("symbol_count"), 0)
     snap["tick_count"] = _coerce_int(snapshot.get("tick_count"), 0)
     snap["order_count"] = _coerce_int(snapshot.get("order_count"), 0)

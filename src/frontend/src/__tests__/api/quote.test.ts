@@ -45,6 +45,19 @@ describe('quoteApi', () => {
     expect(post).toHaveBeenCalledWith('/quote/symbols/remove', { source: 'ctp', symbols: ['IF2510'] })
   })
 
+  it('removeSubscriptions POSTs to the dedicated subscription endpoint', async () => {
+    const { quoteApi } = await import('@/api/quote')
+    const apiModule = (await import('@/api/index')).default
+    const post = vi.mocked(apiModule.post).mockResolvedValue({} as never)
+
+    await quoteApi.removeSubscriptions('ctp', ['IF2510'])
+
+    expect(post).toHaveBeenCalledWith('/quote/subscriptions/remove', {
+      source: 'ctp',
+      symbols: ['IF2510'],
+    })
+  })
+
   it('searchSymbols GETs with source + keyword', async () => {
     const { quoteApi } = await import('@/api/quote')
     const apiModule = (await import('@/api/index')).default

@@ -68,6 +68,7 @@ class NewsArticleModel(Base):
     threat = Column(String(20), nullable=False, default="LOW")
     cluster_id = Column(String(36), nullable=False, index=True)
     summary = Column(Text, nullable=True)
+    content = Column(Text, nullable=True)
     status = Column(String(20), nullable=False, default="ok")
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(

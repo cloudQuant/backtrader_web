@@ -267,6 +267,16 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/BacktestResultPage.vue'),
       },
       {
+        path: 'paper-trading/:instanceId',
+        name: 'PaperTradingDetail',
+        component: () => import('@/views/PaperTradingDetailPage.vue'),
+      },
+      {
+        path: 'paper-risk',
+        name: 'RiskControl',
+        component: () => import('@/views/RiskControlPage.vue'),
+      },
+      {
         path: toAppChildPath(LEGACY_PATHS.backtestResultPattern),
         redirect: to => ({ path: APP_PATHS.backtest.result(String(to.params.id ?? '')) }),
       },

@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
 from app.db.database import async_session_maker
 from app.models.knowledge_base import ChatConversation, ChatMessage, KnowledgeBase
@@ -46,7 +46,11 @@ class KBChatService:
             kb = (
                 await session.execute(
                     select(KnowledgeBase).where(
-                        KnowledgeBase.id == knowledge_base_id, KnowledgeBase.owner_id == user_id
+                        KnowledgeBase.id == knowledge_base_id,
+                        or_(
+                            KnowledgeBase.owner_id == user_id,
+                            KnowledgeBase.is_public.is_(True),
+                        ),
                     )
                 )
             ).scalar_one_or_none()
@@ -76,7 +80,10 @@ class KBChatService:
                 await session.execute(
                     select(KnowledgeBase).where(
                         KnowledgeBase.id == data.knowledge_base_id,
-                        KnowledgeBase.owner_id == user_id,
+                        or_(
+                            KnowledgeBase.owner_id == user_id,
+                            KnowledgeBase.is_public.is_(True),
+                        ),
                     )
                 )
             ).scalar_one_or_none()
@@ -198,7 +205,10 @@ class KBChatService:
                 await session.execute(
                     select(KnowledgeBase).where(
                         KnowledgeBase.id == knowledge_base_id,
-                        KnowledgeBase.owner_id == user_id,
+                        or_(
+                            KnowledgeBase.owner_id == user_id,
+                            KnowledgeBase.is_public.is_(True),
+                        ),
                     )
                 )
             ).scalar_one_or_none()

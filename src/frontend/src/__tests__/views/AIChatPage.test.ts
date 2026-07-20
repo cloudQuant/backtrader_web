@@ -29,6 +29,7 @@ const COMPLETE_STRATEGY_CODE = vi.hoisted(() => [
 const routerMocks = vi.hoisted(() => ({
   push: vi.fn(),
 }))
+const KNOWLEDGE_BASE_SELECTION_STORAGE_KEY = 'ai_for_investor:ai_chat:selected_knowledge_base_id'
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: routerMocks.push }),
@@ -85,6 +86,7 @@ vi.mock('@/api/aiObservability', () => ({
 
 const mocks = vi.hoisted(() => ({
   fetchKnowledgeBases: vi.fn().mockResolvedValue(undefined),
+  selectKnowledgeBase: vi.fn().mockResolvedValue(undefined),
   fetchConversations: vi.fn().mockResolvedValue({ items: [] }),
   fetchHistory: vi.fn().mockResolvedValue(undefined),
   resetConversationState: vi.fn(),
@@ -192,7 +194,7 @@ vi.mock('@/stores/knowledgeBase', () => ({
     documents: mocks.documents,
     loading: false,
     fetchKnowledgeBases: mocks.fetchKnowledgeBases,
-    selectKnowledgeBase: vi.fn(),
+    selectKnowledgeBase: mocks.selectKnowledgeBase,
   }),
 }))
 
@@ -215,9 +217,12 @@ describe('AIChatPage', () => {
     vi.useRealTimers()
     vi.clearAllMocks()
     mocks.fetchKnowledgeBases.mockResolvedValue(undefined)
+    mocks.selectKnowledgeBase.mockResolvedValue(undefined)
     mocks.fetchConversations.mockResolvedValue({ items: [] })
     mocks.fetchHistory.mockResolvedValue(undefined)
     mocks.resetConversationState.mockReset()
+    mocks.selectKnowledgeBase.mockReset()
+    window.localStorage.removeItem(KNOWLEDGE_BASE_SELECTION_STORAGE_KEY)
     routerMocks.push.mockReset()
     strategyApiMocks.create.mockReset()
     strategyApiMocks.addCopilotDraftToWorkspace.mockReset()
@@ -305,6 +310,37 @@ describe('AIChatPage', () => {
   it('loads knowledge bases on mount', () => {
     mount(AIChatPage, { global: { stubs: { ...elStubs } } })
     expect(mocks.fetchKnowledgeBases).toHaveBeenCalled()
+  })
+
+  it('automatically selects and remembers the only available knowledge base', async () => {
+    const wrapper = mount(AIChatPage, { global: { stubs: { ...elStubs } } })
+    await flushPromises()
+
+    expect((wrapper.vm as any).selectedKnowledgeBaseId).toBe('kb-1')
+    expect(mocks.selectKnowledgeBase).toHaveBeenCalledWith('kb-1')
+    expect(window.localStorage.getItem(KNOWLEDGE_BASE_SELECTION_STORAGE_KEY)).toBe('kb-1')
+  })
+
+  it('restores a valid manually selected knowledge base when multiple are available', async () => {
+    const originalKnowledgeBases = [...mocks.knowledgeBases]
+    mocks.knowledgeBases.push({
+      id: 'kb-2',
+      owner_id: 'user-1',
+      name: '知识库2',
+      description: '描述2',
+      document_count: 2,
+      is_public: false,
+      created_at: '2026-04-24T00:00:00Z',
+      updated_at: '2026-04-24T00:00:00Z',
+    })
+    window.localStorage.setItem(KNOWLEDGE_BASE_SELECTION_STORAGE_KEY, 'kb-2')
+
+    const wrapper = mount(AIChatPage, { global: { stubs: { ...elStubs } } })
+    await flushPromises()
+
+    expect((wrapper.vm as any).selectedKnowledgeBaseId).toBe('kb-2')
+    expect(mocks.selectKnowledgeBase).toHaveBeenCalledWith('kb-2')
+    mocks.knowledgeBases.splice(0, mocks.knowledgeBases.length, ...originalKnowledgeBases)
   })
 
   it('renders existing assistant response', () => {

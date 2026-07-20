@@ -110,9 +110,12 @@ def build_tick(
         tick["status"] = "missing"
         return tick
 
-    price = raw.get("price")
-    bid_price = opt_float(raw.get("bid_price"))
-    ask_price = opt_float(raw.get("ask_price"))
+    # MT5 emits ``bid``/``ask`` in both websocket and snapshot payloads;
+    # retain the normalised aliases for CTP/crypto while accepting the native
+    # MT5 names so the order-book columns are not silently blank.
+    price = raw.get("price") or raw.get("last_price") or raw.get("last")
+    bid_price = opt_float(raw.get("bid_price") or raw.get("bid") or raw.get("bidPrice"))
+    ask_price = opt_float(raw.get("ask_price") or raw.get("ask") or raw.get("askPrice"))
     if price is not None and price != 0:
         tick["last_price"] = float(price)
     elif bid_price is not None and ask_price is not None:

@@ -131,9 +131,46 @@ export function useStrategyPage() {
   const aiResearchVersionCompare = ref<AIStrategyResearchVersionCompareResponse | null>(null)
   const aiResearchVersionCompareLoading = ref(false)
   const aiResearchSelectedVersionIds = ref<string[]>([])
+  const aiResearchVersionComparisonRows = computed(() => {
+    const comparison = aiResearchVersionCompare.value
+    if (!comparison) return []
+    const rows: Array<{
+      scope: 'metric' | 'gate'
+      key: string
+      label: string
+      left: string
+      right: string
+      delta: string
+      operator: string
+      passed: boolean | null
+    }> = []
+    const append = (scope: 'metric' | 'gate', payload: Record<string, unknown>) => {
+      for (const [key, value] of Object.entries(payload)) {
+        const item = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+        const passed = typeof item.passed === 'boolean' ? item.passed : null
+        rows.push({
+          scope,
+          key,
+          label: String(item.label || (scope === 'metric' ? aiResearchVersionMetricLabel(key) : key)),
+          left: formatComparisonValue(item.left),
+          right: formatComparisonValue(item.right),
+          delta: formatComparisonValue(item.delta),
+          operator: String(item.operator || '—'),
+          passed,
+        })
+      }
+    }
+    append('metric', comparison.metric_deltas || {})
+    append('gate', comparison.gate_deltas || {})
+    return rows
+  })
   const aiResearchPrecheckLoading = ref(false)
   const aiResearchPrecheckResult = ref<DataPrecheckResponse | null>(null)
   const aiResearchPrecheckError = ref('')
+  const AI_RESEARCH_PRECHECK_DEBOUNCE_MS = 350
+  let aiResearchPrecheckTimer: ReturnType<typeof setTimeout> | null = null
+  let aiResearchPrecheckController: AbortController | null = null
+  let aiResearchPrecheckSequence = 0
 
   const AI_RESEARCH_STAGE_LABELS: Record<string, string> = {
     queued: '排队中',
@@ -878,6 +915,11 @@ export function useStrategyPage() {
     return number.toFixed(digits)
   }
 
+  function formatComparisonValue(value: unknown): string {
+    if (typeof value === 'string' && value.trim()) return value
+    return formatMetric(value)
+  }
+
   function gateGapListFromUnknown(value: unknown): AIStrategyGateGap[] {
     if (!Array.isArray(value)) return []
     return value
@@ -1095,34 +1137,54 @@ export function useStrategyPage() {
     return undefined
   }
 
-  async function runAIResearchDataPrecheck() {
+  async function runAIResearchDataPrecheck({ interactive = true }: { interactive?: boolean } = {}) {
     const symbol = aiResearchForm.symbol.trim()
     if (!symbol) {
-      ElMessage.warning(t('strategy.aiResearchSymbolRequired'))
+      if (interactive) ElMessage.warning(t('strategy.aiResearchSymbolRequired'))
       return
     }
+    const requestSequence = ++aiResearchPrecheckSequence
+    aiResearchPrecheckController?.abort()
+    const controller = new AbortController()
+    aiResearchPrecheckController = controller
     aiResearchPrecheckLoading.value = true
     aiResearchPrecheckError.value = ''
     try {
-      aiResearchPrecheckResult.value = await marketDataApi.runPrecheck({
+      const result = await marketDataApi.runPrecheck({
         asset_type: aiResearchPrecheckAssetType(),
         symbol,
         timeframe: aiResearchForm.timeframe,
         start_date: aiResearchForm.start_date || null,
         end_date: aiResearchForm.end_date || null,
-      })
-      if (aiResearchPrecheckResult.value.passed) {
-        ElMessage.success(t('strategy.aiResearchPrecheckPassed'))
-      } else {
-        ElMessage.warning(t('strategy.aiResearchPrecheckBlocked'))
+      }, { signal: controller.signal })
+      if (requestSequence !== aiResearchPrecheckSequence) return
+      aiResearchPrecheckResult.value = result
+      if (interactive) {
+        if (result.passed) {
+          ElMessage.success(t('strategy.aiResearchPrecheckPassed'))
+        } else {
+          ElMessage.warning(t('strategy.aiResearchPrecheckBlocked'))
+        }
       }
     } catch {
+      if (requestSequence !== aiResearchPrecheckSequence || controller.signal.aborted) return
       aiResearchPrecheckResult.value = null
       aiResearchPrecheckError.value = '预检失败'
-      ElMessage.error(t('strategy.aiResearchPrecheckFailed'))
+      if (interactive) ElMessage.error(t('strategy.aiResearchPrecheckFailed'))
     } finally {
-      aiResearchPrecheckLoading.value = false
+      if (requestSequence === aiResearchPrecheckSequence) {
+        aiResearchPrecheckLoading.value = false
+      }
     }
+  }
+
+  function scheduleAIResearchDataPrecheck() {
+    if (aiResearchPrecheckTimer !== null) clearTimeout(aiResearchPrecheckTimer)
+    if (!aiResearchForm.symbol.trim()) return
+    aiResearchPrecheckTimer = setTimeout(() => {
+      aiResearchPrecheckTimer = null
+      void runAIResearchDataPrecheck({ interactive: false })
+    }, AI_RESEARCH_PRECHECK_DEBOUNCE_MS)
   }
 
   function aiResearchSymbolLabel() {
@@ -5925,12 +5987,15 @@ export function useStrategyPage() {
     () => {
       aiResearchPrecheckResult.value = null
       aiResearchPrecheckError.value = ''
+      scheduleAIResearchDataPrecheck()
     },
   )
 
   onUnmounted(() => {
     aiResearchRunsAutoRefreshActive = false
     clearAIResearchRunsAutoRefresh()
+    if (aiResearchPrecheckTimer !== null) clearTimeout(aiResearchPrecheckTimer)
+    aiResearchPrecheckController?.abort()
   })
 
   return {
@@ -6018,6 +6083,7 @@ export function useStrategyPage() {
     aiResearchVersionCompare,
     aiResearchVersionCompareLoading,
     aiResearchSelectedVersionIds,
+    aiResearchVersionComparisonRows,
     aiResearchPrecheckLoading,
     aiResearchPrecheckResult,
     aiResearchPrecheckError,
@@ -6117,6 +6183,7 @@ export function useStrategyPage() {
     requiredOutOfSampleValidationError,
     aiResearchPrecheckAssetType,
     runAIResearchDataPrecheck,
+    scheduleAIResearchDataPrecheck,
     aiResearchSymbolLabel,
     AI_RESEARCH_FUTURES_PREFIXES,
     isAIResearchFuturesSymbol,

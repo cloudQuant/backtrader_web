@@ -36,7 +36,10 @@
           v-for="asset in assetTabs"
           :key="asset.key"
           class="asset-tab"
-          :class="{ 'is-active': form.asset_type === asset.key }"
+          :class="{
+            'is-active': form.asset_type === asset.key,
+            'is-core-asset': asset.key === 'stock' || asset.key === 'futures',
+          }"
           type="button"
           role="tab"
           :aria-selected="form.asset_type === asset.key"
@@ -125,22 +128,39 @@
       </div>
     </el-card>
 
-    <section class="asset-overview">
+    <section
+      class="asset-overview"
+      :class="`asset-overview--${form.asset_type}`"
+      data-test="market-instrument-overview"
+    >
       <div class="asset-overview-main">
         <span class="asset-overview-icon">
           <el-icon aria-hidden="true">
-            <component :is="currentAssetTab().icon" />
+            <component :is="activeAssetIcon" />
           </el-icon>
         </span>
         <div>
           <span class="asset-overview-label">{{ assetLabel(form.asset_type) }}</span>
-          <h3>{{ t(activeAssetConfig.titleKey) }}</h3>
+          <h3>{{ result?.name || result?.symbol || form.symbol || '-' }}</h3>
           <p>{{ t(activeAssetConfig.descKey) }}</p>
         </div>
       </div>
       <div class="asset-overview-meta">
-        <span>{{ result?.market || '-' }}</span>
-        <strong>{{ result?.symbol || form.symbol || '-' }}</strong>
+        <span>{{ t('dataMgmt.fieldPrice') }}</span>
+        <strong :class="toneClass(snapshot.change_pct ?? snapshot.change)">
+          {{ formatNumber(snapshot.price) }}
+        </strong>
+        <small
+          v-if="hasSnapshotChange"
+          :class="toneClass(snapshot.change_pct ?? snapshot.change)"
+        >
+          {{ formatNumber(snapshot.change) }} / {{ formatPercent(snapshot.change_pct) }}
+        </small>
+        <small v-else>{{ chartSubtitle }}</small>
+        <div class="asset-overview-context">
+          <el-tag size="small" type="info">{{ result?.provider || '-' }}</el-tag>
+          <span>{{ result?.market || (form.asset_type === 'futures' ? form.market : '-') }}</span>
+        </div>
       </div>
     </section>
 
@@ -170,9 +190,15 @@
 
     <section
       v-loading="coverageLoading"
-      class="market-coverage-section"
+      class="market-data-details"
       data-test="market-coverage-matrix"
     >
+      <el-collapse>
+        <el-collapse-item
+          :title="t('dataMgmt.dataSourceDetailsCoverageMatrix')"
+          name="coverage-matrix"
+        >
+    <section class="market-coverage-section">
       <div class="market-coverage-header">
         <div>
           <span>{{ t('dataMgmt.coverageMatrixTitle') }}</span>
@@ -319,14 +345,25 @@
         :description="t('dataMgmt.coverageEmpty')"
       />
     </section>
+        </el-collapse-item>
+      </el-collapse>
+    </section>
 
     <section class="market-workbench-grid">
       <el-card class="market-chart-card">
         <template #header>
           <div class="section-header market-chart-header">
             <div>
-              <span>{{ t('dataMgmt.chartOverviewTitle') }}</span>
-              <small>{{ chartSubtitle }}</small>
+              <span>
+                {{ t('dataMgmt.marketWorkbenchTitle') }} · {{ t(activeAssetConfig.titleKey) }}
+              </span>
+              <small>{{ t(activeAssetConfig.descKey) }}</small>
+              <div class="market-workbench-context">
+                <el-tag size="small">{{ assetLabel(form.asset_type) }}</el-tag>
+                <span>{{ result?.market || '-' }}</span>
+                <strong>{{ result?.symbol || form.symbol || '-' }}</strong>
+                <span>{{ chartSubtitle }}</span>
+              </div>
             </div>
             <div class="chart-mode-tabs">
               <button
@@ -374,28 +411,15 @@
           </div>
         </section>
 
-        <section class="market-panel">
-          <div class="market-panel-header">
-            <span>{{ t('dataMgmt.coverageTitle') }}</span>
-            <strong>{{ coverageScore }}%</strong>
-          </div>
-          <div class="coverage-list">
-            <div
-              v-for="item in dataCoverageRows"
-              :key="item.label"
-              class="coverage-row"
-            >
-              <div>
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </div>
-              <i :style="{ width: `${item.coverage}%` }" />
-            </div>
-          </div>
-        </section>
       </div>
     </section>
 
+    <section class="market-data-details">
+      <el-collapse>
+        <el-collapse-item
+          :title="t('dataMgmt.dataSourceDetailsCatalog')"
+          name="data-catalog"
+        >
     <section class="data-catalog-section">
       <div class="data-catalog-header">
         <div>
@@ -480,6 +504,9 @@
           </div>
         </aside>
       </div>
+    </section>
+        </el-collapse-item>
+      </el-collapse>
     </section>
 
     <div class="asset-insight-grid">
@@ -648,6 +675,35 @@
         :description="emptyHistoryText"
       />
     </el-card>
+
+    <section class="market-data-details">
+      <el-collapse>
+        <el-collapse-item
+          :title="t('dataMgmt.dataSourceDetailsCoverage')"
+          name="data-coverage"
+        >
+          <section class="market-panel market-panel--coverage">
+            <div class="market-panel-header">
+              <span>{{ t('dataMgmt.coverageTitle') }}</span>
+              <strong>{{ coverageScore }}%</strong>
+            </div>
+            <div class="coverage-list">
+              <div
+                v-for="item in dataCoverageRows"
+                :key="item.label"
+                class="coverage-row"
+              >
+                <div>
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+                <i :style="{ width: `${item.coverage}%` }" />
+              </div>
+            </div>
+          </section>
+        </el-collapse-item>
+      </el-collapse>
+    </section>
   </div>
 </template>
 
@@ -682,6 +738,7 @@ const {
   historyRows,
   chartCanRender,
   activeAssetConfig,
+  activeAssetIcon,
   symbolPlaceholder,
   emptyHistoryText,
   chartEmptyText,
@@ -707,7 +764,6 @@ const {
   relatedTableSummary,
   assetDetailRows,
   historyTableColumns,
-  currentAssetTab,
   assetLabel,
   setAssetType,
   lookupInstrument,

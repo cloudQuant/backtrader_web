@@ -105,6 +105,11 @@ def disable_live_gateway_restore(monkeypatch, tmp_path):
         "_start_restore_manual_gateways_background",
         lambda self: None,
     )
+    monkeypatch.setattr(
+        live_trading_manager.LiveTradingManager,
+        "_start_restore_running_gateway_background",
+        lambda self: None,
+    )
     live_trading_manager._manager = None
     yield
     live_trading_manager._manager = None

@@ -34,6 +34,42 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+async def _initialize_paper_runtime_snapshots(
+    user_id: str,
+    runtime_snapshots: list[tuple[str, dict[str, Any], dict[str, Any]]],
+) -> None:
+    """Persist initial paper-runtime equity points without delaying a unit start response."""
+    if not runtime_snapshots:
+        return
+
+    from app.services.paper_runtime_service import PaperRuntimeService
+
+    runtime_service = PaperRuntimeService()
+    for instance_id, metrics, unit_settings in runtime_snapshots:
+        try:
+            await runtime_service.record_snapshot(
+                user_id,
+                instance_id,
+                {
+                    "source": "initial",
+                    "total_equity": float(
+                        metrics.get("final_value")
+                        or metrics.get("initial_cash")
+                        or unit_settings.get("initial_cash")
+                        or 100000.0
+                    ),
+                    "cash": float(unit_settings.get("initial_cash") or 100000.0),
+                    "metadata": {"event": "runtime_started"},
+                },
+            )
+        except Exception:
+            logger.warning(
+                "Unable to record initial paper runtime snapshot for %s",
+                instance_id,
+                exc_info=True,
+            )
+
+
 def _task_runtime_info(task: BacktestTask | None) -> dict[str, Any]:
     if task is None:
         return {}
@@ -136,6 +172,27 @@ class WorkspaceRunOpsMixin:
                     _workspace_settings_dict(ws),
                 )
                 await session.commit()
+                from app.services.paper_runtime_scheduler import (
+                    get_paper_runtime_snapshot_scheduler,
+                )
+
+                snapshot_scheduler = get_paper_runtime_snapshot_scheduler()
+                runtime_snapshots: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+                for unit in units:
+                    instance_id = str(getattr(unit, "trading_instance_id", "") or "").strip()
+                    is_paper = (
+                        str(getattr(unit, "trading_mode", "paper") or "paper").lower() == "paper"
+                    )
+                    if not instance_id or not is_paper:
+                        continue
+                    metrics = cast(dict[str, Any], getattr(unit, "metrics_snapshot", {}) or {})
+                    settings = cast(dict[str, Any], getattr(unit, "unit_settings", {}) or {})
+                    runtime_snapshots.append((instance_id, dict(metrics), dict(settings)))
+                    snapshot_scheduler.ensure_running(user_id, instance_id)
+                if runtime_snapshots:
+                    asyncio.create_task(
+                        _initialize_paper_runtime_snapshots(user_id, runtime_snapshots)
+                    )
                 return results
 
             # Mark all as queued
@@ -230,6 +287,15 @@ class WorkspaceRunOpsMixin:
                 units = list(db_result.scalars().all())
                 results = await self.trading_service.stop_units(units, user_id)
                 await session.commit()
+                from app.services.paper_runtime_scheduler import (
+                    get_paper_runtime_snapshot_scheduler,
+                )
+
+                snapshot_scheduler = get_paper_runtime_snapshot_scheduler()
+                for unit in units:
+                    instance_id = str(getattr(unit, "trading_instance_id", "") or "").strip()
+                    if instance_id:
+                        await snapshot_scheduler.stop(instance_id)
                 return results
 
             from app.services.backtest.service import BacktestService
@@ -278,7 +344,16 @@ class WorkspaceRunOpsMixin:
                 # The status endpoint is polled frequently by the trading workspace UI.
                 # Persisting every hydrated runtime snapshot here causes concurrent
                 # polling requests to lock large batches of strategy_units rows.
-                await self.trading_service.hydrate_units(units, user_id, full_log=False)
+                # Never make an external broker call from the high-frequency
+                # polling endpoint.  A gateway outage should be surfaced by the
+                # start/detail flows, not turn every workspace status request
+                # into a blocked connection attempt.
+                await self.trading_service.hydrate_units(
+                    units,
+                    user_id,
+                    full_log=False,
+                    refresh_gateway=False,
+                )
                 return self.trading_service.build_status_responses(units)
 
             from app.services.backtest.service import BacktestService

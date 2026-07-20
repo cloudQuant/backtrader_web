@@ -270,12 +270,14 @@ class LiveTradingManager:
         self._gateway_lock = threading.RLock()
         self._instance_op_lock = asyncio.Lock()
         self._restore_thread: threading.Thread | None = None
+        self._gateway_restore_in_progress = threading.Event()
         # Sync process status on startup
         self._sync_status_on_boot()
         if _should_restore_manual_gateways():
             self._start_restore_manual_gateways_background()
         else:
             logger.info("Manual gateway auto-restore disabled by environment")
+            self._start_restore_running_gateway_background()
 
     def _sync_status_on_boot(self) -> None:
         with _instance_store_lock():
@@ -811,8 +813,18 @@ class LiveTradingManager:
         return cast(OperationResult, result)
 
     def _start_restore_manual_gateways_background(self) -> None:
-        self._restore_thread = threading.Thread(target=self._restore_manual_gateways, daemon=True)
+        self._gateway_restore_in_progress.set()
+        self._restore_thread = threading.Thread(
+            target=self._restore_manual_gateways_with_recovery_marker,
+            daemon=True,
+        )
         self._restore_thread.start()
+
+    def _restore_manual_gateways_with_recovery_marker(self) -> None:
+        try:
+            self._restore_manual_gateways()
+        finally:
+            self._gateway_restore_in_progress.clear()
 
     def _restore_manual_gateways(self) -> None:
         restored_gateways: dict[str, dict[str, Any]] = {}
@@ -845,6 +857,76 @@ class LiveTradingManager:
             with self._gateway_lock:
                 for key, state in restored_gateways.items():
                     self._gateways.setdefault(key, state)
+        self._restore_running_instance_gateways()
+
+    def _start_restore_running_gateway_background(self) -> None:
+        """Restore gateway sessions for surviving strategy subprocesses."""
+        self._gateway_restore_in_progress.set()
+        self._restore_thread = threading.Thread(
+            target=self._restore_running_gateways_with_recovery_marker,
+            daemon=True,
+        )
+        self._restore_thread.start()
+
+    def _restore_running_gateways_with_recovery_marker(self) -> None:
+        try:
+            self._restore_running_instance_gateways()
+        finally:
+            self._gateway_restore_in_progress.clear()
+
+    def is_gateway_restore_in_progress(self) -> bool:
+        """Return whether startup is rebuilding gateway sessions."""
+        return self._gateway_restore_in_progress.is_set()
+
+    def _restore_running_instance_gateways(self) -> None:
+        """Recreate in-process gateways after an API-process restart.
+
+        Strategy ``run.py`` subprocesses are intentionally independent from
+        Uvicorn and can survive an API restart.  Their IPC endpoint names are
+        deterministic, but the gateway runtime itself lives in the API
+        process.  Re-acquiring each enabled gateway restores that runtime and
+        its instance mapping without spawning duplicate strategy processes.
+        """
+        try:
+            instances = self.list_instances()
+        except Exception:
+            logger.exception("Unable to inspect live instances for gateway recovery")
+            return
+
+        restored = 0
+        for instance in instances:
+            if str(instance.get("status") or "").lower() != "running":
+                continue
+            instance_id = str(instance.get("id") or "").strip()
+            if not instance_id:
+                continue
+            try:
+                runtime_dir = str(instance.get("runtime_dir") or "").strip()
+                strategy_dir = (
+                    Path(runtime_dir).expanduser()
+                    if runtime_dir
+                    else self._resolve_strategy_dir(str(instance.get("strategy_id") or ""))
+                )
+                if not (strategy_dir / "run.py").is_file():
+                    continue
+                with self._gateway_lock:
+                    if self._gateway_key_for_instance_unlocked(instance_id):
+                        continue
+                    gateway = self._acquire_gateway_for_instance(
+                        instance_id,
+                        instance,
+                        strategy_dir,
+                    )
+                if gateway is not None:
+                    restored += 1
+            except Exception:
+                logger.warning(
+                    "Failed to restore gateway for surviving instance %s",
+                    instance_id,
+                    exc_info=True,
+                )
+        if restored:
+            logger.info("Restored gateway mappings for %d surviving live instances", restored)
 
     def _persist_manual_gateway(
         self,

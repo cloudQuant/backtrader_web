@@ -1159,6 +1159,30 @@
   font-size: 13px;
 }
 
+.ai-research-version-delta-table {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ai-research-version-delta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+}
+
+.ai-research-version-delta-row > span:first-child {
+  min-width: 150px;
+  color: var(--el-text-color-primary);
+  font-weight: 600;
+}
+
 .ai-research-version-compare pre {
   max-height: 220px;
   margin: 0;
@@ -1766,4 +1790,18 @@
 .readme-content h1, .readme-content h2, .readme-content h3 {
   border-bottom: 1px solid var(--border-color-light);
   padding-bottom: 4px;
+}
+.ai-research-precheck-issues {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ai-research-precheck-issue {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--el-text-color-regular);
+  font-size: 12px;
+  line-height: 18px;
 }

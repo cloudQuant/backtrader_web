@@ -270,6 +270,11 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _trading_day(value: Any) -> str:
+    """Return the calendar-day portion of a value-log timestamp."""
+    return str(value or "").strip()[:10]
+
+
 def _json_safe_value(value: Any) -> Any:
     if isinstance(value, Decimal):
         return float(value)
@@ -354,12 +359,21 @@ def _current_user_id(current_user: Any) -> str | None:
 def _list_user_instances(
     mgr: LiveTradingManager,
     current_user: Any,
+    *,
+    include_inactive: bool = False,
 ) -> list[dict[str, Any]]:
     user_id = _current_user_id(current_user)
     try:
-        return mgr.list_instances(user_id=user_id) if user_id else mgr.list_instances()
+        instances = mgr.list_instances(user_id=user_id) if user_id else mgr.list_instances()
     except TypeError:
-        return mgr.list_instances()
+        instances = mgr.list_instances()
+    if include_inactive:
+        return instances
+    return [
+        inst
+        for inst in instances
+        if str(inst.get("status") or "").strip().lower() in _ACTIVE_TRADING_STATUSES
+    ]
 
 
 def _as_path(value: Any) -> Path | None:
@@ -436,8 +450,12 @@ def _workspace_unit_runtime_config(unit: StrategyUnit) -> dict[str, Any]:
     return load_runtime_config(runtime_dir)
 
 
-async def _active_workspace_sources(current_user: Any) -> list[_PortfolioSource]:
-    """Load active trading workspace units from the database.
+async def _active_workspace_sources(
+    current_user: Any,
+    *,
+    include_inactive: bool = False,
+) -> list[_PortfolioSource]:
+    """Load trading workspace units from the database.
 
     The live-trading manager is process-local. Stress supervisors and the API
     server can run in separate Python processes, so portfolio pages must be able
@@ -448,14 +466,16 @@ async def _active_workspace_sources(current_user: Any) -> list[_PortfolioSource]
         return []
 
     async with async_session_maker() as session:
-        result = await session.execute(
+        query = (
             select(StrategyUnit, Workspace)
             .join(Workspace, StrategyUnit.workspace_id == Workspace.id)
             .where(Workspace.user_id == user_id)
             .where(Workspace.workspace_type == "trading")
-            .where(StrategyUnit.run_status.in_(_ACTIVE_TRADING_STATUSES))
             .order_by(Workspace.name, StrategyUnit.sort_order, StrategyUnit.strategy_name)
         )
+        if not include_inactive:
+            query = query.where(StrategyUnit.run_status.in_(_ACTIVE_TRADING_STATUSES))
+        result = await session.execute(query)
         rows = result.all()
 
     sources: list[_PortfolioSource] = []
@@ -1039,12 +1059,17 @@ async def _persist_source_asset_specs(current_user: Any, source: _PortfolioSourc
 async def _portfolio_sources(
     current_user: Any,
     mgr: LiveTradingManager,
+    *,
+    include_inactive: bool = False,
 ) -> list[_PortfolioSource]:
-    workspace_sources = await _active_workspace_sources(current_user)
+    workspace_sources = await _active_workspace_sources(
+        current_user,
+        include_inactive=include_inactive,
+    )
     sources = (
         workspace_sources
         if workspace_sources
-        else [_source_from_instance(inst) for inst in _list_user_instances(mgr, current_user)]
+        else [_source_from_instance(inst) for inst in _list_user_instances(mgr, current_user, include_inactive=include_inactive)]
     )
     for source in sources:
         # A paper workspace is a collection of independent simulated portfolios.
@@ -1970,7 +1995,7 @@ async def get_portfolio_overview(
         if compact_overview is not None:
             return compact_overview
 
-    sources = await _portfolio_sources(current_user, mgr)
+    sources = await _portfolio_sources(current_user, mgr, include_inactive=True)
 
     total_assets = 0.0
     total_cash = 0.0
@@ -2141,7 +2166,7 @@ async def get_portfolio_positions(
             - market_value: Current market value
             - direction: Position direction ("long", "short", or "flat")
     """
-    sources = await _portfolio_sources(current_user, mgr)
+    sources = await _portfolio_sources(current_user, mgr, include_inactive=True)
     positions = []
 
     for source in sources:
@@ -2205,6 +2230,7 @@ async def get_portfolio_positions(
 async def get_portfolio_trades(
     limit: int = 200,
     workspace_ids: Annotated[list[str] | None, Query()] = None,
+    include_inactive: bool = Query(default=False),
     current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ) -> typing.Any:
@@ -2219,10 +2245,20 @@ async def get_portfolio_trades(
         A dictionary containing total count and list of trades, sorted by
         close date in descending order (most recent first).
     """
-    sources = await _portfolio_sources(current_user, mgr)
     workspace_id_set = _parse_query_ids(workspace_ids)
+    include_inactive_sources = include_inactive
+    sources = await _portfolio_sources(
+        current_user,
+        mgr,
+        include_inactive=include_inactive_sources,
+    )
     if workspace_id_set:
         sources = [source for source in sources if source.workspace_id in workspace_id_set]
+        if not include_inactive:
+            sources = [
+                source for source in sources
+                if str(source.status or "").strip().lower() in _ACTIVE_TRADING_STATUSES
+            ]
     all_trades = []
 
     for source in sources:
@@ -2245,6 +2281,8 @@ async def get_portfolio_trades(
 
 @router.get("/equity", summary="Portfolio equity curve (live trading)", response_model=None)
 async def get_portfolio_equity(
+    workspace_ids: Annotated[list[str] | None, Query()] = None,
+    include_inactive: bool = Query(default=False),
     current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ) -> typing.Any:
@@ -2264,7 +2302,20 @@ async def get_portfolio_equity(
             - total_drawdown: Portfolio drawdown per date
             - strategies: List of per-strategy equity curves
     """
-    sources = await _portfolio_sources(current_user, mgr)
+    workspace_id_set = _parse_query_ids(workspace_ids)
+    include_inactive_sources = include_inactive
+    sources = await _portfolio_sources(
+        current_user,
+        mgr,
+        include_inactive=include_inactive_sources,
+    )
+    if workspace_id_set:
+        sources = [source for source in sources if source.workspace_id in workspace_id_set]
+        if not include_inactive:
+            sources = [
+                source for source in sources
+                if str(source.status or "").strip().lower() in _ACTIVE_TRADING_STATUSES
+            ]
 
     # Each strategy's date -> value mapping
     strategy_curves: list[dict[str, Any]] = []
@@ -2328,6 +2379,7 @@ async def get_portfolio_equity(
                 "instance_id": source.id,
                 "date_map": date_map,
                 "initial": equity[0] if equity else 0,
+                "first_trading_day": _trading_day(dates[0]) if dates else "",
                 "value_source": value_source,
             }
         )
@@ -2354,9 +2406,17 @@ async def get_portfolio_equity(
                 val = dm[dt]["equity"]
                 sc["_seen"] = True
             else:
-                # Before a strategy's first point, it should contribute zero;
-                # after that, carry its last known value forward.
-                val = sc.get("_last", 0.0) if sc.get("_seen") else 0.0
+                # Before a strategy's first trading day it contributes zero;
+                # afterward, carry its last known value forward. Multiple
+                # units from the same workspace commonly write their first
+                # value log a few seconds/minutes apart. Treat their initial
+                # cash as present throughout that first day so the aggregate
+                # curve does not show a false capital jump while processes
+                # are merely starting in sequence.
+                if not sc.get("_seen") and _trading_day(dt) == sc.get("first_trading_day"):
+                    val = sc.get("initial", 0.0)
+                else:
+                    val = sc.get("_last", 0.0) if sc.get("_seen") else 0.0
             sc["_last"] = val
             day_total += val
             strategy_series[sc["instance_id"]].append(_safe_round(val))
@@ -2412,6 +2472,7 @@ def _allocation_asset_key(symbol: Any) -> str:
 )
 async def get_portfolio_allocation(
     workspace_ids: Annotated[list[str] | None, Query()] = None,
+    include_inactive: bool = Query(default=False),
     current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ) -> typing.Any:
@@ -2431,10 +2492,20 @@ async def get_portfolio_allocation(
             - total: Total gross market exposure of open positions
             - items: One merged allocation item per traded asset
     """
-    sources = await _portfolio_sources(current_user, mgr)
     workspace_id_set = _parse_query_ids(workspace_ids)
+    include_inactive_sources = include_inactive
+    sources = await _portfolio_sources(
+        current_user,
+        mgr,
+        include_inactive=include_inactive_sources,
+    )
     if workspace_id_set:
         sources = [source for source in sources if source.workspace_id in workspace_id_set]
+        if not include_inactive:
+            sources = [
+                source for source in sources
+                if str(source.status or "").strip().lower() in _ACTIVE_TRADING_STATUSES
+            ]
 
     allocations: dict[str, dict[str, Any]] = {}
     total = 0.0

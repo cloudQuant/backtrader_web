@@ -5,11 +5,15 @@ Provides risk control configuration management and alert query endpoints.
 """
 
 import typing
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from app.api.auth import get_current_user
+from app.db.database import async_session_maker
+from app.models.alerts import Alert, AlertStatus
 from app.services.risk_control_service import (
     RiskAlertLevel,
     RiskControlConfig,
@@ -100,9 +104,9 @@ class RiskAlertResponse(BaseModel):
     alert_type: str
     level: str
     message: str
-    instance_id: str
+    instance_id: str | None = None
     timestamp: str
-    details: dict
+    details: dict = Field(default_factory=dict)
 
 
 class AlertListResponse(BaseModel):
@@ -197,7 +201,6 @@ async def get_alerts(
     level: str | None = None,
     limit: int = 100,
     current_user: typing.Any = Depends(get_current_user),
-    service: RiskControlService = Depends(get_risk_service),
 ) -> AlertListResponse:
     """
     Get risk alert list. Requires authentication.
@@ -219,22 +222,28 @@ async def get_alerts(
                 detail=f"Invalid alert level: {level}. Must be one of: info, warning, critical",
             ) from exc
 
-    alerts = service.get_alerts(
-        instance_id=instance_id,
-        level=alert_level,
-        limit=limit,
-    )
+    async with async_session_maker() as session:
+        query = select(Alert).where(
+            Alert.user_id == current_user.sub,
+            Alert.status == AlertStatus.ACTIVE.value,
+        )
+        if instance_id:
+            query = query.where(Alert.instance_id == instance_id)
+        if alert_level:
+            query = query.where(Alert.severity == alert_level.value)
+        result = await session.execute(query.order_by(Alert.created_at.desc()).limit(limit))
+        alerts = list(result.scalars().all())
 
     return AlertListResponse(
         total=len(alerts),
         alerts=[
             RiskAlertResponse(
-                alert_type=a.alert_type.value,
-                level=a.level.value,
+                alert_type=str(a.alert_type),
+                level=str(a.severity),
                 message=a.message,
                 instance_id=a.instance_id,
-                timestamp=a.timestamp.isoformat(),
-                details=a.details,
+                timestamp=(a.created_at or datetime.now(timezone.utc)).isoformat(),
+                details=dict(a.details or {}),
             )
             for a in alerts
         ],
@@ -256,7 +265,24 @@ async def clear_alerts(
         instance_id: Instance ID (optional, clears all if not specified) /
                      实例ID(可选，不指定则清除全部)
     """
-    count = service.clear_alerts(instance_id)
+    async with async_session_maker() as session:
+        query = select(Alert).where(
+            Alert.user_id == current_user.sub,
+            Alert.status == AlertStatus.ACTIVE.value,
+        )
+        if instance_id:
+            query = query.where(Alert.instance_id == instance_id)
+        result = await session.execute(query)
+        alerts = list(result.scalars().all())
+        now = datetime.now(timezone.utc)
+        for alert in alerts:
+            alert.status = AlertStatus.RESOLVED.value
+            alert.resolved_at = now
+        await session.commit()
+    # Legacy service state is a short-lived calculation cache only; clear it so
+    # an old in-process check cannot immediately re-render a resolved alert.
+    service.clear_alerts(instance_id)
+    count = len(alerts)
     return {
         "cleared": count,
         "message": f"Cleared {count} alerts",

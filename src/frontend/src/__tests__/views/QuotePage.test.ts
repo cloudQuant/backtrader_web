@@ -11,6 +11,7 @@ const quoteApiMocks = vi.hoisted(() => ({
   getSymbols: vi.fn(),
   addSymbols: vi.fn(),
   removeSymbols: vi.fn(),
+  removeSubscriptions: vi.fn(),
   searchSymbols: vi.fn(),
   getQuotes: vi.fn(),
   getChartData: vi.fn(),
@@ -47,6 +48,7 @@ vi.mock('@element-plus/icons-vue', () => {
     Filter: icon,
     Rank: icon,
     DataLine: icon,
+    Connection: icon,
     WarningFilled: icon,
   }
 })
@@ -92,12 +94,17 @@ describe('QuotePage', () => {
       source: 'eastmoney',
       default_symbols: [],
       custom_symbols: ['AG2406'],
+      categories: ['贵金属', '能源'],
     })
     quoteApiMocks.addSymbols.mockResolvedValue({
       source: 'eastmoney',
       symbols: ['AG2406'],
     })
     quoteApiMocks.removeSymbols.mockResolvedValue({
+      source: 'eastmoney',
+      symbols: [],
+    })
+    quoteApiMocks.removeSubscriptions.mockResolvedValue({
       source: 'eastmoney',
       symbols: [],
     })
@@ -174,6 +181,7 @@ describe('QuotePage', () => {
         Filter: true,
         Rank: true,
         DataLine: true,
+        Connection: true,
         WarningFilled: true,
         'el-popover': { template: '<div class="el-popover"><slot name="reference" /><slot /></div>' },
         'el-drawer': { template: '<div class="el-drawer"><slot /></div>' },
@@ -187,13 +195,23 @@ describe('QuotePage', () => {
     expect(quoteApiMocks.getQuotes).toHaveBeenCalledWith('eastmoney')
     expect(quoteApiMocks.getSymbols).toHaveBeenCalledWith('eastmoney')
     expect(store.filteredTicks).toHaveLength(1)
+    expect(store.categories).toEqual(expect.arrayContaining(['能源', '贵金属', 'futures']))
+    expect(store.columnConfig.map((column) => column.prop)).toEqual([
+      'symbol',
+      'name',
+      'category',
+      'last_price',
+      'bid_price',
+      'ask_price',
+      'update_time',
+    ])
     expect(wrapper.findAll('.quote-mobile-card')).toHaveLength(1)
     expect(wrapper.find('.quote-mobile-card').text()).toContain('RB2405')
 
     const vm = wrapper.vm as any
     vm.addKeyword = 'rb'
     vm.handleAddSearch()
-    vi.runAllTimers()
+    vi.advanceTimersByTime(300)
     await flushPromises()
     expect(quoteApiMocks.searchSymbols).toHaveBeenCalledWith('eastmoney', 'rb')
 
@@ -202,6 +220,18 @@ describe('QuotePage', () => {
     await flushPromises()
     expect(quoteApiMocks.addSymbols).toHaveBeenCalledWith('eastmoney', ['AG2406'])
     expect(messageMocks.success).toHaveBeenCalledWith('已添加 AG2406')
+
+    await vm.removeQuoteSubscription(store.ticks[0])
+    expect(quoteApiMocks.removeSubscriptions).toHaveBeenCalledWith('eastmoney', ['RB2405'])
+
+    const workspaceTick = {
+      ...store.ticks[0],
+      quote_key: 'workspace-gateway:RB2405',
+      origins: ['workspace'],
+    }
+    store.ticks.push(workspaceTick)
+    await vm.removeQuoteSubscription(workspaceTick)
+    expect(store.dismissedWorkspaceQuoteKeys.has('workspace-gateway:RB2405')).toBe(true)
 
     vm.handleSourceClick({
       source: 'sim',
@@ -221,14 +251,15 @@ describe('QuotePage', () => {
     expect(vm.formatTime('2026-01-01T09:30:00Z')).toBeTruthy()
     expect(vm.priceClass({ change_pct: 1.2 })).toContain('text-red-600')
     expect(vm.changeClass(-1)).toBe('text-green-600')
-    expect(vm.isCustomSymbol('AG2406')).toBe(true)
+    expect(vm.isWorkspaceQuote({ origins: ['workspace'] })).toBe(true)
+    expect(vm.isWorkspaceQuote({ origins: ['subscription'] })).toBe(false)
 
     vm.showColumnDialog = true
     await wrapper.vm.$nextTick()
     vm.onColDragStart(0)
     vm.onColDrop(1)
     vm.handleSaveColumns()
-    expect(store.columnConfig[0].prop).toBe('last_price')
+    expect(store.columnConfig[0].prop).toBe('name')
     vm.handleResetColumns()
     expect(store.columnConfig[0].prop).toBe('symbol')
 

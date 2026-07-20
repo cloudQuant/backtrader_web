@@ -74,16 +74,39 @@ class MetricsService:
         )
         normalized.setdefault(
             "profit_loss_ratio",
-            _profit_loss_ratio(trades)
-            if trades is not None
-            else _float(metrics.get("profit_loss_ratio"), 0.0),
+            _float(metrics.get("profit_loss_ratio"), 0.0),
         )
+        if trades is not None:
+            normalized["profit_loss_ratio"] = _profit_loss_ratio(trades)
         normalized.setdefault("initial_cash", _float(metrics.get("initial_cash"), 100000.0))
         normalized.setdefault(
             "final_value",
             _float(metrics.get("final_value"), normalized["initial_cash"]),
         )
         normalized.setdefault("metrics_source", str(metrics.get("metrics_source") or "manual"))
+        for key in (
+            "total_return",
+            "annual_return",
+            "sharpe_ratio",
+            "max_drawdown",
+            "win_rate",
+            "avg_holding_bars",
+            "avg_holding_period",
+            "profit_loss_ratio",
+            "initial_cash",
+            "final_value",
+        ):
+            normalized[key] = _float(normalized.get(key), 0.0)
+        for key in (
+            "total_trades",
+            "profitable_trades",
+            "losing_trades",
+            "break_even_trades",
+            "max_consecutive_wins",
+            "max_consecutive_losses",
+        ):
+            normalized[key] = _int(normalized.get(key), 0)
+        normalized["metrics_source"] = str(normalized.get("metrics_source") or "manual")
         return {key: _json_safe(value) for key, value in normalized.items() if value is not None}
 
     def result_summary(

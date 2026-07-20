@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import StrategyPage from '@/views/StrategyPage.vue'
 import { stripStrategyMeta, getStrategyParamCount } from '@/constants/strategy'
@@ -20,6 +21,7 @@ const routerPush = vi.hoisted(() => vi.fn())
 const routeQuery = vi.hoisted(() => ({} as Record<string, unknown>))
 const routePath = vi.hoisted(() => ({ value: '/investment/strategies' }))
 const aiResearchMandates = vi.hoisted(() => new Map<string, any>())
+const runPrecheck = vi.hoisted(() => vi.fn())
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({
@@ -850,6 +852,10 @@ vi.mock('@/components/common/MonacoEditor.vue', () => ({
   default: { template: '<div />' },
 }))
 
+vi.mock('@/api/marketData', () => ({
+  marketDataApi: { runPrecheck },
+}))
+
 describe('StrategyPage', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -857,6 +863,18 @@ describe('StrategyPage', () => {
     aiResearchMandates.clear()
     Object.keys(routeQuery).forEach(key => delete routeQuery[key])
     routePath.value = '/investment/strategies'
+    runPrecheck.mockResolvedValue({
+      passed: true,
+      status: 'pass',
+      asset_type: 'futures',
+      symbol: 'RB0',
+      timeframe: '1h',
+      provider: 'local_csv',
+      reasons: [],
+      warnings: [],
+      quality_reports: [],
+      gate_evaluations: [],
+    })
   })
 
   const setConfirmedAIResearchMandate = async (
@@ -7803,6 +7821,86 @@ describe('StrategyPage', () => {
       wrapper?.unmount()
       vi.useRealTimers()
     }
+  })
+
+  it('debounces data precheck and ignores an older result after asset changes', async () => {
+    vi.useFakeTimers()
+    let resolveFirst: ((value: any) => void) | undefined
+    let resolveSecond: ((value: any) => void) | undefined
+    runPrecheck
+      .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve }))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveSecond = resolve }))
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.symbol = 'RB0'
+      vm.aiResearchForm.timeframe = '1h'
+      await nextTick()
+      await vi.advanceTimersByTimeAsync(350)
+      await flushPromises()
+      expect(runPrecheck).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'RB0' }), expect.any(Object))
+
+      vm.aiResearchForm.symbol = 'SA0'
+      await nextTick()
+      await vi.advanceTimersByTimeAsync(350)
+      await flushPromises()
+      expect(runPrecheck).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'SA0' }), expect.any(Object))
+
+      resolveSecond?.({
+        passed: true,
+        status: 'pass',
+        asset_type: 'futures',
+        symbol: 'SA0',
+        timeframe: '1h',
+        provider: 'local_csv',
+        reasons: [],
+        warnings: [],
+        quality_reports: [],
+        gate_evaluations: [],
+      })
+      await flushPromises()
+      resolveFirst?.({
+        passed: false,
+        status: 'failed',
+        asset_type: 'futures',
+        symbol: 'RB0',
+        timeframe: '1h',
+        provider: 'local_csv',
+        reasons: ['stale result'],
+        warnings: [],
+        quality_reports: [],
+        gate_evaluations: [],
+      })
+      await flushPromises()
+
+      expect(vm.aiResearchPrecheckResult?.symbol).toBe('SA0')
+      expect(vm.aiResearchPrecheckResult?.passed).toBe(true)
+    } finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it('renders structured metric and gate deltas for a version comparison', async () => {
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchVersionCompare = {
+      summary: 'v2 improves the research gates',
+      metric_deltas: {
+        sharpe_ratio: { label: 'Sharpe', left: 0.8, right: 1.2, delta: 0.4, operator: 'delta', passed: true },
+      },
+      gate_deltas: {
+        quality_gate_status: { label: '质量门控', left: 'failed', right: 'passed', delta: 'improved', operator: 'status', passed: true },
+      },
+      code_diff: '',
+    }
+    await nextTick()
+
+    expect(vm.aiResearchVersionComparisonRows).toEqual([
+      expect.objectContaining({ scope: 'metric', label: 'Sharpe', left: '0.8', right: '1.2' }),
+      expect.objectContaining({ scope: 'gate', label: '质量门控', left: 'failed', right: 'passed' }),
+    ])
+    wrapper.unmount()
   })
 
   it('saveStrategy warns when name/code empty', async () => {

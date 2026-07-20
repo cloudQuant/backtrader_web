@@ -50,6 +50,12 @@ from app.models.market_data_trust import (
 from app.models.news_intelligence import NewsAnalysisModel, NewsArticleModel, NewsSourceModel
 from app.models.optimization import OptimizationTask
 from app.models.overfitting_result import OverfittingResultModel
+from app.models.paper_runtime import (
+    LiveHandoffReview,
+    PaperEquitySnapshot,
+    PaperReviewReport,
+    RiskRule,
+)
 from app.models.paper_trading import Account, Order, PaperTrade, Position
 from app.models.permission import Permission, Role, user_roles
 from app.models.portfolio_ledger import (
@@ -116,6 +122,9 @@ __all__ = [
     "NewsArticleModel",
     "NewsSourceModel",
     "Order",
+    "LiveHandoffReview",
+    "PaperEquitySnapshot",
+    "PaperReviewReport",
     "OptimizationTask",
     "OverfittingResultModel",
     "PaperTrade",
@@ -128,6 +137,7 @@ __all__ = [
     "RefreshToken",
     "ResearchPipelineEvent",
     "Role",
+    "RiskRule",
     "RobustnessTestResultModel",
     "PromptTemplate",
     "ScannerPlanModel",

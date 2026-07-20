@@ -12,7 +12,7 @@ from app.schemas.analytics import (
     TradeSignal,
 )
 from app.services.backtest.analyzers import FincoreAdapter
-from app.services.fincore_metrics_helper import calculate_extended_metrics
+from app.services.metrics_service import get_metrics_service
 
 
 class AnalyticsService:
@@ -62,7 +62,7 @@ class AnalyticsService:
         equity_values = [e.get("total_assets", 0) for e in equity_curve]
         equity_dates = [e.get("date", "") for e in equity_curve]
 
-        metrics = calculate_extended_metrics(
+        metrics = get_metrics_service().calculate_from_log_data(
             {
                 "equity_curve": equity_values,
                 "equity_dates": equity_dates,

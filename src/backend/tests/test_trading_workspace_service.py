@@ -3889,6 +3889,53 @@ def test_build_snapshot_falls_back_to_runtime_logs_when_log_dir_missing(tmp_path
     assert snapshot["updated_at"] == "2026-06-25T07:17:41.329+08:00"
 
 
+def test_build_snapshot_recovers_workspace_logs_without_manager_instance(tmp_path, monkeypatch):
+    """A server restart must not hide a unit's persisted historical position."""
+    runtime_dir = tmp_path / "workspace-id" / "unit-id"
+    log_dir = runtime_dir / "logs"
+    log_dir.mkdir(parents=True)
+    (log_dir / "position.log").write_text(
+        json.dumps(
+            {
+                "log_time": "2026-06-25T07:17:41.329+08:00",
+                "datetime": "2026-06-25 09:17:00",
+                "data_name": "IF2609",
+                "size": 2,
+                "price": 4814.3593,
+                "value": 9628.7186,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        workspace_unit_runtime,
+        "unit_dir",
+        lambda workspace_id, unit_id: runtime_dir,
+    )
+    unit = SimpleNamespace(
+        id="unit-id",
+        workspace_id="workspace-id",
+        trading_instance_id="inst-1",
+        trading_mode="paper",
+        gateway_config={},
+        symbol="IF2609",
+        symbol_name="沪深300",
+        strategy_name="CTP压测01",
+    )
+
+    snapshot, _metrics, _bar_count, _elapsed = TradingWorkspaceService._build_snapshot(
+        unit,
+        None,
+        include_gateway_positions=False,
+    )
+
+    assert snapshot["instance_status"] == "stopped"
+    assert snapshot["long_position"] == 2.0
+    assert snapshot["long_market_value"] == 9628.72
+    assert snapshot["positions"][0]["position_source"] == "log"
+
+
 def test_build_snapshot_light_hydrate_skips_full_log_and_preserves_summary(tmp_path, monkeypatch):
     runtime_dir = tmp_path / "runtime"
     log_dir = runtime_dir / "logs"
@@ -4932,6 +4979,15 @@ async def test_start_units_injects_local_asset_specs_before_paper_runtime_sync(
             self.instances = {}
             self.added_params = {}
 
+        def query_instance_gateway_positions(self, *_args, **_kwargs):
+            raise AssertionError("paper starts must not synchronously query the shared gateway")
+
+        def query_instance_asset_specs(self, *_args, **_kwargs):
+            raise AssertionError("paper starts must use local asset specs")
+
+        def query_instance_gateway_trades(self, *_args, **_kwargs):
+            raise AssertionError("paper starts must not synchronously query gateway trades")
+
         def add_instance(self, strategy_id, params, user_id=None, runtime_dir=None):
             self.added_params = dict(params or {})
             instance = {
@@ -4979,6 +5035,208 @@ async def test_start_units_injects_local_asset_specs_before_paper_runtime_sync(
         assert metadata["margin_rate"] == 0.12
         assert metadata["commission_rate"] == 0.000024
         assert metadata["source"] == "local_futures_fees"
+
+
+@pytest.mark.asyncio
+async def test_start_units_skips_repeated_gateway_attempts_after_a_gateway_failure(
+    tmp_path,
+    monkeypatch,
+):
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir(parents=True)
+
+    def make_unit(unit_id: str):
+        return SimpleNamespace(
+            id=unit_id,
+            workspace_id="ws-1",
+            group_name="IB 模拟",
+            strategy_id="simulate/gateway_dual_ma",
+            strategy_name="IB Paper",
+            symbol="AAPL",
+            symbol_name="Apple",
+            timeframe="1m",
+            timeframe_n=1,
+            category="stock",
+            data_config={},
+            unit_settings={},
+            params={},
+            optimization_config={},
+            gateway_config={
+                "preset_id": "ib_web_stock_gateway",
+                "params": {
+                    "gateway": {
+                        "enabled": True,
+                        "provider": "gateway",
+                        "exchange_type": "IB_WEB",
+                        "asset_type": "STK",
+                    },
+                    "ib_web": {"base_url": "https://localhost:5000"},
+                },
+            },
+            trading_mode="paper",
+            lock_running=False,
+            lock_trading=False,
+            trading_instance_id=None,
+            run_status="idle",
+            run_count=0,
+            trading_snapshot={},
+            metrics_snapshot={},
+            bar_count=None,
+            last_run_time=None,
+        )
+
+    class FakeManager:
+        def __init__(self):
+            self.instances = {}
+            self.start_attempts: list[str] = []
+
+        def add_instance(self, strategy_id, params, user_id=None, runtime_dir=None):
+            instance_id = f"inst-{len(self.instances) + 1}"
+            instance = {
+                "id": instance_id,
+                "strategy_id": strategy_id,
+                "status": "stopped",
+                "params": dict(params or {}),
+                "runtime_dir": runtime_dir,
+                "log_dir": None,
+            }
+            self.instances[instance_id] = instance
+            return instance
+
+        def get_instance(self, instance_id, user_id=None):
+            return self.instances.get(instance_id)
+
+        async def start_instance(self, instance_id):
+            self.start_attempts.append(instance_id)
+            raise ValueError("Gateway runtime failed to become ready: HTTP 401")
+
+    manager = FakeManager()
+    monkeypatch.setattr(
+        workspace_unit_runtime,
+        "sync_trading_unit_runtime",
+        lambda *_args, **_kwargs: runtime_dir,
+    )
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "get_live_trading_manager",
+        lambda: manager,
+    )
+
+    results = await TradingWorkspaceService().start_units(
+        [make_unit("unit-1"), make_unit("unit-2")],
+        user_id="user-1",
+    )
+
+    assert [item["status"] for item in results] == ["failed", "failed"]
+    assert manager.start_attempts == ["inst-1"]
+    assert "跳过重复连接" in results[1]["error"]
+
+
+def test_ib_client_portal_login_rejection_is_a_shared_gateway_startup_failure():
+    assert TradingWorkspaceService._is_gateway_startup_failure(
+        RuntimeError("IB Client Portal rejected the configured paper login credentials")
+    )
+
+
+@pytest.mark.asyncio
+async def test_hydrate_units_can_skip_gateway_queries_for_status_polling(monkeypatch):
+    unit = SimpleNamespace(
+        id="unit-status-poll",
+        workspace_id="ws-1",
+        symbol="IF2609",
+        symbol_name="沪深300",
+        strategy_name="Live Unit",
+        data_config={},
+        unit_settings={},
+        gateway_config={},
+        trading_mode="live",
+        trading_instance_id="inst-status-poll",
+        run_status="running",
+        run_count=1,
+        trading_snapshot={"instance_status": "running", "positions": []},
+        metrics_snapshot={},
+        bar_count=None,
+        last_run_time=None,
+        params={},
+    )
+
+    class FakeManager:
+        def get_instance(self, instance_id, user_id=None):
+            assert instance_id == "inst-status-poll"
+            return {"id": instance_id, "status": "running", "params": {"symbol": "IF2609"}}
+
+        def query_instance_gateway_positions(self, *_args, **_kwargs):
+            raise AssertionError("status polling must not query gateway positions")
+
+        def query_instance_asset_specs(self, *_args, **_kwargs):
+            raise AssertionError("status polling must not query gateway asset specs")
+
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "get_live_trading_manager",
+        lambda: FakeManager(),
+    )
+
+    await TradingWorkspaceService().hydrate_units(
+        [unit],
+        user_id="user-1",
+        full_log=False,
+        refresh_gateway=False,
+    )
+
+    assert unit.run_status == "running"
+
+
+@pytest.mark.asyncio
+async def test_hydrate_units_preserves_lifecycle_when_manager_instance_is_unavailable(monkeypatch):
+    """Restarting the API process must not turn an active unit idle on refresh."""
+    unit = SimpleNamespace(
+        id="unit-restart",
+        workspace_id="ws-restart",
+        symbol="IF2609",
+        data_config={},
+        unit_settings={},
+        gateway_config={},
+        trading_instance_id="inst-restart",
+        trading_mode="paper",
+        run_status="running",
+        trading_snapshot={"instance_status": "running", "positions": []},
+        metrics_snapshot={},
+        bar_count=None,
+        last_run_time=None,
+        params={},
+    )
+
+    class FakeManager:
+        def get_instance(self, instance_id, user_id=None):
+            assert instance_id == "inst-restart"
+            assert user_id == "user-1"
+            return None
+
+    def fake_build_snapshot(cls, current_unit, instance, **_kwargs):
+        assert instance is None
+        return {"instance_status": "stopped", "positions": []}, {}, None, None
+
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "get_live_trading_manager",
+        lambda: FakeManager(),
+    )
+    monkeypatch.setattr(
+        TradingWorkspaceService,
+        "_build_snapshot",
+        classmethod(fake_build_snapshot),
+    )
+
+    await TradingWorkspaceService().hydrate_units(
+        [unit],
+        user_id="user-1",
+        full_log=False,
+        refresh_gateway=False,
+    )
+
+    assert unit.run_status == "running"
+    assert unit.trading_snapshot["instance_status"] == "running"
 
 
 @pytest.mark.asyncio

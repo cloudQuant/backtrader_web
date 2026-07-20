@@ -7,6 +7,7 @@ GatewayPresetService work correctly in isolation.
 
 import asyncio
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,6 +26,7 @@ from app.services.gateway.preset import get_gateway_presets
 from app.services.instance_store import InstanceStore
 from app.services.live_trading import execution as live_execution_service
 from app.services.live_trading import instance as live_instance_service
+from app.services.manual_gateway import ib_clientportal as ib_clientportal_service
 from app.services.process_supervisor import is_pid_alive, kill_pid, scan_running_strategy_pids
 from app.services.strategy import runtime_support as strategy_runtime_support
 
@@ -468,6 +470,61 @@ class TestManualGatewayService:
                 )
 
         mock_helpers.assert_not_called()
+
+    def test_bootstrap_ib_web_session_refreshes_expired_cookie_with_browser_login(self):
+        refreshed_session = {
+            "cookies": {"session": "refreshed"},
+            "cookie_output": "configs/ibkr_cookies.json",
+            "account_id": "DU123456",
+            "used_login": True,
+        }
+        with (
+            patch.object(
+                manual_gateway_service,
+                "_load_ib_web_session_state",
+                return_value=({}, {"session": "expired"}, False, [], ""),
+            ),
+            patch(
+                "app.services.manual_gateway.ib_clientportal.login_ib_web_session_with_browser",
+                return_value=refreshed_session,
+            ) as browser_login,
+        ):
+            result = manual_gateway_service._bootstrap_ib_web_session(
+                {
+                    "account_id": "DU123456",
+                    "cookie_source": "file:configs/ibkr_cookies.json",
+                    "username": "test-ib-user",
+                    "password": "test-ib-pass",
+                },
+                "https://localhost:5000/v1/api",
+                verify_ssl=False,
+                timeout=10.0,
+            )
+
+        assert result == refreshed_session
+        browser_login.assert_called_once()
+
+    def test_browser_login_reports_rejected_credentials_without_waiting_for_timeout(self):
+        class FakeDriver:
+            def get_cookies(self):
+                return []
+
+            def find_elements(self, selector_type, selector):
+                if selector == ".xyz-errormessage":
+                    return [SimpleNamespace(text="Authentication failed")]
+                return []
+
+        with pytest.raises(RuntimeError, match="rejected the configured paper login credentials"):
+            ib_clientportal_service._wait_for_browser_authenticated_session(
+                FakeDriver(),
+                SimpleNamespace(),
+                "https://localhost:5000/v1/api",
+                verify_ssl=False,
+                timeout=10.0,
+                login_timeout=60.0,
+                headless=True,
+                login_mode="paper",
+            )
 
     def test_resolve_ib_web_base_url_falls_back_to_http_for_localhost(self):
         auth_status = Mock(side_effect=[RuntimeError("ssl eof"), Mock(status_code=200)])
@@ -2402,6 +2459,49 @@ class TestLiveExecutionService:
         assert result["updated_at"] == result["started_at"]
         assert result["gateway_type"] == ""
 
+    def test_start_instance_builds_gateway_environment_off_event_loop(self, tmp_path):
+        instances = {"inst1": {"strategy_id": "demo", "status": "stopped"}}
+        strategy_dir = tmp_path / "demo"
+        strategy_dir.mkdir()
+        (strategy_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
+        proc = AsyncMock()
+        proc.pid = 12345
+        proc.returncode = None
+        builder_threads: list[int] = []
+
+        def build_subprocess_env(*_args):
+            builder_threads.append(threading.get_ident())
+            return {"A": "1"}
+
+        with patch(
+            "app.services.live_trading.execution.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=proc),
+        ):
+            with patch("app.services.live_trading.execution.asyncio.create_task") as mock_create_task:
+
+                def _create_task(coro):
+                    coro.close()
+                    return Mock()
+
+                mock_create_task.side_effect = _create_task
+                asyncio.run(
+                    live_execution_service.start_instance(
+                        instance_id="inst1",
+                        load_instances=lambda: instances,
+                        save_instances=lambda data: None,
+                        is_pid_alive=lambda pid: False,
+                        resolve_strategy_dir=lambda strategy_id: strategy_dir,
+                        build_subprocess_env=build_subprocess_env,
+                        release_gateway_for_instance=lambda instance_id: None,
+                        wait_process_callback=AsyncMock(),
+                        processes={},
+                        stopping_instances=set(),
+                    )
+                )
+
+        assert builder_threads
+        assert builder_threads[0] != threading.get_ident()
+
     def test_wait_process_reads_stderr_file_tail(self, tmp_path):
         stderr_path = tmp_path / "subprocess.stderr.log"
         stderr_path.write_text("x" * 600 + "file error message", encoding="utf-8")
@@ -3045,6 +3145,28 @@ class TestGatewayRuntimeService:
                 sleep=Mock(),
             )
 
+    def test_wait_gateway_runtime_ready_fails_fast_for_invalid_gateway_credentials(self):
+        config = Mock(startup_timeout_sec=30)
+        health = Mock(
+            state="running",
+            market_connection="error",
+            trade_connection="disconnected",
+            recent_errors=[
+                {
+                    "source": "adapter_connect",
+                    "message": "IB_WEB INVALID_API_KEY: HTTP 401: Auth error",
+                }
+            ],
+        )
+        runtime = Mock(health=health, running=True)
+
+        with pytest.raises(RuntimeError, match="INVALID_API_KEY"):
+            gateway_runtime_service.wait_gateway_runtime_ready(
+                {"config": config, "runtime": runtime},
+                monotonic=Mock(return_value=0.0),
+                sleep=Mock(),
+            )
+
     def test_wait_gateway_runtime_ready_raises_timeout_detail(self):
         config = Mock(startup_timeout_sec=1)
         health = Mock(
@@ -3107,6 +3229,169 @@ class TestGatewayRuntimeService:
         assert state1["instances"] == {"inst1", "inst2"}
         assert state1["ref_count"] == 2
         assert instance_gateways == {"inst1": "ctp-future-acc-1", "inst2": "ctp-future-acc-1"}
+
+    def test_acquire_gateway_for_instance_logs_into_ib_before_starting_runtime(self):
+        """An expired Client Portal cookie is refreshed before strategy startup."""
+        from app.services.gateway import manual as gateway_manual_service
+
+        class Config:
+            def __init__(self, kwargs):
+                self.kwargs = dict(kwargs)
+                self.runtime_name = f"ib-web-{kwargs['account_id']}"
+                self.command_endpoint = "tcp://command"
+                self.event_endpoint = "tcp://event"
+                self.market_endpoint = "tcp://market"
+
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return cls(kwargs)
+
+        initial_kwargs = {
+            "exchange_type": "IB_WEB",
+            "asset_type": "STK",
+            "account_id": "DU123456",
+            "base_url": "https://localhost:5000",
+            "verify_ssl": False,
+            "timeout": 10.0,
+            "cookie_source": "file:configs/expired.json",
+            "cookie_output": "configs/expired.json",
+            "username": "ib-user",
+            "password": "ib-password",
+            "login_mode": "paper",
+            "gateway_startup_timeout_sec": 30.0,
+        }
+        launch = {
+            "config": Config.from_kwargs(**initial_kwargs),
+            "runtime_cls": Mock(return_value=Mock()),
+            "runtime_kwargs": dict(initial_kwargs),
+        }
+        refreshed_session = {
+            "account_id": "DU654321",
+            "cookies": {"session": "fresh"},
+            "cookie_output": "configs/refreshed.json",
+            "used_login": True,
+        }
+
+        with (
+            patch.object(gateway_manual_service, "_ensure_ib_clientportal_running") as ensure_portal,
+            patch.object(
+                gateway_manual_service,
+                "_normalize_ib_web_base_url",
+                return_value="https://localhost:5000/v1/api",
+            ),
+            patch.object(
+                gateway_manual_service,
+                "_resolve_ib_web_base_url",
+                return_value="https://localhost:5000/v1/api",
+            ),
+            patch.object(
+                gateway_manual_service,
+                "_bootstrap_ib_web_session",
+                return_value=refreshed_session,
+            ) as bootstrap,
+            patch.object(
+                gateway_manual_service,
+                "_to_backend_env_relative_path",
+                return_value="configs/refreshed.json",
+            ),
+            patch.object(
+                gateway_manual_service,
+                "_build_ib_web_env_updates",
+                return_value={"IB_WEB_COOKIE_SOURCE": "file:configs/refreshed.json"},
+            ),
+            patch.object(gateway_manual_service, "_persist_ib_web_env_updates") as persist,
+        ):
+            state = gateway_runtime_service.acquire_gateway_for_instance(
+                instance_id="inst-ib",
+                instance={"params": {"gateway": {"enabled": True}}},
+                strategy_dir=Path("/tmp/strategy"),
+                get_gateway_params=lambda instance: {"enabled": True},
+                build_gateway_launch=lambda instance, strategy_dir, gateway_params: launch,
+                gateways={},
+                instance_gateways={},
+                logger=Mock(),
+            )
+
+        ensure_portal.assert_called_once()
+        bootstrap.assert_called_once()
+        assert bootstrap.call_args.kwargs["allow_interactive_login"] is True
+        assert state["account_id"] == "DU654321"
+        config = launch["runtime_cls"].call_args.args[0]
+        assert config.kwargs["account_id"] == "DU654321"
+        assert config.kwargs["cookies"] == {"session": "fresh"}
+        assert config.kwargs["cookie_source"] == "file:configs/refreshed.json"
+        persist.assert_called_once()
+
+    def test_acquire_gateway_for_instance_stops_when_ib_login_is_not_completed(self):
+        """Do not start a gateway with a known-expired Client Portal session."""
+        from app.services.gateway import manual as gateway_manual_service
+
+        class Config:
+            runtime_name = "ib-web-DU123456"
+            command_endpoint = "tcp://command"
+            event_endpoint = "tcp://event"
+            market_endpoint = "tcp://market"
+
+        launch = {
+            "config": Config(),
+            "runtime_cls": Mock(),
+            "runtime_kwargs": {
+                "exchange_type": "IB_WEB",
+                "account_id": "DU123456",
+                "base_url": "https://localhost:5000",
+                "cookie_source": "file:configs/expired.json",
+                "gateway_startup_timeout_sec": 30.0,
+            },
+        }
+
+        with (
+            patch.object(gateway_manual_service, "_ensure_ib_clientportal_running"),
+            patch.object(
+                gateway_manual_service,
+                "_normalize_ib_web_base_url",
+                return_value="https://localhost:5000/v1/api",
+            ),
+            patch.object(
+                gateway_manual_service,
+                "_resolve_ib_web_base_url",
+                return_value="https://localhost:5000/v1/api",
+            ),
+            patch.object(gateway_manual_service, "_bootstrap_ib_web_session", return_value=None),
+        ):
+            with pytest.raises(RuntimeError, match="自动登录未完成"):
+                gateway_runtime_service.acquire_gateway_for_instance(
+                    instance_id="inst-ib",
+                    instance={"params": {"gateway": {"enabled": True}}},
+                    strategy_dir=Path("/tmp/strategy"),
+                    get_gateway_params=lambda instance: {"enabled": True},
+                    build_gateway_launch=lambda instance, strategy_dir, gateway_params: launch,
+                    gateways={},
+                    instance_gateways={},
+                    logger=Mock(),
+                )
+
+        launch["runtime_cls"].assert_not_called()
+
+    def test_discard_idle_ib_gateway_with_auth_failure_before_relogin(self):
+        runtime = Mock()
+        runtime.health = Mock(
+            recent_errors=[
+                {"source": "adapter_connect", "message": "IB_WEB INVALID_API_KEY: HTTP 401"}
+            ]
+        )
+        state = {"runtime": runtime, "ref_count": 0}
+        gateways = {"ib-web-DU123456": state}
+
+        result = gateway_runtime_service._discard_idle_ib_gateway_with_auth_failure(
+            "ib-web-DU123456",
+            state,
+            gateways,
+            Mock(),
+        )
+
+        assert result is None
+        runtime.stop.assert_called_once()
+        assert gateways == {}
 
     def test_acquire_gateway_for_instance_preconnects_ctp_adapter(self):
         logger = Mock()

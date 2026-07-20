@@ -5,12 +5,72 @@ from __future__ import annotations
 # Backwards-compatible research service facade; workflow helpers come from ``research``.
 # mypy: disable-error-code=name-defined
 # ruff: noqa: F403, F405
+from app.config import get_settings, production_security_mode
+from app.schemas.market_data_trust import DataPrecheckRequest
 from app.services import research as _research_helpers
+from app.services.market_data_precheck_service import get_market_data_precheck_service
 from app.services.research.shared import *
 from app.utils.logger import get_logger
 from app.utils.tracing import business_span
 
 logger = get_logger(__name__)
+
+
+def _apply_production_promotion_guards(
+    request: AIStrategyResearchRunRequest,
+) -> AIStrategyResearchRunRequest:
+    """Force server-side paper-promotion guards in production.
+
+    Request validation keeps the two robustness flags internally consistent, but
+    the public service boundary is the authority for a production promotion.
+    This prevents direct service callers from using a stale or crafted model to
+    bypass validation before a paper unit is created.
+    """
+    if not request.start_paper_trading or not production_security_mode(get_settings()):
+        return request
+    return request.model_copy(
+        update={
+            "robustness_validation": True,
+            "require_robustness_validation": True,
+        }
+    )
+
+
+async def _apply_production_data_precheck(
+    request: AIStrategyResearchRunRequest,
+) -> AIStrategyResearchRunRequest:
+    """Fail closed before an AI-research run can create workspace work in production.
+
+    The interactive precheck is useful feedback, but it cannot authorize a
+    promotion.  Persisting the successful server-side result in ``data_config``
+    keeps the generated unit and its audit timeline tied to the exact check.
+    """
+    if not production_security_mode(get_settings()):
+        return request
+    try:
+        precheck = await get_market_data_precheck_service().precheck(
+            DataPrecheckRequest(
+                asset_type=str(request.data_config.get("asset_type") or "") or None,
+                symbol=request.symbol,
+                timeframe=request.timeframe,
+                provider=str(request.data_config.get("data_provider") or "") or None,
+                start_date=request.start_date,
+                end_date=request.end_date,
+            )
+        )
+    except Exception as exc:
+        raise ValueError("AI research data precheck is unavailable; promotion is blocked") from exc
+    if not precheck.passed:
+        reasons = "; ".join(precheck.reasons) or "data precheck failed"
+        raise ValueError(f"AI research data precheck failed: {reasons}")
+    return request.model_copy(
+        update={
+            "data_config": {
+                **request.data_config,
+                "data_precheck": precheck.model_dump(mode="json"),
+            }
+        }
+    )
 
 
 class LocalStrategyImprover:
@@ -415,7 +475,13 @@ class AIStrategyResearchService:
         progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
     ) -> AIStrategyResearchRunResponse:
         """Run the research pipeline through a compact public orchestration facade."""
-        return await self._run_pipeline(user_id, request, progress_callback=progress_callback)
+        guarded_request = _apply_production_promotion_guards(request)
+        guarded_request = await _apply_production_data_precheck(guarded_request)
+        return await self._run_pipeline(
+            user_id,
+            guarded_request,
+            progress_callback=progress_callback,
+        )
 
     async def _run_pipeline(
         self,

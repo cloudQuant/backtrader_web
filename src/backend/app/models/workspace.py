@@ -106,6 +106,13 @@ class StrategyUnit(Base):
     """
 
     __tablename__ = "strategy_units"
+    __table_args__ = (
+        Index(
+            "uq_strategy_units_trading_instance_id",
+            "trading_instance_id",
+            unique=True,
+        ),
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     workspace_id = Column(

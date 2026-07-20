@@ -537,20 +537,14 @@ class WorkspaceService(WorkspaceRunOpsMixin):
                 units,
                 user_id,
                 full_log=False,
+                refresh_gateway=False,
             )
             if changed:
                 await session.commit()
+            # A stopped or failed unit can still be the only durable record of
+            # the last position it held. Keep those historical snapshots in
+            # the workspace response; flat units remain filtered downstream.
             response_units = units
-            if not unit_ids:
-                response_units = [
-                    unit
-                    for unit in units
-                    if str(unit.run_status or "").lower() in {"queued", "running"}
-                    or str(
-                        _dict_or_empty(unit.trading_snapshot).get("instance_status") or ""
-                    ).lower()
-                    in {"queued", "running"}
-                ]
             response_snapshots_before = {
                 str(unit.id): _dict_or_empty(unit.trading_snapshot) for unit in response_units
             }
@@ -588,7 +582,11 @@ class WorkspaceService(WorkspaceRunOpsMixin):
             result = await session.execute(q)
             units = list(result.scalars().all())
 
-            changed = await self.trading_service.hydrate_units(units, user_id)
+            changed = await self.trading_service.hydrate_units(
+                units,
+                user_id,
+                refresh_gateway=False,
+            )
             if changed:
                 await session.commit()
             response = await self.trading_service.build_daily_summary_response(

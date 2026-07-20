@@ -9,9 +9,12 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 from pydantic import ValidationError
+from sqlalchemy import select
 
 from app.api.strategy.base import get_ai_strategy_research_service, get_ai_strategy_research_tasks
+from app.db.database import async_session_maker
 from app.main import app
+from app.models.ai_research import AIStrategyResearchVersion, ResearchPipelineEvent
 from app.schemas.ai_strategy_research import (
     AIStrategyLiveHandoffApprovalRecord,
     AIStrategyLiveHandoffApprovalRequest,
@@ -4376,6 +4379,42 @@ async def test_record_live_handoff_approval_persists_manual_decision():
     assert persisted_run["pipeline"]["steps"][-1]["key"] == "live_handoff"
     assert persisted_run["pipeline"]["steps"][-1]["status"] == "completed"
     assert "通过人工审批" in persisted_run["next_actions"][0]
+
+
+@pytest.mark.asyncio
+async def test_requested_changes_keeps_live_handoff_locked_for_further_research():
+    workspace_service = FakeWorkspaceService()
+    run = _run_record(
+        "live-requested-changes-run",
+        workspace_id="research-ws",
+        completed_at="2026-01-02T00:00:00+00:00",
+    )
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [run]}}}
+    )
+    service = AIStrategyResearchService(
+        strategy_service=FakeStrategyService(workspace_service, []),
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    package = await service.record_live_handoff_approval(
+        "user-1",
+        "live-requested-changes-run",
+        AIStrategyLiveHandoffApprovalRequest(
+            decision="requested_changes",
+            comment="需要增加模拟观察期并重新检查回撤。",
+        ),
+        research_workspace_id="research-ws",
+    )
+
+    assert package.status == "requested_changes"
+    assert package.approval is not None
+    assert package.approval.approved is False
+    persisted_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert persisted_run["pipeline"]["live_handoff_status"] == "requested_changes"
+    assert "实盘锁定保持生效" in persisted_run["next_actions"][0]
 
 
 @pytest.mark.asyncio
@@ -12184,6 +12223,36 @@ async def test_ai_strategy_research_task_api_runs_generated_goal_full_pipeline(
         improver=LocalStrategyImprover(),
         sleep=_noop_sleep,
     )
+
+    class _PassingRobustnessService:
+        async def run_for_backtest(self, **_: Any):
+            return type(
+                "PassingRobustnessResult",
+                (),
+                {
+                    "status": "passed",
+                    "model_dump": lambda self, **__: {
+                        "status": "passed",
+                        "metrics": {"robustness_score": 80.0},
+                        "gate_evaluations": [
+                            {
+                                "key": "robustness_score",
+                                "label": "稳健性得分",
+                                "actual": 80.0,
+                                "threshold": 55.0,
+                                "operator": ">=",
+                                "passed": True,
+                                "severity": "error",
+                            }
+                        ],
+                    },
+                },
+            )()
+
+    monkeypatch.setattr(
+        "app.services.ai_strategy_research_service.get_robustness_validation_service",
+        lambda: _PassingRobustnessService(),
+    )
     task_manager = AIStrategyResearchTaskManager()
     app.dependency_overrides[get_ai_strategy_research_service] = lambda: service
     app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
@@ -12205,6 +12274,10 @@ async def test_ai_strategy_research_task_api_runs_generated_goal_full_pipeline(
                 "min_total_trades": 4,
                 "out_of_sample_validation": True,
                 "require_out_of_sample_validation": True,
+                "robustness_validation": True,
+                "require_robustness_validation": True,
+                "robustness_methods": ["monte_carlo", "parameter_sensitivity"],
+                "robustness_random_seed": 184,
                 "min_out_of_sample_sharpe": 0.8,
                 "min_out_of_sample_trades": 2,
                 "min_paper_trading_days": 0,
@@ -12308,6 +12381,7 @@ async def test_ai_strategy_research_task_api_runs_generated_goal_full_pipeline(
     assert payload["result"]["iterations"][0]["passed"] is False
     assert payload["result"]["iterations"][0]["quality_gate_failures"]
     assert payload["result"]["iterations"][1]["passed"] is True
+    assert payload["result"]["iterations"][1]["robustness_status"] == "passed"
     assert payload["result"]["iterations"][1]["improvement_notes"]
     assert len(strategy_service.submitted_drafts) == 3
     assert strategy_service.submitted_drafts[1].name.endswith("v2")
@@ -12359,6 +12433,23 @@ async def test_ai_strategy_research_task_api_runs_generated_goal_full_pipeline(
     assert final_run_detail_payload["live_unit_id"] == "live-unit"
     assert final_run_detail_payload["pipeline"]["current_stage"] == "live_trading_prepare"
     assert final_run_detail_payload["pipeline"]["steps"][-1]["key"] == "live_trading_prepare"
+    async with async_session_maker() as session:
+        events = list(
+            (
+                await session.scalars(
+                    select(ResearchPipelineEvent).where(ResearchPipelineEvent.run_id == run_id)
+                )
+            ).all()
+        )
+        versions = list(
+            (
+                await session.scalars(
+                    select(AIStrategyResearchVersion).where(AIStrategyResearchVersion.run_id == run_id)
+                )
+            ).all()
+        )
+    assert any(event.stage == "robustness_validation" and event.status == "completed" for event in events)
+    assert len(versions) >= 2
 
 
 @pytest.mark.asyncio

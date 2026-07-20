@@ -52,6 +52,7 @@ async def test_news_intelligence_dedup_classify_cluster_and_publish_topic(client
     assert article["impact"] in {"HIGH", "MEDIUM", "LOW"}
     assert article["cluster_id"]
     assert article["summary"]
+    assert article["has_content"] is True
     assert topic["headline"].startswith("RB2510")
 
     async with async_session_maker() as session:
@@ -163,6 +164,13 @@ async def test_news_intelligence_pull_source_and_filter_articles(
     assert rb_articles.json()["total"] == 1
     assert rb_articles.json()["items"][0]["tickers"] == ["RB2510"]
     assert "Demand shock" in rb_articles.json()["items"][0]["summary"]
+    article_id = rb_articles.json()["items"][0]["id"]
+    content = await client.get(
+        f"/api/v1/news-intelligence/articles/{article_id}/content",
+        headers=headers,
+    )
+    assert content.status_code == 200
+    assert "Demand shock" in content.json()["content"]
 
     assert cluster_articles.status_code == 200
     assert cluster_articles.json()["total"] == 1

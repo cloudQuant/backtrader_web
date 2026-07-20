@@ -100,9 +100,9 @@ def fetch_standard_snapshot_tick(source: str, feed: Any, symbol: str) -> dict[st
     if not isinstance(payload, dict) or not payload:
         return None
 
-    bid_price = opt_float(first_present(payload, "bid_price"))
-    ask_price = opt_float(first_present(payload, "ask_price"))
-    price = opt_float(first_present(payload, "last_price", "price"))
+    bid_price = opt_float(first_present(payload, "bid_price", "bid", "bidPrice"))
+    ask_price = opt_float(first_present(payload, "ask_price", "ask", "askPrice"))
+    price = opt_float(first_present(payload, "last_price", "last", "lastPrice", "price"))
     if price is None and bid_price is not None and ask_price is not None:
         price = (bid_price + ask_price) / 2.0
     volume = opt_float(first_present(payload, "volume_24h", "vol_24h", "volume"))

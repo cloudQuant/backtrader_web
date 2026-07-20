@@ -42,7 +42,13 @@ def _run_record_with_live_handoff_approval(
             update={
                 "approval_status": approval.decision,
                 "approval": approval,
-                "status": "approved_for_live" if approval.approved else "approval_rejected",
+                "status": (
+                    "approved_for_live"
+                    if approval.approved
+                    else "requested_changes"
+                    if approval.decision == "requested_changes"
+                    else "approval_rejected"
+                ),
             }
         )
     pipeline = _pipeline_with_live_handoff_step(record.pipeline, package, approval=approval)
@@ -237,6 +243,13 @@ def _live_handoff_approval_next_actions(
         if approval.deployment_window:
             actions.append(f"计划上线窗口：{approval.deployment_window}")
         return actions
+    if approval.decision == "requested_changes":
+        actions = [
+            "实盘交接需要修改，实盘锁定保持生效；请根据审批意见继续优化并重新完成模拟复核。",
+        ]
+        if approval.comment:
+            actions.append(f"修改意见：{approval.comment}")
+        return actions
     actions = [
         "实盘交接包已被人工驳回，需处理审批意见后重新进入模拟复核或继续投研。",
     ]
@@ -260,8 +273,10 @@ def _build_live_handoff_approval_record(
     request: AIStrategyLiveHandoffApprovalRequest,
 ) -> AIStrategyLiveHandoffApprovalRecord:
     decision = str(request.decision or "").strip().lower()
-    if decision not in {"approved", "rejected"}:
-        raise ValueError("Live handoff approval decision must be approved or rejected")
+    if decision not in {"approved", "rejected", "requested_changes"}:
+        raise ValueError(
+            "Live handoff approval decision must be approved, rejected, or requested_changes"
+        )
     approved = decision == "approved"
     blockers = list(package.deployment_blockers or [])
     if approved and not package.ready_for_live:

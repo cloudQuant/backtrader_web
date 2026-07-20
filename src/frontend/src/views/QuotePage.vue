@@ -6,7 +6,70 @@
     <section class="quote-hero">
       <div class="quote-hero-copy">
         <span>{{ t('quote.heroKicker') }}</span>
-        <h1>{{ t('quote.headerTitle') }}</h1>
+        <div class="quote-title-line">
+          <h1>{{ t('quote.headerTitle') }}</h1>
+          <div
+            class="quote-source-tabs quote-source-tabs--inline"
+            role="tablist"
+            :aria-label="t('quote.sourcePanelTitle')"
+          >
+            <button
+              v-for="src in store.sources"
+              :key="src.source"
+              class="source-tab"
+              :class="{
+                'source-tab--active': src.source === store.activeSource,
+                'source-tab--available': src.status === 'available',
+                'source-tab--disconnected': src.status === 'not_connected',
+                'source-tab--unavailable': src.status === 'unavailable' || src.status === 'not_configured',
+              }"
+              type="button"
+              role="tab"
+              :aria-selected="src.source === store.activeSource"
+              @click="handleSourceClick(src)"
+            >
+              <span class="source-tab__label">{{ src.source_label }}</span>
+              <span class="source-tab__dot" />
+            </button>
+          </div>
+          <el-popover
+            placement="bottom-end"
+            :width="360"
+            trigger="click"
+          >
+            <template #reference>
+              <el-button
+                size="small"
+                class="quote-source-status-button"
+              >
+                <el-icon aria-hidden="true"><Connection /></el-icon>
+                {{ t('quote.sourceStatusButton') }}
+              </el-button>
+            </template>
+            <div class="quote-source-status-popover">
+              <p>{{ t('quote.sourcePanelDesc') }}</p>
+              <template v-if="store.activeSourceInfo">
+                <strong>{{ store.activeSourceInfo.source_label }}</strong>
+                <span>{{ sourceRuntimeSummary(store.activeSourceInfo) }}</span>
+              </template>
+              <div
+                v-if="activeRuntimeWorkspaces.length > 0"
+                class="quote-runtime-monitor__runs"
+              >
+                <div
+                  v-for="run in activeRuntimeWorkspaces"
+                  :key="`${run.workspace_id}-${run.gateway_key}`"
+                  class="quote-runtime-monitor__run"
+                >
+                  <strong>{{ run.workspace_name }}</strong>
+                  <span>{{ t('quote.runtimeSymbols', { count: run.symbol_count }) }}</span>
+                  <small>{{ runtimeSymbolsPreview(run.symbols) }}</small>
+                </div>
+              </div>
+              <span v-else>{{ t('quote.runtimeNoWorkspace') }}</span>
+            </div>
+          </el-popover>
+        </div>
         <p>{{ t('quote.headerDesc') }}</p>
       </div>
 
@@ -58,31 +121,6 @@
         </article>
       </div>
 
-      <div class="quote-source-panel">
-        <div class="quote-section-heading">
-          <div>
-            <span>{{ t('quote.sourcePanelTitle') }}</span>
-            <p>{{ t('quote.sourcePanelDesc') }}</p>
-          </div>
-        </div>
-        <div class="quote-source-tabs">
-          <div
-            v-for="src in store.sources"
-            :key="src.source"
-            class="source-tab"
-            :class="{
-              'source-tab--active': src.source === store.activeSource,
-              'source-tab--available': src.status === 'available',
-              'source-tab--disconnected': src.status === 'not_connected',
-              'source-tab--unavailable': src.status === 'unavailable' || src.status === 'not_configured',
-            }"
-            @click="handleSourceClick(src)"
-          >
-            <span class="source-tab__label">{{ src.source_label }}</span>
-            <span class="source-tab__dot" />
-          </div>
-        </div>
-      </div>
     </section>
 
     <!-- Source unavailable / disconnected state -->
@@ -276,13 +314,17 @@
                 :label="'30s'"
                 :value="30"
               />
+              <el-option
+                :label="'60s'"
+                :value="60"
+              />
             </el-select>
             <!-- Manual refresh -->
             <el-button
               :loading="store.quotesLoading"
               size="default"
               :aria-label="t('common.refresh')"
-              @click="store.fetchQuotes()"
+              @click="refreshMonitoring()"
             >
               <el-icon aria-hidden="true">
                 <Refresh />
@@ -410,7 +452,10 @@
                   show-overflow-tooltip
                 >
                   <template #default="{ row }">
-                    <span class="quote-symbol-cell">{{ row.symbol }}</span>
+                    <span class="quote-symbol-cell">
+                      <strong>{{ row.symbol }}</strong>
+                      <small v-if="quoteOriginText(row)">{{ quoteOriginText(row) }}</small>
+                    </span>
                   </template>
                 </el-table-column>
                 <el-table-column
@@ -501,32 +546,43 @@
                   </template>
                 </el-table-column>
               </template>
-              <!-- Actions column -->
               <el-table-column
-                :label="t('quote.colActions')"
-                width="100"
+                :label="t('quote.colOpenChart')"
+                width="64"
                 fixed="right"
                 align="center"
               >
                 <template #default="{ row }">
-                  <el-button
-                    type="primary"
-                    size="small"
-                    link
-                    @click.stop="store.openChart(row.symbol)"
-                  >
-                    <el-icon aria-hidden="true"><DataLine /></el-icon>
-                  </el-button>
+                  <el-tooltip :content="t('quote.btnOpenChart')">
+                    <el-button
+                      type="primary"
+                      size="small"
+                      link
+                      :aria-label="t('quote.btnOpenChart')"
+                      @click.stop="store.openChart(row.symbol)"
+                    >
+                      <el-icon aria-hidden="true"><DataLine /></el-icon>
+                    </el-button>
+                  </el-tooltip>
+                </template>
+              </el-table-column>
+              <el-table-column
+                :label="t('quote.colRemoveSubscription')"
+                width="64"
+                fixed="right"
+                align="center"
+              >
+                <template #default="{ row }">
                   <el-popconfirm
-                    v-if="isCustomSymbol(row.symbol)"
-                    :title="t('quote.confirmRemoveSymbol')"
-                    @confirm="store.removeSymbol(row.symbol)"
+                    :title="removeSubscriptionPrompt(row)"
+                    @confirm="removeQuoteSubscription(row)"
                   >
                     <template #reference>
                       <el-button
                         type="danger"
                         size="small"
                         link
+                        :aria-label="t('quote.btnRemoveSubscription')"
                         @click.stop
                       >
                         <el-icon aria-hidden="true"><Delete /></el-icon>
@@ -542,7 +598,7 @@
             <ol class="quote-mobile-list">
               <li
                 v-for="row in store.filteredTicks"
-                :key="row.symbol"
+                :key="row.quote_key || row.symbol"
               >
                 <article
                   class="quote-mobile-card"
@@ -556,7 +612,7 @@
                   >
                     <span class="quote-mobile-card__identity">
                       <strong>{{ row.symbol }}</strong>
-                      <span>{{ row.name || row.category || '--' }}</span>
+                      <span>{{ quoteOriginText(row) || row.name || row.category || '--' }}</span>
                     </span>
                     <span :class="priceClass(row)">{{ fmtPrice(row.last_price, row) }}</span>
                   </button>
@@ -594,18 +650,16 @@
                       <el-icon aria-hidden="true">
                         <DataLine />
                       </el-icon>
-                      {{ t('quote.chartDrawerTitleTpl', { symbol: row.symbol }) }}
                     </el-button>
                     <el-popconfirm
-                      v-if="isCustomSymbol(row.symbol)"
-                      :title="t('quote.confirmRemoveSymbol')"
-                      @confirm="store.removeSymbol(row.symbol)"
+                      :title="removeSubscriptionPrompt(row)"
+                      @confirm="removeQuoteSubscription(row)"
                     >
                       <template #reference>
                         <el-button
                           type="danger"
                           size="small"
-                          :aria-label="t('quote.confirmRemoveSymbol')"
+                          :aria-label="t('quote.btnRemoveSubscription')"
                         >
                           <el-icon aria-hidden="true">
                             <Delete />
@@ -861,6 +915,7 @@ import {
   Filter,
   Rank,
   DataLine,
+  Connection,
   WarningFilled,
 } from '@element-plus/icons-vue'
 import { useQuoteStore } from '@/stores/quote'
@@ -912,6 +967,39 @@ function handleSourceClick(src: DataSourceInfo) {
     return
   }
   store.switchSource(src.source)
+}
+
+function sourceRuntimeSummary(src: DataSourceInfo) {
+  return t('quote.runtimeSummary', {
+    gateways: src.gateway_count,
+    workspaces: src.workspace_count,
+    symbols: src.running_symbol_count,
+  })
+}
+
+const activeRuntimeWorkspaces = computed(() => store.activeSourceInfo?.workspaces ?? [])
+
+function runtimeSymbolsPreview(symbols: string[]) {
+  const visible = symbols.slice(0, 6).join(' · ')
+  return symbols.length > 6 ? `${visible} +${symbols.length - 6}` : visible
+}
+
+function quoteOriginText(row: QuoteTick) {
+  const origins: string[] = []
+  const rowOrigins = Array.isArray(row.origins) ? row.origins : []
+  const workspaceNames = Array.isArray(row.workspace_names) ? row.workspace_names : []
+  if (rowOrigins.includes('subscription')) origins.push(t('quote.originSubscription'))
+  if (workspaceNames.length > 0) {
+    origins.push(t('quote.originWorkspace', { names: workspaceNames.join('、') }))
+  }
+  return origins.join(' · ')
+}
+
+async function refreshMonitoring() {
+  await store.fetchSources()
+  if (store.activeSourceInfo?.status === 'available') {
+    await store.fetchQuotes()
+  }
 }
 
 // ---- source status text ----
@@ -1021,11 +1109,12 @@ watch(
   (newTicks) => {
     const updated = new Set<string>()
     for (const t of newTicks) {
-      const prev = prevTickMap.get(t.symbol)
+      const key = t.quote_key || t.symbol
+      const prev = prevTickMap.get(key)
       if (prev !== undefined && t.last_price !== null && prev !== t.last_price) {
-        updated.add(t.symbol)
+        updated.add(key)
       }
-      if (t.last_price != null) prevTickMap.set(t.symbol, t.last_price)
+      if (t.last_price != null) prevTickMap.set(key, t.last_price)
     }
     if (updated.size > 0) {
       flashSymbols.value = updated
@@ -1036,12 +1125,25 @@ watch(
 )
 
 function rowClassName({ row }: { row: QuoteTick }) {
-  return flashSymbols.value.has(row.symbol) ? 'tick-flash' : ''
+  return flashSymbols.value.has(row.quote_key || row.symbol) ? 'tick-flash' : ''
 }
 
-// ---- custom symbol check ----
-function isCustomSymbol(symbol: string) {
-  return store.customSymbols.includes(symbol)
+function isWorkspaceQuote(row: QuoteTick) {
+  return Array.isArray(row.origins) && row.origins.includes('workspace')
+}
+
+function removeSubscriptionPrompt(row: QuoteTick) {
+  return isWorkspaceQuote(row)
+    ? t('quote.confirmHideWorkspaceSubscription')
+    : t('quote.confirmRemoveSubscription')
+}
+
+async function removeQuoteSubscription(row: QuoteTick) {
+  if (isWorkspaceQuote(row)) {
+    store.dismissWorkspaceQuote(row.quote_key)
+    return
+  }
+  await store.removeSubscription(row.symbol)
 }
 
 // ---- column config (P1) ----
@@ -1251,14 +1353,10 @@ function startSourceRefresh() {
   stopSourceRefresh()
   sourceRefreshTimer = setInterval(async () => {
     await store.fetchSources()
-    if (store.activeSourceInfo?.status === 'available') {
-      stopSourceRefresh()
-      if (store.ticks.length === 0 && !store.quotesLoading) {
-        await store.fetchQuotes()
-        if (store.autoRefresh) store.startAutoRefresh()
-      }
+    if (store.activeSourceInfo?.status === 'available' && !store.quotesLoading) {
+      await store.fetchQuotes()
     }
-  }, 3000)
+  }, 60_000)
 }
 
 watch(
@@ -1275,7 +1373,6 @@ watch(
   () => store.activeSourceInfo?.status,
   async (status, prevStatus) => {
     if (status === 'available') {
-      stopSourceRefresh()
       if (prevStatus !== 'available' && !store.quotesLoading) {
         await store.fetchQuotes()
         if (store.autoRefresh) store.startAutoRefresh()
@@ -1291,11 +1388,10 @@ watch(
 // ---- lifecycle ----
 onMounted(async () => {
   await store.fetchSources()
+  startSourceRefresh()
   if (store.activeSource && store.activeSourceInfo?.status === 'available') {
     await store.fetchQuotes()
     if (store.autoRefresh) store.startAutoRefresh()
-  } else if (store.activeSourceInfo?.status) {
-    startSourceRefresh()
   }
   window.addEventListener('resize', handleChartResize)
 })
@@ -1340,6 +1436,13 @@ onUnmounted(() => {
 
 .quote-hero-copy {
   min-width: 0;
+}
+
+.quote-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
 }
 
 .quote-hero-copy > span,
@@ -1427,17 +1530,6 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.quote-source-panel {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: minmax(220px, 0.35fr) minmax(0, 1fr);
-  gap: 14px;
-  padding: 14px;
-  border: 1px solid var(--quote-border);
-  border-radius: 8px;
-  background: var(--quote-soft-bg);
-}
-
 .quote-section-heading {
   min-width: 0;
 }
@@ -1451,8 +1543,34 @@ onUnmounted(() => {
   min-width: 0;
 }
 
+.quote-source-tabs--inline {
+  justify-content: flex-start;
+}
+
+.quote-source-status-button {
+  margin-left: auto;
+}
+
+.quote-source-status-popover {
+  display: grid;
+  gap: 8px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.quote-source-status-popover p {
+  margin: 0;
+}
+
+.quote-source-status-popover > strong {
+  color: var(--text-color-primary);
+  font-size: 13px;
+}
+
 .source-tab {
   display: inline-flex;
+  position: relative;
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -1507,6 +1625,46 @@ onUnmounted(() => {
 .source-tab__label {
   min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-tab__runtime {
+  color: var(--text-color-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.quote-runtime-monitor__runs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quote-runtime-monitor__run {
+  display: grid;
+  gap: 2px;
+  min-width: min(100%, 230px);
+  padding: 8px 10px;
+  border: 1px solid var(--quote-border);
+  border-radius: 6px;
+  background: var(--quote-card-bg);
+}
+
+.quote-runtime-monitor__run strong {
+  overflow: hidden;
+  color: var(--text-color-primary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-runtime-monitor__run span,
+.quote-runtime-monitor__run small {
+  overflow: hidden;
+  color: var(--text-color-secondary);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1631,10 +1789,28 @@ onUnmounted(() => {
 }
 
 .quote-symbol-cell {
+  display: grid;
+  gap: 2px;
   color: var(--text-color-primary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-weight: 720;
+}
+
+.quote-symbol-cell strong,
+.quote-symbol-cell small {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.quote-symbol-cell strong {
+  font-weight: 720;
+}
+
+.quote-symbol-cell small {
+  color: var(--text-color-secondary);
+  font-family: var(--font-family);
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .quote-time-cell {
@@ -1967,7 +2143,6 @@ onUnmounted(() => {
 
 @media (max-width: 1180px) {
   .quote-hero,
-  .quote-source-panel,
   .quote-toolbar {
     grid-template-columns: 1fr;
   }
@@ -1976,6 +2151,10 @@ onUnmounted(() => {
   .quote-source-tabs,
   .quote-action-row {
     justify-content: flex-start;
+  }
+
+  .quote-source-status-button {
+    margin-left: 0;
   }
 
   .quote-filter-grid {

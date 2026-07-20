@@ -12,6 +12,7 @@ from app.utils.backend_data_paths import get_backend_data_path
 logger = logging.getLogger(__name__)
 _DATA_DIR = get_backend_data_path()
 _CUSTOM_SYMBOLS_FILE = _DATA_DIR / "quote_custom_symbols.json"
+_HIDDEN_SUBSCRIPTIONS_FILE = _DATA_DIR / "quote_hidden_subscriptions.json"
 
 
 def load_custom_symbols(
@@ -41,34 +42,57 @@ def save_custom_symbols(
         logger.exception("Failed to save custom symbols to %s", file_path)
 
 
+def load_hidden_subscriptions(
+    file_path: Path = _HIDDEN_SUBSCRIPTIONS_FILE,
+) -> dict[str, dict[str, list[str]]]:
+    """Load user-disabled non-workspace subscriptions from durable local storage."""
+    return load_custom_symbols(file_path)
+
+
+def save_hidden_subscriptions(
+    data: dict[str, dict[str, list[str]]],
+    file_path: Path = _HIDDEN_SUBSCRIPTIONS_FILE,
+) -> None:
+    """Persist user-disabled non-workspace subscriptions."""
+    save_custom_symbols(data, file_path)
+
+
 def get_cached_tick_metrics(receivers: dict[str, Any], source: str) -> dict[str, Any]:
     normalized = str(source or "").strip().upper()
     if not normalized:
         return {"tick_count": 0, "last_tick_time": None}
-    receiver = receivers.get(normalized)
-    if receiver is None:
+    relevant_receivers = [
+        receiver
+        for receiver_key, receiver in receivers.items()
+        if str(receiver_key).upper() == normalized
+        or str(getattr(receiver, "source", "")).upper() == normalized
+    ]
+    if not relevant_receivers:
         return {"tick_count": 0, "last_tick_time": None}
-    cached_ticks = receiver.get_all_ticks()
     last_tick_time: int | None = None
-    for payload in cached_ticks.values():
-        if not isinstance(payload, dict):
-            continue
-        raw_timestamp = payload.get("timestamp")
-        if raw_timestamp in (None, ""):
-            continue
-        if not isinstance(raw_timestamp, str | bytes | int | float):
-            continue
-        try:
-            timestamp = float(raw_timestamp)
-        except (TypeError, ValueError, OverflowError):
-            continue
-        if math.isnan(timestamp) or math.isinf(timestamp):
-            continue
-        normalized_timestamp = int(timestamp / 1000.0) if timestamp > 1e12 else int(timestamp)
-        if last_tick_time is None or normalized_timestamp > last_tick_time:
-            last_tick_time = normalized_timestamp
+    tick_count = 0
+    for receiver in relevant_receivers:
+        cached_ticks = receiver.get_all_ticks()
+        tick_count += len(cached_ticks)
+        for payload in cached_ticks.values():
+            if not isinstance(payload, dict):
+                continue
+            raw_timestamp = payload.get("timestamp")
+            if raw_timestamp in (None, ""):
+                continue
+            if not isinstance(raw_timestamp, str | bytes | int | float):
+                continue
+            try:
+                timestamp = float(raw_timestamp)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if math.isnan(timestamp) or math.isinf(timestamp):
+                continue
+            normalized_timestamp = int(timestamp / 1000.0) if timestamp > 1e12 else int(timestamp)
+            if last_tick_time is None or normalized_timestamp > last_tick_time:
+                last_tick_time = normalized_timestamp
     return {
-        "tick_count": len(cached_ticks),
+        "tick_count": tick_count,
         "last_tick_time": last_tick_time,
     }
 

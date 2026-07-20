@@ -588,6 +588,7 @@ export function useDataPage() {
   )))
   const chartCanRender = computed(() => hasOhlcChart.value || hasStructureChart.value)
   const activeAssetConfig = computed(() => assetDisplayConfigs[form.asset_type])
+  const activeAssetIcon = computed<Component>(() => currentAssetTab().icon)
   const symbolPlaceholder = computed(() => t(currentAssetTab().placeholderKey))
   const emptyHistoryText = computed(() => (
     result.value ? t('dataMgmt.emptyNoRows') : t('dataMgmt.emptyQueryFirst')
@@ -1780,6 +1781,7 @@ export function useDataPage() {
     hasStructureChart,
     chartCanRender,
     activeAssetConfig,
+    activeAssetIcon,
     symbolPlaceholder,
     emptyHistoryText,
     chartEmptyText,

@@ -632,6 +632,8 @@ class AIStrategyResearchRunRequest(BaseModel):
 
     @model_validator(mode="after")
     def fill_generated_prompt(self) -> AIStrategyResearchRunRequest:
+        if self.require_robustness_validation and not self.robustness_validation:
+            object.__setattr__(self, "robustness_validation", True)
         prompt = self.prompt.strip()
         if self.workflow_mode == "prompt" and not prompt:
             raise ValueError("workflow_mode='prompt' requires a non-empty prompt")
@@ -753,7 +755,9 @@ class AIStrategyPaperTradingReview(BaseModel):
 class AIStrategyLiveHandoffApprovalRequest(BaseModel):
     """Manual approval or rejection for a live handoff package."""
 
-    decision: str = Field(..., description="Approval decision: approved or rejected")
+    decision: str = Field(
+        ..., description="Approval decision: approved, rejected, or requested_changes"
+    )
     approver: str | None = Field(None, max_length=120, description="Human approver name or ID")
     comment: str | None = Field(None, max_length=2000, description="Decision note")
     account_confirmed: bool = Field(False, description="Live account and permissions checked")

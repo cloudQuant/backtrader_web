@@ -5,7 +5,7 @@
  * coverage of the optimization-state merging logic is exercised via a
  * focused subset of fetchUnits cases that simulate stale backend data.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -79,6 +79,10 @@ describe('useWorkspaceStore', () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     Object.values(workspaceApi).forEach(fn => (fn as any).mockReset?.())
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   describe('Workspace CRUD', () => {
@@ -230,6 +234,48 @@ describe('useWorkspaceStore', () => {
       store.setSelectedUnitIds(['u-1'])
       store.clearSelection()
       expect(store.selectedUnitIds).toEqual([])
+    })
+  })
+
+  describe('Status polling', () => {
+    it('waits for an in-flight status request before scheduling the next poll', async () => {
+      vi.useFakeTimers()
+      const store = useWorkspaceStore()
+      store.units = [{ ...baseUnit, run_status: 'running' }]
+
+      let resolveFirstPoll: ((value: any) => void) | undefined
+      vi.mocked(workspaceApi.getUnitsStatus).mockImplementationOnce(
+        () => new Promise(resolve => { resolveFirstPoll = resolve }) as never,
+      )
+      vi.mocked(workspaceApi.getUnitsStatus).mockResolvedValue([
+        { id: 'u-1', run_status: 'running' },
+      ] as never)
+
+      store.startPolling('ws-1', 3000)
+      expect(workspaceApi.getUnitsStatus).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(12_000)
+      expect(workspaceApi.getUnitsStatus).toHaveBeenCalledTimes(1)
+
+      resolveFirstPoll?.([{ id: 'u-1', run_status: 'running' }])
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(workspaceApi.getUnitsStatus).toHaveBeenCalledTimes(2)
+      store.stopPolling()
+    })
+
+    it('stops after a successful terminal-status refresh', async () => {
+      vi.useFakeTimers()
+      const store = useWorkspaceStore()
+      store.units = [{ ...baseUnit, run_status: 'queued' }]
+      vi.mocked(workspaceApi.getUnitsStatus).mockResolvedValue([
+        { id: 'u-1', run_status: 'failed' },
+      ] as never)
+
+      store.startPolling('ws-1', 3000)
+      await vi.advanceTimersByTimeAsync(12_000)
+
+      expect(workspaceApi.getUnitsStatus).toHaveBeenCalledTimes(1)
+      store.stopPolling()
     })
   })
 })

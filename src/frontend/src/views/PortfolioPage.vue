@@ -617,6 +617,7 @@ const trades = ref<TradeItem[]>([])
 const equityData = ref<PortfolioEquity | null>(null)
 const allocationItems = ref<AllocationItem[]>([])
 const runningWorkspaces = ref<Workspace[]>([])
+const tradingWorkspaces = ref<Workspace[]>([])
 const positionSummary = ref<PositionSummary>(emptyPositionSummary())
 const selectedEquitySeries = ref('portfolio')
 const loadingTabs = ref<Set<string>>(new Set())
@@ -776,7 +777,10 @@ function emptyPositionSummary(): PositionSummary {
 }
 
 const loadedTabs = ref<Set<string>>(new Set(['workspaces']))
-const runningWorkspaceIds = computed(() => runningWorkspaces.value.map(workspace => workspace.id))
+const portfolioWorkspaces = computed(() => (
+  tradingWorkspaces.value.length > 0 ? tradingWorkspaces.value : runningWorkspaces.value
+))
+const portfolioWorkspaceIds = computed(() => portfolioWorkspaces.value.map(workspace => workspace.id))
 const selectedPositionValue = computed(() => (
   positionSummary.value.gross_market_value
 ))
@@ -910,7 +914,8 @@ async function loadData() {
       workspaceApi.list(0, 100, 'trading'),
     ])
     overview.value = dashboard
-    runningWorkspaces.value = workspaceList.items.filter(workspace => workspace.status === 'running')
+    tradingWorkspaces.value = workspaceList.items
+    runningWorkspaces.value = tradingWorkspaces.value.filter(workspace => workspace.status === 'running')
     if (activeTab.value !== 'workspaces') {
       await loadTabData(activeTab.value)
     }
@@ -941,10 +946,10 @@ async function loadTabData(tab: string) {
     } else if (tab === 'trades') {
       await loadWorkspaceTrades()
     } else if (tab === 'equity') {
-      equityData.value = await portfolioApi.getEquity()
+      equityData.value = await portfolioApi.getEquity(portfolioWorkspaceIds.value)
       selectedEquitySeries.value = 'portfolio'
     } else if (tab === 'allocation') {
-      allocationItems.value = (await portfolioApi.getAllocation(runningWorkspaceIds.value)).items
+      allocationItems.value = (await portfolioApi.getAllocation(portfolioWorkspaceIds.value)).items
     }
     loadedTabs.value = new Set([...loadedTabs.value, tab])
   } catch (e: unknown) {
@@ -955,7 +960,7 @@ async function loadTabData(tab: string) {
 }
 
 async function loadWorkspacePositions() {
-  const workspaces = runningWorkspaces.value
+  const workspaces = portfolioWorkspaces.value
   if (workspaces.length === 0) {
     positions.value = []
     positionSummary.value = emptyPositionSummary()
@@ -974,13 +979,13 @@ async function loadWorkspacePositions() {
 }
 
 async function loadWorkspaceTrades() {
-  const workspaces = runningWorkspaces.value
+  const workspaces = portfolioWorkspaces.value
   if (workspaces.length === 0) {
     trades.value = []
     return
   }
 
-  const result = await portfolioApi.getTrades(1000, runningWorkspaceIds.value)
+  const result = await portfolioApi.getTrades(1000, portfolioWorkspaceIds.value)
   trades.value = result.trades
     .filter(item => isTradeInSelectedWorkspaces(item, workspaces))
     .sort((a, b) => tradeSortKey(b).localeCompare(tradeSortKey(a)))

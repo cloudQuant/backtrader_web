@@ -1736,7 +1736,13 @@ def _build_live_handoff_package(
     approval_status = approval.decision if approval is not None else None
     package_status = "ready_for_approval" if ready_for_live else "blocked"
     if approval is not None:
-        package_status = "approved_for_live" if approval.approved else "approval_rejected"
+        package_status = (
+            "approved_for_live"
+            if approval.approved
+            else "requested_changes"
+            if approval.decision == "requested_changes"
+            else "approval_rejected"
+        )
     handoff = _redact_sensitive_handoff(
         {
             **dict(record.paper_handoff or {}),

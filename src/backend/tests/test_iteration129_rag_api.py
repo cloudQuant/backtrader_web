@@ -1,10 +1,10 @@
 """Iteration 129 RAG API tests."""
 
 from httpx import AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.db.database import async_session_maker
-from app.models.knowledge_base import DocumentChunk
+from app.models.knowledge_base import DocumentChunk, KBDocument
 from app.services.ai_chat_service import AIChatService
 
 
@@ -381,6 +381,76 @@ class TestIteration129RAGAPI:
             ).scalar_one()
 
         assert chunk_count == 1
+
+    async def test_auto_index_rebuilds_legacy_title_only_chunks(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        """Old Markdown indexes must not send a title-only chunk to the LLM."""
+        title = "贝叶斯网络风险治理"
+        source = "来源：https://example.test/bayesian-risk"
+        body = "贝叶斯网络风险治理要求用证据更新后验概率，并持续检查模型校准和结构稳定性。"
+        kb_resp = await client.post(
+            "/api/v1/knowledge-base/",
+            headers=auth_headers,
+            json={"name": "旧分块修复库", "description": None, "is_public": False},
+        )
+        assert kb_resp.status_code == 201, kb_resp.text
+        kb_id = kb_resp.json()["id"]
+        doc_resp = await client.post(
+            f"/api/v1/knowledge-base/{kb_id}/documents/",
+            headers=auth_headers,
+            json={
+                "title": title,
+                "content": f"# {title}\n\n{source}\n\n{body}",
+                "content_type": "markdown",
+                "is_folder": False,
+            },
+        )
+        assert doc_resp.status_code == 201, doc_resp.text
+        doc_id = doc_resp.json()["id"]
+
+        # Simulate indexes created by the previous splitter, which emitted the
+        # H1 title and source metadata before the first real paragraph.
+        async with async_session_maker() as session:
+            document = await session.get(KBDocument, doc_id)
+            assert document is not None
+            document.index_status = "indexed"
+            await session.execute(delete(DocumentChunk).where(DocumentChunk.document_id == doc_id))
+            session.add(
+                DocumentChunk(
+                    document_id=doc_id,
+                    knowledge_base_id=kb_id,
+                    chunk_index=0,
+                    content=f"# {title}\n\n{source}",
+                    token_count=1,
+                )
+            )
+            await session.commit()
+
+        search_resp = await client.post(
+            "/api/v1/rag/search",
+            headers=auth_headers,
+            json={
+                "knowledge_base_id": kb_id,
+                "query": "什么是贝叶斯网络风险治理？",
+                "top_k": 3,
+                "min_similarity": 0.0,
+            },
+        )
+        assert search_resp.status_code == 200, search_resp.text
+        results = search_resp.json()["results"]
+        assert results[0]["document_id"] == doc_id
+        assert body in results[0]["content"]
+
+        async with async_session_maker() as session:
+            chunks = (
+                await session.execute(
+                    select(DocumentChunk.content)
+                    .where(DocumentChunk.document_id == doc_id)
+                    .order_by(DocumentChunk.chunk_index)
+                )
+            ).scalars().all()
+        assert chunks == [f"# {title}\n\n{source}\n\n{body}"]
 
     async def test_updated_document_removes_stale_chunks(
         self, client: AsyncClient, auth_headers: dict
