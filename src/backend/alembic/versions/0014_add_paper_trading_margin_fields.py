@@ -15,21 +15,22 @@ branch_labels = None
 depends_on = None
 
 
+def _column_names(table_name: str) -> set[str]:
+    return {column["name"] for column in sa.inspect(op.get_bind()).get_columns(table_name)}
+
+
 def upgrade() -> None:
-    with op.batch_alter_table("paper_trading_positions") as batch_op:
-        batch_op.add_column(
-            sa.Column("margin_value", sa.Float(), nullable=False, server_default="0")
-        )
-        batch_op.add_column(sa.Column("multiplier", sa.Float(), nullable=False, server_default="1"))
-        batch_op.add_column(
-            sa.Column("margin_rate", sa.Float(), nullable=False, server_default="1")
-        )
-        batch_op.add_column(
-            sa.Column("commission_rate", sa.Float(), nullable=False, server_default="0")
-        )
-        batch_op.add_column(
-            sa.Column("commission_amount", sa.Float(), nullable=False, server_default="0")
-        )
+    """Add missing fields without failing a legacy ``create_all`` database."""
+    existing_columns = _column_names("paper_trading_positions")
+    for column in (
+        sa.Column("margin_value", sa.Float(), nullable=False, server_default="0"),
+        sa.Column("multiplier", sa.Float(), nullable=False, server_default="1"),
+        sa.Column("margin_rate", sa.Float(), nullable=False, server_default="1"),
+        sa.Column("commission_rate", sa.Float(), nullable=False, server_default="0"),
+        sa.Column("commission_amount", sa.Float(), nullable=False, server_default="0"),
+    ):
+        if column.name not in existing_columns:
+            op.add_column("paper_trading_positions", column)
 
 
 def downgrade() -> None:

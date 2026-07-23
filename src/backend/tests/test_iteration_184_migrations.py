@@ -15,6 +15,7 @@ from app.db.database import Base
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _BASELINE = "20260705_b_data_backtest_trust"
 _HEAD = "20260718_runtime_identity_lifecycle"
+_PRE_TRUST_BASELINE = "0015_add_workspace_listing_indexes"
 
 
 def _config(database_url: str) -> Config:
@@ -33,6 +34,23 @@ def _tables(database_url: str) -> set[str]:
     engine = create_engine(database_url)
     try:
         return set(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+
+
+def _columns(database_url: str, table_name: str) -> set[str]:
+    engine = create_engine(database_url)
+    try:
+        return {column["name"] for column in inspect(engine).get_columns(table_name)}
+    finally:
+        engine.dispose()
+
+
+def _column_length(database_url: str, table_name: str, column_name: str) -> int | None:
+    engine = create_engine(database_url)
+    try:
+        columns = {column["name"]: column for column in inspect(engine).get_columns(table_name)}
+        return getattr(columns[column_name]["type"], "length", None)
     finally:
         engine.dispose()
 
@@ -109,3 +127,24 @@ def test_iteration_184_migrations_upgrade_fresh_current_and_legacy_create_all(
         )
         assert identity_index is not None, name
         assert bool(identity_index["unique"]), name
+
+
+def test_pre_trust_create_all_database_upgrades_to_head(tmp_path, monkeypatch):
+    """A create_all database at revision 0015 can safely apply later migrations."""
+    database_url = f"sqlite:///{tmp_path / 'pre_trust.db'}"
+    _set_migration_database(monkeypatch, database_url)
+    config = _config(database_url)
+
+    _upgrade(config, database_url, _PRE_TRUST_BASELINE)
+    _create_all(database_url)
+    _upgrade(config, database_url, "head")
+
+    assert {
+        "average_holding_bars",
+        "max_consecutive_wins",
+        "max_consecutive_losses",
+        "profit_loss_ratio",
+        "standard_metrics",
+        "result_summary",
+    } <= _columns(database_url, "backtest_results")
+    assert _column_length(database_url, "alembic_version", "version_num") == 255

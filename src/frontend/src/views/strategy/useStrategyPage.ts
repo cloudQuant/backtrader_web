@@ -917,7 +917,8 @@ export function useStrategyPage() {
 
   function formatComparisonValue(value: unknown): string {
     if (typeof value === 'string' && value.trim()) return value
-    return formatMetric(value)
+    const number = typeof value === 'number' ? value : Number(value)
+    return Number.isFinite(number) ? String(number) : '-'
   }
 
   function gateGapListFromUnknown(value: unknown): AIStrategyGateGap[] {
@@ -1180,6 +1181,14 @@ export function useStrategyPage() {
 
   function scheduleAIResearchDataPrecheck() {
     if (aiResearchPrecheckTimer !== null) clearTimeout(aiResearchPrecheckTimer)
+    // Invalidate the in-flight result as soon as an input changes, rather
+    // than after the next debounced request starts. This prevents an old
+    // symbol's successful response from briefly replacing the precheck while
+    // the user is already editing a different asset.
+    aiResearchPrecheckSequence += 1
+    aiResearchPrecheckController?.abort()
+    aiResearchPrecheckController = null
+    aiResearchPrecheckLoading.value = false
     if (!aiResearchForm.symbol.trim()) return
     aiResearchPrecheckTimer = setTimeout(() => {
       aiResearchPrecheckTimer = null

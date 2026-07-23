@@ -1,5 +1,6 @@
 from logging.config import fileConfig
 
+import sqlalchemy as sa
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -18,6 +19,42 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+_VERSION_TABLE = "alembic_version"
+_VERSION_COLUMN_LENGTH = 255
+
+
+def _ensure_version_table_capacity(connection) -> None:
+    """Create a version table that can store this project's long revision IDs."""
+    inspector = sa.inspect(connection)
+    if not inspector.has_table(_VERSION_TABLE):
+        metadata = sa.MetaData()
+        sa.Table(
+            _VERSION_TABLE,
+            metadata,
+            sa.Column("version_num", sa.String(_VERSION_COLUMN_LENGTH), primary_key=True),
+        ).create(bind=connection)
+        return
+
+    columns = {column["name"]: column for column in inspector.get_columns(_VERSION_TABLE)}
+    version_column = columns.get("version_num")
+    current_length = getattr(version_column.get("type"), "length", None) if version_column else None
+    if current_length is None or current_length >= _VERSION_COLUMN_LENGTH:
+        return
+
+    if connection.dialect.name == "mysql":
+        connection.execute(
+            sa.text(
+                f"ALTER TABLE {_VERSION_TABLE} "
+                f"MODIFY COLUMN version_num VARCHAR({_VERSION_COLUMN_LENGTH}) NOT NULL"
+            )
+        )
+    elif connection.dialect.name == "postgresql":
+        connection.execute(
+            sa.text(
+                f"ALTER TABLE {_VERSION_TABLE} "
+                f"ALTER COLUMN version_num TYPE VARCHAR({_VERSION_COLUMN_LENGTH})"
+            )
+        )
 
 
 def run_migrations_offline() -> None:
@@ -35,6 +72,7 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection) -> None:
+    _ensure_version_table_capacity(connection)
     context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
     with context.begin_transaction():
         context.run_migrations()
@@ -55,7 +93,9 @@ def run_migrations_online() -> None:
     )
 
     async def run() -> None:
-        async with connectable.connect() as connection:
+        # MySQL implicitly commits DDL, but Alembic writes the final revision
+        # number afterwards. A transaction context commits that trailing update.
+        async with connectable.begin() as connection:
             await connection.run_sync(do_run_migrations)
         await connectable.dispose()
 

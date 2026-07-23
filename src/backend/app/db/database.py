@@ -579,6 +579,46 @@ def _ensure_scanner_plan_schema_compatibility_sync(bind) -> None:
         )
 
 
+def _ensure_trading_schema_compatibility_sync(bind) -> None:
+    """Patch legacy trading tables that ``create_all`` cannot alter in place."""
+    for column_name, ddl in (
+        ("average_holding_bars", "average_holding_bars FLOAT"),
+        ("max_consecutive_wins", "max_consecutive_wins INTEGER"),
+        ("max_consecutive_losses", "max_consecutive_losses INTEGER"),
+        ("profit_loss_ratio", "profit_loss_ratio FLOAT"),
+        ("standard_metrics", "standard_metrics JSON"),
+        ("result_summary", "result_summary JSON"),
+    ):
+        _add_column_if_missing(bind, "backtest_results", column_name, ddl)
+
+    for column_name, ddl in (
+        ("margin_value", "margin_value FLOAT NOT NULL DEFAULT 0"),
+        ("multiplier", "multiplier FLOAT NOT NULL DEFAULT 1"),
+        ("margin_rate", "margin_rate FLOAT NOT NULL DEFAULT 1"),
+        ("commission_rate", "commission_rate FLOAT NOT NULL DEFAULT 0"),
+        ("commission_amount", "commission_amount FLOAT NOT NULL DEFAULT 0"),
+    ):
+        _add_column_if_missing(bind, "paper_trading_positions", column_name, ddl)
+
+    for table_name, column_name in (
+        ("paper_trading_positions", "size"),
+        ("paper_trading_orders", "size"),
+        ("paper_trading_orders", "filled_size"),
+        ("paper_trades", "size"),
+    ):
+        _modify_mysql_column_type_if_needed(
+            bind, table_name, column_name, "FLOAT NOT NULL", "FLOAT"
+        )
+
+    for column_name, ddl in (
+        ("workspace_id", "workspace_id VARCHAR(36)"),
+        ("unit_id", "unit_id VARCHAR(36)"),
+        ("instance_id", "instance_id VARCHAR(36)"),
+        ("dedupe_key", "dedupe_key VARCHAR(200)"),
+    ):
+        _add_column_if_missing(bind, "alerts", column_name, ddl)
+
+
 async def ensure_schema_compatibility() -> None:
     """Patch legacy databases with columns required by the current ORM schema."""
     async with engine.begin() as conn:
@@ -592,6 +632,7 @@ async def ensure_schema_compatibility() -> None:
         await conn.run_sync(_ensure_news_intelligence_schema_compatibility_sync)
         await conn.run_sync(_ensure_stock_analysis_schema_compatibility_sync)
         await conn.run_sync(_ensure_scanner_plan_schema_compatibility_sync)
+        await conn.run_sync(_ensure_trading_schema_compatibility_sync)
 
 
 async def create_tables() -> None:
@@ -610,6 +651,7 @@ async def create_tables() -> None:
         await conn.run_sync(_ensure_news_intelligence_schema_compatibility_sync)
         await conn.run_sync(_ensure_stock_analysis_schema_compatibility_sync)
         await conn.run_sync(_ensure_scanner_plan_schema_compatibility_sync)
+        await conn.run_sync(_ensure_trading_schema_compatibility_sync)
 
 
 async def init_db():

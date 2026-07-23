@@ -17,9 +17,26 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table(table_name: str) -> bool:
+    return sa.inspect(op.get_bind()).has_table(table_name)
+
+
+def _create_table_if_missing(table_name: str, *columns: sa.Column | sa.Constraint) -> None:
+    if not _has_table(table_name):
+        op.create_table(table_name, *columns)
+
+
+def _add_column_if_missing(table_name: str, column: sa.Column) -> None:
+    if not _has_table(table_name):
+        return
+    columns = {item["name"] for item in sa.inspect(op.get_bind()).get_columns(table_name)}
+    if column.name not in columns:
+        op.add_column(table_name, column)
+
+
 def upgrade() -> None:
     """Create trust tables and extend backtest metric storage."""
-    op.create_table(
+    _create_table_if_missing(
         "asset_specs",
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("asset_type", sa.String(32), nullable=False, index=True),
@@ -42,7 +59,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), nullable=True),
         sa.UniqueConstraint("asset_type", "symbol", "exchange", name="uq_asset_specs_lookup"),
     )
-    op.create_table(
+    _create_table_if_missing(
         "market_data_coverage",
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("asset_type", sa.String(32), nullable=False, index=True),
@@ -66,7 +83,7 @@ def upgrade() -> None:
             name="uq_market_data_coverage_lookup",
         ),
     )
-    op.create_table(
+    _create_table_if_missing(
         "market_data_quality_reports",
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("asset_type", sa.String(32), nullable=False, index=True),
@@ -79,7 +96,7 @@ def upgrade() -> None:
         sa.Column("sample_payload", sa.JSON(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=True),
     )
-    op.create_table(
+    _create_table_if_missing(
         "robustness_test_results",
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("user_id", sa.String(36), nullable=False, index=True),
@@ -94,17 +111,25 @@ def upgrade() -> None:
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=True),
     )
-    op.add_column("backtest_results", sa.Column("average_holding_bars", sa.Float(), nullable=True))
-    op.add_column(
+    _add_column_if_missing(
+        "backtest_results", sa.Column("average_holding_bars", sa.Float(), nullable=True)
+    )
+    _add_column_if_missing(
         "backtest_results", sa.Column("max_consecutive_wins", sa.Integer(), nullable=True)
     )
-    op.add_column(
+    _add_column_if_missing(
         "backtest_results",
         sa.Column("max_consecutive_losses", sa.Integer(), nullable=True),
     )
-    op.add_column("backtest_results", sa.Column("profit_loss_ratio", sa.Float(), nullable=True))
-    op.add_column("backtest_results", sa.Column("standard_metrics", sa.JSON(), nullable=True))
-    op.add_column("backtest_results", sa.Column("result_summary", sa.JSON(), nullable=True))
+    _add_column_if_missing(
+        "backtest_results", sa.Column("profit_loss_ratio", sa.Float(), nullable=True)
+    )
+    _add_column_if_missing(
+        "backtest_results", sa.Column("standard_metrics", sa.JSON(), nullable=True)
+    )
+    _add_column_if_missing(
+        "backtest_results", sa.Column("result_summary", sa.JSON(), nullable=True)
+    )
 
 
 def downgrade() -> None:

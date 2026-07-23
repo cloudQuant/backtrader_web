@@ -7828,8 +7828,26 @@ describe('StrategyPage', () => {
     let resolveFirst: ((value: any) => void) | undefined
     let resolveSecond: ((value: any) => void) | undefined
     runPrecheck
-      .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve }))
-      .mockImplementationOnce(() => new Promise(resolve => { resolveSecond = resolve }))
+      .mockImplementation((request: { symbol?: string }) => {
+        if (request.symbol === 'RB0') {
+          return new Promise(resolve => { resolveFirst = resolve })
+        }
+        if (request.symbol === 'SA0') {
+          return new Promise(resolve => { resolveSecond = resolve })
+        }
+        return Promise.resolve({
+          passed: false,
+          status: 'failed',
+          asset_type: 'stock',
+          symbol: request.symbol || '',
+          timeframe: '1d',
+          provider: 'mock',
+          reasons: [],
+          warnings: [],
+          quality_reports: [],
+          gate_evaluations: [],
+        })
+      })
     const wrapper = doMount()
     try {
       const vm = wrapper.vm as any

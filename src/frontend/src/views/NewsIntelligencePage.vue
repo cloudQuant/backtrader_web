@@ -10,6 +10,65 @@
           <h1>{{ t('newsIntel.title') }}</h1>
         </div>
         <p>{{ t('newsIntel.desc') }}</p>
+        <div
+          class="news-table-actions news-hero-actions"
+          data-test="news-live-desk-actions"
+        >
+          <button
+            type="button"
+            class="news-desk-command"
+            data-test="news-desk-action-analysis"
+            @click="analysisVisible = true"
+          >
+            <el-icon aria-hidden="true"><Search /></el-icon>
+            <span>{{ t('newsIntel.btnSentimentAnalysis') }}</span>
+          </button>
+          <button
+            type="button"
+            class="news-desk-command"
+            data-test="news-desk-action-import"
+            @click="importVisible = true"
+          >
+            <el-icon aria-hidden="true"><Plus /></el-icon>
+            <span>{{ t('newsIntel.btnArticleImport') }}</span>
+          </button>
+          <button
+            type="button"
+            class="news-desk-command"
+            data-test="news-desk-action-filter"
+            @click="filterVisible = true"
+          >
+            <el-icon aria-hidden="true"><Filter /></el-icon>
+            <span>{{ t('newsIntel.btnFiltering') }}</span>
+          </button>
+          <button
+            type="button"
+            class="news-desk-command"
+            data-test="news-desk-action-rss-refresh"
+            @click="rssRefreshVisible = true"
+          >
+            <el-icon aria-hidden="true"><Refresh /></el-icon>
+            <span>{{ t('newsIntel.btnRefreshRss') }}</span>
+          </button>
+          <button
+            type="button"
+            class="news-desk-command"
+            data-test="news-desk-action-rss-schedule"
+            @click="rssScheduleVisible = true"
+          >
+            <el-icon aria-hidden="true"><Refresh /></el-icon>
+            <span>{{ t('newsIntel.btnAutoRefresh') }}</span>
+          </button>
+          <button
+            type="button"
+            class="news-desk-command"
+            data-test="news-source-governance-button"
+            @click="toggleSourceConfig"
+          >
+            <el-icon aria-hidden="true"><Setting /></el-icon>
+            <span>{{ t('newsIntel.btnSourceGovernance') }}</span>
+          </button>
+        </div>
       </div>
 
       <div class="news-hero-stats">
@@ -35,65 +94,6 @@
           </div>
           <div class="news-section-heading-tools">
             <span class="news-table-count">{{ t('newsIntel.tableCountTpl', { count: articles.length }) }}</span>
-            <div
-              class="news-table-actions"
-              data-test="news-live-desk-actions"
-            >
-              <button
-                type="button"
-                class="news-desk-command"
-                data-test="news-desk-action-analysis"
-                @click="analysisVisible = true"
-              >
-                <el-icon aria-hidden="true"><Search /></el-icon>
-                <span>{{ t('newsIntel.btnSentimentAnalysis') }}</span>
-              </button>
-              <button
-                type="button"
-                class="news-desk-command"
-                data-test="news-desk-action-import"
-                @click="importVisible = true"
-              >
-                <el-icon aria-hidden="true"><Plus /></el-icon>
-                <span>{{ t('newsIntel.btnArticleImport') }}</span>
-              </button>
-              <button
-                type="button"
-                class="news-desk-command"
-                data-test="news-desk-action-filter"
-                @click="filterVisible = true"
-              >
-                <el-icon aria-hidden="true"><Filter /></el-icon>
-                <span>{{ t('newsIntel.btnFiltering') }}</span>
-              </button>
-              <button
-                type="button"
-                class="news-desk-command"
-                data-test="news-desk-action-rss-refresh"
-                @click="rssRefreshVisible = true"
-              >
-                <el-icon aria-hidden="true"><Refresh /></el-icon>
-                <span>{{ t('newsIntel.btnRefreshRss') }}</span>
-              </button>
-              <button
-                type="button"
-                class="news-desk-command"
-                data-test="news-desk-action-rss-schedule"
-                @click="rssScheduleVisible = true"
-              >
-                <el-icon aria-hidden="true"><Refresh /></el-icon>
-                <span>{{ t('newsIntel.btnAutoRefresh') }}</span>
-              </button>
-              <button
-                type="button"
-                class="news-desk-command"
-                data-test="news-source-governance-button"
-                @click="toggleSourceConfig"
-              >
-                <el-icon aria-hidden="true"><Setting /></el-icon>
-                <span>{{ t('newsIntel.btnSourceGovernance') }}</span>
-              </button>
-            </div>
           </div>
         </div>
 
@@ -1202,6 +1202,11 @@ onUnmounted(stopRssRefresh)
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.news-hero-actions {
+  justify-content: flex-start;
+  margin-top: 4px;
 }
 
 .news-desk-command {
