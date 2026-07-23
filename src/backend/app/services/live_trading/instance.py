@@ -1,6 +1,9 @@
 import logging
+import os
+import sys
 import uuid
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +100,112 @@ def _dedupe_running_runtime_dirs(instances: dict[str, dict[str, Any]]) -> bool:
     return changed
 
 
+def _touch_running_instance_daily(inst: dict[str, Any], now: str) -> bool:
+    """Touch running instances when they have moved to a new calendar day."""
+    if str(inst.get("status") or "").lower() != "running":
+        return False
+    if not now:
+        return False
+    return str(inst.get("updated_at") or "").strip()[:10] != str(now).strip()[:10]
+
+
+def _coerce_pid(value: Any) -> int | None:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _infer_started_at_from_pid(pid: int) -> str | None:
+    if pid <= 0:
+        return None
+    if sys.platform == "win32":
+        return None
+
+    stat_path = Path(f"/proc/{pid}/stat")
+    if not stat_path.is_file():
+        return None
+
+    try:
+        stat_text = stat_path.read_text(encoding="utf-8")
+        close_paren = stat_text.rfind(")")
+        if close_paren < 0:
+            return None
+        parts = stat_text[close_paren + 2 :].split()
+        if len(parts) < 20:
+            return None
+        start_ticks = int(parts[19])
+    except (OSError, ValueError):
+        return None
+
+    try:
+        with Path("/proc/stat").open(encoding="utf-8") as handle:
+            boot_time: float | None = None
+            for line in handle:
+                if not line.startswith("btime"):
+                    continue
+                boot_time = float(line.split()[1])
+                break
+    except OSError:
+        return None
+    if boot_time is None:
+        return None
+
+    try:
+        clock_ticks = os.sysconf("SC_CLK_TCK")
+        epoch_seconds = boot_time + start_ticks / clock_ticks
+        return datetime.fromtimestamp(epoch_seconds).strftime("%Y-%m-%d %H:%M:%S")
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def _started_day(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return text[:10]
+
+
+def _refresh_started_at_from_pid(inst: dict[str, Any], pid: int) -> bool:
+    inferred_started = _infer_started_at_from_pid(pid)
+    if not inferred_started:
+        return False
+
+    inferred_day = _started_day(inferred_started)
+    if not inferred_day:
+        return False
+
+    current_day = _started_day(inst.get("started_at"))
+    if not current_day:
+        return False
+    if not current_day or inferred_day > current_day:
+        inst["started_at"] = inferred_started
+        return True
+
+    return False
+
+
+def _running_pid_for_instance(
+    inst: dict[str, Any],
+    running_pids: dict[str, int],
+    resolve_strategy_dir: _Cb,
+) -> int | None:
+    try:
+        strategy_dir = _resolve_instance_strategy_dir(inst, resolve_strategy_dir)
+    except ValueError:
+        return None
+    run_py_path = str(strategy_dir / "run.py")
+    candidates = [run_py_path]
+    resolved_path = _runtime_dir_key(run_py_path)
+    if resolved_path:
+        candidates.append(resolved_path)
+    for candidate in candidates:
+        pid = running_pids.get(candidate)
+        if pid:
+            return pid
+    return None
+
+
 def sync_status_on_boot(load_instances: _Cb, save_instances: _Cb, is_pid_alive: _Cb) -> None:
     instances = load_instances()
     changed = False
@@ -105,10 +214,16 @@ def sync_status_on_boot(load_instances: _Cb, save_instances: _Cb, is_pid_alive: 
         if normalize_instance_metadata(inst, instance_id=instance_id, now=now):
             changed = True
         if inst.get("status") == "running":
-            pid = inst.get("pid")
+            pid = _coerce_pid(inst.get("pid"))
             if not pid or not is_pid_alive(pid):
                 inst["status"] = "stopped"
                 inst["pid"] = None
+                normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
+                changed = True
+            elif _refresh_started_at_from_pid(inst, pid):
+                normalize_instance_metadata(inst, instance_id=instance_id, now=now)
+                changed = True
+            elif _touch_running_instance_daily(inst, now):
                 normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
                 changed = True
     if changed:
@@ -133,19 +248,34 @@ def list_instances(
         if normalize_instance_metadata(inst, instance_id=instance_id, now=now):
             changed = True
         if inst.get("status") == "running":
-            pid = inst.get("pid")
-            if not pid or not is_pid_alive(pid):
+            mapped_pid = _running_pid_for_instance(inst, running_pids, resolve_strategy_dir)
+            pid = _coerce_pid(inst.get("pid"))
+            if mapped_pid and pid != mapped_pid:
+                inst["pid"] = mapped_pid
+                inst["status"] = "running"
+                inst["started_at"] = now
+                inst["error"] = None
+                normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
+                changed = True
+            elif not pid or not is_pid_alive(pid):
                 inst["status"] = "stopped"
                 inst["pid"] = None
+                normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
+                changed = True
+            elif _refresh_started_at_from_pid(inst, pid):
+                normalize_instance_metadata(inst, instance_id=instance_id, now=now)
+                changed = True
+            elif _touch_running_instance_daily(inst, now):
                 normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
                 changed = True
         if inst.get("status") != "running":
             try:
                 strategy_dir = _resolve_instance_strategy_dir(inst, resolve_strategy_dir)
-                run_py_path = str(strategy_dir / "run.py")
-                if run_py_path in running_pids:
+                mapped_pid = _running_pid_for_instance(inst, running_pids, resolve_strategy_dir)
+                if mapped_pid and is_pid_alive(mapped_pid):
                     inst["status"] = "running"
-                    inst["pid"] = running_pids[run_py_path]
+                    inst["pid"] = mapped_pid
+                    inst["started_at"] = now
                     inst["error"] = None
                     normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
                     changed = True
@@ -310,21 +440,43 @@ def get_instance(
     now = instance_timestamp()
     changed = normalize_instance_metadata(inst, instance_id=instance_id, now=now)
     if inst.get("status") == "running":
-        pid = inst.get("pid")
-        if not pid or not is_pid_alive(pid):
+        mapped_pid = None
+        try:
+            mapped_pid = _running_pid_for_instance(
+                inst,
+                scan_running_strategy_pids(),
+                resolve_strategy_dir,
+            )
+        except ValueError:
+            mapped_pid = None
+        pid = _coerce_pid(inst.get("pid"))
+        if mapped_pid and pid != mapped_pid:
+            inst["status"] = "running"
+            inst["pid"] = mapped_pid
+            inst["started_at"] = now
+            inst["error"] = None
+            normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
+            changed = True
+        elif not pid or not is_pid_alive(pid):
             inst["status"] = "stopped"
             inst["pid"] = None
+            normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
+            changed = True
+        elif _refresh_started_at_from_pid(inst, pid):
+            normalize_instance_metadata(inst, instance_id=instance_id, now=now)
+            changed = True
+        elif _touch_running_instance_daily(inst, now):
             normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
             changed = True
     try:
         strategy_dir = _resolve_instance_strategy_dir(inst, resolve_strategy_dir)
         if inst.get("status") != "running":
             running_pids = scan_running_strategy_pids()
-            run_py_path = str(strategy_dir / "run.py")
-            pid = running_pids.get(run_py_path)
-            if pid and is_pid_alive(pid):
+            mapped_pid = _running_pid_for_instance(inst, running_pids, resolve_strategy_dir)
+            if mapped_pid and is_pid_alive(mapped_pid):
                 inst["status"] = "running"
-                inst["pid"] = pid
+                inst["pid"] = mapped_pid
+                inst["started_at"] = now
                 inst["error"] = None
                 normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
                 changed = True

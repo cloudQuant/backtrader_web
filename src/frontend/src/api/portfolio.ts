@@ -80,6 +80,7 @@ export interface TradeItem {
   strategy_id: string
   strategy_name: string
   instance_id: string
+  workspace_id?: string
   ref: number
   datetime: string
   dtopen: string
@@ -100,12 +101,14 @@ export interface EquityStrategy {
   strategy_name: string
   instance_id: string
   values: number[]
+  pnl_values?: number[]
   value_source?: string
 }
 
 export interface PortfolioEquity {
   dates: string[]
   total_equity: number[]
+  cumulative_pnl: number[]
   total_drawdown: number[]
   strategies: EquityStrategy[]
 }
@@ -132,17 +135,19 @@ export const portfolioApi = {
     return request.get('/portfolio/positions')
   },
 
-  getTrades(limit = 200, workspaceIds: string[] = []): Promise<{ total: number; trades: TradeItem[] }> {
+  getTrades(limit = 200, workspaceIds: string[] = [], includeInactive = false): Promise<{ total: number; trades: TradeItem[] }> {
     const ids = workspaceIds.filter(Boolean)
-    const params: { limit: number; workspace_ids?: string } = { limit }
+    const params: { limit: number; workspace_ids?: string; include_inactive?: boolean } = { limit }
     if (ids.length > 0) params.workspace_ids = ids.join(',')
+    if (includeInactive) params.include_inactive = true
     return request.get('/portfolio/trades', { params })
   },
 
-  getEquity(workspaceIds: string[] = []): Promise<PortfolioEquity> {
+  getEquity(workspaceIds: string[] = [], includeInactive = false): Promise<PortfolioEquity> {
     const ids = workspaceIds.filter(Boolean)
-    const params: { workspace_ids?: string } = {}
+    const params: { workspace_ids?: string; include_inactive?: boolean } = {}
     if (ids.length > 0) params.workspace_ids = ids.join(',')
+    if (includeInactive) params.include_inactive = true
     return request.get('/portfolio/equity', { params })
   },
 

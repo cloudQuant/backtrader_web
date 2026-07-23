@@ -11,8 +11,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 
+from app.db.akshare_data_database import _get_akshare_data_engine
 from app.db.database import async_session_maker
 from app.models.market_data_trust import (
     MarketDataCoverageModel,
@@ -63,6 +64,48 @@ _CN_FUTURES_CLOSURE_DATES = {
 
 
 @dataclass(frozen=True)
+class WarehouseCoverageProfile:
+    """A stable, user-facing market data source in the AkShare warehouse."""
+
+    asset_type: str
+    table_name: str
+    symbol_expression: str
+    date_column: str
+    timeframe: str = "1d"
+
+
+_WAREHOUSE_COVERAGE_PROFILES = (
+    WarehouseCoverageProfile(
+        "stock",
+        "STOCK_ZH_A_HIST",
+        "COALESCE(NULLIF(symbol, ''), `股票代码`)",
+        "data_date",
+    ),
+    WarehouseCoverageProfile("futures", "FUTURES_DAILY_MARKET", "SYMBOL", "TRADE_DATE"),
+    WarehouseCoverageProfile("bond", "BOND_ZH_HS_COV_MIN", "symbol", "data_date"),
+    WarehouseCoverageProfile("fund", "FUND_ETF_HIST_SINA", "symbol", "data_date"),
+    WarehouseCoverageProfile(
+        "option",
+        "OPTION_CURRENT_EM",
+        "COALESCE(NULLIF(symbol, ''), `代码`)",
+        "data_date",
+    ),
+    WarehouseCoverageProfile("fx", "CURRENCY_HISTORY", "symbol", "data_date"),
+    WarehouseCoverageProfile("crypto", "CRYPTO_BITCOIN_CME", "'BTC_CME'", "data_date"),
+)
+
+_WAREHOUSE_FRESHNESS_DAYS = {
+    "stock": 5,
+    "futures": 5,
+    "bond": 5,
+    "fund": 5,
+    "option": 5,
+    "fx": 5,
+    "crypto": 2,
+}
+
+
+@dataclass(frozen=True)
 class LocalCsvProfile:
     path: Path
     asset_type: str
@@ -93,12 +136,20 @@ class MarketDataCoverageService:
         )
         refreshed = False
         if not items and refresh_if_empty:
-            await self.refresh_local_csv_coverage(
-                asset_type=asset_type,
-                symbol=symbol,
-                timeframe=timeframe,
-                limit=max(limit, 1),
-            )
+            if provider == "akshare_data":
+                await self.refresh_warehouse_coverage(
+                    asset_type=asset_type,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    limit=max(limit, 1),
+                )
+            else:
+                await self.refresh_local_csv_coverage(
+                    asset_type=asset_type,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    limit=max(limit, 1),
+                )
             items = await self._query_coverage(
                 asset_type=asset_type,
                 symbol=symbol,
@@ -195,6 +246,105 @@ class MarketDataCoverageService:
             items=responses,
             refreshed=True,
         )
+
+    async def refresh_warehouse_coverage(
+        self,
+        *,
+        asset_type: str | None = None,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+        limit: int = 500,
+    ) -> MarketDataCoverageMatrixResponse:
+        """Persist coverage summaries for the live AkShare warehouse sources."""
+        if timeframe and timeframe != "1d":
+            return MarketDataCoverageMatrixResponse(total=0, items=[], refreshed=True)
+
+        engine = _get_akshare_data_engine()
+        if engine is None:
+            raise RuntimeError("AKSHARE_DATA_DATABASE_URL is not configured")
+
+        profiles = [
+            profile
+            for profile in _WAREHOUSE_COVERAGE_PROFILES
+            if asset_type is None or profile.asset_type == asset_type
+        ]
+        responses: list[MarketDataCoverageResponse] = []
+        per_profile_limit = max(1, min(limit, 1000))
+        for profile in profiles:
+            rows = await self._warehouse_coverage_rows(
+                engine=engine,
+                profile=profile,
+                symbol=symbol,
+                limit=per_profile_limit,
+            )
+            for row in rows:
+                end_date = _iso_date_text(row.get("end_date"))
+                quality_status = _warehouse_quality_status(profile.asset_type, end_date)
+                values = {
+                    "asset_type": profile.asset_type,
+                    "symbol": str(row["symbol"]),
+                    "timeframe": profile.timeframe,
+                    "provider": "akshare_data",
+                    "start_date": _iso_date_text(row.get("start_date")),
+                    "end_date": end_date,
+                    "row_count": int(row.get("row_count") or 0),
+                    "missing_count": 0,
+                    "missing_ratio": 0.0,
+                    "latest_bar_time": end_date,
+                    "quality_status": quality_status,
+                    "source_path": f"akshare_data.{profile.table_name}",
+                }
+                model = await self._upsert_coverage(values)
+                reports = _warehouse_freshness_reports(
+                    asset_type=profile.asset_type,
+                    symbol=values["symbol"],
+                    timeframe=profile.timeframe,
+                    latest_date=end_date,
+                    quality_status=quality_status,
+                )
+                await self._replace_quality_reports(
+                    asset_type=profile.asset_type,
+                    symbol=values["symbol"],
+                    timeframe=profile.timeframe,
+                    provider="akshare_data",
+                    reports=reports,
+                )
+                responses.append(MarketDataCoverageResponse.model_validate(model))
+        return MarketDataCoverageMatrixResponse(
+            total=len(responses),
+            items=responses,
+            refreshed=True,
+        )
+
+    @staticmethod
+    async def _warehouse_coverage_rows(
+        *,
+        engine: Any,
+        profile: WarehouseCoverageProfile,
+        symbol: str | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        symbol_expression = profile.symbol_expression
+        query = f"""
+            SELECT
+                {symbol_expression} AS symbol,
+                MIN({profile.date_column}) AS start_date,
+                MAX({profile.date_column}) AS end_date,
+                COUNT(*) AS row_count
+            FROM {profile.table_name}
+            WHERE {symbol_expression} IS NOT NULL
+              AND {symbol_expression} <> ''
+            GROUP BY {symbol_expression}
+            HAVING (:symbol IS NULL OR UPPER({symbol_expression}) = UPPER(:symbol))
+            ORDER BY end_date DESC, row_count DESC, symbol ASC
+            LIMIT :limit
+        """
+        async with engine.connect() as connection:
+            result = await connection.execute(
+                text(query),
+                {"symbol": symbol.strip() if symbol else None, "limit": limit},
+            )
+            return [dict(row) for row in result.mappings().all()]
 
     async def _query_coverage(
         self,
@@ -520,6 +670,67 @@ def _parse_row_date(row: dict[str, Any]) -> date | None:
         except ValueError:
             continue
     return None
+
+
+def _iso_date_text(value: Any) -> str | None:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if value in (None, ""):
+        return None
+    parsed = _parse_row_date({"date": value})
+    return parsed.isoformat() if parsed else str(value)
+
+
+def _warehouse_quality_status(asset_type: str, latest_date: str | None) -> str:
+    if not latest_date:
+        return "unknown"
+    try:
+        latest = date.fromisoformat(latest_date[:10])
+    except ValueError:
+        return "unknown"
+    age = max((date.today() - latest).days, 0)
+    tolerance = _WAREHOUSE_FRESHNESS_DAYS.get(asset_type, 5)
+    if age > tolerance * 2:
+        return "failed"
+    if age > tolerance:
+        return "warning"
+    return "pass"
+
+
+def _warehouse_freshness_reports(
+    *,
+    asset_type: str,
+    symbol: str,
+    timeframe: str,
+    latest_date: str | None,
+    quality_status: str,
+) -> list[dict[str, Any]]:
+    if quality_status not in {"warning", "failed"}:
+        return []
+    age_days = None
+    if latest_date:
+        try:
+            age_days = max((date.today() - date.fromisoformat(latest_date[:10])).days, 0)
+        except ValueError:
+            pass
+    return [
+        {
+            "asset_type": asset_type,
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "provider": "akshare_data",
+            "issue_type": "stale_market_data",
+            "severity": "error" if quality_status == "failed" else "warning",
+            "issue_count": 1,
+            "sample_payload": {
+                "latest_date": latest_date,
+                "age_days": age_days,
+                "max_age_days": _WAREHOUSE_FRESHNESS_DAYS.get(asset_type, 5),
+            },
+        }
+    ]
 
 
 def _parse_row_datetime(row: dict[str, Any]) -> datetime | None:

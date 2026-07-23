@@ -652,6 +652,39 @@ def _stop_runner_heartbeat(heartbeat: tuple[threading.Event, threading.Thread]) 
     thread.join(timeout=2.0)
 
 
+def _start_market_subscription_keepalive(
+    store,
+    symbol: str,
+    interval_seconds: float = 30.0,
+) -> tuple[threading.Event, threading.Thread]:
+    """Re-register the strategy when an API restart recreates its gateway."""
+    stop_event = threading.Event()
+
+    def _loop() -> None:
+        while not stop_event.is_set():
+            try:
+                api = getattr(store, "_api", None)
+                if api is not None and hasattr(api, "subscribe"):
+                    api.subscribe(symbol)
+            except Exception as exc:
+                logger.warning("Market subscription keepalive failed for %s: %s", symbol, exc)
+            stop_event.wait(max(float(interval_seconds), 5.0))
+
+    thread = threading.Thread(target=_loop, name="market-subscription-keepalive", daemon=True)
+    thread.start()
+    return stop_event, thread
+
+
+def _stop_market_subscription_keepalive(
+    keepalive: tuple[threading.Event, threading.Thread] | None,
+) -> None:
+    if keepalive is None:
+        return
+    stop_event, thread = keepalive
+    stop_event.set()
+    thread.join(timeout=2.0)
+
+
 def _gateway_timeout_defaults(exchange_type: str) -> tuple[float, float]:
     if exchange_type == "CTP":
         return 60.0, 20.0
@@ -1177,9 +1210,11 @@ def run():
     log_dir = BASE_DIR / "logs"
     heartbeat = _start_runner_heartbeat(log_dir, _resolve_heartbeat_interval(config))
     store = None
+    subscription_keepalive = None
     try:
         store = BtApiStore(provider=provider, **store_cfg)
         store.start()
+        subscription_keepalive = _start_market_subscription_keepalive(store, symbol)
         bt_timeframe, compression = _resolve_timeframe(config)
         data = BtApiFeed(
             store=store,
@@ -1240,6 +1275,7 @@ def run():
             stop_timer.cancel()
     finally:
         try:
+            _stop_market_subscription_keepalive(subscription_keepalive)
             if store is not None and getattr(store, "is_connected", False):
                 store.stop()
         finally:

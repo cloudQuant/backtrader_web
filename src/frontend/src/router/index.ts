@@ -73,8 +73,7 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'research/tools',
-        name: 'ResearchQuantTools',
-        component: () => import('@/views/QuantToolsPage.vue'),
+        redirect: { name: 'ResearchWorkspaces' },
       },
       {
         path: 'ai',
@@ -481,8 +480,7 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'quant-tools',
-        name: 'QuantTools',
-        component: () => import('@/views/QuantToolsPage.vue'),
+        redirect: { name: 'ResearchWorkspaces' },
       },
       {
         path: toAppChildPath(LEGACY_PATHS.knowledgeBase),

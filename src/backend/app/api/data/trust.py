@@ -128,6 +128,32 @@ async def refresh_local_coverage(
 
 
 @router.post(
+    "/coverage/refresh-warehouse",
+    response_model=MarketDataCoverageMatrixResponse,
+    summary="Refresh AkShare warehouse coverage matrix",
+)
+async def refresh_warehouse_coverage(
+    asset_type: str | None = Query(None),
+    symbol: str | None = Query(None),
+    timeframe: str | None = Query(None),
+    limit: int = Query(500, ge=1, le=2000),
+    current_user: typing.Any = Depends(get_current_user),
+) -> typing.Any:
+    del current_user
+    try:
+        return await get_market_data_coverage_service().refresh_warehouse_coverage(
+            asset_type=asset_type,
+            symbol=symbol,
+            timeframe=timeframe,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _service_unavailable(exc) from exc
+
+
+@router.post(
     "/precheck",
     response_model=DataPrecheckResponse,
     summary="Run market data precheck for a backtest",

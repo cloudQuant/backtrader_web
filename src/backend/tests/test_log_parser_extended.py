@@ -357,6 +357,23 @@ class TestParseTextTradeLoggerLogs:
         assert result["equity_curve"] == [100000.0, 100100.0]
         assert result["cash_curve"] == [100000.0, 99900.0]
 
+    def test_parse_text_value_log_prefers_log_time(self, tmp_path: Path):
+        (tmp_path / "value.log").write_text(
+            "2026-04-10T07:57:30.133+08:00 | datetime=2020-01-02 00:00:00 | value=100000.00 | cash=100000.00\n"
+            "2026-04-10T07:57:30.134+08:00 | datetime=2020-01-03 00:00:00 | value=100100.00 | cash=99900.00\n",
+            encoding="utf-8",
+        )
+
+        result = parse_value_log(tmp_path, prefer_log_time=True)
+
+        assert result["dates"] == ["2026-04-10", "2026-04-10"]
+        assert result["datetimes"] == [
+            "2026-04-10T07:57:30.133+08:00",
+            "2026-04-10T07:57:30.134+08:00",
+        ]
+        assert result["equity_curve"] == [100000.0, 100100.0]
+        assert result["cash_curve"] == [100000.0, 99900.0]
+
     def test_parse_text_bar_and_indicator_logs(self, tmp_path: Path):
         (tmp_path / "value.log").write_text(
             "2026-04-10T07:57:30.133+08:00 | datetime=2020-01-02 00:00:00 | value=100000.00 | cash=100000.00\n"

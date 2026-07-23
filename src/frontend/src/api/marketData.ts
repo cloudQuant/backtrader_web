@@ -165,6 +165,13 @@ export const marketDataApi = {
       params,
     })
   },
+  refreshWarehouseCoverage(params: MarketDataCoverageRefreshQuery = {}) {
+    return request.post<MarketDataCoverageMatrixResponse>(
+      '/data/trust/coverage/refresh-warehouse',
+      undefined,
+      { params },
+    )
+  },
   runPrecheck(data: DataPrecheckRequest, options: { signal?: AbortSignal } = {}) {
     return request.post<DataPrecheckResponse, DataPrecheckRequest>('/data/trust/precheck', data, options)
   },

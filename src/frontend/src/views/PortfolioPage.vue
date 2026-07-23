@@ -515,8 +515,8 @@
                   class="portfolio-chart-stack"
                 >
                   <div
-                    ref="equityChartRef"
-                    class="portfolio-chart portfolio-chart--equity"
+                    ref="pnlChartRef"
+                    class="portfolio-chart portfolio-chart--pnl"
                   />
                   <div
                     ref="drawdownChartRef"
@@ -600,7 +600,7 @@ import type {
   TradingPositionManagerItem,
   Workspace,
 } from '@/types/workspace'
-import { PORTFOLIO_DRAWDOWN_AREA_COLOR, PORTFOLIO_DRAWDOWN_COLOR, PORTFOLIO_EQUITY_COLOR } from '@/constants/chartColors'
+import { PORTFOLIO_DRAWDOWN_AREA_COLOR, PORTFOLIO_DRAWDOWN_COLOR } from '@/constants/chartColors'
 
 const { t } = useI18n()
 
@@ -627,20 +627,25 @@ interface EquityCurveSelection {
   name: string
   dates: string[]
   values: number[]
+  cumulativePnl: number[]
   drawdown: number[]
 }
 
 const selectedEquityCurve = computed<EquityCurveSelection>(() => {
   const data = equityData.value
-  if (!data) return { name: '', dates: [], values: [], drawdown: [] }
+  if (!data) return { name: '', dates: [], values: [], cumulativePnl: [], drawdown: [] }
 
   let name = t('portfolio.seriesTotalEquity')
   let sourceValues = data.total_equity
+  let sourcePnlValues = data.cumulative_pnl ?? []
+  let sourceDrawdownValues: number[] | undefined = data.total_drawdown
   if (selectedEquitySeries.value !== 'portfolio') {
     const strategy = data.strategies.find(item => item.instance_id === selectedEquitySeries.value)
-    if (!strategy) return { name: '', dates: [], values: [], drawdown: [] }
+    if (!strategy) return { name: '', dates: [], values: [], cumulativePnl: [], drawdown: [] }
     name = strategy.strategy_name
     sourceValues = strategy.values
+    sourcePnlValues = strategy.pnl_values ?? []
+    sourceDrawdownValues = undefined
   }
 
   const pointCount = Math.min(data.dates.length, sourceValues.length)
@@ -650,23 +655,37 @@ const selectedEquityCurve = computed<EquityCurveSelection>(() => {
   const firstValueIndex = normalizedValues.findIndex(value => (
     Number.isFinite(value) && Math.abs(value) > POSITION_EPSILON
   ))
-  if (firstValueIndex === -1) return { name, dates: [], values: [], drawdown: [] }
+  if (firstValueIndex === -1) return { name, dates: [], values: [], cumulativePnl: [], drawdown: [] }
 
   const values = normalizedValues.slice(firstValueIndex)
   const dates = data.dates.slice(firstValueIndex, pointCount)
-  let peak = values[0]
-  const drawdown = values.map(value => {
+  const cumulativePnl = sourcePnlValues
+    .slice(0, pointCount)
+    .map(value => Number(value || 0))
+    .slice(firstValueIndex)
+  const suppliedDrawdown = sourceDrawdownValues
+    ?.slice(0, pointCount)
+    .map(value => Number(value))
+  const drawdown = suppliedDrawdown?.length === pointCount
+    && suppliedDrawdown.every(value => Number.isFinite(value))
+    ? suppliedDrawdown.slice(firstValueIndex)
+    : calculateDrawdown(values)
+  return { name, dates, values, cumulativePnl, drawdown }
+})
+
+function calculateDrawdown(values: number[]) {
+  let peak = values[0] ?? 0
+  return values.map(value => {
     peak = Math.max(peak, value)
     return peak > 0 && value < peak ? -((peak - value) / peak) : 0
   })
-  return { name, dates, values, drawdown }
-})
+}
 
 // Chart refs
-const equityChartRef = ref<HTMLElement | null>(null)
+const pnlChartRef = ref<HTMLElement | null>(null)
 const drawdownChartRef = ref<HTMLElement | null>(null)
 const allocationChartRef = ref<HTMLElement | null>(null)
-let equityChart: echarts.ECharts | null = null
+let pnlChart: echarts.ECharts | null = null
 let drawdownChart: echarts.ECharts | null = null
 let allocationChart: echarts.ECharts | null = null
 let echartsLoader: Promise<typeof import('echarts')> | null = null
@@ -777,9 +796,7 @@ function emptyPositionSummary(): PositionSummary {
 }
 
 const loadedTabs = ref<Set<string>>(new Set(['workspaces']))
-const portfolioWorkspaces = computed(() => (
-  tradingWorkspaces.value.length > 0 ? tradingWorkspaces.value : runningWorkspaces.value
-))
+const portfolioWorkspaces = computed(() => runningWorkspaces.value)
 const portfolioWorkspaceIds = computed(() => portfolioWorkspaces.value.map(workspace => workspace.id))
 const selectedPositionValue = computed(() => (
   positionSummary.value.gross_market_value
@@ -946,7 +963,7 @@ async function loadTabData(tab: string) {
     } else if (tab === 'trades') {
       await loadWorkspaceTrades()
     } else if (tab === 'equity') {
-      equityData.value = await portfolioApi.getEquity(portfolioWorkspaceIds.value)
+      equityData.value = await portfolioApi.getEquity(portfolioWorkspaceIds.value, false)
       selectedEquitySeries.value = 'portfolio'
     } else if (tab === 'allocation') {
       allocationItems.value = (await portfolioApi.getAllocation(portfolioWorkspaceIds.value)).items
@@ -985,7 +1002,7 @@ async function loadWorkspaceTrades() {
     return
   }
 
-  const result = await portfolioApi.getTrades(1000, portfolioWorkspaceIds.value)
+  const result = await portfolioApi.getTrades(1000, portfolioWorkspaceIds.value, false)
   trades.value = result.trades
     .filter(item => isTradeInSelectedWorkspaces(item, workspaces))
     .sort((a, b) => tradeSortKey(b).localeCompare(tradeSortKey(a)))
@@ -1088,6 +1105,9 @@ function hasOpenPosition(item: PositionItem) {
 }
 
 function isTradeInSelectedWorkspaces(item: TradeItem, workspaces: Workspace[]) {
+  if (item.workspace_id) {
+    return workspaces.some(workspace => workspace.id === item.workspace_id)
+  }
   const strategyName = String(item.strategy_name || '')
   return workspaces.some(workspace => (
     strategyName === workspace.name || strategyName.startsWith(`${workspace.name} /`)
@@ -1113,53 +1133,69 @@ function chartThemeColors() {
 
 // ---- Charts ----
 
-async function renderEquityChart() {
+async function renderPnlChart() {
   const curve = selectedEquityCurve.value
-  if (!equityChartRef.value || curve.values.length === 0) return
+  if (!pnlChartRef.value || curve.values.length === 0) return
   const echarts = await loadEcharts()
-  if (equityChart && equityChart.getDom() !== equityChartRef.value) {
-    equityChart.dispose()
-    equityChart = null
+  if (pnlChart && pnlChart.getDom() !== pnlChartRef.value) {
+    pnlChart.dispose()
+    pnlChart = null
   }
-  if (!equityChart) equityChart = echarts.init(equityChartRef.value)
+  if (!pnlChart) pnlChart = echarts.init(pnlChartRef.value)
 
   const colors = chartThemeColors()
-
-  equityChart.setOption({
+  const latestPnl = curve.cumulativePnl[curve.cumulativePnl.length - 1] ?? 0
+  const pnlColor = latestPnl >= 0
+    ? readThemeColor('--success-color', '#238636')
+    : readThemeColor('--danger-color', '#cf222e')
+  pnlChart.setOption({
+    title: {
+      text: '累计 P&L',
+      left: 80,
+      top: 8,
+      textStyle: { color: colors.primaryText, fontSize: 13, fontWeight: 600 },
+    },
     tooltip: {
       trigger: 'axis',
       backgroundColor: colors.surface,
       borderColor: colors.border,
       textStyle: { color: colors.primaryText },
+      formatter: (params: { axisValue?: string; value?: number } | { axisValue?: string; value?: number }[]) => {
+        const p = Array.isArray(params) ? params[0] : params
+        return `${p?.axisValue ?? ''}<br/>累计 P&L: ${formatSignedMoney(Number(p?.value ?? 0))}`
+      },
     },
-    grid: { left: 80, right: 20, top: 20, bottom: 30 },
+    grid: { left: 80, right: 20, top: 38, bottom: 30 },
     xAxis: {
       type: 'category',
       data: curve.dates,
       boundaryGap: false,
-      axisLabel: { color: colors.text },
-      axisLine: { lineStyle: { color: colors.border } },
-      axisTick: { lineStyle: { color: colors.border } },
+      show: false,
     },
     yAxis: {
       type: 'value',
-      // The curve is trimmed to its first valid balance. Keep the visual scale
-      // aligned with those values instead of forcing the axis to include zero.
-      scale: true,
       axisLabel: { color: colors.text, formatter: (v: number) => formatMoney(v) },
       axisLine: { lineStyle: { color: colors.border } },
       splitLine: { lineStyle: { color: colors.border } },
     },
     series: [{
-      name: curve.name,
+      name: '累计 P&L',
       type: 'line',
-      data: curve.values,
+      data: curve.cumulativePnl,
+      areaStyle: { color: pnlColor, opacity: 0.1 },
+      lineStyle: { color: pnlColor, width: 1.5 },
+      itemStyle: { color: pnlColor },
       symbol: 'none',
-      lineStyle: { width: 2, color: PORTFOLIO_EQUITY_COLOR },
-      itemStyle: { color: PORTFOLIO_EQUITY_COLOR },
+      markLine: {
+        silent: true,
+        symbol: 'none',
+        lineStyle: { color: colors.text, type: 'dashed', opacity: 0.5 },
+        label: { show: false },
+        data: [{ yAxis: 0 }],
+      },
     }],
   }, true)
-  equityChart.resize()
+  pnlChart.resize()
 }
 
 async function renderDrawdownChart() {
@@ -1174,6 +1210,12 @@ async function renderDrawdownChart() {
 
   const colors = chartThemeColors()
   drawdownChart.setOption({
+    title: {
+      text: '回撤',
+      left: 80,
+      top: 8,
+      textStyle: { color: colors.primaryText, fontSize: 13, fontWeight: 600 },
+    },
     tooltip: {
       trigger: 'axis',
       backgroundColor: colors.surface,
@@ -1184,20 +1226,23 @@ async function renderDrawdownChart() {
         return `${p?.axisValue ?? ''}<br/>${t('portfolio.drawdownTooltip', { value: ((p?.value ?? 0) * 100).toFixed(2) })}`
       },
     },
-    grid: { left: 80, right: 20, top: 10, bottom: 30 },
+    grid: { left: 80, right: 20, top: 38, bottom: 30 },
     xAxis: {
       type: 'category',
       data: curve.dates,
       boundaryGap: false,
-      show: false,
+      axisLabel: { color: colors.text },
+      axisLine: { lineStyle: { color: colors.border } },
+      axisTick: { lineStyle: { color: colors.border } },
     },
     yAxis: {
       type: 'value',
-      axisLabel: { color: colors.text, formatter: (v: number) => (v * 100).toFixed(1) + '%' },
+      axisLabel: { color: colors.text, formatter: (v: number) => `${(v * 100).toFixed(1)}%` },
       axisLine: { lineStyle: { color: colors.border } },
       splitLine: { lineStyle: { color: colors.border } },
     },
     series: [{
+      name: '回撤',
       type: 'line',
       data: curve.drawdown,
       areaStyle: { color: PORTFOLIO_DRAWDOWN_AREA_COLOR },
@@ -1253,7 +1298,7 @@ async function renderAllocationChart() {
 }
 
 function handleResize() {
-  equityChart?.resize()
+  pnlChart?.resize()
   drawdownChart?.resize()
   allocationChart?.resize()
 }
@@ -1262,7 +1307,7 @@ watch(activeTab, async (tab) => {
   await loadTabData(tab)
   if (tab === 'equity') {
     nextTick(() => {
-      void renderEquityChart()
+      void renderPnlChart()
       void renderDrawdownChart()
     })
   } else if (tab === 'allocation') {
@@ -1273,7 +1318,7 @@ watch(activeTab, async (tab) => {
 watch(selectedEquitySeries, () => {
   if (activeTab.value !== 'equity') return
   nextTick(() => {
-    void renderEquityChart()
+    void renderPnlChart()
     void renderDrawdownChart()
   })
 })
@@ -1285,7 +1330,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
-  equityChart?.dispose()
+  pnlChart?.dispose()
   drawdownChart?.dispose()
   allocationChart?.dispose()
 })
@@ -1736,6 +1781,7 @@ onBeforeUnmount(() => {
   height: 400px;
 }
 
+.portfolio-chart--pnl,
 .portfolio-chart--drawdown {
   height: 180px;
 }
@@ -1812,6 +1858,7 @@ onBeforeUnmount(() => {
     height: 320px;
   }
 
+  .portfolio-chart--pnl,
   .portfolio-chart--drawdown {
     height: 160px;
   }

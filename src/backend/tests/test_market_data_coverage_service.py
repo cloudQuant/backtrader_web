@@ -7,6 +7,7 @@ from pathlib import Path
 from app.services.market_data_coverage_service import (
     LocalCsvProfile,
     MarketDataCoverageService,
+    _warehouse_quality_status,
 )
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "iteration_184"
@@ -59,3 +60,7 @@ def test_futures_holiday_bar_is_a_blocking_calendar_violation():
     holiday = next(report for report in reports if report["issue_type"] == "futures_holiday_bar")
     assert holiday["severity"] == "error"
     assert holiday["sample_payload"]["trading_day"] == "2024-01-02"
+
+
+def test_warehouse_quality_marks_outdated_market_data_as_failed():
+    assert _warehouse_quality_status("stock", "2024-12-31") == "failed"

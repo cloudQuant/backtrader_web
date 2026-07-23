@@ -1,6 +1,6 @@
 """Tests for live_instance_service module."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -114,6 +114,81 @@ class TestListInstances:
         result = list_instances(user_id=None, **deps)
         assert result[0]["status"] == "stopped"
 
+    def test_refreshes_updated_at_for_running_instance_when_day_changes(self, monkeypatch):
+        instances = {
+            "inst-1": {
+                "strategy_id": "s1",
+                "status": "running",
+                "pid": 123,
+                "updated_at": "2026-06-23 09:00:00",
+            },
+        }
+        save_instances = MagicMock()
+        monkeypatch.setattr(
+            "app.services.live_trading.instance.instance_timestamp",
+            lambda: "2026-06-24 10:00:00",
+        )
+        deps = _make_deps(
+            load_instances=MagicMock(return_value=instances),
+            save_instances=save_instances,
+            is_pid_alive=MagicMock(return_value=True),
+        )
+        list_instances(user_id=None, **deps)
+        assert instances["inst-1"]["updated_at"] == "2026-06-24 10:00:00"
+        save_instances.assert_called_once()
+
+    def test_does_not_refresh_updated_at_if_same_day(self, monkeypatch):
+        instances = {
+            "inst-1": {
+                "strategy_id": "s1",
+                "status": "running",
+                "pid": 123,
+                "updated_at": "2026-06-24 09:00:00",
+            },
+        }
+        save_instances = MagicMock()
+        monkeypatch.setattr(
+            "app.services.live_trading.instance.instance_timestamp",
+            lambda: "2026-06-24 10:00:00",
+        )
+        deps = _make_deps(
+            load_instances=MagicMock(return_value=instances),
+            save_instances=save_instances,
+            is_pid_alive=MagicMock(return_value=True),
+        )
+        list_instances(user_id=None, **deps)
+        assert instances["inst-1"]["updated_at"] == "2026-06-24 09:00:00"
+        assert save_instances.call_count == 1
+
+    def test_marks_orphan_running_process_as_started_now(self, monkeypatch):
+        from pathlib import Path
+
+        instances = {
+            "inst-1": {
+                "strategy_id": "s1",
+                "status": "stopped",
+                "pid": None,
+                "started_at": "2024-01-01 00:00:00",
+                "updated_at": "2026-06-23 09:00:00",
+            },
+        }
+        save_instances = MagicMock()
+        monkeypatch.setattr(
+            "app.services.live_trading.instance.instance_timestamp",
+            lambda: "2026-06-24 10:00:00",
+        )
+        deps = _make_deps(
+            load_instances=MagicMock(return_value=instances),
+            save_instances=save_instances,
+            is_pid_alive=MagicMock(return_value=True),
+            resolve_strategy_dir=MagicMock(return_value=Path("/strategies/s1")),
+            scan_running_strategy_pids=MagicMock(return_value={str(Path("/strategies/s1/run.py")): 9001}),
+        )
+        result = list_instances(user_id=None, **deps)
+        assert result[0]["status"] == "running"
+        assert result[0]["started_at"] == "2026-06-24 10:00:00"
+        assert save_instances.called
+
     def test_deduplicates_running_instances_for_same_runtime_dir(self, tmp_path):
         runtime_dir = tmp_path / "runtime"
         runtime_dir.mkdir()
@@ -149,6 +224,101 @@ class TestListInstances:
         assert len(result) == 1
         assert result[0]["id"] == "new-inst"
         assert "old-inst" not in instances
+        save_instances.assert_called()
+
+    def test_running_instance_without_matched_process_keeps_running_when_pid_alive(self, tmp_path):
+        from pathlib import Path
+
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        (strategy_dir / "run.py").write_text("print('ok')", encoding="utf-8")
+        instances = {
+            "inst-1": {
+                "strategy_id": "s1",
+                "status": "running",
+                "pid": 123,
+                "updated_at": "2026-06-24 09:00:00",
+            },
+        }
+        save_instances = MagicMock()
+        deps = _make_deps(
+            load_instances=MagicMock(return_value=instances),
+            save_instances=save_instances,
+            is_pid_alive=MagicMock(return_value=True),
+            resolve_strategy_dir=MagicMock(return_value=Path(strategy_dir)),
+            scan_running_strategy_pids=MagicMock(return_value={str(Path("/other/run.py")): 999}),
+        )
+
+        result = list_instances(user_id=None, **deps)
+
+        assert result[0]["status"] == "running"
+        assert result[0]["pid"] == 123
+        save_instances.assert_called()
+
+    def test_running_instance_refreshes_stale_started_at(self, tmp_path):
+        from pathlib import Path
+
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        (strategy_dir / "run.py").write_text("print('ok')", encoding="utf-8")
+        instances = {
+            "inst-1": {
+                "strategy_id": "s1",
+                "status": "running",
+                "pid": 9999,
+                "started_at": "2024-01-01 00:00:00",
+                "updated_at": "2026-06-24 09:00:00",
+            },
+        }
+        save_instances = MagicMock()
+        deps = _make_deps(
+            load_instances=MagicMock(return_value=instances),
+            save_instances=save_instances,
+            is_pid_alive=MagicMock(return_value=True),
+            resolve_strategy_dir=MagicMock(return_value=Path(strategy_dir)),
+            scan_running_strategy_pids=MagicMock(return_value={str(Path("/other/run.py")): 111}),
+        )
+
+        with patch(
+            "app.services.live_trading.instance._infer_started_at_from_pid",
+            return_value="2026-06-20 10:00:00",
+        ):
+            result = list_instances(user_id=None, **deps)
+
+        assert result[0]["status"] == "running"
+        assert result[0]["pid"] == 9999
+        assert result[0]["started_at"] == "2026-06-20 10:00:00"
+        assert save_instances.called
+
+    def test_running_instance_pid_mismatch_is_corrected_by_process_scan(self, tmp_path):
+        from pathlib import Path
+
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        run_py = strategy_dir / "run.py"
+        run_py.write_text("print('ok')", encoding="utf-8")
+        instances = {
+            "inst-1": {
+                "strategy_id": "s1",
+                "status": "running",
+                "pid": 123,
+                "updated_at": "2026-06-23 09:00:00",
+            },
+        }
+        save_instances = MagicMock()
+        deps = _make_deps(
+            load_instances=MagicMock(return_value=instances),
+            save_instances=save_instances,
+            is_pid_alive=MagicMock(return_value=True),
+            resolve_strategy_dir=MagicMock(return_value=Path(strategy_dir)),
+            scan_running_strategy_pids=MagicMock(return_value={str(run_py): 9001}),
+        )
+
+        result = list_instances(user_id=None, **deps)
+
+        assert result[0]["status"] == "running"
+        assert result[0]["pid"] == 9001
+        assert "started_at" in result[0]
         save_instances.assert_called()
 
 
@@ -421,6 +591,204 @@ class TestGetInstance:
             find_latest_log_dir=MagicMock(return_value=None),
         )
         assert result["status"] == "stopped"
+
+    def test_refreshes_updated_at_for_running_instance_when_day_changes(self, monkeypatch):
+        instances = {
+            "inst-1": {
+                "strategy_id": "s1",
+                "status": "running",
+                "pid": 123,
+                "updated_at": "2026-06-23 09:00:00",
+            },
+        }
+        save_instances = MagicMock()
+        monkeypatch.setattr(
+            "app.services.live_trading.instance.instance_timestamp",
+            lambda: "2026-06-24 10:00:00",
+        )
+        from pathlib import Path
+
+        result = get_instance(
+            instance_id="inst-1",
+            user_id=None,
+            load_instances=MagicMock(return_value=instances),
+            save_instances=save_instances,
+            is_pid_alive=MagicMock(return_value=True),
+            scan_running_strategy_pids=MagicMock(return_value={}),
+            resolve_strategy_dir=MagicMock(return_value=Path("/s")),
+            find_latest_log_dir=MagicMock(return_value=None),
+        )
+        assert result["updated_at"] == "2026-06-24 10:00:00"
+        save_instances.assert_called_once()
+
+    def test_does_not_refresh_updated_at_if_same_day(self, monkeypatch):
+        instances = {
+            "inst-1": {
+                "strategy_id": "s1",
+                "status": "running",
+                "pid": 123,
+                "updated_at": "2026-06-24 09:00:00",
+            },
+        }
+        save_instances = MagicMock()
+        monkeypatch.setattr(
+            "app.services.live_trading.instance.instance_timestamp",
+            lambda: "2026-06-24 10:00:00",
+        )
+        from pathlib import Path
+
+        result = get_instance(
+            instance_id="inst-1",
+            user_id=None,
+            load_instances=MagicMock(return_value=instances),
+            save_instances=save_instances,
+            is_pid_alive=MagicMock(return_value=True),
+            scan_running_strategy_pids=MagicMock(return_value={}),
+            resolve_strategy_dir=MagicMock(return_value=Path("/s")),
+            find_latest_log_dir=MagicMock(return_value=None),
+        )
+        assert result["updated_at"] == "2026-06-24 09:00:00"
+        assert save_instances.call_count == 1
+
+    def test_restores_started_at_when_instance_becomes_running(self, monkeypatch):
+        instances = {
+            "inst-1": {
+                "strategy_id": "s1",
+                "status": "stopped",
+                "pid": None,
+                "started_at": "2024-01-01 00:00:00",
+                "updated_at": "2026-06-23 09:00:00",
+            },
+        }
+        save_instances = MagicMock()
+        monkeypatch.setattr(
+            "app.services.live_trading.instance.instance_timestamp",
+            lambda: "2026-06-24 10:00:00",
+        )
+        from pathlib import Path
+
+        result = get_instance(
+            instance_id="inst-1",
+            user_id=None,
+            load_instances=MagicMock(return_value=instances),
+            save_instances=save_instances,
+            is_pid_alive=MagicMock(return_value=True),
+            scan_running_strategy_pids=MagicMock(return_value={str(Path("/s/run.py")): 9001}),
+            resolve_strategy_dir=MagicMock(return_value=Path("/s")),
+            find_latest_log_dir=MagicMock(return_value=None),
+        )
+        assert result["status"] == "running"
+        assert result["started_at"] == "2026-06-24 10:00:00"
+        assert save_instances.called
+
+    def test_running_instance_with_mismatched_pid_is_corrected_by_scan(self, tmp_path, monkeypatch):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        run_py = strategy_dir / "run.py"
+        run_py.write_text("print('ok')", encoding="utf-8")
+        instances = {
+            "inst-1": {
+                "strategy_id": "s1",
+                "status": "running",
+                "pid": 123,
+                "updated_at": "2026-06-23 09:00:00",
+            },
+        }
+        save_instances = MagicMock()
+        monkeypatch.setattr(
+            "app.services.live_trading.instance.instance_timestamp",
+            lambda: "2026-06-24 10:00:00",
+        )
+
+        result = get_instance(
+            instance_id="inst-1",
+            user_id=None,
+            load_instances=MagicMock(return_value=instances),
+            save_instances=save_instances,
+            is_pid_alive=MagicMock(return_value=True),
+            scan_running_strategy_pids=MagicMock(return_value={str(run_py): 9001}),
+            resolve_strategy_dir=MagicMock(return_value=tmp_path / "strategy"),
+            find_latest_log_dir=MagicMock(return_value=None),
+        )
+
+        assert result is not None
+        assert result["status"] == "running"
+        assert result["pid"] == 9001
+        assert result["started_at"] == "2026-06-24 10:00:00"
+        save_instances.assert_called_once()
+
+    def test_running_instance_with_no_scan_match_keeps_running_when_pid_alive(self, monkeypatch, tmp_path):
+        from pathlib import Path
+
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        (strategy_dir / "run.py").write_text("print('ok')", encoding="utf-8")
+        instances = {
+            "inst-1": {
+                "strategy_id": "s1",
+                "status": "running",
+                "pid": 123,
+                "updated_at": "2026-06-23 09:00:00",
+            },
+        }
+        save_instances = MagicMock()
+        monkeypatch.setattr(
+            "app.services.live_trading.instance.instance_timestamp",
+            lambda: "2026-06-24 10:00:00",
+        )
+
+        result = get_instance(
+            instance_id="inst-1",
+            user_id=None,
+            load_instances=MagicMock(return_value=instances),
+            save_instances=save_instances,
+            is_pid_alive=MagicMock(return_value=True),
+            scan_running_strategy_pids=MagicMock(return_value={str(Path("/other/run.py")): 9001}),
+            resolve_strategy_dir=MagicMock(return_value=tmp_path / "strategy"),
+            find_latest_log_dir=MagicMock(return_value=None),
+        )
+
+        assert result is not None
+        assert result["status"] == "running"
+        assert result["pid"] == 123
+        save_instances.assert_called_once()
+
+    def test_running_instance_refreshes_stale_started_at_from_pid(self, tmp_path):
+        from pathlib import Path
+
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        (strategy_dir / "run.py").write_text("print('ok')", encoding="utf-8")
+        instances = {
+            "inst-1": {
+                "strategy_id": "s1",
+                "status": "running",
+                "pid": 9999,
+                "started_at": "2024-01-01 00:00:00",
+                "updated_at": "2026-06-23 09:00:00",
+            },
+        }
+        save_instances = MagicMock()
+        with patch(
+            "app.services.live_trading.instance._infer_started_at_from_pid",
+            return_value="2026-06-20 10:00:00",
+        ):
+            result = get_instance(
+                instance_id="inst-1",
+                user_id=None,
+                load_instances=MagicMock(return_value=instances),
+                save_instances=save_instances,
+                is_pid_alive=MagicMock(return_value=True),
+                scan_running_strategy_pids=MagicMock(return_value={str(Path("/other/run.py")): 9001}),
+                resolve_strategy_dir=MagicMock(return_value=tmp_path / "strategy"),
+                find_latest_log_dir=MagicMock(return_value=None),
+            )
+
+        assert result is not None
+        assert result["status"] == "running"
+        assert result["pid"] == 9999
+        assert result["started_at"] == "2026-06-20 10:00:00"
+        assert save_instances.call_count == 1
 
     def test_recovers_non_running_instance_when_runtime_process_exists(self, tmp_path):
         runtime_dir = tmp_path / "workspace_units" / "ws-1" / "unit-1"

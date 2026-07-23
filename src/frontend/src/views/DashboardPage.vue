@@ -424,7 +424,7 @@ function getStrategyName(id: string): string {
 
 onMounted(async () => {
   await Promise.allSettled([
-    backtestStore.fetchResults(5),
+    backtestStore.fetchResults(100),
     strategyStore.fetchStrategies(100),
     strategyStore.fetchTemplates(),
   ])
@@ -434,9 +434,15 @@ onMounted(async () => {
   stats.value.backtestCount = backtestStore.total
   stats.value.strategyCount = strategyStore.total
   
-  if (backtestStore.results.length > 0) {
-    const returns = backtestStore.results.map(r => normalizeNumber(r.total_return))
-    const sharpes = backtestStore.results.map(r => normalizeNumber(r.sharpe_ratio))
+  const completedResults = backtestStore.results.filter(result => (
+    result.status === 'completed'
+    && Number.isFinite(result.total_return)
+    && Number.isFinite(result.sharpe_ratio)
+  ))
+
+  if (completedResults.length > 0) {
+    const returns = completedResults.map(result => normalizeNumber(result.total_return))
+    const sharpes = completedResults.map(result => normalizeNumber(result.sharpe_ratio))
     stats.value.avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length
     stats.value.bestSharpe = Math.max(...sharpes)
   }

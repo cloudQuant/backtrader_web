@@ -67,6 +67,16 @@ describe('marketDataApi', () => {
     })
   })
 
+  it('refreshWarehouseCoverage posts to the warehouse coverage endpoint', async () => {
+    vi.mocked(api.post).mockResolvedValue({ items: [], total: 0, refreshed: true })
+
+    await marketDataApi.refreshWarehouseCoverage({ asset_type: 'stock', timeframe: '1d' })
+
+    expect(api.post).toHaveBeenCalledWith('/data/trust/coverage/refresh-warehouse', undefined, {
+      params: { asset_type: 'stock', timeframe: '1d' },
+    })
+  })
+
   it('runPrecheck posts to the data trust precheck endpoint', async () => {
     vi.mocked(api.post).mockResolvedValue({ passed: true })
 

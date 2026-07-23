@@ -43,7 +43,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type * as echarts from 'echarts'
 import { Download } from '@element-plus/icons-vue'
@@ -67,7 +67,7 @@ const props = withDefaults(defineProps<{
   height: 600,
 })
 
-const { chartRef, getChart } = useChartResize(renderChart)
+const { chartRef, getChart, initChart } = useChartResize(renderChart)
 const subChartCount = ref(0)
 
 // 动态计算图表高度：每个副图增加 120px
@@ -93,7 +93,18 @@ const sellSignalCount = computed(() => props.signals.filter(signal => signal.typ
 
 watch(
   () => `${props.klines?.length}:${props.signals?.length}:${Object.keys(props.indicators ?? {}).length}`,
-  () => { renderChart() },
+  async () => {
+    if (!hasChartData.value) return
+    await nextTick()
+    if (getChart()) {
+      renderChart()
+    } else {
+      initChart()
+    }
+    await nextTick()
+    getChart()?.resize()
+  },
+  { flush: 'post' },
 )
 
 /**

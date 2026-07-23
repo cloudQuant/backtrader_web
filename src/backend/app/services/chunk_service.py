@@ -5,6 +5,8 @@ import re
 _MARKDOWN_HEADING_PATTERN = re.compile(r"^#{1,6}\s+\S")
 _NUMBERED_HEADING_PATTERN = re.compile(r"^(?:\d+|[一二三四五六七八九十]+)[.、．]\s*\S")
 _SHORT_HEADING_MAX_LENGTH = 80
+_MAX_CHUNK_CHARS = 4_000
+_SENTENCE_BOUNDARY_PATTERN = re.compile(r"(?<=[.!?。！？])\s+")
 _METADATA_LINE_PREFIXES = (
     "来源：",
     "来源:",
@@ -27,6 +29,38 @@ class ChunkService:
     substantive paragraph that follows so a title match cannot surface an
     otherwise empty-looking citation.
     """
+
+    @staticmethod
+    def _split_oversized_paragraph(paragraph: str) -> list[str]:
+        """Split unusually long HTML/PDF paragraphs into retrieval-sized chunks."""
+        normalized = paragraph.strip()
+        if len(normalized) <= _MAX_CHUNK_CHARS:
+            return [normalized]
+
+        chunks: list[str] = []
+        current = ""
+        for sentence in _SENTENCE_BOUNDARY_PATTERN.split(normalized):
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            if len(sentence) > _MAX_CHUNK_CHARS:
+                if current:
+                    chunks.append(current)
+                    current = ""
+                chunks.extend(
+                    sentence[offset : offset + _MAX_CHUNK_CHARS]
+                    for offset in range(0, len(sentence), _MAX_CHUNK_CHARS)
+                )
+                continue
+            candidate = f"{current} {sentence}".strip()
+            if current and len(candidate) > _MAX_CHUNK_CHARS:
+                chunks.append(current)
+                current = sentence
+            else:
+                current = candidate
+        if current:
+            chunks.append(current)
+        return chunks
 
     @staticmethod
     def _is_standalone_heading(paragraph: str) -> bool:
@@ -68,11 +102,11 @@ class ChunkService:
                 pending_headings.append(paragraph)
                 continue
 
+            paragraph_chunks = ChunkService._split_oversized_paragraph(paragraph)
             if pending_headings:
-                chunks.append("\n\n".join([*pending_headings, paragraph]))
+                paragraph_chunks[0] = "\n\n".join([*pending_headings, paragraph_chunks[0]])
                 pending_headings.clear()
-            else:
-                chunks.append(paragraph)
+            chunks.extend(paragraph_chunks)
 
         if pending_headings:
             # A document consisting only of headings is still searchable, but

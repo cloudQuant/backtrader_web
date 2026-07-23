@@ -426,7 +426,20 @@ describe('PortfolioPage', () => {
     expect(vm.selectedEquityCurve.name).toBe('组合总资产')
     expect(vm.selectedEquityCurve.dates).toEqual(['2026-06-22', '2026-06-23'])
     expect(vm.selectedEquityCurve.values).toEqual([100000, 101500])
-    expect(vm.selectedEquityCurve.drawdown).toEqual([0, 0])
+    expect(vm.selectedEquityCurve.drawdown).toEqual([0, -0.01])
+  })
+
+  it('uses the API portfolio drawdown instead of recalculating from mixed equity history', () => {
+    const vm = doMount().vm as any
+    vm.equityData = {
+      dates: ['2026-06-20', '2026-06-21', '2026-06-22'],
+      total_equity: [100000, 500000, 120000],
+      cumulative_pnl: [0, 0, 0],
+      total_drawdown: [0, 0, -0.02],
+      strategies: [],
+    }
+
+    expect(vm.selectedEquityCurve.drawdown).toEqual([0, 0, -0.02])
   })
 
   it('switches to and trims an individual strategy equity curve', () => {

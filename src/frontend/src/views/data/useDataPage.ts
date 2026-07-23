@@ -569,7 +569,7 @@ export function useDataPage() {
   const coverageRefreshing = ref(false)
   const coverageError = ref('')
   const coverageTimeframe = ref('1d')
-  const coverageProvider = ref('local_csv')
+  const coverageProvider = ref('akshare_data')
   let marketChart: echarts.ECharts | null = null
   let instrumentOptionsRequestId = 0
   let relatedTableRequestId = 0
@@ -847,7 +847,7 @@ export function useDataPage() {
     coverageRefreshing.value = true
     coverageError.value = ''
     try {
-      const response = await marketDataApi.refreshLocalCoverage({
+      const response = await marketDataApi.refreshWarehouseCoverage({
         asset_type: form.asset_type,
         timeframe: coverageTimeframe.value || undefined,
         limit: 500,

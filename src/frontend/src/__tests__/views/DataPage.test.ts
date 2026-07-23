@@ -11,6 +11,7 @@ const apiMocks = vi.hoisted(() => ({
   listInstrumentOptions: vi.fn(),
   listCoverage: vi.fn(),
   refreshLocalCoverage: vi.fn(),
+  refreshWarehouseCoverage: vi.fn(),
   listTables: vi.fn(),
 }))
 
@@ -24,6 +25,7 @@ vi.mock('@/api/marketData', () => ({
     lookupInstrument: apiMocks.lookupInstrument,
     listCoverage: apiMocks.listCoverage,
     refreshLocalCoverage: apiMocks.refreshLocalCoverage,
+    refreshWarehouseCoverage: apiMocks.refreshWarehouseCoverage,
   },
 }))
 
@@ -217,7 +219,7 @@ describe('DataPage', () => {
           asset_type: 'stock',
           symbol: '000001',
           timeframe: '1d',
-          provider: 'local_csv',
+          provider: 'akshare_data',
           start_date: '2026-01-01',
           end_date: '2026-06-19',
           row_count: 120,
@@ -231,6 +233,11 @@ describe('DataPage', () => {
       ],
     })
     apiMocks.refreshLocalCoverage.mockResolvedValue({
+      total: 0,
+      refreshed: true,
+      items: [],
+    })
+    apiMocks.refreshWarehouseCoverage.mockResolvedValue({
       total: 0,
       refreshed: true,
       items: [],

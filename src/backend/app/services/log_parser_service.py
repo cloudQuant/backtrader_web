@@ -351,7 +351,27 @@ def find_latest_log_dir(strategy_dir: Path) -> Path | None:
     return Path(latest_log_dir) if latest_log_dir is not None else None
 
 
-def parse_value_log(log_dir: Path) -> dict[str, Any]:
+def _value_row_time(row: dict[str, Any], *, prefer_log_time: bool = False) -> str:
+    """Return the preferred timestamp field for a parsed value-log row."""
+    keys = (
+        "log_time",
+        "dt",
+        "datetime",
+        "event_time",
+    ) if prefer_log_time else (
+        "dt",
+        "datetime",
+        "event_time",
+        "log_time",
+    )
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return _normalize_dt_text(value)
+    return ""
+
+
+def parse_value_log(log_dir: Path, *, prefer_log_time: bool = False) -> dict[str, Any]:
     """Parse value.log and return equity curve data.
 
     Args:
@@ -376,9 +396,7 @@ def parse_value_log(log_dir: Path) -> dict[str, Any]:
     previous_equity: float | None = None
 
     for row in rows:
-        dt_full = _normalize_dt_text(
-            row.get("dt") or row.get("datetime") or row.get("event_time") or row.get("log_time")
-        )
+        dt_full = _value_row_time(row, prefer_log_time=prefer_log_time)
         dt = _normalize_date_text(dt_full)
         equity_value = _safe_float(row.get("value", row.get("broker_value", "0")))
         cash_value = _safe_float(row.get("cash", row.get("broker_cash", "0")))
@@ -450,6 +468,9 @@ def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
             if ref == ungrouped_index:
                 ungrouped_index += 1
             item = grouped.setdefault(ref, {"ref": ref})
+            log_time = _normalize_dt_text(row.get("log_time") or row.get("event_time"))
+            if log_time:
+                item["log_time"] = log_time
             dt_value = _normalize_dt_text(
                 row.get("datetime") or row.get("event_time") or row.get("log_time")
             )
@@ -502,6 +523,7 @@ def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
             trades.append(
                 {
                     "ref": int(item.get("ref", 0)),
+                    "log_time": _normalize_dt_text(item.get("log_time")),
                     "datetime": _normalize_dt_text(item.get("dtclose")),
                     "dtopen": _normalize_dt_text(item.get("dtopen")),
                     "dtclose": _normalize_dt_text(item.get("dtclose")),
@@ -527,6 +549,7 @@ def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
         trades.append(
             {
                 "ref": int(_safe_float(row.get("ref", "0"))),
+                "log_time": _normalize_dt_text(row.get("log_time") or row.get("event_time")),
                 "datetime": _normalize_dt_text(row.get("dtclose")),
                 "dtopen": _normalize_dt_text(row.get("dtopen")),
                 "dtclose": _normalize_dt_text(row.get("dtclose")),

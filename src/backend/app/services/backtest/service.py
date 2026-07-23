@@ -890,24 +890,26 @@ class BacktestService:
         Returns:
             True if deletion succeeded, False otherwise.
         """
-        # Get task to check log directory
+        # Keep the log path until the database deletion has committed. This
+        # prevents losing diagnostics when a database constraint rejects the
+        # deletion.
+        log_path: Path | None = None
         task = await self.task_repo.get_by_id(task_id)
         if task and task.user_id == user_id:
-            # Delete persisted log directory (OPT-14: prevent disk accumulation)
             if getattr(task, "log_dir", None):
                 log_path = Path(task.log_dir)
-                if log_path.is_dir():
-                    try:
-                        shutil.rmtree(log_path, ignore_errors=True)
-                    except Exception as e:
-                        # Log deletion failure is non-critical; log and continue
-                        logger.debug("Log dir deletion failed (ignored): %s", e)
 
         # Delete task and result using task_manager
         success = await self.task_manager.delete_task_and_result(task_id, user_id)
 
         # Clear cache
         if success:
+            if log_path and log_path.is_dir():
+                try:
+                    shutil.rmtree(log_path, ignore_errors=True)
+                except Exception as e:
+                    # Log deletion failure is non-critical; log and continue.
+                    logger.debug("Log dir deletion failed (ignored): %s", e)
             await self.cache.delete(f"backtest:result:{task_id}")
             await invalidate_cache("backtests")
 

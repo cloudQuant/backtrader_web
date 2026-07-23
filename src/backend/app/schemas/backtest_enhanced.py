@@ -280,10 +280,10 @@ class BacktestResult(BaseModel):
     status: TaskStatus
 
     # Performance metrics (with range validation)
-    total_return: float = Field(0, ge=-100, le=10000, description="Total return (%)")
-    annual_return: float = Field(0, ge=-100, le=10000, description="Annualized return (%)")
+    total_return: float = Field(0, le=10000, description="Total return (%)")
+    annual_return: float = Field(0, le=10000, description="Annualized return (%)")
     sharpe_ratio: float = Field(0, description="Sharpe ratio")
-    max_drawdown: float = Field(0, ge=-100, le=100, description="Maximum drawdown (%)")
+    max_drawdown: float = Field(0, le=100, description="Maximum drawdown (%)")
     win_rate: float = Field(0, ge=0, le=100, description="Win rate (%)")
     metrics_source: str = Field("manual", description="Source of metric calculations")
     average_holding_bars: float = Field(0, description="Average holding period in bars")

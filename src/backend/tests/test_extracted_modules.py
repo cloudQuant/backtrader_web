@@ -2804,6 +2804,26 @@ class TestLiveExecutionService:
 
 
 class TestGatewayRuntimeService:
+    def test_build_subprocess_env_uses_resolved_app_debug_mode(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+
+        with patch.object(
+            gateway_runtime_service,
+            "get_settings",
+            return_value=Mock(DEBUG=True),
+        ):
+            env = gateway_runtime_service.build_subprocess_env(
+                instance_id="inst1",
+                instance={"params": {}},
+                strategy_dir=strategy_dir,
+                acquire_gateway_for_instance=lambda instance_id, instance, strategy_dir: None,
+                os_environ={"DEBUG": "false"},
+                bt_api_py_dir=tmp_path / "missing",
+            )
+
+        assert env["DEBUG"] == "true"
+
     def test_build_subprocess_env_without_gateway(self, tmp_path):
         strategy_dir = tmp_path / "strategy"
         strategy_dir.mkdir()
@@ -3183,6 +3203,78 @@ class TestGatewayRuntimeService:
                 monotonic=Mock(side_effect=[0.0, 1.0]),
                 sleep=Mock(),
             )
+
+    def test_mt5_startup_reconnects_after_stale_transport(self):
+        adapter = Mock()
+        adapter.connect.side_effect = [ConnectionResetError("connection reset"), None]
+        adapter.get_balance.return_value = {"balance": 1000.0}
+        runtime = Mock(adapter=adapter)
+        sleep = Mock()
+
+        gateway_runtime_service._connect_mt5_adapter_with_retry(
+            runtime,
+            Mock(),
+            attempts=2,
+            retry_delay_sec=0.5,
+            sleep=sleep,
+        )
+
+        assert adapter.connect.call_count == 2
+        adapter.disconnect.assert_called_once()
+        adapter.get_balance.assert_called_once()
+        sleep.assert_called_once_with(0.5)
+
+    def test_mt5_startup_does_not_launch_with_unready_transport(self):
+        adapter = Mock()
+        adapter.connect.return_value = None
+        adapter.get_balance.side_effect = RuntimeError("transport not ready for command 4")
+        runtime = Mock(adapter=adapter)
+
+        with pytest.raises(RuntimeError, match="MT5 gateway transport did not become ready"):
+            gateway_runtime_service._connect_mt5_adapter_with_retry(
+                runtime,
+                Mock(),
+                attempts=2,
+                retry_delay_sec=0,
+                sleep=Mock(),
+            )
+
+        assert adapter.connect.call_count == 2
+        assert adapter.disconnect.call_count == 2
+
+    def test_acquire_gateway_preflights_mt5_transport_before_starting_runtime(self):
+        logger = Mock()
+        config = Mock(
+            runtime_name="mt5-otc-acc-1",
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+        )
+        runtime = Mock()
+        launch = {
+            "config": config,
+            "runtime_cls": Mock(return_value=runtime),
+            "runtime_kwargs": {
+                "exchange_type": "MT5",
+                "asset_type": "OTC",
+                "account_id": "acc-1",
+            },
+        }
+
+        with patch.object(gateway_runtime_service, "_connect_mt5_adapter_with_retry") as preflight:
+            gateway_runtime_service.acquire_gateway_for_instance(
+                instance_id="inst-mt5",
+                instance={"params": {"gateway": {"enabled": True}}},
+                strategy_dir=Path("/tmp/strategy"),
+                get_gateway_params=lambda instance: {"enabled": True},
+                build_gateway_launch=lambda instance, strategy_dir, gateway_params: launch,
+                gateways={},
+                instance_gateways={},
+                logger=logger,
+            )
+
+        preflight.assert_called_once_with(runtime, logger)
+        runtime.start_in_thread.assert_called_once()
 
     def test_acquire_gateway_for_instance_reuses_runtime(self):
         logger = Mock()

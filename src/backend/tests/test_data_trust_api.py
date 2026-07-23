@@ -60,6 +60,9 @@ class _Coverage:
     async def refresh_local_csv_coverage(self, **_: Any) -> MarketDataCoverageMatrixResponse:
         return _coverage()
 
+    async def refresh_warehouse_coverage(self, **_: Any) -> MarketDataCoverageMatrixResponse:
+        return _coverage()
+
 
 class _Precheck:
     async def precheck(self, *_: Any, **__: Any) -> DataPrecheckResponse:
@@ -102,6 +105,9 @@ async def test_data_trust_endpoints_validate_and_return_canonical_responses(clie
     )
     coverage = await client.get("/api/v1/data/trust/coverage", headers=headers)
     refresh = await client.post("/api/v1/data/trust/coverage/refresh-local", headers=headers)
+    warehouse_refresh = await client.post(
+        "/api/v1/data/trust/coverage/refresh-warehouse", headers=headers
+    )
     precheck = await client.post(
         "/api/v1/data/trust/precheck",
         headers=headers,
@@ -113,6 +119,7 @@ async def test_data_trust_endpoints_validate_and_return_canonical_responses(clie
     assert execution.status_code == 200 and execution.json()["margin_rate"] == 0.1
     assert coverage.status_code == 200 and coverage.json()["total"] == 1
     assert refresh.status_code == 200 and refresh.json()["refreshed"] is True
+    assert warehouse_refresh.status_code == 200 and warehouse_refresh.json()["refreshed"] is True
     assert precheck.status_code == 200 and precheck.json()["passed"] is True
 
 
@@ -123,6 +130,7 @@ async def test_data_trust_endpoints_validate_and_return_canonical_responses(clie
         ("get", "/api/v1/data/trust/asset-specs/RB0/execution-model"),
         ("get", "/api/v1/data/trust/coverage"),
         ("post", "/api/v1/data/trust/coverage/refresh-local"),
+        ("post", "/api/v1/data/trust/coverage/refresh-warehouse"),
         ("post", "/api/v1/data/trust/precheck"),
     ],
 )

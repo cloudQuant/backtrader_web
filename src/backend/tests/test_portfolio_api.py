@@ -13,6 +13,9 @@ Tests cover all portfolio endpoints with mocked dependencies:
 from __future__ import annotations
 
 import json
+import os
+import pathlib
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -82,6 +85,370 @@ async def test_portfolio_sources_uses_workspace_snapshot_for_paper_units(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_active_workspace_sources_excludes_stale_running_units(monkeypatch):
+    """Running workspace units are considered active only when the live manager confirms them."""
+    from app.api import portfolio_api
+
+    class FakeManager:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        def get_instance(self, instance_id: str, user_id: str | None = None):
+            self.calls.append((instance_id, str(user_id or "")))
+            if instance_id == "inst-live":
+                return {"status": "running"}
+            if instance_id == "inst-stale":
+                # Unknown instance id from manager means no active process.
+                return None
+            return None
+
+    class FakeResult:
+        def __init__(self, rows: list[tuple[object, object]]) -> None:
+            self._rows = rows
+
+        def all(self) -> list[tuple[object, object]]:
+            return list(self._rows)
+
+    class FakeSession:
+        def __init__(self, rows: list[tuple[object, object]]) -> None:
+            self._rows = rows
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:  # type: ignore[type-arg]
+            return False
+
+        async def execute(self, _query) -> FakeResult:
+            return FakeResult(self._rows)
+
+    class FakeSessionMaker:
+        def __init__(self, rows: list[tuple[object, object]]) -> None:
+            self._rows = rows
+
+        def __call__(self) -> FakeSession:
+            return FakeSession(self._rows)
+
+    manager = FakeManager()
+    rows = [
+        (
+            SimpleNamespace(
+                id="unit-live",
+                workspace_id="ws-live",
+                strategy_name="Live unit",
+                strategy_id="strat-live",
+                symbol="EURUSD",
+                trading_snapshot={"instance_status": "running"},
+                gateway_config={},
+                run_status="running",
+                trading_instance_id="inst-live",
+                trading_mode="live",
+                unit_settings={},
+                params={},
+                data_config={},
+            ),
+            SimpleNamespace(id="ws-live", name="Workspace Live"),
+        ),
+        (
+            SimpleNamespace(
+                id="unit-stale",
+                workspace_id="ws-stale",
+                strategy_name="Stale unit",
+                strategy_id="strat-stale",
+                symbol="EURUSD",
+                trading_snapshot={"instance_status": "running"},
+                gateway_config={},
+                run_status="running",
+                trading_instance_id="inst-stale",
+                trading_mode="live",
+                unit_settings={},
+                params={},
+                data_config={},
+            ),
+            SimpleNamespace(id="ws-stale", name="Workspace Stale"),
+        ),
+    ]
+
+    monkeypatch.setattr(portfolio_api, "async_session_maker", FakeSessionMaker(rows))
+    monkeypatch.setattr(portfolio_api, "_workspace_unit_runtime_config", lambda _unit: {})
+    monkeypatch.setattr(portfolio_api, "_workspace_unit_log_dir", lambda _unit: None)
+
+    sources = await portfolio_api._active_workspace_sources(
+        SimpleNamespace(sub="u-portfolio"),
+        manager,
+        include_inactive=False,
+    )
+
+    assert len(sources) == 1
+    assert sources[0].id == "inst-live"
+    assert len(manager.calls) == 2
+
+    manager.calls = []
+    all_sources = await portfolio_api._active_workspace_sources(
+        SimpleNamespace(sub="u-portfolio"),
+        manager,
+        include_inactive=True,
+    )
+    assert len(all_sources) == 2
+    assert manager.calls == []
+
+
+@pytest.mark.asyncio
+async def test_active_workspace_sources_prefers_manager_started_at(monkeypatch):
+    """Workspace snapshot started time can be stale; manager value is authoritative."""
+    from app.api import portfolio_api
+
+    class FakeManager:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        def get_instance(self, instance_id: str, user_id: str | None = None):
+            self.calls.append((instance_id, str(user_id or "")))
+            return {
+                "id": instance_id,
+                "status": "running",
+                "started_at": "2026-07-20 08:00:00",
+            }
+
+    class FakeResult:
+        def __init__(self, rows: list[tuple[object, object]]) -> None:
+            self._rows = rows
+
+        def all(self) -> list[tuple[object, object]]:
+            return list(self._rows)
+
+    class FakeSession:
+        def __init__(self, rows: list[tuple[object, object]]) -> None:
+            self._rows = rows
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:  # type: ignore[type-arg]
+            return False
+
+        async def execute(self, _query) -> FakeResult:
+            return FakeResult(self._rows)
+
+    class FakeSessionMaker:
+        def __init__(self, rows: list[tuple[object, object]]) -> None:
+            self._rows = rows
+
+        def __call__(self) -> FakeSession:
+            return FakeSession(self._rows)
+
+    manager = FakeManager()
+    rows = [
+        (
+            SimpleNamespace(
+                id="unit-live",
+                workspace_id="ws-live",
+                strategy_name="Live unit",
+                strategy_id="strat-live",
+                symbol="EURUSD",
+                trading_snapshot={"instance_status": "running", "started_at": "2024-01-01 00:00:00"},
+                gateway_config={},
+                run_status="running",
+                trading_instance_id="inst-live",
+                trading_mode="live",
+                unit_settings={},
+                params={},
+                data_config={},
+            ),
+            SimpleNamespace(id="ws-live", name="Workspace Live"),
+        )
+    ]
+
+    monkeypatch.setattr(portfolio_api, "async_session_maker", FakeSessionMaker(rows))
+    monkeypatch.setattr(portfolio_api, "_workspace_unit_runtime_config", lambda _unit: {})
+    monkeypatch.setattr(portfolio_api, "_workspace_unit_log_dir", lambda _unit: None)
+
+    sources = await portfolio_api._active_workspace_sources(
+        SimpleNamespace(sub="u-portfolio"),
+        manager,
+        include_inactive=False,
+    )
+
+    assert len(sources) == 1
+    assert sources[0].started_at == "2026-07-20 08:00:00"
+    assert manager.calls == [("inst-live", "u-portfolio")]
+
+
+@pytest.mark.asyncio
+async def test_active_workspace_sources_carries_manager_updated_at_for_running_source(monkeypatch):
+    """Running workspace sources should carry manager updated_at for fallback start-time."""
+    from app.api import portfolio_api
+
+    class FakeManager:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        def get_instance(self, instance_id: str, user_id: str | None = None):
+            self.calls.append((instance_id, str(user_id or "")))
+            return {
+                "id": instance_id,
+                "status": "running",
+                "updated_at": "2026-07-21 10:00:00",
+            }
+
+    class FakeResult:
+        def __init__(self, rows: list[tuple[object, object]]) -> None:
+            self._rows = rows
+
+        def all(self) -> list[tuple[object, object]]:
+            return list(self._rows)
+
+    class FakeSession:
+        def __init__(self, rows: list[tuple[object, object]]) -> None:
+            self._rows = rows
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:  # type: ignore[type-arg]
+            return False
+
+        async def execute(self, _query) -> FakeResult:
+            return FakeResult(self._rows)
+
+    class FakeSessionMaker:
+        def __init__(self, rows: list[tuple[object, object]]) -> None:
+            self._rows = rows
+
+        def __call__(self) -> FakeSession:
+            return FakeSession(self._rows)
+
+    manager = FakeManager()
+    rows = [
+        (
+            SimpleNamespace(
+                id="unit-live",
+                workspace_id="ws-live",
+                strategy_name="Live unit",
+                strategy_id="strat-live",
+                symbol="EURUSD",
+                trading_snapshot={"instance_status": "running"},
+                gateway_config={},
+                run_status="running",
+                trading_instance_id="inst-live",
+                trading_mode="live",
+                unit_settings={},
+                params={},
+                data_config={},
+            ),
+            SimpleNamespace(id="ws-live", name="Workspace Live"),
+        ),
+    ]
+
+    monkeypatch.setattr(portfolio_api, "async_session_maker", FakeSessionMaker(rows))
+    monkeypatch.setattr(portfolio_api, "_workspace_unit_runtime_config", lambda _unit: {})
+    monkeypatch.setattr(portfolio_api, "_workspace_unit_log_dir", lambda _unit: None)
+
+    sources = await portfolio_api._active_workspace_sources(
+        SimpleNamespace(sub="u-portfolio"),
+        manager,
+        include_inactive=False,
+    )
+
+    assert len(sources) == 1
+    assert sources[0].updated_at == "2026-07-21 10:00:00"
+
+
+@pytest.mark.asyncio
+async def test_source_started_day_prefers_runtime_inference_for_running_source(monkeypatch):
+    """Running sources should prefer runtime inference over stale snapshot started time."""
+    from app.api import portfolio_api
+
+    monkeypatch.setattr(
+        portfolio_api,
+        "_infer_started_day_from_pid",
+        lambda _pid: "2026-07-20",
+    )
+    source = portfolio_api._PortfolioSource(
+        id="inst-running",
+        strategy_id="strategy-running",
+        strategy_name="Running strategy",
+        status="running",
+        workspace_id="ws-running",
+        unit_id="unit-running",
+        started_at="2024-01-01 00:00:00",
+        pid=99999,
+    )
+
+    assert portfolio_api._source_started_day(source) == "2026-07-20"
+
+
+def test_source_started_day_uses_updated_at_when_runtime_inference_missing(monkeypatch):
+    """If running source has no pid/log inference, prefer manager updated_at."""
+    from app.api import portfolio_api
+
+    source = portfolio_api._PortfolioSource(
+        id="inst-running",
+        strategy_id="strategy-running",
+        strategy_name="Running strategy",
+        status="running",
+        workspace_id="ws-running",
+        unit_id="unit-running",
+        started_at="2024-01-01 00:00:00",
+        updated_at="2026-07-21 09:00:00",
+    )
+
+    assert portfolio_api._source_started_day(source) == "2026-07-21"
+
+
+def test_infer_started_day_from_log_dir_ignores_stale_run_info(tmp_path, monkeypatch):
+    """Stale run_info should not force an old process start day."""
+    from app.api import portfolio_api
+
+    log_dir = tmp_path / "run_20260101"
+    log_dir.mkdir()
+    value_log = log_dir / "value.log"
+    value_log.write_text(
+        "dt\tvalue\tcash\n"
+        "2026-01-01 00:00:00\t100000\t100000\n"
+        "2026-01-10 00:00:00\t100500\t100200\n",
+        encoding="utf-8",
+    )
+    ts_20260110 = datetime(2026, 1, 10, 10, 0, tzinfo=timezone.utc).timestamp()
+    os.utime(value_log, (ts_20260110, ts_20260110))
+
+    monkeypatch.setattr(
+        portfolio_api,
+        "parse_run_info",
+        lambda _path: {"start_time": "2024-01-01 00:00:00"},
+    )
+    monkeypatch.setattr(
+        portfolio_api,
+        "parse_value_log",
+        lambda _path, prefer_log_time=True: {
+            "dates": ["2026-01-01", "2026-01-10"],
+            "equity_curve": [100000.0, 100500.0],
+            "cash_curve": [100000.0, 100200.0],
+        },
+    )
+
+    started_day = portfolio_api._infer_started_day_from_log_dir(log_dir)
+    assert started_day == "2026-01-10"
+
+
+def test_infer_started_day_from_log_dir_uses_file_mtime_when_records_are_stale(tmp_path):
+    """If file mtime is newer than the last log date, prefer the mtime day."""
+    from app.api import portfolio_api
+
+    log_dir = tmp_path / "run_20260101"
+    log_dir.mkdir()
+    value_log = log_dir / "value.log"
+    value_log.write_text(
+        "dt\tvalue\tcash\n"
+        "2026-01-01 00:00:00\t100000\t100000\n",
+        encoding="utf-8",
+    )
+    ts_20260103 = datetime(2026, 1, 3, 10, 0, tzinfo=timezone.utc).timestamp()
+    os.utime(value_log, (ts_20260103, ts_20260103))
+
+    assert portfolio_api._infer_started_day_from_log_dir(log_dir) == "2026-01-03"
+
+@pytest.mark.asyncio
 async def test_portfolio_sources_can_include_inactive_workspace_units(monkeypatch):
     """History endpoints must be able to request stopped workspace sources."""
     from app.api import portfolio_api
@@ -98,15 +465,16 @@ async def test_portfolio_sources_can_include_inactive_workspace_units(monkeypatc
     )
     load_sources = AsyncMock(return_value=[source])
     monkeypatch.setattr(portfolio_api, "_active_workspace_sources", load_sources)
+    manager = object()
 
     sources = await portfolio_api._portfolio_sources(
         _USER,
-        object(),
+        manager,
         include_inactive=True,
     )
 
     assert sources == [source]
-    load_sources.assert_awaited_once_with(_USER, include_inactive=True)
+    load_sources.assert_awaited_once_with(_USER, manager, include_inactive=True)
 
 
 @pytest.mark.asyncio
@@ -203,6 +571,193 @@ async def test_portfolio_endpoints_allow_active_filter_override(monkeypatch):
         "inst-running",
         "inst-stopped",
     }
+
+
+@pytest.mark.asyncio
+async def test_portfolio_overview_defaults_to_active_only(monkeypatch):
+    """Overview endpoint uses include_inactive=False by default."""
+    from app.api import portfolio_api
+
+    calls: dict[str, bool] = {}
+
+    async def fake_portfolio_sources(
+        current_user, mgr, include_inactive: bool = False
+    ) -> list[portfolio_api._PortfolioSource]:
+        calls["include_inactive"] = include_inactive
+        return []
+
+    monkeypatch.setattr(
+        portfolio_api,
+        "_portfolio_sources",
+        AsyncMock(side_effect=fake_portfolio_sources),
+    )
+
+    await portfolio_api.get_portfolio_overview(
+        current_user=_USER,
+        mgr=_MockManager(),
+    )
+
+    assert calls["include_inactive"] is False
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_defaults_to_active_only(monkeypatch):
+    """Positions endpoint uses include_inactive=False by default."""
+    from app.api import portfolio_api
+
+    calls: dict[str, bool] = {}
+
+    async def fake_portfolio_sources(
+        current_user, mgr, include_inactive: bool = False
+    ) -> list[portfolio_api._PortfolioSource]:
+        calls["include_inactive"] = include_inactive
+        return []
+
+    monkeypatch.setattr(
+        portfolio_api,
+        "_portfolio_sources",
+        AsyncMock(side_effect=fake_portfolio_sources),
+    )
+
+    await portfolio_api.get_portfolio_positions(
+        current_user=_USER,
+        mgr=_MockManager(),
+    )
+
+    assert calls["include_inactive"] is False
+
+
+@pytest.mark.asyncio
+async def test_portfolio_equity_filters_running_source_history_by_started_day(monkeypatch):
+    """Running instances should ignore log points before the current process start."""
+    from app.api import portfolio_api
+
+    source = portfolio_api._PortfolioSource(
+        id="inst-running",
+        strategy_id="strategy-running",
+        strategy_name="Running strategy",
+        status="running",
+        workspace_id="ws-a",
+        unit_id="unit-running",
+        started_at="2026-07-20 08:00:00",
+        log_dir=pathlib.Path("/fake/logs"),
+    )
+    monkeypatch.setattr(
+        portfolio_api,
+        "_portfolio_sources",
+        AsyncMock(
+            return_value=[source],
+        ),
+    )
+
+    value_data = {
+        "dates": ["2024-01-01", "2026-07-20"],
+        "equity_curve": [100000.0, 105000.0],
+        "cash_curve": [50000.0, 52000.0],
+    }
+
+    with patch("app.api.portfolio_api.parse_value_log", return_value=value_data):
+        result = await portfolio_api.get_portfolio_equity(
+            current_user=_USER,
+            mgr=object(),
+            include_inactive=False,
+        )
+
+    assert result["dates"] == ["2026-07-20"]
+    assert result["total_equity"] == [105000.0]
+    assert result["strategies"] == [
+        {
+            "strategy_id": "strategy-running",
+            "strategy_name": "Running strategy",
+            "instance_id": "inst-running",
+            "values": [105000.0],
+            "value_source": "log",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_portfolio_equity_filters_running_source_history_when_stale_started_at(monkeypatch):
+    """Stale DB start time should not pull historical points when runtime can infer start."""
+    from app.api import portfolio_api
+
+    source = portfolio_api._PortfolioSource(
+        id="inst-running",
+        strategy_id="strategy-running",
+        strategy_name="Running strategy",
+        status="running",
+        workspace_id="ws-a",
+        unit_id="unit-running",
+        started_at="2024-01-01 00:00:00",
+        pid=99999,
+        log_dir=pathlib.Path("/fake/logs"),
+    )
+    monkeypatch.setattr(
+        portfolio_api,
+        "_portfolio_sources",
+        AsyncMock(return_value=[source]),
+    )
+    monkeypatch.setattr(
+        portfolio_api,
+        "_infer_started_day_from_pid",
+        lambda _pid: "2026-07-20",
+    )
+
+    value_data = {
+        "dates": ["2024-01-01", "2026-07-20"],
+        "equity_curve": [100000.0, 105000.0],
+        "cash_curve": [50000.0, 52000.0],
+    }
+
+    with patch("app.api.portfolio_api.parse_value_log", return_value=value_data):
+        result = await portfolio_api.get_portfolio_equity(
+            current_user=_USER,
+            mgr=object(),
+            include_inactive=False,
+        )
+
+    assert result["dates"] == ["2026-07-20"]
+    assert result["total_equity"] == [105000.0]
+
+
+@pytest.mark.asyncio
+async def test_portfolio_equity_keeps_historical_points_when_include_inactive(monkeypatch):
+    """When include_inactive=True, historical log points should remain visible."""
+    from app.api import portfolio_api
+
+    source = portfolio_api._PortfolioSource(
+        id="inst-running",
+        strategy_id="strategy-running",
+        strategy_name="Running strategy",
+        status="running",
+        workspace_id="ws-a",
+        unit_id="unit-running",
+        started_at="2026-07-20 08:00:00",
+        log_dir=pathlib.Path("/fake/logs"),
+    )
+    monkeypatch.setattr(
+        portfolio_api,
+        "_portfolio_sources",
+        AsyncMock(
+            return_value=[source],
+        ),
+    )
+
+    value_data = {
+        "dates": ["2024-01-01", "2026-07-20"],
+        "equity_curve": [100000.0, 105000.0],
+        "cash_curve": [50000.0, 52000.0],
+    }
+
+    with patch("app.api.portfolio_api.parse_value_log", return_value=value_data):
+        result = await portfolio_api.get_portfolio_equity(
+            current_user=_USER,
+            mgr=object(),
+            include_inactive=True,
+        )
+
+    assert result["dates"] == ["2024-01-01", "2026-07-20"]
+    assert result["strategies"][0]["values"] == [100000.0, 105000.0]
 
 def test_parse_positions_for_portfolio_prefers_position_log_precision(monkeypatch, tmp_path):
     """Current-position snapshots can be rounded; position.log keeps MT5 precision."""
@@ -612,23 +1167,28 @@ def test_compact_workspace_overview_reads_only_value_log_endpoints(monkeypatch):
     """The first-screen response keeps detailed overview totals without curve scans."""
     from app.api import portfolio_api
 
-    unit = SimpleNamespace(
-        run_status="running",
-        unit_settings={"initial_cash": 100000},
-        params={},
-        trading_snapshot={
+    source = portfolio_api._PortfolioSource(
+        id="unit-live",
+        strategy_id="strat-live",
+        strategy_name="Running strategy",
+        status="running",
+        unit_id="unit-live",
+        trading_mode="paper",
+        workspace_id="ws-live",
+        log_dir=None,
+        snapshot={
             "long_market_value": 6000,
             "short_market_value": 2000,
             "cumulative_pnl": 500,
+            "positions": [],
         },
     )
     monkeypatch.setattr(
         portfolio_api,
-        "_workspace_unit_value_log_summary",
-        lambda _unit: (100000.0, 100500.0, 96500.0),
+        "_compact_value_log_summary",
+        lambda _log_dir, started_day: (100000.0, 100500.0, 96500.0),
     )
-
-    result = portfolio_api._compact_workspace_overview([(unit, SimpleNamespace())])
+    result = portfolio_api._compact_workspace_overview([source])
 
     assert result == {
         "total_assets": 100500.0,
@@ -790,7 +1350,7 @@ async def test_portfolio_overview_multiple_strategies():
     value_data_a = {"equity_curve": [100000.0, 110000.0], "cash_curve": [50000.0, 55000.0]}
     value_data_b = {"equity_curve": [200000.0, 190000.0], "cash_curve": [100000.0, 95000.0]}
 
-    def mock_parse_value(log_dir):
+    def mock_parse_value(log_dir, **_kwargs):
         if "strat_001" in str(log_dir):
             return value_data_a
         return value_data_b
@@ -807,7 +1367,11 @@ async def test_portfolio_overview_multiple_strategies():
         patch("app.api.portfolio_api.parse_value_log", side_effect=mock_parse_value),
         patch("app.api.portfolio_api.parse_trade_log", return_value=[]),
     ):
-        result = await get_portfolio_overview(current_user=_USER, mgr=mgr)
+        result = await get_portfolio_overview(
+            current_user=_USER,
+            mgr=mgr,
+            include_inactive=True,
+        )
 
     # 110000 + 190000 = 300000
     assert result["total_assets"] == 300000.0
@@ -815,6 +1379,42 @@ async def test_portfolio_overview_multiple_strategies():
     assert result["total_initial_capital"] == 300000.0
     assert result["strategy_count"] == 2
     assert result["running_count"] == 1  # only inst-a is running
+
+
+@pytest.mark.asyncio
+async def test_portfolio_overview_filters_running_source_history_by_started_day():
+    """Running instances should ignore closed trades and value rows before process start."""
+    from app.api import portfolio_api
+
+    source = portfolio_api._PortfolioSource(
+        id="inst-running",
+        strategy_id="strat-running",
+        strategy_name="Running strategy",
+        status="running",
+        workspace_id="ws-running",
+        unit_id="unit-running",
+        started_at="2026-07-20 08:00:00",
+        log_dir=pathlib.Path("/fake/logs"),
+    )
+
+    with patch("app.api.portfolio_api._portfolio_sources", AsyncMock(return_value=[source])):
+        with patch("app.api.portfolio_api.parse_value_log", return_value={
+            "dates": ["2024-01-01", "2026-07-20"],
+            "equity_curve": [100000.0, 105000.0],
+            "cash_curve": [50000.0, 52000.0],
+        }):
+            with patch("app.api.portfolio_api.parse_trade_log", return_value=[
+                {"dtclose": "2024-01-01", "pnlcomm": 100},
+                {"dtclose": "2026-07-20", "pnlcomm": 50},
+            ]):
+                result = await portfolio_api.get_portfolio_overview(
+                    current_user=_USER,
+                    mgr=object(),
+                    include_inactive=False,
+                )
+
+    assert result["strategies"][0]["total_trades"] == 1
+    assert result["strategies"][0]["total_assets"] == 105000.0
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1651,6 +2251,41 @@ async def test_portfolio_trades_sorted_and_limited():
 
 
 @pytest.mark.asyncio
+async def test_portfolio_trades_filters_running_source_history_by_started_day():
+    """Running instances should ignore trades before process start."""
+    from app.api import portfolio_api
+
+    source = portfolio_api._PortfolioSource(
+        id="inst-running",
+        strategy_id="strategy-running",
+        strategy_name="Running strategy",
+        status="running",
+        workspace_id="ws-running",
+        unit_id="unit-running",
+        started_at="2026-07-20 08:00:00",
+        log_dir=pathlib.Path("/fake/logs"),
+    )
+
+    with patch("app.api.portfolio_api._portfolio_sources", AsyncMock(return_value=[source])):
+        with patch("app.api.portfolio_api.parse_trade_log", return_value=[
+            {"dtclose": "2024-01-01", "pnlcomm": 100},
+            {"dtclose": "2026-07-20", "pnlcomm": 50},
+            {"dtopen": "2026-07-20", "dtclose": "", "pnlcomm": 20},
+        ]):
+            result = await portfolio_api.get_portfolio_trades(
+                current_user=_USER,
+                mgr=object(),
+                include_inactive=False,
+                limit=10,
+            )
+
+    assert result["total"] == 2
+    assert len(result["trades"]) == 2
+    assert result["trades"][0]["dtclose"] == "2026-07-20"
+    assert result["trades"][1]["dtopen"] == "2026-07-20"
+
+
+@pytest.mark.asyncio
 async def test_portfolio_trades_workspace_filter_applies_before_limit(
     tmp_path,
     monkeypatch,
@@ -1959,7 +2594,7 @@ async def test_portfolio_equity_does_not_backfill_before_strategy_first_point():
 
     mgr = _MockManager([_INSTANCE_A, _INSTANCE_B])
 
-    def mock_parse_value(log_dir):
+    def mock_parse_value(log_dir, **_kwargs):
         if "strat_001" in str(log_dir):
             return {"dates": ["2026-06-25", "2026-06-26"], "equity_curve": [100.0, 110.0]}
         return {"dates": ["2026-06-26"], "equity_curve": [200.0]}
@@ -1985,7 +2620,7 @@ async def test_portfolio_equity_backfills_initial_cash_within_first_trading_day(
 
     mgr = _MockManager([_INSTANCE_A, _INSTANCE_B])
 
-    def mock_parse_value(log_dir):
+    def mock_parse_value(log_dir, **_kwargs):
         if "strat_001" in str(log_dir):
             return {
                 "datetimes": ["2026-06-25T09:30:00+08:00"],

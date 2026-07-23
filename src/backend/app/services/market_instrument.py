@@ -14,6 +14,19 @@ MarketAssetType = Literal["stock", "futures", "bond", "fund", "option", "fx", "c
 
 _WAREHOUSE_PROVIDER = "akshare_data"
 _ONLINE_PROVIDER = "akshare"
+_HISTORY_FRESHNESS_DAYS: dict[MarketAssetType, int] = {
+    # These are calendar-day tolerances, deliberately wider than a single
+    # session so normal weekends and provider publication delays do not force
+    # an unnecessary online fetch. They are still narrow enough to prevent an
+    # old warehouse fallback from being presented as current market data.
+    "stock": 5,
+    "futures": 5,
+    "bond": 5,
+    "fund": 5,
+    "option": 5,
+    "fx": 5,
+    "crypto": 2,
+}
 
 
 def _safe_float(value: Any) -> float | None:
@@ -82,6 +95,27 @@ def _sql_date_text(value: date | str | None, fallback: date) -> str:
     if len(text) == 8 and text.isdigit():
         return f"{text[:4]}-{text[4:6]}-{text[6:]}"
     return text
+
+
+def _coerce_date(value: Any) -> date | None:
+    """Return a date value without silently accepting an invalid timestamp."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def _iso_date(value: Any) -> str:
@@ -229,7 +263,13 @@ class MarketInstrumentService:
             warnings=warnings,
         )
         if self._payload_has_data(warehouse_payload):
-            if not (warehouse_payload.get("history") or {}).get("rows"):
+            if self._history_requires_refresh(
+                asset_type=asset_type,
+                rows=(warehouse_payload.get("history") or {}).get("rows") or [],
+                start_date=start_date or start,
+                end_date=end_date or end,
+            ):
+                warnings.append("本地历史数据未覆盖所选区间或已超过发布延迟，正在使用补齐来源")
                 warehouse_payload = await self._fill_history_gap(
                     asset_type=asset_type,
                     warehouse_payload=warehouse_payload,
@@ -309,6 +349,35 @@ class MarketInstrumentService:
         rows = (payload.get("history") or {}).get("rows") or []
         return any(value is not None for value in snapshot.values()) or bool(rows)
 
+    @staticmethod
+    def _history_requires_refresh(
+        *,
+        asset_type: MarketAssetType,
+        rows: list[dict[str, Any]],
+        start_date: date | str,
+        end_date: date | str,
+    ) -> bool:
+        """Return whether rows cannot safely satisfy the requested market interval.
+
+        A non-empty response is not sufficient evidence of usable market data:
+        legacy fallbacks can contain a valid-looking 2024 row for a current
+        request. Require the latest bar to be inside the requested interval and
+        within the source-specific publication-lag tolerance.
+        """
+        requested_start = _coerce_date(start_date)
+        requested_end = _coerce_date(end_date)
+        dates = [parsed for row in rows if (parsed := _coerce_date(row.get("date"))) is not None]
+        if not dates or requested_start is None or requested_end is None:
+            return True
+
+        earliest = min(dates)
+        latest = max(dates)
+        if earliest > requested_end or latest < requested_start or latest > requested_end:
+            return True
+
+        tolerance = timedelta(days=_HISTORY_FRESHNESS_DAYS[asset_type])
+        return latest < requested_end - tolerance
+
     async def _fill_history_gap(
         self,
         *,
@@ -328,7 +397,12 @@ class MarketInstrumentService:
             end_date=end_date,
             period=period,
         )
-        if cached_rows:
+        if cached_rows and not self._history_requires_refresh(
+            asset_type=asset_type,
+            rows=cached_rows,
+            start_date=start_date,
+            end_date=end_date,
+        ):
             warnings.append("akshare_data 缺少该资产本地历史数据，已使用补齐缓存")
             return self._merge_history_gap(
                 warehouse_payload=warehouse_payload,
@@ -336,6 +410,8 @@ class MarketInstrumentService:
                 period=period,
                 provider_suffix="cache",
             )
+        if cached_rows:
+            warnings.append("MARKET_INSTRUMENT_HISTORY_CACHE 已过期或未覆盖所选区间，跳过缓存")
 
         online_warnings: list[str] = []
         online_rows = self._lookup_history_online(
@@ -351,6 +427,16 @@ class MarketInstrumentService:
             if not online_warnings:
                 online_warnings.append("该资产暂无本地历史数据，在线历史接口也未返回可用记录")
             warnings.extend(online_warnings)
+            return warehouse_payload
+
+        if self._history_requires_refresh(
+            asset_type=asset_type,
+            rows=online_rows,
+            start_date=start_date,
+            end_date=end_date,
+        ):
+            warnings.extend(online_warnings)
+            warnings.append("在线历史数据未覆盖所选区间，未替换现有仓库记录")
             return warehouse_payload
 
         cache_error = await self._store_history_cache(

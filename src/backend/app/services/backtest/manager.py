@@ -318,14 +318,16 @@ class BacktestExecutionManager:
     async def delete_task_and_result(self, task_id: str, user_id: str) -> bool:
         """Delete a task and its result when the user owns the task."""
         async with async_session_maker() as session:
-            task = await session.get(BacktestTask, task_id)
-            if not task or task.user_id != user_id:
+            owner_id = await session.scalar(
+                select(BacktestTask.user_id).where(BacktestTask.id == task_id)
+            )
+            if owner_id != user_id:
                 return False
 
             await session.execute(
                 delete(BacktestResultModel).where(BacktestResultModel.task_id == task_id)
             )
-            await session.delete(task)
+            await session.execute(delete(BacktestTask).where(BacktestTask.id == task_id))
             await session.commit()
 
         logger.info("Deleted backtest task %s and its result", task_id)

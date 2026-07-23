@@ -6,6 +6,7 @@ from collections.abc import Callable, Generator
 from pathlib import Path
 from typing import Any
 
+from app.config import get_settings
 from app.services.gateway.launch_builder import build_gateway_session_key_from_runtime_kwargs
 
 _LIVE_SUBPROCESS_THREAD_DEFAULTS = {
@@ -23,6 +24,8 @@ _LIVE_SUBPROCESS_THREAD_DEFAULTS = {
 _GATEWAY_STDIO_REDIRECT_LOCK = threading.RLock()
 _GATEWAY_STDOUT_LOG = "gateway.stdout.log"
 _GATEWAY_STDERR_LOG = "gateway.stderr.log"
+_MT5_ADAPTER_STARTUP_ATTEMPTS = 3
+_MT5_ADAPTER_STARTUP_RETRY_SEC = 2.0
 _IB_WEB_SESSION_FIELDS = (
     "account_id",
     "asset_type",
@@ -514,6 +517,11 @@ def build_subprocess_env(
     backtrader_dir: Path | None = None,
 ) -> dict[str, str]:
     env = dict(os_environ)
+    # Strategy runners execute from generated workspace directories, where the
+    # relative ``.env`` resolution can differ from the API process.  Propagate
+    # the API's resolved mode so a development server is not treated as
+    # production merely because a different dotenv file is discovered.
+    env["DEBUG"] = "true" if get_settings().DEBUG else "false"
     for key, value in _LIVE_SUBPROCESS_THREAD_DEFAULTS.items():
         env.setdefault(key, value)
     env["BT_TRADING_INSTANCE_ID"] = str(instance_id)
@@ -574,6 +582,34 @@ def _refresh_runtime_asset_specs(
         return
 
 
+def restore_gateway_subscription(
+    instance_id: str,
+    instance: dict[str, Any],
+    strategy_dir: Path,
+    gateway: dict[str, Any],
+) -> list[str]:
+    """Restore a surviving strategy's market subscription after API restart."""
+    from app.services.trading_asset_info_service import symbols_for_instance
+
+    symbols = list(dict.fromkeys(symbols_for_instance(instance, strategy_dir)))
+    if not symbols:
+        return []
+    runtime = gateway.get("runtime")
+    dispatch = getattr(runtime, "_dispatch", None)
+    if not callable(dispatch):
+        raise RuntimeError("gateway runtime cannot restore strategy subscriptions")
+    result = dispatch(
+        "register_strategy",
+        {"strategy_id": instance_id, "symbols": symbols},
+    )
+    if not isinstance(result, dict):
+        raise RuntimeError("gateway returned an invalid subscription result")
+    accepted = [str(symbol) for symbol in result.get("accepted") or [] if str(symbol)]
+    if not accepted:
+        raise RuntimeError(f"gateway did not accept market subscription for {instance_id}")
+    return accepted
+
+
 def _latest_runtime_error(runtime: Any) -> str:
     health = getattr(runtime, "health", None)
     snapshot = _gateway_health_snapshot(health)
@@ -603,8 +639,67 @@ def _is_non_retriable_gateway_error(message: str) -> bool:
             "auth error",
             "authentication failed",
             "invalid token",
+            "invalid password",
+            "invalid credentials",
+            "login failed",
+            "access denied",
         )
     )
+
+
+def _connect_mt5_adapter_with_retry(
+    runtime: Any,
+    logger: Any,
+    *,
+    attempts: int = _MT5_ADAPTER_STARTUP_ATTEMPTS,
+    retry_delay_sec: float = _MT5_ADAPTER_STARTUP_RETRY_SEC,
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """Connect an MT5 adapter and verify its account transport before launch.
+
+    A WebSocket reset during ``Mt5GatewayAdapter.connect`` leaves some adapter
+    versions with their internal ``_running`` flag set.  Their next
+    ``connect`` then becomes a no-op, while the transport is still unusable.
+    Resetting the adapter before retrying prevents a strategy subprocess from
+    being launched against that stale transport.
+    """
+    adapter = getattr(runtime, "adapter", None)
+    connect = getattr(adapter, "connect", None)
+    get_balance = getattr(adapter, "get_balance", None)
+    disconnect = getattr(adapter, "disconnect", None)
+    if not callable(connect) or not callable(get_balance):
+        raise RuntimeError("MT5 gateway adapter does not support startup readiness checks")
+
+    total_attempts = max(int(attempts), 1)
+    last_error: Exception | None = None
+    for attempt in range(1, total_attempts + 1):
+        try:
+            connect()
+            # A successful socket/login handshake alone is insufficient for
+            # pymt5: its transport can still be resetting.  This read-only
+            # command is the same first command issued by BtApiStore.
+            get_balance()
+            return
+        except Exception as exc:
+            last_error = exc
+            if callable(disconnect):
+                try:
+                    disconnect()
+                except Exception:
+                    logger.debug("MT5 adapter cleanup after failed startup was unsuccessful", exc_info=True)
+            if _is_non_retriable_gateway_error(str(exc)) or attempt >= total_attempts:
+                break
+            logger.warning(
+                "MT5 gateway startup attempt {}/{} failed; reconnecting: {}: {}",
+                attempt,
+                total_attempts,
+                type(exc).__name__,
+                exc,
+            )
+            sleep(max(float(retry_delay_sec), 0.0))
+
+    detail = str(last_error or "unknown MT5 adapter error")
+    raise RuntimeError(f"MT5 gateway transport did not become ready: {detail}")
 
 
 def _gateway_health_snapshot(health: Any) -> dict[str, Any]:
@@ -778,6 +873,8 @@ def acquire_gateway_for_instance(
                     adapter_get_balance = getattr(adapter, "get_balance", None)
                     if callable(adapter_get_balance):
                         adapter_get_balance()
+                elif str(runtime_kwargs.get("exchange_type") or "").upper() == "MT5":
+                    _connect_mt5_adapter_with_retry(runtime, logger)
                 runtime.start_in_thread()
         except (KeyError, TypeError, OSError, RuntimeError) as exc:
             logger.warning(

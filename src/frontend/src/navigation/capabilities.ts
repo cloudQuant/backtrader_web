@@ -158,6 +158,8 @@ export const capabilities: Capability[] = [
     labelKey: 'nav.quantTools',
     icon: 'ChatDotRound',
     legacyPaths: ['/quant-tools'],
+    status: 'hidden',
+    visibleInSubnav: false,
   },
 
   {

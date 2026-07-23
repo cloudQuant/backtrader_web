@@ -11,6 +11,8 @@ Aggregates data across live trading strategy instances:
 import json
 import logging
 import math
+import os
+import sys
 import typing
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -23,13 +25,16 @@ from sqlalchemy import select
 
 from app.api.deps import get_current_user
 from app.db.database import async_session_maker
+from app.models.paper_runtime import PaperEquitySnapshot
 from app.models.workspace import StrategyUnit, Workspace
 from app.services import workspace_unit_runtime
 from app.services.live_trading_manager import LiveTradingManager, get_live_trading_manager
+from app.services.log_parser.normalize import normalize_dt_text
 from app.services.log_parser_service import (
     find_latest_log_dir,
     parse_current_position,
     parse_position_log,
+    parse_run_info,
     parse_trade_log,
     parse_value_log,
 )
@@ -237,6 +242,9 @@ class _PortfolioSource:
     asset_spec_source: str | None = None
     valuation_status: str = "empty"
     valuation_warnings: list[str] = field(default_factory=list)
+    pid: int | None = None
+    started_at: str | None = None
+    updated_at: str | None = None
 
 
 def _get_manager() -> LiveTradingManager:
@@ -270,9 +278,199 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_started_day(value: Any) -> str | None:
+    text = normalize_dt_text(value).strip()
+    if not text:
+        return None
+    return text[:10]
+
+
+def _infer_started_day_from_pid(pid: int) -> str | None:
+    if pid <= 0:
+        return None
+    if sys.platform == "win32":
+        return None
+
+    stat_path = Path(f"/proc/{pid}/stat")
+    if not stat_path.is_file():
+        return None
+
+    try:
+        stat_text = stat_path.read_text(encoding="utf-8")
+        close_paren = stat_text.rfind(")")
+        if close_paren < 0:
+            return None
+        parts = stat_text[close_paren + 2 :].split()
+        if len(parts) < 20:
+            return None
+        start_ticks = int(parts[19])
+    except (OSError, ValueError):
+        return None
+
+    try:
+        with Path("/proc/stat").open(encoding="utf-8") as handle:
+            boot_time: float | None = None
+            for line in handle:
+                if not line.startswith("btime"):
+                    continue
+                boot_time = float(line.split()[1])
+                break
+    except OSError:
+        return None
+    if boot_time is None:
+        return None
+
+    try:
+        clock_ticks = os.sysconf("SC_CLK_TCK")
+        epoch_seconds = boot_time + start_ticks / clock_ticks
+        return datetime.fromtimestamp(epoch_seconds).strftime("%Y-%m-%d")
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def _infer_started_day_from_log_dir(
+    log_dir: Path,
+    *,
+    allow_mtime_fallback: bool = True,
+) -> str | None:
+    if not log_dir.is_dir():
+        return None
+
+    # Prefer an explicit run-level timestamp if strategy runtime persisted it.
+    run_info = parse_run_info(log_dir)
+    started_day = _coerce_started_day(
+        run_info.get("started_at")
+        or run_info.get("start_time")
+        or run_info.get("startedAt")
+        or run_info.get("startTime")
+    )
+    value_log = log_dir / "value.log"
+    if not value_log.is_file():
+        return None
+    value_data = parse_value_log(log_dir, prefer_log_time=True)
+    dates = list(value_data.get("dates", []))
+    try:
+        mtime_day = _coerce_started_day(
+            datetime.fromtimestamp(value_log.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        )
+        if not mtime_day:
+            return None
+    except OSError:
+        return None
+    if not dates:
+        return None
+    sorted_dates = sorted(dates)
+    latest_date = sorted_dates[-1]
+    if started_day and mtime_day <= started_day:
+        return started_day
+    if mtime_day <= latest_date:
+        for dt in sorted_dates:
+            if dt >= mtime_day:
+                return dt
+        return latest_date
+    if mtime_day > latest_date:
+        if allow_mtime_fallback:
+            return mtime_day
+        return latest_date
+    return latest_date
+
+
 def _trading_day(value: Any) -> str:
     """Return the calendar-day portion of a value-log timestamp."""
     return str(value or "").strip()[:10]
+
+
+def _source_started_day(source: _PortfolioSource) -> str | None:
+    """Return the source start day when available."""
+    snapshot = _safe_dict(source.snapshot)
+    explicit_started_day = (
+        _coerce_started_day(source.started_at)
+        or _coerce_started_day(snapshot.get("started_at"))
+        or _coerce_started_day(snapshot.get("instance_started_at"))
+        or _coerce_started_day(snapshot.get("start_time"))
+        or _coerce_started_day(snapshot.get("startedAt"))
+    )
+
+    if str(source.status or "").strip().lower() not in _ACTIVE_TRADING_STATUSES:
+        return explicit_started_day
+
+    inferred_started_days: list[str] = []
+    updated_started_day = _coerce_started_day(source.updated_at)
+    if updated_started_day:
+        inferred_started_days.append(updated_started_day)
+    if source.pid:
+        pid_started = _infer_started_day_from_pid(source.pid)
+        if pid_started:
+            inferred_started_days.append(pid_started)
+
+    if source.log_dir:
+        inferred_started = _infer_started_day_from_log_dir(
+            source.log_dir,
+            allow_mtime_fallback=source.pid is not None,
+        )
+        if inferred_started:
+            inferred_started_days.append(inferred_started)
+
+    if inferred_started_days:
+        return max(inferred_started_days)
+    return explicit_started_day
+
+
+def _row_date(row: dict[str, Any], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = row.get(key)
+        text = _trading_day(value)
+        if text:
+            return text
+    return ""
+
+
+def _filter_rows_after_source_start(
+    rows: list[dict[str, Any]],
+    source_started_day: str | None,
+    keys: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    """Drop log rows that start before the active process start."""
+    if not source_started_day:
+        return rows
+
+    started_day = _trading_day(source_started_day)
+    if not started_day:
+        return rows
+
+    filtered: list[dict[str, Any]] = []
+    for row in rows:
+        dt = _row_date(row, keys)
+        if not dt or dt >= started_day:
+            filtered.append(row)
+    return filtered
+
+
+def _trim_curve_by_source_start(
+    dates: list[str],
+    equity: list[float],
+    cash: list[float],
+    source_started_day: str | None,
+) -> tuple[list[str], list[float], list[float]]:
+    if not source_started_day:
+        return dates, equity, cash
+
+    filtered_dates: list[str] = []
+    filtered_equity: list[float] = []
+    filtered_cash: list[float] = []
+    for dt, value, cash_value in zip(dates, equity, cash, strict=False):
+        if dt >= source_started_day:
+            filtered_dates.append(dt)
+            filtered_equity.append(value)
+            filtered_cash.append(cash_value)
+    return filtered_dates, filtered_equity, filtered_cash
 
 
 def _json_safe_value(value: Any) -> Any:
@@ -367,13 +565,46 @@ def _list_user_instances(
         instances = mgr.list_instances(user_id=user_id) if user_id else mgr.list_instances()
     except TypeError:
         instances = mgr.list_instances()
+    normalized: list[dict[str, Any]] = []
+    for inst in instances:
+        if not isinstance(inst, dict):
+            continue
+        status = str(inst.get("status") or "").strip().lower()
+        instance_id = str(inst.get("id") or "").strip()
+        if not instance_id or not status:
+            if include_inactive:
+                normalized.append(inst)
+            continue
+        effective = inst
+        if status in _ACTIVE_TRADING_STATUSES and hasattr(mgr, "get_instance"):
+            try:
+                live_instance = mgr.get_instance(instance_id, user_id=user_id)
+            except Exception:
+                live_instance = None
+            if isinstance(live_instance, dict):
+                merged = dict(inst)
+                merged_status = str(live_instance.get("status") or "").strip().lower()
+                if merged_status:
+                    status = merged_status
+                    merged["status"] = merged_status
+                merged_started = str(live_instance.get("started_at") or "").strip()
+                if merged_started:
+                    merged["started_at"] = merged_started
+                merged_updated = str(live_instance.get("updated_at") or "").strip()
+                if merged_updated:
+                    merged["updated_at"] = merged_updated
+                live_pid = _coerce_int(live_instance.get("pid"))
+                if live_pid is not None:
+                    merged["pid"] = live_pid
+                effective = merged
+                if include_inactive is False and merged_status not in _ACTIVE_TRADING_STATUSES:
+                    continue
+        elif not include_inactive and status not in _ACTIVE_TRADING_STATUSES:
+            continue
+        normalized.append(effective)
     if include_inactive:
-        return instances
-    return [
-        inst
-        for inst in instances
-        if str(inst.get("status") or "").strip().lower() in _ACTIVE_TRADING_STATUSES
-    ]
+        return normalized
+    return [inst for inst in normalized if str(inst.get("status") or "").strip().lower() in _ACTIVE_TRADING_STATUSES]
 
 
 def _as_path(value: Any) -> Path | None:
@@ -436,6 +667,9 @@ def _source_from_instance(inst: dict[str, Any]) -> _PortfolioSource:
             _safe_dict(params.get("backtest")),
             _safe_dict(params.get("live")),
         ),
+        started_at=str(inst.get("started_at") or "").strip() or None,
+        updated_at=_coerce_started_day(inst.get("updated_at")),
+        pid=_coerce_int(inst.get("pid")),
     )
 
 
@@ -452,6 +686,7 @@ def _workspace_unit_runtime_config(unit: StrategyUnit) -> dict[str, Any]:
 
 async def _active_workspace_sources(
     current_user: Any,
+    mgr: LiveTradingManager,
     *,
     include_inactive: bool = False,
 ) -> list[_PortfolioSource]:
@@ -484,12 +719,50 @@ async def _active_workspace_sources(
         gateway_config = unit.gateway_config if isinstance(unit.gateway_config, dict) else {}
         runtime_config = _workspace_unit_runtime_config(unit)
         unit_name = str(unit.strategy_name or unit.strategy_id or unit.id)
+        db_status = str(unit.run_status or snapshot.get("instance_status") or "idle")
+        status = db_status.strip().lower()
+        instance_id = str(unit.trading_instance_id or "").strip()
+        instance = None
+        if (
+            not include_inactive
+            and status in _ACTIVE_TRADING_STATUSES
+            and instance_id
+            and hasattr(mgr, "get_instance")
+        ):
+            try:
+                instance = mgr.get_instance(instance_id, user_id=user_id)
+            except Exception:
+                instance = None
+            if isinstance(instance, dict):
+                status = str(instance.get("status") or "idle").strip().lower()
+            else:
+                status = "idle"
+            if status not in _ACTIVE_TRADING_STATUSES:
+                continue
+        elif not include_inactive and status in _ACTIVE_TRADING_STATUSES and not instance_id:
+            # A workspace unit without a live instance handle should not be treated
+            # as actively running, otherwise stale historical rows can leak old
+            # equity curves into live portfolio views.
+            continue
+        started_at = str(
+            instance.get("started_at") if isinstance(instance, dict) else ""
+        ).strip() or None
+        updated_at = str(
+            instance.get("updated_at") if isinstance(instance, dict) else ""
+        ).strip() or None
+        if include_inactive and not started_at:
+            started_at = (
+                str(snapshot.get("started_at") or "")
+                or str(snapshot.get("instance_started_at") or "")
+                or str(snapshot.get("start_time") or "")
+                or str(snapshot.get("startedAt") or "")
+            ).strip() or None
         sources.append(
             _PortfolioSource(
                 id=str(unit.trading_instance_id or unit.id),
                 strategy_id=str(unit.strategy_id or unit.id),
                 strategy_name=f"{workspace.name} / {unit_name}",
-                status=str(unit.run_status or snapshot.get("instance_status") or "idle"),
+                status=status,
                 symbol=str(unit.symbol or ""),
                 unit_id=str(unit.id),
                 trading_mode=str(unit.trading_mode or snapshot.get("mode") or "paper"),
@@ -504,6 +777,9 @@ async def _active_workspace_sources(
                     _safe_dict(gateway_config),
                     _safe_dict(gateway_config.get("params")),
                 ),
+                started_at=started_at,
+                updated_at=updated_at,
+                pid=_coerce_int(instance.get("pid") if isinstance(instance, dict) else None),
             )
         )
     return sources
@@ -1064,6 +1340,7 @@ async def _portfolio_sources(
 ) -> list[_PortfolioSource]:
     workspace_sources = await _active_workspace_sources(
         current_user,
+        mgr,
         include_inactive=include_inactive,
     )
     sources = (
@@ -1548,12 +1825,24 @@ def _valued_source_positions(source: _PortfolioSource) -> list[dict[str, Any]]:
     return positions
 
 
-def _source_trades(source: _PortfolioSource) -> list[dict[str, Any]]:
+def _source_trades(
+    source: _PortfolioSource,
+    *,
+    started_day: str | None = None,
+) -> list[dict[str, Any]]:
     if source.log_dir:
-        return parse_trade_log(source.log_dir)
-    return [
-        dict(item) for item in (source.snapshot or {}).get("trades") or [] if isinstance(item, dict)
-    ]
+        trades = parse_trade_log(source.log_dir)
+    else:
+        trades = [
+            dict(item)
+            for item in (source.snapshot or {}).get("trades") or []
+            if isinstance(item, dict)
+        ]
+    return _filter_rows_after_source_start(
+        trades,
+        source_started_day=started_day,
+        keys=("log_time", "event_time", "time", "dtclose", "datetime", "dtopen"),
+    )
 
 
 def _parse_query_ids(values: list[str] | None) -> set[str]:
@@ -1821,7 +2110,11 @@ def _parse_value_log_edge_row(
     return {}
 
 
-def _compact_value_log_summary(log_dir: Path | None) -> tuple[float, float, float] | None:
+def _compact_value_log_summary(
+    log_dir: Path | None,
+    *,
+    started_day: str | None = None,
+) -> tuple[float, float, float] | None:
     """Return initial equity, latest equity and latest cash from a value log.
 
     Full portfolio analytics need every point in the curve. The first-screen
@@ -1831,6 +2124,22 @@ def _compact_value_log_summary(log_dir: Path | None) -> tuple[float, float, floa
     path = (log_dir / "value.log") if log_dir is not None else None
     if path is None or not path.is_file():
         return None
+    if started_day:
+        parsed = parse_value_log(path.parent, prefer_log_time=True)
+        dates = list(parsed.get("dates") or [])
+        equity = list(parsed.get("equity_curve") or [])
+        cash = list(parsed.get("cash_curve") or [])
+        if not dates or not equity:
+            return None
+        started = _trading_day(started_day)
+        if started:
+            dates, equity, cash = _trim_curve_by_source_start(dates, equity, cash, started)
+        if not dates:
+            return None
+        if not cash:
+            cash = [0.0 for _ in dates]
+        return (equity[0], equity[-1], cash[-1])
+
     head, tail = _value_log_edge_rows(path)
     if not head:
         return None
@@ -1870,11 +2179,20 @@ def _compact_value_log_summary(log_dir: Path | None) -> tuple[float, float, floa
     return initial[0], latest[0], latest[1]
 
 
-def _workspace_unit_value_log_summary(unit: StrategyUnit) -> tuple[float, float, float] | None:
-    return _compact_value_log_summary(_workspace_unit_log_dir(unit))
+def _workspace_unit_value_log_summary(
+    unit: StrategyUnit,
+    *,
+    started_day: str | None = None,
+) -> tuple[float, float, float] | None:
+    return _compact_value_log_summary(_workspace_unit_log_dir(unit), started_day=started_day)
 
 
-def _compact_workspace_overview(rows: list[tuple[StrategyUnit, Workspace]]) -> dict[str, Any]:
+def _is_running_portfolio_source(source: _PortfolioSource) -> bool:
+    """Return whether a source belongs to a currently running workspace unit."""
+    return str(source.status or "").strip().lower() == "running" and source.pid is not None
+
+
+def _compact_workspace_overview(rows: list[_PortfolioSource]) -> dict[str, Any]:
     """Build a first-screen portfolio summary from persisted workspace snapshots.
 
     The detailed portfolio view reads strategy logs and, for legacy instances,
@@ -1891,8 +2209,11 @@ def _compact_workspace_overview(rows: list[tuple[StrategyUnit, Workspace]]) -> d
     running_count = 0
     has_position_data = False
 
-    for unit, _workspace in rows:
-        snapshot = _safe_dict(unit.trading_snapshot)
+    running_sources = [source for source in rows if _is_running_portfolio_source(source)]
+
+    for source in running_sources:
+        snapshot = _safe_dict(source.snapshot)
+        started_day = _source_started_day(source)
         long_value = max(
             _first_number(snapshot, "long_market_value", "long_value", "longMarketValue") or 0.0,
             0.0,
@@ -1902,7 +2223,7 @@ def _compact_workspace_overview(rows: list[tuple[StrategyUnit, Workspace]]) -> d
             0.0,
         )
         net_position_value = long_value - short_value
-        value_summary = _workspace_unit_value_log_summary(unit)
+        value_summary = _compact_value_log_summary(source.log_dir, started_day=started_day)
         initial, assets, cash = value_summary if value_summary is not None else (0.0, 0.0, 0.0)
 
         total_initial += initial
@@ -1916,8 +2237,7 @@ def _compact_workspace_overview(rows: list[tuple[StrategyUnit, Workspace]]) -> d
             or short_value > EPSILON
         ):
             has_position_data = True
-        if str(unit.run_status or "").lower() == "running":
-            running_count += 1
+        running_count += 1
 
     total_pnl = total_assets - total_initial
     total_pnl_pct = total_pnl / total_initial * 100 if total_initial > 0 else 0.0
@@ -1932,7 +2252,7 @@ def _compact_workspace_overview(rows: list[tuple[StrategyUnit, Workspace]]) -> d
         "total_initial_capital": _safe_round(total_initial),
         "total_pnl": _safe_round(total_pnl),
         "total_pnl_pct": _safe_round(total_pnl_pct, 2),
-        "strategy_count": len(rows),
+        "strategy_count": len(running_sources),
         "running_count": running_count,
         # Per-strategy metrics require scanning every value and trade log. They
         # are not rendered in the first screen and are intentionally omitted in
@@ -1940,32 +2260,25 @@ def _compact_workspace_overview(rows: list[tuple[StrategyUnit, Workspace]]) -> d
         "strategies": [],
     }
 
-
-async def _compact_portfolio_overview(current_user: Any) -> dict[str, Any] | None:
-    """Load the initial dashboard metrics without runtime-file or gateway I/O."""
-    user_id = _current_user_id(current_user)
-    if not user_id:
-        return _compact_workspace_overview([])
-
-    async with async_session_maker() as session:
-        result = await session.execute(
-            select(StrategyUnit, Workspace)
-            .join(Workspace, StrategyUnit.workspace_id == Workspace.id)
-            .where(Workspace.user_id == user_id)
-            .where(Workspace.workspace_type == "trading")
-            .where(StrategyUnit.run_status.in_(_ACTIVE_TRADING_STATUSES))
-        )
-        rows = list(result.all())
-    if any(str(unit.trading_mode or "").strip().lower() == "live" for unit, _workspace in rows):
+async def _compact_portfolio_overview(
+    current_user: Any,
+    mgr: LiveTradingManager,
+) -> dict[str, Any] | None:
+    sources = await _active_workspace_sources(current_user, mgr, include_inactive=False)
+    if any(
+        str(source.trading_mode or "").strip().lower() == "live"
+        for source in sources
+    ):
         # Live workspaces may require a broker account query to remain accurate.
-        # Retain the detailed path for that smaller, safety-sensitive case.
+        # Retain the detailed path for that safety-sensitive case.
         return None
-    return _compact_workspace_overview(rows)
+    return _compact_workspace_overview(sources)
 
 
 @router.get("/overview", summary="Portfolio overview (live trading)", response_model=None)
 async def get_portfolio_overview(
     summary_only: bool = False,
+    include_inactive: bool = False,
     current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ) -> typing.Any:
@@ -1991,11 +2304,13 @@ async def get_portfolio_overview(
             - strategies: List of per-strategy summaries
     """
     if summary_only:
-        compact_overview = await _compact_portfolio_overview(current_user)
+        compact_overview = await _compact_portfolio_overview(current_user, mgr)
         if compact_overview is not None:
             return compact_overview
 
-    sources = await _portfolio_sources(current_user, mgr, include_inactive=True)
+    sources = await _portfolio_sources(current_user, mgr, include_inactive=include_inactive)
+    if not include_inactive:
+        sources = [source for source in sources if _is_running_portfolio_source(source)]
 
     total_assets = 0.0
     total_cash = 0.0
@@ -2008,6 +2323,7 @@ async def get_portfolio_overview(
 
     for source in sources:
         log_dir = source.log_dir
+        started_day = _source_started_day(source) if not include_inactive else None
         valued_positions = _valued_source_positions(source)
         position_summary = _build_position_summary(valued_positions)
         has_source_positions = bool(
@@ -2057,10 +2373,22 @@ async def get_portfolio_overview(
             )
             continue
 
-        value_data = parse_value_log(log_dir)
+        value_data = parse_value_log(log_dir, prefer_log_time=True)
         equity = value_data.get("equity_curve", [])
         cash = value_data.get("cash_curve", [])
-        trades = parse_trade_log(log_dir)
+        if started_day:
+            dates = value_data.get("dates", [])
+            if dates and equity:
+                dates, equity, cash = _trim_curve_by_source_start(
+                    dates=dates,
+                    equity=equity,
+                    cash=cash,
+                    source_started_day=started_day,
+                )
+            value_data["equity_curve"] = equity
+            value_data["cash_curve"] = cash
+
+        trades = _source_trades(source, started_day=started_day)
 
         initial = equity[0] if equity else 0
         final = equity[-1] if equity else 0
@@ -2146,6 +2474,7 @@ async def get_portfolio_overview(
 
 @router.get("/positions", summary="Aggregated positions (live trading)", response_model=None)
 async def get_portfolio_positions(
+    include_inactive: bool = False,
     current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ) -> typing.Any:
@@ -2166,7 +2495,7 @@ async def get_portfolio_positions(
             - market_value: Current market value
             - direction: Position direction ("long", "short", or "flat")
     """
-    sources = await _portfolio_sources(current_user, mgr, include_inactive=True)
+    sources = await _portfolio_sources(current_user, mgr, include_inactive=include_inactive)
     positions = []
 
     for source in sources:
@@ -2254,20 +2583,22 @@ async def get_portfolio_trades(
     )
     if workspace_id_set:
         sources = [source for source in sources if source.workspace_id in workspace_id_set]
-        if not include_inactive:
-            sources = [
-                source for source in sources
-                if str(source.status or "").strip().lower() in _ACTIVE_TRADING_STATUSES
-            ]
+    if not include_inactive:
+        sources = [
+            source for source in sources
+            if str(source.status or "").strip().lower() in _ACTIVE_TRADING_STATUSES
+        ]
     all_trades = []
 
     for source in sources:
-        trades = _source_trades(source)
+        started_day = None if include_inactive else _source_started_day(source)
+        trades = _source_trades(source, started_day=started_day)
         for t in trades:
             item = dict(t)
             item["strategy_id"] = source.strategy_id
             item["strategy_name"] = source.strategy_name
             item["instance_id"] = source.id
+            item["workspace_id"] = source.workspace_id
             all_trades.append(item)
 
     # Sort by close date descending
@@ -2277,6 +2608,119 @@ async def get_portfolio_trades(
 
 
 # ---------- Portfolio Equity Curve ----------
+
+
+_PAPER_RUNTIME_MODES = frozenset({"paper", "simulation", "simulated"})
+_MAX_PORTFOLIO_EQUITY_POINTS = 1_500
+
+
+def _is_paper_runtime_source(source: _PortfolioSource) -> bool:
+    """Return whether a source represents a simulated trading runtime."""
+    return str(source.trading_mode or "paper").strip().lower() in _PAPER_RUNTIME_MODES
+
+
+def _sample_indexes(length: int, max_points: int = _MAX_PORTFOLIO_EQUITY_POINTS) -> list[int]:
+    """Return shared sample indexes so every portfolio series stays aligned."""
+    if length <= max_points:
+        return list(range(length))
+    step = (length - 1) / (max_points - 1)
+    return [round(index * step) for index in range(max_points)]
+
+
+async def _paper_equity_points(
+    current_user: typing.Any,
+    sources: list[_PortfolioSource],
+) -> dict[str, list[tuple[str, float, float, float]]]:
+    """Load the canonical paper-trading equity history for selected instances."""
+    instance_ids = sorted({source.id for source in sources if _is_paper_runtime_source(source)})
+    user_id = _current_user_id(current_user)
+    if not instance_ids or not user_id:
+        return {}
+
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(PaperEquitySnapshot)
+            .where(
+                PaperEquitySnapshot.user_id == user_id,
+                PaperEquitySnapshot.instance_id.in_(instance_ids),
+            )
+            .order_by(
+                PaperEquitySnapshot.instance_id,
+                PaperEquitySnapshot.observed_at,
+                PaperEquitySnapshot.id,
+            )
+        )
+        snapshots = result.scalars().all()
+
+    points_by_instance: dict[str, list[tuple[str, float, float, float]]] = {}
+    for snapshot in snapshots:
+        observed_at = snapshot.observed_at.replace(second=0, microsecond=0)
+        point = (
+            observed_at.isoformat(),
+            float(snapshot.total_equity),
+            float(snapshot.cash),
+            float(snapshot.realized_pnl) + float(snapshot.unrealized_pnl),
+        )
+        instance_points = points_by_instance.setdefault(snapshot.instance_id, [])
+        if instance_points and instance_points[-1][0] == point[0]:
+            instance_points[-1] = point
+        else:
+            instance_points.append(point)
+
+    return points_by_instance
+
+
+def _paper_runtime_value_data(
+    source: _PortfolioSource,
+    paper_points: list[tuple[str, float, float, float]],
+) -> dict[str, list[Any]]:
+    """Prepend current-runtime log history that predates paper snapshots."""
+    snapshot_dates = [point[0] for point in paper_points]
+    snapshot_equity = [point[1] for point in paper_points]
+    snapshot_cash = [point[2] for point in paper_points]
+    snapshot_pnl = [point[3] for point in paper_points]
+
+    log_data = (
+        parse_value_log(source.log_dir, prefer_log_time=False)
+        if source.log_dir and source.log_dir.is_dir()
+        else {}
+    )
+    log_dates = list(log_data.get("datetimes") or log_data.get("dates", []))
+    log_equity = list(log_data.get("equity_curve", []))
+    log_cash = list(log_data.get("cash_curve", []))
+    first_snapshot_day = _trading_day(snapshot_dates[0]) if snapshot_dates else ""
+
+    history_dates: list[str] = []
+    history_equity: list[float] = []
+    history_cash: list[float] = []
+    history_pnl: list[float] = []
+    initial_log_equity = _safe_float(log_equity[0]) if log_equity else 0.0
+    initial_log_cash = _safe_float(log_cash[0]) if log_cash else initial_log_equity
+    base_equity = snapshot_equity[0] if snapshot_equity else initial_log_equity
+    base_cash = snapshot_cash[0] if snapshot_cash else initial_log_cash
+    base_pnl = snapshot_pnl[0] if snapshot_pnl else 0.0
+    for index, dt in enumerate(log_dates):
+        if index >= len(log_equity):
+            break
+        if first_snapshot_day and _trading_day(dt) >= first_snapshot_day:
+            continue
+        equity_delta = _safe_float(log_equity[index]) - initial_log_equity
+        cash_delta = (
+            _safe_float(log_cash[index]) - initial_log_cash
+            if index < len(log_cash)
+            else equity_delta
+        )
+        history_dates.append(str(dt))
+        history_equity.append(base_equity + equity_delta)
+        history_cash.append(base_cash + cash_delta)
+        history_pnl.append(base_pnl + equity_delta)
+
+    return {
+        "datetimes": [*history_dates, *snapshot_dates],
+        "equity_curve": [*history_equity, *snapshot_equity],
+        "cash_curve": [*history_cash, *snapshot_cash],
+        "pnl_curve": [*history_pnl, *snapshot_pnl],
+    }
 
 
 @router.get("/equity", summary="Portfolio equity curve (live trading)", response_model=None)
@@ -2303,7 +2747,9 @@ async def get_portfolio_equity(
             - strategies: List of per-strategy equity curves
     """
     workspace_id_set = _parse_query_ids(workspace_ids)
-    include_inactive_sources = include_inactive
+    # Equity must represent current capital only. Some older browser bundles
+    # still send include_inactive=true, which must not add historical workspaces.
+    include_inactive_sources = False
     sources = await _portfolio_sources(
         current_user,
         mgr,
@@ -2311,11 +2757,12 @@ async def get_portfolio_equity(
     )
     if workspace_id_set:
         sources = [source for source in sources if source.workspace_id in workspace_id_set]
-        if not include_inactive:
-            sources = [
-                source for source in sources
-                if str(source.status or "").strip().lower() in _ACTIVE_TRADING_STATUSES
-            ]
+    sources = [
+        source for source in sources
+        if str(source.status or "").strip().lower() == "running" and source.pid is not None
+    ]
+
+    paper_points_by_source = await _paper_equity_points(current_user, sources)
 
     # Each strategy's date -> value mapping
     strategy_curves: list[dict[str, Any]] = []
@@ -2324,13 +2771,43 @@ async def get_portfolio_equity(
     counted_account_keys: set[str] = set()
 
     for source in sources:
-        log_dir = source.log_dir
-        value_data = parse_value_log(log_dir) if log_dir else {}
+        paper_runtime_source = _is_paper_runtime_source(source)
+        if paper_runtime_source:
+            paper_points = paper_points_by_source.get(source.id, [])
+            value_data = _paper_runtime_value_data(source, paper_points)
+        else:
+            log_dir = source.log_dir
+            value_data = parse_value_log(log_dir, prefer_log_time=True) if log_dir else {}
         dates = value_data.get("datetimes") or value_data.get("dates", [])
         equity = value_data.get("equity_curve", [])
         cash = value_data.get("cash_curve", [])
+        pnl = value_data.get("pnl_curve", [])
+        if not include_inactive and not paper_runtime_source:
+            started_day = _source_started_day(source)
+            if dates and equity:
+                dates, equity, cash = _trim_curve_by_source_start(
+                    dates=dates,
+                    equity=equity,
+                    cash=cash,
+                    source_started_day=started_day,
+                )
+
+        if not pnl and equity:
+            initial_equity = float(equity[0])
+            pnl = [float(value) - initial_equity for value in equity]
 
         if not dates:
+            if paper_runtime_source:
+                unavailable_strategies.append(
+                    {
+                        "strategy_id": source.strategy_id,
+                        "strategy_name": source.strategy_name,
+                        "instance_id": source.id,
+                        "values": [],
+                        "value_source": "paper_snapshot_unavailable",
+                    }
+                )
+                continue
             account_value = _source_account_value(source)
             if account_value is None:
                 unavailable_strategies.append(
@@ -2360,15 +2837,17 @@ async def get_portfolio_equity(
             dates = [live_date]
             equity = [account_value]
             cash = [_source_account_cash(source) or 0.0]
+            pnl = [0.0]
             value_source = source.account_source or "gateway"
         else:
-            value_source = "log"
+            value_source = "paper_snapshot_with_runtime_log" if paper_runtime_source else "log"
 
         date_map = {}
         for i, dt in enumerate(dates):
             date_map[dt] = {
                 "equity": equity[i] if i < len(equity) else 0,
                 "cash": cash[i] if i < len(cash) else 0,
+                "pnl": pnl[i] if i < len(pnl) else 0,
             }
         all_dates_set.update(dates)
 
@@ -2379,6 +2858,10 @@ async def get_portfolio_equity(
                 "instance_id": source.id,
                 "date_map": date_map,
                 "initial": equity[0] if equity else 0,
+                "initial_funds": max(
+                    _safe_float(equity[0]) - _safe_float(pnl[0] if pnl else 0.0),
+                    0.0,
+                ),
                 "first_trading_day": _trading_day(dates[0]) if dates else "",
                 "value_source": value_source,
             }
@@ -2388,6 +2871,7 @@ async def get_portfolio_equity(
         return {
             "dates": [],
             "total_equity": [],
+            "cumulative_pnl": [],
             "total_drawdown": [],
             "strategies": unavailable_strategies,
         }
@@ -2396,40 +2880,71 @@ async def get_portfolio_equity(
 
     # Aggregate
     total_equity = []
+    cumulative_pnl = []
     strategy_series = {sc["instance_id"]: [] for sc in strategy_curves}
+    strategy_pnl_series = {sc["instance_id"]: [] for sc in strategy_curves}
 
     for dt in sorted_dates:
         day_total = 0.0
+        day_pnl = 0.0
         for sc in strategy_curves:
             dm = sc["date_map"]
             if dt in dm:
                 val = dm[dt]["equity"]
                 sc["_seen"] = True
+                series_val = val
+                pnl_val = dm[dt]["pnl"]
+                sc["_pnl_seen"] = True
+            elif sc.get("_seen"):
+                val = sc.get("_last", sc.get("initial", 0.0))
+                series_val = val
+                pnl_val = sc.get("_last_pnl", 0.0)
             else:
-                # Before a strategy's first trading day it contributes zero;
-                # afterward, carry its last known value forward. Multiple
-                # units from the same workspace commonly write their first
-                # value log a few seconds/minutes apart. Treat their initial
-                # cash as present throughout that first day so the aggregate
-                # curve does not show a false capital jump while processes
-                # are merely starting in sequence.
-                if not sc.get("_seen") and _trading_day(dt) == sc.get("first_trading_day"):
-                    val = sc.get("initial", 0.0)
-                else:
-                    val = sc.get("_last", 0.0) if sc.get("_seen") else 0.0
+                # Seed every runtime with its first observed capital from the
+                # beginning of the portfolio window. This removes artificial
+                # jumps caused by processes reporting their first snapshot at
+                # different minutes. Individual series remain zero until their
+                # own first real observation, so their charts still start at
+                # the correct runtime timestamp.
+                val = sc.get("initial", 0.0)
+                series_val = 0.0
+                pnl_val = 0.0
             sc["_last"] = val
+            sc["_last_pnl"] = pnl_val
             day_total += val
-            strategy_series[sc["instance_id"]].append(_safe_round(val))
+            day_pnl += pnl_val
+            strategy_series[sc["instance_id"]].append(_safe_round(series_val))
+            strategy_pnl_series[sc["instance_id"]].append(_safe_round(pnl_val))
         total_equity.append(_safe_round(day_total))
+        cumulative_pnl.append(_safe_round(day_pnl))
 
-    # Portfolio drawdown
+    # Portfolio drawdown: loss from the cumulative-PnL peak as a percentage
+    # of the strategy capital, rather than a percentage of the moving equity
+    # peak. This keeps the denominator equal to the capital actually deployed.
     total_drawdown = []
-    peak = 0.0
-    for v in total_equity:
-        if v > peak:
-            peak = v
-        dd = -((peak - v) / peak) if peak > 0 else 0
+    total_funds = sum(_safe_float(curve.get("initial_funds")) for curve in strategy_curves)
+    pnl_peak = cumulative_pnl[0] if cumulative_pnl else 0.0
+    for pnl_value in cumulative_pnl:
+        pnl_peak = max(pnl_peak, pnl_value)
+        dd = (pnl_value - pnl_peak) / total_funds if total_funds > EPSILON else 0.0
         total_drawdown.append(_safe_round(dd, 6))
+
+    # Sampling only after aggregation keeps every strategy on the same time
+    # axis. Per-instance sampling creates staggered gaps and visible sawtooth
+    # jumps when hundreds of runtimes are combined.
+    sample_indexes = _sample_indexes(len(sorted_dates))
+    sorted_dates = [sorted_dates[index] for index in sample_indexes]
+    total_equity = [total_equity[index] for index in sample_indexes]
+    cumulative_pnl = [cumulative_pnl[index] for index in sample_indexes]
+    total_drawdown = [total_drawdown[index] for index in sample_indexes]
+    strategy_series = {
+        instance_id: [values[index] for index in sample_indexes]
+        for instance_id, values in strategy_series.items()
+    }
+    strategy_pnl_series = {
+        instance_id: [values[index] for index in sample_indexes]
+        for instance_id, values in strategy_pnl_series.items()
+    }
 
     strategies_out = []
     for sc in strategy_curves:
@@ -2439,6 +2954,7 @@ async def get_portfolio_equity(
                 "strategy_name": sc["strategy_name"],
                 "instance_id": sc["instance_id"],
                 "values": strategy_series[sc["instance_id"]],
+                "pnl_values": strategy_pnl_series[sc["instance_id"]],
                 "value_source": sc.get("value_source"),
             }
         )
@@ -2446,6 +2962,7 @@ async def get_portfolio_equity(
     return {
         "dates": sorted_dates,
         "total_equity": total_equity,
+        "cumulative_pnl": cumulative_pnl,
         "total_drawdown": total_drawdown,
         "strategies": [*strategies_out, *unavailable_strategies],
     }

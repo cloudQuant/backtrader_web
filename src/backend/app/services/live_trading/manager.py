@@ -918,6 +918,12 @@ class LiveTradingManager:
                         strategy_dir,
                     )
                 if gateway is not None:
+                    gateway_runtime_service.restore_gateway_subscription(
+                        instance_id,
+                        instance,
+                        strategy_dir,
+                        gateway,
+                    )
                     restored += 1
             except Exception:
                 logger.warning(
