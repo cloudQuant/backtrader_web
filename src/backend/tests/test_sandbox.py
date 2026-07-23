@@ -486,6 +486,13 @@ class TestStrategy(bt.Strategy):
         assert issubclass(result, bt.Strategy)
 
 
+class TestStrategyPreflight:
+    def test_preflight_allows_bounded_startup_grace_before_cpu_limit(self):
+        result = StrategySandbox.validate_strategy_code(VALID_STRATEGY, timeout=1)
+
+        assert result == "MyStrategy"
+
+
 class TestExecuteStrategySafely:
     """Convenience function tests."""
 

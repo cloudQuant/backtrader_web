@@ -383,8 +383,8 @@ async def test_market_instrument_lookup_returns_stock_snapshot_and_history(
     assert response.status_code == 200
     data = response.json()
     assert data["asset_type"] == "stock"
-    assert data["name"] == "平安银行"
-    assert data["snapshot"]["price"] == 12.34
+    assert data["name"] == "000001.SZ"
+    assert data["snapshot"]["price"] == 12.4
     assert data["history"]["total"] == 2
     assert data["indicators"]["latest_close"] == 12.4
     assert data["warnings"] == []
@@ -447,7 +447,7 @@ async def test_market_instrument_stock_snapshot_only_warehouse_fills_online_hist
     assert payload["history"]["total"] == 2
     assert payload["provider"] == "akshare_data+akshare"
     assert payload["indicators"]["latest_close"] == 12.4
-    assert "已使用 AkShare 在线历史行情补齐" in payload["warnings"][0]
+    assert any("已使用 AkShare 在线历史行情补齐" in warning for warning in payload["warnings"])
 
 
 @pytest.mark.asyncio
@@ -512,3 +512,106 @@ async def test_market_instrument_lookup_returns_extended_asset_types(
     assert data["snapshot"]["price"] == expected_price
     assert data["history"]["total"] == 2
     assert data["warnings"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "asset_type",
+    ["stock", "futures", "bond", "fund", "option", "fx", "crypto"],
+)
+async def test_market_instrument_options_fall_back_without_warehouse(
+    client,
+    auth_headers,
+    monkeypatch,
+    asset_type,
+):
+    """The market page must remain usable when the optional warehouse is offline."""
+    from app.services.market_instrument import MarketInstrumentService
+
+    async def unavailable_warehouse(*_args, **_kwargs):
+        raise RuntimeError("warehouse unavailable")
+
+    monkeypatch.setattr(MarketInstrumentService, "_fetch_rows", unavailable_warehouse)
+
+    response = await client.get(
+        "/api/v1/data/market-instruments/options",
+        headers=auth_headers,
+        params={"asset_type": asset_type, "limit": 10},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["asset_type"] == asset_type
+    assert payload["total"] >= 1
+    assert payload["items"][0]["source_table"] == "builtin_fallback"
+
+
+@pytest.mark.asyncio
+async def test_market_instrument_stock_lookup_uses_history_before_full_market_snapshot(
+    dummy_akshare,
+    monkeypatch,
+):
+    """Direct stock lookup must not fetch the full market just to show one symbol."""
+    from app.services.market_instrument import MarketInstrumentService
+
+    def full_market_snapshot_should_not_run():
+        raise AssertionError("full-market snapshot should not run when history is available")
+
+    monkeypatch.setattr(dummy_akshare, "stock_zh_a_spot_em", full_market_snapshot_should_not_run)
+
+    payload = await MarketInstrumentService().lookup(
+        asset_type="stock",
+        symbol="000001",
+        start_date="2026-06-01",
+        end_date="2026-06-19",
+    )
+
+    assert payload["snapshot"]["price"] == 12.4
+    assert payload["history"]["total"] == 2
+    assert payload["warnings"] == []
+
+
+@pytest.mark.asyncio
+async def test_market_instrument_option_main_contract_alias_resolves_to_current_contract(
+    dummy_akshare,
+    monkeypatch,
+):
+    """The option page's stable alias must resolve to a current listed contract."""
+    from app.services.market_instrument import MarketInstrumentService
+
+    def current_contracts():
+        return {"中证1000指数": ["mo2608"]}
+
+    def current_chain(symbol: str) -> pd.DataFrame:
+        assert symbol == "mo2608"
+        return pd.DataFrame([{"看涨合约-标识": "mo2608C6200", "看跌合约-标识": "mo2608P6200"}])
+
+    def current_history(symbol: str) -> pd.DataFrame:
+        assert symbol == "mo2608C6200"
+        return pd.DataFrame(
+            [
+                {"date": "2026-06-17", "open": 900.0, "high": 930.0, "low": 880.0, "close": 910.0},
+                {"date": "2026-06-18", "open": 910.0, "high": 970.0, "low": 900.0, "close": 960.0},
+            ]
+        )
+
+    monkeypatch.setattr(
+        dummy_akshare, "option_cffex_zz1000_list_sina", current_contracts, raising=False
+    )
+    monkeypatch.setattr(
+        dummy_akshare, "option_cffex_zz1000_spot_sina", current_chain, raising=False
+    )
+    monkeypatch.setattr(
+        dummy_akshare, "option_cffex_zz1000_daily_sina", current_history, raising=False
+    )
+
+    payload = await MarketInstrumentService().lookup(
+        asset_type="option",
+        symbol="MO",
+        start_date="2026-06-01",
+        end_date="2026-06-19",
+    )
+
+    assert payload["symbol"] == "mo2608C6200"
+    assert payload["snapshot"]["price"] == 960.0
+    assert payload["history"]["total"] == 2

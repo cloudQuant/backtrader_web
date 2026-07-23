@@ -164,7 +164,7 @@ export function useDataPage() {
       key: 'option',
       labelKey: 'dataMgmt.tabOptions',
       placeholderKey: 'dataMgmt.optionSymbolPlaceholder',
-      defaultSymbol: '151.ni2609C184000',
+      defaultSymbol: 'MO',
       icon: DataAnalysis,
     },
     {

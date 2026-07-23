@@ -172,7 +172,10 @@ export const marketDataApi = {
       { params },
     )
   },
-  runPrecheck(data: DataPrecheckRequest, options: { signal?: AbortSignal } = {}) {
-    return request.post<DataPrecheckResponse, DataPrecheckRequest>('/data/trust/precheck', data, options)
+  runPrecheck(data: DataPrecheckRequest, options?: { signal?: AbortSignal }) {
+    if (options?.signal) {
+      return request.post<DataPrecheckResponse, DataPrecheckRequest>('/data/trust/precheck', data, options)
+    }
+    return request.post<DataPrecheckResponse, DataPrecheckRequest>('/data/trust/precheck', data)
   },
 }

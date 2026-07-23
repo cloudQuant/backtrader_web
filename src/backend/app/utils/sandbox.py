@@ -30,6 +30,9 @@ class SandboxPreflightError(RuntimeError):
     """Raised when isolated strategy execution fails the Backtrader smoke run."""
 
 
+_VALIDATION_STARTUP_GRACE_SECONDS = 5
+
+
 def _apply_child_resource_limits(timeout: int) -> None:
     """Apply best-effort limits before evaluating code in a child process."""
     try:
@@ -80,7 +83,10 @@ def _validate_strategy_in_child(
     timeout: int,
 ) -> None:
     """Execute and preflight untrusted code without sharing parent memory."""
-    _apply_child_resource_limits(timeout)
+    # A spawned worker imports pandas and Backtrader before its smoke run. Reserve
+    # a short finite CPU allowance for that bootstrap while execute_strategy_code
+    # still enforces the caller-provided timeout for untrusted top-level code.
+    _apply_child_resource_limits(timeout + _VALIDATION_STARTUP_GRACE_SECONDS)
     try:
         strategy_class = StrategySandbox.execute_strategy_code(code, params, timeout=timeout)
     except BaseException as exc:
@@ -334,12 +340,13 @@ class StrategySandbox:
         )
         process.start()
         result_sender.close()
-        process.join(execution_timeout)
+        validation_timeout = execution_timeout + _VALIDATION_STARTUP_GRACE_SECONDS
+        process.join(validation_timeout)
         if process.is_alive():
             process.terminate()
             process.join()
             result_receiver.close()
-            raise RuntimeError(f"Strategy validation timed out after {execution_timeout} seconds")
+            raise RuntimeError(f"Strategy validation timed out after {validation_timeout} seconds")
         try:
             if not result_receiver.poll(1):
                 raise RuntimeError("isolated validator did not send a result")

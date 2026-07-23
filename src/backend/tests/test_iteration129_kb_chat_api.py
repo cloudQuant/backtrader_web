@@ -216,6 +216,46 @@ class TestIteration129KBChatAPI:
         assert send_body["reason_code"] == "ai_not_configured"
         assert "未配置" in send_body["diagnostic_message"]
 
+    async def test_send_knowledge_base_overview_lists_documents_without_keyword_match(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        kb_resp = await client.post(
+            "/api/v1/knowledge-base/",
+            headers=auth_headers,
+            json={"name": "比赛资料库", "description": "用于赛前准备", "is_public": False},
+        )
+        assert kb_resp.status_code == 201, kb_resp.text
+        kb_id = kb_resp.json()["id"]
+
+        doc_resp = await client.post(
+            f"/api/v1/knowledge-base/{kb_id}/documents/",
+            headers=auth_headers,
+            json={
+                "title": "双均线策略说明",
+                "content": "短期均线上穿长期均线时开仓，并通过 ATR 控制风险。",
+                "content_type": "markdown",
+                "is_folder": False,
+            },
+        )
+        assert doc_resp.status_code == 201, doc_resp.text
+
+        send_resp = await client.post(
+            "/api/v1/kb-chat/send",
+            headers=auth_headers,
+            json={
+                "knowledge_base_id": kb_id,
+                "question": "这个知识库主要包含哪些内容？",
+            },
+        )
+
+        assert send_resp.status_code == 200, send_resp.text
+        payload = send_resp.json()
+        assert "双均线策略说明" in payload["answer"]
+        assert payload["context_chunks_used"] >= 1
+        assert payload["citations"][0]["document_id"] == doc_resp.json()["id"]
+        assert payload["reason_code"] == "knowledge_base_overview"
+        assert "未找到相关内容" not in payload["answer"]
+
     async def test_send_backtrader_strategy_returns_structured_draft(
         self, client: AsyncClient, auth_headers: dict
     ):

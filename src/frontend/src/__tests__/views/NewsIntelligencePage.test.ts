@@ -68,7 +68,7 @@ describe('NewsIntelligencePage', () => {
 
     expect(apiMocks.createNewsSource).toHaveBeenCalledWith({
       name: 'bloomberg-mkts',
-      url: 'https://feeds.bloomberg.com/markets/news.rss',
+      url: 'https://www.bloomberg.com/feeds/markets/news.rss',
       tier: 2,
     })
     expect(apiMocks.pullNewsSource).toHaveBeenCalledWith('bloomberg-mkts')
@@ -89,14 +89,16 @@ describe('NewsIntelligencePage', () => {
     openSpy.mockRestore()
   })
 
-  it('starts from the FinceptTerminal Bloomberg Markets preset and shows an empty state', async () => {
+  it('starts from resilient Bloomberg and CNBC feed presets and shows an empty state', async () => {
     apiMocks.listArticles.mockResolvedValue({ items: [], total: 0 })
 
     const wrapper = mountWithPlugins(NewsIntelligencePage)
     await flushPromises()
 
     expect((wrapper.vm as any).sourceName).toBe('bloomberg-mkts')
-    expect((wrapper.vm as any).sourceUrl).toBe('https://feeds.bloomberg.com/markets/news.rss')
+    expect((wrapper.vm as any).sourceUrl).toBe('https://www.bloomberg.com/feeds/markets/news.rss')
+    expect((wrapper.vm as any).selectedFeedPresetIds).toEqual(['bloomberg-mkts', 'cnbc-finance'])
+    expect((wrapper.vm as any).configuredSources).toHaveLength(2)
     expect(wrapper.text()).not.toContain('https://example.com/rss')
     expect(wrapper.text()).not.toContain('Bloomberg Markets')
     expect(wrapper.text()).not.toContain('Reuters 公共 RSS 已停用')
@@ -149,24 +151,24 @@ describe('NewsIntelligencePage', () => {
 
     ;(wrapper.vm as any).toggleSourceConfig()
     await flushPromises()
-    await wrapper.find('[data-test="news-feed-preset-cnbc-finance"]').trigger('click')
+    await wrapper.find('[data-test="news-feed-preset-bbc-business"]').trigger('click')
     ;(wrapper.vm as any).applyFeedPresets()
     await (wrapper.vm as any).pullSource()
     await flushPromises()
 
     expect((wrapper.vm as any).sourceConfigVisible).toBe(true)
     expect((wrapper.vm as any).sourceName).toBe('bloomberg-mkts')
-    expect((wrapper.vm as any).sourceUrl).toBe('https://feeds.bloomberg.com/markets/news.rss')
+    expect((wrapper.vm as any).sourceUrl).toBe('https://www.bloomberg.com/feeds/markets/news.rss')
     expect(wrapper.find('.news-source-config').exists()).toBe(true)
     expect(wrapper.text()).toContain('来源治理')
-    expect(wrapper.text()).toContain('CNBC Finance')
+    expect(wrapper.text()).toContain('BBC Business')
     expect(wrapper.text()).toContain('已配置来源')
-    expect((wrapper.vm as any).selectedFeedPresetIds).toEqual(['bloomberg-mkts', 'cnbc-finance'])
+    expect((wrapper.vm as any).selectedFeedPresetIds).toEqual(['bloomberg-mkts', 'cnbc-finance', 'bbc-business'])
     expect(wrapper.find('.news-source-actions').text()).toContain('新增来源')
     expect(wrapper.find('.news-source-actions').text()).toContain('应用配置')
     expect(apiMocks.createNewsSource).toHaveBeenCalledWith({
       name: 'bloomberg-mkts',
-      url: 'https://feeds.bloomberg.com/markets/news.rss',
+      url: 'https://www.bloomberg.com/feeds/markets/news.rss',
       tier: 2,
     })
     expect(apiMocks.createNewsSource).toHaveBeenCalledWith({
@@ -176,5 +178,36 @@ describe('NewsIntelligencePage', () => {
     })
     expect(apiMocks.pullNewsSource).toHaveBeenCalledWith('bloomberg-mkts')
     expect(apiMocks.pullNewsSource).toHaveBeenCalledWith('cnbc-finance')
+    expect(apiMocks.pullNewsSource).toHaveBeenCalledWith('bbc-business')
+  })
+
+  it('keeps refreshing healthy RSS sources when another source request fails', async () => {
+    apiMocks.pullNewsSource.mockImplementation((sourceName: string) => {
+      if (sourceName === 'bloomberg-mkts') {
+        return Promise.resolve({
+          source: sourceName,
+          status: 'ok',
+          fetched_count: 3,
+          inserted_count: 2,
+          total: 2,
+        })
+      }
+      return Promise.reject(new Error('upstream feed unavailable'))
+    })
+    const wrapper = mountWithPlugins(NewsIntelligencePage)
+    await flushPromises()
+
+    await (wrapper.vm as any).pullSource()
+    await flushPromises()
+
+    expect(apiMocks.pullNewsSource).toHaveBeenCalledWith('bloomberg-mkts')
+    expect(apiMocks.pullNewsSource).toHaveBeenCalledWith('cnbc-finance')
+    expect((wrapper.vm as any).pullResult).toMatchObject({
+      status: 'degraded',
+      fetched_count: 3,
+      inserted_count: 2,
+      total: 2,
+    })
+    expect(apiMocks.listArticles).toHaveBeenCalled()
   })
 })

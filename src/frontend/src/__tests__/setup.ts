@@ -9,6 +9,53 @@ import { vi } from 'vitest'
 import { elStubs } from './stubs'
 import zhCN from '@/i18n/locales/zh-CN'
 
+function createMemoryStorage(): Storage {
+  const entries = new Map<string, string>()
+  return {
+    get length() {
+      return entries.size
+    },
+    clear() {
+      entries.clear()
+    },
+    getItem(key: string) {
+      return entries.get(key) ?? null
+    },
+    key(index: number) {
+      return Array.from(entries.keys())[index] ?? null
+    },
+    removeItem(key: string) {
+      entries.delete(key)
+    },
+    setItem(key: string, value: string) {
+      entries.set(key, String(value))
+    },
+  } as Storage
+}
+
+function hasStorageApi(value: unknown): value is Storage {
+  if (!value || typeof value !== 'object') return false
+  const storage = value as Partial<Storage>
+  return ['getItem', 'setItem', 'removeItem', 'clear', 'key'].every(
+    method => typeof storage[method as keyof Storage] === 'function',
+  )
+}
+
+function ensureStorageApi(name: 'localStorage' | 'sessionStorage') {
+  if (hasStorageApi(globalThis[name])) return
+  Object.defineProperty(globalThis, name, {
+    value: createMemoryStorage(),
+    configurable: true,
+    writable: true,
+  })
+}
+
+// Node 25 can expose an incomplete experimental Storage object when its
+// --localstorage-file option is unset. Keep browser-facing tests independent
+// from that host setting while allowing individual suites to stub Storage.
+ensureStorageApi('localStorage')
+ensureStorageApi('sessionStorage')
+
 // Flatten the zh-CN nested object into a dotted-key map so `t('ns.key')`
 // returns the localized string. Iteration 176 §C left many tests asserting
 // directly against Chinese phrases, so this restores those assertions

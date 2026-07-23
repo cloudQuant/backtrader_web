@@ -252,24 +252,25 @@ describe('PortfolioPage', () => {
     expect(vm.hasOpenPosition({ size: 0, long_position: 1, short_position: 1 })).toBe(true)
   })
 
-  it('loadData retains all trading workspaces while separating running ones', async () => {
+  it('keeps stopped workspaces out of the live portfolio aggregation', async () => {
     const vm = doMount().vm as any
     await vm.loadData()
     expect(vm.overview.total_assets).toBe(100000)
+    expect(vm.tradingWorkspaces).toHaveLength(2)
     expect(vm.runningWorkspaces).toHaveLength(1)
     expect(vm.runningWorkspaces.map((workspace: { id: string }) => workspace.id)).toEqual(['ws-running'])
-    expect(vm.portfolioWorkspaceIds).toEqual(['ws-running', 'ws-idle'])
+    expect(vm.portfolioWorkspaceIds).toEqual(['ws-running'])
     expect(vm.loading).toBe(false)
     expect(portfolioApi.getOverview).toHaveBeenCalledWith(true)
     expect(workspaceApi.getTradingPositions).not.toHaveBeenCalled()
     expect(portfolioApi.getTrades).not.toHaveBeenCalled()
   })
 
-  it('loadTabData includes positions from historical workspaces', async () => {
+  it('loadTabData only includes positions from active workspaces', async () => {
     const vm = doMount().vm as any
     await vm.loadData()
     await vm.loadTabData('positions')
-    expect(vm.positions.length).toBe(2)
+    expect(vm.positions.length).toBe(1)
     expect(vm.positions[0].strategy_name).toContain('CTA 交易工作区')
     expect(vm.positions[0].data_name).toBe('RB2510')
     expect(vm.positions[0].long_position).toBe(2)
@@ -280,11 +281,12 @@ describe('PortfolioPage', () => {
     expect(vm.positions[0].position_source).toBe('gateway')
     expect(vm.positions[0].asset_spec_source).toBe('ctp_gateway')
     expect(vm.valuationStatusLabel(vm.positions[0])).toBe('交易所确认')
-    expect(vm.positionSummary.total_long_value).toBe(14400)
-    expect(vm.positionSummary.gross_market_value).toBe(14400)
-    expect(vm.positionSummary.net_market_value).toBe(14400)
-    expect(vm.positionSummary.total_pnl).toBe(400)
-    expect(workspaceApi.getTradingPositions).toHaveBeenCalledWith('ws-idle')
+    expect(vm.positionSummary.total_long_value).toBe(7200)
+    expect(vm.positionSummary.gross_market_value).toBe(7200)
+    expect(vm.positionSummary.net_market_value).toBe(7200)
+    expect(vm.positionSummary.total_pnl).toBe(200)
+    expect(workspaceApi.getTradingPositions).toHaveBeenCalledWith('ws-running')
+    expect(workspaceApi.getTradingPositions).not.toHaveBeenCalledWith('ws-idle')
   })
 
   it('loadWorkspacePositions keeps hedged positions with zero net size', async () => {
@@ -351,15 +353,15 @@ describe('PortfolioPage', () => {
     expect(vm.positionSummary.net_market_value).toBe(-600)
   })
 
-  it('loadTabData loads current and historical workspace trade records', async () => {
+  it('loadTabData loads current workspace trade records only', async () => {
     const vm = doMount().vm as any
     await vm.loadData()
     await vm.loadTabData('trades')
-    expect(vm.trades.length).toBe(2)
+    expect(vm.trades.length).toBe(1)
     expect(vm.trades[0].strategy_name).toBe('CTA 交易工作区 / RB 趋势')
     expect(vm.trades[0].data_name).toBe('RB2510')
     expect(vm.trades[0].pnlcomm).toBe(197)
-    expect(portfolioApi.getTrades).toHaveBeenCalledWith(1000, ['ws-running', 'ws-idle'])
+    expect(portfolioApi.getTrades).toHaveBeenCalledWith(1000, ['ws-running'], false)
   })
 
   it('loadWorkspaceTrades requests all running workspaces in one aggregate call', async () => {
@@ -397,7 +399,7 @@ describe('PortfolioPage', () => {
     vi.mocked(portfolioApi.getTrades).mockClear()
     await vm.loadWorkspaceTrades()
 
-    expect(portfolioApi.getTrades).toHaveBeenCalledWith(1000, ['ws-running', 'ws-mt5'])
+    expect(portfolioApi.getTrades).toHaveBeenCalledWith(1000, ['ws-running', 'ws-mt5'], false)
   })
 
   it('loadTabData loads equity', async () => {
@@ -406,7 +408,7 @@ describe('PortfolioPage', () => {
     await vm.loadTabData('equity')
     expect(vm.equityData).toBeTruthy()
     expect(vm.selectedEquitySeries).toBe('portfolio')
-    expect(portfolioApi.getEquity).toHaveBeenCalledWith(['ws-running', 'ws-idle'])
+    expect(portfolioApi.getEquity).toHaveBeenCalledWith(['ws-running'], false)
   })
 
   it('uses the portfolio curve by default and trims leading empty points', () => {
@@ -470,7 +472,7 @@ describe('PortfolioPage', () => {
     await vm.loadTabData('allocation')
     expect(vm.allocationItems.length).toBe(1)
     expect(vm.allocationItems[0].asset).toBe('RB2510')
-    expect(portfolioApi.getAllocation).toHaveBeenCalledWith(['ws-running', 'ws-idle'])
+    expect(portfolioApi.getAllocation).toHaveBeenCalledWith(['ws-running'])
   })
 
   it('loadTabData skips already loaded tabs', async () => {
@@ -485,10 +487,16 @@ describe('PortfolioPage', () => {
     expect(vm.activeTab).toBe('workspaces')
   })
 
-  it('renderEquityChart does nothing without equityData', () => {
+  it('exposes an empty selected curve without equity data', () => {
     const vm = doMount().vm as any
     vm.equityData = null
-    vm.renderEquityChart() // should not throw
+    expect(vm.selectedEquityCurve).toEqual({
+      name: '',
+      dates: [],
+      values: [],
+      cumulativePnl: [],
+      drawdown: [],
+    })
   })
 
   it('renderDrawdownChart does nothing without equityData', () => {

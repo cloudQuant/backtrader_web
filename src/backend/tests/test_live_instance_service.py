@@ -1,5 +1,6 @@
 """Tests for live_instance_service module."""
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -138,6 +139,8 @@ class TestListInstances:
         save_instances.assert_called_once()
 
     def test_does_not_refresh_updated_at_if_same_day(self, monkeypatch):
+        from pathlib import Path
+
         instances = {
             "inst-1": {
                 "strategy_id": "s1",
@@ -155,6 +158,8 @@ class TestListInstances:
             load_instances=MagicMock(return_value=instances),
             save_instances=save_instances,
             is_pid_alive=MagicMock(return_value=True),
+            resolve_strategy_dir=MagicMock(return_value=Path("/s")),
+            scan_running_strategy_pids=MagicMock(return_value={str(Path("/s/run.py")): 123}),
         )
         list_instances(user_id=None, **deps)
         assert instances["inst-1"]["updated_at"] == "2026-06-24 09:00:00"
@@ -217,6 +222,7 @@ class TestListInstances:
             load_instances=MagicMock(return_value=instances),
             save_instances=save_instances,
             resolve_strategy_dir=MagicMock(return_value=runtime_dir),
+            scan_running_strategy_pids=MagicMock(return_value={str(run_py): 111}),
         )
 
         result = list_instances(user_id=None, **deps)
@@ -226,9 +232,7 @@ class TestListInstances:
         assert "old-inst" not in instances
         save_instances.assert_called()
 
-    def test_running_instance_without_matched_process_keeps_running_when_pid_alive(self, tmp_path):
-        from pathlib import Path
-
+    def test_running_instance_with_reused_pid_is_stopped_when_no_strategy_process_matches(self, tmp_path):
         strategy_dir = tmp_path / "strategy"
         strategy_dir.mkdir()
         (strategy_dir / "run.py").write_text("print('ok')", encoding="utf-8")
@@ -251,8 +255,8 @@ class TestListInstances:
 
         result = list_instances(user_id=None, **deps)
 
-        assert result[0]["status"] == "running"
-        assert result[0]["pid"] == 123
+        assert result[0]["status"] == "stopped"
+        assert result[0]["pid"] is None
         save_instances.assert_called()
 
     def test_running_instance_refreshes_stale_started_at(self, tmp_path):
@@ -276,7 +280,7 @@ class TestListInstances:
             save_instances=save_instances,
             is_pid_alive=MagicMock(return_value=True),
             resolve_strategy_dir=MagicMock(return_value=Path(strategy_dir)),
-            scan_running_strategy_pids=MagicMock(return_value={str(Path("/other/run.py")): 111}),
+            scan_running_strategy_pids=MagicMock(return_value={str(strategy_dir / "run.py"): 9999}),
         )
 
         with patch(
@@ -643,7 +647,7 @@ class TestGetInstance:
             load_instances=MagicMock(return_value=instances),
             save_instances=save_instances,
             is_pid_alive=MagicMock(return_value=True),
-            scan_running_strategy_pids=MagicMock(return_value={}),
+            scan_running_strategy_pids=MagicMock(return_value={str(Path("/s/run.py")): 123}),
             resolve_strategy_dir=MagicMock(return_value=Path("/s")),
             find_latest_log_dir=MagicMock(return_value=None),
         )
@@ -717,7 +721,7 @@ class TestGetInstance:
         assert result["started_at"] == "2026-06-24 10:00:00"
         save_instances.assert_called_once()
 
-    def test_running_instance_with_no_scan_match_keeps_running_when_pid_alive(self, monkeypatch, tmp_path):
+    def test_get_instance_stops_reused_pid_when_no_strategy_process_matches(self, monkeypatch, tmp_path):
         from pathlib import Path
 
         strategy_dir = tmp_path / "strategy"
@@ -749,13 +753,11 @@ class TestGetInstance:
         )
 
         assert result is not None
-        assert result["status"] == "running"
-        assert result["pid"] == 123
+        assert result["status"] == "stopped"
+        assert result["pid"] is None
         save_instances.assert_called_once()
 
     def test_running_instance_refreshes_stale_started_at_from_pid(self, tmp_path):
-        from pathlib import Path
-
         strategy_dir = tmp_path / "strategy"
         strategy_dir.mkdir()
         (strategy_dir / "run.py").write_text("print('ok')", encoding="utf-8")
@@ -779,7 +781,7 @@ class TestGetInstance:
                 load_instances=MagicMock(return_value=instances),
                 save_instances=save_instances,
                 is_pid_alive=MagicMock(return_value=True),
-                scan_running_strategy_pids=MagicMock(return_value={str(Path("/other/run.py")): 9001}),
+                scan_running_strategy_pids=MagicMock(return_value={str(strategy_dir / "run.py"): 9999}),
                 resolve_strategy_dir=MagicMock(return_value=tmp_path / "strategy"),
                 find_latest_log_dir=MagicMock(return_value=None),
             )

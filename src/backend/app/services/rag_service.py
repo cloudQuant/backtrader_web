@@ -103,6 +103,34 @@ def _looks_like_follow_up(question: str) -> bool:
     return any(token in normalized for token in ("上面", "刚才", "前面", "上述", "这个问题"))
 
 
+def _is_knowledge_base_overview_question(question: str) -> bool:
+    """Return whether a question asks for the contents of the whole knowledge base."""
+    normalized = _normalize_text(question).lower()
+    compact = re.sub(r"[\s？?！!,，。；：:()（）\[\]{}<>/\\]+", "", normalized)
+    chinese_scope = any(marker in compact for marker in ("知识库", "这个库", "资料库"))
+    chinese_intent = any(
+        phrase in compact
+        for phrase in (
+            "包含哪些内容",
+            "包含什么",
+            "主要内容",
+            "主要包含",
+            "有什么内容",
+            "有哪些文档",
+            "有哪些资料",
+        )
+    )
+    if chinese_scope and chinese_intent:
+        return True
+
+    english_scope = "knowledge base" in normalized or "document collection" in normalized
+    english_intent = any(
+        phrase in normalized
+        for phrase in ("what does", "what is in", "what documents", "what content", "contain")
+    )
+    return english_scope and english_intent
+
+
 def _safe_datetime(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -130,6 +158,89 @@ class RAGService:
             .scalars()
             .all()
         )
+
+    async def _knowledge_base_overview_citations(
+        self,
+        knowledge_base_id: str,
+        owner_id: str,
+        *,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Build document-level citations for a whole-library overview question."""
+        async with async_session_maker() as session:
+            documents = list(
+                (
+                    await session.execute(
+                        select(KBDocument)
+                        .join(KnowledgeBase, KnowledgeBase.id == KBDocument.knowledge_base_id)
+                        .where(
+                            KBDocument.knowledge_base_id == knowledge_base_id,
+                            KBDocument.is_folder.is_(False),
+                            or_(
+                                KnowledgeBase.owner_id == owner_id,
+                                KnowledgeBase.is_public.is_(True),
+                            ),
+                        )
+                        .order_by(KBDocument.sort_order.asc(), KBDocument.created_at.asc())
+                        .limit(limit)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        citations: list[dict[str, Any]] = []
+        for document in documents:
+            title = _normalize_text(str(getattr(document, "title", "") or "")) or "未命名文档"
+            preview = _normalize_text(str(getattr(document, "content", "") or ""))
+            citations.append(
+                {
+                    "chunk_id": None,
+                    "document_id": str(document.id),
+                    "document_title": title,
+                    "chunk_index": None,
+                    "content": preview[:240],
+                    "similarity": 1.0,
+                    "score_breakdown": {"overview": 1.0},
+                }
+            )
+        return citations
+
+    async def _knowledge_base_overview_response(
+        self,
+        knowledge_base_id: str,
+        owner_id: str,
+        *,
+        limit: int,
+        diagnostics: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        """Return a deterministic library overview without requiring lexical overlap."""
+        citations = await self._knowledge_base_overview_citations(
+            knowledge_base_id,
+            owner_id,
+            limit=limit,
+        )
+        if not citations:
+            return None
+
+        lines = ["这个知识库当前主要包含以下文档："]
+        for index, citation in enumerate(citations, start=1):
+            title = str(citation["document_title"])
+            preview = str(citation["content"] or "")
+            lines.append(f"{index}. 《{title}》" + (f"：{preview}" if preview else ""))
+
+        return {
+            "answer": "\n".join(lines),
+            "citations": citations,
+            "context_chunks_used": len(citations),
+            "tokens_used": 0,
+            "model_id": None,
+            "strategy_draft": None,
+            "reasoning": None,
+            "reason_code": "knowledge_base_overview",
+            "diagnostic_message": "已按当前知识库的文档目录生成概览。",
+            "diagnostics": diagnostics,
+        }
 
     async def _auto_index_documents(
         self,
@@ -641,6 +752,15 @@ class RAGService:
         diagnostics = search_payload["diagnostics"]
         settings = search_payload["settings"] or {}
         if not results:
+            if _is_knowledge_base_overview_question(question):
+                overview = await self._knowledge_base_overview_response(
+                    knowledge_base_id,
+                    owner_id,
+                    limit=max(1, min(int(settings.get("default_top_k") or 8), 12)),
+                    diagnostics=diagnostics,
+                )
+                if overview is not None:
+                    return overview
             message = "未找到相关内容，请先确认知识库已建立索引且问题与文档内容相关。"
             return {
                 "answer": message,

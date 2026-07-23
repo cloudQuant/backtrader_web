@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import math
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -11,6 +12,20 @@ from sqlalchemy import text
 from app.db.akshare_data_database import _get_akshare_data_engine
 
 MarketAssetType = Literal["stock", "futures", "bond", "fund", "option", "fx", "crypto"]
+
+_BUILTIN_INSTRUMENTS: dict[MarketAssetType, tuple[tuple[str, str, str], ...]] = {
+    "stock": (
+        ("000001", "平安银行", "CN"),
+        ("600519", "贵州茅台", "CN"),
+        ("300750", "宁德时代", "CN"),
+    ),
+    "futures": (("RB0", "螺纹钢连续", "CF"), ("IF0", "沪深 300 股指连续", "CFFEX")),
+    "bond": (("sh110074", "银华转债", "CN"),),
+    "fund": (("510300", "沪深 300 ETF", "CN"),),
+    "option": (("MO", "中证 1000 期权主力合约", "CFFEX"),),
+    "fx": (("USDCNH", "美元离岸人民币", "FX"),),
+    "crypto": (("BTCJPY", "比特币 / 日元", "CRYPTO"),),
+}
 
 _WAREHOUSE_PROVIDER = "akshare_data"
 _ONLINE_PROVIDER = "akshare"
@@ -207,17 +222,30 @@ class MarketInstrumentService:
         lookup = lookup_map.get(asset_type)
         if lookup is None:
             raise ValueError(f"Unsupported asset type: {asset_type}")
-        items = await lookup(search=search.strip(), limit=normalized_limit)
-        cached_items = await self._list_cached_instruments(
-            asset_type=asset_type,
-            search=search.strip(),
-            limit=normalized_limit,
-        )
+        normalized_search = search.strip()
+        try:
+            items = await lookup(search=normalized_search, limit=normalized_limit)
+        except Exception:
+            items = []
+        try:
+            cached_items = await self._list_cached_instruments(
+                asset_type=asset_type,
+                search=normalized_search,
+                limit=normalized_limit,
+            )
+        except Exception:
+            cached_items = []
         items = self._normalize_instrument_options(
             [*items, *cached_items],
             asset_type,
             normalized_limit,
         )
+        if not items:
+            items = self._fallback_instruments(
+                asset_type=asset_type,
+                search=normalized_search,
+                limit=normalized_limit,
+            )
         return {
             "asset_type": asset_type,
             "items": items,
@@ -286,7 +314,8 @@ class MarketInstrumentService:
             )
             return warehouse_payload
 
-        payload = lookup(
+        payload = await asyncio.to_thread(
+            lookup,
             symbol=normalized_symbol,
             start_date=start_date or start,
             end_date=end_date or end,
@@ -414,7 +443,8 @@ class MarketInstrumentService:
             warnings.append("MARKET_INSTRUMENT_HISTORY_CACHE 已过期或未覆盖所选区间，跳过缓存")
 
         online_warnings: list[str] = []
-        online_rows = self._lookup_history_online(
+        online_rows = await asyncio.to_thread(
+            self._lookup_history_online,
             asset_type=asset_type,
             symbol=warehouse_payload.get("symbol") or symbol,
             start_date=start_date,
@@ -925,6 +955,35 @@ class MarketInstrumentService:
             ),
             reverse=True,
         )[:limit]
+
+    @staticmethod
+    def _fallback_instruments(
+        *,
+        asset_type: MarketAssetType,
+        search: str,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Return safe starter symbols when the optional warehouse is unavailable."""
+        normalized_search = search.casefold()
+        options: list[dict[str, Any]] = []
+        for symbol, name, market in _BUILTIN_INSTRUMENTS[asset_type]:
+            searchable = " ".join((symbol, name, market)).casefold()
+            if normalized_search and normalized_search not in searchable:
+                continue
+            options.append(
+                {
+                    "asset_type": asset_type,
+                    "symbol": symbol,
+                    "name": name,
+                    "market": market,
+                    "source_table": "builtin_fallback",
+                    "latest_date": None,
+                    "has_snapshot": False,
+                    "has_history": False,
+                    "history_rows": 0,
+                }
+            )
+        return options[:limit]
 
     async def _list_cached_instruments(
         self,
@@ -2053,18 +2112,7 @@ class MarketInstrumentService:
         import akshare as ak
 
         code = _normalize_plain_code(symbol)
-        snapshot: dict[str, Any] = {}
         history_rows: list[dict[str, Any]] = []
-
-        try:
-            spot_df = ak.stock_zh_a_spot_em()
-            matched = spot_df[spot_df["代码"].astype(str) == code]
-            if not matched.empty:
-                snapshot = self._snapshot_from_cn_quote(matched.iloc[0].to_dict(), symbol=symbol)
-            else:
-                warnings.append(f"未在 A 股实时快照中找到 {symbol}")
-        except Exception as exc:
-            warnings.append(f"A 股实时快照不可用: {exc}")
 
         try:
             history_df = ak.stock_zh_a_hist(
@@ -2079,7 +2127,10 @@ class MarketInstrumentService:
         except Exception as exc:
             warnings.append(f"A 股历史行情不可用: {exc}")
 
-        snapshot = snapshot or self._snapshot_from_latest_history(symbol, history_rows)
+        # stock_zh_a_spot_em fetches the entire market in many paginated requests.
+        # A single-symbol history query is much faster and already contains the
+        # most recent close needed to render the data page.
+        snapshot = self._snapshot_from_latest_history(symbol, history_rows)
         return self._payload(
             asset_type="stock",
             symbol=symbol,
@@ -2159,38 +2210,7 @@ class MarketInstrumentService:
         import akshare as ak
 
         exchange_symbol = _normalize_exchange_symbol(symbol)
-        plain_code = exchange_symbol[2:]
-        snapshot: dict[str, Any] = {}
         history_rows: list[dict[str, Any]] = []
-
-        try:
-            spot_df = ak.bond_zh_hs_cov_spot()
-            matched = spot_df[
-                (spot_df["symbol"].astype(str).str.lower() == exchange_symbol)
-                | (spot_df["code"].astype(str) == plain_code)
-            ]
-            if not matched.empty:
-                row = matched.iloc[0].to_dict()
-                snapshot = {
-                    "symbol": exchange_symbol,
-                    "name": _safe_str(row.get("name")) or exchange_symbol,
-                    "price": _safe_float(row.get("trade")),
-                    "change": _safe_float(row.get("pricechange")),
-                    "change_pct": _safe_float(row.get("changepercent")),
-                    "open": _safe_float(row.get("open")),
-                    "high": _safe_float(row.get("high")),
-                    "low": _safe_float(row.get("low")),
-                    "previous_close": _safe_float(row.get("settlement")),
-                    "bid": _safe_float(row.get("buy")),
-                    "ask": _safe_float(row.get("sell")),
-                    "volume": _safe_int(row.get("volume")),
-                    "turnover": _safe_float(row.get("amount")),
-                    "update_time": _safe_str(row.get("ticktime")),
-                }
-            else:
-                warnings.append(f"未在可转债实时快照中找到 {symbol}")
-        except Exception as exc:
-            warnings.append(f"债券实时快照不可用: {exc}")
 
         try:
             history_df = ak.bond_zh_hs_cov_daily(symbol=exchange_symbol)
@@ -2198,7 +2218,7 @@ class MarketInstrumentService:
         except Exception as exc:
             warnings.append(f"债券历史行情不可用: {exc}")
 
-        snapshot = snapshot or self._snapshot_from_latest_history(exchange_symbol, history_rows)
+        snapshot = self._snapshot_from_latest_history(exchange_symbol, history_rows)
         return self._payload(
             asset_type="bond",
             symbol=exchange_symbol,
@@ -2222,18 +2242,7 @@ class MarketInstrumentService:
         import akshare as ak
 
         code = _normalize_plain_code(symbol)
-        snapshot: dict[str, Any] = {}
         history_rows: list[dict[str, Any]] = []
-
-        try:
-            spot_df = ak.fund_etf_spot_em()
-            matched = spot_df[spot_df["代码"].astype(str) == code]
-            if not matched.empty:
-                snapshot = self._snapshot_from_cn_quote(matched.iloc[0].to_dict(), symbol=code)
-            else:
-                warnings.append(f"未在 ETF 实时快照中找到 {symbol}")
-        except Exception as exc:
-            warnings.append(f"基金实时快照不可用: {exc}")
 
         try:
             history_df = ak.fund_etf_hist_em(
@@ -2247,7 +2256,7 @@ class MarketInstrumentService:
         except Exception as exc:
             warnings.append(f"基金历史行情不可用: {exc}")
 
-        snapshot = snapshot or self._snapshot_from_latest_history(code, history_rows)
+        snapshot = self._snapshot_from_latest_history(code, history_rows)
         return self._payload(
             asset_type="fund",
             symbol=code,
@@ -2257,6 +2266,38 @@ class MarketInstrumentService:
             rows=history_rows,
             period=period,
         )
+
+    @staticmethod
+    def _resolve_option_symbol(ak: Any, symbol: str, warnings: list[str]) -> str:
+        """Resolve the stable MO alias to the first current CFFEX option contract."""
+        normalized = symbol.strip()
+        if normalized.upper() not in {"MO", "MO0", "CFFEX_MO"}:
+            return normalized
+
+        try:
+            listings = ak.option_cffex_zz1000_list_sina()
+            contracts = [
+                str(contract).strip()
+                for values in (listings or {}).values()
+                if isinstance(values, list)
+                for contract in values
+                if str(contract).strip()
+            ]
+            if not contracts:
+                raise ValueError("未找到中证 1000 期权月份")
+
+            chain = ak.option_cffex_zz1000_spot_sina(contracts[0])
+            for column in ("看涨合约-标识", "看跌合约-标识"):
+                if column not in chain:
+                    continue
+                for value in chain[column].tolist():
+                    contract = str(value or "").strip()
+                    if contract:
+                        return contract
+            raise ValueError("当前月份未返回可查询的期权合约")
+        except Exception as exc:
+            warnings.append(f"期权主力合约解析失败: {exc}")
+            return normalized
 
     def _lookup_option(
         self,
@@ -2270,21 +2311,31 @@ class MarketInstrumentService:
     ) -> dict[str, Any]:
         import akshare as ak
 
+        resolved_symbol = self._resolve_option_symbol(ak, symbol, warnings)
+        normalized_symbol = resolved_symbol.lower()
         history_rows: list[dict[str, Any]] = []
         try:
-            if symbol.lower().startswith("io"):
-                history_df = ak.option_cffex_hs300_daily_sina(symbol=symbol)
+            if normalized_symbol.startswith("io"):
+                history_df = ak.option_cffex_hs300_daily_sina(symbol=resolved_symbol)
+            elif normalized_symbol.startswith("ho"):
+                history_df = ak.option_cffex_sz50_daily_sina(symbol=resolved_symbol)
+            elif normalized_symbol.startswith("mo"):
+                history_df = ak.option_cffex_zz1000_daily_sina(symbol=resolved_symbol)
+            elif "." in resolved_symbol:
+                history_df = ak.option_commodity_hist_sina(
+                    symbol=resolved_symbol.split(".", 1)[1]
+                )
             else:
-                history_df = ak.option_sse_daily_sina(symbol=symbol)
+                history_df = ak.option_sse_daily_sina(symbol=resolved_symbol)
             history_rows = self._normalize_generic_ohlcv_history(history_df, start_date, end_date)
         except Exception as exc:
             warnings.append(f"期权历史行情不可用: {exc}")
 
-        snapshot = self._snapshot_from_latest_history(symbol, history_rows)
+        snapshot = self._snapshot_from_latest_history(resolved_symbol, history_rows)
         return self._payload(
             asset_type="option",
-            symbol=symbol,
-            name=symbol,
+            symbol=resolved_symbol,
+            name=resolved_symbol,
             market=market or "CN",
             snapshot=snapshot,
             rows=history_rows,

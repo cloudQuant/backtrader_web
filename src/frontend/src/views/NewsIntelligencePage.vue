@@ -480,7 +480,7 @@ const newsFeedPresets: NewsFeedPreset[] = [
   {
     id: 'bloomberg-mkts',
     name: 'Bloomberg Markets',
-    url: 'https://feeds.bloomberg.com/markets/news.rss',
+    url: 'https://www.bloomberg.com/feeds/markets/news.rss',
     category: 'MARKETS',
     region: 'GLOBAL',
     tier: 2,
@@ -528,6 +528,9 @@ const newsFeedPresets: NewsFeedPreset[] = [
 ]
 
 const defaultFeedPreset = newsFeedPresets[0]
+const defaultFeedPresets = newsFeedPresets.filter((preset) => {
+  return preset.id === 'bloomberg-mkts' || preset.id === 'cnbc-finance'
+})
 const loading = ref(false)
 const articles = ref<NewsArticleItem[]>([])
 const analysisVisible = ref(false)
@@ -541,8 +544,8 @@ const articleContentLoading = ref(false)
 const articleContent = ref('')
 const articleContentTitle = ref('')
 const rssRefreshMinutes = ref(15)
-const selectedFeedPresetIds = ref<string[]>([defaultFeedPreset.id])
-const configuredSources = ref<NewsFeedPreset[]>([defaultFeedPreset])
+const selectedFeedPresetIds = ref<string[]>(defaultFeedPresets.map((preset) => preset.id))
+const configuredSources = ref<NewsFeedPreset[]>([...defaultFeedPresets])
 const sourceName = ref(defaultFeedPreset.id)
 const sourceUrl = ref(defaultFeedPreset.url)
 const headline = ref('RB2510 surges after bullish demand shock')
@@ -590,7 +593,7 @@ const newsStats = computed(() => [
 
 const selectedFeedPresets = computed(() => {
   const selected = newsFeedPresets.filter((preset) => selectedFeedPresetIds.value.includes(preset.id))
-  return selected.length ? selected : [defaultFeedPreset]
+  return selected.length ? selected : defaultFeedPresets
 })
 
 function toggleSourceConfig() {
@@ -669,14 +672,29 @@ function mergePullResults(results: Array<Record<string, unknown>>, sources: Arra
   }
 }
 
+function degradedPullResult(sourceName: string, reason: string): Record<string, unknown> {
+  return {
+    source: sourceName,
+    status: 'degraded',
+    reason,
+    fetched_count: 0,
+    inserted_count: 0,
+    total: 0,
+  }
+}
+
 async function pullSource() {
   loading.value = true
   try {
-    const sources = await saveConfiguredSources()
-    const results: Array<Record<string, unknown>> = []
-    for (const source of sources) {
-      results.push(await marketIntelApi.pullNewsSource(source.name))
-    }
+    const sources = getConfiguredSourcePayloads()
+    await Promise.allSettled(sources.map((source) => marketIntelApi.createNewsSource(source)))
+    const results = await Promise.all(sources.map(async (source) => {
+      try {
+        return await marketIntelApi.pullNewsSource(source.name)
+      } catch {
+        return degradedPullResult(source.name, 'fetch_failed')
+      }
+    }))
     pullResult.value = mergePullResults(results, sources)
     await loadArticles()
   } finally {

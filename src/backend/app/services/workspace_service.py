@@ -537,14 +537,21 @@ class WorkspaceService(WorkspaceRunOpsMixin):
                 units,
                 user_id,
                 full_log=False,
-                refresh_gateway=False,
+                # This endpoint powers the portfolio's current-assets view.
+                # Running live units must refresh their broker-confirmed rows;
+                # otherwise an empty persisted snapshot is shown as zero assets.
+                refresh_gateway=True,
             )
             if changed:
                 await session.commit()
-            # A stopped or failed unit can still be the only durable record of
-            # the last position it held. Keep those historical snapshots in
-            # the workspace response; flat units remain filtered downstream.
-            response_units = units
+            # The default view represents current holdings, so stale logs from
+            # stopped units must not look like open positions. A caller that
+            # explicitly selects a unit can still inspect its last snapshot.
+            response_units = (
+                units
+                if unit_ids
+                else [unit for unit in units if str(unit.run_status or "").lower() == "running"]
+            )
             response_snapshots_before = {
                 str(unit.id): _dict_or_empty(unit.trading_snapshot) for unit in response_units
             }

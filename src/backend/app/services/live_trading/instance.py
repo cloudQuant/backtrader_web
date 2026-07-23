@@ -250,16 +250,19 @@ def list_instances(
         if inst.get("status") == "running":
             mapped_pid = _running_pid_for_instance(inst, running_pids, resolve_strategy_dir)
             pid = _coerce_pid(inst.get("pid"))
-            if mapped_pid and pid != mapped_pid:
+            # A PID can be recycled by an unrelated application after the strategy
+            # exits.  Treat the strategy-process scan as the source of truth rather
+            # than trusting that an arbitrary live PID still belongs to this instance.
+            if not mapped_pid or not is_pid_alive(mapped_pid):
+                inst["status"] = "stopped"
+                inst["pid"] = None
+                normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
+                changed = True
+            elif pid != mapped_pid:
                 inst["pid"] = mapped_pid
                 inst["status"] = "running"
                 inst["started_at"] = now
                 inst["error"] = None
-                normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
-                changed = True
-            elif not pid or not is_pid_alive(pid):
-                inst["status"] = "stopped"
-                inst["pid"] = None
                 normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
                 changed = True
             elif _refresh_started_at_from_pid(inst, pid):
@@ -439,27 +442,30 @@ def get_instance(
     inst["id"] = instance_id
     now = instance_timestamp()
     changed = normalize_instance_metadata(inst, instance_id=instance_id, now=now)
+    running_pids = scan_running_strategy_pids()
     if inst.get("status") == "running":
         mapped_pid = None
         try:
             mapped_pid = _running_pid_for_instance(
                 inst,
-                scan_running_strategy_pids(),
+                running_pids,
                 resolve_strategy_dir,
             )
         except ValueError:
             mapped_pid = None
         pid = _coerce_pid(inst.get("pid"))
-        if mapped_pid and pid != mapped_pid:
+        # A live PID alone is insufficient: it can already have been reused by
+        # another process.  The scanned run.py path must match this instance.
+        if not mapped_pid or not is_pid_alive(mapped_pid):
+            inst["status"] = "stopped"
+            inst["pid"] = None
+            normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
+            changed = True
+        elif pid != mapped_pid:
             inst["status"] = "running"
             inst["pid"] = mapped_pid
             inst["started_at"] = now
             inst["error"] = None
-            normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
-            changed = True
-        elif not pid or not is_pid_alive(pid):
-            inst["status"] = "stopped"
-            inst["pid"] = None
             normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
             changed = True
         elif _refresh_started_at_from_pid(inst, pid):
@@ -471,7 +477,6 @@ def get_instance(
     try:
         strategy_dir = _resolve_instance_strategy_dir(inst, resolve_strategy_dir)
         if inst.get("status") != "running":
-            running_pids = scan_running_strategy_pids()
             mapped_pid = _running_pid_for_instance(inst, running_pids, resolve_strategy_dir)
             if mapped_pid and is_pid_alive(mapped_pid):
                 inst["status"] = "running"

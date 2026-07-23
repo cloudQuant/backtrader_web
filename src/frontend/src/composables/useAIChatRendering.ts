@@ -321,6 +321,7 @@ export function getStrategyDraftIssue(draft?: KBStrategyDraft | null): string | 
 
 export function getDiagnosticTitle(reasonCode?: KBReasonCode | null): string {
   if (reasonCode === 'no_context_found') return t('aiChat.diagNoContext')
+  if (reasonCode === 'knowledge_base_overview') return t('aiChat.diagKnowledgeBaseOverview')
   if (reasonCode === 'ai_not_configured') return t('aiChat.diagAINotConfigured')
   if (reasonCode === 'ai_provider_failed') return t('aiChat.diagAIProviderFailed')
   return t('aiChat.diagDefault')

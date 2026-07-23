@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { KBStrategyDraft } from '@/api/kbChat'
-import { getStrategyDraftIssue } from '@/composables/useAIChatRendering'
+import { getDiagnosticTitle, getStrategyDraftIssue } from '@/composables/useAIChatRendering'
 
 const COMPLETE_STRATEGY_CODE = [
   'import backtrader as bt',
@@ -81,5 +81,11 @@ describe('getStrategyDraftIssue', () => {
       .replace('            self.close()', '            signal = False')
 
     expect(getStrategyDraftIssue(buildDraft(code))).not.toBeNull()
+  })
+})
+
+describe('getDiagnosticTitle', () => {
+  it('labels a deterministic knowledge base overview as an overview instead of a failure', () => {
+    expect(getDiagnosticTitle('knowledge_base_overview')).toBe('知识库概览')
   })
 })

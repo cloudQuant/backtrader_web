@@ -68,6 +68,71 @@ async def test_workspace_list_supports_workspace_type_filter(
 
 
 @pytest.mark.asyncio
+async def test_workspace_list_reconciles_stale_running_trading_units(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A persisted running flag must not survive when its live instance is stopped."""
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+    from app.services.workspace import lifecycle
+
+    class StoppedInstanceManager:
+        def list_instances(self, user_id: str | None = None) -> list[dict[str, str | None]]:
+            return [
+                {
+                    "id": "stale-instance",
+                    "status": "stopped",
+                    "error": None,
+                    "stopped_at": "2026-07-24 01:00:00",
+                }
+            ]
+
+    monkeypatch.setattr(
+        lifecycle,
+        "get_live_trading_manager",
+        lambda: StoppedInstanceManager(),
+        raising=False,
+    )
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "过期运行状态", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={"strategy_id": "simulate/gateway_dual_ma", "symbol": "IF2609"},
+    )
+    unit_id = unit_response.json()["id"]
+
+    async with async_session_maker() as session:
+        unit = await session.get(StrategyUnit, unit_id)
+        assert unit is not None
+        unit.run_status = "running"
+        unit.trading_instance_id = "stale-instance"
+        unit.trading_snapshot = {"instance_status": "running"}
+        await session.commit()
+
+    response = await client.get(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        params={"workspace_type": "trading"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["status"] == "idle"
+    async with async_session_maker() as session:
+        refreshed = await session.get(StrategyUnit, unit_id)
+        assert refreshed is not None
+        assert refreshed.run_status == "idle"
+        assert refreshed.trading_snapshot["instance_status"] == "stopped"
+
+
+@pytest.mark.asyncio
 async def test_trading_workspace_unit_roundtrip_exposes_trading_fields(
     client: AsyncClient,
     auth_headers: dict[str, str],

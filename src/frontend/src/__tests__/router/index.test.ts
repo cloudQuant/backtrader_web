@@ -40,7 +40,6 @@ vi.mock('@/views/workspace/WorkspaceDetailPage.vue', () => ({ default: { templat
 vi.mock('@/views/NewsIntelligencePage.vue', () => ({ default: { template: '<div>News Intelligence</div>' } }))
 vi.mock('@/views/OptionsChainPage.vue', () => ({ default: { template: '<div>Options Chain</div>' } }))
 vi.mock('@/views/ScannerPage.vue', () => ({ default: { template: '<div>Scanner</div>' } }))
-vi.mock('@/views/QuantToolsPage.vue', () => ({ default: { template: '<div>Quant Tools</div>' } }))
 vi.mock('@/views/investment/StockAnalysisPage.vue', () => ({ default: { template: '<div>Stock Analysis</div>' } }))
 vi.mock('@/views/SettingsPage.vue', () => ({ default: { template: '<div>Settings</div>' } }))
 vi.mock('@/views/AIChatPage.vue', () => ({ default: { template: '<div>AI Chat</div>' } }))
@@ -82,7 +81,7 @@ describe('router', () => {
     expect(names).toContain('Portfolio')
     expect(names).toContain('NewsIntelligence')
     expect(names).toContain('Scanners')
-    expect(names).toContain('QuantTools')
+    expect(names).not.toContain('QuantTools')
     expect(names).toContain('TradingWorkspaceList')
     expect(names).toContain('TradingWorkspaceDetail')
     expect(names).toContain('Data')
@@ -320,6 +319,16 @@ describe('router', () => {
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('BacktestResult')
     expect(router.currentRoute.value.path).toBe(APP_PATHS.backtest.result(42))
+
+    await router.push('/research/tools')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('ResearchWorkspaces')
+    expect(router.currentRoute.value.path).toBe(APP_PATHS.research.workspaces)
+
+    await router.push('/quant-tools')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('ResearchWorkspaces')
+    expect(router.currentRoute.value.path).toBe(APP_PATHS.research.workspaces)
   })
 
   it('guard passes redirect query for protected routes', async () => {

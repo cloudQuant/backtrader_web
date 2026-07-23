@@ -40,7 +40,7 @@ const assetNames: Record<MarketAssetType, string> = {
   futures: 'IM2606',
   bond: '电气转债',
   fund: '沪深300ETF',
-  option: '151.ni2609C184000',
+  option: '中证1000期权主力合约',
   fx: '美元离岸人民币',
   crypto: 'BTCJPY',
 }
@@ -50,7 +50,7 @@ const assetSymbols: Record<MarketAssetType, string> = {
   futures: 'IM2606',
   bond: 'sh110074',
   fund: '510300',
-  option: '151.ni2609C184000',
+  option: 'MO',
   fx: 'USDCNH',
   crypto: 'BTCJPY',
 }
@@ -384,7 +384,7 @@ describe('DataPage', () => {
 
     expect(apiMocks.lookupInstrument).toHaveBeenCalledWith({
       asset_type: 'option',
-      symbol: '151.ni2609C184000',
+      symbol: 'MO',
       period: 'daily',
       start_date: expect.any(String),
       end_date: expect.any(String),
@@ -403,7 +403,7 @@ describe('DataPage', () => {
 
     expect(apiMocks.lookupInstrument).toHaveBeenLastCalledWith({
       asset_type: 'option',
-      symbol: '151.ni2609C184000',
+      symbol: 'MO',
       period: 'daily',
       start_date: expect.any(String),
       end_date: expect.any(String),
