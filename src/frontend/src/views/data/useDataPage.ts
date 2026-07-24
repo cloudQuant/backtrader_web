@@ -26,6 +26,15 @@ import { CANDLE_DOWN_COLOR, CANDLE_ITEM_STYLE, CANDLE_UP_COLOR } from '@/constan
 import type { DataTable } from '@/types'
 import type { MarketDataCoverageResponse } from '@/types/trust'
 
+const MARKET_ASSET_SELECTIONS_STORAGE_KEY = 'ai_for_investor:market:asset_selections'
+
+type SavedMarketAssetSelection = {
+  symbol: string
+  market?: string
+}
+
+type MarketAssetSelections = Partial<Record<MarketAssetType, SavedMarketAssetSelection>>
+
 export function useDataPage() {
   const { t } = useI18n()
   const route = useRoute()
@@ -82,6 +91,13 @@ export function useDataPage() {
     label: string
     value: string
     tone: string
+  }
+
+  type SnapshotMetric = {
+    key: string
+    label: string
+    value: string
+    tone?: string
   }
 
   type HistoryTableColumn = Omit<HistoryColumnSpec, 'labelKey'> & {
@@ -570,6 +586,7 @@ export function useDataPage() {
   const coverageError = ref('')
   const coverageTimeframe = ref('1d')
   const coverageProvider = ref('akshare_data')
+  const viewportWidth = ref(window.innerWidth)
   let marketChart: echarts.ECharts | null = null
   let instrumentOptionsRequestId = 0
   let relatedTableRequestId = 0
@@ -577,6 +594,9 @@ export function useDataPage() {
 
   const snapshot = computed<Record<string, unknown>>(() => result.value?.snapshot || {})
   const historyRows = computed(() => result.value?.history.rows || [])
+  const displayHistoryRows = computed(() => (
+    [...historyRows.value].sort((left, right) => historyRowTimestamp(right) - historyRowTimestamp(left))
+  ))
   const ohlcHistoryRows = computed(() => historyRows.value.filter((row) => (
     hasValue(row.date) && hasValue(row.close) && (
       hasValue(row.open) || hasValue(row.high) || hasValue(row.low)
@@ -612,6 +632,64 @@ export function useDataPage() {
   const hasSnapshotSettle = computed(() => hasValue(snapshot.value.settle))
   const hasSnapshotValuation = computed(() => hasValue(snapshot.value.pe) || hasValue(snapshot.value.pb))
   const hasSnapshotDataSource = computed(() => hasValue(snapshot.value.data_source_table))
+  const snapshotDescriptionColumns = computed(() => (viewportWidth.value >= 720 ? 2 : 1))
+  const snapshotMetrics = computed<SnapshotMetric[]>(() => {
+    const metrics: SnapshotMetric[] = [
+      { key: 'symbol', label: t('dataMgmt.fieldSymbol'), value: formatText(result.value?.symbol) },
+      { key: 'name', label: t('dataMgmt.fieldName'), value: formatText(result.value?.name) },
+      { key: 'market', label: t('dataMgmt.fieldMarket'), value: formatText(result.value?.market) },
+    ]
+
+    if (hasSnapshotDataSource.value) {
+      metrics.push({
+        key: 'data_source_table',
+        label: t('dataMgmt.fieldDataSourceTable'),
+        value: formatText(snapshot.value.data_source_table),
+      })
+    }
+
+    metrics.push({ key: 'price', label: t('dataMgmt.fieldPrice'), value: formatNumber(snapshot.value.price) })
+    if (hasSnapshotChange.value) {
+      metrics.push({
+        key: 'change',
+        label: t('dataMgmt.colChange'),
+        value: `${formatNumber(snapshot.value.change)} / ${formatPercent(snapshot.value.change_pct)}`,
+        tone: toneClass(snapshot.value.change_pct ?? snapshot.value.change),
+      })
+    }
+    metrics.push(
+      { key: 'open', label: t('dataMgmt.fieldOpen'), value: formatNumber(snapshot.value.open) },
+      {
+        key: 'high_low',
+        label: t('dataMgmt.fieldHighLow'),
+        value: formatPair(snapshot.value.high, snapshot.value.low),
+      },
+      { key: 'volume', label: t('dataMgmt.fieldVolume'), value: formatNumber(snapshot.value.volume) },
+    )
+
+    if (hasSnapshotTurnover.value) {
+      metrics.push({ key: 'turnover', label: t('dataMgmt.fieldTurnover'), value: formatNumber(snapshot.value.turnover) })
+    }
+    if (hasSnapshotBidAsk.value) {
+      metrics.push({ key: 'bid_ask', label: t('dataMgmt.fieldBidAsk'), value: formatPair(snapshot.value.bid, snapshot.value.ask) })
+    }
+    if (hasSnapshotOpenInterest.value) {
+      metrics.push({
+        key: 'open_interest',
+        label: t('dataMgmt.fieldOpenInterest'),
+        value: formatNumber(snapshot.value.open_interest),
+      })
+    }
+    if (hasSnapshotSettle.value) {
+      metrics.push({ key: 'settle', label: t('dataMgmt.fieldSettle'), value: formatNumber(snapshot.value.settle) })
+    }
+    if (hasSnapshotValuation.value) {
+      metrics.push({ key: 'valuation', label: t('dataMgmt.fieldValuation'), value: formatValuation() })
+    }
+
+    metrics.push({ key: 'updated', label: t('dataMgmt.fieldUpdated'), value: formatText(snapshot.value.update_time) })
+    return metrics
+  })
   const assetKpiCards = computed<KpiCard[]>(() => buildAssetKpiCards())
   const chartModeOptions = computed<ChartModeOption[]>(() => {
     if (hasOhlcChart.value) {
@@ -697,15 +775,20 @@ export function useDataPage() {
   ])
 
   onMounted(() => {
-    applyRouteTab(route.query.tab, false)
+    const routeAssetType = routeTabMap[String(route.query.tab || '').toLowerCase()]
+    if (routeAssetType) {
+      applyAssetType(routeAssetType, false)
+    } else {
+      restoreAssetSelection(form.asset_type)
+    }
     void loadInstrumentOptions(formSymbolText())
     void loadCoverageMatrix()
     void lookupInstrument()
-    window.addEventListener('resize', resizeMarketChart)
+    window.addEventListener('resize', handleViewportResize)
   })
 
   onUnmounted(() => {
-    window.removeEventListener('resize', resizeMarketChart)
+    window.removeEventListener('resize', handleViewportResize)
     disposeMarketChart()
   })
 
@@ -772,41 +855,77 @@ export function useDataPage() {
   }
 
   function applyAssetType(assetType: MarketAssetType, resetResult = true) {
-    if (form.asset_type === assetType) return false
-
-    const previousTab = currentAssetTab()
-    const currentSymbol = formSymbolText()
+    const changed = form.asset_type !== assetType
     form.asset_type = assetType
-    const nextTab = currentAssetTab()
-    if (!currentSymbol || currentSymbol === previousTab.defaultSymbol) {
-      form.symbol = nextTab.defaultSymbol
-    }
-    if (form.asset_type !== 'futures') {
-      form.market = 'CF'
-    }
-    if (resetResult) {
+    restoreAssetSelection(assetType)
+    if (changed && resetResult) {
       result.value = null
     }
-    return true
+    return changed
   }
 
-  async function lookupInstrument() {
+  function restoreAssetSelection(assetType: MarketAssetType): void {
+    const selection = readMarketAssetSelections()[assetType]
+    const defaultSymbol = assetTabs.find((tab) => tab.key === assetType)?.defaultSymbol || ''
+    form.symbol = selection?.symbol || defaultSymbol
+    form.market = assetType === 'futures' ? selection?.market || 'CF' : 'CF'
+  }
+
+  function readMarketAssetSelections(): MarketAssetSelections {
+    try {
+      const raw = localStorage.getItem(MARKET_ASSET_SELECTIONS_STORAGE_KEY)
+      if (!raw) return {}
+      const parsed = JSON.parse(raw) as Record<string, { symbol?: unknown; market?: unknown }>
+      const selections: MarketAssetSelections = {}
+      for (const tab of assetTabs) {
+        const candidate = parsed[tab.key]
+        const symbol = typeof candidate?.symbol === 'string' ? candidate.symbol.trim() : ''
+        if (!symbol) continue
+        selections[tab.key] = {
+          symbol,
+          market: typeof candidate?.market === 'string' ? candidate.market.trim() : undefined,
+        }
+      }
+      return selections
+    } catch {
+      return {}
+    }
+  }
+
+  function rememberMarketAssetSelection(assetType: MarketAssetType, symbol: string, market?: string): void {
+    try {
+      const selections = readMarketAssetSelections()
+      selections[assetType] = {
+        symbol,
+        ...(assetType === 'futures' && market ? { market } : {}),
+      }
+      localStorage.setItem(MARKET_ASSET_SELECTIONS_STORAGE_KEY, JSON.stringify(selections))
+    } catch {
+      // Persistence may be unavailable in private browsing; the query still succeeds.
+    }
+  }
+
+  async function lookupInstrument(refreshOnline = false) {
     const symbol = formSymbolText()
     if (!symbol) {
       ElMessage.error(t('dataMgmt.msgSymbolRequired'))
       return
     }
+    const queryAssetType = form.asset_type
+    const queryMarket = queryAssetType === 'futures' ? formMarketText() : ''
     loading.value = true
     try {
       const response = await marketDataApi.lookupInstrument({
-        asset_type: form.asset_type,
+        asset_type: queryAssetType,
         symbol,
         period: form.period,
         start_date: dateRange.value?.[0],
         end_date: dateRange.value?.[1],
-        market: form.asset_type === 'futures' ? formMarketText() || undefined : undefined,
+        market: queryMarket || undefined,
+        refresh_online: refreshOnline,
       })
       result.value = response
+      rememberMarketAssetSelection(queryAssetType, symbol, queryMarket)
       void loadRelatedTables(response)
       ElMessage.success(t('dataMgmt.msgQueriedCount', { count: response.history.total }))
     } catch {
@@ -931,6 +1050,11 @@ export function useDataPage() {
 
   function formatInstrumentHistoryStatus(option: MarketInstrumentOption) {
     return option.has_history ? formatNumber(option.history_rows) : '0'
+  }
+
+  function historyRowTimestamp(row: MarketHistoryRow): number {
+    const timestamp = Date.parse(String(row.date ?? ''))
+    return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY
   }
 
   function toDateInput(value: Date) {
@@ -1166,6 +1290,11 @@ export function useDataPage() {
 
   function resizeMarketChart() {
     marketChart?.resize()
+  }
+
+  function handleViewportResize() {
+    viewportWidth.value = window.innerWidth
+    resizeMarketChart()
   }
 
   function disposeMarketChart() {
@@ -1770,12 +1899,14 @@ export function useDataPage() {
     coverageError,
     coverageTimeframe,
     coverageProvider,
+    snapshotDescriptionColumns,
     marketChart,
     instrumentOptionsRequestId,
     relatedTableRequestId,
     coverageRequestId,
     snapshot,
     historyRows,
+    displayHistoryRows,
     ohlcHistoryRows,
     hasOhlcChart,
     hasStructureChart,
@@ -1794,6 +1925,7 @@ export function useDataPage() {
     hasSnapshotSettle,
     hasSnapshotValuation,
     hasSnapshotDataSource,
+    snapshotMetrics,
     assetKpiCards,
     chartModeOptions,
     rangeStats,
@@ -1812,6 +1944,7 @@ export function useDataPage() {
     setAssetType,
     applyRouteTab,
     applyAssetType,
+    restoreAssetSelection,
     lookupInstrument,
     loadCoverageMatrix,
     refreshCoverageMatrix,
@@ -1841,6 +1974,7 @@ export function useDataPage() {
     capitalize,
     renderMarketChart,
     resizeMarketChart,
+    handleViewportResize,
     disposeMarketChart,
     buildMarketChartOption,
     buildPriceChartOption,

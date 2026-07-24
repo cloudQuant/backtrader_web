@@ -1,28 +1,29 @@
 # 功能介绍
 
-AI for Investor 提供全面的量化交易功能。
+产品按“研究依据 → 策略与验证 → 交易准备 → 风险观察”组织。页面导航是主要入口；接口细节以运行中服务的 OpenAPI 为准。
 
-## 核心模块
+## 功能地图
 
-| 模块 | 端点前缀 | 说明 |
-|------|----------|------|
-| 认证 | `/api/v1/auth` | JWT 认证、注册、登录 |
-| 策略 | `/api/v1/strategy` | CRUD、模板 |
-| 回测 | `/api/v1/backtests` | **推荐** 增强回测 |
-| 分析 | `/api/v1/analytics` | 回测数据分析 |
-| 优化 | `/api/v1/optimization` | 参数优化 |
-| 模拟交易 | `/api/v1/paper-trading` | 模拟账户、订单 |
-| 实盘交易 | `/api/v1/live-trading` | 实盘账户、订单 |
-| 行情数据 | `/api/v1/quote`, `/api/v1/realtime` | 实时行情 |
-| 监控告警 | `/api/v1/monitoring` | 告警规则 |
-| 工作区 | `/api/v1/workspace` | 工作区管理 |
+| 工作流 | 页面入口 | 关键边界 |
+| --- | --- | --- |
+| 知识与 AI | `/ai/chat`、`/ai/knowledge-base` | 先索引再问答；回答应携带上下文或可读诊断 |
+| 市场数据 | `/data/market` | 本地 MySQL 优先；仅显式查询才调用 AkShare |
+| 策略与 AI 投研 | `/investment/strategies` | 代码、研究目标和结果均需人工复核 |
+| 回测与验证 | `/research/workspaces`、`/backtest` | 指标基于所选数据和配置，不构成收益承诺 |
+| 交易工作区 | `/trading` | 将研究与交易运行状态分开管理 |
+| 组合与风险 | `/portfolio` | 聚合账户、持仓、成交、P&L、回撤和资产配置 |
+| 管理配置 | `/config/data`、`/config/ai`、`/config/gateways` | 管理员权限；密钥只保存在环境或密钥服务中 |
 
-## 功能详情
+## 深入阅读
 
-- [回测](./backtesting.md) - 基于 fincore 指标的历史数据回测
-- [策略管理](./strategy-management.md) - CRUD、版本控制、模板
-- [模拟交易](./paper-trading.md) - 模拟交易环境
-- [实盘交易](./live-trading.md) - 真实券商对接
-- [参数优化](./optimization.md) - 网格搜索、贝叶斯优化
+- [知识库与 AI 问答](./knowledge-base.md)
+- [市场数据与可信度](./market-data.md)
+- [策略与 AI 投研](./strategy-management.md)
+- [回测与验证](./backtesting.md)
+- [交易工作区与模拟](./paper-trading.md)
+- [实盘准备与网关](./live-trading.md)
+- [参数优化](./optimization.md)
 
-> ⚠️ **废弃说明**：旧版 `/api/v1/backtest/*` 端点已废弃，请迁移至 `/api/v1/backtests/*`
+## API 约定
+
+核心 API 位于 `/api/v1`。常用领域包括 `/strategy`、`/backtests`、`/workspace`、`/data`、`/data/trust`、`/knowledge-base`、`/rag`、`/kb-chat`、`/portfolio` 和 `/live-trading`。部分模块按依赖和配置可选注册，因此不要依赖过时的端点清单；请使用 `http://localhost:8000/docs` 检查当前环境实际提供的契约。

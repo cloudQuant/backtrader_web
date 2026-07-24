@@ -1,83 +1,32 @@
-# 回测
+# 回测与验证
 
-## 概述
+回测以 Backtrader 为执行引擎，统一整理收益、风险和交易统计。结果的意义取决于策略、数据、成本和时间范围；它用于验证研究假设，不是未来收益预测。
 
-AI for Investor 的回测引擎基于 **Backtrader**，使用 **fincore** 提供标准化金融指标。
+## 推荐流程
 
-## 主要特性
+1. 在[市场数据](./market-data.md)检查标的、周期、日期范围、覆盖和质量。
+2. 在[策略中心](./strategy-management.md)审查策略及其参数。
+3. 加入**研究工作区**，配置初始资金、手续费和数据范围后提交运行。
+4. 运行期间观察状态和研究输出；完成后保留回测任务、配置和指标快照。
+5. 对关键结果继续执行稳健性、样本外或参数敏感性检查。
 
-- **异步执行** - 非阻塞回测运行
-- **进度流** - 通过 WebSocket 实时显示进度
-- **多数据源** - AkShare、CSV、数据库
-- **标准化指标** - fincore 驱动的分析
-- **报告导出** - HTML/PDF/Excel 报告
+## 结果阅读
 
-## API 端点
+| 类别 | 示例 |
+| --- | --- |
+| 收益 | 总收益、年化收益、最终权益 |
+| 风险 | 最大回撤、波动/风险调整收益、回撤曲线 |
+| 交易 | 交易次数、胜率、盈亏比、连续盈亏、平均持有周期 |
+| 可追溯性 | 策略版本、标的、周期、数据范围、资金、手续费和运行时间 |
 
-### 运行回测
+交易次数必须来自真实开平仓记录。若策略覆盖了 `self.close()` 等交易方法，代码会被拒绝；请按[策略与 AI 投研](./strategy-management.md)中的编写约定使用 `self.dataclose` 保存价格序列。
 
-```http
-POST /api/v1/backtests/run
-Content-Type: application/json
+## API 与进度
 
-{
-  "strategy_id": 1,
-  "symbol": "000001.SZ",
-  "start_date": "2024-01-01",
-  "end_date": "2024-12-31",
-  "initial_cash": 100000,
-  "commission": 0.001
-}
-```
+研究工作区是页面主入口。服务端也提供 `/api/v1/backtests/run` 提交、`/api/v1/backtests/{task_id}/status` 查询状态、`/api/v1/backtests/{task_id}` 读取结果，以及 `/{task_id}/robustness` 运行或读取稳健性结果。认证、请求体和可用扩展以 `http://localhost:8000/docs` 为准。
 
-### 获取回测结果
+## 验证边界
 
-```http
-GET /api/v1/backtests/{task_id}
-```
-
-### 列出回测历史
-
-```http
-GET /api/v1/backtests?page=1&page_size=20
-```
-
-## 金融指标
-
-### 收益指标
-- 总收益率
-- 年化收益率
-- 超额收益
-
-### 风险指标
-- 最大回撤
-- 波动率
-- 下行风险
-
-### 风险调整收益
-- 夏普比率
-- 索提诺比率
-- 卡玛比率
-
-### 交易统计
-- 胜率
-- 盈亏比
-- 平均持仓时间
-
-## WebSocket 进度
-
-```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/backtest/{task_id}');
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  console.log(`进度: ${data.progress}%`);
-};
-```
-
-## 报告导出
-
-支持多种格式导出回测结果：
-
-- **HTML** - 交互式图表
-- **PDF** - 打印友好
-- **Excel** - 原始数据
+- 不将缺失数据、失败任务或零交易直接解释为“策略无效”；先检查日志、数据覆盖和订单生命周期。
+- 比较策略时保持数据范围、资金、成本和执行假设一致。
+- 通过回测不自动解除实盘风险约束；进入交易前仍需人工复核和风控审批。

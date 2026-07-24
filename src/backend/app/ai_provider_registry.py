@@ -39,6 +39,7 @@ DEFAULT_PROVIDER_REGISTRY: dict[str, dict[str, Any]] = {
             "minimax-m2.7",
             "minimax-m3",
             "glm-5.1",
+            "glm-5.2",
             "deepseek-v4-flash",
             "deepseek-v4-pro",
             "kimi-k2.6",

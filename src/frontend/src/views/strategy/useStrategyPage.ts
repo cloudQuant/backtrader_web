@@ -70,6 +70,7 @@ export function useStrategyPage() {
   const readmeLoading = ref(false)
   const aiResearchRunning = ref(false)
   const aiResearchResult = ref<AIStrategyResearchRunResponse | null>(null)
+  const aiResearchActiveConfigProfile = ref<AIStrategyResearchConfigProfile | null>(null)
   const aiResearchRunsLoading = ref(false)
   const aiResearchRuns = ref<AIStrategyResearchRunRecord[]>([])
   const AI_RESEARCH_RUNS_AUTO_REFRESH_MS = 30_000
@@ -124,6 +125,9 @@ export function useStrategyPage() {
   const aiResearchMandate = ref<InvestmentMandateResponse | null>(null)
   const aiResearchMandateConfirmed = ref(false)
   const aiResearchMandateLoading = ref(false)
+  const aiResearchPromptGenerationDialogVisible = ref(false)
+  const aiResearchPromptGenerationMode = ref<AIResearchPromptGenerationMode>('default')
+  const aiResearchPromptGenerationLoading = ref(false)
   const aiResearchTimeline = ref<ResearchPipelineEvent[]>([])
   const aiResearchTimelineLoading = ref(false)
   const aiResearchVersions = ref<AIStrategyResearchVersion[]>([])
@@ -264,6 +268,7 @@ export function useStrategyPage() {
   }
 
   type AIResearchWorkflowMode = NonNullable<AIStrategyResearchRunRequest['workflow_mode']>
+  type AIResearchPromptGenerationMode = 'default' | 'ai'
 
   const AI_RESEARCH_WORKFLOW_STEPS: NonNullable<AIStrategyResearchRunRequest['workflow_steps']> = [
     'ideation',
@@ -446,8 +451,7 @@ export function useStrategyPage() {
       profile => profile.id === aiResearchSelectedConfigProfileId.value
     ) ?? null
   )
-  const aiResearchSelectedProfileSummary = computed(() => {
-    const profile = aiResearchSelectedConfigProfile.value
+  function aiResearchConfigProfileSummary(profile: AIStrategyResearchConfigProfile | null) {
     if (!profile) return '未选择方案'
     const parts = [
       aiResearchConfigProfileValue(profile, 'symbol'),
@@ -456,7 +460,22 @@ export function useStrategyPage() {
       `最多 ${aiResearchConfigProfileMetric(profile, 'max_iterations', 0)} 轮`,
     ].filter(part => part && !String(part).includes('-'))
     return parts.length ? parts.join(' · ') : profile.name
+  }
+  const aiResearchSelectedProfileSummary = computed(() =>
+    aiResearchConfigProfileSummary(aiResearchSelectedConfigProfile.value)
+  )
+  const aiResearchOutputConfigProfile = computed(() => {
+    if (aiResearchRunning.value) {
+      return aiResearchActiveConfigProfile.value ?? aiResearchSelectedConfigProfile.value
+    }
+    const record = aiResearchResult.value?.run_record
+    return record
+      ? aiResearchConfigProfileForRunRecord(record) ?? aiResearchSelectedConfigProfile.value
+      : aiResearchSelectedConfigProfile.value
   })
+  const aiResearchOutputProfileSummary = computed(() =>
+    aiResearchConfigProfileSummary(aiResearchOutputConfigProfile.value)
+  )
   const aiResearchSelectedConfigDetails = computed(() => {
     const profile = aiResearchSelectedConfigProfile.value
     if (!profile) return []
@@ -1344,6 +1363,94 @@ export function useStrategyPage() {
     ElMessage.success(t('strategy.aiResearchPromptGenerated'))
   }
 
+  function openAIResearchPromptGenerationDialog() {
+    if (aiResearchRunning.value) {
+      ElMessage.warning('投研任务运行中，请等待任务结束后再生成研究目标')
+      return
+    }
+    aiResearchPromptGenerationMode.value = 'default'
+    aiResearchPromptGenerationDialogVisible.value = true
+  }
+
+  function closeAIResearchPromptGenerationDialog() {
+    if (!aiResearchPromptGenerationLoading.value) {
+      aiResearchPromptGenerationDialogVisible.value = false
+    }
+  }
+
+  function aiResearchObjectiveOptimizationConfig(): Record<string, unknown> {
+    return {
+      workflow_mode: aiResearchForm.workflow_mode,
+      symbol: aiResearchForm.symbol.trim(),
+      symbol_name: aiResearchForm.symbol_name.trim(),
+      timeframe: aiResearchForm.timeframe,
+      timeframe_n: aiResearchForm.timeframe_n,
+      start_date: aiResearchForm.start_date || null,
+      end_date: aiResearchForm.end_date || null,
+      target_sharpe: aiResearchForm.target_sharpe,
+      min_total_trades: aiResearchForm.min_total_trades,
+      max_drawdown_limit: aiResearchForm.use_max_drawdown_limit
+        ? aiResearchForm.max_drawdown_limit
+        : null,
+      min_total_return: aiResearchForm.use_min_total_return ? aiResearchForm.min_total_return : null,
+      min_annual_return: aiResearchForm.use_min_annual_return
+        ? aiResearchForm.min_annual_return
+        : null,
+      min_win_rate: aiResearchForm.use_min_win_rate ? aiResearchForm.min_win_rate : null,
+      max_iterations: aiResearchForm.max_iterations,
+      out_of_sample_validation: aiResearchForm.out_of_sample_validation,
+      require_out_of_sample_validation: aiResearchForm.require_out_of_sample_validation,
+      out_of_sample_ratio: outOfSampleRatioValue(),
+      min_out_of_sample_sharpe: aiResearchForm.use_min_out_of_sample_sharpe
+        ? aiResearchForm.min_out_of_sample_sharpe
+        : null,
+      min_out_of_sample_trades: aiResearchForm.use_min_out_of_sample_trades
+        ? aiResearchForm.min_out_of_sample_trades
+        : null,
+      robustness_validation: aiResearchForm.robustness_validation,
+      require_robustness_validation: aiResearchForm.require_robustness_validation,
+      robustness_methods: [...aiResearchForm.robustness_methods],
+      min_robustness_score: aiResearchForm.min_robustness_score,
+      robustness_monte_carlo_iterations: aiResearchForm.robustness_monte_carlo_iterations,
+      initial_cash: aiResearchForm.initial_cash,
+      commission: aiResearchForm.use_manual_commission ? aiResearchForm.commission : null,
+      annual_days: aiResearchForm.annual_days,
+      calc_method: aiResearchForm.calc_method,
+      weight_mode: aiResearchForm.weight_mode,
+      start_paper_trading: aiResearchForm.start_paper_trading,
+      min_paper_trading_days: aiResearchForm.min_paper_trading_days,
+    }
+  }
+
+  async function confirmAIResearchPromptGeneration() {
+    const defaultPrompt = buildGeneratedAIResearchPrompt()
+    if (aiResearchPromptGenerationMode.value === 'default') {
+      generateAIResearchPrompt()
+      aiResearchPromptGenerationDialogVisible.value = false
+      return
+    }
+
+    aiResearchPromptGenerationLoading.value = true
+    try {
+      const optimized = await strategyApi.optimizeAIResearchObjective({
+        prompt: defaultPrompt,
+        research_config: aiResearchObjectiveOptimizationConfig(),
+      })
+      const optimizedPrompt = optimized.prompt.trim()
+      if (!optimizedPrompt) throw new Error('empty optimized prompt')
+      aiResearchForm.prompt = optimizedPrompt
+      clearAIResearchMandate()
+      ElMessage.success(`已使用 ${optimized.model} 优化投研目标`)
+    } catch {
+      aiResearchForm.prompt = defaultPrompt
+      clearAIResearchMandate()
+      ElMessage.warning('大模型优化失败，已采用默认投研目标')
+    } finally {
+      aiResearchPromptGenerationLoading.value = false
+      aiResearchPromptGenerationDialogVisible.value = false
+    }
+  }
+
   function aiResearchMandateQualityGatesFromForm(): Record<string, unknown> {
     return {
       target_sharpe: aiResearchForm.target_sharpe,
@@ -1677,6 +1784,10 @@ export function useStrategyPage() {
     profile: AIStrategyResearchConfigProfile,
     options: { notify?: boolean; syncResult?: boolean } = {}
   ) {
+    if (aiResearchRunning.value) {
+      ElMessage.warning('AI投研运行中，请等待当前任务结束后再切换方案')
+      return
+    }
     setAIResearchConfigProfileEditor(profile)
     applyAIResearchConfigToForm(profile.config)
     ensureAIResearchVisiblePrompt()
@@ -1700,6 +1811,7 @@ export function useStrategyPage() {
 
   function clearAIResearchDisplayedOutput() {
     aiResearchResult.value = null
+    aiResearchActiveConfigProfile.value = null
     clearAIResearchArtifacts()
     clearAIResearchMandate()
     resetAIResearchTaskState()
@@ -1746,10 +1858,139 @@ export function useStrategyPage() {
     const symbol = stringFromUnknown(config.symbol).trim().toUpperCase()
     const timeframe = stringFromUnknown(config.timeframe).trim().toLowerCase()
     const timeframeN = optionalNumber(config.timeframe_n)
+    if (!symbol && !timeframe && timeframeN === null) return false
     if (symbol && record.symbol.trim().toUpperCase() !== symbol) return false
     if (timeframe && record.timeframe.trim().toLowerCase() !== timeframe) return false
     if (timeframeN !== null && Number(record.timeframe_n || 1) !== timeframeN) return false
+    if (!aiResearchProfileStringMatches(config, 'symbol_name', record.symbol_name)) return false
+    if (!aiResearchProfileStringMatches(config, 'prompt', record.prompt, true)) return false
+    if (!aiResearchProfileStringMatches(config, 'workflow_mode', record.workflow_mode)) return false
+    if (!aiResearchProfileStringMatches(config, 'start_date', record.start_date || '')) return false
+    if (!aiResearchProfileStringMatches(config, 'end_date', record.end_date || '')) return false
+    if (!aiResearchProfileStringMatches(config, 'group_name', record.group_name || '')) return false
+    if (!aiResearchProfileNumberMatches(config, 'target_sharpe', record.target_sharpe)) return false
+    if (!aiResearchProfileNumberMatches(config, 'min_total_trades', record.min_total_trades)) return false
+    if (!aiResearchProfileNumberMatches(config, 'max_iterations', record.max_iterations)) return false
+    if (!aiResearchProfileNumberMatches(config, 'initial_cash', record.initial_cash)) return false
+    if (!aiResearchProfileNumberMatches(config, 'annual_days', record.annual_days)) return false
+    if (!aiResearchProfileStringMatches(config, 'calc_method', record.calc_method)) return false
+    if (!aiResearchProfileStringMatches(config, 'weight_mode', record.weight_mode)) return false
+    if (
+      optionalBoolean(config.use_manual_commission, false)
+      && !aiResearchProfileNumberMatches(config, 'commission', record.commission)
+    ) return false
+
+    const gates = record.quality_gates || {}
+    if (!aiResearchProfileGateMatches(config, gates, 'max_drawdown_limit', 'use_max_drawdown_limit')) return false
+    if (!aiResearchProfileGateMatches(config, gates, 'min_total_return', 'use_min_total_return')) return false
+    if (!aiResearchProfileGateMatches(config, gates, 'min_annual_return', 'use_min_annual_return')) return false
+    if (!aiResearchProfileGateMatches(config, gates, 'min_win_rate', 'use_min_win_rate')) return false
+    if (!aiResearchProfileBooleanMatches(config, gates, 'out_of_sample_validation')) return false
+    if (!aiResearchProfileBooleanMatches(config, gates, 'require_out_of_sample_validation')) return false
+    if (!aiResearchProfileRatioMatches(config, gates)) return false
+    if (!aiResearchProfileGateMatches(
+      config,
+      gates,
+      'min_out_of_sample_sharpe',
+      'use_min_out_of_sample_sharpe'
+    )) return false
+    if (!aiResearchProfileGateMatches(
+      config,
+      gates,
+      'min_out_of_sample_trades',
+      'use_min_out_of_sample_trades'
+    )) return false
+    if (!aiResearchProfileBooleanMatches(config, gates, 'robustness_validation')) return false
+    if (!aiResearchProfileBooleanMatches(config, gates, 'require_robustness_validation')) return false
+    if (!aiResearchProfileStringArrayMatches(config, gates, 'robustness_methods')) return false
+    if (!aiResearchProfileNumberMatches(config, 'min_robustness_score', gates.min_robustness_score)) return false
+    if (!aiResearchProfileNumberMatches(
+      config,
+      'robustness_monte_carlo_iterations',
+      gates.robustness_monte_carlo_iterations
+    )) return false
     return Boolean(symbol || timeframe || timeframeN !== null)
+  }
+
+  function aiResearchProfileStringMatches(
+    config: Record<string, unknown>,
+    key: string,
+    actual: unknown,
+    collapseWhitespace = false
+  ) {
+    if (!hasConfigKey(config, key)) return true
+    const normalize = (value: unknown) => {
+      const text = stringFromUnknown(value).trim()
+      return collapseWhitespace ? text.replace(/\s+/g, ' ') : text
+    }
+    return normalize(config[key]) === normalize(actual)
+  }
+
+  function aiResearchProfileNumberMatches(
+    config: Record<string, unknown>,
+    key: string,
+    actual: unknown
+  ) {
+    if (!hasConfigKey(config, key)) return true
+    const expected = optionalNumber(config[key])
+    const actualNumber = optionalNumber(actual)
+    if (expected === null || actualNumber === null) return expected === actualNumber
+    return Math.abs(expected - actualNumber) < 1e-9
+  }
+
+  function aiResearchProfileBooleanMatches(
+    config: Record<string, unknown>,
+    gates: Record<string, unknown>,
+    key: string
+  ) {
+    if (!hasConfigKey(config, key)) return true
+    return optionalBoolean(config[key], false) === optionalBoolean(gates[key], false)
+  }
+
+  function aiResearchProfileGateMatches(
+    config: Record<string, unknown>,
+    gates: Record<string, unknown>,
+    key: string,
+    enabledKey: string
+  ) {
+    if (!hasConfigKey(config, key) && !hasConfigKey(config, enabledKey)) return true
+    const enabled = hasConfigKey(config, enabledKey)
+      ? optionalBoolean(config[enabledKey], false)
+      : optionalNumber(config[key]) !== null
+    if (!enabled) return optionalNumber(gates[key]) === null
+    const expected = optionalNumber(config[key])
+    const actual = optionalNumber(gates[key])
+    if (expected === null || actual === null) return expected === actual
+    return Math.abs(expected - actual) < 1e-9
+  }
+
+  function aiResearchProfileRatioMatches(
+    config: Record<string, unknown>,
+    gates: Record<string, unknown>
+  ) {
+    if (!hasConfigKey(config, 'out_of_sample_ratio_pct') && !hasConfigKey(config, 'out_of_sample_ratio')) {
+      return true
+    }
+    const expected = hasConfigKey(config, 'out_of_sample_ratio_pct')
+      ? optionalNumber(config.out_of_sample_ratio_pct)
+      : optionalNumber(config.out_of_sample_ratio)
+    const expectedRatio = hasConfigKey(config, 'out_of_sample_ratio_pct')
+      ? expected === null ? null : expected / 100
+      : expected
+    const actual = optionalNumber(gates.out_of_sample_ratio)
+    if (expectedRatio === null || actual === null) return expectedRatio === actual
+    return Math.abs(expectedRatio - actual) < 1e-9
+  }
+
+  function aiResearchProfileStringArrayMatches(
+    config: Record<string, unknown>,
+    gates: Record<string, unknown>,
+    key: string
+  ) {
+    if (!hasConfigKey(config, key)) return true
+    const expected = stringArrayFromUnknown(config[key]).sort()
+    const actual = stringArrayFromUnknown(gates[key]).sort()
+    return expected.length === actual.length && expected.every((item, index) => item === actual[index])
   }
 
   function aiResearchConfigProfileValue(profile: AIStrategyResearchConfigProfile, key: string) {
@@ -2717,7 +2958,8 @@ export function useStrategyPage() {
     const selectedProfileId = aiResearchSelectedConfigProfileId.value
     hydrateLiveHandoffFromRunRecord(record)
     aiResearchResult.value = researchResultFromRunRecord(record)
-    useAIResearchRecord(record)
+    aiResearchActiveConfigProfile.value = null
+    if (!options.keepSelectedProfile) useAIResearchRecord(record)
     resetAIResearchTaskState()
     applyAIResearchTaskStatus(aiResearchTaskFromRunRecord(record))
     if (options.keepSelectedProfile) {
@@ -5501,6 +5743,15 @@ export function useStrategyPage() {
     aiResearchTaskPromotionAudit.value = []
   }
 
+  function prepareAIResearchOutputForRun() {
+    aiResearchResult.value = null
+    clearAIResearchArtifacts()
+    const profile = aiResearchSelectedConfigProfile.value
+    aiResearchActiveConfigProfile.value = profile
+      ? { ...profile, config: { ...profile.config } }
+      : null
+  }
+
   function aiResearchRunnableInput() {
     let prompt = aiResearchForm.prompt.trim()
     const promptRequired = aiResearchForm.workflow_mode === 'prompt'
@@ -5538,7 +5789,10 @@ export function useStrategyPage() {
   async function applyCompletedAIResearchResult(result: AIStrategyResearchRunResponse) {
     aiResearchResult.value = result
     if (result.run_record) {
-      setAIResearchConfigProfileFromRunRecord(result.run_record)
+      const selected = aiResearchSelectedConfigProfile.value
+      if (!selected || !aiResearchRunMatchesConfigProfile(result.run_record, selected)) {
+        setAIResearchConfigProfileFromRunRecord(result.run_record)
+      }
       upsertAIResearchRunRecord(result.run_record)
       await loadAIResearchRunArtifacts(result.run_record)
     } else {
@@ -5592,6 +5846,7 @@ export function useStrategyPage() {
     const mandate = await ensureAIResearchMandateConfirmed(input)
     if (!mandate) return
 
+    prepareAIResearchOutputForRun()
     aiResearchRunning.value = true
     resetAIResearchTaskState()
     aiResearchCancelRequested.value = false
@@ -5767,6 +6022,7 @@ export function useStrategyPage() {
     const mandate = await ensureAIResearchMandateConfirmed({ prompt, symbol })
     if (!mandate) return
 
+    prepareAIResearchOutputForRun()
     aiResearchRunning.value = true
     aiResearchCancelRequested.value = false
     aiResearchTaskError.value = ''
@@ -5822,6 +6078,7 @@ export function useStrategyPage() {
     const mandate = await ensureAIResearchMandateConfirmed(input)
     if (!mandate) return
 
+    prepareAIResearchOutputForRun()
     aiResearchRunning.value = true
     resetAIResearchTaskState()
     aiResearchCancelRequested.value = false
@@ -6085,6 +6342,9 @@ export function useStrategyPage() {
     aiResearchMandate,
     aiResearchMandateConfirmed,
     aiResearchMandateLoading,
+    aiResearchPromptGenerationDialogVisible,
+    aiResearchPromptGenerationMode,
+    aiResearchPromptGenerationLoading,
     aiResearchTimeline,
     aiResearchTimelineLoading,
     aiResearchVersions,
@@ -6124,6 +6384,8 @@ export function useStrategyPage() {
     displayedTemplates,
     aiResearchSelectedConfigProfile,
     aiResearchSelectedProfileSummary,
+    aiResearchOutputConfigProfile,
+    aiResearchOutputProfileSummary,
     aiResearchSelectedConfigDetails,
     aiResearchSelectedConfigPromptPreview,
     aiResearchVisibleRuns,
@@ -6200,6 +6462,9 @@ export function useStrategyPage() {
     aiResearchQualityGateLines,
     aiResearchValidationLines,
     buildGeneratedAIResearchPrompt,
+    openAIResearchPromptGenerationDialog,
+    closeAIResearchPromptGenerationDialog,
+    confirmAIResearchPromptGeneration,
     generateAIResearchPrompt,
     aiResearchMandateQualityGatesFromForm,
     aiResearchMandateInputPrompt,

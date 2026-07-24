@@ -192,6 +192,30 @@ class Settings(BaseSettings):
         le=32768,
         description="Maximum tokens requested from the AI chat provider",
     )
+    RAG_VECTOR_ENABLED: bool = Field(
+        default=True,
+        description="Enable local vector retrieval for knowledge-base chat",
+    )
+    RAG_EMBEDDING_MODEL: str = Field(
+        default="BAAI/bge-small-zh-v1.5",
+        description="Sentence Transformers model used for local RAG embeddings",
+    )
+    RAG_VECTOR_COLLECTION: str = Field(
+        default="knowledge_base_documents_v3",
+        description="Local Chroma collection name for knowledge-base document vectors",
+    )
+    RAG_VECTOR_UPSERT_BATCH_SIZE: int = Field(
+        default=128,
+        ge=16,
+        le=512,
+        description="Document vectors processed in one local Chroma upsert batch",
+    )
+    RAG_LLM_RERANK_TIMEOUT: float = Field(
+        default=30.0,
+        ge=5.0,
+        le=120.0,
+        description="Maximum seconds for the short knowledge-base rerank call",
+    )
     AI_BUDGET_DAILY_USD: float | None = Field(
         default=None, description="Default daily AI cost budget in USD. None means unlimited"
     )

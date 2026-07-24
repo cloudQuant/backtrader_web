@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app.services.market_data_coverage_service import (
+    _WAREHOUSE_COVERAGE_PROFILES,
     LocalCsvProfile,
     MarketDataCoverageService,
     _warehouse_quality_status,
@@ -64,3 +67,54 @@ def test_futures_holiday_bar_is_a_blocking_calendar_violation():
 
 def test_warehouse_quality_marks_outdated_market_data_as_failed():
     assert _warehouse_quality_status("stock", "2024-12-31") == "failed"
+
+
+@pytest.mark.asyncio
+async def test_warehouse_coverage_filters_symbols_before_grouping():
+    """MySQL cannot resolve source columns from the HAVING clause here."""
+
+    class _Result:
+        def mappings(self):
+            return self
+
+        def all(self):
+            return [{"symbol": "000001", "start_date": "2024-01-01", "end_date": "2024-01-02", "row_count": 2}]
+
+    class _Connection:
+        query = ""
+        parameters: dict[str, object] = {}
+
+        async def execute(self, statement, parameters):
+            self.query = str(statement)
+            self.parameters = parameters
+            return _Result()
+
+    class _ConnectionContext:
+        def __init__(self, connection):
+            self.connection = connection
+
+        async def __aenter__(self):
+            return self.connection
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+    class _Engine:
+        def __init__(self):
+            self.connection = _Connection()
+
+        def connect(self):
+            return _ConnectionContext(self.connection)
+
+    engine = _Engine()
+    rows = await MarketDataCoverageService._warehouse_coverage_rows(
+        engine=engine,
+        profile=_WAREHOUSE_COVERAGE_PROFILES[0],
+        symbol="000001",
+        limit=20,
+    )
+
+    assert rows[0]["symbol"] == "000001"
+    assert "HAVING" not in engine.connection.query.upper()
+    assert "AND (:symbol IS NULL OR UPPER(" in engine.connection.query
+    assert engine.connection.parameters == {"symbol": "000001", "limit": 20}

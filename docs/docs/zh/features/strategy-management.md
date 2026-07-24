@@ -1,121 +1,32 @@
-# 策略管理
+# 策略与 AI 投研
 
-## 概述
+策略中心管理模板、用户策略、版本和 AI 研究产物。研究目标、策略代码和回测结果共同构成可审查的研究记录，而不是自动下单指令。
 
-AI for Investor 提供全面的策略管理功能，支持类似 Git 的版本控制。
+## 使用方式
 
-## 内置模板
+- 在 **投研 → 策略**创建、编辑、复制或选择策略模板。
+- 使用 AI 助手进行知识问答、策略构思、Backtrader 草案生成或策略审查。
+- “生成研究目标”会弹窗让您选择默认模板，或使用当前模型优化措辞；模型不可用时保留默认方案并说明原因。
+- 选择不同投研配置后，运行 AI 投研会创建对应的新研究输出；页面随运行进度更新，而不是复用旧结果。
+- 将已审查策略加入研究工作区，运行回测和后续验证。
 
-118 个内置策略模板，包括：
+## Backtrader 编写约定
 
-### 趋势跟踪
-- 双均线
-- MACD
-- 海龟交易法
-- Supertrend
+价格序列必须保存在自定义属性中，例如：
 
-### 均值回归
-- 布林带反转
-- KDJ
-- RSI
-- 随机指标
-
-### 套利
-- 期现套利
-- 跨期套利
-
-### 期权
-- 恐慌指数
-- 看跌看涨比
-
-### 高频策略
-- R-Breaker
-- Dual Thrust
-- 菲阿里四价
-
-## API 端点
-
-### 策略 CRUD
-
-```http
-# 创建策略
-POST /api/v1/strategy/
-Content-Type: application/json
-
-{
-  "name": "我的策略",
-  "description": "自定义均值回归策略",
-  "code": "...",
-  "parameters": {"period": 20}
-}
-
-# 列出策略
-GET /api/v1/strategy/
-
-# 获取策略
-GET /api/v1/strategy/{id}
-
-# 更新策略
-PUT /api/v1/strategy/{id}
-
-# 删除策略
-DELETE /api/v1/strategy/{id}
+```python
+def __init__(self):
+    self.dataclose = self.datas[0].close
 ```
 
-### 模板
+`self.close()` 是 Backtrader 的平仓方法，不能写成 `self.close = ...` 或对其赋值。沙箱会拒绝对交易方法的覆盖，以防生成的策略运行时失去平仓能力、导致交易统计失真。
 
-```http
-GET /api/v1/strategy/templates
-```
+## 审查清单
 
-## 版本控制
+1. 明确标的、周期、交易成本、仓位与止损假设。
+2. 检查代码是否只使用允许的 API，且不覆盖订单/平仓方法。
+3. 确认数据范围、复权/合约规则和质量预检结果。
+4. 读取交易次数、资金曲线、回撤和稳健性结果，而不只看单一收益指标。
+5. 人工批准后才进入交易工作区。
 
-### 创建版本
-
-```http
-POST /api/v1/strategy-versions/versions
-{
-  "strategy_id": 1,
-  "version_name": "v1.0",
-  "message": "初始版本"
-}
-```
-
-### 列出版本
-
-```http
-GET /api/v1/strategy-versions/strategies/{strategy_id}/versions
-```
-
-### 对比版本
-
-```http
-POST /api/v1/strategy-versions/versions/compare
-{
-  "strategy_id": 1,
-  "version_a": "v1.0",
-  "version_b": "v1.1"
-}
-```
-
-### 回滚
-
-```http
-POST /api/v1/strategy-versions/versions/rollback
-{
-  "strategy_id": 1,
-  "target_version": "v1.0"
-}
-```
-
-## 分支管理
-
-```http
-# 创建分支
-POST /api/v1/strategy-versions/branches
-{
-  "strategy_id": 1,
-  "branch_name": "experiment",
-  "base_version": "v1.0"
-}
-```
+详见[回测与验证](./backtesting.md)和[参数优化](./optimization.md)。

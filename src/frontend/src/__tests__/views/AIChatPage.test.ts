@@ -29,6 +29,9 @@ const COMPLETE_STRATEGY_CODE = vi.hoisted(() => [
 const routerMocks = vi.hoisted(() => ({
   push: vi.fn(),
 }))
+const elementPlusMocks = vi.hoisted(() => ({
+  confirm: vi.fn().mockResolvedValue('confirm'),
+}))
 const KNOWLEDGE_BASE_SELECTION_STORAGE_KEY = 'ai_for_investor:ai_chat:selected_knowledge_base_id'
 
 vi.mock('vue-router', () => ({
@@ -37,6 +40,9 @@ vi.mock('vue-router', () => ({
 }))
 
 vi.mock('element-plus', () => ({
+  ElMessageBox: {
+    confirm: elementPlusMocks.confirm,
+  },
   ElMessage: {
     success: vi.fn(),
     warning: vi.fn(),
@@ -89,6 +95,7 @@ const mocks = vi.hoisted(() => ({
   selectKnowledgeBase: vi.fn().mockResolvedValue(undefined),
   fetchConversations: vi.fn().mockResolvedValue({ items: [] }),
   fetchHistory: vi.fn().mockResolvedValue(undefined),
+  deleteConversation: vi.fn().mockResolvedValue(undefined),
   resetConversationState: vi.fn(),
   sendMessage: vi.fn().mockResolvedValue(undefined),
   knowledgeBases: [
@@ -206,6 +213,7 @@ vi.mock('@/stores/kbChat', () => ({
     loading: false,
     fetchConversations: mocks.fetchConversations,
     fetchHistory: mocks.fetchHistory,
+    deleteConversation: mocks.deleteConversation,
     resetConversationState: mocks.resetConversationState,
     sendMessage: mocks.sendMessage,
   }),
@@ -426,6 +434,24 @@ describe('AIChatPage', () => {
     expect(wrapper.text()).toContain('关于双均线的讨论')
   })
 
+  it('confirms before deleting a conversation from the sidebar', async () => {
+    mocks.conversations.splice(0, mocks.conversations.length, {
+      id: 'conv-delete',
+      knowledge_base_id: 'kb-1',
+      title: '待删除会话',
+      model_id: null,
+      created_at: '2026-04-23T00:00:00Z',
+      updated_at: '2026-04-23T00:00:00Z',
+    })
+
+    const wrapper = mount(AIChatPage, { global: { stubs: { ...elStubs } } })
+    await wrapper.get('[data-test="ai-chat-delete-conversation"]').trigger('click')
+    await flushPromises()
+
+    expect(elementPlusMocks.confirm).toHaveBeenCalled()
+    expect(mocks.deleteConversation).toHaveBeenCalledWith('conv-delete')
+  })
+
   it('loads conversation history when clicking a conversation title', async () => {
     mocks.conversations.splice(0, mocks.conversations.length, {
       id: 'conv-1',
@@ -497,6 +523,22 @@ describe('AIChatPage', () => {
       thinkingMode: false,
       modelId: 'ollama::ollama/llama3.1:8b',
     })
+  })
+
+  it('selects the configured GLM-5.2 default when the user has no preference', async () => {
+    aiObservabilityMocks.getMyAvailableModels.mockResolvedValueOnce({
+      providers: [],
+      models: [
+        { provider: 'volcengine_ark', model: 'glm-5.2', display_name: '火山方舟 / glm-5.2' },
+      ],
+      preferences: { provider: null, model: null },
+      default_model_key: 'volcengine_ark::glm-5.2',
+    })
+
+    const wrapper = mount(AIChatPage, { global: { stubs: { ...elStubs } } })
+    await flushPromises()
+
+    expect((wrapper.vm as any).selectedSessionModelKey).toBe('volcengine_ark::glm-5.2')
   })
 
   it('does not expose stock analysis controls in the knowledge base chat page', async () => {

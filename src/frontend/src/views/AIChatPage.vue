@@ -222,17 +222,31 @@
             v-else
             class="conversation-list"
           >
-            <button
+            <div
               v-for="conversation in filteredConversations"
               :key="conversation.id"
-              type="button"
-              class="conversation-item"
-              :class="{ active: conversation.id === chatStore.currentConversationId }"
-              @click="handleSelectConversation(conversation.id)"
+              class="conversation-row"
             >
-              <span class="conversation-title">{{ conversation.title }}</span>
-              <span class="conversation-meta">{{ formatDate(conversation.updated_at) }}</span>
-            </button>
+              <button
+                type="button"
+                class="conversation-item"
+                :class="{ active: conversation.id === chatStore.currentConversationId }"
+                @click="handleSelectConversation(conversation.id)"
+              >
+                <span class="conversation-title">{{ conversation.title }}</span>
+                <span class="conversation-meta">{{ formatDate(conversation.updated_at) }}</span>
+              </button>
+              <button
+                type="button"
+                class="conversation-delete"
+                :title="t('aiChat.deleteConversation')"
+                :aria-label="t('aiChat.deleteConversation')"
+                data-test="ai-chat-delete-conversation"
+                @click="handleDeleteConversation(conversation.id)"
+              >
+                <el-icon aria-hidden="true"><Delete /></el-icon>
+              </button>
+            </div>
           </div>
         </template>
       </aside>
@@ -853,6 +867,7 @@ const {
   handleStrategyWorkflowAction,
   handleAsk,
   handleSelectConversation,
+  handleDeleteConversation,
   handleNewConversation,
   handleJumpToCitation,
   goToKnowledgeBase,

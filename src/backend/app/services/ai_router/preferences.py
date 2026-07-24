@@ -11,6 +11,9 @@ from app.services.ai_router.providers import (
     is_provider_configured,
 )
 
+_DEFAULT_PROVIDER = "volcengine_ark"
+_DEFAULT_MODEL = "glm-5.2"
+
 
 @dataclass(frozen=True)
 class AIModelOption:
@@ -56,7 +59,14 @@ class AIModelPreferenceService:
             "providers": providers,
             "models": models,
             "preferences": self.get_preferences(user),
+            "default_model_key": self.default_model_key(),
         }
+
+    def default_model_key(self) -> str | None:
+        """Return the product default when that provider/model is available."""
+        if self.is_model_available(provider=_DEFAULT_PROVIDER, model=_DEFAULT_MODEL):
+            return f"{_DEFAULT_PROVIDER}::{_DEFAULT_MODEL}"
+        return None
 
     def get_preferences(self, user: User) -> dict[str, str | None]:
         return {
@@ -81,8 +91,9 @@ class AIModelPreferenceService:
                 return None
             provider = getattr(user, "ai_preferred_provider", None)
             model = getattr(user, "ai_preferred_model", None)
-        if not self.is_model_available(provider=provider, model=model):
-            return None
+        if not provider or not model or not self.is_model_available(provider=provider, model=model):
+            provider = _DEFAULT_PROVIDER
+            model = _DEFAULT_MODEL
         spec = self._find_provider(str(provider))
         if spec is None:
             return None

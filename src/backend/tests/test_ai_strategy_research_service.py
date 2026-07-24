@@ -700,7 +700,7 @@ class FakeRuntimeInvalidDraftStrategyService(FakeInvalidDraftStrategyService):
                     "x = missing_research_runtime_name\n"
                     "class LooksValidStrategy(bt.Strategy):\n"
                     "    def __init__(self):\n"
-                    "        self.close = self.datas[0].close\n"
+                    "        self.dataclose = self.datas[0].close\n"
                     "    def next(self):\n"
                     "        self.buy(size=1)\n"
                 )
@@ -725,7 +725,7 @@ class FakePreflightInvalidDraftStrategyService(FakeInvalidDraftStrategyService):
                     "import backtrader as bt\n"
                     "class LooksValidStrategy(bt.Strategy):\n"
                     "    def __init__(self):\n"
-                    "        self.close = self.datas[0].close\n"
+                    "        self.dataclose = self.datas[0].close\n"
                     "    def next(self):\n"
                     "        self.buy(size=undefined_position_size)\n"
                 )
@@ -949,6 +949,26 @@ def test_ai_strategy_draft_class_name_is_valid_with_numeric_goal():
     assert draft.params["margin_rate"].default == pytest.approx(1.0)
     assert "risk_per_unit = max(price_risk * contract_multiplier" in draft.code
     assert "affordable_size = int" in draft.code
+    assert "self.dataclose = self.datas[0].close" in draft.code
+    assert "self.close = self.datas[0].close" not in draft.code
+    _validate_strategy_code_draft(draft.code)
+
+
+def test_ai_strategy_code_validation_rejects_shadowed_backtrader_close_method():
+    code = (
+        "import backtrader as bt\n"
+        "class ShadowedCloseStrategy(bt.Strategy):\n"
+        "    def __init__(self):\n"
+        "        self.close = self.datas[0].close\n"
+        "    def next(self):\n"
+        "        if not self.position:\n"
+        "            self.buy(size=1)\n"
+        "        else:\n"
+        "            self.close()\n"
+    )
+
+    with pytest.raises(ValueError, match=r"must not assign to self\.close"):
+        _validate_strategy_code_draft(code)
 
 
 def test_ai_strategy_code_validation_runs_preflight_backtest():
@@ -956,7 +976,7 @@ def test_ai_strategy_code_validation_runs_preflight_backtest():
         "import backtrader as bt\n"
         "class RuntimeBrokenStrategy(bt.Strategy):\n"
         "    def __init__(self):\n"
-        "        self.close = self.datas[0].close\n"
+        "        self.dataclose = self.datas[0].close\n"
         "    def next(self):\n"
         "        self.buy(size=undefined_position_size)\n"
     )
@@ -981,23 +1001,23 @@ def test_ai_strategy_code_validation_runs_preflight_backtest():
             "import backtrader as bt\n"
             "class MissingNextStrategy(bt.Strategy):\n"
             "    def __init__(self):\n"
-            "        self.close = self.datas[0].close\n",
+            "        self.dataclose = self.datas[0].close\n",
             "define next",
         ),
         (
             "import backtrader as bt\n"
             "class NoTradeStrategy(bt.Strategy):\n"
             "    def __init__(self):\n"
-            "        self.close = self.datas[0].close\n"
+            "        self.dataclose = self.datas[0].close\n"
             "    def next(self):\n"
-            "        value = self.close[0]\n",
+            "        value = self.dataclose[0]\n",
             "place or close orders",
         ),
         (
             "import backtrader as bt\n"
             "class TodoStrategy(bt.Strategy):\n"
             "    def __init__(self):\n"
-            "        self.close = self.datas[0].close\n"
+            "        self.dataclose = self.datas[0].close\n"
             "    def next(self):\n"
             "        # TODO: implement entry logic\n"
             "        self.buy()\n",
@@ -1007,7 +1027,7 @@ def test_ai_strategy_code_validation_runs_preflight_backtest():
             "import backtrader as bt\n"
             "class EllipsisStrategy(bt.Strategy):\n"
             "    def __init__(self):\n"
-            "        self.close = self.datas[0].close\n"
+            "        self.dataclose = self.datas[0].close\n"
             "    def next(self):\n"
             "        ...\n",
             "ellipsis placeholders",
@@ -1094,7 +1114,7 @@ async def test_ai_strategy_improver_uses_model_json_to_rewrite_strategy(monkeypa
         {
           "name": "AI改进趋势策略",
           "description": "AI revised strategy",
-          "code": "import backtrader as bt\\nclass ImprovedStrategy(bt.Strategy):\\n    params = (('risk_pct', 0.01),)\\n    def __init__(self):\\n        self.close = self.datas[0].close\\n        self.sma = bt.indicators.SMA(self.close, period=10)\\n    def next(self):\\n        if not self.position and self.close[0] > self.sma[0]:\\n            self.buy(size=1)\\n        elif self.position and self.close[0] < self.sma[0]:\\n            self.close()\\n",
+          "code": "import backtrader as bt\\nclass ImprovedStrategy(bt.Strategy):\\n    params = (('risk_pct', 0.01),)\\n    def __init__(self):\\n        self.dataclose = self.datas[0].close\\n        self.sma = bt.indicators.SMA(self.dataclose, period=10)\\n    def next(self):\\n        if not self.position and self.dataclose[0] > self.sma[0]:\\n            self.buy(size=1)\\n        elif self.position and self.dataclose[0] < self.sma[0]:\\n            self.close()\\n",
           "params": {
             "risk_pct": {"type": "float", "default": 0.01, "min": 0.001, "max": 0.05, "description": "risk"}
           },
@@ -1380,7 +1400,7 @@ async def test_ai_strategy_improver_falls_back_when_model_code_fails_sandbox_exe
             {
               "name": "裸Strategy策略",
               "description": "invalid runtime",
-              "code": "class BareStrategy(Strategy):\\n    def __init__(self):\\n        self.close = self.datas[0].close\\n    def next(self):\\n        self.buy(size=1)\\n",
+              "code": "class BareStrategy(Strategy):\\n    def __init__(self):\\n        self.dataclose = self.datas[0].close\\n    def next(self):\\n        self.buy(size=1)\\n",
               "notes": ["模型返回了沙箱无法执行的裸 Strategy 基类"]
             }
             """
@@ -8238,6 +8258,79 @@ async def test_research_run_records_include_distinct_last_run_snapshot():
     assert [item.run_id for item in result.items] == ["last-only-run", "archived-run"]
     assert found is not None
     assert found.run_id == "last-only-run"
+
+
+@pytest.mark.asyncio
+async def test_research_run_records_refresh_iteration_metrics_after_workspace_rerun():
+    workspace_service = FakeWorkspaceService()
+    record = _run_record(
+        "rerun-metrics",
+        workspace_id="research-history",
+        completed_at="2026-01-02T00:00:00+00:00",
+    )
+    record.update(
+        {
+            "achieved": False,
+            "status": "max_iterations_reached",
+            "paper_trading_started": False,
+            "paper_workspace_id": None,
+            "paper_unit_id": None,
+            "iterations": [
+                {
+                    "iteration": 2,
+                    "unit": {"id": "rerun-unit"},
+                    "run_result": {
+                        "unit_id": "rerun-unit",
+                        "task_id": "stale-task",
+                        "status": "completed",
+                    },
+                    "unit_status": {
+                        "id": "rerun-unit",
+                        "run_status": "completed",
+                        "last_task_id": "stale-task",
+                        "metrics_snapshot": {"sharpe_ratio": 0.2, "total_trades": 0},
+                    },
+                    "metrics": {"sharpe_ratio": 0.2, "total_trades": 0},
+                    "sharpe_ratio": 0.2,
+                    "total_trades": 0,
+                }
+            ],
+        }
+    )
+    workspace_service.workspaces["research-history"] = _workspace(
+        "research-history",
+        "research",
+    ).model_copy(update={"settings": {"ai_research": {"runs": [record]}}})
+    workspace_service.statuses["rerun-unit"] = UnitStatusResponse(
+        id="rerun-unit",
+        run_status="completed",
+        last_task_id="fresh-task",
+        metrics_snapshot={"sharpe_ratio": 1.35, "total_trades": 12},
+        run_count=2,
+        trading_mode="paper",
+    )
+    service = AIStrategyResearchService(
+        strategy_service=FakeStrategyService(workspace_service, []),
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.list_run_records(
+        "user-1",
+        research_workspace_id="research-history",
+        limit=20,
+    )
+
+    refreshed = result.items[0]
+    iteration = refreshed.iterations[0]
+    assert iteration["run_result"]["task_id"] == "fresh-task"
+    assert iteration["run_result"]["status"] == "completed"
+    assert iteration["metrics"]["total_trades"] == 12
+    assert iteration["total_trades"] == 12
+    assert iteration["sharpe_ratio"] == pytest.approx(1.35)
+    assert refreshed.best_metrics["total_trades"] == 12
+    assert refreshed.best_sharpe == pytest.approx(1.35)
 
 
 @pytest.mark.asyncio

@@ -63,6 +63,15 @@ async def lifespan(app: FastAPI):
     app.state.startup_logger = logger
     app.state.ensure_database_ready = ensure_database_ready
     await run_startup(app, settings)
+    if settings.RAG_VECTOR_ENABLED:
+        try:
+            from app.api.rag import get_rag_service
+
+            await get_rag_service().semantic_retriever.warm_up()
+        except Exception:
+            # The RAG service records a safe diagnostic state and retains
+            # lexical retrieval as a fallback; startup must remain available.
+            logger.warning("Semantic retrieval warm-up failed; lexical fallback remains available")
     logger.info("Application ready - accepting requests")
     yield
     logger.info("Shutting down AI for Investor API...")

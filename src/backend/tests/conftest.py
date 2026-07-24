@@ -36,6 +36,9 @@ os.environ["AI_CHAT_ENABLED"] = "false"
 os.environ["AI_CHAT_BASE_URL"] = ""
 os.environ["AI_CHAT_API_KEY"] = ""
 os.environ["AI_CHAT_MODEL"] = ""
+# Vector retrieval is an optional runtime integration.  API tests exercise the
+# deterministic lexical fallback unless a test explicitly injects a fake index.
+os.environ["RAG_VECTOR_ENABLED"] = "false"
 _TEST_LOG_DIR = Path(tempfile.mkdtemp(prefix="backtrader_web_pytest_logs_"))
 os.environ["LOG_DIR"] = str(_TEST_LOG_DIR)
 

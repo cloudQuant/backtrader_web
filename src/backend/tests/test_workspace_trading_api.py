@@ -1,8 +1,10 @@
+import asyncio
 import json
 from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
 
 @pytest.mark.asyncio
@@ -68,33 +70,13 @@ async def test_workspace_list_supports_workspace_type_filter(
 
 
 @pytest.mark.asyncio
-async def test_workspace_list_reconciles_stale_running_trading_units(
+async def test_workspace_list_keeps_persisted_trading_status_local(
     client: AsyncClient,
     auth_headers: dict[str, str],
-    monkeypatch: pytest.MonkeyPatch,
 ):
-    """A persisted running flag must not survive when its live instance is stopped."""
+    """The overview must not initialize a broker just to recalculate a status."""
     from app.db.database import async_session_maker
     from app.models.workspace import StrategyUnit
-    from app.services.workspace import lifecycle
-
-    class StoppedInstanceManager:
-        def list_instances(self, user_id: str | None = None) -> list[dict[str, str | None]]:
-            return [
-                {
-                    "id": "stale-instance",
-                    "status": "stopped",
-                    "error": None,
-                    "stopped_at": "2026-07-24 01:00:00",
-                }
-            ]
-
-    monkeypatch.setattr(
-        lifecycle,
-        "get_live_trading_manager",
-        lambda: StoppedInstanceManager(),
-        raising=False,
-    )
 
     workspace_response = await client.post(
         "/api/v1/workspace/",
@@ -124,12 +106,78 @@ async def test_workspace_list_reconciles_stale_running_trading_units(
     )
 
     assert response.status_code == 200
-    assert response.json()["items"][0]["status"] == "idle"
+    assert response.json()["items"][0]["status"] == "running"
     async with async_session_maker() as session:
         refreshed = await session.get(StrategyUnit, unit_id)
         assert refreshed is not None
-        assert refreshed.run_status == "idle"
-        assert refreshed.trading_snapshot["instance_status"] == "stopped"
+        assert refreshed.run_status == "running"
+        assert refreshed.trading_snapshot["instance_status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_workspace_list_keeps_queued_trading_units_while_batch_start_is_pending(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A queued batch unit must not be reset before its background launch creates an instance."""
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+    from app.services import trading_workspace_service
+    from app.services.workspace import lifecycle
+
+    class EmptyInstanceManager:
+        def list_instances(self, user_id: str | None = None) -> list[dict[str, str | None]]:
+            return []
+
+        def get_instance(self, instance_id: str, user_id: str | None = None) -> None:
+            return None
+
+    monkeypatch.setattr(
+        lifecycle,
+        "get_live_trading_manager",
+        lambda: EmptyInstanceManager(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        trading_workspace_service,
+        "get_live_trading_manager",
+        lambda: EmptyInstanceManager(),
+    )
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "待启动交易批次", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={"strategy_id": "simulate/gateway_dual_ma", "symbol": "IF2609"},
+    )
+    unit_id = unit_response.json()["id"]
+
+    async with async_session_maker() as session:
+        unit = await session.get(StrategyUnit, unit_id)
+        assert unit is not None
+        unit.run_status = "queued"
+        unit.trading_instance_id = "pending-instance"
+        unit.trading_snapshot = {"instance_status": "queued"}
+        await session.commit()
+
+    response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/status",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()[0]["run_status"] == "queued"
+    async with async_session_maker() as session:
+        refreshed = await session.get(StrategyUnit, unit_id)
+        assert refreshed is not None
+        assert refreshed.run_status == "queued"
+        assert refreshed.trading_snapshot["instance_status"] == "queued"
 
 
 @pytest.mark.asyncio
@@ -353,6 +401,182 @@ async def test_trading_workspace_run_and_status_use_trading_runtime_branch(
     assert status_payload[0]["run_status"] == "running"
     assert status_payload[0]["trading_instance_id"] == "inst-001"
     assert status_payload[0]["trading_snapshot"]["instance_status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_trading_workspace_bulk_run_returns_queued_without_waiting_for_all_starts(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Bulk starts are queued so the HTTP request cannot time out on many units."""
+    from app.services.trading_workspace_service import TradingWorkspaceService
+    from app.services.workspace_service import WorkspaceService
+
+    scheduled: list[object] = []
+
+    async def fake_start_units(self, units, user_id, workspace_settings=None):
+        return [
+            {"unit_id": unit.id, "task_id": f"inst-{unit.id}", "status": "running"}
+            for unit in units
+        ]
+
+    async def fake_background(self, workspace_id, user_id, unit_ids):
+        scheduled.append((workspace_id, user_id, unit_ids))
+
+    monkeypatch.setattr(TradingWorkspaceService, "start_units", fake_start_units)
+    monkeypatch.setattr(
+        WorkspaceService,
+        "_start_trading_units_in_background",
+        fake_background,
+        raising=False,
+    )
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "批量入队测试", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+    unit_ids = []
+    for symbol in ("IF2609", "IC2609"):
+        unit_response = await client.post(
+            f"/api/v1/workspace/{workspace_id}/units",
+            headers=auth_headers,
+            json={"strategy_id": "simulate/gateway_dual_ma", "symbol": symbol},
+        )
+        assert unit_response.status_code == 201
+        unit_ids.append(unit_response.json()["id"])
+
+    run_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/run",
+        headers=auth_headers,
+        json={"unit_ids": unit_ids, "parallel": False},
+    )
+
+    assert run_response.status_code == 200
+    assert [item["status"] for item in run_response.json()["results"]] == ["queued", "queued"]
+    await asyncio.sleep(0)
+    assert len(scheduled) == 1
+
+
+@pytest.mark.asyncio
+async def test_trading_workspace_background_batch_starts_one_unit_at_a_time(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Long gateway startup cannot monopolize the event loop for an entire batch."""
+    from app.api._dependencies import decode_access_token
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+    from app.services.trading_workspace_service import TradingWorkspaceService
+    from app.services.workspace import run_ops
+    from app.services.workspace_service import WorkspaceService
+
+    started_batches: list[list[str]] = []
+
+    async def fake_start_units(self, units, user_id, workspace_settings=None):
+        started_batches.append([str(unit.id) for unit in units])
+        for unit in units:
+            unit.run_status = "running"
+        return [
+            {"unit_id": unit.id, "task_id": f"inst-{unit.id}", "status": "running"}
+            for unit in units
+        ]
+
+    monkeypatch.setattr(TradingWorkspaceService, "start_units", fake_start_units)
+    monkeypatch.setattr(run_ops, "get_live_trading_manager", lambda: object())
+    monkeypatch.setattr(run_ops, "_schedule_paper_runtime_snapshots", lambda user_id, units: None)
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "批量后台顺序启动", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+    unit_ids = []
+    for symbol in ("IF2609", "IC2609"):
+        unit_response = await client.post(
+            f"/api/v1/workspace/{workspace_id}/units",
+            headers=auth_headers,
+            json={"strategy_id": "simulate/gateway_dual_ma", "symbol": symbol},
+        )
+        unit_ids.append(unit_response.json()["id"])
+
+    async with async_session_maker() as session:
+        units = list(
+            (
+                await session.execute(
+                    select(StrategyUnit).where(StrategyUnit.id.in_(unit_ids))
+                )
+            ).scalars()
+        )
+        for unit in units:
+            unit.run_status = "queued"
+        await session.commit()
+
+    token = decode_access_token(auth_headers["Authorization"].removeprefix("Bearer "))
+    assert token is not None
+    await WorkspaceService()._start_trading_units_in_background(
+        workspace_id,
+        str(token["sub"]),
+        unit_ids,
+    )
+
+    assert sorted(started_batches) == sorted([[unit_id] for unit_id in unit_ids])
+
+
+@pytest.mark.asyncio
+async def test_trading_workspace_status_skips_queued_units_during_batch_start(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Polling must not perform a runtime refresh for batch units still awaiting launch."""
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+    from app.services.trading_workspace_service import TradingWorkspaceService
+
+    hydrated_unit_ids: list[str] = []
+
+    async def fake_hydrate(self, units, user_id, *, full_log=True, refresh_gateway=True):
+        hydrated_unit_ids.extend(str(unit.id) for unit in units)
+        return False
+
+    monkeypatch.setattr(TradingWorkspaceService, "hydrate_units", fake_hydrate)
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "批量状态轻量轮询", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+    unit_ids = []
+    for symbol in ("IF2609", "IC2609"):
+        unit_response = await client.post(
+            f"/api/v1/workspace/{workspace_id}/units",
+            headers=auth_headers,
+            json={"strategy_id": "simulate/gateway_dual_ma", "symbol": symbol},
+        )
+        unit_ids.append(unit_response.json()["id"])
+
+    async with async_session_maker() as session:
+        queued_unit = await session.get(StrategyUnit, unit_ids[0])
+        running_unit = await session.get(StrategyUnit, unit_ids[1])
+        assert queued_unit is not None and running_unit is not None
+        queued_unit.run_status = "queued"
+        running_unit.run_status = "running"
+        await session.commit()
+
+    response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/status",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert hydrated_unit_ids == [unit_ids[1]]
+    assert [item["run_status"] for item in response.json()] == ["queued", "running"]
 
 
 @pytest.mark.asyncio
@@ -1165,3 +1389,74 @@ async def test_trading_workspace_runtime_endpoints_expose_runtime_files(
             strategy_py.unlink()
         if created_template and template_dir.exists():
             shutil.rmtree(template_dir, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_workspace_list_skips_live_manager_when_all_trading_units_are_idle(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+):
+    """Listing an idle workspace must not open an MT5/live-manager connection."""
+    from app.services.workspace import lifecycle
+
+    assert not hasattr(lifecycle, "get_live_trading_manager")
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "空闲交易工作区", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={"strategy_id": "simulate/gateway_dual_ma", "symbol": "IF2609"},
+    )
+    assert unit_response.status_code == 201
+
+    response = await client.get(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        params={"workspace_type": "trading"},
+    )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_trading_unit_list_uses_lightweight_hydration(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The initial trading-unit table must avoid log parsing and gateway reads."""
+    from app.services.trading_workspace_service import TradingWorkspaceService
+
+    captured: dict[str, object] = {}
+
+    async def fake_hydrate(self, units, user_id, **kwargs):
+        captured.update(kwargs)
+        return False
+
+    monkeypatch.setattr(TradingWorkspaceService, "hydrate_units", fake_hydrate)
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "轻量单元列表", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={"strategy_id": "simulate/gateway_dual_ma", "symbol": "IF2609"},
+    )
+    assert unit_response.status_code == 201
+
+    response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert captured == {"full_log": False, "refresh_gateway": False}

@@ -7,6 +7,7 @@ in subprocesses.
 
 import asyncio
 import contextlib
+import importlib.util
 import json
 import logging
 import os
@@ -67,18 +68,22 @@ if not _BACKTRADER_DIR.is_dir():
     _BACKTRADER_DIR = Path.home() / "Documents" / "backtrader"
 
 
-def _resolve_bt_api_py_import_dir() -> Path:
+def _resolve_bt_api_py_import_dir() -> Path | None:
     try:
         installed_pkg_dir = manual_gateway_service._installed_bt_api_py_dir()
     except Exception:
         installed_pkg_dir = None
     if installed_pkg_dir is not None and installed_pkg_dir.is_dir():
-        return installed_pkg_dir.parent
+        # An installed package already lives on the interpreter's standard
+        # ``site-packages`` path.  Putting that directory into ``PYTHONPATH``
+        # moves it ahead of the stdlib for spawned runners, where a legacy
+        # ``pathlib`` backport can shadow ``pathlib.Path.is_mount``.
+        return None
 
     local_src_dir = _PROJECT_ROOT / "src"
     if (local_src_dir / "bt_api_py").is_dir():
         return local_src_dir
-    return Path()
+    return None
 
 
 _BT_API_PY_DIR = _resolve_bt_api_py_import_dir()
@@ -91,6 +96,24 @@ def _should_restore_manual_gateways() -> bool:
     """Return whether persisted manual gateways should auto-restore on boot."""
     raw = os.getenv("LIVE_TRADING_RESTORE_MANUAL_GATEWAYS", "true").strip().lower()
     return raw not in _FALSE_ENV_VALUES
+
+
+def _configure_macos_ctp_runtime() -> None:
+    """Prefer the external CTP binding before loading gateway plugins on macOS.
+
+    The vendored CTP extension can terminate the API process with a native
+    segfault on macOS when its gateway thread starts. ``ctp-python`` is
+    available in the supported local environment and is selected by the
+    bt-api adapter through this opt-in flag. Respect explicit operator choice
+    and leave other platforms untouched.
+    """
+    if sys.platform != "darwin" or os.environ.get("BT_API_PY_USE_EXTERNAL_CTP"):
+        return
+    if importlib.util.find_spec("ctp") is None:
+        logger.warning("External CTP runtime is unavailable; keeping bt-api default runtime")
+        return
+    os.environ["BT_API_PY_USE_EXTERNAL_CTP"] = "1"
+    logger.info("Using external CTP runtime on macOS for native gateway stability")
 
 
 def _load_instances() -> dict[str, dict]:
@@ -1015,6 +1038,29 @@ class LiveTradingManager:
                 ),
             )
 
+    def get_active_instances(
+        self,
+        instance_ids: list[str],
+        user_id: str | None = None,
+    ) -> list[InstanceData]:
+        """Validate selected instance processes with one process scan.
+
+        This is deliberately read-only: portfolio refreshes must not trigger
+        log-directory scans or persist status rewrites for every known strategy.
+        """
+        with _instance_store_lock():
+            return cast(
+                list[InstanceData],
+                live_instance_service.get_active_instances(
+                    instance_ids=instance_ids,
+                    user_id=user_id,
+                    load_instances=_load_instances,
+                    scan_running_strategy_pids=_scan_running_strategy_pids,
+                    is_pid_alive=_is_pid_alive,
+                    resolve_strategy_dir=self._resolve_strategy_dir,
+                ),
+            )
+
     # ---- Start/Stop ----
 
     async def start_instance(self, instance_id: str, user_id: str | None = None) -> StartResult:
@@ -1272,6 +1318,7 @@ class LiveTradingManager:
     _gateway_import_ok: bool | None = None
 
     def _import_gateway_runtime_classes(self) -> tuple[Any, Any]:
+        _configure_macos_ctp_runtime()
         # Pre-flight: test import in an isolated subprocess to avoid crashing
         # the main process if a native C extension (CTP SDK, spdlog, etc.) is
         # broken or incompatible.  The check runs only once and is cached.

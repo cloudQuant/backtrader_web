@@ -35,8 +35,8 @@
 
 相关执行文档：
 
-- `docs/plans/2026-05-26-bt-api-ecosystem-implementation-plan.md`
-- `docs/plans/2026-05-26-first-bt-api-xx-package-spec.md`
+- `docs/archive/plans/2026-q2/2026-05-26-bt-api-ecosystem-implementation-plan.md`
+- `docs/archive/plans/2026-q2/2026-05-26-first-bt-api-xx-package-spec.md`
 
 ## 抽象基类
 

@@ -492,3 +492,58 @@ def get_instance(
         instances[instance_id] = inst
         save_instances(instances)
     return inst
+
+
+def get_active_instances(
+    instance_ids: list[str],
+    user_id: str | None,
+    load_instances: _Cb,
+    scan_running_strategy_pids: _Cb,
+    is_pid_alive: _Cb,
+    resolve_strategy_dir: _Cb,
+) -> list[dict[str, Any]]:
+    """Return process-validated states for selected instances without log scans.
+
+    Portfolio summaries only need to know whether the workspace units still
+    have matching ``run.py`` processes. Reusing ``list_instances`` here would
+    scan every persisted strategy directory for logs, even when the page only
+    renders a subset of active workspace units. This read-only helper scans
+    processes once and validates just the requested IDs.
+    """
+    requested_ids = [str(instance_id or "").strip() for instance_id in instance_ids]
+    requested_ids = list(dict.fromkeys(instance_id for instance_id in requested_ids if instance_id))
+    if not requested_ids:
+        return []
+
+    instances = load_instances()
+    running_pids = scan_running_strategy_pids()
+    now = instance_timestamp()
+    result: list[dict[str, Any]] = []
+
+    for instance_id in requested_ids:
+        stored = instances.get(instance_id)
+        if not isinstance(stored, dict):
+            continue
+        if user_id is not None and stored.get("user_id") != user_id:
+            continue
+
+        instance = dict(stored)
+        instance["id"] = instance_id
+        status = str(instance.get("status") or "stopped").strip().lower()
+        mapped_pid = _running_pid_for_instance(instance, running_pids, resolve_strategy_dir)
+        if mapped_pid and is_pid_alive(mapped_pid):
+            instance["status"] = "running"
+            instance["pid"] = mapped_pid
+            if status != "running" or not instance.get("started_at"):
+                instance["started_at"] = now
+            result.append(instance)
+            continue
+
+        # The matching process is absent, so a persisted running record is
+        # stale. Keep its stopped status in the return value so callers can
+        # exclude it without mutating instance storage from a read request.
+        instance["status"] = "stopped"
+        instance["pid"] = None
+        result.append(instance)
+
+    return result

@@ -123,8 +123,33 @@
 
     </section>
 
+    <!-- Initial load: do not show an empty quote state while the query is pending. -->
+    <template v-if="isInitialQuoteLoading">
+      <div class="quote-loading-state">
+        <div
+          class="quote-querying"
+          data-test="quote-initial-querying"
+          role="status"
+          aria-live="polite"
+        >
+          <el-icon
+            class="is-loading"
+            aria-hidden="true"
+          >
+            <Loading />
+          </el-icon>
+          <span>{{ t('quote.querying') }}</span>
+          <span
+            class="quote-querying__dots"
+            aria-hidden="true"
+          ><i /><i /><i /></span>
+        </div>
+        <DataTableSkeleton :label="t('quote.querying')" />
+      </div>
+    </template>
+
     <!-- Source unavailable / disconnected state -->
-    <template v-if="store.activeSourceInfo && store.activeSourceInfo.status !== 'available'">
+    <template v-else-if="store.activeSourceInfo && store.activeSourceInfo.status !== 'available'">
       <el-card class="quote-state-card">
         <el-empty :description="sourceStatusText">
           <el-button
@@ -356,17 +381,9 @@
         </div>
       </section>
 
-      <!-- Loading -->
-      <div
-        v-if="store.quotesLoading && store.ticks.length === 0"
-        class="quote-loading-state"
-      >
-        <DataTableSkeleton :label="t('quote.refreshing')" />
-      </div>
-
       <!-- Error state -->
       <el-card
-        v-else-if="store.quotesError"
+        v-if="store.quotesError"
         class="quote-state-card"
       >
         <el-empty :description="t('quote.errorEmptyDesc')">
@@ -1035,6 +1052,11 @@ const refreshModeText = computed(() => {
   }
 })
 
+const isInitialQuoteLoading = computed(() => (
+  (store.sourcesLoading && store.sources.length === 0) ||
+  (store.quotesLoading && store.ticks.length === 0)
+))
+
 // ---- data staleness detection (P1) ----
 const isDataStale = computed(() => {
   if (!store.updateTime) return false
@@ -1471,6 +1493,44 @@ onUnmounted(() => {
   line-height: 1.6;
 }
 
+.quote-querying {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: var(--primary-color);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.quote-querying__dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 18px;
+}
+
+.quote-querying__dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: quote-querying-pulse 1.1s ease-in-out infinite;
+}
+
+.quote-querying__dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.quote-querying__dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes quote-querying-pulse {
+  0%, 60%, 100% { opacity: 0.28; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+
 .quote-hero-status {
   display: flex;
   align-items: center;
@@ -1733,6 +1793,29 @@ onUnmounted(() => {
   min-height: 260px;
   color: var(--primary-color);
   font-size: 28px;
+}
+
+.quote-loading-state {
+  position: relative;
+  display: block;
+}
+
+.quote-loading-state :deep(.data-table-skeleton) {
+  width: 100%;
+}
+
+.quote-loading-state .quote-querying {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 28%, var(--quote-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--quote-card-bg) 92%, var(--primary-color));
+  box-shadow: 0 8px 18px var(--shadow-color);
+  transform: translate(-50%, -50%);
 }
 
 .quote-chart-state {

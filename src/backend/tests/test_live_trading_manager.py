@@ -26,9 +26,11 @@ from app.services.gateway import runtime as gateway_runtime_service
 from app.services.live_trading_manager import (
     _PROJECT_ROOT,
     LiveTradingManager,
+    _configure_macos_ctp_runtime,
     _find_latest_log_dir,
     _is_pid_alive,
     _load_instances,
+    _resolve_bt_api_py_import_dir,
     _save_instances,
     _should_restore_manual_gateways,
     get_live_trading_manager,
@@ -51,6 +53,30 @@ class TestUtilityFunctions:
     def test_project_root_points_to_repository_root(self):
         assert _PROJECT_ROOT.name == "backtrader_web"
         assert (_PROJECT_ROOT / "scripts" / "diagnostics").is_dir()
+
+    def test_resolve_bt_api_py_import_dir_does_not_prepend_site_packages(
+        self, monkeypatch, tmp_path
+    ):
+        installed_package_dir = tmp_path / "site-packages" / "bt_api_py"
+        installed_package_dir.mkdir(parents=True)
+        monkeypatch.setattr(
+            "app.services.live_trading_manager.manual_gateway_service._installed_bt_api_py_dir",
+            lambda: installed_package_dir,
+        )
+
+        assert _resolve_bt_api_py_import_dir() is None
+
+    def test_configure_macos_ctp_runtime_prefers_external_binding(self, monkeypatch):
+        monkeypatch.setattr("app.services.live_trading_manager.sys.platform", "darwin")
+        monkeypatch.delenv("BT_API_PY_USE_EXTERNAL_CTP", raising=False)
+        monkeypatch.setattr(
+            "app.services.live_trading_manager.importlib.util.find_spec",
+            lambda name: object() if name == "ctp" else None,
+        )
+
+        _configure_macos_ctp_runtime()
+
+        assert os.environ["BT_API_PY_USE_EXTERNAL_CTP"] == "1"
 
     def test_load_instances_from_file(self):
         """Test loading instances from file.

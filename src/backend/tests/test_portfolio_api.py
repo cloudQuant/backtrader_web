@@ -85,6 +85,83 @@ async def test_portfolio_sources_uses_workspace_snapshot_for_paper_units(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_paper_equity_points_keep_only_the_current_runtime_run(monkeypatch):
+    """A restarted paper unit must not join its previous run's equity curve."""
+    from app.api import portfolio_api
+
+    class FakeResult:
+        def __init__(self, snapshots: list[object]) -> None:
+            self._snapshots = snapshots
+
+        def scalars(self):
+            return self
+
+        def all(self) -> list[object]:
+            return list(self._snapshots)
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:  # type: ignore[type-arg]
+            return False
+
+        async def execute(self, _query) -> FakeResult:
+            return FakeResult(snapshots)
+
+    class FakeSessionMaker:
+        def __call__(self) -> FakeSession:
+            return FakeSession()
+
+    def snapshot(observed_at: datetime, total_equity: float, source: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            instance_id="paper-instance",
+            observed_at=observed_at,
+            total_equity=total_equity,
+            cash=total_equity,
+            realized_pnl=0.0,
+            unrealized_pnl=0.0,
+            source=source,
+        )
+
+    snapshots = [
+        snapshot(datetime(2026, 7, 22, 9, 0), 100_000.0, "initial"),
+        snapshot(datetime(2026, 7, 22, 9, 1), 100_100.0, "mark_to_market"),
+        snapshot(datetime(2026, 7, 24, 9, 0), 1_000_000.0, "initial"),
+        snapshot(datetime(2026, 7, 24, 9, 1), 1_000_250.0, "mark_to_market"),
+    ]
+    monkeypatch.setattr(portfolio_api, "async_session_maker", FakeSessionMaker())
+
+    points = await portfolio_api._paper_equity_points(
+        _USER,
+        [
+            portfolio_api._PortfolioSource(
+                id="paper-instance",
+                strategy_id="paper-strategy",
+                strategy_name="Paper strategy",
+                status="running",
+                trading_mode="paper",
+            )
+        ],
+    )
+
+    assert points == {
+        "paper-instance": [
+            ("2026-07-24T09:00:00", 1_000_000.0, 1_000_000.0, 0.0),
+            ("2026-07-24T09:01:00", 1_000_250.0, 1_000_250.0, 0.0),
+        ]
+    }
+
+
+def test_trading_day_normalizes_utc_snapshot_time_to_local_portfolio_day():
+    """UTC snapshots near midnight must group with the same local trading day."""
+    from app.api import portfolio_api
+
+    assert portfolio_api._trading_day("2026-07-23T20:49:00.000+00:00") == "2026-07-24"
+    assert portfolio_api._trading_day("2026-07-24T00:08:00") == "2026-07-24"
+
+
+@pytest.mark.asyncio
 async def test_active_workspace_sources_excludes_stale_running_units(monkeypatch):
     """Running workspace units are considered active only when the live manager confirms them."""
     from app.api import portfolio_api
@@ -191,6 +268,111 @@ async def test_active_workspace_sources_excludes_stale_running_units(monkeypatch
     )
     assert len(all_sources) == 2
     assert manager.calls == []
+
+
+@pytest.mark.asyncio
+async def test_active_workspace_sources_batches_live_instance_lookup(monkeypatch):
+    """One workspace refresh must validate active instances with one manager scan."""
+    from app.api import portfolio_api
+
+    class BatchedManager:
+        def __init__(self) -> None:
+            self.active_calls: list[tuple[list[str], str | None]] = []
+
+        def get_active_instances(self, instance_ids: list[str], user_id: str | None = None):
+            self.active_calls.append((instance_ids, user_id))
+            return [
+                {
+                    "id": "inst-one",
+                    "status": "running",
+                    "pid": 101,
+                    "started_at": "2026-07-20 08:00:00",
+                },
+                {
+                    "id": "inst-two",
+                    "status": "running",
+                    "pid": 102,
+                    "started_at": "2026-07-20 08:00:00",
+                },
+            ]
+
+        def list_instances(self, *_args, **_kwargs):
+            raise AssertionError("portfolio refresh must not scan every persisted instance")
+
+        def get_instance(self, *_args, **_kwargs):
+            raise AssertionError("active units must use the single batched manager lookup")
+
+    class FakeResult:
+        def __init__(self, rows: list[tuple[object, object]]) -> None:
+            self._rows = rows
+
+        def all(self) -> list[tuple[object, object]]:
+            return list(self._rows)
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:  # type: ignore[type-arg]
+            return False
+
+        async def execute(self, _query) -> FakeResult:
+            return FakeResult(rows)
+
+    class FakeSessionMaker:
+        def __call__(self) -> FakeSession:
+            return FakeSession()
+
+    rows = [
+        (
+            SimpleNamespace(
+                id="unit-one",
+                workspace_id="ws-live",
+                strategy_name="First live unit",
+                strategy_id="strat-one",
+                symbol="IF2609",
+                trading_snapshot={"instance_status": "running"},
+                gateway_config={},
+                run_status="running",
+                trading_instance_id="inst-one",
+                trading_mode="paper",
+                unit_settings={},
+                params={},
+                data_config={},
+            ),
+            SimpleNamespace(id="ws-live", name="Workspace Live"),
+        ),
+        (
+            SimpleNamespace(
+                id="unit-two",
+                workspace_id="ws-live",
+                strategy_name="Second live unit",
+                strategy_id="strat-two",
+                symbol="RB2610",
+                trading_snapshot={"instance_status": "running"},
+                gateway_config={},
+                run_status="running",
+                trading_instance_id="inst-two",
+                trading_mode="paper",
+                unit_settings={},
+                params={},
+                data_config={},
+            ),
+            SimpleNamespace(id="ws-live", name="Workspace Live"),
+        ),
+    ]
+    manager = BatchedManager()
+    monkeypatch.setattr(portfolio_api, "async_session_maker", FakeSessionMaker())
+    monkeypatch.setattr(portfolio_api, "_workspace_unit_runtime_config", lambda _unit: {})
+    monkeypatch.setattr(portfolio_api, "_workspace_unit_log_dir", lambda _unit: None)
+
+    sources = await portfolio_api._active_workspace_sources(
+        SimpleNamespace(sub="u-portfolio"),
+        manager,
+    )
+
+    assert [source.id for source in sources] == ["inst-one", "inst-two"]
+    assert manager.active_calls == [(["inst-one", "inst-two"], "u-portfolio")]
 
 
 @pytest.mark.asyncio
@@ -671,6 +853,7 @@ async def test_portfolio_equity_filters_running_source_history_by_started_day(mo
             "strategy_name": "Running strategy",
             "instance_id": "inst-running",
             "values": [105000.0],
+            "pnl_values": [0.0],
             "value_source": "log",
         }
     ]
@@ -1202,6 +1385,36 @@ def test_compact_workspace_overview_reads_only_value_log_endpoints(monkeypatch):
         "running_count": 1,
         "strategies": [],
     }
+
+
+@pytest.mark.asyncio
+async def test_portfolio_overview_summary_uses_persisted_workspace_sources(monkeypatch):
+    """The landing-page summary must not construct or query a live manager."""
+    from app.api import portfolio_api
+
+    source = portfolio_api._PortfolioSource(
+        id="unit-snapshot",
+        strategy_id="strategy-snapshot",
+        strategy_name="Persisted strategy",
+        status="running",
+        unit_id="unit-snapshot",
+        workspace_id="workspace-snapshot",
+        trading_mode="paper",
+        snapshot={"positions": []},
+    )
+    persisted_sources = AsyncMock(return_value=[source])
+    monkeypatch.setattr(portfolio_api, "_persisted_running_workspace_sources", persisted_sources)
+    monkeypatch.setattr(
+        portfolio_api,
+        "_compact_value_log_summary",
+        lambda _log_dir, started_day: (100000.0, 100500.0, 96500.0),
+    )
+
+    result = await portfolio_api.get_portfolio_overview_summary(_USER)
+
+    assert result["strategy_count"] == 1
+    assert result["total_assets"] == 100500.0
+    persisted_sources.assert_awaited_once_with(_USER)
 
 
 @pytest.mark.asyncio
@@ -2400,7 +2613,13 @@ async def test_portfolio_equity_empty():
 
     mgr = _MockManager([])
     result = await get_portfolio_equity(current_user=_USER, mgr=mgr)
-    assert result == {"dates": [], "total_equity": [], "total_drawdown": [], "strategies": []}
+    assert result == {
+        "dates": [],
+        "total_equity": [],
+        "cumulative_pnl": [],
+        "total_drawdown": [],
+        "strategies": [],
+    }
 
 
 @pytest.mark.asyncio
@@ -2424,10 +2643,13 @@ async def test_portfolio_equity_with_data():
 
     assert result["dates"] == ["2024-01-01", "2024-01-02", "2024-01-03"]
     assert result["total_equity"] == [100000.0, 105000.0, 103000.0]
-    # Drawdown: peak=105000, dd on day 3 = -(105000-103000)/105000
+    # Drawdown must use the peak of the same equity curve shown to the user.
     assert result["total_drawdown"][0] == 0  # no drawdown on day 1
     assert result["total_drawdown"][1] == 0  # new peak on day 2
-    assert result["total_drawdown"][2] < 0  # drawdown on day 3
+    assert result["total_drawdown"][2] == pytest.approx(
+        -(105000.0 - 103000.0) / 105000.0,
+        abs=1e-6,
+    )
     assert len(result["strategies"]) == 1
     assert result["strategies"][0]["strategy_id"] == "strat_001"
 
@@ -2846,7 +3068,13 @@ async def test_simulation_equity_delegates():
 
     mgr = _MockManager([])
     result = await get_simulation_portfolio_equity(current_user=_USER, mgr=mgr)
-    assert result == {"dates": [], "total_equity": [], "total_drawdown": [], "strategies": []}
+    assert result == {
+        "dates": [],
+        "total_equity": [],
+        "cumulative_pnl": [],
+        "total_drawdown": [],
+        "strategies": [],
+    }
 
 
 @pytest.mark.asyncio

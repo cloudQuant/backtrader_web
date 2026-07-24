@@ -278,11 +278,17 @@ class TestDatabaseInitialization:
 
         async with engine.begin() as conn:
             workspace_columns = await conn.execute(text("PRAGMA table_info(workspaces)"))
+            workspace_indexes = await conn.execute(text("PRAGMA index_list(workspaces)"))
             unit_columns = await conn.execute(text("PRAGMA table_info(strategy_units)"))
             workspace_column_names = {row[1] for row in workspace_columns.fetchall()}
+            workspace_index_names = {row[1] for row in workspace_indexes.fetchall()}
             unit_column_names = {row[1] for row in unit_columns.fetchall()}
 
             assert {"workspace_type", "trading_config"} <= workspace_column_names
+            assert {
+                "ix_workspaces_user_type_updated_id",
+                "ix_workspaces_user_updated_id",
+            } <= workspace_index_names
             assert {
                 "trading_mode",
                 "gateway_config",

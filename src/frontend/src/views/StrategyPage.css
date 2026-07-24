@@ -818,6 +818,49 @@
   margin-top: 8px;
 }
 
+.ai-research-prompt-generation-intro {
+  margin: 0 0 16px;
+  color: var(--text-color-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.ai-research-prompt-generation-options {
+  display: grid;
+  width: 100%;
+  gap: 10px;
+}
+
+.ai-research-prompt-generation-option {
+  display: grid;
+  width: 100%;
+  height: auto;
+  min-height: 74px;
+  margin-right: 0;
+  padding: 12px 14px;
+  align-content: center;
+}
+
+.ai-research-prompt-generation-option :deep(.el-radio__label) {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding-left: 10px;
+}
+
+.ai-research-prompt-generation-option span {
+  color: var(--text-color-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ai-research-prompt-generation-option small {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: normal;
+}
+
 .ai-research-actions {
   display: flex;
   flex-wrap: wrap;

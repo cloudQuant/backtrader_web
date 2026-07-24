@@ -46,10 +46,11 @@ def test_default_provider_specs_include_core_providers() -> None:
     assert "minimax-m2.7" in volcengine_ark.models
     assert "minimax-m3" in volcengine_ark.models
     assert "glm-5.1" in volcengine_ark.models
+    assert "glm-5.2" in volcengine_ark.models
     assert "deepseek-v4-flash" in volcengine_ark.models
     assert "deepseek-v4-pro" in volcengine_ark.models
     assert "kimi-k2.6" in volcengine_ark.models
-    assert len(volcengine_ark.models) == 10
+    assert len(volcengine_ark.models) == 11
     assert "doubao-seed-1-8-251228" not in volcengine_ark.models
     assert "doubao-seed-2-0-pro-260215" not in volcengine_ark.models
     assert "doubao-seed-1-6-250615" not in volcengine_ark.models

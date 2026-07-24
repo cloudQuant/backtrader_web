@@ -20,6 +20,7 @@ from app.schemas.backtest import BacktestRequest, TaskStatus
 from app.schemas.workspace import UnitStatusResponse
 from app.services import workspace_unit_runtime
 from app.services.fincore_metrics_helper import calculate_extended_metrics
+from app.services.live_trading_manager import get_live_trading_manager
 from app.services.workspace.config import (
     _normalize_workspace_type,
     _workspace_settings_dict,
@@ -53,9 +54,8 @@ async def _initialize_paper_runtime_snapshots(
                 {
                     "source": "initial",
                     "total_equity": float(
-                        metrics.get("final_value")
+                        unit_settings.get("initial_cash")
                         or metrics.get("initial_cash")
-                        or unit_settings.get("initial_cash")
                         or 100000.0
                     ),
                     "cash": float(unit_settings.get("initial_cash") or 100000.0),
@@ -68,6 +68,26 @@ async def _initialize_paper_runtime_snapshots(
                 instance_id,
                 exc_info=True,
             )
+
+
+def _schedule_paper_runtime_snapshots(user_id: str, units: list[StrategyUnit]) -> None:
+    """Schedule paper equity snapshots after trading instances have started."""
+    from app.services.paper_runtime_scheduler import get_paper_runtime_snapshot_scheduler
+
+    snapshot_scheduler = get_paper_runtime_snapshot_scheduler()
+    runtime_snapshots: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+    for unit in units:
+        instance_id = str(getattr(unit, "trading_instance_id", "") or "").strip()
+        is_paper = str(getattr(unit, "trading_mode", "paper") or "paper").lower() == "paper"
+        is_running = str(getattr(unit, "run_status", "") or "").lower() == "running"
+        if not instance_id or not is_paper or not is_running:
+            continue
+        metrics = cast(dict[str, Any], getattr(unit, "metrics_snapshot", {}) or {})
+        settings = cast(dict[str, Any], getattr(unit, "unit_settings", {}) or {})
+        runtime_snapshots.append((instance_id, dict(metrics), dict(settings)))
+        snapshot_scheduler.ensure_running(user_id, instance_id)
+    if runtime_snapshots:
+        asyncio.create_task(_initialize_paper_runtime_snapshots(user_id, runtime_snapshots))
 
 
 def _task_runtime_info(task: BacktestTask | None) -> dict[str, Any]:
@@ -138,6 +158,63 @@ class WorkspaceRunOpsMixin:
             progress: dict[str, Any] | None,
         ) -> dict[str, Any] | None: ...
 
+    async def _start_trading_units_in_background(
+        self,
+        workspace_id: str,
+        user_id: str,
+        unit_ids: list[str],
+    ) -> None:
+        """Start a queued trading batch without holding the initiating request open."""
+        # The first manager access loads broker plugins and restores persisted
+        # runtime state. Do that synchronous setup in a worker thread before
+        # the first unit starts, so the ASGI event loop remains available for
+        # health checks and status polling.
+        await asyncio.to_thread(get_live_trading_manager)
+
+        async with async_session_maker() as session:
+            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
+            if ws is None:
+                return
+
+            result = await session.execute(
+                select(StrategyUnit).where(
+                    StrategyUnit.workspace_id == workspace_id,
+                    StrategyUnit.id.in_(unit_ids),
+                    StrategyUnit.run_status == "queued",
+                )
+            )
+            units = list(result.scalars().all())
+            if not units:
+                return
+
+            for unit in units:
+                try:
+                    # ``start_units`` ultimately prepares broker runtimes and
+                    # can take seconds per unit. Start and commit one at a
+                    # time so status polling and other API requests get a
+                    # scheduling opportunity between units in a large batch.
+                    await self.trading_service.start_units(
+                        [unit],
+                        user_id,
+                        _workspace_settings_dict(ws),
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        "Trading batch start failed for workspace %s unit %s",
+                        workspace_id,
+                        unit.id,
+                    )
+                    unit.run_status = "failed"
+                    unit.trading_snapshot = self.trading_service.default_snapshot(
+                        unit=unit,
+                        instance_status="error",
+                        error=str(exc),
+                    )
+                await session.commit()
+                await asyncio.sleep(0)
+
+        _schedule_paper_runtime_snapshots(user_id, units)
+
     async def run_units(
         self, workspace_id: str, user_id: str, unit_ids: list[str], parallel: bool = False
     ) -> list[dict[str, Any]]:
@@ -166,33 +243,58 @@ class WorkspaceRunOpsMixin:
                 return []
 
             if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
+                # A large trading workspace used to start every process inside
+                # this request.  Launching dozens of units serially exceeded
+                # the frontend timeout even though the starts were valid.
+                # Preserve immediate start semantics for a single unit, while
+                # committing multi-unit batches as queued work and returning
+                # promptly for status polling.
+                if len(units) > 1:
+                    queued_unit_ids: list[str] = []
+                    for unit in units:
+                        current_status = str(unit.run_status or "idle").strip().lower()
+                        if current_status in {"queued", "running"}:
+                            results.append(
+                                {
+                                    "unit_id": unit.id,
+                                    "task_id": unit.trading_instance_id,
+                                    "status": current_status,
+                                    "already_running": True,
+                                }
+                            )
+                            continue
+                        unit.run_status = "queued"
+                        unit.trading_snapshot = self.trading_service.default_snapshot(
+                            unit=unit,
+                            instance_status="queued",
+                        )
+                        queued_unit_ids.append(str(unit.id))
+                        results.append(
+                            {
+                                "unit_id": unit.id,
+                                "task_id": unit.trading_instance_id,
+                                "status": "queued",
+                            }
+                        )
+                    await session.commit()
+                    if queued_unit_ids:
+                        asyncio.get_running_loop().call_soon(
+                            asyncio.create_task,
+                            self._start_trading_units_in_background(
+                                workspace_id,
+                                user_id,
+                                queued_unit_ids,
+                            ),
+                        )
+                    return results
+
                 results = await self.trading_service.start_units(
                     units,
                     user_id,
                     _workspace_settings_dict(ws),
                 )
                 await session.commit()
-                from app.services.paper_runtime_scheduler import (
-                    get_paper_runtime_snapshot_scheduler,
-                )
-
-                snapshot_scheduler = get_paper_runtime_snapshot_scheduler()
-                runtime_snapshots: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
-                for unit in units:
-                    instance_id = str(getattr(unit, "trading_instance_id", "") or "").strip()
-                    is_paper = (
-                        str(getattr(unit, "trading_mode", "paper") or "paper").lower() == "paper"
-                    )
-                    if not instance_id or not is_paper:
-                        continue
-                    metrics = cast(dict[str, Any], getattr(unit, "metrics_snapshot", {}) or {})
-                    settings = cast(dict[str, Any], getattr(unit, "unit_settings", {}) or {})
-                    runtime_snapshots.append((instance_id, dict(metrics), dict(settings)))
-                    snapshot_scheduler.ensure_running(user_id, instance_id)
-                if runtime_snapshots:
-                    asyncio.create_task(
-                        _initialize_paper_runtime_snapshots(user_id, runtime_snapshots)
-                    )
+                _schedule_paper_runtime_snapshots(user_id, units)
                 return results
 
             # Mark all as queued
@@ -348,12 +450,24 @@ class WorkspaceRunOpsMixin:
                 # polling endpoint.  A gateway outage should be surfaced by the
                 # start/detail flows, not turn every workspace status request
                 # into a blocked connection attempt.
-                await self.trading_service.hydrate_units(
-                    units,
-                    user_id,
-                    full_log=False,
-                    refresh_gateway=False,
-                )
+                # A queued batch has not necessarily created every runtime
+                # instance yet. Refreshing those rows makes polling compete
+                # with startup for the instance store and can turn a fast
+                # status request into a broker-start bottleneck. Persisted
+                # queued state is authoritative until the worker promotes it
+                # to running.
+                running_units = [
+                    unit
+                    for unit in units
+                    if str(unit.run_status or "").strip().lower() == "running"
+                ]
+                if running_units:
+                    await self.trading_service.hydrate_units(
+                        running_units,
+                        user_id,
+                        full_log=False,
+                        refresh_gateway=False,
+                    )
                 return self.trading_service.build_status_responses(units)
 
             from app.services.backtest.service import BacktestService

@@ -125,6 +125,10 @@ async def lookup_market_instrument(
     end_date: date | None = Query(None, description="End date YYYY-MM-DD"),
     period: str = Query("daily", description="Period: daily/weekly/monthly"),
     market: str | None = Query(None, description="Futures market, default CF"),
+    refresh_online: bool = Query(
+        False,
+        description="Fetch the latest data from AkShare; only set by an explicit user query",
+    ),
     current_user: typing.Any = Depends(get_current_user),
     service: MarketInstrumentService = Depends(get_market_instrument_service),
 ) -> typing.Any:
@@ -137,6 +141,7 @@ async def lookup_market_instrument(
             end_date=end_date,
             period=period,
             market=market,
+            refresh_online=refresh_online,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

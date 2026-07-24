@@ -113,6 +113,7 @@
                   v-model="aiResearchSelectedConfigProfileId"
                   class="w-full"
                   filterable
+                  :disabled="aiResearchRunning"
                   :loading="aiResearchConfigProfilesLoading"
                   :placeholder="t('strategy.aiResearchSelectConfig')"
                   data-test="ai-research-profile-select"
@@ -410,7 +411,7 @@
                       size="small"
                       type="primary"
                       data-test="ai-research-generate-prompt-config"
-                      @click="generateAIResearchPrompt"
+                      @click="openAIResearchPromptGenerationDialog"
                     >
                       <el-icon
                         class="mr-1"
@@ -892,7 +893,7 @@
                     size="small"
                     type="primary"
                     data-test="ai-research-generate-prompt"
-                    @click="generateAIResearchPrompt"
+                    @click="openAIResearchPromptGenerationDialog"
                   >
                     <el-icon
                       class="mr-1"
@@ -1174,12 +1175,12 @@
               <p>{{ t('strategy.aiResearchResultSubtitle') }}</p>
             </div>
             <div
-              v-if="aiResearchSelectedConfigProfile"
+              v-if="aiResearchOutputConfigProfile"
               class="ai-research-result-context"
               data-test="ai-research-result-context"
             >
-              <strong>当前方案 {{ aiResearchSelectedConfigProfile.name }}</strong>
-              <span>{{ aiResearchSelectedProfileSummary }}</span>
+              <strong>当前方案 {{ aiResearchOutputConfigProfile.name }}</strong>
+              <span>{{ aiResearchOutputProfileSummary }}</span>
             </div>
             <div
               v-if="aiResearchResult"
@@ -2128,6 +2129,23 @@
                 </div>
               </div>
             </div>
+            <div
+              v-else-if="aiResearchRunning"
+              class="ai-research-result-context"
+              data-test="ai-research-live-output"
+            >
+              <strong>
+                正在更新 {{ aiResearchOutputConfigProfile?.name || '当前方案' }} 的研究输出
+              </strong>
+              <span>
+                阶段 {{ aiResearchTaskStageLabel || '排队中' }} · {{ formatTaskProgress(aiResearchTaskProgress) }}
+              </span>
+              <span v-if="aiResearchTaskMessage">{{ aiResearchTaskMessage }}</span>
+              <span v-if="aiResearchTaskLatestIteration">
+                最近{{ taskLatestIterationLabel(aiResearchTaskLatestIteration) }}
+                Sharpe {{ formatMetric(taskLatestIterationMetric(aiResearchTaskLatestIteration, 'sharpe_ratio', 'sharpe')) }}
+              </span>
+            </div>
             <el-empty
               v-else
               :description="aiResearchNoResultDescription"
@@ -2751,6 +2769,61 @@
       @save="saveStrategy"
     />
 
+    <el-dialog
+      v-model="aiResearchPromptGenerationDialogVisible"
+      title="生成投研目标"
+      width="min(560px, calc(100vw - 32px))"
+      :close-on-click-modal="!aiResearchPromptGenerationLoading"
+      :close-on-press-escape="!aiResearchPromptGenerationLoading"
+      :show-close="!aiResearchPromptGenerationLoading"
+      data-test="ai-research-prompt-generation-dialog"
+      @close="closeAIResearchPromptGenerationDialog"
+    >
+      <p class="ai-research-prompt-generation-intro">
+        将根据当前标的、回测区间、质量门槛与验证设置生成研究目标。你可以直接使用默认方案，或让已配置的大模型润色表达与执行步骤。
+      </p>
+      <el-radio-group
+        v-model="aiResearchPromptGenerationMode"
+        class="ai-research-prompt-generation-options"
+        data-test="ai-research-prompt-generation-mode"
+      >
+        <el-radio
+          value="default"
+          border
+          class="ai-research-prompt-generation-option"
+          data-test="ai-research-prompt-generation-default"
+        >
+          <span>使用默认方案</span>
+          <small>不调用大模型，沿用当前配置生成稳定、可复现的研究目标。</small>
+        </el-radio>
+        <el-radio
+          value="ai"
+          border
+          class="ai-research-prompt-generation-option"
+          data-test="ai-research-prompt-generation-ai"
+        >
+          <span>使用大模型优化</span>
+          <small>调用当前已配置模型，只优化表达和执行结构，不改变质量门槛与验证约束。</small>
+        </el-radio>
+      </el-radio-group>
+      <template #footer>
+        <el-button
+          :disabled="aiResearchPromptGenerationLoading"
+          @click="closeAIResearchPromptGenerationDialog"
+        >
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="aiResearchPromptGenerationLoading"
+          data-test="ai-research-prompt-generation-confirm"
+          @click="confirmAIResearchPromptGeneration"
+        >
+          {{ aiResearchPromptGenerationMode === 'ai' ? '调用大模型并生成' : '生成默认目标' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- ========== My strategy detail dialog ========== -->
     <el-dialog
       v-model="viewDialogVisible"
@@ -2849,6 +2922,9 @@ const {
   aiResearchMandate,
   aiResearchMandateConfirmed,
   aiResearchMandateLoading,
+  aiResearchPromptGenerationDialogVisible,
+  aiResearchPromptGenerationMode,
+  aiResearchPromptGenerationLoading,
   aiResearchTimeline,
   aiResearchTimelineLoading,
   aiResearchVersions,
@@ -2874,6 +2950,8 @@ const {
   displayedTemplates,
   aiResearchSelectedConfigProfile,
   aiResearchSelectedProfileSummary,
+  aiResearchOutputConfigProfile,
+  aiResearchOutputProfileSummary,
   aiResearchSelectedConfigDetails,
   aiResearchSelectedConfigPromptPreview,
   aiResearchVisibleRuns,
@@ -2929,7 +3007,9 @@ const {
   taskLatestIterationProgress,
   formatDateTime,
   runAIResearchDataPrecheck,
-  generateAIResearchPrompt,
+  openAIResearchPromptGenerationDialog,
+  closeAIResearchPromptGenerationDialog,
+  confirmAIResearchPromptGeneration,
   parseAIResearchMandate,
   confirmAIResearchMandate,
   applyAIResearchConfigProfile,

@@ -15,6 +15,8 @@ import type {
   StrategyCopilotBacktestRequest,
   StrategyCopilotBacktestResponse,
   AIStrategyResearchRunRequest,
+  AIStrategyResearchObjectiveOptimizeRequest,
+  AIStrategyResearchObjectiveOptimizeResponse,
   InvestmentMandateCreateRequest,
   InvestmentMandateResponse,
   AIStrategyResearchConfigProfile,
@@ -63,6 +65,8 @@ export type {
   StrategyCopilotRunResult,
   StrategyCopilotBacktestResponse,
   AIStrategyResearchRunRequest,
+  AIStrategyResearchObjectiveOptimizeRequest,
+  AIStrategyResearchObjectiveOptimizeResponse,
   InvestmentMandateCreateRequest,
   InvestmentMandateResponse,
   AIStrategyResearchConfigProfile,
@@ -196,6 +200,15 @@ export const strategyApi = {
       '/strategy/ai-research/run',
       data
     )
+  },
+
+  async optimizeAIResearchObjective(
+    data: AIStrategyResearchObjectiveOptimizeRequest
+  ): Promise<AIStrategyResearchObjectiveOptimizeResponse> {
+    return api.post<
+      AIStrategyResearchObjectiveOptimizeResponse,
+      AIStrategyResearchObjectiveOptimizeRequest
+    >('/strategy/ai-research/objectives/optimize', data)
   },
 
   async createAIResearchMandate(

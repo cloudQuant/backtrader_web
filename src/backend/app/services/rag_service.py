@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -12,8 +13,11 @@ from app.db.database import async_session_maker
 from app.models.knowledge_base import DocumentChunk, KBDocument, KnowledgeBase
 from app.services.ai_chat_service import AIChatService
 from app.services.chunk_service import chunk_service
+from app.services.semantic_retrieval_service import SemanticChunk, SemanticRetrievalService
 from app.services.strategy_service import build_ai_strategy_draft, render_ai_strategy_draft_answer
 from app.utils.knowledge_base_settings import merge_knowledge_base_settings
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_text(value: str) -> str:
@@ -107,6 +111,22 @@ def _is_knowledge_base_overview_question(question: str) -> bool:
     """Return whether a question asks for the contents of the whole knowledge base."""
     normalized = _normalize_text(question).lower()
     compact = re.sub(r"[\s？?！!,，。；：:()（）\[\]{}<>/\\]+", "", normalized)
+    document_recommendation = any(
+        phrase in compact
+        for phrase in (
+            "重点阅读",
+            "优先阅读",
+            "推荐阅读",
+            "值得阅读",
+            "哪些文档值得",
+            "哪些资料值得",
+        )
+    )
+    if document_recommendation:
+        # The active knowledge base already supplies the scope in chat, so
+        # users commonly omit an explicit "知识库" qualifier here.
+        return True
+
     chinese_scope = any(marker in compact for marker in ("知识库", "这个库", "资料库"))
     chinese_intent = any(
         phrase in compact
@@ -142,8 +162,79 @@ def _safe_datetime(value: datetime | None) -> datetime | None:
 class RAGService:
     """Index, search, and grounded answer generation."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, semantic_retriever: SemanticRetrievalService | None = None) -> None:
         self.ai_chat_service = AIChatService()
+        self.semantic_retriever = semantic_retriever or SemanticRetrievalService()
+
+    @staticmethod
+    def _to_semantic_chunks(rows: list[tuple[DocumentChunk, KBDocument]]) -> list[SemanticChunk]:
+        """Create one compact semantic representation per document.
+
+        Embedding every chunk makes a first index of large collections take
+        far too long.  Sampling the beginning, middle, and end of each
+        document keeps document discovery semantic and bounded; the selected
+        document's original chunks are still used as grounded answer context.
+        """
+        by_document: dict[str, tuple[KBDocument, list[DocumentChunk]]] = {}
+        for chunk, document in rows:
+            if not str(chunk.content or "").strip():
+                continue
+            document_id = str(chunk.document_id)
+            if document_id not in by_document:
+                by_document[document_id] = (document, [])
+            by_document[document_id][1].append(chunk)
+
+        semantic_documents: list[SemanticChunk] = []
+        for document_id, (document, chunks) in by_document.items():
+            ordered_chunks = sorted(chunks, key=lambda item: int(item.chunk_index))
+            sample_positions = sorted({0, len(ordered_chunks) // 2, len(ordered_chunks) - 1})
+            samples = [
+                _normalize_text(str(ordered_chunks[position].content or ""))[:1400]
+                for position in sample_positions
+                if ordered_chunks[position].content
+            ]
+            content = "\n\n".join(sample for sample in samples if sample)
+            if not content:
+                continue
+            semantic_documents.append(
+                SemanticChunk(
+                    # The vector record represents a document, not an
+                    # individual chunk.  The document id is stable across
+                    # chunk re-indexing and supports idempotent upserts.
+                    chunk_id=document_id,
+                    knowledge_base_id=str(getattr(document, "knowledge_base_id", "") or ""),
+                    document_id=document_id,
+                    document_title=str(getattr(document, "title", "") or "未命名文档"),
+                    chunk_index=0,
+                    content=content,
+                )
+            )
+        return semantic_documents
+
+    async def _sync_vector_document(
+        self,
+        session,
+        knowledge_base_id: str,
+        document_id: str,
+    ) -> None:
+        """Mirror one committed document into the local vector index."""
+        if not self.semantic_retriever.enabled:
+            return
+        rows = list(
+            (
+                await session.execute(
+                    select(DocumentChunk, KBDocument)
+                    .join(KBDocument, KBDocument.id == DocumentChunk.document_id)
+                    .where(
+                        DocumentChunk.knowledge_base_id == knowledge_base_id,
+                        DocumentChunk.document_id == document_id,
+                    )
+                )
+            ).all()
+        )
+        await self.semantic_retriever.delete_document(knowledge_base_id, document_id)
+        if rows:
+            await self.semantic_retriever.upsert_chunks(self._to_semantic_chunks(rows))
 
     async def _list_indexable_documents(self, session, knowledge_base_id: str) -> list[KBDocument]:
         return list(
@@ -221,7 +312,18 @@ class RAGService:
             limit=limit,
         )
         if not citations:
-            return None
+            return {
+                "answer": "这个知识库当前还没有可供概览的文档。请先上传或新建文档并完成索引。",
+                "citations": [],
+                "context_chunks_used": 0,
+                "tokens_used": 0,
+                "model_id": None,
+                "strategy_draft": None,
+                "reasoning": None,
+                "reason_code": "knowledge_base_overview",
+                "diagnostic_message": "当前知识库没有可供概览的文档。",
+                "diagnostics": diagnostics,
+            }
 
         lines = ["这个知识库当前主要包含以下文档："]
         for index, citation in enumerate(citations, start=1):
@@ -268,6 +370,7 @@ class RAGService:
 
         stored = 0
         changed = False
+        vector_sync_document_ids: set[str] = set()
         for document in docs:
             content = str(getattr(document, "content", "") or "").strip()
             existing_chunks = existing_chunks_by_document.get(str(document.id), [])
@@ -282,8 +385,11 @@ class RAGService:
                     document.index_status = "not_indexed"
                     document.indexed_at = None
                     changed = True
+                    vector_sync_document_ids.add(str(document.id))
                 continue
-            if has_chunks and is_indexed and not has_legacy_title_only_chunk:
+            if has_chunks and is_indexed and (
+                self.semantic_retriever.enabled or not has_legacy_title_only_chunk
+            ):
                 continue
 
             await session.execute(
@@ -305,9 +411,12 @@ class RAGService:
 
             document.index_status = "indexed" if chunks else "not_indexed"
             document.indexed_at = datetime.now(timezone.utc) if chunks else None
+            vector_sync_document_ids.add(str(document.id))
 
         if changed:
             await session.commit()
+            for document_id in vector_sync_document_ids:
+                await self._sync_vector_document(session, knowledge_base_id, document_id)
         return stored
 
     async def index_document(
@@ -348,6 +457,7 @@ class RAGService:
             document.index_status = "indexed" if stored > 0 else "not_indexed"
             document.indexed_at = datetime.now(timezone.utc) if stored > 0 else None
             await session.commit()
+            await self._sync_vector_document(session, knowledge_base_id, document_id)
             return stored
 
     async def index_document_by_id(
@@ -402,6 +512,7 @@ class RAGService:
             document.index_status = "indexed" if stored > 0 else "not_indexed"
             document.indexed_at = datetime.now(timezone.utc) if stored > 0 else None
             await session.commit()
+            await self._sync_vector_document(session, knowledge_base_id, document_id)
             return stored
 
     def _build_retrieval_query(
@@ -484,6 +595,14 @@ class RAGService:
     ) -> tuple[float, dict[str, float]]:
         title_text = _normalize_text(getattr(document, "title", "") or "")
         content_text = _normalize_text(getattr(chunk, "content", "") or "")
+        if chunk_service.has_legacy_title_only_chunk([content_text], title_text):
+            return 0.0, {
+                "title": 0.0,
+                "keyword": 0.0,
+                "phrase": 0.0,
+                "recency": 0.0,
+                "exact_match_boost": 0.0,
+            }
         metadata_text = self._metadata_text(document)
         combined_header = _normalize_text(
             " ".join(part for part in (title_text, metadata_text) if part)
@@ -640,17 +759,76 @@ class RAGService:
                 conversation_history,
                 settings,
             )
-            rows = (
-                await session.execute(
-                    select(DocumentChunk, KBDocument)
-                    .join(KBDocument, KBDocument.id == DocumentChunk.document_id)
-                    .where(DocumentChunk.knowledge_base_id == knowledge_base_id)
+
+            semantic_matches: dict[str, float] = {}
+            semantic_status = "disabled"
+            semantic_candidate_limit = max(24, min(48, effective_top_k * 4))
+            rows: list[tuple[DocumentChunk, KBDocument]] = []
+            if effective_search_mode != "keyword" and self.semantic_retriever.enabled:
+                semantic_status = "ready"
+                expected_semantic_documents = sum(
+                    1 for document in documents if document.index_status == "indexed"
                 )
-            ).all()
+                indexed_document_count = await self.semantic_retriever.count_knowledge_base(
+                    knowledge_base_id
+                )
+                if indexed_document_count != expected_semantic_documents:
+                    # Only an incomplete or stale vector index requires a
+                    # full chunk read.  A completed large knowledge base
+                    # should never scan every chunk on each chat request.
+                    rows = list(
+                        (
+                            await session.execute(
+                                select(DocumentChunk, KBDocument)
+                                .join(KBDocument, KBDocument.id == DocumentChunk.document_id)
+                                .where(DocumentChunk.knowledge_base_id == knowledge_base_id)
+                            )
+                        ).all()
+                    )
+                    semantic_documents = self._to_semantic_chunks(rows)
+                    if self.semantic_retriever.last_error is None:
+                        await self.semantic_retriever.upsert_chunks(semantic_documents)
+                if self.semantic_retriever.last_error is not None:
+                    semantic_status = "degraded"
+                else:
+                    semantic_matches = {
+                        match.chunk_id: match.similarity
+                        for match in await self.semantic_retriever.query(
+                            knowledge_base_id,
+                            retrieval_query or query,
+                            limit=semantic_candidate_limit,
+                        )
+                    }
+                    if self.semantic_retriever.last_error is not None:
+                        semantic_status = "degraded"
+                    elif semantic_matches:
+                        rows = list(
+                            (
+                                await session.execute(
+                                    select(DocumentChunk, KBDocument)
+                                    .join(KBDocument, KBDocument.id == DocumentChunk.document_id)
+                                    .where(
+                                        DocumentChunk.knowledge_base_id == knowledge_base_id,
+                                        DocumentChunk.document_id.in_(list(semantic_matches)),
+                                    )
+                                )
+                            ).all()
+                        )
+
+            if not rows and (effective_search_mode == "keyword" or semantic_status != "ready"):
+                rows = list(
+                    (
+                        await session.execute(
+                            select(DocumentChunk, KBDocument)
+                            .join(KBDocument, KBDocument.id == DocumentChunk.document_id)
+                            .where(DocumentChunk.knowledge_base_id == knowledge_base_id)
+                        )
+                    ).all()
+                )
 
             ranked: list[dict[str, Any]] = []
             for chunk, document in rows:
-                score, score_breakdown = self._score_chunk(
+                lexical_score, score_breakdown = self._score_chunk(
                     question=query,
                     retrieval_query=retrieval_query,
                     chunk=chunk,
@@ -658,8 +836,25 @@ class RAGService:
                     settings=settings,
                     search_mode=effective_search_mode,
                 )
+                semantic_score = semantic_matches.get(str(chunk.document_id), 0.0)
+                if effective_search_mode == "keyword":
+                    score = lexical_score
+                elif semantic_status == "ready":
+                    if effective_search_mode == "semantic":
+                        score = semantic_score
+                    elif semantic_score > 0:
+                        # Semantic recall supplies broad meaning while lexical
+                        # overlap preserves exact terms such as symbol codes.
+                        score = (semantic_score * 0.75) + (lexical_score * 0.25)
+                    else:
+                        score = lexical_score * 0.4
+                else:
+                    # Keep every deployment usable while a local model is
+                    # unavailable or still being installed.
+                    score = lexical_score
                 if score < effective_min_similarity:
                     continue
+                score_breakdown["semantic"] = round(semantic_score, 4)
                 ranked.append(
                     {
                         "chunk_id": chunk.id,
@@ -699,6 +894,9 @@ class RAGService:
                 "coverage_ratio": round(indexed_documents / total_indexable_documents, 4)
                 if total_indexable_documents
                 else 0.0,
+                "semantic_retrieval_status": semantic_status,
+                "semantic_candidates": len(semantic_matches),
+                "llm_reranked": False,
             }
             return {
                 "results": diversified,
@@ -728,6 +926,60 @@ class RAGService:
         )
         return payload["results"]
 
+    @staticmethod
+    def _build_llm_document_recommendation_response(
+        results: list[dict[str, Any]],
+        diagnostics: dict[str, Any] | None,
+        *,
+        llm_selected: bool,
+    ) -> dict[str, Any]:
+        """Render a concise list after model or semantic document selection."""
+        selected: list[dict[str, Any]] = []
+        seen_document_ids: set[str] = set()
+        for item in results:
+            document_id = str(item.get("document_id") or "")
+            if not document_id or document_id in seen_document_ids:
+                continue
+            selected.append(item)
+            seen_document_ids.add(document_id)
+            if len(selected) >= 6:
+                break
+
+        candidate_count = int((diagnostics or {}).get("semantic_candidates") or 0)
+        lines = [
+            (
+                "已由模型根据你的问题，从语义召回的候选文档中筛选出以下重点阅读项："
+                if llm_selected
+                else "模型重排暂时不可用，以下为语义检索到的重点阅读候选："
+            )
+        ]
+        for index, item in enumerate(selected, start=1):
+            title = _normalize_text(str(item.get("document_title") or "未命名文档"))
+            preview = _normalize_text(str(item.get("content") or ""))[:220]
+            lines.append(f"{index}. 《{title}》" + (f"：{preview}" if preview else ""))
+        if candidate_count:
+            lines.append(f"\n已先从 {candidate_count} 个语义候选中召回，再由模型重排。")
+        return {
+            "answer": "\n".join(lines),
+            "citations": selected,
+            "context_chunks_used": len(selected),
+            "tokens_used": 0,
+            "model_id": None,
+            "strategy_draft": None,
+            "reasoning": None,
+            "reason_code": (
+                "llm_document_recommendation"
+                if llm_selected
+                else "semantic_document_recommendation"
+            ),
+            "diagnostic_message": (
+                "已完成语义召回与大模型重排。"
+                if llm_selected
+                else "语义召回已完成；大模型重排暂时不可用。"
+            ),
+            "diagnostics": diagnostics,
+        }
+
     async def ask(
         self,
         knowledge_base_id: str,
@@ -753,6 +1005,9 @@ class RAGService:
         settings = search_payload["settings"] or {}
         if not results:
             if _is_knowledge_base_overview_question(question):
+                # A deterministic directory view is only a last-resort
+                # fallback.  Normal overview/recommendation questions pass
+                # through semantic retrieval and model reranking above.
                 overview = await self._knowledge_base_overview_response(
                     knowledge_base_id,
                     owner_id,
@@ -776,8 +1031,24 @@ class RAGService:
             }
 
         max_context_chunks = int(settings.get("max_context_chunks") or len(results))
-        context_results = results[:max_context_chunks]
+        reranked_results, llm_reranked = await self.ai_chat_service.rerank_citations(
+            question=question,
+            citations=results,
+            user_id=owner_id,
+            model_id=model_id,
+            max_candidates=max(max_context_chunks * 3, 12),
+        )
+        if isinstance(diagnostics, dict):
+            diagnostics["llm_reranked"] = llm_reranked
+        context_results = reranked_results[:max_context_chunks]
         citations = context_results[:3]
+        if _is_knowledge_base_overview_question(question):
+            return self._build_llm_document_recommendation_response(
+                context_results,
+                diagnostics,
+                llm_selected=llm_reranked,
+            )
+
         ai_enabled = await self.ai_chat_service.can_generate(user_id=owner_id, model_id=model_id)
         generated = await self.ai_chat_service.generate_answer(
             question=question,

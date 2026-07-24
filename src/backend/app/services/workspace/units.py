@@ -213,7 +213,15 @@ async def list_units(
         units = list(result.scalars().all())
 
         if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
-            changed = await trading_service.hydrate_units(units, user_id)
+            # Initial table rendering must stay local: full log parsing and
+            # broker gateway reads are reserved for explicit detail/status
+            # refreshes, otherwise a workspace with many units blocks the UI.
+            changed = await trading_service.hydrate_units(
+                units,
+                user_id,
+                full_log=False,
+                refresh_gateway=False,
+            )
             if changed:
                 await session.commit()
             return [WorkspaceService._unit_to_dict(unit) for unit in units]

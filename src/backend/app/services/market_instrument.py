@@ -164,6 +164,16 @@ def _normalize_exchange_symbol(symbol: str, default_prefix: str = "sh") -> str:
     return f"{default_prefix}{normalized}"
 
 
+def _normalize_tencent_stock_symbol(symbol: str) -> str:
+    """Return the Tencent/AkShare exchange-prefixed form for an A-share code."""
+    code = _normalize_plain_code(symbol).lower()
+    if code.startswith("6"):
+        return f"sh{code}"
+    if code.startswith(("4", "8")):
+        return f"bj{code}"
+    return f"sz{code}"
+
+
 def _normalize_upper_symbol(symbol: str) -> str:
     return symbol.strip().upper().replace(".", "")
 
@@ -261,7 +271,15 @@ class MarketInstrumentService:
         end_date: date | str | None = None,
         period: str = "daily",
         market: str | None = None,
+        refresh_online: bool = False,
     ) -> dict[str, Any]:
+        """Read local warehouse data and optionally refresh it from AkShare.
+
+        The market-data page is deliberately local-first: initial page loads
+        must remain fast and deterministic even when the AkShare upstream is
+        slow or unavailable.  Only a user-initiated query sets
+        ``refresh_online`` and is therefore allowed to call AkShare.
+        """
         normalized_symbol = symbol.strip().upper()
         end = date.today()
         start = end - timedelta(days=90)
@@ -277,8 +295,8 @@ class MarketInstrumentService:
             "fx": self._lookup_fx,
             "crypto": self._lookup_crypto,
         }
-        lookup = lookup_map.get(asset_type)
-        if lookup is None:
+        online_lookup = lookup_map.get(asset_type)
+        if online_lookup is None:
             raise ValueError(f"Unsupported asset type: {asset_type}")
 
         warehouse_payload = await self._lookup_warehouse(
@@ -290,42 +308,44 @@ class MarketInstrumentService:
             market=market,
             warnings=warnings,
         )
-        if self._payload_has_data(warehouse_payload):
-            if self._history_requires_refresh(
-                asset_type=asset_type,
-                rows=(warehouse_payload.get("history") or {}).get("rows") or [],
-                start_date=start_date or start,
-                end_date=end_date or end,
-            ):
-                warnings.append("本地历史数据未覆盖所选区间或已超过发布延迟，正在使用补齐来源")
-                warehouse_payload = await self._fill_history_gap(
-                    asset_type=asset_type,
-                    warehouse_payload=warehouse_payload,
-                    symbol=normalized_symbol,
-                    start_date=start_date or start,
-                    end_date=end_date or end,
-                    period=normalized_period,
-                    market=market,
-                    warnings=warnings,
-                )
+        if not refresh_online:
             warehouse_payload["warnings"] = warnings
             warehouse_payload["indicators"] = self._build_indicators(
                 warehouse_payload["history"]["rows"]
             )
             return warehouse_payload
 
-        payload = await asyncio.to_thread(
-            lookup,
-            symbol=normalized_symbol,
-            start_date=start_date or start,
-            end_date=end_date or end,
-            period=normalized_period,
-            market=market,
-            warnings=warnings,
+        online_warnings: list[str] = []
+        try:
+            online_payload = await asyncio.to_thread(
+                online_lookup,
+                symbol=normalized_symbol,
+                start_date=start_date or start,
+                end_date=end_date or end,
+                period=normalized_period,
+                market=market,
+                warnings=online_warnings,
+            )
+        except Exception:
+            online_payload = None
+            online_warnings.append("AkShare 在线查询失败，已保留本地 MySQL 数据。")
+
+        warnings.extend(online_warnings)
+        if not online_payload or not self._payload_has_data(online_payload):
+            if not online_warnings:
+                warnings.append("AkShare 未返回可用数据，已保留本地 MySQL 数据。")
+            warehouse_payload["warnings"] = warnings
+            warehouse_payload["indicators"] = self._build_indicators(
+                warehouse_payload["history"]["rows"]
+            )
+            return warehouse_payload
+
+        warnings.append("已按查询请求从 AkShare 更新行情数据。")
+        online_payload["warnings"] = warnings
+        online_payload["indicators"] = self._build_indicators(
+            online_payload["history"]["rows"]
         )
-        payload["warnings"] = warnings
-        payload["indicators"] = self._build_indicators(payload["history"]["rows"])
-        return payload
+        return online_payload
 
     async def _lookup_warehouse(
         self,
@@ -357,10 +377,10 @@ class MarketInstrumentService:
                 market=market,
                 warnings=warnings,
             )
-        except RuntimeError as exc:
-            warnings.append(f"akshare_data 数据仓库不可用: {exc}")
-        except Exception as exc:
-            warnings.append(f"akshare_data 查询失败: {exc}")
+        except RuntimeError:
+            warnings.append("本地 MySQL 行情仓库不可用，请检查数据源访问权限。")
+        except Exception:
+            warnings.append("本地 MySQL 行情仓库不可用，请检查数据源访问权限。")
         return self._payload(
             asset_type=asset_type,
             symbol=symbol,
@@ -376,7 +396,11 @@ class MarketInstrumentService:
     def _payload_has_data(payload: dict[str, Any]) -> bool:
         snapshot = payload.get("snapshot") or {}
         rows = (payload.get("history") or {}).get("rows") or []
-        return any(value is not None for value in snapshot.values()) or bool(rows)
+        # ``_snapshot_from_latest_history`` uses symbol/name-only metadata
+        # when AkShare has no rows.  Those identifiers describe the request,
+        # not a market observation, so they must not overwrite usable MySQL
+        # warehouse data after a user-triggered online refresh.
+        return snapshot.get("price") is not None or bool(rows)
 
     @staticmethod
     def _history_requires_refresh(
@@ -2126,6 +2150,28 @@ class MarketInstrumentService:
             history_rows = self._normalize_cn_ohlcv_history(history_df)
         except Exception as exc:
             warnings.append(f"A 股历史行情不可用: {exc}")
+
+        # Eastmoney's daily endpoint can return an empty frame without raising.
+        # The explicit query button must still retrieve current data, so use
+        # AkShare's Tencent-backed endpoint as a daily-history fallback.
+        if not history_rows and period == "daily":
+            try:
+                tencent_history_df = ak.stock_zh_a_hist_tx(
+                    symbol=_normalize_tencent_stock_symbol(code),
+                    start_date=_date_text(start_date, date.today() - timedelta(days=90)),
+                    end_date=_date_text(end_date, date.today()),
+                    adjust="qfq",
+                    timeout=10,
+                )
+                history_rows = self._normalize_generic_ohlcv_history(
+                    tencent_history_df.rename(columns={"amount": "volume"}),
+                    start_date,
+                    end_date,
+                )
+                if history_rows:
+                    warnings.append("A 股东方财富日线未返回数据，已切换腾讯行情源。")
+            except Exception as exc:
+                warnings.append(f"A 股腾讯历史行情不可用: {exc}")
 
         # stock_zh_a_spot_em fetches the entire market in many paginated requests.
         # A single-symbol history query is much faster and already contains the

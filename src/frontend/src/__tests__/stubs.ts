@@ -196,6 +196,7 @@ export const elStubs: Record<string, any> = {
   'el-col': { template: '<div class="el-col"><slot /></div>' },
   'el-tabs': { template: '<div class="el-tabs"><slot /></div>' },
   'el-tab-pane': { template: '<div class="el-tab-pane"><slot /></div>' },
+  'el-radio': { template: '<label class="el-radio"><slot /></label>' },
   'el-dialog': { template: '<div class="el-dialog"><slot /><slot name="footer" /></div>' },
   'el-drawer': { template: '<div class="el-drawer"><slot /></div>' },
   'el-progress': { template: '<div class="el-progress" />' },

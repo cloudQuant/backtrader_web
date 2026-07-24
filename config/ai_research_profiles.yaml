@@ -502,3 +502,113 @@ profiles:
     live_gateway_config_json: ''
   created_at: '2026-07-04T07:02:48.955874+00:00'
   updated_at: '2026-07-04T07:02:48.955874+00:00'
+- id: 10-2
+  name: 螺纹钢
+  description: RB0 1小时低波动趋势/波段投研，使用本地 AkShare 螺纹钢期货主连数据。
+  config:
+    prompt: '请为 螺纹钢期货主连（RB0） 生成一套 1h 级别的可执行 Backtrader 策略，并自动迭代回测直到达到质量门槛。
+
+
+      专业流水线：
+
+      模式：自动规划并执行完整投研流水线。
+
+      1. 策略构思：比较候选信号家族，明确入场、出场、仓位和风控假设。
+
+      2. 策略生成：生成完整可运行的 Backtrader Strategy 脚本，next 方法必须包含真实 self.buy/self.sell/self.close
+      或 order_target_* 调用，不能留 pass、TODO 或伪代码。
+
+      3. 策略回测：自动提交回测并记录 Sharpe、收益、回撤、交易次数和质量门槛差距。
+
+      4. 策略审查：审查回测结果、失败原因、过拟合风险和实盘可执行性。
+
+      5. 策略优化：根据审查意见继续优化代码、参数和风控，必要时进入下一轮回测。
+
+
+      研究方向：
+
+      1. 先比较 趋势跟随、均值回归、波动率过滤、突破确认和风险预算 等候选逻辑，再选择最适合该标的的可执行方案。
+
+      2. 策略必须包含明确的入场、出场、止损/止盈、仓位 sizing 和异常行情保护。
+
+      3. 按期货/合约资产处理，必须使用交易所或本地资产规格中的合约乘数、保证金、杠杆、最小变动价位和真实手续费估算仓位与风险。
+
+
+      质量门槛：
+
+      1. 目标 Sharpe 不低于 0.60。
+
+      2. 至少产生 3 笔有效交易，避免只靠少数交易达标。
+
+
+      验证与晋级：
+
+      1. 回测区间：2020-01-01 至 2024-11-16。
+
+      2. 运行口径：年化天数 252，收益计算 simple，组合权重 equal。
+
+      3. 保留 25% 数据做样本外验证，样本外 Sharpe 不低于 0.20，样本外交易数不少于 1。
+
+      4. 晋级前完成稳健性验证，方法 monte_carlo，稳健性得分不低于 55.00，达标后必须通过稳健性验证才能进入模拟交易。
+
+      5. 质量门槛达成后进入模拟交易，至少观察 7 天，重点复核真实手续费、滑点、估值置信度、回撤和滚动 Sharpe。
+
+
+      输出要求：生成完整可运行的 Backtrader Strategy 脚本，参数默认值要便于自动改稿；每轮改进都应解释为什么可能改善 Sharpe、回撤、交易次数或实盘可执行性。'
+    workflow_mode: auto
+    symbol: RB0
+    symbol_name: 螺纹钢主连
+    timeframe: 1h
+    timeframe_n: 1
+    start_date: '2020-01-01'
+    end_date: '2024-11-16'
+    knowledge_base_id: ''
+    thinking_mode: false
+    target_sharpe: 0.6
+    min_total_trades: 3
+    use_max_drawdown_limit: false
+    max_drawdown_limit: 20
+    use_min_total_return: false
+    min_total_return: 0
+    use_min_annual_return: false
+    min_annual_return: 0
+    use_min_win_rate: false
+    min_win_rate: 50
+    max_iterations: 3
+    out_of_sample_validation: true
+    require_out_of_sample_validation: false
+    out_of_sample_ratio_pct: 25
+    use_min_out_of_sample_sharpe: true
+    min_out_of_sample_sharpe: 0.2
+    use_min_out_of_sample_trades: true
+    min_out_of_sample_trades: 1
+    robustness_validation: true
+    require_robustness_validation: true
+    robustness_methods:
+    - monte_carlo
+    min_robustness_score: 55
+    robustness_monte_carlo_iterations: 300
+    robustness_random_seed: null
+    initial_cash: 1000000
+    use_manual_commission: false
+    commission: 5.0e-06
+    annual_days: 252
+    calc_method: simple
+    weight_mode: equal
+    group_name: AI投研 - 螺纹钢(RB0) - 日线
+    backtest_timeout_seconds: 900
+    poll_interval_seconds: 2
+    research_workspace_id: ''
+    seed_strategy_id: ''
+    continue_from_run_id: ''
+    continuation_source: ''
+    start_paper_trading: true
+    min_paper_trading_days: 7
+    paper_workspace_name: AI模拟交易 - 螺纹钢主连(RB0)
+    trading_workspace_id: ''
+    gateway_config_json: ''
+    live_workspace_name: ''
+    live_trading_workspace_id: ''
+    live_gateway_config_json: ''
+  created_at: '2026-07-24T02:29:05.654961+00:00'
+  updated_at: '2026-07-24T04:12:55.981183+00:00'

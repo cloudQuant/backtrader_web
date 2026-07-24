@@ -1,6 +1,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 
 import { getErrorMessage } from '@/api'
@@ -160,6 +160,18 @@ export function useAIChatPage() {
     try {
       const payload = await aiObservabilityApi.getMyAvailableModels()
       sessionModelOptions.value = payload.models
+      if (!selectedSessionModelKey.value) {
+        const preferred = payload.preferences.provider && payload.preferences.model
+          ? `${payload.preferences.provider}::${payload.preferences.model}`
+          : null
+        const availableKeys = new Set(payload.models.map(option => `${option.provider}::${option.model}`))
+        const selected = preferred && availableKeys.has(preferred)
+          ? preferred
+          : payload.default_model_key
+        if (selected && availableKeys.has(selected)) {
+          selectedSessionModelKey.value = selected
+        }
+      }
     } catch {
       sessionModelOptions.value = []
       selectedSessionModelKey.value = ''
@@ -632,6 +644,34 @@ export function useAIChatPage() {
     await chatStore.fetchHistory(conversationId)
   }
 
+  async function handleDeleteConversation(conversationId: string) {
+    try {
+      await ElMessageBox.confirm(
+        t('aiChat.confirmDeleteConversation'),
+        t('aiChat.deleteConversation'),
+        {
+          type: 'warning',
+          confirmButtonText: t('common.delete'),
+          cancelButtonText: t('common.cancel'),
+        },
+      )
+    } catch {
+      return
+    }
+
+    const wasCurrentConversation = chatStore.currentConversationId === conversationId
+    try {
+      await chatStore.deleteConversation(conversationId)
+      if (wasCurrentConversation) {
+        resetConversationScope()
+        question.value = ''
+      }
+      ElMessage.success(t('aiChat.msgConversationDeleted'))
+    } catch (error) {
+      ElMessage.error(getErrorMessage(error, t('aiChat.msgDeleteConversationFailed')))
+    }
+  }
+
   function resetConversationScope() {
     chatStore.resetConversationState()
     savingStrategyIndex.value = null
@@ -802,6 +842,7 @@ export function useAIChatPage() {
     handleStrategyWorkflowAction,
     handleAsk,
     handleSelectConversation,
+    handleDeleteConversation,
     handleNewConversation,
     handleJumpToCitation,
     goToKnowledgeBase,

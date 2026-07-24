@@ -1,117 +1,27 @@
-# Database Design
+# Database and data boundaries
 
-## Supported Databases
+The project separates application state from the market-data warehouse so strategy/user data and high-volume market data do not share one responsibility boundary.
 
-- **SQLite** (default) - Zero configuration, good for development
-- **PostgreSQL** - Recommended for production
-- **MySQL** - Alternative for production
+## Two connections
 
-## Database URL Configuration
+| Connection | Configuration | Contents |
+| --- | --- | --- |
+| Application database | `DATABASE_TYPE`, `DATABASE_URL` | Users, authorization, strategies, versions, backtest tasks, workspaces, portfolios, and audit-related state |
+| Market-data warehouse | `AKSHARE_DATA_DATABASE_URL` | AkShare market data, coverage, quality-support data, and online fill-in cache |
 
-```bash
-# SQLite
-DATABASE_URL=sqlite:///./backtrader.db
+The application database supports SQLite, PostgreSQL, and MySQL. SQLite is suitable for local development; teams and production should use managed PostgreSQL or MySQL with backup, access controls, and monitoring.
 
-# PostgreSQL
-DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/backtrader
+## Access principles
 
-# MySQL
-DATABASE_URL=mysql+aiomysql://user:pass@localhost:3306/backtrader
-```
+- The backend uses asynchronous SQLAlchemy sessions and repository/service layers for application data; never concatenate SQL in pages or routes.
+- If warehouse reads fail, market-data APIs return general actionable guidance, not a connection string, host, user, or password.
+- Use parameterized SQL, least-privilege accounts, and reversible migrations for writes; do not treat runtime auto-create as a production migration process.
+- Data synchronization and application-database migration are separate operations and should be tested against backup or non-production data first.
 
-## Key Tables
+## Bootstrap and migrations
 
-### users
+Development may opt into `DB_AUTO_CREATE_SCHEMA` and `DB_AUTO_CREATE_DEFAULT_ADMIN` through `.env`. Production should keep automatic bootstrap off and use the project’s Alembic/operations migration process. Detailed procedures are in `docs/operations/DATABASE_INIT.md` and `docs/how-to/database-migration-playbook.md`.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | Integer | Primary key |
-| username | String | Unique username |
-| email | String | Unique email |
-| password_hash | String | Bcrypt hashed password |
-| is_active | Boolean | Account status |
-| is_admin | Boolean | Admin role |
-| created_at | DateTime | Creation time |
+## Reproducible data
 
-### strategies
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | Integer | Primary key |
-| user_id | Integer | Owner user ID |
-| name | String | Strategy name |
-| description | Text | Strategy description |
-| code | Text | Strategy code |
-| parameters | JSON | Strategy parameters |
-| is_template | Boolean | Built-in template |
-| created_at | DateTime | Creation time |
-| updated_at | DateTime | Last update |
-
-### strategy_versions
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | Integer | Primary key |
-| strategy_id | Integer | Parent strategy |
-| version_name | String | Version name |
-| version_hash | String | Content hash |
-| code | Text | Strategy code at this version |
-| message | String | Version message |
-| is_default | Boolean | Default version |
-| created_at | DateTime | Creation time |
-
-### backtest_tasks
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | Integer | Primary key |
-| user_id | Integer | Owner user ID |
-| strategy_id | Integer | Strategy used |
-| status | String | pending/running/completed/failed |
-| parameters | JSON | Backtest parameters |
-| result | JSON | Backtest results |
-| created_at | DateTime | Creation time |
-| completed_at | DateTime | Completion time |
-
-### paper_trading_sessions
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | Integer | Primary key |
-| user_id | Integer | Owner user ID |
-| name | String | Session name |
-| initial_cash | Float | Starting capital |
-| status | String | active/stopped |
-| created_at | DateTime | Creation time |
-
-### optimization_tasks
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | Integer | Primary key |
-| user_id | Integer | Owner user ID |
-| strategy_id | Integer | Strategy used |
-| status | String | pending/running/completed/failed |
-| method | String | grid/bayesian |
-| parameters | JSON | Optimization parameters |
-| results | JSON | Optimization results |
-| created_at | DateTime | Creation time |
-
-## Migrations
-
-Database migrations are handled by Alembic.
-
-```bash
-# Create migration
-alembic revision --autogenerate -m "add column"
-
-# Run migrations
-alembic upgrade head
-```
-
-## Performance Indexes
-
-Key indexes are created for:
-- `backtest_tasks.user_id, status`
-- `optimization_tasks.user_id, status`
-- `paper_trading_orders.session_id`
+A backtest should be attributable to strategy version, instrument, timeframe, data range, capital, commission, and run time. When online fill-in data is used, record its source and range, and re-check coverage and quality when reproducing results.

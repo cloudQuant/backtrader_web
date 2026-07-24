@@ -94,9 +94,9 @@
 - 一个交易所 / 券商对应一个独立 `bt_api_xx` 包，避免继续把接入实现堆进 `backtrader_web`。
 - 新 broker 能力优先在 `bt_api_xx -> bt_api_py -> backtrader/btapibroker` 链路落地，不在 `backtrader_web` 内部复刻一套 broker 平台。
 - `backtrader_web` 只保留统一消费、展示、调度、审计与边界文档，不继续承担 broker adapter 的主实现职责。
-- 详细演进路线见：`docs/plans/2026-05-26-bt-api-ecosystem-design.md`。
-- 实施计划见：`docs/plans/2026-05-26-bt-api-ecosystem-implementation-plan.md`。
-- 首个扩展包规范见：`docs/plans/2026-05-26-first-bt-api-xx-package-spec.md`。
+- 详细演进路线见：`docs/archive/plans/2026-q2/2026-05-26-bt-api-ecosystem-design.md`。
+- 实施计划见：`docs/archive/plans/2026-q2/2026-05-26-bt-api-ecosystem-implementation-plan.md`。
+- 首个扩展包规范见：`docs/archive/plans/2026-q2/2026-05-26-first-bt-api-xx-package-spec.md`。
 
 ---
 

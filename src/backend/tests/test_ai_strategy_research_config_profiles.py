@@ -91,3 +91,19 @@ target_sharpe: 0.9
     assert profile.name == "沪深300日线"
     assert profile.config["symbol"] == "000300.SH"
     assert profile.config["target_sharpe"] == 0.9
+
+
+@pytest.mark.asyncio
+async def test_default_rebar_profile_uses_local_continuous_contract_and_no_stale_workspace():
+    """The bundled rebar plan must be runnable by every user without copied IDs."""
+    service = AIStrategyResearchConfigProfileService()
+
+    profile = await service.get_profile("10-2")
+
+    assert profile is not None
+    assert profile.name == "螺纹钢"
+    assert profile.config["symbol"] == "RB0"
+    assert profile.config["symbol_name"] == "螺纹钢主连"
+    assert profile.config["research_workspace_id"] == ""
+    assert "国债" not in str(profile.config["prompt"])
+    assert "国债" not in str(profile.config["paper_workspace_name"])

@@ -118,7 +118,8 @@
         <el-button
           type="primary"
           :loading="loading"
-          @click="lookupInstrument"
+          data-test="market-instrument-query"
+          @click="lookupInstrument(true)"
         >
           <el-icon aria-hidden="true">
             <Search />
@@ -523,80 +524,21 @@
           v-if="!result"
           :description="t('dataMgmt.emptyQueryFirst')"
         />
-        <el-descriptions
+        <div
           v-else
-          :column="1"
-          border
+          class="snapshot-grid"
+          data-test="market-snapshot-grid"
         >
-          <el-descriptions-item :label="t('dataMgmt.fieldSymbol')">
-            {{ result.symbol }}
-          </el-descriptions-item>
-          <el-descriptions-item :label="t('dataMgmt.fieldName')">
-            {{ result.name || '-' }}
-          </el-descriptions-item>
-          <el-descriptions-item :label="t('dataMgmt.fieldMarket')">
-            {{ result.market || '-' }}
-          </el-descriptions-item>
-          <el-descriptions-item
-            v-if="hasSnapshotDataSource"
-            :label="t('dataMgmt.fieldDataSourceTable')"
+          <article
+            v-for="item in snapshotMetrics"
+            :key="item.key"
+            class="snapshot-metric"
+            data-test="market-snapshot-item"
           >
-            {{ snapshot.data_source_table }}
-          </el-descriptions-item>
-          <el-descriptions-item :label="t('dataMgmt.fieldPrice')">
-            {{ formatNumber(snapshot.price) }}
-          </el-descriptions-item>
-          <el-descriptions-item
-            v-if="hasSnapshotChange"
-            :label="t('dataMgmt.colChange')"
-          >
-            <span :class="toneClass(snapshot.change_pct ?? snapshot.change)">
-              {{ formatNumber(snapshot.change) }} / {{ formatPercent(snapshot.change_pct) }}
-            </span>
-          </el-descriptions-item>
-          <el-descriptions-item :label="t('dataMgmt.fieldOpen')">
-            {{ formatNumber(snapshot.open) }}
-          </el-descriptions-item>
-          <el-descriptions-item :label="t('dataMgmt.fieldHighLow')">
-            {{ formatNumber(snapshot.high) }} / {{ formatNumber(snapshot.low) }}
-          </el-descriptions-item>
-          <el-descriptions-item :label="t('dataMgmt.fieldVolume')">
-            {{ formatNumber(snapshot.volume) }}
-          </el-descriptions-item>
-          <el-descriptions-item
-            v-if="hasSnapshotTurnover"
-            :label="t('dataMgmt.fieldTurnover')"
-          >
-            {{ formatNumber(snapshot.turnover) }}
-          </el-descriptions-item>
-          <el-descriptions-item
-            v-if="hasSnapshotBidAsk"
-            :label="t('dataMgmt.fieldBidAsk')"
-          >
-            {{ formatNumber(snapshot.bid) }} / {{ formatNumber(snapshot.ask) }}
-          </el-descriptions-item>
-          <el-descriptions-item
-            v-if="hasSnapshotOpenInterest"
-            :label="t('dataMgmt.fieldOpenInterest')"
-          >
-            {{ formatNumber(snapshot.open_interest) }}
-          </el-descriptions-item>
-          <el-descriptions-item
-            v-if="hasSnapshotSettle"
-            :label="t('dataMgmt.fieldSettle')"
-          >
-            {{ formatNumber(snapshot.settle) }}
-          </el-descriptions-item>
-          <el-descriptions-item
-            v-if="hasSnapshotValuation"
-            :label="t('dataMgmt.fieldValuation')"
-          >
-            PE {{ formatNumber(snapshot.pe) }} / PB {{ formatNumber(snapshot.pb) }}
-          </el-descriptions-item>
-          <el-descriptions-item :label="t('dataMgmt.fieldUpdated')">
-            {{ snapshot.update_time || '-' }}
-          </el-descriptions-item>
-        </el-descriptions>
+            <span>{{ item.label }}</span>
+            <strong :class="item.tone">{{ item.value }}</strong>
+          </article>
+        </div>
       </el-card>
 
       <el-card class="asset-detail-card">
@@ -647,9 +589,9 @@
         </div>
       </template>
       <el-table
-        v-if="historyRows.length"
+        v-if="displayHistoryRows.length"
         v-loading="loading"
-        :data="historyRows"
+        :data="displayHistoryRows"
         stripe
         max-height="520"
       >
@@ -735,7 +677,7 @@ const {
   coverageTimeframe,
   coverageProvider,
   snapshot,
-  historyRows,
+  displayHistoryRows,
   chartCanRender,
   activeAssetConfig,
   activeAssetIcon,
@@ -745,12 +687,7 @@ const {
   chartSubtitle,
   chartAriaLabel,
   hasSnapshotChange,
-  hasSnapshotTurnover,
-  hasSnapshotBidAsk,
-  hasSnapshotOpenInterest,
-  hasSnapshotSettle,
-  hasSnapshotValuation,
-  hasSnapshotDataSource,
+  snapshotMetrics,
   assetKpiCards,
   chartModeOptions,
   rangeStats,

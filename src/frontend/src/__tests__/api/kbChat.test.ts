@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/api/index', () => ({
   default: {
     get: vi.fn(),
+    delete: vi.fn(),
     post: vi.fn(),
   },
 }))
@@ -41,6 +42,16 @@ describe('kbChatApi', () => {
 
     await kbChatApi.getHistory('conv-1')
     expect(get).toHaveBeenCalledWith('/kb-chat/history/conv-1')
+  })
+
+  it('deleteConversation DELETEs the selected conversation', async () => {
+    const { kbChatApi } = await import('@/api/kbChat')
+    const apiModule = (await import('@/api/index')).default
+    const remove = vi.mocked(apiModule.delete).mockResolvedValue({ message: 'Conversation deleted' } as never)
+
+    await kbChatApi.deleteConversation('conv-1')
+
+    expect(remove).toHaveBeenCalledWith('/kb-chat/conversations/conv-1')
   })
 
   it('send POSTs to /kb-chat/send with the request body and extended timeout', async () => {

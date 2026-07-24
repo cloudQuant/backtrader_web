@@ -1,134 +1,40 @@
-# Docker Deployment
+# Docker deployment
 
-## Prerequisites
+The Compose base file is `docker/docker-compose.yml` and must be used with one environment override under `docker/compose/`.
 
-- Docker Engine 24+
-- Docker Compose v2
-
-## Quick Start
+## Development
 
 ```bash
-# Clone and configure
-git clone https://github.com/cloudQuant/ai-for-investor.git
-cd ai-for-investor
-
-# Create environment file
-cp src/backend/.env.example src/backend/.env
-# Edit .env with your configuration
-
-# Start services
-docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
+docker compose -f docker/docker-compose.yml -f docker/compose/dev.yml up
 ```
 
-## Services
+The development override starts PostgreSQL, backend, and frontend. It exposes backend `8000` and frontend `3000` by default. Adjust ports through variables such as `LOCAL_BACKEND_PORT`, `LOCAL_FRONTEND_PORT`, and `LOCAL_DB_PORT`.
 
-| Service | Port | Description |
-|---------|------|-------------|
-| MySQL | 3306 | Database |
-| Redis | 6379 | Cache |
-| Backend | 8000 | API Server |
-| Frontend | 80, 443 | Web UI + HTTPS |
+## Production
 
-## Environment Variables
-
-### Required
+1. Set required values in a protected deployment environment: `DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`, `SECRET_KEY`, `JWT_SECRET_KEY`, and `ADMIN_PASSWORD`.
+2. Set `DB_NAME`, `DB_USER`, `CORS_ORIGINS`, `HTTP_PORT`, `HTTPS_PORT`, persistent directories, and `WEB_CONCURRENCY` as needed.
+3. Start and check status:
 
 ```bash
-# Database
-DB_PASSWORD=your_db_password
-MYSQL_ROOT_PASSWORD=your_root_password
-
-# Security
-SECRET_KEY=your-secret-key
-JWT_SECRET_KEY=your-jwt-secret
-
-# Admin
-ADMIN_PASSWORD=your-admin-password
-```
-
-### Optional
-
-```bash
-# Ports
-HTTP_PORT=80
-HTTPS_PORT=443
-
-# Database
-DB_HOST=mysql
-DB_PORT=3306
-DB_NAME=ai_for_investor
-DB_USER=backtrader
-
-# Redis
-REDIS_DATA_DIR=./runtime/redis
-
-# Logs
-BACKEND_LOGS_DIR=./runtime/backend/logs
-```
-
-## SSL/HTTPS
-
-### Let's Encrypt (Recommended)
-
-```bash
-# Initialize certificate
-./scripts/certbot-init.sh
-
-# Start with certificate
-docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d certbot
-```
-
-### Custom Certificate
-
-Mount your certificate files:
-
-```yaml
-volumes:
-  - /path/to/cert.pem:/etc/letsencrypt/live/aifortrader.cn/cert.pem
-  - /path/to/key.pem:/etc/letsencrypt/live/aifortrader.cn/privkey.pem
-```
-
-## Data Persistence
-
-Volumes for persistent data:
-
-```yaml
-volumes:
-  - ./runtime/mysql:/var/lib/mysql    # Database
-  - ./runtime/redis:/data              # Redis cache
-  - ./runtime/certbot:/etc/letsencrypt  # SSL certificates
-  - ./datas:/opt/workspace/ai-for-investor/datas  # Market data
-  - ./strategies:/opt/workspace/ai-for-investor/strategies  # Strategies
-```
-
-## Health Checks
-
-```bash
-# Check service health
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml up -d
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml ps
 curl http://localhost/health
-
-# View container status
-docker compose -f docker-compose.yml -f docker/compose/prod.yml ps
 ```
 
-## Troubleshooting
+The production override contains MySQL, Redis, backend, frontend, and an optional Certbot container. Persist and back up data, strategies, workspaces, and log directories.
 
-### Port Already in Use
+## Common operations
 
 ```bash
-# Check what's using port 80
-lsof -i :80
+# Logs
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml logs -f backend
 
-# Change port in docker/compose/prod.yml
-ports:
-  - "8080:80"
+# Stop while retaining volumes
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml down
+
+# Render configuration to catch missing variables
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml config
 ```
 
-### Database Connection Failed
-
-```bash
-# Check MySQL logs
-docker compose logs mysql
-
-# Verify credentials in .env
-```
+Never bake `.env`, certificates, database exports, or gateway credentials into images or commit them to Git.

@@ -513,7 +513,7 @@ def build_subprocess_env(
     strategy_dir: Path,
     acquire_gateway_for_instance: Callable[..., Any],
     os_environ: dict[str, str],
-    bt_api_py_dir: Path,
+    bt_api_py_dir: Path | None,
     backtrader_dir: Path | None = None,
 ) -> dict[str, str]:
     env = dict(os_environ)

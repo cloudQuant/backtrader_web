@@ -121,6 +121,8 @@ src/backend/data/live_trading_instances.json
 src/backend/data/ai_provider_config.json
 src/backend/data/quote_custom_symbols.json
 src/backend/data/reqdocs_source_files/
+# Persistent local Chroma vector index for knowledge-base retrieval.
+src/backend/data/chroma/
 # Runtime-generated stock-analysis exports (PDF/DOCX/HTML/Markdown).
 src/backend/data/exports/
 # slowapi optional runtime config-override file (iteration 179 §A). Written by

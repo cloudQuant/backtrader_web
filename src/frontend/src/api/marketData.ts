@@ -16,6 +16,7 @@ export interface MarketInstrumentLookupParams {
   end_date?: string
   period?: string
   market?: string
+  refresh_online?: boolean
 }
 
 export interface MarketInstrumentOption {

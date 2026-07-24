@@ -377,6 +377,7 @@ async def test_market_instrument_lookup_returns_stock_snapshot_and_history(
             "symbol": "000001.SZ",
             "start_date": "2026-06-01",
             "end_date": "2026-06-19",
+            "refresh_online": True,
         },
     )
 
@@ -387,11 +388,11 @@ async def test_market_instrument_lookup_returns_stock_snapshot_and_history(
     assert data["snapshot"]["price"] == 12.4
     assert data["history"]["total"] == 2
     assert data["indicators"]["latest_close"] == 12.4
-    assert data["warnings"] == []
+    assert "已按查询请求从 AkShare 更新行情数据。" in data["warnings"]
 
 
 @pytest.mark.asyncio
-async def test_market_instrument_stock_snapshot_only_warehouse_fills_online_history(
+async def test_explicit_market_refresh_replaces_snapshot_only_warehouse_data(
     monkeypatch,
     dummy_akshare,
 ):
@@ -422,17 +423,9 @@ async def test_market_instrument_stock_snapshot_only_warehouse_fills_online_hist
             provider="akshare_data",
         )
 
-    async def empty_history_cache(self, **_):
-        return []
-
-    async def store_history_cache(self, **_):
-        return None
-
     monkeypatch.setattr(
         MarketInstrumentService, "_lookup_warehouse", snapshot_only_warehouse_lookup
     )
-    monkeypatch.setattr(MarketInstrumentService, "_lookup_history_cache", empty_history_cache)
-    monkeypatch.setattr(MarketInstrumentService, "_store_history_cache", store_history_cache)
     monkeypatch.setattr(dummy_akshare, "stock_zh_a_spot_em", fail_spot_lookup)
 
     service = MarketInstrumentService()
@@ -441,13 +434,14 @@ async def test_market_instrument_stock_snapshot_only_warehouse_fills_online_hist
         symbol="000002",
         start_date="2026-06-01",
         end_date="2026-06-19",
+        refresh_online=True,
     )
 
-    assert payload["snapshot"]["price"] == 3.05
+    assert payload["snapshot"]["price"] == 12.4
     assert payload["history"]["total"] == 2
-    assert payload["provider"] == "akshare_data+akshare"
+    assert payload["provider"] == "akshare"
     assert payload["indicators"]["latest_close"] == 12.4
-    assert any("已使用 AkShare 在线历史行情补齐" in warning for warning in payload["warnings"])
+    assert "已按查询请求从 AkShare 更新行情数据。" in payload["warnings"]
 
 
 @pytest.mark.asyncio
@@ -464,6 +458,7 @@ async def test_market_instrument_lookup_returns_futures_snapshot_and_history(
             "symbol": "RB2510",
             "start_date": "2026-06-01",
             "end_date": "2026-06-19",
+            "refresh_online": True,
         },
     )
 
@@ -503,6 +498,7 @@ async def test_market_instrument_lookup_returns_extended_asset_types(
             "symbol": symbol,
             "start_date": "2026-06-01",
             "end_date": "2026-06-19",
+            "refresh_online": True,
         },
     )
 
@@ -511,7 +507,7 @@ async def test_market_instrument_lookup_returns_extended_asset_types(
     assert data["asset_type"] == asset_type
     assert data["snapshot"]["price"] == expected_price
     assert data["history"]["total"] == 2
-    assert data["warnings"] == []
+    assert "已按查询请求从 AkShare 更新行情数据。" in data["warnings"]
 
 
 @pytest.mark.asyncio
@@ -564,11 +560,88 @@ async def test_market_instrument_stock_lookup_uses_history_before_full_market_sn
         symbol="000001",
         start_date="2026-06-01",
         end_date="2026-06-19",
+        refresh_online=True,
     )
 
     assert payload["snapshot"]["price"] == 12.4
     assert payload["history"]["total"] == 2
-    assert payload["warnings"] == []
+    assert "已按查询请求从 AkShare 更新行情数据。" in payload["warnings"]
+
+
+@pytest.mark.asyncio
+async def test_market_instrument_stock_refresh_falls_back_to_tencent_history(
+    dummy_akshare,
+    monkeypatch,
+):
+    """An empty Eastmoney response must not make an explicit stock refresh look stale."""
+    from app.services.market_instrument import MarketInstrumentService
+
+    calls: list[dict[str, object]] = []
+
+    def empty_eastmoney_history(**_kwargs: object) -> pd.DataFrame:
+        return pd.DataFrame()
+
+    def tencent_history(**kwargs: object) -> pd.DataFrame:
+        calls.append(kwargs)
+        return pd.DataFrame(
+            [
+                {
+                    "date": "2026-07-22",
+                    "open": 12.1,
+                    "high": 12.5,
+                    "low": 12.0,
+                    "close": 12.4,
+                    "amount": 100,
+                },
+                {
+                    "date": "2026-07-23",
+                    "open": 12.4,
+                    "high": 12.8,
+                    "low": 12.3,
+                    "close": 12.7,
+                    "amount": 120,
+                },
+            ]
+        )
+
+    class EmptyWarehouseService(MarketInstrumentService):
+        async def _lookup_warehouse(self, **_kwargs):
+            return self._payload(
+                asset_type="stock",
+                symbol="000001",
+                name="000001",
+                market="CN",
+                snapshot={},
+                rows=[],
+                period="daily",
+                provider="akshare_data",
+            )
+
+    monkeypatch.setattr(dummy_akshare, "stock_zh_a_hist", empty_eastmoney_history)
+    monkeypatch.setattr(dummy_akshare, "stock_zh_a_hist_tx", tencent_history, raising=False)
+
+    payload = await EmptyWarehouseService().lookup(
+        asset_type="stock",
+        symbol="000001",
+        start_date="2026-07-01",
+        end_date="2026-07-24",
+        refresh_online=True,
+    )
+
+    assert calls == [
+        {
+            "symbol": "sz000001",
+            "start_date": "20260701",
+            "end_date": "20260724",
+            "adjust": "qfq",
+            "timeout": 10,
+        }
+    ]
+    assert payload["provider"] == "akshare"
+    assert payload["snapshot"]["price"] == 12.7
+    assert payload["snapshot"]["update_time"] == "2026-07-23"
+    assert payload["history"]["total"] == 2
+    assert "A 股东方财富日线未返回数据，已切换腾讯行情源。" in payload["warnings"]
 
 
 @pytest.mark.asyncio
@@ -610,6 +683,7 @@ async def test_market_instrument_option_main_contract_alias_resolves_to_current_
         symbol="MO",
         start_date="2026-06-01",
         end_date="2026-06-19",
+        refresh_online=True,
     )
 
     assert payload["symbol"] == "mo2608C6200"

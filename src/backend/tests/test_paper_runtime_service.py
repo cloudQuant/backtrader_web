@@ -192,6 +192,76 @@ async def test_running_runtime_captures_due_mark_to_market_snapshot():
     assert second.id == first.id
 
 
+async def test_mark_to_market_uses_current_runtime_cash_when_metrics_are_stale():
+    """A restarted paper runtime must not inherit an old backtest's account size."""
+    user_id, _, unit_id = await _create_runtime()
+    async with async_session_maker() as session:
+        unit = await session.get(StrategyUnit, unit_id)
+        assert unit is not None
+        unit.run_status = "running"
+        unit.unit_settings = {"initial_cash": 1_000_000}
+        unit.metrics_snapshot = {"initial_cash": 100_000, "final_value": 101_250}
+        unit.trading_snapshot = {
+            "position_pnl": 300,
+            "cumulative_pnl": 1_250,
+            "long_market_value": 10_000,
+            "short_market_value": 0,
+        }
+        await session.commit()
+
+    snapshot = await PaperRuntimeService().capture_mark_to_market_snapshot(
+        user_id,
+        "runtime-instance",
+        force=True,
+    )
+
+    assert snapshot is not None
+    assert snapshot.total_equity == 1_001_250
+    assert snapshot.cash == 991_250
+
+
+async def test_initial_snapshot_uses_the_runtime_cash_not_stale_backtest_metrics(monkeypatch):
+    """Starting a paper runtime must seed its curve with the selected cash balance."""
+    from app.services.workspace import run_ops
+
+    class RecordingService:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, dict]] = []
+
+        async def record_snapshot(self, user_id: str, instance_id: str, payload: dict) -> None:
+            self.calls.append((user_id, instance_id, payload))
+
+    recorder = RecordingService()
+    monkeypatch.setattr(
+        "app.services.paper_runtime_service.PaperRuntimeService",
+        lambda: recorder,
+    )
+
+    await run_ops._initialize_paper_runtime_snapshots(
+        "runtime-owner",
+        [
+            (
+                "runtime-instance",
+                {"initial_cash": 100_000, "final_value": 101_250},
+                {"initial_cash": 1_000_000},
+            )
+        ],
+    )
+
+    assert recorder.calls == [
+        (
+            "runtime-owner",
+            "runtime-instance",
+            {
+                "source": "initial",
+                "total_equity": 1_000_000.0,
+                "cash": 1_000_000.0,
+                "metadata": {"event": "runtime_started"},
+            },
+        )
+    ]
+
+
 async def test_snapshot_retention_keeps_recent_raw_daily_closes_and_last_snapshot():
     user_id, _, _ = await _create_runtime()
     service = PaperRuntimeService()

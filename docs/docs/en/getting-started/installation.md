@@ -1,132 +1,75 @@
-# Installation Guide
+# Installation
 
-## Environment Requirements
+## Requirements
 
-- **Python**: 3.10+
-- **Node.js**: 20+
-- **Docker**: 24+ (optional, for containerized deployment)
-- **Git**
+- Python 3.10+
+- Node.js 20+
+- Git
+- Docker Compose v2 (optional, for containerized environments)
 
-## Backend Installation
-
-### 1. Create Virtual Environment
+## Local development
 
 ```bash
+git clone https://github.com/cloudQuant/backtrader_web.git
+cd backtrader_web
+
+./scripts/dev/verify-dev-env.sh --preinstall
+
+# Backend
 cd src/backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-```
-
-### 2. Install Dependencies
-
-```bash
+python -m venv .venv
+source .venv/bin/activate               # Windows: .venv\Scripts\activate
 pip install -e ".[dev,backtrader]"
-```
-
-This installs:
-- Core dependencies (FastAPI, SQLAlchemy, etc.)
-- Development dependencies (pytest, ruff)
-- Backtrader and related packages
-
-### 3. Configure Environment
-
-```bash
+# For online AkShare refreshes: pip install -e ".[dev,backtrader,data]"
+# For semantic retrieval: pip install -e ".[dev,backtrader,rag]"
 cp .env.example .env
-```
 
-Edit `.env` with your configuration:
-
-```bash
-# Database (default SQLite)
-DATABASE_TYPE=sqlite
-DATABASE_URL=sqlite:///./backtrader.db
-
-# Optional: PostgreSQL
-# DATABASE_TYPE=postgresql
-# DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/backtrader
-
-# Optional: MySQL
-# DATABASE_TYPE=mysql
-# DATABASE_URL=mysql+aiomysql://user:pass@localhost:3306/backtrader
-
-# JWT Configuration
-SECRET_KEY=your-secret-key-here
-JWT_EXPIRE_MINUTES=1440
-```
-
-### 4. Verify Installation
-
-```bash
-# Check environment
-cd ../..
-./scripts/verify-dev-env.sh --postinstall
-```
-
-## Frontend Installation
-
-### 1. Install Node Dependencies
-
-```bash
-cd src/frontend
+# Frontend
+cd ../frontend
 npm install
+
+cd ../..
+./scripts/dev/verify-dev-env.sh --postinstall
 ```
 
-### 2. Configuration
-
-Create `.env` file in `src/frontend/` if needed:
+Keep environment-specific configuration in `.env`, replace secret placeholders, and never commit the file. A minimal configuration is:
 
 ```bash
-VITE_API_BASE_URL=http://localhost:8000/api/v1
+DATABASE_TYPE=sqlite
+DATABASE_URL=sqlite+aiosqlite:///../../data/dev/backtrader.db
+SECRET_KEY=replace-with-a-random-secret
+JWT_SECRET_KEY=replace-with-a-different-random-secret
 ```
 
-## Start Services
+For a MySQL application database, set `DATABASE_TYPE=mysql` and `DATABASE_URL=mysql+aiomysql://...`. The market-data warehouse has a separate `AKSHARE_DATA_DATABASE_URL`; see [Market data](../features/market-data.md).
 
-### Development Mode
+## Start services
 
-**Terminal 1 - Backend:**
+Run these in separate terminals:
+
 ```bash
+# Backend
 cd src/backend
-source venv/bin/activate
+source .venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
 
-**Terminal 2 - Frontend:**
 ```bash
+# Frontend
 cd src/frontend
 npm run dev
 ```
 
-### Docker Deployment
+The development frontend is `http://localhost:3000`; API documentation is at `http://localhost:8000/docs`.
+
+## Docker
+
+The Compose base file lives at `docker/docker-compose.yml`. Choose an environment override:
 
 ```bash
-# Production environment
-docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
+docker compose -f docker/docker-compose.yml -f docker/compose/dev.yml up
+# Or the production override
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml up -d
 ```
 
-## Access Addresses
-
-| Service | Address |
-|---------|---------|
-| Frontend (Dev) | http://localhost:8080 |
-| Frontend (Docker) | http://localhost |
-| Backend API Docs | http://localhost:8000/docs |
-| WebSocket | ws://localhost:8000/ws |
-
-## Troubleshooting
-
-### Backtrader Import Issues
-
-If you encounter backtrader import errors, see
-[Backtrader Import Troubleshooting](../../../operations/BACKTRADER_IMPORT_TROUBLESHOOTING.md).
-
-### Database Connection Issues
-
-Ensure your database service is running and credentials are correct in `.env`.
-
-### Port Conflicts
-
-If ports 8000 or 8080 are in use, modify the port in the startup command:
-
-```bash
-uvicorn app.main:app --reload --port 8001
-```
+Continue with [Docker deployment](../deployment/docker.md), and configure database, secrets, CORS, and backups before starting production.

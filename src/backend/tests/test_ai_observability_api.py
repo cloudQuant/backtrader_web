@@ -258,6 +258,11 @@ async def test_my_ai_available_models_returns_models_and_current_preferences(cli
         model["provider"] == "volcengine_ark" and model["model"] == "deepseek-v4-pro"
         for model in data["models"]
     )
+    assert any(
+        model["provider"] == "volcengine_ark" and model["model"] == "glm-5.2"
+        for model in data["models"]
+    )
+    assert data["default_model_key"] == "volcengine_ark::glm-5.2"
     assert any(model["model"] == "deepseek-ai/DeepSeek-V4-Pro" for model in data["models"])
     assert any(model["model"] == "zai-org/GLM-5.1" for model in data["models"])
     assert data["preferences"]["provider"] is None

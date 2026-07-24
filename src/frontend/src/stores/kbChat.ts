@@ -91,6 +91,15 @@ export const useKBChatStore = defineStore('kbChat', () => {
     messages.value = []
   }
 
+  async function deleteConversation(conversationId: string) {
+    const response = await kbChatApi.deleteConversation(conversationId)
+    conversations.value = conversations.value.filter(conversation => conversation.id !== conversationId)
+    if (currentConversationId.value === conversationId) {
+      resetConversationState()
+    }
+    return response
+  }
+
   async function sendMessage(
     knowledgeBaseId: string | null,
     question: string,
@@ -159,6 +168,7 @@ export const useKBChatStore = defineStore('kbChat', () => {
     fetchConversations,
     fetchHistory,
     resetConversationState,
+    deleteConversation,
     sendMessage,
   }
 })

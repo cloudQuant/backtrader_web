@@ -126,9 +126,7 @@ export interface AllocationItem {
 export const portfolioApi = {
   getOverview(summaryOnly = false): Promise<PortfolioOverview> {
     if (!summaryOnly) return request.get('/portfolio/overview')
-    return request.get('/portfolio/overview', {
-      params: { summary_only: true },
-    })
+    return request.get('/portfolio/overview/summary')
   },
 
   getPositions(): Promise<{ total: number; positions: PositionItem[]; summary?: PositionSummary; warnings?: string[] }> {

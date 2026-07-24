@@ -1,74 +1,30 @@
-# API Reference
+# API reference
 
-## Core API Modules
+The running Swagger UI (`/docs`) and OpenAPI document (`/openapi.json`) are the only authoritative endpoint inventory. Some modules are registered conditionally by installed dependencies or deployment configuration.
 
-| Module | Endpoint Prefix | Description |
-|--------|----------------|-------------|
-| Authentication | `/api/v1/auth` | JWT auth, register, login |
-| Strategy | `/api/v1/strategy` | CRUD, templates |
-| Backtest | `/api/v1/backtests` | **Recommended** Enhanced backtest |
-| Analytics | `/api/v1/analytics` | Backtest data analysis |
-| Optimization | `/api/v1/optimization` | Parameter optimization |
-| Paper Trading | `/api/v1/paper-trading` | Simulated accounts |
-| Live Trading | `/api/v1/live-trading` | Real accounts |
-| Quote Data | `/api/v1/quote`, `/api/v1/realtime` | Market data |
-| Monitoring | `/api/v1/monitoring` | Alert rules |
-| Workspace | `/api/v1/workspace` | Workspace management |
+## Conventions
 
-## Authentication
+- API prefix: `/api/v1`.
+- Pages and most APIs require JWT; administrative configuration routes also require admin identity.
+- Pydantic validates requests and responses; invalid input returns 422.
+- The API maps expected business failures to HTTP errors and never includes sensitive database, account, or secret material in error messages.
+- Long-running work is submitted before status/result retrieval; the frontend updates through the relevant event stream or polling.
 
-All endpoints require JWT authentication unless marked as public.
+## Primary domains
 
-### Public Endpoints
+| Domain | Common prefix | Purpose |
+| --- | --- | --- |
+| Authentication and status | `/auth`, `/status` | Login, tokens, health, and optional-router state |
+| Strategies and backtests | `/strategy`, `/backtests`, `/analytics`, `/optimization` | Strategies, versions, runs, analysis, and optimization |
+| Workspaces and trading | `/workspace`, `/live-trading`, `/portfolio`, `/portfolio-ledger` | Research/trading workspaces, gateways, portfolios, and ledger |
+| Data | `/data`, `/data/trust`, `/quote` | Market data, coverage, preflight quality, data administration, and quotes |
+| AI and knowledge | `/knowledge-base`, `/rag`, `/kb-chat` | Documents, indexing, retrieval, chat, and diagnostics |
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/auth/register` | Register new user |
-| POST | `/api/v1/auth/login` | Login and get token |
+## Example: health
 
-### Protected Endpoints
-
-Include `Authorization: Bearer <token>` header.
-
-## WebSocket Endpoints
-
-| Endpoint | Description |
-|----------|-------------|
-| `/ws/backtest/{task_id}` | Backtest progress |
-| `/ws/paper-trading/{session_id}` | Paper trading updates |
-| `/ws/live-trading/{session_id}` | Live trading updates |
-| `/ws/realtime/{symbol}` | Real-time quotes |
-
-## Deprecation Notice
-
-> ⚠️ Legacy endpoints are deprecated. Please migrate to recommended endpoints:
-
-| Legacy | Recommended |
-|--------|-------------|
-| `/api/v1/backtest/*` | `/api/v1/backtests/*` |
-| `/api/v1/live-trading-crypto/*` | `/api/v1/live-trading/*` |
-
-## Rate Limiting
-
-Default rate limits:
-- **Authenticated users**: 100 requests/minute
-- **Public endpoints**: 20 requests/minute
-
-## Error Responses
-
-```json
-{
-  "detail": "Error message",
-  "code": "ERROR_CODE"
-}
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/api/v1/health
 ```
 
-| Status | Description |
-|--------|-------------|
-| 400 | Bad Request |
-| 401 | Unauthorized |
-| 403 | Forbidden |
-| 404 | Not Found |
-| 422 | Validation Error |
-| 429 | Rate Limited |
-| 500 | Internal Server Error |
+Before submitting a backtest, reading a result, or configuring a gateway, inspect Swagger for schemas, authentication, and responses enabled in your environment. Do not copy requests from legacy `/api/v1/backtest/*` or historical session endpoints.

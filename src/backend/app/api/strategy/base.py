@@ -23,6 +23,8 @@ from app.schemas.ai_strategy_research import (
     AIStrategyResearchConfigProfileImportResponse,
     AIStrategyResearchConfigProfileListResponse,
     AIStrategyResearchConfigProfileUpdate,
+    AIStrategyResearchObjectiveOptimizeRequest,
+    AIStrategyResearchObjectiveOptimizeResponse,
     AIStrategyResearchRunContinueRequest,
     AIStrategyResearchRunListResponse,
     AIStrategyResearchRunRecord,
@@ -52,6 +54,9 @@ from app.schemas.strategy import (
 )
 from app.services.ai_strategy_research_config_profiles import (
     AIStrategyResearchConfigProfileService,
+)
+from app.services.ai_strategy_research_objective_optimizer import (
+    AIStrategyResearchObjectiveOptimizer,
 )
 from app.services.ai_strategy_research_service import (
     AIStrategyResearchService,
@@ -85,6 +90,11 @@ def get_strategy_service() -> typing.Any:
 @lru_cache
 def get_ai_strategy_research_service() -> typing.Any:
     return AIStrategyResearchService()
+
+
+@lru_cache
+def get_ai_strategy_research_objective_optimizer() -> typing.Any:
+    return AIStrategyResearchObjectiveOptimizer()
 
 
 @lru_cache
@@ -305,6 +315,25 @@ async def run_ai_strategy_research_loop(
     """Generate, backtest, improve, and optionally start paper trading."""
     try:
         return redact_ai_strategy_research_payload(await service.run(current_user.sub, data))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/ai-research/objectives/optimize",
+    response_model=AIStrategyResearchObjectiveOptimizeResponse,
+    summary="Optimize an AI strategy research objective with the configured model",
+)
+async def optimize_ai_strategy_research_objective(
+    data: AIStrategyResearchObjectiveOptimizeRequest,
+    current_user: typing.Any = Depends(get_current_user),
+    service: AIStrategyResearchObjectiveOptimizer = Depends(
+        get_ai_strategy_research_objective_optimizer
+    ),
+) -> typing.Any:
+    """Refine a deterministic objective only when the user explicitly requests it."""
+    try:
+        return await service.optimize(current_user.sub, data)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

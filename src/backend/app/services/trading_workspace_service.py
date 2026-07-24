@@ -7,6 +7,7 @@ live trading manager/runtime while persisting state on workspace units.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import shutil
@@ -1907,7 +1908,13 @@ class TradingWorkspaceService:
         full_log: bool = True,
         refresh_gateway: bool = True,
     ) -> bool:
-        manager = get_live_trading_manager()
+        # ``get_live_trading_manager`` bootstraps persisted instances and may
+        # restore a gateway.  The table and polling paths deliberately pass
+        # ``refresh_gateway=False`` and must remain a read of persisted state
+        # even when many units are already running.  Detail/position flows
+        # opt in with ``refresh_gateway=True`` when fresh runtime data is
+        # actually needed.
+        manager = get_live_trading_manager() if refresh_gateway else None
         changed = False
 
         for unit in units:
@@ -1915,7 +1922,7 @@ class TradingWorkspaceService:
                 _safe_dict(getattr(unit, "trading_snapshot", None))
             )
             instance = None
-            if unit.trading_instance_id:
+            if manager is not None and unit.trading_instance_id:
                 instance = manager.get_instance(unit.trading_instance_id, user_id=user_id)
 
             params_before = _safe_dict(getattr(unit, "params", None))
@@ -1925,8 +1932,13 @@ class TradingWorkspaceService:
             ):
                 changed = True
             is_explicit_paper = str(getattr(unit, "trading_mode", "")).strip().lower() == "paper"
-            if refresh_gateway and not is_explicit_paper and self._refresh_unit_asset_specs_from_manager(
+            if (
+                manager is not None
+                and refresh_gateway
+                and not is_explicit_paper
+                and self._refresh_unit_asset_specs_from_manager(
                 manager, unit, instance
+                )
             ):
                 changed = True
             if not self._unit_has_asset_valuation_config(
@@ -1934,7 +1946,7 @@ class TradingWorkspaceService:
             ) and self._refresh_unit_asset_specs_from_local(unit, instance):
                 changed = True
             snapshot_kwargs: dict[str, Any] = {"full_log": full_log}
-            if not refresh_gateway:
+            if not refresh_gateway or manager is None:
                 snapshot_kwargs["include_gateway_positions"] = False
             snapshot, metrics_snapshot, bar_count, elapsed_seconds = self._build_snapshot(
                 unit,
@@ -2085,27 +2097,45 @@ class TradingWorkspaceService:
 
                 instance = None
                 self._refresh_unit_asset_specs_from_local(unit, None)
-                runtime_dir = workspace_unit_runtime.sync_trading_unit_runtime(
+                runtime_dir = await asyncio.to_thread(
+                    workspace_unit_runtime.sync_trading_unit_runtime,
                     unit,
                     normalized_workspace_settings,
                 )
                 if unit.trading_instance_id:
-                    instance = manager.get_instance(unit.trading_instance_id, user_id=user_id)
+                    # Instance-store access may scan runtime directories and
+                    # strategy templates.  During a batch launch that work is
+                    # repeated for every unit, so keep it off the ASGI event
+                    # loop just like the generated runtime files above.
+                    instance = await asyncio.to_thread(
+                        manager.get_instance,
+                        unit.trading_instance_id,
+                        user_id=user_id,
+                    )
                     if instance is not None:
                         existing_runtime_dir = str(instance.get("runtime_dir") or "").strip()
                         if existing_runtime_dir != str(runtime_dir):
-                            manager.remove_instance(unit.trading_instance_id, user_id=user_id)
+                            await asyncio.to_thread(
+                                manager.remove_instance,
+                                unit.trading_instance_id,
+                                user_id=user_id,
+                            )
                             unit.trading_instance_id = None
                             instance = None
                 if instance is None:
-                    created = manager.add_instance(
+                    created = await asyncio.to_thread(
+                        manager.add_instance,
                         str(unit.strategy_id),
                         self._build_instance_params(unit),
                         user_id=user_id,
                         runtime_dir=str(runtime_dir),
                     )
                     unit.trading_instance_id = str(created.get("id") or "")
-                    instance = manager.get_instance(unit.trading_instance_id, user_id=user_id)
+                    instance = await asyncio.to_thread(
+                        manager.get_instance,
+                        unit.trading_instance_id,
+                        user_id=user_id,
+                    )
 
                 already_running = False
                 if instance is not None and str(instance.get("status") or "").lower() == "running":
@@ -2121,13 +2151,14 @@ class TradingWorkspaceService:
                         raise ValueError(
                             "同一网关配置已启动失败，跳过重复连接: " + known_gateway_failure
                         )
-                    _clear_runtime_logs_before_start(runtime_dir)
+                    await asyncio.to_thread(_clear_runtime_logs_before_start, runtime_dir)
                     try:
                         started = await manager.start_instance(str(unit.trading_instance_id))
                     except ValueError as exc:
                         if str(exc) != "Strategy is already running":
                             raise
-                        refreshed = manager.get_instance(
+                        refreshed = await asyncio.to_thread(
+                            manager.get_instance,
                             str(unit.trading_instance_id), user_id=user_id
                         )
                         if not refreshed or str(refreshed.get("status") or "").lower() != "running":

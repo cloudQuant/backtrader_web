@@ -332,15 +332,21 @@ export const useQuoteStore = defineStore('quote', () => {
       // a gateway snapshot can take several seconds.
       if (requestId !== latestQuoteRequest || source !== activeSource.value) return
 
+      // The quote endpoint can legitimately return a source-side timestamp
+      // that is stale (or unchanged across a polling cycle). The monitor's
+      // "更新时间" represents the last successful client refresh, so every
+      // visible row and the page-level status use the time this response was
+      // received.
+      const refreshedAt = new Date().toISOString()
       quoteFields.value = cloneColumns(buildDefaultColumns())
       columnConfig.value = mergeColumnConfig(
         quoteFields.value,
         lsGet(getColumnStorageKey(source), [] as ColumnDef[]),
       )
-      ticks.value = res.ticks
+      ticks.value = res.ticks.map((tick) => ({ ...tick, update_time: refreshedAt }))
       displayedSource = source
       dismissedWorkspaceQuoteKeys.value = new Set()
-      updateTime.value = res.update_time
+      updateTime.value = refreshedAt
       refreshMode.value = res.refresh_mode
     } catch (e: unknown) {
       if (requestId === latestQuoteRequest && source === activeSource.value) {

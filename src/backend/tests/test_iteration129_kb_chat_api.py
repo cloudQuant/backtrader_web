@@ -256,6 +256,70 @@ class TestIteration129KBChatAPI:
         assert payload["reason_code"] == "knowledge_base_overview"
         assert "未找到相关内容" not in payload["answer"]
 
+    async def test_send_document_recommendation_lists_documents_without_keyword_match(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        kb_resp = await client.post(
+            "/api/v1/knowledge-base/",
+            headers=auth_headers,
+            json={"name": "阅读推荐资料库", "description": "用于阅读推荐", "is_public": False},
+        )
+        assert kb_resp.status_code == 201, kb_resp.text
+        kb_id = kb_resp.json()["id"]
+
+        doc_resp = await client.post(
+            f"/api/v1/knowledge-base/{kb_id}/documents/",
+            headers=auth_headers,
+            json={
+                "title": "双均线策略说明",
+                "content": "短期均线上穿长期均线时开仓，并通过 ATR 控制风险。",
+                "content_type": "markdown",
+                "is_folder": False,
+            },
+        )
+        assert doc_resp.status_code == 201, doc_resp.text
+
+        send_resp = await client.post(
+            "/api/v1/kb-chat/send",
+            headers=auth_headers,
+            json={
+                "knowledge_base_id": kb_id,
+                "question": "有哪些值得重点阅读的文档？",
+            },
+        )
+
+        assert send_resp.status_code == 200, send_resp.text
+        payload = send_resp.json()
+        assert "双均线策略说明" in payload["answer"]
+        assert payload["context_chunks_used"] >= 1
+        assert payload["citations"][0]["document_id"] == doc_resp.json()["id"]
+        assert payload["reason_code"] == "knowledge_base_overview"
+        assert "未找到相关内容" not in payload["answer"]
+
+    async def test_send_empty_knowledge_base_overview_explains_how_to_populate_it(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        kb_resp = await client.post(
+            "/api/v1/knowledge-base/",
+            headers=auth_headers,
+            json={"name": "空资料库", "description": "尚未上传资料", "is_public": False},
+        )
+        assert kb_resp.status_code == 201, kb_resp.text
+
+        send_resp = await client.post(
+            "/api/v1/kb-chat/send",
+            headers=auth_headers,
+            json={
+                "knowledge_base_id": kb_resp.json()["id"],
+                "question": "这个知识库主要包含哪些内容？",
+            },
+        )
+
+        assert send_resp.status_code == 200, send_resp.text
+        payload = send_resp.json()
+        assert payload["reason_code"] == "knowledge_base_overview"
+        assert "还没有可供概览的文档" in payload["answer"]
+
     async def test_send_backtrader_strategy_returns_structured_draft(
         self, client: AsyncClient, auth_headers: dict
     ):

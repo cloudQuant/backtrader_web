@@ -181,6 +181,9 @@ export const kbChatApi = {
   getHistory(conversationId: string) {
     return api.get<KBHistoryResponse>(`/kb-chat/history/${conversationId}`)
   },
+  deleteConversation(conversationId: string) {
+    return api.delete<{ message: string }>(`/kb-chat/conversations/${conversationId}`)
+  },
   send(data: {
     knowledge_base_id?: string | null
     question: string

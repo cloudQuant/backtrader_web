@@ -62,6 +62,8 @@ def _build_research_draft_prompt(request: AIStrategyResearchRunRequest) -> str:
             "生成完整可运行的 Backtrader Strategy 代码",
             "包含明确入场、出场、仓位和止损/止盈逻辑",
             "next 方法必须包含真实 self.buy/self.sell/self.close 或 order_target_* 调用",
+            "价格序列请使用 self.dataclose 或 self.data.close；禁止给 self.close/self.buy/self.sell "
+            "等交易方法赋值，退出时必须调用继承的 self.close()",
             "参数默认值必须与 params 描述一致，方便后续自动改进",
             "避免未来函数、不可执行交易假设和只依赖单一样本内收益",
             "若资产规格包含合约乘数、保证金或手续费，策略说明中必须提示对应风险",
@@ -200,6 +202,8 @@ def _build_improvement_messages(
                         "如果失败原因是代码校验失败，必须先修复语法、安全检查和 bt.Strategy 类定义。",
                         "如果 total_trades/closed trades 不达标，必须加入能触发 self.close() 的止损、止盈、"
                         "反向信号或最长持仓 bars 退出，不能只依赖未平仓浮盈。",
+                        "不要将价格序列或状态变量赋给 self.close/self.buy/self.sell；价格使用 "
+                        "self.dataclose 或 self.data.close，确保 self.close() 仍是平仓方法。",
                         "若 asset_specs 包含合约乘数、保证金、杠杆或手续费，改稿必须保留这些交易约束。",
                         "notes 用中文说明具体改动和为什么可能改善 Sharpe/回撤/交易次数。",
                     ],

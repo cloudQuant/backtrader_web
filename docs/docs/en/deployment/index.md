@@ -1,37 +1,23 @@
 # Deployment
 
-## Deployment Options
+Before deploying, assign owners for the application database, market warehouse, secrets, CORS, backups, logs, and gateway privileges. Production must not inherit development passwords or automatic-bootstrap flags.
 
-### Development
+## Deployment modes
 
-For local development with hot-reload:
+| Scenario | Command |
+| --- | --- |
+| Local development | Backend `uvicorn app.main:app --reload --port 8000`; frontend `npm run dev` |
+| Docker development | `docker compose -f docker/docker-compose.yml -f docker/compose/dev.yml up` |
+| Docker production | `docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml up -d` |
+| Container deployment using host MySQL | `docker compose -f docker/docker-compose.yml -f docker/compose/local.yml up -d` |
 
-```bash
-# Backend
-cd src/backend
-uvicorn app.main:app --reload --port 8000
+## Pre-release checklist
 
-# Frontend
-cd src/frontend
-npm run dev
-```
+- Replace `SECRET_KEY`, `JWT_SECRET_KEY`, admin password, and database passwords with deployment-specific high-entropy values.
+- Allow CORS only for intended frontend origins; do not use broad production CORS.
+- Verify `/health` and `/api/v1/health`, plus dependency-service health checks.
+- Define backups, restore drills, and least-privilege accounts for both application and market databases.
+- Set budget, audit, network-egress, and human-approval boundaries for AI, synchronization, and gateways.
 
-### Docker Deployment
-
-For production deployment using Docker:
-
-```bash
-# Build and start
-docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
-
-# View logs
-docker compose -f docker-compose.yml -f docker/compose/prod.yml logs -f
-
-# Stop
-docker compose -f docker-compose.yml -f docker/compose/prod.yml down
-```
-
-## Guides
-
-- [Docker Deployment](./docker.md) - Docker and Docker Compose setup
-- [Production](./production.md) - Production environment configuration
+- [Docker deployment](./docker.md)
+- [Production](./production.md)

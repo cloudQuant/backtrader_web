@@ -38,7 +38,7 @@ def build_ai_strategy_draft(prompt: str, references: list[str] | None = None) ->
         f"        ('{key}', {render_param_default(spec.default)})," for key, spec in params.items()
     )
     setup_lines = [
-        "        self.close = self.datas[0].close",
+        "        self.dataclose = self.datas[0].close",
         "        self.entry_price = None",
         "        self.entry_bar = None",
         "        self.stop_price = None",
@@ -95,7 +95,7 @@ class {class_name}(bt.Strategy):
     def next(self):
         if not self.position:
             if self._entry_signal():
-                entry_price = float(self.close[0])
+                entry_price = float(self.dataclose[0])
                 risk_budget = max(float(self.broker.getvalue()) * self.p.risk_pct, 0.0)
                 contract_multiplier = max(float(self.p.contract_multiplier or 1.0), 0.000001)
                 margin_rate = max(float(self.p.margin_rate or 1.0), 0.0)
@@ -119,9 +119,9 @@ class {class_name}(bt.Strategy):
                 self.buy(size=size)
         else:
             should_exit = self._exit_signal()
-            if self.stop_price is not None and self.close[0] <= self.stop_price:
+            if self.stop_price is not None and self.dataclose[0] <= self.stop_price:
                 should_exit = True
-            if self.take_profit_price is not None and self.close[0] >= self.take_profit_price:
+            if self.take_profit_price is not None and self.dataclose[0] >= self.take_profit_price:
                 should_exit = True
             if self.entry_bar is not None and len(self) - self.entry_bar >= self.p.max_hold_bars:
                 should_exit = True

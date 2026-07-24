@@ -1,103 +1,53 @@
-# AI for Investor Documentation
+# AI for Investor 文档导航
 
-## Documentation Sites
+本目录按“发布文档、当前工程文档、历史归档”组织。不要从历史方案或旧截图推断当前产品行为；功能、接口和命令应优先以发布站点、运行中的 OpenAPI 和测试为准。
 
-- **English**: https://cloudquant.github.io/ai-for-investor/en/
-- **中文**: https://cloudquant.github.io/ai-for-investor/zh/
+## 发布文档（MkDocs）
 
-## Internal Docs Layout
+发布站点源文件位于 `docs/docs/{zh,en}/`，由 `docs/mkdocs.yml` 构建：
 
-The published bilingual site is built from `docs/docs/{en,zh}/` (see `mkdocs.yml`).
-The other folders below are internal references for contributors.
+| 内容 | 中文 | English |
+| --- | --- | --- |
+| 首页与工作流 | [中文首页](docs/zh/index.md) | [English home](docs/en/index.md) |
+| 安装与首次研究 | [快速开始](docs/zh/getting-started/index.md) | [Getting started](docs/en/getting-started/index.md) |
+| 产品功能 | [功能介绍](docs/zh/features/index.md) | [Features](docs/en/features/index.md) |
+| 开发与 API | [开发指南](docs/zh/development/index.md) | [Development](docs/en/development/index.md) |
+| 部署与配置 | [部署运维](docs/zh/deployment/index.md) | [Deployment](docs/en/deployment/index.md) |
 
-```
-docs/
-├── mkdocs.yml              # MkDocs configuration
-├── INDEX.md                # ← this file
-│
-├── docs/                   # Published documentation (en/zh)
-│   ├── en/{getting-started,features,development,deployment,reference}/
-│   └── zh/{getting-started,features,development,deployment,reference}/
-│
-├── guides/                 # User-facing how-to guides (internal)
-│   ├── INSTALLATION.md
-│   ├── QUICKSTART.md
-│   ├── USER_GUIDE.md
-│   ├── BACKTEST_GUIDE.md
-│   ├── STRATEGY_DEVELOPMENT.md
-│   ├── LIVE_TRADING.md
-│   ├── PARAMETER_OPTIMIZATION.md
-│   ├── AI_STRATEGY_COPILOT.md
-│   ├── API_GUIDE.md
-│   ├── KEYBOARD_SHORTCUTS.md
-│   ├── DARK_THEME_GUIDE.md
-│   └── TBQUANT_SCREENSHOTS.md
-│
-├── operations/             # Deployment, ops, troubleshooting
-│   ├── DEPLOYMENT.md
-│   ├── OPERATIONS.md
-│   ├── CI_CD.md
-│   ├── CI_STATUS_BADGES.md
-│   ├── LOGGING.md
-│   ├── DATABASE_INIT.md
-│   ├── TROUBLESHOOTING.md
-│   └── BACKTRADER_IMPORT_TROUBLESHOOTING.md
-│
-├── reports/archive/        # Dated reviews, retros, sprint snapshots
-│
-├── iterations/             # Sprint / iteration design notes
-├── contracts/              # Project contracts and policies
-├── strategies/             # Strategy reference docs
-└── tbquant_screenshots/    # Screenshot reference assets
-```
-
-### Top-level reference docs (kept at `docs/`)
-
-| File | Purpose |
-|------|---------|
-| `ARCHITECTURE.md` | System architecture overview |
-| `API_OVERVIEW.md` | REST API surface summary |
-| `DATABASE.md` | Database schema reference |
-| `SECURITY.md` | Security model |
-| `CODING_STANDARDS.md` | Coding standards |
-| `TESTING.md` | Testing strategy |
-| `DEVELOPMENT.md` | Developer setup |
-| `DESIGN_SYSTEM.md` | Frontend design token and theming contract |
-| `AGILE_DEVELOPMENT.md` | Process notes |
-| `CONTRIBUTING.md` | Contribution workflow |
-| `CHANGELOG.md` | Release log |
-| `REFACTORING_BACKLOG.md` | Open refactoring items |
-| `REQUEST_SCOPED_SESSION.md` | Request lifecycle reference |
-| `PERFORMANCE.md` | Current performance notes |
-| `TECHNICAL_DOCS.md` | Misc technical reference |
-| `STRATEGIC_ROADMAP.md` | Long-term strategic plan and product roadmap |
-| `RELEASE_PLAN_V2.md` | v2.0.0 release plan and migration guide |
-| `project-context.md` | LLM-optimized project context for AI agents |
-| `CENTENNIAL_VISION.md` | 百年老店愿景：长期发展纲要与治理模型 |
-| `MARKET_RESEARCH.md` | 量化交易平台市场研究与竞品深度分析 |
-| `TECHNICAL_RESEARCH.md` | 技术研究：架构演进与关键技术方向 |
-| `PRODUCT_BRIEF.md` | 产品简报：定义、现状与路线图摘要 |
-| `INNOVATION_STRATEGY.md` | 创新战略：差异化与颠覆路径 |
-| `IMPROVEMENT_ROADMAP.md` | 改进优化发展方向：可执行行动计划 |
-| `adr/` | Architecture Decision Records (ADRs) |
-
-## Building Locally
+本地预览或严格构建：
 
 ```bash
-pip install mkdocs mkdocs-material mkdocs-i18n
-mkdocs serve -f docs/mkdocs.yml
+python -m pip install -r docs/requirements.txt
+python -m mkdocs serve -f docs/mkdocs.yml
+python -m mkdocs build -f docs/mkdocs.yml --strict
 ```
 
-## Deployment
+## 当前工程文档
 
-- **GitHub Pages**: Automatically deployed via `.github/workflows/docs.yml`
-- **ReadTheDocs**: Configured via `.readthedocs.yml`
+| 目录/文件 | 用途 |
+| --- | --- |
+| `project-introduction/` | 当前项目介绍、产品定位与投研流程背景；以 `ai-for-investor-project-introduction.md` 为基线。 |
+| `guides/` | 面向开发者和运营者的具体操作，如策略开发、AI Copilot、数据连接、组合账本。 |
+| `how-to/` | 开发、测试、Airflow 和数据库迁移等实施手册。 |
+| `operations/` | 部署、初始化、日志、同步安全、CI/CD 与故障排查。 |
+| `reference/` | API、数据库、性能、代码规范、安全和设计系统等稳定参考。 |
+| `adr/` | 架构决策记录；保留决策历史，不作为当前接口清单。 |
+| `contracts/`、`security/` | 工程契约、CI 门禁与安全治理资料。 |
+| `strategies/` | 策略参考和研究资料，不属于产品帮助站导航。 |
 
----
+## 迭代与归档
 
-## 项目文档
+| 位置 | 规则 |
+| --- | --- |
+| `iterations/` | 当前及可追溯的迭代记录。`iterations/README.md` 标明仍在使用的迭代；其 `archived/` 子目录保存早期历史。 |
+| `reports/archive/` | 已完成的评审、快照和专项报告。 |
+| `archive/plans/2026-q2/` | 已完成、仅供追溯的 2026 年第二季度方案。 |
+| `archive/project-introductions/` | 被当前项目介绍替代的旧项目介绍。 |
 
-| 语言 | 链接 |
-|------|------|
-| English | /en/ |
-| 中文 | /zh/ |
+归档文件保留历史事实，但不再维护为当前操作说明。若要变更当前能力，请先更新 `docs/docs/` 发布页面及对应的工程手册；新增过时计划或报告应直接放入相应 archive 目录。
+
+## 发布与外部入口
+
+- 中文站点：<https://aifortrader.cn/>
+- English site：<https://aifortrader.cn/en/>
+- 运行中 API：`http://localhost:8000/docs`

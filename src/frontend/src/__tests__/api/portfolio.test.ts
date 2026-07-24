@@ -19,10 +19,7 @@ describe('portfolioApi', () => {
   it('getOverview requests the compact first-screen summary', async () => {
     vi.mocked(request.get).mockResolvedValue({ total_assets: 100000 })
     await portfolioApi.getOverview(true)
-    expect(request.get).toHaveBeenCalledWith(
-      '/portfolio/overview',
-      { params: { summary_only: true } },
-    )
+    expect(request.get).toHaveBeenCalledWith('/portfolio/overview/summary')
   })
 
   it('getPositions', async () => {

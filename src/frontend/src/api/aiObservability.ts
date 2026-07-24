@@ -125,6 +125,7 @@ export interface AIAvailableModelsResponse {
   providers: AIProviderOption[]
   models: AIModelOption[]
   preferences: AIModelPreferences
+  default_model_key?: string | null
 }
 
 export interface AIModelPreferenceTestResponse {

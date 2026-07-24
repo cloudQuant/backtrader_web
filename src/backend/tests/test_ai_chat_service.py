@@ -144,6 +144,63 @@ class TestAIChatServiceCanGenerate:
             )
 
 
+class TestAIChatServiceRerank:
+    """Model-assisted ranking must only reorder the supplied candidates."""
+
+    @pytest.mark.asyncio
+    async def test_rerank_citations_uses_model_selected_candidate_order(self):
+        with patch("app.services.ai_chat_service.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.AI_CHAT_ENABLED = True
+            settings.AI_CHAT_BASE_URL = "http://localhost:8000"
+            settings.AI_CHAT_API_KEY = "sk-test-key"
+            settings.AI_CHAT_MODEL = "gpt-4"
+            settings.AI_CHAT_TIMEOUT = 30
+            settings.AI_CHAT_TEMPERATURE = 0.2
+            settings.AI_CHAT_MAX_TOKENS = 512
+            mock_settings.return_value = settings
+            service = AIChatService()
+
+        service.can_generate = AsyncMock(return_value=True)
+        service.model_preference_service.resolve_model_key = MagicMock(return_value=None)
+        service.model_preference_service.resolve_for_user = AsyncMock(return_value=None)
+        service.budget_checker = AsyncMock()
+        service._record_ai_call = AsyncMock()
+
+        async def fake_call_provider(messages, assistant_mode, **kwargs):
+            assert assistant_mode == "knowledge_rerank"
+            assert "用户问题：如何控制回测风险？" in messages[-1]["content"]
+            return {
+                "answer": '{"ranked_chunk_ids":["chunk-risk","chunk-entry"]}',
+                "tokens_used": 9,
+                "model_id": "gpt-4",
+                "provider": "openai_compatible",
+                "prompt_tokens": 4,
+                "completion_tokens": 5,
+                "reasoning": None,
+            }
+
+        service._call_provider = fake_call_provider
+        ranked, applied = await service.rerank_citations(
+            question="如何控制回测风险？",
+            citations=[
+                {
+                    "chunk_id": "chunk-entry",
+                    "document_title": "开仓规则",
+                    "content": "均线上穿时开仓。",
+                },
+                {
+                    "chunk_id": "chunk-risk",
+                    "document_title": "风险控制",
+                    "content": "使用 ATR 止损和仓位上限。",
+                },
+            ],
+        )
+
+        assert applied is True
+        assert [item["chunk_id"] for item in ranked] == ["chunk-risk", "chunk-entry"]
+
+
 class TestAIChatServiceBuildMessages:
     """Test message building logic."""
 
@@ -554,6 +611,34 @@ class TestAIChatServiceGenerateAnswer:
         assert rows[0].model_name == "gpt-4o-mini"
         assert rows[0].total_tokens == 42
         assert rows[0].prompt_hash
+
+    @pytest.mark.asyncio
+    async def test_generate_answer_returns_fallback_when_provider_raises_unexpected_error(self):
+        """Provider SDK failures must not escape as a generic API 500."""
+        with patch("app.services.ai_chat_service.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.AI_CHAT_ENABLED = True
+            settings.AI_CHAT_BASE_URL = "http://localhost:8000"
+            settings.AI_CHAT_API_KEY = "sk-test-key"
+            settings.AI_CHAT_MODEL = "gpt-4o-mini"
+            mock_settings.return_value = settings
+            service = AIChatService()
+            service.budget_checker = AsyncMock()
+            service._build_messages_with_registry = AsyncMock(
+                return_value=([{"role": "user", "content": "你好"}], None, None)
+            )
+            service._call_provider = MagicMock(side_effect=RuntimeError("provider temporarily failed"))
+            service._record_ai_call = AsyncMock()
+
+            result = await service.generate_answer(
+                question="你好",
+                citations=[],
+                assistant_mode="knowledge_qa",
+                thinking_mode=False,
+            )
+
+        assert result is None
+        service._record_ai_call.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_generate_answer_uses_ai_router_completion(self):

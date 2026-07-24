@@ -170,6 +170,7 @@ describe('QuotePage', () => {
   })
 
   it('loads quotes and covers symbol, sort, column, format, and chart helpers', async () => {
+    vi.setSystemTime(new Date('2026-07-24T06:30:45.000Z'))
     const wrapper = mountWithPlugins(QuotePage, {
       customStubs: {
         Search: true,
@@ -195,6 +196,8 @@ describe('QuotePage', () => {
     expect(quoteApiMocks.getQuotes).toHaveBeenCalledWith('eastmoney')
     expect(quoteApiMocks.getSymbols).toHaveBeenCalledWith('eastmoney')
     expect(store.filteredTicks).toHaveLength(1)
+    expect(store.updateTime).toBe('2026-07-24T06:30:45.000Z')
+    expect(store.ticks[0].update_time).toBe('2026-07-24T06:30:45.000Z')
     expect(store.categories).toEqual(expect.arrayContaining(['能源', '贵金属', 'futures']))
     expect(store.columnConfig.map((column) => column.prop)).toEqual([
       'symbol',
@@ -276,5 +279,46 @@ describe('QuotePage', () => {
 
     vm.flashSymbols = new Set(['RB2405'])
     expect(vm.rowClassName({ row: { symbol: 'RB2405' } })).toBe('tick-flash')
+  })
+
+  it('shows a querying status before the initial quote content is available', async () => {
+    let resolveSources: ((value: unknown) => void) | undefined
+    quoteApiMocks.listSources.mockReturnValueOnce(new Promise((resolve) => {
+      resolveSources = resolve
+    }))
+
+    const wrapper = mountWithPlugins(QuotePage, {
+      customStubs: {
+        Search: true,
+        Refresh: true,
+        Plus: true,
+        Loading: true,
+        Delete: true,
+        Setting: true,
+        Filter: true,
+        Rank: true,
+        DataLine: true,
+        Connection: true,
+        WarningFilled: true,
+        'el-popover': { template: '<div class="el-popover"><slot name="reference" /><slot /></div>' },
+      },
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.quote-loading-state [data-test="quote-initial-querying"]').text()).toContain('查询中')
+
+    resolveSources?.({
+      sources: [
+        {
+          source: 'eastmoney',
+          source_label: '东方财富',
+          status: 'available',
+          status_message: null,
+          capabilities: ['quotes'],
+        },
+      ],
+    })
+    await flushPromises()
+    wrapper.unmount()
   })
 })

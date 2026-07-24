@@ -494,6 +494,24 @@ class StrategySandbox:
         }
     )
 
+    # ``Strategy`` exposes these as inherited order-management methods.  A
+    # generated strategy that assigns a price line to ``self.close`` silently
+    # replaces ``Strategy.close()``; a later ``self.close()`` then reads a
+    # line instead of submitting the exit order.  Keep the guard here so it
+    # protects both AI research drafts and normal workspace backtests.
+    _RESERVED_STRATEGY_TRADE_METHODS = frozenset(
+        {
+            "buy",
+            "sell",
+            "close",
+            "order_target_percent",
+            "order_target_size",
+            "order_target_value",
+            "buy_bracket",
+            "sell_bracket",
+        }
+    )
+
     # Default execution timeout in seconds
     _EXECUTION_TIMEOUT = 30
 
@@ -524,6 +542,21 @@ class StrategySandbox:
             cls._check_node(node)
 
     @classmethod
+    def _check_reserved_strategy_method_assignment(cls, target: ast.AST) -> None:
+        """Reject assignments that replace Backtrader trading methods."""
+        if not isinstance(target, ast.Attribute):
+            return
+        if not isinstance(target.value, ast.Name) or target.value.id != "self":
+            return
+        if target.attr not in cls._RESERVED_STRATEGY_TRADE_METHODS:
+            return
+        raise ValueError(
+            f"Backtrader strategy code must not assign to self.{target.attr}; "
+            "it shadows an inherited trading method. Use a distinct state or "
+            "price-line name such as self.dataclose."
+        )
+
+    @classmethod
     def _check_node(cls, node: ast.AST) -> None:
         """Check a single AST node for safety violations.
 
@@ -533,6 +566,14 @@ class StrategySandbox:
         Raises:
             ValueError: If the node represents a dangerous operation.
         """
+        # Backtrader trading methods must remain callable.  Check all direct
+        # assignment forms before the other AST safety checks.
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                cls._check_reserved_strategy_method_assignment(target)
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            cls._check_reserved_strategy_method_assignment(node.target)
+
         # Check import statements
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -566,6 +607,16 @@ class StrategySandbox:
                     if attr in cls._DANGEROUS_ATTRS:
                         raise ValueError(
                             f"Accessing attribute '{attr}' via {func_name}() is not allowed"
+                        )
+                    if (
+                        func_name in {"setattr", "delattr"}
+                        and attr in cls._RESERVED_STRATEGY_TRADE_METHODS
+                        and isinstance(node.args[0], ast.Name)
+                        and node.args[0].id == "self"
+                    ):
+                        raise ValueError(
+                            f"Backtrader strategy code must not {func_name} self.{attr}; "
+                            "it changes an inherited trading method."
                         )
 
         # Check attribute access for dangerous dunder names

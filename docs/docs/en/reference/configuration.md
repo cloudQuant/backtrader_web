@@ -1,88 +1,46 @@
 # Configuration
 
-## Environment Variables
+Configuration comes from `src/backend/.env` locally or deployment environment variables. Example values show shape only; never commit real secrets or passwords.
 
-### Application
+## Core and security
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `APP_NAME` | ai-for-investor | Application name |
-| `DEBUG` | false | Debug mode |
-| `SECRET_KEY` | (required) | Flask secret key |
-| `TZ` | Asia/Shanghai | Timezone |
+| Variable | Purpose |
+| --- | --- |
+| `SECRET_KEY`, `JWT_SECRET_KEY` | Encryption and JWT signing; production must use distinct, high-entropy values. |
+| `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES` | JWT algorithm and expiry. |
+| `HOST`, `PORT`, `CORS_ORIGINS` | Listener and allowed origins; explicitly use `HOST=0.0.0.0` in containers. |
+| `ADMIN_*` | Initial-admin bootstrap; replace defaults and restrict use in production. |
 
-### Database
+## Database and data
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_TYPE` | sqlite | Database type |
-| `DATABASE_URL` | sqlite://... | Connection URL |
-| `DB_AUTO_CREATE_SCHEMA` | true | Auto-create schema |
-| `DB_AUTO_CREATE_DEFAULT_ADMIN` | true | Auto-create admin |
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_TYPE`, `DATABASE_URL` | Application database (SQLite/PostgreSQL/MySQL). |
+| `AKSHARE_DATA_DATABASE_URL` | Separate AkShare/MySQL market-data warehouse. |
+| `AKSHARE_SCHEDULER_*`, `AKSHARE_SCRIPT_ROOT` | Data-script and scheduler configuration. |
+| `SYNC_LOCAL_MYSQL_*` | Local MySQL connection for data synchronization; configure only when syncing. |
+| `DB_AUTO_CREATE_SCHEMA`, `DB_AUTO_CREATE_DEFAULT_ADMIN` | Development bootstrap flags; usually off in production. |
 
-### JWT Authentication
+## AI and RAG
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `JWT_SECRET_KEY` | (required) | JWT signing key |
-| `JWT_ALGORITHM` | HS256 | Algorithm |
-| `JWT_EXPIRE_MINUTES` | 10080 | Token TTL (7 days) |
+| Variable | Purpose |
+| --- | --- |
+| `AI_CHAT_ENABLED`, `AI_CHAT_BASE_URL`, `AI_CHAT_API_KEY`, `AI_CHAT_MODEL` | OpenAI-compatible generation provider. |
+| `AI_CHAT_TIMEOUT`, `AI_CHAT_TEMPERATURE`, `AI_CHAT_MAX_TOKENS` | Invocation limits and sampling settings. |
+| `RAG_VECTOR_ENABLED` | Enables local semantic-vector retrieval. |
+| `RAG_EMBEDDING_MODEL`, `RAG_VECTOR_COLLECTION`, `RAG_VECTOR_UPSERT_BATCH_SIZE` | Embedding model, collection, and batching. |
 
-### Server
+Without a configured model, the knowledge base can still provide index and lexical-retrieval diagnostics; do not present an empty API key as an available provider. Install the `rag` extra before enabling vector retrieval.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HOST` | 0.0.0.0 | Server host |
-| `PORT` | 8000 | Server port |
-| `CORS_ORIGINS` | * | CORS allowed origins |
-
-### Admin User
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ADMIN_USERNAME` | admin | Admin username |
-| `ADMIN_PASSWORD` | (required) | Admin password |
-| `ADMIN_EMAIL` | admin@example.com | Admin email |
-
-### Backtest
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BACKTEST_TIMEOUT` | 300 | Timeout in seconds |
-
-### Redis
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `REDIS_URL` | redis://redis:6379/0 | Redis connection URL |
-
-### AkShare (Market Data)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AKSHARE_SCHEDULER_TIMEZONE` | Asia/Shanghai | Scheduler timezone |
-| `AKSHARE_SCRIPT_ROOT` | app/data_fetch/scripts | Scripts location |
-| `AKSHARE_INTERFACE_BOOTSTRAP_MODE` | manual | Bootstrap mode |
-
-## Configuration File
-
-Alternatively, use `.env` file in `src/backend/`:
+## Minimal example
 
 ```bash
-cp .env.example .env
+DATABASE_TYPE=sqlite
+DATABASE_URL=sqlite+aiosqlite:///../../data/dev/backtrader.db
+SECRET_KEY=replace-me
+JWT_SECRET_KEY=replace-me-with-another-random-value
+AI_CHAT_ENABLED=false
+RAG_VECTOR_ENABLED=true
 ```
 
-## Production Configuration
-
-```bash
-# Security
-SECRET_KEY=production-secret-key
-JWT_SECRET_KEY=production-jwt-secret
-
-# Database
-DATABASE_TYPE=postgresql
-DATABASE_URL=postgresql+asyncpg://user:pass@prod-host:5432/backtrader
-
-# CORS
-CORS_ORIGINS=https://your-domain.com
-```
+See [Production](../deployment/production.md) for deployment configuration, backup, and access controls.

@@ -5160,21 +5160,13 @@ async def test_hydrate_units_can_skip_gateway_queries_for_status_polling(monkeyp
         params={},
     )
 
-    class FakeManager:
-        def get_instance(self, instance_id, user_id=None):
-            assert instance_id == "inst-status-poll"
-            return {"id": instance_id, "status": "running", "params": {"symbol": "IF2609"}}
-
-        def query_instance_gateway_positions(self, *_args, **_kwargs):
-            raise AssertionError("status polling must not query gateway positions")
-
-        def query_instance_asset_specs(self, *_args, **_kwargs):
-            raise AssertionError("status polling must not query gateway asset specs")
+    def unexpected_live_manager():
+        raise AssertionError("status polling must not initialize the live manager")
 
     monkeypatch.setattr(
         trading_workspace_service_module,
         "get_live_trading_manager",
-        lambda: FakeManager(),
+        unexpected_live_manager,
     )
 
     await TradingWorkspaceService().hydrate_units(
@@ -5237,6 +5229,49 @@ async def test_hydrate_units_preserves_lifecycle_when_manager_instance_is_unavai
 
     assert unit.run_status == "running"
     assert unit.trading_snapshot["instance_status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_hydrate_units_does_not_initialize_live_manager_for_idle_paper_units(monkeypatch):
+    """A passive table refresh cannot trigger a live gateway bootstrap."""
+    unit = SimpleNamespace(
+        id="unit-idle-paper",
+        workspace_id="ws-idle-paper",
+        symbol="IF2609",
+        symbol_name="沪深300",
+        strategy_name="Idle Paper Unit",
+        data_config={},
+        unit_settings={},
+        gateway_config={},
+        trading_mode="paper",
+        trading_instance_id=None,
+        run_status="idle",
+        run_count=0,
+        trading_snapshot={"instance_status": "idle", "positions": []},
+        metrics_snapshot={},
+        bar_count=None,
+        last_run_time=None,
+        params={},
+    )
+
+    def unexpected_live_manager():
+        raise AssertionError("idle paper unit must not initialize live manager")
+
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "get_live_trading_manager",
+        unexpected_live_manager,
+    )
+
+    changed = await TradingWorkspaceService().hydrate_units(
+        [unit],
+        user_id="user-1",
+        full_log=False,
+        refresh_gateway=False,
+    )
+
+    assert isinstance(changed, bool)
+    assert unit.run_status == "idle"
 
 
 @pytest.mark.asyncio

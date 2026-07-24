@@ -372,9 +372,15 @@ button:disabled {
   gap: 8px;
 }
 
+.conversation-row {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+}
+
 .conversation-item {
   display: flex;
-  width: 100%;
+  flex: 1;
   min-width: 0;
   flex-direction: column;
   gap: 6px;
@@ -393,6 +399,29 @@ button:disabled {
 .conversation-item.active {
   border-color: color-mix(in srgb, var(--primary-color) 48%, var(--border-color) 52%);
   background: color-mix(in srgb, var(--bg-color) 82%, var(--primary-color) 18%);
+}
+
+.conversation-delete {
+  display: grid;
+  width: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-color) 92%, var(--fill-color-light) 8%);
+  color: var(--text-color-secondary);
+  cursor: pointer;
+}
+
+.conversation-delete:hover {
+  border-color: color-mix(in srgb, var(--danger-color) 45%, var(--border-color) 55%);
+  background: color-mix(in srgb, var(--danger-color) 10%, var(--bg-color) 90%);
+  color: var(--danger-color);
+}
+
+.conversation-delete:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
 }
 
 .conversation-title {

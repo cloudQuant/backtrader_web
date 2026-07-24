@@ -1984,11 +1984,112 @@ class AIStrategyResearchService:
         freshened: list[AIStrategyResearchRunRecord] = []
         changed_run_ids: set[str] = set()
         for record in records:
-            updated = await self._freshen_run_record_with_paper_state(user_id, record)
+            updated = await self._freshen_run_record_with_latest_backtests(user_id, record)
+            updated = await self._freshen_run_record_with_paper_state(user_id, updated)
             freshened.append(updated)
             if updated != record:
                 changed_run_ids.add(updated.run_id)
         return freshened, changed_run_ids
+
+    async def _freshen_run_record_with_latest_backtests(
+        self,
+        user_id: str,
+        record: AIStrategyResearchRunRecord,
+    ) -> AIStrategyResearchRunRecord:
+        """Refresh persisted iteration metrics after a workspace unit is rerun.
+
+        AI research records keep an immutable-looking summary of each iteration,
+        while users can rerun an iteration from its workspace.  Without this
+        reconciliation the page keeps rendering the old task ID and metrics,
+        including an obsolete ``total_trades=0`` after a repaired strategy has
+        produced closed trades.
+        """
+        if not record.research_workspace_id or not record.iterations:
+            return record
+
+        statuses = await self.workspace_service.get_units_status(
+            record.research_workspace_id,
+            user_id,
+        )
+        status_by_unit_id = {
+            str(payload.get("id") or "").strip(): payload
+            for payload in (_dict_payload(item) for item in statuses or [])
+            if str(payload.get("id") or "").strip()
+        }
+        if not status_by_unit_id:
+            return record
+
+        refreshed_iterations: list[dict[str, Any]] = []
+        changed = False
+        for raw_iteration in record.iterations:
+            iteration = _dict_payload(raw_iteration)
+            unit_id = str(
+                _dict_payload(iteration.get("unit")).get("id")
+                or iteration.get("unit_id")
+                or _dict_payload(iteration.get("run_result")).get("unit_id")
+                or ""
+            ).strip()
+            status_payload = status_by_unit_id.get(unit_id)
+            if not unit_id or status_payload is None:
+                refreshed_iterations.append(iteration)
+                continue
+
+            refreshed = dict(iteration)
+            refreshed["unit_status"] = status_payload
+            run_result = _dict_payload(iteration.get("run_result"))
+            latest_task_id = str(status_payload.get("last_task_id") or "").strip()
+            latest_status = str(status_payload.get("run_status") or "").strip()
+            if latest_task_id:
+                run_result["task_id"] = latest_task_id
+            if latest_status:
+                run_result["status"] = latest_status
+            if unit_id:
+                run_result.setdefault("unit_id", unit_id)
+            refreshed["run_result"] = run_result
+
+            metrics = _dict_payload(status_payload.get("metrics_snapshot"))
+            if metrics:
+                refreshed["metrics"] = metrics
+                refreshed["sharpe_ratio"] = _metric_float(
+                    metrics,
+                    "sharpe_ratio",
+                    "sharpe",
+                    "sharpeRatio",
+                )
+                refreshed["total_trades"] = _metric_int(
+                    metrics,
+                    "total_trades",
+                    "totalTrades",
+                    "trades",
+                )
+
+            refreshed_iterations.append(refreshed)
+            changed = changed or refreshed != iteration
+
+        if not changed:
+            return record
+
+        updates: dict[str, Any] = {"iterations": refreshed_iterations}
+        best_iteration = record.best_iteration
+        best_payload = next(
+            (
+                payload
+                for payload in refreshed_iterations
+                if _optional_gate_int(payload.get("iteration")) == best_iteration
+            ),
+            None,
+        )
+        if best_payload is not None:
+            best_metrics = _dict_payload(best_payload.get("metrics"))
+            if best_metrics:
+                updates["best_metrics"] = best_metrics
+                updates["best_sharpe"] = _metric_float(
+                    best_metrics,
+                    "sharpe_ratio",
+                    "sharpe",
+                    "sharpeRatio",
+                )
+        return record.model_copy(update=updates)
 
     async def _freshen_run_record_with_paper_state(
         self,

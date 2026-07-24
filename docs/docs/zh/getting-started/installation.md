@@ -2,131 +2,74 @@
 
 ## 环境要求
 
-- **Python**: 3.10+
-- **Node.js**: 20+
-- **Docker**: 24+ (可选，用于容器化部署)
-- **Git**
+- Python 3.10+
+- Node.js 20+
+- Git
+- Docker Compose v2（可选；用于容器化环境）
 
-## 后端安装
-
-### 1. 创建虚拟环境
+## 本地开发安装
 
 ```bash
+git clone https://github.com/cloudQuant/backtrader_web.git
+cd backtrader_web
+
+./scripts/dev/verify-dev-env.sh --preinstall
+
+# 后端
 cd src/backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-```
-
-### 2. 安装依赖
-
-```bash
+python -m venv .venv
+source .venv/bin/activate               # Windows: .venv\Scripts\activate
 pip install -e ".[dev,backtrader]"
-```
-
-这将安装：
-- 核心依赖 (FastAPI, SQLAlchemy 等)
-- 开发依赖 (pytest, ruff)
-- Backtrader 及相关包
-
-### 3. 配置环境
-
-```bash
+# 需要 AkShare 在线刷新时：pip install -e ".[dev,backtrader,data]"
+# 需要语义检索时：pip install -e ".[dev,backtrader,rag]"
 cp .env.example .env
-```
 
-编辑 `.env` 文件：
-
-```bash
-# 数据库 (默认 SQLite)
-DATABASE_TYPE=sqlite
-DATABASE_URL=sqlite:///./backtrader.db
-
-# 可选: PostgreSQL
-# DATABASE_TYPE=postgresql
-# DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/backtrader
-
-# 可选: MySQL
-# DATABASE_TYPE=mysql
-# DATABASE_URL=mysql+aiomysql://user:pass@localhost:3306/backtrader
-
-# JWT 配置
-SECRET_KEY=your-secret-key-here
-JWT_EXPIRE_MINUTES=1440
-```
-
-### 4. 验证安装
-
-```bash
-# 检查环境
-cd ../..
-./scripts/verify-dev-env.sh --postinstall
-```
-
-## 前端安装
-
-### 1. 安装 Node 依赖
-
-```bash
-cd src/frontend
+# 前端
+cd ../frontend
 npm install
+
+cd ../..
+./scripts/dev/verify-dev-env.sh --postinstall
 ```
 
-### 2. 配置
-
-如需要，在 `src/frontend/` 创建 `.env` 文件：
+`.env` 只保存本机或部署环境的配置。请替换密钥占位值，且不要提交该文件。基础配置示例：
 
 ```bash
-VITE_API_BASE_URL=http://localhost:8000/api/v1
+DATABASE_TYPE=sqlite
+DATABASE_URL=sqlite+aiosqlite:///../../data/dev/backtrader.db
+SECRET_KEY=replace-with-a-random-secret
+JWT_SECRET_KEY=replace-with-a-different-random-secret
 ```
+
+若应用主数据库使用 MySQL，请配置 `DATABASE_TYPE=mysql` 与 `DATABASE_URL=mysql+aiomysql://...`；市场行情仓库则由独立的 `AKSHARE_DATA_DATABASE_URL` 配置，详见[市场数据](../features/market-data.md)。
 
 ## 启动服务
 
-### 开发模式
+在两个终端分别运行：
 
-**终端 1 - 后端：**
 ```bash
+# 后端
 cd src/backend
-source venv/bin/activate
+source .venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
 
-**终端 2 - 前端：**
 ```bash
+# 前端
 cd src/frontend
 npm run dev
 ```
 
-### Docker 部署
+开发前端默认地址为 `http://localhost:3000`，API 文档为 `http://localhost:8000/docs`。
+
+## Docker
+
+仓库的 Compose 基础文件位于 `docker/docker-compose.yml`。选择一个环境覆盖文件：
 
 ```bash
-# 生产环境
-docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
+docker compose -f docker/docker-compose.yml -f docker/compose/dev.yml up
+# 或生产覆盖
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml up -d
 ```
 
-## 访问地址
-
-| 服务 | 地址 |
-|------|------|
-| 前端 (开发) | http://localhost:8080 |
-| 前端 (Docker) | http://localhost |
-| 后端 API 文档 | http://localhost:8000/docs |
-| WebSocket | ws://localhost:8000/ws |
-
-## 故障排查
-
-### Backtrader 导入问题
-
-如果遇到 backtrader 导入错误，请查看
-[Backtrader 导入问题排查](../../../operations/BACKTRADER_IMPORT_TROUBLESHOOTING.md)。
-
-### 数据库连接问题
-
-确保数据库服务正在运行，且 `.env` 中的凭据正确。
-
-### 端口冲突
-
-如果 8000 或 8080 端口被占用，可修改启动命令中的端口：
-
-```bash
-uvicorn app.main:app --reload --port 8001
-```
+继续阅读 [Docker 部署](../deployment/docker.md)，并在启动生产环境前配置数据库、密钥、CORS 与备份策略。

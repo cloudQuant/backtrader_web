@@ -1,43 +1,31 @@
 # Development
 
-This section covers development guidelines for AI for Investor.
+Development documentation describes the repository’s current layering boundaries. Tests and OpenAPI define the released contract and runtime behavior.
 
-## Project Structure
+## Layout and responsibilities
 
-```
-ai-for-investor/
-├── src/
-│   ├── backend/              # FastAPI Backend
-│   │   ├── app/
-│   │   │   ├── api/        # API Routes (15+ modules)
-│   │   │   ├── services/   # Business Logic
-│   │   │   ├── db/         # Database Layer
-│   │   │   ├── models/     # ORM Models
-│   │   │   └── schemas/    # Pydantic Models
-│   │   └── strategies/     # Built-in Strategies
-│   └── frontend/           # Vue3 Frontend
-│       ├── src/
-│       │   ├── api/        # API Calls
-│       │   ├── components/ # Components
-│       │   ├── views/      # Pages
-│       │   └── stores/     # Pinia State
-│       └── package.json
-├── strategies/             # 118 Built-in Strategy Templates
-├── tests/                 # Tests
-└── docs/                  # Documentation
+```text
+src/backend/app/
+├── api/        # HTTP/WebSocket routes, auth, and input/output boundary
+├── services/   # Data, RAG, backtest, workspace, trading, and risk orchestration
+├── models/     # SQLAlchemy ORM models
+├── schemas/    # Pydantic request/response models
+├── db/         # Engines, sessions, repositories, and migration support
+└── utils/      # Security, sandbox, logging, and infrastructure helpers
+
+src/frontend/src/
+├── api/        # API clients
+├── views/      # Routed pages
+├── components/ # Reusable UI
+├── composables/# Page and domain composition
+├── stores/     # Pinia state
+└── navigation/ # Route and navigation conventions
 ```
 
-## Tech Stack
+## Continue reading
 
-| Layer | Technology |
-|-------|------------|
-| Frontend | Vue 3 + TypeScript + Vite + Element Plus + Echarts |
-| Backend | FastAPI + Uvicorn + Pydantic + SQLAlchemy 2.0 |
-| Database | SQLite (default) / PostgreSQL / MySQL |
-| Testing | pytest + Playwright + Vitest |
-
-## Guides
-
-- [Architecture](./architecture.md) - System architecture
-- [API Reference](./api.md) - RESTful API documentation
-- [Database](./database.md) - Database design and models
+- [Architecture](./architecture.md)
+- [API reference](./api.md)
+- [Database and data boundaries](./database.md)
+- Engineering coding standards: `docs/reference/CODING_STANDARDS.md`
+- Engineering test guide: `docs/how-to/TESTING.md`

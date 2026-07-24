@@ -334,8 +334,8 @@ class MarketDataCoverageService:
             FROM {profile.table_name}
             WHERE {symbol_expression} IS NOT NULL
               AND {symbol_expression} <> ''
+              AND (:symbol IS NULL OR UPPER({symbol_expression}) = UPPER(:symbol))
             GROUP BY {symbol_expression}
-            HAVING (:symbol IS NULL OR UPPER({symbol_expression}) = UPPER(:symbol))
             ORDER BY end_date DESC, row_count DESC, symbol ASC
             LIMIT :limit
         """

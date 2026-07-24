@@ -399,18 +399,23 @@ class PaperRuntimeService:
         snapshot = dict(trading_snapshot or {})
         metrics = dict(metrics_snapshot or {})
         settings = dict(unit_settings or {})
-        initial_cash = self._number(
-            metrics.get("initial_cash"),
-            self._number(settings.get("initial_cash"), 100000.0),
-        )
+        configured_initial_cash = self._number(settings.get("initial_cash"), 0.0)
+        metric_initial_cash = self._number(metrics.get("initial_cash"), 0.0)
+        initial_cash = configured_initial_cash or metric_initial_cash or 100000.0
         unrealized_pnl = self._number(snapshot.get("position_pnl"), 0.0)
         position_value = self._number(snapshot.get("long_market_value"), 0.0) + self._number(
             snapshot.get("short_market_value"), 0.0
         )
-        cumulative_pnl = self._number(snapshot.get("cumulative_pnl"), 0.0)
-        total_equity = self._number(
-            metrics.get("final_value"),
-            initial_cash + cumulative_pnl,
+        cumulative_pnl = self._number(snapshot.get("cumulative_pnl"), unrealized_pnl)
+        metric_final_value = self._number(metrics.get("final_value"), 0.0)
+        metric_matches_runtime_cash = (
+            metric_initial_cash > 0
+            and abs(metric_initial_cash - initial_cash) <= max(1.0, initial_cash * 0.000001)
+        )
+        total_equity = (
+            metric_final_value
+            if metric_final_value > 0 and metric_matches_runtime_cash
+            else initial_cash + cumulative_pnl
         )
         cash = max(total_equity - position_value, 0.0)
         return await self.record_snapshot(

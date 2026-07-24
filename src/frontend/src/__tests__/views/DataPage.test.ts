@@ -54,6 +54,8 @@ const assetSymbols: Record<MarketAssetType, string> = {
   fx: 'USDCNH',
   crypto: 'BTCJPY',
 }
+const MARKET_ASSET_SELECTIONS_STORAGE_KEY = 'ai_for_investor:market:asset_selections'
+const LEGACY_MARKET_SELECTION_STORAGE_KEY = 'ai_for_investor:market:last_query'
 
 function createLookupFixture(assetType: MarketAssetType) {
   const baseSnapshot = {
@@ -204,6 +206,8 @@ function createInstrumentOptionsFixture(assetType: MarketAssetType) {
 describe('DataPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    window.localStorage.removeItem(MARKET_ASSET_SELECTIONS_STORAGE_KEY)
+    window.localStorage.removeItem(LEGACY_MARKET_SELECTION_STORAGE_KEY)
     apiMocks.lookupInstrument.mockImplementation(({ asset_type }: { asset_type: MarketAssetType }) => (
       Promise.resolve(createLookupFixture(asset_type))
     ))
@@ -287,6 +291,40 @@ describe('DataPage', () => {
     return wrapper
   }
 
+  it('uses a single snapshot column on compact viewports', async () => {
+    const originalWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 700 })
+
+    try {
+      const wrapper = await mountPage()
+
+      expect((wrapper.vm as any).snapshotDescriptionColumns).toBe(1)
+      wrapper.unmount()
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+    }
+  })
+
+  it('renders snapshot values in self-contained metric cards', async () => {
+    const wrapper = await mountPage()
+
+    expect(wrapper.find('[data-test="market-snapshot-grid"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-test="market-snapshot-item"]').length).toBeGreaterThan(6)
+  })
+
+  it('orders historical table rows from newest to oldest without changing chart source order', async () => {
+    const wrapper = await mountPage()
+
+    expect((wrapper.vm as any).displayHistoryRows.map((row: { date: string }) => row.date)).toEqual([
+      '2026-06-19',
+      '2026-06-18',
+    ])
+    expect((wrapper.vm as any).historyRows.map((row: { date: string }) => row.date)).toEqual([
+      '2026-06-18',
+      '2026-06-19',
+    ])
+  })
+
   it('renders one historical data tab per supported asset type', async () => {
     const wrapper = await mountPage()
 
@@ -306,6 +344,7 @@ describe('DataPage', () => {
       start_date: expect.any(String),
       end_date: expect.any(String),
       market: undefined,
+      refresh_online: false,
     })
     expect((wrapper.vm as any).result.name).toBe('平安银行')
     expect((wrapper.vm as any).historyRows).toHaveLength(2)
@@ -320,6 +359,46 @@ describe('DataPage', () => {
     })
     expect((wrapper.vm as any).instrumentOptions).toHaveLength(2)
     expect(apiMocks.listTables).toHaveBeenCalled()
+  })
+
+  it('remembers successful queries independently for each asset type', async () => {
+    const wrapper = await mountPage()
+    const futuresTab = wrapper.findAll('.asset-tab').find((button) => button.text().includes('期货'))
+
+    await futuresTab?.trigger('click')
+    await flushPromises()
+
+    expect(JSON.parse(window.localStorage.getItem(MARKET_ASSET_SELECTIONS_STORAGE_KEY) || '{}')).toEqual({
+      stock: { symbol: '000001' },
+      futures: { symbol: 'IM2606', market: 'CF' },
+    })
+  })
+
+  it('restores only the saved selection for the asset type being opened', async () => {
+    window.localStorage.setItem(MARKET_ASSET_SELECTIONS_STORAGE_KEY, JSON.stringify({
+      stock: { symbol: '600519' },
+      futures: { symbol: 'IF2609', market: 'CFFEX' },
+    }))
+
+    const wrapper = await mountPage()
+    expect((wrapper.vm as any).form.asset_type).toBe('stock')
+    expect((wrapper.vm as any).form.symbol).toBe('600519')
+
+    const futuresTab = wrapper.findAll('.asset-tab').find((button) => button.text().includes('期货'))
+    await futuresTab?.trigger('click')
+    await flushPromises()
+
+    expect((wrapper.vm as any).form.asset_type).toBe('futures')
+    expect((wrapper.vm as any).form.symbol).toBe('IF2609')
+    expect(apiMocks.lookupInstrument).toHaveBeenCalledWith({
+      asset_type: 'futures',
+      symbol: 'IF2609',
+      period: 'daily',
+      start_date: expect.any(String),
+      end_date: expect.any(String),
+      market: 'CFFEX',
+      refresh_online: false,
+    })
   })
 
   it('shows a stock-specific valuation and liquidity panel', async () => {
@@ -389,6 +468,7 @@ describe('DataPage', () => {
       start_date: expect.any(String),
       end_date: expect.any(String),
       market: undefined,
+      refresh_online: false,
     })
     expect((wrapper.vm as any).form.asset_type).toBe('option')
     expect((wrapper.vm as any).result.asset_type).toBe('option')
@@ -408,8 +488,28 @@ describe('DataPage', () => {
       start_date: expect.any(String),
       end_date: expect.any(String),
       market: undefined,
+      refresh_online: false,
     })
     expect((wrapper.vm as any).result.asset_type).toBe('option')
     expect(wrapper.text()).not.toContain('Put / Call Ratio')
+  })
+
+  it('uses AkShare only after the user clicks the market query button', async () => {
+    const wrapper = await mountPage()
+    const queryButton = wrapper.findAll('button').find((button) => button.text().includes('查询'))
+
+    expect(queryButton).toBeDefined()
+    await queryButton?.trigger('click')
+    await flushPromises()
+
+    expect(apiMocks.lookupInstrument).toHaveBeenLastCalledWith({
+      asset_type: 'stock',
+      symbol: '000001',
+      period: 'daily',
+      start_date: expect.any(String),
+      end_date: expect.any(String),
+      market: undefined,
+      refresh_online: true,
+    })
   })
 })

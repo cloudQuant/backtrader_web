@@ -129,6 +129,11 @@ vi.mock('@/api/strategy', () => ({
       ],
     }),
     getAIResearchRun: vi.fn().mockRejectedValue(new Error('detail unavailable')),
+    optimizeAIResearchObjective: vi.fn().mockResolvedValue({
+      prompt: '这是经大模型优化后的投研目标。',
+      model: 'glm-5.2',
+      provider: 'volcengine_ark',
+    }),
     runAIResearchLoop: vi.fn().mockResolvedValue({
       run_id: 'run-1',
       status: 'achieved',
@@ -1260,6 +1265,75 @@ describe('StrategyPage', () => {
       min_out_of_sample_trades: 3,
       min_paper_trading_days: 14,
     }))
+  })
+
+  it('opens a choice dialog and keeps the deterministic target when the default option is chosen', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.prompt = '保留的旧目标'
+    vm.aiResearchForm.symbol = 'RB0'
+    vm.aiResearchForm.symbol_name = '螺纹钢主连'
+
+    vm.openAIResearchPromptGenerationDialog()
+
+    expect(vm.aiResearchPromptGenerationDialogVisible).toBe(true)
+    expect(vm.aiResearchPromptGenerationMode).toBe('default')
+    expect(wrapper.text()).toContain('使用默认方案')
+    expect(wrapper.text()).toContain('使用大模型优化')
+
+    await vm.confirmAIResearchPromptGeneration()
+
+    expect(vm.aiResearchPromptGenerationDialogVisible).toBe(false)
+    expect(vm.aiResearchForm.prompt).toContain('请为 螺纹钢主连（RB0）')
+    expect(strategyApi.optimizeAIResearchObjective).not.toHaveBeenCalled()
+  })
+
+  it('uses the model only after the user explicitly selects objective optimization', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vi.mocked(strategyApi.optimizeAIResearchObjective).mockResolvedValueOnce({
+      prompt: '优化后的螺纹钢投研目标，保留所有质量门槛。',
+      model: 'glm-5.2',
+      provider: 'volcengine_ark',
+    })
+    vm.aiResearchForm.symbol = 'RB0'
+    vm.aiResearchForm.symbol_name = '螺纹钢主连'
+    vm.aiResearchForm.target_sharpe = 1.3
+    vm.aiResearchForm.min_total_trades = 12
+
+    vm.openAIResearchPromptGenerationDialog()
+    vm.aiResearchPromptGenerationMode = 'ai'
+    await vm.confirmAIResearchPromptGeneration()
+
+    expect(strategyApi.optimizeAIResearchObjective).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining('请为 螺纹钢主连（RB0）'),
+      research_config: expect.objectContaining({
+        symbol: 'RB0',
+        target_sharpe: 1.3,
+        min_total_trades: 12,
+      }),
+    }))
+    expect(vm.aiResearchForm.prompt).toBe('优化后的螺纹钢投研目标，保留所有质量门槛。')
+    expect(vm.aiResearchPromptGenerationDialogVisible).toBe(false)
+  })
+
+  it('falls back to the deterministic target when model optimization is unavailable', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vi.mocked(strategyApi.optimizeAIResearchObjective).mockRejectedValueOnce(new Error('model unavailable'))
+    vm.aiResearchForm.symbol = 'IF2409.CFE'
+    vm.aiResearchForm.symbol_name = '沪深300股指期货'
+
+    vm.openAIResearchPromptGenerationDialog()
+    vm.aiResearchPromptGenerationMode = 'ai'
+    await vm.confirmAIResearchPromptGeneration()
+
+    expect(vm.aiResearchForm.prompt).toContain('请为 沪深300股指期货（IF2409.CFE）')
+    expect(ElMessage.warning).toHaveBeenCalledWith('大模型优化失败，已采用默认投研目标')
   })
 
   it('auto-generates the AI research objective when running with an empty prompt', async () => {
@@ -7896,6 +7970,138 @@ describe('StrategyPage', () => {
     } finally {
       wrapper.unmount()
       vi.useRealTimers()
+    }
+  })
+
+  it('keeps displayed research output isolated when plans share the same asset and timeframe', async () => {
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    await flushPromises()
+    const rebarRun = {
+      ...vm.aiResearchRuns[0],
+      run_id: 'rb-daily-run',
+      prompt: '螺纹钢日线趋势策略',
+      symbol: 'RB0',
+      symbol_name: '螺纹钢主连',
+      timeframe: '1d',
+      timeframe_n: 1,
+      start_date: '2020-01-01',
+      end_date: '2024-11-16',
+      target_sharpe: 0.6,
+      min_total_trades: 3,
+      max_iterations: 3,
+      research_workspace_id: 'historical-rb-workspace',
+      quality_gates: {
+        target_sharpe: 0.6,
+        min_total_trades: 3,
+      },
+    }
+    const broadPlan = {
+      id: 'rb-broad',
+      name: '螺纹钢全样本',
+      description: '全样本日线方案',
+      config: {
+        symbol: 'RB0',
+        symbol_name: '螺纹钢主连',
+        timeframe: '1d',
+        timeframe_n: 1,
+        start_date: '2020-01-01',
+        end_date: '2024-11-16',
+        target_sharpe: 0.6,
+        min_total_trades: 3,
+        max_iterations: 3,
+        research_workspace_id: '',
+      },
+    }
+    const recentPlan = {
+      ...broadPlan,
+      id: 'rb-recent',
+      name: '螺纹钢近期样本',
+      config: {
+        ...broadPlan.config,
+        start_date: '2023-01-01',
+        end_date: '2024-11-16',
+        target_sharpe: 0.9,
+      },
+    }
+    vm.aiResearchRuns = [rebarRun]
+    vm.aiResearchConfigProfiles = [broadPlan, recentPlan]
+
+    vm.applyAIResearchConfigProfile(broadPlan, { notify: false })
+    await wrapper.vm.$nextTick()
+    expect(vm.aiResearchResult?.run_id).toBe('rb-daily-run')
+    expect(vm.aiResearchForm.research_workspace_id).toBe('')
+
+    vm.applyAIResearchConfigProfile(recentPlan, { notify: false })
+    await wrapper.vm.$nextTick()
+    expect(vm.aiResearchResult).toBeNull()
+    expect(wrapper.find('[data-test="ai-research-result-context"]').text()).toContain('螺纹钢近期样本')
+  })
+
+  it('clears the previous result and shows active plan progress while AI research runs', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    await flushPromises()
+    const previousResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const activePlan = {
+      id: 'rb-live',
+      name: '螺纹钢实时投研',
+      description: '持续展示任务输出',
+      config: {
+        prompt: '螺纹钢日线趋势策略',
+        symbol: 'RB0',
+        symbol_name: '螺纹钢主连',
+        timeframe: '1d',
+        timeframe_n: 1,
+        target_sharpe: 0.6,
+        min_total_trades: 3,
+        max_iterations: 3,
+        research_workspace_id: '',
+      },
+    }
+    vm.aiResearchConfigProfiles = [activePlan]
+    vm.applyAIResearchConfigProfile(activePlan, { notify: false })
+    vm.aiResearchResult = previousResult
+    await setConfirmedAIResearchMandate(wrapper)
+
+    let resolveTask: ((task: Record<string, unknown>) => void) | undefined
+    ;(strategyApi as any).submitAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'rb-live-task',
+      status: 'running',
+      submitted_at: '2026-07-24T00:00:00Z',
+      current_stage: 'generation',
+      progress: 25,
+      message: '正在生成螺纹钢策略草案',
+      request_snapshot: { symbol: 'RB0' },
+    })
+    ;(strategyApi as any).getAIResearchTask = vi.fn().mockImplementation(
+      () => new Promise(resolve => { resolveTask = resolve })
+    )
+
+    try {
+      const running = vm.runAIResearchLoop()
+      await flushPromises()
+
+      expect(vm.aiResearchResult).toBeNull()
+      const liveOutput = wrapper.find('[data-test="ai-research-live-output"]').text()
+      expect(liveOutput).toContain('螺纹钢实时投研')
+      expect(liveOutput).toContain('正在生成螺纹钢策略草案')
+
+      resolveTask?.({
+        task_id: 'rb-live-task',
+        status: 'completed',
+        submitted_at: '2026-07-24T00:00:00Z',
+        completed_at: '2026-07-24T00:01:00Z',
+        current_stage: 'completed',
+        progress: 100,
+        result: { ...previousResult, run_id: 'rb-live-run' },
+      })
+      await running
+      expect(vm.aiResearchResult?.run_id).toBe('rb-live-run')
+    } finally {
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
     }
   })
 

@@ -125,6 +125,29 @@ class AIStrategyResearchConfigProfileImportResponse(BaseModel):
     items: list[AIStrategyResearchConfigProfile]
 
 
+class AIStrategyResearchObjectiveOptimizeRequest(BaseModel):
+    """Ask the configured AI model to refine a generated research objective."""
+
+    prompt: str = Field(
+        ...,
+        min_length=1,
+        max_length=12000,
+        description="Deterministic research objective generated from the current form controls.",
+    )
+    research_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Current research controls that the model must preserve as hard constraints.",
+    )
+
+
+class AIStrategyResearchObjectiveOptimizeResponse(BaseModel):
+    """A model-refined research objective and safe model metadata."""
+
+    prompt: str = Field(..., min_length=1, max_length=12000)
+    model: str = Field(..., min_length=1, max_length=200)
+    provider: str = Field(..., min_length=1, max_length=100)
+
+
 class InvestmentMandateCreate(BaseModel):
     """Create and parse a structured investment demand for AI research."""
 

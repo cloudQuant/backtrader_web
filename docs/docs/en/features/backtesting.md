@@ -1,83 +1,32 @@
-# Backtesting
+# Backtests and validation
 
-## Overview
+Backtests run on Backtrader and normalize return, risk, and trade statistics. Their meaning depends on the strategy, data, costs, and date range. They test a research hypothesis; they do not predict future returns.
 
-AI for Investor's backtesting engine is built on **Backtrader** with **fincore** for standardized financial metrics.
+## Recommended flow
 
-## Key Features
+1. Check instrument, timeframe, date range, coverage, and quality in [Market data](./market-data.md).
+2. Review the strategy and parameters in [Strategies](./strategy-management.md).
+3. Add it to a **research workspace**, configure capital, commission, and data range, then submit the run.
+4. Watch status and research output while it runs; retain the task, configuration, and metric snapshot on completion.
+5. Use robustness, out-of-sample, or parameter-sensitivity checks for material results.
 
-- **Async Execution** - Non-blocking backtest runs
-- **Progress Streaming** - Real-time progress via WebSocket
-- **Multiple Data Sources** - AkShare, CSV, database
-- **Standardized Metrics** - fincore-powered analytics
-- **Report Export** - HTML/PDF/Excel reports
+## Reading results
 
-## API Endpoints
+| Category | Examples |
+| --- | --- |
+| Return | Total return, annual return, final equity |
+| Risk | Maximum drawdown, volatility/risk-adjusted return, drawdown curve |
+| Trades | Trade count, win rate, profit/loss ratio, streaks, average holding period |
+| Traceability | Strategy version, instrument, timeframe, data range, capital, commission, and run time |
 
-### Run Backtest
+Trade count must come from actual open/close records. Code that overwrites `self.close()` or other trading methods is rejected; use `self.dataclose` for price series as described in the [strategy convention](./strategy-management.md#backtrader-coding-convention).
 
-```http
-POST /api/v1/backtests/run
-Content-Type: application/json
+## API and progress
 
-{
-  "strategy_id": 1,
-  "symbol": "000001.SZ",
-  "start_date": "2024-01-01",
-  "end_date": "2024-12-31",
-  "initial_cash": 100000,
-  "commission": 0.001
-}
-```
+Research workspaces are the primary UI entry point. The service also exposes `/api/v1/backtests/run` to submit, `/api/v1/backtests/{task_id}/status` for status, `/api/v1/backtests/{task_id}` for results, and `/{task_id}/robustness` to run or retrieve robustness validation. Authentication, request bodies, and optional extensions are defined by `http://localhost:8000/docs`.
 
-### Get Backtest Result
+## Validation boundaries
 
-```http
-GET /api/v1/backtests/{task_id}
-```
-
-### List Backtest History
-
-```http
-GET /api/v1/backtests?page=1&page_size=20
-```
-
-## Financial Metrics
-
-### Return Metrics
-- Total Return
-- Annual Return
-- Excess Return
-
-### Risk Metrics
-- Maximum Drawdown
-- Volatility
-- Downside Risk
-
-### Risk-Adjusted Returns
-- Sharpe Ratio
-- Sortino Ratio
-- Calmar Ratio
-
-### Trade Statistics
-- Win Rate
-- Profit Factor
-- Average Holding Period
-
-## WebSocket for Progress
-
-```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/backtest/{task_id}');
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  console.log(`Progress: ${data.progress}%`);
-};
-```
-
-## Report Export
-
-Export backtest results in multiple formats:
-
-- **HTML** - Interactive charts
-- **PDF** - Print-friendly report
-- **Excel** - Raw data for analysis
+- Do not interpret missing data, a failed task, or zero trades as “the strategy is invalid” without checking logs, coverage, and order lifecycle.
+- Hold data range, capital, costs, and execution assumptions constant when comparing strategies.
+- A successful backtest does not automatically remove live-trading risk constraints; human review and risk approval remain required.

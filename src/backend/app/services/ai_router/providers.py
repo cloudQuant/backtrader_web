@@ -42,6 +42,11 @@ def build_provider_specs(
         if not enabled:
             continue
         models = _coerce_models(raw_config.get("models"))
+        # Existing deployments may override ``AI_PROVIDERS`` with a model list
+        # created before GLM-5.2 was introduced. Keep that configuration while
+        # making the product default selectable without a manual .env edit.
+        if str(name) == "volcengine_ark" and "glm-5.2" not in models:
+            models.append("glm-5.2")
         if not models:
             continue
         specs.append(

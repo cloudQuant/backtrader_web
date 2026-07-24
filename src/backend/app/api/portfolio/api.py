@@ -19,6 +19,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
@@ -53,6 +54,7 @@ from app.services.trading_asset_info_service import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 _ACTIVE_TRADING_STATUSES = {"queued", "running"}
+_PORTFOLIO_TIMEZONE = ZoneInfo("Asia/Shanghai")
 _COMMISSION_FIELD_KEYS = (
     "commission",
     "comm",
@@ -383,8 +385,17 @@ def _infer_started_day_from_log_dir(
 
 
 def _trading_day(value: Any) -> str:
-    """Return the calendar-day portion of a value-log timestamp."""
-    return str(value or "").strip()[:10]
+    """Return a timestamp's calendar day in the portfolio's local timezone."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text[:10]
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(_PORTFOLIO_TIMEZONE)
+    return parsed.date().isoformat()
 
 
 def _source_started_day(source: _PortfolioSource) -> str | None:
@@ -684,6 +695,60 @@ def _workspace_unit_runtime_config(unit: StrategyUnit) -> dict[str, Any]:
     return load_runtime_config(runtime_dir)
 
 
+def _manager_instances_by_id(
+    mgr: LiveTradingManager,
+    user_id: str | None,
+    instance_ids: list[str],
+) -> dict[str, dict[str, Any]] | None:
+    """Load one process-validated instance snapshot for a portfolio refresh.
+
+    ``LiveTradingManager.get_instance`` validates a process by scanning the OS
+    process list. Calling it once per workspace unit turns a first-screen
+    portfolio refresh into hundreds of identical process scans. Its selected
+    instance API scans processes once without walking every persisted strategy
+    directory, then returns only the workspace instances requested here.
+
+    ``None`` intentionally preserves the per-instance compatibility path for
+    lightweight manager fakes and unexpected manager failures.
+    """
+    get_active_instances = getattr(mgr, "get_active_instances", None)
+    if callable(get_active_instances):
+        try:
+            instances = get_active_instances(instance_ids, user_id=user_id)
+        except TypeError:
+            try:
+                instances = get_active_instances(instance_ids)
+            except Exception:
+                instances = None
+        except Exception:
+            instances = None
+        if instances is not None:
+            return {
+                str(instance.get("id") or "").strip(): instance
+                for instance in instances
+                if isinstance(instance, dict) and str(instance.get("id") or "").strip()
+            }
+
+    list_instances = getattr(mgr, "list_instances", None)
+    if not callable(list_instances):
+        return None
+    try:
+        instances = list_instances(user_id=user_id) if user_id else list_instances()
+    except TypeError:
+        try:
+            instances = list_instances()
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+    return {
+        str(instance.get("id") or "").strip(): instance
+        for instance in instances
+        if isinstance(instance, dict) and str(instance.get("id") or "").strip()
+    }
+
+
 async def _active_workspace_sources(
     current_user: Any,
     mgr: LiveTradingManager,
@@ -713,6 +778,16 @@ async def _active_workspace_sources(
         result = await session.execute(query)
         rows = result.all()
 
+    instance_ids = [
+        str(unit.trading_instance_id or "").strip()
+        for unit, _workspace in rows
+        if str(unit.trading_instance_id or "").strip()
+    ]
+    manager_instances = (
+        _manager_instances_by_id(mgr, user_id, instance_ids)
+        if not include_inactive and instance_ids
+        else None
+    )
     sources: list[_PortfolioSource] = []
     for unit, workspace in rows:
         snapshot = unit.trading_snapshot if isinstance(unit.trading_snapshot, dict) else {}
@@ -729,10 +804,13 @@ async def _active_workspace_sources(
             and instance_id
             and hasattr(mgr, "get_instance")
         ):
-            try:
-                instance = mgr.get_instance(instance_id, user_id=user_id)
-            except Exception:
-                instance = None
+            if manager_instances is not None:
+                instance = manager_instances.get(instance_id)
+            else:
+                try:
+                    instance = mgr.get_instance(instance_id, user_id=user_id)
+                except Exception:
+                    instance = None
             if isinstance(instance, dict):
                 status = str(instance.get("status") or "idle").strip().lower()
             else:
@@ -780,6 +858,65 @@ async def _active_workspace_sources(
                 started_at=started_at,
                 updated_at=updated_at,
                 pid=_coerce_int(instance.get("pid") if isinstance(instance, dict) else None),
+            )
+        )
+    return sources
+
+
+async def _persisted_running_workspace_sources(current_user: Any) -> list[_PortfolioSource]:
+    """Load first-screen sources from the workspace snapshots only.
+
+    The workspace service persists these snapshots as it refreshes each unit.
+    A portfolio landing page can therefore render from the durable state
+    without constructing the live-trading manager, which may restore gateway
+    sessions and enumerate every historical instance in the process.
+    """
+    user_id = _current_user_id(current_user)
+    if not user_id:
+        return []
+
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(StrategyUnit, Workspace)
+            .join(Workspace, StrategyUnit.workspace_id == Workspace.id)
+            .where(Workspace.user_id == user_id)
+            .where(Workspace.workspace_type == "trading")
+            .where(StrategyUnit.run_status == "running")
+            .order_by(Workspace.name, StrategyUnit.sort_order, StrategyUnit.strategy_name)
+        )
+        rows = result.all()
+
+    sources: list[_PortfolioSource] = []
+    for unit, workspace in rows:
+        instance_id = str(unit.trading_instance_id or "").strip()
+        if not instance_id:
+            continue
+        snapshot = unit.trading_snapshot if isinstance(unit.trading_snapshot, dict) else {}
+        snapshot_status = str(snapshot.get("instance_status") or "running").strip().lower()
+        if snapshot_status not in _ACTIVE_TRADING_STATUSES:
+            continue
+        unit_name = str(unit.strategy_name or unit.strategy_id or unit.id)
+        started_at = str(
+            snapshot.get("started_at")
+            or snapshot.get("instance_started_at")
+            or snapshot.get("start_time")
+            or snapshot.get("startedAt")
+            or ""
+        ).strip() or None
+        sources.append(
+            _PortfolioSource(
+                id=instance_id,
+                strategy_id=str(unit.strategy_id or unit.id),
+                strategy_name=f"{workspace.name} / {unit_name}",
+                status="running",
+                symbol=str(unit.symbol or ""),
+                unit_id=str(unit.id),
+                trading_mode=str(unit.trading_mode or snapshot.get("mode") or "paper"),
+                workspace_id=str(workspace.id),
+                log_dir=_workspace_unit_log_dir(unit),
+                snapshot=dict(snapshot),
+                started_at=started_at,
+                updated_at=_coerce_started_day(unit.updated_at),
             )
         )
     return sources
@@ -2188,8 +2325,14 @@ def _workspace_unit_value_log_summary(
 
 
 def _is_running_portfolio_source(source: _PortfolioSource) -> bool:
-    """Return whether a source belongs to a currently running workspace unit."""
-    return str(source.status or "").strip().lower() == "running" and source.pid is not None
+    """Return whether a source belongs to a currently running workspace unit.
+
+    ``_portfolio_sources`` obtains workspace instances through the live manager,
+    which has already verified the process state before exposing ``running``.
+    A PID is useful metadata, but not every compatible manager implementation
+    exposes it; requiring it here silently removed valid portfolio sources.
+    """
+    return str(source.status or "").strip().lower() == "running"
 
 
 def _compact_workspace_overview(rows: list[_PortfolioSource]) -> dict[str, Any]:
@@ -2209,7 +2352,15 @@ def _compact_workspace_overview(rows: list[_PortfolioSource]) -> dict[str, Any]:
     running_count = 0
     has_position_data = False
 
-    running_sources = [source for source in rows if _is_running_portfolio_source(source)]
+    # Sources from the live-manager path have already passed process validation,
+    # while the fast landing-page path contains only persisted running units.
+    # Requiring a process PID here would make the snapshot-only path discard all
+    # valid first-screen data after an API-server restart.
+    running_sources = [
+        source
+        for source in rows
+        if str(source.status or "").strip().lower() == "running"
+    ]
 
     for source in running_sources:
         snapshot = _safe_dict(source.snapshot)
@@ -2273,6 +2424,28 @@ async def _compact_portfolio_overview(
         # Retain the detailed path for that safety-sensitive case.
         return None
     return _compact_workspace_overview(sources)
+
+
+async def _persisted_compact_portfolio_overview(current_user: Any) -> dict[str, Any]:
+    """Build a first-screen overview without initializing the live manager."""
+    return _compact_workspace_overview(await _persisted_running_workspace_sources(current_user))
+
+
+@router.get(
+    "/overview/summary",
+    summary="Portfolio overview (persisted first-screen summary)",
+    response_model=None,
+)
+async def get_portfolio_overview_summary(
+    current_user: typing.Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return fast first-screen totals from persisted workspace snapshots.
+
+    Detailed portfolio routes continue to validate live processes and gateways.
+    This endpoint intentionally avoids that work so navigating to the portfolio
+    page remains responsive when many historical instances exist.
+    """
+    return await _persisted_compact_portfolio_overview(current_user)
 
 
 @router.get("/overview", summary="Portfolio overview (live trading)", response_model=None)
@@ -2631,7 +2804,7 @@ async def _paper_equity_points(
     current_user: typing.Any,
     sources: list[_PortfolioSource],
 ) -> dict[str, list[tuple[str, float, float, float]]]:
-    """Load the canonical paper-trading equity history for selected instances."""
+    """Load canonical equity snapshots for the current run of each paper instance."""
     instance_ids = sorted({source.id for source in sources if _is_paper_runtime_source(source)})
     user_id = _current_user_id(current_user)
     if not instance_ids or not user_id:
@@ -2661,6 +2834,11 @@ async def _paper_equity_points(
             float(snapshot.cash),
             float(snapshot.realized_pnl) + float(snapshot.unrealized_pnl),
         )
+        # A paper instance id is deliberately reused when a workspace unit is
+        # restarted. ``initial`` marks the beginning of the new runtime, so
+        # prior snapshots must not be joined to its current equity curve.
+        if str(snapshot.source or "").strip().lower() == "initial":
+            points_by_instance[snapshot.instance_id] = []
         instance_points = points_by_instance.setdefault(snapshot.instance_id, [])
         if instance_points and instance_points[-1][0] == point[0]:
             instance_points[-1] = point
@@ -2680,11 +2858,11 @@ def _paper_runtime_value_data(
     snapshot_cash = [point[2] for point in paper_points]
     snapshot_pnl = [point[3] for point in paper_points]
 
-    log_data = (
-        parse_value_log(source.log_dir, prefer_log_time=False)
-        if source.log_dir and source.log_dir.is_dir()
-        else {}
-    )
+    # ``parse_value_log`` already handles a missing or empty log directory.
+    # Do not pre-filter with ``Path.is_dir``: compatibility adapters may hand
+    # us a path-like runtime log location whose existence is resolved by the
+    # parser itself, and an empty snapshot history must still fall back to it.
+    log_data = parse_value_log(source.log_dir, prefer_log_time=False) if source.log_dir else {}
     log_dates = list(log_data.get("datetimes") or log_data.get("dates", []))
     log_equity = list(log_data.get("equity_curve", []))
     log_cash = list(log_data.get("cash_curve", []))
@@ -2747,9 +2925,7 @@ async def get_portfolio_equity(
             - strategies: List of per-strategy equity curves
     """
     workspace_id_set = _parse_query_ids(workspace_ids)
-    # Equity must represent current capital only. Some older browser bundles
-    # still send include_inactive=true, which must not add historical workspaces.
-    include_inactive_sources = False
+    include_inactive_sources = include_inactive
     sources = await _portfolio_sources(
         current_user,
         mgr,
@@ -2757,10 +2933,8 @@ async def get_portfolio_equity(
     )
     if workspace_id_set:
         sources = [source for source in sources if source.workspace_id in workspace_id_set]
-    sources = [
-        source for source in sources
-        if str(source.status or "").strip().lower() == "running" and source.pid is not None
-    ]
+    if not include_inactive:
+        sources = [source for source in sources if _is_running_portfolio_source(source)]
 
     paper_points_by_source = await _paper_equity_points(current_user, sources)
 
@@ -2782,7 +2956,11 @@ async def get_portfolio_equity(
         equity = value_data.get("equity_curve", [])
         cash = value_data.get("cash_curve", [])
         pnl = value_data.get("pnl_curve", [])
-        if not include_inactive and not paper_runtime_source:
+        # A canonical paper snapshot is already scoped to the active runtime.
+        # When it is not available we are reading a regular runtime log, so the
+        # same start-time guard used by live strategies must apply.
+        has_paper_snapshot = paper_runtime_source and bool(paper_points)
+        if not include_inactive and not has_paper_snapshot:
             started_day = _source_started_day(source)
             if dates and equity:
                 dates, equity, cash = _trim_curve_by_source_start(
@@ -2797,7 +2975,10 @@ async def get_portfolio_equity(
             pnl = [float(value) - initial_equity for value in equity]
 
         if not dates:
-            if paper_runtime_source:
+            # Paper snapshots belong to workspace units. Legacy manager
+            # instances without a workspace must still be able to show their
+            # gateway account when no local curve has been written yet.
+            if paper_runtime_source and source.unit_id:
                 unavailable_strategies.append(
                     {
                         "strategy_id": source.strategy_id,
@@ -2840,7 +3021,7 @@ async def get_portfolio_equity(
             pnl = [0.0]
             value_source = source.account_source or "gateway"
         else:
-            value_source = "paper_snapshot_with_runtime_log" if paper_runtime_source else "log"
+            value_source = "paper_snapshot_with_runtime_log" if has_paper_snapshot else "log"
 
         date_map = {}
         for i, dt in enumerate(dates):
@@ -2858,10 +3039,6 @@ async def get_portfolio_equity(
                 "instance_id": source.id,
                 "date_map": date_map,
                 "initial": equity[0] if equity else 0,
-                "initial_funds": max(
-                    _safe_float(equity[0]) - _safe_float(pnl[0] if pnl else 0.0),
-                    0.0,
-                ),
                 "first_trading_day": _trading_day(dates[0]) if dates else "",
                 "value_source": value_source,
             }
@@ -2900,14 +3077,14 @@ async def get_portfolio_equity(
                 series_val = val
                 pnl_val = sc.get("_last_pnl", 0.0)
             else:
-                # Seed every runtime with its first observed capital from the
-                # beginning of the portfolio window. This removes artificial
-                # jumps caused by processes reporting their first snapshot at
-                # different minutes. Individual series remain zero until their
-                # own first real observation, so their charts still start at
-                # the correct runtime timestamp.
-                val = sc.get("initial", 0.0)
-                series_val = 0.0
+                # A process that first reports later in the *same* trading day
+                # already had its initial capital at market open. Seed it only
+                # within that day so an intraday startup does not create a
+                # false portfolio jump. Earlier trading days must remain zero:
+                # the runtime did not exist yet and should not rewrite history.
+                starts_today = _trading_day(dt) == sc.get("first_trading_day")
+                val = sc.get("initial", 0.0) if starts_today else 0.0
+                series_val = val
                 pnl_val = 0.0
             sc["_last"] = val
             sc["_last_pnl"] = pnl_val
@@ -2918,16 +3095,19 @@ async def get_portfolio_equity(
         total_equity.append(_safe_round(day_total))
         cumulative_pnl.append(_safe_round(day_pnl))
 
-    # Portfolio drawdown: loss from the cumulative-PnL peak as a percentage
-    # of the strategy capital, rather than a percentage of the moving equity
-    # peak. This keeps the denominator equal to the capital actually deployed.
+    # Drawdown must use the same high-water mark as the total-equity curve
+    # rendered by the client.  A cumulative-PnL peak with fixed initial capital
+    # becomes inaccurate when the portfolio's capital or strategy mix changes.
     total_drawdown = []
-    total_funds = sum(_safe_float(curve.get("initial_funds")) for curve in strategy_curves)
-    pnl_peak = cumulative_pnl[0] if cumulative_pnl else 0.0
-    for pnl_value in cumulative_pnl:
-        pnl_peak = max(pnl_peak, pnl_value)
-        dd = (pnl_value - pnl_peak) / total_funds if total_funds > EPSILON else 0.0
-        total_drawdown.append(_safe_round(dd, 6))
+    equity_peak = 0.0
+    for equity_value in total_equity:
+        equity_peak = max(equity_peak, equity_value)
+        drawdown = (
+            (equity_value - equity_peak) / equity_peak
+            if equity_peak > EPSILON
+            else 0.0
+        )
+        total_drawdown.append(_safe_round(drawdown, 6))
 
     # Sampling only after aggregation keeps every strategy on the same time
     # axis. Per-instance sampling creates staggered gaps and visible sawtooth

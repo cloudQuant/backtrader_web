@@ -179,6 +179,17 @@ export interface AIStrategyResearchRunRequest {
   continuation_context?: Record<string, unknown>
 }
 
+export interface AIStrategyResearchObjectiveOptimizeRequest {
+  prompt: string
+  research_config?: Record<string, unknown>
+}
+
+export interface AIStrategyResearchObjectiveOptimizeResponse {
+  prompt: string
+  model: string
+  provider: string
+}
+
 export interface InvestmentMandateCreateRequest {
   raw_prompt: string
   symbol?: string | null

@@ -63,6 +63,7 @@ redis = ["redis>=5.0.0"]
 backtrader = ["backtrader>=1.9.78.123", "pandas>=2.1.0", "numpy>=1.26.0"]
 data = ["akshare>=1.12.0"]
 ai = ["litellm>=1.40,<2.0"]
+rag = ["chromadb>=1.3,<2.0", "sentence-transformers>=5.1,<6.0"]
 prod = ["gunicorn>=22.0.0"]
 
 [build-system]

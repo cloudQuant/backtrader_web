@@ -1,13 +1,6 @@
 # Reference
 
-This section provides detailed reference documentation.
-
-## Topics
-
-- [Configuration](./configuration.md) - Environment variables and configuration
-- [CLI](./cli.md) - Command-line interface
-
-## Additional Resources
-
-- [API Documentation](../development/api.md) - RESTful API reference
-- [Database Schema](../development/database.md) - Database design
+- [Configuration](./configuration.md): environment variables, databases, AI/RAG, and synchronization boundaries.
+- [Common commands](./cli.md): development, tests, static checks, and docs build.
+- [API reference](../development/api.md): API convention backed by the running OpenAPI document.
+- [Database and data boundaries](../development/database.md): responsibilities of the application database and market warehouse.

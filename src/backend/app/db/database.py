@@ -115,6 +115,15 @@ def _add_column_if_missing(bind, table_name: str, column_name: str, ddl: str) ->
 
 
 def _ensure_index_if_missing(bind, table_name: str, index_name: str, column_name: str) -> None:
+    _ensure_index_columns_if_missing(bind, table_name, index_name, (column_name,))
+
+
+def _ensure_index_columns_if_missing(
+    bind,
+    table_name: str,
+    index_name: str,
+    column_names: tuple[str, ...],
+) -> None:
     if not _has_table(bind, table_name):
         return
     if index_name in _get_index_names(bind, table_name):
@@ -122,8 +131,13 @@ def _ensure_index_if_missing(bind, table_name: str, index_name: str, column_name
 
     metadata = sa.MetaData()
     table = sa.Table(table_name, metadata, autoload_with=bind)
-    sa.Index(index_name, table.c[column_name]).create(bind=bind)
-    logger.warning("Added missing database index %s on %s(%s)", index_name, table_name, column_name)
+    sa.Index(index_name, *(table.c[column_name] for column_name in column_names)).create(bind=bind)
+    logger.warning(
+        "Added missing database index %s on %s(%s)",
+        index_name,
+        table_name,
+        ", ".join(column_names),
+    )
 
 
 def _modify_mysql_column_type_if_needed(
@@ -281,6 +295,18 @@ def _ensure_workspace_schema_compatibility_sync(bind) -> None:
                 "workspaces",
                 "ix_workspaces_workspace_type",
                 "workspace_type",
+            )
+            _ensure_index_columns_if_missing(
+                bind,
+                "workspaces",
+                "ix_workspaces_user_type_updated_id",
+                ("user_id", "workspace_type", "updated_at", "id"),
+            )
+            _ensure_index_columns_if_missing(
+                bind,
+                "workspaces",
+                "ix_workspaces_user_updated_id",
+                ("user_id", "updated_at", "id"),
             )
 
     if _has_table(bind, "strategy_units"):

@@ -26,6 +26,7 @@ vi.mock('@/api/kbChat', () => ({
   kbChatApi: {
     listConversations: vi.fn(),
     getHistory: vi.fn(),
+    deleteConversation: vi.fn(),
     send: vi.fn(),
   },
 }))
@@ -56,6 +57,38 @@ describe('useKBChatStore', () => {
 
     expect(store.conversations).toHaveLength(1)
     expect(store.conversations[0].id).toBe('conv-1')
+  })
+
+  it('deleteConversation removes the active session and clears its messages', async () => {
+    const store = useKBChatStore()
+    store.conversations = [
+      {
+        id: 'conv-1',
+        knowledge_base_id: 'kb-1',
+        title: '待删除会话',
+        model_id: null,
+        created_at: '2026-04-23T00:00:00Z',
+        updated_at: '2026-04-23T00:00:00Z',
+      },
+      {
+        id: 'conv-2',
+        knowledge_base_id: 'kb-1',
+        title: '保留会话',
+        model_id: null,
+        created_at: '2026-04-24T00:00:00Z',
+        updated_at: '2026-04-24T00:00:00Z',
+      },
+    ]
+    store.currentConversationId = 'conv-1'
+    store.messages = [{ role: 'user', content: '需要删除的内容' }]
+    vi.mocked(kbChatApi.deleteConversation).mockResolvedValue({ message: 'Conversation deleted' })
+
+    await store.deleteConversation('conv-1')
+
+    expect(kbChatApi.deleteConversation).toHaveBeenCalledWith('conv-1')
+    expect(store.conversations.map(conversation => conversation.id)).toEqual(['conv-2'])
+    expect(store.currentConversationId).toBeNull()
+    expect(store.messages).toEqual([])
   })
 
   it('sendMessage should append assistant response', async () => {

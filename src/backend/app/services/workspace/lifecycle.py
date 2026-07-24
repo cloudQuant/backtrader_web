@@ -6,94 +6,19 @@ Extracted from :class:`app.services.workspace_service.WorkspaceService`.
 
 from __future__ import annotations
 
-import logging
 from typing import Any, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.db.database import async_session_maker
-from app.models.workspace import StrategyUnit, Workspace
+from app.models.workspace import Workspace
 from app.schemas.workspace import (
     WorkspaceCreate,
     WorkspaceResponse,
     WorkspaceUpdate,
 )
 from app.services import workspace_unit_runtime
-from app.services.live_trading_manager import get_live_trading_manager
-
-logger = logging.getLogger(__name__)
-
-
-def _runtime_status_to_unit_status(instance: dict[str, Any] | None) -> str:
-    """Map the live instance's authoritative lifecycle state to a unit status."""
-    status = str((instance or {}).get("status") or "stopped").strip().lower()
-    if status == "running":
-        return "running"
-    if status == "error" or (instance or {}).get("error"):
-        return "failed"
-    return "idle"
-
-
-def _reconcile_trading_unit_statuses(
-    workspaces: list[Workspace],
-    user_id: str,
-) -> bool:
-    """Synchronize active trading-unit flags from one live-manager snapshot.
-
-    The workspace list is the first page users see after restarting the app.
-    Its persisted ``run_status`` values therefore must not claim a strategy is
-    running when the live manager has already determined the process stopped.
-    """
-    trading_workspaces = [
-        workspace for workspace in workspaces if str(workspace.workspace_type).lower() == "trading"
-    ]
-    if not trading_workspaces:
-        return False
-
-    try:
-        instances = get_live_trading_manager().list_instances(user_id=user_id)
-    except Exception:
-        logger.warning("Unable to reconcile trading workspace runtime state", exc_info=True)
-        return False
-
-    instance_by_id = {
-        str(instance.get("id") or ""): instance
-        for instance in instances
-        if isinstance(instance, dict) and str(instance.get("id") or "").strip()
-    }
-    changed = False
-
-    for workspace in trading_workspaces:
-        for unit in workspace.strategy_units or []:
-            if not isinstance(unit, StrategyUnit):
-                continue
-            instance_id = str(unit.trading_instance_id or "").strip()
-            if not instance_id:
-                continue
-
-            instance = instance_by_id.get(instance_id)
-            next_status = _runtime_status_to_unit_status(instance)
-            current_status = str(unit.run_status or "idle").strip().lower()
-            if current_status in {"queued", "running"} and current_status != next_status:
-                unit.run_status = next_status
-                changed = True
-            elif next_status == "running" and current_status != "running":
-                unit.run_status = "running"
-                changed = True
-
-            snapshot = dict(unit.trading_snapshot or {})
-            snapshot["instance_id"] = instance_id
-            snapshot["instance_status"] = str((instance or {}).get("status") or "stopped")
-            if instance and instance.get("stopped_at"):
-                snapshot["stopped_at"] = instance["stopped_at"]
-            if instance and instance.get("error"):
-                snapshot["error"] = instance["error"]
-            if unit.trading_snapshot != snapshot:
-                unit.trading_snapshot = snapshot
-                changed = True
-
-    return changed
 
 
 async def create_workspace(user_id: str, data: WorkspaceCreate) -> WorkspaceResponse:
@@ -182,8 +107,6 @@ async def list_workspaces(
             for workspace_id in workspace_ids
             if workspace_id in workspace_by_id
         ]
-        if _reconcile_trading_unit_statuses(ordered_workspaces, user_id):
-            await session.commit()
         return total, [
             _workspace_to_response(workspace)
             for workspace in ordered_workspaces

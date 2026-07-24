@@ -64,6 +64,9 @@ class RAGDiagnostics(BaseModel):
     total_indexable_documents: int = 0
     indexed_documents: int = 0
     coverage_ratio: float = 0.0
+    semantic_retrieval_status: str = "disabled"
+    semantic_candidates: int = 0
+    llm_reranked: bool = False
 
 
 class RAGSearchResponse(BaseModel):
