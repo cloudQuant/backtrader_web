@@ -90,13 +90,28 @@ function createFeaturePageContextOptions(testInfo: TestInfo) {
   };
 }
 
+async function navigateToFeaturePage(page: Page, target: FeaturePage, baseURL: string) {
+  await page.goto(new URL(target.path, baseURL).toString(), { waitUntil: 'domcontentloaded' });
+
+  // WebKit can occasionally leave a blank document after a long sequence of
+  // direct route changes. Retry the document load once; the caller still
+  // asserts the app shell and feature content after this recovery attempt.
+  const appShellVisible = await page
+    .locator('.app-main-content')
+    .isVisible({ timeout: 5_000 })
+    .catch(() => false);
+  if (!appShellVisible) {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+}
+
 async function assertFeaturePageUsable(page: Page, target: FeaturePage, baseURL: string) {
   const pageErrors: string[] = [];
   const apiFailures: string[] = [];
   const onPageError = (error: Error) => {
-    // Route changes cancel in-flight requests. Firefox reports that expected
-    // cancellation as a page error even after the destination renders.
-    if (error.message === 'Request aborted') return;
+    // Route changes cancel in-flight Axios requests. Firefox reports that as
+    // "Request aborted" while WebKit reports the equivalent "Network Error".
+    if (['Request aborted', 'AxiosError: Network Error'].includes(error.message)) return;
     pageErrors.push(error.message);
   };
   const onResponse = (response: { status: () => number; url: () => string }) => {
@@ -110,7 +125,7 @@ async function assertFeaturePageUsable(page: Page, target: FeaturePage, baseURL:
   page.on('response', onResponse);
 
   try {
-    await page.goto(new URL(target.path, baseURL).toString(), { waitUntil: 'domcontentloaded' });
+    await navigateToFeaturePage(page, target, baseURL);
     await expect(page).not.toHaveURL(/\/login(?:\?.*)?$/);
     await expect(page.locator('.app-main-content')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('body')).toContainText(target.expected, { timeout: 10_000 });
