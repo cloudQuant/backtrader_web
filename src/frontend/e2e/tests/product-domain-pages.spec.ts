@@ -5,6 +5,7 @@ type FeaturePage = {
   name: string;
   path: string;
   expected: RegExp;
+  readySelector?: string;
   adminOnly?: boolean;
 };
 
@@ -18,7 +19,12 @@ const featurePages: FeaturePage[] = [
   { name: 'research workspaces', path: '/research/workspaces', expected: /新建工作区|策略研究|Workspace/i },
   // The retired tools page redirects to the research-workspace entry point.
   { name: 'research tools', path: '/research/tools', expected: /新建工作区|策略研究|Workspace/i },
-  { name: 'data quote', path: '/data/quote', expected: /行情报价|Quote/i },
+  {
+    name: 'data quote',
+    path: '/data/quote',
+    expected: /行情报价|Quote/i,
+    readySelector: '[data-test="quote-page"]',
+  },
   { name: 'data market', path: '/data/market', expected: /数据治理中心|市场数据|Market/i },
   { name: 'data topics', path: '/data/topics', expected: /DataTopic|主题|Topic/i },
   { name: 'data scripts', path: '/data/scripts', expected: /脚本|Scripts/i },
@@ -95,9 +101,9 @@ async function navigateToFeaturePage(page: Page, target: FeaturePage, baseURL: s
 
   // WebKit can occasionally leave a blank document for a direct route load.
   // Retry the document once; the caller still verifies the app shell and page.
-  const appShellVisible = await page
-    .locator('.app-main-content')
-    .isVisible({ timeout: 5_000 })
+  const appShellVisible = await expect(page.locator('.app-main-content'))
+    .toBeVisible({ timeout: 5_000 })
+    .then(() => true)
     .catch(() => false);
   if (!appShellVisible) {
     await page.reload({ waitUntil: 'domcontentloaded' });
@@ -127,6 +133,9 @@ async function assertFeaturePageUsable(page: Page, target: FeaturePage, baseURL:
     await expect(page).not.toHaveURL(/\/login(?:\?.*)?$/);
     await expect(page.locator('.app-main-content')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('body')).toContainText(target.expected, { timeout: 10_000 });
+    if (target.readySelector) {
+      await expect(page.locator(target.readySelector)).toBeVisible({ timeout: 10_000 });
+    }
 
     const usableSurface = page.locator(
       [
