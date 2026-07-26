@@ -84,6 +84,7 @@ def main() -> int:
         async with Session() as session:
             smoke_user_id: str | None = None
             smoke_strategy_id: str | None = None
+            smoke_knowledge_base_id: str | None = None
 
             # --- User
             try:
@@ -138,24 +139,54 @@ def main() -> int:
 
             # --- Knowledge base
             try:
-                from app.models.knowledge_base import KnowledgeBase  # type: ignore
+                from app.models.knowledge_base import KBDocument, KnowledgeBase  # type: ignore
             except Exception as exc:
                 _log(f"WARN: cannot import KnowledgeBase model — skipping: {exc!r}")
-                KnowledgeBase = None  # type: ignore
+                KBDocument = KnowledgeBase = None  # type: ignore
 
             if KnowledgeBase is not None and smoke_user_id is not None:
                 stmt = select(KnowledgeBase).where(KnowledgeBase.name == "smoke-kb")
                 existing = (await session.execute(stmt)).scalar_one_or_none()
                 if existing is None:
-                    kb = KnowledgeBase(  # type: ignore[call-arg]
+                    knowledge_base = KnowledgeBase(  # type: ignore[call-arg]
                         name="smoke-kb",
                         owner_id=smoke_user_id,
+                        document_count=1,
                     )
-                    session.add(kb)
+                    session.add(knowledge_base)
+                    await session.flush()
                     counts["knowledge_bases"]["created"] += 1
                     _log("created smoke-kb")
                 else:
+                    knowledge_base = existing
                     counts["knowledge_bases"]["skipped"] += 1
+                smoke_knowledge_base_id = knowledge_base.id
+
+                if KBDocument is not None:
+                    document_stmt = select(KBDocument).where(
+                        KBDocument.knowledge_base_id == smoke_knowledge_base_id,
+                        KBDocument.title == "Backtest Basics",
+                    )
+                    document = (
+                        await session.execute(document_stmt)
+                    ).scalar_one_or_none()
+                    if document is None:
+                        session.add(
+                            KBDocument(
+                                knowledge_base_id=smoke_knowledge_base_id,
+                                title="Backtest Basics",
+                                content=(
+                                    "A backtest evaluates a trading strategy against historical market data. "
+                                    "It measures returns, drawdown, and risk before live deployment."
+                                ),
+                                content_type="markdown",
+                                status="published",
+                            )
+                        )
+                        knowledge_base.document_count = max(
+                            int(knowledge_base.document_count or 0), 1
+                        )
+                        _log("created Backtest Basics knowledge document")
 
             # --- Completed backtest (best-effort)
             try:
