@@ -31,18 +31,23 @@ async def _create_kb(client: AsyncClient, headers: dict, name: str = "stock-kb")
 
 
 async def _wait_for_completed_task(
-    client: AsyncClient, headers: dict, task_id: str, *, attempts: int = 200
+    client: AsyncClient, headers: dict, task_id: str, *, timeout_seconds: float = 30.0
 ) -> dict:
     last_payload: dict | None = None
-    for _ in range(attempts):
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    while True:
         response = await client.get(f"/api/v1/stock-analysis/tasks/{task_id}", headers=headers)
         assert response.status_code == 200, response.text
         last_payload = response.json()
         if last_payload["status"] == "completed":
             return last_payload
         assert last_payload["status"] in {"pending", "running"}
+        if asyncio.get_running_loop().time() >= deadline:
+            break
         await asyncio.sleep(0.05)
-    raise AssertionError(f"stock analysis task did not complete: {last_payload}")
+    raise AssertionError(
+        f"stock analysis task did not complete within {timeout_seconds}s: {last_payload}"
+    )
 
 
 async def _user_id_for_username(username: str) -> str:
@@ -329,6 +334,7 @@ async def test_stock_analysis_concurrency_limit_blocks_extra_ai_chat_task(
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(45)
 async def test_failed_stock_analysis_task_can_be_retried(client: AsyncClient):
     username = "stock_retry_user"
     _, headers = await register_and_login(client, username=username)
@@ -369,6 +375,7 @@ async def test_failed_stock_analysis_task_can_be_retried(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(45)
 async def test_stock_analysis_from_ai_chat_generates_compat_report_and_exports(
     client: AsyncClient,
 ):
