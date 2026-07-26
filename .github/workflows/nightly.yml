@@ -58,7 +58,9 @@ jobs:
       - name: Run all tests with detailed coverage
         run: |
           pip install pytest-cov pytest-xdist
-          pytest -n auto --cov=app --cov-report=xml --cov-report=html --cov-report=term-missing -v --tb=short
+          # Performance assertions run in the dedicated performance job below;
+          # they are inherently sensitive to shared-runner load.
+          pytest -n auto -m "not performance" --cov=app --cov-report=xml --cov-report=html --cov-report=term-missing -v --tb=short
 
       - name: Generate coverage badge
         run: |
