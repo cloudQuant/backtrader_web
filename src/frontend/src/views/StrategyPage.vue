@@ -2811,7 +2811,7 @@
           :disabled="aiResearchPromptGenerationLoading"
           @click="closeAIResearchPromptGenerationDialog"
         >
-          取消
+          {{ t('common.cancel') }}
         </el-button>
         <el-button
           type="primary"
@@ -2819,7 +2819,11 @@
           data-test="ai-research-prompt-generation-confirm"
           @click="confirmAIResearchPromptGeneration"
         >
-          {{ aiResearchPromptGenerationMode === 'ai' ? '调用大模型并生成' : '生成默认目标' }}
+          {{
+            aiResearchPromptGenerationMode === 'ai'
+              ? t('strategy.aiResearchPromptGenerateWithAi')
+              : t('strategy.aiResearchPromptGenerateDefault')
+          }}
         </el-button>
       </template>
     </el-dialog>

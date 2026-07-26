@@ -1365,7 +1365,7 @@ export function useStrategyPage() {
 
   function openAIResearchPromptGenerationDialog() {
     if (aiResearchRunning.value) {
-      ElMessage.warning('投研任务运行中，请等待任务结束后再生成研究目标')
+      ElMessage.warning(t('strategy.aiResearchPromptGenerationBusy'))
       return
     }
     aiResearchPromptGenerationMode.value = 'default'
@@ -1440,11 +1440,11 @@ export function useStrategyPage() {
       if (!optimizedPrompt) throw new Error('empty optimized prompt')
       aiResearchForm.prompt = optimizedPrompt
       clearAIResearchMandate()
-      ElMessage.success(`已使用 ${optimized.model} 优化投研目标`)
+      ElMessage.success(t('strategy.aiResearchPromptOptimized', { model: optimized.model }))
     } catch {
       aiResearchForm.prompt = defaultPrompt
       clearAIResearchMandate()
-      ElMessage.warning('大模型优化失败，已采用默认投研目标')
+      ElMessage.warning(t('strategy.aiResearchPromptOptimizationFailed'))
     } finally {
       aiResearchPromptGenerationLoading.value = false
       aiResearchPromptGenerationDialogVisible.value = false
@@ -1785,7 +1785,7 @@ export function useStrategyPage() {
     options: { notify?: boolean; syncResult?: boolean } = {}
   ) {
     if (aiResearchRunning.value) {
-      ElMessage.warning('AI投研运行中，请等待当前任务结束后再切换方案')
+      ElMessage.warning(t('strategy.aiResearchConfigSwitchBusy'))
       return
     }
     setAIResearchConfigProfileEditor(profile)

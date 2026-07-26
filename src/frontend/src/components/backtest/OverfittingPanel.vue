@@ -54,7 +54,7 @@
           :disabled="loading"
           @update:model-value="toggleMethod('parameter_sensitivity', Boolean($event))"
         >
-          参数敏感性
+          {{ t('backtestComp.ofParameterSensitivity') }}
         </el-checkbox>
       </div>
       <el-button
@@ -171,7 +171,7 @@
           </template>
           <template v-else-if="activeMethod.method === 'parameter_sensitivity'">
             <div class="mb-3 text-xs text-gray-500">
-              参数扰动后的 Sharpe 与年化收益衰减。
+              {{ t('backtestComp.ofParameterSensitivityDescription') }}
             </div>
             <div
               v-if="parameterSensitivityTrials.length"
@@ -185,14 +185,14 @@
                 <span>{{ trial.parameter }} {{ trial.direction }}</span>
                 <span>{{ trial.value }}</span>
                 <span>Sharpe {{ trial.sharpe }}</span>
-                <span>衰减 {{ trial.decay }}%</span>
+                <span>{{ t('backtestComp.ofDecay', { value: trial.decay }) }}</span>
               </div>
             </div>
             <p
               v-else
               class="text-sm text-gray-500"
             >
-              未返回可展示的参数扰动样本。
+              {{ t('backtestComp.ofNoParameterSensitivitySamples') }}
             </p>
           </template>
           <template v-else>

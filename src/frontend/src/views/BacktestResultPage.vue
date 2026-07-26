@@ -29,7 +29,7 @@
           <h1 id="backtest-result-title">{{ strategyNameFromQuery || backtestSummary.strategy_id }}</h1>
           <el-tag effect="plain">{{ backtestSummary.symbol }}</el-tag>
         </div>
-        <p>{{ error || '正在加载完整回测明细…' }}</p>
+        <p>{{ error || t('backtest.loadingFullDetail') }}</p>
       </div>
       <div class="backtest-result-metrics">
         <article

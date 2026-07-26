@@ -2,15 +2,15 @@
   <section class="paper-runtime-page">
     <header class="page-header">
       <div>
-        <h1>模拟交易详情</h1>
-        <p>以策略运行实例为边界查看权益、告警、风控与审核状态。</p>
+        <h1>{{ t('paperTradingDetail.title') }}</h1>
+        <p>{{ t('paperTradingDetail.subtitle') }}</p>
       </div>
-      <el-button @click="load">刷新</el-button>
+      <el-button @click="load">{{ t('paperTradingDetail.refresh') }}</el-button>
     </header>
 
-    <div v-if="loading" class="page-state" role="status">查询中…</div>
-    <el-result v-else-if="error" icon="error" title="加载失败" :sub-title="error">
-      <template #extra><el-button type="primary" @click="load">重试</el-button></template>
+    <div v-if="loading" class="page-state" role="status">{{ t('paperTradingDetail.loading') }}</div>
+    <el-result v-else-if="error" icon="error" :title="t('paperTradingDetail.loadFailed')" :sub-title="error">
+      <template #extra><el-button type="primary" @click="load">{{ t('paperTradingDetail.retry') }}</el-button></template>
     </el-result>
 
     <template v-else-if="runtime">
@@ -19,47 +19,47 @@
           <div class="card-header">
             <strong>{{ runtime.unit_name }} · {{ runtime.symbol }}</strong>
             <el-tag :type="runtime.paused ? 'warning' : 'success'">
-              {{ runtime.paused ? '已暂停' : runtime.status }}
+              {{ runtime.paused ? t('paperTradingDetail.paused') : runtime.status }}
             </el-tag>
           </div>
         </template>
         <dl class="overview-grid">
-          <div><dt>工作区</dt><dd>{{ runtime.workspace_name }}</dd></div>
-          <div><dt>当前权益</dt><dd>{{ formatCurrency(runtime.latest_equity?.total_equity) }}</dd></div>
-          <div><dt>可用资金</dt><dd>{{ formatCurrency(runtime.latest_equity?.cash) }}</dd></div>
-          <div><dt>运行实例</dt><dd class="monospace">{{ runtime.instance_id }}</dd></div>
+          <div><dt>{{ t('paperTradingDetail.workspace') }}</dt><dd>{{ runtime.workspace_name }}</dd></div>
+          <div><dt>{{ t('paperTradingDetail.currentEquity') }}</dt><dd>{{ formatCurrency(runtime.latest_equity?.total_equity) }}</dd></div>
+          <div><dt>{{ t('paperTradingDetail.availableCash') }}</dt><dd>{{ formatCurrency(runtime.latest_equity?.cash) }}</dd></div>
+          <div><dt>{{ t('paperTradingDetail.runtimeInstance') }}</dt><dd class="monospace">{{ runtime.instance_id }}</dd></div>
         </dl>
-        <el-button :disabled="runtime.paused" type="warning" @click="pauseRuntime">暂停运行</el-button>
+        <el-button :disabled="runtime.paused" type="warning" @click="pauseRuntime">{{ t('paperTradingDetail.pauseRuntime') }}</el-button>
       </el-card>
 
       <el-row :gutter="16">
         <el-col :xs="24" :lg="14">
           <el-card>
-            <template #header><strong>资金曲线</strong></template>
-            <div v-if="equityLoading" class="page-state">查询中…</div>
-            <el-empty v-else-if="!equity.length" description="尚无资金快照" />
+            <template #header><strong>{{ t('paperTradingDetail.equityCurve') }}</strong></template>
+            <div v-if="equityLoading" class="page-state">{{ t('paperTradingDetail.loading') }}</div>
+            <el-empty v-else-if="!equity.length" :description="t('paperTradingDetail.noEquitySnapshots')" />
             <el-table v-else :data="equity" size="small" max-height="360">
-              <el-table-column prop="observed_at" label="时间" min-width="170" />
-              <el-table-column label="权益" min-width="120"><template #default="{ row }">{{ formatCurrency(row.total_equity) }}</template></el-table-column>
-              <el-table-column label="现金" min-width="120"><template #default="{ row }">{{ formatCurrency(row.cash) }}</template></el-table-column>
-              <el-table-column prop="source" label="来源" min-width="120" />
+              <el-table-column prop="observed_at" :label="t('paperTradingDetail.time')" min-width="170" />
+              <el-table-column :label="t('paperTradingDetail.equity')" min-width="120"><template #default="{ row }">{{ formatCurrency(row.total_equity) }}</template></el-table-column>
+              <el-table-column :label="t('paperTradingDetail.cash')" min-width="120"><template #default="{ row }">{{ formatCurrency(row.cash) }}</template></el-table-column>
+              <el-table-column prop="source" :label="t('paperTradingDetail.source')" min-width="120" />
             </el-table>
           </el-card>
         </el-col>
         <el-col :xs="24" :lg="10">
           <el-card>
-            <template #header><strong>审核决策</strong></template>
-            <p class="hint">审核结果会持久化，`requested_changes` 不会解除实盘锁定。</p>
+            <template #header><strong>{{ t('paperTradingDetail.reviewDecision') }}</strong></template>
+            <p class="hint">{{ t('paperTradingDetail.reviewNote') }}</p>
             <div class="decision-actions">
-              <el-button type="success" @click="decide('approved')">批准</el-button>
-              <el-button type="danger" @click="decide('rejected')">拒绝</el-button>
-              <el-button type="warning" @click="decide('requested_changes')">请求修改</el-button>
+              <el-button type="success" @click="decide('approved')">{{ t('paperTradingDetail.approve') }}</el-button>
+              <el-button type="danger" @click="decide('rejected')">{{ t('paperTradingDetail.reject') }}</el-button>
+              <el-button type="warning" @click="decide('requested_changes')">{{ t('paperTradingDetail.requestChanges') }}</el-button>
             </div>
           </el-card>
           <el-card class="rules-card">
-            <template #header><strong>生效风控规则</strong></template>
-            <div v-if="rulesLoading" class="page-state">查询中…</div>
-            <el-empty v-else-if="!rules.length" description="暂无规则" />
+            <template #header><strong>{{ t('paperTradingDetail.activeRiskRules') }}</strong></template>
+            <div v-if="rulesLoading" class="page-state">{{ t('paperTradingDetail.loading') }}</div>
+            <el-empty v-else-if="!rules.length" :description="t('paperTradingDetail.noRules')" />
             <ul v-else class="rule-list"><li v-for="rule in rules" :key="rule.id">{{ rule.name }} · {{ rule.rule_type }}</li></ul>
           </el-card>
         </el-col>
@@ -68,27 +68,27 @@
       <el-row :gutter="16">
         <el-col :xs="24" :xl="12">
           <el-card>
-            <template #header><strong>当前持仓</strong></template>
-            <el-empty v-if="!runtime.positions.length" description="当前无持仓" />
+            <template #header><strong>{{ t('paperTradingDetail.currentPositions') }}</strong></template>
+            <el-empty v-if="!runtime.positions.length" :description="t('paperTradingDetail.noPositions')" />
             <el-table v-else :data="runtime.positions" size="small" max-height="280">
-              <el-table-column prop="data_name" label="标的" min-width="120" />
-              <el-table-column prop="direction" label="方向" width="90" />
-              <el-table-column prop="size" label="数量" width="100" />
-              <el-table-column prop="market_value" label="市值" min-width="120" />
-              <el-table-column prop="pnl" label="浮动盈亏" min-width="120" />
+              <el-table-column prop="data_name" :label="t('paperTradingDetail.symbol')" min-width="120" />
+              <el-table-column prop="direction" :label="t('paperTradingDetail.direction')" width="90" />
+              <el-table-column prop="size" :label="t('paperTradingDetail.quantity')" width="100" />
+              <el-table-column prop="market_value" :label="t('paperTradingDetail.marketValue')" min-width="120" />
+              <el-table-column prop="pnl" :label="t('paperTradingDetail.unrealizedPnl')" min-width="120" />
             </el-table>
           </el-card>
         </el-col>
         <el-col :xs="24" :xl="12">
           <el-card>
-            <template #header><strong>订单</strong></template>
-            <el-empty v-if="!runtime.orders.length" description="暂无订单" />
+            <template #header><strong>{{ t('paperTradingDetail.orders') }}</strong></template>
+            <el-empty v-if="!runtime.orders.length" :description="t('paperTradingDetail.noOrders')" />
             <el-table v-else :data="runtime.orders" size="small" max-height="280">
-              <el-table-column prop="symbol" label="标的" min-width="120" />
-              <el-table-column prop="side" label="方向" width="90" />
-              <el-table-column prop="status" label="状态" width="100" />
-              <el-table-column prop="size" label="数量" width="100" />
-              <el-table-column prop="price" label="价格" min-width="100" />
+              <el-table-column prop="symbol" :label="t('paperTradingDetail.symbol')" min-width="120" />
+              <el-table-column prop="side" :label="t('paperTradingDetail.direction')" width="90" />
+              <el-table-column prop="status" :label="t('paperTradingDetail.status')" width="100" />
+              <el-table-column prop="size" :label="t('paperTradingDetail.quantity')" width="100" />
+              <el-table-column prop="price" :label="t('paperTradingDetail.price')" min-width="100" />
             </el-table>
           </el-card>
         </el-col>
@@ -97,39 +97,39 @@
       <el-row :gutter="16">
         <el-col :xs="24" :xl="12">
           <el-card>
-            <template #header><strong>成交记录</strong></template>
-            <el-empty v-if="!runtime.trades.length" description="暂无成交" />
+            <template #header><strong>{{ t('paperTradingDetail.trades') }}</strong></template>
+            <el-empty v-if="!runtime.trades.length" :description="t('paperTradingDetail.noTrades')" />
             <el-table v-else :data="runtime.trades" size="small" max-height="280">
-              <el-table-column prop="dtclose" label="时间" min-width="150" />
-              <el-table-column prop="data_name" label="标的" min-width="110" />
-              <el-table-column prop="direction" label="方向" width="90" />
-              <el-table-column prop="pnlcomm" label="净盈亏" min-width="120" />
+              <el-table-column prop="dtclose" :label="t('paperTradingDetail.time')" min-width="150" />
+              <el-table-column prop="data_name" :label="t('paperTradingDetail.symbol')" min-width="110" />
+              <el-table-column prop="direction" :label="t('paperTradingDetail.direction')" width="90" />
+              <el-table-column prop="pnlcomm" :label="t('paperTradingDetail.netPnl')" min-width="120" />
             </el-table>
           </el-card>
         </el-col>
         <el-col :xs="24" :xl="12">
           <el-card>
-            <template #header><strong>策略信号</strong></template>
-            <el-empty v-if="!runtime.signals.length" description="暂无可展示信号" />
+            <template #header><strong>{{ t('paperTradingDetail.strategySignals') }}</strong></template>
+            <el-empty v-if="!runtime.signals.length" :description="t('paperTradingDetail.noSignals')" />
             <el-table v-else :data="runtime.signals" size="small" max-height="280">
-              <el-table-column prop="datetime" label="时间" min-width="150" />
-              <el-table-column prop="symbol" label="标的" min-width="110" />
-              <el-table-column prop="signal" label="信号" min-width="120" />
-              <el-table-column prop="price" label="价格" min-width="100" />
+              <el-table-column prop="datetime" :label="t('paperTradingDetail.time')" min-width="150" />
+              <el-table-column prop="symbol" :label="t('paperTradingDetail.symbol')" min-width="110" />
+              <el-table-column prop="signal" :label="t('paperTradingDetail.signal')" min-width="120" />
+              <el-table-column prop="price" :label="t('paperTradingDetail.price')" min-width="100" />
             </el-table>
           </el-card>
         </el-col>
       </el-row>
 
       <el-card class="alerts-card">
-        <template #header><strong>运行告警</strong></template>
-        <div v-if="alertsLoading" class="page-state">查询中…</div>
-        <el-empty v-else-if="!alerts.length" description="暂无告警" />
+        <template #header><strong>{{ t('paperTradingDetail.runtimeAlerts') }}</strong></template>
+        <div v-if="alertsLoading" class="page-state">{{ t('paperTradingDetail.loading') }}</div>
+        <el-empty v-else-if="!alerts.length" :description="t('paperTradingDetail.noAlerts')" />
         <el-table v-else :data="alerts" size="small">
-          <el-table-column prop="created_at" label="时间" min-width="170" />
-          <el-table-column prop="severity" label="级别" width="100" />
-          <el-table-column prop="title" label="标题" min-width="150" />
-          <el-table-column prop="message" label="内容" min-width="260" />
+          <el-table-column prop="created_at" :label="t('paperTradingDetail.time')" min-width="170" />
+          <el-table-column prop="severity" :label="t('paperTradingDetail.severity')" width="100" />
+          <el-table-column prop="title" :label="t('paperTradingDetail.alertTitle')" min-width="150" />
+          <el-table-column prop="message" :label="t('paperTradingDetail.content')" min-width="260" />
         </el-table>
       </el-card>
     </template>
@@ -140,6 +140,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import {
   paperRuntimeApi,
   type PaperEquityPoint,
@@ -150,6 +151,7 @@ import {
 import { getErrorMessage } from '@/api'
 
 const route = useRoute()
+const { t } = useI18n()
 const instanceId = computed(() => String(route.params.instanceId || ''))
 const loading = ref(true)
 const error = ref('')
@@ -172,7 +174,7 @@ async function load() {
     runtime.value = await paperRuntimeApi.get(instanceId.value)
     void loadSecondary()
   } catch (reason) {
-    error.value = getErrorMessage(reason, '无法加载模拟交易运行实例')
+    error.value = getErrorMessage(reason, t('paperTradingDetail.loadRuntimeFailed'))
   } finally {
     loading.value = false
   }
@@ -197,22 +199,30 @@ async function loadSecondary() {
 
 async function pauseRuntime() {
   try {
-    await ElMessageBox.confirm('暂停后运行器会停止接受新指令。确认暂停？', '确认暂停', { type: 'warning' })
+    await ElMessageBox.confirm(
+      t('paperTradingDetail.pauseConfirmMessage'),
+      t('paperTradingDetail.pauseConfirmTitle'),
+      { type: 'warning' }
+    )
     await paperRuntimeApi.pause(instanceId.value)
     if (runtime.value) runtime.value.paused = true
-    ElMessage.success('已暂停模拟运行实例')
+    ElMessage.success(t('paperTradingDetail.pauseSuccess'))
   } catch (reason) {
-    if (reason !== 'cancel') ElMessage.error(getErrorMessage(reason, '暂停失败'))
+    if (reason !== 'cancel') ElMessage.error(getErrorMessage(reason, t('paperTradingDetail.pauseFailed')))
   }
 }
 
 async function decide(decision: 'approved' | 'rejected' | 'requested_changes') {
   try {
-    const result = await ElMessageBox.prompt('请输入审核说明（可选）', '审核决策', { inputPlaceholder: '审核依据' })
+    const result = await ElMessageBox.prompt(
+      t('paperTradingDetail.reviewPromptMessage'),
+      t('paperTradingDetail.reviewPromptTitle'),
+      { inputPlaceholder: t('paperTradingDetail.reviewPromptPlaceholder') }
+    )
     await paperRuntimeApi.decideHandoff(instanceId.value, { decision, rationale: result.value || undefined })
-    ElMessage.success('审核决策已保存')
+    ElMessage.success(t('paperTradingDetail.reviewSuccess'))
   } catch (reason) {
-    if (reason !== 'cancel') ElMessage.error(getErrorMessage(reason, '保存审核决策失败'))
+    if (reason !== 'cancel') ElMessage.error(getErrorMessage(reason, t('paperTradingDetail.reviewFailed')))
   }
 }
 

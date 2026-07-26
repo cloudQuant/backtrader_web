@@ -98,11 +98,7 @@ from app.services.fincore_metrics_helper import calculate_metrics_from_log_data
 # Prepare log data
 log_data = {
     "equity_curve": [100000, 101000, 102000, ...],
-    "trades": [
-        {"pnlcomm": 100, "barlen": 5},
-        {"pnlcomm": -50, "barlen": 3},
-        ...
-    ]
+    "trades": [{"pnlcomm": 100, "barlen": 5}, {"pnlcomm": -50, "barlen": 3}, ...],
 }
 
 # Calculate with fincore enabled
@@ -136,7 +132,7 @@ from app.services.fincore_metrics_helper import validate_calculation_consistency
 # Validate that fincore and manual calculations are consistent
 is_valid = validate_calculation_consistency(
     log_data,
-    max_relative_error=0.01  # 0.01% threshold
+    max_relative_error=0.01,  # 0.01% threshold
 )
 ```
 
