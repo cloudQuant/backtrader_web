@@ -3,12 +3,12 @@ Backtest ORM models.
 """
 
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
+from app.utils.datetime_utils import utc_now_naive
 
 
 class BacktestTask(Base):
@@ -41,11 +41,11 @@ class BacktestTask(Base):
     request_data = Column(JSON)  # Request parameters
     error_message = Column(Text, nullable=True)
     log_dir = Column(Text, nullable=True)  # Task-specific log directory path
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
     )
 
     # Relationships
@@ -105,7 +105,7 @@ class BacktestResultModel(Base):
     drawdown_curve = Column(JSON, default=list)
     trades = Column(JSON, default=list)
 
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
 
     # Relationships
     task = relationship("BacktestTask", back_populates="result")

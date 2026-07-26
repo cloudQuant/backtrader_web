@@ -1,12 +1,12 @@
 """Knowledge base ORM models for iteration 129."""
 
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
+from app.utils.datetime_utils import utc_now_naive
 
 
 class KnowledgeBase(Base):
@@ -21,11 +21,11 @@ class KnowledgeBase(Base):
     document_count = Column(Integer, nullable=False, default=0)
     is_public = Column(Boolean, nullable=False, default=False)
     settings = Column(JSON, default=dict)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
     )
 
     documents = relationship(
@@ -58,11 +58,11 @@ class KBDocument(Base):
     index_status = Column(String(20), nullable=False, default="not_indexed")
     indexed_at = Column(DateTime, nullable=True)
     metadata_json = Column("metadata", JSON, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
     )
 
     knowledge_base = relationship("KnowledgeBase", back_populates="documents")
@@ -85,7 +85,7 @@ class DocumentChunk(Base):
     content = Column(Text, nullable=False)
     token_count = Column(Integer, nullable=True)
     source_type = Column(String(50), nullable=False, default="document")
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
 
 
 class ChatConversation(Base):
@@ -101,11 +101,11 @@ class ChatConversation(Base):
     title = Column(String(255), nullable=False, default="新对话")
     model_id = Column(String(200), nullable=True)
     settings = Column(JSON, default=dict)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
     )
 
     messages = relationship(
@@ -135,7 +135,7 @@ class ChatMessage(Base):
     model_id = Column(String(200), nullable=True)
     reasoning = Column(Text, nullable=True)
     metadata_json = Column("metadata", JSON, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
 
     conversation = relationship("ChatConversation", back_populates="messages")
 
@@ -158,11 +158,11 @@ class ModelConfig(Base):
     output_price = Column(Integer, nullable=True)
     parameters = Column(JSON, default=dict)
     features = Column(JSON, default=list)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
     )
 
 
@@ -178,4 +178,4 @@ class ModelUsageLog(Base):
     input_tokens = Column(Integer, nullable=False, default=0)
     output_tokens = Column(Integer, nullable=False, default=0)
     cost = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)

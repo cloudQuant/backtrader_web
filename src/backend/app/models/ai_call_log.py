@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
 
 from app.db.database import Base
+from app.utils.datetime_utils import utc_now_naive
 
 
 class AICallLog(Base):
@@ -33,7 +33,7 @@ class AICallLog(Base):
     status = Column(String(20), nullable=False, index=True)
     error_code = Column(String(100), nullable=True, index=True)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
     response_chars = Column(Integer, nullable=False, default=0)
     prompt_hash = Column(String(64), nullable=False, index=True)
 

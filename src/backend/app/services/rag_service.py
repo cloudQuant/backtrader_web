@@ -15,6 +15,7 @@ from app.services.ai_chat_service import AIChatService
 from app.services.chunk_service import chunk_service
 from app.services.semantic_retrieval_service import SemanticChunk, SemanticRetrievalService
 from app.services.strategy_service import build_ai_strategy_draft, render_ai_strategy_draft_answer
+from app.utils.datetime_utils import utc_now_naive
 from app.utils.knowledge_base_settings import merge_knowledge_base_settings
 
 logger = logging.getLogger(__name__)
@@ -412,7 +413,7 @@ class RAGService:
                 stored += 1
 
             document.index_status = "indexed" if chunks else "not_indexed"
-            document.indexed_at = datetime.now(timezone.utc) if chunks else None
+            document.indexed_at = utc_now_naive() if chunks else None
             vector_sync_document_ids.add(str(document.id))
 
         if changed:
@@ -457,7 +458,7 @@ class RAGService:
                 stored += 1
 
             document.index_status = "indexed" if stored > 0 else "not_indexed"
-            document.indexed_at = datetime.now(timezone.utc) if stored > 0 else None
+            document.indexed_at = utc_now_naive() if stored > 0 else None
             await session.commit()
             await self._sync_vector_document(session, knowledge_base_id, document_id)
             return stored
@@ -512,7 +513,7 @@ class RAGService:
                 stored += 1
 
             document.index_status = "indexed" if stored > 0 else "not_indexed"
-            document.indexed_at = datetime.now(timezone.utc) if stored > 0 else None
+            document.indexed_at = utc_now_naive() if stored > 0 else None
             await session.commit()
             await self._sync_vector_document(session, knowledge_base_id, document_id)
             return stored

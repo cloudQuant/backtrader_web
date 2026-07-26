@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +38,7 @@ from app.services.strategy import inference as _inference
 from app.services.strategy import templates as _templates
 from app.services.strategy.ai_draft import build_ai_strategy_draft, render_ai_strategy_draft_answer
 from app.services.strategy.templates import STRATEGIES_DIR
+from app.utils.datetime_utils import utc_now_naive
 from app.utils.response_cache import invalidate_cache
 from app.utils.tracing import business_span
 
@@ -474,7 +474,7 @@ class StrategyService:
             update_data["category"] = strategy_update.category
 
         if update_data:
-            update_data["updated_at"] = datetime.now(timezone.utc)
+            update_data["updated_at"] = utc_now_naive()
             updated = await self.strategy_repo.update(strategy_id, update_data)
             if updated is not None:
                 strategy = updated

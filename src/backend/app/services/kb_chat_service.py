@@ -13,6 +13,7 @@ from app.schemas.kb_chat import ConversationCreate, KBChatRequest
 from app.services.rag_service import RAGService
 from app.services.stock_analysis.tasks import StockAnalysisTaskService
 from app.services.strategy_service import build_ai_strategy_draft, render_ai_strategy_draft_answer
+from app.utils.datetime_utils import utc_now_naive
 from app.utils.knowledge_base_settings import merge_knowledge_base_settings
 
 
@@ -276,7 +277,7 @@ class KBChatService:
                 ).scalar_one_or_none()
                 if conversation is None:
                     return None
-                conversation.updated_at = datetime.now(timezone.utc)
+                conversation.updated_at = utc_now_naive()
             else:
                 conversation = ChatConversation(
                     id=conversation_id,
@@ -378,7 +379,7 @@ class KBChatService:
                 ).scalar_one_or_none()
                 if conversation is None:
                     return None
-                conversation.updated_at = datetime.now(timezone.utc)
+                conversation.updated_at = utc_now_naive()
             else:
                 conversation = ChatConversation(
                     id=conversation_id,
@@ -522,7 +523,7 @@ class KBChatService:
                 ).scalar_one_or_none()
                 if conversation is None:
                     return None
-                conversation.updated_at = datetime.now(timezone.utc)
+                conversation.updated_at = utc_now_naive()
             else:
                 conversation = ChatConversation(
                     id=conversation_id,

@@ -3,12 +3,12 @@ Strategy ORM models.
 """
 
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
+from app.utils.datetime_utils import utc_now_naive
 
 
 class Strategy(Base):
@@ -35,11 +35,11 @@ class Strategy(Base):
     code = Column(Text, nullable=False)
     params = Column(JSON, default=dict)  # Parameter definitions
     category = Column(String(50), default="custom", index=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
     )
 
     # Relationships

@@ -3,12 +3,12 @@ User ORM model.
 """
 
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, String
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
+from app.utils.datetime_utils import utc_now_naive
 
 
 class User(Base):
@@ -35,11 +35,11 @@ class User(Base):
     ai_budget_mode = Column(String(20), nullable=True)
     ai_preferred_provider = Column(String(50), nullable=True)
     ai_preferred_model = Column(String(100), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
     )
 
     # Relationships
@@ -75,7 +75,7 @@ class RefreshToken(Base):
     token_hash = Column(String(128), unique=True, nullable=False, index=True)
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
     revoked_at = Column(DateTime, nullable=True)
     is_revoked = Column(Boolean, default=False, index=True)
 
