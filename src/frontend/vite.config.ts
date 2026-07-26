@@ -75,7 +75,10 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['monaco-editor'],
+    // Prebundling Monaco turns its stylesheet imports into absolute local
+    // filesystem URLs in the dev server output. Those URLs resolve to the
+    // SPA fallback instead of CSS, preventing the editor module from loading.
+    exclude: ['monaco-editor'],
   },
   resolve: {
     alias: {
