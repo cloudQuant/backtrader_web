@@ -93,9 +93,8 @@ function createFeaturePageContextOptions(testInfo: TestInfo) {
 async function navigateToFeaturePage(page: Page, target: FeaturePage, baseURL: string) {
   await page.goto(new URL(target.path, baseURL).toString(), { waitUntil: 'domcontentloaded' });
 
-  // WebKit can occasionally leave a blank document after a long sequence of
-  // direct route changes. Retry the document load once; the caller still
-  // asserts the app shell and feature content after this recovery attempt.
+  // WebKit can occasionally leave a blank document for a direct route load.
+  // Retry the document once; the caller still verifies the app shell and page.
   const appShellVisible = await page
     .locator('.app-main-content')
     .isVisible({ timeout: 5_000 })
@@ -109,9 +108,8 @@ async function assertFeaturePageUsable(page: Page, target: FeaturePage, baseURL:
   const pageErrors: string[] = [];
   const apiFailures: string[] = [];
   const onPageError = (error: Error) => {
-    // Route changes cancel in-flight Axios requests. Firefox reports that as
-    // "Request aborted" while WebKit reports the equivalent "Network Error".
-    if (['Request aborted', 'AxiosError: Network Error'].includes(error.message)) return;
+    // Some route redirects cancel an in-flight request after the destination renders.
+    if (error.message === 'Request aborted') return;
     pageErrors.push(error.message);
   };
   const onResponse = (response: { status: () => number; url: () => string }) => {
@@ -152,18 +150,32 @@ async function assertFeaturePageUsable(page: Page, target: FeaturePage, baseURL:
   }
 }
 
+async function assertFeaturePageInNewPage(
+  context: BrowserContext,
+  target: FeaturePage,
+  baseURL: string,
+) {
+  // A shared browser context preserves the project device configuration, while
+  // a fresh page prevents a prior route's cancelled requests or dynamic imports
+  // from surfacing as uncaught errors for the next route.
+  const page = await context.newPage();
+  try {
+    await restorePersistedAuthSession(page);
+    await assertFeaturePageUsable(page, target, baseURL);
+  } finally {
+    await page.close();
+  }
+}
+
 test.describe('产品域与旧路径 E2E 巡检', () => {
   test.describe.configure({ mode: 'serial' });
 
   let context: BrowserContext;
-  let page: Page;
   let baseURL: string;
 
   test.beforeAll(async ({ browser }, testInfo) => {
     baseURL = String(testInfo.project.use.baseURL ?? 'http://127.0.0.1:3000');
     context = await browser.newContext(createFeaturePageContextOptions(testInfo));
-    page = await context.newPage();
-    await restorePersistedAuthSession(page);
   });
 
   test.afterAll(async () => {
@@ -173,7 +185,7 @@ test.describe('产品域与旧路径 E2E 巡检', () => {
   test.describe('产品域功能页 E2E 巡检', () => {
     for (const target of featurePages) {
       test(`${target.name} loads and exposes usable controls`, async () => {
-        await assertFeaturePageUsable(page, target, baseURL);
+        await assertFeaturePageInNewPage(context, target, baseURL);
       });
     }
   });
@@ -181,7 +193,7 @@ test.describe('产品域与旧路径 E2E 巡检', () => {
   test.describe('旧功能路径兼容 E2E 巡检', () => {
     for (const target of legacyPaths) {
       test(`${target.name} remains usable`, async () => {
-        await assertFeaturePageUsable(page, target, baseURL);
+        await assertFeaturePageInNewPage(context, target, baseURL);
       });
     }
   });
