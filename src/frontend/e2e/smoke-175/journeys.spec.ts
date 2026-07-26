@@ -27,22 +27,20 @@ test.describe('anonymous smoke journey', () => {
     await passwordInput.fill('admin')
     await page.locator('button[type="submit"], button:has-text("登录"), button:has-text("Login")').first().click()
 
-    // After login the navbar should expose a username affordance.
+    // After login the navbar should expose the authenticated user menu.
     await page.waitForLoadState('networkidle')
-    const navUserAffordance = page.locator(
-      '[data-test=nav-user], header :text("admin"), nav :text("admin")'
-    )
+    const navUserAffordance = page.locator('.user-dropdown-trigger')
     await expect(navUserAffordance).toBeVisible({ timeout: 15_000 })
+    await expect(navUserAffordance).toContainText('admin')
 
-    // Logout: click logout button or menu — fallback to URL nav if no UI hook.
-    const logoutBtn = page.locator(
-      '[data-test=logout-button], button:has-text("退出"), button:has-text("Logout"), a:has-text("Logout")'
-    )
-    if (await logoutBtn.count()) {
-      await logoutBtn.first().click()
-    } else {
-      await page.goto('/login')
-    }
+    // The user menu is an Element Plus dropdown, whose logout item is a
+    // menuitem rather than a button. Exercise it instead of navigating away.
+    await navUserAffordance.click()
+    const logoutItem = page.locator('[role="menuitem"]').filter({
+      hasText: /退出|Logout/,
+    }).first()
+    await expect(logoutItem).toBeVisible({ timeout: 10_000 })
+    await logoutItem.click()
     await expect(page).toHaveURL(/\/login/, { timeout: 10_000 })
   })
 })
@@ -88,7 +86,7 @@ test.describe('authenticated smoke journeys', () => {
 
     // First assistant message must have non-empty body within 30s.
     const assistantMsg = page.locator(
-      '[data-test=ai-message-assistant], .message-assistant, .ai-message:not(.user)'
+      '[data-test=ai-message-assistant], .message-assistant, .ai-message:not(.user), .message-card.assistant'
     ).first()
     await expect(assistantMsg).toBeVisible({ timeout: 30_000 })
     const text = await assistantMsg.innerText()
@@ -96,16 +94,18 @@ test.describe('authenticated smoke journeys', () => {
   })
 
   test('Journey D — knowledge base Q&A (#4)', async ({ page }) => {
-    await page.goto(APP_PATHS.ai.knowledgeBase)
+    // Knowledge-base Q&A is served by the AI chat composer with a selected
+    // knowledge base; the management page only manages documents.
+    await page.goto(APP_PATHS.ai.chat)
     await page.waitForLoadState('networkidle')
 
     const input = page.locator(
-      '[data-test=kb-question], textarea, input[type="text"]'
+      '[data-test=ai-chat-input], textarea, input[type="text"]'
     ).first()
     await input.fill('What is a backtest?')
 
     const ask = page.locator(
-      '[data-test=kb-ask], button:has-text("提问"), button:has-text("Ask")'
+      '[data-test=ai-chat-send], button:has-text("发送"), button:has-text("Send")'
     ).first()
     await ask.click()
 
