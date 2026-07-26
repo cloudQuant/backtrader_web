@@ -4065,6 +4065,23 @@ async def test_mark_failed_handles_naive_start_time():
         assert failed.duration is not None
 
 
+@pytest.mark.asyncio
+async def test_execution_stats_uses_migration_compatible_enum_values():
+    status_column = TaskExecution.__table__.c.status
+    assert status_column.type.enums == [status.value for status in TaskStatus]
+
+    async with async_session_maker() as session:
+        service = AkshareExecutionService(session)
+        execution = await service.create_execution(script_id="stock_zh_a_hist")
+        execution = await service.mark_running(execution)
+        await service.mark_completed(execution)
+
+        stats = await service.get_stats()
+
+    assert stats["success_count"] >= 1
+    assert stats["success_rate"] > 0
+
+
 def test_execution_duration_is_never_negative():
     start = datetime(2026, 6, 20, 1, 0, 1)
     end = datetime(2026, 6, 20, 1, 0, 0)

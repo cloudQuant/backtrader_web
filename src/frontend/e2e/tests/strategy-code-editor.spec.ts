@@ -10,7 +10,7 @@ test.describe('strategy code editor', () => {
     await prepareStaticPreviewPage(page)
     await page.goto(APP_PATHS.research.strategies)
 
-    await page.getByRole('button', { name: '创建策略' }).click()
+    await page.getByRole('button', { name: /创建策略|Create Strategy/ }).click()
 
     const codeInput = page.locator('textarea.strategy-code-input')
     await expect(codeInput).toBeVisible()

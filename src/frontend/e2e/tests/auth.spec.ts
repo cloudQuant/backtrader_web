@@ -22,9 +22,8 @@ test.describe('认证功能', () => {
   test('用户登录成功', async ({ page }) => {
     await loginAsAdmin(page);
 
-    // 验证已登录 - 应该能看到导航菜单
-    const navMenu = page.locator('.el-menu:visible, nav:visible').first();
-    await expect(navMenu).toBeVisible();
+    // 验证已登录。移动端会折叠桌面侧边栏，因此检查所有布局共有的主工作区。
+    await expect(page.getByRole('main')).toBeVisible();
   });
 
   test('用户登录失败 - 错误密码', async ({ page }) => {

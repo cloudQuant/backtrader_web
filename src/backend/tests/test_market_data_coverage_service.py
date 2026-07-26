@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import app.services.market_data_coverage_service as coverage_service_module
 from app.services.market_data_coverage_service import (
     _WAREHOUSE_COVERAGE_PROFILES,
     LocalCsvProfile,
@@ -67,6 +68,23 @@ def test_futures_holiday_bar_is_a_blocking_calendar_violation():
 
 def test_warehouse_quality_marks_outdated_market_data_as_failed():
     assert _warehouse_quality_status("stock", "2024-12-31") == "failed"
+
+
+@pytest.mark.asyncio
+async def test_list_coverage_degrades_to_empty_when_warehouse_is_not_configured(monkeypatch):
+    service = MarketDataCoverageService()
+
+    async def empty_coverage(**_: object) -> list[object]:
+        return []
+
+    monkeypatch.setattr(service, "_query_coverage", empty_coverage)
+    monkeypatch.setattr(coverage_service_module, "_get_akshare_data_engine", lambda: None)
+
+    response = await service.list_coverage(provider="akshare_data")
+
+    assert response.total == 0
+    assert response.items == []
+    assert response.refreshed is False
 
 
 @pytest.mark.asyncio

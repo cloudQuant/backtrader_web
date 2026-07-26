@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { APP_PATHS } from '../../src/navigation/routes';
+import { restorePersistedAuthSession } from '../support/auth';
 
 /**
  * 回测功能 E2E 测试
@@ -8,20 +9,24 @@ import { APP_PATHS } from '../../src/navigation/routes';
  * 每个测试独立运行，不依赖共享的登录状态
  */
 test.describe('回测功能', () => {
-  test.use({ storageState: 'e2e/fixtures/storage-state.json' });
+  test.beforeEach(async ({ page }) => {
+    await restorePersistedAuthSession(page);
+  });
 
   test('回测页面加载', async ({ page }) => {
     // 访问回测页面
     await page.goto(APP_PATHS.backtest.list);
 
     await expect(page).toHaveURL(/\/backtest$/);
-    await expect(page.locator('button:has-text("新建工作区")')).toBeVisible();
+    await expect(
+      page.locator('[data-test="workspace-hero"]').getByRole('button', { name: '新建工作区' }),
+    ).toBeVisible();
   });
 
   test('研究工作区标题可见', async ({ page }) => {
     await page.goto(APP_PATHS.backtest.list);
 
-    await expect(page.locator('header .text-lg.font-medium')).toHaveText('策略研究');
+    await expect(page.locator('[data-test="workspace-hero"] h1')).toHaveText('研究工作区');
   });
 
   test('研究工作区空状态或列表存在', async ({ page }) => {
@@ -44,12 +49,16 @@ test.describe('回测功能', () => {
   test('新建工作区按钮存在', async ({ page }) => {
     await page.goto(APP_PATHS.backtest.list);
 
-    await expect(page.locator('button:has-text("新建工作区")')).toBeVisible();
+    await expect(
+      page.locator('[data-test="workspace-hero"]').getByRole('button', { name: '新建工作区' }),
+    ).toBeVisible();
   });
 
-  test('删除工作区按钮存在', async ({ page }) => {
+  test('未选择工作区时删除操作处于禁用状态', async ({ page }) => {
     await page.goto(APP_PATHS.backtest.list);
 
-    await expect(page.locator('button:has-text("删除工作区")')).toBeVisible();
+    const deleteWorkspace = page.locator('button[aria-label="删除工作区"]');
+    await expect(deleteWorkspace).toHaveCount(1);
+    await expect(deleteWorkspace).toBeDisabled();
   });
 });

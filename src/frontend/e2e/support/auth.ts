@@ -1,7 +1,11 @@
+import { readFile } from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { expect, type Page } from '@playwright/test';
 
 const E2E_ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME ?? 'admin';
 const E2E_ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'Admin12345678';
+const E2E_LOCALE = process.env.E2E_LOCALE ?? 'zh-CN';
 const PASSWORD_CANDIDATES = Array.from(new Set([
   E2E_ADMIN_PASSWORD,
   'Admin12345678',
@@ -9,6 +13,17 @@ const PASSWORD_CANDIDATES = Array.from(new Set([
   'admin123',
   'admin',
 ]));
+
+type StorageState = {
+  origins?: Array<{
+    localStorage?: Array<{ name: string; value: string }>;
+  }>;
+};
+
+const storageStatePath = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../fixtures/storage-state.json',
+);
 
 function testInput(page: Page, testId: string) {
   return page.getByTestId(testId);
@@ -45,7 +60,9 @@ export async function loginAsAdmin(page: Page): Promise<void> {
       `Could not log in as ${E2E_ADMIN_USERNAME}. Set E2E_ADMIN_PASSWORD or seed the default admin account.`,
     );
   }
-  await expect(page.locator('.el-menu')).toBeVisible({ timeout: 10000 });
+  // The desktop sidebar is intentionally collapsed on mobile. The main
+  // application surface exists in every authenticated layout.
+  await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
 }
 
 export async function persistAuthTokenForStorageState(page: Page): Promise<void> {
@@ -68,9 +85,38 @@ export async function persistAuthTokenForStorageState(page: Page): Promise<void>
     throw new Error('Login succeeded, but no access token was persisted.');
   }
 
-  await page.evaluate((token) => {
+  await page.evaluate(({ token, locale }) => {
     window.localStorage.setItem('token', token);
-  }, accessToken);
+    window.localStorage.setItem('locale', locale);
+  }, { token: accessToken, locale: E2E_LOCALE });
+}
+
+/**
+ * Restore the auth session before a test page loads.
+ *
+ * Playwright deliberately omits sessionStorage from `storageState`. The app
+ * keeps its Pinia auth payload in sessionStorage, so the global setup mirrors
+ * the access token into localStorage and this helper restores the authoritative
+ * session value through an init script for each fresh browser context.
+ */
+export async function restorePersistedAuthSession(page: Page): Promise<void> {
+  const rawState = await readFile(storageStatePath, 'utf8');
+  const storageState = JSON.parse(rawState) as StorageState;
+  const localEntries = storageState.origins?.flatMap((origin) => origin.localStorage ?? []) ?? [];
+  const accessToken = localEntries.find((entry) => entry.name === 'token')?.value;
+  const locale = localEntries.find((entry) => entry.name === 'locale')?.value ?? E2E_LOCALE;
+
+  if (!accessToken) {
+    throw new Error(
+      'E2E auth state is missing its access token. Ensure globalSetup completes before authenticated tests.',
+    );
+  }
+
+  await page.addInitScript(({ token, language }: { token: string; language: string }) => {
+    window.sessionStorage.setItem('auth', JSON.stringify({ token, refreshToken: null }));
+    window.localStorage.setItem('token', token);
+    window.localStorage.setItem('locale', language);
+  }, { token: accessToken, language: locale });
 }
 
 export function getAdminCredentials() {

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { APP_PATHS } from '../../src/navigation/routes'
+import { restorePersistedAuthSession } from '../support/auth'
 
 /**
  * Iteration 175 §6.1 — User_Journey_Set, the 5 PR-blocking smoke journeys.
@@ -51,6 +52,10 @@ test.describe('authenticated smoke journeys', () => {
   // state must be explicitly loaded for every authenticated journey.
   test.use({ storageState: 'e2e/fixtures/storage-state.json' })
 
+  test.beforeEach(async ({ page }) => {
+    await restorePersistedAuthSession(page)
+  })
+
   test('Journey B — create & view backtest (#2)', async ({ page }) => {
     await page.goto(APP_PATHS.backtest.list)
     await page.waitForLoadState('networkidle')
@@ -75,7 +80,7 @@ test.describe('authenticated smoke journeys', () => {
     await page.waitForLoadState('networkidle')
 
     const input = page.locator(
-      '[data-test=ai-chat-input], textarea, input[type="text"]'
+      '[data-test=ai-chat-input] textarea, textarea[data-test=ai-chat-input], textarea:not([readonly])'
     ).first()
     await input.fill('hello')
 
@@ -100,7 +105,7 @@ test.describe('authenticated smoke journeys', () => {
     await page.waitForLoadState('networkidle')
 
     const input = page.locator(
-      '[data-test=ai-chat-input], textarea, input[type="text"]'
+      '[data-test=ai-chat-input] textarea, textarea[data-test=ai-chat-input], textarea:not([readonly])'
     ).first()
     await input.fill('What is a backtest?')
 
@@ -144,9 +149,13 @@ test.describe('authenticated smoke journeys', () => {
     await submit.click()
     await expect(dialog).toBeHidden({ timeout: 10_000 })
 
-    // Back to the list — assert the new row exists.
+    // User-created strategies belong to the My Strategies tab; assert the
+    // visible tab instead of accepting a hidden duplicate in the library.
     await page.goto(APP_PATHS.research.strategies)
     await page.waitForLoadState('networkidle')
-    await expect(page.locator(`text=${name}`)).toBeVisible({ timeout: 10_000 })
+    await page.getByRole('tab', { name: /我的策略|My Strategies/ }).click()
+    await expect(
+      page.locator('.el-tab-pane:visible').getByText(name, { exact: true }),
+    ).toBeVisible({ timeout: 10_000 })
   })
 })

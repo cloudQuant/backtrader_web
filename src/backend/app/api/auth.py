@@ -31,6 +31,7 @@ logger = get_logger(__name__)
 _settings = get_settings()
 _REGISTER_LIMIT = _settings.RATE_LIMIT_REGISTER
 _LOGIN_LIMIT = _settings.RATE_LIMIT_LOGIN
+_AUTH_ME_LIMIT = _settings.RATE_LIMIT_AUTH_ME
 
 
 @lru_cache
@@ -251,7 +252,7 @@ async def change_password(
 
 
 @router.get("/me", response_model=UserResponse, summary="Get current user info")
-@limiter.limit("60/minute")
+@limiter.limit(_AUTH_ME_LIMIT)
 async def get_me(
     request: Request,
     current_user: TokenPayload = Depends(get_current_user),

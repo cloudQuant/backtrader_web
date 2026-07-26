@@ -154,14 +154,16 @@ class Settings(BaseSettings):
         default=60, description="JWT token expiration in minutes (default 1 hour)"
     )
 
-    # Rate limiting (slowapi limit strings). Raise in dev/test environments so
-    # repeated e2e runs don't exhaust the register/login quota; keep tight
-    # defaults for production brute-force protection.
+    # Rate limiting (slowapi limit strings). E2E environments can raise these
+    # quotas explicitly without weakening production brute-force protection.
     RATE_LIMIT_REGISTER: str = Field(
         default="5/hour", description="Rate limit for POST /auth/register (slowapi string)"
     )
     RATE_LIMIT_LOGIN: str = Field(
         default="10/minute", description="Rate limit for POST /auth/login (slowapi string)"
+    )
+    RATE_LIMIT_AUTH_ME: str = Field(
+        default="60/minute", description="Rate limit for GET /auth/me (slowapi string)"
     )
 
     # Service settings

@@ -5,8 +5,30 @@ from sqlalchemy import select, text
 from app.config import get_settings
 from app.db.database import async_session_maker, create_default_admin
 from app.models.akshare_mgmt import DataInterface, InterfaceCategory
-from app.models.data_governance import DgEndpoint, DgProvider
+from app.models.data_governance import (
+    DgEndpoint,
+    DgIngestJob,
+    DgProvider,
+    DgQualityRule,
+)
 from tests.conftest import register_and_login
+
+
+def test_data_governance_datetime_defaults_match_naive_schema() -> None:
+    """PostgreSQL migrations use TIMESTAMP WITHOUT TIME ZONE for these fields."""
+    timestamp_columns = [
+        DgProvider.created_at,
+        DgEndpoint.created_at,
+        DgIngestJob.created_at,
+        DgIngestJob.updated_at,
+        DgQualityRule.created_at,
+    ]
+
+    for column in timestamp_columns:
+        default = column.property.columns[0].default
+        assert default is not None
+        value = default.arg(None)
+        assert value.tzinfo is None
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,16 @@ import { resolve } from 'path'
 const FRONTEND_DEV_PORT = 3000
 const BACKEND_PROXY_TARGET = process.env.VITE_API_TARGET || 'http://127.0.0.1:8000'
 const ENABLE_BUILD_SOURCEMAP = process.env.VITE_BUILD_SOURCEMAP === 'true'
+const BACKEND_PROXY = {
+  '/api': {
+    target: BACKEND_PROXY_TARGET,
+    changeOrigin: true,
+  },
+  '/ws': {
+    target: BACKEND_PROXY_TARGET.replace('http', 'ws'),
+    ws: true,
+  },
+}
 
 // Iteration 175 §2 — High_Coverage_Core modules and their >= 90% per-path
 // thresholds. Listed inline so the source-of-truth lives next to the global
@@ -88,16 +98,12 @@ export default defineConfig({
   server: {
     port: FRONTEND_DEV_PORT,
     strictPort: true,
-    proxy: {
-      '/api': {
-        target: BACKEND_PROXY_TARGET,
-        changeOrigin: true,
-      },
-      '/ws': {
-        target: BACKEND_PROXY_TARGET.replace('http', 'ws'),
-        ws: true,
-      },
-    },
+    proxy: BACKEND_PROXY,
+  },
+  preview: {
+    port: FRONTEND_DEV_PORT,
+    strictPort: true,
+    proxy: BACKEND_PROXY,
   },
   build: {
     outDir: 'dist',

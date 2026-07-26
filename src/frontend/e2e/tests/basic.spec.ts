@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsAdmin } from '../support/auth';
+import { loginAsAdmin, restorePersistedAuthSession } from '../support/auth';
 import { APP_PATHS } from '../../src/navigation/routes';
 
 /**
@@ -21,19 +21,22 @@ test.describe('基本页面测试', () => {
   test('登录成功并跳转', async ({ page }) => {
     await loginAsAdmin(page);
     await expect(page).not.toHaveURL(/\/login(?:\?.*)?$/);
-    await expect(page.locator('.el-menu')).toBeVisible();
+    await expect(page.getByRole('main')).toBeVisible();
   });
 });
 
 test.describe('基本页面测试 - 已登录路由', () => {
-  test.use({ storageState: 'e2e/fixtures/storage-state.json' });
+  test.beforeEach(async ({ page }) => {
+    await restorePersistedAuthSession(page);
+  });
 
   test('访问策略页面', async ({ page }) => {
     // 访问策略页面
     await page.goto(APP_PATHS.research.strategies);
 
-    await expect(page.getByText('策略中心')).toBeVisible();
-    await expect(page.locator('button:has-text("创建策略")')).toBeVisible();
+    const strategyHero = page.locator('[data-test="strategy-management-hero"]');
+    await expect(strategyHero).toBeVisible();
+    await expect(strategyHero.getByRole('button', { name: '创建策略' })).toBeVisible();
   });
 
   test('访问回测页面', async ({ page }) => {
@@ -41,7 +44,9 @@ test.describe('基本页面测试 - 已登录路由', () => {
     await page.goto('/backtest');
 
     await expect(page).toHaveURL(/\/backtest$/);
-    await expect(page.locator('button:has-text("新建工作区")')).toBeVisible();
+    await expect(
+      page.locator('[data-test="workspace-hero"]').getByRole('button', { name: '新建工作区' }),
+    ).toBeVisible();
   });
 
   test('访问投资组合页面', async ({ page }) => {
@@ -49,7 +54,7 @@ test.describe('基本页面测试 - 已登录路由', () => {
     await page.goto('/portfolio');
 
     // 验证页面加载
-    await expect(page.getByText('组合总资产')).toBeVisible();
+    await expect(page.locator('[data-test="portfolio-hero"]')).toBeVisible();
   });
 
   test('访问实盘交易页面', async ({ page }) => {
@@ -57,7 +62,9 @@ test.describe('基本页面测试 - 已登录路由', () => {
     await page.goto('/live-trading');
 
     await expect(page).toHaveURL(/\/trading$/);
-    await expect(page.locator('button:has-text("新建工作区")')).toBeVisible();
+    await expect(
+      page.locator('[data-test="workspace-hero"]').getByRole('button', { name: '新建工作区' }),
+    ).toBeVisible();
   });
 
   test('访问数据页面', async ({ page }) => {
@@ -65,6 +72,6 @@ test.describe('基本页面测试 - 已登录路由', () => {
     await page.goto('/data');
 
     // 验证页面加载
-    await expect(page.getByText('数据治理中心')).toBeVisible();
+    await expect(page.locator('[data-test="data-market-page"]')).toBeVisible();
   });
 });

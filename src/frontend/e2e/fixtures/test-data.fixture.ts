@@ -1,4 +1,5 @@
 import { test as base } from '@playwright/test';
+import { restorePersistedAuthSession } from '../support/auth';
 
 /**
  * E2E 测试数据工厂
@@ -117,16 +118,16 @@ export const test = base.extend<{
 /**
  * 认证 fixture - 保存和加载会话状态
  *
- * 基于 SCAMPER Eliminate: 使用 storageState 消除重复登录
+ * 通过初始化脚本恢复全局设置保存的认证会话，避免浏览器为 storageState
+ * 额外导航目标 origin，从而保持跨浏览器测试稳定。
  */
 export const authTest = base.extend<{
   authenticatedPage: Page;
 }>({
   authenticatedPage: async ({ browser }, use) => {
-    const context = await browser.newContext({
-      storageState: 'e2e/fixtures/storage-state.json',
-    });
+    const context = await browser.newContext();
     const page = await context.newPage();
+    await restorePersistedAuthSession(page);
     await use(page);
     await context.close();
   },

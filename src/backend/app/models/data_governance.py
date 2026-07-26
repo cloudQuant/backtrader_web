@@ -19,6 +19,11 @@ from sqlalchemy.orm import relationship
 from app.db.database import Base
 
 
+def _utcnow_naive() -> datetime:
+    """Return a UTC timestamp compatible with the schema's naive DateTime columns."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class DgJobStatus(str, enum.Enum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -37,7 +42,7 @@ class DgProvider(Base):
     api_key_env = Column(String(100), nullable=True)
     rate_limit = Column(Integer, default=60, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(DateTime, default=_utcnow_naive, nullable=False)
 
     endpoints = relationship("DgEndpoint", back_populates="provider", cascade="all, delete-orphan")
 
@@ -66,7 +71,7 @@ class DgEndpoint(Base):
     incremental_sync_key = Column(String(100), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     legacy_interface_name = Column(String(100), nullable=True, index=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(DateTime, default=_utcnow_naive, nullable=False)
 
     provider = relationship("DgProvider", back_populates="endpoints")
     params = relationship(
@@ -101,11 +106,11 @@ class DgIngestJob(Base):
     row_count = Column(Integer, default=0, nullable=False)
     idempotency_key = Column(String(128), nullable=True, index=True)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(DateTime, default=_utcnow_naive, nullable=False)
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=_utcnow_naive,
+        onupdate=_utcnow_naive,
         nullable=False,
     )
 
@@ -121,4 +126,4 @@ class DgQualityRule(Base):
     rule_type = Column(String(50), nullable=False)
     rule_config = Column(JSON, default=dict, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(DateTime, default=_utcnow_naive, nullable=False)
