@@ -119,7 +119,7 @@ async def test_portfolio_api_overview_positions_equity_missing_branches(tmp_path
 
     mgr = MagicMock()
     mgr.list_instances.return_value = [
-        {"id": "iid1", "strategy_id": "s1", "status": "stopped", "strategy_name": "S1"},
+        {"id": "iid1", "strategy_id": "s1", "status": "running", "strategy_name": "S1"},
     ]
 
     fake_log_dir = tmp_path / "logs" / "x"

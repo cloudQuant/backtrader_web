@@ -458,10 +458,10 @@ def bootstrap_ib_web_session(
         if credentials.get("access_token"):
             return None
         raise RuntimeError("IB Web恢复失败: 未找到有效会话，请在页面中手动重新连接")
-    _, ensure_authenticated_session, _ = import_session_helpers()
     login_credentials = dict(credentials)
     if not has_login_credentials:
         try:
+            _, ensure_authenticated_session, _ = import_session_helpers()
             env_values = load_env_values()
             env_file = backend_env_file_for_helpers()
             login_credentials.update(

@@ -484,6 +484,11 @@ class TestManualGatewayService:
                 "_load_ib_web_session_state",
                 return_value=({}, {"session": "expired"}, False, [], ""),
             ),
+            patch.object(
+                manual_gateway_service,
+                "_import_ib_web_session_helpers",
+                side_effect=ModuleNotFoundError("bt_api_py"),
+            ) as import_helpers,
             patch(
                 "app.services.manual_gateway.ib_clientportal.login_ib_web_session_with_browser",
                 return_value=refreshed_session,
@@ -502,6 +507,7 @@ class TestManualGatewayService:
             )
 
         assert result == refreshed_session
+        import_helpers.assert_not_called()
         browser_login.assert_called_once()
 
     def test_browser_login_reports_rejected_credentials_without_waiting_for_timeout(self):
@@ -620,6 +626,14 @@ class TestManualGatewayService:
                 "_import_ib_web_session_helpers",
                 return_value=(auth_status, ensure_session, upsert_env_file),
             ),
+            patch(
+                "app.services.manual_gateway.ib_clientportal.login_ib_web_session_with_browser",
+                return_value={
+                    "account_id": "DU654321",
+                    "cookie_output": "/Users/yunjinqi/Documents/new_projects/bt_api_py/configs/ibkr_cookies.json",
+                    "cookies": {"api": "cookie-value"},
+                },
+            ) as browser_login,
         ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
@@ -655,7 +669,8 @@ class TestManualGatewayService:
         ensure_args = mock_ensure.call_args.args
         assert ensure_args[0] == "https://localhost:5000/v1/api"
         mock_wait.assert_called_once_with(runtime, mock_wait.call_args.args[1], timeout_sec=34.0)
-        ensure_session.assert_called_once()
+        ensure_session.assert_not_called()
+        browser_login.assert_called_once()
         runtime_kwargs = runtime_cls.call_args.kwargs
         assert runtime_kwargs["base_url"] == "https://localhost:5000/v1/api"
         assert runtime_kwargs["account_id"] == "DU654321"
@@ -2161,7 +2176,7 @@ class TestGatewayHealthService:
                 "heartbeat_age_sec": None,
                 "last_tick_time": None,
                 "last_order_time": None,
-                "strategy_count": 0,
+                "strategy_count": 2,
                 "symbol_count": 0,
                 "tick_count": 0,
                 "order_count": 0,
