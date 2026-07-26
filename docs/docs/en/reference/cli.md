@@ -1,100 +1,54 @@
-# Command Line Interface
+# Common commands
 
-## Backend CLI
+Run these from the repository root. Use the project’s designated Python environment for backend commands.
 
-### Start Server
+## Backend
 
 ```bash
 cd src/backend
+pip install -e ".[dev,backtrader]"
+pytest -m "not e2e" -q --tb=short
+ruff check app tests
+mypy app
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Options
-
-| Option | Description |
-|--------|-------------|
-| `--host` | Host to bind (default: 0.0.0.0) |
-| `--port` | Port to bind (default: 8000) |
-| `--reload` | Enable auto-reload |
-| `--workers` | Number of workers |
-
-### Database Migrations
+Install the appropriate extra for online data or semantic retrieval:
 
 ```bash
-# Create migration
-alembic revision --autogenerate -m "message"
-
-# Upgrade
-alembic upgrade head
-
-# Downgrade
-alembic downgrade -1
+pip install -e ".[data]"
+pip install -e ".[rag]"
 ```
 
-## Frontend CLI
-
-### Development Server
+## Frontend
 
 ```bash
 cd src/frontend
+npm install
 npm run dev
-```
-
-### Build
-
-```bash
+npm run typecheck
+npm run lint
+npm run test -- --run
 npm run build
 ```
 
-### Type Check
+## Documentation
 
 ```bash
-npm run typecheck
+python -m pip install -r docs/requirements.txt
+python -m mkdocs serve -f docs/mkdocs.yml
+python -m mkdocs build -f docs/mkdocs.yml --strict
 ```
 
-### Lint
+## Docker
 
 ```bash
-npm run lint
+# Development Compose
+docker compose -f docker/docker-compose.yml -f docker/compose/dev.yml up
+
+# Production Compose
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml up -d
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml ps
 ```
 
-## Scripts
-
-### Environment Verification
-
-```bash
-./scripts/verify-dev-env.sh --preinstall
-./scripts/verify-dev-env.sh --postinstall
-```
-
-### Docker Deployment
-
-```bash
-./scripts/certbot-init.sh     # Initialize SSL
-./scripts/certbot-renew.sh    # Renew SSL
-```
-
-## Testing
-
-### Backend Tests
-
-```bash
-cd src/backend
-pytest
-
-# With coverage
-pytest --cov=app --cov-report=term
-
-# Specific file
-pytest tests/test_auth.py
-```
-
-### Frontend Tests
-
-```bash
-cd src/frontend
-npm run test
-
-# E2E tests
-npm run test:e2e
-```
+Before high-impact commands, check environment, configuration, and backup state. Test/development commands must not use production databases or real gateway credentials.

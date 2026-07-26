@@ -54,7 +54,7 @@ class BaseAppError(Exception):
         Returns:
             Dictionary containing error information.
         """
-        result = {
+        result: dict[str, Any] = {
             "error": self.error_code,
             "message": self.message,
         }
@@ -94,7 +94,7 @@ class InvalidCredentialsError(AuthenticationError):
         Args:
             username: The username that was used (optional).
         """
-        details = {}
+        details: dict[str, Any] = {}
         if username:
             details["username"] = username
         super().__init__("Invalid username or password", details, "InvalidCredentialsError")
@@ -110,7 +110,7 @@ class UserNotFoundError(AuthenticationError):
             user_id: The user ID that was not found.
             username: The username that was not found.
         """
-        details = {}
+        details: dict[str, Any] = {}
         if user_id:
             details["user_id"] = user_id
         if username:
@@ -133,7 +133,7 @@ class UserAlreadyExistsError(AuthenticationError):
             username: The conflicting username.
             email: The conflicting email.
         """
-        details = {}
+        details: dict[str, Any] = {}
         if username:
             details["username"] = username
         if email:
@@ -162,7 +162,7 @@ class InvalidTokenError(AuthenticationError):
 class TokenExpiredError(InvalidTokenError):
     """Raised specifically when a token has expired."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize token expired error."""
         super().__init__("Token has expired")
 
@@ -177,7 +177,7 @@ class InsufficientPermissionsError(AuthenticationError):
             required_permission: The permission that was required.
             resource: The resource being accessed.
         """
-        details = {}
+        details: dict[str, Any] = {}
         if required_permission:
             details["required_permission"] = required_permission
         if resource:
@@ -341,7 +341,7 @@ class InvalidStrategyCodeError(StrategyError):
             line: The line number where the error occurred.
             error: The actual error message.
         """
-        details = {}
+        details: dict[str, Any] = {}
         if line:
             details["line"] = line
         if error:

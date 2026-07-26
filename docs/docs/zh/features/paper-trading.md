@@ -1,84 +1,32 @@
-# 模拟交易
+# 交易工作区与模拟
 
-## 概述
+交易工作区承接已完成研究审核的策略运行单元，并将运行状态与研究工作区分开。它可用于模拟运行、账户与订单观察，以及为后续网关接入保留可追溯上下文。
 
-模拟交易提供模拟交易环境，使用真实市场数据，让您在不承担真实风险的情况下测试策略。
+## 研究工作区与交易工作区
 
-## 功能特性
+| 类型 | 目标 | 常用入口 |
+| --- | --- | --- |
+| 研究工作区 | 策略假设、回测、报告、优化和验证 | `/research/workspaces` |
+| 交易工作区 | 经审核的运行单元、账户/持仓/成交和运行状态 | `/trading` |
 
-- **账户管理** - 多个模拟交易账户
-- **订单类型** - 市价单、限价单、止损单、止盈单
-- **持仓跟踪** - 实时持仓和盈亏
-- **交易历史** - 完整的审计跟踪
-- **WebSocket 更新** - 订单/持仓实时更新
+不要把研究输出直接当作交易指令。切换到交易工作区前，应确认策略版本、数据范围、成本、风险参数、人工审批和网关状态。
 
-## API 端点
+## 组合观察
 
-### 创建会话
+**组合**页只聚合可确认的运行工作区状态，并展示：
 
-```http
-POST /api/v1/paper-trading/sessions
-Content-Type: application/json
+- 账户、持仓、成交与资产配置；
+- 累计 P&L、资金曲线与回撤；
+- 多空方向、合约乘数、手续费和共享账户去重后的估值；
+- 首屏摘要与运行时详细状态的差异提示。
 
-{
-  "name": "我的模拟账户",
-  "initial_cash": 100000,
-  "commission": 0.001
-}
-```
+摘要用于快速打开页面；交易决策仍应以经过进程校验的运行状态、模拟盘快照和策略日志为准。
 
-### 列出会话
+## 操作原则
 
-```http
-GET /api/v1/paper-trading/sessions
-```
+1. 先在研究工作区保存验证证据。
+2. 创建或更新交易运行单元后，检查账户、数据、风险和策略版本是否一致。
+3. 通过网关诊断、策略日志和组合页交叉核对运行状态。
+4. 停止或修改运行前保留审计记录；不要仅依赖缓存页面数据。
 
-### 启动会话
-
-```http
-POST /api/v1/paper-trading/sessions/{id}/start
-```
-
-### 停止会话
-
-```http
-POST /api/v1/paper-trading/sessions/{id}/stop
-```
-
-### 下单
-
-```http
-POST /api/v1/paper-trading/orders
-Content-Type: application/json
-
-{
-  "session_id": 1,
-  "symbol": "000001.SZ",
-  "direction": "long",
-  "order_type": "market",
-  "quantity": 100,
-  "price": null
-}
-```
-
-### 获取持仓
-
-```http
-GET /api/v1/paper-trading/sessions/{id}/positions
-```
-
-### 获取交易
-
-```http
-GET /api/v1/paper-trading/sessions/{id}/trades
-```
-
-## WebSocket 实时更新
-
-```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/paper-trading/{session_id}');
-ws.onmessage = (event) => {
-  const update = JSON.parse(event.data);
-  // 处理: order_update, position_update, trade_update
-};
-```
+实盘前准备见[实盘准备与网关](./live-trading.md)。

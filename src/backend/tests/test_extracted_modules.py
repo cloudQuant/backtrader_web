@@ -6,25 +6,29 @@ GatewayPresetService work correctly in isolation.
 """
 
 import asyncio
+import os
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from app.services import (
     auto_trading_scheduler,
-    gateway_health_service,
-    gateway_launch_builder,
-    gateway_runtime_service,
-    live_execution_service,
-    live_instance_service,
     manual_gateway_service,
-    strategy_runtime_support,
 )
-from app.services.gateway_preset_service import get_gateway_presets
+from app.services.gateway import health as gateway_health_service
+from app.services.gateway import launch_builder as gateway_launch_builder
+from app.services.gateway import runtime as gateway_runtime_service
+from app.services.gateway.preset import get_gateway_presets
 from app.services.instance_store import InstanceStore
+from app.services.live_trading import execution as live_execution_service
+from app.services.live_trading import instance as live_instance_service
+from app.services.manual_gateway import ib_clientportal as ib_clientportal_service
 from app.services.process_supervisor import is_pid_alive, kill_pid, scan_running_strategy_pids
+from app.services.strategy import runtime_support as strategy_runtime_support
 
 
 class TestInstanceStore:
@@ -320,7 +324,7 @@ class TestStrategyRuntimeSupport:
         app_dir.mkdir()
         (strategy_dir / ".env").write_text("A=1\n", encoding="utf-8")
         (app_dir / ".env").write_text("B=2\n", encoding="utf-8")
-        monkeypatch.setattr(strategy_runtime_support, "_BACKTRADER_WEB_DIR", app_dir)
+        monkeypatch.setattr(strategy_runtime_support, "_PROJECT_ROOT", app_dir)
 
         result = strategy_runtime_support.load_strategy_env(strategy_dir)
 
@@ -403,6 +407,35 @@ class TestStrategyRuntimeSupport:
 
 
 class TestManualGatewayService:
+    def test_backend_env_file_candidates_includes_cwd_env(self, tmp_path, monkeypatch):
+        cwd_env = tmp_path / ".env"
+        cwd_env.write_text("IB_WEB_USERNAME=from-cwd\n", encoding="utf-8")
+
+        monkeypatch.chdir(tmp_path)
+        candidates = manual_gateway_service._backend_env_file_candidates()
+
+        assert Path(cwd_env) in candidates
+
+    def test_load_backend_gateway_env_values_uses_env_and_env_file(self, tmp_path, monkeypatch):
+        file_env = tmp_path / ".env"
+        file_env.write_text("OKX_PASSWORD=file-password\nOKX_PASSPHRASE=\n", encoding="utf-8")
+
+        with (
+            patch.object(
+                manual_gateway_service,
+                "_backend_env_file_candidates",
+                return_value=(file_env,),
+            ),
+            patch.dict(
+                manual_gateway_service.os.environ,
+                {"OKX_PASSWORD": "system-password"},
+                clear=False,
+            ),
+        ):
+            values = manual_gateway_service._load_backend_gateway_env_values()
+
+        assert values["OKX_PASSWORD"] == "system-password"
+
     def test_to_backend_env_relative_path_returns_bt_api_relative_cookie_path(self):
         result = manual_gateway_service._to_backend_env_relative_path(
             "/Users/yunjinqi/Documents/new_projects/bt_api_py/configs/ibkr_cookies.json"
@@ -437,6 +470,67 @@ class TestManualGatewayService:
                 )
 
         mock_helpers.assert_not_called()
+
+    def test_bootstrap_ib_web_session_refreshes_expired_cookie_with_browser_login(self):
+        refreshed_session = {
+            "cookies": {"session": "refreshed"},
+            "cookie_output": "configs/ibkr_cookies.json",
+            "account_id": "DU123456",
+            "used_login": True,
+        }
+        with (
+            patch.object(
+                manual_gateway_service,
+                "_load_ib_web_session_state",
+                return_value=({}, {"session": "expired"}, False, [], ""),
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_import_ib_web_session_helpers",
+                side_effect=ModuleNotFoundError("bt_api_py"),
+            ) as import_helpers,
+            patch(
+                "app.services.manual_gateway.ib_clientportal.login_ib_web_session_with_browser",
+                return_value=refreshed_session,
+            ) as browser_login,
+        ):
+            result = manual_gateway_service._bootstrap_ib_web_session(
+                {
+                    "account_id": "DU123456",
+                    "cookie_source": "file:configs/ibkr_cookies.json",
+                    "username": "test-ib-user",
+                    "password": "test-ib-pass",
+                },
+                "https://localhost:5000/v1/api",
+                verify_ssl=False,
+                timeout=10.0,
+            )
+
+        assert result == refreshed_session
+        import_helpers.assert_not_called()
+        browser_login.assert_called_once()
+
+    def test_browser_login_reports_rejected_credentials_without_waiting_for_timeout(self):
+        class FakeDriver:
+            def get_cookies(self):
+                return []
+
+            def find_elements(self, selector_type, selector):
+                if selector == ".xyz-errormessage":
+                    return [SimpleNamespace(text="Authentication failed")]
+                return []
+
+        with pytest.raises(RuntimeError, match="rejected the configured paper login credentials"):
+            ib_clientportal_service._wait_for_browser_authenticated_session(
+                FakeDriver(),
+                SimpleNamespace(),
+                "https://localhost:5000/v1/api",
+                verify_ssl=False,
+                timeout=10.0,
+                login_timeout=60.0,
+                headless=True,
+                login_mode="paper",
+            )
 
     def test_resolve_ib_web_base_url_falls_back_to_http_for_localhost(self):
         auth_status = Mock(side_effect=[RuntimeError("ssl eof"), Mock(status_code=200)])
@@ -532,6 +626,14 @@ class TestManualGatewayService:
                 "_import_ib_web_session_helpers",
                 return_value=(auth_status, ensure_session, upsert_env_file),
             ),
+            patch(
+                "app.services.manual_gateway.ib_clientportal.login_ib_web_session_with_browser",
+                return_value={
+                    "account_id": "DU654321",
+                    "cookie_output": "/Users/yunjinqi/Documents/new_projects/bt_api_py/configs/ibkr_cookies.json",
+                    "cookies": {"api": "cookie-value"},
+                },
+            ) as browser_login,
         ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
@@ -567,7 +669,8 @@ class TestManualGatewayService:
         ensure_args = mock_ensure.call_args.args
         assert ensure_args[0] == "https://localhost:5000/v1/api"
         mock_wait.assert_called_once_with(runtime, mock_wait.call_args.args[1], timeout_sec=34.0)
-        ensure_session.assert_called_once()
+        ensure_session.assert_not_called()
+        browser_login.assert_called_once()
         runtime_kwargs = runtime_cls.call_args.kwargs
         assert runtime_kwargs["base_url"] == "https://localhost:5000/v1/api"
         assert runtime_kwargs["account_id"] == "DU654321"
@@ -581,6 +684,64 @@ class TestManualGatewayService:
         assert env_updates["IB_WEB_ACCOUNT_ID"] == "DU654321"
         assert env_updates["IB_WEB_COOKIE_SOURCE"] == "file:configs/ibkr_cookies.json"
         assert env_updates["IB_WEB_COOKIE_OUTPUT"] == "configs/ibkr_cookies.json"
+
+    def test_bootstrap_ib_web_session_uses_env_values_when_no_login_credentials(self):
+        auth_status = Mock(return_value=Mock(status_code=200))
+        ensure_authenticated_session = Mock(return_value={"account_id": "DU777777", "cookies": {}})
+        upsert_env_file = Mock()
+
+        with (
+            patch.object(
+                manual_gateway_service,
+                "_load_ib_web_session_state",
+                return_value=({}, {}, False, [], ""),
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_import_ib_web_session_helpers",
+                return_value=(auth_status, ensure_authenticated_session, upsert_env_file),
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_load_backend_gateway_env_values",
+                return_value={
+                    "IB_WEB_USERNAME": "user",
+                    "IB_WEB_PASSWORD": "pwd",
+                    "IB_WEB_LOGIN_MODE": "paper",
+                    "IB_WEB_LOGIN_BROWSER": "chrome",
+                    "IB_WEB_LOGIN_HEADLESS": "true",
+                    "IB_WEB_LOGIN_TIMEOUT": "120",
+                    "IB_WEB_COOKIE_SOURCE": "file:custom-cookie.json",
+                    "IB_WEB_COOKIE_OUTPUT": "custom-cookie.json",
+                    "IB_WEB_COOKIE_BROWSER": "chrome",
+                    "IB_WEB_COOKIE_PATH": "/custom/sso",
+                },
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_backend_env_file_for_helpers",
+                return_value=Path("/tmp/ib_web.env"),
+            ),
+        ):
+            result = manual_gateway_service._bootstrap_ib_web_session(
+                {
+                    "account_id": "DU123456",
+                    "base_url": "https://localhost:5000/v1/api",
+                },
+                "https://localhost:5000/v1/api",
+                verify_ssl=False,
+                timeout=10.0,
+            )
+
+        assert result is not None
+        ensure_authenticated_session.assert_called_once()
+        called_kwargs = ensure_authenticated_session.call_args.kwargs
+        assert called_kwargs["overrides"]["username"] == "user"
+        assert called_kwargs["overrides"]["password"] == "pwd"
+        assert called_kwargs["overrides"]["cookie_source"] == "file:custom-cookie.json"
+        assert called_kwargs["overrides"]["cookie_browser"] == "chrome"
+        assert called_kwargs["overrides"]["cookie_path"] == "/custom/sso"
+        assert called_kwargs["env_file"] == Path("/tmp/ib_web.env")
 
     def test_connect_gateway_returns_existing_manual_gateway(self):
         gateways = {"manual:CTP:acc1": {"manual": True}}
@@ -1177,7 +1338,10 @@ class TestManualGatewayService:
         runtime_kwargs = runtime_cls.call_args.kwargs
         assert runtime_kwargs["td_address"] == "tcp://182.254.243.31:30002"
         assert runtime_kwargs["md_address"] == "tcp://182.254.243.31:30012"
-        logger.warning.assert_called_once()
+        assert any(
+            "Requested CTP SimNow front" in str(call.args[0])
+            for call in logger.warning.call_args_list
+        )
 
     def test_connect_gateway_returns_clear_error_when_all_current_simnow_fronts_unreachable(self):
         gateways: dict[str, dict] = {}
@@ -1355,6 +1519,252 @@ class TestManualGatewayService:
         assert runtime_kwargs["http_proxy_port"] == 7890
         assert runtime_kwargs["async_proxy"] == "http://127.0.0.1:7890"
 
+    def test_connect_gateway_starts_binance_runtime_with_env_fallback(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return {"config": kwargs}
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        fake_settings = SimpleNamespace(
+            BINANCE_API_KEY="",
+            BINANCE_SECRET_KEY="",
+            BINANCE_TESTNET=False,
+            BINANCE_BASE_URL="",
+        )
+
+        with (
+            patch("app.config.get_settings", return_value=fake_settings),
+            patch.object(
+                manual_gateway_service,
+                "_load_backend_gateway_env_values",
+                return_value={
+                    "BINANCE_API_KEY": "binance-key-from-env",
+                    "BINANCE_PASSWORD": "binance-secret-from-legacy-password",
+                    "BINANCE_TESTNET": "true",
+                    "BINANCE_BASE_URL": "https://api.binance.com",
+                },
+            ),
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="BINANCE",
+                credentials={
+                    "account_id": "acc-binance",
+                    "asset_type": "SWAP",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["api_key"] == "binance-key-from-env"
+        assert runtime_kwargs["secret_key"] == "binance-secret-from-legacy-password"
+
+    def test_connect_gateway_starts_okx_runtime_with_env_fallback(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return {"config": kwargs}
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        fake_settings = SimpleNamespace(
+            OKX_API_KEY="",
+            OKX_SECRET_KEY="",
+            OKX_PASSPHRASE="okx-passphrase",
+            OKX_TESTNET=False,
+            OKX_BASE_URL="",
+        )
+
+        with (
+            patch("app.config.get_settings", return_value=fake_settings),
+            patch.object(
+                manual_gateway_service,
+                "_load_backend_gateway_env_values",
+                return_value={
+                    "OKX_API_KEY": "okx-key-from-env",
+                    "OKX_SECRET": "okx-secret-from-legacy-secret",
+                    "OKX_PASSPHRASE": "okx-passphrase",
+                },
+            ),
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="OKX",
+                credentials={
+                    "account_id": "acc-okx",
+                    "asset_type": "SPOT",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["api_key"] == "okx-key-from-env"
+        assert runtime_kwargs["secret_key"] == "okx-secret-from-legacy-secret"
+        assert runtime_kwargs["passphrase"] == "okx-passphrase"
+
+    def test_connect_gateway_starts_okx_runtime_with_legacy_password_as_passphrase(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return {"config": kwargs}
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        fake_settings = SimpleNamespace(
+            OKX_API_KEY="",
+            OKX_SECRET_KEY="",
+            OKX_PASSPHRASE="",
+            OKX_TESTNET=False,
+            OKX_BASE_URL="",
+        )
+
+        with (
+            patch("app.config.get_settings", return_value=fake_settings),
+            patch.object(
+                manual_gateway_service,
+                "_load_backend_gateway_env_values",
+                return_value={
+                    "OKX_API_KEY": "okx-key-from-env",
+                    "OKX_SECRET": "okx-secret-from-legacy-secret",
+                    "OKX_PASSWORD": "okx-passphrase-from-password",
+                },
+            ),
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="OKX",
+                credentials={
+                    "account_id": "acc-okx",
+                    "asset_type": "SPOT",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["passphrase"] == "okx-passphrase-from-password"
+
+    def test_connect_gateway_starts_mt5_runtime_with_env_fallback(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return {"config": kwargs}
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        fake_settings = SimpleNamespace(
+            MT5_LOGIN="",
+            MT5_PASSWORD="",
+            MT5_SERVER="",
+            MT5_WS_URI="",
+            MT5_SYMBOL_SUFFIX="",
+        )
+
+        with (
+            patch("app.config.get_settings", return_value=fake_settings),
+            patch.object(
+                manual_gateway_service,
+                "_load_backend_gateway_env_values",
+                return_value={
+                    "MT5_LOGIN": "789012",
+                    "MT5_PASSWORD": "mt5-password",
+                    "MT5_SERVER": "Demo",
+                    "MT5_WS_URI": "wss://demo.example.com",
+                },
+            ),
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="MT5",
+                credentials={
+                    "account_id": "",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["login"] == 789012
+        assert runtime_kwargs["password"] == "mt5-password"
+
+    def test_connect_gateway_starts_mt5_runtime_with_legacy_account_aliases(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return {"config": kwargs}
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        fake_settings = SimpleNamespace(
+            MT5_LOGIN="",
+            MT5_PASSWORD="",
+            MT5_SERVER="",
+            MT5_WS_URI="",
+            MT5_SYMBOL_SUFFIX="",
+        )
+
+        with (
+            patch("app.config.get_settings", return_value=fake_settings),
+            patch.object(
+                manual_gateway_service,
+                "_load_backend_gateway_env_values",
+                return_value={
+                    "MT5_ACCOUNT": "123456",
+                    "MT5_PASS": "alias-pass",
+                },
+            ),
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="MT5",
+                credentials={},
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["login"] == 123456
+        assert runtime_kwargs["password"] == "alias-pass"
+
     def test_ensure_ib_clientportal_running_starts_background_process_when_local_port_down(self):
         logger = Mock()
         process = Mock()
@@ -1511,6 +1921,124 @@ class TestManualGatewayService:
             "trade_connection": "connected",
         }
 
+    def test_query_gateway_account_merges_adapter_balance(self):
+        health = Mock()
+        health.snapshot.return_value = {
+            "exchange": "MT5",
+            "account_id": "demo",
+            "state": "running",
+            "market_connection": "connected",
+            "trade_connection": "connected",
+        }
+        adapter = Mock()
+        adapter.get_balance.return_value = {
+            "balance": 100000.0,
+            "equity": 100250.0,
+            "margin": 1200.0,
+            "margin_free": 99050.0,
+            "currency": "USD",
+        }
+        runtime = SimpleNamespace(health=health, adapter=adapter)
+
+        result = manual_gateway_service.query_gateway_account(
+            {"gw1": {"runtime": runtime, "exchange_type": "MT5", "account_id": "demo"}},
+            "gw1",
+        )
+
+        assert result is not None
+        assert result["gateway_key"] == "gw1"
+        assert result["value"] == 100250.0
+        assert result["cash"] == 99050.0
+        assert result["margin"] == 1200.0
+        assert result["account_source"] == "adapter.get_balance"
+
+    def test_query_gateway_account_derives_cash_from_equity_minus_margin(self):
+        health = Mock()
+        health.snapshot.return_value = {
+            "exchange": "MT5",
+            "account_id": "demo",
+            "state": "running",
+            "market_connection": "connected",
+            "trade_connection": "connected",
+        }
+        adapter = Mock()
+        adapter.get_balance.return_value = {
+            "balance": 100000.0,
+            "equity": 100250.0,
+            "margin": 1200.0,
+            "currency": "USD",
+        }
+        runtime = SimpleNamespace(health=health, adapter=adapter)
+
+        result = manual_gateway_service.query_gateway_account(
+            {"gw1": {"runtime": runtime, "exchange_type": "MT5", "account_id": "demo"}},
+            "gw1",
+        )
+
+        assert result is not None
+        assert result["value"] == 100250.0
+        assert result["cash"] == 99050.0
+        assert result["margin"] == 1200.0
+        assert result["balance"] == 100000.0
+
+    def test_query_gateway_account_normalizes_crypto_balance_aliases(self):
+        health = Mock()
+        health.snapshot.return_value = {
+            "exchange": "BYBIT",
+            "account_id": "unified",
+            "state": "running",
+            "market_connection": "connected",
+            "trade_connection": "connected",
+        }
+        adapter = Mock()
+        adapter.get_balance.return_value = {
+            "account_type": "UNIFIED",
+            "total_equity": "10,250.5",
+            "total_wallet_balance": "10,000.0",
+            "total_available_balance": "9,125.25",
+            "total_initial_margin": "875.25",
+        }
+        runtime = SimpleNamespace(health=health, adapter=adapter)
+
+        result = manual_gateway_service.query_gateway_account(
+            {"gw1": {"runtime": runtime, "exchange_type": "BYBIT", "account_id": "unified"}},
+            "gw1",
+        )
+
+        assert result is not None
+        assert result["value"] == 10250.5
+        assert result["equity"] == 10250.5
+        assert result["cash"] == 9125.25
+        assert result["margin"] == 875.25
+        assert result["account_source"] == "adapter.get_balance"
+
+    def test_query_gateway_account_preserves_nested_zero_available_cash(self):
+        health = Mock()
+        health.snapshot.return_value = {
+            "exchange": "IB_WEB",
+            "account_id": "acc-zero",
+            "state": "running",
+            "market_connection": "connected",
+            "trade_connection": "connected",
+        }
+        adapter = Mock()
+        adapter.get_balance.return_value = {
+            "NetLiquidation": {"amount": "250000.0"},
+            "AvailableFunds": {"amount": 0},
+            "Balance": 250000.0,
+        }
+        runtime = SimpleNamespace(health=health, adapter=adapter)
+
+        result = manual_gateway_service.query_gateway_account(
+            {"gw1": {"runtime": runtime, "exchange_type": "IB_WEB", "account_id": "acc-zero"}},
+            "gw1",
+        )
+
+        assert result is not None
+        assert result["value"] == 250000.0
+        assert result["cash"] == 0.0
+        assert result["account_source"] == "adapter.get_balance"
+
     def test_query_gateway_positions_supports_callable_and_internal_dict(self):
         runtime_a = Mock()
         runtime_a.positions = Mock(return_value=[{"symbol": "IF00"}])
@@ -1521,13 +2049,36 @@ class TestManualGatewayService:
         assert result_a == [{"symbol": "IF00"}]
 
         runtime_b = Mock()
+        runtime_b.adapter = None
         runtime_b.positions = None
-        runtime_b._positions = {"a": {"symbol": "rb"}}
+        runtime_b._positions = {"a": {"symbol": "rb", "size": 1}}
         result_b = manual_gateway_service.query_gateway_positions(
             {"gw2": {"runtime": runtime_b}},
             "gw2",
         )
-        assert result_b == [{"symbol": "rb"}]
+        assert result_b == [{"symbol": "rb", "size": 1}]
+
+    def test_query_gateway_positions_reads_runtime_adapter_positions(self):
+        adapter = Mock()
+        adapter.get_positions = Mock(return_value=[{"symbol": "XAUUSD", "volume": 0.1}])
+        runtime = SimpleNamespace(adapter=adapter)
+
+        result = manual_gateway_service.query_gateway_positions(
+            {"gw1": {"runtime": runtime}},
+            "gw1",
+            strict=True,
+        )
+
+        assert result == [{"symbol": "XAUUSD", "volume": 0.1}]
+        adapter.get_positions.assert_called_once_with()
+
+    def test_query_gateway_positions_strict_raises_when_runtime_missing(self):
+        with pytest.raises(RuntimeError, match="has no runtime"):
+            manual_gateway_service.query_gateway_positions(
+                {"gw1": {"runtime": None}},
+                "gw1",
+                strict=True,
+            )
 
     def test_list_connected_gateways_filters_manual_only(self):
         result = manual_gateway_service.list_connected_gateways(
@@ -1625,10 +2176,19 @@ class TestGatewayHealthService:
                 "heartbeat_age_sec": None,
                 "last_tick_time": None,
                 "last_order_time": None,
-                "strategy_count": 0,
+                "strategy_count": 2,
                 "symbol_count": 0,
                 "tick_count": 0,
                 "order_count": 0,
+                "selected_ctp_env": "",
+                "td_front": "",
+                "md_front": "",
+                "selection_reason": "",
+                "auth_state": "unknown",
+                "login_state": "unknown",
+                "front_id": "",
+                "session_id": "",
+                "trading_day": "",
                 "ref_count": 2,
                 "instances": ["inst1", "inst2"],
                 "recent_errors": [],
@@ -1841,6 +2401,7 @@ class TestLiveInstanceService:
             load_instances=lambda: instances,
             save_instances=lambda data: None,
             is_pid_alive=lambda pid: False,
+            scan_running_strategy_pids=lambda: {},
             resolve_strategy_dir=lambda strategy_id: Path("/tmp") / strategy_id,
             find_latest_log_dir=lambda strategy_dir: "/logs/test",
         )
@@ -1858,6 +2419,7 @@ class TestLiveInstanceService:
                 load_instances=lambda: instances,
                 save_instances=lambda data: None,
                 is_pid_alive=lambda pid: True,
+                scan_running_strategy_pids=lambda: {},
                 resolve_strategy_dir=lambda strategy_id: Path("/tmp") / strategy_id,
                 find_latest_log_dir=lambda strategy_dir: None,
             )
@@ -1877,11 +2439,11 @@ class TestLiveExecutionService:
         wait_process_callback = AsyncMock()
 
         with patch(
-            "app.services.live_execution_service.asyncio.create_subprocess_exec",
+            "app.services.live_trading.execution.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=proc),
         ):
             with patch(
-                "app.services.live_execution_service.asyncio.create_task"
+                "app.services.live_trading.execution.asyncio.create_task"
             ) as mock_create_task:
 
                 def _create_task(coro):
@@ -1909,6 +2471,124 @@ class TestLiveExecutionService:
 
         assert result["status"] == "running"
         assert result["pid"] == 12345
+        assert result["updated_at"] == result["started_at"]
+        assert result["gateway_type"] == ""
+
+    def test_start_instance_builds_gateway_environment_off_event_loop(self, tmp_path):
+        instances = {"inst1": {"strategy_id": "demo", "status": "stopped"}}
+        strategy_dir = tmp_path / "demo"
+        strategy_dir.mkdir()
+        (strategy_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
+        proc = AsyncMock()
+        proc.pid = 12345
+        proc.returncode = None
+        builder_threads: list[int] = []
+
+        def build_subprocess_env(*_args):
+            builder_threads.append(threading.get_ident())
+            return {"A": "1"}
+
+        with patch(
+            "app.services.live_trading.execution.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=proc),
+        ):
+            with patch(
+                "app.services.live_trading.execution.asyncio.create_task"
+            ) as mock_create_task:
+
+                def _create_task(coro):
+                    coro.close()
+                    return Mock()
+
+                mock_create_task.side_effect = _create_task
+                asyncio.run(
+                    live_execution_service.start_instance(
+                        instance_id="inst1",
+                        load_instances=lambda: instances,
+                        save_instances=lambda data: None,
+                        is_pid_alive=lambda pid: False,
+                        resolve_strategy_dir=lambda strategy_id: strategy_dir,
+                        build_subprocess_env=build_subprocess_env,
+                        release_gateway_for_instance=lambda instance_id: None,
+                        wait_process_callback=AsyncMock(),
+                        processes={},
+                        stopping_instances=set(),
+                    )
+                )
+
+        assert builder_threads
+        assert builder_threads[0] != threading.get_ident()
+
+    def test_wait_process_reads_stderr_file_tail(self, tmp_path):
+        stderr_path = tmp_path / "subprocess.stderr.log"
+        stderr_path.write_text("x" * 600 + "file error message", encoding="utf-8")
+        proc = AsyncMock()
+        proc.pid = 12345
+        proc.returncode = 1
+        proc.stderr = None
+        proc.wait = AsyncMock()
+        proc._bt_stderr_path = str(stderr_path)
+        saved = {}
+        released = []
+
+        asyncio.run(
+            live_execution_service.wait_process(
+                instance_id="inst1",
+                proc=proc,
+                load_instances=lambda: {
+                    "inst1": {"strategy_id": "s1", "status": "running", "pid": 12345}
+                },
+                save_instances=lambda data: saved.update(data),
+                resolve_strategy_dir=lambda strategy_id: tmp_path / strategy_id,
+                find_latest_log_dir=lambda strategy_dir: None,
+                release_gateway_for_instance=lambda instance_id: released.append(instance_id),
+                processes={"inst1": proc},
+                stopping_instances=set(),
+            )
+        )
+
+        assert saved["inst1"]["status"] == "error"
+        assert "file error message" in saved["inst1"]["error"]
+        assert saved["inst1"]["updated_at"] == saved["inst1"]["stopped_at"]
+        assert released == ["inst1"]
+
+    def test_wait_process_cancellation_keeps_running_instance_attached(self):
+        proc = Mock()
+        proc.pid = 12345
+        proc.returncode = None
+        proc.stderr = None
+        proc.wait = AsyncMock(side_effect=asyncio.CancelledError())
+        instances = {
+            "inst1": {
+                "strategy_id": "s1",
+                "status": "running",
+                "pid": 12345,
+                "error": None,
+            }
+        }
+        saved = {}
+        released = []
+        processes = {"inst1": proc}
+
+        asyncio.run(
+            live_execution_service.wait_process(
+                instance_id="inst1",
+                proc=proc,
+                load_instances=lambda: instances,
+                save_instances=lambda data: saved.update(data),
+                resolve_strategy_dir=lambda strategy_id: Path("/tmp") / strategy_id,
+                find_latest_log_dir=lambda strategy_dir: None,
+                release_gateway_for_instance=lambda instance_id: released.append(instance_id),
+                processes=processes,
+                stopping_instances=set(),
+            )
+        )
+
+        assert saved == {}
+        assert released == []
+        assert processes["inst1"] is proc
+        assert instances["inst1"]["status"] == "running"
+        assert instances["inst1"]["pid"] == 12345
 
     def test_start_instance_clears_stopping_flag(self, tmp_path):
         instances = {"inst1": {"strategy_id": "demo", "status": "stopped"}}
@@ -1921,11 +2601,11 @@ class TestLiveExecutionService:
         stopping_instances = {"inst1"}
 
         with patch(
-            "app.services.live_execution_service.asyncio.create_subprocess_exec",
+            "app.services.live_trading.execution.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=proc),
         ):
             with patch(
-                "app.services.live_execution_service.asyncio.create_task"
+                "app.services.live_trading.execution.asyncio.create_task"
             ) as mock_create_task:
 
                 def _create_task(coro):
@@ -1952,6 +2632,42 @@ class TestLiveExecutionService:
                 )
 
         assert "inst1" not in stopping_instances
+
+    def test_start_instance_records_env_build_failure(self, tmp_path):
+        instances = {"inst1": {"strategy_id": "demo", "status": "stopped"}}
+        strategy_dir = tmp_path / "demo"
+        strategy_dir.mkdir()
+        (strategy_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
+        saved = []
+        released = []
+
+        def raise_gateway_error(*_args):
+            raise RuntimeError(
+                "Gateway runtime failed to become ready: runtime: ctp market not ready"
+            )
+
+        with pytest.raises(ValueError, match="ctp market not ready"):
+            asyncio.run(
+                live_execution_service.start_instance(
+                    instance_id="inst1",
+                    load_instances=lambda: instances,
+                    save_instances=lambda data: saved.append(data.copy()),
+                    is_pid_alive=lambda pid: False,
+                    resolve_strategy_dir=lambda strategy_id: strategy_dir,
+                    build_subprocess_env=raise_gateway_error,
+                    release_gateway_for_instance=lambda instance_id: released.append(instance_id),
+                    wait_process_callback=AsyncMock(),
+                    processes={},
+                    stopping_instances=set(),
+                )
+            )
+
+        assert released == ["inst1"]
+        assert instances["inst1"]["status"] == "error"
+        assert instances["inst1"]["pid"] is None
+        assert "ctp market not ready" in instances["inst1"]["error"]
+        assert instances["inst1"]["stopped_at"]
+        assert saved[-1]["inst1"]["status"] == "error"
 
     def test_stop_instance_success(self):
         instances = {"inst1": {"strategy_id": "demo", "status": "running", "pid": 12345}}
@@ -1980,6 +2696,7 @@ class TestLiveExecutionService:
 
         assert result["status"] == "stopped"
         assert result["pid"] is None
+        assert result["updated_at"] == result["stopped_at"]
         assert killed == [12345]
         assert released == ["inst1"]
         assert processes == {}
@@ -2104,7 +2821,58 @@ class TestLiveExecutionService:
 
 
 class TestGatewayRuntimeService:
+    def test_build_subprocess_env_uses_resolved_app_debug_mode(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+
+        with patch.object(
+            gateway_runtime_service,
+            "get_settings",
+            return_value=Mock(DEBUG=True),
+        ):
+            env = gateway_runtime_service.build_subprocess_env(
+                instance_id="inst1",
+                instance={"params": {}},
+                strategy_dir=strategy_dir,
+                acquire_gateway_for_instance=lambda instance_id, instance, strategy_dir: None,
+                os_environ={"DEBUG": "false"},
+                bt_api_py_dir=tmp_path / "missing",
+            )
+
+        assert env["DEBUG"] == "true"
+
     def test_build_subprocess_env_without_gateway(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        bt_api_dir = tmp_path / "bt_api_py"
+        bt_api_dir.mkdir()
+        backtrader_dir = tmp_path / "backtrader"
+        backtrader_dir.mkdir()
+
+        env = gateway_runtime_service.build_subprocess_env(
+            instance_id="inst1",
+            instance={"params": {}},
+            strategy_dir=strategy_dir,
+            acquire_gateway_for_instance=lambda instance_id, instance, strategy_dir: None,
+            os_environ={"PYTHONPATH": "existing", "OPENBLAS_NUM_THREADS": "4"},
+            bt_api_py_dir=bt_api_dir,
+            backtrader_dir=backtrader_dir,
+        )
+
+        assert env["PYTHONPATH"].split(os.pathsep) == [
+            str(backtrader_dir),
+            str(bt_api_dir),
+            "existing",
+        ]
+        assert "BT_STORE_PROVIDER" not in env
+        assert env["BACKTRADER_LIGHT_IMPORT"] == "1"
+        assert env["BT_API_PY_LIGHT_IMPORT"] == "1"
+        assert env["BT_FEED_ENABLE_LIGHT_COLUMNS"] == "1"
+        assert env["BT_STORE_LOCAL_TIMEZONE"] == "Asia/Shanghai"
+        assert env["OPENBLAS_NUM_THREADS"] == "4"
+        assert env["OMP_NUM_THREADS"] == "1"
+
+    def test_build_subprocess_env_skips_missing_and_duplicate_python_paths(self, tmp_path):
         strategy_dir = tmp_path / "strategy"
         strategy_dir.mkdir()
         bt_api_dir = tmp_path / "bt_api_py"
@@ -2115,12 +2883,12 @@ class TestGatewayRuntimeService:
             instance={"params": {}},
             strategy_dir=strategy_dir,
             acquire_gateway_for_instance=lambda instance_id, instance, strategy_dir: None,
-            os_environ={"PYTHONPATH": "existing"},
+            os_environ={"PYTHONPATH": os.pathsep.join([str(bt_api_dir), "existing"])},
             bt_api_py_dir=bt_api_dir,
+            backtrader_dir=tmp_path / "missing_backtrader",
         )
 
-        assert env["PYTHONPATH"].startswith(str(bt_api_dir))
-        assert "BT_STORE_PROVIDER" not in env
+        assert env["PYTHONPATH"].split(os.pathsep) == [str(bt_api_dir), "existing"]
 
     def test_build_subprocess_env_with_gateway(self, tmp_path):
         strategy_dir = tmp_path / "strategy"
@@ -2154,6 +2922,376 @@ class TestGatewayRuntimeService:
         assert env["BT_GATEWAY_ACCOUNT_ID"] == "acc-1"
         assert env["BT_GATEWAY_EXCHANGE_TYPE"] == "CTP"
         assert env["BT_GATEWAY_ASSET_TYPE"] == "FUTURE"
+        assert env["BACKTRADER_LIGHT_IMPORT"] == "1"
+        assert env["BT_API_PY_LIGHT_IMPORT"] == "1"
+        assert env["BT_FEED_ENABLE_LIGHT_COLUMNS"] == "1"
+        assert env["BT_STORE_LOCAL_TIMEZONE"] == "Asia/Shanghai"
+        assert env["OPENBLAS_NUM_THREADS"] == "1"
+        assert env["OMP_NUM_THREADS"] == "1"
+
+    def test_build_subprocess_env_with_gateway_requires_symbol_asset_spec(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        (strategy_dir / "config.yaml").write_text(
+            "data:\n  symbol: UNKNOWN999\n  asset_type: future\n",
+            encoding="utf-8",
+        )
+        config = Mock(
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+            account_id="acc-1",
+            exchange_type="CTP",
+            asset_type="FUTURE",
+            startup_timeout_sec=5,
+            command_timeout_sec=10,
+        )
+
+        with pytest.raises(RuntimeError, match="交易资产规格"):
+            gateway_runtime_service.build_subprocess_env(
+                instance_id="inst1",
+                instance={"params": {"gateway": {"enabled": True}}},
+                strategy_dir=strategy_dir,
+                acquire_gateway_for_instance=(
+                    lambda instance_id, instance, strategy_dir: {"config": config}
+                ),
+                os_environ={},
+                bt_api_py_dir=tmp_path / "missing",
+            )
+
+    def test_build_subprocess_env_with_gateway_rejects_incomplete_contract_spec(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        (strategy_dir / "config.yaml").write_text(
+            "data:\n"
+            "  symbol: BTC-USDT-SWAP\n"
+            "  asset_type: swap\n"
+            "contract_metadata:\n"
+            "  BTC-USDT-SWAP:\n"
+            "    asset_type: SWAP\n"
+            "    source: local_fixture\n",
+            encoding="utf-8",
+        )
+        config = Mock(
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+            account_id="acc-1",
+            exchange_type="OKX",
+            asset_type="SWAP",
+            startup_timeout_sec=5,
+            command_timeout_sec=10,
+        )
+
+        with pytest.raises(RuntimeError, match="交易资产规格不完整"):
+            gateway_runtime_service.build_subprocess_env(
+                instance_id="inst1",
+                instance={"params": {"gateway": {"enabled": True}}},
+                strategy_dir=strategy_dir,
+                acquire_gateway_for_instance=(
+                    lambda instance_id, instance, strategy_dir: {"config": config}
+                ),
+                os_environ={},
+                bt_api_py_dir=tmp_path / "missing",
+            )
+
+    def test_build_subprocess_env_with_gateway_accepts_local_contract_spec(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        (strategy_dir / "config.yaml").write_text(
+            "data:\n"
+            "  symbol: IF2609\n"
+            "  asset_type: future\n"
+            "contract_metadata:\n"
+            "  IF2609:\n"
+            "    multiplier: 300\n"
+            "    margin_rate: 0.12\n"
+            "    commission_rate: 0.000023\n",
+            encoding="utf-8",
+        )
+        config = Mock(
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+            account_id="acc-1",
+            exchange_type="CTP",
+            asset_type="FUTURE",
+            startup_timeout_sec=5,
+            command_timeout_sec=10,
+        )
+
+        env = gateway_runtime_service.build_subprocess_env(
+            instance_id="inst1",
+            instance={"params": {"gateway": {"enabled": True}}},
+            strategy_dir=strategy_dir,
+            acquire_gateway_for_instance=(
+                lambda instance_id, instance, strategy_dir: {"config": config}
+            ),
+            os_environ={},
+            bt_api_py_dir=tmp_path / "missing",
+        )
+
+        assert env["BT_GATEWAY_EXCHANGE_TYPE"] == "CTP"
+        assert env["BT_GATEWAY_ASSET_TYPE"] == "FUTURE"
+        assert env["BT_GATEWAY_COMMAND_ENDPOINT"] == "ipc://command"
+
+    def test_build_subprocess_env_captures_gateway_wait_native_stderr(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+
+        class NoisyHealth:
+            recent_errors = []
+            market_connection = "connected"
+            trade_connection = "connected"
+
+            @property
+            def state(self):
+                os.write(2, b"native wait warning\n")
+                return "running"
+
+        config = Mock(
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+            account_id="acc-1",
+            exchange_type="CTP",
+            asset_type="FUTURE",
+            startup_timeout_sec=5,
+            command_timeout_sec=10,
+        )
+        runtime = Mock(health=NoisyHealth(), running=True)
+
+        gateway_runtime_service.build_subprocess_env(
+            instance_id="inst1",
+            instance={"params": {"gateway": {"enabled": True}}},
+            strategy_dir=strategy_dir,
+            acquire_gateway_for_instance=(
+                lambda instance_id, instance, strategy_dir: {
+                    "config": config,
+                    "runtime": runtime,
+                }
+            ),
+            os_environ={},
+            bt_api_py_dir=tmp_path / "missing",
+        )
+
+        stderr_log = strategy_dir / "logs" / "gateway.stderr.log"
+        assert "native wait warning" in stderr_log.read_text(encoding="utf-8")
+
+    def test_build_subprocess_env_preserves_gateway_ready_error(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        config = Mock(
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+            account_id="acc-1",
+            exchange_type="CTP",
+            asset_type="FUTURE",
+            startup_timeout_sec=5,
+            command_timeout_sec=10,
+        )
+        health = Mock(
+            state="error",
+            market_connection="error",
+            trade_connection="error",
+            recent_errors=[{"source": "runtime", "message": "ctp market not ready"}],
+        )
+        runtime = Mock(health=health, running=False)
+
+        with pytest.raises(RuntimeError, match="runtime: ctp market not ready"):
+            gateway_runtime_service.build_subprocess_env(
+                instance_id="inst1",
+                instance={"params": {"gateway": {"enabled": True}}},
+                strategy_dir=strategy_dir,
+                acquire_gateway_for_instance=(
+                    lambda instance_id, instance, strategy_dir: {
+                        "config": config,
+                        "runtime": runtime,
+                    }
+                ),
+                os_environ={},
+                bt_api_py_dir=tmp_path / "missing",
+            )
+
+    def test_wait_gateway_runtime_ready_returns_when_connected(self):
+        config = Mock(startup_timeout_sec=5)
+        health = Mock(
+            state="running",
+            market_connection="connected",
+            trade_connection="connected",
+            recent_errors=[],
+        )
+        runtime = Mock(health=health, running=True)
+
+        gateway_runtime_service.wait_gateway_runtime_ready(
+            {"config": config, "runtime": runtime},
+            sleep=Mock(),
+        )
+
+    def test_wait_gateway_runtime_ready_accepts_market_ready_gateway(self):
+        config = Mock(startup_timeout_sec=5)
+        health = Mock(
+            state="running",
+            market_connection="connected",
+            trade_connection="disconnected",
+            recent_errors=[],
+        )
+        runtime = Mock(health=health, running=True)
+
+        gateway_runtime_service.wait_gateway_runtime_ready(
+            {"config": config, "runtime": runtime},
+            sleep=Mock(),
+        )
+
+    def test_wait_gateway_runtime_ready_reads_gateway_health_snapshot(self):
+        config = Mock(startup_timeout_sec=5)
+        health = Mock(
+            state="running",
+            market_connection="",
+            trade_connection="",
+            recent_errors=[],
+        )
+        health.snapshot.return_value = {
+            "state": "running",
+            "market_connection": "connected",
+            "trade_connection": "disconnected",
+            "recent_errors": [],
+        }
+        runtime = Mock(health=health, running=True)
+
+        gateway_runtime_service.wait_gateway_runtime_ready(
+            {"config": config, "runtime": runtime},
+            sleep=Mock(),
+        )
+
+    def test_wait_gateway_runtime_ready_raises_runtime_error_detail(self):
+        config = Mock(startup_timeout_sec=5)
+        health = Mock(
+            state="error",
+            market_connection="error",
+            trade_connection="error",
+            recent_errors=[{"source": "runtime", "message": "ctp market not ready"}],
+        )
+        runtime = Mock(health=health, running=False)
+
+        with pytest.raises(RuntimeError, match="runtime: ctp market not ready"):
+            gateway_runtime_service.wait_gateway_runtime_ready(
+                {"config": config, "runtime": runtime},
+                monotonic=Mock(return_value=0.0),
+                sleep=Mock(),
+            )
+
+    def test_wait_gateway_runtime_ready_fails_fast_for_invalid_gateway_credentials(self):
+        config = Mock(startup_timeout_sec=30)
+        health = Mock(
+            state="running",
+            market_connection="error",
+            trade_connection="disconnected",
+            recent_errors=[
+                {
+                    "source": "adapter_connect",
+                    "message": "IB_WEB INVALID_API_KEY: HTTP 401: Auth error",
+                }
+            ],
+        )
+        runtime = Mock(health=health, running=True)
+
+        with pytest.raises(RuntimeError, match="INVALID_API_KEY"):
+            gateway_runtime_service.wait_gateway_runtime_ready(
+                {"config": config, "runtime": runtime},
+                monotonic=Mock(return_value=0.0),
+                sleep=Mock(),
+            )
+
+    def test_wait_gateway_runtime_ready_raises_timeout_detail(self):
+        config = Mock(startup_timeout_sec=1)
+        health = Mock(
+            state="connecting",
+            market_connection="disconnected",
+            trade_connection="disconnected",
+            recent_errors=[],
+        )
+        runtime = Mock(health=health, running=True)
+
+        with pytest.raises(TimeoutError, match="state=connecting"):
+            gateway_runtime_service.wait_gateway_runtime_ready(
+                {"config": config, "runtime": runtime},
+                monotonic=Mock(side_effect=[0.0, 1.0]),
+                sleep=Mock(),
+            )
+
+    def test_mt5_startup_reconnects_after_stale_transport(self):
+        adapter = Mock()
+        adapter.connect.side_effect = [ConnectionResetError("connection reset"), None]
+        adapter.get_balance.return_value = {"balance": 1000.0}
+        runtime = Mock(adapter=adapter)
+        sleep = Mock()
+
+        gateway_runtime_service._connect_mt5_adapter_with_retry(
+            runtime,
+            Mock(),
+            attempts=2,
+            retry_delay_sec=0.5,
+            sleep=sleep,
+        )
+
+        assert adapter.connect.call_count == 2
+        adapter.disconnect.assert_called_once()
+        adapter.get_balance.assert_called_once()
+        sleep.assert_called_once_with(0.5)
+
+    def test_mt5_startup_does_not_launch_with_unready_transport(self):
+        adapter = Mock()
+        adapter.connect.return_value = None
+        adapter.get_balance.side_effect = RuntimeError("transport not ready for command 4")
+        runtime = Mock(adapter=adapter)
+
+        with pytest.raises(RuntimeError, match="MT5 gateway transport did not become ready"):
+            gateway_runtime_service._connect_mt5_adapter_with_retry(
+                runtime,
+                Mock(),
+                attempts=2,
+                retry_delay_sec=0,
+                sleep=Mock(),
+            )
+
+        assert adapter.connect.call_count == 2
+        assert adapter.disconnect.call_count == 2
+
+    def test_acquire_gateway_preflights_mt5_transport_before_starting_runtime(self):
+        logger = Mock()
+        config = Mock(
+            runtime_name="mt5-otc-acc-1",
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+        )
+        runtime = Mock()
+        launch = {
+            "config": config,
+            "runtime_cls": Mock(return_value=runtime),
+            "runtime_kwargs": {
+                "exchange_type": "MT5",
+                "asset_type": "OTC",
+                "account_id": "acc-1",
+            },
+        }
+
+        with patch.object(gateway_runtime_service, "_connect_mt5_adapter_with_retry") as preflight:
+            gateway_runtime_service.acquire_gateway_for_instance(
+                instance_id="inst-mt5",
+                instance={"params": {"gateway": {"enabled": True}}},
+                strategy_dir=Path("/tmp/strategy"),
+                get_gateway_params=lambda instance: {"enabled": True},
+                build_gateway_launch=lambda instance, strategy_dir, gateway_params: launch,
+                gateways={},
+                instance_gateways={},
+                logger=logger,
+            )
+
+        preflight.assert_called_once_with(runtime, logger)
+        runtime.start_in_thread.assert_called_once()
 
     def test_acquire_gateway_for_instance_reuses_runtime(self):
         logger = Mock()
@@ -2200,6 +3338,269 @@ class TestGatewayRuntimeService:
         assert state1["instances"] == {"inst1", "inst2"}
         assert state1["ref_count"] == 2
         assert instance_gateways == {"inst1": "ctp-future-acc-1", "inst2": "ctp-future-acc-1"}
+
+    def test_acquire_gateway_for_instance_logs_into_ib_before_starting_runtime(self):
+        """An expired Client Portal cookie is refreshed before strategy startup."""
+        from app.services.gateway import manual as gateway_manual_service
+
+        class Config:
+            def __init__(self, kwargs):
+                self.kwargs = dict(kwargs)
+                self.runtime_name = f"ib-web-{kwargs['account_id']}"
+                self.command_endpoint = "tcp://command"
+                self.event_endpoint = "tcp://event"
+                self.market_endpoint = "tcp://market"
+
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return cls(kwargs)
+
+        initial_kwargs = {
+            "exchange_type": "IB_WEB",
+            "asset_type": "STK",
+            "account_id": "DU123456",
+            "base_url": "https://localhost:5000",
+            "verify_ssl": False,
+            "timeout": 10.0,
+            "cookie_source": "file:configs/expired.json",
+            "cookie_output": "configs/expired.json",
+            "username": "ib-user",
+            "password": "ib-password",
+            "login_mode": "paper",
+            "gateway_startup_timeout_sec": 30.0,
+        }
+        launch = {
+            "config": Config.from_kwargs(**initial_kwargs),
+            "runtime_cls": Mock(return_value=Mock()),
+            "runtime_kwargs": dict(initial_kwargs),
+        }
+        refreshed_session = {
+            "account_id": "DU654321",
+            "cookies": {"session": "fresh"},
+            "cookie_output": "configs/refreshed.json",
+            "used_login": True,
+        }
+
+        with (
+            patch.object(
+                gateway_manual_service, "_ensure_ib_clientportal_running"
+            ) as ensure_portal,
+            patch.object(
+                gateway_manual_service,
+                "_normalize_ib_web_base_url",
+                return_value="https://localhost:5000/v1/api",
+            ),
+            patch.object(
+                gateway_manual_service,
+                "_resolve_ib_web_base_url",
+                return_value="https://localhost:5000/v1/api",
+            ),
+            patch.object(
+                gateway_manual_service,
+                "_bootstrap_ib_web_session",
+                return_value=refreshed_session,
+            ) as bootstrap,
+            patch.object(
+                gateway_manual_service,
+                "_to_backend_env_relative_path",
+                return_value="configs/refreshed.json",
+            ),
+            patch.object(
+                gateway_manual_service,
+                "_build_ib_web_env_updates",
+                return_value={"IB_WEB_COOKIE_SOURCE": "file:configs/refreshed.json"},
+            ),
+            patch.object(gateway_manual_service, "_persist_ib_web_env_updates") as persist,
+        ):
+            state = gateway_runtime_service.acquire_gateway_for_instance(
+                instance_id="inst-ib",
+                instance={"params": {"gateway": {"enabled": True}}},
+                strategy_dir=Path("/tmp/strategy"),
+                get_gateway_params=lambda instance: {"enabled": True},
+                build_gateway_launch=lambda instance, strategy_dir, gateway_params: launch,
+                gateways={},
+                instance_gateways={},
+                logger=Mock(),
+            )
+
+        ensure_portal.assert_called_once()
+        bootstrap.assert_called_once()
+        assert bootstrap.call_args.kwargs["allow_interactive_login"] is True
+        assert state["account_id"] == "DU654321"
+        config = launch["runtime_cls"].call_args.args[0]
+        assert config.kwargs["account_id"] == "DU654321"
+        assert config.kwargs["cookies"] == {"session": "fresh"}
+        assert config.kwargs["cookie_source"] == "file:configs/refreshed.json"
+        persist.assert_called_once()
+
+    def test_acquire_gateway_for_instance_stops_when_ib_login_is_not_completed(self):
+        """Do not start a gateway with a known-expired Client Portal session."""
+        from app.services.gateway import manual as gateway_manual_service
+
+        class Config:
+            runtime_name = "ib-web-DU123456"
+            command_endpoint = "tcp://command"
+            event_endpoint = "tcp://event"
+            market_endpoint = "tcp://market"
+
+        launch = {
+            "config": Config(),
+            "runtime_cls": Mock(),
+            "runtime_kwargs": {
+                "exchange_type": "IB_WEB",
+                "account_id": "DU123456",
+                "base_url": "https://localhost:5000",
+                "cookie_source": "file:configs/expired.json",
+                "gateway_startup_timeout_sec": 30.0,
+            },
+        }
+
+        with (
+            patch.object(gateway_manual_service, "_ensure_ib_clientportal_running"),
+            patch.object(
+                gateway_manual_service,
+                "_normalize_ib_web_base_url",
+                return_value="https://localhost:5000/v1/api",
+            ),
+            patch.object(
+                gateway_manual_service,
+                "_resolve_ib_web_base_url",
+                return_value="https://localhost:5000/v1/api",
+            ),
+            patch.object(gateway_manual_service, "_bootstrap_ib_web_session", return_value=None),
+        ):
+            with pytest.raises(RuntimeError, match="自动登录未完成"):
+                gateway_runtime_service.acquire_gateway_for_instance(
+                    instance_id="inst-ib",
+                    instance={"params": {"gateway": {"enabled": True}}},
+                    strategy_dir=Path("/tmp/strategy"),
+                    get_gateway_params=lambda instance: {"enabled": True},
+                    build_gateway_launch=lambda instance, strategy_dir, gateway_params: launch,
+                    gateways={},
+                    instance_gateways={},
+                    logger=Mock(),
+                )
+
+        launch["runtime_cls"].assert_not_called()
+
+    def test_discard_idle_ib_gateway_with_auth_failure_before_relogin(self):
+        runtime = Mock()
+        runtime.health = Mock(
+            recent_errors=[
+                {"source": "adapter_connect", "message": "IB_WEB INVALID_API_KEY: HTTP 401"}
+            ]
+        )
+        state = {"runtime": runtime, "ref_count": 0}
+        gateways = {"ib-web-DU123456": state}
+
+        result = gateway_runtime_service._discard_idle_ib_gateway_with_auth_failure(
+            "ib-web-DU123456",
+            state,
+            gateways,
+            Mock(),
+        )
+
+        assert result is None
+        runtime.stop.assert_called_once()
+        assert gateways == {}
+
+    def test_acquire_gateway_for_instance_preconnects_ctp_adapter(self):
+        logger = Mock()
+        config = Mock(
+            runtime_name="ctp-future-acc-1",
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+        )
+        runtime = Mock()
+        runtime.adapter = Mock()
+        launch = {
+            "config": config,
+            "runtime_cls": Mock(return_value=runtime),
+            "runtime_kwargs": {"exchange_type": "CTP", "account_id": "acc-1"},
+        }
+
+        gateway_runtime_service.acquire_gateway_for_instance(
+            instance_id="inst1",
+            instance={"params": {"gateway": {"enabled": True}}},
+            strategy_dir=Path("/tmp/strategy"),
+            get_gateway_params=lambda instance: {"enabled": True},
+            build_gateway_launch=lambda instance, strategy_dir, gateway_params: launch,
+            gateways={},
+            instance_gateways={},
+            logger=logger,
+        )
+
+        runtime.adapter.connect.assert_called_once()
+        runtime.adapter.get_balance.assert_called_once()
+        runtime.start_in_thread.assert_called_once()
+
+    def test_acquire_gateway_for_instance_captures_gateway_start_native_stderr(self, tmp_path):
+        logger = Mock()
+        config = Mock(
+            runtime_name="ctp-future-acc-1",
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+        )
+
+        class Runtime:
+            def start_in_thread(self):
+                os.write(2, b"native startup warning\n")
+
+        runtime = Runtime()
+        launch = {
+            "config": config,
+            "runtime_cls": Mock(return_value=runtime),
+            "runtime_kwargs": {"account_id": "acc-1"},
+        }
+
+        gateway_runtime_service.acquire_gateway_for_instance(
+            instance_id="inst1",
+            instance={"params": {"gateway": {"enabled": True}}},
+            strategy_dir=tmp_path,
+            get_gateway_params=lambda instance: {"enabled": True},
+            build_gateway_launch=lambda instance, strategy_dir, gateway_params: launch,
+            gateways={},
+            instance_gateways={},
+            logger=logger,
+        )
+
+        stderr_log = tmp_path / "logs" / "gateway.stderr.log"
+        assert "native startup warning" in stderr_log.read_text(encoding="utf-8")
+
+    def test_acquire_gateway_for_instance_raises_when_runtime_start_fails(self):
+        logger = Mock()
+        config = Mock(
+            runtime_name="ctp-future-acc-1",
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+        )
+        runtime = Mock()
+        runtime.start_in_thread.side_effect = RuntimeError("ctp market not ready")
+        launch = {
+            "config": config,
+            "runtime_cls": Mock(return_value=runtime),
+            "runtime_kwargs": {"account_id": "acc-1"},
+        }
+        gateways: dict[str, dict] = {}
+        instance_gateways: dict[str, str] = {}
+
+        with pytest.raises(RuntimeError, match="ctp market not ready"):
+            gateway_runtime_service.acquire_gateway_for_instance(
+                instance_id="inst1",
+                instance={"params": {"gateway": {"enabled": True}}},
+                strategy_dir=Path("/tmp/strategy"),
+                get_gateway_params=lambda instance: {"enabled": True},
+                build_gateway_launch=lambda instance, strategy_dir, gateway_params: launch,
+                gateways=gateways,
+                instance_gateways=instance_gateways,
+                logger=logger,
+            )
+
+        assert gateways == {}
+        assert instance_gateways == {}
 
     def test_acquire_gateway_for_instance_reuses_existing_manual_session(self):
         logger = Mock()
@@ -2279,6 +3680,30 @@ class TestGatewayRuntimeService:
         runtime.stop.assert_not_called()
         assert gateways["manual:CTP:acc-1"]["instances"] == set()
         assert gateways["manual:CTP:acc-1"]["ref_count"] == 0
+
+    def test_release_gateway_for_instance_keeps_idle_ctp_runtime_alive(self):
+        logger = Mock()
+        runtime = Mock()
+        gateways = {
+            "ctp-future-acc-1": {
+                "runtime": runtime,
+                "instances": {"inst1"},
+                "ref_count": 1,
+                "exchange_type": "CTP",
+            }
+        }
+        instance_gateways = {"inst1": "ctp-future-acc-1"}
+
+        gateway_runtime_service.release_gateway_for_instance(
+            instance_id="inst1",
+            gateways=gateways,
+            instance_gateways=instance_gateways,
+            logger=logger,
+        )
+
+        runtime.stop.assert_not_called()
+        assert gateways["ctp-future-acc-1"]["instances"] == set()
+        assert gateways["ctp-future-acc-1"]["ref_count"] == 0
 
     def test_release_gateway_for_instance_stops_on_last_reference(self):
         logger = Mock()

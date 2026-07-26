@@ -4,7 +4,7 @@
 strategy:
   name: "MT5 RSI均值回归策略"
   description: "基于RSI超买超卖的均值回归策略，适用于MT5外汇品种。RSI低于超卖线买入，高于超买线卖出。"
-  author: "backtrader_web"
+  author: "ai-for-investor"
 
 # ============================================================
 # 策略参数

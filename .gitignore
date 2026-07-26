@@ -18,6 +18,10 @@ node_modules/
 .npm
 .eslintcache
 
+# Element Plus auto-import generated type declarations
+src/frontend/auto-imports.d.ts
+src/frontend/components.d.ts
+
 # =====================================================
 # 环境与配置
 # =====================================================
@@ -25,7 +29,7 @@ node_modules/
 .env.local
 .env.*.local
 .venv
-src/backend/.venv-smoke-ci*/
+src/backend/.venv*/
 venv/
 env/
 
@@ -41,6 +45,17 @@ env/
 Thumbs.db
 
 # =====================================================
+# AI tooling local configs (developer-machine only;
+# do not commit. Keep `.kiro/` and `_bmad/` if used.)
+# =====================================================
+.agents/
+.claude/
+.cursor/
+.omo/
+.opencode/
+.windsurf/
+
+# =====================================================
 # 测试与覆盖率
 # =====================================================
 htmlcov/
@@ -49,6 +64,9 @@ htmlcov/
 .coverage
 .coverage.*
 .cache
+.ruff_cache/
+.benchmarks/
+.hypothesis/
 .pytest_cache/
 coverage.xml
 nosetests.xml
@@ -56,22 +74,69 @@ coverage/
 coverage.json
 src/backend/coverage/
 src/backend/coverage.json
+src/backend/dags/
 src/frontend/coverage/
 src/frontend/e2e-results/
 src/frontend/playwright-report/
 src/frontend/test-results/
+dags/
 
 # =====================================================
 # 项目运行时文件
 # =====================================================
 .pids/
 logs/
+log/
 runtime/
 *.log
+*.log.*
+*.out
+*.err
+*.bak
 *.db
 *.db-journal
+*.sqlite
+*.sqlite3
 data/manual_gateways.json
+reports/
+var/reports/
+src/frontend/artifacts/
+data/datas/*/
+tests/e2e/explore_report.json
+tests/e2e/*_report.json
+MagicMock/
+lost_codes.pkl
+# Real IBKR sessions are runtime-only. Use the adjacent .example file as a schema.
+src/bt_api_py/configs/ibkr_cookies.json
+# Runtime-generated backend state & live-trading credentials (iteration 177 §D).
+# These are written by the app at runtime and have historically leaked real
+# API keys / passwords into git. Keep them out of version control; the backend
+# recreates them on demand and falls back to defaults when absent.
+src/backend/data/manual_gateways.json
+src/backend/data/manual_gateways/
+src/backend/data/sync_config.json
+src/backend/data/sync_history.json
+src/backend/data/auto_trading_config.json
+src/backend/data/live_trading_instances.json
+src/backend/data/ai_provider_config.json
+src/backend/data/quote_custom_symbols.json
+src/backend/data/reqdocs_source_files/
+# Persistent local Chroma vector index for knowledge-base retrieval.
+src/backend/data/chroma/
+# Runtime-generated stock-analysis exports (PDF/DOCX/HTML/Markdown).
+src/backend/data/exports/
+# slowapi optional runtime config-override file (iteration 179 §A). Written by
+# the rate limiter at runtime; not a secret today but is runtime state that
+# should never be tracked. The limiter only loads it when present.
+src/backend/.slowapi.env
+**/.slowapi.env
 workspace_units/
+scripts/diag_*.txt
+src/clientportal.gw/.vertx/
+src/clientportal.gw/.vertx/file-cache-*/
+strategies/*/logs/
+strategies/????????-????-????-????-????????????/
+src/strategies/
 
 # =====================================================
 # 构建产物

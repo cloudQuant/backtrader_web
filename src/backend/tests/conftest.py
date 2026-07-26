@@ -6,10 +6,14 @@ Uses httpx.AsyncClient + ASGITransport for direct FastAPI app testing.
 Each test uses an independent in-memory SQLite database (shared connection via StaticPool).
 """
 
+import asyncio
 import importlib
+import logging
 import os
+import tempfile
 import uuid
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -21,6 +25,25 @@ from sqlalchemy.pool import StaticPool
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite://")
 os.environ.setdefault("SQL_ECHO", "false")
 os.environ.setdefault("ADMIN_PASSWORD", "TestAdmin@12345")
+# Keep rate-limit assertions independent of a developer's permissive local
+# `.env` values.  These are the documented security defaults exercised by the
+# auth and header integration tests.
+os.environ["RATE_LIMIT_REGISTER"] = "5/hour"
+os.environ["RATE_LIMIT_LOGIN"] = "10/minute"
+# Tests must never inherit a developer's configured AI endpoint or credentials.
+# Individual provider tests patch their own settings explicitly.
+os.environ["AI_CHAT_ENABLED"] = "false"
+os.environ["AI_CHAT_BASE_URL"] = ""
+os.environ["AI_CHAT_API_KEY"] = ""
+os.environ["AI_CHAT_MODEL"] = ""
+# Vector retrieval is an optional runtime integration.  API tests exercise the
+# deterministic lexical fallback unless a test explicitly injects a fake index.
+os.environ["RAG_VECTOR_ENABLED"] = "false"
+_TEST_LOG_DIR = Path(tempfile.mkdtemp(prefix="backtrader_web_pytest_logs_"))
+os.environ["LOG_DIR"] = str(_TEST_LOG_DIR)
+
+for noisy_logger in ("aiosqlite", "aiosqlite.core"):
+    logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
 importlib.import_module("app.models")
 db_module = importlib.import_module("app.db.database")
@@ -44,11 +67,12 @@ db_module.async_session_maker = _test_session_maker
 for module_name in [
     "app.db.session_provider",
     "app.db.sql_repository",
-    "app.services.backtest_manager",
+    "app.services.backtest.manager",
 ]:
     importlib.import_module(module_name).async_session_maker = _test_session_maker
 
 app = importlib.import_module("app.main").app
+_ai_log_module = importlib.import_module("app.services.ai_observability.logger")
 
 
 # ==================== Database Fixtures ====================
@@ -60,16 +84,65 @@ def pytest_configure(config):
     config.inicfg["asyncio_default_fixture_loop_scope"] = "function"
 
 
+def pytest_sessionfinish(session, exitstatus):
+    """Dispose the shared async engine so aiosqlite worker threads can exit."""
+    for noisy_logger in ("aiosqlite", "aiosqlite.core"):
+        logging.getLogger(noisy_logger).disabled = True
+    asyncio.run(_test_engine.dispose())
+
+
+@pytest.fixture(autouse=True)
+def disable_live_gateway_restore(monkeypatch, tmp_path):
+    live_trading_manager = importlib.import_module("app.services.live_trading_manager")
+    instance_store = importlib.import_module("app.services.instance_store")
+    data_dir = tmp_path / "backend_data"
+    instances_file = data_dir / "live_trading_instances.json"
+    manual_gateways_file = data_dir / "manual_gateways.json"
+    monkeypatch.setattr(live_trading_manager, "_DATA_DIR", data_dir)
+    monkeypatch.setattr(live_trading_manager, "_INSTANCES_FILE", instances_file)
+    monkeypatch.setattr(live_trading_manager, "_MANUAL_GATEWAYS_FILE", manual_gateways_file)
+    monkeypatch.setattr(instance_store, "_DATA_DIR", data_dir)
+    monkeypatch.setattr(instance_store, "_INSTANCES_FILE", instances_file)
+    monkeypatch.setattr(
+        live_trading_manager.LiveTradingManager,
+        "_start_restore_manual_gateways_background",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        live_trading_manager.LiveTradingManager,
+        "_start_restore_running_gateway_background",
+        lambda self: None,
+    )
+    live_trading_manager._manager = None
+    yield
+    live_trading_manager._manager = None
+
+
+@pytest.fixture(autouse=True)
+def isolate_ai_provider_config(monkeypatch, tmp_path):
+    """Keep provider-catalog tests independent of a developer's local overrides."""
+    monkeypatch.setenv("AI_PROVIDER_CONFIG_PATH", str(tmp_path / "ai_provider_config.json"))
+
+
 @pytest.fixture(autouse=True)
 async def setup_db():
     """Rebuild all tables before each test, cleanup after."""
     limiter.reset()
+    response_cache = importlib.import_module("app.utils.response_cache")
+    response_cache._cache_backend = response_cache.MemoryCacheBackend()
     async with _test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
+    sink = _ai_log_module._default_sink
+    if sink is not None:
+        try:
+            await sink.shutdown()
+        finally:
+            _ai_log_module._default_sink = None
     async with _test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     limiter.reset()
+    response_cache._cache_backend = response_cache.MemoryCacheBackend()
 
 
 # ==================== HTTP Client Fixture ====================

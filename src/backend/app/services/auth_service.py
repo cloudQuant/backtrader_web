@@ -20,6 +20,8 @@ from app.schemas.auth import (
     UserLogin,
     UserResponse,
 )
+from app.utils.call_logger import call_logger
+from app.utils.datetime_utils import utc_now_naive
 from app.utils.logger import get_logger
 from app.utils.security import (
     REFRESH_TOKEN_EXPIRE_DAYS,
@@ -102,7 +104,7 @@ class AuthService:
             id=refresh_token_id,
             token_hash=hash_token(refresh_token),
             user_id=user.id,
-            expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+            expires_at=utc_now_naive() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
         )
         await self._get_refresh_token_repo(session).create(token_record)
         return refresh_token
@@ -117,7 +119,7 @@ class AuthService:
             return False
 
         token_record.is_revoked = True
-        token_record.revoked_at = datetime.now(timezone.utc)
+        token_record.revoked_at = utc_now_naive()
         await session.flush()
         return True
 
@@ -134,7 +136,7 @@ class AuthService:
             )
         )
         tokens = result.scalars().all()
-        revoked_at = datetime.now(timezone.utc)
+        revoked_at = utc_now_naive()
         for token in tokens:
             token.is_revoked = True
             token.revoked_at = revoked_at
@@ -142,6 +144,7 @@ class AuthService:
         await session.flush()
         return len(tokens)
 
+    @call_logger()
     async def register(self, user_create: UserCreate) -> UserResponse | None:
         """Register a new user.
 
@@ -181,6 +184,7 @@ class AuthService:
             created_at=user.created_at,
         )
 
+    @call_logger()
     async def login(self, user_login: UserLogin) -> Token | None:
         """Authenticate a user and generate JWT token.
 
@@ -351,6 +355,7 @@ class AuthService:
         async with unit_of_work() as session:
             return await self._revoke_all_user_tokens_in_session(session, user_id)
 
+    @call_logger()
     async def change_password(self, user_id: str, old_password: str, new_password: str) -> bool:
         """Change user password and revoke all refresh tokens.
 

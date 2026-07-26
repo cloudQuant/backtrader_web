@@ -67,13 +67,11 @@ class FuturesContractInfoGfex(AkshareToMySql):
         today_str = datetime.now().strftime("%Y-%m-%d")
 
         try:
-            # 1. Check if data for today has already been fetched
             latest_date_in_db = self.get_latest_date(table_name, "TRADE_DATE")
             if latest_date_in_db == today_str:
                 self.logger.info(
-                    f"GFEX contract data for {today_str} has already been updated. Skipping."
+                    f"GFEX contract data already has rows for {today_str}; re-fetching to fill possible partial data."
                 )
-                return
 
             # 2. Fetch Data
             self.logger.info("Fetching latest contract info from GFEX.")
@@ -134,7 +132,12 @@ class FuturesContractInfoGfex(AkshareToMySql):
                 df[col] = pd.to_datetime(df[col], errors="coerce").dt.strftime("%Y-%m-%d")
 
             # 4. Save to DB
-            self.save_data(df, table_name, unique_keys=["CONTRACT_CODE", "TRADE_DATE"])
+            self.save_data(
+                df,
+                table_name,
+                on_duplicate_update=True,
+                unique_keys=["CONTRACT_CODE", "TRADE_DATE"],
+            )
 
             self.logger.info("GFEX contract info update finished successfully.")
 

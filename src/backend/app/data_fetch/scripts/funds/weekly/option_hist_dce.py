@@ -6,6 +6,8 @@ Option Hist Dce
 频率: weekly
 """
 
+from datetime import datetime, timedelta
+
 import pandas as pd
 
 from app.data_fetch.configs.db_config import DB_CONFIG
@@ -14,6 +16,8 @@ from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
 class OptionHistDce(AkshareToMySql):
     """Option Hist Dce"""
+
+    SINA_FALLBACK_SYMBOLS = ("豆粕期权", "玉米期权", "铁矿石期权", "液化石油气期权")
 
     def __init__(self, db_config=DB_CONFIG, logger=None):
         super().__init__(db_config, logger)
@@ -24,12 +28,120 @@ class OptionHistDce(AkshareToMySql):
             `symbol` VARCHAR(50) COMMENT '品种代码',
             `name` VARCHAR(100) COMMENT '品种名称',
             `data_date` DATE COMMENT '数据日期',
+            `合约` VARCHAR(50) COMMENT '合约代码',
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
             `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-        UNIQUE KEY uk_symbol_date (`symbol`, `data_date`),
+        UNIQUE KEY uk_symbol_date_contract (`symbol`, `data_date`, `合约`),
         INDEX idx_data_date (`data_date`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Option Hist Dce'
     """
+
+    def _candidate_dce_trade_dates(self, max_days: int = 5) -> list[str]:
+        end_date = self.get_current_date()
+        start_date = (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=14)).strftime(
+            "%Y-%m-%d"
+        )
+        try:
+            trading_days = self.get_trading_day_list(start_date, end_date, exchange="DCE")
+        except Exception as exc:
+            self.logger.warning(f"获取大商所交易日失败，改用境内交易日历: {exc}")
+            try:
+                trading_days = self.get_trading_day_list(start_date, end_date, exchange="XSHG")
+            except Exception as fallback_exc:
+                self.logger.warning(f"获取境内交易日失败，使用工作日回退: {fallback_exc}")
+                trading_days = []
+        if not trading_days:
+            trading_days = [
+                (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=offset)).strftime(
+                    "%Y-%m-%d"
+                )
+                for offset in range(0, 14)
+                if (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=offset)).weekday() < 5
+            ]
+        trading_days = sorted(trading_days)
+        return [item.replace("-", "") for item in trading_days[-max_days:]][::-1]
+
+    def _normalize_sina_option_side(
+        self, df: pd.DataFrame, *, symbol: str, contract: str, side: str
+    ) -> pd.DataFrame:
+        prefix = "看涨合约" if side == "看涨" else "看跌合约"
+        contract_col = f"{prefix}-{'看涨期权合约' if side == '看涨' else '看跌期权合约'}"
+        if contract_col not in df.columns:
+            return pd.DataFrame()
+
+        normalized = pd.DataFrame(
+            {
+                "symbol": symbol,
+                "name": symbol,
+                "data_date": pd.to_datetime(self.get_current_date()).date(),
+                "合约": df[contract_col].astype(str),
+                "主合约": contract,
+                "期权类型": side,
+                "行权价": df.get("行权价"),
+                "买量": df.get(f"{prefix}-买量"),
+                "买价": df.get(f"{prefix}-买价"),
+                "最新价": df.get(f"{prefix}-最新价"),
+                "卖价": df.get(f"{prefix}-卖价"),
+                "卖量": df.get(f"{prefix}-卖量"),
+                "持仓量": df.get(f"{prefix}-持仓量"),
+                "涨跌": df.get(f"{prefix}-涨跌"),
+                "数据来源": "新浪期货兜底",
+            }
+        )
+        return normalized[normalized["合约"].notna() & (normalized["合约"] != "")]
+
+    def _fetch_sina_fallback(self, max_contracts_per_symbol: int = 3) -> pd.DataFrame:
+        frames: list[pd.DataFrame] = []
+        for symbol in self.SINA_FALLBACK_SYMBOLS:
+            try:
+                contract_df = self.fetch_ak_data("option_commodity_contract_sina", symbol=symbol)
+            except Exception as exc:
+                self.logger.warning(f"Sina fallback contract list failed for {symbol}: {exc}")
+                continue
+
+            if contract_df is None or contract_df.empty or "合约" not in contract_df.columns:
+                self.logger.warning(f"Sina fallback returned no contracts for {symbol}")
+                continue
+
+            contracts = contract_df["合约"].dropna().astype(str).head(max_contracts_per_symbol)
+            for contract in contracts:
+                try:
+                    chain_df = self.fetch_ak_data(
+                        "option_commodity_contract_table_sina",
+                        symbol=symbol,
+                        contract=contract,
+                    )
+                except Exception as exc:
+                    self.logger.warning(
+                        f"Sina fallback option chain failed for {symbol} {contract}: {exc}"
+                    )
+                    continue
+
+                if chain_df is None or chain_df.empty:
+                    self.logger.warning(
+                        f"Sina fallback returned no option chain for {symbol} {contract}"
+                    )
+                    continue
+
+                frames.extend(
+                    [
+                        self._normalize_sina_option_side(
+                            chain_df, symbol=symbol, contract=contract, side="看涨"
+                        ),
+                        self._normalize_sina_option_side(
+                            chain_df, symbol=symbol, contract=contract, side="看跌"
+                        ),
+                    ]
+                )
+
+        frames = [frame for frame in frames if frame is not None and not frame.empty]
+        if not frames:
+            return pd.DataFrame()
+
+        result = pd.concat(frames, ignore_index=True)
+        result = result.drop_duplicates(subset=["symbol", "data_date", "合约"])
+        self.logger.info(f"Sina fallback produced {len(result)} DCE option quote rows")
+        return result
 
     def fetch_data(self, **kwargs):
         """Fetch data from AkShare and save to database.
@@ -41,23 +153,49 @@ class OptionHistDce(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
-            # Fetch data from AkShare
-            df = self.fetch_ak_data("option_hist_dce", **kwargs)
+            if "trade_date" in kwargs:
+                trade_dates = [str(kwargs["trade_date"]).replace("-", "")]
+            else:
+                trade_dates = self._candidate_dce_trade_dates()
 
-            if df is None or df.empty:
-                self.logger.warning("No data found")
-                return pd.DataFrame()
+            for trade_date in trade_dates:
+                call_kwargs = dict(kwargs)
+                call_kwargs["trade_date"] = trade_date
+                df = self.fetch_ak_data("option_hist_dce", **call_kwargs)
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
+                if df is None or df.empty:
+                    self.logger.warning(f"No data found for {trade_date}")
+                    continue
 
-            # Save to database
-            self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+                if "symbol" not in df.columns:
+                    df["symbol"] = call_kwargs.get("symbol", "聚丙烯期权")
+                if "data_date" not in df.columns:
+                    df["data_date"] = pd.to_datetime(trade_date).date()
 
-            return df
+                self.create_table_if_not_exists(self.table_name, self.create_table_sql)
+                self.save_data(
+                    df,
+                    self.table_name,
+                    on_duplicate_update=True,
+                    unique_keys=["symbol", "data_date", "合约"],
+                )
+
+                return df
+
+            if "trade_date" not in kwargs:
+                fallback_df = self._fetch_sina_fallback()
+                if fallback_df is not None and not fallback_df.empty:
+                    self.create_table_if_not_exists(self.table_name, self.create_table_sql)
+                    self.save_data(
+                        fallback_df,
+                        self.table_name,
+                        on_duplicate_update=True,
+                        unique_keys=["symbol", "data_date", "合约"],
+                    )
+                    return fallback_df
+
+            self.logger.warning("No data found")
+            return pd.DataFrame()
 
         except Exception as e:
             self.logger.error(f"Error fetching data: {e}")
@@ -68,7 +206,7 @@ def main():
     """Main function to run the data fetch"""
 
     script = OptionHistDce()
-    script.run()
+    script.fetch_data()
 
 
 if __name__ == "__main__":

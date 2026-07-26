@@ -6,6 +6,8 @@ These tests verify that fincore calculations are consistent with
 manual calculations within acceptable error bounds.
 """
 
+import sys
+
 import numpy as np
 
 from app.services.fincore_metrics_helper import (
@@ -13,6 +15,10 @@ from app.services.fincore_metrics_helper import (
     calculate_metrics_from_log_data,
     compare_calculation_methods,
     validate_calculation_consistency,
+)
+
+EXPECTED_FINCORE_SOURCE = (
+    MetricsSource.FINCORE if sys.version_info >= (3, 11) else MetricsSource.MANUAL
 )
 
 
@@ -79,8 +85,8 @@ class TestFincoreIntegrationBasic:
         assert "win_rate" in result
         assert "metrics_source" in result
 
-        # Verify source is marked as fincore
-        assert result["metrics_source"] == MetricsSource.FINCORE
+        # Python 3.10 cannot install fincore and must report the manual fallback.
+        assert result["metrics_source"] == EXPECTED_FINCORE_SOURCE
 
         # Verify basic metric ranges
         assert -100 <= result["total_return"] <= 1000  # Reasonable return range
@@ -114,7 +120,7 @@ class TestFincoreIntegrationBasic:
         assert result_manual["total_return"] == 0.0
         assert result_fincore["total_return"] == 0.0
         assert result_manual["metrics_source"] == MetricsSource.MANUAL
-        assert result_fincore["metrics_source"] == MetricsSource.FINCORE
+        assert result_fincore["metrics_source"] == EXPECTED_FINCORE_SOURCE
 
 
 class TestFincoreVsManualConsistency:

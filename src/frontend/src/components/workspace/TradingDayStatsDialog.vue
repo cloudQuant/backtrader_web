@@ -1,25 +1,25 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="交易日统计选项"
+    :title="t('workspaceDialogs.tdsTitle')"
     width="980px"
   >
     <div class="space-y-4">
       <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            交易日数量
+            {{ t('workspaceDialogs.tdsTradingDays') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-slate-700">
             {{ summaries.length }}
           </div>
           <div class="text-xs text-slate-400">
-            当前筛选范围
+            {{ t('workspaceDialogs.tdsCurrentRange') }}
           </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            累计盈亏
+            {{ t('workspaceDialogs.tdsCumulativePnl') }}
           </div>
           <div
             class="mt-1 text-lg font-semibold"
@@ -28,23 +28,23 @@
             {{ formatSigned(totalCumulativePnl, 2) }}
           </div>
           <div class="text-xs text-slate-400">
-            最后一个交易日口径
+            {{ t('workspaceDialogs.tdsLastDayBasis') }}
           </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            总成交笔数
+            {{ t('workspaceDialogs.tdsTotalTrades') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-slate-700">
             {{ totalTradeCount }}
           </div>
           <div class="text-xs text-slate-400">
-            统计期间合计
+            {{ t('workspaceDialogs.tdsPeriodSum') }}
           </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            最佳单日盈亏
+            {{ t('workspaceDialogs.tdsBestDailyPnl') }}
           </div>
           <div
             class="mt-1 text-lg font-semibold"
@@ -53,7 +53,7 @@
             {{ formatSigned(bestDailyPnl, 2) }}
           </div>
           <div class="text-xs text-slate-400">
-            基于当日盈亏
+            {{ t('workspaceDialogs.tdsBasedDailyPnl') }}
           </div>
         </div>
       </div>
@@ -63,17 +63,17 @@
           <el-select
             v-model="selectedUnitId"
             clearable
-            placeholder="全部单元"
+            :placeholder="t('workspaceDialogs.tdsAllUnits')"
             size="small"
           >
             <el-option
-              label="全部单元"
+              :label="t('workspaceDialogs.tdsAllUnits')"
               value=""
             />
             <el-option
               v-for="unit in store.units"
               :key="unit.id"
-              :label="unit.strategy_name || unit.strategy_id"
+              :label="unit.strategy_name || unit.strategy_id || unit.id"
               :value="unit.id"
             />
           </el-select>
@@ -81,14 +81,14 @@
             v-model="startDate"
             type="date"
             value-format="YYYY-MM-DD"
-            placeholder="开始日期"
+            :placeholder="t('workspaceDialogs.tdsStartDate')"
             size="small"
           />
           <el-date-picker
             v-model="endDate"
             type="date"
             value-format="YYYY-MM-DD"
-            placeholder="结束日期"
+            :placeholder="t('workspaceDialogs.tdsEndDate')"
             size="small"
           />
           <div class="flex gap-2">
@@ -98,13 +98,13 @@
               type="primary"
               @click="loadSummary"
             >
-              查询
+              {{ t('workspaceDialogs.tdsQuery') }}
             </el-button>
             <el-button
               size="small"
               @click="resetFilters"
             >
-              重置
+              {{ t('workspaceDialogs.tdsReset') }}
             </el-button>
           </div>
         </div>
@@ -116,15 +116,15 @@
         border
         size="small"
         class="dialog-table"
-        empty-text="暂无交易日统计数据"
+        :empty-text="t('workspaceDialogs.tdsEmpty')"
       >
         <el-table-column
           prop="trading_date"
-          label="交易日"
+          :label="t('workspaceDialogs.tdsColDate')"
           width="120"
         />
         <el-table-column
-          label="当日盈亏"
+          :label="t('workspaceDialogs.tdsColDailyPnl')"
           width="120"
           align="right"
         >
@@ -136,12 +136,12 @@
         </el-table-column>
         <el-table-column
           prop="trade_count"
-          label="成交笔数"
+          :label="t('workspaceDialogs.tdsColTradeCount')"
           width="100"
           align="right"
         />
         <el-table-column
-          label="累计盈亏"
+          :label="t('workspaceDialogs.tdsColCumulativePnl')"
           width="120"
           align="right"
         >
@@ -152,7 +152,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="最大回撤"
+          :label="t('workspaceDialogs.tdsColMaxDrawdown')"
           width="110"
           align="right"
         >
@@ -167,11 +167,14 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { workspaceApi } from '@/api/workspace'
 import { getErrorMessage } from '@/api/index'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type { TradingDailySummaryItem } from '@/types/workspace'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: boolean
@@ -215,7 +218,7 @@ async function loadSummary() {
     })
     summaries.value = response.summaries
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '加载交易日统计失败'))
+    ElMessage.error(getErrorMessage(error, t('workspaceDialogs.tdsLoadFailed')))
   } finally {
     loading.value = false
   }
@@ -251,8 +254,8 @@ function numberClass(value: number | null | undefined) {
 
 <style scoped>
 .dialog-table :deep(.el-table__header th) {
-  background: #f8fafc;
-  color: #475569;
+  background: var(--bg-color-page);
+  color: var(--text-color-regular);
   font-weight: 600;
 }
 </style>

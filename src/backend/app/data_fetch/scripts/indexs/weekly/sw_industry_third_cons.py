@@ -1,6 +1,7 @@
 import argparse
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import numpy as np
@@ -137,7 +138,39 @@ class SWIndustryThirdCons(AkshareToMySql):
         df = self.get_data_by_columns("SW_INDUSTRY_THIRD_INFO", ["INDUSTRY_CODE"])
         return df["INDUSTRY_CODE"].tolist()
 
-    def run(self, industry_code=None, update_all=False):
+    def _save_industry_cons(self, industry_code, df):
+        if not df.empty:
+            self.save_data(
+                df=df.replace({np.nan: None}),
+                table_name=self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["INDUSTRY_CODE", "STOCK_CODE"],
+            )
+            self.logger.info(f"Updated {len(df)} constituents for industry {industry_code}")
+
+    def _fetch_industry_jobs(self, code_list, max_workers):
+        worker_count = max(1, min(max_workers, len(code_list)))
+        if worker_count == 1:
+            for industry_code in code_list:
+                yield industry_code, self.fetch_industry_cons(industry_code)
+            return
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(self.fetch_industry_cons, industry_code): industry_code
+                for industry_code in code_list
+            }
+            for future in as_completed(future_map):
+                industry_code = future_map[future]
+                try:
+                    yield industry_code, future.result()
+                except Exception as exc:
+                    self.logger.error(
+                        f"Error fetching constituents for industry {industry_code}: {exc}"
+                    )
+                    yield industry_code, pd.DataFrame()
+
+    def run(self, industry_code=None, update_all=False, max_workers=8, max_codes=None):
         """
         Main method to run the industry constituents update
 
@@ -154,6 +187,8 @@ class SWIndustryThirdCons(AkshareToMySql):
                 self.create_table(self.create_table_sql)
                 self.logger.info(f"Created table {self.table_name}")
             code_list = self.get_all_industry_code() if industry_code is None else [industry_code]
+            if max_codes is not None:
+                code_list = code_list[: max(0, int(max_codes))]
 
             # Mark old records as inactive for this industry
             # if not update_all:
@@ -161,17 +196,10 @@ class SWIndustryThirdCons(AkshareToMySql):
             #         f"UPDATE {self.table_name} SET IS_ACTIVE = 0 WHERE INDUSTRY_CODE = %s",
             #         (industry_code,)
             #     )
-            for industry_code in code_list:
-                # Fetch and save new data
-                df = self.fetch_industry_cons(industry_code)
-                if not df.empty:
-                    self.save_data(
-                        df=df.replace({np.nan: None}),
-                        table_name=self.table_name,
-                        on_duplicate_update=True,
-                        unique_keys=["INDUSTRY_CODE", "STOCK_CODE"],
-                    )
-                    self.logger.info(f"Updated {len(df)} constituents for industry {industry_code}")
+            for industry_code, df in self._fetch_industry_jobs(code_list, int(max_workers or 1)):
+                self._save_industry_cons(industry_code, df)
+
+            return True
 
         except Exception as e:
             self.logger.error(f"Error in run: {str(e)}", exc_info=True)

@@ -1,181 +1,121 @@
 <template>
-  <div class="space-y-6">
-    <el-card>
+  <div
+    class="sync-page"
+    data-test="sync-page"
+  >
+    <section
+      class="sync-hero"
+      data-test="sync-hero"
+    >
+      <div class="sync-hero-copy">
+        <div class="sync-kicker">
+          {{ t('dataPages.syncHeroKicker') }}
+        </div>
+        <h1>{{ t('dataPages.syncPageTitle') }}</h1>
+        <p>{{ t('dataPages.syncPageDesc') }}</p>
+      </div>
+
+      <div class="sync-hero-actions">
+        <el-button
+          :icon="Connection"
+          :loading="testingConnection"
+          @click="handleTestConnection"
+        >
+          {{ t('dataPages.syncTestConnection') }}
+        </el-button>
+        <el-button
+          type="primary"
+          :icon="CircleCheck"
+          :loading="savingConfig"
+          @click="handleSaveConfig"
+        >
+          {{ t('dataPages.syncSaveConfig') }}
+        </el-button>
+      </div>
+
+      <div
+        class="sync-metrics"
+        data-test="sync-metrics"
+      >
+        <article class="sync-metric">
+          <el-icon aria-hidden="true">
+            <Setting />
+          </el-icon>
+          <span>{{ t('dataPages.syncMetricMode') }}</span>
+          <strong>{{ syncModeLabel(syncMode) }}</strong>
+        </article>
+        <article class="sync-metric">
+          <el-icon aria-hidden="true">
+            <DataAnalysis />
+          </el-icon>
+          <span>{{ t('dataPages.syncMetricDatabases') }}</span>
+          <strong>{{ configuredDatabaseCount }}</strong>
+        </article>
+        <article class="sync-metric">
+          <el-icon aria-hidden="true">
+            <Refresh />
+          </el-icon>
+          <span>{{ t('dataPages.syncMetricActiveTasks') }}</span>
+          <strong>{{ activeTasks.length }}</strong>
+        </article>
+        <article class="sync-metric">
+          <el-icon aria-hidden="true">
+            <Warning />
+          </el-icon>
+          <span>{{ t('dataPages.syncMetricConnection') }}</span>
+          <strong>{{ connectionSummary }}</strong>
+        </article>
+      </div>
+    </section>
+
+    <el-card
+      class="sync-config-panel"
+      data-test="sync-config-panel"
+    >
       <template #header>
-        <div class="header-row">
+        <div class="sync-panel-heading">
           <div>
-            <div class="page-title">
-              数据同步
+            <div class="sync-kicker">
+              {{ t('dataPages.syncConfigKicker') }}
             </div>
-            <div class="page-subtitle">
-              在本地 MySQL 与远程 MySQL 之间按表直连同步数据库。
+            <div class="sync-panel-title">
+              {{ t('dataPages.syncConfigTitle') }}
             </div>
-          </div>
-          <div class="toolbar-actions">
-            <el-button
-              :loading="testingConnection"
-              @click="handleTestConnection"
-            >
-              测试连接
-            </el-button>
-            <el-button
-              type="primary"
-              :loading="savingConfig"
-              @click="handleSaveConfig"
-            >
-              保存配置
-            </el-button>
+            <p>{{ t('dataPages.syncConfigDesc') }}</p>
           </div>
         </div>
       </template>
 
-      <el-form
-        :model="configForm"
-        label-width="120px"
-      >
-        <div class="config-section-title">
-          同步模式
-        </div>
-        <div class="form-grid">
-          <el-form-item label="同步方式">
-            <el-input
-              value="直连 MySQL（按表同步）"
-              disabled
-            />
-          </el-form-item>
-          <el-form-item label="同步模式">
-            <el-select
-              v-model="syncMode"
-              class="full-width"
-            >
-              <el-option
-                label="完整同步"
-                value="full"
-              />
-              <el-option
-                label="仅结构"
-                value="schema_only"
-              />
-              <el-option
-                label="仅数据"
-                value="data_only"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="并发同步数">
-            <el-input-number
-              v-model="configForm.sync_parallel_workers"
-              class="full-width"
-              :min="1"
-              :max="16"
-            />
-          </el-form-item>
-        </div>
+      <DataSyncConfigForm
+        v-model:sync-mode="syncMode"
+        v-model:sync-databases-input="syncDatabasesInput"
+        :config="configForm"
+        @update:config="updateConfigForm"
+      />
 
-        <div class="config-section-title">
-          本地 MySQL
-        </div>
-        <div class="form-grid">
-          <el-form-item label="本地主机">
-            <el-input
-              v-model="configForm.local_mysql_host"
-              placeholder="127.0.0.1"
-            />
-          </el-form-item>
-          <el-form-item label="本地端口">
-            <el-input-number
-              v-model="configForm.local_mysql_port"
-              class="full-width"
-              :min="1"
-              :max="65535"
-            />
-          </el-form-item>
-          <el-form-item label="本地用户">
-            <el-input
-              v-model="configForm.local_mysql_user"
-              placeholder="root"
-            />
-          </el-form-item>
-          <el-form-item label="本地密码">
-            <el-input
-              v-model="configForm.local_mysql_password"
-              show-password
-              placeholder="输入本地 MySQL 密码"
-            />
-          </el-form-item>
-        </div>
-
-        <div class="config-section-title">
-          远程 MySQL
-        </div>
-        <div class="form-grid">
-          <el-form-item label="远程 MySQL 主机">
-            <el-input
-              v-model="configForm.remote_mysql_host"
-              placeholder="43.167.221.188"
-            />
-          </el-form-item>
-          <el-form-item label="远程 MySQL 端口">
-            <el-input-number
-              v-model="configForm.remote_mysql_port"
-              class="full-width"
-              :min="1"
-              :max="65535"
-            />
-          </el-form-item>
-          <el-form-item label="远程 MySQL 用户">
-            <el-input
-              v-model="configForm.remote_mysql_user"
-              placeholder="root"
-            />
-          </el-form-item>
-          <el-form-item label="远程 MySQL 密码">
-            <el-input
-              v-model="configForm.remote_mysql_password"
-              show-password
-              placeholder="直连模式必须填写远程 MySQL 密码"
-            />
-          </el-form-item>
-        </div>
-
-        <div class="config-section-title">
-          同步范围
-        </div>
-        <div class="form-grid single-column">
-          <el-form-item label="同步数据库">
-            <el-input
-              v-model="syncDatabasesInput"
-              type="textarea"
-              :rows="2"
-              placeholder="例如：backtrader_web, akshare_data"
-            />
-          </el-form-item>
-        </div>
-      </el-form>
-
-      <div class="tips-grid">
+      <div class="sync-guidance-grid">
         <div class="tip-card">
           <div class="tip-title">
-            填写提示
+            {{ t('dataPages.syncTipFillTitle') }}
           </div>
           <div class="tip-text">
-            当前页面只保留 MySQL 直连同步。只要远程 MySQL 主机、端口、用户名、密码可访问即可，不需要 SSH；数据库不存在时会自动创建，已存在时不会删除。你还可以配置并发同步数，控制同时处理的数据表数量。
+            {{ t('dataPages.syncTipFillText') }}
           </div>
         </div>
         <div class="tip-card">
           <div class="tip-title">
-            增量同步规则
+            {{ t('dataPages.syncTipIncTitle') }}
           </div>
           <div class="tip-text">
-            数据同步会优先使用数据表的主键，其次使用唯一索引；如果没有可用索引，会退化为按整行字段内容比对，只传输目标库缺失的数据行。
+            {{ t('dataPages.syncTipIncText') }}
           </div>
         </div>
         <div class="tip-card">
           <div class="tip-title">
-            使用限制
+            {{ t('dataPages.syncTipLimitTitle') }}
           </div>
           <div class="tip-text">
-            没有主键或唯一索引的数据表也可以同步，但只能按整行内容做缺失判断；如果表里存在完全相同的重复行，增量判断的精度会受限。
+            {{ t('dataPages.syncTipLimitText') }}
           </div>
         </div>
       </div>
@@ -183,6 +123,7 @@
       <div
         v-if="connectionStatus"
         class="connection-grid"
+        data-test="sync-connection-grid"
       >
         <div
           v-for="(passed, key) in connectionStatus.checks"
@@ -190,7 +131,7 @@
           class="connection-item"
         >
           <el-tag :type="passed ? 'success' : 'danger'">
-            {{ passed ? '通过' : '失败' }}
+            {{ passed ? t('dataPages.syncCheckPassed') : t('dataPages.syncCheckFailed') }}
           </el-tag>
           <div class="connection-content">
             <div class="connection-title">
@@ -204,194 +145,65 @@
       </div>
     </el-card>
 
-    <el-card v-if="activeTasks.length > 0">
+    <DataSyncActiveTasks
+      :tasks="activeTasks"
+      :status-label="statusLabel"
+    />
+
+    <DataSyncDatabaseTables
+      :database-rows="databaseRows"
+      :database-names="databaseNames"
+      :loading-databases="loadingDatabases"
+      :submitting-bulk-upload="submittingBulkUpload"
+      :submitting-bulk-download="submittingBulkDownload"
+      :format-remote-state="formatRemoteState"
+      :format-local-state="formatLocalState"
+      @sync="startSync"
+    />
+
+    <el-card
+      class="sync-history-panel"
+      data-test="sync-history-panel"
+    >
       <template #header>
-        <div class="page-title small">
-          同步进度
-        </div>
-      </template>
-
-      <div class="task-list">
-        <div
-          v-for="task in activeTasks"
-          :key="task.task_id"
-          class="task-item"
-        >
-          <div class="task-top">
-            <div>
-              <div class="task-title">
-                {{ task.direction === 'upload' ? '上传到服务器' : '从服务器拉取' }}
-                <span class="task-db">{{ task.current_database || task.databases.join(', ') }}</span>
-              </div>
-              <div class="task-subtitle">
-                {{ task.message }}
-              </div>
-            </div>
-            <el-tag :type="task.status === 'failed' ? 'danger' : task.status === 'completed' ? 'success' : 'warning'">
-              {{ statusLabel(task.status) }}
-            </el-tag>
-          </div>
-          <el-progress
-            :percentage="task.progress_pct"
-            :status="task.status === 'failed' ? 'exception' : undefined"
-          />
-        </div>
-      </div>
-    </el-card>
-
-    <div class="dual-grid">
-      <el-card>
-        <template #header>
-          <div class="section-header">
-            <div>
-              <div class="page-title small">
-                上传到服务器
-              </div>
-              <div class="page-subtitle">
-                把本地数据库中的缺失结构与缺失数据增量同步到远程环境。
-              </div>
-            </div>
-            <el-button
-              type="primary"
-              :loading="submittingBulkUpload"
-              @click="startSync('upload', databaseNames)"
-            >
-              全部上传
-            </el-button>
-          </div>
-        </template>
-
-        <el-table
-          v-loading="loadingDatabases"
-          :data="databaseRows"
-          stripe
-        >
-          <el-table-column
-            prop="name"
-            label="数据库"
-            min-width="160"
-          />
-          <el-table-column
-            label="本地大小"
-            width="120"
-          >
-            <template #default="{ row }">
-              {{ row.local.exists ? row.local.size_display : '不存在' }}
-            </template>
-          </el-table-column>
-          <el-table-column
-            label="远程状态"
-            min-width="160"
-          >
-            <template #default="{ row }">
-              {{ formatRemoteState(row) }}
-            </template>
-          </el-table-column>
-          <el-table-column
-            label="操作"
-            width="120"
-          >
-            <template #default="{ row }">
-              <el-button
-                link
-                type="primary"
-                @click="startSync('upload', [row.name])"
-              >
-                上传
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-card>
-
-      <el-card>
-        <template #header>
-          <div class="section-header">
-            <div>
-              <div class="page-title small">
-                从服务器拉取
-              </div>
-              <div class="page-subtitle">
-                把远程数据库中的缺失结构与缺失数据增量同步到本地环境。
-              </div>
-            </div>
-            <el-button
-              :loading="submittingBulkDownload"
-              @click="startSync('download', databaseNames)"
-            >
-              全部拉取
-            </el-button>
-          </div>
-        </template>
-
-        <el-table
-          v-loading="loadingDatabases"
-          :data="databaseRows"
-          stripe
-        >
-          <el-table-column
-            prop="name"
-            label="数据库"
-            min-width="160"
-          />
-          <el-table-column
-            label="远程大小"
-            width="120"
-          >
-            <template #default="{ row }">
-              {{ row.remote.exists ? row.remote.size_display : '不存在' }}
-            </template>
-          </el-table-column>
-          <el-table-column
-            label="本地状态"
-            min-width="160"
-          >
-            <template #default="{ row }">
-              {{ formatLocalState(row) }}
-            </template>
-          </el-table-column>
-          <el-table-column
-            label="操作"
-            width="120"
-          >
-            <template #default="{ row }">
-              <el-button
-                link
-                type="primary"
-                @click="startSync('download', [row.name])"
-              >
-                拉取
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-card>
-    </div>
-
-    <el-card>
-      <template #header>
-        <div class="section-header">
+        <div class="sync-panel-heading">
           <div>
-            <div class="page-title small">
-              同步历史
+            <div class="sync-kicker">
+              {{ t('dataPages.syncHistoryKicker') }}
             </div>
-            <div class="page-subtitle">
-              展示最近一次同步结果与耗时。
+            <div class="sync-panel-title">
+              {{ t('dataPages.syncHistoryTitle') }}
             </div>
+            <p>{{ t('dataPages.syncHistoryDesc') }}</p>
           </div>
-          <el-button @click="loadHistory">
-            刷新历史
+          <el-button
+            :icon="Refresh"
+            :loading="loadingHistory"
+            @click="loadHistory"
+          >
+            {{ t('dataPages.syncRefreshHistory') }}
           </el-button>
         </div>
       </template>
 
+      <div
+        v-if="!loadingHistory && history.length === 0"
+        class="sync-empty"
+      >
+        <strong>{{ t('dataPages.syncHistoryEmptyTitle') }}</strong>
+        <span>{{ t('dataPages.syncHistoryEmptyDesc') }}</span>
+      </div>
+
       <el-table
+        v-else
         v-loading="loadingHistory"
         :data="history"
         stripe
+        class="sync-history-table"
+        data-test="sync-history-table"
       >
         <el-table-column
-          label="时间"
+          :label="t('dataPages.syncHistColTime')"
           width="220"
         >
           <template #default="{ row }">
@@ -399,15 +211,15 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="方向"
+          :label="t('dataPages.syncHistColDirection')"
           width="120"
         >
           <template #default="{ row }">
-            {{ row.direction === 'upload' ? '上传' : '拉取' }}
+            {{ row.direction === 'upload' ? t('dataPages.syncDirUploadShort') : t('dataPages.syncDirDownloadShort') }}
           </template>
         </el-table-column>
         <el-table-column
-          label="数据库"
+          :label="t('dataPages.syncHistColDatabases')"
           min-width="180"
         >
           <template #default="{ row }">
@@ -415,7 +227,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="状态"
+          :label="t('dataPages.syncHistColStatus')"
           width="120"
         >
           <template #default="{ row }">
@@ -425,7 +237,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="耗时"
+          :label="t('dataPages.syncHistColDuration')"
           width="120"
         >
           <template #default="{ row }">
@@ -433,23 +245,62 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="消息"
+          :label="t('dataPages.syncHistColMessage')"
           min-width="260"
         >
           <template #default="{ row }">
-            {{ row.error || row.message }}
+            {{ row.error || row.message || t('dataPages.syncNoMessage') }}
           </template>
         </el-table-column>
       </el-table>
+
+      <div
+        v-if="history.length > 0"
+        class="sync-history-mobile-list"
+        data-test="sync-history-mobile-list"
+      >
+        <article
+          v-for="item in history"
+          :key="item.task_id"
+          class="sync-history-card"
+        >
+          <div class="sync-history-card-head">
+            <div>
+              <strong>{{ item.direction === 'upload' ? t('dataPages.syncDirUploadShort') : t('dataPages.syncDirDownloadShort') }}</strong>
+              <span>{{ formatDateTime(item.started_at) }}</span>
+            </div>
+            <span :class="`is-${item.status}`">{{ statusLabel(item.status) }}</span>
+          </div>
+          <div class="sync-history-card-grid">
+            <span>{{ t('dataPages.syncHistColDatabases') }}</span>
+            <strong>{{ item.databases.join(', ') }}</strong>
+            <span>{{ t('dataPages.syncHistColDuration') }}</span>
+            <strong>{{ formatDuration(item.duration_seconds) }}</strong>
+          </div>
+          <p>{{ item.error || item.message || t('dataPages.syncNoMessage') }}</p>
+        </article>
+      </div>
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  CircleCheck,
+  Connection,
+  DataAnalysis,
+  Refresh,
+  Setting,
+  Warning,
+} from '@element-plus/icons-vue'
 import { getErrorMessage } from '@/api/index'
 import { syncApi } from '@/api/sync'
+import DataSyncConfigForm from './components/DataSyncConfigForm.vue'
+import DataSyncActiveTasks from './components/DataSyncActiveTasks.vue'
+import DataSyncDatabaseTables from './components/DataSyncDatabaseTables.vue'
 import type {
   DatabaseSyncInfo,
   SyncConfig,
@@ -458,6 +309,8 @@ import type {
   SyncMode,
   SyncTaskStatus,
 } from '@/types'
+
+const { t } = useI18n()
 
 const configForm = reactive<SyncConfig>({
   connection_mode: 'direct_mysql',
@@ -470,12 +323,12 @@ const configForm = reactive<SyncConfig>({
   remote_user: 'root',
   remote_ssh_key: '~/.ssh/id_rsa',
   remote_container: 'backtrader_mysql',
-  remote_install_dir: '/opt/backtrader_web',
+  remote_install_dir: '/opt/ai-for-investor',
   remote_mysql_host: '',
   remote_mysql_port: 3306,
   remote_mysql_user: 'root',
   remote_mysql_password: '',
-  sync_databases: ['backtrader_web', 'akshare_data'],
+  sync_databases: ['ai_for_investor', 'akshare_data'],
 })
 
 const connectionStatus = ref<SyncConnectionStatus | null>(null)
@@ -483,7 +336,7 @@ const databaseRows = ref<DatabaseSyncInfo[]>([])
 const history = ref<SyncTaskStatus[]>([])
 const activeTaskMap = ref<Record<string, SyncTaskStatus>>({})
 const pollers = new Map<string, number>()
-const syncDatabasesInput = ref('backtrader_web, akshare_data')
+const syncDatabasesInput = ref('ai_for_investor, akshare_data')
 
 const loadingDatabases = ref(false)
 const loadingHistory = ref(false)
@@ -495,6 +348,13 @@ const syncMode = ref<SyncMode>('full')
 
 const activeTasks = computed(() => Object.values(activeTaskMap.value))
 const databaseNames = computed(() => databaseRows.value.map(item => item.name))
+const configuredDatabaseCount = computed(() => normalizeDatabaseNames(syncDatabasesInput.value).length)
+const connectionSummary = computed(() => {
+  if (!connectionStatus.value) return t('dataPages.syncConnectionNotTested')
+  return connectionStatus.value.success
+    ? t('dataPages.syncConnectionHealthy')
+    : t('dataPages.syncConnectionIssue')
+})
 
 function formatDateTime(value: string | null) {
   if (!value) return '-'
@@ -510,30 +370,36 @@ function formatDuration(value: number | null) {
 }
 
 function statusLabel(status: SyncTaskStatus['status']) {
-  if (status === 'pending') return '等待中'
-  if (status === 'running') return '执行中'
-  if (status === 'completed') return '已完成'
-  return '失败'
+  if (status === 'pending') return t('dataPages.syncStatusPending')
+  if (status === 'running') return t('dataPages.syncStatusRunning')
+  if (status === 'completed') return t('dataPages.syncStatusCompleted')
+  return t('dataPages.syncStatusFailed')
+}
+
+function syncModeLabel(mode: SyncMode) {
+  if (mode === 'schema_only') return t('dataPages.syncModeSchemaOnly')
+  if (mode === 'data_only') return t('dataPages.syncModeDataOnly')
+  return t('dataPages.syncModeFull')
 }
 
 function labelForCheck(key: string) {
-  if (key === 'local_tools') return '本地命令依赖'
-  if (key === 'local_mysql') return '本地 MySQL'
-  if (key === 'remote_mysql') return '远程 MySQL'
-  if (key === 'ssh') return 'SSH 连通性'
-  if (key === 'docker') return 'Docker 容器状态'
-  if (key === 'remote_env') return '远程密码配置'
+  if (key === 'local_tools') return t('dataPages.syncCheckLocalTools')
+  if (key === 'local_mysql') return t('dataPages.syncCheckLocalMysql')
+  if (key === 'remote_mysql') return t('dataPages.syncCheckRemoteMysql')
+  if (key === 'ssh') return t('dataPages.syncCheckSsh')
+  if (key === 'docker') return t('dataPages.syncCheckDocker')
+  if (key === 'remote_env') return t('dataPages.syncCheckRemoteEnv')
   return key
 }
 
 function formatRemoteState(row: DatabaseSyncInfo) {
-  if (!row.remote.exists) return '不存在'
-  return `已存在（${row.remote.size_display} / ${row.remote.table_count}表）`
+  if (!row.remote.exists) return t('dataPages.syncStateNotExists')
+  return t('dataPages.syncStateExists', { size: row.remote.size_display, tables: row.remote.table_count })
 }
 
 function formatLocalState(row: DatabaseSyncInfo) {
-  if (!row.local.exists) return '不存在'
-  return `已存在（${row.local.size_display} / ${row.local.table_count}表）`
+  if (!row.local.exists) return t('dataPages.syncStateNotExists')
+  return t('dataPages.syncStateExists', { size: row.local.size_display, tables: row.local.table_count })
 }
 
 function normalizeDatabaseNames(value: string) {
@@ -551,6 +417,10 @@ function buildConfigPayload(): SyncConfig {
   }
 }
 
+function updateConfigForm(nextConfig: SyncConfig) {
+  Object.assign(configForm, nextConfig)
+}
+
 async function loadConfig() {
   const response = await syncApi.getConfig()
   Object.assign(configForm, response)
@@ -564,7 +434,7 @@ async function loadDatabases() {
     const response = await syncApi.getDatabases()
     databaseRows.value = response.items
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载数据库状态失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.syncLoadDatabasesFailed')))
   } finally {
     loadingDatabases.value = false
   }
@@ -576,7 +446,7 @@ async function loadHistory() {
     const response = await syncApi.getHistory()
     history.value = response.items
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载同步历史失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.syncLoadHistoryFailed')))
   } finally {
     loadingHistory.value = false
   }
@@ -591,7 +461,7 @@ async function persistConfig(options: { showSuccess?: boolean; reloadDatabases?:
     configForm.connection_mode = 'direct_mysql'
     syncDatabasesInput.value = response.sync_databases.join(', ')
     if (showSuccess) {
-      ElMessage.success('同步配置已保存')
+      ElMessage.success(t('dataPages.syncSavedSuccess'))
     }
     if (reloadDatabases) {
       await loadDatabases()
@@ -605,7 +475,7 @@ async function handleSaveConfig() {
   try {
     await persistConfig({ showSuccess: true, reloadDatabases: true })
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '保存同步配置失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.syncSaveFailed')))
   }
 }
 
@@ -614,9 +484,9 @@ async function handleTestConnection() {
   try {
     await persistConfig()
     connectionStatus.value = await syncApi.testConnection(buildConfigPayload())
-    ElMessage.success(connectionStatus.value.success ? '连接测试通过' : '连接测试完成，请查看结果')
+    ElMessage.success(connectionStatus.value.success ? t('dataPages.syncTestPassed') : t('dataPages.syncTestPartial'))
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '测试连接失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.syncTestFailed')))
   } finally {
     testingConnection.value = false
   }
@@ -624,17 +494,17 @@ async function handleTestConnection() {
 
 async function startSync(direction: SyncDirection, databases: string[]) {
   if (databases.length === 0) {
-    ElMessage.warning('没有可同步的数据库')
+    ElMessage.warning(t('dataPages.syncNoDatabases'))
     return
   }
 
-  const actionLabel = direction === 'upload' ? '上传到服务器' : '从服务器拉取'
+  const actionLabel = direction === 'upload' ? t('dataPages.syncDirUpload') : t('dataPages.syncDirDownload')
   const loadingFlag = direction === 'upload' ? submittingBulkUpload : submittingBulkDownload
 
   try {
     await ElMessageBox.confirm(
-      `${actionLabel}会保留目标数据库中已存在的数据，仅补齐缺失结构和缺失数据，是否继续？\n\n数据库：${databases.join(', ')}`,
-      '同步确认',
+      t('dataPages.syncConfirmMsg', { action: actionLabel, databases: databases.join(', ') }),
+      t('dataPages.syncConfirmTitle'),
       { type: 'warning' }
     )
   } catch {
@@ -667,10 +537,10 @@ async function startSync(direction: SyncDirection, databases: string[]) {
         sync_mode: syncMode.value,
       },
     }
-    ElMessage.success('同步任务已创建')
+    ElMessage.success(t('dataPages.syncTaskCreated'))
     void pollTask(response.task_id)
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '启动同步任务失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.syncStartFailed')))
   } finally {
     loadingFlag.value = false
   }
@@ -688,7 +558,7 @@ async function pollTask(taskId: string) {
       clearPoller(taskId)
       await Promise.all([loadDatabases(), loadHistory()])
       if (status.status === 'completed') {
-        ElMessage.success(`同步完成：${status.databases.join(', ')}`)
+        ElMessage.success(t('dataPages.syncCompleted', { databases: status.databases.join(', ') }))
       } else {
         ElMessage.error(status.error || status.message)
       }
@@ -700,7 +570,7 @@ async function pollTask(taskId: string) {
     pollers.set(taskId, timer)
   } catch (error) {
     clearPoller(taskId)
-    ElMessage.error(getErrorMessage(error, '查询同步任务状态失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.syncStatusFetchFailed')))
   }
 }
 
@@ -716,7 +586,7 @@ onMounted(async () => {
   try {
     await loadConfig()
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载同步配置失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.syncLoadConfigFailed')))
   }
   await Promise.all([loadDatabases(), loadHistory()])
 })
@@ -727,125 +597,4 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style scoped>
-.header-row,
-.section-header,
-.toolbar-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.page-title {
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.page-title.small {
-  font-size: 16px;
-}
-
-.page-subtitle,
-.task-subtitle,
-.connection-detail,
-.task-db {
-  color: #64748b;
-  font-size: 12px;
-}
-
-.form-grid,
-.dual-grid,
-.connection-grid,
-.tips-grid {
-  display: grid;
-  gap: 16px;
-}
-
-.form-grid {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-}
-
-.form-grid.single-column {
-  grid-template-columns: 1fr;
-}
-
-.dual-grid {
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-}
-
-.tips-grid {
-  margin-top: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-}
-
-.connection-grid {
-  margin-top: 16px;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-}
-
-.connection-item,
-.task-item,
-.tip-card {
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 14px;
-  background: #f8fafc;
-}
-
-.connection-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.connection-title,
-.task-title {
-  font-weight: 600;
-  color: #0f172a;
-}
-
-.config-section-title,
-.tip-title {
-  font-weight: 700;
-  color: #0f172a;
-  margin: 4px 0 12px;
-}
-
-.tip-text {
-  color: #475569;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.task-list,
-.database-tags {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.task-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.database-tags {
-  flex-direction: row;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-top: 4px;
-}
-
-.db-tag {
-  margin-right: 8px;
-}
-
-.full-width {
-  width: 100%;
-}
-</style>
+<style scoped src="./DataSyncPage.styles.css"></style>

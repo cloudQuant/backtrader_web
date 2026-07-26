@@ -68,7 +68,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 # 确保使用正确的 backtrader（支持 BtApiStore/BtApiFeed/Strategy 的 fork）
 import sys
 from pathlib import Path as _Path
-_bt_web = _Path(__file__).resolve().parents[3]  # backtrader_web 根目录 (run.py 在 strategies/simulate/xxx/ 下)
+_bt_web = _Path(__file__).resolve().parents[3]  # ai-for-investor 根目录 (run.py 在 strategies/simulate/xxx/ 下)
 _bt_project = _bt_web.parent / "backtrader"
 if _bt_project.exists() and str(_bt_project) not in sys.path:
     sys.path.insert(0, str(_bt_project))

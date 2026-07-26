@@ -48,9 +48,12 @@ class StockMarketFundFlow(AkshareToMySql):
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
+            df = df.copy()
+            df["symbol"] = "market"
+            df["name"] = "大盘资金流"
+            if "日期" in df.columns:
+                df["data_date"] = pd.to_datetime(df["日期"], errors="coerce").dt.date
+            elif "data_date" not in df.columns:
                 df["data_date"] = pd.Timestamp.now().date()
 
             # Save to database

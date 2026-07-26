@@ -86,7 +86,12 @@ class FundAnalysisXq(AkshareToMySql):
             self.logger.info(f"开始获取基金分析数据，基金代码: {fund_code}")
 
             # 获取数据
-            df = self.fetch_ak_data("fund_individual_analysis_xq", symbol=fund_code)
+            df = self.fetch_ak_data(
+                "fund_individual_analysis_xq",
+                symbol=fund_code,
+                timeout=20,
+                _call_timeout=60,
+            )
 
             if df is None or df.empty:
                 self.logger.warning(f"未获取到基金分析数据，基金代码: {fund_code}")

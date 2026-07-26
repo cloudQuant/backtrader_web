@@ -1,0 +1,14 @@
+{
+  "symbol": "RB0",
+  "name": "螺纹钢主连",
+  "minute_function": "futures_zh_minute_sina(symbol=\"RB0\", period=\"60\")",
+  "daily_function": "futures_zh_daily_sina(symbol=\"RB0\")",
+  "legacy_hourly_source": "data/datas/RB889.csv resampled from real 5-minute bars",
+  "h1_rows": 23049,
+  "h1_start": "2010-01-04 09:00:00",
+  "h1_end": "2026-07-03 23:00:00",
+  "d1_rows": 4192,
+  "d1_start": "2009-03-27 00:00:00",
+  "d1_end": "2026-07-03 00:00:00",
+  "note": "H1 has a vendor availability gap between local RB889 ending 2021-08 and AkShare RB0 minute starting 2025-10; no synthetic hourly bars were generated for that gap."
+}

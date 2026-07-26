@@ -54,7 +54,7 @@ class ForeignFuturesHistoryEm(AkshareToMySql):
 
                                 """
 
-    def run(self):
+    def run(self, max_symbols=None, _call_timeout=None):
         """
         Fetches and stores historical data for all foreign futures contracts from Eastmoney.
         """
@@ -70,10 +70,12 @@ class ForeignFuturesHistoryEm(AkshareToMySql):
         )
         ForeignFuturesRealtimeEm = mod.ForeignFuturesRealtimeEm
 
-        symbols = ForeignFuturesRealtimeEm().run()
+        symbols = ForeignFuturesRealtimeEm(logger=self.logger).run(_call_timeout=_call_timeout)
         if not symbols:
             self.logger.error("No symbols found to update. Exiting.")
             return
+        if max_symbols is not None:
+            symbols = symbols[: int(max_symbols)]
 
         for symbol in symbols:
             try:
@@ -92,7 +94,10 @@ class ForeignFuturesHistoryEm(AkshareToMySql):
 
                 # 2. Fetch Data
                 # df = ak.futures_global_hist_em(symbol=symbol)
-                df = self.fetch_ak_data("futures_global_hist_em", symbol)
+                kwargs = {}
+                if _call_timeout is not None:
+                    kwargs["_call_timeout"] = _call_timeout
+                df = self.fetch_ak_data("futures_global_hist_em", symbol, **kwargs)
                 time.sleep(2)  # Be respectful
                 # print(df.head())
                 if df.empty:

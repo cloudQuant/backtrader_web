@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 import pytest
 from fastapi import HTTPException, status
 
-from app.api.deps_permissions import (
+from app.api._dependencies import (
     RequireCreateStrategy,
     RequireDeleteStrategy,
     RequireExportBacktest,
@@ -88,7 +88,7 @@ class TestRequirePermission:
         user.roles = [admin_role]
 
         # Mock get_current_user
-        with patch("app.api.deps_permissions.get_current_user", return_value=user):
+        with patch("app.api._dependencies.get_current_user", return_value=user):
             checker = require_permission(Permission.MANAGE_USERS)
             result = await checker(user)
             assert result is user
@@ -100,7 +100,7 @@ class TestRequirePermission:
         guest_role.role = Role.GUEST
         user.roles = [guest_role]
 
-        with patch("app.api.deps_permissions.get_current_user", return_value=user):
+        with patch("app.api._dependencies.get_current_user", return_value=user):
             checker = require_permission(Permission.MANAGE_USERS)
             with pytest.raises(HTTPException) as exc_info:
                 await checker(user)
@@ -120,7 +120,7 @@ class TestRequireAnyPermission:
         user_role.role = Role.USER
         user.roles = [user_role]
 
-        with patch("app.api.deps_permissions.get_current_user", return_value=user):
+        with patch("app.api._dependencies.get_current_user", return_value=user):
             checker = require_any_permission(Permission.CREATE_STRATEGY, Permission.MANAGE_USERS)
             result = await checker(user)
             assert result is user
@@ -132,7 +132,7 @@ class TestRequireAnyPermission:
         guest_role.role = Role.GUEST
         user.roles = [guest_role]
 
-        with patch("app.api.deps_permissions.get_current_user", return_value=user):
+        with patch("app.api._dependencies.get_current_user", return_value=user):
             checker = require_any_permission(Permission.MANAGE_USERS, Permission.DELETE_STRATEGY)
             with pytest.raises(HTTPException) as exc_info:
                 await checker(user)
@@ -147,7 +147,7 @@ class TestRequireAnyPermission:
         guest_role.role = Role.GUEST
         user.roles = [guest_role]
 
-        with patch("app.api.deps_permissions.get_current_user", return_value=user):
+        with patch("app.api._dependencies.get_current_user", return_value=user):
             checker = require_any_permission()
             with pytest.raises(HTTPException) as exc_info:
                 await checker(user)

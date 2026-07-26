@@ -1,7 +1,7 @@
 """
 Movie Boxoffice Yearly First Week
 
-数据源: AkShare
+数据源: 艺恩 Endata
 函数: movie_boxoffice_yearly_first_week
 频率: daily
 """
@@ -10,6 +10,7 @@ import pandas as pd
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+from app.data_fetch.scripts.common._endata_yien import EndataYienClient
 
 
 class MovieBoxofficeYearlyFirstWeek(AkshareToMySql):
@@ -21,41 +22,56 @@ class MovieBoxofficeYearlyFirstWeek(AkshareToMySql):
         self.create_table_sql = """
     CREATE TABLE IF NOT EXISTS `MOVIE_BOXOFFICE_YEARLY_FIRST_WEEK` (
         `R_ID` INT AUTO_INCREMENT PRIMARY KEY,
-            `symbol` VARCHAR(50) COMMENT '品种代码',
-            `name` VARCHAR(100) COMMENT '品种名称',
-            `data_date` DATE COMMENT '数据日期',
-            `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-            `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-        UNIQUE KEY uk_symbol_date (`symbol`, `data_date`),
+            `Irank` INT COMMENT 'first-week rank',
+            `YearRank` INT COMMENT 'year rank',
+            `MovieID` BIGINT COMMENT 'movie id',
+            `EntMovieID` BIGINT COMMENT 'endata movie id',
+            `MovieName` VARCHAR(255) COMMENT 'movie name',
+            `EnMovieName` VARCHAR(255) COMMENT 'english movie name',
+            `FirstWeekBoxOffice` DOUBLE COMMENT 'first week box office',
+            `FirstWeekBoxPercent` DOUBLE COMMENT 'first week box office percent',
+            `WeekBoxOffice` DOUBLE COMMENT 'source first week box office',
+            `BoxOffice` DOUBLE COMMENT 'year box office',
+            `TotalBoxOffice` DOUBLE COMMENT 'total box office',
+            `ShowCount` BIGINT COMMENT 'show count',
+            `AudienceCount` BIGINT COMMENT 'audience count',
+            `ReleaseDate` DATE COMMENT 'release date',
+            `Year` INT COMMENT 'source year',
+            `data_year` INT COMMENT 'data year',
+            `data_date` DATE COMMENT 'data date',
+            `fetched_at` DATETIME COMMENT 'fetch time',
+            `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+            `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
+        UNIQUE KEY uk_movie_year_first_week (`MovieID`, `data_year`),
         INDEX idx_data_date (`data_date`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Movie Boxoffice Yearly First Week'
     """
 
     def fetch_data(self, **kwargs):
-        """Fetch data from AkShare and save to database.
+        """Fetch yearly first-week box-office data from the current Endata API.
 
         Args:
-            **kwargs: Parameters to pass to ak.movie_boxoffice_yearly_first_week
+            date: Optional year or date in YYYYMMDD / YYYY-MM-DD format.
 
         Returns:
             pd.DataFrame: Fetched data
         """
         try:
-            # Fetch data from AkShare
-            df = self.fetch_ak_data("movie_boxoffice_yearly_first_week", **kwargs)
+            df = EndataYienClient().fetch_movie_year_first_week(kwargs.get("date"))
 
             if df is None or df.empty:
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
-
-            # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+            for data_year in df["data_year"].dropna().unique():
+                self.delete_data(self.table_name, {"data_year": int(data_year)})
+            self.save_data(
+                df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["MovieID", "data_year"],
+            )
 
             return df
 
@@ -68,7 +84,7 @@ def main():
     """Main function to run the data fetch"""
 
     script = MovieBoxofficeYearlyFirstWeek()
-    script.run()
+    script.fetch_data()
 
 
 if __name__ == "__main__":

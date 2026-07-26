@@ -8,14 +8,19 @@ Tests:
 - Task context binding
 """
 
+import logging
+from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from zipfile import ZipFile
 
 import pytest
 
 from app.utils.logger import (
     LogContext,
     LogLevel,
+    _archive_stale_dated_logs,
+    _build_daily_or_size_rotation,
     _filter_sensitive_data,
     bind_request_context,
     bind_task_context,
@@ -110,6 +115,117 @@ class TestSetupLogger:
             setup_logger(log_dir=str(log_dir))
             assert log_dir.exists()
             assert log_dir.is_dir()
+
+    def test_setup_logger_suppresses_noisy_third_party_debug_logs(self, tmp_path: Path):
+        """Known noisy dependency loggers should not flood DEBUG app log files."""
+        with patch("app.utils.logger.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.DEBUG = True
+            mock_settings.return_value = settings
+
+            setup_logger(log_dir=str(tmp_path / "logs"))
+
+        app_logger = logging.getLogger("app.services.example")
+        assert app_logger.isEnabledFor(logging.DEBUG)
+
+        noisy_logger_names = (
+            "aiomysql.connection",
+            "aiosqlite.core",
+            "asyncio.selector_events",
+            "faker.factory",
+            "slowapi.extension",
+        )
+        for logger_name in noisy_logger_names:
+            noisy_logger = logging.getLogger(logger_name)
+            assert noisy_logger.getEffectiveLevel() == logging.WARNING
+            assert not noisy_logger.isEnabledFor(logging.DEBUG)
+            assert not noisy_logger.isEnabledFor(logging.INFO)
+
+    def test_pytest_log_dir_isolated_from_repo_logs(self):
+        """Pytest app imports should not write expected test errors to repo logs."""
+        from app.config import get_settings
+
+        repo_logs = Path(__file__).resolve().parents[3] / "logs"
+        log_dir = Path(get_settings().LOG_DIR).resolve()
+
+        assert log_dir != repo_logs.resolve()
+        assert log_dir.name.startswith("backtrader_web_pytest_logs_")
+
+
+class TestLogFileArchival:
+    """Tests for startup cleanup of stale dated log files."""
+
+    def test_archive_stale_dated_logs_compresses_inactive_file(self, tmp_path: Path):
+        old_log = tmp_path / "app_2026-06-22.log"
+        old_log.write_text("debug flood\n", encoding="utf-8")
+
+        archived = _archive_stale_dated_logs(
+            tmp_path,
+            current_date=date(2026, 6, 25),
+            min_age_seconds=0,
+        )
+
+        archive_path = tmp_path / "app_2026-06-22.log.zip"
+        assert archived == [archive_path]
+        assert archive_path.exists()
+        assert not old_log.exists()
+
+        with ZipFile(archive_path) as archive:
+            assert archive.namelist() == ["app_2026-06-22.log"]
+            assert archive.read("app_2026-06-22.log").decode() == "debug flood\n"
+
+    def test_archive_stale_dated_logs_skips_current_recent_and_non_dated(self, tmp_path: Path):
+        current_log = tmp_path / "app_2026-06-25.log"
+        recent_old_log = tmp_path / "errors_2026-06-24.log"
+        non_dated_log = tmp_path / "backend.log"
+        for log_file in (current_log, recent_old_log, non_dated_log):
+            log_file.write_text("keep\n", encoding="utf-8")
+
+        archived = _archive_stale_dated_logs(
+            tmp_path,
+            current_date=date(2026, 6, 25),
+            min_age_seconds=3600,
+        )
+
+        assert archived == []
+        assert current_log.exists()
+        assert recent_old_log.exists()
+        assert non_dated_log.exists()
+
+
+class TestLogRotationPolicy:
+    """Tests for combined daily and size-based log rotation."""
+
+    class _Message:
+        def __init__(self, timestamp: datetime, text: str) -> None:
+            self.record = {"time": timestamp}
+            self.text = text
+
+        def __str__(self) -> str:
+            return self.text
+
+    def test_daily_or_size_rotation_triggers_when_size_cap_would_be_exceeded(self, tmp_path: Path):
+        rotation = _build_daily_or_size_rotation(10)
+        log_file = tmp_path / "app_2026-06-25.log"
+        log_file.write_text("12345678", encoding="utf-8")
+
+        with log_file.open("a+", encoding="utf-8") as handle:
+            message = self._Message(datetime(2026, 6, 25, 12, 0, 0), "abcd")
+            assert callable(rotation)
+            assert rotation(message, handle) is True
+
+    def test_daily_or_size_rotation_triggers_on_date_boundary(self, tmp_path: Path):
+        rotation = _build_daily_or_size_rotation(1024)
+        log_file = tmp_path / "app_2026-06-24.log"
+        log_file.write_text("small", encoding="utf-8")
+
+        with log_file.open("a+", encoding="utf-8") as handle:
+            message = self._Message(datetime(2026, 6, 25, 0, 0, 1), "x")
+            assert callable(rotation)
+            assert rotation(message, handle) is True
+
+    def test_daily_or_size_rotation_can_disable_size_cap(self):
+        assert _build_daily_or_size_rotation(0) == "00:00"
 
 
 class TestGetLogger:

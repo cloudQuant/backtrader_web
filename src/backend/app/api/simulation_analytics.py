@@ -6,6 +6,7 @@ Provides detail, kline, and monthly-returns endpoints for simulation instances.
 """
 
 import logging
+import typing
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -40,9 +41,9 @@ def _get_manager() -> LiveTradingManager:
 )
 async def get_simulation_detail(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Get detailed analysis for a simulation trading instance."""
     inst = mgr.get_instance(instance_id, user_id=current_user.sub)
     if not inst:
@@ -143,9 +144,9 @@ async def get_simulation_detail(
 )
 async def get_simulation_kline(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Get K-line data with trading signals for a simulation instance."""
     from app.api.simulation import _get_strategy_log_dir
 
@@ -225,9 +226,9 @@ async def get_simulation_kline(
 )
 async def get_simulation_monthly_returns(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> typing.Any:
     """Get monthly returns for a simulation trading instance."""
     inst = mgr.get_instance(instance_id, user_id=current_user.sub)
     if not inst:

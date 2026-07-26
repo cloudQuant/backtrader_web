@@ -1,96 +1,53 @@
 ---
-title: Home
-description: Modern Quantitative Trading Platform based on Backtrader
+title: AI for Investor
+description: An AI-assisted research, validation, and trading-support platform for quantitative teams
 ---
 
-# Backtrader Web
+# AI for Investor
 
-<div align="center">
+AI for Investor connects natural-language research, knowledge retrieval, strategy development, backtest validation, trading workspaces, and portfolio-risk views into an auditable quantitative research workflow. It accelerates research; it does not replace data validation, risk controls, or human trading decisions.
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
-![Vue](https://img.shields.io/badge/Vue-3.4+-green.svg)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-teal.svg)
-![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+[Get started](./getting-started/index.md){ .md-button }
 
-**Modern Quantitative Trading Full-Stack Management Platform based on Backtrader**
+## From a question to a verifiable result
 
-[Chinese](../zh/){ .md-button }
-[English](../en/){ .md-button }
+1. Use **AI Chat** and a knowledge base to retrieve research rules, post-mortems, and data definitions.
+2. Create, review, or generate a Backtrader strategy draft in **Strategies**, then add it to a research workspace.
+3. In **Data → Market Data**, choose an instrument and check coverage and quality. The page reads the local MySQL market-data warehouse first; AkShare is contacted only after an explicit query.
+4. Run a backtest in a **research workspace**, inspect metrics and robustness checks, and retain its configuration and result snapshot.
+5. Move human-reviewed work to a **trading workspace**, then monitor accounts, positions, trades, cumulative P&L, drawdown, and allocation on the portfolio page.
 
-</div>
+## Core capabilities
 
-## Features
+| Domain | Current capability |
+| --- | --- |
+| AI and knowledge | Knowledge bases, document indexing, cited answers, strategy ideation/review, and AI research |
+| Data trust | AkShare warehouse, MySQL-first reads, coverage matrix, quality warnings, explicit online refresh, and caching |
+| Research and backtests | Backtrader runs, normalized metrics, reports, strategy versions, research workspaces, and robustness checks |
+| Trading and risk | Simulation/trading workspaces, gateway state, portfolio aggregation, position valuation, P&L, and drawdown views |
+| Engineering | FastAPI, Vue 3, SQLAlchemy, MySQL/PostgreSQL/SQLite, pytest, Vitest, and Playwright |
 
-- 🚀 **Out-of-the-Box** - Complete first backtest in 5 minutes
-- 📊 **Professional Charts** - Echarts K-line + 10+ analysis charts
-- 🔌 **API-First** - 15+ modules, 80+ RESTful API endpoints
-- 💾 **Multi-Database** - SQLite / PostgreSQL / MySQL
-- 🎯 **Strategy Management** - Version control + code editor + 118 built-in templates
-- 📈 **Paper Trading** - Complete simulated trading environment
-- 🔴 **Live Trading** - Multi-broker integration (CTP/CCXT)
-- 📡 **Real-time Data** - WebSocket real-time push
-- 🚨 **Monitoring & Alerts** - Real-time monitoring and alerting system
+## Operating boundaries
 
-## Tech Stack
+- Review AI output, RAG evidence, and backtest metrics before acting. Historical results are not future returns.
+- Market data, strategy code, and account data can be sensitive. Keep secrets in environment variables or a secrets manager; never commit them.
+- Live gateways are high-risk. Validate in research/simulation first, then follow your organization’s approval and risk controls.
+
+## Documentation map
+
+- [Getting started](./getting-started/index.md): install, run, and complete a first research loop.
+- [Features](./features/index.md): knowledge, market data, strategies, backtests, workspaces, and optimization.
+- [Development](./development/index.md): architecture, API, and data boundaries.
+- [Deployment](./deployment/index.md): Docker and production checklist.
+- [Reference](./reference/index.md): configuration and common commands.
+
+## Technology
 
 | Layer | Technology |
-|-------|------------|
-| Frontend | Vue 3 + TypeScript + Vite + Element Plus + Echarts |
-| Backend | FastAPI + Uvicorn + Pydantic + SQLAlchemy 2.0 |
-| Database | SQLite (default) / PostgreSQL / MySQL |
-| Backtest Engine | Backtrader + fincore |
-| Testing | pytest + Playwright (E2E) + Vitest |
+| --- | --- |
+| Frontend | Vue 3, TypeScript, Vite, Element Plus, ECharts, Pinia |
+| Backend | FastAPI, Pydantic, SQLAlchemy 2, Uvicorn |
+| Research engine | Backtrader; fincore adapters where available, with compatible metric calculation otherwise |
+| Data and AI | AkShare, MySQL market-data warehouse, OpenAI-compatible generation, optional ChromaDB / sentence-transformers semantic retrieval |
 
-## Quick Start
-
-### Installation
-
-```bash
-# Clone the project
-git clone https://github.com/cloudQuant/backtrader_web.git
-cd backtrader_web
-
-# Backend installation
-cd src/backend
-python -m venv venv
-source venv/bin/activate
-pip install -e ".[dev,backtrader]"
-
-# Frontend installation
-cd src/frontend
-npm install
-```
-
-### Start Services
-
-**Development Mode:**
-```bash
-# Backend
-cd src/backend && uvicorn app.main:app --reload --port 8000
-
-# Frontend
-cd src/frontend && npm run dev
-```
-
-**Docker Deployment:**
-```bash
-docker compose -f docker-compose.prod.yml up -d
-```
-
-### Access
-
-- Frontend: http://localhost:8080 (dev) / http://localhost (prod Docker)
-- Backend API Docs: http://localhost:8000/docs
-- WebSocket: ws://localhost:8000/ws
-
-## Documentation
-
-- [Getting Started](./getting-started/)
-- [Installation Guide](./getting-started/installation.md)
-- [Quick Start Tutorial](./getting-started/quickstart.md)
-- [API Reference](./development/api.md)
-- [Architecture](./development/architecture.md)
-
-## License
-
-[MIT License](https://github.com/cloudQuant/backtrader_web/blob/main/LICENSE)
+For repository entry points, internal engineering docs, and the archive policy, see `docs/INDEX.md`.

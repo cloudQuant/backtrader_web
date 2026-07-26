@@ -2,12 +2,15 @@
 Configuration management - Load configuration from environment variables.
 """
 
+import json
 import os
-import warnings
 from pathlib import Path
+from typing import Any
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.ai_provider_registry import get_default_provider_registry
 
 _DEFAULT_SECRETS = frozenset(
     {
@@ -17,11 +20,44 @@ _DEFAULT_SECRETS = frozenset(
 )
 
 _DEFAULT_PASSWORDS = frozenset({"admin123", "password", "12345678"})
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_SQLITE_DATABASE_URL = (
+    f"sqlite+aiosqlite:///{(_REPO_ROOT / 'data' / 'dev' / 'backtrader.db').as_posix()}"
+)
 
 
-def _is_production() -> bool:
-    """Check if the application is running in production mode."""
-    return os.environ.get("DEBUG", "true").lower() in ("false", "0", "no")
+def _coerce_bool(value: object) -> bool | None:
+    """Coerce common boolean-like values from settings inputs or env vars."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return None
+
+
+def _is_production(debug: object | None = None, *, debug_was_explicit: bool = False) -> bool:
+    """Check if the application should apply production-only safeguards."""
+    normalized_debug = _coerce_bool(debug)
+    if debug_was_explicit and normalized_debug is not None:
+        return not normalized_debug
+    env_debug = _coerce_bool(os.environ.get("DEBUG"))
+    if env_debug is not None:
+        return not env_debug
+    return False
+
+
+def production_security_mode(settings: "Settings") -> bool:
+    """Return whether production-only runtime security guards apply."""
+    return _is_production(
+        settings.DEBUG,
+        debug_was_explicit="DEBUG" in settings.model_fields_set,
+    )
 
 
 class Settings(BaseSettings):
@@ -52,8 +88,8 @@ class Settings(BaseSettings):
     """
 
     # App settings
-    APP_NAME: str = "backtrader_web"
-    DEBUG: bool = Field(default=True, description="Debug mode (should be False in production)")
+    APP_NAME: str = "ai-for-investor"
+    DEBUG: bool = Field(default=False, description="Debug mode (must remain False in production)")
     SECRET_KEY: str = Field(
         default="your-secret-key-change-in-production",
         description="Secret key for encryption (CHANGE IN PRODUCTION)",
@@ -64,7 +100,7 @@ class Settings(BaseSettings):
         default="sqlite", description="Database type: postgresql, mysql, mongodb, sqlite"
     )
     DATABASE_URL: str = Field(
-        default="sqlite+aiosqlite:///./backtrader.db", description="Database connection URL"
+        default=_DEFAULT_SQLITE_DATABASE_URL, description="Database connection URL"
     )
     AKSHARE_DATA_DATABASE_URL: str = Field(
         default="", description="Akshare data warehouse database connection URL"
@@ -77,6 +113,11 @@ class Settings(BaseSettings):
     )
     AKSHARE_SCHEDULER_TIMEZONE: str = Field(
         default="Asia/Shanghai", description="Scheduler timezone for akshare tasks"
+    )
+    AKSHARE_SCHEDULER_MAX_CONCURRENT_TASKS: int = Field(
+        default=1,
+        ge=1,
+        description="Maximum concurrent akshare scheduler-triggered tasks",
     )
     AKSHARE_SCRIPT_ROOT: str = Field(
         default="app/data_fetch/scripts", description="Root directory for akshare scripts"
@@ -110,19 +151,112 @@ class Settings(BaseSettings):
     )
     JWT_ALGORITHM: str = Field(default="HS256", description="JWT encryption algorithm")
     JWT_EXPIRE_MINUTES: int = Field(
-        default=10080, description="JWT token expiration in minutes (default 7 days)"
+        default=60, description="JWT token expiration in minutes (default 1 hour)"
+    )
+
+    # Rate limiting (slowapi limit strings). E2E environments can raise these
+    # quotas explicitly without weakening production brute-force protection.
+    RATE_LIMIT_REGISTER: str = Field(
+        default="5/hour", description="Rate limit for POST /auth/register (slowapi string)"
+    )
+    RATE_LIMIT_LOGIN: str = Field(
+        default="10/minute", description="Rate limit for POST /auth/login (slowapi string)"
+    )
+    RATE_LIMIT_AUTH_ME: str = Field(
+        default="60/minute", description="Rate limit for GET /auth/me (slowapi string)"
     )
 
     # Service settings
-    # NOTE: HOST="0.0.0.0" binds to all interfaces for development convenience.
-    # In production, set HOST to specific IP or use firewall rules to restrict access.
+    # NOTE: defaults to 127.0.0.1 (loopback) for safety. Production / docker
+    # deployments should override via HOST=0.0.0.0 in their env files.
     HOST: str = Field(
-        default="0.0.0.0", description="Server host address (use specific IP in production)"
+        default="127.0.0.1",
+        description="Server host address (override to 0.0.0.0 in containers/production)",
     )
     PORT: int = Field(default=8000, description="Server port")
+    AI_CHAT_ENABLED: bool = Field(
+        default=False, description="Enable generated AI responses for knowledge-base chat"
+    )
+    AI_CHAT_BASE_URL: str = Field(
+        default="", description="Base URL for an OpenAI-compatible chat completions endpoint"
+    )
+    AI_CHAT_API_KEY: str = Field(default="", description="API key for AI chat provider")
+    AI_CHAT_MODEL: str = Field(default="", description="Model name for AI chat provider")
+    AI_CHAT_TIMEOUT: float = Field(
+        default=120.0, description="Timeout for AI chat provider requests in seconds"
+    )
+    AI_CHAT_TEMPERATURE: float = Field(
+        default=0.2, description="Sampling temperature for AI chat provider requests"
+    )
+    AI_CHAT_MAX_TOKENS: int = Field(
+        default=4096,
+        ge=512,
+        le=32768,
+        description="Maximum tokens requested from the AI chat provider",
+    )
+    RAG_VECTOR_ENABLED: bool = Field(
+        default=True,
+        description="Enable local vector retrieval for knowledge-base chat",
+    )
+    RAG_EMBEDDING_MODEL: str = Field(
+        default="BAAI/bge-small-zh-v1.5",
+        description="Sentence Transformers model used for local RAG embeddings",
+    )
+    RAG_VECTOR_COLLECTION: str = Field(
+        default="knowledge_base_documents_v3",
+        description="Local Chroma collection name for knowledge-base document vectors",
+    )
+    RAG_VECTOR_UPSERT_BATCH_SIZE: int = Field(
+        default=128,
+        ge=16,
+        le=512,
+        description="Document vectors processed in one local Chroma upsert batch",
+    )
+    RAG_LLM_RERANK_TIMEOUT: float = Field(
+        default=30.0,
+        ge=5.0,
+        le=120.0,
+        description="Maximum seconds for the short knowledge-base rerank call",
+    )
+    AI_BUDGET_DAILY_USD: float | None = Field(
+        default=None, description="Default daily AI cost budget in USD. None means unlimited"
+    )
+    AI_BUDGET_MODE: str = Field(default="soft", description="AI budget mode: soft or hard")
+    AI_PROVIDERS: dict[str, dict[str, Any]] = Field(
+        default_factory=get_default_provider_registry,
+        description="AI provider registry keyed by provider name",
+    )
+    STRATEGY_SCORE_MODEL_VERSION: str = Field(
+        default="v1", description="Model version for strategy score outputs"
+    )
+    STRATEGY_SCORE_WEIGHTS: dict[str, float] = Field(
+        default_factory=lambda: {
+            "profitability": 0.2,
+            "risk_control": 0.2,
+            "stability": 0.2,
+            "overfitting_risk": 0.15,
+            "executability": 0.15,
+            "benchmark_comparison": 0.1,
+        },
+        description="Strategy score dimension weights",
+    )
+
+    # Graceful shutdown timeout (seconds)
+    SHUTDOWN_TIMEOUT: int = Field(
+        default=30,
+        description="Graceful shutdown timeout in seconds (range 1-300)",
+    )
 
     # Backtest subprocess timeout (seconds)
     BACKTEST_TIMEOUT: int = Field(default=300, description="Backtest subprocess timeout in seconds")
+    AI_STRATEGY_SANDBOX_USE_DOCKER: bool = Field(
+        default=True,
+        description="Require Docker isolation for AI strategy draft validation in production",
+    )
+    AI_STRATEGY_SANDBOX_DOCKER_IMAGE: str = Field(
+        default="backtrader-sandbox:latest",
+        description="Docker image used for AI strategy draft validation",
+    )
 
     # Monitoring check intervals (seconds)
     MONITORING_SYSTEM_INTERVAL: int = Field(
@@ -141,6 +275,62 @@ class Settings(BaseSettings):
     # CORS allowed origins (comma-separated)
     CORS_ORIGINS: str = Field(
         default="http://localhost:3000", description="Comma-separated list of allowed CORS origins"
+    )
+
+    # Logging format: "json" for structured JSON, "text" for plain text.
+    # If unset, falls back to DEBUG-based default (DEBUG=true → colored text, DEBUG=false → JSON).
+    LOG_FORMAT: str = Field(
+        default="",
+        description="Log output format: 'json' for structured JSON, 'text' for plain text, "
+        "empty for auto-detection based on DEBUG flag",
+    )
+
+    # Log level override: when set, overrides the DEBUG-based default level.
+    # Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL (case-insensitive).
+    LOG_LEVEL: str = Field(
+        default="",
+        description="Explicit log level override. Empty = auto (DEBUG→DEBUG, prod→WARNING/INFO)",
+    )
+
+    # Log output directory
+    LOG_DIR: str = Field(default="./logs", description="Log output directory path")
+
+    # Log retention periods per category (days)
+    LOG_RETENTION_APP_DAYS: int = Field(default=30, description="Application log retention in days")
+    LOG_RETENTION_ERROR_DAYS: int = Field(default=90, description="Error log retention in days")
+    LOG_RETENTION_AUDIT_DAYS: int = Field(default=365, description="Audit log retention in days")
+    LOG_ROTATION_MAX_MB: int = Field(
+        default=100,
+        description="Maximum size in MB for each dated log file before rotation; 0 disables size cap",
+    )
+
+    # Audit settings
+    AUDIT_RETENTION_DAYS: int = Field(
+        default=90, description="Database audit record retention in days (7-365)"
+    )
+    AUDIT_CLEANUP_HOUR: int = Field(
+        default=2, description="Hour of day to run audit cleanup (0-23)"
+    )
+    AUDIT_EVENT_MAX_SIZE_KB: int = Field(
+        default=10, description="Maximum size of a single audit event_data in KB (1-100)"
+    )
+
+    # Airflow integration settings
+    AIRFLOW_API_BASE_URL: str = Field(
+        default="", description="Airflow REST API base URL (e.g. http://localhost:8080/api/v1)"
+    )
+    AIRFLOW_USERNAME: str = Field(default="admin", description="Airflow API username")
+    AIRFLOW_PASSWORD: str = Field(default="", description="Airflow API password")
+    ORCHESTRATION_BACKEND: str = Field(
+        default="auto",
+        description="Orchestration backend: airflow, apscheduler, auto (auto-detect)",
+    )
+    AIRFLOW_DAG_OUTPUT_DIR: str = Field(
+        default="./dags", description="Directory for generated Airflow DAG files"
+    )
+    AIRFLOW_CALLBACK_BASE_URL: str = Field(
+        default="http://localhost:8000",
+        description="Base URL for Airflow task callbacks to ai-for-investor",
     )
 
     # SQL logging (independent of DEBUG to avoid too much noise)
@@ -191,7 +381,7 @@ class Settings(BaseSettings):
     IB_ASSET_TYPE: str = Field(default="STK", description="IB asset type")
     IB_BASE_URL: str = Field(default="https://localhost:5000", description="IB Web base URL")
     IB_ACCESS_TOKEN: str = Field(default="", description="IB access token")
-    IB_VERIFY_SSL: bool = Field(default=False, description="IB Web verify SSL")
+    IB_VERIFY_SSL: bool = Field(default=True, description="IB Web verify SSL")
     IB_TIMEOUT: float = Field(default=10.0, description="IB Web request timeout in seconds")
     IB_COOKIE_SOURCE: str = Field(default="", description="IB Web cookie source")
     IB_COOKIE_BROWSER: str = Field(default="chrome", description="IB Web cookie browser")
@@ -206,7 +396,7 @@ class Settings(BaseSettings):
     IB_WEB_ASSET_TYPE: str = Field(default="", description="IB Web asset type")
     IB_WEB_BASE_URL: str = Field(default="", description="IB Web base URL override")
     IB_WEB_ACCESS_TOKEN: str = Field(default="", description="IB Web access token override")
-    IB_WEB_VERIFY_SSL: bool = Field(default=False, description="IB Web verify SSL override")
+    IB_WEB_VERIFY_SSL: bool = Field(default=True, description="IB Web verify SSL override")
     IB_WEB_TIMEOUT: float = Field(default=0.0, description="IB Web request timeout override")
     IB_WEB_COOKIE_SOURCE: str = Field(default="", description="IB Web cookie source override")
     IB_WEB_COOKIE_BROWSER: str = Field(default="", description="IB Web cookie browser override")
@@ -222,7 +412,7 @@ class Settings(BaseSettings):
     IB_PAPER_ASSET_TYPE: str = Field(default="", description="IB paper asset type")
     IB_PAPER_BASE_URL: str = Field(default="", description="IB paper base URL")
     IB_PAPER_ACCESS_TOKEN: str = Field(default="", description="IB paper access token")
-    IB_PAPER_VERIFY_SSL: bool = Field(default=False, description="IB paper verify SSL")
+    IB_PAPER_VERIFY_SSL: bool = Field(default=True, description="IB paper verify SSL")
     IB_PAPER_TIMEOUT: float = Field(default=0.0, description="IB paper request timeout in seconds")
     IB_PAPER_COOKIE_SOURCE: str = Field(default="", description="IB paper cookie source")
     IB_PAPER_COOKIE_BROWSER: str = Field(default="", description="IB paper cookie browser")
@@ -231,7 +421,7 @@ class Settings(BaseSettings):
     IB_LIVE_ASSET_TYPE: str = Field(default="", description="IB live asset type")
     IB_LIVE_BASE_URL: str = Field(default="", description="IB live base URL")
     IB_LIVE_ACCESS_TOKEN: str = Field(default="", description="IB live access token")
-    IB_LIVE_VERIFY_SSL: bool = Field(default=False, description="IB live verify SSL")
+    IB_LIVE_VERIFY_SSL: bool = Field(default=True, description="IB live verify SSL")
     IB_LIVE_TIMEOUT: float = Field(default=0.0, description="IB live request timeout in seconds")
     IB_LIVE_COOKIE_SOURCE: str = Field(default="", description="IB live cookie source")
     IB_LIVE_COOKIE_BROWSER: str = Field(default="", description="IB live cookie browser")
@@ -263,16 +453,45 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("SECRET_KEY", "JWT_SECRET_KEY")
-    @classmethod
-    def validate_secrets_not_default(cls, v: str, info) -> str:
-        """Validate that secret keys are not default values in production."""
-        if _is_production() and v in _DEFAULT_SECRETS:
-            raise ValueError(
-                f"Default secret key detected (ENV: {info.field_name}). "
-                "Please set a secure random key via environment variable in production."
-            )
-        return v
+    @model_validator(mode="after")
+    def validate_runtime_security_guards(self) -> "Settings":
+        """Validate production-only secret and admin-password guards."""
+        if production_security_mode(self):
+            cors_origins = {
+                origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()
+            }
+            if "*" in cors_origins:
+                raise ValueError(
+                    "Wildcard CORS origin is not allowed in production when credentials are enabled. "
+                    "Set CORS_ORIGINS to explicit http:// or https:// origins."
+                )
+            for field_name in ("SECRET_KEY", "JWT_SECRET_KEY"):
+                if getattr(self, field_name) in _DEFAULT_SECRETS:
+                    raise ValueError(
+                        f"Default secret key detected (ENV: {field_name}). "
+                        "Please set a secure random key via environment variable in production."
+                    )
+            if self.ADMIN_PASSWORD.lower() in _DEFAULT_PASSWORDS:
+                raise ValueError(
+                    "Default admin password detected. Set ADMIN_PASSWORD to a secure password in production."
+                )
+            for field_name in (
+                "IB_VERIFY_SSL",
+                "IB_WEB_VERIFY_SSL",
+                "IB_PAPER_VERIFY_SSL",
+                "IB_LIVE_VERIFY_SSL",
+            ):
+                if not getattr(self, field_name):
+                    raise ValueError(
+                        f"{field_name}=False is not allowed in production. "
+                        "Install the gateway CA certificate and enable TLS verification."
+                    )
+            if not self.AI_STRATEGY_SANDBOX_USE_DOCKER:
+                raise ValueError(
+                    "AI_STRATEGY_SANDBOX_USE_DOCKER must be enabled in production. "
+                    "AI-generated strategy code cannot run in the application process."
+                )
+        return self
 
     @field_validator("SECRET_KEY", "JWT_SECRET_KEY")
     @classmethod
@@ -283,21 +502,6 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"{info.field_name} must be at least {min_length} characters long "
                 f"for security. Current length: {len(v)}"
-            )
-        return v
-
-    @field_validator("ADMIN_PASSWORD")
-    @classmethod
-    def validate_admin_password_not_default(cls, v: str) -> str:
-        """Validate that admin password is not the default."""
-        if v.lower() in _DEFAULT_PASSWORDS:
-            if _is_production():
-                raise ValueError(
-                    "Default admin password detected. Set ADMIN_PASSWORD to a secure password in production."
-                )
-            warnings.warn(
-                "Insecure default admin password detected. Change ADMIN_PASSWORD before shared or production use.",
-                stacklevel=2,
             )
         return v
 
@@ -320,6 +524,19 @@ class Settings(BaseSettings):
             raise ValueError(f"PORT must be between 1 and 65535, got: {v}")
         return v
 
+    @field_validator("SHUTDOWN_TIMEOUT")
+    @classmethod
+    def validate_shutdown_timeout(cls, v: int) -> int:
+        """Validate that shutdown timeout is in valid range (1-300)."""
+        if not (1 <= v <= 300):
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "SHUTDOWN_TIMEOUT=%d is out of range (1-300), using default 30s", v
+            )
+            return 30
+        return v
+
     @field_validator("AKSHARE_INTERFACE_BOOTSTRAP_MODE")
     @classmethod
     def validate_akshare_interface_bootstrap_mode(cls, v: str) -> str:
@@ -332,6 +549,35 @@ class Settings(BaseSettings):
                 f"{', '.join(sorted(supported_modes))}"
             )
         return normalized
+
+    @field_validator("AI_BUDGET_MODE")
+    @classmethod
+    def validate_ai_budget_mode(cls, v: str) -> str:
+        normalized = str(v or "soft").strip().lower()
+        supported_modes = {"soft", "hard"}
+        if normalized not in supported_modes:
+            raise ValueError(f"AI_BUDGET_MODE must be one of: {', '.join(sorted(supported_modes))}")
+        return normalized
+
+    @field_validator("AI_PROVIDERS", mode="before")
+    @classmethod
+    def validate_ai_providers(cls, v: object) -> dict[str, dict[str, Any]]:
+        if isinstance(v, dict):
+            return {str(key): dict(value) for key, value in v.items() if isinstance(value, dict)}
+        if isinstance(v, str):
+            text = v.strip()
+            if not text:
+                raise ValueError("AI_PROVIDERS cannot be empty")
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError("AI_PROVIDERS must be valid JSON") from exc
+            if not isinstance(data, dict):
+                raise ValueError("AI_PROVIDERS must decode to an object")
+            return {str(key): dict(value) for key, value in data.items() if isinstance(value, dict)}
+        if v is None:
+            raise ValueError("AI_PROVIDERS cannot be null")
+        raise ValueError("AI_PROVIDERS must be a dict or JSON string")
 
     @field_validator("JWT_EXPIRE_MINUTES")
     @classmethod
@@ -360,6 +606,27 @@ class Settings(BaseSettings):
                 )
 
         return v
+
+    @field_validator("STRATEGY_SCORE_WEIGHTS", mode="before")
+    @classmethod
+    def validate_strategy_score_weights(cls, v: object) -> dict[str, float]:
+        """Validate strategy score weights from dict or JSON string."""
+        if isinstance(v, dict):
+            return {str(key): float(value) for key, value in v.items()}
+        if isinstance(v, str):
+            text = v.strip()
+            if not text:
+                raise ValueError("STRATEGY_SCORE_WEIGHTS cannot be empty")
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError("STRATEGY_SCORE_WEIGHTS must be valid JSON") from exc
+            if not isinstance(data, dict):
+                raise ValueError("STRATEGY_SCORE_WEIGHTS must decode to an object")
+            return {str(key): float(value) for key, value in data.items()}
+        if v is None:
+            raise ValueError("STRATEGY_SCORE_WEIGHTS cannot be null")
+        raise ValueError("STRATEGY_SCORE_WEIGHTS must be a dict or JSON string")
 
 
 # Use simple cache to avoid lru_cache issues in pydantic-settings v2

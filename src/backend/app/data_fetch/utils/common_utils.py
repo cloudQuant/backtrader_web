@@ -6,9 +6,10 @@ import logging
 import time
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, TypeVar
+from typing import ParamSpec, TypeVar
 
-F = TypeVar("F", bound=Callable[..., Any])
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 def setup_logging(logger_name: str, log_level: int = logging.INFO) -> logging.Logger:
@@ -44,12 +45,13 @@ def retry_on_exception(
     retry_delay: int = 5,
     logger: logging.Logger | None = None,
     allowed_exceptions: tuple[type[BaseException], ...] = (Exception,),
-) -> Callable[[F], F]:
+    stop_exceptions: tuple[type[BaseException], ...] = (),
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """重试装饰器"""
 
-    def decorator(func: F) -> F:
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
         @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             local_logger = logger
             if not local_logger and args and hasattr(args[0], "logger"):
                 local_logger = args[0].logger
@@ -61,13 +63,17 @@ def retry_on_exception(
                 try:
                     return func(*args, **kwargs)
                 except allowed_exceptions as exc:
+                    if stop_exceptions and isinstance(exc, stop_exceptions):
+                        local_logger.error(f"{func.__name__} 执行失败，不再重试: {exc}")
+                        raise
                     local_logger.warning(f"{func.__name__} 第 {attempt + 1} 次执行失败: {exc}")
                     if attempt < max_retries - 1:
                         time.sleep(retry_delay)
                     else:
                         local_logger.error(f"{func.__name__} 执行失败，达到最大重试次数")
                         raise
+            raise RuntimeError(f"{func.__name__} retry loop exited unexpectedly")
 
-        return wrapper  # type: ignore[return-value]
+        return wrapper
 
     return decorator

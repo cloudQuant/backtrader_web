@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="导出策略单元"
+    :title="t('workspaceDialogs.exportTitle')"
     width="760px"
   >
     <div class="space-y-4">
@@ -9,18 +9,18 @@
         <div class="flex items-center justify-between gap-3">
           <div>
             <div class="text-sm font-medium text-slate-700">
-              导出目标
+              {{ t('workspaceDialogs.exportTarget') }}
             </div>
             <div class="mt-1 text-xs text-slate-500">
-              当前已选 {{ units.length }} 个策略单元
+              {{ t('workspaceDialogs.selectedNow') }} {{ units.length }} {{ t('workspaceDialogs.nUnits') }}
             </div>
           </div>
           <el-radio-group v-model="targetType">
             <el-radio value="research">
-              策略研究工作区
+              {{ t('workspaceDialogs.researchWorkspace') }}
             </el-radio>
             <el-radio value="file">
-              JSON 文件
+              JSON {{ t('workspaceDialogs.file') }}
             </el-radio>
           </el-radio-group>
         </div>
@@ -32,7 +32,7 @@
           filterable
           clearable
           :loading="workspaceLoading"
-          placeholder="选择导出的策略研究工作区"
+          :placeholder="t('workspaceDialogs.researchWorkspace')"
           class="w-full"
         >
           <el-option
@@ -46,7 +46,7 @@
           type="warning"
           :closable="false"
           show-icon
-          title="导出到策略研究工作区时，将保留策略、品种、参数、优化配置等研究字段，不携带交易运行态。"
+          :title="t('workspaceDialogs.exportToResearchHint') + ': ' + t('workspaceDialogs.willKeepStrategy') + '/' + t('workspaceDialogs.symbol') + '/' + t('workspaceDialogs.paramsLabel') + '/' + t('workspaceDialogs.optConfigResearchFields') + '. ' + t('workspaceDialogs.notKeepRunState') + '.'"
         />
       </template>
 
@@ -55,14 +55,14 @@
           type="info"
           :closable="false"
           show-icon
-          title="导出文件会保留交易工作区字段，可再次导入到策略交易。"
+          :title="t('workspaceDialogs.fileWillContain') + '. ' + t('workspaceDialogs.canReimport') + '.'"
         />
         <div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-8">
           <div class="text-sm font-medium text-slate-700">
-            文件内容预览
+            {{ t('workspaceDialogs.fileContentPreview') }}
           </div>
           <div class="mt-2 text-xs leading-6 text-slate-500">
-            包含组名、单元名、公式、商品代码、周期、分类、数据源参数、策略参数、优化配置以及交易模式配置。
+            {{ t('workspaceDialogs.includeGroupName') }}, {{ t('workspaceDialogs.unitName') }}, {{ t('workspaceDialogs.formula') }}, {{ t('workspaceDialogs.symbolCode') }}, {{ t('workspaceDialogs.timeframeCol') }}, {{ t('workspaceDialogs.categoryCol') }}, {{ t('workspaceDialogs.dataSourceParams') }}, {{ t('workspaceDialogs.strategyParams') }}, {{ t('workspaceDialogs.optConfigEtc') }}.
           </div>
         </div>
       </template>
@@ -70,14 +70,14 @@
 
     <template #footer>
       <el-button @click="visible = false">
-        取消
+        {{ t('workspaceDialogs.cancel') }}
       </el-button>
       <el-button
         type="primary"
         :loading="submitting"
         @click="handleExport"
       >
-        导出
+        {{ t('workspaceDialogs.export') }}
       </el-button>
     </template>
   </el-dialog>
@@ -86,11 +86,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { getErrorMessage } from '@/api/index'
 import { workspaceApi } from '@/api/workspace'
 import type { StrategyUnit, Workspace } from '@/types/workspace'
 import { buildTransferUnitPayload, downloadTransferUnits } from './tradingUnitTransfer'
 
+const { t } = useI18n()
 const props = defineProps<{
   modelValue: boolean
   units: StrategyUnit[]
@@ -118,7 +120,7 @@ async function loadResearchWorkspaces() {
     const response = await workspaceApi.list(0, 200, 'research')
     researchWorkspaces.value = response.items
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '加载策略研究工作区失败'))
+    ElMessage.error(getErrorMessage(error, t('workspaceDialogs.loadResearchFailed')))
   } finally {
     workspaceLoading.value = false
   }
@@ -131,7 +133,7 @@ function resetState() {
 
 async function handleExport() {
   if (!props.units.length) {
-    ElMessage.warning('请先选择要导出的策略单元')
+    ElMessage.warning(t('tradingUnits.selectUnitForExport'))
     return
   }
 
@@ -139,11 +141,11 @@ async function handleExport() {
   try {
     if (targetType.value === 'research') {
       if (!selectedWorkspaceId.value) {
-        throw new Error('请选择导出的策略研究工作区')
+        throw new Error(t('workspaceDialogs.researchWorkspace'))
       }
       const payload = props.units.map(unit => buildTransferUnitPayload(unit, { includeTradingFields: false }))
       await workspaceApi.batchCreateUnits(selectedWorkspaceId.value, payload)
-      ElMessage.success(`已导出 ${payload.length} 个策略单元到策略研究工作区`)
+      ElMessage.success(`${t('workspaceDialogs.exported')} ${payload.length} ${t('workspaceDialogs.nUnits')} -> ${t('workspaceDialogs.researchWorkspace')}`)
       emit('exported', payload.length)
       visible.value = false
       resetState()
@@ -152,12 +154,12 @@ async function handleExport() {
 
     const payload = props.units.map(unit => buildTransferUnitPayload(unit, { includeTradingFields: true }))
     downloadTransferUnits(payload, 'trading_units')
-    ElMessage.success(`已导出 ${payload.length} 个策略单元`)
+    ElMessage.success(`${t('workspaceDialogs.exported')} ${payload.length} ${t('workspaceDialogs.nUnits')}`)
     emit('exported', payload.length)
     visible.value = false
     resetState()
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '导出失败'))
+    ElMessage.error(getErrorMessage(error, t('workspaceDialogs.exportFailed')))
   } finally {
     submitting.value = false
   }

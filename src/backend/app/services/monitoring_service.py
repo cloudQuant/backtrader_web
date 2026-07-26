@@ -31,8 +31,9 @@ from app.services.alert_evaluation import (
     get_current_metric_value,
 )
 from app.services.backtest_service import BacktestService
-from app.services.live_trading_service import LiveTradingService
+from app.services.live_trading.service import LiveTradingService
 from app.services.paper_trading_service import PaperTradingService
+from app.utils.safe_webhook import open_safe_webhook
 from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -562,13 +563,19 @@ class MonitoringService:
         method = str(webhook.get("method", "POST")).upper() if isinstance(webhook, dict) else "POST"
 
         req = urllib.request.Request(url=url, data=data, headers=headers, method=method)
+
+        def _do_request() -> None:
+            # Run blocking urlopen in a worker thread; webhooks are best-effort
+            # so a 5 s timeout is enough.
+            with open_safe_webhook(req, timeout=5) as resp:
+                resp.read()  # drain
+
         try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                _ = resp.read()  # drain
+            await asyncio.to_thread(_do_request)
             await self._record_notification(
                 alert.id, channel="webhook", status="sent", message="ok"
             )
-        except (urllib.error.URLError, ValueError) as e:
+        except (urllib.error.URLError, ValueError, TimeoutError) as e:
             await self._record_notification(
                 alert.id, channel="webhook", status="failed", message=str(e)
             )

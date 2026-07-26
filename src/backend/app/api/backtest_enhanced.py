@@ -10,6 +10,7 @@ Includes:
 
 import asyncio
 import logging
+import typing
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from fastapi import (
     Depends,
     HTTPException,
     Query,
+    Request,
     Response,
     WebSocket,
     WebSocketDisconnect,
@@ -39,29 +41,38 @@ from app.schemas.backtest_enhanced import (
     BacktestResult,
     BacktestStatusResponse,
     BacktestTaskCreatedEvent,
-    OptimizationRequest,
-    OptimizationResult,
     TaskStatus,
 )
+from app.schemas.backtest_summary import BacktestSummaryResponse
+from app.schemas.market_data_trust import RobustnessTestResultResponse, RobustnessValidationRequest
 from app.services.backtest_service import BacktestService
 from app.services.report_service import ReportService
+from app.services.robustness_validation_service import (
+    RobustnessValidationService,
+    get_robustness_validation_service,
+)
 from app.services.strategy_service import STRATEGIES_DIR, get_template_by_id
+from app.utils.response_cache import cache_response
 from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-_OPTIMIZATION_SUCCESSOR_PATH = "/api/v1/optimization/submit/backtest"
 
 
 @lru_cache
-def get_backtest_service():
+def get_backtest_service() -> typing.Any:
     return BacktestService()
 
 
 @lru_cache
-def get_report_service():
+def get_report_service() -> typing.Any:
     return ReportService()
+
+
+@lru_cache
+def get_robustness_service() -> typing.Any:
+    return get_robustness_validation_service()
 
 
 def _build_strategy_report_metadata(strategy_id: str) -> dict[str, str]:
@@ -112,92 +123,6 @@ def _build_strategy_report_metadata(strategy_id: str) -> dict[str, str]:
     return fallback
 
 
-def _score_legacy_optimization_result(metrics: dict[str, Any], metric: str) -> float:
-    value = metrics.get(metric)
-    if not isinstance(value, (int, float)):
-        return float("-inf")
-    if metric == "max_drawdown":
-        return -float(value)
-    return float(value)
-
-
-def _build_legacy_optimization_result(
-    task_results: dict[str, Any], metric: str
-) -> OptimizationResult:
-    param_names = list(task_results.get("param_names") or [])
-    metric_names = list(task_results.get("metric_names") or [])
-    all_results: list[dict[str, Any]] = []
-
-    for row in list(task_results.get("rows") or []):
-        params = {name: row[name] for name in param_names if name in row}
-        metrics = {
-            name: float(row[name])
-            for name in metric_names
-            if name in row and isinstance(row[name], (int, float))
-        }
-        all_results.append({"params": params, "metrics": metrics})
-
-    ranked_results = sorted(
-        all_results,
-        key=lambda item: _score_legacy_optimization_result(item.get("metrics", {}), metric),
-        reverse=True,
-    )
-    best_result = ranked_results[0] if ranked_results else None
-
-    return OptimizationResult(
-        best_params=best_result["params"] if best_result else {},
-        best_metrics=best_result["metrics"] if best_result else {},
-        all_results=all_results,
-        n_trials=int(task_results.get("completed", len(all_results)) or 0),
-    )
-
-
-async def _await_legacy_optimization_task_result(
-    task_id: str,
-    user_id: str,
-    metric: str,
-    timeout: int = 600,
-) -> OptimizationResult:
-    from app.services.param_optimization_service import (
-        get_optimization_progress,
-        get_optimization_results,
-    )
-
-    waited = 0
-    while waited < timeout:
-        task_results = get_optimization_results(task_id, user_id=user_id)
-        if task_results and task_results.get("status") in {
-            TaskStatus.COMPLETED.value,
-            TaskStatus.FAILED.value,
-            TaskStatus.CANCELLED.value,
-        }:
-            return _build_legacy_optimization_result(task_results, metric)
-
-        task_progress = get_optimization_progress(task_id, user_id=user_id)
-        if task_progress and task_progress.get("status") in {
-            TaskStatus.FAILED.value,
-            TaskStatus.CANCELLED.value,
-        }:
-            return _build_legacy_optimization_result(
-                {
-                    "status": task_progress.get("status"),
-                    "param_names": [],
-                    "metric_names": [],
-                    "rows": [],
-                    "completed": task_progress.get("completed", 0),
-                },
-                metric,
-            )
-
-        await asyncio.sleep(1)
-        waited += 1
-
-    raise HTTPException(
-        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-        detail="Legacy optimization proxy timed out while waiting for task completion",
-    )
-
-
 def _is_terminal_backtest_status(task_status: TaskStatus | None) -> bool:
     status_value = getattr(task_status, "value", task_status)
     return status_value in {
@@ -237,54 +162,15 @@ def _build_backtest_runtime_snapshot(
     return BacktestCancelledEvent(task_id=task_id).model_dump(mode="python")
 
 
-def _mark_legacy_optimization_proxy(response: Response, method: str = "unknown") -> None:
-    response.headers["Deprecation"] = "true"
-    response.headers["Link"] = f'<{_OPTIMIZATION_SUCCESSOR_PATH}>; rel="successor-version"'
-    response.headers["X-Deprecated-Endpoint"] = _OPTIMIZATION_SUCCESSOR_PATH
-    logger.warning(
-        "Deprecated optimization endpoint called: method=%s, successor=%s. "
-        "This endpoint will be removed in v2.0.0.",
-        method,
-        _OPTIMIZATION_SUCCESSOR_PATH,
-    )
-
-
-async def _proxy_legacy_optimization_request(
-    *,
-    request: OptimizationRequest,
-    current_user_id: str,
-    expected_method: str,
-    response: Response,
-) -> OptimizationResult:
-    if request.method != expected_method:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{expected_method.capitalize()} optimization requires method={expected_method}",
-        )
-
-    from app.api.optimization_api import submit_backtest_optimization_task_internal
-
-    _mark_legacy_optimization_proxy(response, expected_method)
-    submit_response = await submit_backtest_optimization_task_internal(
-        request=request,
-        user_id=current_user_id,
-    )
-    return await _await_legacy_optimization_task_result(
-        submit_response.task_id,
-        current_user_id,
-        getattr(request, "metric", "sharpe_ratio"),
-    )
-
-
 # ==================== Backtest API ====================
 
 
 @router.post("/run", response_model=BacktestResponse, summary="Run backtest")
 async def run_backtest(
     request: BacktestRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Submit a backtest task (enhanced)."""
     result = await service.run_backtest(current_user.sub, request)
 
@@ -298,11 +184,13 @@ async def run_backtest(
 
 
 @router.get("/{task_id}", response_model=BacktestResult, summary="Get backtest result")
+@cache_response(ttl=60, key_prefix="backtests")
 async def get_backtest_result(
     task_id: str,
-    current_user=Depends(get_current_user),
+    request: Request,
+    current_user: typing.Any = Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Get backtest result."""
     result = await service.get_result(task_id, user_id=current_user.sub)
     if not result:
@@ -314,15 +202,75 @@ async def get_backtest_result(
 
 
 @router.get(
+    "/{task_id}/summary",
+    response_model=BacktestSummaryResponse,
+    summary="Get compact backtest result summary",
+)
+async def get_backtest_result_summary(
+    task_id: str,
+    current_user: typing.Any = Depends(get_current_user),
+    service: BacktestService = Depends(get_backtest_service),
+) -> BacktestSummaryResponse:
+    """Return a stable first-screen summary without large curves or trade payloads."""
+    result = await service.get_result_summary(task_id, user_id=current_user.sub)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Backtest result not found"
+        )
+    return result
+
+
+@router.post(
+    "/{task_id}/robustness",
+    response_model=RobustnessTestResultResponse,
+    summary="Run robustness validation for a backtest",
+)
+async def run_backtest_robustness(
+    task_id: str,
+    data: RobustnessValidationRequest | None = None,
+    current_user: typing.Any = Depends(get_current_user),
+    service: RobustnessValidationService = Depends(get_robustness_service),
+) -> typing.Any:
+    """Run robustness validation and persist the result."""
+    try:
+        return await service.run_for_backtest(
+            backtest_id=task_id,
+            user_id=current_user.sub,
+            request=data or RobustnessValidationRequest(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{task_id}/robustness",
+    response_model=RobustnessTestResultResponse,
+    summary="Get latest robustness validation result",
+)
+async def get_backtest_robustness(
+    task_id: str,
+    current_user: typing.Any = Depends(get_current_user),
+    service: RobustnessValidationService = Depends(get_robustness_service),
+) -> typing.Any:
+    """Return the latest robustness validation result for one backtest."""
+    result = await service.get_latest(backtest_id=task_id, user_id=current_user.sub)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Robustness result not found"
+        )
+    return result
+
+
+@router.get(
     "/{task_id}/status",
     response_model=BacktestStatusResponse,
     summary="Get backtest task status",
 )
 async def get_backtest_status(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Get backtest task status."""
     task_status = await service.get_task_status(task_id, user_id=current_user.sub)
     if not task_status:
@@ -335,7 +283,7 @@ async def get_backtest_status(
 
 @router.get("/", response_model=BacktestListResponse, summary="List backtest history")
 async def list_backtests(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     offset: int = Query(0, ge=0, description="Offset"),
@@ -343,7 +291,7 @@ async def list_backtests(
         "created_at", description="Sort field: created_at/sharpe_ratio/total_return"
     ),
     sort_order: str = Query("desc", description="Sort direction: asc/desc"),
-):
+) -> typing.Any:
     """List user's backtest history (enhanced, supports sorting)."""
     sort_desc = str(sort_order).lower() != "asc"
     results = await service.list_results(
@@ -356,12 +304,12 @@ async def list_backtests(
     return results
 
 
-@router.post("/{task_id}/cancel", summary="Cancel backtest task")
+@router.post("/{task_id}/cancel", summary="Cancel backtest task", response_model=None)
 async def cancel_backtest(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Cancel a running backtest task."""
     success = await service.cancel_task(task_id, current_user.sub)
     if not success:
@@ -375,12 +323,12 @@ async def cancel_backtest(
     return {"message": "Task cancelled", "task_id": task_id}
 
 
-@router.delete("/{task_id}", summary="Delete backtest result")
+@router.delete("/{task_id}", summary="Delete backtest result", response_model=None)
 async def delete_backtest(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Delete backtest result."""
     success = await service.delete_result(task_id, current_user.sub)
     if not success:
@@ -389,55 +337,6 @@ async def delete_backtest(
             detail="Backtest result not found or no permission to delete",
         )
     return {"message": "Deleted successfully"}
-
-
-# ==================== Parameter Optimization API ====================
-
-
-@router.post(
-    "/optimization/grid",
-    response_model=OptimizationResult,
-    summary="Grid search optimization",
-    deprecated=True,
-)
-async def grid_search_optimization(
-    request: OptimizationRequest,
-    response: Response,
-    current_user=Depends(get_current_user),
-):
-    """Grid search optimization.
-
-    Iterates through all parameter combinations to find optimal parameters.
-    """
-    return await _proxy_legacy_optimization_request(
-        request=request,
-        current_user_id=current_user.sub,
-        expected_method="grid",
-        response=response,
-    )
-
-
-@router.post(
-    "/optimization/bayesian",
-    response_model=OptimizationResult,
-    summary="Bayesian optimization",
-    deprecated=True,
-)
-async def bayesian_optimization(
-    request: OptimizationRequest,
-    response: Response,
-    current_user=Depends(get_current_user),
-):
-    """Bayesian optimization (intelligent optimization).
-
-    Uses Optuna for Bayesian optimization to find optimal parameters.
-    """
-    return await _proxy_legacy_optimization_request(
-        request=request,
-        current_user_id=current_user.sub,
-        expected_method="bayesian",
-        response=response,
-    )
 
 
 # ==================== Backtest Trades Pagination ====================
@@ -457,9 +356,9 @@ async def get_paginated_trades(
     task_id: str,
     limit: int = Query(50, ge=1, le=500, description="Items per page"),
     offset: int = Query(0, ge=0, description="Offset"),
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
-):
+) -> typing.Any:
     """Get paginated trade records for a backtest task.
 
     This endpoint supports pagination for large trade datasets.
@@ -497,13 +396,13 @@ async def get_paginated_trades(
 # ==================== Backtest Report Export API ====================
 
 
-@router.get("/{task_id}/report/html", summary="Export HTML report")
+@router.get("/{task_id}/report/html", summary="Export HTML report", response_model=None)
 async def get_html_report(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     report_service: ReportService = Depends(get_report_service),
-):
+) -> typing.Any:
     """Export backtest report in HTML format."""
     result = await backtest_service.get_result(task_id, user_id=current_user.sub)
     if not result:
@@ -532,13 +431,13 @@ async def get_html_report(
     )
 
 
-@router.get("/{task_id}/report/pdf", summary="Export PDF report")
+@router.get("/{task_id}/report/pdf", summary="Export PDF report", response_model=None)
 async def get_pdf_report(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     report_service: ReportService = Depends(get_report_service),
-):
+) -> typing.Any:
     """Export backtest report in PDF format."""
     result = await backtest_service.get_result(task_id, user_id=current_user.sub)
     if not result:
@@ -565,16 +464,16 @@ async def get_pdf_report(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"PDF generation not enabled, need to install weasyprint: {e}",
-        )
+        ) from e
 
 
-@router.get("/{task_id}/report/excel", summary="Export Excel report")
+@router.get("/{task_id}/report/excel", summary="Export Excel report", response_model=None)
 async def get_excel_report(
     task_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     report_service: ReportService = Depends(get_report_service),
-):
+) -> typing.Any:
     """Export backtest report in Excel format."""
     result = await backtest_service.get_result(task_id, user_id=current_user.sub)
     if not result:
@@ -601,7 +500,7 @@ async def get_excel_report(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Excel export not enabled, need to install pandas and openpyxl: {e}",
-        )
+        ) from e
 
 
 # ==================== WebSocket Endpoint ====================
@@ -610,7 +509,7 @@ async def get_excel_report(
 async def websocket_endpoint(
     websocket: WebSocket,
     task_id: str,
-):
+) -> typing.Any:
     """WebSocket endpoint for authenticated backtest runtime updates.
 
     Args:

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 
 def _to_utc(dt: datetime) -> datetime:
@@ -80,6 +80,17 @@ class BacktestRequest(BaseModel):
         description="Commission rate",
         examples=[0.001, 0.0003, 0.01],
     )
+    runtime_dir: str | None = Field(None, description="Optional unit runtime directory")
+    timeframe: str = Field("1d", description="K-line timeframe e.g. 1d, 1h, 5m")
+    timeframe_n: int = Field(1, ge=1, description="Timeframe multiplier")
+    bar_count: int | None = Field(None, description="Number of bars to load")
+    asset_type: str | None = Field(None, description="Optional asset type for data precheck")
+    data_provider: str | None = Field(None, description="Optional market data provider")
+    require_data_precheck: bool = Field(
+        False,
+        description="Reject the task when precheck finds blocking data/spec issues",
+    )
+    data_precheck: dict[str, Any] = Field(default_factory=dict, description="Precheck snapshot")
 
     # Strategy parameters (with type and range validation)
     params: dict[str, Any] = Field(
@@ -95,7 +106,7 @@ class BacktestRequest(BaseModel):
 
     @field_validator("end_date")
     @classmethod
-    def validate_date_range(cls, v: datetime, info) -> datetime:
+    def validate_date_range(cls, v: datetime, info: ValidationInfo) -> datetime:
         """Validate date range.
 
         Args:
@@ -130,7 +141,7 @@ class BacktestRequest(BaseModel):
 
     @field_validator("params")
     @classmethod
-    def validate_params(cls, v: dict[str, Any], info) -> dict[str, Any]:
+    def validate_params(cls, v: dict[str, Any], info: ValidationInfo) -> dict[str, Any]:
         """Validate strategy parameters.
 
         Args:
@@ -147,6 +158,8 @@ class BacktestRequest(BaseModel):
             return {}
 
         strategy_id = info.data.get("strategy_id")
+        if not isinstance(strategy_id, str):
+            return v
 
         # Get strategy parameter definitions
         param_specs = get_strategy_params(strategy_id)
@@ -267,11 +280,20 @@ class BacktestResult(BaseModel):
     status: TaskStatus
 
     # Performance metrics (with range validation)
-    total_return: float = Field(0, ge=-100, le=10000, description="Total return (%)")
-    annual_return: float = Field(0, ge=-100, le=10000, description="Annualized return (%)")
+    total_return: float = Field(0, le=10000, description="Total return (%)")
+    annual_return: float = Field(0, le=10000, description="Annualized return (%)")
     sharpe_ratio: float = Field(0, description="Sharpe ratio")
-    max_drawdown: float = Field(0, ge=-100, le=100, description="Maximum drawdown (%)")
+    max_drawdown: float = Field(0, le=100, description="Maximum drawdown (%)")
     win_rate: float = Field(0, ge=0, le=100, description="Win rate (%)")
+    metrics_source: str = Field("manual", description="Source of metric calculations")
+    average_holding_bars: float = Field(0, description="Average holding period in bars")
+    max_consecutive_wins: int = Field(0, description="Maximum consecutive winning trades")
+    max_consecutive_losses: int = Field(0, description="Maximum consecutive losing trades")
+    profit_loss_ratio: float = Field(0, description="Average profit / average loss ratio")
+    standard_metrics: dict[str, Any] = Field(default_factory=dict)
+    result_summary: dict[str, Any] = Field(default_factory=dict)
+    data_precheck: dict[str, Any] = Field(default_factory=dict)
+    robustness: dict[str, Any] | None = None
 
     # Trade statistics
     total_trades: int = Field(0, ge=0, description="Total trades")
@@ -475,7 +497,10 @@ def get_strategy_params(strategy_id: str) -> dict[str, Any]:
         A dictionary of parameter definitions.
     """
     # Get parameter definitions from strategy templates
-    from app.services.strategy_service import get_all_strategy_templates
+    # Iteration 175 — strategy_service is now a sys.modules-aliased shim into
+    # app.services.strategy.core; mypy doesn't follow the sys.modules trick,
+    # so we import from the canonical path here.
+    from app.services.strategy.core import get_all_strategy_templates
 
     for template in get_all_strategy_templates():
         if template.id == strategy_id:

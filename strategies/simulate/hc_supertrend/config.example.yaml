@@ -4,7 +4,7 @@
 strategy:
   name: "热轧卷板SuperTrend策略"
   description: "基于ATR的趋势跟踪策略 - 热轧卷板期货"
-  author: "backtrader_web"
+  author: "ai-for-investor"
   category: "simulate"
   
 # ============================================================

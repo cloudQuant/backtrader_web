@@ -2,7 +2,9 @@
 MySQL base class for database operations
 """
 
+import json
 import logging
+import math
 from datetime import datetime
 from typing import Any
 
@@ -19,6 +21,10 @@ class MysqlBase(Database):
         super().__init__(db_config, logger)
         self.db_config = db_config
         self.logger = logger or self._setup_logging("MysqlBase")
+        # In-process cache for table column introspection to avoid repeated
+        # SHOW COLUMNS queries during batch data-import runs.
+        self._columns_cache: dict[str, list[tuple[str, ...]]] = {}
+        self._table_exists_cache: dict[str, bool] = {}
 
     def connect_db(self):
         """建立数据库连接"""
@@ -40,6 +46,22 @@ class MysqlBase(Database):
             self.connection.close()
             self.connection = None
             self.logger.info("数据库连接已关闭")
+
+    @staticmethod
+    def _coerce_mysql_value(value: Any) -> Any:
+        """Convert pandas scalar values into mysql-connector compatible values."""
+        try:
+            if pd.isna(value):
+                return None
+        except (TypeError, ValueError):
+            pass
+        if isinstance(value, pd.Timestamp):
+            return value.to_pydatetime()
+        if isinstance(value, float) and not math.isfinite(value):
+            return None
+        if isinstance(value, (dict, list, tuple, set)):
+            return json.dumps(value, ensure_ascii=False, default=str)
+        return value
 
     def _auto_create_table(self, table_name: str, df: "pd.DataFrame") -> None:
         """根据 DataFrame 的列和类型自动建表（若表已存在则跳过）"""
@@ -132,9 +154,17 @@ class MysqlBase(Database):
 
         # 若表不存在则根据 DataFrame 自动建表
         try:
-            self.cursor.execute(f"SHOW TABLES LIKE '{safe_table}'")
-            if not self.cursor.fetchone():
+            if safe_table in self._table_exists_cache:
+                table_exists = self._table_exists_cache[safe_table]
+            else:
+                self.cursor.execute(f"SHOW TABLES LIKE '{safe_table}'")
+                table_exists = bool(self.cursor.fetchone())
+                self._table_exists_cache[safe_table] = table_exists
+            if not table_exists:
                 self._auto_create_table(safe_table, df)
+                self._table_exists_cache[safe_table] = True
+                # Invalidate column cache since we just created the table
+                self._columns_cache.pop(safe_table, None)
         except mysql.connector.Error as err:
             self.logger.warning(f"检查表 {table_name} 是否存在时出错: {err}")
 
@@ -142,8 +172,12 @@ class MysqlBase(Database):
         # This is best-effort: if schema introspection fails, we fall back to raw df columns.
         # MySQL column names are case-insensitive, so build a case-insensitive mapping.
         try:
-            self.cursor.execute(f"SHOW COLUMNS FROM `{safe_table}`")
-            table_rows = self.cursor.fetchall() or []
+            if safe_table in self._columns_cache:
+                table_rows = self._columns_cache[safe_table]
+            else:
+                self.cursor.execute(f"SHOW COLUMNS FROM `{safe_table}`")
+                table_rows = self.cursor.fetchall() or []
+                self._columns_cache[safe_table] = table_rows
             # Build case-insensitive mapping: lowercase table column -> actual table column name
             table_cols_ci = {row[0].lower(): row[0] for row in table_rows}
             if table_cols_ci:
@@ -157,14 +191,53 @@ class MysqlBase(Database):
                     else:
                         unknown.append(c)
                 if unknown:
-                    self.logger.warning(
-                        f"表 {table_name} 将忽略 {len(unknown)} 个不存在的列: {unknown[:10]}"
-                    )
+                    added_columns: list[str] = []
+                    for c in unknown:
+                        col_name = str(c).strip()
+                        if not col_name or len(col_name) > 64 or "\x00" in col_name:
+                            continue
+                        try:
+                            series = df[c]
+                            if pd.api.types.is_bool_dtype(series):
+                                sql_type = "TINYINT(1)"
+                            elif pd.api.types.is_integer_dtype(series):
+                                sql_type = "BIGINT"
+                            elif pd.api.types.is_float_dtype(series):
+                                sql_type = "DOUBLE"
+                            elif pd.api.types.is_datetime64_any_dtype(series):
+                                sql_type = "DATETIME"
+                            else:
+                                sql_type = "TEXT"
+                            escaped_col = col_name.replace("`", "``")
+                            self.cursor.execute(
+                                f"ALTER TABLE `{safe_table}` ADD COLUMN `{escaped_col}` {sql_type} NULL"
+                            )
+                            self.connection.commit()
+                            table_cols_ci[col_name.lower()] = col_name
+                            column_mapping[c] = col_name
+                            added_columns.append(col_name)
+                        except Exception as err:
+                            self.logger.warning(
+                                "表 %s 自动补列失败，列=%s，错误=%s", table_name, col_name, err
+                            )
+                    still_unknown = [c for c in unknown if c not in column_mapping]
+                    if added_columns:
+                        self._columns_cache.pop(safe_table, None)
+                        self.logger.info(
+                            f"表 {table_name} 自动补充 {len(added_columns)} 个新列: {added_columns[:10]}"
+                        )
+                    if still_unknown:
+                        self.logger.warning(
+                            f"表 {table_name} 将忽略 {len(still_unknown)} 个不存在的列: {still_unknown[:10]}"
+                        )
                 if not column_mapping:
                     self.logger.warning(
                         f"表 {table_name} 无可写入的有效列（df列都不在表结构中），跳过保存"
                     )
                     return False
+                mapped_columns = [c for c in df.columns if c in column_mapping]
+                if len(mapped_columns) != len(df.columns):
+                    df = df[mapped_columns].copy()
                 # Rename df columns to match actual table column names
                 df = df.rename(columns=column_mapping).copy()
             else:
@@ -210,7 +283,7 @@ class MysqlBase(Database):
         # mysql-connector may serialize NaN as bare token `nan` which MySQL treats as an identifier,
         # yielding "Unknown column 'nan' in 'field list'". Convert all NaN/NaT/NA to None first.
         df = df.astype(object).where(pd.notnull(df), None)
-        values = df.values.tolist()
+        values = [[self._coerce_mysql_value(value) for value in row] for row in df.values.tolist()]
         total_rows = len(values)
 
         try:
@@ -542,12 +615,18 @@ class MysqlBase(Database):
                 return self.save_data(df, table_name)
 
             # Build INSERT statement
-            cols_str = ", ".join(columns)
+            safe_table = str(table_name).replace("`", "``")
+            cols_str = ", ".join(f"`{str(column).replace('`', '``')}`" for column in columns)
             placeholders = ", ".join(["%s"] * len(columns))
-            insert_sql = f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders})"  # nosec B608
+            insert_sql = f"INSERT INTO `{safe_table}` ({cols_str}) VALUES ({placeholders})"  # nosec B608
 
-            # Prepare data
-            data = df[columns].values.tolist()
+            # mysql-connector may serialize NaN/NaT/NA as bare tokens such as `nan`.
+            # Convert pandas missing values to SQL NULL before building row values.
+            data_df = df[columns].astype(object).where(pd.notnull(df[columns]), None)
+            data = [
+                [self._coerce_mysql_value(value) for value in row]
+                for row in data_df.values.tolist()
+            ]
 
             self.connect_db()
             self.cursor.executemany(insert_sql, data)

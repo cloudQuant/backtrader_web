@@ -4,7 +4,7 @@
 strategy:
   name: "MT5 MACD趋势跟踪策略"
   description: "基于MACD指标的趋势跟踪策略，适用于MT5外汇品种。MACD金叉且柱状图为正时做多，死叉平仓。"
-  author: "backtrader_web"
+  author: "ai-for-investor"
 
 # ============================================================
 # 策略参数

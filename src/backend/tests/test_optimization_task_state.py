@@ -4,7 +4,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-from app.services.optimization_task_state import (
+from app.services.optimization.task_state import (
     METRIC_NAMES,
     _runtime_tasks,
     _runtime_tasks_lock,
@@ -237,7 +237,7 @@ class TestBuildProgressResponse:
             "n_workers": 2,
             "created_at": created.isoformat(),
         }
-        with patch("app.services.optimization_task_state.datetime") as mock_datetime:
+        with patch("app.services.optimization.task_state.datetime") as mock_datetime:
             mock_datetime.now.return_value = created + timedelta(seconds=15)
             mock_datetime.fromisoformat = datetime.fromisoformat
             resp = build_progress_response("t1", task)
@@ -255,7 +255,7 @@ class TestBuildProgressResponse:
             "n_workers": 4,
             "created_at": created.isoformat(),
         }
-        with patch("app.services.optimization_task_state.datetime") as mock_datetime:
+        with patch("app.services.optimization.task_state.datetime") as mock_datetime:
             mock_datetime.now.return_value = created + timedelta(seconds=20)
             mock_datetime.fromisoformat = datetime.fromisoformat
             resp = build_progress_response("t1", task)
@@ -275,7 +275,7 @@ class TestBuildProgressResponse:
             "created_at": created.isoformat(),
             "updated_at": updated.isoformat(),
         }
-        with patch("app.services.optimization_task_state.datetime") as mock_datetime:
+        with patch("app.services.optimization.task_state.datetime") as mock_datetime:
             mock_datetime.now.return_value = created + timedelta(seconds=30)
             mock_datetime.fromisoformat = datetime.fromisoformat
             resp = build_progress_response("t1", task)
@@ -310,7 +310,7 @@ class TestBuildProgressResponse:
         )
         task = get_runtime_task("t-eta")
 
-        with patch("app.services.optimization_task_state.datetime") as mock_datetime:
+        with patch("app.services.optimization.task_state.datetime") as mock_datetime:
             mock_datetime.now.return_value = created + timedelta(seconds=45)
             mock_datetime.fromisoformat = datetime.fromisoformat
             resp = build_progress_response("t-eta", task or {})
@@ -338,7 +338,7 @@ class TestBuildProgressResponse:
         )
         task = get_runtime_task("t-eta-first")
 
-        with patch("app.services.optimization_task_state.datetime") as mock_datetime:
+        with patch("app.services.optimization.task_state.datetime") as mock_datetime:
             mock_datetime.now.return_value = created + timedelta(seconds=18)
             mock_datetime.fromisoformat = datetime.fromisoformat
             resp = build_progress_response("t-eta-first", task or {})
@@ -366,7 +366,7 @@ class TestBuildProgressResponse:
         )
         task = get_runtime_task("t-eta-first-batch")
 
-        with patch("app.services.optimization_task_state.datetime") as mock_datetime:
+        with patch("app.services.optimization.task_state.datetime") as mock_datetime:
             mock_datetime.now.return_value = created + timedelta(seconds=20)
             mock_datetime.fromisoformat = datetime.fromisoformat
             resp = build_progress_response("t-eta-first-batch", task or {})
@@ -394,7 +394,7 @@ class TestBuildProgressResponse:
         )
         task = get_runtime_task("t-eta-countdown")
 
-        with patch("app.services.optimization_task_state.datetime") as mock_datetime:
+        with patch("app.services.optimization.task_state.datetime") as mock_datetime:
             mock_datetime.now.return_value = created + timedelta(seconds=13)
             mock_datetime.fromisoformat = datetime.fromisoformat
             resp = build_progress_response("t-eta-countdown", task or {})
@@ -437,7 +437,7 @@ class TestBuildProgressResponse:
         )
         task = get_runtime_task("t-eta-outlier")
 
-        with patch("app.services.optimization_task_state.datetime") as mock_datetime:
+        with patch("app.services.optimization.task_state.datetime") as mock_datetime:
             mock_datetime.now.return_value = created + timedelta(seconds=55)
             mock_datetime.fromisoformat = datetime.fromisoformat
             resp = build_progress_response("t-eta-outlier", task or {})

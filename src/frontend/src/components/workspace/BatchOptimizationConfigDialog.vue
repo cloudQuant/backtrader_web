@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    title="批量优化参数设置"
+    :title="t('workspaceDialogs.batchOptTitle')"
     width="800px"
     destroy-on-close
     @update:model-value="$emit('update:modelValue', $event)"
@@ -12,7 +12,7 @@
       :closable="false"
       class="mb-4"
     >
-      将以下优化参数统一应用到选中的 <strong>{{ unitIds.length }}</strong> 个策略单元。
+      {{ t('workspaceDialogs.applyToNUnits') }} <strong>{{ unitIds.length }}</strong> {{ t('workspaceDialogs.nUnitsBatch') }}
     </el-alert>
 
     <el-form
@@ -23,28 +23,28 @@
     >
       <el-row :gutter="20">
         <el-col :span="8">
-          <el-form-item label="优化目标">
+          <el-form-item :label="t('workspaceDialogs.optTarget')">
             <el-select
               v-model="form.objective"
               style="width: 100%"
             >
               <el-option
-                label="夏普比率最大"
+                :label="t('workspaceDialogs.goalMaxSharpe')"
                 value="sharpe_max"
               />
               <el-option
-                label="最大收益"
+                :label="t('workspaceDialogs.goalMaxReturn')"
                 value="max_return"
               />
               <el-option
-                label="最小回撤"
+                :label="t('workspaceDialogs.goalMinDrawdown')"
                 value="min_drawdown"
               />
             </el-select>
           </el-form-item>
         </el-col>
         <el-col :span="8">
-          <el-form-item label="并行线程数">
+          <el-form-item :label="t('workspaceDialogs.parallelThreads')">
             <el-input-number
               v-model="form.n_workers"
               :min="1"
@@ -54,7 +54,7 @@
           </el-form-item>
         </el-col>
         <el-col :span="8">
-          <el-form-item label="最优显示">
+          <el-form-item :label="t('workspaceDialogs.goalDisplay')">
             <el-input-number
               v-model="form.max_display"
               :min="100"
@@ -67,7 +67,7 @@
       </el-row>
 
       <el-divider content-position="left">
-        参数列表
+        {{ t('workspaceDialogs.paramList') }}
       </el-divider>
 
       <el-table
@@ -77,19 +77,19 @@
         class="mb-4"
       >
         <el-table-column
-          label="参数名"
+          :label="t('workspaceDialogs.paramName')"
           width="140"
         >
           <template #default="{ row }">
             <el-input
               v-model="row.param_name"
               size="small"
-              placeholder="参数名称"
+              :placeholder="t('workspaceDialogs.paramNameLabel')"
             />
           </template>
         </el-table-column>
         <el-table-column
-          label="优化设置"
+          :label="t('workspaceDialogs.optSettings')"
           min-width="300"
         >
           <template #default="{ row }">
@@ -100,11 +100,11 @@
                 style="width: 80px"
               >
                 <el-option
-                  label="等差"
+                  :label="t('workspaceDialogs.typeArith')"
                   value="equal_diff"
                 />
                 <el-option
-                  label="固定"
+                  :label="t('workspaceDialogs.typeFixed')"
                   value="fixed"
                 />
               </el-select>
@@ -114,7 +114,7 @@
                   :controls="false"
                   size="small"
                   style="width: 80px"
-                  placeholder="起始"
+                  :placeholder="t('workspaceDialogs.rangeStartShort')"
                 />
                 <span>~</span>
                 <el-input-number
@@ -122,18 +122,18 @@
                   :controls="false"
                   size="small"
                   style="width: 80px"
-                  placeholder="结束"
+                  :placeholder="t('workspaceDialogs.rangeEndShort')"
                 />
-                <span>, 步长</span>
+                <span>, {{ t('workspaceDialogs.paramStep') }}</span>
                 <el-input-number
                   v-model="row.step"
                   :controls="false"
                   size="small"
                   style="width: 70px"
-                  placeholder="步长"
+                  :placeholder="t('workspaceDialogs.paramStep')"
                 />
                 <span class="text-xs text-gray-400 ml-1">
-                  ({{ calcCount(row) }}种)
+                  ({{ calcCount(row) }}{{ t('workspaceDialogs.nCombosShort') }})
                 </span>
               </template>
             </div>
@@ -151,7 +151,7 @@
               size="small"
               @click="form.param_layers.splice($index, 1)"
             >
-              <el-icon><Delete /></el-icon>
+              <el-icon aria-hidden="true"><Delete /></el-icon>
             </el-button>
           </template>
         </el-table-column>
@@ -162,22 +162,22 @@
           size="small"
           @click="addParamLayer"
         >
-          添加参数
+          {{ t('workspaceDialogs.addParam') }}
         </el-button>
-        <span class="text-sm text-gray-400">总组合数: <strong>{{ totalCombinations }}</strong></span>
+        <span class="text-sm text-gray-400">{{ t('workspaceDialogs.totalCombos') }}: <strong>{{ totalCombinations }}</strong></span>
       </div>
     </el-form>
 
     <template #footer>
       <el-button @click="$emit('update:modelValue', false)">
-        取消
+        {{ t('common.cancel') }}
       </el-button>
       <el-button
         type="primary"
         :loading="saving"
         @click="handleSave"
       >
-        保存到 {{ unitIds.length }} 个单元
+        {{ t('workspaceDialogs.saveTo') }} {{ unitIds.length }} {{ t('workspaceDialogs.nUnitsBatch') }}
       </el-button>
     </template>
   </el-dialog>
@@ -185,11 +185,14 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
 import { workspaceApi } from '@/api/workspace'
 import { getErrorMessage } from '@/api/index'
 import type { StrategyUnit } from '@/types/workspace'
+
+const { t } = useI18n()
 
 interface ParamLayer {
   param_name: string
@@ -295,11 +298,11 @@ async function handleSave() {
         success++
       } catch { /* continue */ }
     }
-    ElMessage.success(`优化参数已保存到 ${success} 个单元`)
+    ElMessage.success(`${t('workspaceDialogs.paramsApplied')} ${success} ${t('workspaceDialogs.nUnitsBatch')}`)
     emit('update:modelValue', false)
     emit('saved')
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '保存失败'))
+    ElMessage.error(getErrorMessage(e, t('workspaceDialogs.saveFailed')))
   } finally {
     saving.value = false
   }

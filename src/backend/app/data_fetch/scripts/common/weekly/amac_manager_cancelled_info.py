@@ -10,6 +10,7 @@ import pandas as pd
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+from app.data_fetch.scripts.common._amac_limited import amac_manager_cancelled_info
 
 
 class AmacManagerCancelledInfo(AkshareToMySql):
@@ -42,7 +43,11 @@ class AmacManagerCancelledInfo(AkshareToMySql):
         """
         try:
             # Fetch data from AkShare
-            df = self.fetch_ak_data("amac_manager_cancelled_info", **kwargs)
+            max_pages = kwargs.pop("max_pages", None)
+            if max_pages is not None:
+                df = amac_manager_cancelled_info(max_pages=int(max_pages))
+            else:
+                df = self.fetch_ak_data("amac_manager_cancelled_info", **kwargs)
 
             if df is None or df.empty:
                 self.logger.warning("No data found")

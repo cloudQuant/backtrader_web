@@ -1,23 +1,23 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="导入策略单元"
+    :title="t('workspaceDialogs.importTitle')"
     width="860px"
   >
     <div class="space-y-4">
       <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
         <div class="text-sm font-medium text-slate-700">
-          导入来源
+          {{ t('workspaceDialogs.importSource') }}
         </div>
         <el-radio-group
           v-model="sourceType"
           class="mt-3"
         >
           <el-radio value="research">
-            策略研究工作区
+            {{ t('workspaceDialogs.researchWorkspace') }}
           </el-radio>
           <el-radio value="file">
-            JSON 文件
+            JSON {{ t('workspaceDialogs.file') }}
           </el-radio>
         </el-radio-group>
       </div>
@@ -29,7 +29,7 @@
             filterable
             clearable
             :loading="workspaceLoading"
-            placeholder="选择策略研究工作区"
+            :placeholder="t('workspaceDialogs.selectResearchWs')"
             @change="handleWorkspaceChange"
           >
             <el-option
@@ -41,7 +41,7 @@
           </el-select>
           <div class="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500">
             <span>{{ selectedWorkspaceDescription }}</span>
-            <span>已选 {{ selectedResearchUnitIds.length }} / {{ researchUnits.length }}</span>
+            <span>{{ t('workspaceDialogs.selectedSuffix') }} {{ selectedResearchUnitIds.length }} / {{ researchUnits.length }}</span>
           </div>
         </div>
 
@@ -51,7 +51,7 @@
           border
           size="small"
           height="340"
-          empty-text="请选择一个策略研究工作区"
+          :empty-text="t('workspaceDialogs.pleaseSelectResearchWs')"
           @selection-change="onResearchSelectionChange"
         >
           <el-table-column
@@ -60,36 +60,36 @@
           />
           <el-table-column
             prop="group_name"
-            label="组名"
+            :label="t('workspaceDialogs.groupName')"
             min-width="120"
             show-overflow-tooltip
           />
           <el-table-column
             prop="strategy_name"
-            label="单元名"
+            :label="t('workspaceDialogs.unitName')"
             min-width="140"
             show-overflow-tooltip
           />
           <el-table-column
             prop="strategy_id"
-            label="公式"
+            :label="t('workspaceDialogs.formula')"
             min-width="160"
             show-overflow-tooltip
           />
           <el-table-column
             prop="symbol"
-            label="商品代码"
+            :label="t('workspaceDialogs.symbolCode')"
             width="120"
           />
           <el-table-column
             prop="timeframe"
-            label="周期"
+            :label="t('workspaceDialogs.timeframeCol')"
             width="90"
             align="center"
           />
           <el-table-column
             prop="category"
-            label="分类"
+            :label="t('workspaceDialogs.categoryCol')"
             width="110"
             show-overflow-tooltip
           />
@@ -101,7 +101,7 @@
           type="info"
           :closable="false"
           show-icon
-          title="支持导入策略研究或策略交易导出的 JSON 文件。"
+          :title="t('workspaceDialogs.supportImportFromBoth') + ' JSON ' + t('workspaceDialogs.file') + '.'"
         />
         <div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-8 text-center">
           <el-button
@@ -109,13 +109,13 @@
             plain
             @click="fileInput?.click()"
           >
-            选择导入文件
+            {{ t('workspaceDialogs.selectFile') }}
           </el-button>
           <div class="mt-3 text-sm text-slate-600">
-            {{ selectedFile?.name || '尚未选择文件' }}
+            {{ selectedFile?.name || t('workspaceDialogs.fileNotSelected') }}
           </div>
           <div class="mt-1 text-xs text-slate-400">
-            文件中的策略单元会自动归一化为交易工作区格式
+            {{ t('workspaceDialogs.importNoramlizedHint') }}
           </div>
         </div>
       </template>
@@ -123,14 +123,14 @@
 
     <template #footer>
       <el-button @click="visible = false">
-        取消
+        {{ t('workspaceDialogs.cancel') }}
       </el-button>
       <el-button
         type="primary"
         :loading="submitting"
         @click="handleImport"
       >
-        导入
+        {{ t('workspaceDialogs.import') }}
       </el-button>
     </template>
 
@@ -147,11 +147,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { getErrorMessage } from '@/api/index'
 import { workspaceApi } from '@/api/workspace'
 import type { StrategyUnit, Workspace } from '@/types/workspace'
 import { normalizeTransferUnits } from './tradingUnitTransfer'
 
+const { t } = useI18n()
 const props = defineProps<{
   modelValue: boolean
   workspaceId: string
@@ -180,13 +182,13 @@ const fileInput = ref<HTMLInputElement | null>(null)
 
 const selectedWorkspaceDescription = computed(() => {
   if (unitsLoading.value) {
-    return '正在加载策略单元...'
+    return t('workspaceDialogs.importingUnits') + '...'
   }
   const workspace = researchWorkspaces.value.find(item => item.id === selectedWorkspaceId.value)
   if (!workspace) {
-    return '请选择导入源工作区'
+    return t('workspaceDialogs.pleaseSelectImportWorkspace')
   }
-  return `${workspace.name} · 共 ${workspace.unit_count} 个策略单元`
+  return `${workspace.name} · ${t('workspaceDialogs.totalCounter')} ${workspace.unit_count} ${t('workspaceDialogs.nUnits')}`
 })
 
 async function loadResearchWorkspaces() {
@@ -195,7 +197,7 @@ async function loadResearchWorkspaces() {
     const response = await workspaceApi.list(0, 200, 'research')
     researchWorkspaces.value = response.items
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '加载策略研究工作区失败'))
+    ElMessage.error(getErrorMessage(error, t('workspaceDialogs.loadResearchFailed')))
   } finally {
     workspaceLoading.value = false
   }
@@ -212,7 +214,7 @@ async function handleWorkspaceChange() {
     const response = await workspaceApi.listUnits(selectedWorkspaceId.value)
     researchUnits.value = response.items
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '加载策略单元失败'))
+    ElMessage.error(getErrorMessage(error, t('workspaceDialogs.loadUnitsFailed')))
   } finally {
     unitsLoading.value = false
   }
@@ -228,7 +230,7 @@ function onFileSelected(event: Event) {
 
 async function readFilePayload() {
   if (!selectedFile.value) {
-    throw new Error('请先选择导入文件')
+    throw new Error(t('workspaceDialogs.pleaseSelectFile'))
   }
   const text = await selectedFile.value.text()
   const data = JSON.parse(text)
@@ -259,15 +261,15 @@ async function handleImport() {
       ? getSelectedResearchUnits()
       : await readFilePayload()
     if (!units.length) {
-      throw new Error(sourceType.value === 'research' ? '请选择要导入的策略单元' : '文件中未找到可导入的策略单元')
+      throw new Error(sourceType.value === 'research' ? t('workspaceDialogs.pleaseSelectImportUnits') : t('workspaceDialogs.importEmpty'))
     }
     await workspaceApi.batchCreateUnits(props.workspaceId, units)
-    ElMessage.success(`成功导入 ${units.length} 个策略单元`)
+    ElMessage.success(`${t('workspaceDialogs.importSuccess')} ${units.length} ${t('workspaceDialogs.nUnits')}`)
     emit('imported', units.length)
     visible.value = false
     resetState()
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '导入失败'))
+    ElMessage.error(getErrorMessage(error, t('workspaceDialogs.importFailed')))
   } finally {
     submitting.value = false
   }

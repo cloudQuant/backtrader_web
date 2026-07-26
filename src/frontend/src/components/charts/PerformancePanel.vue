@@ -1,107 +1,110 @@
 <template>
   <div class="performance-panel">
     <h3 class="text-lg font-semibold mb-4">
-      绩效概览
+      {{ t('charts.perfTitle') }}
     </h3>
     
-    <!-- 主要指标 -->
+    <!-- Primary metrics -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
       <MetricCard
-        title="初始资金"
+        :title="t('charts.perfInitialCapital')"
         :value="metrics?.initial_capital"
         format="currency"
-        tooltip="回测开始时的初始资金"
+        :tooltip="t('charts.perfInitialCapitalTip')"
       />
       <MetricCard
-        title="最终资产"
+        :title="t('charts.perfFinalAssets')"
         :value="metrics?.final_assets"
         :change="metrics?.total_return"
         format="currency"
-        tooltip="回测结束时的总资产"
+        :tooltip="t('charts.perfFinalAssetsTip')"
       />
       <MetricCard
-        title="总收益率"
+        :title="t('charts.perfTotalReturn')"
         :value="metrics?.total_return"
         format="percent"
-        tooltip="(最终资产-初始资金)/初始资金"
+        :tooltip="t('charts.perfTotalReturnTip')"
       />
       <MetricCard
-        title="年化收益"
+        :title="t('charts.perfAnnualizedReturn')"
         :value="metrics?.annualized_return"
         format="percent"
-        tooltip="按252个交易日年化的收益率"
+        :tooltip="t('charts.perfAnnualizedReturnTip')"
       />
     </div>
     
-    <!-- 风险指标 -->
+    <!-- Risk metrics -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
       <MetricCard
-        title="最大回撤"
+        :title="t('charts.perfMaxDrawdown')"
         :value="metrics?.max_drawdown"
         format="percent"
         color="danger"
-        tooltip="从最高点到最低点的最大跌幅"
+        :tooltip="t('charts.perfMaxDrawdownTip')"
       />
       <MetricCard
-        title="夏普比率"
+        :title="t('charts.perfSharpeRatio')"
         :value="metrics?.sharpe_ratio"
         format="number"
         :precision="2"
-        tooltip="(策略收益-无风险收益)/策略波动率"
+        :tooltip="t('charts.perfSharpeRatioTip')"
       />
       <MetricCard
-        title="胜率"
+        :title="t('charts.perfWinRate')"
         :value="metrics?.win_rate"
         format="percent"
-        tooltip="盈利交易次数/总交易次数"
+        :tooltip="t('charts.perfWinRateTip')"
       />
       <MetricCard
-        title="盈亏比"
+        :title="t('charts.perfProfitFactor')"
         :value="metrics?.profit_factor"
         format="number"
         :precision="2"
-        tooltip="平均盈利/平均亏损"
+        :tooltip="t('charts.perfProfitFactorTip')"
       />
     </div>
     
-    <!-- 交易统计 -->
+    <!-- Trade statistics -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
       <MetricCard
-        title="交易次数"
+        :title="t('charts.perfTradeCount')"
         :value="metrics?.trade_count"
         format="number"
         :precision="0"
-        tooltip="总交易次数"
+        :tooltip="t('charts.perfTradeCountTip')"
       />
       <MetricCard
-        title="平均持仓"
+        :title="t('charts.perfAvgHoldingDays')"
         :value="metrics?.avg_holding_days"
         format="days"
-        tooltip="平均每笔交易持仓天数"
+        :tooltip="t('charts.perfAvgHoldingDaysTip')"
       />
       <MetricCard
-        title="最大连赢"
+        :title="t('charts.perfMaxConsecutiveWins')"
         :value="metrics?.max_consecutive_wins"
         format="number"
         :precision="0"
         color="success"
-        tooltip="最大连续盈利交易次数"
+        :tooltip="t('charts.perfMaxConsecutiveWinsTip')"
       />
       <MetricCard
-        title="最大连亏"
+        :title="t('charts.perfMaxConsecutiveLosses')"
         :value="metrics?.max_consecutive_losses"
         format="number"
         :precision="0"
         color="danger"
-        tooltip="最大连续亏损交易次数"
+        :tooltip="t('charts.perfMaxConsecutiveLossesTip')"
       />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import MetricCard from './MetricCard.vue'
 import type { PerformanceMetrics } from '@/types/analytics'
+
+const { t } = useI18n()
 
 defineProps<{
   metrics?: Partial<PerformanceMetrics>

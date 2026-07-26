@@ -54,7 +54,7 @@ export class BacktestPage extends BasePage {
     // 点击策略选择器
     await this.page.click('.el-select:has(.el-input__inner)');
     // 等待下拉选项出现
-    await this.page.waitForTimeout(500);
+    await expect(this.page.locator('.el-select-dropdown__item')).first().toBeVisible();
     // 选择对应的策略
     await this.page.click(`.el-select-dropdown__item:has-text("${strategyName}")`);
   }
@@ -71,8 +71,7 @@ export class BacktestPage extends BasePage {
    */
   async runBacktest(request: BacktestRequest) {
     await this.goto();
-    // 等待页面加载
-    await this.page.waitForTimeout(1000);
+    await this.assertOnBacktestPage();
     // 如果指定了策略，选择它
     if (request.strategy_id) {
       await this.selectStrategy(request.strategy_id);
@@ -102,7 +101,6 @@ export class BacktestPage extends BasePage {
    * 获取回测历史记录数
    */
   async getHistoryCount(): Promise<number> {
-    await this.page.waitForTimeout(500);
     const rows = this.page.locator('.el-table__body-wrapper .el-table__row');
     return await rows.count();
   }

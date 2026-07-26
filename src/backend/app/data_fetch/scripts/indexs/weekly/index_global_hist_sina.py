@@ -98,12 +98,16 @@ class IndexGlobalHistSina(AkshareToMySql):
             self.logger.error(f"Error fetching {index_name}: {str(e)}", exc_info=True)
             return pd.DataFrame()
 
-    def run(self, index_name=None):
+    def run(self, index_name=None, max_indices=None):
         try:
             if not self.table_exists(self.table_name):
                 self.create_table(self.create_table_sql)
 
             indices = [index_name] if index_name else self.valid_indices
+            max_indices = int(max_indices) if max_indices is not None else None
+            if max_indices is not None and len(indices) > max_indices:
+                indices = indices[:max_indices]
+                self.logger.info(f"Limiting global Sina indices to {max_indices}")
             all_success = True
 
             for idx in indices:
@@ -131,9 +135,13 @@ class IndexGlobalHistSina(AkshareToMySql):
             return False
 
 
-def main():
+def main(index_name=None, max_indices=None):
     import argparse
     import sys
+
+    if index_name is not None or max_indices is not None:
+        fetcher = IndexGlobalHistSina(logger=logging.getLogger(__name__))
+        return fetcher.run(index_name=index_name, max_indices=max_indices)
 
     logging.basicConfig(
         level=logging.INFO,
@@ -153,7 +161,7 @@ def main():
 
     try:
         fetcher = IndexGlobalHistSina(logger=logging.getLogger(__name__))
-        sys.exit(0 if fetcher.run(parser.parse_args().index) else 1)
+        sys.exit(0 if fetcher.run(index_name=parser.parse_args().index) else 1)
     except Exception as e:
         logging.error(f"Error: {str(e)}", exc_info=True)
         sys.exit(1)

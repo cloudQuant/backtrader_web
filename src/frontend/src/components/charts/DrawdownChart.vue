@@ -1,20 +1,37 @@
 <template>
   <div class="drawdown-chart">
     <h4 class="text-md font-medium mb-4">
-      回撤曲线
+      {{ t('charts.drawdownTitle') }}
     </h4>
+    <p class="sr-only">
+      {{ t('charts.drawdownA11ySummary', { points: data.length }) }}
+    </p>
     <div
+      v-show="data.length > 0"
       ref="chartRef"
+      role="img"
+      :aria-label="t('charts.drawdownA11ySummary', { points: data.length })"
       :style="{ height: height + 'px' }"
+    />
+    <ChartEmptyState
+      v-if="data.length === 0"
+      :title="t('charts.chartNoDataTitle')"
+      :description="t('charts.chartNoDataDesc')"
     />
   </div>
 </template>
 
 <script setup lang="ts">
 import { watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as echarts from 'echarts'
 import type { DrawdownPoint } from '@/types/analytics'
 import { useChartResize } from '@/composables/useChartResize'
+import ChartEmptyState from './ChartEmptyState.vue'
+import { getChartThemeColors } from '@/utils/chartTheme'
+import { DRAWDOWN_AREA_END, DRAWDOWN_AREA_START } from '@/constants/chartColors'
+
+const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   data: DrawdownPoint[]
@@ -34,6 +51,7 @@ watch(
 function renderChart() {
   const chartInstance = getChart()
   if (!chartInstance || !props.data.length) return
+  const colors = getChartThemeColors()
 
   const dates = props.data.map(d => d.date)
   const drawdowns = props.data.map(d => (d.drawdown * 100).toFixed(2))
@@ -55,7 +73,7 @@ function renderChart() {
         if (typeof params === 'string') return params
         const arr = Array.isArray(params) ? params : []
         const p = arr[0] as { axisValue?: string; value?: number } | undefined
-        return p ? `${p.axisValue}<br/>回撤: ${p.value}%` : ''
+        return p ? `${p.axisValue}<br/>${t('charts.drawdownTooltip', { value: p.value })}` : ''
       },
     },
     grid: {
@@ -68,7 +86,7 @@ function renderChart() {
       type: 'category',
       data: dates,
       axisLabel: { show: false },
-      axisLine: { lineStyle: { color: '#ddd' } },
+      axisLine: { lineStyle: { color: colors.border } },
     },
     yAxis: {
       type: 'value',
@@ -80,24 +98,24 @@ function renderChart() {
     },
     series: [
       {
-        name: '回撤',
+        name: t('charts.drawdownSeries'),
         type: 'line',
         data: drawdowns,
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(255, 77, 79, 0.8)' },
-            { offset: 1, color: 'rgba(255, 77, 79, 0.1)' },
+            { offset: 0, color: DRAWDOWN_AREA_START },
+            { offset: 1, color: DRAWDOWN_AREA_END },
           ]),
         },
-        lineStyle: { color: '#ff4d4f', width: 1 },
+        lineStyle: { color: colors.danger, width: 1 },
         showSymbol: false,
         markPoint: {
           data: [
             {
-              name: '最大回撤',
+              name: t('charts.drawdownMaxLabel'),
               coord: [dates[maxDdIndex], drawdowns[maxDdIndex]],
               value: `${drawdowns[maxDdIndex]}%`,
-              itemStyle: { color: '#ff4d4f' },
+              itemStyle: { color: colors.danger },
             },
           ],
           label: {

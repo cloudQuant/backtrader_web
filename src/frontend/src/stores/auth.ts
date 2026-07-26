@@ -1,14 +1,16 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authApi } from '@/api/auth'
+import { setToken } from '@/utils/tokenRef'
 import type { UserInfo, LoginRequest, RegisterRequest } from '@/types'
-import { clearAccessToken, getAccessToken, setAccessToken } from '@/utils/session'
+import { clearAccessToken } from '@/utils/session'
 import { useStrategyStore } from '@/stores/strategy'
 import { useBacktestStore } from '@/stores/backtest'
 import { useSimulationStore } from '@/stores/simulation'
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref<string | null>(getAccessToken())
+  const token = ref<string | null>(null)
+  const refreshToken = ref<string | null>(null)
   const user = ref<UserInfo | null>(null)
   const initialized = ref(false)
   let initializePromise: Promise<void> | null = null
@@ -18,7 +20,8 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(data: LoginRequest) {
     const response = await authApi.login(data)
     token.value = response.access_token
-    setAccessToken(response.access_token)
+    // Set token in interceptor immediately (no async storage race condition)
+    setToken(response.access_token)
     initialized.value = false
     await fetchUser()
     initialized.value = true
@@ -48,6 +51,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     initializePromise = (async () => {
       if (token.value) {
+        setToken(token.value)
         await fetchUser()
       }
       initialized.value = true
@@ -62,8 +66,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   function logout() {
     token.value = null
+    refreshToken.value = null
     user.value = null
     initialized.value = true
+    setToken(null)
     clearAccessToken()
     // Clear business store state so stale data doesn't persist after logout
     try {
@@ -91,6 +97,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     token,
+    refreshToken,
     user,
     initialized,
     isAuthenticated,
@@ -100,4 +107,9 @@ export const useAuthStore = defineStore('auth', () => {
     initialize,
     logout,
   }
+}, {
+  persist: {
+    storage: sessionStorage,
+    paths: ['token', 'refreshToken'],
+  },
 })

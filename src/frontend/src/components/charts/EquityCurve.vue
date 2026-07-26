@@ -1,20 +1,41 @@
 <template>
   <div class="equity-curve">
     <h4 class="text-md font-medium mb-4">
-      资金曲线
+      {{ t('charts.equityTitle') }}
     </h4>
+    <p class="sr-only">
+      {{ t('charts.equityA11ySummary', { points: chartDates.length, trades: trades.length }) }}
+    </p>
     <div
+      v-show="hasChartData"
       ref="chartRef"
+      role="img"
+      :aria-label="t('charts.equityA11ySummary', { points: chartDates.length, trades: trades.length })"
       :style="{ height: height + 'px' }"
+    />
+    <ChartEmptyState
+      v-if="!hasChartData"
+      :title="t('charts.chartNoDataTitle')"
+      :description="t('charts.chartNoDataDesc')"
     />
   </div>
 </template>
 
 <script setup lang="ts">
 import { watch, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as echarts from 'echarts'
 import type { EquityPoint } from '@/types/analytics'
 import { useChartResize } from '@/composables/useChartResize'
+import ChartEmptyState from './ChartEmptyState.vue'
+import { getChartThemeColors } from '@/utils/chartTheme'
+import {
+  EQUITY_CURVE_AREA_END,
+  EQUITY_CURVE_AREA_START,
+  EQUITY_DRAWDOWN_AREA_COLOR,
+} from '@/constants/chartColors'
+
+const { t } = useI18n()
 
 interface TradeSignal {
   date: string
@@ -54,20 +75,22 @@ const chartDrawdown = computed(() => {
   if (props.drawdown?.length) return props.drawdown
   return []
 })
+const hasChartData = computed(() => chartDates.value.length > 0 && chartEquity.value.length > 0)
 
 function renderChart() {
   const chart = getChart()
-  if (!chart || !chartDates.value.length) return
+  if (!chart || !hasChartData.value) return
+  const colors = getChartThemeColors()
   
   const hasDrawdown = chartDrawdown.value.length > 0
   const hasDetailData = props.data?.length > 0 && props.data[0].cash !== undefined
   
-  const legendData = ['总资产']
+  const legendData = [t('charts.equityTotal')]
   if (hasDetailData) {
-    legendData.push('现金', '持仓市值')
+    legendData.push(t('charts.equityCash'), t('charts.equityPosition'))
   }
   if (hasDrawdown) {
-    legendData.push('回撤')
+    legendData.push(t('charts.equityDrawdown'))
   }
   
   const grids: echarts.EChartsOption['grid'] = hasDrawdown
@@ -89,12 +112,12 @@ function renderChart() {
 
   const yAxes: echarts.YAXisComponentOption[] = [
     {
-      type: 'value', name: '金额',
+      type: 'value', name: t('charts.equityAmount'),
       min: Math.floor(yMin),
       max: Math.ceil(yMax),
       axisLabel: { formatter: (v: number) => {
-        if (Math.abs(v) >= 1e8) return (v / 1e8).toFixed(1) + '亿'
-        if (Math.abs(v) >= 1e4) return (v / 1e4).toFixed(1) + '万'
+        if (Math.abs(v) >= 1e8) return (v / 1e8).toFixed(1) + t('charts.yi')
+        if (Math.abs(v) >= 1e4) return (v / 1e4).toFixed(1) + t('charts.wan')
         return v.toFixed(0)
       }},
     },
@@ -106,7 +129,7 @@ function renderChart() {
       boundaryGap: false, axisLabel: { show: false }, axisTick: { show: false },
     })
     yAxes.push({
-      type: 'value', gridIndex: 1, name: '回撤%', inverse: true,
+      type: 'value', gridIndex: 1, name: t('charts.equityDrawdownPct'), inverse: true,
       axisLabel: { formatter: (v: number) => `${v.toFixed(0)}%` },
       splitNumber: 2,
     })
@@ -114,14 +137,14 @@ function renderChart() {
   
   const series: echarts.SeriesOption[] = [
     {
-      name: '总资产', type: 'line', data: chartEquity.value,
+      name: t('charts.equityTotal'), type: 'line', data: chartEquity.value,
       smooth: true, showSymbol: false,
-      lineStyle: { width: 2, color: '#3b82f6' },
+      lineStyle: { width: 2, color: colors.primary },
       areaStyle: {
         opacity: 0.15,
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: 'rgba(59, 130, 246, 0.4)' },
-          { offset: 1, color: 'rgba(59, 130, 246, 0.02)' },
+          { offset: 0, color: EQUITY_CURVE_AREA_START },
+          { offset: 1, color: EQUITY_CURVE_AREA_END },
         ]),
       },
     },
@@ -130,30 +153,30 @@ function renderChart() {
   if (hasDetailData) {
     series.push(
       {
-        name: '现金', type: 'line',
+        name: t('charts.equityCash'), type: 'line',
         data: props.data.map(d => d.cash),
         smooth: true, showSymbol: false,
-        lineStyle: { width: 1.5, type: 'dashed', color: '#10b981' },
+        lineStyle: { width: 1.5, type: 'dashed', color: colors.success },
       },
       {
-        name: '持仓市值', type: 'line',
+        name: t('charts.equityPosition'), type: 'line',
         data: props.data.map(d => d.position_value),
         smooth: true, showSymbol: false,
-        lineStyle: { width: 1.5, type: 'dotted', color: '#f59e0b' },
+        lineStyle: { width: 1.5, type: 'dotted', color: colors.warning },
       },
     )
   }
   
   if (hasDrawdown) {
     series.push({
-      name: '回撤', type: 'line',
+      name: t('charts.equityDrawdown'), type: 'line',
       xAxisIndex: 1, yAxisIndex: 1,
       data: chartDrawdown.value,
       smooth: true, showSymbol: false,
-      lineStyle: { width: 1, color: '#ef4444' },
+      lineStyle: { width: 1, color: colors.danger },
       areaStyle: {
         opacity: 0.3,
-        color: 'rgba(239, 68, 68, 0.3)',
+        color: EQUITY_DRAWDOWN_AREA_COLOR,
       },
     })
   }
@@ -178,19 +201,19 @@ function renderChart() {
     
     if (buyData.length) {
       series.push({
-        name: '买入', type: 'scatter', data: buyData,
-        itemStyle: { color: '#ef4444' },
+        name: t('charts.equityBuy'), type: 'scatter', data: buyData,
+        itemStyle: { color: colors.success },
         z: 10,
       })
-      legendData.push('买入')
+      legendData.push(t('charts.equityBuy'))
     }
     if (sellData.length) {
       series.push({
-        name: '卖出', type: 'scatter', data: sellData,
-        itemStyle: { color: '#10b981' },
+        name: t('charts.equitySell'), type: 'scatter', data: sellData,
+        itemStyle: { color: colors.danger },
         z: 10,
       })
-      legendData.push('卖出')
+      legendData.push(t('charts.equitySell'))
     }
   }
   
@@ -205,7 +228,7 @@ function renderChart() {
         let html = `<strong>${date}</strong><br/>`
         arr.forEach((p: { seriesName?: string; value?: number; marker?: string }) => {
           const numericValue = Number(p.value ?? 0)
-          if (p.seriesName === '回撤') {
+          if (p.seriesName === t('charts.equityDrawdown')) {
             html += `${p.marker} ${p.seriesName}: ${numericValue.toFixed(2)}%<br/>`
           } else {
             html += `${p.marker} ${p.seriesName}: ¥${numericValue.toLocaleString()}<br/>`

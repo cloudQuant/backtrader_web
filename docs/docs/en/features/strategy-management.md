@@ -1,121 +1,32 @@
-# Strategy Management
+# Strategies and AI research
 
-## Overview
+The strategy center manages templates, user strategies, versions, and AI research artifacts. A research objective, strategy code, and backtest result form an auditable research record; they are not an automated trading instruction.
 
-Backtrader Web provides comprehensive strategy management with version control, similar to Git.
+## How to use it
 
-## Built-in Templates
+- Create, edit, copy, or select templates in **Research → Strategies**.
+- Use AI Chat for knowledge questions, strategy ideation, Backtrader draft generation, or strategy review.
+- **Generate research objective** opens a dialog: keep the default template or ask the configured model to improve its wording. If the model is unavailable, the default remains and the reason is shown.
+- Choosing a different research profile and running AI research creates corresponding new output. The page updates as the run proceeds instead of reusing a stale result.
+- Add a reviewed strategy to a research workspace for backtests and follow-up validation.
 
-118 built-in strategy templates covering:
+## Backtrader coding convention
 
-### Trend Following
-- Dual Moving Average
-- MACD
-- Turtle Trading
-- Supertrend
+Keep a price series in a custom property, for example:
 
-### Mean Reversion
-- Bollinger Bands Reversal
-- KDJ
-- RSI
-- Stochastic
-
-### Arbitrage
-- Spot-Futures Arbitrage
-- Calendar Spread
-
-### Options
-- VIX Panic Index
-- Put-Call Ratio
-
-### High Frequency
-- R-Breaker
-- Dual Thrust
--菲阿里四价 (Fairy Four Prices)
-
-## API Endpoints
-
-### Strategy CRUD
-
-```http
-# Create strategy
-POST /api/v1/strategy/
-Content-Type: application/json
-
-{
-  "name": "My Strategy",
-  "description": "Custom mean reversion strategy",
-  "code": "...",
-  "parameters": {"period": 20}
-}
-
-# List strategies
-GET /api/v1/strategy/
-
-# Get strategy
-GET /api/v1/strategy/{id}
-
-# Update strategy
-PUT /api/v1/strategy/{id}
-
-# Delete strategy
-DELETE /api/v1/strategy/{id}
+```python
+def __init__(self):
+    self.dataclose = self.datas[0].close
 ```
 
-### Templates
+`self.close()` is Backtrader’s close-position method. Never write `self.close = ...` or otherwise assign to it. The sandbox rejects overrides of trading methods so generated strategies do not lose close-order behavior and corrupt trade statistics.
 
-```http
-GET /api/v1/strategy/templates
-```
+## Review checklist
 
-## Version Control
+1. State the instrument, timeframe, costs, sizing, and stop assumptions.
+2. Verify that code uses allowed APIs and does not overwrite order/close methods.
+3. Confirm the date range, adjustment/contract rules, and data-preflight result.
+4. Read trade count, equity curve, drawdown, and robustness results—not only one return metric.
+5. Require human approval before entering a trading workspace.
 
-### Create Version
-
-```http
-POST /api/v1/strategy-versions/versions
-{
-  "strategy_id": 1,
-  "version_name": "v1.0",
-  "message": "Initial version"
-}
-```
-
-### List Versions
-
-```http
-GET /api/v1/strategy-versions/strategies/{strategy_id}/versions
-```
-
-### Compare Versions
-
-```http
-POST /api/v1/strategy-versions/versions/compare
-{
-  "strategy_id": 1,
-  "version_a": "v1.0",
-  "version_b": "v1.1"
-}
-```
-
-### Rollback
-
-```http
-POST /api/v1/strategy-versions/versions/rollback
-{
-  "strategy_id": 1,
-  "target_version": "v1.0"
-}
-```
-
-## Branch Management
-
-```http
-# Create branch
-POST /api/v1/strategy-versions/branches
-{
-  "strategy_id": 1,
-  "branch_name": "experiment",
-  "base_version": "v1.0"
-}
-```
+See [Backtests and validation](./backtesting.md) and [Parameter optimization](./optimization.md).

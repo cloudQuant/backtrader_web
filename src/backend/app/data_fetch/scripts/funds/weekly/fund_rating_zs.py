@@ -123,74 +123,17 @@ class FundRatingZs(AkshareToMySql):
             return False
 
         try:
-            # Get existing IDs
-            existing_ids = {
-                row[0]
-                for row in self.query_data(
-                    f"SELECT r_id FROM {self.table_name} WHERE is_active = 1"  # nosec B608
-                )
-                or []
-            }
-
-            # Insert new data
-            new_data = df[~df["r_id"].isin(existing_ids)]
-            if not new_data.empty:
-                self.insert_data(
-                    new_data,
-                    self.table_name,
-                    [
-                        "r_id",
-                        "fund_code",
-                        "fund_name",
-                        "fund_manager",
-                        "fund_company",
-                        "rating_3y",
-                        "rating_3y_change",
-                        "unit_nav",
-                        "nav_date",
-                        "daily_return",
-                        "return_1y",
-                        "return_3y",
-                        "return_5y",
-                        "fee_rate",
-                        "update_date",
-                    ],
-                )
-                self.logger.info(f"Inserted {len(new_data)} new records")
-
-            # Update existing data
-            updated_data = df[df["r_id"].isin(existing_ids)]
-            if not updated_data.empty:
-                for _, row in updated_data.iterrows():
-                    self.execute_sql(
-                        f"""  # nosec B608
-                        UPDATE {self.table_name}
-                        SET fund_name=%s, fund_manager=%s, fund_company=%s, rating_3y=%s,
-                            rating_3y_change=%s, unit_nav=%s, nav_date=%s, daily_return=%s,
-                            return_1y=%s, return_3y=%s, return_5y=%s, fee_rate=%s,
-                            update_date=%s, updatedate=CURRENT_TIMESTAMP
-                        WHERE r_id=%s
-                        """,
-                        (
-                            row["fund_name"],
-                            row["fund_manager"],
-                            row["fund_company"],
-                            row["rating_3y"],
-                            row["rating_3y_change"],
-                            row["unit_nav"],
-                            row["nav_date"],
-                            row["daily_return"],
-                            row["return_1y"],
-                            row["return_3y"],
-                            row["return_5y"],
-                            row["fee_rate"],
-                            row["update_date"],
-                            row["r_id"],
-                        ),
-                    )
-                self.logger.info(f"Updated {len(updated_data)} records")
-
-            return True
+            save_df = df.copy()
+            save_df["is_active"] = 1
+            save_df["data_source"] = "天天基金"
+            saved_rows = self.save_data(
+                save_df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["R_ID"],
+            )
+            self.logger.info("Upserted %s China Merchants rating records", saved_rows)
+            return bool(saved_rows)
 
         except Exception as e:
             self.logger.error(f"Error saving data: {e}")

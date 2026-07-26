@@ -2,7 +2,7 @@
   <div class="trade-signal-chart">
     <div class="flex justify-between items-center mb-4">
       <h4 class="text-md font-medium">
-        K线图与交易信号
+        {{ t('charts.tscTitle') }}
       </h4>
       <div class="flex gap-2">
         <el-button-group size="small">
@@ -17,25 +17,43 @@
         </el-button-group>
         <el-button
           size="small"
+          :aria-label="t('charts.tscExport')"
           @click="handleExport"
         >
-          <el-icon><Download /></el-icon>
+          <el-icon aria-hidden="true"><Download /></el-icon>
         </el-button>
       </div>
     </div>
+    <p class="sr-only">
+      {{ t('charts.tscA11ySummary', { candles: klines.length, buys: buySignalCount, sells: sellSignalCount }) }}
+    </p>
     <div
+      v-show="hasChartData"
       ref="chartRef"
+      role="img"
+      :aria-label="t('charts.tscA11ySummary', { candles: klines.length, buys: buySignalCount, sells: sellSignalCount })"
       :style="{ height: computedHeight + 'px' }"
+    />
+    <ChartEmptyState
+      v-if="!hasChartData"
+      :title="t('charts.chartNoDataTitle')"
+      :description="t('charts.chartNoDataDesc')"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import * as echarts from 'echarts'
+import { ref, computed, nextTick, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import type * as echarts from 'echarts'
 import { Download } from '@element-plus/icons-vue'
 import type { KlineData, TradeSignal } from '@/types/analytics'
 import { useChartResize } from '@/composables/useChartResize'
+import ChartEmptyState from './ChartEmptyState.vue'
+import { getChartThemeColors } from '@/utils/chartTheme'
+import { TRADE_SIGNAL_MA_COLORS, TRADE_SIGNAL_SUB_COLORS } from '@/constants/chartColors'
+
+const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   klines: KlineData[]
@@ -49,7 +67,7 @@ const props = withDefaults(defineProps<{
   height: 600,
 })
 
-const { chartRef, getChart } = useChartResize(renderChart)
+const { chartRef, getChart, initChart } = useChartResize(renderChart)
 const subChartCount = ref(0)
 
 // 动态计算图表高度：每个副图增加 120px
@@ -61,18 +79,32 @@ const computedHeight = computed(() => {
 // 指标可见性状态（由 legend 点击驱动）
 const indicatorVisibility: Record<string, boolean> = {}
 
-const periods = [
-  { label: '1月', value: '1m' },
-  { label: '3月', value: '3m' },
-  { label: '6月', value: '6m' },
-  { label: '1年', value: '1y' },
-  { label: '全部', value: 'all' },
-]
+const periods = computed(() => [
+  { label: t('charts.tscPeriod1m'), value: '1m' },
+  { label: t('charts.tscPeriod3m'), value: '3m' },
+  { label: t('charts.tscPeriod6m'), value: '6m' },
+  { label: t('charts.tscPeriod1y'), value: '1y' },
+  { label: t('charts.tscPeriodAll'), value: 'all' },
+])
 const selectedPeriod = ref('all')
+const hasChartData = computed(() => props.klines.length > 0)
+const buySignalCount = computed(() => props.signals.filter(signal => signal.type === 'buy').length)
+const sellSignalCount = computed(() => props.signals.filter(signal => signal.type === 'sell').length)
 
 watch(
   () => `${props.klines?.length}:${props.signals?.length}:${Object.keys(props.indicators ?? {}).length}`,
-  () => { renderChart() },
+  async () => {
+    if (!hasChartData.value) return
+    await nextTick()
+    if (getChart()) {
+      renderChart()
+    } else {
+      initChart()
+    }
+    await nextTick()
+    getChart()?.resize()
+  },
+  { flush: 'post' },
 )
 
 /**
@@ -147,7 +179,8 @@ function classifyIndicators(): {
 
 function renderChart() {
   const chartInstance = getChart()
-  if (!chartInstance || !props.klines.length) return
+  if (!chartInstance || !hasChartData.value) return
+  const colors = getChartThemeColors()
 
   const dates = props.klines.map(k => k.date)
   const ohlc = props.klines.map(k => [k.open, k.close, k.low, k.high])
@@ -188,8 +221,8 @@ function renderChart() {
   yAxes.push({ scale: true, splitArea: { show: true } })
   curTop += mainH + gap
 
-  // Grid 1 — 成交量
-  titles.push({ text: '成交量', left: '10%', top: `${curTop - 0.5}%`, textStyle: { fontSize: 11, color: '#999', fontWeight: 'normal' } })
+  // Grid 1 — Volume
+  titles.push({ text: t('charts.tscVolume'), left: '10%', top: `${curTop - 0.5}%`, textStyle: { fontSize: 11, color: '#999', fontWeight: 'normal' } })
   curTop += 1.5
   grids.push({ left: '10%', right: '8%', top: `${curTop}%`, height: `${volH}%` })
   xAxes.push({ type: 'category', gridIndex: 1, data: dates, boundaryGap: false, axisLine: { onZero: false }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: numSub === 0 }, min: 'dataMin', max: 'dataMax' })
@@ -207,23 +240,43 @@ function renderChart() {
     curTop += subH + gap
   }
 
-  // ---------- 系列 ----------
+  // ---------- Series ----------
   const series: echarts.SeriesOption[] = []
-  const legendData: string[] = ['日K']
+  const legendData: string[] = [t('charts.tscDailyKline')]
   const legendSelected: Record<string, boolean> = {}
-  const maColors = ['#f5a623', '#7b68ee', '#20b2aa', '#ff6347', '#9370db', '#e6550d']
+  const maColors = [...TRADE_SIGNAL_MA_COLORS]
 
-  // 买卖点标记
+  // Buy/sell point markers
   const buyPoints = props.signals
     .filter(s => s.type === 'buy')
-    .map(s => ({ coord: [s.date, s.price * 0.98], value: s.price, itemStyle: { color: '#ec0000' }, symbol: 'triangle', symbolSize: 15 }))
+    .map(s => ({
+      coord: [s.date, s.price * 0.98],
+      value: s.price,
+      itemStyle: { color: colors.success },
+      symbol: 'triangle',
+      symbolSize: 15,
+      label: { show: true, formatter: t('charts.tscBuyMarker') },
+    }))
   const sellPoints = props.signals
     .filter(s => s.type === 'sell')
-    .map(s => ({ coord: [s.date, s.price * 1.02], value: s.price, itemStyle: { color: '#00da3c' }, symbol: 'triangle', symbolSize: 15, symbolRotate: 180 }))
+    .map(s => ({
+      coord: [s.date, s.price * 1.02],
+      value: s.price,
+      itemStyle: { color: colors.danger },
+      symbol: 'triangle',
+      symbolSize: 15,
+      symbolRotate: 180,
+      label: { show: true, formatter: t('charts.tscSellMarker') },
+    }))
 
   series.push({
-    name: '日K', type: 'candlestick', data: ohlc,
-    itemStyle: { color: '#ec0000', color0: '#00da3c', borderColor: '#ec0000', borderColor0: '#00da3c' },
+    name: t('charts.tscDailyKline'), type: 'candlestick', data: ohlc,
+    itemStyle: {
+      color: colors.success,
+      color0: colors.danger,
+      borderColor: colors.success,
+      borderColor0: colors.danger,
+    },
     markPoint: { data: [...buyPoints, ...sellPoints], label: { show: false } },
   } as unknown as echarts.SeriesOption)
 
@@ -235,15 +288,15 @@ function renderChart() {
     ci++
   }
 
-  // 成交量（记住其 seriesIndex 用于 visualMap）
+  // Volume (record its seriesIndex for visualMap)
   const volSeriesIdx = series.length
   series.push({
-    name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: volumes,
-    itemStyle: { color: (_params: unknown) => ((_params as { data?: unknown[] }).data?.[2] === 1 ? '#ec0000' : '#00da3c') },
+    name: t('charts.tscVolume'), type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: volumes,
+    itemStyle: { color: (_params: unknown) => ((_params as { data?: unknown[] }).data?.[2] === 1 ? colors.success : colors.danger) },
   } as unknown as echarts.SeriesOption)
 
   // 副图指标
-  const subColors = ['#1890ff', '#722ed1', '#13c2c2', '#eb2f96', '#fa8c16', '#52c41a']
+  const subColors = [...TRADE_SIGNAL_SUB_COLORS]
   for (let i = 0; i < numSub; i++) {
     const gi = 2 + i
     const { name, values } = subGroups[i]
@@ -271,10 +324,10 @@ function renderChart() {
     legend: { top: 0, left: 'center', data: legendData, selected: legendSelected, textStyle: { fontSize: 11 } },
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'cross' },
-      backgroundColor: 'rgba(255, 255, 255, 0.9)', borderWidth: 1, borderColor: '#ccc', padding: 10, textStyle: { color: '#333' },
+      backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 10, textStyle: { color: colors.text },
     },
     axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#777' } },
-    visualMap: { show: false, seriesIndex: volSeriesIdx, dimension: 2, pieces: [{ value: 1, color: '#ec0000' }, { value: -1, color: '#00da3c' }] },
+    visualMap: { show: false, seriesIndex: volSeriesIdx, dimension: 2, pieces: [{ value: 1, color: colors.success }, { value: -1, color: colors.danger }] },
     grid: grids,
     xAxis: xAxes,
     yAxis: yAxes,

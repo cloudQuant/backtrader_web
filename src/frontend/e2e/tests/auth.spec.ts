@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { UserFactory } from '../fixtures/test-data.fixture';
-import { getAdminCredentials } from '../support/auth';
+import { getAdminCredentials, loginAsAdmin, persistAuthTokenForStorageState } from '../support/auth';
 
 /**
  * 认证功能 E2E 测试
@@ -13,32 +13,17 @@ test.describe('认证功能', () => {
     await page.goto('/login');
 
     // 验证页面元素
-    await expect(page.locator('h1')).toContainText('Backtrader Web');
+    await expect(page.locator('h1')).toContainText('AI for Investor');
     await expect(page.getByTestId('login-username')).toBeVisible();
     await expect(page.getByTestId('login-password')).toBeVisible();
     await expect(page.getByTestId('login-submit')).toBeVisible();
   });
 
   test('用户登录成功', async ({ page }) => {
-    const credentials = getAdminCredentials();
+    await loginAsAdmin(page);
 
-    await page.goto('/login');
-
-    // 填写表单
-    await page.getByTestId('login-username').fill(credentials.username);
-    await page.getByTestId('login-password').fill(credentials.password);
-
-    // 提交登录
-    await page.getByTestId('login-submit').click();
-
-    // 等待导航 - 登录成功后应该跳转到仪表板或策略页面
-    await page.waitForFunction(() => !window.location.pathname.startsWith('/login'), null, {
-      timeout: 10000,
-    });
-
-    // 验证已登录 - 应该能看到导航菜单
-    const navMenu = page.locator('.el-menu, nav');
-    await expect(navMenu).toBeVisible();
+    // 验证已登录。移动端会折叠桌面侧边栏，因此检查所有布局共有的主工作区。
+    await expect(page.getByRole('main')).toBeVisible();
   });
 
   test('用户登录失败 - 错误密码', async ({ page }) => {
@@ -52,8 +37,8 @@ test.describe('认证功能', () => {
     await page.getByTestId('login-password').fill(credentials.password);
     await page.getByTestId('login-submit').click();
 
-    // 等待错误消息 - Element Plus 使用 el-message
-    await page.waitForTimeout(1000);
+    // Element Plus renders an accessible error message after validation.
+    await expect(page.locator('.el-message--error, [role="alert"]').first()).toBeVisible();
 
     // 验证仍在登录页面
     await expect(page.getByTestId('login-username')).toBeVisible();
@@ -85,12 +70,8 @@ test.describe('认证功能', () => {
     // 提交注册
     await page.getByTestId('register-submit').click();
 
-    // 等待注册完成 - 应该跳转到登录或仪表板
-    await page.waitForTimeout(2000);
-
-    // 验证注册结果 - URL 应该变化
-    const currentUrl = page.url();
-    expect(currentUrl).toMatch(/\/(login|dashboard|strategy)?/);
+    // 注册完成后应跳转到登录或仪表板。
+    await expect(page).toHaveURL(/\/(login|dashboard|strategy)?/);
   });
 
   test('表单验证 - 密码太短', async ({ page }) => {
@@ -117,17 +98,11 @@ test.describe('认证功能', () => {
    * 用于生成 storage-state.json 文件
    */
   test('保存登录状态', async ({ page, context }) => {
-    const credentials = getAdminCredentials();
+    await loginAsAdmin(page);
 
-    await page.goto('/login');
-    await page.getByTestId('login-username').fill(credentials.username);
-    await page.getByTestId('login-password').fill(credentials.password);
-    await page.getByTestId('login-submit').click();
-
-    // 等待登录成功
-    await page.waitForFunction(() => !window.location.pathname.startsWith('/login'), null, {
-      timeout: 10000,
-    });
+    // Playwright storageState does not include sessionStorage, so mirror the token
+    // into the legacy localStorage key used by the app's migration path.
+    await persistAuthTokenForStorageState(page);
 
     // 保存会话状态
     await context.storageState({ path: 'e2e/fixtures/storage-state.json' });

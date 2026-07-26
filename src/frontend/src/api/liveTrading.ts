@@ -14,9 +14,12 @@ export interface LiveInstanceInfo {
   error: string | null
   params: Record<string, unknown>
   created_at: string
+  updated_at: string
   started_at: string | null
   stopped_at: string | null
   log_dir: string | null
+  gateway_type?: string | null
+  gateway_key?: string | null
 }
 
 export interface LiveInstanceListResponse {
@@ -72,6 +75,15 @@ export interface GatewayHealthInfo {
   asset_type?: string
   account_id?: string
   strategy_name?: string
+  selected_ctp_env?: string
+  td_front?: string
+  md_front?: string
+  selection_reason?: string
+  auth_state?: string
+  login_state?: string
+  front_id?: string
+  session_id?: string
+  trading_day?: string
 }
 
 export interface GatewayHealthListResponse {

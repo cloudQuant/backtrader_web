@@ -4,7 +4,7 @@
 strategy:
   name: "锌肯特纳通道策略"
   description: "基于肯特纳通道的突破策略 - 锌期货"
-  author: "backtrader_web"
+  author: "ai-for-investor"
   category: "simulate"
   
 # ============================================================

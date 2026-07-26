@@ -3,9 +3,18 @@
 # Run manually: pre-commit run --all-files
 
 repos:
+  # Gitleaks - secret scanning (iteration 177 §D)
+  # Blocks commits that contain hard-coded secrets (API keys, tokens, etc).
+  # Config/allowlist: .gitleaks.toml at repo root.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
   # Ruff - Python linter & formatter
+  # To update: pre-commit autoupdate --repo https://github.com/astral-sh/ruff-pre-commit
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+    rev: v0.15.11
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
@@ -26,3 +35,20 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=500]
+
+  # Frontend ESLint + type check (local, only when frontend files change)
+  - repo: local
+    hooks:
+      - id: frontend-eslint
+        name: Frontend ESLint
+        entry: bash -c 'cd src/frontend && npx eslint --no-error-on-unmatched-pattern --max-warnings 0 "$@"' --
+        language: system
+        files: ^src/frontend/.*\.(vue|ts|tsx|js|jsx|cjs|mjs|cts|mts)$
+        pass_filenames: true
+        require_serial: false
+      - id: frontend-typecheck
+        name: Frontend TypeScript type-check
+        entry: bash -c 'cd src/frontend && npx vue-tsc --noEmit --skipLibCheck'
+        language: system
+        files: ^src/frontend/.*\.(vue|ts|tsx)$
+        pass_filenames: false

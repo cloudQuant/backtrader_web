@@ -1,6 +1,8 @@
 from datetime import datetime
 
 import pandas as pd
+import requests
+from akshare.utils import demjson
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
@@ -122,6 +124,56 @@ class GradedFundDailyEm(AkshareToMySql):
             self.logger.warning(f"解析折价率失败: {e}, 原始值: {value}")
             return None
 
+    @staticmethod
+    def _first_existing(row, positions):
+        for pos in positions:
+            if pos < len(row) and row[pos] not in (None, "", "---"):
+                return row[pos]
+        return None
+
+    def _fetch_source_frame(self):
+        url = "https://fund.eastmoney.com/Data/Fund_JJJZ_Data.aspx"
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://fund.eastmoney.com/fjjj.html",
+        }
+        params = {
+            "t": "1",
+            "lx": "9",
+            "letter": "",
+            "gsid": "0",
+            "text": "",
+            "sort": "zdf,desc",
+            "page": "1,10000",
+            "dt": "1580914040623",
+            "atfc": "",
+        }
+        response = requests.get(url, params=params, headers=headers, timeout=30)
+        response.raise_for_status()
+        data_json = demjson.decode(response.text.strip().removeprefix("var db="))
+        rows = data_json.get("datas") or []
+        if not rows:
+            return pd.DataFrame()
+
+        parsed_rows = []
+        for row in rows:
+            parsed_rows.append(
+                {
+                    "FUND_CODE": self._first_existing(row, [0]),
+                    "FUND_NAME": self._first_existing(row, [1]),
+                    "UNIT_NET_VALUE_STR": self._first_existing(row, [3]),
+                    "ACCUMULATED_NET_VALUE_STR": self._first_existing(row, [4]),
+                    "PREV_UNIT_NET_VALUE_STR": self._first_existing(row, [5]),
+                    "PREV_ACCUMULATED_NET_VALUE_STR": self._first_existing(row, [6]),
+                    "DAILY_GROWTH_VALUE_STR": self._first_existing(row, [7]),
+                    "DAILY_GROWTH_RATE_STR": self._first_existing(row, [8]),
+                    "MARKET_PRICE_STR": None,
+                    "DISCOUNT_RATE_STR": None,
+                    "FEE": self._first_existing(row, [17, 18, 20]),
+                }
+            )
+        return pd.DataFrame(parsed_rows)
+
     def fetch_graded_fund_daily_data(self):
         """
         获取分级基金每日数据
@@ -132,37 +184,13 @@ class GradedFundDailyEm(AkshareToMySql):
         try:
             self.logger.info("开始获取分级基金每日数据...")
 
-            # 获取数据
-            df = self.fetch_ak_data("fund_graded_fund_daily_em")
+            # AkShare's wrapper still targets this Eastmoney endpoint, but its fixed
+            # column count is stale. Parse the current source response directly.
+            df = self._fetch_source_frame()
 
             if df is None or df.empty:
                 self.logger.warning("未获取到分级基金每日数据")
                 return None
-
-            # 重命名列 - 动态匹配日期列名
-            cols = df.columns.tolist()
-            column_mapping = {
-                "基金代码": "FUND_CODE",
-                "基金简称": "FUND_NAME",
-                "日增长值": "DAILY_GROWTH_VALUE_STR",
-                "日增长率": "DAILY_GROWTH_RATE_STR",
-                "市价": "MARKET_PRICE_STR",
-                "折价率": "DISCOUNT_RATE_STR",
-                "手续费": "FEE",
-            }
-
-            # 匹配包含 '单位净值' 或 '累计净值' 的动态列名
-            nav_cols = [c for c in cols if "单位净值" in c or "累计净值" in c]
-            if len(nav_cols) >= 4:
-                column_mapping[nav_cols[0]] = "UNIT_NET_VALUE_STR"
-                column_mapping[nav_cols[1]] = "ACCUMULATED_NET_VALUE_STR"
-                column_mapping[nav_cols[2]] = "PREV_UNIT_NET_VALUE_STR"
-                column_mapping[nav_cols[3]] = "PREV_ACCUMULATED_NET_VALUE_STR"
-            elif len(nav_cols) >= 2:
-                column_mapping[nav_cols[0]] = "UNIT_NET_VALUE_STR"
-                column_mapping[nav_cols[1]] = "ACCUMULATED_NET_VALUE_STR"
-
-            df = df.rename(columns=column_mapping)
 
             # 解析数值型数据
             df["UNIT_NET_VALUE"] = df["UNIT_NET_VALUE_STR"].apply(self.parse_net_value)

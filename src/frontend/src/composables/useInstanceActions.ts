@@ -6,6 +6,11 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getErrorMessage } from '@/api'
+import i18n from '@/i18n'
+
+function tt(key: string, named?: Record<string, unknown>): string {
+  return named ? i18n.global.t(key, named) : i18n.global.t(key)
+}
 
 /** Minimal shape required for instance actions (shared by LiveInstanceInfo, SimulationInstanceInfo). */
 export interface InstanceInfo {
@@ -24,14 +29,17 @@ export interface InstanceActionsApi<T extends InstanceInfo = InstanceInfo> {
   loadData(): Promise<void>
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  running: '运行中',
-  stopped: '已停止',
-  error: '异常',
-}
-
 export function statusLabel(status: string): string {
-  return STATUS_LABELS[status] ?? status
+  switch (status) {
+    case 'running':
+      return tt('instanceActions.statusRunning')
+    case 'stopped':
+      return tt('instanceActions.statusStopped')
+    case 'error':
+      return tt('instanceActions.statusError')
+    default:
+      return status
+  }
 }
 
 export function formatStrategyId(id?: string): string {
@@ -51,9 +59,9 @@ export function useInstanceActions<T extends InstanceInfo = InstanceInfo>(
     try {
       const updated = await api.start(inst.id)
       Object.assign(inst, updated)
-      ElMessage.success(`${inst.strategy_name} 已启动`)
+      ElMessage.success(tt('instanceActions.msgStarted', { name: inst.strategy_name }))
     } catch (e: unknown) {
-      ElMessage.error(getErrorMessage(e, '启动失败'))
+      ElMessage.error(getErrorMessage(e, tt('instanceActions.msgStartFailed')))
     } finally {
       delete actionLoading.value[inst.id]
     }
@@ -64,9 +72,9 @@ export function useInstanceActions<T extends InstanceInfo = InstanceInfo>(
     try {
       const updated = await api.stop(inst.id)
       Object.assign(inst, updated)
-      ElMessage.success(`${inst.strategy_name} 已停止`)
+      ElMessage.success(tt('instanceActions.msgStopped', { name: inst.strategy_name }))
     } catch (e: unknown) {
-      ElMessage.error(getErrorMessage(e, '停止失败'))
+      ElMessage.error(getErrorMessage(e, tt('instanceActions.msgStopFailed')))
     } finally {
       delete actionLoading.value[inst.id]
     }
@@ -76,10 +84,10 @@ export function useInstanceActions<T extends InstanceInfo = InstanceInfo>(
     actionLoading.value[inst.id] = 'remove'
     try {
       await api.remove(inst.id)
-      ElMessage.success('已删除')
+      ElMessage.success(tt('instanceActions.msgRemoved'))
       await api.loadData()
     } catch (e: unknown) {
-      ElMessage.error(getErrorMessage(e, '删除失败'))
+      ElMessage.error(getErrorMessage(e, tt('instanceActions.msgRemoveFailed')))
     } finally {
       delete actionLoading.value[inst.id]
     }
@@ -89,10 +97,12 @@ export function useInstanceActions<T extends InstanceInfo = InstanceInfo>(
     batchLoading.value = true
     try {
       const res = await api.startAll()
-      ElMessage.success(`启动完成: 成功 ${res.success}, 失败 ${res.failed}`)
+      ElMessage.success(
+        tt('instanceActions.msgStartAllResult', { success: res.success, failed: res.failed })
+      )
       await api.loadData()
     } catch (e: unknown) {
-      ElMessage.error(getErrorMessage(e, '批量启动失败'))
+      ElMessage.error(getErrorMessage(e, tt('instanceActions.msgBatchStartFail')))
     } finally {
       batchLoading.value = false
     }
@@ -102,10 +112,12 @@ export function useInstanceActions<T extends InstanceInfo = InstanceInfo>(
     batchLoading.value = true
     try {
       const res = await api.stopAll()
-      ElMessage.success(`停止完成: 成功 ${res.success}, 失败 ${res.failed}`)
+      ElMessage.success(
+        tt('instanceActions.msgStopAllResult', { success: res.success, failed: res.failed })
+      )
       await api.loadData()
     } catch (e: unknown) {
-      ElMessage.error(getErrorMessage(e, '批量停止失败'))
+      ElMessage.error(getErrorMessage(e, tt('instanceActions.msgBatchStopFail')))
     } finally {
       batchLoading.value = false
     }

@@ -1,56 +1,56 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="定时优化设置"
+    :title="t('workspaceDialogs.scheduledOptTitle')"
     width="760px"
   >
     <div class="space-y-4">
       <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            当前状态
+            {{ t('workspaceDialogs.currentStatus') }}
           </div>
           <div
             class="mt-1 text-lg font-semibold"
             :class="form.enabled ? 'text-emerald-600' : 'text-slate-700'"
           >
-            {{ form.enabled ? '已启用' : '已关闭' }}
+            {{ form.enabled ? t('workspaceDialogs.enabledStatus') : t('workspaceDialogs.disabledStatus') }}
           </div>
           <div class="text-xs text-slate-400">
-            定时优化调度
+            {{ t('workspaceDialogs.scheduledOpt') }}
           </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            执行频率
+            {{ t('workspaceDialogs.runFreq') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-slate-700">
             {{ frequencyLabel }}
           </div>
           <div class="text-xs text-slate-400">
-            自动触发周期
+            {{ t('workspaceDialogs.autoTrigger') }}
           </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            执行时间
+            {{ t('workspaceDialogs.runTime') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-slate-700">
             {{ form.execution_time }}
           </div>
           <div class="text-xs text-slate-400">
-            工作区计划时点
+            {{ t('workspaceDialogs.workspaceTimePoint') }}
           </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            作用范围
+            {{ t('workspaceDialogs.sessionScope') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-slate-700">
             {{ scopeLabel }}
           </div>
           <div class="text-xs text-slate-400">
-            已选 {{ store.selectedUnitIds.length }} 个单元
+            {{ t('workspaceDialogs.selectedSuffix') }} {{ store.selectedUnitIds.length }} {{ t('workspaceDialogs.nUnitsCount') }}
           </div>
         </div>
       </div>
@@ -60,44 +60,44 @@
           label-width="110px"
           class="space-y-2"
         >
-          <el-form-item label="启用定时优化">
+          <el-form-item :label="t('workspaceDialogs.enabledScheduledOpt')">
             <el-switch v-model="form.enabled" />
           </el-form-item>
-          <el-form-item label="执行频率">
+          <el-form-item :label="t('workspaceDialogs.runFreq')">
             <el-radio-group v-model="form.frequency">
               <el-radio value="daily">
-                每日
+                {{ t('workspaceDialogs.freqDaily') }}
               </el-radio>
               <el-radio value="weekly">
-                每周
+                {{ t('workspaceDialogs.weekly') }}
               </el-radio>
             </el-radio-group>
           </el-form-item>
-          <el-form-item label="执行时间">
+          <el-form-item :label="t('workspaceDialogs.runTime')">
             <el-time-picker
               v-model="form.execution_time"
               value-format="HH:mm"
               format="HH:mm"
-              placeholder="选择时间"
+              :placeholder="t('workspaceDialogs.selectTime')"
               class="w-40"
             />
           </el-form-item>
-          <el-form-item label="作用范围">
+          <el-form-item :label="t('workspaceDialogs.sessionScope')">
             <el-select
               v-model="form.unit_scope"
               class="w-48"
             >
               <el-option
-                label="全部交易单元"
+                :label="t('workspaceDialogs.allTradingUnits')"
                 value="all"
               />
               <el-option
-                label="仅当前选中单元"
+                :label="t('workspaceDialogs.onlySelectedUnits')"
                 value="selected"
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="空闲时执行">
+          <el-form-item :label="t('workspaceDialogs.runWhenIdle')">
             <el-switch v-model="form.only_when_idle" />
           </el-form-item>
         </el-form>
@@ -107,20 +107,20 @@
         type="warning"
         :closable="false"
         show-icon
-        title="当前版本保存工作区级定时优化策略配置，供后续调度器统一读取。"
+        :title="t('workspaceDialogs.saveScheduledHint') + ', ' + t('workspaceDialogs.forSchedulerRead') + '.'"
       />
     </div>
 
     <template #footer>
       <el-button @click="visible = false">
-        取消
+        {{ t('workspaceDialogs.cancel') }}
       </el-button>
       <el-button
         type="primary"
         :loading="loading"
         @click="handleSave"
       >
-        保存
+        {{ t('workspaceDialogs.save') }}
       </el-button>
     </template>
   </el-dialog>
@@ -129,9 +129,11 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { getErrorMessage } from '@/api/index'
 import { useWorkspaceStore } from '@/stores/workspace'
 
+const { t } = useI18n()
 const props = defineProps<{
   modelValue: boolean
   workspaceId: string
@@ -144,8 +146,8 @@ const emit = defineEmits<{
 
 const store = useWorkspaceStore()
 const loading = computed(() => store.loading)
-const frequencyLabel = computed(() => (form.frequency === 'weekly' ? '每周' : '每日'))
-const scopeLabel = computed(() => (form.unit_scope === 'selected' ? '当前选中单元' : '全部交易单元'))
+const frequencyLabel = computed(() => (form.frequency === 'weekly' ? t('workspaceDialogs.weekly') : t('workspaceDialogs.freqDaily')))
+const scopeLabel = computed(() => (form.unit_scope === 'selected' ? t('workspaceDialogs.selectedUnits') : t('workspaceDialogs.allTradingUnits')))
 const visible = computed({
   get: () => props.modelValue,
   set: (value: boolean) => emit('update:modelValue', value),
@@ -192,10 +194,10 @@ async function handleSave() {
     }
     await store.updateWorkspace(props.workspaceId, { trading_config: tradingConfig })
     emit('saved', tradingConfig)
-    ElMessage.success('定时优化设置已保存')
+    ElMessage.success(t('workspaceDialogs.scheduledOptSaved'))
     visible.value = false
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '保存定时优化设置失败'))
+    ElMessage.error(getErrorMessage(error, t('workspaceDialogs.scheduledOptSaveFailed')))
   }
 }
 </script>

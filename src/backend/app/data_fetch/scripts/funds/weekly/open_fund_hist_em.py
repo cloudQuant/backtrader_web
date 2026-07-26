@@ -265,7 +265,7 @@ class OpenFundHistEm(AkshareToMySql):
             unique_keys=["R_ID"],
         )
 
-    def run(self, fund_codes=None, indicators=None, period="成立来"):
+    def run(self, fund_codes=None, indicators=None, period="成立来", max_codes=None):
         """
         执行数据获取和保存
 
@@ -290,6 +290,9 @@ class OpenFundHistEm(AkshareToMySql):
                 if not fund_codes:
                     self.logger.error("未获取到基金代码")
                     return False
+            if max_codes is not None and len(fund_codes) > int(max_codes):
+                fund_codes = fund_codes[: int(max_codes)]
+                self.logger.info(f"限制处理开放式基金数量为{int(max_codes)}个")
 
             # 如果未指定数据类型，则获取所有支持的类型
             if indicators is None:

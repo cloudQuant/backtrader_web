@@ -3,16 +3,19 @@ Authentication API routes.
 """
 
 from functools import lru_cache
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.api.deps import get_current_user
+from app.api._dependencies import get_current_user
+from app.config import get_settings
 from app.rate_limit import limiter
 from app.schemas.auth import (
     ChangePassword,
     RefreshTokenRequest,
     RefreshTokenResponse,
     Token,
+    TokenPayload,
     UserCreate,
     UserLogin,
     UserResponse,
@@ -23,19 +26,26 @@ from app.utils.logger import audit_logger, get_logger
 router = APIRouter()
 logger = get_logger(__name__)
 
+# Rate limits are configurable so dev/test environments can raise the quota for
+# repeated e2e runs without weakening production brute-force protection.
+_settings = get_settings()
+_REGISTER_LIMIT = _settings.RATE_LIMIT_REGISTER
+_LOGIN_LIMIT = _settings.RATE_LIMIT_LOGIN
+_AUTH_ME_LIMIT = _settings.RATE_LIMIT_AUTH_ME
+
 
 @lru_cache
-def get_auth_service():
+def get_auth_service() -> AuthService:
     return AuthService()
 
 
 @router.post("/register", response_model=UserResponse, summary="User registration")
-@limiter.limit("5/hour")
+@limiter.limit(_REGISTER_LIMIT)
 async def register(
     user_create: UserCreate,
     request: Request,
     service: AuthService = Depends(get_auth_service),
-):
+) -> UserResponse:
     """Register a new user account.
 
     Rate limited to 5 requests per hour per IP to prevent abuse.
@@ -62,12 +72,12 @@ async def register(
 
 
 @router.post("/login", response_model=Token, summary="User login")
-@limiter.limit("10/minute")
+@limiter.limit(_LOGIN_LIMIT)
 async def login(
     user_login: UserLogin,
     request: Request,
     service: AuthService = Depends(get_auth_service),
-):
+) -> Token:
     """Authenticate and return a JWT access token.
 
     Rate limited to 10 requests per minute per IP to prevent brute force attacks.
@@ -107,7 +117,7 @@ async def login_with_refresh(
     user_login: UserLogin,
     request: Request,
     service: AuthService = Depends(get_auth_service),
-):
+) -> RefreshTokenResponse:
     """Authenticate and return JWT access and refresh tokens.
 
     This endpoint provides enhanced security by issuing both an access token
@@ -149,7 +159,7 @@ async def refresh_tokens(
     request: Request,
     request_data: RefreshTokenRequest,
     auth_service: AuthService = Depends(get_auth_service),
-):
+) -> RefreshTokenResponse:
     """Refresh an access token using a refresh token.
 
     This endpoint implements token rotation - the old refresh token is
@@ -186,7 +196,7 @@ async def logout(
     request: Request,
     request_data: RefreshTokenRequest,
     auth_service: AuthService = Depends(get_auth_service),
-):
+) -> dict[str, str]:
     """Logout user by revoking their refresh token.
 
     Args:
@@ -212,9 +222,9 @@ async def logout(
 async def change_password(
     req: ChangePassword,
     request: Request,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     service: AuthService = Depends(get_auth_service),
-):
+) -> dict[str, str]:
     """Change the current user's password.
 
     Note: Changing password will revoke all existing refresh tokens
@@ -242,12 +252,12 @@ async def change_password(
 
 
 @router.get("/me", response_model=UserResponse, summary="Get current user info")
-@limiter.limit("60/minute")
+@limiter.limit(_AUTH_ME_LIMIT)
 async def get_me(
     request: Request,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     service: AuthService = Depends(get_auth_service),
-):
+) -> Any:
     """Get information about the currently authenticated user.
 
     Args:

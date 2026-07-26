@@ -1,6 +1,6 @@
 # AGENTS.md - Coding Agent Instructions
 
-Essential info for AI agents working on Backtrader Web, a quantitative trading platform.
+Essential info for AI agents working on AI for Investor, a quantitative trading platform.
 
 **Tech Stack**: Python 3.10+ (FastAPI, SQLAlchemy 2.0, Pydantic) | Vue 3 + TypeScript (Vite, Element Plus, Pinia) | SQLite/PostgreSQL/MySQL
 

@@ -1,125 +1,35 @@
-# 生产环境部署
+# 生产环境
 
-## 要求
+## 上线原则
 
-- **服务器**：2+ CPU 核心，4GB+ 内存
-- **数据库**：PostgreSQL 14+ 或 MySQL 8+
-- **Redis**：7+
-- **SSL 证书**：Let's Encrypt 或商业证书
+生产环境的目标是可恢复、可审计和最小权限，而不是把开发环境直接暴露到公网。应用库、行情仓、AI 提供方和交易网关应分别配置访问权限、备份和责任人。
 
-## 安全清单
+## 最低清单
 
-- [ ] 修改所有默认密码
-- [ ] 使用有效 SSL 证书启用 HTTPS
-- [ ] 配置防火墙（仅允许 80、443）
-- [ ] 启用限流
-- [ ] 设置监控和告警
-- [ ] 配置日志轮转
-- [ ] 启用数据库备份
+- [ ] 使用独立的 MySQL/PostgreSQL 应用数据库，并完成备份和恢复演练。
+- [ ] 为行情仓单独设置连接、读写权限和数据保留策略。
+- [ ] 以密钥管理服务或受控环境变量提供 `SECRET_KEY`、`JWT_SECRET_KEY`、数据库密码和网关凭据。
+- [ ] 固定允许的 `CORS_ORIGINS`，由反向代理终结 TLS，并限制管理端入口。
+- [ ] 关闭 `DB_AUTO_CREATE_SCHEMA` 与 `DB_AUTO_CREATE_DEFAULT_ADMIN` 等开发自举。
+- [ ] 记录日志保留、监控、告警、AI 成本预算、数据源故障处理和网关人工审批流程。
 
-## 环境配置
-
-### 数据库
+## 健康检查与升级
 
 ```bash
-# PostgreSQL
-DATABASE_TYPE=postgresql
-DATABASE_URL=postgresql+asyncpg://user:pass@prod-db:5432/backtrader
+curl -fsS http://localhost/health
+curl -fsS http://localhost:8000/api/v1/health
 
-# MySQL
-DATABASE_TYPE=mysql
-DATABASE_URL=mysql+aiomysql://user:pass@prod-db:3306/backtrader
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml pull
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml up -d
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml ps
 ```
 
-### 安全
+升级前先备份数据库、策略、工作区与运行日志；升级后执行健康检查、登录冒烟测试、数据仓访问测试和受控回测。出现异常时回滚到已验证镜像和已演练的数据恢复点。
 
-```bash
-# 生成安全密钥
-SECRET_KEY=$(openssl rand -hex 32)
-JWT_SECRET_KEY=$(openssl rand -hex 32)
+## AI 与交易边界
 
-# 生产环境 CORS
-CORS_ORIGINS=https://your-domain.com
-```
+- AI 请求应走被批准的提供方，配置超时、预算和审计；不要记录原始密钥。
+- 生产知识库上传需经过敏感信息检查和权限隔离。
+- 网关凭据和真实交易权限应与普通应用账号分离；以模拟/隔离验证、人工审批和风险限额为默认。
 
-### 性能
-
-```bash
-# Workers (2x CPU 核心)
-WORKERS=4
-
-# 超时
-TIMEOUT=300
-```
-
-## Nginx 配置
-
-反向代理设置：
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name your-domain.com;
-
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location / {
-        proxy_pass http://localhost:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-    }
-
-    location /api/ {
-        proxy_pass http://localhost:8000;
-        proxy_set_header Host $host;
-    }
-}
-```
-
-## 监控
-
-### 健康检查
-
-```bash
-curl https://your-domain.com/health
-```
-
-### 指标
-
-在 `/api/v1/monitoring/metrics` 访问 Prometheus 格式的指标。
-
-## 备份
-
-### 数据库备份
-
-```bash
-# PostgreSQL
-pg_dump -h prod-db -U user backtrader > backup.sql
-
-# MySQL
-mysqldump -h prod-db -u user -p backtrader > backup.sql
-```
-
-### 自动备份
-
-设置定时任务进行每日备份：
-
-```bash
-0 2 * * * /path/to/backup.sh
-```
-
-## 更新
-
-```bash
-# 拉取最新
-git pull origin main
-
-# 重新构建
-docker compose -f docker-compose.prod.yml build
-
-# 重启
-docker compose -f docker-compose.prod.yml up -d
-```
+Docker 变量与容器操作见[Docker 部署](./docker.md)。

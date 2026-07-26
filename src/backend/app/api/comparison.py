@@ -5,6 +5,7 @@ Supports comparing and analyzing multiple backtest results.
 """
 
 import logging
+import typing
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def get_comparison_service():
+def get_comparison_service() -> typing.Any:
     """Dependency injection for ComparisonService.
 
     Returns:
@@ -39,9 +40,9 @@ def get_comparison_service():
 @router.post("/", response_model=ComparisonResponse, summary="Create backtest comparison")
 async def create_comparison(
     request: ComparisonCreate,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: ComparisonService = Depends(get_comparison_service),
-):
+) -> typing.Any:
     """Create a new backtest comparison.
 
     Args:
@@ -70,9 +71,9 @@ async def create_comparison(
 )
 async def get_comparison_detail(
     comparison_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: ComparisonService = Depends(get_comparison_service),
-):
+) -> typing.Any:
     """Get comparison detail by ID.
 
     Args:
@@ -107,9 +108,9 @@ async def get_comparison_detail(
 async def update_comparison(
     comparison_id: str,
     request: ComparisonUpdate,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: ComparisonService = Depends(get_comparison_service),
-):
+) -> typing.Any:
     """Update a backtest comparison.
 
     Args:
@@ -139,12 +140,12 @@ async def update_comparison(
     return comparison
 
 
-@router.delete("/{comparison_id}", summary="Delete backtest comparison")
+@router.delete("/{comparison_id}", summary="Delete backtest comparison", response_model=None)
 async def delete_comparison(
     comparison_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: ComparisonService = Depends(get_comparison_service),
-):
+) -> typing.Any:
     """Delete a backtest comparison.
 
     Args:
@@ -171,12 +172,12 @@ async def delete_comparison(
 
 @router.get("/", response_model=ComparisonListResponse, summary="List backtest comparisons")
 async def list_comparisons(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: ComparisonService = Depends(get_comparison_service),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     is_public: bool | None = Query(None, description="Filter by public status"),
-):
+) -> typing.Any:
     """Get the list of backtest comparisons.
 
     Args:
@@ -199,12 +200,14 @@ async def list_comparisons(
     return ComparisonListResponse(total=total, items=comparisons)
 
 
-@router.post("/{comparison_id}/toggle-favorite", summary="Toggle favorite status")
+@router.post(
+    "/{comparison_id}/toggle-favorite", summary="Toggle favorite status", response_model=None
+)
 async def toggle_comparison_favorite(
     comparison_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: ComparisonService = Depends(get_comparison_service),
-):
+) -> typing.Any:
     """Toggle the favorite status of a comparison.
 
     Adds or removes the comparison from the user's favorites list.
@@ -241,13 +244,13 @@ async def toggle_comparison_favorite(
     }
 
 
-@router.post("/{comparison_id}/share", summary="Share backtest comparison")
+@router.post("/{comparison_id}/share", summary="Share backtest comparison", response_model=None)
 async def share_comparison(
     comparison_id: str,
     request: dict,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: ComparisonService = Depends(get_comparison_service),
-):
+) -> typing.Any:
     """Share a backtest comparison with other users.
 
     Args:
@@ -309,12 +312,12 @@ async def _get_comparison_or_404(
     return comparison
 
 
-@router.get("/{comparison_id}/metrics", summary="Get metrics comparison data")
+@router.get("/{comparison_id}/metrics", summary="Get metrics comparison data", response_model=None)
 async def get_metrics_comparison(
     comparison_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: ComparisonService = Depends(get_comparison_service),
-):
+) -> typing.Any:
     """Get metrics comparison data for multiple backtests.
 
     Returns comparison of metrics including total return, annualized return,
@@ -336,12 +339,14 @@ async def get_metrics_comparison(
     }
 
 
-@router.get("/{comparison_id}/equity", summary="Get equity curve comparison data")
+@router.get(
+    "/{comparison_id}/equity", summary="Get equity curve comparison data", response_model=None
+)
 async def get_equity_comparison(
     comparison_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: ComparisonService = Depends(get_comparison_service),
-):
+) -> typing.Any:
     """Get equity curve comparison data for multiple backtests.
 
     Returns equity curve data for each backtest, suitable for plotting.
@@ -362,12 +367,12 @@ async def get_equity_comparison(
     }
 
 
-@router.get("/{comparison_id}/trades", summary="Get trades comparison data")
+@router.get("/{comparison_id}/trades", summary="Get trades comparison data", response_model=None)
 async def get_trades_comparison(
     comparison_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: ComparisonService = Depends(get_comparison_service),
-):
+) -> typing.Any:
     """Get trades comparison data for multiple backtests.
 
     Returns comparison of trade statistics including trade count, PnL, etc.
@@ -388,12 +393,14 @@ async def get_trades_comparison(
     }
 
 
-@router.get("/{comparison_id}/drawdown", summary="Get drawdown comparison data")
+@router.get(
+    "/{comparison_id}/drawdown", summary="Get drawdown comparison data", response_model=None
+)
 async def get_drawdown_comparison(
     comparison_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: ComparisonService = Depends(get_comparison_service),
-):
+) -> typing.Any:
     """Get drawdown comparison data for multiple backtests.
 
     Returns drawdown curve data for each backtest.

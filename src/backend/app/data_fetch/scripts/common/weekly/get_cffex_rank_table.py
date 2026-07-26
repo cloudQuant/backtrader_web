@@ -10,6 +10,7 @@ import pandas as pd
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+from app.data_fetch.scripts.common.dict_result import flatten_dict_result
 
 
 class GetCffexRankTable(AkshareToMySql):
@@ -26,7 +27,7 @@ class GetCffexRankTable(AkshareToMySql):
             `data_date` DATE COMMENT '数据日期',
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
             `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-        UNIQUE KEY uk_symbol_date (`symbol`, `data_date`),
+        INDEX idx_symbol_date (`symbol`, `data_date`),
         INDEX idx_data_date (`data_date`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Get Cffex Rank Table'
     """
@@ -42,7 +43,8 @@ class GetCffexRankTable(AkshareToMySql):
         """
         try:
             # Fetch data from AkShare
-            df = self.fetch_ak_data("get_cffex_rank_table", **kwargs)
+            result = self.fetch_ak_data("get_cffex_rank_table", **kwargs)
+            df = flatten_dict_result(result, data_date=kwargs.get("date"))
 
             if df is None or df.empty:
                 self.logger.warning("No data found")

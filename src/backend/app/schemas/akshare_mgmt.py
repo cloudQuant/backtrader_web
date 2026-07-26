@@ -235,6 +235,8 @@ class DataTableSchemaResponse(BaseModel):
     columns: list[DataTableSchemaColumn]
     row_count: int
     last_update_time: datetime | None = None
+    data_available: bool = True
+    error: str | None = None
 
 
 class DataTableRowsResponse(BaseModel):
@@ -246,6 +248,8 @@ class DataTableRowsResponse(BaseModel):
     page: int
     page_size: int
     total: int
+    data_available: bool = True
+    error: str | None = None
 
 
 class InterfaceCategoryResponse(BaseModel):

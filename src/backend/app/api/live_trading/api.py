@@ -1,0 +1,738 @@
+"""
+Live trading instance management API routes.
+
+This module provides endpoints for managing live trading strategy instances,
+including starting, stopping, and monitoring live trading operations.
+"""
+
+import asyncio
+import logging
+import typing
+from pathlib import Path
+from typing import Any, cast
+
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.api._dependencies import get_current_user
+from app.api.data.deps import require_data_admin_user
+from app.api.live_trading.credentials import build_gateway_credentials_payload
+from app.schemas.analytics import (
+    BacktestDetailResponse,
+    KlineWithSignalsResponse,
+    MonthlyReturnsResponse,
+    PerformanceMetrics,
+)
+from app.schemas.auth import TokenPayload
+from app.schemas.live_trading_instance import (
+    GatewayConnectRequest,
+    GatewayConnectResponse,
+    LiveBatchResponse,
+    LiveGatewayPresetListResponse,
+    LiveInstanceCreate,
+    LiveInstanceInfo,
+    LiveInstanceListResponse,
+)
+from app.services.gateway import manual as manual_gateway_service
+from app.services.live_trading import instance as live_instance_service
+from app.services.live_trading.manager import LiveTradingManager, get_live_trading_manager
+from app.services.log_parser_service import (
+    find_latest_log_dir,
+    parse_all_logs,
+    parse_data_log,
+    parse_trade_log,
+    parse_value_log,
+)
+from app.services.strategy.core import get_strategy_dir
+from app.types.live_trading import (
+    ConnectResult,
+    GatewayCredentials,
+    InstanceData,
+    OperationResult,
+    StartResult,
+    StopResult,
+)
+
+_logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+def _get_manager() -> LiveTradingManager:
+    """Get the live trading manager instance.
+
+    Returns:
+        The global LiveTradingManager instance.
+    """
+    return get_live_trading_manager()
+
+
+@router.get("/", response_model=LiveInstanceListResponse, summary="List live trading instances")
+async def list_instances(
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> dict[str, Any]:
+    """List all live trading instances for the current user.
+
+    Args:
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        A list of live trading instances belonging to the user.
+    """
+    instances = mgr.list_instances(user_id=current_user.sub)
+    return {"total": len(instances), "instances": instances}
+
+
+@router.get(
+    "/presets",
+    response_model=LiveGatewayPresetListResponse,
+    summary="List live trading gateway presets",
+)
+async def list_gateway_presets(
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> dict[str, Any]:
+    presets = mgr.get_gateway_presets()
+    return {"total": len(presets), "presets": presets}
+
+
+@router.get(
+    "/gateways/credentials",
+    summary="Get saved gateway credentials for form pre-fill",
+)
+async def get_gateway_credentials(
+    current_user: typing.Any = Depends(require_data_admin_user),
+) -> dict[str, Any]:
+    """Return public gateway defaults and credential-presence indicators.
+
+    Passwords, API secrets, tokens, and cookie locations remain server-side;
+    operators must enter any required secret in the connect form.
+    """
+    env_values = manual_gateway_service._load_backend_gateway_env_values()
+    return build_gateway_credentials_payload(env_values=env_values)
+
+
+@router.get(
+    "/gateways/health",
+    summary="Get health status of all active gateways",
+)
+async def get_gateway_health(
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> dict[str, Any]:
+    """Return health snapshots for all active gateway runtimes.
+
+    Returns:
+        A list of gateway health snapshots with state, connection,
+        heartbeat, tick/order counts, and recent errors.
+    """
+    try:
+        gateways = await asyncio.to_thread(mgr.get_gateway_health)
+    except Exception as exc:
+        _logger.exception("Unhandled error in get_gateway_health")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get gateway health / 获取网关健康状态失败: {type(exc).__name__}: {exc}",
+        ) from exc
+    return {"total": len(gateways), "gateways": gateways}
+
+
+@router.post(
+    "/gateways/connect",
+    response_model=GatewayConnectResponse,
+    summary="Manually connect a gateway",
+)
+def connect_gateway(
+    req: GatewayConnectRequest,
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> ConnectResult:
+    """Manually connect a gateway with provided credentials.
+
+    Supports CTP, IB_WEB, BINANCE, MT5, and OKX exchange types.
+    Uses ``def`` (not ``async def``) so the blocking subprocess start
+    runs in a thread-pool instead of stalling the event loop.
+    """
+    try:
+        result = mgr.connect_gateway(req.exchange_type, cast(GatewayCredentials, req.credentials))
+    except Exception as exc:
+        _logger.exception("Unhandled error in connect_gateway")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to connect gateway / 连接网关失败: {type(exc).__name__}: {exc}",
+        ) from exc
+    if result["status"] == "error":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])
+    return result
+
+
+@router.post(
+    "/gateways/disconnect",
+    response_model=GatewayConnectResponse,
+    summary="Disconnect a manually-started gateway",
+)
+async def disconnect_gateway(
+    gateway_key: str,
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> OperationResult:
+    """Disconnect a manually-started gateway by its key."""
+    result = await asyncio.to_thread(mgr.disconnect_gateway, gateway_key)
+    if result["status"] == "error":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])
+    return result
+
+
+@router.get(
+    "/gateways/connected",
+    summary="List manually connected gateways",
+)
+async def list_connected_gateways(
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> dict[str, Any]:
+    """List all manually connected gateways with basic info."""
+    gateways = mgr.list_connected_gateways()
+    return {"total": len(gateways), "gateways": gateways}
+
+
+@router.get(
+    "/gateways/{gateway_key}/account",
+    summary="Query account info from a connected gateway",
+)
+async def query_gateway_account(
+    gateway_key: str,
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> dict[str, Any]:
+    """Query account info from a connected gateway."""
+    result = await asyncio.to_thread(mgr.query_gateway_account, gateway_key)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Gateway '{gateway_key}' not found or has no runtime",
+        )
+    return result
+
+
+@router.get(
+    "/gateways/{gateway_key}/positions",
+    summary="Query positions from a connected gateway",
+)
+async def query_gateway_positions(
+    gateway_key: str,
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> dict[str, Any]:
+    """Query positions from a connected gateway."""
+    try:
+        positions = await asyncio.to_thread(
+            mgr.query_gateway_positions,
+            gateway_key,
+            strict=True,
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if "not connected" in message or "has no runtime" in message
+            else status.HTTP_502_BAD_GATEWAY
+        )
+        raise HTTPException(status_code=status_code, detail=message) from exc
+    return {"total": len(positions), "positions": positions}
+
+
+@router.post("/", response_model=LiveInstanceInfo, summary="Add live trading instance")
+async def add_instance(
+    req: LiveInstanceCreate,
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> InstanceData:
+    """Add a new live trading instance.
+
+    Args:
+        req: The instance creation request.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        The created instance information.
+
+    Raises:
+        HTTPException: If the instance cannot be created.
+    """
+    try:
+        return mgr.add_instance(req.strategy_id, req.params, user_id=current_user.sub)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.delete("/{instance_id}", summary="Delete live trading instance")
+async def remove_instance(
+    instance_id: str,
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> dict[str, str]:
+    """Delete a live trading instance.
+
+    Args:
+        instance_id: The ID of the instance to delete.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        A success message.
+
+    Raises:
+        HTTPException: If the instance is not found.
+    """
+    if not mgr.remove_instance(instance_id, user_id=current_user.sub):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found")
+    return {"message": "Deleted successfully"}
+
+
+@router.get(
+    "/{instance_id}", response_model=LiveInstanceInfo, summary="Get live trading instance details"
+)
+async def get_instance(
+    instance_id: str,
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> InstanceData:
+    """Get details of a specific live trading instance.
+
+    Args:
+        instance_id: The ID of the instance.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        The instance information.
+
+    Raises:
+        HTTPException: If the instance is not found.
+    """
+    inst = mgr.get_instance(instance_id, user_id=current_user.sub)
+    if not inst:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found")
+    return inst
+
+
+@router.post(
+    "/{instance_id}/start", response_model=LiveInstanceInfo, summary="Start live trading instance"
+)
+async def start_instance(
+    instance_id: str,
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> StartResult:
+    """Start a live trading instance.
+
+    Args:
+        instance_id: The ID of the instance to start.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        The updated instance information.
+
+    Raises:
+        HTTPException: If the instance cannot be started.
+    """
+    try:
+        return await mgr.start_instance(instance_id, user_id=current_user.sub)
+    except live_instance_service.InstanceAccessError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found"
+        ) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post(
+    "/{instance_id}/stop", response_model=LiveInstanceInfo, summary="Stop live trading instance"
+)
+async def stop_instance(
+    instance_id: str,
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> StopResult:
+    """Stop a live trading instance.
+
+    Args:
+        instance_id: The ID of the instance to stop.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        The updated instance information.
+
+    Raises:
+        HTTPException: If the instance cannot be stopped.
+    """
+    try:
+        return await mgr.stop_instance(instance_id, user_id=current_user.sub)
+    except live_instance_service.InstanceAccessError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found"
+        ) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post(
+    "/start-all", response_model=LiveBatchResponse, summary="Start all live trading instances"
+)
+async def start_all(
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> dict[str, StartResult]:
+    """Start all live trading instances.
+
+    Args:
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        A summary of the batch start operation.
+    """
+    return await mgr.start_all(user_id=current_user.sub)
+
+
+@router.post(
+    "/stop-all", response_model=LiveBatchResponse, summary="Stop all live trading instances"
+)
+async def stop_all(
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> dict[str, StopResult]:
+    """Stop all live trading instances.
+
+    Args:
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        A summary of the batch stop operation.
+    """
+    return await mgr.stop_all(user_id=current_user.sub)
+
+
+# ==================== Analytics Endpoints ====================
+
+
+def _get_strategy_log_dir(mgr: LiveTradingManager, instance_id: str, user_id: str) -> Path:
+    """Get the latest log directory for a strategy instance.
+
+    Args:
+        mgr: The live trading manager instance.
+        instance_id: The ID of the live trading instance.
+        user_id: User ID for permission check.
+
+    Returns:
+        The path to the log directory.
+
+    Raises:
+        HTTPException: If the instance or log directory is not found.
+    """
+    inst = mgr.get_instance(instance_id, user_id=user_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    try:
+        strategy_dir = get_strategy_dir(inst["strategy_id"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    log_dir = find_latest_log_dir(strategy_dir)
+    if not log_dir:
+        raise HTTPException(
+            status_code=404, detail="No log data available, please run the strategy first"
+        )
+    return log_dir
+
+
+@router.get(
+    "/{instance_id}/detail",
+    response_model=BacktestDetailResponse,
+    summary="Get live trading analysis details",
+)
+async def get_live_detail(
+    instance_id: str,
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> BacktestDetailResponse:
+    """Get detailed analysis for a live trading instance.
+
+    Args:
+        instance_id: The ID of the live trading instance.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        Detailed backtest analysis response including metrics, equity curve, and trades.
+
+    Raises:
+        HTTPException: If the instance or log data is not found.
+    """
+    inst = mgr.get_instance(instance_id, user_id=current_user.sub)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+
+    try:
+        strategy_dir = get_strategy_dir(inst["strategy_id"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    log_result = await asyncio.to_thread(parse_all_logs, strategy_dir)
+    if not log_result:
+        raise HTTPException(status_code=404, detail="No log data available")
+
+    # Construct response in the same format as backtest analysis
+    equity_dates = log_result.get("equity_dates", [])
+    equity_values = log_result.get("equity_curve", [])
+    cash_values = log_result.get("cash_curve", [])
+    _dd_values = log_result.get("drawdown_curve", [])
+    trades_raw = log_result.get("trades", [])
+
+    equity_curve = []
+    drawdown_curve = []
+    peak = 0.0
+    for i, dt in enumerate(equity_dates):
+        val = equity_values[i] if i < len(equity_values) else 0
+        c = cash_values[i] if i < len(cash_values) else 0
+        pv = val - c
+        equity_curve.append(
+            {
+                "date": dt,
+                "total_assets": val,
+                "cash": c,
+                "position_value": round(pv, 2),
+                "benchmark": None,
+            }
+        )
+        if val > peak:
+            peak = val
+        dd_pct = -((peak - val) / peak) if peak > 0 else 0
+        drawdown_curve.append(
+            {
+                "date": dt,
+                "drawdown": round(dd_pct, 6),
+                "peak": round(peak, 2),
+                "trough": round(val, 2),
+            }
+        )
+
+    trades = []
+    cum_pnl = 0.0
+    for i, t in enumerate(trades_raw):
+        pnl = t.get("pnlcomm", t.get("pnl", 0))
+        cum_pnl += pnl
+        trades.append(
+            {
+                "id": i + 1,
+                "datetime": t.get("datetime", t.get("dtclose", "")),
+                "symbol": t.get("data_name", inst["strategy_id"]),
+                "direction": t.get("direction", "long"),
+                "price": t.get("price", 0),
+                "size": t.get("size", 0),
+                "value": t.get("value", 0),
+                "commission": t.get("commission", 0),
+                "pnl": round(pnl, 2),
+                "return_pct": None,
+                "holding_days": t.get("barlen", 0),
+                "cumulative_pnl": round(cum_pnl, 2),
+            }
+        )
+
+    metrics = PerformanceMetrics(
+        initial_capital=log_result.get("initial_cash", 100000),
+        final_assets=log_result.get("final_value", 0),
+        total_return=log_result.get("total_return", 0),
+        annualized_return=log_result.get("annual_return", 0),
+        max_drawdown=log_result.get("max_drawdown", 0),
+        sharpe_ratio=log_result.get("sharpe_ratio", 0),
+        win_rate=log_result.get("win_rate", 0),
+        trade_count=log_result.get("total_trades", 0),
+    )
+
+    return BacktestDetailResponse(
+        task_id=instance_id,
+        strategy_name=inst.get("strategy_name", inst["strategy_id"]),
+        symbol=inst["strategy_id"],
+        start_date=equity_dates[0] if equity_dates else "",
+        end_date=equity_dates[-1] if equity_dates else "",
+        metrics=metrics,
+        equity_curve=equity_curve,
+        drawdown_curve=drawdown_curve,
+        trades=trades,
+        created_at=inst.get("created_at", ""),
+    )
+
+
+@router.get(
+    "/{instance_id}/kline",
+    response_model=KlineWithSignalsResponse,
+    summary="Get live trading K-line data",
+)
+async def get_live_kline(
+    instance_id: str,
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> KlineWithSignalsResponse:
+    """Get K-line data with trading signals for a live trading instance.
+
+    Args:
+        instance_id: The ID of the live trading instance.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        K-line data with buy/sell signals and indicators.
+
+    Raises:
+        HTTPException: If the instance or log directory is not found.
+    """
+    inst = mgr.get_instance(instance_id, user_id=current_user.sub)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    log_dir = await asyncio.to_thread(_get_strategy_log_dir, mgr, instance_id, current_user.sub)
+
+    kline_data = await asyncio.to_thread(parse_data_log, log_dir)
+    trades_raw = await asyncio.to_thread(parse_trade_log, log_dir)
+
+    kline_dates = kline_data.get("dates", [])
+    ohlc_data = kline_data.get("ohlc", [])
+    volumes = kline_data.get("volumes", [])
+    log_indicators = kline_data.get("indicators", {})
+
+    klines = []
+    for j, dt in enumerate(kline_dates):
+        if j >= len(ohlc_data):
+            break
+        row = ohlc_data[j]
+        klines.append(
+            {
+                "date": dt,
+                "open": round(row[0], 4),
+                "high": round(row[3], 4),
+                "low": round(row[2], 4),
+                "close": round(row[1], 4),
+                "volume": volumes[j] if j < len(volumes) else 0,
+            }
+        )
+
+    # Build K-line close price mapping for signal price lookup
+    kline_close_map = {}
+    for k in klines:
+        kline_close_map[k["date"]] = k["close"]
+
+    # Trading signals (distinguish long/short direction, prefer K-line close price)
+    signals = []
+    for t in trades_raw:
+        is_long = t.get("direction", "buy") == "buy" or t.get("long", True)
+        if t.get("dtopen"):
+            open_date = t["dtopen"][:10]
+            signals.append(
+                {
+                    "date": open_date,
+                    "type": "buy" if is_long else "sell",
+                    "price": kline_close_map.get(open_date, t.get("price", 0)),
+                    "reason": "open",
+                }
+            )
+        if t.get("dtclose"):
+            close_date = t["dtclose"][:10]
+            signals.append(
+                {
+                    "date": close_date,
+                    "type": "sell" if is_long else "buy",
+                    "price": kline_close_map.get(close_date, t.get("price", 0)),
+                    "reason": "close",
+                }
+            )
+
+    indicators = log_indicators if log_indicators else {}
+
+    return KlineWithSignalsResponse(
+        symbol=inst["strategy_id"] if inst else "",
+        klines=klines,
+        signals=signals,
+        indicators=indicators,
+    )
+
+
+@router.get(
+    "/{instance_id}/monthly-returns",
+    response_model=MonthlyReturnsResponse,
+    summary="Get live trading monthly returns",
+)
+async def get_live_monthly_returns(
+    instance_id: str,
+    current_user: TokenPayload = Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+) -> MonthlyReturnsResponse:
+    """Get monthly returns for a live trading instance.
+
+    Args:
+        instance_id: The ID of the live trading instance.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        Monthly returns data with yearly summaries.
+
+    Raises:
+        HTTPException: If the instance or log directory is not found.
+    """
+    log_dir = await asyncio.to_thread(_get_strategy_log_dir, mgr, instance_id, current_user.sub)
+    value_data = await asyncio.to_thread(parse_value_log, log_dir)
+
+    equity_dates = value_data.get("dates", [])
+    equity_values = value_data.get("equity_curve", [])
+
+    # Calculate monthly returns
+    monthly_returns = {}
+    current_month = None
+    month_start_value = 0.0
+
+    for i, dt in enumerate(equity_dates):
+        value = equity_values[i] if i < len(equity_values) else 0
+        try:
+            month_key = dt[:7]  # "YYYY-MM"
+            if month_key != current_month:
+                if current_month and month_start_value > 0:
+                    ret = (equity_values[i - 1] - month_start_value) / month_start_value
+                    monthly_returns[current_month] = round(ret, 6)
+                month_start_value = value
+                current_month = month_key
+        except Exception as e:
+            _logger.debug(f"Error calculating monthly return for {dt}: {e}")
+
+    if current_month and month_start_value > 0:
+        ret = (equity_values[-1] - month_start_value) / month_start_value
+        monthly_returns[current_month] = round(ret, 6)
+
+    # Format returns
+    returns = []
+    years_set = set()
+    for ym, ret in monthly_returns.items():
+        parts = ym.split("-")
+        y, m = int(parts[0]), int(parts[1])
+        years_set.add(y)
+        returns.append({"year": y, "month": m, "return_pct": ret})
+
+    years = sorted(years_set)
+
+    # Yearly summary
+    summary = {}
+    for y in years:
+        year_rets = [r["return_pct"] for r in returns if r["year"] == y]
+        total = 1.0
+        for r in year_rets:
+            total *= 1 + r
+        summary[str(y)] = round(total - 1, 6)
+
+    return MonthlyReturnsResponse(
+        returns=returns,
+        years=years,
+        summary=summary,
+    )

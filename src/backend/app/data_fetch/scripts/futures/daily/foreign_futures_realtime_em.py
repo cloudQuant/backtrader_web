@@ -60,7 +60,7 @@ class ForeignFuturesRealtimeEm(AkshareToMySql):
 
                                 """
 
-    def run(self):
+    def run(self, _call_timeout=None):
         """
         Fetches and stores real-time foreign futures data from Eastmoney.
         This function overwrites today's data with the latest snapshot upon each run.
@@ -76,7 +76,10 @@ class ForeignFuturesRealtimeEm(AkshareToMySql):
             # 1. Fetch Data
             self.logger.info("Fetching real-time data from Eastmoney.")
             # df = ak.futures_global_spot_em()
-            df = self.fetch_ak_data("futures_global_spot_em")
+            kwargs = {}
+            if _call_timeout is not None:
+                kwargs["_call_timeout"] = _call_timeout
+            df = self.fetch_ak_data("futures_global_spot_em", **kwargs)
             time.sleep(2)  # Be respectful
 
             if df.empty:

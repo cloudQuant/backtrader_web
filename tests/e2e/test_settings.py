@@ -25,10 +25,10 @@ class TestSettingsPage:
         page.goto(f"{FRONTEND_URL}/settings")
         page.wait_for_load_state("networkidle")
         
-        # 检查用户信息字段
-        expect(page.locator("text=用户名")).to_be_visible()
-        expect(page.locator("text=邮箱")).to_be_visible()
-        expect(page.locator("text=注册时间")).to_be_visible()
+        # 检查用户信息字段 (hero 与 profile-card 都会渲染，取首个)
+        expect(page.locator("text=用户名").first).to_be_visible()
+        expect(page.locator("text=邮箱").first).to_be_visible()
+        expect(page.locator("text=注册时间").first).to_be_visible()
     
     def test_change_password_section(self, authenticated_page: Page):
         """测试修改密码区域"""
@@ -48,7 +48,7 @@ class TestSettingsPage:
         
         # 检查关于区域
         expect(page.locator("text=关于").first).to_be_visible()
-        expect(page.locator("text=Backtrader Web").first).to_be_visible()
+        expect(page.locator("text=AI for Investor").first).to_be_visible()
     
     def test_change_password_button(self, authenticated_page: Page):
         """测试修改密码按钮存在"""

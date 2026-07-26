@@ -281,32 +281,174 @@ jobs:
           "
 
   # ========================================
-  # Dependency Audit
+  # Dependency Audit & Vulnerability Scanning
   # ========================================
   dependency-audit:
-    name: Dependency Audit
+    name: Dependency Audit & Vulnerability Scan
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Backend dependency audit
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Backend - Install dependencies and run pip-audit
         working-directory: src/backend
         run: |
           python -m pip install --upgrade pip
+          pip install -e ".[dev,backtrader,data,redis]"
           pip install pip-audit
-          pip-audit --desc --format json --output pip-audit-report.json || true
+          pip-audit --desc --format json --output pip-audit-report.json 2>&1 || true
+          pip-audit --desc 2>&1 || true
 
-      - name: Frontend dependency audit
+      - name: Frontend - Install dependencies and run npm audit
         working-directory: src/frontend
         run: |
           npm ci
-          npm audit --json > npm-audit-report.json || true
-          npm audit --production || true
+          npm audit --json > npm-audit-report.json 2>&1 || true
+          npm audit 2>&1 || true
+
+      - name: Check for high/critical vulnerabilities and create issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 << 'SCRIPT'
+          import json
+          import subprocess
+          import sys
+          from datetime import datetime, timedelta, timezone
+
+          findings = []
+
+          # --- Parse pip-audit results ---
+          pip_report_path = "src/backend/pip-audit-report.json"
+          try:
+              with open(pip_report_path) as f:
+                  pip_data = json.load(f)
+              # pip-audit JSON format: {"dependencies": [...], "fixes": [...]}
+              # or list of vulnerability objects
+              deps = pip_data if isinstance(pip_data, list) else pip_data.get("dependencies", [])
+              for dep in deps:
+                  vulns = dep.get("vulns", [])
+                  for vuln in vulns:
+                      vuln_id = vuln.get("id", "UNKNOWN")
+                      fix_versions = vuln.get("fix_versions", [])
+                      fix_str = ", ".join(fix_versions) if fix_versions else "No fix available"
+                      findings.append({
+                          "ecosystem": "pip",
+                          "package": dep.get("name", "unknown"),
+                          "version": dep.get("version", "unknown"),
+                          "vuln_id": vuln_id,
+                          "severity": "high",  # pip-audit doesn't always provide severity
+                          "fix": fix_str,
+                      })
+          except (FileNotFoundError, json.JSONDecodeError) as e:
+              print(f"Warning: Could not parse pip-audit report: {e}")
+
+          # --- Parse npm audit results ---
+          npm_report_path = "src/frontend/npm-audit-report.json"
+          try:
+              with open(npm_report_path) as f:
+                  npm_data = json.load(f)
+              # npm audit JSON format v2
+              vulns = npm_data.get("vulnerabilities", {})
+              for pkg_name, info in vulns.items():
+                  severity = info.get("severity", "low")
+                  if severity in ("high", "critical"):
+                      via = info.get("via", [])
+                      vuln_ids = []
+                      for v in via:
+                          if isinstance(v, dict):
+                              url = v.get("url", "")
+                              if "GHSA" in url or "CVE" in url:
+                                  vuln_ids.append(url.split("/")[-1])
+                      findings.append({
+                          "ecosystem": "npm",
+                          "package": pkg_name,
+                          "version": info.get("range", "unknown"),
+                          "vuln_id": ", ".join(vuln_ids) if vuln_ids else "See npm audit",
+                          "severity": severity,
+                          "fix": info.get("fixAvailable", {}).get("version", "See npm audit") if isinstance(info.get("fixAvailable"), dict) else "See npm audit",
+                      })
+          except (FileNotFoundError, json.JSONDecodeError) as e:
+              print(f"Warning: Could not parse npm audit report: {e}")
+
+          # Filter to high/critical only
+          high_critical = [f for f in findings if f["severity"] in ("high", "critical")]
+
+          if not high_critical:
+              print("✓ No high/critical vulnerabilities found.")
+              sys.exit(0)
+
+          print(f"⚠ Found {len(high_critical)} high/critical vulnerability finding(s).")
+
+          # --- Check existing issues from last 7 days ---
+          seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+          try:
+              result = subprocess.run(
+                  ["gh", "issue", "list", "--state", "open", "--label", "security,vulnerability",
+                   "--search", f"created:>={seven_days_ago}", "--json", "title", "--limit", "100"],
+                  capture_output=True, text=True, timeout=30
+              )
+              existing_issues = []
+              if result.returncode == 0:
+                  existing_issues = [i["title"] for i in json.loads(result.stdout)]
+          except (subprocess.TimeoutExpired, FileNotFoundError):
+              existing_issues = []
+
+          # --- Create issues for new vulnerabilities ---
+          for finding in high_critical:
+              issue_title = f"[{finding['severity'].upper()}] Vulnerability in {finding['package']} ({finding['ecosystem']})"
+
+              # Skip if a similar issue already exists
+              if any(finding["package"] in title for title in existing_issues):
+                  print(f"  Skipping (existing issue): {issue_title}")
+                  continue
+
+              issue_body = f"""## Vulnerability Report (Nightly Scan)
+
+          **Package:** {finding['package']}
+          **Current Version:** {finding['version']}
+          **Ecosystem:** {finding['ecosystem']}
+          **Severity:** {finding['severity'].upper()}
+          **Vulnerability ID:** {finding['vuln_id']}
+          **Suggested Fix:** {finding['fix']}
+
+          ---
+          *Auto-created by nightly vulnerability scan on {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}*
+          """
+
+              try:
+                  result = subprocess.run(
+                      ["gh", "issue", "create",
+                       "--title", issue_title,
+                       "--body", issue_body,
+                       "--label", "security,vulnerability"],
+                      capture_output=True, text=True, timeout=30
+                  )
+                  if result.returncode == 0:
+                      print(f"  Created issue: {issue_title}")
+                  else:
+                      print(f"  Failed to create issue: {result.stderr}")
+              except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                  print(f"  Could not create issue (gh CLI unavailable): {e}")
+
+          SCRIPT
 
       - name: Upload audit reports
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: nightly-audit-reports
           path: |

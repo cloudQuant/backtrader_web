@@ -11,7 +11,7 @@ Tests for advanced analytics metrics using FincoreAdapter including:
 
 import pytest
 
-from app.services.backtest_analyzers import FincoreAdapter
+from app.services.backtest.analyzers import FincoreAdapter
 
 
 class TestProfitFactor:
@@ -105,6 +105,22 @@ class TestAvgHoldingPeriod:
         result = adapter.calculate_avg_holding_period([])
 
         assert result == 0.0
+
+    def test_avg_holding_period_falls_back_to_dates(self):
+        """Test average holding period from open/close dates when barlen is unavailable."""
+        adapter = FincoreAdapter()
+        trades = [
+            {
+                "pnlcomm": 100,
+                "barlen": 0,
+                "dtopen": "2024-01-01T00:00:00+00:00",
+                "dtclose": "2024-01-05T00:00:00+00:00",
+            },
+            {"pnlcomm": -50, "barlen": 0, "dtopen": "2024-01-10", "dtclose": "2024-01-12"},
+        ]
+        result = adapter.calculate_avg_holding_period(trades)
+
+        assert result == pytest.approx(3.0, rel=1e-6)
 
 
 class TestMaxConsecutive:
@@ -304,8 +320,8 @@ class TestAdvancedMetricsEdgeCases:
 
         # Should count 100 and 200 as separate win streaks
         assert wins == 1
-        # Zero is counted as a loss (not > 0)
-        assert losses == 1
+        # Zero PnL is neutral and breaks both win/loss streaks.
+        assert losses == 0
 
     def test_drawdown_with_flat_equity(self):
         """Test max drawdown with flat equity curve."""

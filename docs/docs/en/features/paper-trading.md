@@ -1,84 +1,32 @@
-# Paper Trading
+# Trading workspaces and simulation
 
-## Overview
+Trading workspaces carry forward reviewed strategy units and keep runtime state separate from research workspaces. They support simulated operation, account/order observation, and traceable context for later gateway integration.
 
-Paper trading provides a simulated trading environment with real market data, allowing you to test strategies without risking real capital.
+## Research versus trading workspaces
 
-## Features
+| Type | Goal | Typical entry |
+| --- | --- | --- |
+| Research workspace | Strategy hypotheses, backtests, reports, optimization, and validation | `/research/workspaces` |
+| Trading workspace | Reviewed runtime units, accounts/positions/trades, and runtime state | `/trading` |
 
-- **Account Management** - Multiple paper trading accounts
-- **Order Types** - Market, limit, stop-loss, take-profit
-- **Position Tracking** - Real-time positions and P&L
-- **Trade History** - Complete audit trail
-- **WebSocket Updates** - Real-time order/position updates
+Do not treat research output as an execution instruction. Before moving to a trading workspace, confirm strategy version, data range, costs, risk parameters, human approval, and gateway state.
 
-## API Endpoints
+## Portfolio observation
 
-### Create Session
+**Portfolio** aggregates confirmable runtime workspace state and shows:
 
-```http
-POST /api/v1/paper-trading/sessions
-Content-Type: application/json
+- accounts, positions, trades, and allocation;
+- cumulative P&L, equity curve, and drawdown;
+- valuation after long/short direction, contract multiplier, fees, and shared-account de-duplication;
+- a distinction between a fast first-screen summary and detailed runtime state.
 
-{
-  "name": "My Paper Account",
-  "initial_cash": 100000,
-  "commission": 0.001
-}
-```
+The summary improves page-open time. Trading decisions must still use process-verified runtime state, simulation snapshots, and strategy logs.
 
-### List Sessions
+## Operating principles
 
-```http
-GET /api/v1/paper-trading/sessions
-```
+1. Preserve validation evidence in the research workspace first.
+2. After creating or changing a trading unit, verify that account, data, risk, and strategy version agree.
+3. Cross-check runtime state using gateway diagnostics, strategy logs, and Portfolio.
+4. Preserve audit records before stopping or changing a run; do not rely on cached page data alone.
 
-### Start Session
-
-```http
-POST /api/v1/paper-trading/sessions/{id}/start
-```
-
-### Stop Session
-
-```http
-POST /api/v1/paper-trading/sessions/{id}/stop
-```
-
-### Place Order
-
-```http
-POST /api/v1/paper-trading/orders
-Content-Type: application/json
-
-{
-  "session_id": 1,
-  "symbol": "000001.SZ",
-  "direction": "long",  # long / short
-  "order_type": "market",  # market / limit
-  "quantity": 100,
-  "price": null  # for market orders
-}
-```
-
-### Get Positions
-
-```http
-GET /api/v1/paper-trading/sessions/{id}/positions
-```
-
-### Get Trades
-
-```http
-GET /api/v1/paper-trading/sessions/{id}/trades
-```
-
-## WebSocket for Real-time Updates
-
-```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/paper-trading/{session_id}');
-ws.onmessage = (event) => {
-  const update = JSON.parse(event.data);
-  // Handle: order_update, position_update, trade_update
-};
-```
+See [Live-trading preparation and gateways](./live-trading.md) before live use.

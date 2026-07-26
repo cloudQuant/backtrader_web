@@ -13,6 +13,7 @@ Extended test coverage for:
 """
 
 import json
+import warnings
 from pathlib import Path
 
 from app.services.log_parser_service import (
@@ -21,6 +22,7 @@ from app.services.log_parser_service import (
     parse_all_logs,
     parse_current_position,
     parse_data_log,
+    parse_log_dir,
     parse_order_log,
     parse_position_log,
     parse_run_info,
@@ -155,6 +157,88 @@ class TestParsePositionLog:
         assert positions[0]["size"] == 100
         assert positions[0]["market_value"] == 1050.0
 
+    def test_parse_json_position_preserves_small_market_value(self, tmp_path: Path):
+        """MT5 micro positions must not be rounded to cents before valuation."""
+        (tmp_path / "position.log").write_text(
+            json.dumps(
+                {
+                    "log_time": "2026-06-25T07:18:41.365+08:00",
+                    "datetime": "2026-06-24 11:02:00",
+                    "data_name": "NZDUSD",
+                    "size": -0.01,
+                    "price": 0.5666786662,
+                    "value": -0.0056649,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        positions = parse_position_log(tmp_path)
+
+        assert len(positions) == 1
+        assert positions[0]["log_time"] == "2026-06-25T07:18:41.365+08:00"
+        assert positions[0]["datetime"] == "2026-06-24 11:02:00"
+        assert positions[0]["market_value"] == -0.0056649
+        assert positions[0]["value"] == -0.0056649
+
+    def test_parse_json_position_uses_gateway_position_aliases(self, tmp_path: Path):
+        """Raw gateway-style position.log rows keep size, price and CTP spec aliases."""
+        from app.services.position_valuation import contract_spec_for, value_position
+
+        (tmp_path / "position.log").write_text(
+            json.dumps(
+                {
+                    "log_time": "2026-06-25T07:18:41.365+08:00",
+                    "datetime": "2026-06-24 11:02:00",
+                    "InstrumentID": "IF2609",
+                    "PosiDirection": "2",
+                    "Position": 1,
+                    "Price": 5000.0,
+                    "LastPrice": 5001.0,
+                    "VolumeMultiple": 300,
+                    "LongMarginRatioByMoney": 0.1,
+                    "OpenRatioByMoney": 0.23,
+                    "source": "ctp_gateway",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        positions = parse_position_log(tmp_path)
+        valued = value_position(positions[0], spec=contract_spec_for("IF2609", positions[0]))
+
+        assert positions[0]["data_name"] == "IF2609"
+        assert positions[0]["size"] == 1.0
+        assert positions[0]["price"] == 5000.0
+        assert positions[0]["market_value_estimated"] is True
+        assert valued is not None
+        assert valued.market_value == 1_500_300.0
+        assert valued.pnl == 265.5
+
+    def test_parse_json_position_preserves_bybit_position_idx(self, tmp_path: Path):
+        """Bybit hedge positionIdx must survive log parsing for later side detection."""
+        (tmp_path / "position.log").write_text(
+            json.dumps(
+                {
+                    "datetime": "2026-06-24 11:02:00",
+                    "symbol": "BTCUSDT",
+                    "positionIdx": "2",
+                    "size": 0.2,
+                    "avgPrice": 60100.0,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        positions = parse_position_log(tmp_path)
+
+        assert len(positions) == 1
+        assert positions[0]["positionIdx"] == "2"
+        assert positions[0]["size"] == 0.2
+
     def test_empty_dir(self, tmp_path: Path):
         """Test parsing with empty directory."""
         assert parse_position_log(tmp_path) == []
@@ -171,6 +255,53 @@ class TestParseCurrentPosition:
         assert len(result) == 1
         assert result[0]["data_name"] == "000001"
         assert result[0]["market_value"] == 1050.0
+
+    def test_parse_json_preserves_small_market_value(self, tmp_path: Path):
+        data = [
+            {
+                "data_name": "NZDUSD",
+                "size": -0.01,
+                "price": 0.5666786662,
+                "value": -0.0056649,
+            }
+        ]
+        (tmp_path / "current_position.json").write_text(json.dumps(data), encoding="utf-8")
+
+        result = parse_current_position(tmp_path)
+
+        assert result[0]["market_value"] == -0.0056649
+        assert result[0]["value"] == -0.0056649
+
+    def test_parse_json_preserves_gateway_position_fields(self, tmp_path: Path):
+        """Raw gateway-style position snapshots keep side, size, fee and margin fields."""
+        from app.services.position_valuation import PositionSpec, value_position
+
+        data = [
+            {
+                "symbol": "BTCUSDT",
+                "positionSide": "SHORT",
+                "positionAmt": "0.25",
+                "entryPrice": "60000",
+                "markPrice": "59000",
+                "position_fee": "0.25",
+                "margin_initial": "1250",
+                "contract_size": "1",
+            }
+        ]
+        (tmp_path / "current_position.json").write_text(json.dumps(data), encoding="utf-8")
+
+        result = parse_current_position(tmp_path)
+        valued = value_position(result[0], spec=PositionSpec())
+
+        assert result[0]["data_name"] == "BTCUSDT"
+        assert result[0]["size"] == 0.25
+        assert result[0]["positionSide"] == "SHORT"
+        assert result[0]["position_fee"] == 0.25
+        assert result[0]["margin_initial"] == 1250.0
+        assert valued is not None
+        assert valued.direction == "short"
+        assert valued.current_price == 59000.0
+        assert valued.pnl == 249.75
 
     def test_no_file(self, tmp_path: Path):
         """Test parsing when file doesn't exist."""
@@ -226,6 +357,23 @@ class TestParseTextTradeLoggerLogs:
         assert result["equity_curve"] == [100000.0, 100100.0]
         assert result["cash_curve"] == [100000.0, 99900.0]
 
+    def test_parse_text_value_log_prefers_log_time(self, tmp_path: Path):
+        (tmp_path / "value.log").write_text(
+            "2026-04-10T07:57:30.133+08:00 | datetime=2020-01-02 00:00:00 | value=100000.00 | cash=100000.00\n"
+            "2026-04-10T07:57:30.134+08:00 | datetime=2020-01-03 00:00:00 | value=100100.00 | cash=99900.00\n",
+            encoding="utf-8",
+        )
+
+        result = parse_value_log(tmp_path, prefer_log_time=True)
+
+        assert result["dates"] == ["2026-04-10", "2026-04-10"]
+        assert result["datetimes"] == [
+            "2026-04-10T07:57:30.133+08:00",
+            "2026-04-10T07:57:30.134+08:00",
+        ]
+        assert result["equity_curve"] == [100000.0, 100100.0]
+        assert result["cash_curve"] == [100000.0, 99900.0]
+
     def test_parse_text_bar_and_indicator_logs(self, tmp_path: Path):
         (tmp_path / "value.log").write_text(
             "2026-04-10T07:57:30.133+08:00 | datetime=2020-01-02 00:00:00 | value=100000.00 | cash=100000.00\n"
@@ -264,6 +412,8 @@ class TestParseTextTradeLoggerLogs:
 
         assert len(result) == 1
         assert result[0]["dt"] == "2020-01-02"
+        assert result[0]["datetime"] == "2020-01-02 00:00:00"
+        assert result[0]["log_time"] == "2026-04-10T07:57:30.133+08:00"
         assert result[0]["data_name"] == "AAPL"
         assert result[0]["value"] == 2543.0
 
@@ -338,6 +488,32 @@ class TestParseAllLogs:
         assert result["total_trades"] == 1
         assert result["win_rate"] > 0
         assert len(result["equity_curve"]) == 3
+
+    def test_parse_log_dir_skips_extreme_equity_spikes(self, tmp_path: Path):
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        (logs_dir / "value.log").write_text(
+            "\n".join(
+                [
+                    '{"datetime":"2026-06-24T20:00:00+00:00","broker_value":10000.0,"broker_cash":10000.0}',
+                    '{"datetime":"2026-06-24T20:01:00+00:00","broker_value":10005.0,"broker_cash":10000.0}',
+                    '{"datetime":"2004-05-22T09:27:07+00:00","broker_value":-5.538010572266002e201,"broker_cash":10039.85}',
+                    '{"datetime":"2026-06-24T20:02:00+00:00","broker_value":10008.0,"broker_cash":10000.0}',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = parse_log_dir(logs_dir)
+
+        assert result is not None
+        assert not caught
+        assert result["equity_curve"] == [10000.0, 10005.0, 10008.0]
+        assert result["final_value"] == 10008.0
+        assert result["sharpe_ratio"] != 0.0
 
     def test_parse_all_logs_synthesizes_equity_for_json_simulate_logs(self, tmp_path: Path):
         strategy_dir = tmp_path / "strategy"

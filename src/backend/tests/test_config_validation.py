@@ -9,6 +9,30 @@ from pydantic import ValidationError
 
 from app.config import Settings, get_settings
 
+_SETTINGS_ENV_KEYS = (
+    "DEBUG",
+    "SECRET_KEY",
+    "JWT_SECRET_KEY",
+    "IB_VERIFY_SSL",
+    "IB_WEB_VERIFY_SSL",
+    "IB_PAPER_VERIFY_SSL",
+    "IB_LIVE_VERIFY_SSL",
+)
+_ORIGINAL_SETTINGS_ENV = {key: os.environ.get(key) for key in _SETTINGS_ENV_KEYS}
+
+
+@pytest.fixture(autouse=True)
+def isolate_settings_security_environment(monkeypatch):
+    """Keep test-local production flags from leaking into later settings tests."""
+    for key in _SETTINGS_ENV_KEYS[3:]:
+        monkeypatch.setenv(key, "true")
+    yield
+    for key, value in _ORIGINAL_SETTINGS_ENV.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
 
 class TestSettingsValidation:
     """Test suite for Settings validation."""
@@ -19,8 +43,8 @@ class TestSettingsValidation:
     def test_default_settings_load(self):
         """Test that default settings can be loaded."""
         settings = Settings()
-        assert settings.APP_NAME == "backtrader_web"
-        assert settings.DEBUG is True
+        assert settings.APP_NAME == "ai-for-investor"
+        assert settings.DEBUG is False
         assert settings.DATABASE_TYPE == "sqlite"
         assert settings.DB_AUTO_CREATE_SCHEMA is False
         assert settings.DB_AUTO_CREATE_DEFAULT_ADMIN is False
@@ -140,17 +164,40 @@ class TestSettingsValidation:
 
         assert "start with http:// or https://" in str(exc_info.value)
 
-    def test_admin_password_warning(self):
-        """Test that using default admin password triggers warning."""
+    def test_production_rejects_wildcard_cors_origins(self):
+        """Test that wildcard CORS origins are blocked in production."""
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(
+                DEBUG=False,
+                SECRET_KEY="a" * 32,
+                JWT_SECRET_KEY="b" * 32,
+                ADMIN_PASSWORD="SecurePass@123!",
+                CORS_ORIGINS="*",
+            )
+
+        assert "Wildcard CORS origin is not allowed in production" in str(exc_info.value)
+
+    def test_production_accepts_explicit_cors_origins(self):
+        """Test that explicit CORS origins are accepted in production."""
+        settings = Settings(
+            DEBUG=False,
+            SECRET_KEY="a" * 32,
+            JWT_SECRET_KEY="b" * 32,
+            ADMIN_PASSWORD="SecurePass@123!",
+            CORS_ORIGINS="https://example.com,https://app.example.com",
+        )
+
+        assert settings.CORS_ORIGINS == "https://example.com,https://app.example.com"
+
+    def test_default_admin_password_does_not_emit_python_warning_outside_production(self):
+        """Default-password notices are emitted by structured startup checks."""
         import warnings
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             Settings(ADMIN_PASSWORD="admin123")
 
-        # Should have triggered a warning
-        assert len(w) == 1
-        assert "insecure" in str(w[0].message).lower()
+        assert len(w) == 0
 
     def test_custom_admin_password_no_warning(self):
         """Test that custom admin password doesn't trigger warning."""
@@ -192,7 +239,11 @@ class TestSettingsInProduction:
 
         # Should fail with default secret
         with pytest.raises(ValidationError):
-            Settings()
+            Settings(
+                SECRET_KEY="your-secret-key-change-in-production",
+                JWT_SECRET_KEY="your-jwt-secret-change-in-production",
+                ADMIN_PASSWORD="SecurePass@123!",
+            )
 
         # Should pass with secure secret
         secure_secret = "a" * 64  # 64 character secure random key
@@ -230,9 +281,20 @@ class TestSettingsSecurityDefaults:
         assert settings.BACKTEST_TIMEOUT == 300  # 5 minutes
 
     def test_debug_mode_default(self):
-        """Test that debug mode defaults to True (dev-friendly)."""
-        settings = Settings()
+        """Test that debug mode defaults to False (safe-by-default)."""
+        assert Settings.model_fields["DEBUG"].default is False
+
+    def test_debug_mode_explicit_true_overrides_env(self, monkeypatch):
+        """Test that explicit DEBUG=True wins over a production-like env default."""
+        monkeypatch.setenv("DEBUG", "false")
+        settings = Settings(DEBUG=True, ADMIN_PASSWORD="SecurePass@123!", _env_file=None)
         assert settings.DEBUG is True
+        assert settings.SECRET_KEY == "your-secret-key-change-in-production"
+
+    def test_host_default_is_loopback(self):
+        """Test that host defaults to loopback instead of all interfaces."""
+        settings = Settings(DEBUG=True, ADMIN_PASSWORD="SecurePass@123!")
+        assert settings.HOST == "127.0.0.1"
 
     def test_sql_echo_disabled_by_default(self):
         """Test that SQL echo is disabled by default."""

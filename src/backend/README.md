@@ -1,6 +1,6 @@
-# Backtrader Web Backend
+# AI for Investor Backend
 
-FastAPI-based backend service for the Backtrader Web quantitative backtesting platform.
+FastAPI-based backend service for the AI for Investor quantitative backtesting platform.
 
 ## Features
 
@@ -212,7 +212,7 @@ pytest tests/test_auth.py -v
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_TYPE` | `sqlite` | Database type (sqlite/postgresql/mysql) |
-| `DATABASE_URL` | `sqlite+aiosqlite:///./backtrader.db` | Connection URL |
+| `DATABASE_URL` | `sqlite+aiosqlite:///../../data/dev/backtrader.db` | Connection URL |
 | `JWT_SECRET_KEY` | (auto) | JWT signing secret |
 | `JWT_EXPIRE_MINUTES` | `10080` | Token TTL in minutes (7 days) |
 | `DEBUG` | `true` | Debug mode |

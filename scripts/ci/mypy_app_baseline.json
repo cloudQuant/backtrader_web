@@ -1,0 +1,6 @@
+{
+  "_comment": "Iteration 177 §E mypy repo-wide ratchet baseline. 2026-07-26 dev checkpoint refresh: the pinned CI run reports 725 historical errors after post-baseline dev changes. CI fails when `mypy app` reports MORE errors than baseline_errors. Lower this number whenever the count drops (the ratchet only turns one way). Regenerate with the pinned mypy version below via --update.",
+  "baseline_errors": 725,
+  "mypy_version": "mypy 1.20.2 (compiled: yes)",
+  "baseline_date": "2026-07-26"
+}

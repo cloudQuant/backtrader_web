@@ -8,7 +8,7 @@ bt_api_py  GatewayRuntime  (per exchange)
    ├─ event_socket   (ZMQ PUB)
    └─ command_socket (ZMQ ROUTER) → accepts subscribe / health / …
 
-backtrader_web  QuoteService
+AI for Investor QuoteService
    ├─ discovers active gateways via LiveTradingManager._gateways
    ├─ connects ZMQ SUB to each gateway's market_endpoint
    ├─ sends "subscribe" commands via ZMQ DEALER to command_endpoint
@@ -18,244 +18,63 @@ backtrader_web  QuoteService
 
 from __future__ import annotations
 
-import json
 import logging
-import math
 import threading
-import time
-import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from app.config import get_settings
-from app.utils.backend_data_paths import get_backend_data_path
+from app.services.quote.cache import (
+    get_cached_tick_metrics,
+    load_custom_symbols,
+    load_hidden_subscriptions,
+    match_cached_tick,
+    save_custom_symbols,
+    save_hidden_subscriptions,
+    wait_for_initial_ticks,
+)
+from app.services.quote.registry import (
+    DEFAULT_ASSET_TYPES as _DEFAULT_ASSET_TYPES,
+)
+from app.services.quote.registry import (
+    DEFAULT_SYMBOLS as _DEFAULT_SYMBOLS,
+)
+from app.services.quote.registry import (
+    DEFAULT_SYMBOLS_BY_ASSET as _DEFAULT_SYMBOLS_BY_ASSET,
+)
+from app.services.quote.registry import (
+    SOURCE_REGISTRY as _SOURCE_REGISTRY,
+)
+from app.services.quote.registry import (
+    SOURCE_TO_LABEL as _SOURCE_TO_LABEL,
+)
+from app.services.quote.registry import (
+    resolve_quote_fields as _resolve_quote_fields,
+)
+from app.services.quote.runtime import (
+    send_gateway_command as _send_gateway_command_impl,
+)
+from app.services.quote.snapshots import (
+    fetch_gateway_snapshot_tick as _fetch_gateway_snapshot_tick,
+)
+from app.services.quote.snapshots import (
+    fetch_ib_web_snapshot_tick as _fetch_ib_web_snapshot_tick,
+)
+from app.services.quote.snapshots import (
+    fetch_standard_snapshot_tick as _fetch_standard_snapshot_tick,
+)
+from app.services.quote.tick import (
+    build_tick as _build_tick,
+)
+from app.services.quote.zmq_receiver import ZmqTickReceiver
 
 logger = logging.getLogger(__name__)
+
+_MAX_SNAPSHOT_HYDRATION_PER_GATEWAY = 10
 
 # ---------------------------------------------------------------------------
 # Persistent storage for custom symbols
 # ---------------------------------------------------------------------------
-
-_DATA_DIR = get_backend_data_path()
-_CUSTOM_SYMBOLS_FILE = _DATA_DIR / "quote_custom_symbols.json"
-
-
-def _load_custom_symbols() -> dict[str, dict[str, list[str]]]:
-    """Load custom symbols from disk. Returns {user_id: {source: [symbols]}}."""
-    try:
-        if _CUSTOM_SYMBOLS_FILE.exists():
-            data = json.loads(_CUSTOM_SYMBOLS_FILE.read_text("utf-8"))
-            if isinstance(data, dict):
-                return data
-    except Exception:
-        logger.exception("Failed to load custom symbols from %s", _CUSTOM_SYMBOLS_FILE)
-    return {}
-
-
-def _save_custom_symbols(data: dict[str, dict[str, list[str]]]) -> None:
-    """Persist custom symbols to disk."""
-    try:
-        _DATA_DIR.mkdir(parents=True, exist_ok=True)
-        _CUSTOM_SYMBOLS_FILE.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
-            "utf-8",
-        )
-    except Exception:
-        logger.exception("Failed to save custom symbols to %s", _CUSTOM_SYMBOLS_FILE)
-
-
-# ---------------------------------------------------------------------------
-# Data-source registry:  source_id -> { label, capabilities }
-# ---------------------------------------------------------------------------
-
-_SOURCE_REGISTRY: list[dict[str, Any]] = [
-    {
-        "source": "CTP",
-        "source_label": "CTP",
-        "capabilities": ["quote", "search", "chart"],
-    },
-    {
-        "source": "IB_WEB",
-        "source_label": "IB",
-        "capabilities": ["quote", "search", "chart"],
-    },
-    {
-        "source": "MT5",
-        "source_label": "MT5",
-        "capabilities": ["quote", "search", "chart"],
-    },
-    {
-        "source": "BINANCE",
-        "source_label": "Binance",
-        "capabilities": ["quote", "search"],
-    },
-    {
-        "source": "OKX",
-        "source_label": "OKX",
-        "capabilities": ["quote", "search"],
-    },
-]
-
-_SOURCE_TO_LABEL: dict[str, str] = {s["source"]: s["source_label"] for s in _SOURCE_REGISTRY}
-
-# ---------------------------------------------------------------------------
-# Default symbols per data source — loaded from config/default_symbols.yaml
-# ---------------------------------------------------------------------------
-
-_SYMBOLS_CONFIG_FILE = Path(__file__).resolve().parents[2] / "config" / "default_symbols.yaml"
-
-
-def _load_symbols_config() -> dict[str, Any]:
-    """Load default symbols config from YAML file. Returns empty dict on error."""
-    if not _SYMBOLS_CONFIG_FILE.is_file():
-        logger.warning("Default symbols config not found: %s", _SYMBOLS_CONFIG_FILE)
-        return {}
-    try:
-        import yaml
-
-        with _SYMBOLS_CONFIG_FILE.open(encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
-        return data if isinstance(data, dict) else {}
-    except Exception as exc:
-        logger.warning("Failed to load %s: %s", _SYMBOLS_CONFIG_FILE, exc)
-        return {}
-
-
-def _build_symbols_from_config() -> tuple[
-    dict[str, list[dict[str, str]]],
-    dict[str, str],
-    dict[tuple[str, str], list[dict[str, str]]],
-]:
-    cfg = _load_symbols_config()
-    symbols: dict[str, list[dict[str, str]]] = cfg.get("symbols", {})
-    asset_types: dict[str, str] = cfg.get("default_asset_types", {})
-    symbols_by_asset: dict[tuple[str, str], list[dict[str, str]]] = {}
-
-    # Build symbols_by_asset from the nested structure in YAML
-    for source, asset_map in cfg.get("symbols_by_asset", {}).items():
-        if isinstance(asset_map, dict):
-            for asset_type, sym_list in asset_map.items():
-                if isinstance(sym_list, list):
-                    symbols_by_asset[(source, asset_type)] = sym_list
-
-    # Auto-populate symbols_by_asset with default asset type mappings
-    for source, default_at in asset_types.items():
-        key = (source, default_at)
-        if key not in symbols_by_asset and source in symbols:
-            symbols_by_asset[key] = symbols[source]
-
-    # Also map BINANCE SPOT → BINANCE symbols, OKX SPOT → OKX symbols (if not overridden)
-    for source in symbols:
-        if (source, "SPOT") not in symbols_by_asset:
-            symbols_by_asset[(source, "SPOT")] = symbols[source]
-
-    return symbols, asset_types, symbols_by_asset
-
-
-_DEFAULT_SYMBOLS, _DEFAULT_ASSET_TYPES, _DEFAULT_SYMBOLS_BY_ASSET = _build_symbols_from_config()
-
-_QUOTE_FIELDS_CONFIG_FILE = Path(__file__).resolve().parents[2] / "config" / "quote_fields.yaml"
-
-_GENERIC_QUOTE_FIELDS: list[dict[str, Any]] = [
-    {"prop": "symbol", "label": "代码", "visible": True, "always_show": True},
-    {"prop": "name", "label": "名称", "visible": True, "always_show": False},
-    {"prop": "category", "label": "分类", "visible": True, "always_show": False},
-    {"prop": "last_price", "label": "最新价", "visible": True, "always_show": False},
-    {"prop": "change", "label": "涨跌", "visible": True, "always_show": False},
-    {"prop": "change_pct", "label": "涨跌幅", "visible": True, "always_show": False},
-    {"prop": "bid_price", "label": "买价", "visible": True, "always_show": False},
-    {"prop": "ask_price", "label": "卖价", "visible": True, "always_show": False},
-    {"prop": "high_price", "label": "最高", "visible": True, "always_show": False},
-    {"prop": "low_price", "label": "最低", "visible": True, "always_show": False},
-    {"prop": "open_price", "label": "开盘", "visible": True, "always_show": False},
-    {"prop": "prev_close", "label": "昨收", "visible": True, "always_show": False},
-    {"prop": "volume", "label": "成交量", "visible": True, "always_show": False},
-    {"prop": "turnover", "label": "成交额", "visible": True, "always_show": False},
-    {"prop": "open_interest", "label": "持仓量", "visible": True, "always_show": False},
-    {"prop": "update_time", "label": "更新时间", "visible": True, "always_show": False},
-]
-
-
-def _normalize_quote_fields_config(fields: Any) -> list[dict[str, Any]]:
-    normalized: list[dict[str, Any]] = []
-    if not isinstance(fields, list):
-        return normalized
-    for item in fields:
-        if not isinstance(item, dict):
-            continue
-        prop = str(item.get("prop") or "").strip()
-        if not prop:
-            continue
-        normalized.append(
-            {
-                "prop": prop,
-                "label": str(item.get("label") or prop),
-                "visible": bool(item.get("visible", True)),
-                "always_show": bool(item.get("always_show", False)),
-            }
-        )
-    return normalized
-
-
-def _load_quote_fields_by_source() -> dict[str, list[dict[str, Any]]]:
-    if not _QUOTE_FIELDS_CONFIG_FILE.is_file():
-        logger.warning("Quote fields config not found: %s", _QUOTE_FIELDS_CONFIG_FILE)
-        return {}
-    try:
-        import yaml
-
-        with _QUOTE_FIELDS_CONFIG_FILE.open(encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
-    except Exception as exc:
-        logger.warning("Failed to load %s: %s", _QUOTE_FIELDS_CONFIG_FILE, exc)
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    raw_sources = data.get("sources", {})
-    if not isinstance(raw_sources, dict):
-        return {}
-    normalized_sources: dict[str, list[dict[str, Any]]] = {}
-    for source, fields in raw_sources.items():
-        normalized_fields = _normalize_quote_fields_config(fields)
-        if normalized_fields:
-            normalized_sources[str(source).strip().upper()] = normalized_fields
-    return normalized_sources
-
-
-def _has_quote_field_value(value: Any) -> bool:
-    if value is None:
-        return False
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, (int, float)):
-        return math.isfinite(float(value))
-    return True
-
-
-def _first_present(mapping: dict[str, Any], *keys: str) -> Any:
-    for key in keys:
-        value = mapping.get(key)
-        if value not in (None, ""):
-            return value
-    return None
-
-
-def _resolve_quote_fields(source: str, ticks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    configured_fields = _QUOTE_FIELDS_BY_SOURCE.get(source, _GENERIC_QUOTE_FIELDS)
-    resolved: list[dict[str, Any]] = []
-    for field in configured_fields:
-        prop = str(field.get("prop") or "").strip()
-        if not prop:
-            continue
-        if field.get("always_show") or any(
-            _has_quote_field_value(tick.get(prop)) for tick in ticks
-        ):
-            resolved.append(dict(field))
-    return resolved
-
-
-_QUOTE_FIELDS_BY_SOURCE = _load_quote_fields_by_source()
 
 
 # ===================================================================
@@ -263,108 +82,9 @@ _QUOTE_FIELDS_BY_SOURCE = _load_quote_fields_by_source()
 # ===================================================================
 
 
-class _ZmqTickReceiver:
-    """Background thread that SUBscribes to a GatewayRuntime's market_endpoint
-    and caches the latest GatewayTick per symbol."""
-
-    def __init__(self, source: str, market_endpoint: str) -> None:
-        self.source = source
-        self.market_endpoint = market_endpoint
-        self._tick_cache: dict[str, dict[str, Any]] = {}  # symbol -> raw tick dict
-        self._lock = threading.Lock()
-        self._running = False
-        self._thread: threading.Thread | None = None
-
-    # -- lifecycle --
-
-    def start(self) -> None:
-        if self._running:
-            return
-        self._running = True
-        self._thread = threading.Thread(
-            target=self._recv_loop,
-            daemon=True,
-            name=f"quote-zmq-{self.source}",
-        )
-        self._thread.start()
-        logger.info("ZMQ tick receiver started for %s @ %s", self.source, self.market_endpoint)
-
-    def stop(self) -> None:
-        self._running = False
-        if self._thread is not None:
-            self._thread.join(timeout=2.0)
-            self._thread = None
-        logger.info("ZMQ tick receiver stopped for %s", self.source)
-
-    @property
-    def is_alive(self) -> bool:
-        return self._running and self._thread is not None and self._thread.is_alive()
-
-    # -- data access --
-
-    def get_tick(self, symbol: str) -> dict[str, Any] | None:
-        with self._lock:
-            return self._tick_cache.get(symbol)
-
-    def get_all_ticks(self) -> dict[str, dict[str, Any]]:
-        with self._lock:
-            return dict(self._tick_cache)
-
-    def seed_tick(self, symbol: str, payload: dict[str, Any]) -> None:
-        normalized = dict(payload)
-        if symbol:
-            normalized["symbol"] = normalized.get("symbol") or symbol
-        key = str(normalized.get("symbol") or symbol or "").strip()
-        if not key:
-            return
-        with self._lock:
-            self._tick_cache[key] = normalized
-            instrument_id = str(normalized.get("instrument_id") or "").strip()
-            if instrument_id and instrument_id != key:
-                self._tick_cache[instrument_id] = normalized
-
-    # -- internal --
-
-    def _recv_loop(self) -> None:
-        """Connect ZMQ SUB and drain ticks into cache."""
-        try:
-            import zmq
-        except ImportError:
-            logger.warning("pyzmq not installed; ZMQ tick receiver disabled for %s", self.source)
-            self._running = False
-            return
-
-        ctx = zmq.Context.instance()
-        sock = ctx.socket(zmq.SUB)
-        sock.setsockopt(zmq.SUBSCRIBE, b"")
-        sock.setsockopt(zmq.RCVTIMEO, 500)  # 500 ms timeout so we can check _running
-        try:
-            sock.connect(self.market_endpoint)
-        except zmq.ZMQError as exc:
-            logger.error("Cannot connect ZMQ SUB to %s: %s", self.market_endpoint, exc)
-            self._running = False
-            sock.close()
-            return
-
-        logger.info("ZMQ SUB connected to %s for %s", self.market_endpoint, self.source)
-        try:
-            while self._running:
-                try:
-                    raw = sock.recv()
-                except zmq.Again:
-                    continue
-                try:
-                    payload = json.loads(raw.decode("utf-8"))
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    continue
-                symbol = payload.get("symbol") or payload.get("instrument_id") or ""
-                if not symbol:
-                    continue
-                with self._lock:
-                    self._tick_cache[symbol] = payload
-        finally:
-            sock.close()
-            self._running = False
+# ZMQ tick receiver moved to quote.zmq_receiver in iteration 174 C4.
+# Keep the legacy private name as an alias for backward compatibility.
+_ZmqTickReceiver = ZmqTickReceiver
 
 
 # ===================================================================
@@ -394,10 +114,18 @@ class QuoteService:
 
     def _init_state(self) -> None:
         # custom symbols: {user_id: {source: [symbol, ...]}}
-        self._custom_symbols: dict[str, dict[str, list[str]]] = _load_custom_symbols()
-        # ZMQ receivers: {source: _ZmqTickReceiver}
+        self._custom_symbols: dict[str, dict[str, list[str]]] = load_custom_symbols()
+        # Persistently hidden regular subscriptions. Running-workspace rows
+        # never enter this collection because their dismissal is UI-local.
+        self._hidden_subscriptions: dict[str, dict[str, list[str]]] = load_hidden_subscriptions()
+        # ZMQ receivers: {gateway_key: _ZmqTickReceiver}.  A source may have
+        # several running gateways (for example, two IB workspaces), so the
+        # gateway key is the only safe cache boundary.
         self._receivers: dict[str, _ZmqTickReceiver] = {}
-        # Symbols we have already asked gateways to subscribe
+        # Symbols we have already asked each gateway to subscribe.  This is
+        # deliberately keyed by gateway rather than exchange: two workspaces
+        # on the same exchange may use independent sessions, while a shared
+        # gateway must never receive the same subscription twice.
         self._subscribed_symbols: dict[str, set[str]] = {}
         # Sources explicitly disconnected by the user; auto-connect should stay paused
         self._auto_connect_suppressed_sources: set[str] = set()
@@ -415,58 +143,70 @@ class QuoteService:
         self._auto_connect_suppressed_sources.discard(normalized)
 
     def get_cached_tick_metrics(self, source: str) -> dict[str, Any]:
-        normalized = str(source or "").strip().upper()
-        if not normalized:
-            return {"tick_count": 0, "last_tick_time": None}
-        receiver = self._receivers.get(normalized)
-        if receiver is None:
-            return {"tick_count": 0, "last_tick_time": None}
-        cached_ticks = receiver.get_all_ticks()
-        last_tick_time: int | None = None
-        for payload in cached_ticks.values():
-            if not isinstance(payload, dict):
-                continue
-            raw_timestamp = payload.get("timestamp")
-            if raw_timestamp in (None, ""):
-                continue
-            try:
-                timestamp = float(raw_timestamp)
-            except (TypeError, ValueError, OverflowError):
-                continue
-            if math.isnan(timestamp) or math.isinf(timestamp):
-                continue
-            normalized_timestamp = int(timestamp / 1000.0) if timestamp > 1e12 else int(timestamp)
-            if last_tick_time is None or normalized_timestamp > last_tick_time:
-                last_tick_time = normalized_timestamp
-        return {
-            "tick_count": len(cached_ticks),
-            "last_tick_time": last_tick_time,
-        }
+        return get_cached_tick_metrics(self._receivers, source)
 
     # ------------------------------------------------------------------
     # Data-source status
     # ------------------------------------------------------------------
 
-    def get_data_sources(self) -> list[dict[str, Any]]:
+    def get_data_sources(
+        self,
+        user_id: str = "",
+        workspace_names: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
         """Return all data sources with their current status."""
         manager = self._get_live_trading_manager()
         self._ensure_mt5_gateway_connected(manager)
-        connected_gateways = self._get_connected_gateway_exchanges(manager)
+        workspace_context = self._get_running_workspace_context(
+            manager,
+            user_id,
+            workspace_names,
+        )
 
         results = []
         for reg in _SOURCE_REGISTRY:
             source = reg["source"]
             label = reg["source_label"]
             caps = reg["capabilities"]
+            source_context = workspace_context.get(source, {})
+            gateway_states = self._get_source_gateway_states(
+                manager,
+                source,
+                source_context,
+            )
+            ready_gateways = [
+                (gateway_key, state)
+                for gateway_key, state in gateway_states.items()
+                if self._is_gateway_state_ready(state)
+            ]
+            for gateway_key, state in ready_gateways:
+                self._ensure_receiver_for_gateway(source, gateway_key, state)
+                workspace_gateway = source_context.get(gateway_key, {})
+                workspace_symbols = [
+                    metadata["symbol"] for metadata in workspace_gateway.get("symbols", {}).values()
+                ]
+                self._subscribe_symbols_on_gateway_state(
+                    source,
+                    gateway_key,
+                    state,
+                    workspace_symbols,
+                )
+            workspace_runs = self._build_workspace_runs(source_context)
+            running_symbol_count = len(
+                {
+                    symbol_key
+                    for gateway in source_context.values()
+                    for symbol_key in gateway["symbols"]
+                }
+            )
 
             if not caps:
                 status = "unavailable"
                 msg = "接入中，暂不可用"
-            elif source in connected_gateways and self._is_source_ready(manager, source):
+            elif ready_gateways:
                 status = "available"
                 msg = None
-                self._ensure_receiver(source, manager)
-            elif source in connected_gateways:
+            elif gateway_states:
                 status = "not_connected"
                 msg = "网关已启动，但行情通道尚未就绪"
             else:
@@ -480,6 +220,10 @@ class QuoteService:
                     "status": status,
                     "status_message": msg,
                     "capabilities": caps,
+                    "gateway_count": len(gateway_states),
+                    "workspace_count": len(workspace_runs),
+                    "running_symbol_count": running_symbol_count,
+                    "workspaces": workspace_runs,
                 }
             )
         return results
@@ -489,17 +233,100 @@ class QuoteService:
     # ------------------------------------------------------------------
 
     def get_symbols(self, source: str, user_id: str) -> dict[str, Any]:
-        """Return default + custom symbols for a data source."""
-        defaults = self._get_default_symbols_for_source(source)
+        """Return symbols plus the complete configured category catalog for a source."""
+        source = str(source or "").strip().upper()
+        hidden = self._hidden_symbol_set(source, user_id)
+        defaults = [
+            item
+            for item in self._get_default_symbols_for_source(source)
+            if item["symbol"] not in hidden
+        ]
         customs = self._custom_symbols.get(user_id, {}).get(source, [])
+        context = self._get_running_workspace_context(
+            self._get_live_trading_manager(),
+            user_id,
+        ).get(source, {})
+        default_map = {item["symbol"]: item for item in defaults}
+        running_symbols: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for gateway in context.values():
+            for symbol_key, metadata in gateway["symbols"].items():
+                if symbol_key in seen:
+                    continue
+                seen.add(symbol_key)
+                symbol = metadata["symbol"]
+                running_symbols.append(
+                    dict(
+                        default_map.get(
+                            symbol,
+                            {
+                                "symbol": symbol,
+                                "name": "",
+                                "exchange": "",
+                                "category": "",
+                            },
+                        )
+                    )
+                )
         return {
             "source": source,
             "default_symbols": defaults,
             "custom_symbols": customs,
+            "running_symbols": running_symbols,
+            "categories": self.get_source_categories(source),
         }
+
+    @staticmethod
+    def get_source_categories(source: str) -> list[str]:
+        """Return every configured category for a data source.
+
+        Quote snapshots may contain only the instruments currently subscribed
+        by a gateway.  Deriving the filter menu from those rows hides valid
+        categories whenever a market is inactive or a workspace uses a small
+        symbol subset, so build the catalog from both base and asset-specific
+        symbol configuration instead.
+        """
+        normalized_source = str(source or "").strip().upper()
+        configured_symbols = list(_DEFAULT_SYMBOLS.get(normalized_source, []))
+        for (configured_source, _asset_type), symbols in _DEFAULT_SYMBOLS_BY_ASSET.items():
+            if str(configured_source).strip().upper() == normalized_source:
+                configured_symbols.extend(symbols)
+
+        categories = {
+            str(item.get("category") or "").strip()
+            for item in configured_symbols
+            if isinstance(item, dict) and str(item.get("category") or "").strip()
+        }
+        return sorted(categories)
+
+    def _hidden_symbol_set(self, source: str, user_id: str) -> set[str]:
+        normalized_source = str(source or "").strip().upper()
+        return {
+            str(symbol).strip()
+            for symbol in self._hidden_subscriptions.get(user_id, {}).get(normalized_source, [])
+            if str(symbol).strip()
+        }
+
+    def _unhide_subscription_symbols(self, source: str, user_id: str, symbols: list[str]) -> None:
+        normalized_source = str(source or "").strip().upper()
+        restore_set = {str(symbol).strip() for symbol in symbols if str(symbol).strip()}
+        if not restore_set:
+            return
+        by_source = self._hidden_subscriptions.get(user_id)
+        if not by_source or normalized_source not in by_source:
+            return
+        by_source[normalized_source] = [
+            symbol for symbol in by_source[normalized_source] if symbol not in restore_set
+        ]
+        if not by_source[normalized_source]:
+            by_source.pop(normalized_source, None)
+        if not by_source:
+            self._hidden_subscriptions.pop(user_id, None)
+        save_hidden_subscriptions(self._hidden_subscriptions)
 
     def add_custom_symbols(self, source: str, user_id: str, symbols: list[str]) -> list[str]:
         """Add custom symbols for a user+source. Returns updated list."""
+        source = str(source or "").strip().upper()
         if user_id not in self._custom_symbols:
             self._custom_symbols[user_id] = {}
         if source not in self._custom_symbols[user_id]:
@@ -511,13 +338,16 @@ class QuoteService:
                 self._custom_symbols[user_id][source].append(s)
                 existing.add(s)
 
+        self._unhide_subscription_symbols(source, user_id, symbols)
+
         # Subscribe newly added symbols on the gateway
         self._subscribe_symbols_on_gateway(source, symbols)
-        _save_custom_symbols(self._custom_symbols)
+        save_custom_symbols(self._custom_symbols)
         return self._custom_symbols[user_id][source]
 
     def remove_custom_symbols(self, source: str, user_id: str, symbols: list[str]) -> list[str]:
         """Remove custom symbols. Returns updated list."""
+        source = str(source or "").strip().upper()
         if user_id not in self._custom_symbols:
             return []
         if source not in self._custom_symbols[user_id]:
@@ -527,8 +357,33 @@ class QuoteService:
         self._custom_symbols[user_id][source] = [
             s for s in self._custom_symbols[user_id][source] if s not in remove_set
         ]
-        _save_custom_symbols(self._custom_symbols)
+        save_custom_symbols(self._custom_symbols)
         return self._custom_symbols[user_id][source]
+
+    def remove_subscriptions(self, source: str, user_id: str, symbols: list[str]) -> list[str]:
+        """Permanently remove saved/default subscriptions for a user.
+
+        This intentionally excludes workspace-driven rows: the frontend hides
+        those only for its current session so a refresh or service restart
+        restores the strategy's live instrument monitoring.
+        """
+        source = str(source or "").strip().upper()
+        remove_set = {str(symbol).strip() for symbol in symbols if str(symbol).strip()}
+        if not source or not remove_set:
+            return self._custom_symbols.get(user_id, {}).get(source, [])
+
+        user_custom = self._custom_symbols.setdefault(user_id, {})
+        if source in user_custom:
+            user_custom[source] = [
+                symbol for symbol in user_custom[source] if symbol not in remove_set
+            ]
+        hidden_by_source = self._hidden_subscriptions.setdefault(user_id, {})
+        current_hidden = set(hidden_by_source.get(source, []))
+        current_hidden.update(remove_set)
+        hidden_by_source[source] = sorted(current_hidden)
+        save_custom_symbols(self._custom_symbols)
+        save_hidden_subscriptions(self._hidden_subscriptions)
+        return user_custom.get(source, [])
 
     def search_symbols(self, source: str, keyword: str) -> list[dict[str, str]]:
         """Search symbols within a data source by keyword."""
@@ -552,53 +407,102 @@ class QuoteService:
         source: str,
         user_id: str,
         symbols: list[str] | None = None,
+        workspace_names: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Fetch quote ticks for the given source and symbol list.
 
         If *symbols* is ``None``, returns quotes for default + custom symbols.
         """
+        source = str(source or "").strip().upper()
         label = _SOURCE_TO_LABEL.get(source, source)
         manager = self._get_live_trading_manager()
         if source == "MT5":
             self._ensure_mt5_gateway_connected(manager)
 
         if symbols is None:
-            sym_info = self.get_symbols(source, user_id)
-            all_syms = [s["symbol"] for s in sym_info["default_symbols"]]
-            all_syms.extend(sym_info["custom_symbols"])
+            hidden = self._hidden_symbol_set(source, user_id)
+            subscription_symbols = [
+                item["symbol"]
+                for item in self._get_default_symbols_for_source(source)
+                if item["symbol"] not in hidden
+            ]
+            subscription_symbols.extend(self._custom_symbols.get(user_id, {}).get(source, []))
         else:
-            all_syms = symbols
-        all_syms = list(dict.fromkeys(str(sym).strip() for sym in all_syms if str(sym).strip()))
+            subscription_symbols = symbols
+        subscription_symbols = list(
+            dict.fromkeys(str(sym).strip() for sym in subscription_symbols if str(sym).strip())
+        )
 
+        workspace_context = self._get_running_workspace_context(
+            manager,
+            user_id,
+            workspace_names,
+        ).get(source, {})
+
+        # Keep the original source-level calls for a manual subscription.  In
+        # normal operation these resolve to the selected gateway key; retaining
+        # this path also lets a source with no active workspace show its saved
+        # subscriptions as missing rather than silently disappearing.
         self._ensure_receiver(source, manager)
-        self._subscribe_symbols_on_gateway(source, all_syms)
+        self._subscribe_symbols_on_gateway(source, subscription_symbols)
 
         defaults_map: dict[str, dict[str, str]] = {}
         for item in self._get_default_symbols_for_source(source):
             defaults_map[item["symbol"]] = item
 
-        receiver = self._receivers.get(source)
-        cached_ticks = self._wait_for_initial_ticks(receiver, all_syms)
-        if source in {"IB_WEB", "BINANCE", "OKX"}:
-            cached_ticks = self._hydrate_snapshot_ticks(
-                manager,
-                source,
-                receiver,
-                all_syms,
-                cached_ticks,
-            )
-        has_receiver = receiver is not None and receiver.is_alive
-
         now = datetime.now(timezone.utc).isoformat()
         ticks: list[dict[str, Any]] = []
+        has_receiver = False
 
-        for sym in all_syms:
-            meta = defaults_map.get(
-                sym, {"symbol": sym, "name": "", "exchange": "", "category": ""}
-            )
-            raw = self._match_cached_tick(cached_ticks, sym)
-            tick = self._build_tick(source, label, sym, meta, raw, now)
-            ticks.append(tick)
+        plans = self._build_quote_plans(
+            manager,
+            source,
+            subscription_symbols,
+            workspace_context,
+        )
+        for gateway_key, plan in plans.items():
+            state = plan.get("state")
+            plan_symbols = list(plan["symbols"].values())
+            symbols_for_gateway = [item["symbol"] for item in plan_symbols]
+
+            receiver = self._get_receiver_for_plan(source, gateway_key, state)
+            if state is not None and gateway_key != source:
+                self._ensure_receiver_for_gateway(source, gateway_key, state)
+                receiver = self._receivers.get(gateway_key)
+                self._subscribe_symbols_on_gateway_state(
+                    source,
+                    gateway_key,
+                    state,
+                    symbols_for_gateway,
+                )
+
+            cached_ticks = wait_for_initial_ticks(receiver, symbols_for_gateway)
+            if source in {"IB_WEB", "MT5", "BINANCE", "OKX"}:
+                cached_ticks = self._hydrate_snapshot_ticks(
+                    manager,
+                    source,
+                    receiver,
+                    symbols_for_gateway,
+                    cached_ticks,
+                    state=state,
+                    max_snapshots=_MAX_SNAPSHOT_HYDRATION_PER_GATEWAY,
+                )
+            has_receiver = has_receiver or bool(receiver is not None and receiver.is_alive)
+
+            for item in plan_symbols:
+                sym = item["symbol"]
+                meta = defaults_map.get(
+                    sym,
+                    {"symbol": sym, "name": "", "exchange": "", "category": ""},
+                )
+                raw = match_cached_tick(cached_ticks, sym)
+                tick = self._build_tick(source, label, sym, meta, raw, now)
+                tick["quote_key"] = f"{gateway_key}:{sym}"
+                tick["gateway_key"] = "" if gateway_key == source else gateway_key
+                tick["origins"] = sorted(item["origins"])
+                tick["workspace_ids"] = sorted(item["workspace_ids"])
+                tick["workspace_names"] = sorted(item["workspace_names"])
+                ticks.append(tick)
         fields = _resolve_quote_fields(source, ticks)
 
         return {
@@ -689,42 +593,65 @@ class QuoteService:
     # ------------------------------------------------------------------
 
     def _ensure_receiver(self, source: str, manager: Any) -> None:
-        """Start a ZMQ tick receiver for *source* if not already running."""
-        existing = self._receivers.get(source)
+        """Start a receiver for the preferred concrete gateway of *source*."""
+        gateway_key, state = self._find_gateway_state_with_key(manager, source)
+        if state is None:
+            return
+        self._ensure_receiver_for_gateway(source, gateway_key or source, state)
+
+    def _ensure_receiver_for_gateway(
+        self,
+        source: str,
+        gateway_key: str,
+        state: dict[str, Any],
+    ) -> None:
+        """Start one receiver for a concrete gateway, if needed."""
+        existing = self._receivers.get(gateway_key)
         if existing is not None and existing.is_alive:
             return
 
-        # Find the gateway config to get market_endpoint
-        config = self._find_gateway_config(manager, source)
-        if config is None:
-            return
-
+        config = state.get("config")
         market_endpoint = getattr(config, "market_endpoint", None)
         if not market_endpoint:
             return
 
         receiver = _ZmqTickReceiver(source, market_endpoint)
         receiver.start()
-        self._receivers[source] = receiver
-        logger.info("Started ZMQ receiver for %s at %s", source, market_endpoint)
+        self._receivers[gateway_key] = receiver
+        logger.info("Started ZMQ receiver for %s gateway %s", source, gateway_key)
 
     def _subscribe_symbols_on_gateway(self, source: str, symbols: list[str]) -> None:
-        """Send a 'subscribe' command to the gateway for any not-yet-subscribed symbols."""
+        """Subscribe source-level symbols on the preferred concrete gateway."""
+        manager = self._get_live_trading_manager()
+        gateway_key, state = self._find_gateway_state_with_key(manager, source)
+        if state is None:
+            # Preserve the source-key fallback for integrations that expose a
+            # config lookup but do not expose gateway state.
+            config = self._find_gateway_config(manager, source)
+            state = {"config": config} if config is not None else None
+            gateway_key = source
+        if state is None:
+            return
+        self._subscribe_symbols_on_gateway_state(source, gateway_key or source, state, symbols)
+
+    def _subscribe_symbols_on_gateway_state(
+        self,
+        source: str,
+        gateway_key: str,
+        state: dict[str, Any],
+        symbols: list[str],
+    ) -> None:
+        """Subscribe symbols once for a given gateway session."""
         if not symbols:
             return
 
-        if source not in self._subscribed_symbols:
-            self._subscribed_symbols[source] = set()
-
-        new_syms = [s for s in symbols if s not in self._subscribed_symbols[source]]
+        subscription_key = gateway_key or source
+        subscribed = self._subscribed_symbols.setdefault(subscription_key, set())
+        new_syms = [s for s in symbols if s not in subscribed]
         if not new_syms:
             return
 
-        manager = self._get_live_trading_manager()
-        config = self._find_gateway_config(manager, source)
-        if config is None:
-            return
-
+        config = state.get("config")
         command_endpoint = getattr(config, "command_endpoint", None)
         if not command_endpoint:
             return
@@ -758,18 +685,20 @@ class QuoteService:
                             str(symbol) for symbol in skipped_candidate if str(symbol)
                         ]
                 if accepted_symbols:
-                    self._subscribed_symbols[source].update(accepted_symbols)
+                    subscribed.update(accepted_symbols)
                     logger.info(
-                        "Subscribed %d symbols on %s: %s",
+                        "Subscribed %d symbols on %s gateway %s: %s",
                         len(accepted_symbols),
                         source,
+                        subscription_key,
                         accepted_symbols[:5],
                     )
                 if skipped_symbols:
                     logger.warning(
-                        "Skipped %d symbols on %s due to gateway rejection: %s",
+                        "Skipped %d symbols on %s gateway %s due to rejection: %s",
                         len(skipped_symbols),
                         source,
+                        subscription_key,
                         skipped_symbols[:5],
                     )
         except ImportError:
@@ -792,18 +721,183 @@ class QuoteService:
             return None
 
     @staticmethod
-    def _get_connected_gateway_exchanges(manager) -> set[str]:
-        """Return set of exchange types that have connected gateways."""
+    def _snapshot_gateway_states(manager: Any) -> dict[str, dict[str, Any]]:
+        """Safely snapshot the manager's in-memory gateway registry."""
         if manager is None:
-            return set()
+            return {}
         try:
-            gateways = manager.list_connected_gateways()
-            return {g.get("exchange_type", "") for g in gateways}
+            lock = getattr(manager, "_gateway_lock", None)
+            if lock is None:
+                states = dict(getattr(manager, "_gateways", {}))
+            else:
+                with lock:
+                    states = dict(getattr(manager, "_gateways", {}))
+            return {
+                str(gateway_key): state
+                for gateway_key, state in states.items()
+                if isinstance(state, dict) and state.get("config") is not None
+            }
         except Exception:
-            return set()
+            logger.debug("Unable to snapshot gateway states for quote monitoring", exc_info=True)
+            return {}
+
+    def _get_running_workspace_context(
+        self,
+        manager: Any,
+        user_id: str,
+        workspace_names: dict[str, str] | None = None,
+    ) -> dict[str, dict[str, dict[str, Any]]]:
+        """Group running workspace instruments by source and gateway.
+
+        Only instances belonging to the current user are included.  The
+        result is intentionally keyed by concrete gateway session, which
+        prevents duplicate subscriptions when many strategy units share one
+        gateway while still preserving separate sessions of the same exchange.
+        """
+        if manager is None or not user_id:
+            return {}
+        try:
+            instances = manager.list_instances(user_id=user_id)
+        except Exception:
+            logger.debug("Unable to list running workspace instances", exc_info=True)
+            return {}
+
+        states = self._snapshot_gateway_states(manager)
+        instance_gateways: dict[str, str] = {}
+        try:
+            lock = getattr(manager, "_gateway_lock", None)
+            if lock is None:
+                instance_gateways = {
+                    str(instance_id): str(gateway_key)
+                    for instance_id, gateway_key in getattr(
+                        manager, "_instance_gateways", {}
+                    ).items()
+                }
+            else:
+                with lock:
+                    instance_gateways = {
+                        str(instance_id): str(gateway_key)
+                        for instance_id, gateway_key in getattr(
+                            manager, "_instance_gateways", {}
+                        ).items()
+                    }
+        except Exception:
+            logger.debug("Unable to read instance gateway assignments", exc_info=True)
+
+        names = workspace_names or {}
+        context: dict[str, dict[str, dict[str, Any]]] = {}
+        for instance in instances:
+            if str(instance.get("status") or "").lower() != "running":
+                continue
+            params = instance.get("params")
+            if not isinstance(params, dict):
+                continue
+            workspace_unit = params.get("workspace_unit")
+            if not isinstance(workspace_unit, dict):
+                # Regular live-trading instances remain available as manual
+                # subscriptions but are not presented as a trading workspace.
+                continue
+            workspace_id = str(workspace_unit.get("workspace_id") or "").strip()
+            if not workspace_id:
+                continue
+            symbol = str(params.get("symbol") or "").strip()
+            if not symbol:
+                continue
+            instance_id = str(instance.get("id") or "").strip()
+            gateway_key = instance_gateways.get(instance_id, "")
+            if not gateway_key:
+                for candidate_key, state in states.items():
+                    linked_instances = state.get("instances", set()) or set()
+                    if instance_id in {str(item) for item in linked_instances}:
+                        gateway_key = candidate_key
+                        break
+            state = states.get(gateway_key)
+            if state is None:
+                continue
+            source = str(state.get("exchange_type") or "").strip().upper()
+            if not source:
+                continue
+
+            source_context = context.setdefault(source, {})
+            gateway = source_context.setdefault(
+                gateway_key,
+                {
+                    "state": state,
+                    "symbols": {},
+                    "workspaces": {},
+                },
+            )
+            symbol_key = symbol.upper()
+            workspace_name = str(
+                names.get(workspace_id) or workspace_unit.get("workspace_name") or workspace_id
+            ).strip()
+            gateway["symbols"].setdefault(
+                symbol_key,
+                {
+                    "symbol": symbol,
+                    "workspace_ids": set(),
+                    "workspace_names": set(),
+                },
+            )
+            gateway["symbols"][symbol_key]["workspace_ids"].add(workspace_id)
+            gateway["symbols"][symbol_key]["workspace_names"].add(workspace_name)
+            workspace = gateway["workspaces"].setdefault(
+                workspace_id,
+                {
+                    "workspace_id": workspace_id,
+                    "workspace_name": workspace_name,
+                    "symbols": set(),
+                },
+            )
+            workspace["symbols"].add(symbol)
+        return context
+
+    def _get_source_gateway_states(
+        self,
+        manager: Any,
+        source: str,
+        workspace_context: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        """Return visible manual and running-workspace gateways for a source."""
+        normalized_source = str(source or "").strip().upper()
+        result: dict[str, dict[str, Any]] = {}
+        for gateway_key, state in self._snapshot_gateway_states(manager).items():
+            if str(state.get("exchange_type") or "").strip().upper() == normalized_source and bool(
+                state.get("manual")
+            ):
+                result[gateway_key] = state
+        for gateway_key, gateway in (workspace_context or {}).items():
+            state = gateway.get("state")
+            if isinstance(state, dict):
+                result[gateway_key] = state
+        return result
+
+    @staticmethod
+    def _build_workspace_runs(
+        workspace_context: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Format workspace monitor metadata for the data-source endpoint."""
+        runs: list[dict[str, Any]] = []
+        for gateway_key, gateway in workspace_context.items():
+            for workspace in gateway["workspaces"].values():
+                symbols = sorted(workspace["symbols"])
+                runs.append(
+                    {
+                        "workspace_id": workspace["workspace_id"],
+                        "workspace_name": workspace["workspace_name"],
+                        "gateway_key": gateway_key,
+                        "symbol_count": len(symbols),
+                        "symbols": symbols,
+                    }
+                )
+        return sorted(runs, key=lambda item: (item["workspace_name"], item["gateway_key"]))
 
     def _ensure_mt5_gateway_connected(self, manager: Any) -> None:
         if manager is None:
+            return
+        restore_in_progress = getattr(manager, "is_gateway_restore_in_progress", None)
+        if callable(restore_in_progress) and restore_in_progress():
+            logger.info("Deferring MT5 quote auto-connect while gateway recovery is in progress")
             return
         if "MT5" in self._auto_connect_suppressed_sources:
             return
@@ -860,6 +954,10 @@ class QuoteService:
 
     def _is_source_ready(self, manager, source: str) -> bool:
         state = self._find_gateway_state(manager, source)
+        return self._is_gateway_state_ready(state)
+
+    def _is_gateway_state_ready(self, state: dict[str, Any] | None) -> bool:
+        """Return whether a gateway has an accepting command channel."""
         if state is None:
             return False
         config = state.get("config")
@@ -891,79 +989,118 @@ class QuoteService:
         2. Among them, gateways whose ping says ready=true
         3. Fallback to any gateway of the source
         """
-        if manager is None:
-            return None
-        try:
-            candidates: list[dict[str, Any]] = []
-            manual_candidates: list[dict[str, Any]] = []
-            for _key, state in manager._gateways.items():
-                if state.get("exchange_type") != source:
-                    continue
-                if state.get("config") is None:
-                    continue
-                candidates.append(state)
-                if state.get("manual"):
-                    manual_candidates.append(state)
-            preferred = manual_candidates or candidates
-            for state in preferred:
-                config = state.get("config")
-                command_endpoint = getattr(config, "command_endpoint", None)
-                if not command_endpoint:
-                    continue
-                result = self._send_gateway_command(
-                    command_endpoint,
-                    "ping",
-                    {},
-                    send_timeout_ms=1000,
-                    recv_timeout_ms=1000,
-                )
-                if isinstance(result, dict) and result.get("ready") is True:
-                    return state
-            if preferred:
-                return preferred[0]
-        except Exception:
-            pass
-        return None
+        _gateway_key, state = self._find_gateway_state_with_key(manager, source)
+        return state
 
-    @staticmethod
-    def _wait_for_initial_ticks(
-        receiver: _ZmqTickReceiver | None,
-        symbols: list[str],
-        timeout_sec: float = 1.5,
+    def _find_gateway_state_with_key(
+        self,
+        manager: Any,
+        source: str,
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Find the preferred gateway session and return both key and state."""
+        normalized_source = str(source or "").strip().upper()
+        candidates = [
+            (gateway_key, state)
+            for gateway_key, state in self._snapshot_gateway_states(manager).items()
+            if str(state.get("exchange_type") or "").strip().upper() == normalized_source
+        ]
+        manual = [(key, state) for key, state in candidates if state.get("manual")]
+        preferred = manual or candidates
+        for gateway_key, state in preferred:
+            if self._is_gateway_state_ready(state):
+                return gateway_key, state
+        if preferred:
+            return preferred[0]
+        return "", None
+
+    def _build_quote_plans(
+        self,
+        manager: Any,
+        source: str,
+        subscription_symbols: list[str],
+        workspace_context: dict[str, dict[str, Any]],
     ) -> dict[str, dict[str, Any]]:
-        if receiver is None or not receiver.is_alive:
-            return {}
-        cached = receiver.get_all_ticks()
-        if not symbols or any(sym in cached for sym in symbols):
-            return cached
-        deadline = time.time() + timeout_sec
-        while time.time() < deadline:
-            time.sleep(0.2)
-            cached = receiver.get_all_ticks()
-            if any(sym in cached for sym in symbols):
-                return cached
-        return cached
+        """Build deduplicated ``gateway + symbol`` quote requests.
 
-    @staticmethod
-    def _match_cached_tick(
-        cached_ticks: dict[str, dict[str, Any]],
-        symbol: str,
-    ) -> dict[str, Any] | None:
-        raw = cached_ticks.get(symbol)
-        if raw is not None:
-            return raw
-        target = symbol.upper()
-        for key, payload in cached_ticks.items():
-            candidates = [
-                str(key or ""),
-                str(payload.get("symbol") or ""),
-                str(payload.get("instrument_id") or ""),
+        An instrument can appear in a watchlist and in multiple strategy
+        units.  It is requested once for that gateway and its displayed row
+        carries every origin.  The same symbol on a different gateway remains
+        a separate row because it can represent a different market session.
+        """
+        plans: dict[str, dict[str, Any]] = {}
+
+        def ensure_plan(gateway_key: str, state: dict[str, Any] | None) -> dict[str, Any]:
+            return plans.setdefault(
+                gateway_key,
+                {"state": state, "symbols": {}},
+            )
+
+        def add_symbol(
+            plan: dict[str, Any],
+            symbol: str,
+            *,
+            origin: str,
+            workspace_ids: set[str] | None = None,
+            workspace_names: set[str] | None = None,
+        ) -> None:
+            normalized = str(symbol or "").strip()
+            if not normalized:
+                return
+            symbol_key = normalized.upper()
+            item = plan["symbols"].setdefault(
+                symbol_key,
+                {
+                    "symbol": normalized,
+                    "origins": set(),
+                    "workspace_ids": set(),
+                    "workspace_names": set(),
+                },
+            )
+            item["origins"].add(origin)
+            item["workspace_ids"].update(workspace_ids or set())
+            item["workspace_names"].update(workspace_names or set())
+
+        source_states = self._get_source_gateway_states(manager, source, workspace_context)
+        if source_states:
+            ready = [
+                (gateway_key, state)
+                for gateway_key, state in source_states.items()
+                if self._is_gateway_state_ready(state)
             ]
-            normalized = [candidate.upper() for candidate in candidates if candidate]
-            if target in normalized:
-                return payload
-            if any(value.startswith(target) for value in normalized):
-                return payload
+            subscription_key, subscription_state = (ready or list(source_states.items()))[0]
+        else:
+            subscription_key, subscription_state = self._find_gateway_state_with_key(
+                manager, source
+            )
+            subscription_key = subscription_key or source
+        subscription_plan = ensure_plan(subscription_key, subscription_state)
+        for symbol in subscription_symbols:
+            add_symbol(subscription_plan, symbol, origin="subscription")
+
+        for gateway_key, gateway in workspace_context.items():
+            plan = ensure_plan(gateway_key, gateway.get("state"))
+            for metadata in gateway["symbols"].values():
+                add_symbol(
+                    plan,
+                    metadata["symbol"],
+                    origin="workspace",
+                    workspace_ids=metadata["workspace_ids"],
+                    workspace_names=metadata["workspace_names"],
+                )
+        return plans
+
+    def _get_receiver_for_plan(
+        self,
+        source: str,
+        gateway_key: str,
+        state: dict[str, Any] | None,
+    ) -> _ZmqTickReceiver | None:
+        """Find the receiver for a concrete quote plan, with legacy fallback."""
+        receiver = self._receivers.get(gateway_key)
+        if receiver is not None:
+            return receiver
+        if state is None or gateway_key == source:
+            return self._receivers.get(source)
         return None
 
     def _hydrate_snapshot_ticks(
@@ -973,33 +1110,39 @@ class QuoteService:
         receiver: _ZmqTickReceiver | None,
         symbols: list[str],
         cached_ticks: dict[str, dict[str, Any]],
+        state: dict[str, Any] | None = None,
+        max_snapshots: int | None = None,
     ) -> dict[str, dict[str, Any]]:
         if not symbols:
             return cached_ticks
-        runtime = self._get_gateway_runtime(manager, "IB_WEB")
-        if source != "IB_WEB":
-            runtime = self._get_gateway_runtime(manager, source)
+        runtime = state.get("runtime") if state is not None else None
+        if runtime is None:
+            runtime = self._get_gateway_runtime(manager, "IB_WEB")
+            if source != "IB_WEB":
+                runtime = self._get_gateway_runtime(manager, source)
         adapter = getattr(runtime, "adapter", None)
         feed = getattr(adapter, "feed", None)
         if feed is None or not hasattr(feed, "get_tick"):
             return cached_ticks
         hydrated = dict(cached_ticks)
+        hydrated_count = 0
         for symbol in symbols:
-            if self._match_cached_tick(hydrated, symbol) is not None:
+            if match_cached_tick(hydrated, symbol) is not None:
                 continue
+            if max_snapshots is not None and hydrated_count >= max_snapshots:
+                break
             raw = self._fetch_gateway_snapshot_tick(source, feed, symbol)
             if raw is None:
                 continue
             hydrated[symbol] = raw
+            hydrated_count += 1
             if receiver is not None:
                 receiver.seed_tick(symbol, raw)
         return hydrated
 
     @staticmethod
     def _fetch_gateway_snapshot_tick(source: str, feed: Any, symbol: str) -> dict[str, Any] | None:
-        if source == "IB_WEB":
-            return QuoteService._fetch_ib_web_snapshot_tick(feed, symbol)
-        return QuoteService._fetch_standard_snapshot_tick(source, feed, symbol)
+        return _fetch_gateway_snapshot_tick(source, feed, symbol)
 
     def _get_gateway_runtime(self, manager: Any, source: str) -> Any | None:
         state = self._find_gateway_state(manager, source)
@@ -1009,140 +1152,11 @@ class QuoteService:
 
     @staticmethod
     def _fetch_ib_web_snapshot_tick(feed: Any, symbol: str) -> dict[str, Any] | None:
-        try:
-            snapshot = feed.get_tick(symbol)
-        except Exception as exc:
-            logger.warning(
-                "Failed to fetch IB_WEB snapshot for %s: %s: %s",
-                symbol,
-                type(exc).__name__,
-                exc,
-            )
-            return None
-        if not isinstance(snapshot, dict) or not snapshot:
-            return None
-
-        price = _opt_float(snapshot.get("31") or snapshot.get("last") or snapshot.get("lastPrice"))
-        bid_price = _opt_float(
-            snapshot.get("84") or snapshot.get("bid") or snapshot.get("bidPrice")
-        )
-        ask_price = _opt_float(
-            snapshot.get("86") or snapshot.get("ask") or snapshot.get("askPrice")
-        )
-        volume = _opt_float(
-            snapshot.get("87") or snapshot.get("volume") or snapshot.get("lastSize")
-        )
-        if price is None and bid_price is None and ask_price is None and volume is None:
-            return None
-
-        raw: dict[str, Any] = {
-            "timestamp": time.time(),
-            "symbol": symbol,
-            "exchange": "IB_WEB",
-            "instrument_id": str(snapshot.get("conid") or snapshot.get("conidEx") or ""),
-            "exchange_id": str(snapshot.get("listingExchange") or snapshot.get("exchange") or ""),
-        }
-        if price is not None:
-            raw["price"] = price
-        if bid_price is not None:
-            raw["bid_price"] = bid_price
-        if ask_price is not None:
-            raw["ask_price"] = ask_price
-        if volume is not None:
-            raw["volume"] = volume
-        return raw
+        return _fetch_ib_web_snapshot_tick(feed, symbol)
 
     @staticmethod
     def _fetch_standard_snapshot_tick(source: str, feed: Any, symbol: str) -> dict[str, Any] | None:
-        try:
-            snapshot = feed.get_tick(symbol)
-        except Exception as exc:
-            logger.warning(
-                "Failed to fetch %s snapshot for %s: %s: %s",
-                source,
-                symbol,
-                type(exc).__name__,
-                exc,
-            )
-            return None
-
-        data = snapshot.get_data() if hasattr(snapshot, "get_data") else snapshot
-        if isinstance(data, list):
-            item = data[0] if data else None
-        elif isinstance(data, dict):
-            item = data
-        else:
-            item = None
-        if item is None:
-            return None
-
-        payload = item.get_all_data() if hasattr(item, "get_all_data") else item
-        if not isinstance(payload, dict) or not payload:
-            return None
-
-        bid_price = _opt_float(_first_present(payload, "bid_price"))
-        ask_price = _opt_float(_first_present(payload, "ask_price"))
-        price = _opt_float(_first_present(payload, "last_price", "price"))
-        if price is None and bid_price is not None and ask_price is not None:
-            price = (bid_price + ask_price) / 2.0
-        volume = _opt_float(_first_present(payload, "volume_24h", "vol_24h", "volume"))
-        turnover = _opt_float(_first_present(payload, "turnover_24h", "vol_ccy_24h", "turnover"))
-        high_price = _opt_float(_first_present(payload, "high_price", "high_24h"))
-        low_price = _opt_float(_first_present(payload, "low_price", "low_24h"))
-        open_price = _opt_float(_first_present(payload, "open_price", "open_24h"))
-        prev_close = _opt_float(_first_present(payload, "prev_close"))
-        bid_volume = _opt_float(_first_present(payload, "bid_volume"))
-        ask_volume = _opt_float(_first_present(payload, "ask_volume"))
-        if all(
-            value is None
-            for value in (
-                price,
-                bid_price,
-                ask_price,
-                volume,
-                turnover,
-                high_price,
-                low_price,
-                open_price,
-                prev_close,
-            )
-        ):
-            return None
-
-        server_time = _opt_float(_first_present(payload, "server_time"))
-        if server_time is None:
-            timestamp = time.time()
-        else:
-            timestamp = server_time / 1000.0 if server_time > 1e12 else server_time
-
-        raw: dict[str, Any] = {
-            "timestamp": timestamp,
-            "symbol": str(_first_present(payload, "ticker_symbol_name", "symbol_name") or symbol),
-            "exchange": source,
-        }
-        if price is not None:
-            raw["price"] = price
-        if bid_price is not None:
-            raw["bid_price"] = bid_price
-        if ask_price is not None:
-            raw["ask_price"] = ask_price
-        if bid_volume is not None:
-            raw["bid_volume"] = bid_volume
-        if ask_volume is not None:
-            raw["ask_volume"] = ask_volume
-        if volume is not None:
-            raw["volume"] = volume
-        if turnover is not None:
-            raw["turnover"] = turnover
-        if high_price is not None:
-            raw["high_price"] = high_price
-        if low_price is not None:
-            raw["low_price"] = low_price
-        if open_price is not None:
-            raw["open_price"] = open_price
-        if prev_close is not None:
-            raw["prev_close"] = prev_close
-        return raw
+        return _fetch_standard_snapshot_tick(source, feed, symbol)
 
     @staticmethod
     def _send_gateway_command(
@@ -1152,43 +1166,13 @@ class QuoteService:
         send_timeout_ms: int = 3000,
         recv_timeout_ms: int = 3000,
     ) -> Any | None:
-        try:
-            import zmq
-        except ImportError:
-            logger.warning(
-                "pyzmq not installed; cannot execute %s on %s", command, command_endpoint
-            )
-            return None
-        ctx = zmq.Context.instance()
-        sock = ctx.socket(zmq.DEALER)
-        sock.setsockopt(zmq.IDENTITY, uuid.uuid4().hex.encode("utf-8"))
-        sock.setsockopt(zmq.SNDTIMEO, send_timeout_ms)
-        sock.setsockopt(zmq.RCVTIMEO, recv_timeout_ms)
-        try:
-            sock.connect(command_endpoint)
-            request = {
-                "request_id": uuid.uuid4().hex,
-                "command": command,
-                "payload": payload,
-            }
-            sock.send(
-                json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-            )
-            resp_raw = sock.recv()
-            resp = json.loads(resp_raw.decode("utf-8"))
-            if isinstance(resp, dict) and resp.get("status") == "ok":
-                return resp.get("data")
-            if isinstance(resp, dict):
-                logger.warning("%s failed for %s: %s", command, command_endpoint, resp.get("error"))
-            else:
-                logger.warning("%s returned invalid response for %s", command, command_endpoint)
-        except zmq.Again:
-            logger.warning("%s timed out for %s", command, command_endpoint)
-        except Exception:
-            logger.exception("Failed to execute %s for %s", command, command_endpoint)
-        finally:
-            sock.close()
-        return None
+        return _send_gateway_command_impl(
+            command_endpoint,
+            command,
+            payload,
+            send_timeout_ms=send_timeout_ms,
+            recv_timeout_ms=recv_timeout_ms,
+        )
 
     @staticmethod
     def _build_tick(
@@ -1199,92 +1183,8 @@ class QuoteService:
         raw: dict[str, Any] | None,
         now: str,
     ) -> dict[str, Any]:
-        """Build a QuoteTick dict.
-
-        *raw* is a cached GatewayTick payload (dict) from the ZMQ receiver,
-        or None if no data has been received yet.
-
-        GatewayTick fields (from bt_api_py/gateway/models.py):
-            timestamp, symbol, exchange, price, volume, bid_price, ask_price,
-            bid_volume, ask_volume, openinterest, turnover, update_time, ...
-        """
-        tick: dict[str, Any] = {
-            "source": source,
-            "source_label": label,
-            "symbol": symbol,
-            "name": meta.get("name", ""),
-            "exchange": meta.get("exchange", ""),
-            "category": meta.get("category", ""),
-            "last_price": None,
-            "change": None,
-            "change_pct": None,
-            "bid_price": None,
-            "ask_price": None,
-            "high_price": None,
-            "low_price": None,
-            "open_price": None,
-            "prev_close": None,
-            "volume": None,
-            "turnover": None,
-            "open_interest": None,
-            "update_time": None,
-            "status": "normal",
-            "error_message": None,
-        }
-
-        if raw is None:
-            tick["status"] = "missing"
-            return tick
-
-        # Map GatewayTick fields → QuoteTick fields
-        price = raw.get("price")
-        bid_price = _opt_float(raw.get("bid_price"))
-        ask_price = _opt_float(raw.get("ask_price"))
-        if price is not None and price != 0:
-            tick["last_price"] = float(price)
-        elif bid_price is not None and ask_price is not None:
-            tick["last_price"] = (bid_price + ask_price) / 2.0
-        elif bid_price is not None:
-            tick["last_price"] = bid_price
-        elif ask_price is not None:
-            tick["last_price"] = ask_price
-        tick["bid_price"] = bid_price
-        tick["ask_price"] = ask_price
-        tick["volume"] = _opt_float(raw.get("volume"))
-        tick["turnover"] = _opt_float(raw.get("turnover"))
-        tick["open_interest"] = _opt_float(raw.get("openinterest"))
-
-        # OHLC fields from enriched GatewayTick (24h ticker data)
-        tick["high_price"] = _opt_float(raw.get("high_price"))
-        tick["low_price"] = _opt_float(raw.get("low_price"))
-        tick["open_price"] = _opt_float(raw.get("open_price"))
-        tick["prev_close"] = _opt_float(raw.get("prev_close"))
-
-        # Compute change / change_pct from last_price and open_price or prev_close
-        last = tick["last_price"]
-        if last is not None:
-            ref = tick["prev_close"] or tick["open_price"]
-            if ref is not None and ref != 0:
-                tick["change"] = last - ref
-                tick["change_pct"] = (last - ref) / ref * 100.0
-
-        # Exchange from tick overrides metadata if present
-        if raw.get("exchange"):
-            tick["exchange"] = raw["exchange"]
-
-        if raw.get("update_time"):
-            tick["update_time"] = _normalize_tick_update_time(raw.get("update_time"), raw, now)
-        elif raw.get("datetime"):
-            tick["update_time"] = _normalize_tick_update_time(raw.get("datetime"), raw, now)
-        elif raw.get("timestamp"):
-            try:
-                tick["update_time"] = datetime.fromtimestamp(
-                    float(raw["timestamp"]), tz=timezone.utc
-                ).isoformat()
-            except (ValueError, TypeError, OSError):
-                tick["update_time"] = now
-
-        return tick
+        """Build a QuoteTick dict from a raw GatewayTick payload."""
+        return _build_tick(source, label, symbol, meta, raw, now)
 
     def shutdown(self) -> None:
         """Stop all ZMQ receivers (called on app shutdown)."""
@@ -1294,53 +1194,6 @@ class QuoteService:
             except Exception:
                 logger.exception("Error stopping receiver for %s", source)
         self._receivers.clear()
-
-
-def _normalize_tick_date_part(value: Any) -> str | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    if len(text) == 8 and text.isdigit():
-        return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
-    if len(text) == 10 and text[4] == "-" and text[7] == "-":
-        return text
-    return None
-
-
-def _normalize_tick_update_time(value: Any, raw: dict[str, Any], now: str) -> str | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        return parsed.isoformat()
-    except ValueError:
-        pass
-
-    time_part = text
-    if text.count(":") >= 2:
-        date_part = (
-            _normalize_tick_date_part(raw.get("trading_day"))
-            or _normalize_tick_date_part(raw.get("action_day"))
-            or _normalize_tick_date_part(raw.get("date"))
-            or now.split("T", 1)[0]
-        )
-        return f"{date_part}T{time_part}"
-
-    return text
-
-
-def _opt_float(v: Any) -> float | None:
-    """Convert a value to float, returning None only for missing values."""
-    if v is None:
-        return None
-    try:
-        number = float(v)
-    except (ValueError, TypeError):
-        return None
-    if not math.isfinite(number) or abs(number) >= 1e308:
-        return None
-    return number
 
 
 def get_quote_service() -> QuoteService:

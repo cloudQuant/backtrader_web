@@ -1,125 +1,35 @@
-# Production Deployment
+# Production
 
-## Requirements
+## Operating principle
 
-- **Server**: 2+ CPU cores, 4GB+ RAM
-- **Database**: PostgreSQL 14+ or MySQL 8+
-- **Redis**: 7+
-- **SSL Certificate**: Let's Encrypt or commercial
+Production aims for recoverability, auditability, and least privilege—not exposing a development environment to the internet. Application data, the market warehouse, AI providers, and trading gateways require separate access controls, backups, and owners.
 
-## Security Checklist
+## Minimum checklist
 
-- [ ] Change all default passwords
-- [ ] Enable HTTPS with valid SSL certificate
-- [ ] Configure firewall (allow 80, 443 only)
-- [ ] Enable rate limiting
-- [ ] Set up monitoring and alerts
-- [ ] Configure log rotation
-- [ ] Enable database backups
+- [ ] Use a dedicated MySQL/PostgreSQL application database and complete backup/restore drills.
+- [ ] Give the market-data warehouse a separate connection, read/write grants, and retention policy.
+- [ ] Supply `SECRET_KEY`, `JWT_SECRET_KEY`, database passwords, and gateway credentials through a secrets manager or protected environment variables.
+- [ ] Pin `CORS_ORIGINS`, terminate TLS at a reverse proxy, and restrict administrative access.
+- [ ] Disable development bootstrap such as `DB_AUTO_CREATE_SCHEMA` and `DB_AUTO_CREATE_DEFAULT_ADMIN`.
+- [ ] Define log retention, monitoring, alerts, AI-cost budgets, data-source incident response, and human gateway approval.
 
-## Environment Configuration
-
-### Database
+## Health and upgrades
 
 ```bash
-# PostgreSQL
-DATABASE_TYPE=postgresql
-DATABASE_URL=postgresql+asyncpg://user:pass@prod-db:5432/backtrader
+curl -fsS http://localhost/health
+curl -fsS http://localhost:8000/api/v1/health
 
-# MySQL
-DATABASE_TYPE=mysql
-DATABASE_URL=mysql+aiomysql://user:pass@prod-db:3306/backtrader
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml pull
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml up -d
+docker compose -f docker/docker-compose.yml -f docker/compose/prod.yml ps
 ```
 
-### Security
+Before an upgrade, back up databases, strategies, workspaces, and runtime logs. Afterwards, run health, login-smoke, warehouse-access, and controlled-backtest checks. Roll back to a verified image and a rehearsed restore point if anything is abnormal.
 
-```bash
-# Generate secure keys
-SECRET_KEY=$(openssl rand -hex 32)
-JWT_SECRET_KEY=$(openssl rand -hex 32)
+## AI and trading boundaries
 
-# Production CORS
-CORS_ORIGINS=https://your-domain.com
-```
+- Route AI calls through approved providers with timeout, budget, and audit controls; never log raw secrets.
+- Apply sensitive-information checks and authorization isolation to production knowledge-base uploads.
+- Separate gateway credentials and real-trading authority from normal application accounts. Default to simulation/isolated validation, human approval, and risk limits.
 
-### Performance
-
-```bash
-# Workers (2x CPU cores)
-WORKERS=4
-
-# Timeout
-TIMEOUT=300
-```
-
-## Nginx Configuration
-
-For reverse proxy setup:
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name your-domain.com;
-
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location / {
-        proxy_pass http://localhost:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-    }
-
-    location /api/ {
-        proxy_pass http://localhost:8000;
-        proxy_set_header Host $host;
-    }
-}
-```
-
-## Monitoring
-
-### Health Check
-
-```bash
-curl https://your-domain.com/health
-```
-
-### Metrics
-
-Access Prometheus-format metrics at `/api/v1/monitoring/metrics`.
-
-## Backup
-
-### Database Backup
-
-```bash
-# PostgreSQL
-pg_dump -h prod-db -U user backtrader > backup.sql
-
-# MySQL
-mysqldump -h prod-db -u user -p backtrader > backup.sql
-```
-
-### Automated Backup
-
-Set up cron job for daily backups:
-
-```bash
-0 2 * * * /path/to/backup.sh
-```
-
-## Updates
-
-```bash
-# Pull latest
-git pull origin main
-
-# Rebuild
-docker compose -f docker-compose.prod.yml build
-
-# Restart
-docker compose -f docker-compose.prod.yml up -d
-```
+See [Docker deployment](./docker.md) for Compose variables and container operations.

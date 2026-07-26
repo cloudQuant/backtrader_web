@@ -177,7 +177,7 @@ class FundDividendEm(AkshareToMySql):
             unique_keys=["R_ID"],
         )
 
-    def run(self, fund_codes=None):
+    def run(self, fund_codes=None, max_codes=None):
         """
         执行数据获取和保存
 
@@ -200,6 +200,9 @@ class FundDividendEm(AkshareToMySql):
                 if not fund_codes:
                     self.logger.error("未获取到基金代码")
                     return False
+            if max_codes is not None and len(fund_codes) > int(max_codes):
+                fund_codes = fund_codes[: int(max_codes)]
+                self.logger.info(f"限制处理基金分红数量为{int(max_codes)}个")
 
             total_success = True
             total_count = 0

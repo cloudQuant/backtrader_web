@@ -4,7 +4,7 @@
 strategy:
   name: "MT5 欧美双均线交叉策略"
   description: "EURUSD双均线交叉策略，MA10上穿MA30做多，下穿平仓。适用于M15周期。"
-  author: "backtrader_web"
+  author: "ai-for-investor"
   category: "simulate"
 
 # ============================================================
@@ -61,7 +61,7 @@ risk:
 # ============================================================
 mt5:
   login: "5047785364"
-  password: "NyCh-i4r"
+  password: ""
   ws_uri: "wss://web.metatrader.app/terminal"
   symbol_suffix: ""
 

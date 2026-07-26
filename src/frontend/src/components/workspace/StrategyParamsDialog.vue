@@ -13,7 +13,7 @@
       <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            策略单元
+            {{ t('workspaceDialogs.spdStrategyUnit') }}
           </div>
           <div class="mt-1 text-sm font-semibold text-slate-700">
             {{ unit.strategy_name || unit.strategy_id }}
@@ -21,7 +21,7 @@
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            行情对象
+            {{ t('workspaceDialogs.spdMarketObj') }}
           </div>
           <div class="mt-1 text-sm font-semibold text-slate-700">
             {{ unit.symbol }} / {{ unit.timeframe }}
@@ -29,7 +29,7 @@
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            启用参数
+            {{ t('workspaceDialogs.spdEnabledParams') }}
           </div>
           <div class="mt-1 text-sm font-semibold text-slate-700">
             {{ enabledParamCount }}
@@ -37,7 +37,7 @@
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            参数总数
+            {{ t('workspaceDialogs.spdTotalParams') }}
           </div>
           <div class="mt-1 text-sm font-semibold text-slate-700">
             {{ paramRows.length }}
@@ -53,7 +53,7 @@
           class="mb-4"
         >
           <el-table-column
-            label="启用"
+            :label="t('workspaceDialogs.spdColEnabled')"
             width="60"
             align="center"
           >
@@ -63,16 +63,16 @@
           </el-table-column>
           <el-table-column
             prop="param_name"
-            label="参数名"
+            :label="t('workspaceDialogs.spdColParamName')"
             width="150"
           />
           <el-table-column
             prop="param_desc"
-            label="参数说明"
+            :label="t('workspaceDialogs.spdColParamDesc')"
             min-width="150"
           />
           <el-table-column
-            label="类型"
+            :label="t('workspaceDialogs.spdColType')"
             width="90"
             align="center"
           >
@@ -81,7 +81,7 @@
             </template>
           </el-table-column>
           <el-table-column
-            label="参数值"
+            :label="t('workspaceDialogs.spdColParamValue')"
             width="180"
           >
             <template #default="{ row }">
@@ -106,14 +106,14 @@
             size="small"
             @click="addParam"
           >
-            添加参数
+            {{ t('workspaceDialogs.spdAddParam') }}
           </el-button>
           <el-button
             size="small"
             :disabled="!paramRows.length"
             @click="removeSelected"
           >
-            删除末行
+            {{ t('workspaceDialogs.spdRemoveLast') }}
           </el-button>
         </div>
       </el-form>
@@ -121,14 +121,14 @@
 
     <template #footer>
       <el-button @click="$emit('update:modelValue', false)">
-        取消
+        {{ t('common.cancel') }}
       </el-button>
       <el-button
         type="primary"
         :loading="saving"
         @click="handleSave"
       >
-        确定
+        {{ t('workspaceDialogs.spdConfirm') }}
       </el-button>
     </template>
   </el-dialog>
@@ -136,10 +136,13 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getErrorMessage } from '@/api/index'
 import type { StrategyUnit, WorkspaceType } from '@/types/workspace'
+
+const { t } = useI18n()
 
 interface ParamRow {
   param_name: string
@@ -165,7 +168,9 @@ const store = useWorkspaceStore()
 const saving = ref(false)
 const paramRows = ref<ParamRow[]>([])
 const dialogTitle = computed(() =>
-  `${props.workspaceType === 'trading' ? '策略交易' : '策略研究'}--公式应用设置`
+  props.workspaceType === 'trading'
+    ? t('workspaceDialogs.spdTitleTrading')
+    : t('workspaceDialogs.spdTitleResearch')
 )
 const enabledParamCount = computed(() => paramRows.value.filter(row => row.enabled).length)
 
@@ -219,11 +224,11 @@ async function handleSave() {
     await store.updateUnit(props.workspaceId, props.unit.id, {
       params: paramsObj,
     })
-    ElMessage.success('策略参数已保存')
+    ElMessage.success(t('workspaceDialogs.spdSaved'))
     emit('update:modelValue', false)
     emit('saved')
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '保存失败'))
+    ElMessage.error(getErrorMessage(e, t('workspaceDialogs.spdSaveFailed')))
   } finally {
     saving.value = false
   }

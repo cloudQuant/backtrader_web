@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
-import re
 import shlex
 import shutil
 import uuid
-from collections import Counter
-from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -25,7 +23,13 @@ from app.schemas.sync import (
     SyncTaskCreateResponse,
     SyncTaskStatus,
 )
+from app.services.sync import progress as sync_progress
+from app.services.sync import schema_diff as sync_schema
+from app.services.sync import transport as sync_transport
 from app.utils.backend_data_paths import get_backend_data_path
+from app.utils.secure_file import write_private_text
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -65,10 +69,9 @@ class SyncService:
 
     def save_config(self, config: SyncConfig) -> SyncConfig:
         config = self._normalize_config(config)
-        self._config_file.parent.mkdir(parents=True, exist_ok=True)
-        self._config_file.write_text(
+        write_private_text(
+            self._config_file,
             json.dumps(config.model_dump(), ensure_ascii=False, indent=2),
-            encoding="utf-8",
         )
         return config
 
@@ -535,7 +538,11 @@ class SyncService:
                     timeout=self._connect_timeout,
                 )
             except Exception:
-                pass
+                logger.debug(
+                    "Failed to clean up remote temp dump for %s (best-effort)",
+                    database,
+                    exc_info=True,
+                )
 
     async def _dump_local_database(
         self,
@@ -618,28 +625,43 @@ class SyncService:
         remote_password: str,
     ) -> None:
         steps: list[str] = ["set -euo pipefail"]
+        remote_defaults_path = f"/tmp/backtrader_sync_mysql_{uuid.uuid4().hex}.cnf"
+        cleanup = "; ".join(
+            [
+                (
+                    f"docker exec {shlex.quote(config.remote_container)} rm -f "
+                    f"{shlex.quote(remote_defaults_path)} >/dev/null 2>&1 || true"
+                ),
+                f"rm -f {shlex.quote(remote_input_path)}",
+            ]
+        )
+        steps.append(f"trap {shlex.quote(cleanup)} EXIT")
         if request.sync_mode != "data_only":
             recreate_sql = self._build_ensure_database_sql(database)
-            recreate_inner = self._join_command(
-                [
-                    "sh",
-                    "-lc",
+            steps.append(
+                sync_transport.compose_docker_shell_command(
+                    config.remote_container,
                     self._build_remote_mysql_query_command(config, recreate_sql, remote_password),
-                ]
+                )
             )
-            steps.append(f"docker exec {shlex.quote(config.remote_container)} {recreate_inner}")
-        import_inner = self._join_command(
-            [
-                "sh",
-                "-lc",
-                self._build_remote_mysql_import_command(config, database, remote_password),
-            ]
+        steps.append(
+            sync_transport.compose_docker_write_mysql_defaults_command(
+                config.remote_container,
+                remote_defaults_path,
+                remote_password,
+            )
+        )
+        import_command = self._join_command(
+            sync_transport.mysql_args_with_defaults_file(
+                self._build_remote_mysql_import_args(config, database, remote_password),
+                remote_defaults_path,
+            )
         )
         cat_command = "gunzip -c" if request.compress else "cat"
         steps.append(
-            f"{cat_command} {shlex.quote(remote_input_path)} | docker exec -i {shlex.quote(config.remote_container)} {import_inner}"
+            f"{cat_command} {shlex.quote(remote_input_path)} "
+            f"| docker exec -i {shlex.quote(config.remote_container)} {import_command}"
         )
-        steps.append(f"rm -f {shlex.quote(remote_input_path)}")
         await self._run_ssh(config, "; ".join(steps), timeout=self._timeout_seconds)
 
     async def _import_remote_database_direct(
@@ -1066,11 +1088,9 @@ class SyncService:
         step: int,
         step_count: int,
     ) -> int:
-        table_start = 45 + int((index / max(total, 1)) * 45)
-        table_end = 45 + int(((index + 1) / max(total, 1)) * 45)
-        span = max(table_end - table_start, 1)
-        normalized_step = min(max(step, 0), max(step_count, 1))
-        return min(table_start + int((normalized_step / max(step_count, 1)) * span), 90)
+        return sync_schema.build_table_step_progress(
+            index=index, total=total, step=step, step_count=step_count
+        )
 
     def _update_table_substep_task(
         self,
@@ -1368,7 +1388,11 @@ class SyncService:
             self._build_local_mysql_query_args(config, sql, password),
             timeout=self._connect_timeout,
         )
-        return [line.strip() for line in stdout.splitlines() if line.strip()]
+        return [
+            sync_schema.validate_mysql_identifier(line.strip(), "table")
+            for line in stdout.splitlines()
+            if line.strip()
+        ]
 
     async def _list_remote_tables_direct(
         self,
@@ -1381,7 +1405,11 @@ class SyncService:
             self._build_remote_mysql_query_args(config, sql, password),
             timeout=self._connect_timeout,
         )
-        return [line.strip() for line in stdout.splitlines() if line.strip()]
+        return [
+            sync_schema.validate_mysql_identifier(line.strip(), "table")
+            for line in stdout.splitlines()
+            if line.strip()
+        ]
 
     async def _get_local_incremental_key_columns(
         self,
@@ -1610,9 +1638,9 @@ class SyncService:
                 timeout=self._connect_timeout,
             )
         else:
-            remote_cmd = (
-                f"docker exec {shlex.quote(config.remote_container)} sh -lc "
-                f"{shlex.quote(self._build_remote_mysql_query_command(config, sql, password))}"
+            remote_cmd = sync_transport.compose_docker_shell_command(
+                config.remote_container,
+                self._build_remote_mysql_query_command(config, sql, password),
             )
             stdout = await self._run_ssh(config, remote_cmd, timeout=self._connect_timeout)
         return self._parse_database_info(databases, stdout)
@@ -1702,16 +1730,20 @@ class SyncService:
         payload.remote_user = payload.remote_user.strip() or "root"
         payload.remote_ssh_key = payload.remote_ssh_key.strip() or "~/.ssh/id_rsa"
         payload.remote_container = payload.remote_container.strip() or "backtrader_mysql"
-        payload.remote_install_dir = payload.remote_install_dir.strip() or "/opt/backtrader_web"
+        payload.remote_install_dir = payload.remote_install_dir.strip() or "/opt/ai-for-investor"
         payload.remote_mysql_host = self._normalize_host(
             payload.remote_mysql_host or payload.remote_host
         )
         payload.remote_mysql_port = int(payload.remote_mysql_port or 3306)
         payload.remote_mysql_user = payload.remote_mysql_user.strip() or "root"
         payload.remote_mysql_password = str(payload.remote_mysql_password or "").strip()
-        payload.sync_databases = [name.strip() for name in payload.sync_databases if name.strip()]
+        payload.sync_databases = [
+            sync_schema.validate_mysql_identifier(name.strip(), "database")
+            for name in payload.sync_databases
+            if name.strip()
+        ]
         if not payload.sync_databases:
-            payload.sync_databases = ["backtrader_web", "akshare_data"]
+            payload.sync_databases = ["ai_for_investor", "akshare_data"]
         return payload
 
     def _is_direct_mode(self, config: SyncConfig) -> bool:
@@ -1726,60 +1758,22 @@ class SyncService:
         async with self._lock:
             items = self._load_history()
             items.insert(0, payload)
-            self._history_file.parent.mkdir(parents=True, exist_ok=True)
-            self._history_file.write_text(
-                json.dumps(items[:200], ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            sync_progress.write_history(self._history_file, items)
 
     def _load_history(self) -> list[dict[str, Any]]:
-        if not self._history_file.is_file():
-            return []
-        try:
-            payload = json.loads(self._history_file.read_text("utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return []
-        if not isinstance(payload, list):
-            return []
-        return [item for item in payload if isinstance(item, dict)]
+        return sync_progress.load_history(self._history_file)
 
     def _build_database_info_sql(self, databases: list[str]) -> str:
-        in_clause = ", ".join(self._quote_sql_string(name) for name in databases)
-        return (
-            "SELECT TABLE_SCHEMA, "
-            "COALESCE(SUM(DATA_LENGTH + INDEX_LENGTH), 0) AS size_bytes, "
-            "COUNT(*) AS table_count "
-            "FROM information_schema.TABLES "
-            f"WHERE TABLE_SCHEMA IN ({in_clause}) "
-            "GROUP BY TABLE_SCHEMA"
-        )
+        return sync_schema.build_database_info_sql(databases)
 
     def _build_table_names_sql(self, database: str) -> str:
-        return (
-            "SELECT TABLE_NAME "
-            "FROM information_schema.TABLES "
-            f"WHERE TABLE_SCHEMA = {self._quote_sql_string(database)} "
-            "ORDER BY TABLE_NAME"
-        )
+        return sync_schema.build_table_names_sql(database)
 
     def _build_table_columns_sql(self, database: str, table: str) -> str:
-        return (
-            "SELECT COLUMN_NAME "
-            "FROM information_schema.COLUMNS "
-            f"WHERE TABLE_SCHEMA = {self._quote_sql_string(database)} "
-            f"AND TABLE_NAME = {self._quote_sql_string(table)} "
-            "ORDER BY ORDINAL_POSITION"
-        )
+        return sync_schema.build_table_columns_sql(database, table)
 
     def _build_index_metadata_sql(self, database: str, table: str) -> str:
-        return (
-            "SELECT INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME "
-            "FROM information_schema.STATISTICS "
-            f"WHERE TABLE_SCHEMA = {self._quote_sql_string(database)} "
-            f"AND TABLE_NAME = {self._quote_sql_string(table)} "
-            "AND (INDEX_NAME = 'PRIMARY' OR NON_UNIQUE = 0) "
-            "ORDER BY CASE WHEN INDEX_NAME = 'PRIMARY' THEN 0 ELSE 1 END, INDEX_NAME, SEQ_IN_INDEX"
-        )
+        return sync_schema.build_index_metadata_sql(database, table)
 
     def _build_table_key_values_sql(
         self,
@@ -1787,12 +1781,10 @@ class SyncService:
         table: str,
         key_columns: tuple[str, ...],
     ) -> str:
-        key_select = ", ".join(self._quote_identifier(column) for column in key_columns)
-        return f"SELECT {key_select} FROM {self._quote_identifier(database)}.{self._quote_identifier(table)}"
+        return sync_schema.build_table_key_values_sql(database, table, key_columns)
 
     def _build_row_hash_expression(self, key_columns: tuple[str, ...]) -> str:
-        json_items = ", ".join(self._quote_identifier(column) for column in key_columns)
-        return f"SHA2(CAST(JSON_ARRAY({json_items}) AS CHAR), 256)"
+        return sync_schema.build_row_hash_expression(key_columns)
 
     def _build_table_row_hash_values_sql(
         self,
@@ -1800,8 +1792,7 @@ class SyncService:
         table: str,
         key_columns: tuple[str, ...],
     ) -> str:
-        row_hash = self._build_row_hash_expression(key_columns)
-        return f"SELECT {row_hash} FROM {self._quote_identifier(database)}.{self._quote_identifier(table)}"
+        return sync_schema.build_table_row_hash_values_sql(database, table, key_columns)
 
     def _select_incremental_key_columns(
         self,
@@ -1809,21 +1800,7 @@ class SyncService:
         database: str,
         table: str,
     ) -> tuple[str, ...]:
-        indexes: dict[str, list[tuple[int, str]]] = {}
-        for line in stdout.splitlines():
-            parts = line.split("\t")
-            if len(parts) != 4:
-                continue
-            index_name, _non_unique, seq_in_index, column_name = parts
-            indexes.setdefault(index_name, []).append((int(seq_in_index), column_name))
-        if not indexes:
-            return ()
-        if "PRIMARY" in indexes:
-            selected = indexes["PRIMARY"]
-        else:
-            first_name = next(iter(indexes))
-            selected = indexes[first_name]
-        return tuple(column for _, column in sorted(selected, key=lambda item: item[0]))
+        return sync_schema.select_incremental_key_columns(stdout)
 
     def _parse_table_columns(
         self,
@@ -1831,141 +1808,66 @@ class SyncService:
         database: str,
         table: str,
     ) -> tuple[str, ...]:
-        columns = tuple(line.strip() for line in stdout.splitlines() if line.strip())
-        if not columns:
-            raise RuntimeError(f"数据表 {database}.{table} 未读取到可用列，无法执行增量同步")
-        return columns
+        return sync_schema.parse_table_columns(stdout, database, table)
 
     def _build_missing_rows(
         self,
         source_rows: list[tuple[str | None, ...]],
         target_rows: list[tuple[str | None, ...]],
     ) -> list[tuple[str | None, ...]]:
-        remaining = Counter(source_rows)
-        remaining.subtract(target_rows)
-        missing_rows: list[tuple[str | None, ...]] = []
-        for row in source_rows:
-            if remaining[row] > 0:
-                missing_rows.append(row)
-                remaining[row] -= 1
-        return missing_rows
+        return sync_schema.build_missing_rows(source_rows, target_rows)
 
     def _parse_key_rows(
         self,
         stdout: str,
         expected_columns: int,
     ) -> list[tuple[str | None, ...]]:
-        rows: list[tuple[str | None, ...]] = []
-        for line in stdout.splitlines():
-            if not line:
-                continue
-            parts = line.split("\t")
-            if len(parts) != expected_columns:
-                continue
-            rows.append(tuple(None if value == "\\N" else value for value in parts))
-        return rows
+        return sync_schema.parse_key_rows(stdout, expected_columns)
 
     def _chunk_keys(
         self,
         keys: list[tuple[str | None, ...]],
     ) -> list[list[tuple[str | None, ...]]]:
-        return [
-            keys[index : index + self._incremental_key_batch_size]
-            for index in range(0, len(keys), self._incremental_key_batch_size)
-        ]
+        return sync_schema.chunk_keys(keys, self._incremental_key_batch_size)
 
     def _build_missing_keys_where_sql(
         self,
         key_columns: tuple[str, ...],
         key_rows: list[tuple[str | None, ...]],
-    ) -> str:
-        clauses: list[str] = []
-        for row in key_rows:
-            parts: list[str] = []
-            for column, value in zip(key_columns, row, strict=False):
-                identifier = self._quote_identifier(column)
-                if value is None:
-                    parts.append(f"{identifier} IS NULL")
-                else:
-                    parts.append(f"{identifier} = {self._quote_sql_string(value)}")
-            clauses.append("(" + " AND ".join(parts) + ")")
-        return " OR ".join(clauses) if clauses else "1 = 0"
+    ) -> sync_transport.InternalWhereSql:
+        return sync_transport.internal_where_sql(
+            sync_schema.build_missing_keys_where_sql(key_columns, key_rows)
+        )
 
     def _build_missing_row_hashes_where_sql(
         self,
         key_columns: tuple[str, ...],
         key_rows: list[tuple[str | None, ...]],
-    ) -> str:
-        row_hash = self._build_row_hash_expression(key_columns)
-        values = [row[0] for row in key_rows if row and row[0] is not None]
-        if not values:
-            return "1 = 0"
-        in_clause = ", ".join(self._quote_sql_string(str(value)) for value in values)
-        return f"{row_hash} IN ({in_clause})"
+    ) -> sync_transport.InternalWhereSql:
+        return sync_transport.internal_where_sql(
+            sync_schema.build_missing_row_hashes_where_sql(key_columns, key_rows)
+        )
 
     def _build_ensure_database_sql(self, database: str) -> str:
-        identifier = self._quote_identifier(database)
-        return f"CREATE DATABASE IF NOT EXISTS {identifier} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+        return sync_schema.build_ensure_database_sql(database)
 
     def _build_database_exists_sql(self, database: str) -> str:
-        return (
-            "SELECT SCHEMA_NAME "
-            "FROM information_schema.SCHEMATA "
-            f"WHERE SCHEMA_NAME = {self._quote_sql_string(database)} "
-            "LIMIT 1"
-        )
+        return sync_schema.build_database_exists_sql(database)
 
     def _build_schema_table_summary_sql(self, database: str) -> str:
-        return (
-            "SELECT JSON_ARRAY("
-            "'TABLE', TABLE_NAME, COALESCE(TABLE_TYPE, ''), COALESCE(ENGINE, ''), COALESCE(TABLE_COLLATION, '')"
-            ") "
-            "FROM information_schema.TABLES "
-            f"WHERE TABLE_SCHEMA = {self._quote_sql_string(database)} "
-            "ORDER BY TABLE_NAME"
-        )
+        return sync_schema.build_schema_table_summary_sql(database)
 
     def _build_schema_column_summary_sql(self, database: str) -> str:
-        return (
-            "SELECT JSON_ARRAY("
-            "'COLUMN', TABLE_NAME, ORDINAL_POSITION, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, "
-            "IF(COLUMN_DEFAULT IS NULL, '__SYNC_NULL__', COLUMN_DEFAULT), COALESCE(EXTRA, ''), "
-            "COALESCE(CHARACTER_SET_NAME, ''), COALESCE(COLLATION_NAME, '')"
-            ") "
-            "FROM information_schema.COLUMNS "
-            f"WHERE TABLE_SCHEMA = {self._quote_sql_string(database)} "
-            "ORDER BY TABLE_NAME, ORDINAL_POSITION"
-        )
+        return sync_schema.build_schema_column_summary_sql(database)
 
     def _build_schema_index_summary_sql(self, database: str) -> str:
-        return (
-            "SELECT JSON_ARRAY("
-            "'INDEX', TABLE_NAME, INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME, "
-            "IF(SUB_PART IS NULL, -1, SUB_PART), COALESCE(COLLATION, ''), COALESCE(INDEX_TYPE, '')"
-            ") "
-            "FROM information_schema.STATISTICS "
-            f"WHERE TABLE_SCHEMA = {self._quote_sql_string(database)} "
-            "ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX"
-        )
+        return sync_schema.build_schema_index_summary_sql(database)
 
     def _build_schema_view_summary_sql(self, database: str) -> str:
-        return (
-            "SELECT JSON_ARRAY("
-            "'VIEW', TABLE_NAME, VIEW_DEFINITION, COALESCE(CHECK_OPTION, ''), "
-            "COALESCE(IS_UPDATABLE, ''), COALESCE(SECURITY_TYPE, '')"
-            ") "
-            "FROM information_schema.VIEWS "
-            f"WHERE TABLE_SCHEMA = {self._quote_sql_string(database)} "
-            "ORDER BY TABLE_NAME"
-        )
+        return sync_schema.build_schema_view_summary_sql(database)
 
     def _build_schema_summary_sql_list(self, database: str) -> tuple[str, ...]:
-        return (
-            self._build_schema_table_summary_sql(database),
-            self._build_schema_column_summary_sql(database),
-            self._build_schema_index_summary_sql(database),
-            self._build_schema_view_summary_sql(database),
-        )
+        return sync_schema.build_schema_summary_sql_list(database)
 
     def _build_local_mysqldump_args(
         self,
@@ -1974,37 +1876,7 @@ class SyncService:
         sync_mode: str,
         password: str,
     ) -> list[str]:
-        args = [
-            "mysqldump",
-            "--single-transaction",
-            "--skip-lock-tables",
-            "--set-gtid-purged=OFF",
-            "--default-character-set=utf8mb4",
-            "-h",
-            config.local_mysql_host,
-            "-P",
-            str(config.local_mysql_port),
-            "-u",
-            config.local_mysql_user,
-            f"-p{password}",
-        ]
-        if sync_mode == "schema_only":
-            args.extend(
-                [
-                    "--no-data",
-                    "--skip-comments",
-                    "--skip-dump-date",
-                    "--skip-add-drop-table",
-                    "--skip-add-drop-trigger",
-                    "--skip-triggers",
-                ]
-            )
-        elif sync_mode == "data_only":
-            args.extend(["--no-create-info", "--replace", "--skip-triggers"])
-        else:
-            args.extend(["--routines", "--triggers", "--events"])
-        args.append(database)
-        return args
+        return sync_transport.build_local_mysqldump_args(config, database, sync_mode, password)
 
     def _build_local_table_dump_args(
         self,
@@ -2013,9 +1885,7 @@ class SyncService:
         table: str,
         password: str,
     ) -> list[str]:
-        args = self._build_local_mysqldump_args(config, database, "data_only", password)
-        args.append(table)
-        return args
+        return sync_transport.build_local_table_dump_args(config, database, table, password)
 
     def _build_local_incremental_table_dump_args(
         self,
@@ -2023,27 +1893,11 @@ class SyncService:
         database: str,
         table: str,
         password: str,
-        where_sql: str,
+        where_sql: sync_transport.InternalWhereSql,
     ) -> list[str]:
-        return [
-            "mysqldump",
-            "--single-transaction",
-            "--skip-lock-tables",
-            "--set-gtid-purged=OFF",
-            "--default-character-set=utf8mb4",
-            "--no-create-info",
-            "--replace",
-            f"--where={where_sql}",
-            "-h",
-            config.local_mysql_host,
-            "-P",
-            str(config.local_mysql_port),
-            "-u",
-            config.local_mysql_user,
-            f"-p{password}",
-            database,
-            table,
-        ]
+        return sync_transport.build_local_incremental_table_dump_args(
+            config, database, table, password, where_sql
+        )
 
     def _build_local_mysql_query_args(
         self,
@@ -2051,20 +1905,7 @@ class SyncService:
         sql: str,
         password: str,
     ) -> list[str]:
-        return [
-            "mysql",
-            "-h",
-            config.local_mysql_host,
-            "-P",
-            str(config.local_mysql_port),
-            "-u",
-            config.local_mysql_user,
-            f"-p{password}",
-            "-N",
-            "-B",
-            "-e",
-            sql,
-        ]
+        return sync_transport.build_local_mysql_query_args(config, sql, password)
 
     async def _local_database_exists(
         self,
@@ -2140,20 +1981,7 @@ class SyncService:
         password: str,
         force: bool = False,
     ) -> list[str]:
-        args = [
-            "mysql",
-            "-h",
-            config.local_mysql_host,
-            "-P",
-            str(config.local_mysql_port),
-            "-u",
-            config.local_mysql_user,
-            f"-p{password}",
-        ]
-        if force:
-            args.append("--force")
-        args.append(database)
-        return args
+        return sync_transport.build_local_mysql_import_args(config, database, password, force)
 
     def _build_remote_mysqldump_command(
         self,
@@ -2162,36 +1990,7 @@ class SyncService:
         sync_mode: str,
         password: str,
     ) -> str:
-        args = [
-            "mysqldump",
-            "--single-transaction",
-            "--skip-lock-tables",
-            "--set-gtid-purged=OFF",
-            "--default-character-set=utf8mb4",
-            "-h",
-            config.remote_mysql_host,
-            "-P",
-            str(config.remote_mysql_port),
-            "-u",
-            config.remote_mysql_user,
-        ]
-        if sync_mode == "schema_only":
-            args.extend(
-                [
-                    "--no-data",
-                    "--skip-comments",
-                    "--skip-dump-date",
-                    "--skip-add-drop-table",
-                    "--skip-add-drop-trigger",
-                    "--skip-triggers",
-                ]
-            )
-        elif sync_mode == "data_only":
-            args.extend(["--no-create-info", "--replace", "--skip-triggers"])
-        else:
-            args.extend(["--routines", "--triggers", "--events"])
-        args.append(database)
-        return f"MYSQL_PWD={shlex.quote(password)} {self._join_command(args)}"
+        return sync_transport.build_remote_mysqldump_command(config, database, sync_mode, password)
 
     def _build_remote_mysqldump_args(
         self,
@@ -2200,37 +1999,7 @@ class SyncService:
         sync_mode: str,
         password: str,
     ) -> list[str]:
-        args = [
-            "mysqldump",
-            "--single-transaction",
-            "--skip-lock-tables",
-            "--set-gtid-purged=OFF",
-            "--default-character-set=utf8mb4",
-            "-h",
-            config.remote_mysql_host,
-            "-P",
-            str(config.remote_mysql_port),
-            "-u",
-            config.remote_mysql_user,
-            f"-p{password}",
-        ]
-        if sync_mode == "schema_only":
-            args.extend(
-                [
-                    "--no-data",
-                    "--skip-comments",
-                    "--skip-dump-date",
-                    "--skip-add-drop-table",
-                    "--skip-add-drop-trigger",
-                    "--skip-triggers",
-                ]
-            )
-        elif sync_mode == "data_only":
-            args.extend(["--no-create-info", "--replace", "--skip-triggers"])
-        else:
-            args.extend(["--routines", "--triggers", "--events"])
-        args.append(database)
-        return args
+        return sync_transport.build_remote_mysqldump_args(config, database, sync_mode, password)
 
     def _build_remote_table_dump_args(
         self,
@@ -2239,9 +2008,7 @@ class SyncService:
         table: str,
         password: str,
     ) -> list[str]:
-        args = self._build_remote_mysqldump_args(config, database, "data_only", password)
-        args.append(table)
-        return args
+        return sync_transport.build_remote_table_dump_args(config, database, table, password)
 
     def _build_remote_incremental_table_dump_args(
         self,
@@ -2249,27 +2016,11 @@ class SyncService:
         database: str,
         table: str,
         password: str,
-        where_sql: str,
+        where_sql: sync_transport.InternalWhereSql,
     ) -> list[str]:
-        return [
-            "mysqldump",
-            "--single-transaction",
-            "--skip-lock-tables",
-            "--set-gtid-purged=OFF",
-            "--default-character-set=utf8mb4",
-            "--no-create-info",
-            "--replace",
-            f"--where={where_sql}",
-            "-h",
-            config.remote_mysql_host,
-            "-P",
-            str(config.remote_mysql_port),
-            "-u",
-            config.remote_mysql_user,
-            f"-p{password}",
-            database,
-            table,
-        ]
+        return sync_transport.build_remote_incremental_table_dump_args(
+            config, database, table, password, where_sql
+        )
 
     def _build_remote_mysql_query_args(
         self,
@@ -2277,20 +2028,7 @@ class SyncService:
         sql: str,
         password: str,
     ) -> list[str]:
-        return [
-            "mysql",
-            "-h",
-            config.remote_mysql_host,
-            "-P",
-            str(config.remote_mysql_port),
-            "-u",
-            config.remote_mysql_user,
-            f"-p{password}",
-            "-N",
-            "-B",
-            "-e",
-            sql,
-        ]
+        return sync_transport.build_remote_mysql_query_args(config, sql, password)
 
     async def _remote_database_exists(
         self,
@@ -2366,20 +2104,7 @@ class SyncService:
         password: str,
         force: bool = False,
     ) -> list[str]:
-        args = [
-            "mysql",
-            "-h",
-            config.remote_mysql_host,
-            "-P",
-            str(config.remote_mysql_port),
-            "-u",
-            config.remote_mysql_user,
-            f"-p{password}",
-        ]
-        if force:
-            args.append("--force")
-        args.append(database)
-        return args
+        return sync_transport.build_remote_mysql_import_args(config, database, password, force)
 
     def _build_remote_mysql_query_command(
         self,
@@ -2387,20 +2112,7 @@ class SyncService:
         sql: str,
         password: str,
     ) -> str:
-        args = [
-            "mysql",
-            "-h",
-            config.remote_mysql_host,
-            "-P",
-            str(config.remote_mysql_port),
-            "-u",
-            config.remote_mysql_user,
-            "-N",
-            "-B",
-            "-e",
-            sql,
-        ]
-        return f"MYSQL_PWD={shlex.quote(password)} {self._join_command(args)}"
+        return sync_transport.build_remote_mysql_query_command(config, sql, password)
 
     def _build_remote_mysql_import_command(
         self,
@@ -2408,23 +2120,10 @@ class SyncService:
         database: str,
         password: str,
     ) -> str:
-        args = [
-            "mysql",
-            "-h",
-            config.remote_mysql_host,
-            "-P",
-            str(config.remote_mysql_port),
-            "-u",
-            config.remote_mysql_user,
-            database,
-        ]
-        return f"MYSQL_PWD={shlex.quote(password)} {self._join_command(args)}"
+        return sync_transport.build_remote_mysql_import_command(config, database, password)
 
     def _compose_dump_command(self, dump_args: list[str], output_path: Path, compress: bool) -> str:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        if compress:
-            return f"set -o pipefail; {self._join_command(dump_args)} | gzip -c > {shlex.quote(str(output_path))}"
-        return f"set -o pipefail; {self._join_command(dump_args)} > {shlex.quote(str(output_path))}"
+        return sync_transport.compose_dump_command(dump_args, output_path, compress)
 
     def _compose_remote_dump_command(
         self,
@@ -2433,76 +2132,41 @@ class SyncService:
         output_path: str,
         compress: bool,
     ) -> str:
-        pipe_target = "gzip -c" if compress else "cat"
-        return (
-            "set -o pipefail; "
-            f"docker exec {shlex.quote(container)} sh -lc {shlex.quote(inner_dump_command)} "
-            f"| {pipe_target} > {shlex.quote(output_path)}"
+        return sync_transport.compose_remote_dump_command(
+            container, inner_dump_command, output_path, compress
         )
 
     def _compose_import_command(
         self, *, input_path: str, mysql_command: str, compressed: bool
     ) -> str:
-        cat_command = "gunzip -c" if compressed else "cat"
-        return f"set -o pipefail; {cat_command} {shlex.quote(input_path)} | {mysql_command}"
+        return sync_transport.compose_import_command(
+            input_path=input_path,
+            mysql_command=mysql_command,
+            compressed=compressed,
+        )
 
     def _compose_stream_command(self, dump_command: str, mysql_command: str) -> str:
-        return f"set -o pipefail; {dump_command} | {mysql_command}"
+        return sync_transport.compose_stream_command(dump_command, mysql_command)
 
     def _build_ssh_base_args(self, config: SyncConfig) -> list[str]:
-        key_path = str(Path(config.remote_ssh_key).expanduser())
-        return [
-            "ssh",
-            "-i",
-            key_path,
-            "-o",
-            f"ConnectTimeout={self._connect_timeout}",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-            f"{config.remote_user}@{config.remote_host}",
-        ]
+        return sync_transport.build_ssh_base_args(config, self._connect_timeout)
 
     def _build_scp_base_args(self, config: SyncConfig) -> list[str]:
-        key_path = str(Path(config.remote_ssh_key).expanduser())
-        return [
-            "scp",
-            "-i",
-            key_path,
-            "-o",
-            f"ConnectTimeout={self._connect_timeout}",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-        ]
+        return sync_transport.build_scp_base_args(config, self._connect_timeout)
 
     async def _run_ssh(self, config: SyncConfig, command: str, timeout: int) -> str:
-        remote_command = self._join_command(["bash", "-lc", command])
-        return await self._run_exec(
-            self._build_ssh_base_args(config) + [remote_command], timeout=timeout
+        return await sync_transport.run_ssh(
+            config,
+            command,
+            timeout=timeout,
+            connect_timeout=self._connect_timeout,
         )
 
     async def _run_bash(self, command: str, timeout: int) -> str:
-        return await self._run_exec(["bash", "-lc", command], timeout=timeout)
+        return await sync_transport.run_bash(command, timeout=timeout)
 
     async def _run_exec(self, args: list[str], timeout: int) -> str:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError as exc:
-            proc.kill()
-            await proc.communicate()
-            raise RuntimeError(f"命令执行超时（>{timeout}s）: {self._join_command(args)}") from exc
-        if proc.returncode != 0:
-            error = (stderr or stdout).decode("utf-8", errors="ignore").strip()
-            raise RuntimeError(error or f"命令执行失败: {self._join_command(args)}")
-        return stdout.decode("utf-8", errors="ignore").strip()
+        return await sync_transport.run_exec(args, timeout)
 
     def _parse_database_info(self, names: list[str], stdout: str) -> dict[str, DatabaseInfo]:
         result = {name: self._empty_database_info(name) for name in names}
@@ -2533,160 +2197,30 @@ class SyncService:
             name=name, size_bytes=0, size_display="0 B", table_count=0, exists=False
         )
 
-    def _join_command(self, args: list[str]) -> str:
-        return " ".join(shlex.quote(arg) for arg in args)
+    def _join_command(self, command_args: list[str]) -> str:
+        return sync_transport.join_command(command_args)
 
     def _quote_sql_string(self, value: str) -> str:
-        return "'" + value.replace("'", "''") + "'"
+        return sync_schema.quote_sql_string(value)
 
     def _quote_identifier(self, value: str) -> str:
-        return "`" + value.replace("`", "``") + "`"
+        return sync_schema.quote_identifier(value)
 
     def _normalize_schema_dump(self, payload: str) -> str:
-        normalized = payload.replace("\r\n", "\n").replace("\r", "\n")
-        normalized = re.sub(r"AUTO_INCREMENT=\d+", "AUTO_INCREMENT=0", normalized)
-        normalized = re.sub(r"DEFINER=`[^`]+`@`[^`]+`", "DEFINER=CURRENT_USER", normalized)
-        lines = [line.strip() for line in normalized.split("\n") if line.strip()]
-        return "\n".join(lines)
+        return sync_schema.normalize_schema_dump(payload)
 
     def _parse_schema_summary(self, payload: str) -> dict[str, Any]:
-        summary: dict[str, Any] = {
-            "tables": {},
-            "columns": {},
-            "indexes": {},
-            "views": {},
-        }
-        for line in payload.splitlines():
-            raw = line.strip()
-            if not raw:
-                continue
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(row, list) or not row:
-                continue
-            kind = str(row[0])
-            if kind == "TABLE" and len(row) >= 5:
-                table_name = str(row[1])
-                summary["tables"][table_name] = {
-                    "table_type": str(row[2]),
-                    "engine": str(row[3]),
-                    "collation": str(row[4]),
-                }
-                continue
-            if kind == "COLUMN" and len(row) >= 10:
-                table_name = str(row[1])
-                ordinal = int(row[2])
-                column_name = str(row[3])
-                summary["columns"].setdefault(table_name, {})[column_name] = {
-                    "ordinal": ordinal,
-                    "signature": json.dumps(row[3:], ensure_ascii=False, separators=(",", ":")),
-                }
-                continue
-            if kind == "INDEX" and len(row) >= 9:
-                table_name = str(row[1])
-                index_name = str(row[2])
-                table_indexes = summary["indexes"].setdefault(table_name, {})
-                entry = table_indexes.setdefault(
-                    index_name,
-                    {
-                        "non_unique": int(row[3]),
-                        "index_type": str(row[8]),
-                        "parts": [],
-                    },
-                )
-                entry["parts"].append(
-                    (
-                        int(row[4]),
-                        str(row[5]),
-                        int(row[6]),
-                        str(row[7]),
-                    )
-                )
-                continue
-            if kind == "VIEW" and len(row) >= 6:
-                view_name = str(row[1])
-                summary["views"][view_name] = json.dumps(
-                    row[2:], ensure_ascii=False, separators=(",", ":")
-                )
-        for table_indexes in summary["indexes"].values():
-            for index_meta in table_indexes.values():
-                index_meta["parts"].sort(key=lambda item: item[0])
-                index_meta["signature"] = json.dumps(
-                    [index_meta["non_unique"], index_meta["index_type"], index_meta["parts"]],
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-        return summary
+        return sync_schema.parse_schema_summary(payload)
 
     def _build_schema_delta(
         self,
         source_summary: dict[str, Any],
         target_summary: dict[str, Any],
     ) -> dict[str, Any]:
-        source_tables = {
-            name: meta
-            for name, meta in source_summary.get("tables", {}).items()
-            if str(meta.get("table_type", "")).upper() == "BASE TABLE"
-        }
-        target_tables = {
-            name: meta
-            for name, meta in target_summary.get("tables", {}).items()
-            if str(meta.get("table_type", "")).upper() == "BASE TABLE"
-        }
-        missing_tables = sorted(set(source_tables) - set(target_tables))
-        common_tables = sorted(set(source_tables) & set(target_tables))
-        table_changes: dict[str, dict[str, list[str]]] = {}
-        for table in common_tables:
-            source_columns = source_summary.get("columns", {}).get(table, {})
-            target_columns = target_summary.get("columns", {}).get(table, {})
-            source_order = [
-                name
-                for name, _meta in sorted(
-                    source_columns.items(), key=lambda item: item[1]["ordinal"]
-                )
-            ]
-            add_columns = [name for name in source_order if name not in target_columns]
-            modify_columns = [
-                name
-                for name in source_order
-                if name in target_columns
-                and source_columns[name]["signature"] != target_columns[name]["signature"]
-            ]
-            source_indexes = source_summary.get("indexes", {}).get(table, {})
-            target_indexes = target_summary.get("indexes", {}).get(table, {})
-            add_indexes = sorted(name for name in source_indexes if name not in target_indexes)
-            rebuild_indexes = sorted(
-                name
-                for name in source_indexes
-                if name in target_indexes
-                and source_indexes[name]["signature"] != target_indexes[name]["signature"]
-            )
-            if add_columns or modify_columns or add_indexes or rebuild_indexes:
-                table_changes[table] = {
-                    "add_columns": add_columns,
-                    "modify_columns": modify_columns,
-                    "add_indexes": add_indexes,
-                    "rebuild_indexes": rebuild_indexes,
-                }
-        source_views = source_summary.get("views", {})
-        target_views = target_summary.get("views", {})
-        views_to_upsert = sorted(
-            name for name, signature in source_views.items() if target_views.get(name) != signature
-        )
-        return {
-            "missing_tables": missing_tables,
-            "table_changes": table_changes,
-            "views_to_upsert": views_to_upsert,
-        }
+        return sync_schema.build_schema_delta(source_summary, target_summary)
 
     def _schema_delta_is_empty(self, delta: dict[str, Any]) -> bool:
-        return (
-            not delta["missing_tables"]
-            and not delta["table_changes"]
-            and not delta["views_to_upsert"]
-        )
+        return sync_schema.schema_delta_is_empty(delta)
 
     def _build_local_object_schema_dump_args(
         self,
@@ -2695,6 +2229,7 @@ class SyncService:
         object_name: str,
         password: str,
     ) -> list[str]:
+        object_name = sync_schema.validate_mysql_identifier(object_name, "object")
         args = self._build_local_mysqldump_args(config, database, "schema_only", password)
         args.append(object_name)
         return args
@@ -2706,6 +2241,7 @@ class SyncService:
         object_name: str,
         password: str,
     ) -> list[str]:
+        object_name = sync_schema.validate_mysql_identifier(object_name, "object")
         args = self._build_remote_mysqldump_args(config, database, "schema_only", password)
         args.append(object_name)
         return args
@@ -2735,44 +2271,12 @@ class SyncService:
         )
 
     def _extract_create_table_statement(self, payload: str, table: str) -> str:
-        quoted_table = re.escape(self._quote_identifier(table))
-        match = re.search(rf"CREATE TABLE {quoted_table} \(.*?\)[^;]*;", payload, re.S)
-        if match is None:
-            raise RuntimeError(f"未找到数据表 {table} 的 CREATE TABLE 语句")
-        return match.group(0).strip()
+        return sync_schema.extract_create_table_statement(payload, table)
 
     def _extract_create_table_definitions(
         self, payload: str, table: str
     ) -> dict[str, dict[str, str]]:
-        quoted_table = re.escape(self._quote_identifier(table))
-        match = re.search(
-            rf"CREATE TABLE {quoted_table} \((?P<body>.*?)\)[^;]*;",
-            payload,
-            re.S,
-        )
-        if match is None:
-            raise RuntimeError(f"未找到数据表 {table} 的字段定义")
-        body = match.group("body")
-        column_defs: dict[str, str] = {}
-        index_defs: dict[str, str] = {}
-        for raw_line in body.splitlines():
-            line = raw_line.strip().rstrip(",")
-            if not line:
-                continue
-            if line.startswith("`"):
-                column_name = line.split("`", 2)[1]
-                column_defs[column_name] = line
-                continue
-            if line.startswith("PRIMARY KEY"):
-                index_defs["PRIMARY"] = line
-                continue
-            index_match = re.match(r"(?:UNIQUE KEY|FULLTEXT KEY|SPATIAL KEY|KEY) `([^`]+)`", line)
-            if index_match is not None:
-                index_defs[index_match.group(1)] = line
-        return {
-            "columns": column_defs,
-            "indexes": index_defs,
-        }
+        return sync_schema.extract_create_table_definitions(payload, table)
 
     def _build_column_position_clause(
         self,
@@ -2780,11 +2284,7 @@ class SyncService:
         current_columns: set[str],
         column_name: str,
     ) -> str:
-        column_index = source_order.index(column_name)
-        for previous_name in reversed(source_order[:column_index]):
-            if previous_name in current_columns:
-                return f" AFTER {self._quote_identifier(previous_name)}"
-        return " FIRST"
+        return sync_schema.build_column_position_clause(source_order, current_columns, column_name)
 
     def _build_incremental_table_alter_sql(
         self,
@@ -2795,64 +2295,15 @@ class SyncService:
         target_summary: dict[str, Any],
         source_schema_sql: str,
     ) -> str | None:
-        parsed = self._extract_create_table_definitions(source_schema_sql, table)
-        source_columns = source_summary.get("columns", {}).get(table, {})
-        target_columns = target_summary.get("columns", {}).get(table, {})
-        source_order = [
-            name
-            for name, _meta in sorted(source_columns.items(), key=lambda item: item[1]["ordinal"])
-        ]
-        current_columns = set(target_columns)
-        clauses: list[str] = []
-        for column_name in source_order:
-            if column_name in table_delta["add_columns"]:
-                column_definition = parsed["columns"].get(column_name)
-                if column_definition is None:
-                    raise RuntimeError(f"未找到数据表 {table}.{column_name} 的字段定义")
-                position_clause = self._build_column_position_clause(
-                    source_order, current_columns, column_name
-                )
-                clauses.append(f"ADD COLUMN {column_definition}{position_clause}")
-                current_columns.add(column_name)
-            elif column_name in table_delta["modify_columns"]:
-                column_definition = parsed["columns"].get(column_name)
-                if column_definition is None:
-                    raise RuntimeError(f"未找到数据表 {table}.{column_name} 的字段定义")
-                clauses.append(f"MODIFY COLUMN {column_definition}")
-        for index_name in table_delta["rebuild_indexes"]:
-            index_definition = parsed["indexes"].get(index_name)
-            if index_definition is None:
-                raise RuntimeError(f"未找到数据表 {table} 索引 {index_name} 的定义")
-            if index_name == "PRIMARY":
-                clauses.append("DROP PRIMARY KEY")
-                clauses.append(f"ADD {index_definition}")
-            else:
-                clauses.append(f"DROP INDEX {self._quote_identifier(index_name)}")
-                clauses.append(f"ADD {index_definition}")
-        for index_name in table_delta["add_indexes"]:
-            index_definition = parsed["indexes"].get(index_name)
-            if index_definition is None:
-                raise RuntimeError(f"未找到数据表 {table} 索引 {index_name} 的定义")
-            clauses.append(f"ADD {index_definition}")
-        if not clauses:
-            return None
-        return (
-            f"ALTER TABLE {self._quote_identifier(database)}.{self._quote_identifier(table)} "
-            + ", ".join(clauses)
+        return sync_schema.build_incremental_table_alter_sql(
+            database, table, table_delta, source_summary, target_summary, source_schema_sql
         )
 
     def _build_show_create_view_sql(self, database: str, view_name: str) -> str:
-        return f"SHOW CREATE VIEW {self._quote_identifier(database)}.{self._quote_identifier(view_name)}"
+        return sync_schema.build_show_create_view_sql(database, view_name)
 
     def _normalize_create_view_sql(self, payload: str, view_name: str) -> str:
-        parts = payload.split("\t", 3)
-        if len(parts) < 2:
-            raise RuntimeError(f"未找到视图 {view_name} 的 CREATE VIEW 语句")
-        create_sql = parts[1].replace("\\n", "\n").replace("\\t", "\t")
-        create_sql = re.sub(r"\sDEFINER=`[^`]+`@`[^`]+`", "", create_sql, count=1)
-        if create_sql.startswith("CREATE "):
-            create_sql = create_sql.replace("CREATE ", "CREATE OR REPLACE ", 1)
-        return create_sql.strip()
+        return sync_schema.normalize_create_view_sql(payload, view_name)
 
     async def _fetch_local_view_create_sql(
         self,
@@ -2889,10 +2340,7 @@ class SyncService:
         return self._normalize_create_view_sql(stdout, view_name)
 
     def _build_database_scoped_sql(self, database: str, sql: str) -> str:
-        statement = sql.strip()
-        if statement.endswith(";"):
-            statement = statement[:-1]
-        return f"USE {self._quote_identifier(database)}; {statement};"
+        return sync_schema.build_database_scoped_sql(database, sql)
 
     async def _execute_remote_database_sql(
         self,
@@ -3063,27 +2511,13 @@ class SyncService:
         return stats
 
     def _normalize_host(self, value: str) -> str:
-        host = str(value or "").strip()
-        if not host:
-            return ""
-        if host.startswith("http://") or host.startswith("https://"):
-            parsed = urlparse(host)
-            return parsed.hostname or host
-        return host
+        return sync_progress.normalize_host(value)
 
     def _format_bytes(self, value: int) -> str:
-        units = ["B", "KB", "MB", "GB", "TB"]
-        size = float(max(value, 0))
-        for unit in units:
-            if size < 1024 or unit == units[-1]:
-                if unit == "B":
-                    return f"{int(size)} {unit}"
-                return f"{size:.1f} {unit}"
-            size /= 1024
-        return f"{int(value)} B"
+        return sync_progress.format_bytes(value)
 
     def _now_iso(self) -> str:
-        return datetime.now(timezone.utc).isoformat()
+        return sync_progress.now_iso()
 
 
 @lru_cache

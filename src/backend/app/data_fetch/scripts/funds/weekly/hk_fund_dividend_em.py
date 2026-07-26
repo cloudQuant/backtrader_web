@@ -4,6 +4,13 @@ import pandas as pd
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+from app.data_fetch.scripts.funds.weekly._fund_codes import (
+    DEFAULT_FUND_CODE_LIMIT,
+    get_codes_from_table,
+    normalize_fund_codes,
+)
+
+DEFAULT_HK_DIVIDEND_FUND_CODES = ["1002200683"]
 
 
 class HkFundDividendEm(AkshareToMySql):
@@ -230,7 +237,7 @@ class HkFundDividendEm(AkshareToMySql):
             self.logger.error(f"获取已存在数据ID失败: {e}")
             return set()
 
-    def run(self, fund_codes=None):
+    def run(self, fund_codes=None, fund_code: str = None, limit: int = DEFAULT_FUND_CODE_LIMIT):
         """
         执行数据获取和保存
 
@@ -248,8 +255,9 @@ class HkFundDividendEm(AkshareToMySql):
             self.create_table_if_not_exists()
 
             # 如果未指定基金代码，则从数据库获取所有香港基金代码
-            if fund_codes is None:
-                fund_codes = self._get_all_hk_fund_codes()
+            fund_codes = normalize_fund_codes(fund_code=fund_code, fund_codes=fund_codes)
+            if not fund_codes:
+                fund_codes = self._get_all_hk_fund_codes(limit=limit)
                 if not fund_codes:
                     self.logger.error("未获取到香港基金代码")
                     return False
@@ -295,17 +303,19 @@ class HkFundDividendEm(AkshareToMySql):
         finally:
             self.disconnect_db()
 
-    def _get_all_hk_fund_codes(self):
+    def _get_all_hk_fund_codes(self, limit: int = DEFAULT_FUND_CODE_LIMIT):
         """
         从数据库获取所有香港基金代码
 
         Returns:
             list: 基金代码列表
         """
-        # 注意：需要先实现获取香港基金列表的功能
-        # 这里暂时返回空列表，需要根据实际情况实现
-        self.logger.warning("获取香港基金代码列表功能待实现，需要使用fund_em_hk_rank接口获取")
-        return []
+        try:
+            rank_codes = get_codes_from_table(self, "FUND_EM_HK_RANK", "symbol", limit)
+        except Exception as e:
+            self.logger.warning(f"从香港基金排行表获取代码失败: {e}")
+            rank_codes = []
+        return normalize_fund_codes(fund_codes=[*rank_codes, *DEFAULT_HK_DIVIDEND_FUND_CODES])
 
 
 if __name__ == "__main__":

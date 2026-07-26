@@ -250,7 +250,10 @@ class UnitStatusResponse(BaseModel):
     id: str
     run_status: str
     last_task_id: str | None = None
+    error_message: str | None = None
     metrics_snapshot: dict[str, Any] = Field(default_factory=dict)
+    run_progress: float | None = None
+    run_message: str | None = None
     run_count: int = 0
     last_run_time: float | None = None
     bar_count: int | None = None

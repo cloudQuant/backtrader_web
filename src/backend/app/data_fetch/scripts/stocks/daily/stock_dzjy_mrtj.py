@@ -50,8 +50,13 @@ class StockDzjyMrtj(AkshareToMySql):
 
             # Process data if needed
             # Add data_date if not exists
+            if "symbol" not in df.columns and "证券代码" in df.columns:
+                df["symbol"] = df["证券代码"].astype(str)
             if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
+                if "交易日期" in df.columns:
+                    df["data_date"] = pd.to_datetime(df["交易日期"], errors="coerce").dt.date
+                else:
+                    df["data_date"] = pd.Timestamp.now().date()
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)

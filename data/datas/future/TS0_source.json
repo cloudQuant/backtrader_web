@@ -1,0 +1,14 @@
+{
+  "symbol": "TS0",
+  "symbol_name": "2年期国债期货连续",
+  "source": "akshare",
+  "minute_function": "futures_zh_minute_sina(symbol=\"TS0\", period=\"60\")",
+  "daily_function": "futures_zh_daily_sina(symbol=\"TS0\")",
+  "minute_rows": 1023,
+  "daily_rows": 1908,
+  "minute_start": "2025-08-26 14:00:00",
+  "minute_end": "2026-07-03 15:15:00",
+  "daily_start": "2018-08-17 00:00:00",
+  "daily_end": "2026-07-03 00:00:00",
+  "generated_at": "2026-07-04T16:35:04.935169+00:00"
+}

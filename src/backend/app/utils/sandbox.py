@@ -6,16 +6,98 @@ Safely executes user strategy code in a restricted environment.
 
 import ast
 import math
+import multiprocessing as mp
 import signal
 import threading
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-import backtrader as bt
+try:
+    import backtrader as bt
+except Exception as exc:  # pragma: no cover - depends on optional native runtime
+    bt = None
+    _BACKTRADER_IMPORT_ERROR: Exception | None = exc
+else:
+    _BACKTRADER_IMPORT_ERROR = None
 
 
 class _SandboxTimeoutError(Exception):
     """Raised when strategy code execution exceeds the time limit."""
+
+
+class SandboxPreflightError(RuntimeError):
+    """Raised when isolated strategy execution fails the Backtrader smoke run."""
+
+
+_VALIDATION_STARTUP_GRACE_SECONDS = 5
+
+
+def _apply_child_resource_limits(timeout: int) -> None:
+    """Apply best-effort limits before evaluating code in a child process."""
+    try:
+        import resource
+
+        resource.setrlimit(resource.RLIMIT_CPU, (timeout, timeout + 1))
+        # Python scientific stacks reserve substantial virtual address space at
+        # import time. Keep a finite development limit without preventing the
+        # isolated Backtrader preflight from importing its runtime.
+        resource.setrlimit(resource.RLIMIT_AS, (4 * 1024 * 1024 * 1024, 4 * 1024 * 1024 * 1024))
+        resource.setrlimit(resource.RLIMIT_NOFILE, (32, 32))
+    except (ImportError, OSError, ValueError):
+        # Docker is mandatory in production; development platforms that lack
+        # POSIX resource limits still get process isolation and parent timeout.
+        return
+
+
+def _preflight_strategy_class(strategy_class: type) -> None:
+    """Run the minimal Backtrader smoke scenario inside the isolated executor."""
+    import backtrader as backtrader
+    import pandas as pandas
+
+    index = pandas.date_range("2020-01-01", periods=64, freq="D")
+    closes = [100.0 + item * 0.2 for item in range(64)]
+    data = pandas.DataFrame(
+        {
+            "open": closes,
+            "high": [value + 1.0 for value in closes],
+            "low": [max(value - 1.0, 0.01) for value in closes],
+            "close": closes,
+            "volume": [1000] * len(closes),
+            "openinterest": [0] * len(closes),
+        },
+        index=index,
+    )
+    cerebro = backtrader.Cerebro(stdstats=False)
+    cerebro.broker.setcash(100000.0)
+    cerebro.broker.setcommission(commission=0.001)
+    cerebro.adddata(backtrader.feeds.PandasData(dataname=data))
+    cerebro.addstrategy(strategy_class)
+    cerebro.run(runonce=False, preload=False)
+
+
+def _validate_strategy_in_child(
+    result_sender: Any,
+    code: str,
+    params: dict[str, Any],
+    timeout: int,
+) -> None:
+    """Execute and preflight untrusted code without sharing parent memory."""
+    # A spawned worker imports pandas and Backtrader before its smoke run. Reserve
+    # a short finite CPU allowance for that bootstrap while execute_strategy_code
+    # still enforces the caller-provided timeout for untrusted top-level code.
+    _apply_child_resource_limits(timeout + _VALIDATION_STARTUP_GRACE_SECONDS)
+    try:
+        strategy_class = StrategySandbox.execute_strategy_code(code, params, timeout=timeout)
+    except BaseException as exc:
+        result_sender.send(("execution", f"{type(exc).__name__}: {exc}"))
+        return
+    try:
+        _preflight_strategy_class(strategy_class)
+    except BaseException as exc:
+        result_sender.send(("preflight", f"{type(exc).__name__}: {exc}"))
+        return
+    result_sender.send(("ok", strategy_class.__name__))
 
 
 class StrategySandbox:
@@ -49,6 +131,7 @@ class StrategySandbox:
         "tuple": tuple,
         "zip": zip,
         "enumerate": enumerate,
+        "hasattr": hasattr,
         "isinstance": isinstance,
         "issubclass": issubclass,
         "type": type,
@@ -57,6 +140,7 @@ class StrategySandbox:
     # Whitelist of allowed modules
     _ALLOWED_MODULES = {
         "bt": bt,
+        "backtrader": bt,
         "datetime": datetime,
         "math": math,
     }
@@ -82,6 +166,8 @@ class StrategySandbox:
         }
 
         # Add security restrictions
+        safe_globals["__builtins__"]["__import__"] = cls._safe_import
+        safe_globals["__builtins__"]["print"] = cls._safe_print
         safe_globals["__import__"] = cls._safe_import
         safe_globals["__print__"] = cls._safe_print
 
@@ -90,11 +176,11 @@ class StrategySandbox:
     @staticmethod
     def _safe_import(
         name: str,
-        globals: dict | None = None,
-        locals: dict | None = None,
-        fromlist: list | None = None,
+        globals: dict[str, Any] | None = None,
+        locals: dict[str, Any] | None = None,
+        fromlist: Sequence[str] | None = None,
         level: int = 0,
-    ):
+    ) -> Any:
         """Safe import function.
 
         Only allows importing whitelisted modules.
@@ -133,12 +219,12 @@ class StrategySandbox:
                 try:
                     current = getattr(current, part)
                 except AttributeError:
-                    raise ImportError(f"Cannot import {name}")
+                    raise ImportError(f"Cannot import {name}") from None
 
         return imported_module
 
     @staticmethod
-    def _safe_print(*args, **kwargs):
+    def _safe_print(*args: Any, **kwargs: Any) -> None:
         """Safe print function.
 
         Disables print to prevent user strategy output.
@@ -170,6 +256,8 @@ class StrategySandbox:
             RuntimeError: If the code execution fails or times out.
         """
         execution_timeout = timeout if timeout is not None else cls._EXECUTION_TIMEOUT
+        if bt is None:
+            raise RuntimeError(f"backtrader runtime is unavailable: {_BACKTRADER_IMPORT_ERROR}")
 
         # Pre-check code to prevent dangerous operations (AST-based)
         cls._check_code_safety(code)
@@ -194,19 +282,19 @@ class StrategySandbox:
         except _SandboxTimeoutError:
             raise RuntimeError(
                 f"Strategy code execution timed out after {execution_timeout} seconds"
-            )
+            ) from None
         except SyntaxError as e:
-            raise SyntaxError(f"Strategy code syntax error: {e}")
+            raise SyntaxError(f"Strategy code syntax error: {e}") from e
         except NameError as e:
-            raise NameError(f"Undefined name in strategy code: {e}")
+            raise NameError(f"Undefined name in strategy code: {e}") from e
         except AttributeError as e:
-            raise AttributeError(f"Disallowed attribute in strategy code: {e}")
+            raise AttributeError(f"Disallowed attribute in strategy code: {e}") from e
         except ImportError as e:
-            raise ImportError(f"Disallowed module import in strategy code: {e}")
+            raise ImportError(f"Disallowed module import in strategy code: {e}") from e
         except ValueError:
             raise
         except Exception as e:
-            raise RuntimeError(f"Strategy code execution failed: {type(e).__name__}: {e}")
+            raise RuntimeError(f"Strategy code execution failed: {type(e).__name__}: {e}") from e
 
         if not strategy_class:
             raise ValueError(
@@ -214,6 +302,64 @@ class StrategySandbox:
             )
 
         return strategy_class
+
+    @classmethod
+    def validate_strategy_code(
+        cls,
+        code: str,
+        params: dict[str, Any] | None = None,
+        timeout: int | None = None,
+        *,
+        use_docker: bool = False,
+        docker_image: str = "backtrader-sandbox:latest",
+    ) -> str:
+        """Validate and preflight code without executing it in the API process.
+
+        Production callers select Docker isolation. Development and tests use a
+        spawned worker process with CPU, memory, file-descriptor, and wall-clock
+        limits. The dynamic strategy class is intentionally not returned: a
+        class object from untrusted code must never be retained by the parent.
+        """
+        execution_timeout = timeout if timeout is not None else cls._EXECUTION_TIMEOUT
+        cls._check_code_safety(code)
+        if use_docker:
+            DockerSandbox.validate_in_container(
+                code,
+                params or {},
+                docker_image=docker_image,
+                timeout=execution_timeout,
+            )
+            return "docker"
+
+        context = mp.get_context("spawn")
+        result_receiver, result_sender = context.Pipe(duplex=False)
+        process = context.Process(
+            target=_validate_strategy_in_child,
+            args=(result_sender, code, params or {}, execution_timeout),
+            daemon=True,
+        )
+        process.start()
+        result_sender.close()
+        validation_timeout = execution_timeout + _VALIDATION_STARTUP_GRACE_SECONDS
+        process.join(validation_timeout)
+        if process.is_alive():
+            process.terminate()
+            process.join()
+            result_receiver.close()
+            raise RuntimeError(f"Strategy validation timed out after {validation_timeout} seconds")
+        try:
+            if not result_receiver.poll(1):
+                raise RuntimeError("isolated validator did not send a result")
+            phase, message = result_receiver.recv()
+        except Exception as exc:
+            raise RuntimeError("Isolated strategy validation exited without a result") from exc
+        finally:
+            result_receiver.close()
+        if phase == "preflight":
+            raise SandboxPreflightError(message)
+        if phase != "ok":
+            raise RuntimeError(message)
+        return str(message)
 
     @classmethod
     def _exec_with_timeout(cls, compiled_code: Any, safe_globals: dict, timeout: int) -> None:
@@ -231,7 +377,7 @@ class StrategySandbox:
         """
         if hasattr(signal, "SIGALRM"):
             # Unix: use signal-based timeout (works within the same thread)
-            def _timeout_handler(signum, frame):
+            def _timeout_handler(signum: int, frame: Any) -> None:
                 raise _SandboxTimeoutError()
 
             old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
@@ -245,7 +391,7 @@ class StrategySandbox:
             # Fallback: use threading (less reliable but cross-platform)
             error: list[Exception] = []
 
-            def _run():
+            def _run() -> None:
                 try:
                     exec(compiled_code, safe_globals)
                 except Exception as e:
@@ -276,6 +422,8 @@ class StrategySandbox:
                 continue
             if isinstance(obj, type):
                 try:
+                    if bt is None:
+                        return None
                     if issubclass(obj, bt.Strategy) and obj != bt.Strategy:
                         return obj
                 except TypeError:
@@ -330,6 +478,7 @@ class StrategySandbox:
             "__builtins__",
             "__subclasses__",
             "__bases__",
+            "__base__",
             "__mro__",
             "__globals__",
             "__code__",
@@ -342,6 +491,24 @@ class StrategySandbox:
             "__import__",
             "__loader__",
             "__spec__",
+        }
+    )
+
+    # ``Strategy`` exposes these as inherited order-management methods.  A
+    # generated strategy that assigns a price line to ``self.close`` silently
+    # replaces ``Strategy.close()``; a later ``self.close()`` then reads a
+    # line instead of submitting the exit order.  Keep the guard here so it
+    # protects both AI research drafts and normal workspace backtests.
+    _RESERVED_STRATEGY_TRADE_METHODS = frozenset(
+        {
+            "buy",
+            "sell",
+            "close",
+            "order_target_percent",
+            "order_target_size",
+            "order_target_value",
+            "buy_bracket",
+            "sell_bracket",
         }
     )
 
@@ -375,6 +542,21 @@ class StrategySandbox:
             cls._check_node(node)
 
     @classmethod
+    def _check_reserved_strategy_method_assignment(cls, target: ast.AST) -> None:
+        """Reject assignments that replace Backtrader trading methods."""
+        if not isinstance(target, ast.Attribute):
+            return
+        if not isinstance(target.value, ast.Name) or target.value.id != "self":
+            return
+        if target.attr not in cls._RESERVED_STRATEGY_TRADE_METHODS:
+            return
+        raise ValueError(
+            f"Backtrader strategy code must not assign to self.{target.attr}; "
+            "it shadows an inherited trading method. Use a distinct state or "
+            "price-line name such as self.dataclose."
+        )
+
+    @classmethod
     def _check_node(cls, node: ast.AST) -> None:
         """Check a single AST node for safety violations.
 
@@ -384,6 +566,14 @@ class StrategySandbox:
         Raises:
             ValueError: If the node represents a dangerous operation.
         """
+        # Backtrader trading methods must remain callable.  Check all direct
+        # assignment forms before the other AST safety checks.
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                cls._check_reserved_strategy_method_assignment(target)
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            cls._check_reserved_strategy_method_assignment(node.target)
+
         # Check import statements
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -417,6 +607,16 @@ class StrategySandbox:
                     if attr in cls._DANGEROUS_ATTRS:
                         raise ValueError(
                             f"Accessing attribute '{attr}' via {func_name}() is not allowed"
+                        )
+                    if (
+                        func_name in {"setattr", "delattr"}
+                        and attr in cls._RESERVED_STRATEGY_TRADE_METHODS
+                        and isinstance(node.args[0], ast.Name)
+                        and node.args[0].id == "self"
+                    ):
+                        raise ValueError(
+                            f"Backtrader strategy code must not {func_name} self.{attr}; "
+                            "it changes an inherited trading method."
                         )
 
         # Check attribute access for dangerous dunder names
@@ -505,7 +705,7 @@ class DockerSandbox:
         try:
             subprocess.run(["docker", "--version"], check=True, capture_output=True)
         except (subprocess.CalledProcessError, FileNotFoundError):
-            raise RuntimeError("Docker is not available, please install Docker first")
+            raise RuntimeError("Docker is not available, please install Docker first") from None
 
         # Create temporary directory
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -552,7 +752,87 @@ class DockerSandbox:
             try:
                 return json.loads(result.stdout.strip())
             except json.JSONDecodeError as e:
-                raise RuntimeError(f"Cannot parse execution result: {e}")
+                raise RuntimeError(f"Cannot parse execution result: {e}") from e
+
+    @staticmethod
+    def validate_in_container(
+        code: str,
+        params: dict[str, Any],
+        docker_image: str = "backtrader-sandbox:latest",
+        timeout: int = 30,
+    ) -> None:
+        """Compile, execute, and smoke-check code inside a hardened container.
+
+        Unlike :meth:`execute_in_container`, this validation path deliberately
+        returns no user-defined objects or output to the application process.
+        """
+        import json
+        import os
+        import subprocess
+        import tempfile
+
+        try:
+            subprocess.run(["docker", "--version"], check=True, capture_output=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            raise RuntimeError("Docker is not available for strategy validation") from None
+
+        validator = (
+            "from pathlib import Path\n"
+            "import backtrader as bt\n"
+            "code = Path('/data/strategy.py').read_text(encoding='utf-8')\n"
+            "namespace = {'__name__': '__sandbox__'}\n"
+            "exec(compile(code, '<strategy>', 'exec'), namespace)\n"
+            "assert any(isinstance(value, type) and issubclass(value, bt.Strategy) "
+            "for value in namespace.values())\n"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            strategy_file = os.path.join(tmpdir, "strategy.py")
+            params_file = os.path.join(tmpdir, "params.json")
+            with open(strategy_file, "w", encoding="utf-8") as file_handle:
+                file_handle.write(code)
+            with open(params_file, "w", encoding="utf-8") as file_handle:
+                json.dump(params, file_handle)
+            os.chmod(tmpdir, 0o755)
+            os.chmod(strategy_file, 0o644)
+            os.chmod(params_file, 0o644)
+
+            try:
+                result = subprocess.run(
+                    [
+                        "docker",
+                        "run",
+                        "--rm",
+                        "--network=none",
+                        "--cap-drop=ALL",
+                        "--security-opt=no-new-privileges",
+                        "--pids-limit=64",
+                        "--cpus=1.0",
+                        "--memory=512m",
+                        "--read-only",
+                        "--tmpfs",
+                        "/tmp:rw,noexec,nosuid,size=100m",
+                        "--user",
+                        "65534:65534",
+                        "-v",
+                        f"{tmpdir}:/data:ro",
+                        "-e",
+                        "PYTHONDONTWRITEBYTECODE=1",
+                        docker_image,
+                        "python",
+                        "-I",
+                        "-c",
+                        validator,
+                    ],
+                    capture_output=True,
+                    timeout=timeout,
+                    text=True,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError(
+                    f"Strategy validation timed out after {timeout} seconds"
+                ) from exc
+            if result.returncode != 0:
+                raise RuntimeError(f"Strategy validation failed: {result.stderr.strip()}")
 
 
 # Convenience function

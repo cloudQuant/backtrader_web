@@ -43,7 +43,7 @@ class FuturesDeliveryMatchCzce(AkshareToMySql):
 
                                 """
 
-    def run(self, start_date=None, end_date=None):
+    def run(self, start_date=None, end_date=None, lookback_days=None, max_days=None):
         """
         更新郑州商品交易所交割配对数据。
 
@@ -58,16 +58,16 @@ class FuturesDeliveryMatchCzce(AkshareToMySql):
         table_name = "FUTURES_DELIVERY_MATCH_CZCE"
 
         try:
+            lookback_days = int(lookback_days) if lookback_days is not None else None
+            max_days = int(max_days) if max_days is not None else None
             # 1. Date Handling
             if end_date is None:
-                end_date = self.get_previous_date()
+                end_date = self.get_current_date()
 
             if start_date is None:
                 latest_date_in_db = self.get_latest_date(table_name, "TRADE_DATE")
                 if latest_date_in_db:
-                    start_date = (
-                        datetime.strptime(latest_date_in_db, "%Y-%m-%d") + timedelta(days=1)
-                    ).strftime("%Y-%m-%d")
+                    start_date = latest_date_in_db
                     self.logger.info(f"最新数据日期: {latest_date_in_db}，从 {start_date} 开始更新")
                 else:
                     start_date = "2025-07-01"  # Earliest data found in example
@@ -75,6 +75,12 @@ class FuturesDeliveryMatchCzce(AkshareToMySql):
 
             start_date_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
             end_date_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+            if lookback_days is not None:
+                lookback_start = end_date_dt - timedelta(days=lookback_days)
+                if start_date_dt < lookback_start:
+                    start_date_dt = lookback_start
+                    start_date = start_date_dt.strftime("%Y-%m-%d")
+                    self.logger.info(f"限制郑商所交割配对更新为最近 {lookback_days} 天")
 
             if start_date_dt > end_date_dt:
                 self.logger.info(f"开始日期 {start_date} 不能晚于结束日期 {end_date}")
@@ -87,6 +93,9 @@ class FuturesDeliveryMatchCzce(AkshareToMySql):
             if not trading_days:
                 self.logger.info("在指定范围内没有需要更新的交易日")
                 return pd.DataFrame()
+            if max_days is not None and len(trading_days) > max_days:
+                trading_days = trading_days[-max_days:]
+                self.logger.info(f"限制郑商所交割配对更新为 {max_days} 个交易日")
 
             self.logger.info(
                 f"准备更新从 {trading_days[0]} 到 {trading_days[-1]} 的交割配对数据，共 {len(trading_days)} 个交易日"
@@ -176,6 +185,7 @@ class FuturesDeliveryMatchCzce(AkshareToMySql):
                     df = df[required_columns]
                     df = df.replace(np.nan, None)
                     # Save to database
+                    self.delete_data(table_name, {"TRADE_DATE": date_str})
                     self.save_data(df, table_name)
                     success_count += 1
                     self.logger.info(f"成功保存 {date_str} 的交割配对数据，共 {len(df)} 条记录")

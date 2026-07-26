@@ -2,6 +2,7 @@
 import argparse
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
@@ -78,26 +79,47 @@ class SWIndexComponents(AkshareToMySql):
         df = self.get_data_by_columns("SW_INDEX_REALTIME", ["INDEX_CODE"])
         return list(df["INDEX_CODE"].unique())
 
-    def run(self, symbol=None):
+    def _save_components_data(self, symbol, df):
+        if not df.empty:
+            self.save_data(
+                df=df.replace({np.nan: None}),
+                table_name=self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["INDEX_CODE", "STOCK_CODE"],
+            )
+            self.logger.info(f"Updated {len(df)} component stocks for index {symbol}")
+
+    def _fetch_component_jobs(self, symbol_list, max_workers):
+        worker_count = max(1, min(max_workers, len(symbol_list)))
+        if worker_count == 1:
+            for symbol in symbol_list:
+                yield symbol, self.fetch_components_data(symbol)
+            return
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(self.fetch_components_data, symbol): symbol
+                for symbol in symbol_list
+            }
+            for future in as_completed(future_map):
+                symbol = future_map[future]
+                try:
+                    yield symbol, future.result()
+                except Exception as exc:
+                    self.logger.error(f"Error fetching component data for {symbol}: {exc}")
+                    yield symbol, pd.DataFrame()
+
+    def run(self, symbol=None, max_workers=8, max_symbols=None):
         """Run the Shenwan Index components update"""
         try:
             if not self.table_exists(self.table_name):
                 self.create_table(self.create_table_sql)
                 self.logger.info(f"Created table {self.table_name}")
             symbol_list = self.get_symbol_list() if symbol is None else [symbol]
-            for symbol in symbol_list:
-                # Fetch and save new components
-                df = self.fetch_components_data(symbol)
-
-                if not df.empty:
-                    # Save data
-                    self.save_data(
-                        df=df.replace({np.nan: None}),
-                        table_name=self.table_name,
-                        on_duplicate_update=True,
-                        unique_keys=["INDEX_CODE", "STOCK_CODE"],
-                    )
-                    self.logger.info(f"Updated {len(df)} component stocks for index {symbol}")
+            if max_symbols is not None:
+                symbol_list = symbol_list[: max(0, int(max_symbols))]
+            for symbol, df in self._fetch_component_jobs(symbol_list, int(max_workers or 1)):
+                self._save_components_data(symbol, df)
 
             return True
 

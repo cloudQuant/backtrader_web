@@ -114,7 +114,7 @@ class StockZhIndexDailyTx(AkshareToMySql):
             )
             return pd.DataFrame()
 
-    def run(self, symbol=None):
+    def run(self, symbol=None, max_symbols=None):
         """Main method to run the data fetching and saving process.
 
         Args:
@@ -137,6 +137,10 @@ class StockZhIndexDailyTx(AkshareToMySql):
                 self.logger.info(f"Found {len(symbol_list)} indices to process")
             else:
                 symbol_list = [symbol]
+            max_symbols = int(max_symbols) if max_symbols is not None else None
+            if max_symbols is not None and len(symbol_list) > max_symbols:
+                symbol_list = symbol_list[:max_symbols]
+                self.logger.info(f"Limiting Tencent daily index update to {max_symbols} symbols")
 
             all_success = True
             for symbol in symbol_list:

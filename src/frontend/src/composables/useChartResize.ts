@@ -35,6 +35,11 @@ export function useChartResize(renderFn?: () => void) {
     chartInstance?.resize()
   }
 
+  function handleThemeChange() {
+    renderFn?.()
+    chartInstance?.resize()
+  }
+
   function disposeChart() {
     chartInstance?.dispose()
     chartInstance = null
@@ -50,10 +55,12 @@ export function useChartResize(renderFn?: () => void) {
       }
     })
     window.addEventListener('resize', handleResize)
+    window.addEventListener('themechange', handleThemeChange)
   })
 
   onUnmounted(() => {
     window.removeEventListener('resize', handleResize)
+    window.removeEventListener('themechange', handleThemeChange)
     disposeChart()
   })
 

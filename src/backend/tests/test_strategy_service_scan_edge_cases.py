@@ -1,0 +1,135 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+
+def test_default_strategy_template_scan_loads_project_strategies():
+    from app.services.strategy import templates
+
+    templates._get_templates_for_type.cache_clear()
+    items = templates.get_all_strategy_templates()
+
+    assert (templates.STRATEGIES_DIR / "backtest").is_dir()
+    assert len(items) >= 100
+    assert any(item.id.startswith("backtest/") for item in items)
+
+
+def test_legacy_strategy_dir_override_does_not_leak_to_template_module(monkeypatch, tmp_path):
+    from app.schemas.strategy import StrategyType
+    from app.services import strategy_service as ss
+    from app.services.strategy import templates
+
+    original_dir = templates.STRATEGIES_DIR
+    monkeypatch.setattr(ss, "STRATEGIES_DIR", tmp_path / "strategies", raising=True)
+
+    assert ss._scan_strategies_folder(StrategyType.backtest) == []
+    assert templates.STRATEGIES_DIR == original_dir
+
+
+def test_scan_strategies_folder_when_dir_missing(monkeypatch, tmp_path):
+    from app.schemas.strategy import StrategyType
+    from app.services import strategy_service as ss
+
+    monkeypatch.setattr(ss, "STRATEGIES_DIR", tmp_path / "missing", raising=True)
+    assert ss._scan_strategies_folder(StrategyType.backtest) == []
+
+
+def test_scan_strategies_folder_skips_when_no_code_files(monkeypatch, tmp_path):
+    from app.schemas.strategy import StrategyType
+    from app.services import strategy_service as ss
+
+    strategies_dir = tmp_path / "strategies"
+    backtest_dir = strategies_dir / "backtest"
+    s1 = backtest_dir / "s1"
+    s1.mkdir(parents=True)
+    (s1 / "config.yaml").write_text("strategy:\n  name: s1\n", encoding="utf-8")
+    monkeypatch.setattr(ss, "STRATEGIES_DIR", strategies_dir, raising=True)
+
+    # No strategy_*.py -> continue branch.
+    assert ss._scan_strategies_folder(StrategyType.backtest) == []
+
+
+def test_scan_strategies_folder_handles_bad_yaml(monkeypatch, tmp_path):
+    from app.schemas.strategy import StrategyType
+    from app.services import strategy_service as ss
+
+    strategies_dir = tmp_path / "strategies"
+    backtest_dir = strategies_dir / "backtest"
+    s1 = backtest_dir / "s1"
+    s1.mkdir(parents=True)
+    (s1 / "config.yaml").write_text(":\n:bad\n", encoding="utf-8")
+    (s1 / "strategy_x.py").write_text("print('x')\n", encoding="utf-8")
+    monkeypatch.setattr(ss, "STRATEGIES_DIR", strategies_dir, raising=True)
+
+    assert ss._scan_strategies_folder(StrategyType.backtest) == []
+
+
+def test_get_strategy_readme_reads_file(monkeypatch, tmp_path):
+    from app.schemas.strategy import StrategyType
+    from app.services import strategy_service as ss
+
+    strategies_dir = tmp_path / "strategies"
+    backtest_s1 = strategies_dir / "backtest" / "s1"
+    backtest_s1.mkdir(parents=True)
+    (backtest_s1 / "README.md").write_text("# hi\n", encoding="utf-8")
+    monkeypatch.setattr(ss, "STRATEGIES_DIR", strategies_dir, raising=True)
+
+    assert ss.get_strategy_readme("backtest/s1") == "# hi\n"
+    assert ss.get_strategy_readme("s1", strategy_type=StrategyType.backtest) == "# hi\n"
+    assert ss.get_strategy_readme("missing") is None
+
+
+@pytest.mark.asyncio
+async def test_strategy_service_update_strategy_field_branches(monkeypatch):
+    from app.schemas.strategy import ParamSpec, StrategyUpdate
+    from app.services.strategy_service import StrategyService
+
+    svc = StrategyService()
+    svc.strategy_repo = AsyncMock()
+    svc.strategy_repo.get_by_id = AsyncMock(return_value=SimpleNamespace(id="s1", user_id="u1"))
+    svc.strategy_repo.update = AsyncMock(
+        return_value=SimpleNamespace(
+            id="s1",
+            user_id="u1",
+            name="n",
+            description="d",
+            code="c",
+            params={"p": {"type": "int", "default": 1}},
+            category="cat",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+    )
+
+    upd = StrategyUpdate(
+        name="n",
+        description="d",
+        code="c",
+        params={"p": ParamSpec(type="int", default=1)},
+        category="cat",
+    )
+    out = await svc.update_strategy("s1", "u1", upd)
+    assert out is not None
+
+
+def test_strategy_service_to_response_handles_non_dict_params():
+    from app.services.strategy_service import StrategyService
+
+    svc = StrategyService()
+    strategy = SimpleNamespace(
+        id="s1",
+        user_id="u1",
+        name="n",
+        description="d",
+        code="c",
+        params={"p": 1},  # non-dict branch
+        category="cat",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    out = svc._to_response(strategy)
+    assert out.params["p"].default == 1

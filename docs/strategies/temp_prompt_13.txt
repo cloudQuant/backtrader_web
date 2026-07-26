@@ -41,7 +41,7 @@ HTML 文件路径: with
 - 其他策略: 其他所有策略
 
 ## 输出格式
-将生成的 Markdown 文档保存到: /home/yun/Documents/backtrader_web/strategies/013_with
+将生成的 Markdown 文档保存到: /home/yun/Documents/ai-for-investor/strategies/013_with
 
 ## 质量标准
 - 详细性: 文档必须详细，包含所有必要的章节

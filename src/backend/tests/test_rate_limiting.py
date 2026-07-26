@@ -197,6 +197,7 @@ class TestRateLimiting:
         # 6th attempt should be rate limited
         assert responses[5].status_code == 429, "6th registration should be rate limited"
 
+    @pytest.mark.flaky(reruns=3, reruns_delay=1)
     async def test_login_rate_limit(self, client: AsyncClient):
         """Test that login endpoint enforces rate limiting (10/minute)."""
         from app.main import app

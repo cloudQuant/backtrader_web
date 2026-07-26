@@ -14,8 +14,8 @@ import pytest
 
 from app.models.backtest import BacktestTask
 from app.schemas.backtest import TaskStatus
-from app.services.backtest_manager import BacktestExecutionManager
-from app.services.backtest_runner import BacktestExecutionRunner
+from app.services.backtest.manager import BacktestExecutionManager
+from app.services.backtest.runner import BacktestExecutionRunner
 from app.services.backtest_service import BacktestService
 from app.services.param_optimization_service import (
     _get_task,

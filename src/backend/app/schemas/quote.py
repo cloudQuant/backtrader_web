@@ -13,6 +13,16 @@ from pydantic import BaseModel, Field
 # ---------------------------------------------------------------------------
 
 
+class WorkspaceQuoteRuntime(BaseModel):
+    """A running workspace currently feeding one quote gateway."""
+
+    workspace_id: str
+    workspace_name: str
+    gateway_key: str
+    symbol_count: int = 0
+    symbols: list[str] = Field(default_factory=list)
+
+
 class DataSourceInfo(BaseModel):
     """Metadata for a single data source (CTP / IB / MT5 / …)."""
 
@@ -27,6 +37,10 @@ class DataSourceInfo(BaseModel):
         default_factory=list,
         description="Supported capabilities, e.g. ['quote', 'search', 'chart']",
     )
+    gateway_count: int = Field(0, description="Connected manual or workspace gateway count")
+    workspace_count: int = Field(0, description="Running workspace count for this source")
+    running_symbol_count: int = Field(0, description="Unique symbols from running workspaces")
+    workspaces: list[WorkspaceQuoteRuntime] = Field(default_factory=list)
 
 
 class DataSourceListResponse(BaseModel):
@@ -64,6 +78,14 @@ class QuoteTick(BaseModel):
     update_time: str | None = Field(None, description="Last update ISO timestamp")
     status: str = Field("normal", description="Row status: normal, missing, error")
     error_message: str | None = Field(None)
+    quote_key: str = Field("", description="Unique gateway + symbol row key")
+    gateway_key: str = Field("", description="Concrete gateway session for this quote")
+    origins: list[str] = Field(
+        default_factory=list,
+        description="Quote origins: subscription and/or workspace",
+    )
+    workspace_ids: list[str] = Field(default_factory=list)
+    workspace_names: list[str] = Field(default_factory=list)
 
 
 class QuoteField(BaseModel):
@@ -132,11 +154,16 @@ class CustomSymbolsResponse(BaseModel):
 
 
 class DefaultSymbolsResponse(BaseModel):
-    """Default + custom symbols for a data source."""
+    """Subscribed and running-workspace symbols for a data source."""
 
     source: str
     default_symbols: list[SymbolItem]
     custom_symbols: list[str]
+    running_symbols: list[SymbolItem] = Field(default_factory=list)
+    categories: list[str] = Field(
+        default_factory=list,
+        description="Complete configured category catalog for the selected source",
+    )
 
 
 # ---------------------------------------------------------------------------

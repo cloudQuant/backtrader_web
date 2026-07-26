@@ -1,43 +1,31 @@
 # 开发指南
 
-本节涵盖 Backtrader Web 的开发指南。
+开发文档描述当前仓库的分层边界；发布 API 与运行行为以测试和 OpenAPI 为准。
 
-## 项目结构
+## 目录与职责
 
-```
-backtrader_web/
-├── src/
-│   ├── backend/              # FastAPI 后端
-│   │   ├── app/
-│   │   │   ├── api/        # API 路由 (15+ 模块)
-│   │   │   ├── services/   # 业务逻辑
-│   │   │   ├── db/         # 数据库层
-│   │   │   ├── models/     # ORM 模型
-│   │   │   └── schemas/    # Pydantic 模型
-│   │   └── strategies/     # 内置策略
-│   └── frontend/           # Vue3 前端
-│       ├── src/
-│       │   ├── api/        # API 调用
-│       │   ├── components/ # 组件
-│       │   ├── views/      # 页面
-│       │   └── stores/     # Pinia 状态
-│       └── package.json
-├── strategies/             # 118 内置策略模板
-├── tests/                 # 测试
-└── docs/                 # 文档
+```text
+src/backend/app/
+├── api/        # HTTP / WebSocket 路由、认证和输入输出边界
+├── services/   # 业务编排：数据、RAG、回测、工作区、交易与风险
+├── models/     # SQLAlchemy ORM 模型
+├── schemas/    # Pydantic 请求/响应模型
+├── db/         # 引擎、会话、仓库与迁移支撑
+└── utils/      # 安全、沙箱、日志等基础设施
+
+src/frontend/src/
+├── api/        # API 客户端
+├── views/      # 路由页面
+├── components/ # 可复用 UI
+├── composables/# 页面与领域组合逻辑
+├── stores/     # Pinia 状态
+└── navigation/ # 路由与导航约定
 ```
 
-## 技术栈
+## 继续阅读
 
-| 层级 | 技术 |
-|------|------|
-| 前端 | Vue 3 + TypeScript + Vite + Element Plus + Echarts |
-| 后端 | FastAPI + Uvicorn + Pydantic + SQLAlchemy 2.0 |
-| 数据库 | SQLite (默认) / PostgreSQL / MySQL |
-| 测试 | pytest + Playwright + Vitest |
-
-## 开发指南
-
-- [架构设计](./architecture.md) - 系统架构
-- [API 参考](./api.md) - RESTful API 文档
-- [数据库设计](./database.md) - 数据库设计和模型
+- [架构设计](./architecture.md)
+- [API 参考](./api.md)
+- [数据库与数据边界](./database.md)
+- 工程代码规范：`docs/reference/CODING_STANDARDS.md`
+- 工程测试手册：`docs/how-to/TESTING.md`

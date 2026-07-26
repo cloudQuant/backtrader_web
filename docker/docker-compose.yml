@@ -1,0 +1,10 @@
+# AI for Investor Docker Compose base file.
+#
+# Use this file together with one environment-specific file under docker/compose/:
+#   docker compose -f docker-compose.yml -f docker/compose/dev.yml up
+#   docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
+#   docker compose -f docker-compose.yml -f docker/compose/ci.yml up -d
+#   docker compose -f docker-compose.yml -f docker/compose/airflow.yml up -d
+#   docker compose -f docker-compose.yml -f docker/compose/local.yml up -d
+
+name: ai-for-investor

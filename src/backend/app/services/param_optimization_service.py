@@ -25,32 +25,32 @@ from typing import Any
 from app.schemas.backtest import TaskStatus
 from app.schemas.backtest_enhanced import OptimizationRequest
 from app.services.backtest_service import BacktestService
-from app.services.optimization_async_runner import (
+from app.services.optimization.async_runner import (
     _ensure_async_runner_loop,
     _run_async,
 )
-from app.services.optimization_execution_manager import (
+from app.services.optimization.execution_manager import (
     get_optimization_execution_manager,
 )
-from app.services.optimization_submission import (
+from app.services.optimization.submission import (
     generate_param_grid as _submission_generate_param_grid,
 )
-from app.services.optimization_submission import (
+from app.services.optimization.submission import (
     submit_optimization as _submission_submit_optimization,
 )
-from app.services.optimization_task_gateway import (
+from app.services.optimization.task_gateway import (
     cancel_optimization_task as _gateway_cancel_optimization_task,
 )
-from app.services.optimization_task_gateway import (
+from app.services.optimization.task_gateway import (
     is_optimization_cancelled as _gateway_is_optimization_cancelled,
 )
-from app.services.optimization_task_gateway import (
+from app.services.optimization.task_gateway import (
     load_optimization_task_state as _gateway_load_optimization_task_state,
 )
-from app.services.optimization_task_gateway import (
+from app.services.optimization.task_gateway import (
     persist_optimization_task as _gateway_persist_optimization_task,
 )
-from app.services.optimization_task_state import (
+from app.services.optimization.task_state import (
     build_initial_runtime_task,
     build_progress_response,
     build_results_response,
@@ -59,16 +59,16 @@ from app.services.optimization_task_state import (
     set_runtime_task,
     update_runtime_task,
 )
-from app.services.optimization_thread_runner import (
+from app.services.optimization.thread_runner import (
     run_optimization_thread as _thread_runner_run_optimization_thread,
 )
-from app.services.optimization_trial_runner import (
+from app.services.optimization.trial_runner import (
     parse_trial_logs as _trial_runner_parse_trial_logs,
 )
-from app.services.optimization_trial_runner import (
+from app.services.optimization.trial_runner import (
     run_single_trial as _trial_runner_run_single_trial,
 )
-from app.services.optimization_trial_runner import safe_float as _trial_runner_safe_float
+from app.services.optimization.trial_runner import safe_float as _trial_runner_safe_float
 
 logger = logging.getLogger(__name__)
 

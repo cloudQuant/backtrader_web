@@ -1,11 +1,16 @@
+import json
 import re
 import time
 from datetime import datetime, timedelta
 
 import pandas as pd
+import requests
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+
+JIN10_SHFE_WEEKLY_STOCK_ALL_URL = "https://cdn.jin10.com/dc/reports/dc_shfe_weekly_stock_all.js"
+PREFER_LOCAL_SCRIPT = True
 
 
 class FuturesStockWeeklyShfe(AkshareToMySql):
@@ -13,7 +18,7 @@ class FuturesStockWeeklyShfe(AkshareToMySql):
         super().__init__(db_config, logger)
         self.table_name = "FUTURES_STOCK_WEEKLY_SHFE"
         self.create_table_sql = r"""
-                                CREATE TABLE `FUTURES_STOCK_WEEKLY_SHFE` (
+                                CREATE TABLE IF NOT EXISTS `FUTURES_STOCK_WEEKLY_SHFE` (
                                       `R_ID` VARCHAR(64) NOT NULL COMMENT '主键ID',
                                       `REFERENCE_CODE` VARCHAR(50) DEFAULT 'SHFE_WEEKLY_STOCK' COMMENT '参考编码',
                                       `REFERENCE_NAME` VARCHAR(100) DEFAULT '上海期货交易所库存周报' COMMENT '参考名称',
@@ -32,7 +37,7 @@ class FuturesStockWeeklyShfe(AkshareToMySql):
                                       `UPDATEDATE` DATETIME COMMENT '更新时间',
                                       `UPDATEUSER` VARCHAR(50) DEFAULT 'system' COMMENT '更新人',
                                       PRIMARY KEY (`R_ID`),
-                                      -- UNIQUE KEY `IDX_SHFE_WEEKLY_STOCK_UNIQUE` (`PRODUCT_NAME`, `REPORT_DATE`),
+                                      UNIQUE KEY `IDX_SHFE_WEEKLY_STOCK_UNIQUE` (`PRODUCT_NAME`, `REPORT_DATE`),
                                       KEY `IDX_SHFE_WEEKLY_STOCK_DATE` (`REPORT_DATE`),
                                       KEY `IDX_SHFE_WEEKLY_STOCK_PRODUCT` (`PRODUCT_NAME`),
                                       KEY `IDX_SHFE_WEEKLY_STOCK_CODE` (`PRODUCT_CODE`)
@@ -40,16 +45,102 @@ class FuturesStockWeeklyShfe(AkshareToMySql):
 
                                 """
 
-    def run(self, start_date=None, end_date=None):
+    def _ensure_unique_index(self):
+        rows = self.execute_sql(
+            "SHOW INDEX FROM `FUTURES_STOCK_WEEKLY_SHFE` "
+            "WHERE Key_name = 'IDX_SHFE_WEEKLY_STOCK_UNIQUE'",
+            fetch_all=True,
+        )
+        if rows:
+            return
+        self.execute_sql(
+            "ALTER TABLE `FUTURES_STOCK_WEEKLY_SHFE` "
+            "ADD UNIQUE KEY `IDX_SHFE_WEEKLY_STOCK_UNIQUE` (`PRODUCT_NAME`, `REPORT_DATE`)"
+        )
+
+    @staticmethod
+    def _coerce_stock_value(value):
+        if isinstance(value, list):
+            value = value[0] if value else None
+        return pd.to_numeric(value, errors="coerce")
+
+    def _fetch_jin10_weekly_stock_all(self, product_mapping: dict[str, dict[str, str]]):
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://datacenter.jin10.com/reportType/dc_shfe_weekly_stock",
+        }
+        response = requests.get(JIN10_SHFE_WEEKLY_STOCK_ALL_URL, headers=headers, timeout=30)
+        response.raise_for_status()
+        match = re.search(r"var\s+dataCenter_data\s*=\s*(\{.*\})\s*;?\s*$", response.text, re.S)
+        if not match:
+            self.logger.warning("无法解析金十上期所库存周报全量 JS")
+            return pd.DataFrame()
+        data_json = json.loads(match.group(1))
+        records = sorted(data_json.get("list") or [], key=lambda item: item.get("date") or "")
+        rows = []
+        previous_datas = {}
+        for record in records:
+            date_raw = str(record.get("date") or "")
+            report_date = pd.to_datetime(date_raw, format="%Y%m%d", errors="coerce")
+            if pd.isna(report_date):
+                continue
+            current_datas = record.get("datas") or {}
+            for product_name, raw_value in current_datas.items():
+                current_stock = self._coerce_stock_value(raw_value)
+                if pd.isna(current_stock):
+                    continue
+                previous_stock = self._coerce_stock_value(previous_datas.get(product_name, [0]))
+                if pd.isna(previous_stock):
+                    previous_stock = 0
+                change_amount = current_stock - previous_stock
+                change_percent = change_amount / previous_stock if previous_stock else 0
+                product_meta = product_mapping.get(product_name, {})
+                rows.append(
+                    {
+                        "R_ID": self.get_uuid(),
+                        "REFERENCE_CODE": "SHFE_WEEKLY_STOCK",
+                        "REFERENCE_NAME": "上海期货交易所库存周报",
+                        "PRODUCT_NAME": product_name,
+                        "PRODUCT_CODE": product_meta.get("code"),
+                        "REPORT_DATE": report_date.date(),
+                        "CURRENT_WEEK_STOCK": float(current_stock),
+                        "PREVIOUS_WEEK_STOCK": float(previous_stock),
+                        "CHANGE_AMOUNT": float(change_amount),
+                        "CHANGE_PERCENT": float(change_percent),
+                        "UNIT": product_meta.get("unit"),
+                        "CURRENCY": "CNY",
+                        "DATA_SOURCE": "金十数据",
+                        "CREATEDATE": self.get_current_datetime(),
+                        "CREATEUSER": "system",
+                        "UPDATEDATE": self.get_current_datetime(),
+                        "UPDATEUSER": "system",
+                    }
+                )
+            previous_datas = current_datas
+        return pd.DataFrame(rows)
+
+    def run(
+        self,
+        start_date=None,
+        end_date=None,
+        sleep_seconds=0.5,
+        lookback_days=None,
+        max_reports=None,
+    ):
         """
         更新上海期货交易所库存周报数据。
 
         :param start_date: 开始日期，格式为'YYYY-MM-DD'，如果为None则从数据库最新日期或最早可用日期开始
         :param end_date: 结束日期，格式为'YYYY-MM-DD'，如果为None则为当前日期前一天
+        :param sleep_seconds: 请求间隔秒数
         """
         # 如果当前表不存在，创建一个新的表
         if not self.table_exists(self.table_name):
             self.create_table(self.create_table_sql)
+        self._ensure_unique_index()
 
         self.logger.info("正在获取上海期货交易所库存周报数据")
         table_name = "FUTURES_STOCK_WEEKLY_SHFE"
@@ -73,27 +164,36 @@ class FuturesStockWeeklyShfe(AkshareToMySql):
             "沥青仓库": {"code": "BU", "unit": "吨"},
             "天然橡胶": {"code": "RU", "unit": "吨"},
             "中质含硫原油(桶)": {"code": "SC", "unit": "桶"},
+            "中质含硫原油": {"code": "SC", "unit": "桶"},
             "20号胶": {"code": "NR", "unit": "吨"},
+            "白银": {"code": "AG", "unit": "千克"},
         }
 
         try:
+            lookback_days = int(lookback_days) if lookback_days is not None else None
+            max_reports = int(max_reports) if max_reports is not None else None
+            sleep_seconds = float(sleep_seconds or 0)
             # 1. Date Handling
             if end_date is None:
-                end_date = self.get_previous_date()
+                end_date = self.get_current_date()
 
             if start_date is None:
                 latest_date_in_db = self.get_latest_date(table_name, "REPORT_DATE")
                 if latest_date_in_db:
-                    start_date = (
-                        datetime.strptime(latest_date_in_db, "%Y-%m-%d") + timedelta(days=1)
-                    ).strftime("%Y-%m-%d")
+                    start_date = latest_date_in_db
                     self.logger.info(f"最新数据日期: {latest_date_in_db}，从 {start_date} 开始更新")
                 else:
-                    start_date = "2016-05-06"  # Adjust as per actual earliest data available
+                    start_date = "2014-05-23"
                     self.logger.info(f"无历史数据，从 {start_date} 开始获取")
 
             start_date_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
             end_date_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+            if lookback_days is not None:
+                lookback_start = end_date_dt - timedelta(days=lookback_days)
+                if start_date_dt < lookback_start:
+                    start_date_dt = lookback_start
+                    start_date = start_date_dt.strftime("%Y-%m-%d")
+                    self.logger.info(f"限制库存周报更新为最近 {lookback_days} 天")
 
             if start_date_dt > end_date_dt:
                 self.logger.info(
@@ -101,143 +201,48 @@ class FuturesStockWeeklyShfe(AkshareToMySql):
                 )
                 return
 
-            trading_days = self.get_trading_day_list(
-                start_date_dt.strftime("%Y-%m-%d"), end_date_dt.strftime("%Y-%m-%d")
+            df = self._fetch_jin10_weekly_stock_all(product_mapping)
+            if df.empty:
+                self.logger.warning("未获取到上海期货交易所库存周报全量数据")
+                return pd.DataFrame()
+
+            mask = (pd.to_datetime(df["REPORT_DATE"]).dt.date >= start_date_dt) & (
+                pd.to_datetime(df["REPORT_DATE"]).dt.date <= end_date_dt
             )
+            df = df.loc[mask].copy()
+            if max_reports is not None and not df.empty:
+                report_dates = sorted(df["REPORT_DATE"].drop_duplicates().tolist())
+                keep_dates = set(report_dates[-max_reports:])
+                df = df[df["REPORT_DATE"].isin(keep_dates)].copy()
+                self.logger.info(f"限制库存周报更新为 {max_reports} 个报告日")
 
-            report_dates = []
-            if trading_days:
-                trading_days_dt = [datetime.strptime(d, "%Y-%m-%d").date() for d in trading_days]
-                temp_df = pd.DataFrame({"date": trading_days_dt})
-                temp_df["week_start"] = temp_df["date"].apply(
-                    lambda x: x - timedelta(days=x.weekday())
-                )
-                weekly_last_trading_days = temp_df.groupby("week_start")["date"].max().tolist()
-                report_dates = [d.strftime("%Y-%m-%d") for d in weekly_last_trading_days]
-                report_dates = [
-                    d
-                    for d in report_dates
-                    if start_date_dt <= datetime.strptime(d, "%Y-%m-%d").date() <= end_date_dt
-                ]
-
-            if not report_dates:
+            if df.empty:
                 self.logger.info("在指定范围内没有需要更新的周报日期")
-                return
+                return pd.DataFrame()
 
-            self.logger.info(
-                f"准备更新从 {report_dates[0]} 到 {report_dates[-1]} 的库存周报数据，共 {len(report_dates)} 个报告日"
+            self.save_data(
+                df,
+                table_name,
+                on_duplicate_update=True,
+                unique_keys=["PRODUCT_NAME", "REPORT_DATE"],
             )
-
-            all_dfs = []
-            failed_dates = []
-
-            for date_str in report_dates:
-                try:
-                    self.logger.info(f"正在获取 {date_str} 的上海期货交易所库存周报数据")
-
-                    # df = ak.futures_stock_shfe_js(date=date_str.replace('-', ''))
-                    df = self.fetch_ak_data("futures_stock_shfe_js", date_str.replace("-", ""))
-                    time.sleep(2)  # Respectful delay
-
-                    if df is None or df.empty:
-                        self.logger.warning(f"未获取到 {date_str} 的库存周报数据")
-                        continue
-
-                    stock_cols = [col for col in df.columns if "期货总量" in col]
-                    if len(stock_cols) != 2:
-                        self.logger.warning(
-                            f"无法识别 {date_str} 的库存周报列名，跳过。列: {df.columns}"
-                        )
-                        continue
-
-                    # Extract dates from column names to correctly identify current and previous
-                    date_pattern = re.compile(r"(\d{4}-\d{2}-\d{2})")
-                    col_dates = {col: date_pattern.search(col) for col in stock_cols}
-
-                    valid_cols = {col: match.group(1) for col, match in col_dates.items() if match}
-
-                    if len(valid_cols) != 2:
-                        self.logger.warning(f"无法从列名中解析日期: {stock_cols}")
-                        continue
-
-                    sorted_cols = sorted(
-                        valid_cols.items(),
-                        key=lambda item: datetime.strptime(item[1], "%Y-%m-%d"),
-                        reverse=True,
-                    )
-
-                    current_week_col = sorted_cols[0][0]
-                    previous_week_col = sorted_cols[1][0]
-
-                    df.rename(
-                        columns={
-                            "商品": "PRODUCT_NAME",
-                            current_week_col: "CURRENT_WEEK_STOCK",
-                            previous_week_col: "PREVIOUS_WEEK_STOCK",
-                            "增减": "CHANGE_AMOUNT",
-                            "增减幅度": "CHANGE_PERCENT",
-                        },
-                        inplace=True,
-                    )
-
-                    df["R_ID"] = [self.get_uuid() for _ in range(len(df))]
-                    df["REFERENCE_CODE"] = "SHFE_WEEKLY_STOCK"
-                    df["REFERENCE_NAME"] = "上海期货交易所库存周报"
-                    df["REPORT_DATE"] = date_str
-                    df["CURRENCY"] = "CNY"
-                    df["DATA_SOURCE"] = "金十数据"
-
-                    df["CREATEDATE"] = self.get_current_datetime()
-                    df["CREATEUSER"] = "system"
-                    df["UPDATEDATE"] = self.get_current_datetime()
-                    df["UPDATEUSER"] = "system"
-
-                    df["PRODUCT_CODE"] = df["PRODUCT_NAME"].apply(
-                        lambda x: product_mapping.get(x, {}).get("code")
-                    )
-                    df["UNIT"] = df["PRODUCT_NAME"].apply(
-                        lambda x: product_mapping.get(x, {}).get("unit")
-                    )
-
-                    numeric_cols = [
-                        "CURRENT_WEEK_STOCK",
-                        "PREVIOUS_WEEK_STOCK",
-                        "CHANGE_AMOUNT",
-                        "CHANGE_PERCENT",
-                    ]
-                    for col in numeric_cols:
-                        if col in df.columns:
-                            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
-
-                    # Change percentage to decimal
-                    if "CHANGE_PERCENT" in df.columns:
-                        df["CHANGE_PERCENT"] = df["CHANGE_PERCENT"] / 100
-
-                    self.save_data(
-                        df,
-                        table_name,
-                        on_duplicate_update=True,
-                        unique_keys=["PRODUCT_NAME", "REPORT_DATE"],
-                    )
-                    self.logger.info(f"成功保存 {date_str} 的库存周报数据，共 {len(df)} 条记录")
-                    all_dfs.append(df)
-
-                except Exception as e:
-                    self.logger.error(
-                        f"处理 {date_str} 库存周报数据时出错: {str(e)}", exc_info=True
-                    )
-                    failed_dates.append(date_str)
-                    continue
-
-            if failed_dates:
-                self.logger.warning(f"以下报告日期的数据处理失败: {', '.join(failed_dates)}")
+            self.logger.info(
+                "成功保存上海期货交易所库存周报数据，共 %s 条记录，日期范围 %s 至 %s",
+                len(df),
+                df["REPORT_DATE"].min(),
+                df["REPORT_DATE"].max(),
+            )
+            if sleep_seconds > 0:
+                time.sleep(float(sleep_seconds))
+            return df
 
         except Exception as e:
             self.logger.error(f"更新上海期货交易所库存周报数据失败: {str(e)}", exc_info=True)
+            return pd.DataFrame()
         finally:
             self.disconnect_db()
 
 
 if __name__ == "__main__":
     data_updater = FuturesStockWeeklyShfe()
-    # data_updater.run()
+    data_updater.run()

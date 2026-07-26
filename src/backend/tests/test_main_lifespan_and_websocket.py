@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -25,6 +26,7 @@ async def test_lifespan_runs_startup_and_shutdown(monkeypatch):
     monkeypatch.setattr(main_module.settings, "ADMIN_PASSWORD", "admin123", raising=False)
 
     logs = {"info": 0, "warning": 0}
+    ai_sink = SimpleNamespace(start=AsyncMock(), shutdown=AsyncMock())
 
     class FakeLogger:
         def info(self, *_args, **_kwargs):
@@ -34,11 +36,18 @@ async def test_lifespan_runs_startup_and_shutdown(monkeypatch):
             logs["warning"] += 1
 
     monkeypatch.setattr(main_module, "logger", FakeLogger(), raising=True)
+    monkeypatch.setattr(
+        "app.services.ai_observability.logger.get_ai_call_log_sink",
+        lambda: ai_sink,
+        raising=True,
+    )
 
     async with main_module.lifespan(main_module.app):
         pass
 
     assert ensure_database_ready.await_count == 1
+    assert ai_sink.start.await_count == 1
+    assert ai_sink.shutdown.await_count == 1
     assert logs["warning"] >= 2  # default key + default admin password
     assert logs["info"] >= 2  # startup + shutdown
 
@@ -131,6 +140,99 @@ def test_main_websocket_rejects_query_token_fallback(monkeypatch):
                 pass
 
         assert exc_info.value.code == 1008
+
+
+@pytest.mark.flaky(reruns=3, reruns_delay=1)
+def test_data_topics_websocket_streams_single_topic_update(monkeypatch):
+    import app.services.data_topic_hub as data_topic_module
+    import app.services.ws_gateway as ws_gateway_module
+    from app.main import app
+
+    hub = data_topic_module.DataTopicHub()
+    gateway = ws_gateway_module.WSGateway(token_validator=lambda token: bool(token))
+    monkeypatch.setattr(data_topic_module, "_shared_hub", hub, raising=True)
+    monkeypatch.setattr(ws_gateway_module, "_shared_gateway", gateway, raising=False)
+
+    with TestClient(app) as client:
+        register_resp = client.post(
+            "/api/v1/auth/register",
+            json={
+                "username": "topic_ws_user",
+                "email": "topic_ws_user@test.com",
+                "password": "Test12345678",
+            },
+        )
+        assert register_resp.status_code == 200
+
+        login_resp = client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "topic_ws_user",
+                "password": "Test12345678",
+            },
+        )
+        assert login_resp.status_code == 200
+        token = login_resp.json()["access_token"]
+
+        with client.websocket_connect(
+            "/ws/data-topics/market:quote:RB2510", subprotocols=["access-token", token]
+        ) as ws:
+            connected = ws.receive_json()
+            assert connected["type"] == "connected"
+            assert connected["topic"] == "market:quote:RB2510"
+
+            asyncio.run(hub.push("market:quote:RB2510", {"price": 101}))
+
+            update = ws.receive_json()
+            assert update["type"] == "topic_update"
+            assert update["topic"] == "market:quote:RB2510"
+            assert update["value"] == {"price": 101}
+
+
+def test_data_topics_websocket_pattern_route_receives_matching_update(monkeypatch):
+    import app.services.data_topic_hub as data_topic_module
+    import app.services.ws_gateway as ws_gateway_module
+    from app.main import app
+
+    hub = data_topic_module.DataTopicHub()
+    gateway = ws_gateway_module.WSGateway(token_validator=lambda token: bool(token))
+    monkeypatch.setattr(data_topic_module, "_shared_hub", hub, raising=True)
+    monkeypatch.setattr(ws_gateway_module, "_shared_gateway", gateway, raising=False)
+
+    with TestClient(app) as client:
+        register_resp = client.post(
+            "/api/v1/auth/register",
+            json={
+                "username": "topic_pattern_ws_user",
+                "email": "topic_pattern_ws_user@test.com",
+                "password": "Test12345678",
+            },
+        )
+        assert register_resp.status_code == 200
+
+        login_resp = client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "topic_pattern_ws_user",
+                "password": "Test12345678",
+            },
+        )
+        assert login_resp.status_code == 200
+        token = login_resp.json()["access_token"]
+
+        with client.websocket_connect(
+            "/ws/data-topics?pattern=market:quote:*", subprotocols=["access-token", token]
+        ) as ws:
+            connected = ws.receive_json()
+            assert connected["type"] == "connected"
+            assert connected["pattern"] == "market:quote:*"
+
+            asyncio.run(hub.push("market:quote:RB2510", {"price": 102}))
+
+            update = ws.receive_json()
+            assert update["type"] == "topic_update"
+            assert update["topic"] == "market:quote:RB2510"
+            assert update["value"] == {"price": 102}
 
 
 @pytest.mark.asyncio

@@ -1,104 +1,22 @@
 # 参数优化
 
-## 概述
+参数优化用于比较预先定义的策略参数组合，而不是寻找可以直接上线的“最佳数字”。它应当建立在可复现的数据和回测配置之上，并与样本外和稳健性检查结合使用。
 
-使用各种优化算法为您的策略寻找最优参数。
+## 使用原则
 
-## 支持的方法
+1. 先固定策略版本、标的、周期、数据范围、资金和成本。
+2. 只为具备业务含义的参数设置范围与步长，避免无边界搜索。
+3. 选择评价目标时同时看收益、回撤、交易次数和稳定性，不只追求最高夏普或收益。
+4. 在未参与搜索的时间区间复验候选组合，并记录失败样本。
+5. 将参数、结果和选择理由保存在研究工作区。
 
-### 网格搜索
+## 常见风险
 
-系统地探索定义范围内的所有参数组合。
+| 风险 | 缓解方式 |
+| --- | --- |
+| 过拟合 | 控制搜索空间，使用样本外、滚动窗口和稳健性验证。 |
+| 低交易次数 | 核对订单生命周期、数据覆盖和最小交易数，不以偶然样本决策。 |
+| 不可复现 | 固定策略版本、数据来源、日期、成本与随机设置。 |
+| 指标误读 | 同时查看权益曲线、回撤、交易统计和风险约束。 |
 
-```json
-{
-  "method": "grid",
-  "parameters": {
-    "fast_period": {"start": 5, "end": 20, "step": 5},
-    "slow_period": {"start": 20, "end": 50, "step": 5}
-  }
-}
-```
-
-### 贝叶斯优化
-
-使用概率模型进行智能搜索（推荐用于大参数空间）。
-
-```json
-{
-  "method": "bayesian",
-  "parameters": {
-    "fast_period": {"min": 5, "max": 50},
-    "slow_period": {"min": 20, "max": 100}
-  },
-  "n_trials": 100
-}
-```
-
-## API 端点
-
-### 提交优化任务
-
-```http
-POST /api/v1/optimization/submit
-Content-Type: application/json
-
-{
-  "strategy_id": 1,
-  "symbol": "000001.SZ",
-  "start_date": "2024-01-01",
-  "end_date": "2024-12-31",
-  "optimization_method": "grid",
-  "parameters": {
-    "fast_period": {"start": 5, "end": 20, "step": 5},
-    "slow_period": {"start": 20, "end": 50, "step": 5}
-  },
-  "objective": "sharpe_ratio"
-}
-```
-
-### 列出任务
-
-```http
-GET /api/v1/optimization/tasks?page=1&page_size=20
-```
-
-### 获取任务结果
-
-```http
-GET /api/v1/optimization/tasks/{id}
-```
-
-### 取消任务
-
-```http
-POST /api/v1/optimization/tasks/{id}/cancel
-```
-
-## 优化目标
-
-| 目标 | 说明 |
-|------|------|
-| `total_return` | 总收益率 |
-| `sharpe_ratio` | 夏普比率 |
-| `max_drawdown` | 最小化最大回撤 |
-| `calmar_ratio` | 卡玛比率 |
-| `sortino_ratio` | 索提诺比率 |
-
-## 结果分析
-
-### 参数热力图 (2D)
-
-使用 2D 热力图可视化参数敏感性。
-
-### 参数曲面图 (3D)
-
-参数组合的交互式 3D 可视化。
-
-### 最优参数
-
-根据优化目标自动选择。
-
-## ⚠️ 警告
-
-> **废弃说明**：旧版端点 `/api/v1/backtests/optimization/grid` 和 `/api/v1/backtests/optimization/bayesian` 已废弃。请改用 `/api/v1/optimization/submit`。
+优化 API 位于 `/api/v1/optimization`；请求模型和当前可用算法以 OpenAPI 为准。有关研究结果的基础阅读见[回测与验证](./backtesting.md)。

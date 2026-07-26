@@ -12,3 +12,33 @@ declare module 'element-plus/dist/locale/en.mjs' {
   const locale: Language
   export default locale
 }
+
+declare module 'element-plus/dist/locale/ja.mjs' {
+  import type { Language } from 'element-plus/es/locale'
+  const locale: Language
+  export default locale
+}
+
+declare module 'element-plus/dist/locale/de.mjs' {
+  import type { Language } from 'element-plus/es/locale'
+  const locale: Language
+  export default locale
+}
+
+declare module 'element-plus/dist/locale/fr.mjs' {
+  import type { Language } from 'element-plus/es/locale'
+  const locale: Language
+  export default locale
+}
+
+declare module 'element-plus/dist/locale/it.mjs' {
+  import type { Language } from 'element-plus/es/locale'
+  const locale: Language
+  export default locale
+}
+
+declare module 'element-plus/dist/locale/ru.mjs' {
+  import type { Language } from 'element-plus/es/locale'
+  const locale: Language
+  export default locale
+}

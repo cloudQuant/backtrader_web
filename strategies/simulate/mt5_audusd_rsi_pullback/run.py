@@ -49,18 +49,122 @@ def build_mt5_store_config(config: dict) -> dict:
     """从 config.yaml 合并 MT5 连接和 gateway 配置。"""
     mt5 = dict(config.get("mt5", {}) or {})
     gateway = dict(config.get("gateway", {}) or {})
+    login = str(
+        os.environ.get("MT5_LOGIN")
+        or os.environ.get("MT5_ACCOUNT")
+        or gateway.get("login")
+        or mt5.get("login")
+        or ""
+    ).strip()
     return {
         "exchange_type": gateway.get("exchange_type", "MT5"),
         "asset_type": gateway.get("asset_type", "OTC"),
-        "account_id": mt5.get("login", "default"),
-        "login": mt5.get("login", ""),
-        "password": mt5.get("password", ""),
-        "ws_uri": mt5.get("ws_uri", ""),
-        "symbol_suffix": mt5.get("symbol_suffix", ""),
+        "account_id": os.environ.get("MT5_ACCOUNT_ID") or os.environ.get("MT5_ACCOUNT") or login or "default",
+        "login": login,
+        "password": str(os.environ.get("MT5_PASSWORD") or os.environ.get("MT5_PASS") or mt5.get("password", "")).strip(),
+        "ws_uri": os.environ.get("MT5_WS_URI") or mt5.get("ws_uri", ""),
+        "symbol_suffix": os.environ.get("MT5_SYMBOL_SUFFIX") or mt5.get("symbol_suffix", ""),
         "gateway_start_local_runtime": True,
         "gateway_startup_timeout_sec": 120,
         "gateway_command_timeout_sec": 30,
     }
+
+
+def _safe_bool(value, default=False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def _safe_float(value, default=0.0) -> float:
+    try:
+        return float(value) if value is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _resolve_feed_qcheck(config: dict) -> float:
+    live = dict(config.get("live") or {})
+    data = dict(config.get("data") or {})
+    gateway = dict(config.get("gateway") or {})
+    value = (
+        live.get("qcheck")
+        or live.get("qcheck_seconds")
+        or data.get("qcheck")
+        or gateway.get("qcheck")
+    )
+    return max(_safe_float(value, 0.5), 0.05)
+
+
+def _resolve_log_ticks(config: dict) -> bool:
+    live = dict(config.get("live") or {})
+    simulate = dict(config.get("simulate") or {})
+    logging_cfg = dict(config.get("logging") or {})
+    value = (
+        live.get("log_ticks")
+        if live.get("log_ticks") is not None
+        else (
+            simulate.get("log_ticks")
+            if simulate.get("log_ticks") is not None
+            else logging_cfg.get("log_ticks")
+        )
+    )
+    return _safe_bool(value, default=False)
+
+
+def _resolve_trade_logger_option(config: dict, key: str, default: bool) -> bool:
+    live = dict(config.get("live") or {})
+    simulate = dict(config.get("simulate") or {})
+    logging_cfg = dict(config.get("logging") or {})
+    for section in (live, simulate, logging_cfg):
+        if key in section:
+            return _safe_bool(section.get(key), default=default)
+    return default
+
+
+def _resolve_dispatch_ticks(config: dict) -> bool:
+    live = dict(config.get("live") or {})
+    simulate = dict(config.get("simulate") or {})
+    gateway = dict(config.get("gateway") or {})
+    for section in (live, simulate, gateway):
+        for key in ("dispatch_ticks", "notify_ticks"):
+            if key in section:
+                return _safe_bool(section.get(key), default=False)
+    return False
+
+
+def _resolve_exactbars(config: dict):
+    live = dict(config.get("live") or {})
+    simulate = dict(config.get("simulate") or {})
+    cerebro_cfg = dict(config.get("cerebro") or {})
+    for section in (live, simulate, cerebro_cfg):
+        if "exactbars" not in section:
+            continue
+        value = section.get("exactbars")
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"true", "yes", "on"}:
+            return True
+        if text in {"false", "no", "off"}:
+            return False
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return _safe_bool(value, default=True)
+    return True
+
+
+def _resolve_stdstats(config: dict) -> bool:
+    live = dict(config.get("live") or {})
+    simulate = dict(config.get("simulate") or {})
+    cerebro_cfg = dict(config.get("cerebro") or {})
+    for section in (live, simulate, cerebro_cfg):
+        if "stdstats" in section:
+            return _safe_bool(section.get("stdstats"), default=False)
+    return False
 
 
 def run():
@@ -97,7 +201,7 @@ def run():
     store_cfg = build_mt5_store_config(config)
     if not store_cfg.get("login") or not store_cfg.get("password"):
         raise SystemExit(
-            "MT5 凭证不完整。请在 config.yaml 中的 mt5 节点配置 login 和 password。"
+            "MT5 凭证不完整。请设置 MT5_LOGIN/MT5_PASSWORD，或在 config.yaml 的 mt5 节点配置 login 和 password。"
         )
 
     print("=" * 60)
@@ -117,12 +221,18 @@ def run():
             timeframe=bt_timeframe,
             compression=compression,
             backfill_start=True,
+            qcheck=_resolve_feed_qcheck(config),
+            dispatch_ticks=_resolve_dispatch_ticks(config),
         )
 
         log_dir = BASE_DIR / "logs"
         log_dir.mkdir(exist_ok=True)
 
-        cerebro = bt.Cerebro(quicknotify=True)
+        cerebro = bt.Cerebro(
+            quicknotify=True,
+            exactbars=_resolve_exactbars(config),
+            stdstats=_resolve_stdstats(config),
+        )
         cerebro.broker.setcash(sim_cfg.get("initial_cash", 10000))
         cerebro.broker.setcommission(commission=sim_cfg.get("commission", 0.00007))
         cerebro.adddata(data, name=symbol)
@@ -133,9 +243,10 @@ def run():
             log_format="json",
             log_orders=True,
             log_trades=True,
-            log_positions=True,
-            log_indicators=True,
-            log_signals=True,
+            log_positions=_resolve_trade_logger_option(config, "log_positions", True),
+            log_indicators=_resolve_trade_logger_option(config, "log_indicators", False),
+            log_signals=_resolve_trade_logger_option(config, "log_signals", True),
+            log_ticks=_resolve_log_ticks(config),
         )
 
         print(f"  启动模拟交易 (timeout={session_timeout}s)...")

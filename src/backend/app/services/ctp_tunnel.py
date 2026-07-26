@@ -14,11 +14,20 @@ correctly forwards the CTP binary protocol.
 
 from __future__ import annotations
 
+import base64
 import logging
+import os
 import selectors
+import shutil
 import socket
 import subprocess
+import sys
 import threading
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+from urllib.parse import unquote, urlparse
+from urllib.request import getproxies
 
 logger = logging.getLogger(__name__)
 
@@ -26,31 +35,137 @@ _tunnels: dict[str, _CTPTunnel] = {}
 _lock = threading.Lock()
 
 BUFFER_SIZE = 65536
+_DISABLED_VALUES = {"0", "false", "no", "off", "disabled"}
+_PROXY_ENV_KEYS = (
+    "BT_CTP_TUNNEL_PROXY",
+    "CTP_TUNNEL_PROXY",
+    "CTP_HTTP_PROXY",
+    "HTTP_PROXY",
+    "http_proxy",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+)
+
+
+@dataclass(frozen=True)
+class _ProxyEndpoint:
+    host: str
+    port: int
+    authorization: str = ""
+    source: str = ""
+
+
+def _is_disabled(value: str | None) -> bool:
+    return str(value or "").strip().lower() in _DISABLED_VALUES
+
+
+def _proxy_from_url(value: str | None, source: str) -> _ProxyEndpoint | None:
+    raw = str(value or "").strip()
+    if not raw or _is_disabled(raw):
+        return None
+    if "://" not in raw:
+        raw = f"http://{raw}"
+    parsed = urlparse(raw)
+    scheme = parsed.scheme.lower()
+    if scheme != "http":
+        logger.debug("Ignoring non-HTTP CTP tunnel proxy from %s: %s", source, raw)
+        return None
+    host = parsed.hostname
+    port = parsed.port or 80
+    if not host or port <= 0:
+        return None
+    authorization = ""
+    if parsed.username is not None:
+        username = unquote(parsed.username)
+        password = unquote(parsed.password or "")
+        token = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
+        authorization = f"Basic {token}"
+    return _ProxyEndpoint(host=host, port=port, authorization=authorization, source=source)
+
+
+def _proxy_from_scutil_output(output: str) -> _ProxyEndpoint | None:
+    host = port = enabled = None
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("HTTPProxy"):
+            host = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("HTTPPort"):
+            port = int(stripped.split(":", 1)[1].strip())
+        elif stripped.startswith("HTTPEnable"):
+            enabled = stripped.split(":", 1)[1].strip() == "1"
+    if enabled and host and port:
+        return _ProxyEndpoint(host=host, port=port, source="scutil")
+    return None
+
+
+def _get_http_proxy_endpoint(
+    *,
+    environ: dict[str, str] | None = None,
+    system_getproxies: Callable[[], dict[str, str]] | None = None,
+    run_scutil: Callable[..., Any] | None = subprocess.run,
+) -> _ProxyEndpoint | None:
+    """Resolve the HTTP proxy used for CTP CONNECT tunnels."""
+    env = os.environ if environ is None else environ
+    if _is_disabled(env.get("CTP_TUNNEL_ENABLED")) or _is_disabled(
+        env.get("BT_CTP_TUNNEL_ENABLED")
+    ):
+        return None
+
+    for key in _PROXY_ENV_KEYS:
+        endpoint = _proxy_from_url(env.get(key), f"env:{key}")
+        if endpoint is not None:
+            return endpoint
+
+    proxy_getter = getproxies if system_getproxies is None else system_getproxies
+    try:
+        proxies = proxy_getter() or {}
+    except Exception:
+        proxies = {}
+    for key in ("http", "https"):
+        endpoint = _proxy_from_url(proxies.get(key), f"system:{key}")
+        if endpoint is not None:
+            return endpoint
+
+    should_probe_scutil = run_scutil is not None and (
+        run_scutil is not subprocess.run
+        or (sys.platform == "darwin" and shutil.which("scutil") is not None)
+    )
+    if should_probe_scutil:
+        try:
+            result = run_scutil(
+                ["scutil", "--proxy"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            endpoint = _proxy_from_scutil_output(result.stdout)
+            if endpoint is not None:
+                return endpoint
+        except Exception:
+            logger.debug("Failed to parse HTTP proxy config from scutil output", exc_info=True)
+    return None
 
 
 def _get_http_proxy() -> tuple[str, int] | tuple[None, None]:
-    """Get the system HTTP proxy host and port on macOS via scutil."""
-    try:
-        result = subprocess.run(
-            ["scutil", "--proxy"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        host = port = enabled = None
-        for line in result.stdout.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("HTTPProxy"):
-                host = stripped.split(":", 1)[1].strip()
-            elif stripped.startswith("HTTPPort"):
-                port = int(stripped.split(":", 1)[1].strip())
-            elif stripped.startswith("HTTPEnable"):
-                enabled = stripped.split(":", 1)[1].strip() == "1"
-        if enabled and host and port:
-            return host, port
-    except Exception:
-        pass
+    """Get the active HTTP proxy host and port for CTP tunneling."""
+    endpoint = _get_http_proxy_endpoint()
+    if endpoint is not None:
+        return endpoint.host, endpoint.port
     return None, None
+
+
+def _build_connect_request(target: str, proxy_authorization: str = "") -> bytes:
+    headers = [
+        f"CONNECT {target} HTTP/1.1",
+        f"Host: {target}",
+        "Proxy-Connection: Keep-Alive",
+        "Connection: Keep-Alive",
+    ]
+    if proxy_authorization:
+        headers.append(f"Proxy-Authorization: {proxy_authorization}")
+    return ("\r\n".join(headers) + "\r\n\r\n").encode("ascii")
 
 
 class _CTPTunnel:
@@ -62,12 +177,14 @@ class _CTPTunnel:
         remote_port: int,
         proxy_host: str,
         proxy_port: int,
+        proxy_authorization: str = "",
         local_port: int = 0,
     ):
         self.remote_host = remote_host
         self.remote_port = remote_port
         self.proxy_host = proxy_host
         self.proxy_port = proxy_port
+        self.proxy_authorization = proxy_authorization
         self._server_sock: socket.socket | None = None
         self._local_port = local_port
         self._thread: threading.Thread | None = None
@@ -110,7 +227,7 @@ class _CTPTunnel:
             try:
                 self._server_sock.close()
             except Exception:
-                pass
+                logger.debug("Failed to close CTP tunnel server socket", exc_info=True)
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("CTP tunnel stopped: port %d", self._local_port)
@@ -127,8 +244,7 @@ class _CTPTunnel:
         sock.connect((self.proxy_host, self.proxy_port))
 
         target = f"{self.remote_host}:{self.remote_port}"
-        connect_req = (f"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n").encode()
-        sock.sendall(connect_req)
+        sock.sendall(_build_connect_request(target, self.proxy_authorization))
 
         response = b""
         while b"\r\n\r\n" not in response:
@@ -208,25 +324,23 @@ class _CTPTunnel:
                 try:
                     sel.close()
                 except Exception:
-                    pass
+                    logger.debug("Failed to close CTP tunnel selector", exc_info=True)
             for s in (client_sock, remote_sock):
                 if s:
                     try:
                         s.close()
                     except Exception:
-                        pass
+                        logger.debug("Failed to close CTP tunnel socket", exc_info=True)
 
 
 def is_proxy_tunnel_needed() -> bool:
     """Check if a system HTTP proxy is active and CTP traffic needs tunneling."""
-    host, port = _get_http_proxy()
-    if not host or not port:
+    endpoint = _get_http_proxy_endpoint()
+    if endpoint is None:
         return False
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(2)
-        s.connect((host, port))
-        s.close()
+        with socket.create_connection((endpoint.host, endpoint.port), timeout=2):
+            pass
         return True
     except Exception:
         return False
@@ -238,16 +352,22 @@ def ensure_tunnel(remote_host: str, remote_port: int) -> int:
     Returns the local port to connect to.
     Raises ConnectionError if no proxy is available.
     """
-    proxy_host, proxy_port = _get_http_proxy()
-    if not proxy_host or not proxy_port:
+    proxy = _get_http_proxy_endpoint()
+    if proxy is None:
         raise ConnectionError("No system HTTP proxy configured")
 
-    key = f"{remote_host}:{remote_port}"
+    key = f"{remote_host}:{remote_port}|{proxy.host}:{proxy.port}|{proxy.authorization}"
     with _lock:
         if key in _tunnels and not _tunnels[key]._stop_event.is_set():
             return _tunnels[key].local_port
 
-        tunnel = _CTPTunnel(remote_host, remote_port, proxy_host, proxy_port)
+        tunnel = _CTPTunnel(
+            remote_host,
+            remote_port,
+            proxy.host,
+            proxy.port,
+            proxy_authorization=proxy.authorization,
+        )
         local_port = tunnel.start()
         _tunnels[key] = tunnel
         return local_port

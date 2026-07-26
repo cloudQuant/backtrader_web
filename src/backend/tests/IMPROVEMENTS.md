@@ -52,11 +52,14 @@ assert response.status_code == HTTP.UNAUTHORIZED  # 而不是 401
 
 ```python
 async def test_register_success(self, client: AsyncClient):
-    resp = await client.post("/api/v1/auth/register", json={
-        "username": "newuser",
-        "email": "newuser@example.com",
-        "password": "password123",
-    })
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "newuser",
+            "email": "newuser@example.com",
+            "password": "password123",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["username"] == "newuser"
@@ -69,12 +72,12 @@ async def test_register_success(self, client: AsyncClient):
     user_data = UserFactory.create()
     resp = await client.post("/api/v1/auth/register", json=user_data)
 
-    assert resp.status_code == HTTP.OK, \
-        f"Registration failed: {resp.text}"
+    assert resp.status_code == HTTP.OK, f"Registration failed: {resp.text}"
 
     data = resp.json()
-    assert data["username"] == user_data["username"], \
+    assert data["username"] == user_data["username"], (
         f"Username mismatch: expected {user_data['username']}, got {data.get('username')}"
+    )
 ```
 
 ### 为什么这很重要？
@@ -91,40 +94,63 @@ async def test_register_success(self, client: AsyncClient):
 
 ```python
 async def test_register_short_password(self, client: AsyncClient):
-    resp = await client.post("/api/v1/auth/register", json={
-        "username": "shortpw", "email": "short@test.com", "password": "123",
-    })
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "shortpw",
+            "email": "short@test.com",
+            "password": "123",
+        },
+    )
     assert resp.status_code == 422
+
 
 async def test_register_invalid_email(self, client: AsyncClient):
-    resp = await client.post("/api/v1/auth/register", json={
-        "username": "bademail", "email": "not-an-email", "password": "password123",
-    })
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "bademail",
+            "email": "not-an-email",
+            "password": "password123",
+        },
+    )
     assert resp.status_code == 422
 
+
 async def test_register_short_username(self, client: AsyncClient):
-    resp = await client.post("/api/v1/auth/register", json={
-        "username": "a", "email": "a@test.com", "password": "password123",
-    })
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "a",
+            "email": "a@test.com",
+            "password": "password123",
+        },
+    )
     assert resp.status_code == 422
 ```
 
 ### 改进后 - 单个参数化测试
 
 ```python
-@pytest.mark.parametrize("field,value,expected_in_error", [
-    ("password", "123", "password"),      # Too short
-    ("email", "not-an-email", "email"),   # Invalid format
-    ("username", "", "username"),         # Empty
-    ("username", "a", "username"),        # Too short
-])
-async def test_register_validation_errors(self, client: AsyncClient, field, value, expected_in_error):
+@pytest.mark.parametrize(
+    "field,value,expected_in_error",
+    [
+        ("password", "123", "password"),  # Too short
+        ("email", "not-an-email", "email"),  # Invalid format
+        ("username", "", "username"),  # Empty
+        ("username", "a", "username"),  # Too short
+    ],
+)
+async def test_register_validation_errors(
+    self, client: AsyncClient, field, value, expected_in_error
+):
     """Test various validation errors return 422."""
     user_data = UserFactory.create(**{field: value})
     resp = await client.post("/api/v1/auth/register", json=user_data)
 
-    assert resp.status_code == HTTP.UNPROCESSABLE_ENTITY, \
+    assert resp.status_code == HTTP.UNPROCESSABLE_ENTITY, (
         f"Expected 422 for invalid {field}, got {resp.status_code}: {resp.text}"
+    )
 
     detail = resp.json().get("detail", [])
     if isinstance(detail, list) and len(detail) > 0:
@@ -201,6 +227,7 @@ pytest tests/test_auth_improved.py -v
    async def test_login_performance(benchmark, client):
        async def login():
            return await client.post("/api/v1/auth/login", json={...})
+
        result = await benchmark(login)
        assert result.status_code == 200
    ```

@@ -23,7 +23,7 @@ class TestVersionControlServiceInitialization:
 
     def test_initialization(self):
         """Test initialization."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
         assert service.version_repo is not None
@@ -38,7 +38,7 @@ class TestGenerateCodeDiff:
 
     def test_generate_code_diff_identical(self):
         """Test diff for identical code."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
         code = "def test():\n    return 1\n"
@@ -50,7 +50,7 @@ class TestGenerateCodeDiff:
 
     def test_generate_code_diff_different(self):
         """Test diff for different code."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
         code1 = "def test():\n    return 1\n"
@@ -64,7 +64,7 @@ class TestGenerateCodeDiff:
 
     def test_generate_code_diff_with_lines(self):
         """Test diff for multi-line code."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
         code1 = "line1\nline2\nline3\n"
@@ -80,7 +80,7 @@ class TestGenerateParamsDiff:
 
     def test_generate_params_diff_identical(self):
         """Test diff for identical parameters."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
         params1 = {"a": 1, "b": 2}
@@ -100,7 +100,7 @@ class TestGenerateParamsDiff:
 
     def test_generate_params_diff_added(self):
         """Test adding parameters."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
         params1 = {"a": 1}
@@ -114,7 +114,7 @@ class TestGenerateParamsDiff:
 
     def test_generate_params_diff_removed(self):
         """Test removing parameters."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
         params1 = {"a": 1, "b": 2}
@@ -128,7 +128,7 @@ class TestGenerateParamsDiff:
 
     def test_generate_params_diff_modified(self):
         """Test modifying parameters."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
         params1 = {"a": 1, "b": 2}
@@ -143,7 +143,7 @@ class TestGenerateParamsDiff:
 
     def test_generate_params_diff_complex(self):
         """Test complex parameter diff."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
         params1 = {"a": 1, "b": 2, "c": 3}
@@ -162,7 +162,7 @@ class TestToResponse:
 
     def test_to_response(self):
         """Test conversion to response."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -206,7 +206,7 @@ class TestGetVersion:
 
     async def test_get_version_success(self):
         """Test successful version retrieval."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -223,7 +223,7 @@ class TestGetVersion:
 
     async def test_get_version_not_found(self):
         """Test getting non-existent version."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -241,7 +241,7 @@ class TestSetVersionDefault:
 
     async def test_set_version_default_success(self):
         """Test successful default version set."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -262,7 +262,7 @@ class TestSetVersionDefault:
 
     async def test_set_version_default_not_found(self):
         """Test setting non-existent version as default."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -280,7 +280,7 @@ class TestActivateVersion:
 
     async def test_activate_version_success(self):
         """Test successful version activation."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -301,7 +301,7 @@ class TestActivateVersion:
 
     async def test_activate_version_not_found(self):
         """Test activating non-existent version."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -319,7 +319,7 @@ class TestUpdateVersion:
 
     async def test_update_version_success(self):
         """Test successful version update."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -341,7 +341,7 @@ class TestUpdateVersion:
         update_data.changelog = None
 
         # Mock ws_manager.send_to_task as async
-        with patch("app.services.strategy_version_service.ws_manager") as mock_ws:
+        with patch("app.services.strategy.version.ws_manager") as mock_ws:
             mock_ws.send_to_task = AsyncMock()
             result = await service.update_version("ver_123", "user_123", update_data)
 
@@ -349,7 +349,7 @@ class TestUpdateVersion:
 
     async def test_update_version_not_found(self):
         """Test updating non-existent version."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -374,7 +374,7 @@ class TestCompareVersions:
 
     async def test_compare_versions_success(self):
         """Test successful version comparison."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -407,7 +407,7 @@ class TestCompareVersions:
 
     async def test_compare_versions_not_found(self):
         """Test comparing non-existent versions."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -424,7 +424,7 @@ class TestGetNextVersionNumber:
 
     async def test_get_next_version_number_new_branch(self):
         """Test version number for new branch."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -437,7 +437,7 @@ class TestGetNextVersionNumber:
 
     async def test_get_next_version_number_existing_branch(self):
         """Test version number for existing branch."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -458,7 +458,7 @@ class TestGetOrCreateBranch:
 
     async def test_get_existing_branch(self):
         """Test getting existing branch."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -474,7 +474,7 @@ class TestGetOrCreateBranch:
 
     async def test_create_new_branch(self):
         """Test creating new branch."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -496,7 +496,7 @@ class TestRollbackVersion:
 
     async def test_rollback_version_success(self):
         """Test successful version rollback."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 
@@ -546,7 +546,7 @@ class TestRollbackVersion:
 
     async def test_rollback_version_not_found(self):
         """Test rollback to non-existent version."""
-        from app.services.strategy_version_service import VersionControlService
+        from app.services.strategy.version import VersionControlService
 
         service = VersionControlService()
 

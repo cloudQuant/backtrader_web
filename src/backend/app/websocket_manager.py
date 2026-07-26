@@ -156,6 +156,38 @@ class ConnectionManager:
         """
         return sum(len(conns) for conns in self.active_connections.values())
 
+    async def close_all(self, code: int = 1001, reason: str = "Going Away") -> int:
+        """Close all active WebSocket connections with the given close code.
+
+        Args:
+            code: WebSocket close status code (default 1001 Going Away).
+            reason: Human-readable close reason.
+
+        Returns:
+            The number of connections that were closed.
+        """
+        closed_count = 0
+        for task_id, connections in list(self.active_connections.items()):
+            for websocket, client_id in list(connections):
+                try:
+                    await websocket.close(code=code, reason=reason)
+                    closed_count += 1
+                except Exception:
+                    logger.warning(
+                        "Failed to send close frame to WebSocket: task_id=%s, client_id=%s",
+                        task_id,
+                        client_id,
+                    )
+                    closed_count += 1  # Count as closed even if send failed
+
+        # Clear all connections after closing
+        self.active_connections.clear()
+        self._closed_connections.clear()
+        logger.info(
+            "Closed %d WebSocket connections (code=%d, reason=%s)", closed_count, code, reason
+        )
+        return closed_count
+
 
 # Global connection manager instance
 manager = ConnectionManager()

@@ -26,7 +26,7 @@ class StockZhVoteBaidu(AkshareToMySql):
             `data_date` DATE COMMENT '数据日期',
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
             `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-        UNIQUE KEY uk_symbol_date (`symbol`, `data_date`),
+        INDEX idx_symbol_date (`symbol`, `data_date`),
         INDEX idx_data_date (`data_date`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Stock Zh Vote Baidu'
     """
@@ -50,6 +50,8 @@ class StockZhVoteBaidu(AkshareToMySql):
 
             # Process data if needed
             # Add data_date if not exists
+            if "symbol" not in df.columns and kwargs.get("symbol") is not None:
+                df["symbol"] = str(kwargs["symbol"])
             if "data_date" not in df.columns:
                 df["data_date"] = pd.Timestamp.now().date()
 

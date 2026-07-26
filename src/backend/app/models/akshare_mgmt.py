@@ -77,6 +77,11 @@ class ParameterType(str, enum.Enum):
     OPTION = "option"
 
 
+def _enum_values(enum_class: type[enum.Enum]) -> list[str]:
+    """Persist string enum values so ORM types match Alembic's lowercase labels."""
+    return [str(member.value) for member in enum_class]
+
+
 class DataScript(Base):
     """Metadata for akshare-backed data scripts."""
 
@@ -87,7 +92,11 @@ class DataScript(Base):
     script_name = Column(String(200), nullable=False)
     category = Column(String(50), nullable=False, index=True)
     sub_category = Column(String(50), nullable=True, index=True)
-    frequency = Column(Enum(ScriptFrequency), nullable=True, default=ScriptFrequency.DAILY)
+    frequency = Column(
+        Enum(ScriptFrequency, values_callable=_enum_values),
+        nullable=True,
+        default=ScriptFrequency.DAILY,
+    )
     description = Column(Text, nullable=True)
     source = Column(String(50), default="akshare", nullable=False)
     target_table = Column(String(100), nullable=True, index=True)
@@ -196,7 +205,11 @@ class InterfaceParameter(Base):
     interface_id = Column(Integer, ForeignKey("ak_data_interfaces.id"), nullable=False)
     name = Column(String(50), nullable=False)
     display_name = Column(String(100), nullable=False)
-    param_type = Column(Enum(ParameterType), default=ParameterType.STRING, nullable=False)
+    param_type = Column(
+        Enum(ParameterType, values_callable=_enum_values),
+        default=ParameterType.STRING,
+        nullable=False,
+    )
     description = Column(Text, nullable=True)
     default_value = Column(Text, nullable=True)
     required = Column(Boolean, default=False, nullable=False)
@@ -216,7 +229,11 @@ class ScheduledTask(Base):
     description = Column(Text, nullable=True)
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     script_id = Column(String(100), ForeignKey("ak_data_scripts.script_id"), nullable=False)
-    schedule_type = Column(Enum(ScheduleType), default=ScheduleType.DAILY, nullable=False)
+    schedule_type = Column(
+        Enum(ScheduleType, values_callable=_enum_values),
+        default=ScheduleType.DAILY,
+        nullable=False,
+    )
     schedule_expression = Column(String(100), nullable=False)
     parameters = Column(JSON, default=dict, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
@@ -251,7 +268,12 @@ class TaskExecution(Base):
     task_id = Column(Integer, ForeignKey("ak_scheduled_tasks.id"), nullable=True, index=True)
     script_id = Column(String(100), nullable=False, index=True)
     params = Column(JSON, nullable=True)
-    status = Column(Enum(TaskStatus), default=TaskStatus.PENDING, nullable=False, index=True)
+    status = Column(
+        Enum(TaskStatus, values_callable=_enum_values),
+        default=TaskStatus.PENDING,
+        nullable=False,
+        index=True,
+    )
     start_time = Column(DateTime, nullable=True)
     end_time = Column(DateTime, nullable=True)
     duration = Column(Float, nullable=True)
@@ -261,8 +283,15 @@ class TaskExecution(Base):
     rows_before = Column(Integer, nullable=True)
     rows_after = Column(Integer, nullable=True)
     retry_count = Column(Integer, default=0, nullable=False)
-    triggered_by = Column(Enum(TriggeredBy), default=TriggeredBy.SCHEDULER, nullable=False)
+    triggered_by = Column(
+        Enum(TriggeredBy, values_callable=_enum_values),
+        default=TriggeredBy.SCHEDULER,
+        nullable=False,
+    )
     operator_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    airflow_dag_id = Column(String(200), nullable=True, index=True)
+    airflow_run_id = Column(String(200), nullable=True, index=True)
+    airflow_task_id = Column(String(200), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
         DateTime,

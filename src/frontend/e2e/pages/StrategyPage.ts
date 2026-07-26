@@ -89,7 +89,7 @@ export class StrategyPage extends BasePage {
     await this.clickCreateStrategy();
     await this.fillStrategyForm(data);
     await this.clickSaveStrategy();
-    await this.waitForTimeout(1000);
+    await expect(this.page.locator(this.dialogTitle)).toBeHidden();
   }
 
   /**
@@ -111,8 +111,6 @@ export class StrategyPage extends BasePage {
    * 获取策略列表数量
    */
   async getStrategyCount(): Promise<number> {
-    // 等待策略卡片加载
-    await this.page.waitForTimeout(500);
     // 策略卡片在 el-card 内部
     const cards = this.page.locator('.el-card').filter({ hasText: /./ });
     return await cards.count();
@@ -139,6 +137,5 @@ export class StrategyPage extends BasePage {
    */
   async goToMyStrategies() {
     await this.page.click(this.myStrategiesTab);
-    await this.page.waitForTimeout(500);
   }
 }

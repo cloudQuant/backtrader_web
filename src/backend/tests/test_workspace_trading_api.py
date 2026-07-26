@@ -1,8 +1,10 @@
+import asyncio
 import json
 from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
 
 @pytest.mark.asyncio
@@ -14,11 +16,22 @@ async def test_workspace_list_supports_workspace_type_filter(
         "/api/v1/workspace/",
         headers=auth_headers,
         json={
-            "name": "研究工作区",
+            "name": "研究工作区-旧",
             "workspace_type": "research",
         },
     )
     assert research_response.status_code == 201
+
+    latest_research_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={
+            "name": "研究工作区-新",
+            "workspace_type": "research",
+            "settings": {"large_payload": "x" * 1024},
+        },
+    )
+    assert latest_research_response.status_code == 201
 
     trading_response = await client.post(
         "/api/v1/workspace/",
@@ -41,6 +54,130 @@ async def test_workspace_list_supports_workspace_type_filter(
     assert payload["total"] == 1
     assert payload["items"][0]["workspace_type"] == "trading"
     assert payload["items"][0]["name"] == "交易工作区"
+
+    research_list_response = await client.get(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        params={"workspace_type": "research"},
+    )
+    assert research_list_response.status_code == 200
+    research_payload = research_list_response.json()
+    assert research_payload["total"] == 2
+    assert [item["name"] for item in research_payload["items"]] == [
+        "研究工作区-新",
+        "研究工作区-旧",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_workspace_list_keeps_persisted_trading_status_local(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+):
+    """The overview must not initialize a broker just to recalculate a status."""
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "过期运行状态", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={"strategy_id": "simulate/gateway_dual_ma", "symbol": "IF2609"},
+    )
+    unit_id = unit_response.json()["id"]
+
+    async with async_session_maker() as session:
+        unit = await session.get(StrategyUnit, unit_id)
+        assert unit is not None
+        unit.run_status = "running"
+        unit.trading_instance_id = "stale-instance"
+        unit.trading_snapshot = {"instance_status": "running"}
+        await session.commit()
+
+    response = await client.get(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        params={"workspace_type": "trading"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["status"] == "running"
+    async with async_session_maker() as session:
+        refreshed = await session.get(StrategyUnit, unit_id)
+        assert refreshed is not None
+        assert refreshed.run_status == "running"
+        assert refreshed.trading_snapshot["instance_status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_workspace_list_keeps_queued_trading_units_while_batch_start_is_pending(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A queued batch unit must not be reset before its background launch creates an instance."""
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+    from app.services import trading_workspace_service
+    from app.services.workspace import lifecycle
+
+    class EmptyInstanceManager:
+        def list_instances(self, user_id: str | None = None) -> list[dict[str, str | None]]:
+            return []
+
+        def get_instance(self, instance_id: str, user_id: str | None = None) -> None:
+            return None
+
+    monkeypatch.setattr(
+        lifecycle,
+        "get_live_trading_manager",
+        lambda: EmptyInstanceManager(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        trading_workspace_service,
+        "get_live_trading_manager",
+        lambda: EmptyInstanceManager(),
+    )
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "待启动交易批次", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={"strategy_id": "simulate/gateway_dual_ma", "symbol": "IF2609"},
+    )
+    unit_id = unit_response.json()["id"]
+
+    async with async_session_maker() as session:
+        unit = await session.get(StrategyUnit, unit_id)
+        assert unit is not None
+        unit.run_status = "queued"
+        unit.trading_instance_id = "pending-instance"
+        unit.trading_snapshot = {"instance_status": "queued"}
+        await session.commit()
+
+    response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/status",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()[0]["run_status"] == "queued"
+    async with async_session_maker() as session:
+        refreshed = await session.get(StrategyUnit, unit_id)
+        assert refreshed is not None
+        assert refreshed.run_status == "queued"
+        assert refreshed.trading_snapshot["instance_status"] == "queued"
 
 
 @pytest.mark.asyncio
@@ -97,9 +234,35 @@ async def test_trading_workspace_unit_roundtrip_exposes_trading_fields(
 class _FakeTradingManager:
     def __init__(self) -> None:
         self.instances: dict[str, dict] = {}
+        self.gateway_instances: set[str] = set()
+        self.gateway_positions: dict[str, list[dict]] = {}
+        self.gateway_asset_specs: dict[str, dict[str, dict]] = {}
+        self.gateway_trades: dict[str, list[dict]] = {}
 
     def get_instance(self, instance_id: str, user_id: str | None = None):
         return self.instances.get(instance_id)
+
+    def has_instance_gateway(self, instance_id: str) -> bool:
+        return instance_id in self.gateway_instances
+
+    def query_instance_gateway_positions(self, instance_id: str):
+        return self.gateway_positions.get(instance_id, [])
+
+    def query_instance_asset_specs(self, instance_id: str, symbols: list[str]):
+        specs = self.gateway_asset_specs.get(instance_id, {})
+        return {symbol: specs.get(symbol, {}) for symbol in symbols}
+
+    def query_instance_gateway_trades(
+        self,
+        instance_id: str,
+        *,
+        symbol: str | None = None,
+        limit: int = 100,
+    ):
+        rows = self.gateway_trades.get(instance_id, [])
+        if symbol:
+            rows = [row for row in rows if row.get("symbol") == symbol]
+        return rows[-limit:]
 
     def add_instance(
         self,
@@ -165,6 +328,21 @@ class _FakeAutoTradingScheduler:
         ]
 
 
+def test_trading_workspace_position_open_size_honors_explicit_zero():
+    from app.services.trading_workspace_service import TradingWorkspaceService
+
+    assert (
+        TradingWorkspaceService._position_row_open_size(
+            {"size": 0, "long_position": 1, "short_position": 0}
+        )
+        == 0.0
+    )
+    assert (
+        TradingWorkspaceService._position_row_open_size({"long_position": 1, "short_position": 0})
+        == 1.0
+    )
+
+
 @pytest.mark.asyncio
 async def test_trading_workspace_run_and_status_use_trading_runtime_branch(
     client: AsyncClient,
@@ -223,6 +401,237 @@ async def test_trading_workspace_run_and_status_use_trading_runtime_branch(
     assert status_payload[0]["run_status"] == "running"
     assert status_payload[0]["trading_instance_id"] == "inst-001"
     assert status_payload[0]["trading_snapshot"]["instance_status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_trading_workspace_bulk_run_returns_queued_without_waiting_for_all_starts(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Bulk starts are queued so the HTTP request cannot time out on many units."""
+    from app.services.trading_workspace_service import TradingWorkspaceService
+    from app.services.workspace_service import WorkspaceService
+
+    scheduled: list[object] = []
+
+    async def fake_start_units(self, units, user_id, workspace_settings=None):
+        return [
+            {"unit_id": unit.id, "task_id": f"inst-{unit.id}", "status": "running"}
+            for unit in units
+        ]
+
+    async def fake_background(self, workspace_id, user_id, unit_ids):
+        scheduled.append((workspace_id, user_id, unit_ids))
+
+    monkeypatch.setattr(TradingWorkspaceService, "start_units", fake_start_units)
+    monkeypatch.setattr(
+        WorkspaceService,
+        "_start_trading_units_in_background",
+        fake_background,
+        raising=False,
+    )
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "批量入队测试", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+    unit_ids = []
+    for symbol in ("IF2609", "IC2609"):
+        unit_response = await client.post(
+            f"/api/v1/workspace/{workspace_id}/units",
+            headers=auth_headers,
+            json={"strategy_id": "simulate/gateway_dual_ma", "symbol": symbol},
+        )
+        assert unit_response.status_code == 201
+        unit_ids.append(unit_response.json()["id"])
+
+    run_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/run",
+        headers=auth_headers,
+        json={"unit_ids": unit_ids, "parallel": False},
+    )
+
+    assert run_response.status_code == 200
+    assert [item["status"] for item in run_response.json()["results"]] == ["queued", "queued"]
+    await asyncio.sleep(0)
+    assert len(scheduled) == 1
+
+
+@pytest.mark.asyncio
+async def test_trading_workspace_background_batch_starts_one_unit_at_a_time(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Long gateway startup cannot monopolize the event loop for an entire batch."""
+    from app.api._dependencies import decode_access_token
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+    from app.services.trading_workspace_service import TradingWorkspaceService
+    from app.services.workspace import run_ops
+    from app.services.workspace_service import WorkspaceService
+
+    started_batches: list[list[str]] = []
+
+    async def fake_start_units(self, units, user_id, workspace_settings=None):
+        started_batches.append([str(unit.id) for unit in units])
+        for unit in units:
+            unit.run_status = "running"
+        return [
+            {"unit_id": unit.id, "task_id": f"inst-{unit.id}", "status": "running"}
+            for unit in units
+        ]
+
+    monkeypatch.setattr(TradingWorkspaceService, "start_units", fake_start_units)
+    monkeypatch.setattr(run_ops, "get_live_trading_manager", lambda: object())
+    monkeypatch.setattr(run_ops, "_schedule_paper_runtime_snapshots", lambda user_id, units: None)
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "批量后台顺序启动", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+    unit_ids = []
+    for symbol in ("IF2609", "IC2609"):
+        unit_response = await client.post(
+            f"/api/v1/workspace/{workspace_id}/units",
+            headers=auth_headers,
+            json={"strategy_id": "simulate/gateway_dual_ma", "symbol": symbol},
+        )
+        unit_ids.append(unit_response.json()["id"])
+
+    async with async_session_maker() as session:
+        units = list(
+            (
+                await session.execute(select(StrategyUnit).where(StrategyUnit.id.in_(unit_ids)))
+            ).scalars()
+        )
+        for unit in units:
+            unit.run_status = "queued"
+        await session.commit()
+
+    token = decode_access_token(auth_headers["Authorization"].removeprefix("Bearer "))
+    assert token is not None
+    await WorkspaceService()._start_trading_units_in_background(
+        workspace_id,
+        str(token["sub"]),
+        unit_ids,
+    )
+
+    assert sorted(started_batches) == sorted([[unit_id] for unit_id in unit_ids])
+
+
+@pytest.mark.asyncio
+async def test_trading_workspace_status_skips_queued_units_during_batch_start(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Polling must not perform a runtime refresh for batch units still awaiting launch."""
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+    from app.services.trading_workspace_service import TradingWorkspaceService
+
+    hydrated_unit_ids: list[str] = []
+
+    async def fake_hydrate(self, units, user_id, *, full_log=True, refresh_gateway=True):
+        hydrated_unit_ids.extend(str(unit.id) for unit in units)
+        return False
+
+    monkeypatch.setattr(TradingWorkspaceService, "hydrate_units", fake_hydrate)
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "批量状态轻量轮询", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+    unit_ids = []
+    for symbol in ("IF2609", "IC2609"):
+        unit_response = await client.post(
+            f"/api/v1/workspace/{workspace_id}/units",
+            headers=auth_headers,
+            json={"strategy_id": "simulate/gateway_dual_ma", "symbol": symbol},
+        )
+        unit_ids.append(unit_response.json()["id"])
+
+    async with async_session_maker() as session:
+        queued_unit = await session.get(StrategyUnit, unit_ids[0])
+        running_unit = await session.get(StrategyUnit, unit_ids[1])
+        assert queued_unit is not None and running_unit is not None
+        queued_unit.run_status = "queued"
+        running_unit.run_status = "running"
+        await session.commit()
+
+    response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/status",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert hydrated_unit_ids == [unit_ids[1]]
+    assert [item["run_status"] for item in response.json()] == ["queued", "running"]
+
+
+@pytest.mark.asyncio
+async def test_workspace_status_endpoint_filters_unit_ids(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+):
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={
+            "name": "状态过滤测试",
+            "workspace_type": "trading",
+        },
+    )
+    assert workspace_response.status_code == 201
+    workspace_id = workspace_response.json()["id"]
+
+    first_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={
+            "group_name": "交易组",
+            "strategy_id": "simulate/gateway_dual_ma",
+            "strategy_name": "First Strategy",
+            "symbol": "SA505",
+            "symbol_name": "纯碱主力",
+            "trading_mode": "paper",
+        },
+    )
+    second_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={
+            "group_name": "交易组",
+            "strategy_id": "simulate/gateway_dual_ma",
+            "strategy_name": "Second Strategy",
+            "symbol": "SA506",
+            "symbol_name": "纯碱次主力",
+            "trading_mode": "paper",
+        },
+    )
+    assert first_response.status_code == 201
+    assert second_response.status_code == 201
+    first_id = first_response.json()["id"]
+    second_id = second_response.json()["id"]
+
+    status_response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/status",
+        headers=auth_headers,
+        params={"unit_ids": first_id},
+    )
+
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert [item["id"] for item in status_payload] == [first_id]
+    assert second_id not in {item["id"] for item in status_payload}
 
 
 @pytest.mark.asyncio
@@ -333,6 +742,19 @@ async def test_trading_workspace_positions_and_daily_summary_endpoints(
         "1\t1\t2026-04-12\t2026-04-13\tau000\t1\t2\t100\t200\t1\t1500\t1499\t1\n",
         encoding="utf-8",
     )
+    (log_dir / "position.log").write_text(
+        json.dumps(
+            {
+                "datetime": "2026-04-13 09:32:00",
+                "data_name": "au000",
+                "size": 2,
+                "price": 100,
+                "value": 204,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     (log_dir / "current_position.json").write_text(
         json.dumps(
             [
@@ -356,6 +778,7 @@ async def test_trading_workspace_positions_and_daily_summary_endpoints(
     positions_payload = positions_response.json()
     assert positions_payload["positions"][0]["unit_id"] == unit_id
     assert positions_payload["positions"][0]["long_position"] == 2.0
+    assert positions_payload["positions"][0]["updated_at"] == "2026-04-13 09:32:00"
 
     daily_summary_response = await client.get(
         f"/api/v1/workspace/{workspace_id}/trading/daily-summary",
@@ -368,18 +791,29 @@ async def test_trading_workspace_positions_and_daily_summary_endpoints(
 
 
 @pytest.mark.asyncio
-async def test_trading_workspace_runtime_endpoints_expose_runtime_files(
+async def test_trading_workspace_positions_hide_idle_units_by_default(
     client: AsyncClient,
     auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
 ):
-    from app.services import workspace_unit_runtime
+    """Idle workspaces should not surface stale position logs as current holdings."""
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+    from app.services import trading_workspace_service
+
+    manager = _FakeTradingManager()
+    monkeypatch.setattr(
+        trading_workspace_service,
+        "get_live_trading_manager",
+        lambda: manager,
+    )
 
     workspace_response = await client.post(
         "/api/v1/workspace/",
         headers=auth_headers,
-        json={"name": "运行文件测试", "workspace_type": "trading"},
+        json={"name": "空闲持仓测试", "workspace_type": "trading"},
     )
-    assert workspace_response.status_code == 201
     workspace_id = workspace_response.json()["id"]
 
     unit_response = await client.post(
@@ -388,40 +822,639 @@ async def test_trading_workspace_runtime_endpoints_expose_runtime_files(
         json={
             "group_name": "交易组",
             "strategy_id": "simulate/gateway_dual_ma",
-            "strategy_name": "Runtime Unit",
-            "symbol": "XAUUSD",
-            "symbol_name": "黄金/美元",
-            "timeframe": "1m",
-            "category": "外汇",
+            "strategy_name": "Stopped Strategy",
+            "symbol": "rb000",
+            "symbol_name": "螺纹",
             "trading_mode": "paper",
         },
     )
-    assert unit_response.status_code == 201
     unit_id = unit_response.json()["id"]
 
-    runtime_dir = workspace_unit_runtime.unit_dir(workspace_id, unit_id)
-    assert runtime_dir.is_dir()
-    log_dir = runtime_dir / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    (log_dir / "system.log").write_text("line-1\nline-2\n", encoding="utf-8")
+    log_dir = tmp_path / "stopped_logs"
+    log_dir.mkdir()
+    (log_dir / "position.log").write_text(
+        json.dumps(
+            {
+                "datetime": "2026-04-13 09:32:00",
+                "data_name": "rb000",
+                "size": 3,
+                "price": 3200,
+                "value": 9600,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manager.instances["stopped-001"] = {
+        "id": "stopped-001",
+        "strategy_id": "simulate/gateway_dual_ma",
+        "strategy_name": "Stopped Strategy",
+        "status": "stopped",
+        "error": None,
+        "params": {},
+        "created_at": "2026-04-13 10:00:00",
+        "started_at": "2026-04-13 10:01:00",
+        "stopped_at": "2026-04-13 10:02:00",
+        "log_dir": str(log_dir),
+        "runtime_dir": str(tmp_path),
+    }
+    async with async_session_maker() as session:
+        unit = await session.get(StrategyUnit, unit_id)
+        assert unit is not None
+        unit.trading_instance_id = "stopped-001"
+        unit.run_status = "idle"
+        await session.commit()
 
-    info_response = await client.get(
-        f"/api/v1/workspace/{workspace_id}/units/{unit_id}/runtime",
+    default_response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/trading/positions",
         headers=auth_headers,
     )
-    assert info_response.status_code == 200
-    payload = info_response.json()
-    assert Path(payload["runtime_dir"]) == runtime_dir
-    assert Path(payload["log_dir"]) == log_dir
-    relative_paths = {item["relative_path"] for item in payload["files"]}
-    assert "config.yaml" in relative_paths
-    assert "run.py" in relative_paths
-    assert "logs/system.log" in relative_paths
+    assert default_response.status_code == 200
+    default_payload = default_response.json()
+    assert default_payload["positions"] == []
+    assert default_payload["total_long_value"] == 0.0
 
-    log_response = await client.get(
-        f"/api/v1/workspace/{workspace_id}/units/{unit_id}/runtime/files/logs/system.log",
+    explicit_response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/trading/positions",
         headers=auth_headers,
-        params={"tail": 1},
+        params={"unit_ids": unit_id},
     )
-    assert log_response.status_code == 200
-    assert log_response.text == "line-2"
+    assert explicit_response.status_code == 200
+    explicit_payload = explicit_response.json()
+    assert explicit_payload["positions"][0]["unit_id"] == unit_id
+    assert explicit_payload["positions"][0]["long_position"] == 3.0
+    assert explicit_payload["positions"][0]["updated_at"] == "2026-04-13 09:32:00"
+
+
+@pytest.mark.asyncio
+async def test_trading_workspace_positions_value_live_futures_hedged_gateway_rows(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+    from app.services import trading_workspace_service
+
+    manager = _FakeTradingManager()
+    monkeypatch.setattr(
+        trading_workspace_service,
+        "get_live_trading_manager",
+        lambda: manager,
+    )
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "期货双向持仓测试", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={
+            "group_name": "交易组",
+            "strategy_id": "simulate/gateway_dual_ma",
+            "strategy_name": "IF Hedge Strategy",
+            "symbol": "IF2609",
+            "symbol_name": "沪深300期货",
+            "trading_mode": "live",
+            "gateway_config": {
+                "preset_id": "ctp_futures_gateway",
+                "name": "CTP Futures Gateway",
+                "params": {
+                    "gateway": {
+                        "enabled": True,
+                        "exchange_type": "CTP",
+                        "asset_type": "FUTURE",
+                        "account_id": "SIM001",
+                    }
+                },
+            },
+        },
+    )
+    unit_id = unit_response.json()["id"]
+
+    instance_id = "inst-if-hedge"
+    manager.instances[instance_id] = {
+        "id": instance_id,
+        "strategy_id": "simulate/gateway_dual_ma",
+        "strategy_name": "IF Hedge Strategy",
+        "status": "running",
+        "error": None,
+        "params": {"symbol": "IF2609", "trading_mode": "live"},
+        "created_at": "2026-04-13 10:00:00",
+        "started_at": "2026-04-13 10:01:00",
+        "stopped_at": None,
+        "log_dir": None,
+        "runtime_dir": None,
+    }
+    manager.gateway_instances.add(instance_id)
+    manager.gateway_positions[instance_id] = [
+        {
+            "InstrumentID": "IF2609",
+            "long_position": 1,
+            "short_position": 1,
+            "avgPrice": 5000,
+            "LastPrice": 5010,
+            "updated_at": "2026-04-13 10:05:00",
+        },
+        {
+            "InstrumentID": "IF2609",
+            "long_position": 0,
+            "short_position": 0,
+            "avgPrice": 5000,
+            "LastPrice": 5010,
+        },
+    ]
+    manager.gateway_asset_specs[instance_id] = {
+        "IF2609": {
+            "symbol": "IF2609",
+            "multiplier": 300,
+            "margin_rate": 0.1,
+            "open_commission_rate": 0.000023,
+            "quote_asset": "CNY",
+            "fee_currency": "CNY",
+            "source": "gateway.query_instrument",
+        }
+    }
+    manager.gateway_trades[instance_id] = [
+        {
+            "symbol": "IF2609",
+            "side": "buy",
+            "position_side": "long",
+            "size": 1,
+            "price": 5000,
+            "fee": 34.5,
+            "fee_currency": "CNY",
+            "trade_time": 1,
+        },
+        {
+            "symbol": "IF2609",
+            "side": "sell",
+            "position_side": "short",
+            "size": 1,
+            "price": 5000,
+            "fee": 34.5,
+            "fee_currency": "CNY",
+            "trade_time": 2,
+        },
+    ]
+
+    async with async_session_maker() as session:
+        unit = await session.get(StrategyUnit, unit_id)
+        assert unit is not None
+        unit.trading_instance_id = instance_id
+        unit.run_status = "running"
+        unit.trading_mode = "live"
+        await session.commit()
+
+    response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/trading/positions",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert len(payload["positions"]) == 1
+    position = payload["positions"][0]
+    assert position["unit_id"] == unit_id
+    assert position["long_position"] == 1.0
+    assert position["short_position"] == 1.0
+    assert position["long_market_value"] == 1503000.0
+    assert position["short_market_value"] == 1503000.0
+    assert position["margin_value"] == 300600.0
+    assert position["multiplier"] == 300.0
+    assert position["margin_rate"] == 0.1
+    assert position["commission"] == 69.0
+    assert position["commission_source"] == "gateway.trades"
+    assert position["gross_pnl"] == 0.0
+    assert position["position_pnl"] == -69.0
+    assert position["position_source"] == "gateway"
+    assert position["asset_spec_source"] == "gateway.query_instrument"
+    assert position["valuation_status"] == "confirmed"
+    assert payload["total_pnl"] == -69.0
+
+
+@pytest.mark.asyncio
+async def test_trading_workspace_positions_recalculate_live_futures_generic_pnl(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+    from app.services import trading_workspace_service
+
+    manager = _FakeTradingManager()
+    monkeypatch.setattr(
+        trading_workspace_service,
+        "get_live_trading_manager",
+        lambda: manager,
+    )
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "期货盈亏重估测试", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={
+            "group_name": "交易组",
+            "strategy_id": "simulate/gateway_dual_ma",
+            "strategy_name": "IF PnL Strategy",
+            "symbol": "IF2609",
+            "symbol_name": "沪深300期货",
+            "trading_mode": "live",
+            "gateway_config": {
+                "preset_id": "ctp_futures_gateway",
+                "name": "CTP Futures Gateway",
+                "params": {
+                    "gateway": {
+                        "enabled": True,
+                        "exchange_type": "CTP",
+                        "asset_type": "FUTURE",
+                        "account_id": "SIM001",
+                    }
+                },
+            },
+        },
+    )
+    unit_id = unit_response.json()["id"]
+
+    instance_id = "inst-if-pnl"
+    manager.instances[instance_id] = {
+        "id": instance_id,
+        "strategy_id": "simulate/gateway_dual_ma",
+        "strategy_name": "IF PnL Strategy",
+        "status": "running",
+        "error": None,
+        "params": {"symbol": "IF2609", "trading_mode": "live"},
+        "created_at": "2026-04-13 10:00:00",
+        "started_at": "2026-04-13 10:01:00",
+        "stopped_at": None,
+        "log_dir": None,
+        "runtime_dir": None,
+    }
+    manager.gateway_instances.add(instance_id)
+    manager.gateway_positions[instance_id] = [
+        {
+            "InstrumentID": "IF2609",
+            "Position": 1,
+            "PosiDirection": "2",
+            "Price": 5000,
+            "LastPrice": 5010,
+            "position_pnl": 10,
+            "updated_at": "2026-04-13 10:05:00",
+        },
+        {
+            "InstrumentID": "IF2609",
+            "Position": 0,
+            "PosiDirection": "2",
+            "Price": 5000,
+            "LastPrice": 5010,
+        },
+    ]
+    manager.gateway_asset_specs[instance_id] = {
+        "IF2609": {
+            "symbol": "IF2609",
+            "multiplier": 300,
+            "margin_rate": 0.1,
+            "open_commission_rate": 0.000023,
+            "quote_asset": "CNY",
+            "fee_currency": "CNY",
+            "source": "gateway.query_instrument",
+        }
+    }
+    manager.gateway_trades[instance_id] = [
+        {
+            "symbol": "IF2609",
+            "side": "buy",
+            "position_side": "long",
+            "size": 1,
+            "price": 5000,
+            "fee": 34.5,
+            "fee_currency": "CNY",
+            "trade_time": 1,
+        },
+    ]
+
+    async with async_session_maker() as session:
+        unit = await session.get(StrategyUnit, unit_id)
+        assert unit is not None
+        unit.trading_instance_id = instance_id
+        unit.run_status = "running"
+        unit.trading_mode = "live"
+        await session.commit()
+
+    response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/trading/positions",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert len(payload["positions"]) == 1
+    position = payload["positions"][0]
+    assert position["unit_id"] == unit_id
+    assert position["long_position"] == 1.0
+    assert position["short_position"] == 0.0
+    assert position["long_market_value"] == 1503000.0
+    assert position["margin_value"] == 150300.0
+    assert position["gross_pnl"] == 3000.0
+    assert position["commission"] == 34.5
+    assert position["commission_source"] == "gateway.trades"
+    assert position["position_pnl"] == 2965.5
+    assert position["valuation_status"] == "confirmed"
+    assert payload["total_pnl"] == 2965.5
+
+
+@pytest.mark.asyncio
+async def test_trading_workspace_positions_complete_partial_gateway_asset_specs(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Gateway fee-only specs should be completed from saved runtime contract metadata."""
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+    from app.services import trading_workspace_service
+
+    manager = _FakeTradingManager()
+    monkeypatch.setattr(
+        trading_workspace_service,
+        "get_live_trading_manager",
+        lambda: manager,
+    )
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "期货规格补全测试", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={
+            "group_name": "交易组",
+            "strategy_id": "simulate/gateway_dual_ma",
+            "strategy_name": "IF Partial Spec Strategy",
+            "symbol": "IF2609",
+            "symbol_name": "沪深300期货",
+            "trading_mode": "live",
+            "gateway_config": {
+                "preset_id": "ctp_futures_gateway",
+                "name": "CTP Futures Gateway",
+                "params": {
+                    "gateway": {
+                        "enabled": True,
+                        "exchange_type": "CTP",
+                        "asset_type": "FUTURE",
+                        "account_id": "SIM001",
+                    }
+                },
+            },
+        },
+    )
+    unit_id = unit_response.json()["id"]
+
+    instance_id = "inst-if-partial-spec"
+    manager.instances[instance_id] = {
+        "id": instance_id,
+        "strategy_id": "simulate/gateway_dual_ma",
+        "strategy_name": "IF Partial Spec Strategy",
+        "status": "running",
+        "error": None,
+        "params": {"symbol": "IF2609", "trading_mode": "live"},
+        "created_at": "2026-04-13 10:00:00",
+        "started_at": "2026-04-13 10:01:00",
+        "stopped_at": None,
+        "log_dir": None,
+        "runtime_dir": None,
+    }
+    manager.gateway_instances.add(instance_id)
+    manager.gateway_positions[instance_id] = [
+        {
+            "InstrumentID": "IF2609",
+            "Position": 1,
+            "PosiDirection": "2",
+            "Price": 5000,
+            "LastPrice": 5010,
+            "PositionProfit": 10,
+            "updated_at": "2026-04-13 10:05:00",
+        }
+    ]
+    manager.gateway_asset_specs[instance_id] = {
+        "IF2609": {
+            "symbol": "IF2609",
+            "OpenRatioByMoney": 0.23,
+            "quote_asset": "CNY",
+            "fee_currency": "CNY",
+            "source": "gateway.fee_only",
+        }
+    }
+
+    async with async_session_maker() as session:
+        unit = await session.get(StrategyUnit, unit_id)
+        assert unit is not None
+        unit.trading_instance_id = instance_id
+        unit.run_status = "running"
+        unit.trading_mode = "live"
+        unit.params = {
+            **(unit.params or {}),
+            "contract_metadata": {
+                "IF2609": {
+                    "symbol": "IF2609",
+                    "VolumeMultiple": 300,
+                    "LongMarginRatioByMoney": 0.1,
+                    "source": "runtime_contract",
+                }
+            },
+        }
+        await session.commit()
+
+    response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/trading/positions",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert len(payload["positions"]) == 1
+    position = payload["positions"][0]
+    assert position["multiplier"] == 300.0
+    assert position["margin_value"] == 150300.0
+    assert position["gross_pnl"] == 3000.0
+    assert position["commission"] == 34.5
+    assert position["position_pnl"] == 2965.5
+    assert "gateway.fee_only" in position["asset_spec_source"]
+    assert "runtime_contract" in position["asset_spec_source"]
+
+
+@pytest.mark.asyncio
+async def test_trading_workspace_runtime_endpoints_expose_runtime_files(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+):
+    import shutil
+
+    from app.services import workspace_unit_runtime
+    from app.services.strategy_service import get_strategy_dir
+
+    # The strategy template tree (src/strategies/) is developer-local and not
+    # tracked in git, so provision a minimal template on disk for this
+    # integration test (and clean it up afterwards) instead of depending on a
+    # checkout-specific directory.
+    template_dir = get_strategy_dir("simulate/gateway_dual_ma")
+    created_template = not template_dir.exists()
+    template_dir.mkdir(parents=True, exist_ok=True)
+    run_py = template_dir / "run.py"
+    strategy_py = template_dir / "strategy_gateway_dual_ma.py"
+    created_run = not run_py.exists()
+    created_strategy = not strategy_py.exists()
+    if created_run:
+        run_py.write_text("# runtime entrypoint\n", encoding="utf-8")
+    if created_strategy:
+        strategy_py.write_text(
+            "import backtrader as bt\n\n\nclass S(bt.Strategy):\n    pass\n",
+            encoding="utf-8",
+        )
+
+    try:
+        workspace_response = await client.post(
+            "/api/v1/workspace/",
+            headers=auth_headers,
+            json={"name": "运行文件测试", "workspace_type": "trading"},
+        )
+        assert workspace_response.status_code == 201
+        workspace_id = workspace_response.json()["id"]
+
+        unit_response = await client.post(
+            f"/api/v1/workspace/{workspace_id}/units",
+            headers=auth_headers,
+            json={
+                "group_name": "交易组",
+                "strategy_id": "simulate/gateway_dual_ma",
+                "strategy_name": "Runtime Unit",
+                "symbol": "XAUUSD",
+                "symbol_name": "黄金/美元",
+                "timeframe": "1m",
+                "category": "外汇",
+                "trading_mode": "paper",
+            },
+        )
+        assert unit_response.status_code == 201
+        unit_id = unit_response.json()["id"]
+
+        runtime_dir = workspace_unit_runtime.unit_dir(workspace_id, unit_id)
+        assert runtime_dir.is_dir()
+        log_dir = runtime_dir / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        (log_dir / "system.log").write_text("line-1\nline-2\n", encoding="utf-8")
+
+        info_response = await client.get(
+            f"/api/v1/workspace/{workspace_id}/units/{unit_id}/runtime",
+            headers=auth_headers,
+        )
+        assert info_response.status_code == 200
+        payload = info_response.json()
+        assert Path(payload["runtime_dir"]) == runtime_dir
+        assert Path(payload["log_dir"]) == log_dir
+        relative_paths = {item["relative_path"] for item in payload["files"]}
+        assert "config.yaml" in relative_paths
+        assert "run.py" in relative_paths
+        assert "logs/system.log" in relative_paths
+
+        log_response = await client.get(
+            f"/api/v1/workspace/{workspace_id}/units/{unit_id}/runtime/files/logs/system.log",
+            headers=auth_headers,
+            params={"tail": 1},
+        )
+        assert log_response.status_code == 200
+        assert log_response.text == "line-2"
+    finally:
+        # Clean up only what we created so we don't disturb a real local tree.
+        if created_run and run_py.exists():
+            run_py.unlink()
+        if created_strategy and strategy_py.exists():
+            strategy_py.unlink()
+        if created_template and template_dir.exists():
+            shutil.rmtree(template_dir, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_workspace_list_skips_live_manager_when_all_trading_units_are_idle(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+):
+    """Listing an idle workspace must not open an MT5/live-manager connection."""
+    from app.services.workspace import lifecycle
+
+    assert not hasattr(lifecycle, "get_live_trading_manager")
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "空闲交易工作区", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={"strategy_id": "simulate/gateway_dual_ma", "symbol": "IF2609"},
+    )
+    assert unit_response.status_code == 201
+
+    response = await client.get(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        params={"workspace_type": "trading"},
+    )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_trading_unit_list_uses_lightweight_hydration(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The initial trading-unit table must avoid log parsing and gateway reads."""
+    from app.services.trading_workspace_service import TradingWorkspaceService
+
+    captured: dict[str, object] = {}
+
+    async def fake_hydrate(self, units, user_id, **kwargs):
+        captured.update(kwargs)
+        return False
+
+    monkeypatch.setattr(TradingWorkspaceService, "hydrate_units", fake_hydrate)
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "轻量单元列表", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={"strategy_id": "simulate/gateway_dual_ma", "symbol": "IF2609"},
+    )
+    assert unit_response.status_code == 201
+
+    response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert captured == {"full_log": False, "refresh_gateway": False}

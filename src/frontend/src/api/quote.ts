@@ -1,5 +1,5 @@
 /**
- * 行情报价 API
+ * 实时数据 API
  */
 import request from './index'
 
@@ -13,6 +13,18 @@ export interface DataSourceInfo {
   status: 'available' | 'not_configured' | 'not_connected' | 'unavailable'
   status_message: string | null
   capabilities: string[]
+  gateway_count: number
+  workspace_count: number
+  running_symbol_count: number
+  workspaces: WorkspaceQuoteRuntime[]
+}
+
+export interface WorkspaceQuoteRuntime {
+  workspace_id: string
+  workspace_name: string
+  gateway_key: string
+  symbol_count: number
+  symbols: string[]
 }
 
 export interface DataSourceListResponse {
@@ -41,6 +53,11 @@ export interface QuoteTick {
   update_time: string | null
   status: string
   error_message: string | null
+  quote_key: string
+  gateway_key: string
+  origins: string[]
+  workspace_ids: string[]
+  workspace_names: string[]
 }
 
 export interface QuoteField {
@@ -77,6 +94,9 @@ export interface DefaultSymbolsResponse {
   source: string
   default_symbols: SymbolItem[]
   custom_symbols: string[]
+  running_symbols: SymbolItem[]
+  /** Complete category catalog from configured instruments, not just live ticks. */
+  categories: string[]
 }
 
 export interface CustomSymbolsResponse {
@@ -124,6 +144,11 @@ export const quoteApi = {
   /** Remove custom symbols */
   removeSymbols(source: string, symbols: string[]): Promise<CustomSymbolsResponse> {
     return request.post('/quote/symbols/remove', { source, symbols })
+  },
+
+  /** Permanently remove a user subscription that is not workspace-driven. */
+  removeSubscriptions(source: string, symbols: string[]): Promise<CustomSymbolsResponse> {
+    return request.post('/quote/subscriptions/remove', { source, symbols })
   },
 
   /** Search symbols within a data source */

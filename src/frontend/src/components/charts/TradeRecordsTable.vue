@@ -2,46 +2,46 @@
   <div class="trade-records-table">
     <div class="flex justify-between items-center mb-4">
       <h4 class="text-md font-medium">
-        交易记录
+        {{ t('charts.trTitle') }}
       </h4>
       <div class="flex gap-2">
         <el-select
           v-model="directionFilter"
-          placeholder="交易方向"
+          :placeholder="t('charts.trDirection')"
           size="small"
           clearable
           style="width: 120px"
         >
           <el-option
-            label="全部"
+            :label="t('charts.trAll')"
             value=""
           />
           <el-option
-            label="买入"
+            :label="t('charts.trBuy')"
             value="buy"
           />
           <el-option
-            label="卖出"
+            :label="t('charts.trSell')"
             value="sell"
           />
         </el-select>
         <el-select
           v-model="pnlFilter"
-          placeholder="盈亏状态"
+          :placeholder="t('charts.trPnlState')"
           size="small"
           clearable
           style="width: 120px"
         >
           <el-option
-            label="全部"
+            :label="t('charts.trAll')"
             value=""
           />
           <el-option
-            label="盈利"
+            :label="t('charts.trProfit')"
             value="profit"
           />
           <el-option
-            label="亏损"
+            :label="t('charts.trLoss')"
             value="loss"
           />
         </el-select>
@@ -49,16 +49,16 @@
           size="small"
           @click="handleExport"
         >
-          <el-icon><Download /></el-icon>导出
+          <el-icon aria-hidden="true"><Download /></el-icon>{{ t('charts.trExport') }}
         </el-button>
       </div>
     </div>
     
-    <!-- 汇总统计 -->
+    <!-- Summary stats -->
     <div class="grid grid-cols-4 gap-4 mb-4 p-3 bg-gray-50 rounded">
       <div class="text-center">
         <div class="text-gray-500 text-xs">
-          总交易
+          {{ t('charts.trTotalTrades') }}
         </div>
         <div class="font-semibold">
           {{ trades.length }}
@@ -66,7 +66,7 @@
       </div>
       <div class="text-center">
         <div class="text-gray-500 text-xs">
-          盈利次数
+          {{ t('charts.trProfitCount') }}
         </div>
         <div class="font-semibold text-green-600">
           {{ profitCount }}
@@ -74,7 +74,7 @@
       </div>
       <div class="text-center">
         <div class="text-gray-500 text-xs">
-          亏损次数
+          {{ t('charts.trLossCount') }}
         </div>
         <div class="font-semibold text-red-600">
           {{ lossCount }}
@@ -82,7 +82,7 @@
       </div>
       <div class="text-center">
         <div class="text-gray-500 text-xs">
-          总手续费
+          {{ t('charts.trTotalCommission') }}
         </div>
         <div class="font-semibold">
           ¥{{ totalCommission.toFixed(2) }}
@@ -90,7 +90,7 @@
       </div>
     </div>
     
-    <!-- 交易表格 -->
+    <!-- Trade table -->
     <el-table
       :data="filteredTrades"
       stripe
@@ -101,13 +101,13 @@
     >
       <el-table-column
         prop="id"
-        label="序号"
+        :label="t('charts.trColId')"
         width="60"
         sortable
       />
       <el-table-column
         prop="direction"
-        label="方向"
+        :label="t('charts.trColDirection')"
         width="70"
       >
         <template #default="{ row }">
@@ -115,19 +115,19 @@
             :type="row.direction === 'buy' ? 'danger' : 'success'"
             size="small"
           >
-            {{ row.direction === 'buy' ? '买入' : '卖出' }}
+            {{ row.direction === 'buy' ? t('charts.trBuy') : t('charts.trSell') }}
           </el-tag>
         </template>
       </el-table-column>
       <el-table-column
         prop="dtopen"
-        label="开仓日期"
+        :label="t('charts.trColOpenDate')"
         width="110"
         sortable
       />
       <el-table-column
         prop="price"
-        label="开仓价"
+        :label="t('charts.trColOpenPrice')"
         width="90"
         sortable
       >
@@ -137,13 +137,13 @@
       </el-table-column>
       <el-table-column
         prop="dtclose"
-        label="平仓日期"
+        :label="t('charts.trColCloseDate')"
         width="110"
         sortable
       />
       <el-table-column
         prop="close_price"
-        label="平仓价"
+        :label="t('charts.trColClosePrice')"
         width="90"
         sortable
       >
@@ -153,13 +153,13 @@
       </el-table-column>
       <el-table-column
         prop="size"
-        label="数量"
+        :label="t('charts.trColSize')"
         width="80"
         sortable
       />
       <el-table-column
         prop="value"
-        label="金额"
+        :label="t('charts.trColValue')"
         width="100"
         sortable
       >
@@ -169,7 +169,7 @@
       </el-table-column>
       <el-table-column
         prop="commission"
-        label="手续费"
+        :label="t('charts.trColCommission')"
         width="80"
       >
         <template #default="{ row }">
@@ -178,7 +178,7 @@
       </el-table-column>
       <el-table-column
         prop="pnl"
-        label="盈亏"
+        :label="t('charts.trColPnl')"
         width="100"
         sortable
       >
@@ -197,7 +197,7 @@
       </el-table-column>
       <el-table-column
         prop="return_pct"
-        label="收益率"
+        :label="t('charts.trColReturnPct')"
         width="90"
         sortable
       >
@@ -216,16 +216,16 @@
       </el-table-column>
       <el-table-column
         prop="holding_days"
-        label="持仓天数"
+        :label="t('charts.trColHoldingDays')"
         width="90"
       >
         <template #default="{ row }">
-          {{ row.holding_days !== null ? row.holding_days + '天' : '--' }}
+          {{ row.holding_days !== null ? row.holding_days + t('charts.days') : '--' }}
         </template>
       </el-table-column>
       <el-table-column
         prop="cumulative_pnl"
-        label="累计盈亏"
+        :label="t('charts.trColCumulativePnl')"
         width="110"
         sortable
       >
@@ -241,8 +241,11 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Download } from '@element-plus/icons-vue'
 import type { TradeRecord } from '@/types/analytics'
+
+const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   trades: TradeRecord[]
@@ -254,34 +257,48 @@ const directionFilter = ref('')
 const pnlFilter = ref('')
 
 const filteredTrades = computed(() => {
-  return props.trades.filter(t => {
-    if (directionFilter.value && t.direction !== directionFilter.value) return false
-    if (pnlFilter.value === 'profit' && (t.pnl === null || t.pnl <= 0)) return false
-    if (pnlFilter.value === 'loss' && (t.pnl === null || t.pnl >= 0)) return false
+  return props.trades.filter(tr => {
+    if (directionFilter.value && tr.direction !== directionFilter.value) return false
+    if (pnlFilter.value === 'profit' && (tr.pnl === null || tr.pnl <= 0)) return false
+    if (pnlFilter.value === 'loss' && (tr.pnl === null || tr.pnl >= 0)) return false
     return true
   })
 })
 
-const profitCount = computed(() => props.trades.filter(t => t.pnl !== null && t.pnl > 0).length)
-const lossCount = computed(() => props.trades.filter(t => t.pnl !== null && t.pnl < 0).length)
-const totalCommission = computed(() => props.trades.reduce((sum, t) => sum + t.commission, 0))
+const profitCount = computed(() => props.trades.filter(tr => tr.pnl !== null && tr.pnl > 0).length)
+const lossCount = computed(() => props.trades.filter(tr => tr.pnl !== null && tr.pnl < 0).length)
+const totalCommission = computed(() => props.trades.reduce((sum, tr) => sum + tr.commission, 0))
 
 function handleExport() {
-  const headers = ['序号', '方向', '开仓日期', '开仓价', '平仓日期', '平仓价', '数量', '金额', '手续费', '盈亏', '收益率', '持仓天数', '累计盈亏']
-  const rows = filteredTrades.value.map(t => [
-    t.id,
-    t.direction === 'buy' ? '买入' : '卖出',
-    t.dtopen ?? '',
-    t.price,
-    t.dtclose ?? '',
-    t.close_price ?? '',
-    t.size,
-    t.value,
-    t.commission,
-    t.pnl ?? '',
-    t.return_pct !== null ? (t.return_pct * 100).toFixed(2) + '%' : '',
-    t.holding_days ?? '',
-    t.cumulative_pnl,
+  const headers = [
+    t('charts.trColId'),
+    t('charts.trColDirection'),
+    t('charts.trColOpenDate'),
+    t('charts.trColOpenPrice'),
+    t('charts.trColCloseDate'),
+    t('charts.trColClosePrice'),
+    t('charts.trColSize'),
+    t('charts.trColValue'),
+    t('charts.trColCommission'),
+    t('charts.trColPnl'),
+    t('charts.trColReturnPct'),
+    t('charts.trColHoldingDays'),
+    t('charts.trColCumulativePnl'),
+  ]
+  const rows = filteredTrades.value.map(tr => [
+    tr.id,
+    tr.direction === 'buy' ? t('charts.trBuy') : t('charts.trSell'),
+    tr.dtopen ?? '',
+    tr.price,
+    tr.dtclose ?? '',
+    tr.close_price ?? '',
+    tr.size,
+    tr.value,
+    tr.commission,
+    tr.pnl ?? '',
+    tr.return_pct !== null ? (tr.return_pct * 100).toFixed(2) + '%' : '',
+    tr.holding_days ?? '',
+    tr.cumulative_pnl,
   ])
   
   const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')

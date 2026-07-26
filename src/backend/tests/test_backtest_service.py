@@ -13,8 +13,8 @@ import pytest
 
 from app.models.backtest import BacktestResultModel, BacktestTask
 from app.schemas.backtest import BacktestRequest, BacktestResponse, BacktestResult, TaskStatus
-from app.services.backtest_manager import BacktestExecutionManager
-from app.services.backtest_runner import BacktestExecutionRunner
+from app.services.backtest.manager import BacktestExecutionManager
+from app.services.backtest.runner import BacktestExecutionRunner
 from app.services.backtest_service import BacktestService
 
 

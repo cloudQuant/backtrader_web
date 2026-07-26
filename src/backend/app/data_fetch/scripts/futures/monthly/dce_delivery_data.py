@@ -2,6 +2,7 @@ import time
 from datetime import datetime
 
 import pandas as pd
+from dateutil.relativedelta import relativedelta
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
@@ -35,7 +36,14 @@ class FuturesDeliveryDce(AkshareToMySql):
                                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='大连商品交易所交割统计';
                                 """
 
-    def run(self, start_month: str = None, end_month: str = None):
+    def run(
+        self,
+        start_month: str = None,
+        end_month: str = None,
+        lookback_months: int = None,
+        max_months: int = None,
+        _call_timeout: int = None,
+    ):
         """
         更新大连商品交易所交割统计数据
         Args:
@@ -54,8 +62,16 @@ class FuturesDeliveryDce(AkshareToMySql):
                 end_month = self.get_previous_month()
 
             if start_month is None:
-                start_month = self.get_latest_date(self.table_name, "DELIVERY_DATE")
-                start_month = self.get_next_month(start_month)
+                latest_month = self.get_latest_date(self.table_name, "DELIVERY_DATE")
+                if latest_month:
+                    start_month = self.get_next_month(latest_month)
+                elif lookback_months is not None:
+                    end_dt = datetime.strptime(end_month, "%Y%m")
+                    start_month = (
+                        end_dt - relativedelta(months=max(int(lookback_months) - 1, 0))
+                    ).strftime("%Y%m")
+                else:
+                    start_month = end_month
 
             start_month_dt = datetime.strptime(start_month, "%Y%m").date()
             end_month_dt = datetime.strptime(end_month, "%Y%m").date()
@@ -69,11 +85,18 @@ class FuturesDeliveryDce(AkshareToMySql):
             failed_months = []
 
             current_month = datetime.strptime(start_month, "%Y%m")
+            months_processed = 0
             while current_month <= datetime.strptime(end_month, "%Y%m"):
+                if max_months is not None and months_processed >= int(max_months):
+                    self.logger.info(f"达到 max_months={max_months}，停止更新")
+                    break
                 month_str = current_month.strftime("%Y%m")
                 try:
                     self.logger.info(f"正在获取 {month_str} 的大连商品交易所交割统计数据")
-                    df = self.fetch_ak_data("futures_delivery_dce", month_str)
+                    kwargs = {}
+                    if _call_timeout is not None:
+                        kwargs["_call_timeout"] = _call_timeout
+                    df = self.fetch_ak_data("futures_delivery_dce", month_str, **kwargs)
 
                     if df is None or df.empty:
                         self.logger.warning(f"未获取到 {month_str} 的大连商品交易所交割统计数据")
@@ -139,6 +162,7 @@ class FuturesDeliveryDce(AkshareToMySql):
                     current_month = current_month.replace(year=current_month.year + 1, month=1)
                 else:
                     current_month = current_month.replace(month=current_month.month + 1)
+                months_processed += 1
                 time.sleep(1)
 
             if success_count > 0:

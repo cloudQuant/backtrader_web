@@ -9,10 +9,11 @@ Provides:
 
 import asyncio
 import logging
+import typing
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_websocket_current_user
 from app.schemas.monitoring import (
     AlertListResponse,
     AlertResponse,
@@ -30,11 +31,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def get_monitoring_service():
+def get_monitoring_service() -> MonitoringService:
     """Dependency injection for MonitoringService.
 
+    Note:
+        We intentionally do NOT cache this with ``@lru_cache``. Existing tests
+        patch ``app.api.monitoring.MonitoringService`` per-test; caching would
+        leak the first test's mock across the whole module. ``MonitoringService``
+        is also stateless aside from repo instances, so per-request construction
+        is cheap.
+
     Returns:
-        MonitoringService: An instance of the monitoring service.
+        MonitoringService: A fresh instance of the monitoring service.
     """
     return MonitoringService()
 
@@ -45,9 +53,9 @@ def get_monitoring_service():
 @router.post("/rules", response_model=AlertRuleResponse, summary="Create alert rule")
 async def create_alert_rule(
     request: AlertRuleCreate,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
-):
+) -> typing.Any:
     """Create a new alert rule.
 
     Args:
@@ -77,12 +85,12 @@ async def create_alert_rule(
 
 @router.get("/rules", response_model=AlertRuleListResponse, summary="List alert rules")
 async def list_alert_rules(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
     alert_type: str | None = Query(None, description="Alert type filter"),
     severity: str | None = Query(None, description="Alert severity filter"),
     is_active: bool | None = Query(None, description="Active status filter"),
-):
+) -> typing.Any:
     """Get the current user's alert rule list.
 
     Args:
@@ -108,9 +116,9 @@ async def list_alert_rules(
 @router.get("/rules/{rule_id}", response_model=AlertRuleResponse, summary="Get alert rule details")
 async def get_alert_rule(
     rule_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
-):
+) -> typing.Any:
     """Get an alert rule by ID.
 
     Args:
@@ -126,10 +134,10 @@ async def get_alert_rule(
     """
     try:
         rule = await service.get_alert_rule(rule_id=rule_id, user_id=current_user.sub)
-    except PermissionError:
+    except PermissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this rule"
-        )
+        ) from exc
 
     if not rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert rule not found")
@@ -140,9 +148,9 @@ async def get_alert_rule(
 async def update_alert_rule(
     rule_id: str,
     request: AlertRuleUpdate,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
-):
+) -> typing.Any:
     """Update an alert rule.
 
     Args:
@@ -161,12 +169,12 @@ async def update_alert_rule(
     return rule
 
 
-@router.delete("/rules/{rule_id}", summary="Delete alert rule")
+@router.delete("/rules/{rule_id}", summary="Delete alert rule", response_model=None)
 async def delete_alert_rule(
     rule_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
-):
+) -> typing.Any:
     """Delete an alert rule.
 
     Args:
@@ -196,7 +204,7 @@ async def delete_alert_rule(
 
 @router.get("/", response_model=AlertListResponse, summary="List alerts")
 async def list_alerts(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
     alert_type: str | None = Query(None, description="Alert type filter"),
     severity: str | None = Query(None, description="Alert severity filter"),
@@ -204,7 +212,7 @@ async def list_alerts(
     is_read: bool | None = Query(None, description="Read status filter"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-):
+) -> typing.Any:
     """Get the list of alerts for the current user.
 
     Args:
@@ -236,9 +244,9 @@ async def list_alerts(
 @router.get("/{alert_id}", response_model=AlertResponse, summary="Get alert details")
 async def get_alert(
     alert_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
-):
+) -> typing.Any:
     """Get an alert by ID.
 
     Args:
@@ -254,22 +262,22 @@ async def get_alert(
     """
     try:
         alert = await service.get_alert(alert_id=alert_id, user_id=current_user.sub)
-    except PermissionError:
+    except PermissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this alert"
-        )
+        ) from exc
 
     if not alert:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
     return alert
 
 
-@router.put("/{alert_id}/read", summary="Mark alert as read")
+@router.put("/{alert_id}/read", summary="Mark alert as read", response_model=None)
 async def mark_alert_read(
     alert_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
-):
+) -> typing.Any:
     """Mark an alert as read.
 
     Args:
@@ -293,12 +301,12 @@ async def mark_alert_read(
     return {"message": "Alert has been marked as read"}
 
 
-@router.put("/{alert_id}/resolve", summary="Resolve alert")
+@router.put("/{alert_id}/resolve", summary="Resolve alert", response_model=None)
 async def resolve_alert(
     alert_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
-):
+) -> typing.Any:
     """Resolve an alert.
 
     Args:
@@ -323,12 +331,12 @@ async def resolve_alert(
     return {"message": "Alert has been resolved"}
 
 
-@router.put("/{alert_id}/acknowledge", summary="Acknowledge alert")
+@router.put("/{alert_id}/acknowledge", summary="Acknowledge alert", response_model=None)
 async def acknowledge_alert(
     alert_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
-):
+) -> typing.Any:
     """Acknowledge an alert.
 
     Args:
@@ -356,11 +364,11 @@ async def acknowledge_alert(
 # ==================== Alert Statistics API ====================
 
 
-@router.get("/statistics/summary", summary="Get alert statistics summary")
+@router.get("/statistics/summary", summary="Get alert statistics summary", response_model=None)
 async def get_alert_summary(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
-):
+) -> typing.Any:
     """Get the alert statistics summary for the current user.
 
     Args:
@@ -373,13 +381,13 @@ async def get_alert_summary(
     return await service.get_alert_summary(user_id=current_user.sub)
 
 
-@router.get("/statistics/by-type", summary="Get alert statistics by type")
+@router.get("/statistics/by-type", summary="Get alert statistics by type", response_model=None)
 async def get_alerts_by_type(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
     start_date: str = Query(..., description="Start date"),
     end_date: str = Query(..., description="End date"),
-):
+) -> typing.Any:
     """Get alert statistics grouped by type for a date range.
 
     Args:
@@ -402,7 +410,7 @@ async def get_alerts_by_type(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid date format: {e}"
-        )
+        ) from e
 
     stats = await service.get_alerts_by_type(
         user_id=current_user.sub, start_dt=start_dt, end_dt=end_dt
@@ -415,8 +423,8 @@ async def get_alerts_by_type(
 
 @router.websocket("/ws/alerts")
 async def alerts_websocket(
-    websocket,
-):
+    websocket: WebSocket,
+) -> typing.Any:
     """WebSocket endpoint for alert real-time updates.
 
     Pushes:
@@ -438,15 +446,21 @@ async def alerts_websocket(
     Args:
         websocket: The WebSocket connection instance.
     """
+    current_user, accepted_subprotocol = get_websocket_current_user(websocket)
+    if current_user is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     client_id = f"ws-alerts-client-{id(websocket)}"
+    channel = f"alert:{current_user.sub}"
 
     # Establish connection
-    await ws_manager.connect(websocket, "alerts:global", client_id)
+    await ws_manager.connect(websocket, channel, client_id, accepted_subprotocol)
 
     try:
         # Send initial message
         await ws_manager.send_to_task(
-            "alerts:global",
+            channel,
             {
                 "type": MessageType.CONNECTED,
                 "message": "Alert monitoring WebSocket connection successful",
@@ -461,6 +475,9 @@ async def alerts_websocket(
             # and pushed via WebSocket
             # Temporarily using polling; should use event-driven in production
 
-    except Exception as e:
-        logger.error(f"Alerts WebSocket error: {e}")
-        ws_manager.disconnect(websocket, "alerts:global", client_id)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logger.exception("Alerts WebSocket error for user %s", current_user.sub)
+    finally:
+        ws_manager.disconnect(websocket, channel, client_id)

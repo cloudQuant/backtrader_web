@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    title="切换商品"
+    :title="t('workspaceDialogs.csTitle')"
     width="420px"
     destroy-on-close
     @update:model-value="$emit('update:modelValue', $event)"
@@ -10,19 +10,19 @@
       label-width="80px"
       size="small"
     >
-      <el-form-item label="商品代码">
+      <el-form-item :label="t('workspaceDialogs.csSymbolCode')">
         <el-input
           v-model="form.symbol"
-          placeholder="如 000001"
+          :placeholder="t('workspaceDialogs.csSymbolCodeHint')"
         />
       </el-form-item>
-      <el-form-item label="商品名称">
+      <el-form-item :label="t('workspaceDialogs.csSymbolName')">
         <el-input
           v-model="form.symbol_name"
-          placeholder="如 平安银行"
+          :placeholder="t('workspaceDialogs.csSymbolNameHint')"
         />
       </el-form-item>
-      <el-form-item label="周期">
+      <el-form-item :label="t('workspaceDialogs.csTimeframe')">
         <el-select
           v-model="form.timeframe"
           style="width: 100%"
@@ -61,26 +61,26 @@
           />
         </el-select>
       </el-form-item>
-      <el-form-item label="应用范围">
+      <el-form-item :label="t('workspaceDialogs.csApplyScope')">
         <el-radio-group v-model="applyScope">
           <el-radio value="single">
-            仅当前单元
+            {{ t('workspaceDialogs.csScopeSingle') }}
           </el-radio>
           <el-radio value="selected">
-            所有选中单元
+            {{ t('workspaceDialogs.csScopeSelected') }}
           </el-radio>
         </el-radio-group>
       </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="$emit('update:modelValue', false)">
-        取消
+        {{ t('common.cancel') }}
       </el-button>
       <el-button
         type="primary"
         @click="handleSave"
       >
-        确定
+        {{ t('workspaceDialogs.csConfirm') }}
       </el-button>
     </template>
   </el-dialog>
@@ -88,10 +88,13 @@
 
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { workspaceApi } from '@/api/workspace'
 import { getErrorMessage } from '@/api/index'
 import type { StrategyUnit } from '@/types/workspace'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: boolean
@@ -122,7 +125,7 @@ watch(() => props.unit, (u) => {
 
 async function handleSave() {
   if (!form.symbol) {
-    ElMessage.warning('请输入商品代码')
+    ElMessage.warning(t('workspaceDialogs.csInputSymbol'))
     return
   }
   try {
@@ -134,11 +137,11 @@ async function handleSave() {
         timeframe: form.timeframe,
       })
     }
-    ElMessage.success(`已切换 ${ids.length} 个单元的商品`)
+    ElMessage.success(t('workspaceDialogs.csSwitchedNUnits', { n: ids.length }))
     emit('saved')
     emit('update:modelValue', false)
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '切换失败'))
+    ElMessage.error(getErrorMessage(e, t('workspaceDialogs.csSwitchFailed')))
   }
 }
 </script>

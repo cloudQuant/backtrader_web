@@ -110,70 +110,18 @@ class FundNewFoundEm(AkshareToMySql):
             return False
 
         try:
-            # 获取已存在的数据ID
-            existing_ids = {
-                row[0]
-                for row in self.query_data(
-                    f"SELECT r_id FROM {self.table_name} WHERE is_active = 1"  # nosec B608
-                )
-                or []
-            }
+            save_df = df.copy()
+            save_df["is_active"] = 1
+            save_df["data_source"] = "天天基金"
 
-            # 插入新数据
-            new_data = df[~df["r_id"].isin(existing_ids)]
-            if not new_data.empty:
-                self.insert_data(
-                    new_data,
-                    self.table_name,
-                    [
-                        "r_id",
-                        "fund_code",
-                        "fund_name",
-                        "company",
-                        "fund_type",
-                        "subscription_period",
-                        "raised_amount",
-                        "establish_date",
-                        "return_since_establish",
-                        "manager",
-                        "subscription_status",
-                        "preferential_rate",
-                        "update_date",
-                    ],
-                )
-                self.logger.info(f"Inserted {len(new_data)} new records")
-
-            # 更新已有数据
-            updated_data = df[df["r_id"].isin(existing_ids)]
-            if not updated_data.empty:
-                for _, row in updated_data.iterrows():
-                    self.execute_sql(
-                        f"""  # nosec B608
-                        UPDATE {self.table_name}
-                        SET fund_name=%s, company=%s, fund_type=%s,
-                            subscription_period=%s, raised_amount=%s, establish_date=%s,
-                            return_since_establish=%s, manager=%s, subscription_status=%s,
-                            preferential_rate=%s, update_date=%s, updatedate=CURRENT_TIMESTAMP
-                        WHERE r_id=%s
-                        """,
-                        (
-                            row["fund_name"],
-                            row["company"],
-                            row["fund_type"],
-                            row["subscription_period"],
-                            row["raised_amount"],
-                            row["establish_date"],
-                            row["return_since_establish"],
-                            row["manager"],
-                            row["subscription_status"],
-                            row["preferential_rate"],
-                            row["update_date"],
-                            row["r_id"],
-                        ),
-                    )
-                self.logger.info(f"Updated {len(updated_data)} records")
-
-            return True
+            saved_rows = self.save_data(
+                save_df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["R_ID"],
+            )
+            self.logger.info("Upserted %s new fund records", saved_rows)
+            return bool(saved_rows)
 
         except Exception as e:
             self.logger.error(f"Error saving data: {e}")

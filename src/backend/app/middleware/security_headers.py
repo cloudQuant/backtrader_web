@@ -51,10 +51,14 @@ class SecurityHeadersMiddleware:
         self.settings = get_settings()
 
         # Pre-compute CSP header
+        # In DEBUG, Vite's HMR client and a handful of dev tools rely on
+        # inline scripts and `eval`. In production we want to drop both:
+        # the bundled SPA only ships hashed module scripts from /assets,
+        # so 'self' is sufficient for script-src.
         script_src = (
             "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
             if self.settings.DEBUG
-            else "script-src 'self' 'unsafe-inline'; "
+            else "script-src 'self'; "
         )
         self._csp = (
             "default-src 'self'; "
@@ -81,7 +85,9 @@ class SecurityHeadersMiddleware:
                 headers = MutableHeaders(scope=message)
                 headers.append("X-Content-Type-Options", "nosniff")
                 headers.append("X-Frame-Options", "DENY")
-                headers.append("X-XSS-Protection", "1; mode=block")
+                # Modern guidance (OWASP, MDN) is to disable the legacy XSS
+                # auditor; rely on CSP for XSS mitigation instead.
+                headers.append("X-XSS-Protection", "0")
                 headers.append("Referrer-Policy", "strict-origin-when-cross-origin")
                 headers.append(
                     "Permissions-Policy",
@@ -101,9 +107,6 @@ class SecurityHeadersMiddleware:
                     headers.append("Expires", "0")
                 else:
                     headers["Cache-Control"] = "no-cache"
-
-                if self.settings.DEBUG:
-                    headers.append("X-Powered-By", "Backtrader Web")
 
             await send(message)
 

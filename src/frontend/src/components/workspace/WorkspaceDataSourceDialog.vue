@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    title="工作区数据源配置"
+    :title="t('workspaceDialogs.wsDataSourceTitle')"
     width="720px"
     @update:model-value="$emit('update:modelValue', $event)"
     @open="initForm"
@@ -10,10 +10,10 @@
       :model="form"
       label-width="110px"
     >
-      <el-form-item label="数据源类型">
+      <el-form-item :label="t('workspaceDialogs.dataSourceType')">
         <el-radio-group v-model="form.type">
           <el-radio value="csv">
-            本地 CSV
+            {{ t('workspaceDialogs.local') }} CSV
           </el-radio>
           <el-radio value="mysql">
             MySQL
@@ -28,15 +28,15 @@
       </el-form-item>
 
       <template v-if="form.type === 'csv'">
-        <el-form-item label="数据目录">
+        <el-form-item :label="t('workspaceDialogs.dataDir')">
           <el-input
             v-model="form.csv.directory_path"
-            placeholder="请输入保存 CSV 数据的文件夹路径"
+            :placeholder="t('workspaceDialogs.inputDirHint') + ' CSV ' + t('workspaceDialogs.dataDirSuffix')"
           />
         </el-form-item>
         <el-row :gutter="16">
           <el-col :span="8">
-            <el-form-item label="分隔符">
+            <el-form-item :label="t('workspaceDialogs.delimiter')">
               <el-input
                 v-model="form.csv.delimiter"
                 maxlength="3"
@@ -44,12 +44,12 @@
             </el-form-item>
           </el-col>
           <el-col :span="8">
-            <el-form-item label="编码">
+            <el-form-item :label="t('workspaceDialogs.encoding')">
               <el-input v-model="form.csv.encoding" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
-            <el-form-item label="包含表头">
+            <el-form-item :label="t('workspaceDialogs.includeHeader')">
               <el-switch v-model="form.csv.has_header" />
             </el-form-item>
           </el-col>
@@ -59,12 +59,12 @@
       <template v-else-if="form.type === 'mysql'">
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="主机">
+            <el-form-item :label="t('workspaceDialogs.host')">
               <el-input v-model="form.mysql.host" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="端口">
+            <el-form-item :label="t('workspaceDialogs.port')">
               <el-input-number
                 v-model="form.mysql.port"
                 :min="1"
@@ -76,24 +76,24 @@
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="数据库">
+            <el-form-item :label="t('workspaceDialogs.database')">
               <el-input v-model="form.mysql.database" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="表名">
+            <el-form-item :label="t('workspaceDialogs.tableName')">
               <el-input v-model="form.mysql.table" />
             </el-form-item>
           </el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="用户名">
+            <el-form-item :label="t('workspaceDialogs.username')">
               <el-input v-model="form.mysql.username" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="密码">
+            <el-form-item :label="t('workspaceDialogs.password')">
               <el-input
                 v-model="form.mysql.password"
                 type="password"
@@ -107,12 +107,12 @@
       <template v-else-if="form.type === 'postgresql'">
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="主机">
+            <el-form-item :label="t('workspaceDialogs.host')">
               <el-input v-model="form.postgresql.host" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="端口">
+            <el-form-item :label="t('workspaceDialogs.port')">
               <el-input-number
                 v-model="form.postgresql.port"
                 :min="1"
@@ -124,7 +124,7 @@
         </el-row>
         <el-row :gutter="16">
           <el-col :span="8">
-            <el-form-item label="数据库">
+            <el-form-item :label="t('workspaceDialogs.database')">
               <el-input v-model="form.postgresql.database" />
             </el-form-item>
           </el-col>
@@ -134,19 +134,19 @@
             </el-form-item>
           </el-col>
           <el-col :span="8">
-            <el-form-item label="表名">
+            <el-form-item :label="t('workspaceDialogs.tableName')">
               <el-input v-model="form.postgresql.table" />
             </el-form-item>
           </el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="用户名">
+            <el-form-item :label="t('workspaceDialogs.username')">
               <el-input v-model="form.postgresql.username" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="密码">
+            <el-form-item :label="t('workspaceDialogs.password')">
               <el-input
                 v-model="form.postgresql.password"
                 type="password"
@@ -158,29 +158,29 @@
       </template>
 
       <template v-else-if="form.type === 'mongodb'">
-        <el-form-item label="连接 URI">
+        <el-form-item :label="t('workspaceDialogs.connection') + ' URI'">
           <el-input v-model="form.mongodb.uri" />
         </el-form-item>
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="数据库">
+            <el-form-item :label="t('workspaceDialogs.database')">
               <el-input v-model="form.mongodb.database" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="集合">
+            <el-form-item :label="t('workspaceDialogs.collectionName')">
               <el-input v-model="form.mongodb.collection" />
             </el-form-item>
           </el-col>
         </el-row>
         <el-row :gutter="16">
           <el-col :span="8">
-            <el-form-item label="用户名">
+            <el-form-item :label="t('workspaceDialogs.username')">
               <el-input v-model="form.mongodb.username" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
-            <el-form-item label="密码">
+            <el-form-item :label="t('workspaceDialogs.password')">
               <el-input
                 v-model="form.mongodb.password"
                 type="password"
@@ -189,7 +189,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="8">
-            <el-form-item label="认证库">
+            <el-form-item :label="t('workspaceDialogs.authDb')">
               <el-input v-model="form.mongodb.auth_source" />
             </el-form-item>
           </el-col>
@@ -199,14 +199,14 @@
 
     <template #footer>
       <el-button @click="$emit('update:modelValue', false)">
-        取消
+        {{ t('workspaceDialogs.cancel') }}
       </el-button>
       <el-button
         type="primary"
         :loading="saving"
         @click="handleSave"
       >
-        保存
+        {{ t('workspaceDialogs.save') }}
       </el-button>
     </template>
   </el-dialog>
@@ -215,10 +215,12 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getErrorMessage } from '@/api/index'
 import type { Workspace, WorkspaceDataSourceConfig } from '@/types/workspace'
 
+const { t } = useI18n()
 const props = defineProps<{
   modelValue: boolean
   workspaceId: string
@@ -306,11 +308,11 @@ async function handleSave() {
         data_source: JSON.parse(JSON.stringify(form.value)),
       },
     })
-    ElMessage.success('工作区数据源配置已保存')
+    ElMessage.success(t('workspaceDialogs.wsDataSourceSaved'))
     emit('update:modelValue', false)
     emit('saved')
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '保存失败'))
+    ElMessage.error(getErrorMessage(e, t('workspaceDialogs.dataSourceSaveFailed')))
   } finally {
     saving.value = false
   }

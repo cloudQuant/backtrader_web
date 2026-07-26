@@ -53,11 +53,11 @@ class FuturesCommissionInfo(AkshareToMySql):
 
                                 """
 
-    def run(self):
+    def run(self, symbol="所有"):
         if not self.table_exists(self.table_name):
             self.create_table(self.create_table_sql)
-        # df = ak.futures_comm_info(symbol="所有")
-        df = self.fetch_ak_data("futures_comm_info", "所有")
+        # df = ak.futures_comm_info(symbol=symbol)
+        df = self.fetch_ak_data("futures_comm_info", symbol)
         if df is not None and not df.empty:
             self.logger.info(f"成功获取期货交易佣金费用，共 {len(df)} 条记录")
             self.logger.info(f"数据列名: {list(df.columns)}")

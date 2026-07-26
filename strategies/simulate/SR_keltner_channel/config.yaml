@@ -4,7 +4,7 @@
 strategy:
   name: "白糖肯特纳通道策略2"
   description: "基于肯特纳通道的趋势策略 - 白糖期货"
-  author: "backtrader_web"
+  author: "ai-for-investor"
   category: "simulate"
   
 # ============================================================

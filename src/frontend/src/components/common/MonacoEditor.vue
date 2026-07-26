@@ -72,7 +72,7 @@ onUnmounted(() => {
 
 <style scoped>
 .monaco-editor-container {
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   overflow: hidden;
 }

@@ -26,7 +26,7 @@ class StockSyYqEm(AkshareToMySql):
             `data_date` DATE COMMENT '数据日期',
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
             `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-        UNIQUE KEY uk_symbol_date (`symbol`, `data_date`),
+        INDEX idx_symbol_date (`symbol`, `data_date`),
         INDEX idx_data_date (`data_date`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Stock Sy Yq Em'
     """
@@ -48,9 +48,16 @@ class StockSyYqEm(AkshareToMySql):
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
+            df = df.copy()
+            if "股票代码" in df.columns:
+                df["symbol"] = df["股票代码"].astype(str).str.zfill(6)
+            if "股票简称" in df.columns:
+                df["name"] = df["股票简称"].astype(str).str.slice(0, 100)
+            if "公告日期" in df.columns:
+                df["data_date"] = pd.to_datetime(df["公告日期"], errors="coerce").dt.date
+            elif "最新商誉报告期" in df.columns:
+                df["data_date"] = pd.to_datetime(df["最新商誉报告期"], errors="coerce").dt.date
+            elif "data_date" not in df.columns:
                 df["data_date"] = pd.Timestamp.now().date()
 
             # Save to database

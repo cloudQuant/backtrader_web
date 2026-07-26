@@ -4,7 +4,7 @@
 strategy:
   name: "MT5 EMA+ATR移动止损策略"
   description: "基于EMA趋势方向和ATR动态止损的策略，适用于MT5外汇品种。EMA趋势向上时做多，ATR移动止损保护利润。"
-  author: "backtrader_web"
+  author: "ai-for-investor"
 
 # ============================================================
 # 策略参数

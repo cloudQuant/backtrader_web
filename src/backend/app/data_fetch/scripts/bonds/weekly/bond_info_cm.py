@@ -5,6 +5,7 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
+import requests
 import urllib3
 
 from app.data_fetch.configs.db_config import DB_CONFIG
@@ -12,6 +13,29 @@ from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
 # 忽略SSL警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+_BOND_INFO_CM_COLUMNS = [
+    "债券简称",
+    "债券代码",
+    "发行人/受托机构",
+    "债券类型",
+    "发行日期",
+    "最新债项评级",
+    "查询代码",
+]
+
+
+def _post_chinamoney_json(
+    session: requests.Session,
+    url: str,
+    payload: dict[str, str],
+    headers: dict[str, str],
+) -> dict:
+    """Request one ChinaMoney result page without depending on AkShare internals."""
+    response = session.post(url, data=payload, headers=headers, timeout=30)
+    response.raise_for_status()
+    data = response.json()
+    return data if isinstance(data, dict) else {}
 
 
 class BondInfoCm(AkshareToMySql):
@@ -46,7 +70,65 @@ class BondInfoCm(AkshareToMySql):
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='中国外汇交易中心-债券信息查询数据表';
         """
 
-    def fetch_bond_info(self):
+    def _fetch_limited_bond_info(self, max_pages: int) -> pd.DataFrame:
+        url = "https://www.chinamoney.com.cn/ags/ms/cm-u-bond-md/BondMarketInfoList2"
+        payload = {
+            "pageNo": "1",
+            "pageSize": "15",
+            "bondName": "",
+            "bondCode": "",
+            "issueEnty": "",
+            "bondType": "",
+            "bondSpclPrjctVrty": "",
+            "couponType": "",
+            "issueYear": "",
+            "entyDefinedCode": "",
+            "rtngShrt": "",
+        }
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36"
+            )
+        }
+        session = __import__("requests").Session()
+
+        data_json = _post_chinamoney_json(session, url, payload, headers)
+        data = data_json.get("data") or {}
+        total_page = int(data.get("pageTotal") or 0)
+        page_limit = min(total_page, max(1, int(max_pages)))
+        records = data.get("resultList") or []
+        frames = [pd.DataFrame(records)] if records else []
+
+        for page in range(2, page_limit + 1):
+            payload.update({"pageNo": str(page)})
+            data_json = _post_chinamoney_json(session, url, payload, headers)
+            records = (data_json.get("data") or {}).get("resultList") or []
+            if records:
+                frames.append(pd.DataFrame(records))
+
+        if not frames:
+            return pd.DataFrame(columns=_BOND_INFO_CM_COLUMNS)
+
+        big_df = pd.concat(frames, ignore_index=True)
+        big_df.rename(
+            columns={
+                "bondDefinedCode": "查询代码",
+                "bondName": "债券简称",
+                "bondCode": "债券代码",
+                "issueStartDate": "发行日期",
+                "bondType": "债券类型",
+                "entyFullName": "发行人/受托机构",
+                "debtRtng": "最新债项评级",
+            },
+            inplace=True,
+        )
+        for column in _BOND_INFO_CM_COLUMNS:
+            if column not in big_df.columns:
+                big_df[column] = pd.NA
+        return big_df[_BOND_INFO_CM_COLUMNS]
+
+    def fetch_bond_info(self, max_pages=None):
         """
         从AKShare获取债券信息数据
 
@@ -56,8 +138,10 @@ class BondInfoCm(AkshareToMySql):
         try:
             self.logger.info("Fetching bond information from China Money")
 
-            # 使用父类的fetch_ak_data方法，使用默认参数
-            df = self.fetch_ak_data("bond_info_cm")
+            if max_pages is not None:
+                df = self._fetch_limited_bond_info(max_pages=int(max_pages))
+            else:
+                df = self.fetch_ak_data("bond_info_cm")
 
             if df is None or df.empty:
                 self.logger.warning("No bond information found")
@@ -123,7 +207,7 @@ class BondInfoCm(AkshareToMySql):
             self.logger.error(f"Error fetching bond information: {str(e)}", exc_info=True)
             return pd.DataFrame()
 
-    def run(self):
+    def run(self, max_pages=None, **kwargs):
         """
         执行债券信息获取任务
 
@@ -138,19 +222,14 @@ class BondInfoCm(AkshareToMySql):
                 self.create_table(self.create_table_sql)
                 self.logger.info(f"Created table {self.table_name}")
 
-            # 获取数据
-            code_df = self.fetch_ak_data("bond_info_cm_query")
-            code_list = code_df["name"].to_list()
-            for _code in code_list:
-                df = self.fetch_bond_info()
-                if not df.empty:
-                    # 保存数据
-                    return self.save_data(
-                        df=df.replace(np.nan, None),
-                        table_name=self.table_name,
-                        on_duplicate_update=True,
-                        unique_keys=["BASEDATE", "BOND_CODE", "QUERY_CODE"],
-                    )
+            df = self.fetch_bond_info(max_pages=max_pages)
+            if not df.empty:
+                return self.save_data(
+                    df=df.replace(np.nan, None),
+                    table_name=self.table_name,
+                    on_duplicate_update=True,
+                    unique_keys=["BASEDATE", "BOND_CODE", "QUERY_CODE"],
+                )
 
             self.logger.warning("No bond data to process")
             return False

@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    title="策略研究--优化参数设置"
+    :title="t('workspaceDialogs.strategyResearch') + '--' + t('workspaceDialogs.optTitle')"
     width="750px"
     @update:model-value="$emit('update:modelValue', $event)"
     @open="initForm"
@@ -13,34 +13,34 @@
       label-width="120px"
       size="default"
     >
-      <el-form-item label="源策略单元">
+      <el-form-item :label="t('workspaceDialogs.sourceUnit')">
         <span class="font-medium">{{ unit.strategy_name || unit.strategy_id }} @ {{ unit.symbol }}_{{ unit.timeframe }}</span>
       </el-form-item>
 
       <el-row :gutter="20">
         <el-col :span="12">
-          <el-form-item label="优化目标">
+          <el-form-item :label="t('workspaceDialogs.optTarget')">
             <el-select
               v-model="form.objective"
               style="width: 100%"
             >
               <el-option
-                label="夏普比率最大"
+                :label="t('workspaceDialogs.optGoalMaxSharpe')"
                 value="sharpe_max"
               />
               <el-option
-                label="最大收益"
+                :label="t('workspaceDialogs.optGoalMaxReturn')"
                 value="max_return"
               />
               <el-option
-                label="最小回撤"
+                :label="t('workspaceDialogs.optGoalMinDrawdown')"
                 value="min_drawdown"
               />
             </el-select>
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="最优显示">
+          <el-form-item :label="t('workspaceDialogs.optGoalDisplay')">
             <el-input-number
               v-model="form.max_display"
               :min="100"
@@ -48,14 +48,14 @@
               :step="100"
               style="width: 140px"
             />
-            <span class="ml-1 text-gray-400">条</span>
+            <span class="ml-1 text-gray-400">{{ t('workspaceDialogs.counterRow') }}</span>
           </el-form-item>
         </el-col>
       </el-row>
 
       <el-row :gutter="20">
         <el-col :span="12">
-          <el-form-item label="初始资金(万)">
+          <el-form-item :label="t('workspaceDialogs.initialCash') + '(' + t('workspaceDialogs.wanUnit') + ')'">
             <el-input-number
               v-model="form.initial_cash_wan"
               :min="1"
@@ -65,13 +65,13 @@
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="计算方式">
+          <el-form-item :label="t('units.config')">
             <el-radio-group v-model="form.calculation_method">
               <el-radio value="geometric">
-                几何
+                {{ t('workspaceDialogs.paramGeo') }}
               </el-radio>
               <el-radio value="arithmetic">
-                算术
+                {{ t('workspaceDialogs.paramArith') }}
               </el-radio>
             </el-radio-group>
           </el-form-item>
@@ -79,7 +79,7 @@
       </el-row>
 
       <el-divider content-position="left">
-        参数列表
+        {{ t('workspaceDialogs.paramList') }}
       </el-divider>
 
       <el-table
@@ -89,7 +89,7 @@
         class="mb-4"
       >
         <el-table-column
-          label="参数名"
+          :label="t('workspaceDialogs.paramName')"
           width="120"
         >
           <template #default="{ row }">
@@ -100,16 +100,16 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="类型"
+          :label="t('optimization.paramType')"
           width="80"
           align="center"
         >
           <template #default>
-            数值型
+            {{ t('workspaceDialogs.paramNumeric') }}
           </template>
         </el-table-column>
         <el-table-column
-          label="当前值"
+          :label="t('workspaceDialogs.paramCurrent')"
           width="100"
         >
           <template #default="{ row }">
@@ -122,7 +122,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="优化设置"
+          :label="t('workspaceDialogs.optSettings')"
           min-width="240"
         >
           <template #default="{ row }">
@@ -133,11 +133,11 @@
                 style="width: 80px"
               >
                 <el-option
-                  label="等差"
+                  :label="t('workspaceDialogs.paramArith')"
                   value="equal_diff"
                 />
                 <el-option
-                  label="固定"
+                  :label="t('workspaceDialogs.paramFixed')"
                   value="fixed"
                 />
               </el-select>
@@ -147,7 +147,7 @@
                   :controls="false"
                   size="small"
                   style="width: 70px"
-                  placeholder="起始"
+                  :placeholder="t('optimization.timeStart')"
                 />
                 <span>~</span>
                 <el-input-number
@@ -155,7 +155,7 @@
                   :controls="false"
                   size="small"
                   style="width: 70px"
-                  placeholder="结束"
+                  :placeholder="t('optimization.timeEnd')"
                 />
                 <span>,</span>
                 <el-input-number
@@ -163,7 +163,7 @@
                   :controls="false"
                   size="small"
                   style="width: 60px"
-                  placeholder="步长"
+                  :placeholder="t('workspaceDialogs.paramStep')"
                 />
               </template>
             </div>
@@ -181,7 +181,7 @@
               size="small"
               @click="form.param_layers.splice($index, 1)"
             >
-              <el-icon><Delete /></el-icon>
+              <el-icon aria-hidden="true"><Delete /></el-icon>
             </el-button>
           </template>
         </el-table-column>
@@ -191,27 +191,27 @@
         size="small"
         @click="addParamLayer"
       >
-        添加参数
+        {{ t('workspaceDialogs.addParam') }}
       </el-button>
     </el-form>
 
     <template #footer>
       <el-button @click="$emit('update:modelValue', false)">
-        取消
+        {{ t('workspaceDialogs.cancel') }}
       </el-button>
       <el-button
         type="primary"
         :loading="saving"
         @click="handleSave"
       >
-        保存配置
+        {{ t('workspaceDialogs.saveConfig') }}
       </el-button>
       <el-button
         type="success"
         :loading="submitting"
         @click="handleSubmitOptimization"
       >
-        保存并提交优化
+        {{ t('workspaceDialogs.saveAndSubmit') }}
       </el-button>
     </template>
   </el-dialog>
@@ -222,10 +222,13 @@ import { ref } from 'vue'
 import type { FormInstance } from 'element-plus'
 import { ElMessage } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { workspaceApi } from '@/api/workspace'
 import { getErrorMessage } from '@/api/index'
 import type { StrategyUnit } from '@/types/workspace'
+
+const { t } = useI18n()
 
 interface ParamLayer {
   param_name: string
@@ -354,11 +357,11 @@ async function handleSave() {
         param_layers: form.value.param_layers,
       },
     })
-    ElMessage.success('优化参数设置已保存')
+    ElMessage.success(t('workspaceDialogs.optSaved'))
     emit('update:modelValue', false)
     emit('saved')
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '保存失败'))
+    ElMessage.error(getErrorMessage(e, t('workspaceDialogs.saveFailed')))
   } finally {
     saving.value = false
   }
@@ -384,7 +387,7 @@ async function handleSubmitOptimization() {
   if (!props.unit) return
   const paramRanges = _buildParamRanges()
   if (Object.keys(paramRanges).length === 0) {
-    ElMessage.warning('请至少设置一个有效的等差优化参数（起始 < 结束，步长 > 0）')
+    ElMessage.warning(t('workspaceDialogs.optTitle') + ': ' + t('workspaceDialogs.paramArith') + ' (' + t('optimization.timeStart') + ' < ' + t('optimization.timeEnd') + ', ' + t('workspaceDialogs.paramStep') + ' > 0)')
     return
   }
   const totalCombinations = calculateTotalCombinations(paramRanges)
@@ -431,11 +434,11 @@ async function handleSubmitOptimization() {
 
     await store.pollStatus(props.workspaceId)
 
-    ElMessage.success(`优化任务已提交，共 ${result.total_combinations} 种组合`)
+    ElMessage.success(`${t('workspaceDialogs.optSubmitted')}, ${t('workspaceDialogs.counterTotal')} ${result.total_combinations} ${t('workspaceDialogs.nCombos')}`)
     emit('update:modelValue', false)
     emit('saved')
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '提交优化失败'))
+    ElMessage.error(getErrorMessage(e, t('workspaceDialogs.submitFailed')))
   } finally {
     submitting.value = false
   }

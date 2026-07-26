@@ -10,6 +10,7 @@ Provides:
 """
 
 import logging
+import typing
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -97,7 +98,7 @@ async def submit_optimization_task_internal(
     n_workers: int,
     user_id: str,
 ) -> OptimizationSubmitResponse:
-    from app.services.optimization_execution_manager import (
+    from app.services.optimization.execution_manager import (
         get_optimization_execution_manager,
     )
     from app.services.param_optimization_service import generate_param_grid
@@ -132,7 +133,7 @@ async def submit_optimization_task_internal(
             persist_to_db=True,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     return OptimizationSubmitResponse(
         task_id=task_id,
@@ -149,7 +150,7 @@ async def submit_backtest_optimization_task_internal(
     request: OptimizationRequest,
     user_id: str,
 ) -> OptimizationSubmitResponse:
-    from app.services.optimization_execution_manager import (
+    from app.services.optimization.execution_manager import (
         get_optimization_execution_manager,
     )
 
@@ -182,7 +183,7 @@ async def submit_backtest_optimization_task_internal(
             persist_to_db=True,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     return OptimizationSubmitResponse(
         task_id=task_id,
@@ -197,11 +198,13 @@ async def submit_backtest_optimization_task_internal(
 # ---- Endpoints ----
 
 
-@router.get("/strategy-params/{strategy_id}", summary="Get strategy default parameters")
+@router.get(
+    "/strategy-params/{strategy_id}", summary="Get strategy default parameters", response_model=None
+)
 async def get_strategy_params(
     strategy_id: str,
-    current_user=Depends(get_current_user),
-):
+    current_user: typing.Any = Depends(get_current_user),
+) -> typing.Any:
     """Return strategy parameter specifications (name/type/default/description).
 
     Args:
@@ -237,8 +240,8 @@ async def get_strategy_params(
 )
 async def submit_optimization_task(
     request: OptimizationSubmitRequest,
-    current_user=Depends(get_current_user),
-):
+    current_user: typing.Any = Depends(get_current_user),
+) -> typing.Any:
     """Submit an optimization task and return a task ID.
 
     Args:
@@ -268,19 +271,19 @@ async def submit_optimization_task(
 )
 async def submit_backtest_optimization_task(
     request: OptimizationRequest,
-    current_user=Depends(get_current_user),
-):
+    current_user: typing.Any = Depends(get_current_user),
+) -> typing.Any:
     return await submit_backtest_optimization_task_internal(
         request=request,
         user_id=current_user.sub,
     )
 
 
-@router.get("/progress/{task_id}", summary="Query optimization progress")
+@router.get("/progress/{task_id}", summary="Query optimization progress", response_model=None)
 async def get_progress(
     task_id: str,
-    current_user=Depends(get_current_user),
-):
+    current_user: typing.Any = Depends(get_current_user),
+) -> typing.Any:
     """Return current progress of an optimization task.
 
     Task may be in DB (persisted) or in-memory. Ownership is enforced via user_id.
@@ -302,11 +305,11 @@ async def get_progress(
     return progress
 
 
-@router.get("/results/{task_id}", summary="Get optimization results")
+@router.get("/results/{task_id}", summary="Get optimization results", response_model=None)
 async def get_results(
     task_id: str,
-    current_user=Depends(get_current_user),
-):
+    current_user: typing.Any = Depends(get_current_user),
+) -> typing.Any:
     """Return full results of an optimization task.
 
     Args:
@@ -325,11 +328,11 @@ async def get_results(
     return results
 
 
-@router.post("/cancel/{task_id}", summary="Cancel optimization task")
+@router.post("/cancel/{task_id}", summary="Cancel optimization task", response_model=None)
 async def cancel_task(
     task_id: str,
-    current_user=Depends(get_current_user),
-):
+    current_user: typing.Any = Depends(get_current_user),
+) -> typing.Any:
     """Cancel a running optimization task.
 
     Cancellation is persisted to DB for cross-instance visibility. If the task

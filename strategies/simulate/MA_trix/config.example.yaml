@@ -4,7 +4,7 @@
 strategy:
   name: "甲醇TRIX指标策略"
   description: "三重平滑均线策略 - 甲醇期货"
-  author: "backtrader_web"
+  author: "ai-for-investor"
   category: "simulate"
   
 # ============================================================

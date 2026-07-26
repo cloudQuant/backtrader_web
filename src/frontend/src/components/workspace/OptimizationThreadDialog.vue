@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    title="优化线程设置"
+    :title="t('workspaceDialogs.otdTitle')"
     width="420px"
     destroy-on-close
     @update:model-value="$emit('update:modelValue', $event)"
@@ -10,24 +10,24 @@
       label-width="120px"
       size="small"
     >
-      <el-form-item label="并行线程数">
+      <el-form-item :label="t('workspaceDialogs.otdParallelThreads')">
         <el-input-number
           v-model="form.n_workers"
           :min="1"
           :max="32"
         />
       </el-form-item>
-      <el-form-item label="运行模式">
+      <el-form-item :label="t('workspaceDialogs.otdRunMode')">
         <el-radio-group v-model="form.mode">
           <el-radio value="grid">
-            网格搜索
+            {{ t('workspaceDialogs.otdModeGrid') }}
           </el-radio>
           <el-radio value="random">
-            随机搜索
+            {{ t('workspaceDialogs.otdModeRandom') }}
           </el-radio>
         </el-radio-group>
       </el-form-item>
-      <el-form-item label="超时时间(秒)">
+      <el-form-item :label="t('workspaceDialogs.otdTimeoutSec')">
         <el-input-number
           v-model="form.timeout"
           :min="0"
@@ -35,19 +35,19 @@
           :step="60"
         />
         <div class="text-xs text-gray-400 mt-1">
-          0 表示不限制
+          {{ t('workspaceDialogs.otdTimeoutZeroHint') }}
         </div>
       </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="$emit('update:modelValue', false)">
-        取消
+        {{ t('common.cancel') }}
       </el-button>
       <el-button
         type="primary"
         @click="handleSave"
       >
-        确定
+        {{ t('workspaceDialogs.otdConfirm') }}
       </el-button>
     </template>
   </el-dialog>
@@ -55,10 +55,13 @@
 
 <script setup lang="ts">
 import { reactive, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { workspaceApi } from '@/api/workspace'
 import { getErrorMessage } from '@/api/index'
 import type { StrategyUnit } from '@/types/workspace'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: boolean
@@ -98,11 +101,11 @@ async function handleSave() {
         timeout: form.timeout,
       },
     })
-    ElMessage.success('优化线程设置已保存')
+    ElMessage.success(t('workspaceDialogs.otdSaved'))
     emit('saved')
     emit('update:modelValue', false)
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '保存失败'))
+    ElMessage.error(getErrorMessage(e, t('workspaceDialogs.otdSaveFailed')))
   }
 }
 </script>

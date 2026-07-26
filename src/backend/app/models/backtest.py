@@ -3,12 +3,12 @@ Backtest ORM models.
 """
 
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
+from app.utils.datetime_utils import utc_now_naive
 
 
 class BacktestTask(Base):
@@ -41,11 +41,11 @@ class BacktestTask(Base):
     request_data = Column(JSON)  # Request parameters
     error_message = Column(Text, nullable=True)
     log_dir = Column(Text, nullable=True)  # Task-specific log directory path
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
     )
 
     # Relationships
@@ -87,6 +87,12 @@ class BacktestResultModel(Base):
     max_drawdown = Column(Float, default=0)
     win_rate = Column(Float, default=0)
     metrics_source = Column(String(20), default="manual")  # 'manual' or 'fincore'
+    average_holding_bars = Column(Float, default=0)
+    max_consecutive_wins = Column(Integer, default=0)
+    max_consecutive_losses = Column(Integer, default=0)
+    profit_loss_ratio = Column(Float, default=0)
+    standard_metrics = Column(JSON, default=dict)
+    result_summary = Column(JSON, default=dict)
 
     # Trade statistics
     total_trades = Column(Integer, default=0)
@@ -99,7 +105,7 @@ class BacktestResultModel(Base):
     drawdown_curve = Column(JSON, default=list)
     trades = Column(JSON, default=list)
 
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
 
     # Relationships
     task = relationship("BacktestTask", back_populates="result")

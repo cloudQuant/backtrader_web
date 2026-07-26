@@ -1,28 +1,29 @@
-# Features Overview
+# Features
 
-Backtrader Web provides comprehensive quantitative trading functionality.
+The product is organized around an evidence-to-execution path: research evidence, strategy and validation, trading preparation, and risk observation. Pages are the primary entry point; the running OpenAPI contract is authoritative for API details.
 
-## Core Modules
+## Feature map
 
-| Module | Endpoint | Description |
-|--------|----------|-------------|
-| Authentication | `/api/v1/auth` | JWT auth, register, login |
-| Strategy | `/api/v1/strategy` | CRUD, templates |
-| Backtest | `/api/v1/backtests` | **Recommended** Enhanced backtest |
-| Analytics | `/api/v1/analytics` | Backtest data analysis |
-| Optimization | `/api/v1/optimization` | Parameter optimization |
-| Paper Trading | `/api/v1/paper-trading` | Simulated accounts, orders |
-| Live Trading | `/api/v1/live-trading` | Real accounts, orders |
-| Quote Data | `/api/v1/quote`, `/api/v1/realtime` | Real-time quotes |
-| Monitoring | `/api/v1/monitoring` | Alert rules |
-| Workspace | `/api/v1/workspace` | Workspace management |
+| Workflow | Page entry | Boundary |
+| --- | --- | --- |
+| Knowledge and AI | `/ai/chat`, `/ai/knowledge-base` | Index before asking; answers include context or a readable diagnostic |
+| Market data | `/data/market` | MySQL-first reads; AkShare is called only by an explicit query |
+| Strategies and AI research | `/investment/strategies` | Review code, objectives, and results before use |
+| Backtests and validation | `/research/workspaces`, `/backtest` | Metrics reflect the chosen data/configuration, not a return promise |
+| Trading workspaces | `/trading` | Research state and trading runtime state are managed separately |
+| Portfolio and risk | `/portfolio` | Aggregates accounts, positions, trades, P&L, drawdown, and allocation |
+| Administration | `/config/data`, `/config/ai`, `/config/gateways` | Admin access; secrets stay in environment or a secrets service |
 
-## Feature Details
+## Read next
 
-- [Backtesting](./backtesting.md) - Historical data backtesting with fincore metrics
-- [Strategy Management](./strategy-management.md) - CRUD, version control, templates
-- [Paper Trading](./paper-trading.md) - Simulated trading environment
-- [Live Trading](./live-trading.md) - Real broker integration
-- [Parameter Optimization](./optimization.md) - Grid search, Bayesian optimization
+- [Knowledge base and AI chat](./knowledge-base.md)
+- [Market data and trust](./market-data.md)
+- [Strategies and AI research](./strategy-management.md)
+- [Backtests and validation](./backtesting.md)
+- [Trading workspaces and simulation](./paper-trading.md)
+- [Live-trading preparation and gateways](./live-trading.md)
+- [Parameter optimization](./optimization.md)
 
-> ⚠️ **Deprecation Notice**: Legacy `/api/v1/backtest/*` endpoints are deprecated. Please migrate to `/api/v1/backtests/*`
+## API convention
+
+Core APIs live under `/api/v1`. Common domains include `/strategy`, `/backtests`, `/workspace`, `/data`, `/data/trust`, `/knowledge-base`, `/rag`, `/kb-chat`, `/portfolio`, and `/live-trading`. Some modules are registered conditionally based on installed dependencies and configuration, so do not rely on stale endpoint inventories. Inspect `http://localhost:8000/docs` for the contract actually available in your environment.

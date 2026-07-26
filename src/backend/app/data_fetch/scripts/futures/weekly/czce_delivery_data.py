@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -39,7 +39,9 @@ class FuturesDeliveryCzce(AkshareToMySql):
 
                                 """
 
-    def run(self, start_date=None, end_date=None):
+    def run(
+        self, start_date=None, end_date=None, sleep_seconds=0, lookback_days=None, max_days=None
+    ):
         """
         更新郑州商品交易所交割统计数据
         Args:
@@ -53,18 +55,27 @@ class FuturesDeliveryCzce(AkshareToMySql):
         table_name = "FUTURES_DELIVERY_CZCE"
 
         try:
+            sleep_seconds = float(sleep_seconds or 0)
+            lookback_days = int(lookback_days) if lookback_days is not None else None
+            max_days = int(max_days) if max_days is not None else None
             if end_date is None:
-                end_date = self.get_previous_date().replace("-", "")
+                end_date = self.get_current_date().replace("-", "")
 
             if start_date is None:
                 start_date = self.get_latest_date(self.table_name, "TRADE_DATE")
                 if start_date is None:
                     start_date = "20100101"
                 else:
-                    start_date = self.get_next_date(start_date).replace("-", "")
+                    start_date = start_date.replace("-", "")
 
             start_date_dt = datetime.strptime(start_date, "%Y%m%d").date()
             end_date_dt = datetime.strptime(end_date, "%Y%m%d").date()
+            if lookback_days is not None:
+                lookback_start = end_date_dt - timedelta(days=lookback_days)
+                if start_date_dt < lookback_start:
+                    start_date_dt = lookback_start
+                    start_date = start_date_dt.strftime("%Y%m%d")
+                    self.logger.info(f"限制郑商所交割统计更新为最近 {lookback_days} 天")
 
             if start_date_dt > end_date_dt:
                 self.logger.info(f"开始日期 {start_date} 不能晚于结束日期 {end_date}")
@@ -77,6 +88,9 @@ class FuturesDeliveryCzce(AkshareToMySql):
             if not trading_days:
                 self.logger.info("在指定范围内没有需要更新的交易日")
                 return pd.DataFrame()
+            if max_days is not None and len(trading_days) > max_days:
+                trading_days = trading_days[-max_days:]
+                self.logger.info(f"限制郑商所交割统计更新为 {max_days} 个交易日")
 
             self.logger.info(
                 f"准备更新从 {trading_days[0]} 到 {trading_days[-1]} 的郑商所交割统计数据，共 {len(trading_days)} 个交易日"
@@ -96,7 +110,8 @@ class FuturesDeliveryCzce(AkshareToMySql):
 
                     if df is None or df.empty:
                         self.logger.warning(f"未获取到 {date_str} 的郑商所交割统计数据")
-                        time.sleep(1)
+                        if sleep_seconds > 0:
+                            time.sleep(sleep_seconds)
                         continue
 
                     df.rename(
@@ -147,7 +162,8 @@ class FuturesDeliveryCzce(AkshareToMySql):
                     self.logger.error(f"处理 {date_str} 郑商所交割统计数据时出错: {str(e)}")
                     failed_dates.append(date_str)
 
-                time.sleep(1)
+                if sleep_seconds > 0:
+                    time.sleep(sleep_seconds)
 
             if success_count > 0:
                 self.logger.info(f"成功更新 {success_count} 个交易日的郑商所交割统计数据")

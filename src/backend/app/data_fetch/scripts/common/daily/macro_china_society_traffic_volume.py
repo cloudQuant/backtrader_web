@@ -10,6 +10,7 @@ import pandas as pd
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+from app.data_fetch.scripts.common.daily._sina_macro import fetch_sina_macro_pages
 
 
 class MacroChinaSocietyTrafficVolume(AkshareToMySql):
@@ -31,6 +32,10 @@ class MacroChinaSocietyTrafficVolume(AkshareToMySql):
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Macro China Society Traffic Volume'
     """
 
+    @staticmethod
+    def _parse_month(series: pd.Series) -> pd.Series:
+        return pd.to_datetime(series.astype(str), format="%Y.%m", errors="coerce").dt.date
+
     def fetch_data(self, **kwargs):
         """Fetch data from AkShare and save to database.
 
@@ -41,21 +46,36 @@ class MacroChinaSocietyTrafficVolume(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
-            # Fetch data from AkShare
-            df = self.fetch_ak_data("macro_china_society_traffic_volume", **kwargs)
+            kwargs.pop("_call_timeout", None)
+            max_pages = kwargs.pop("max_pages", None)
+            df = fetch_sina_macro_pages(
+                callback="SINAREMOTECALLCALLBACK1601559094538",
+                cate="industry",
+                event="10",
+                data_path=("data", "非累计"),
+                max_pages=max_pages,
+            )
 
             if df is None or df.empty:
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
+            df = df.copy()
+            for column in df.columns[2:]:
+                df[column] = pd.to_numeric(df[column], errors="coerce")
+            df["symbol"] = df["统计对象"].astype(str)
+            df["name"] = df["统计对象"].astype(str)
+            df["data_date"] = self._parse_month(df["统计时间"])
+            df["data_date"] = df["data_date"].fillna(pd.Timestamp.now().date())
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+            self.save_data(
+                df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["symbol", "data_date"],
+            )
 
             return df
 

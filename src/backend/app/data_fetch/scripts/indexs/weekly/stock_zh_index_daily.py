@@ -110,7 +110,7 @@ class StockZhIndexDaily(AkshareToMySql):
         # print(df)
         return df["INDEX_CODE"].to_list()
 
-    def run(self, symbol=None):
+    def run(self, symbol=None, max_symbols=None):
         """Main method to run the data fetching and saving process.
 
         Args:
@@ -133,6 +133,10 @@ class StockZhIndexDaily(AkshareToMySql):
                 # print(symbol_list)
             else:
                 symbol_list = [symbol]
+            max_symbols = int(max_symbols) if max_symbols is not None else None
+            if max_symbols is not None and len(symbol_list) > max_symbols:
+                symbol_list = symbol_list[:max_symbols]
+                self.logger.info(f"Limiting Sina daily index update to {max_symbols} symbols")
 
             for symbol in symbol_list:
                 # 获取数据

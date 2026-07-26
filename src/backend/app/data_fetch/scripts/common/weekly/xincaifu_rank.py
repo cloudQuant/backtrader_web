@@ -41,23 +41,31 @@ class XincaifuRank(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
-            # Fetch data from AkShare
-            df = self.fetch_ak_data("xincaifu_rank", **kwargs)
+            year_list = (
+                [str(kwargs["year"])]
+                if "year" in kwargs
+                else [str(pd.Timestamp.today().year - offset) for offset in range(0, 6)]
+            )
 
-            if df is None or df.empty:
-                self.logger.warning("No data found")
-                return pd.DataFrame()
+            for year in year_list:
+                call_kwargs = dict(kwargs)
+                call_kwargs["year"] = year
+                df = self.fetch_ak_data("xincaifu_rank", **call_kwargs)
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
+                if df is None or df.empty:
+                    self.logger.warning(f"No data found for {year}")
+                    continue
 
-            # Save to database
-            self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+                if "data_date" not in df.columns:
+                    df["data_date"] = pd.to_datetime(f"{year}-12-31").date()
 
-            return df
+                self.create_table_if_not_exists(self.table_name, self.create_table_sql)
+                self.save_data(df, self.table_name, ignore_duplicates=True)
+
+                return df
+
+            self.logger.warning("No data found")
+            return pd.DataFrame()
 
         except Exception as e:
             self.logger.error(f"Error fetching data: {e}")
@@ -68,7 +76,7 @@ def main():
     """Main function to run the data fetch"""
 
     script = XincaifuRank()
-    script.run()
+    script.fetch_data()
 
 
 if __name__ == "__main__":

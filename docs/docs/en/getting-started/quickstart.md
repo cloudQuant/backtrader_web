@@ -1,94 +1,38 @@
-# Quick Start
+# Quick start
 
-Get your first backtest running in 5 minutes!
+This flow uses the current pages rather than stale fixed API examples, and follows the research-workspace path.
 
-## Prerequisites
+## 1. Sign in and open market data
 
-- [Installation](./installation.md) completed
-- Services running (backend + frontend)
+After starting both services, open `http://localhost:3000` and sign in. Go to **Data → Market Data**, then choose an asset class and instrument.
 
-## Step 1: Access the Platform
+- Initial loads and instrument changes read the local MySQL market-data warehouse first.
+- **Query** is the explicit action that fetches latest data from AkShare. If it fails, the page keeps usable local data and shows a readable warning.
+- History is shown newest first. The last instrument is remembered separately for each asset class.
 
-Open your browser and navigate to:
-- **Frontend**: http://localhost:8080 (development)
-- **Backend API Docs**: http://localhost:8000/docs
+## 2. Optionally build a knowledge base
 
-## Step 2: Register an Account
+In **AI → Knowledge Base**, create a knowledge base, upload or add documents, then index them. Open **AI → Chat**, ask a focused question, and inspect the citations.
 
-1. Click "Register" on the frontend
-2. Enter username, email, and password
-3. Login with your new account
+`not_indexed` means that a document must be indexed or re-indexed. `no_context_found` means the index exists but lacks sufficiently relevant context; it is not a model-outage signal.
 
-Or use the API directly:
+## 3. Create or select a strategy
 
-```bash
-curl -X POST http://localhost:8000/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"testuser","email":"test@example.com","password":"testpass123"}'
-```
+Open **Research → Strategies** and choose a template, an existing strategy, or an AI-generated draft. AI research can use the default research objective or, after confirmation, ask the configured model to improve that objective.
 
-## Step 3: Select a Strategy
+For custom Backtrader strategies, keep price series in a custom property such as `self.dataclose`; preserve `self.close()` as the close-position method and never overwrite it with an attribute.
 
-Choose from **118 built-in strategy templates** including:
+## 4. Run research and a backtest
 
-### Trend Following
-- Dual Moving Average
-- MACD
-- Turtle Trading
+Add the strategy to a **research workspace**, set the instrument, timeframe, date range, capital, and commission, then run it. The page streams research output while it runs. On completion, inspect:
 
-### Mean Reversion
-- Bollinger Bands
-- KDJ
-- RSI
+- normalized return, annual return, Sharpe, and maximum drawdown;
+- trade count, win rate, profit/loss ratio, and holding period;
+- equity curve, drawdown, configuration, and data range;
+- robustness checks or parameter optimization when needed.
 
-### Arbitrage
-- Spot-Futures Arbitrage
-- Calendar Spread
+## 5. Move to a trading workspace only after review
 
-### Options
-- VIX Panic Index
-- Put-Call Ratio
+Do not treat a single backtest as execution approval. Complete out-of-sample, data-quality, and risk checks, then put a human-reviewed plan into a **trading workspace**. Use **Portfolio** to inspect accounts, positions, trades, cumulative P&L, drawdown, and allocation.
 
-## Step 4: Configure Backtest
-
-Set the following parameters:
-
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| Strategy | Select from templates | Dual MA |
-| Symbol | Trading symbol | 000001.SZ |
-| Start Date | Backtest start | 2024-01-01 |
-| End Date | Backtest end | 2024-12-31 |
-| Initial Capital | Starting capital | 100000 |
-| Commission | Trading commission | 0.001 |
-
-## Step 5: Run Backtest
-
-Click "Start Backtest" and wait for results (usually < 1 second per year of data).
-
-## Step 6: View Results
-
-### Analytics Dashboard
-
-- **Equity Curve** - Portfolio value over time
-- **Drawdown Curve** - Maximum drawdown visualization
-- **Monthly Returns Heatmap** - Monthly performance
-- **Trade Statistics** - Win rate, profit factor, etc.
-
-### Key Metrics
-
-| Metric | Description |
-|--------|-------------|
-| Total Return | Overall return percentage |
-| Annual Return | Annualized return |
-| Sharpe Ratio | Risk-adjusted return |
-| Max Drawdown | Maximum peak-to-trough |
-| Win Rate | Percentage of profitable trades |
-| Profit Factor | Avg win / Avg loss |
-
-## Next Steps
-
-- [Strategy Management](../features/strategy-management.md) - Create and manage your own strategies
-- [Parameter Optimization](../features/optimization.md) - Find optimal parameters
-- [Paper Trading](../features/paper-trading.md) - Simulated trading with real data
-- [Live Trading](../features/live-trading.md) - Connect to real brokers
+Next, read [Strategies and AI research](../features/strategy-management.md), [Backtests and validation](../features/backtesting.md), and [Trading workspaces](../features/paper-trading.md).

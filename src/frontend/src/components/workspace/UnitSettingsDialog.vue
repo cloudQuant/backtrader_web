@@ -13,7 +13,7 @@
       <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            策略单元
+            {{ t('workspaceDialogs.strategyUnit') }}
           </div>
           <div class="mt-1 text-sm font-semibold text-slate-700">
             {{ unit.strategy_name || unit.strategy_id }}
@@ -21,15 +21,15 @@
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            交易模式
+            {{ t('tradingUnits.tradingMode') }}
           </div>
           <div class="mt-1 text-sm font-semibold text-slate-700">
-            {{ props.workspaceType === 'trading' ? (unit.trading_mode === 'live' ? '实盘交易' : '模拟交易') : '研究模式' }}
+            {{ props.workspaceType === 'trading' ? (unit.trading_mode === 'live' ? t('workspaceDialogs.liveMode') : t('workspaceDialogs.paperMode')) : t('workspaceDialogs.researchMode') }}
           </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            最新更新时间
+            {{ t('workspaceDialogs.lastUpdate') }}
           </div>
           <div class="mt-1 text-sm font-semibold text-slate-700">
             {{ new Date(unit.updated_at).toLocaleString('zh-CN') }}
@@ -37,7 +37,7 @@
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            当前资金
+            {{ t('workspaceDialogs.currentCash') }}
           </div>
           <div class="mt-1 text-sm font-semibold text-slate-700">
             {{ form.initial_cash }}
@@ -53,21 +53,21 @@
       >
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
           <div class="mb-4 text-sm font-medium text-slate-700">
-            保证金 / 利率
+            {{ t('workspaceDialogs.margin') }} / {{ t('workspaceDialogs.interestRate') }}
           </div>
           <el-row :gutter="20">
             <el-col :span="12">
-              <el-form-item label="保证金方式">
+              <el-form-item :label="t('workspaceDialogs.marginMethod')">
                 <el-select
                   v-model="form.margin_rate_method"
                   style="width: 100%"
                 >
                   <el-option
-                    label="成交金额百分比"
+                    :label="t('workspaceDialogs.feeAmountPercent')"
                     value="percent"
                   />
                   <el-option
-                    label="每手固定金额"
+                    :label="t('workspaceDialogs.feeFixedPerHand')"
                     value="fixed"
                   />
                 </el-select>
@@ -76,7 +76,7 @@
           </el-row>
           <el-row :gutter="20">
             <el-col :span="8">
-              <el-form-item label="多头保证金率%">
+              <el-form-item :label="t('workspaceDialogs.marginLong') + '%'">
                 <el-input-number
                   v-model="form.long_margin_rate"
                   :min="0"
@@ -87,7 +87,7 @@
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="空头保证金率%">
+              <el-form-item :label="t('workspaceDialogs.marginShort') + '%'">
                 <el-input-number
                   v-model="form.short_margin_rate"
                   :min="0"
@@ -98,7 +98,7 @@
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="无风险利率%">
+              <el-form-item :label="t('workspaceDialogs.riskFreeRate') + '%'">
                 <el-input-number
                   v-model="form.risk_free_rate"
                   :min="0"
@@ -113,9 +113,9 @@
 
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
           <div class="mb-4 text-sm font-medium text-slate-700">
-            公式交易设定
+            {{ t('workspaceDialogs.formulaTrading') }}
           </div>
-          <el-form-item label="初始资金">
+          <el-form-item :label="t('workspaceDialogs.initialCash')">
             <el-input-number
               v-model="form.initial_cash"
               :min="1000"
@@ -127,21 +127,21 @@
 
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
           <div class="mb-4 text-sm font-medium text-slate-700">
-            手续费
+            {{ t('workspaceDialogs.commission') }}
           </div>
           <el-row :gutter="20">
             <el-col :span="8">
-              <el-form-item label="费率方式">
+              <el-form-item :label="t('workspaceDialogs.commission')">
                 <el-select
                   v-model="form.commission_method"
                   style="width: 100%"
                 >
                   <el-option
-                    label="成交金额万分比"
+                    :label="t('workspaceDialogs.feeAmountWanRate')"
                     value="percent_10k"
                   />
                   <el-option
-                    label="每手固定金额"
+                    :label="t('workspaceDialogs.feeFixedPerHand')"
                     value="fixed_per_lot"
                   />
                 </el-select>
@@ -150,7 +150,7 @@
           </el-row>
           <el-row :gutter="20">
             <el-col :span="8">
-              <el-form-item label="开仓费率">
+              <el-form-item :label="t('workspaceDialogs.feeOpen')">
                 <el-input-number
                   v-model="form.open_commission_rate"
                   :min="0"
@@ -160,7 +160,7 @@
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="平仓费率">
+              <el-form-item :label="t('workspaceDialogs.feeClose')">
                 <el-input-number
                   v-model="form.close_commission_rate"
                   :min="0"
@@ -170,7 +170,7 @@
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="平今费率">
+              <el-form-item :label="t('workspaceDialogs.feeCloseToday')">
                 <el-input-number
                   v-model="form.close_today_commission_rate"
                   :min="0"
@@ -184,28 +184,28 @@
 
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
           <div class="mb-4 text-sm font-medium text-slate-700">
-            滑点
+            {{ t('workspaceDialogs.slippage') }}
           </div>
           <el-row :gutter="20">
             <el-col :span="8">
-              <el-form-item label="滑点单位">
+              <el-form-item :label="t('workspaceDialogs.slippageUnit')">
                 <el-select
                   v-model="form.slippage_unit"
                   style="width: 100%"
                 >
                   <el-option
-                    label="跳/手"
+                    :label="'tick/' + t('workspaceDialogs.handUnit')"
                     value="tick"
                   />
                   <el-option
-                    label="固定值"
+                    :label="t('workspaceDialogs.fixedValue')"
                     value="fixed"
                   />
                 </el-select>
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="滑点值">
+              <el-form-item :label="t('workspaceDialogs.slippageValue')">
                 <el-input-number
                   v-model="form.slippage_value"
                   :min="0"
@@ -221,14 +221,14 @@
 
     <template #footer>
       <el-button @click="$emit('update:modelValue', false)">
-        取消
+        {{ t('workspaceDialogs.cancel') }}
       </el-button>
       <el-button
         type="primary"
         :loading="saving"
         @click="handleSave"
       >
-        确定
+        {{ t('workspaceDialogs.confirm') }}
       </el-button>
     </template>
   </el-dialog>
@@ -238,10 +238,12 @@
 import { computed, ref } from 'vue'
 import type { FormInstance } from 'element-plus'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getErrorMessage } from '@/api/index'
 import type { StrategyUnit, WorkspaceType } from '@/types/workspace'
 
+const { t } = useI18n()
 const props = defineProps<{
   modelValue: boolean
   workspaceId: string
@@ -258,7 +260,7 @@ const store = useWorkspaceStore()
 const formRef = ref<FormInstance>()
 const saving = ref(false)
 const dialogTitle = computed(() =>
-  `${props.workspaceType === 'trading' ? '策略交易' : '策略研究'}--策略单元设置`
+  `${props.workspaceType === 'trading' ? t('workspaceDialogs.strategyTrading') : t('workspaceDialogs.strategyResearch')}--${t('workspaceDialogs.unitSettingsTitle')}`
 )
 
 const defaultSettings = () => ({
@@ -302,11 +304,11 @@ async function handleSave() {
     await store.updateUnit(props.workspaceId, props.unit.id, {
       unit_settings: { ...form.value },
     })
-    ElMessage.success('单元设置已保存')
+    ElMessage.success(t('workspaceDialogs.unitSettingsSaved'))
     emit('update:modelValue', false)
     emit('saved')
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '保存失败'))
+    ElMessage.error(getErrorMessage(e, t('workspaceDialogs.saveFailed')))
   } finally {
     saving.value = false
   }

@@ -1,11 +1,12 @@
 /**
- * 行情报价 Pinia Store
+ * 实时数据 Pinia Store
  *
  * Manages data-source selection, quote data, custom symbols,
  * search/filter/sort state, and auto-refresh lifecycle.
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import i18n from '@/i18n'
 import { quoteApi } from '@/api/quote'
 import type {
   DataSourceInfo,
@@ -14,6 +15,10 @@ import type {
   QuoteTick,
   SymbolItem,
 } from '@/api/quote'
+
+function tt(key: string): string {
+  return i18n.global.t(key)
+}
 
 // ---------------------------------------------------------------------------
 // Local-storage keys & helpers
@@ -38,24 +43,19 @@ function lsSet(key: string, value: unknown): void {
 
 type ColumnDef = QuoteField
 
-const DEFAULT_COLUMNS: ColumnDef[] = [
-  { prop: 'symbol', label: '代码', visible: true, always_show: true },
-  { prop: 'name', label: '名称', visible: true },
-  { prop: 'category', label: '分类', visible: true },
-  { prop: 'last_price', label: '最新价', visible: true },
-  { prop: 'change', label: '涨跌', visible: true },
-  { prop: 'change_pct', label: '涨跌幅', visible: true },
-  { prop: 'bid_price', label: '买价', visible: true },
-  { prop: 'ask_price', label: '卖价', visible: true },
-  { prop: 'high_price', label: '最高', visible: true },
-  { prop: 'low_price', label: '最低', visible: true },
-  { prop: 'open_price', label: '开盘', visible: true },
-  { prop: 'prev_close', label: '昨收', visible: true },
-  { prop: 'volume', label: '成交量', visible: true },
-  { prop: 'turnover', label: '成交额', visible: true },
-  { prop: 'open_interest', label: '持仓量', visible: true },
-  { prop: 'update_time', label: '更新时间', visible: true },
-]
+// Default columns. Labels are computed lazily via tt() so locale switches
+// reflect immediately when the store rebuilds columnConfig from defaults.
+function buildDefaultColumns(): ColumnDef[] {
+  return [
+    { prop: 'symbol', label: tt('quote.colSymbol'), visible: true, always_show: true },
+    { prop: 'name', label: tt('quote.colName'), visible: true },
+    { prop: 'category', label: tt('quote.colCategory'), visible: true },
+    { prop: 'last_price', label: tt('quote.colLastPrice'), visible: true },
+    { prop: 'bid_price', label: tt('quote.colBidPrice'), visible: true },
+    { prop: 'ask_price', label: tt('quote.colAskPrice'), visible: true },
+    { prop: 'update_time', label: tt('quote.colUpdateTime'), visible: true },
+  ]
+}
 
 function cloneColumns(columns: ColumnDef[]): ColumnDef[] {
   return columns.map((column) => ({ ...column }))
@@ -118,17 +118,21 @@ export const useQuoteStore = defineStore('quote', () => {
   const filterCategory = ref('')
   const filterTrend = ref<'' | 'up' | 'down' | 'flat'>('')
   const filterCustomOnly = ref(false)
+  const availableCategories = ref<string[]>([])
   const sortField = ref<string>(lsGet(`sort_field_${activeSource.value}`, ''))
   const sortOrder = ref<'asc' | 'desc'>(lsGet(`sort_order_${activeSource.value}`, 'asc'))
 
   // ---- custom symbols ----
   const customSymbols = ref<string[]>([])
+  const dismissedWorkspaceQuoteKeys = ref<Set<string>>(new Set())
 
   // ---- auto refresh ----
   const autoRefresh = ref<boolean>(lsGet('autoRefresh', false))
-  const refreshInterval = ref<number>(lsGet('refreshInterval', 5))
+  const refreshInterval = ref<number>(lsGet('refreshInterval', 60))
   let refreshTimer: ReturnType<typeof setInterval> | null = null
-  let fetchInProgress = false
+  const pendingQuoteSources = new Set<string>()
+  let latestQuoteRequest = 0
+  let displayedSource = ''
 
   // ---- symbol search dialog ----
   const symbolSearchResults = ref<SymbolItem[]>([])
@@ -143,8 +147,8 @@ export const useQuoteStore = defineStore('quote', () => {
   const chartError = ref<string | null>(null)
 
   // ---- column config (P1) ----
-  const quoteFields = ref<ColumnDef[]>(cloneColumns(DEFAULT_COLUMNS))
-  const columnConfig = ref<ColumnDef[]>(cloneColumns(DEFAULT_COLUMNS))
+  const quoteFields = ref<ColumnDef[]>(cloneColumns(buildDefaultColumns()))
+  const columnConfig = ref<ColumnDef[]>(cloneColumns(buildDefaultColumns()))
 
   // ---- advanced filter (P1) ----
   const filterChangePctMin = ref<number | null>(null)
@@ -158,7 +162,7 @@ export const useQuoteStore = defineStore('quote', () => {
   // ===========================================================================
 
   const filteredTicks = computed(() => {
-    let list = [...ticks.value]
+    let list = ticks.value.filter((tick) => !dismissedWorkspaceQuoteKeys.value.has(tick.quote_key))
 
     // search
     if (searchKeyword.value) {
@@ -227,11 +231,11 @@ export const useQuoteStore = defineStore('quote', () => {
 
   // unique categories for filter dropdown
   const categories = computed(() => {
-    const set = new Set<string>()
+    const set = new Set<string>(availableCategories.value)
     for (const t of ticks.value) {
       if (t.category) set.add(t.category)
     }
-    return Array.from(set).sort()
+    return Array.from(set).sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'))
   })
 
   // ===========================================================================
@@ -289,17 +293,30 @@ export const useQuoteStore = defineStore('quote', () => {
     filterVolumeMax.value = null
     filterHasOpenInterest.value = false
 
+    // Clear the previous source immediately. The symbol metadata request below
+    // repopulates code/name rows before the slower gateway quote snapshot arrives.
+    ticks.value = []
+    availableCategories.value = []
+    updateTime.value = null
+    displayedSource = ''
     await fetchQuotes()
   }
 
   async function fetchQuotes() {
-    if (!activeSource.value) return
-    if (fetchInProgress) return // prevent request stacking
-    fetchInProgress = true
+    const source = activeSource.value
+    if (!source || pendingQuoteSources.has(source)) return
+
+    const requestId = ++latestQuoteRequest
+    pendingQuoteSources.add(source)
     quotesLoading.value = true
     quotesError.value = null
+
+    // Do not wait for the slower quote gateway before showing the locally
+    // available subscription/workspace symbol metadata.
+    void fetchSymbolsMeta(source, true)
+
     try {
-      let res = await quoteApi.getQuotes(activeSource.value)
+      let res = await quoteApi.getQuotes(source)
       const shouldRetry =
         res.ticks.length > 0 &&
         res.ticks.every(
@@ -307,32 +324,113 @@ export const useQuoteStore = defineStore('quote', () => {
         )
       if (shouldRetry) {
         await new Promise((resolve) => window.setTimeout(resolve, 1200))
-        res = await quoteApi.getQuotes(activeSource.value)
+        res = await quoteApi.getQuotes(source)
       }
-      const responseFields = Array.isArray(res.fields) ? res.fields : []
-      quoteFields.value = cloneColumns(responseFields.length ? responseFields : DEFAULT_COLUMNS)
+
+      // A response for an old source must never overwrite the source the user
+      // has just selected. This is especially important for CTP/IB/MT5 where
+      // a gateway snapshot can take several seconds.
+      if (requestId !== latestQuoteRequest || source !== activeSource.value) return
+
+      // The quote endpoint can legitimately return a source-side timestamp
+      // that is stale (or unchanged across a polling cycle). The monitor's
+      // "更新时间" represents the last successful client refresh, so every
+      // visible row and the page-level status use the time this response was
+      // received.
+      const refreshedAt = new Date().toISOString()
+      quoteFields.value = cloneColumns(buildDefaultColumns())
       columnConfig.value = mergeColumnConfig(
         quoteFields.value,
-        lsGet(getColumnStorageKey(activeSource.value), [] as ColumnDef[]),
+        lsGet(getColumnStorageKey(source), [] as ColumnDef[]),
       )
-      ticks.value = res.ticks
-      updateTime.value = res.update_time
+      ticks.value = res.ticks.map((tick) => ({ ...tick, update_time: refreshedAt }))
+      displayedSource = source
+      dismissedWorkspaceQuoteKeys.value = new Set()
+      updateTime.value = refreshedAt
       refreshMode.value = res.refresh_mode
-      customSymbols.value = [] // will be set by fetchSymbols
-      await fetchSymbolsMeta()
     } catch (e: unknown) {
-      quotesError.value = e instanceof Error ? e.message : '行情加载失败'
+      if (requestId === latestQuoteRequest && source === activeSource.value) {
+        quotesError.value = e instanceof Error ? e.message : tt('quote.errorQuotesFailed')
+      }
     } finally {
-      quotesLoading.value = false
-      fetchInProgress = false
+      pendingQuoteSources.delete(source)
+      quotesLoading.value = pendingQuoteSources.has(activeSource.value)
     }
   }
 
-  async function fetchSymbolsMeta() {
-    if (!activeSource.value) return
+  function buildPlaceholderTicks(source: string, symbols: SymbolItem[]): QuoteTick[] {
+    const runtime = activeSourceInfo.value?.workspaces ?? []
+    const sourceLabel = activeSourceInfo.value?.source_label || source
+    const customSet = new Set(customSymbols.value)
+    const merged = new Map<string, SymbolItem>()
+    for (const item of symbols) {
+      if (item.symbol) merged.set(item.symbol, item)
+    }
+
+    return Array.from(merged.values()).map((item) => {
+      const workspaceRuns = runtime.filter((run) => run.symbols.includes(item.symbol))
+      const origins: string[] = []
+      if (customSet.has(item.symbol) || workspaceRuns.length === 0) origins.push('subscription')
+      if (workspaceRuns.length > 0) origins.push('workspace')
+      const gatewayKey = workspaceRuns[0]?.gateway_key || ''
+      const workspaceIds = workspaceRuns.map((run) => run.workspace_id)
+      const workspaceNames = workspaceRuns.map((run) => run.workspace_name)
+      return {
+        source,
+        source_label: sourceLabel,
+        symbol: item.symbol,
+        name: item.name || item.symbol,
+        exchange: item.exchange || '',
+        category: item.category || '',
+        last_price: null,
+        change: null,
+        change_pct: null,
+        bid_price: null,
+        ask_price: null,
+        high_price: null,
+        low_price: null,
+        open_price: null,
+        prev_close: null,
+        volume: null,
+        turnover: null,
+        open_interest: null,
+        update_time: null,
+        status: 'loading',
+        error_message: null,
+        quote_key: `${source}:${gatewayKey || 'subscription'}:${item.symbol}`,
+        gateway_key: gatewayKey,
+        origins,
+        workspace_ids: workspaceIds,
+        workspace_names: workspaceNames,
+      }
+    })
+  }
+
+  async function fetchSymbolsMeta(source = activeSource.value, seedRows = false) {
+    if (!source) return
     try {
-      const res = await quoteApi.getSymbols(activeSource.value)
+      const res = await quoteApi.getSymbols(source)
+      if (source !== activeSource.value) return
       customSymbols.value = res.custom_symbols
+      availableCategories.value = Array.from(new Set(
+        (Array.isArray(res.categories) ? res.categories : [])
+          .map((category) => String(category || '').trim())
+          .filter(Boolean),
+      )).sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'))
+      if (seedRows && (displayedSource !== source || ticks.value.length === 0)) {
+        const customItems = res.custom_symbols.map((symbol) => ({
+          symbol,
+          name: symbol,
+          exchange: '',
+          category: '',
+        }))
+        ticks.value = buildPlaceholderTicks(source, [
+          ...res.default_symbols,
+          ...customItems,
+          ...res.running_symbols,
+        ])
+        displayedSource = source
+      }
     } catch { /* silent */ }
   }
 
@@ -348,6 +446,21 @@ export const useQuoteStore = defineStore('quote', () => {
     const res = await quoteApi.removeSymbols(activeSource.value, [symbol])
     customSymbols.value = res.symbols
     await fetchQuotes()
+  }
+
+  async function removeSubscription(symbol: string) {
+    if (!activeSource.value) return
+    const res = await quoteApi.removeSubscriptions(activeSource.value, [symbol])
+    customSymbols.value = res.symbols
+    await fetchQuotes()
+  }
+
+  function dismissWorkspaceQuote(quoteKey: string) {
+    if (!quoteKey) return
+    dismissedWorkspaceQuoteKeys.value = new Set([
+      ...dismissedWorkspaceQuoteKeys.value,
+      quoteKey,
+    ])
   }
 
   async function searchSymbols(keyword: string) {
@@ -438,7 +551,7 @@ export const useQuoteStore = defineStore('quote', () => {
       )
       chartBars.value = res.bars
     } catch (e: unknown) {
-      chartError.value = e instanceof Error ? e.message : '图表数据加载失败'
+      chartError.value = e instanceof Error ? e.message : tt('quote.errorChartFailed')
       chartBars.value = []
     } finally {
       chartLoading.value = false
@@ -500,9 +613,11 @@ export const useQuoteStore = defineStore('quote', () => {
     filterCategory,
     filterTrend,
     filterCustomOnly,
+    availableCategories,
     sortField,
     sortOrder,
     customSymbols,
+    dismissedWorkspaceQuoteKeys,
     autoRefresh,
     refreshInterval,
     symbolSearchResults,
@@ -533,6 +648,8 @@ export const useQuoteStore = defineStore('quote', () => {
     fetchQuotes,
     addSymbol,
     removeSymbol,
+    removeSubscription,
+    dismissWorkspaceQuote,
     searchSymbols,
     setSort,
     setAutoRefresh,
@@ -547,4 +664,9 @@ export const useQuoteStore = defineStore('quote', () => {
     resetColumnConfig,
     clearAdvancedFilters,
   }
+}, {
+  persist: {
+    storage: localStorage,
+    paths: ['activeSource', 'autoRefresh', 'refreshInterval', 'chartTimeframe'],
+  },
 })

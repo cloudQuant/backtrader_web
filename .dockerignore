@@ -58,3 +58,20 @@ e2e-results/
 .env
 .env.local
 .env.*.local
+
+# Local databases (must never end up in build context)
+**/*.db
+**/*.db-journal
+**/*.sqlite
+**/*.sqlite3
+
+# AI tooling configs (developer-machine only)
+.agents/
+.claude/
+.cursor/
+.kiro/
+.opencode/
+.windsurf/
+
+# Local virtualenvs that may live inside src/
+src/backend/.venv*/

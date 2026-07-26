@@ -1,0 +1,19 @@
+# Iteration 175 §9 — top-level uv workspace declaration.
+#
+# This file does NOT define a Python package. It exists so `uv sync --workspace`
+# resolves the two member packages (src/backend, src/bt_api_py) into a shared
+# venv with one consistent lock file.
+#
+# The legacy `config/requirements-dev.lock` remains the SSOT for the backend's
+# dev environment (see CONTRIBUTING.md "Dependency Management"). The workspace
+# lock complements it; the conflict-detector
+# `scripts/dev/check_workspace_lock_conflict.py` makes sure they agree on
+# pinned versions.
+
+[tool.uv.workspace]
+members = ["src/backend", "src/bt_api_py"]
+
+# Iteration 175 — explicitly NOT a top-level project. The `[project]` section is
+# absent on purpose: tools that walk the repo from the root must descend into
+# the member packages to find package metadata. This avoids accidentally
+# building / publishing an "ai-for-investor-monorepo" wheel.

@@ -1,5 +1,7 @@
+import threading
 from types import SimpleNamespace
 
+from app.services.quote.cache import match_cached_tick
 from app.services.quote_service import QuoteService
 
 
@@ -20,13 +22,41 @@ def test_get_default_symbols_for_mt5_prefers_major_fx_and_avoids_indices_and_oil
     assert "USOIL" not in symbols
 
 
+def test_get_source_categories_uses_full_configured_catalog_not_live_tick_subset():
+    QuoteService._instance = None
+    service = QuoteService()
+
+    categories = service.get_source_categories("CTP")
+
+    assert {"股指期货", "贵金属", "有色金属", "黑色系", "农产品"}.issubset(categories)
+
+
 def test_match_cached_tick_returns_exact_symbol_match():
     payload = {"symbol": "EURUSD", "bid_price": 1.1}
     cached = {"EURUSD": payload}
 
-    result = QuoteService._match_cached_tick(cached, "EURUSD")
+    result = match_cached_tick(cached, "EURUSD")
 
     assert result == payload
+
+
+def test_remove_subscription_hides_default_and_add_restores_it(monkeypatch):
+    QuoteService._instance = None
+    service = QuoteService()
+    service._custom_symbols = {"user-1": {"MT5": ["EURUSD"]}}
+    service._hidden_subscriptions = {}
+
+    monkeypatch.setattr("app.services.quote_service.save_custom_symbols", lambda data: None)
+    monkeypatch.setattr("app.services.quote_service.save_hidden_subscriptions", lambda data: None)
+
+    remaining = service.remove_subscriptions("mt5", "user-1", ["EURUSD", "GBPUSD"])
+
+    assert remaining == []
+    assert service._hidden_symbol_set("MT5", "user-1") == {"EURUSD", "GBPUSD"}
+
+    service.add_custom_symbols("MT5", "user-1", ["EURUSD"])
+
+    assert service._hidden_symbol_set("MT5", "user-1") == {"GBPUSD"}
 
 
 def test_subscribe_symbols_on_gateway_tracks_only_mt5_accepted_symbols(monkeypatch):
@@ -51,6 +81,47 @@ def test_subscribe_symbols_on_gateway_tracks_only_mt5_accepted_symbols(monkeypat
     service._subscribe_symbols_on_gateway("MT5", ["EURUSD", "NAS100", "XAUUSD"])
 
     assert service._subscribed_symbols["MT5"] == {"EURUSD", "XAUUSD"}
+
+
+def test_mt5_native_bid_and_ask_are_exposed_in_quote_ticks(monkeypatch):
+    QuoteService._instance = None
+    service = QuoteService()
+    receiver = _DummyReceiver()
+    service._receivers = {"MT5": receiver}
+    service._subscribed_symbols = {}
+
+    class _FakeTick:
+        def get_all_data(self):
+            return {"symbol": "EURUSD", "bid": 1.0842, "ask": 1.0844, "last": 1.0843}
+
+    class _FakeSnapshot:
+        def get_data(self):
+            return [_FakeTick()]
+
+    class _FakeFeed:
+        def get_tick(self, symbol: str):
+            assert symbol == "EURUSD"
+            return _FakeSnapshot()
+
+    manager = SimpleNamespace()
+    runtime = SimpleNamespace(adapter=SimpleNamespace(feed=_FakeFeed()))
+    monkeypatch.setattr(service, "_get_live_trading_manager", lambda: manager)
+    monkeypatch.setattr(service, "_ensure_mt5_gateway_connected", lambda mgr: None)
+    monkeypatch.setattr(service, "_get_running_workspace_context", lambda *args, **kwargs: {})
+    monkeypatch.setattr(service, "_ensure_receiver", lambda source, mgr: None)
+    monkeypatch.setattr(service, "_subscribe_symbols_on_gateway", lambda source, symbols: None)
+    monkeypatch.setattr(
+        service,
+        "_get_default_symbols_for_source",
+        lambda source: [{"symbol": "EURUSD", "name": "Euro", "exchange": "MT5", "category": "FX"}],
+    )
+    monkeypatch.setattr(service, "_find_gateway_state", lambda mgr, source: {"runtime": runtime})
+
+    result = service.get_quotes("MT5", user_id="u1")
+
+    assert result["ticks"][0]["bid_price"] == 1.0842
+    assert result["ticks"][0]["ask_price"] == 1.0844
+    assert result["ticks"][0]["last_price"] == 1.0843
 
 
 class _DummyReceiver:
@@ -176,6 +247,36 @@ def test_get_quotes_uses_binance_snapshot_fallback_when_stream_cache_is_empty(mo
     assert receiver.seeded["BTCUSDT"]["symbol"] == "BTCUSDT"
 
 
+def test_snapshot_hydration_limits_gateway_requests(monkeypatch):
+    QuoteService._instance = None
+    service = QuoteService()
+    requested: list[str] = []
+
+    class _FakeFeed:
+        def get_tick(self, symbol: str):
+            requested.append(symbol)
+            return {"symbol": symbol, "price": 1.0}
+
+    monkeypatch.setattr(
+        service,
+        "_fetch_gateway_snapshot_tick",
+        lambda source, feed, symbol: feed.get_tick(symbol),
+    )
+
+    hydrated = service._hydrate_snapshot_ticks(
+        manager=SimpleNamespace(),
+        source="IB_WEB",
+        receiver=None,
+        symbols=["AAPL", "MSFT", "NVDA"],
+        cached_ticks={},
+        state={"runtime": SimpleNamespace(adapter=SimpleNamespace(feed=_FakeFeed()))},
+        max_snapshots=1,
+    )
+
+    assert requested == ["AAPL"]
+    assert list(hydrated) == ["AAPL"]
+
+
 def test_ensure_mt5_gateway_connected_skips_when_auto_connect_is_suppressed(monkeypatch):
     QuoteService._instance = None
     service = QuoteService()
@@ -184,6 +285,21 @@ def test_ensure_mt5_gateway_connected_skips_when_auto_connect_is_suppressed(monk
         connect_gateway=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("should not connect")
         )
+    )
+
+    monkeypatch.setattr(service, "_find_gateway_state", lambda mgr, source: None)
+
+    service._ensure_mt5_gateway_connected(manager)
+
+
+def test_ensure_mt5_gateway_connected_defers_during_gateway_recovery(monkeypatch):
+    QuoteService._instance = None
+    service = QuoteService()
+    manager = SimpleNamespace(
+        is_gateway_restore_in_progress=lambda: True,
+        connect_gateway=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("should not connect")
+        ),
     )
 
     monkeypatch.setattr(service, "_find_gateway_state", lambda mgr, source: None)
@@ -230,6 +346,110 @@ def test_match_cached_tick_matches_mt5_broker_symbol_via_instrument_id_prefix():
     }
     cached = {"EURUSDm": payload}
 
-    result = QuoteService._match_cached_tick(cached, "EURUSD")
+    result = match_cached_tick(cached, "EURUSD")
 
     assert result == payload
+
+
+def test_running_workspace_symbols_are_grouped_by_gateway_and_deduplicated(monkeypatch):
+    QuoteService._instance = None
+    service = QuoteService()
+    state = {
+        "config": SimpleNamespace(command_endpoint="tcp://127.0.0.1:5555"),
+        "exchange_type": "IB_WEB",
+        "instances": {"instance-a", "instance-b"},
+        "manual": False,
+    }
+    manager = SimpleNamespace(
+        _gateway_lock=threading.RLock(),
+        _gateways={"ib-workspace-gateway": state},
+        _instance_gateways={
+            "instance-a": "ib-workspace-gateway",
+            "instance-b": "ib-workspace-gateway",
+        },
+        list_instances=lambda user_id: [
+            {
+                "id": "instance-a",
+                "status": "running",
+                "params": {
+                    "symbol": "AAPL",
+                    "workspace_unit": {"workspace_id": "workspace-1"},
+                },
+            },
+            {
+                "id": "instance-b",
+                "status": "running",
+                "params": {
+                    "symbol": "AAPL",
+                    "workspace_unit": {"workspace_id": "workspace-1"},
+                },
+            },
+        ],
+    )
+    monkeypatch.setattr(service, "_is_gateway_state_ready", lambda value: True)
+
+    context = service._get_running_workspace_context(
+        manager,
+        "user-1",
+        {"workspace-1": "IB 工作区"},
+    )
+    plans = service._build_quote_plans(
+        manager,
+        "IB_WEB",
+        ["AAPL"],
+        context["IB_WEB"],
+    )
+
+    assert list(plans) == ["ib-workspace-gateway"]
+    assert list(plans["ib-workspace-gateway"]["symbols"]) == ["AAPL"]
+    item = plans["ib-workspace-gateway"]["symbols"]["AAPL"]
+    assert item["origins"] == {"subscription", "workspace"}
+    assert item["workspace_names"] == {"IB 工作区"}
+
+
+def test_workspace_gateway_marks_quote_source_available(monkeypatch):
+    QuoteService._instance = None
+    service = QuoteService()
+    state = {
+        "config": SimpleNamespace(command_endpoint="tcp://127.0.0.1:5555"),
+        "exchange_type": "CTP",
+        "instances": {"instance-ctp"},
+        "manual": False,
+    }
+    manager = SimpleNamespace(
+        _gateway_lock=threading.RLock(),
+        _gateways={"ctp-workspace-gateway": state},
+        _instance_gateways={"instance-ctp": "ctp-workspace-gateway"},
+        list_instances=lambda user_id: [
+            {
+                "id": "instance-ctp",
+                "status": "running",
+                "params": {
+                    "symbol": "RB2510",
+                    "workspace_unit": {"workspace_id": "workspace-ctp"},
+                },
+            },
+        ],
+    )
+    monkeypatch.setattr(service, "_get_live_trading_manager", lambda: manager)
+    monkeypatch.setattr(service, "_ensure_mt5_gateway_connected", lambda value: None)
+    monkeypatch.setattr(service, "_is_gateway_state_ready", lambda value: True)
+    monkeypatch.setattr(service, "_ensure_receiver_for_gateway", lambda *args: None)
+    subscriptions: list[tuple[str, str, list[str]]] = []
+    monkeypatch.setattr(
+        service,
+        "_subscribe_symbols_on_gateway_state",
+        lambda source, gateway_key, state, symbols: subscriptions.append(
+            (source, gateway_key, symbols)
+        ),
+    )
+
+    sources = service.get_data_sources("user-1", {"workspace-ctp": "CTP 工作区"})
+    ctp = next(item for item in sources if item["source"] == "CTP")
+
+    assert ctp["status"] == "available"
+    assert ctp["gateway_count"] == 1
+    assert ctp["workspace_count"] == 1
+    assert ctp["running_symbol_count"] == 1
+    assert ctp["workspaces"][0]["symbols"] == ["RB2510"]
+    assert subscriptions == [("CTP", "ctp-workspace-gateway", ["RB2510"])]

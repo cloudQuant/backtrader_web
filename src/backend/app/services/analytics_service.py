@@ -2,8 +2,6 @@
 Backtest analytics service.
 """
 
-import numpy as np
-
 from app.schemas.analytics import (
     DrawdownPoint,
     EquityPoint,
@@ -13,7 +11,8 @@ from app.schemas.analytics import (
     TradeRecord,
     TradeSignal,
 )
-from app.services.backtest_analyzers import FincoreAdapter
+from app.services.backtest.analyzers import FincoreAdapter
+from app.services.metrics_service import get_metrics_service
 
 
 class AnalyticsService:
@@ -60,58 +59,54 @@ class AnalyticsService:
         initial = equity_curve[0].get("total_assets", 0)
         final = equity_curve[-1].get("total_assets", 0)
 
-        # Use FincoreAdapter for calculations
         equity_values = [e.get("total_assets", 0) for e in equity_curve]
+        equity_dates = [e.get("date", "") for e in equity_curve]
 
-        # Total return
-        total_return = self.adapter.calculate_total_returns(equity_values)
-
-        # Annualized return
-        annualized = self.adapter.calculate_annual_returns(equity_values, periods_per_year=252)
-
-        # Maximum drawdown with duration
-        max_dd, max_dd_duration = self.adapter.calculate_max_drawdown_with_duration(equity_values)
-
-        # Sharpe ratio
-        returns = self._calculate_daily_returns(equity_curve)
-        sharpe = (
-            self.adapter.calculate_sharpe_ratio(returns, risk_free_rate=0.02) if returns else None
+        metrics = get_metrics_service().calculate_from_log_data(
+            {
+                "equity_curve": equity_values,
+                "equity_dates": equity_dates,
+                "trades": trades,
+            }
         )
+        total_return = float(metrics.get("total_return", 0.0)) / 100.0
+        annualized = float(metrics.get("annual_return", 0.0)) / 100.0
+        max_drawdown = float(metrics.get("max_drawdown", 0.0)) / 100.0
+        win_rate = float(metrics.get("win_rate", 0.0)) / 100.0
+        trade_count = int(metrics.get("total_trades", 0) or 0)
+        profitable_trades = int(metrics.get("profitable_trades", 0) or 0)
+        losing_trades = int(metrics.get("losing_trades", 0) or 0)
 
-        # Trade statistics using FincoreAdapter
-        profit_factor = self.adapter.calculate_profit_factor(trades)
-        avg_holding = self.adapter.calculate_avg_holding_period(trades)
-        max_wins = self.adapter.calculate_max_consecutive(trades, True)
-        max_losses = self.adapter.calculate_max_consecutive(trades, False)
-        win_rate = self.adapter.calculate_win_rate(trades)
+        max_dd, max_dd_duration = self.adapter.calculate_max_drawdown_with_duration(equity_values)
+        if max_drawdown == 0.0:
+            max_drawdown = max_dd
 
-        # Average win/loss amounts
-        wins = [t for t in trades if (t.get("pnl") or 0) > 0]
-        losses = [t for t in trades if (t.get("pnl") or 0) < 0]
-        avg_win = np.mean([t["pnl"] for t in wins]) if wins else 0
-        avg_loss = abs(np.mean([t["pnl"] for t in losses])) if losses else 0
+        total_win = float(metrics.get("total_win_amount", 0.0) or 0.0)
+        total_loss = float(metrics.get("total_loss_amount", 0.0) or 0.0)
+        avg_win = total_win / profitable_trades if profitable_trades else 0.0
+        avg_loss = total_loss / losing_trades if losing_trades else 0.0
 
         # Calmar ratio
-        calmar = annualized / abs(max_dd) if max_dd != 0 else None
+        calmar = annualized / abs(max_drawdown) if max_drawdown != 0 else None
 
         return PerformanceMetrics(
             initial_capital=round(initial, 2),
             final_assets=round(final, 2),
             total_return=round(total_return, 6),
             annualized_return=round(annualized, 6),
-            max_drawdown=round(max_dd, 6),
+            max_drawdown=round(max_drawdown, 6),
             max_drawdown_duration=max_dd_duration,
-            sharpe_ratio=round(sharpe, 4) if sharpe else None,
+            sharpe_ratio=round(float(metrics.get("sharpe_ratio", 0.0)), 4),
             calmar_ratio=round(calmar, 4) if calmar else None,
             win_rate=round(win_rate, 4),
-            profit_factor=round(profit_factor, 4),
-            trade_count=len(trades),
-            avg_trade_return=round(total_return / len(trades), 6) if trades else 0,
-            avg_holding_days=round(avg_holding, 1),
+            profit_factor=round(float(metrics.get("profit_loss_ratio", 0.0) or 0.0), 4),
+            trade_count=trade_count,
+            avg_trade_return=round(total_return / trade_count, 6) if trade_count else 0,
+            avg_holding_days=round(float(metrics.get("avg_holding_bars", 0.0) or 0.0), 1),
             avg_win=round(avg_win, 2),
             avg_loss=round(avg_loss, 2),
-            max_consecutive_wins=max_wins,
-            max_consecutive_losses=max_losses,
+            max_consecutive_wins=int(metrics.get("max_consecutive_wins", 0) or 0),
+            max_consecutive_losses=int(metrics.get("max_consecutive_losses", 0) or 0),
         )
 
     def _calculate_daily_returns(self, equity_curve: list[dict]) -> list[float]:

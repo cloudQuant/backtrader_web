@@ -115,6 +115,15 @@ def _add_column_if_missing(bind, table_name: str, column_name: str, ddl: str) ->
 
 
 def _ensure_index_if_missing(bind, table_name: str, index_name: str, column_name: str) -> None:
+    _ensure_index_columns_if_missing(bind, table_name, index_name, (column_name,))
+
+
+def _ensure_index_columns_if_missing(
+    bind,
+    table_name: str,
+    index_name: str,
+    column_names: tuple[str, ...],
+) -> None:
     if not _has_table(bind, table_name):
         return
     if index_name in _get_index_names(bind, table_name):
@@ -122,8 +131,140 @@ def _ensure_index_if_missing(bind, table_name: str, index_name: str, column_name
 
     metadata = sa.MetaData()
     table = sa.Table(table_name, metadata, autoload_with=bind)
-    sa.Index(index_name, table.c[column_name]).create(bind=bind)
-    logger.warning("Added missing database index %s on %s(%s)", index_name, table_name, column_name)
+    sa.Index(index_name, *(table.c[column_name] for column_name in column_names)).create(bind=bind)
+    logger.warning(
+        "Added missing database index %s on %s(%s)",
+        index_name,
+        table_name,
+        ", ".join(column_names),
+    )
+
+
+def _modify_mysql_column_type_if_needed(
+    bind,
+    table_name: str,
+    column_name: str,
+    ddl: str,
+    expected_type_fragment: str,
+) -> None:
+    if bind.dialect.name != "mysql" or not _has_table(bind, table_name):
+        return
+
+    columns = {column["name"]: column for column in sa.inspect(bind).get_columns(table_name)}
+    column = columns.get(column_name)
+    if column is None:
+        return
+
+    current_type = str(column["type"]).upper()
+    if expected_type_fragment.upper() in current_type:
+        return
+
+    bind.execute(text(f"ALTER TABLE {table_name} MODIFY COLUMN {column_name} {ddl}"))
+    logger.warning(
+        "Modified MySQL column %s.%s to %s during startup schema sync",
+        table_name,
+        column_name,
+        ddl,
+    )
+
+
+def _make_column_nullable_if_needed(
+    bind,
+    table_name: str,
+    column_name: str,
+    ddl: str,
+) -> None:
+    if not _has_table(bind, table_name):
+        return
+
+    columns = {column["name"]: column for column in sa.inspect(bind).get_columns(table_name)}
+    column = columns.get(column_name)
+    if column is None or column.get("nullable", True):
+        return
+
+    dialect_name = bind.dialect.name
+    if dialect_name == "mysql":
+        bind.execute(text(f"ALTER TABLE {table_name} MODIFY COLUMN {column_name} {ddl}"))
+    elif dialect_name == "postgresql":
+        bind.execute(text(f"ALTER TABLE {table_name} ALTER COLUMN {column_name} DROP NOT NULL"))
+    elif dialect_name == "sqlite" and table_name == "chat_conversations":
+        _rebuild_sqlite_chat_conversations_with_nullable_kb(bind)
+    else:
+        logger.warning(
+            "Cannot automatically make %s.%s nullable for dialect %s",
+            table_name,
+            column_name,
+            dialect_name,
+        )
+        return
+
+    logger.warning(
+        "Made database column %s.%s nullable during startup schema sync",
+        table_name,
+        column_name,
+    )
+
+
+def _rebuild_sqlite_chat_conversations_with_nullable_kb(bind) -> None:
+    """Rebuild SQLite chat_conversations so knowledge_base_id can be NULL."""
+    bind.execute(text("PRAGMA foreign_keys=OFF"))
+    bind.execute(text("DROP TABLE IF EXISTS chat_conversations_new"))
+    bind.execute(
+        text(
+            """
+            CREATE TABLE chat_conversations_new (
+                id VARCHAR(36) NOT NULL PRIMARY KEY,
+                knowledge_base_id VARCHAR(36),
+                user_id VARCHAR(36) NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                model_id VARCHAR(200),
+                settings JSON,
+                created_at DATETIME,
+                updated_at DATETIME,
+                FOREIGN KEY(knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+    )
+    existing_columns = _get_column_names(bind, "chat_conversations")
+    copy_columns = [
+        column
+        for column in (
+            "id",
+            "knowledge_base_id",
+            "user_id",
+            "title",
+            "model_id",
+            "settings",
+            "created_at",
+            "updated_at",
+        )
+        if column in existing_columns
+    ]
+    if copy_columns:
+        columns_sql = ", ".join(copy_columns)
+        bind.execute(
+            text(
+                f"INSERT INTO chat_conversations_new ({columns_sql}) "
+                f"SELECT {columns_sql} FROM chat_conversations"
+            )
+        )
+    bind.execute(text("DROP TABLE chat_conversations"))
+    bind.execute(text("ALTER TABLE chat_conversations_new RENAME TO chat_conversations"))
+    bind.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_chat_conversations_knowledge_base_id "
+            "ON chat_conversations (knowledge_base_id)"
+        )
+    )
+    bind.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_chat_conversations_user_id "
+            "ON chat_conversations (user_id)"
+        )
+    )
+    bind.execute(text("PRAGMA foreign_keys=ON"))
 
 
 def _ensure_workspace_schema_compatibility_sync(bind) -> None:
@@ -154,6 +295,18 @@ def _ensure_workspace_schema_compatibility_sync(bind) -> None:
                 "workspaces",
                 "ix_workspaces_workspace_type",
                 "workspace_type",
+            )
+            _ensure_index_columns_if_missing(
+                bind,
+                "workspaces",
+                "ix_workspaces_user_type_updated_id",
+                ("user_id", "workspace_type", "updated_at", "id"),
+            )
+            _ensure_index_columns_if_missing(
+                bind,
+                "workspaces",
+                "ix_workspaces_user_updated_id",
+                ("user_id", "updated_at", "id"),
             )
 
     if _has_table(bind, "strategy_units"):
@@ -215,10 +368,297 @@ def _ensure_workspace_schema_compatibility_sync(bind) -> None:
             )
 
 
+def _ensure_knowledge_base_schema_compatibility_sync(bind) -> None:
+    """Create or patch tables used by the knowledge-base and AI chat modules."""
+    from app.models.knowledge_base import (
+        ChatConversation,
+        ChatMessage,
+        DocumentChunk,
+        KBDocument,
+        KnowledgeBase,
+        ModelConfig,
+        ModelUsageLog,
+    )
+
+    for table in (
+        KnowledgeBase.__table__,
+        KBDocument.__table__,
+        DocumentChunk.__table__,
+        ChatConversation.__table__,
+        ChatMessage.__table__,
+        ModelConfig.__table__,
+        ModelUsageLog.__table__,
+    ):
+        table.create(bind=bind, checkfirst=True)
+
+    dialect_name = bind.dialect.name
+    json_type = "JSON" if dialect_name != "sqlite" else "JSON"
+    datetime_type = "TIMESTAMP" if dialect_name == "postgresql" else "DATETIME"
+
+    _add_column_if_missing(
+        bind,
+        "chat_conversations",
+        "user_id",
+        "user_id VARCHAR(36)",
+    )
+    _add_column_if_missing(
+        bind,
+        "chat_conversations",
+        "model_id",
+        "model_id VARCHAR(200)",
+    )
+    _add_column_if_missing(
+        bind,
+        "chat_conversations",
+        "settings",
+        f"settings {json_type}",
+    )
+    _add_column_if_missing(
+        bind,
+        "chat_conversations",
+        "created_at",
+        f"created_at {datetime_type}",
+    )
+    _add_column_if_missing(
+        bind,
+        "chat_conversations",
+        "updated_at",
+        f"updated_at {datetime_type}",
+    )
+    _make_column_nullable_if_needed(
+        bind,
+        "chat_conversations",
+        "knowledge_base_id",
+        "VARCHAR(36) NULL",
+    )
+
+    if _has_table(bind, "chat_messages"):
+        _add_column_if_missing(bind, "chat_messages", "citations", f"citations {json_type}")
+        _add_column_if_missing(bind, "chat_messages", "tokens_used", "tokens_used INTEGER")
+        _add_column_if_missing(bind, "chat_messages", "model_id", "model_id VARCHAR(200)")
+        _add_column_if_missing(bind, "chat_messages", "reasoning", "reasoning TEXT")
+        _add_column_if_missing(bind, "chat_messages", "metadata", f"metadata {json_type}")
+        _add_column_if_missing(bind, "chat_messages", "created_at", f"created_at {datetime_type}")
+
+    _modify_mysql_column_type_if_needed(
+        bind, "kb_documents", "content", "LONGTEXT NULL", "LONGTEXT"
+    )
+    _modify_mysql_column_type_if_needed(
+        bind, "document_chunks", "content", "LONGTEXT NOT NULL", "LONGTEXT"
+    )
+    _modify_mysql_column_type_if_needed(
+        bind, "chat_messages", "content", "LONGTEXT NOT NULL", "LONGTEXT"
+    )
+    _modify_mysql_column_type_if_needed(
+        bind, "chat_messages", "reasoning", "LONGTEXT NULL", "LONGTEXT"
+    )
+
+
+def _ensure_airflow_schema_compatibility_sync(bind) -> None:
+    """Add Airflow-related columns to ak_task_executions if missing."""
+    if _has_table(bind, "ak_task_executions"):
+        _add_column_if_missing(
+            bind, "ak_task_executions", "airflow_dag_id", "airflow_dag_id VARCHAR(200)"
+        )
+        _add_column_if_missing(
+            bind, "ak_task_executions", "airflow_run_id", "airflow_run_id VARCHAR(200)"
+        )
+        _add_column_if_missing(
+            bind, "ak_task_executions", "airflow_task_id", "airflow_task_id VARCHAR(200)"
+        )
+
+
+def _ensure_ai_budget_schema_compatibility_sync(bind) -> None:
+    if _has_table(bind, "users"):
+        _add_column_if_missing(bind, "users", "ai_budget_daily_usd", "ai_budget_daily_usd FLOAT")
+        _add_column_if_missing(bind, "users", "ai_budget_mode", "ai_budget_mode VARCHAR(20)")
+        _add_column_if_missing(
+            bind, "users", "ai_preferred_provider", "ai_preferred_provider VARCHAR(50)"
+        )
+        _add_column_if_missing(
+            bind, "users", "ai_preferred_model", "ai_preferred_model VARCHAR(100)"
+        )
+
+
+def _ensure_prompt_template_schema_compatibility_sync(bind) -> None:
+    from app.models.prompt_template import PromptTemplate
+
+    PromptTemplate.__table__.create(bind=bind, checkfirst=True)
+    _add_column_if_missing(
+        bind,
+        "prompt_templates",
+        "rollout_percentage",
+        "rollout_percentage INTEGER NOT NULL DEFAULT 0",
+    )
+    _add_column_if_missing(
+        bind,
+        "ai_call_logs",
+        "prompt_template_version",
+        "prompt_template_version VARCHAR(50)",
+    )
+    _ensure_index_if_missing(
+        bind,
+        "ai_call_logs",
+        "ix_ai_call_logs_prompt_template_version",
+        "prompt_template_version",
+    )
+
+
+def _ensure_broker_profiles_schema_compatibility_sync(bind) -> None:
+    if _has_table(bind, "broker_connection_profiles"):
+        _add_column_if_missing(
+            bind,
+            "broker_connection_profiles",
+            "runtime_gateway_key",
+            "runtime_gateway_key VARCHAR(120)",
+        )
+        _add_column_if_missing(
+            bind,
+            "broker_connection_profiles",
+            "runtime_account_id",
+            "runtime_account_id VARCHAR(100)",
+        )
+        _ensure_index_if_missing(
+            bind,
+            "broker_connection_profiles",
+            "ix_broker_connection_profiles_runtime_gateway_key",
+            "runtime_gateway_key",
+        )
+
+
+def _ensure_portfolio_ledger_schema_compatibility_sync(bind) -> None:
+    from app.models.portfolio_ledger import (
+        PortfolioLedgerImportModel,
+        PortfolioLedgerModel,
+        PortfolioLedgerSnapshotModel,
+        PortfolioLedgerTransactionModel,
+    )
+
+    for table in (
+        PortfolioLedgerModel.__table__,
+        PortfolioLedgerImportModel.__table__,
+        PortfolioLedgerTransactionModel.__table__,
+        PortfolioLedgerSnapshotModel.__table__,
+    ):
+        table.create(bind=bind, checkfirst=True)
+
+
+def _ensure_news_intelligence_schema_compatibility_sync(bind) -> None:
+    from app.models.news_intelligence import (
+        NewsAnalysisModel,
+        NewsArticleModel,
+        NewsSourceModel,
+    )
+
+    for table in (
+        NewsSourceModel.__table__,
+        NewsArticleModel.__table__,
+        NewsAnalysisModel.__table__,
+    ):
+        table.create(bind=bind, checkfirst=True)
+
+    _add_column_if_missing(bind, "news_articles", "content", "content TEXT NULL")
+
+
+def _ensure_stock_analysis_schema_compatibility_sync(bind) -> None:
+    from app.models.stock_analysis import (
+        StockAnalysisExportModel,
+        StockAnalysisReportModel,
+        StockAnalysisTaskModel,
+    )
+
+    for table in (
+        StockAnalysisTaskModel.__table__,
+        StockAnalysisReportModel.__table__,
+        StockAnalysisExportModel.__table__,
+    ):
+        table.create(bind=bind, checkfirst=True)
+
+
+def _ensure_scanner_plan_schema_compatibility_sync(bind) -> None:
+    from app.models.scanner_plan import ScannerPlanModel, ScannerPlanRunModel
+
+    for table in (
+        ScannerPlanModel.__table__,
+        ScannerPlanRunModel.__table__,
+    ):
+        table.create(bind=bind, checkfirst=True)
+
+    if _has_table(bind, "scanner_plans"):
+        _add_column_if_missing(
+            bind,
+            "scanner_plans",
+            "result_table_name",
+            "result_table_name VARCHAR(120)",
+        )
+        _add_column_if_missing(
+            bind,
+            "scanner_plans",
+            "result_table_status",
+            "result_table_status VARCHAR(20) DEFAULT 'missing' NOT NULL",
+        )
+        _ensure_index_if_missing(
+            bind,
+            "scanner_plans",
+            "ix_scanner_plans_result_table_name",
+            "result_table_name",
+        )
+
+
+def _ensure_trading_schema_compatibility_sync(bind) -> None:
+    """Patch legacy trading tables that ``create_all`` cannot alter in place."""
+    for column_name, ddl in (
+        ("average_holding_bars", "average_holding_bars FLOAT"),
+        ("max_consecutive_wins", "max_consecutive_wins INTEGER"),
+        ("max_consecutive_losses", "max_consecutive_losses INTEGER"),
+        ("profit_loss_ratio", "profit_loss_ratio FLOAT"),
+        ("standard_metrics", "standard_metrics JSON"),
+        ("result_summary", "result_summary JSON"),
+    ):
+        _add_column_if_missing(bind, "backtest_results", column_name, ddl)
+
+    for column_name, ddl in (
+        ("margin_value", "margin_value FLOAT NOT NULL DEFAULT 0"),
+        ("multiplier", "multiplier FLOAT NOT NULL DEFAULT 1"),
+        ("margin_rate", "margin_rate FLOAT NOT NULL DEFAULT 1"),
+        ("commission_rate", "commission_rate FLOAT NOT NULL DEFAULT 0"),
+        ("commission_amount", "commission_amount FLOAT NOT NULL DEFAULT 0"),
+    ):
+        _add_column_if_missing(bind, "paper_trading_positions", column_name, ddl)
+
+    for table_name, column_name in (
+        ("paper_trading_positions", "size"),
+        ("paper_trading_orders", "size"),
+        ("paper_trading_orders", "filled_size"),
+        ("paper_trades", "size"),
+    ):
+        _modify_mysql_column_type_if_needed(
+            bind, table_name, column_name, "FLOAT NOT NULL", "FLOAT"
+        )
+
+    for column_name, ddl in (
+        ("workspace_id", "workspace_id VARCHAR(36)"),
+        ("unit_id", "unit_id VARCHAR(36)"),
+        ("instance_id", "instance_id VARCHAR(36)"),
+        ("dedupe_key", "dedupe_key VARCHAR(200)"),
+    ):
+        _add_column_if_missing(bind, "alerts", column_name, ddl)
+
+
 async def ensure_schema_compatibility() -> None:
     """Patch legacy databases with columns required by the current ORM schema."""
     async with engine.begin() as conn:
         await conn.run_sync(_ensure_workspace_schema_compatibility_sync)
+        await conn.run_sync(_ensure_knowledge_base_schema_compatibility_sync)
+        await conn.run_sync(_ensure_airflow_schema_compatibility_sync)
+        await conn.run_sync(_ensure_ai_budget_schema_compatibility_sync)
+        await conn.run_sync(_ensure_prompt_template_schema_compatibility_sync)
+        await conn.run_sync(_ensure_broker_profiles_schema_compatibility_sync)
+        await conn.run_sync(_ensure_portfolio_ledger_schema_compatibility_sync)
+        await conn.run_sync(_ensure_news_intelligence_schema_compatibility_sync)
+        await conn.run_sync(_ensure_stock_analysis_schema_compatibility_sync)
+        await conn.run_sync(_ensure_scanner_plan_schema_compatibility_sync)
+        await conn.run_sync(_ensure_trading_schema_compatibility_sync)
 
 
 async def create_tables() -> None:
@@ -228,6 +668,16 @@ async def create_tables() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_workspace_schema_compatibility_sync)
+        await conn.run_sync(_ensure_knowledge_base_schema_compatibility_sync)
+        await conn.run_sync(_ensure_airflow_schema_compatibility_sync)
+        await conn.run_sync(_ensure_ai_budget_schema_compatibility_sync)
+        await conn.run_sync(_ensure_prompt_template_schema_compatibility_sync)
+        await conn.run_sync(_ensure_broker_profiles_schema_compatibility_sync)
+        await conn.run_sync(_ensure_portfolio_ledger_schema_compatibility_sync)
+        await conn.run_sync(_ensure_news_intelligence_schema_compatibility_sync)
+        await conn.run_sync(_ensure_stock_analysis_schema_compatibility_sync)
+        await conn.run_sync(_ensure_scanner_plan_schema_compatibility_sync)
+        await conn.run_sync(_ensure_trading_schema_compatibility_sync)
 
 
 async def init_db():

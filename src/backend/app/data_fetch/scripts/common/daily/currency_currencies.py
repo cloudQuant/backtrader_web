@@ -10,6 +10,7 @@ import pandas as pd
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+from app.data_fetch.scripts.common.currency_fallback import build_currency_currencies_fallback
 
 
 class CurrencyCurrencies(AkshareToMySql):
@@ -45,6 +46,10 @@ class CurrencyCurrencies(AkshareToMySql):
             df = self.fetch_ak_data("currency_currencies", **kwargs)
 
             if df is None or df.empty:
+                self.logger.warning("No data found from AkShare, using local currency fallback")
+                df = build_currency_currencies_fallback(**kwargs)
+
+            if df is None or df.empty:
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
@@ -68,7 +73,7 @@ def main():
     """Main function to run the data fetch"""
 
     script = CurrencyCurrencies()
-    script.run()
+    script.fetch_data()
 
 
 if __name__ == "__main__":

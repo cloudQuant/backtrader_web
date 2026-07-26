@@ -278,11 +278,17 @@ class TestDatabaseInitialization:
 
         async with engine.begin() as conn:
             workspace_columns = await conn.execute(text("PRAGMA table_info(workspaces)"))
+            workspace_indexes = await conn.execute(text("PRAGMA index_list(workspaces)"))
             unit_columns = await conn.execute(text("PRAGMA table_info(strategy_units)"))
             workspace_column_names = {row[1] for row in workspace_columns.fetchall()}
+            workspace_index_names = {row[1] for row in workspace_indexes.fetchall()}
             unit_column_names = {row[1] for row in unit_columns.fetchall()}
 
             assert {"workspace_type", "trading_config"} <= workspace_column_names
+            assert {
+                "ix_workspaces_user_type_updated_id",
+                "ix_workspaces_user_updated_id",
+            } <= workspace_index_names
             assert {
                 "trading_mode",
                 "gateway_config",
@@ -310,6 +316,53 @@ class TestDatabaseInitialization:
             assert trading_mode == "paper"
             assert lock_trading in (0, False)
             assert lock_running in (0, False)
+
+    async def test_ensure_schema_compatibility_upgrades_legacy_trading_tables(self):
+        """Add fields that ``create_all`` cannot add to existing trading tables."""
+        async with engine.begin() as conn:
+            await conn.execute(text("DROP TABLE alerts"))
+            await conn.execute(text("DROP TABLE paper_trading_positions"))
+            await conn.execute(text("DROP TABLE backtest_results"))
+            await conn.execute(text("CREATE TABLE backtest_results (id VARCHAR(36) PRIMARY KEY)"))
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE paper_trading_positions (
+                        id VARCHAR(36) PRIMARY KEY,
+                        size INTEGER NOT NULL
+                    )
+                    """
+                )
+            )
+            await conn.execute(text("CREATE TABLE alerts (id VARCHAR(36) PRIMARY KEY)"))
+
+        await ensure_schema_compatibility()
+
+        async with engine.begin() as conn:
+            backtest_columns = await conn.execute(text("PRAGMA table_info(backtest_results)"))
+            position_columns = await conn.execute(
+                text("PRAGMA table_info(paper_trading_positions)")
+            )
+            alert_columns = await conn.execute(text("PRAGMA table_info(alerts)"))
+
+        assert {
+            "average_holding_bars",
+            "max_consecutive_wins",
+            "max_consecutive_losses",
+            "profit_loss_ratio",
+            "standard_metrics",
+            "result_summary",
+        } <= {row[1] for row in backtest_columns.fetchall()}
+        assert {
+            "margin_value",
+            "multiplier",
+            "margin_rate",
+            "commission_rate",
+            "commission_amount",
+        } <= {row[1] for row in position_columns.fetchall()}
+        assert {"workspace_id", "unit_id", "instance_id", "dedupe_key"} <= {
+            row[1] for row in alert_columns.fetchall()
+        }
 
 
 @pytest.mark.asyncio

@@ -4,10 +4,12 @@ Paper trading API routes.
 Provides a full paper trading workflow: accounts, orders, positions, trades, and WebSocket updates.
 """
 
+import typing
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_websocket_current_user
 from app.schemas.paper_trading import (
     AccountCreate,
     AccountListResponse,
@@ -27,7 +29,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-def get_paper_trading_service():
+def get_paper_trading_service() -> typing.Any:
     """Dependency injection for PaperTradingService.
 
     Returns:
@@ -42,9 +44,9 @@ def get_paper_trading_service():
 @router.post("/accounts", response_model=AccountResponse, summary="Create paper trading account")
 async def create_paper_account(
     request: AccountCreate,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
-):
+) -> typing.Any:
     """Create a new paper trading account.
 
     Args:
@@ -68,11 +70,11 @@ async def create_paper_account(
 
 @router.get("/accounts", response_model=AccountListResponse, summary="List paper trading accounts")
 async def list_paper_accounts(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-):
+) -> typing.Any:
     """List paper trading accounts for the current user.
 
     Args:
@@ -99,9 +101,9 @@ async def list_paper_accounts(
 )
 async def get_paper_account(
     account_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
-):
+) -> typing.Any:
     """Get a paper trading account by ID.
 
     Args:
@@ -131,12 +133,14 @@ async def get_paper_account(
     return account
 
 
-@router.delete("/accounts/{account_id}", summary="Delete paper trading account")
+@router.delete(
+    "/accounts/{account_id}", summary="Delete paper trading account", response_model=None
+)
 async def delete_paper_account(
     account_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
-):
+) -> typing.Any:
     """Delete a paper trading account.
 
     Args:
@@ -165,9 +169,9 @@ async def delete_paper_account(
 @router.post("/orders", response_model=OrderResponse, summary="Submit paper trading order")
 async def submit_paper_order(
     request: OrderRequest,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
-):
+) -> typing.Any:
     """Submit a paper trading order.
 
     Args:
@@ -179,23 +183,42 @@ async def submit_paper_order(
     Returns:
         OrderResponse: The created order details.
     """
-    order = await service.submit_order(
-        user_id=current_user.sub,
-        request=request,
-    )
+    # Verify the target account belongs to the requesting user before trading.
+    account = await service.get_account(request.account_id)
+    if account is None or account.user_id != current_user.sub:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Paper trading account not found",
+        )
+    try:
+        order = await service.submit_order(
+            account_id=request.account_id,
+            symbol=request.symbol,
+            order_type=request.order_type,
+            side=request.side,
+            size=request.size,
+            price=request.price,
+            stop_price=request.stop_price,
+            limit_price=request.limit_price,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     return order
 
 
 @router.get("/orders", response_model=OrderListResponse, summary="List paper trading orders")
 async def list_paper_orders(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
     account_id: str | None = Query(None, description="Account ID"),
     symbol: str | None = Query(None, description="Trading symbol"),
     status: str | None = Query(None, description="Order status"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-):
+) -> typing.Any:
     """List paper trading orders with optional filters.
 
     Args:
@@ -231,9 +254,9 @@ async def list_paper_orders(
 )
 async def get_paper_order(
     order_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
-):
+) -> typing.Any:
     """Get a paper trading order by ID.
 
     Args:
@@ -264,12 +287,12 @@ async def get_paper_order(
     return order
 
 
-@router.delete("/orders/{order_id}", summary="Cancel paper trading order")
+@router.delete("/orders/{order_id}", summary="Cancel paper trading order", response_model=None)
 async def cancel_paper_order(
     order_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
-):
+) -> typing.Any:
     """Cancel a pending paper trading order.
 
     Args:
@@ -300,13 +323,13 @@ async def cancel_paper_order(
     "/positions", response_model=PositionListResponse, summary="List paper trading positions"
 )
 async def list_paper_positions(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
     account_id: str | None = Query(None, description="Account ID"),
     symbol: str | None = Query(None, description="Trading symbol"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-):
+) -> typing.Any:
     """List paper trading positions with optional filters.
 
     Args:
@@ -341,9 +364,9 @@ async def list_paper_positions(
 )
 async def get_paper_position(
     position_id: str,
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
-):
+) -> typing.Any:
     """Get a paper trading position by ID.
 
     Args:
@@ -379,14 +402,14 @@ async def get_paper_position(
 
 @router.get("/trades", response_model=TradeListResponse, summary="List paper trading trades")
 async def list_paper_trades(
-    current_user=Depends(get_current_user),
+    current_user: typing.Any = Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
     account_id: str | None = Query(None, description="Account ID"),
     symbol: str | None = Query(None, description="Trading symbol"),
     side: str | None = Query(None, description="Trade side (buy/sell)"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-):
+) -> typing.Any:
     """List paper trading trades with optional filters.
 
     Args:
@@ -421,7 +444,7 @@ async def list_paper_trades(
 
 
 @router.websocket("/ws/account/{account_id}")
-async def websocket_account_endpoint(websocket: WebSocket, account_id: str):
+async def websocket_account_endpoint(websocket: WebSocket, account_id: str) -> typing.Any:
     """WebSocket endpoint for paper trading real-time updates.
 
     Pushes:
@@ -448,17 +471,27 @@ async def websocket_account_endpoint(websocket: WebSocket, account_id: str):
     from app.websocket_manager import MessageType
     from app.websocket_manager import manager as ws_manager
 
-    # Verify account exists
+    current_user, accepted_subprotocol = get_websocket_current_user(websocket)
+    if current_user is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # Verify account exists and belongs to the authenticated websocket user.
     service = PaperTradingService()
     account = await service.get_account(account_id)
-    if not account:
+    if not account or account.user_id != current_user.sub:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
     client_id = f"ws-client-{id(websocket)}"
 
     # Establish connection
-    await ws_manager.connect(websocket, f"account:{account_id}", client_id)
+    await ws_manager.connect(
+        websocket,
+        f"account:{account_id}",
+        client_id,
+        accepted_subprotocol,
+    )
 
     try:
         # Send initial account information

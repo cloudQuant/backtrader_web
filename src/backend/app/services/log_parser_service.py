@@ -12,6 +12,14 @@ Supported log files:
 - run_info.json: run metadata
 - current_position.json: final positions
 - current_position.yaml: final positions
+
+Iteration 174 (C7) extracted the readers / normalisation / computation helpers
+into the ``app.services.log_parser`` subpackage. This module now hosts only
+the format-specific ``parse_*`` entry points and the ``parse_log_dir`` /
+``parse_all_logs`` orchestration. The previously private ``_parse_*`` /
+``_safe_float`` / ``_synthesize_value_curve`` names are re-exported (with
+their leading underscore) so existing tests and downstream callers using
+``from app.services.log_parser_service import _parse_tsv`` keep working.
 """
 
 import json
@@ -20,11 +28,309 @@ import math
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
-from app.services import strategy_runtime_support
+from app.services.log_parser.computations import (
+    synthesize_value_curve as _synthesize_value_curve,
+)
+from app.services.log_parser.normalize import (
+    extract_indicator_values as _extract_indicator_values,
+)
+from app.services.log_parser.normalize import (
+    is_truthy as _is_truthy,
+)
+from app.services.log_parser.normalize import (
+    normalize_date_text as _normalize_date_text,
+)
+from app.services.log_parser.normalize import (
+    normalize_dt_text as _normalize_dt_text,
+)
+from app.services.log_parser.normalize import (
+    safe_float as _safe_float,
+)
+from app.services.log_parser.readers import (
+    parse_json_lines as _parse_json_lines,
+)
+from app.services.log_parser.readers import (
+    parse_pipe_key_value_lines as _parse_pipe_key_value_lines,
+)
+from app.services.log_parser.readers import (
+    parse_pipe_lines as _parse_pipe_lines,
+)
+from app.services.log_parser.readers import (
+    parse_tsv as _parse_tsv,
+)
+from app.services.strategy import runtime_support as strategy_runtime_support
 
 logger = logging.getLogger(__name__)
+
+MAX_ABS_EQUITY_VALUE = 1e15
+MAX_EQUITY_CASH_RATIO = 1_000.0
+MAX_EQUITY_STEP_RATIO = 1_000.0
+MAX_SHARPE_RETURN_ABS = 10.0
+
+
+def _market_value(value: Any) -> float:
+    return round(_safe_float(value, 0.0), 8)
+
+
+def _first_present(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _position_symbol(row: dict[str, Any], fallback: str = "") -> str:
+    return str(
+        _first_present(
+            row,
+            "data_name",
+            "symbol",
+            "instrument",
+            "InstrumentID",
+            "trade_symbol",
+            "contract_symbol",
+            "position_symbol_name",
+            "symbol_name",
+            "local_symbol",
+            "localSymbol",
+            "contractDesc",
+            "contract_desc",
+            "description",
+            "ticker",
+            "conid",
+        )
+        or fallback
+        or ""
+    ).strip()
+
+
+def _position_size(row: dict[str, Any]) -> float:
+    return _safe_float(
+        _first_present(
+            row,
+            "size",
+            "volume",
+            "position",
+            "qty",
+            "quantity",
+            "position_volume",
+            "positionAmt",
+            "pa",
+            "Position",
+            "Volume",
+            "Qty",
+            "Quantity",
+            "trade_volume",
+            "TradeVolume",
+        ),
+        0.0,
+    )
+
+
+def _position_entry_price(row: dict[str, Any]) -> float:
+    return _safe_float(
+        _first_present(
+            row,
+            "price",
+            "avg_price",
+            "average_price",
+            "price_open",
+            "avgCost",
+            "avgPrice",
+            "entryPrice",
+            "ep",
+            "averageCost",
+            "Price",
+            "AveragePrice",
+        ),
+        0.0,
+    )
+
+
+def _mark_estimated_market_value(
+    payload: dict[str, Any], explicit_market_value: Any
+) -> dict[str, Any]:
+    if explicit_market_value in (None, ""):
+        payload["market_value_estimated"] = True
+    return payload
+
+
+def _position_extra_fields(row: dict[str, Any]) -> dict[str, Any]:
+    extras: dict[str, Any] = {}
+    numeric_keys = (
+        "current_price",
+        "latest_price",
+        "last_price",
+        "LastPrice",
+        "lastPrice",
+        "mark_price",
+        "markPrice",
+        "market_price",
+        "marketPrice",
+        "SettlementPrice",
+        "settlement_price",
+        "PositionCost",
+        "position_cost",
+        "multiplier",
+        "mult",
+        "contract_multiplier",
+        "contract_size",
+        "trade_contract_size",
+        "VolumeMultiple",
+        "CONTRACT_MULTIPLIER",
+        "price_tick",
+        "tick_size",
+        "PriceTick",
+        "MIN_PRICE_CHANGE",
+        "margin",
+        "margin_rate",
+        "margin_ratio",
+        "long_margin_rate",
+        "short_margin_rate",
+        "LongMarginRatio",
+        "ShortMarginRatio",
+        "LongMarginRatioByMoney",
+        "ShortMarginRatioByMoney",
+        "MARGIN_RATIO",
+        "MARGIN_BUY",
+        "MARGIN_SELL",
+        "leverage",
+        "margin_value",
+        "use_margin",
+        "initial_margin",
+        "maintain_margin",
+        "UseMargin",
+        "InitialMargin",
+        "MaintainMargin",
+        "margin_amount",
+        "initial_margin_per_lot",
+        "margin_initial",
+        "initial_margin_amount",
+        "long_margin_amount",
+        "short_margin_amount",
+        "LongMarginRatioByVolume",
+        "ShortMarginRatioByVolume",
+        "MARGIN_PER_LOT",
+        "LONG_MARGIN_AMOUNT",
+        "SHORT_MARGIN_AMOUNT",
+        "commission",
+        "comm",
+        "fee",
+        "fees",
+        "open_commission",
+        "position_fee",
+        "position_commission",
+        "trade_fee",
+        "trade_commission",
+        "commission_rate",
+        "open_commission_rate",
+        "close_commission_rate",
+        "close_today_commission_rate",
+        "OpenRatioByMoney",
+        "CloseRatioByMoney",
+        "CloseTodayRatioByMoney",
+        "OPEN_FEE_RATE",
+        "COMMISSION_OPEN_RATIO",
+        "commission_amount",
+        "OpenRatioByVolume",
+        "CloseRatioByVolume",
+        "CloseTodayRatioByVolume",
+        "OPEN_FEE_AMOUNT",
+        "OPEN_FEE_PER_LOT",
+        "COMMISSION_OPEN_AMOUNT",
+        "fillFee",
+        "fill_fee",
+        "fee_rate",
+        "fee_amount",
+        "pnl",
+        "gross_pnl",
+        "pnlcomm",
+        "net_pnl",
+        "position_pnl",
+        "position_profit",
+        "PositionProfit",
+        "position_unrealized_pnl",
+        "unrealized_profit",
+        "unRealizedProfit",
+        "UnrealizedPnL",
+        "unrealizedPnl",
+        "unrealized_pnl",
+        "unrealizedPNL",
+        "unrealizedpnl",
+        "floating_pnl",
+        "profit",
+        "upl",
+        "up",
+    )
+    for key in numeric_keys:
+        if key in row and row.get(key) not in (None, ""):
+            extras[key] = _safe_float(row.get(key), 0.0)
+    text_keys = (
+        "asset_type",
+        "exchange",
+        "exchange_id",
+        "exchange_name",
+        "direction",
+        "side",
+        "position_side",
+        "positionSide",
+        "PositionSide",
+        "positionIdx",
+        "position_idx",
+        "trade_action",
+        "position_type",
+        "type",
+        "PosiDirection",
+        "posi_direction",
+        "position_direction",
+        "commission_method",
+        "source",
+        "position_source",
+        "asset_spec_source",
+        "broker",
+        "gateway",
+        "margin_type",
+    )
+    for key in text_keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            extras[key] = str(value)
+    return extras
+
+
+def _finite_metric(value: float, default: float = 0.0) -> float:
+    return value if math.isfinite(value) else default
+
+
+def _is_plausible_equity_value(
+    value: float,
+    *,
+    cash: float,
+    previous_equity: float | None,
+) -> bool:
+    if not math.isfinite(value) or abs(value) > MAX_ABS_EQUITY_VALUE:
+        return False
+    if math.isfinite(cash) and abs(cash) > 0:
+        if abs(value) > abs(cash) * MAX_EQUITY_CASH_RATIO:
+            return False
+    if previous_equity is not None and math.isfinite(previous_equity) and abs(previous_equity) > 0:
+        if abs(value / previous_equity) > MAX_EQUITY_STEP_RATIO:
+            return False
+    return True
+
+
+def _equity_returns_for_metrics(equity: list[float]) -> list[float]:
+    returns: list[float] = []
+    for i in range(1, len(equity)):
+        previous = equity[i - 1]
+        current = equity[i]
+        if previous <= 0 or not math.isfinite(previous) or not math.isfinite(current):
+            continue
+        ret = (current - previous) / previous
+        if math.isfinite(ret) and abs(ret) <= MAX_SHARPE_RETURN_ABS:
+            returns.append(ret)
+    return returns
 
 
 def find_latest_log_dir(strategy_dir: Path) -> Path | None:
@@ -45,295 +351,31 @@ def find_latest_log_dir(strategy_dir: Path) -> Path | None:
     return Path(latest_log_dir) if latest_log_dir is not None else None
 
 
-def _parse_tsv(filepath: Path) -> list[dict[str, str]]:
-    """Parse a tab-separated log file and return a list of dictionaries.
-
-    Args:
-        filepath: Path to the TSV file.
-
-    Returns:
-        A list of dictionaries where each dictionary represents a row
-        with column headers as keys.
-    """
-    if not filepath.is_file():
-        return []
-
-    rows = []
-    with open(filepath, encoding="utf-8") as f:
-        header_line = f.readline().strip()
-        if not header_line:
-            return []
-        if header_line.startswith("{") or header_line.startswith("["):
-            return []
-        if "\t" not in header_line:
-            return []
-        headers = header_line.split("\t")
-
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            values = line.split("\t")
-            row = {}
-            for i, h in enumerate(headers):
-                row[h] = values[i] if i < len(values) else ""
-            rows.append(row)
-
-    return rows
-
-
-def _parse_json_lines(filepath: Path) -> list[dict[str, Any]]:
-    if not filepath.is_file():
-        return []
-
-    rows: list[dict[str, Any]] = []
-    with open(filepath, encoding="utf-8") as f:
-        for line in f:
-            text = line.strip()
-            if not text:
-                continue
-            try:
-                payload = json.loads(text)
-            except json.JSONDecodeError:
-                return []
-            if isinstance(payload, dict):
-                rows.append(payload)
-    return rows
-
-
-def _parse_pipe_lines(filepath: Path) -> list[dict[str, str]]:
-    if not filepath.is_file():
-        return []
-
-    rows: list[dict[str, str]] = []
-    with open(filepath, encoding="utf-8") as f:
-        for line in f:
-            text = line.strip()
-            if not text or "|" not in text:
-                continue
-            parts = [part.strip() for part in text.split("|")]
-            if len(parts) < 2:
-                continue
-            row: dict[str, str] = {"datetime": parts[0], "event": parts[1]}
-            for part in parts[2:]:
-                if not part or "=" not in part:
-                    continue
-                key, value = part.split("=", 1)
-                row[key.strip().lower()] = value.strip()
-            rows.append(row)
-    return rows
-
-
-def _parse_pipe_key_value_lines(filepath: Path) -> list[dict[str, str]]:
-    if not filepath.is_file():
-        return []
-
-    rows: list[dict[str, str]] = []
-    with open(filepath, encoding="utf-8") as f:
-        for line in f:
-            text = line.strip()
-            if not text or "|" not in text:
-                continue
-            parts = [part.strip() for part in text.split("|")]
-            if len(parts) < 2:
-                continue
-            row: dict[str, str] = {"log_time": parts[0]}
-            unlabeled: list[str] = []
-            for part in parts[1:]:
-                if not part:
-                    continue
-                if "=" in part:
-                    key, value = part.split("=", 1)
-                    row[key.strip()] = value.strip()
-                    continue
-                unlabeled.append(part)
-            if unlabeled:
-                row["event"] = unlabeled[0]
-            rows.append(row)
-    return rows
-
-
-def _normalize_dt_text(value: Any) -> str:
-    text = str(value or "").strip()
-    return text
-
-
-def _normalize_date_text(value: Any) -> str:
-    text = _normalize_dt_text(value)
-    if " " in text:
-        return text.split(" ")[0]
-    if "T" in text:
-        return text.split("T")[0]
-    return text
-
-
-def _is_truthy(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    return str(value or "").strip().lower() in {"1", "true", "yes", "y"}
-
-
-def _extract_indicator_values(row: dict[str, Any]) -> dict[str, float]:
-    ignored = {
-        "log_time",
-        "datetime",
-        "strategy_name",
-        "data_name",
-        "event_type",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-        "openinterest",
-    }
-    ignored_suffixes = (
-        "_open",
-        "_high",
-        "_low",
-        "_close",
-        "_volume",
-        "_openinterest",
-        "_datetime",
-    )
-    values: dict[str, float] = {}
-    for key, value in row.items():
-        if key in ignored:
-            continue
-        if key.endswith(ignored_suffixes):
-            continue
-        if isinstance(value, (int, float, str)):
-            numeric_value = _safe_float(value, default=math.nan)
-            if not math.isnan(numeric_value):
-                values[key] = numeric_value
-    return values
-
-
-def _load_strategy_config(strategy_dir: Path) -> dict[str, Any]:
-    config_path = strategy_dir / "config.yaml"
-    if not config_path.is_file():
-        return {}
-    try:
-        import yaml
-
-        with open(config_path, encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    except (OSError, yaml.YAMLError) as e:
-        logger.warning("Failed to load strategy config from %s: %s", config_path, e)
-        return {}
-
-
-def _initial_cash_for_strategy(strategy_dir: Path, run_info: dict[str, Any] | None = None) -> float:
-    run_info = run_info or {}
-    for key in ("initial_cash", "starting_cash", "initial_capital"):
-        value = run_info.get(key)
-        if value is not None:
-            cash = _safe_float(value, 0.0)
-            if cash > 0:
-                return cash
-
-    config = _load_strategy_config(strategy_dir)
-    for section in ("simulate", "backtest"):
-        value = (config.get(section) or {}).get("initial_cash")
-        cash = _safe_float(value, 0.0)
-        if cash > 0:
-            return cash
-    return 100000.0
-
-
-def _synthesize_value_curve(
-    strategy_dir: Path,
-    kline_data: dict[str, Any],
-    position_rows: list[dict[str, Any]],
-    trades: list[dict[str, Any]],
-    run_info: dict[str, Any],
-) -> dict[str, Any]:
-    initial_cash = _initial_cash_for_strategy(strategy_dir, run_info)
-    realized_by_date: dict[str, float] = {}
-    for trade in trades:
-        close_dt = _normalize_dt_text(trade.get("dtclose") or trade.get("datetime"))
-        if not close_dt:
-            continue
-        realized_by_date[close_dt] = realized_by_date.get(close_dt, 0.0) + _safe_float(
-            trade.get("pnlcomm", trade.get("pnl", 0.0)),
-            0.0,
+def _value_row_time(row: dict[str, Any], *, prefer_log_time: bool = False) -> str:
+    """Return the preferred timestamp field for a parsed value-log row."""
+    keys = (
+        (
+            "log_time",
+            "dt",
+            "datetime",
+            "event_time",
         )
-
-    position_by_date: dict[str, dict[str, Any]] = {}
-    for row in position_rows:
-        dt = _normalize_dt_text(row.get("datetime") or row.get("dt"))
-        if dt:
-            position_by_date[dt] = row
-
-    ordered_dates: list[str] = []
-    seen_dates: set[str] = set()
-    for dt in kline_data.get("dates", []):
-        if dt and dt not in seen_dates:
-            ordered_dates.append(dt)
-            seen_dates.add(dt)
-    for dt in sorted(position_by_date):
-        if dt not in seen_dates:
-            ordered_dates.append(dt)
-            seen_dates.add(dt)
-    for dt in sorted(realized_by_date):
-        if dt not in seen_dates:
-            ordered_dates.append(dt)
-            seen_dates.add(dt)
-
-    if not ordered_dates:
-        return {"dates": [], "equity_curve": [], "cash_curve": [], "drawdown_curve": []}
-
-    realized = 0.0
-    equity: list[float] = []
-    cash_curve: list[float] = []
-    peak = initial_cash
-    drawdown_curve: list[float] = []
-    for dt in ordered_dates:
-        realized += realized_by_date.get(dt, 0.0)
-        pos = position_by_date.get(dt, {})
-        size = _safe_float(pos.get("size", 0.0), 0.0)
-        avg_price = _safe_float(pos.get("price", 0.0), 0.0)
-        market_value = _safe_float(pos.get("value", pos.get("market_value", 0.0)), 0.0)
-        cost_basis = size * avg_price
-        unrealized = market_value - cost_basis
-        total_assets = initial_cash + realized + unrealized
-        cash_value = total_assets - market_value
-        equity.append(round(total_assets, 4))
-        cash_curve.append(round(cash_value, 4))
-        if total_assets > peak:
-            peak = total_assets
-        dd = ((peak - total_assets) / peak * 100) if peak > 0 else 0.0
-        drawdown_curve.append(round(dd, 4))
-
-    return {
-        "dates": ordered_dates,
-        "equity_curve": equity,
-        "cash_curve": cash_curve,
-        "drawdown_curve": drawdown_curve,
-    }
+        if prefer_log_time
+        else (
+            "dt",
+            "datetime",
+            "event_time",
+            "log_time",
+        )
+    )
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return _normalize_dt_text(value)
+    return ""
 
 
-def _safe_float(val: str, default: float = 0.0) -> float:
-    """Safely convert a string to a float.
-
-    Args:
-        val: The string value to convert.
-        default: The default value to return if conversion fails.
-
-    Returns:
-        The converted float value, or the default if conversion fails
-        or the value is NaN/Infinity.
-    """
-    try:
-        v = float(val)
-        if math.isnan(v) or math.isinf(v):
-            return default
-        return v
-    except (ValueError, TypeError):
-        return default
-
-
-def parse_value_log(log_dir: Path) -> dict[str, Any]:
+def parse_value_log(log_dir: Path, *, prefer_log_time: bool = False) -> dict[str, Any]:
     """Parse value.log and return equity curve data.
 
     Args:
@@ -352,17 +394,27 @@ def parse_value_log(log_dir: Path) -> dict[str, Any]:
     if not rows:
         rows = _parse_pipe_key_value_lines(log_dir / "value.log")
     dates = []
+    datetimes = []
     equity = []
     cash = []
+    previous_equity: float | None = None
 
     for row in rows:
-        dt = _normalize_dt_text(
-            row.get("dt") or row.get("datetime") or row.get("event_time") or row.get("log_time")
-        )
-        dt = _normalize_date_text(dt)
+        dt_full = _value_row_time(row, prefer_log_time=prefer_log_time)
+        dt = _normalize_date_text(dt_full)
+        equity_value = _safe_float(row.get("value", row.get("broker_value", "0")))
+        cash_value = _safe_float(row.get("cash", row.get("broker_cash", "0")))
+        if not _is_plausible_equity_value(
+            equity_value,
+            cash=cash_value,
+            previous_equity=previous_equity,
+        ):
+            continue
         dates.append(dt)
-        equity.append(_safe_float(row.get("value", row.get("broker_value", "0"))))
-        cash.append(_safe_float(row.get("cash", row.get("broker_cash", "0"))))
+        datetimes.append(dt_full or dt)
+        equity.append(equity_value)
+        cash.append(cash_value)
+        previous_equity = equity_value
 
     # Calculate drawdown curve
     drawdown = []
@@ -375,6 +427,7 @@ def parse_value_log(log_dir: Path) -> dict[str, Any]:
 
     return {
         "dates": dates,
+        "datetimes": datetimes,
         "equity_curve": equity,
         "cash_curve": cash,
         "drawdown_curve": drawdown,
@@ -419,6 +472,9 @@ def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
             if ref == ungrouped_index:
                 ungrouped_index += 1
             item = grouped.setdefault(ref, {"ref": ref})
+            log_time = _normalize_dt_text(row.get("log_time") or row.get("event_time"))
+            if log_time:
+                item["log_time"] = log_time
             dt_value = _normalize_dt_text(
                 row.get("datetime") or row.get("event_time") or row.get("log_time")
             )
@@ -471,7 +527,8 @@ def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
             trades.append(
                 {
                     "ref": int(item.get("ref", 0)),
-                    "datetime": _normalize_date_text(item.get("dtclose")),
+                    "log_time": _normalize_dt_text(item.get("log_time")),
+                    "datetime": _normalize_dt_text(item.get("dtclose")),
                     "dtopen": _normalize_dt_text(item.get("dtopen")),
                     "dtclose": _normalize_dt_text(item.get("dtclose")),
                     "data_name": str(item.get("data_name", "")),
@@ -496,9 +553,10 @@ def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
         trades.append(
             {
                 "ref": int(_safe_float(row.get("ref", "0"))),
-                "datetime": row.get("dtclose", "").split(" ")[0] if row.get("dtclose") else "",
-                "dtopen": row.get("dtopen", "").split(" ")[0] if row.get("dtopen") else "",
-                "dtclose": row.get("dtclose", "").split(" ")[0] if row.get("dtclose") else "",
+                "log_time": _normalize_dt_text(row.get("log_time") or row.get("event_time")),
+                "datetime": _normalize_dt_text(row.get("dtclose")),
+                "dtopen": _normalize_dt_text(row.get("dtopen")),
+                "dtclose": _normalize_dt_text(row.get("dtclose")),
                 "data_name": row.get("data_name", ""),
                 "direction": "buy" if row.get("long") == "1" else "sell",
                 "size": abs(_safe_float(row.get("size", "0"))),
@@ -709,19 +767,37 @@ def parse_position_log(log_dir: Path) -> list[dict[str, Any]]:
     if not rows:
         json_rows = _parse_json_lines(log_dir / "position.log")
         if json_rows:
-            return [
-                {
-                    "dt": _normalize_date_text(row.get("datetime")),
-                    "datetime": _normalize_dt_text(row.get("datetime")),
-                    "data_name": row.get("data_name", ""),
-                    "size": _safe_float(row.get("size", 0.0)),
-                    "price": round(_safe_float(row.get("price", 0.0)), 4),
-                    "market_value": round(_safe_float(row.get("value", 0.0)), 2),
-                    "value": round(_safe_float(row.get("value", 0.0)), 2),
-                }
-                for row in json_rows
-                if _normalize_dt_text(row.get("datetime"))
-            ]
+            positions = []
+            for row in json_rows:
+                if not _normalize_dt_text(row.get("datetime")):
+                    continue
+                explicit_market_value = _first_present(row, "value", "market_value")
+                size = _position_size(row)
+                price = _position_entry_price(row)
+                market_value = (
+                    explicit_market_value
+                    if explicit_market_value is not None
+                    else abs(size) * price
+                )
+                positions.append(
+                    _mark_estimated_market_value(
+                        {
+                            "dt": _normalize_date_text(row.get("datetime")),
+                            "datetime": _normalize_dt_text(row.get("datetime")),
+                            "log_time": _normalize_dt_text(
+                                row.get("log_time") or row.get("event_time")
+                            ),
+                            "data_name": _position_symbol(row),
+                            "size": size,
+                            "price": round(price, 4),
+                            "market_value": _market_value(market_value),
+                            "value": _market_value(market_value),
+                            **_position_extra_fields(row),
+                        },
+                        explicit_market_value,
+                    )
+                )
+            return positions
         pipe_rows = _parse_pipe_key_value_lines(log_dir / "position.log")
         if not pipe_rows:
             return []
@@ -733,37 +809,54 @@ def parse_position_log(log_dir: Path) -> list[dict[str, Any]]:
             dt = _normalize_dt_text(row.get("datetime") or row.get("dt"))
             if not dt and index < len(fallback_dates):
                 dt = fallback_dates[index]
-            size = _safe_float(row.get("size", 0.0))
-            price = _safe_float(row.get("price", 0.0))
-            market_value = _safe_float(row.get("value", abs(size) * price))
+            size = _position_size(row)
+            price = _position_entry_price(row)
+            explicit_market_value = row.get("value")
+            market_value = _safe_float(
+                explicit_market_value
+                if explicit_market_value not in (None, "")
+                else abs(size) * price
+            )
             positions.append(
-                {
-                    "dt": _normalize_date_text(dt),
-                    "datetime": dt,
-                    "data_name": str(row.get("data_name") or row.get("event") or ""),
-                    "size": size,
-                    "price": round(price, 4),
-                    "market_value": round(market_value, 2),
-                    "value": round(market_value, 2),
-                }
+                _mark_estimated_market_value(
+                    {
+                        "dt": _normalize_date_text(dt),
+                        "datetime": dt,
+                        "log_time": _normalize_dt_text(
+                            row.get("log_time") or row.get("event_time")
+                        ),
+                        "data_name": _position_symbol(row, str(row.get("event") or "")),
+                        "size": size,
+                        "price": round(price, 4),
+                        "market_value": _market_value(market_value),
+                        "value": _market_value(market_value),
+                        **_position_extra_fields(row),
+                    },
+                    explicit_market_value,
+                )
             )
         return positions
     positions = []
     for row in rows:
-        size = _safe_float(row.get("size", "0"))
-        price = _safe_float(row.get("price", "0"))
-        dt = row.get("dt", "")
-        if " " in dt:
-            dt = dt.split(" ")[0]
+        size = _position_size(row)
+        price = _position_entry_price(row)
+        datetime_text = _normalize_dt_text(row.get("datetime") or row.get("dt"))
+        dt = _normalize_date_text(datetime_text)
         positions.append(
-            {
-                "dt": dt,
-                "data_name": row.get("data_name", ""),
-                "size": size,
-                "price": round(price, 4),
-                "market_value": round(abs(size) * price, 2),
-                "value": round(abs(size) * price, 2),
-            }
+            _mark_estimated_market_value(
+                {
+                    "dt": dt,
+                    "datetime": datetime_text,
+                    "log_time": _normalize_dt_text(row.get("log_time") or row.get("event_time")),
+                    "data_name": _position_symbol(row),
+                    "size": size,
+                    "price": round(price, 4),
+                    "market_value": _market_value(abs(size) * price),
+                    "value": _market_value(abs(size) * price),
+                    **_position_extra_fields(row),
+                },
+                None,
+            )
         )
     return positions
 
@@ -784,17 +877,26 @@ def parse_current_position(log_dir: Path) -> list[dict[str, Any]]:
                 data = json.load(f)
             result = []
             for item in data:
-                size = _safe_float(str(item.get("size", 0)))
-                price = _safe_float(str(item.get("price", 0)))
-                market_value = item.get("value", item.get("market_value", size * price))
+                if not isinstance(item, dict):
+                    continue
+                size = _position_size(item)
+                price = _position_entry_price(item)
+                explicit_market_value = _first_present(item, "value", "market_value")
+                market_value = (
+                    explicit_market_value if explicit_market_value is not None else size * price
+                )
                 result.append(
-                    {
-                        "data_name": item.get("data_name", ""),
-                        "size": size,
-                        "price": round(price, 4),
-                        "market_value": round(_safe_float(market_value), 2),
-                        "value": round(_safe_float(market_value), 2),
-                    }
+                    _mark_estimated_market_value(
+                        {
+                            "data_name": _position_symbol(item),
+                            "size": size,
+                            "price": round(price, 4),
+                            "market_value": _market_value(market_value),
+                            "value": _market_value(market_value),
+                            **_position_extra_fields(item),
+                        },
+                        explicit_market_value,
+                    )
                 )
             return result
         except (json.JSONDecodeError, OSError, KeyError, TypeError) as e:
@@ -816,21 +918,26 @@ def parse_current_position(log_dir: Path) -> list[dict[str, Any]]:
         for data_name, item in positions.items():
             if not isinstance(item, dict):
                 continue
-            size = _safe_float(item.get("size", 0.0))
-            price = _safe_float(item.get("price", 0.0))
-            market_value = item.get("value")
+            size = _position_size(item)
+            price = _position_entry_price(item)
+            explicit_market_value = _first_present(item, "value", "market_value")
+            market_value = explicit_market_value
             if market_value is None:
                 market_value = size * _safe_float(item.get("current_price", price))
             result.append(
-                {
-                    "dt": _normalize_date_text(as_of),
-                    "datetime": as_of,
-                    "data_name": str(data_name),
-                    "size": size,
-                    "price": round(price, 4),
-                    "market_value": round(_safe_float(market_value), 2),
-                    "value": round(_safe_float(market_value), 2),
-                }
+                _mark_estimated_market_value(
+                    {
+                        "dt": _normalize_date_text(as_of),
+                        "datetime": as_of,
+                        "data_name": _position_symbol(item, str(data_name)),
+                        "size": size,
+                        "price": round(price, 4),
+                        "market_value": _market_value(market_value),
+                        "value": _market_value(market_value),
+                        **_position_extra_fields(item),
+                    },
+                    explicit_market_value,
+                )
             )
         return result
     except (OSError, TypeError, ValueError) as e:
@@ -883,54 +990,33 @@ def parse_log_dir(log_dir: Path, strategy_dir: Path | None = None) -> dict[str, 
     initial_cash = equity[0] if equity else 100000.0
     final_value = equity[-1] if equity else initial_cash
 
-    total_return = ((final_value - initial_cash) / initial_cash * 100) if initial_cash > 0 else 0.0
+    from app.services.fincore_metrics_helper import calculate_metrics_from_log_data
 
-    n_days = len(equity)
-    n_years = n_days / 252.0 if n_days > 0 else 1.0
-    annual_return = (
-        ((final_value / initial_cash) ** (1.0 / n_years) - 1) * 100
-        if n_years > 0 and initial_cash > 0
-        else 0.0
+    metrics = calculate_metrics_from_log_data(
+        {
+            "equity_curve": equity,
+            "equity_dates": value_data.get("datetimes") or value_data.get("dates", []),
+            "trades": trades,
+        },
+        use_fincore=True,
     )
-
-    max_drawdown = (
-        max(value_data.get("drawdown_curve", [0.0])) if value_data.get("drawdown_curve") else 0.0
-    )
-
-    if len(equity) > 1:
-        returns = []
-        for i in range(1, len(equity)):
-            if equity[i - 1] > 0:
-                returns.append((equity[i] - equity[i - 1]) / equity[i - 1])
-        if returns:
-            avg_ret = np.mean(returns)
-            std_ret = np.std(returns)
-            sharpe_ratio = (avg_ret / std_ret * (252**0.5)) if std_ret > 0 else 0.0
-        else:
-            sharpe_ratio = 0.0
-    else:
-        sharpe_ratio = 0.0
-
-    total_trades = len(trades)
-    profitable_trades = len([t for t in trades if t.get("pnlcomm", 0) > 0])
-    losing_trades = len([t for t in trades if t.get("pnlcomm", 0) <= 0])
-    win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0.0
 
     return {
         "run_info": run_info,
         "log_dir": str(log_dir),
-        "total_return": round(total_return, 4),
-        "annual_return": round(annual_return, 4),
-        "sharpe_ratio": round(sharpe_ratio, 4),
-        "max_drawdown": round(max_drawdown, 4),
-        "win_rate": round(win_rate, 2),
-        "total_trades": total_trades,
-        "profitable_trades": profitable_trades,
-        "losing_trades": losing_trades,
+        "total_return": round(_finite_metric(metrics.get("total_return", 0.0)), 4),
+        "annual_return": round(_finite_metric(metrics.get("annual_return", 0.0)), 4),
+        "sharpe_ratio": round(_finite_metric(metrics.get("sharpe_ratio", 0.0)), 4),
+        "max_drawdown": round(_finite_metric(metrics.get("max_drawdown", 0.0)), 4),
+        "win_rate": round(_finite_metric(metrics.get("win_rate", 0.0)), 2),
+        "total_trades": int(metrics.get("total_trades", 0) or 0),
+        "profitable_trades": int(metrics.get("profitable_trades", 0) or 0),
+        "losing_trades": int(metrics.get("losing_trades", 0) or 0),
         "initial_cash": initial_cash,
         "final_value": round(final_value, 2),
         "equity_curve": equity,
-        "equity_dates": value_data.get("dates", []),
+        "equity_dates": value_data.get("datetimes") or value_data.get("dates", []),
+        "equity_datetimes": value_data.get("datetimes", []),
         "cash_curve": value_data.get("cash_curve", []),
         "drawdown_curve": value_data.get("drawdown_curve", []),
         "trades": trades,

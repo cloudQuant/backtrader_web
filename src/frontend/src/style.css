@@ -5,98 +5,312 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =============================================================================
+   Design Tokens (CSS Custom Properties)
+   Single source of truth for colors - referenced by all components.
+   ============================================================================= */
 :root {
-  --primary-color: #3b82f6;
-  --success-color: #10b981;
-  --danger-color: #ef4444;
-  --warning-color: #f59e0b;
+  /* Brand / Primary */
+  --primary-color: var(--color-primary-500);
+  --primary-color-light: var(--color-primary-400);
+  --primary-color-dark: var(--color-primary-600);
+  --primary-on-color: #FFFFFF;
+  --accent-color: var(--primary-color);
+
+  /* Semantic */
+  --success-color: var(--color-success-500);
+  --danger-color: var(--color-danger-500);
+  --warning-color: var(--color-warning-500);
+  --info-surface: color-mix(in srgb, var(--bg-color) 86%, var(--primary-color) 14%);
+  --info-border-color: color-mix(in srgb, var(--border-color) 58%, var(--primary-color) 42%);
+  --info-text-color: var(--primary-color);
+  --success-surface: color-mix(in srgb, var(--bg-color) 86%, var(--success-color) 14%);
+  --success-border-color: color-mix(in srgb, var(--border-color) 58%, var(--success-color) 42%);
+  --success-text-color: var(--success-color);
+  --success-text-strong: var(--success-color);
+  --warning-surface: color-mix(in srgb, var(--bg-color) 86%, var(--warning-color) 14%);
+  --warning-border-color: color-mix(in srgb, var(--border-color) 58%, var(--warning-color) 42%);
+  --warning-text-color: var(--warning-color);
+  --warning-text-strong: var(--warning-color);
+  --danger-surface: color-mix(in srgb, var(--bg-color) 86%, var(--danger-color) 14%);
+  --danger-border-color: color-mix(in srgb, var(--border-color) 58%, var(--danger-color) 42%);
+  --danger-text-color: var(--danger-color);
+
+  /* Element Plus consumes these semantic variables for all seven themes. */
+  --el-color-primary: var(--primary-color);
+  --el-color-primary-light-3: color-mix(in srgb, var(--primary-color) 70%, var(--bg-color) 30%);
+  --el-color-primary-light-5: color-mix(in srgb, var(--primary-color) 50%, var(--bg-color) 50%);
+  --el-color-primary-light-7: color-mix(in srgb, var(--primary-color) 30%, var(--bg-color) 70%);
+  --el-color-primary-light-8: color-mix(in srgb, var(--primary-color) 20%, var(--bg-color) 80%);
+  --el-color-primary-light-9: color-mix(in srgb, var(--primary-color) 10%, var(--bg-color) 90%);
+  --el-color-primary-dark-2: color-mix(in srgb, var(--primary-color) 80%, var(--text-color-primary) 20%);
+  --el-color-success: var(--success-color);
+  --el-color-warning: var(--warning-color);
+  --el-color-danger: var(--danger-color);
+  --el-bg-color: var(--bg-color);
+  --el-bg-color-page: var(--bg-color-page);
+  --el-bg-color-overlay: var(--bg-color-overlay);
+  --el-fill-color: var(--fill-color);
+  --el-fill-color-light: var(--fill-color-light);
+  --el-fill-color-lighter: var(--fill-color-lighter);
+  --el-fill-color-blank: var(--bg-color);
+  --el-text-color-primary: var(--text-color-primary);
+  --el-text-color-regular: var(--text-color-regular);
+  --el-text-color-secondary: var(--text-color-secondary);
+  --el-text-color-placeholder: var(--text-color-placeholder);
+  --el-border-color: var(--border-color);
+  --el-border-color-light: var(--border-color-light);
+  --el-border-color-lighter: var(--border-color-lighter);
+
+  /* Text */
+  --text-color-primary: var(--color-text-primary);
+  --text-color-regular: var(--color-text-regular);
+  --text-color-secondary: var(--color-text-secondary);
+  --text-color-placeholder: var(--color-text-placeholder);
+
+  /* Background */
+  --bg-color-page: var(--color-bg-page);
+  --bg-color-card: var(--color-bg-card);
+  --bg-color-hover: var(--color-bg-hover);
+  --bg-color: var(--bg-color-card);
+  --bg-color-overlay: var(--bg-color-card);
+  --bg-color-sidebar: var(--bg-color-card);
+  --fill-color: var(--bg-color-hover);
+  --fill-color-light: var(--bg-color-hover);
+  --fill-color-lighter: var(--bg-color-page);
+
+  /* Border */
+  --border-color: var(--color-border);
+  --border-color-light: var(--color-border-light);
+  --border-color-lighter: var(--color-bg-page);
+  --sidebar-text-color: var(--text-color-primary);
+  --sidebar-text-color-muted: var(--text-color-secondary);
+  --sidebar-active-color: var(--primary-color);
+  --sidebar-active-bg: var(--color-primary-50);
+  --sidebar-hover-bg: var(--color-bg-hover);
+  --sidebar-border-color: var(--border-color);
+  --shadow-color: var(--color-shadow-base);
+  --code-bg-color: var(--color-code-bg);
+  --code-text-color: var(--color-code-text);
 }
+
 
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
-/* 覆盖Element Plus主题 */
+/* Override Element Plus primary color */
 .el-button--primary {
   --el-button-bg-color: var(--primary-color);
   --el-button-border-color: var(--primary-color);
+  --el-button-text-color: var(--primary-on-color);
+  --el-button-hover-text-color: var(--primary-on-color);
+  --el-button-active-text-color: var(--primary-on-color);
 }
 
-/* K线图上涨颜色 */
+.el-table {
+  --el-table-bg-color: var(--bg-color);
+  --el-table-tr-bg-color: var(--bg-color);
+  --el-table-header-bg-color: var(--fill-color);
+  --el-table-row-hover-bg-color: var(--fill-color-light);
+  --el-table-striped-bg-color: var(--fill-color-lighter);
+  --el-table-text-color: var(--text-color-primary);
+  --el-table-header-text-color: var(--text-color-secondary);
+  --el-table-border-color: var(--border-color);
+}
+
+.el-input.is-disabled .el-input__wrapper,
+.el-textarea.is-disabled .el-textarea__inner,
+.el-select .el-select__wrapper.is-disabled {
+  background-color: var(--fill-color-lighter) !important;
+  color: var(--text-color-secondary) !important;
+  box-shadow: 0 0 0 1px var(--border-color) inset !important;
+}
+
+/* K-line chart colors (domain-specific, not theme tokens) */
 .kline-up {
   color: #ec0000;
 }
 
-/* K线图下跌颜色 */
 .kline-down {
   color: #00da3c;
 }
 
-/* 暗色模式 */
+/* =============================================================================
+   Dark Mode (for dark-based themes: obsidian, nebula, solaris)
+   Uses Element Plus CSS variables for component theming.
+   Tailwind dark: prefix handles utility classes automatically.
+   ============================================================================= */
 html.dark {
   color-scheme: dark;
 }
 
 html.dark body {
-  background-color: #1a1a2e;
-  color: #e0e0e0;
+  background-color: var(--bg-color-page);
+  color: var(--text-color-primary);
 }
 
 html.dark .el-header {
-  background-color: #16213e !important;
-  border-color: #2a2a4a !important;
+  background-color: var(--bg-color) !important;
+  border-color: var(--border-color) !important;
 }
 
 html.dark .el-main {
-  background-color: #1a1a2e !important;
+  background-color: var(--bg-color-page) !important;
 }
 
 html.dark .el-card {
-  background-color: #16213e;
-  border-color: #2a2a4a;
-  color: #e0e0e0;
+  background-color: var(--bg-color);
+  border-color: var(--border-color);
+  color: var(--text-color-primary);
 }
 
 html.dark .el-table {
-  --el-table-bg-color: #16213e;
-  --el-table-tr-bg-color: #16213e;
-  --el-table-header-bg-color: #0f3460;
-  --el-table-row-hover-bg-color: #1a3a5c;
-  --el-table-text-color: #e0e0e0;
-  --el-table-header-text-color: #e0e0e0;
-  --el-table-border-color: #2a2a4a;
+  --el-table-bg-color: var(--bg-color);
+  --el-table-tr-bg-color: var(--bg-color);
+  --el-table-header-bg-color: var(--fill-color);
+  --el-table-row-hover-bg-color: var(--fill-color);
+  --el-table-striped-bg-color: var(--fill-color-light);
+  --el-table-text-color: var(--text-color-primary);
+  --el-table-header-text-color: var(--text-color-primary);
+  --el-table-border-color: var(--border-color);
+}
+
+html.dark .el-table__body tr.el-table__row--striped td.el-table__cell {
+  background-color: var(--el-table-striped-bg-color) !important;
 }
 
 html.dark .el-dialog {
-  background-color: #16213e;
-  color: #e0e0e0;
+  background-color: var(--bg-color);
+  color: var(--text-color-primary);
 }
 
 html.dark .el-input__wrapper,
 html.dark .el-textarea__inner,
-html.dark .el-select .el-input__wrapper {
-  background-color: #0f3460 !important;
-  box-shadow: 0 0 0 1px #2a2a4a inset !important;
-  color: #e0e0e0;
+html.dark .el-select .el-input__wrapper,
+html.dark .el-select__wrapper {
+  background-color: var(--fill-color) !important;
+  box-shadow: 0 0 0 1px var(--border-color) inset !important;
+  color: var(--text-color-primary);
 }
 
-html.dark .el-input__inner {
-  color: #e0e0e0;
+html.dark .el-input__inner,
+html.dark .el-select__placeholder,
+html.dark .el-select__selected-item,
+html.dark .el-textarea__inner {
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .el-input-number__decrease,
+html.dark .el-input-number__increase {
+  border-color: var(--border-color) !important;
+  background-color: var(--fill-color-light) !important;
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .el-input-number__decrease.is-disabled,
+html.dark .el-input-number__increase.is-disabled,
+html.dark .el-input.is-disabled .el-input__wrapper {
+  background-color: var(--fill-color-lighter) !important;
+  color: var(--text-color-secondary) !important;
 }
 
 html.dark .bg-gray-50 {
-  background-color: #1a1a2e !important;
+  background-color: var(--bg-color-page) !important;
 }
 
 html.dark .bg-gray-100 {
-  background-color: #16213e !important;
+  background-color: var(--bg-color) !important;
+}
+
+html.dark .bg-white {
+  background-color: var(--bg-color) !important;
 }
 
 html.dark .text-gray-500 {
-  color: #94a3b8 !important;
+  color: var(--text-color-secondary) !important;
 }
 
 html.dark .text-gray-800 {
-  color: #e0e0e0 !important;
+  color: var(--text-color-primary) !important;
+}
+
+/* =============================================================================
+   Light-based themes: override Tailwind utility classes with theme variables
+   ============================================================================= */
+.bg-white {
+  background-color: var(--bg-color) !important;
+}
+
+.bg-gray-50 {
+  background-color: var(--bg-color-page) !important;
+}
+
+.border-b {
+  border-color: var(--border-color) !important;
+}
+
+/* =============================================================================
+   Theme-aware sidebar (all themes)
+   Sidebar variables (--bg-color-sidebar, --sidebar-text-color, etc.) are set
+   by the theme store's applyTheme() via inline styles on <html>.
+   ============================================================================= */
+.el-aside,
+aside.el-aside {
+  background-color: var(--bg-color-sidebar) !important;
+  border-right: 1px solid var(--sidebar-border-color);
+}
+
+/* Sidebar menu items — global override to ensure theme colors apply */
+.el-aside .el-menu {
+  background-color: transparent !important;
+  border-right: none !important;
+}
+
+.el-aside .el-menu-item {
+  color: var(--sidebar-text-color-muted) !important;
+  margin: 4px 8px;
+  border-radius: 8px;
+}
+
+.el-aside .el-menu-item:hover,
+.el-aside .el-menu-item:focus {
+  background-color: var(--sidebar-hover-bg) !important;
+  color: var(--sidebar-text-color) !important;
+}
+
+.el-aside .el-menu-item.is-active {
+  color: var(--sidebar-active-color) !important;
+  background-color: var(--sidebar-active-bg) !important;
+}
+
+.el-aside .el-menu-item .el-icon {
+  color: inherit !important;
+}
+
+/* Mobile sidebar drawer background */
+.mobile-sidebar-drawer .el-drawer__body {
+  background-color: var(--bg-color-sidebar) !important;
+}
+
+.mobile-sidebar-drawer .el-drawer__header {
+  background-color: var(--bg-color-sidebar) !important;
+  border-bottom: 1px solid var(--sidebar-border-color) !important;
+}
+
+.mobile-sidebar-drawer .el-menu-item {
+  color: var(--sidebar-text-color-muted) !important;
+  margin: 4px 8px;
+  border-radius: 8px;
+}
+
+.mobile-sidebar-drawer .el-menu-item:hover {
+  background-color: var(--sidebar-hover-bg) !important;
+  color: var(--sidebar-text-color) !important;
+}
+
+.mobile-sidebar-drawer .el-menu-item.is-active {
+  color: var(--sidebar-active-color) !important;
+  background-color: var(--sidebar-active-bg) !important;
 }

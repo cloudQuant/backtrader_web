@@ -1,27 +1,27 @@
-# Getting Started
+# Getting started
 
-Welcome to Backtrader Web! This section will help you get started with the platform.
+This section walks through a minimal, verifiable research loop: start the services, choose data, create a strategy, run a backtest, and inspect the result.
 
-## What is Backtrader Web?
+## Prerequisites
 
-Backtrader Web is a **full-featured quantitative trading management platform** that provides a complete workflow from strategy development, backtesting, paper trading to live trading monitoring.
+- Python 3.10+, Node.js 20+, and Git.
+- Install the `backtrader` extra to run backtests, the `data` extra for online AkShare data, and the `rag` extra for semantic retrieval.
+- SQLite is suitable for the default application database; PostgreSQL or MySQL is recommended for production or team environments.
 
-## Supported Features
+## Recommended path
 
-| Module | Status | Description |
-|--------|--------|-------------|
-| Strategy Management | ✅ Complete | CRUD + Version Control |
-| Backtest Analysis | ✅ Complete | Historical data backtest + fincore standardized metrics |
-| Parameter Optimization | ✅ Complete | Grid search + Bayesian optimization |
-| Report Export | ✅ Complete | HTML/PDF/Excel |
-| Paper Trading | ✅ Complete | Accounts, orders, positions |
-| Live Trading | ✅ Complete | Multi-broker support (CCXT/CTP) |
-| Real-time Data | ✅ Complete | WebSocket push |
-| Monitoring & Alerts | ✅ Complete | Real-time monitoring |
-| Portfolio | ✅ Complete | Multi-strategy portfolio management |
+1. [Installation](./installation.md): create the backend environment, install the frontend, and configure `.env`.
+2. [Quick start](./quickstart.md): complete a first backtest from market data through a research workspace.
+3. [Knowledge base](../features/knowledge-base.md): import, index, and ask cited questions.
+4. [Market data](../features/market-data.md): understand MySQL-first reads and explicit AkShare refreshes.
 
-## Next Steps
+## Preflight checks
 
-- [Installation Guide](./installation.md) - Environment setup and installation
-- [Quick Start](./quickstart.md) - Complete your first backtest in 5 minutes
-- [API Documentation](../development/api.md) - RESTful API reference
+The repository contains a development-environment verifier. Run it before and after dependency installation:
+
+```bash
+./scripts/dev/verify-dev-env.sh --preinstall
+./scripts/dev/verify-dev-env.sh --postinstall
+```
+
+The running OpenAPI contract at `http://localhost:8000/docs` is authoritative. Both pages and APIs require authentication; administrative configuration pages also require admin access.

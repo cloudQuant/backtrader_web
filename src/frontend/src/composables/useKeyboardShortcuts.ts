@@ -1,19 +1,25 @@
 /**
- * 全局快捷键支持
- * 
- * 功能:
- * - 运行回测: Ctrl/Cmd + Enter
- * - 保存策略: Ctrl/Cmd + S
- * - 切换暗色模式: Ctrl/Cmd + D
- * - 导航: 数字键 1-9
- * - 帮助: ?
- * - 搜索: Ctrl/Cmd + K
- * - 关闭对话框: Escape
+ * Global keyboard shortcuts.
+ *
+ * Features:
+ * - Run backtest: Ctrl/Cmd + Enter
+ * - Save strategy: Ctrl/Cmd + S
+ * - Toggle dark mode: Ctrl/Cmd + D
+ * - Navigation: number keys 1-9
+ * - Help: ?
+ * - Search: Ctrl/Cmd + K
+ * - Close dialog: Escape
  */
 
 import { onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import i18n from '@/i18n'
+import { APP_PATHS } from '@/navigation/routes'
+
+function tt(key: string): string {
+  return i18n.global.t(key)
+}
 
 export interface KeyboardShortcut {
   key: string
@@ -30,16 +36,12 @@ export function useKeyboardShortcuts() {
   const router = useRouter()
   const shortcuts: KeyboardShortcut[] = []
 
-  /**
-   * 注册快捷键
-   */
+  /** Register a shortcut. */
   function registerShortcut(shortcut: KeyboardShortcut) {
     shortcuts.push(shortcut)
   }
 
-  /**
-   * 注销快捷键
-   */
+  /** Unregister a shortcut by key. */
   function unregisterShortcut(key: string) {
     const index = shortcuts.findIndex(s => s.key === key)
     if (index !== -1) {
@@ -47,17 +49,15 @@ export function useKeyboardShortcuts() {
     }
   }
 
-  /**
-   * 处理键盘事件
-   */
+  /** Handle keyboard events. */
   function handleKeyDown(event: KeyboardEvent) {
-    // 忽略在输入框中的快捷键（除了 Escape）
+    // Ignore shortcuts in input fields (except Escape)
     const target = event.target as HTMLElement
-    const isInputFocused = target.tagName === 'INPUT' || 
-                          target.tagName === 'TEXTAREA' || 
+    const isInputFocused = target.tagName === 'INPUT' ||
+                          target.tagName === 'TEXTAREA' ||
                           target.isContentEditable
 
-    // 查找匹配的快捷键
+    // Find matching shortcut
     const matchedShortcut = shortcuts.find(shortcut => {
       const keyMatch = event.key.toLowerCase() === shortcut.key.toLowerCase()
       const ctrlMatch = shortcut.ctrlKey ? (event.ctrlKey || event.metaKey) : !event.ctrlKey
@@ -69,7 +69,7 @@ export function useKeyboardShortcuts() {
     })
 
     if (matchedShortcut) {
-      // 在输入框中时，只响应 Escape
+      // When in an input, only respond to Escape
       if (isInputFocused && event.key !== 'Escape') {
         return
       }
@@ -81,43 +81,41 @@ export function useKeyboardShortcuts() {
     }
   }
 
-  /**
-   * 设置全局快捷键
-   */
+  /** Set up the global shortcuts. */
   function setupGlobalShortcuts() {
-    // 运行回测: Ctrl/Cmd + Enter
+    // Run backtest: Ctrl/Cmd + Enter
     registerShortcut({
       key: 'Enter',
       ctrlKey: true,
-      description: '运行回测',
+      description: tt('kbShortcuts.descRunBacktest'),
       action: () => {
         const runButton = document.querySelector('[data-shortcut="run-backtest"]') as HTMLButtonElement
         if (runButton && !runButton.disabled) {
           runButton.click()
-          ElMessage.success('正在提交回测任务...')
+          ElMessage.success(tt('kbShortcuts.msgRunningBacktest'))
         }
       }
     })
 
-    // 保存策略: Ctrl/Cmd + S
+    // Save strategy: Ctrl/Cmd + S
     registerShortcut({
       key: 's',
       ctrlKey: true,
-      description: '保存策略',
+      description: tt('kbShortcuts.descSaveStrategy'),
       action: () => {
         const saveButton = document.querySelector('[data-shortcut="save-strategy"]') as HTMLButtonElement
         if (saveButton && !saveButton.disabled) {
           saveButton.click()
-          ElMessage.success('策略已保存')
+          ElMessage.success(tt('kbShortcuts.msgStrategySaved'))
         }
       }
     })
 
-    // 切换暗色模式: Ctrl/Cmd + D
+    // Toggle dark mode: Ctrl/Cmd + D
     registerShortcut({
       key: 'd',
       ctrlKey: true,
-      description: '切换暗色模式',
+      description: tt('kbShortcuts.descToggleDarkMode'),
       action: () => {
         const darkModeToggle = document.querySelector('[data-shortcut="toggle-dark-mode"]') as HTMLButtonElement
         if (darkModeToggle) {
@@ -126,47 +124,47 @@ export function useKeyboardShortcuts() {
       }
     })
 
-    // 导航 - 仪表盘: 1
+    // Navigate to dashboard: 1
     registerShortcut({
       key: '1',
-      description: '导航到仪表盘',
+      description: tt('kbShortcuts.descNavDashboard'),
       action: () => router.push('/')
     })
 
-    // 导航 - 策略管理: 2
+    // Navigate to strategy management: 2
     registerShortcut({
       key: '2',
-      description: '导航到策略管理',
-      action: () => router.push('/strategy')
+      description: tt('kbShortcuts.descNavStrategy'),
+      action: () => router.push(APP_PATHS.research.strategies)
     })
 
-    // 导航 - 回测: 3
+    // Navigate to backtest: 3
     registerShortcut({
       key: '3',
-      description: '导航到回测',
-      action: () => router.push('/workspace')
+      description: tt('kbShortcuts.descNavBacktest'),
+      action: () => router.push(APP_PATHS.research.workspaces)
     })
 
-    // 导航 - 实盘交易: 5
+    // Navigate to live trading: 5
     registerShortcut({
       key: '5',
-      description: '导航到实盘交易',
+      description: tt('kbShortcuts.descNavLiveTrading'),
       action: () => router.push('/live-trading')
     })
 
-    // 显示帮助: ?
+    // Show help: ?
     registerShortcut({
       key: '?',
       shiftKey: true,
-      description: '显示快捷键帮助',
+      description: tt('kbShortcuts.descHelpKey'),
       action: () => showHelp()
     })
 
-    // 全局搜索: Ctrl/Cmd + K
+    // Global search: Ctrl/Cmd + K
     registerShortcut({
       key: 'k',
       ctrlKey: true,
-      description: '打开全局搜索',
+      description: tt('kbShortcuts.descGlobalSearch'),
       action: () => {
         const searchInput = document.querySelector('[data-shortcut="global-search"]') as HTMLInputElement
         if (searchInput) {
@@ -175,10 +173,10 @@ export function useKeyboardShortcuts() {
       }
     })
 
-    // 关闭对话框/返回: Escape
+    // Close dialog / back: Escape
     registerShortcut({
       key: 'Escape',
-      description: '关闭对话框或返回',
+      description: tt('kbShortcuts.descCloseDialog'),
       action: () => {
         const closeButton = document.querySelector('.el-dialog__headerbtn') as HTMLButtonElement
         if (closeButton) {
@@ -190,9 +188,7 @@ export function useKeyboardShortcuts() {
     })
   }
 
-  /**
-   * 显示快捷键帮助
-   */
+  /** Display the keyboard shortcuts help message. */
   function showHelp() {
     const shortcutsList = shortcuts
       .filter(s => s.description)
@@ -210,7 +206,7 @@ export function useKeyboardShortcuts() {
       dangerouslyUseHTMLString: true,
       message: `
         <div style="max-height: 400px; overflow-y: auto;">
-          <h4 style="margin-bottom: 10px;">⌨️ 快捷键列表</h4>
+          <h4 style="margin-bottom: 10px;">${tt('kbShortcuts.helpHeading')}</h4>
           ${shortcutsList}
         </div>
       `,
@@ -219,9 +215,7 @@ export function useKeyboardShortcuts() {
     })
   }
 
-  /**
-   * 获取所有快捷键列表（用于UI显示）
-   */
+  /** Get the registered shortcuts list (for UI display). */
   function getShortcutsList() {
     return shortcuts.filter(s => s.description)
   }
@@ -245,13 +239,13 @@ export function useKeyboardShortcuts() {
 }
 
 /**
- * 使用示例:
- * 
- * 在 App.vue 或 main.ts 中引入:
- * 
+ * Usage example:
+ *
+ * In App.vue or main.ts:
+ *
  * ```typescript
  * import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
- * 
+ *
  * export default {
  *   setup() {
  *     const { showHelp } = useKeyboardShortcuts()
@@ -259,12 +253,12 @@ export function useKeyboardShortcuts() {
  *   }
  * }
  * ```
- * 
- * 在按钮上添加 data-shortcut 属性:
- * 
+ *
+ * Add a data-shortcut attribute to a button:
+ *
  * ```html
  * <el-button data-shortcut="run-backtest" @click="runBacktest">
- *   运行回测 (Ctrl+Enter)
+ *   Run backtest (Ctrl+Enter)
  * </el-button>
  * ```
  */

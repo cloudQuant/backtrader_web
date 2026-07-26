@@ -8,7 +8,8 @@ import pytest
 import yaml
 
 from app.services import workspace_unit_runtime
-from app.services.strategy_runtime_support import (
+from app.services.strategy import runtime_support as runtime_support_module
+from app.services.strategy.runtime_support import (
     _FLAT_LOG_FILENAMES,
     find_latest_log_dir,
     infer_gateway_params,
@@ -111,9 +112,13 @@ class TestLoadStrategyConfig:
 class TestLoadStrategyEnv:
     """Tests for load_strategy_env function."""
 
+    def test_default_project_root_points_to_repository_root(self):
+        assert runtime_support_module._PROJECT_ROOT.name == "backtrader_web"
+        assert (runtime_support_module._PROJECT_ROOT / "scripts" / "diagnostics").is_dir()
+
     def test_returns_empty_dict_when_no_env_file(self, tmp_path: Path):
         """Test returns empty dict when no .env file exists."""
-        result = load_strategy_env(tmp_path)
+        result = load_strategy_env(tmp_path, project_dir=tmp_path / "project")
         assert result == {}
 
     def test_loads_env_from_strategy_dir(self, tmp_path: Path):
@@ -121,7 +126,7 @@ class TestLoadStrategyEnv:
         env_path = tmp_path / ".env"
         env_path.write_text("API_KEY=secret123\nDEBUG=true\n")
 
-        result = load_strategy_env(tmp_path)
+        result = load_strategy_env(tmp_path, project_dir=tmp_path / "project")
         assert result == {"API_KEY": "secret123", "DEBUG": "true"}
 
     def test_skips_comments_and_empty_lines(self, tmp_path: Path):
@@ -129,7 +134,7 @@ class TestLoadStrategyEnv:
         env_path = tmp_path / ".env"
         env_path.write_text("# Comment\n\nAPI_KEY=secret\n# Another comment\n")
 
-        result = load_strategy_env(tmp_path)
+        result = load_strategy_env(tmp_path, project_dir=tmp_path / "project")
         assert result == {"API_KEY": "secret"}
 
     def test_strips_quotes_from_values(self, tmp_path: Path):
@@ -137,7 +142,7 @@ class TestLoadStrategyEnv:
         env_path = tmp_path / ".env"
         env_path.write_text("KEY1=\"value1\"\nKEY2='value2'\n")
 
-        result = load_strategy_env(tmp_path)
+        result = load_strategy_env(tmp_path, project_dir=tmp_path / "project")
         assert result == {"KEY1": "value1", "KEY2": "value2"}
 
     def test_merges_multiple_env_files(self, tmp_path: Path):
@@ -150,7 +155,7 @@ class TestLoadStrategyEnv:
         project_env = project_dir / ".env"
         project_env.write_text("KEY2=overridden\nKEY3=value3\n")
 
-        result = load_strategy_env(tmp_path, backtrader_web_dir=project_dir)
+        result = load_strategy_env(tmp_path, project_dir=project_dir)
         # Strategy dir env takes precedence
         assert result == {"KEY1": "value1", "KEY2": "value2", "KEY3": "value3"}
 
@@ -376,3 +381,70 @@ class TestWorkspaceUnitRuntime:
         assert config["backtest"]["initial_cash"] == 250000
         assert config["workspace_unit"]["template_dir"] == str(template_dir)
         assert config["workspace_unit"]["strategy_module"] == "strategy_abberation.py"
+        run_text = (runtime_dir / "run.py").read_text(encoding="utf-8")
+        assert "ComminfoFuturesFixed" in run_text
+        assert "ComminfoFuturesInverse" in run_text
+        assert "ComminfoFuturesMixed" in run_text
+        assert "_apply_commission_info(cerebro, config, name)" in run_text
+        assert "contract_metadata" in run_text
+        assert "margin_amount=margin_amount_param" in run_text
+        assert "meta.get('max_leverage')" in run_text
+        assert "meta.get('trade_contract_size')" in run_text
+        assert "meta.get('ctVal')" in run_text
+        assert "_is_inverse_contract(meta)" in run_text
+        assert "close_yesterday_commission=close_yesterday_rate" in run_text
+        assert "close_yesterday_commission_amount=close_yesterday_amount" in run_text
+
+    def test_sync_unit_runtime_uses_default_csv_root_for_empty_workspace_setting(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(
+            workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "workspace_units"
+        )
+
+        template_dir = tmp_path / "strategies" / "backtest" / "sa_trend"
+        template_dir.mkdir(parents=True)
+        (template_dir / "config.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "strategy": {"name": "SA trend"},
+                    "params": {},
+                    "data": {"symbol": "sa", "data_type": "future"},
+                    "backtest": {"initial_cash": 100000},
+                },
+                allow_unicode=True,
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        (template_dir / "strategy_sa.py").write_text("class Dummy: pass\n", encoding="utf-8")
+        monkeypatch.setattr(
+            workspace_unit_runtime, "get_strategy_dir", lambda strategy_id: template_dir
+        )
+
+        unit = SimpleNamespace(
+            id="unit-sa",
+            workspace_id="ws-sa",
+            group_name="SA",
+            strategy_id="backtest/sa_trend",
+            strategy_name="SA trend",
+            symbol="sa",
+            symbol_name="纯碱",
+            timeframe="1h",
+            timeframe_n=1,
+            category="trend",
+            data_config={"start_date": "2024-01-01", "end_date": "2024-12-31"},
+            unit_settings={},
+            params={},
+            optimization_config={},
+        )
+        workspace_settings = {"data_source": {"type": "csv", "csv": {"directory_path": ""}}}
+
+        runtime_dir = workspace_unit_runtime.sync_unit_runtime(unit, workspace_settings)
+        config = yaml.safe_load((runtime_dir / "config.yaml").read_text(encoding="utf-8"))
+
+        assert Path(config["data"]["directory_path"]).as_posix().endswith("data/datas/future")
+        assert config["data"]["symbol"] == "sa"
+        run_text = (runtime_dir / "run.py").read_text(encoding="utf-8")
+        assert "_candidate_patterns(symbol, suffix)" in run_text
+        assert "BACKTRADER_DATA_DIR" in run_text

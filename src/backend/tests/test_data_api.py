@@ -136,8 +136,8 @@ class TestDataValidation:
         for date_str in valid_dates:
             try:
                 parsed = datetime.strptime(date_str, "%Y-%m-%d")
-            except ValueError:
-                raise AssertionError(f"Invalid date format: {date_str}")
+            except ValueError as err:
+                raise AssertionError(f"Invalid date format: {date_str}") from err
             assert parsed.strftime("%Y-%m-%d") == date_str
 
     async def test_ohlc_data_structure(self):

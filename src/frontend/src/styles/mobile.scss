@@ -108,6 +108,87 @@
   }
 }
 
+/* ===== AppLayout 移动端适配 ===== */
+
+/* 移动端汉堡菜单按钮 */
+.hamburger-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--el-text-color-primary);
+  transition: background-color 0.2s;
+  
+  &:hover {
+    background-color: var(--el-fill-color-light);
+  }
+  
+  @include respond-to('sm') {
+    display: flex;
+  }
+}
+
+/* 移动端侧边栏抽屉覆盖样式 */
+.mobile-sidebar-drawer {
+  .el-drawer__header {
+    padding: 16px;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--sidebar-border-color, #e4e7ed);
+  }
+  
+  .el-drawer__body {
+    padding: 0;
+    background-color: var(--bg-color-sidebar, #ffffff);
+  }
+}
+
+/* 桌面端侧边栏 - 移动端隐藏 */
+.app-sidebar-desktop {
+  @include respond-to('sm') {
+    display: none !important;
+  }
+}
+
+/* 移动端 header 适配 */
+.app-header {
+  @include respond-to('sm') {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    height: auto !important;
+    min-height: 56px;
+  }
+}
+
+.app-header-left {
+  @include respond-to('sm') {
+    gap: 8px !important;
+  }
+}
+
+/* 移动端隐藏非必要 header 元素 */
+.app-header-extras {
+  @include respond-to('sm') {
+    display: none !important;
+  }
+}
+
+/* 移动端用户信息简化 */
+.app-header-user-name {
+  @include respond-to('sm') {
+    display: none !important;
+  }
+}
+
+/* 移动端主内容区全宽 */
+.app-main-content {
+  @include respond-to('sm') {
+    padding: 12px !important;
+  }
+}
+
 /* 移动端导航栏 */
 .mobile-nav {
   display: none;

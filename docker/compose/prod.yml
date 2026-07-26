@@ -1,0 +1,152 @@
+###############################################################################
+# AI for Investor - Production Docker Compose
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
+#
+# Prerequisites:
+#   - Create src/backend/.env (see scripts/docker_deploy.sh)
+#   - Docker Engine 24+ and Docker Compose v2
+###############################################################################
+
+services:
+  # ========================= MySQL =========================
+  mysql:
+    image: mysql:8.0
+    container_name: backtrader_mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:-ai_for_investor}
+      MYSQL_USER: ${DB_USER:-backtrader}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      TZ: Asia/Shanghai
+    volumes:
+      - ${MYSQL_DATA_DIR:-./runtime/mysql}:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backtrader
+
+  # ========================= Redis =========================
+  redis:
+    image: redis:7-alpine
+    container_name: backtrader_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - ${REDIS_DATA_DIR:-./runtime/redis}:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backtrader
+
+  # ========================= Backend API =========================
+  backend:
+    build:
+      context: .
+      dockerfile: src/backend/Dockerfile
+    container_name: backtrader_backend
+    restart: unless-stopped
+    environment:
+      # App
+      APP_NAME: ai-for-investor
+      DEBUG: "false"
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      # Database
+      DATABASE_TYPE: mysql
+      DATABASE_URL: mysql+aiomysql://${DB_USER:-backtrader}:${DB_PASSWORD:?DB_PASSWORD is required}@${DB_HOST:-mysql}:${DB_PORT:-3306}/${DB_NAME:-ai_for_investor}
+      # Redis
+      REDIS_URL: redis://redis:6379/0
+      # JWT
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: "10080"
+      # Server
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://aifortrader.cn,http://localhost,http://aifortrader.cn}
+      # Admin
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      # DB init (first startup)
+      DB_AUTO_CREATE_SCHEMA: ${DB_AUTO_CREATE_SCHEMA:-true}
+      DB_AUTO_CREATE_DEFAULT_ADMIN: ${DB_AUTO_CREATE_DEFAULT_ADMIN:-true}
+      # Backtest
+      BACKTEST_TIMEOUT: "300"
+      # Worker concurrency (Gunicorn workers)
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+      # Akshare
+      AKSHARE_SCHEDULER_TIMEZONE: Asia/Shanghai
+      AKSHARE_SCRIPT_ROOT: app/data_fetch/scripts
+      AKSHARE_INTERFACE_BOOTSTRAP_MODE: manual
+      # Timezone
+      TZ: Asia/Shanghai
+    volumes:
+      - ./datas:/opt/workspace/ai-for-investor/datas
+      - ./strategies:/opt/workspace/ai-for-investor/strategies
+      - ./workspace_units:/opt/workspace/ai-for-investor/workspace_units
+      - ${BACKEND_LOGS_DIR:-./runtime/backend/logs}:/opt/workspace/ai-for-investor/src/backend/logs
+      - ${BACKEND_APP_DATA_DIR:-./runtime/backend/data}:/opt/workspace/ai-for-investor/src/backend/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os, urllib.request; urllib.request.urlopen('http://localhost:{}/health'.format(os.environ.get('PORT', '8000')))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - backtrader
+
+  # ========================= Frontend (Nginx) =========================
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+    container_name: backtrader_frontend
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./docker/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./runtime/certbot/conf:/etc/letsencrypt:ro
+      - ./runtime/certbot/www:/var/www/certbot:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - backtrader
+
+  # ========================= Certbot (SSL Certificate) =========================
+  certbot:
+    image: certbot/certbot:latest
+    container_name: backtrader_certbot
+    restart: "no"
+    volumes:
+      - ./runtime/certbot/conf:/etc/letsencrypt
+      - ./runtime/certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 60 days & wait $$!; done'"
+
+networks:
+  backtrader:
+    driver: bridge

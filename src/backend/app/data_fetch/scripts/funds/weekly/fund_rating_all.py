@@ -135,88 +135,17 @@ class FundRatingAll(AkshareToMySql):
             return False
 
         try:
-            # 获取已存在的数据ID
-            existing_ids = self._get_existing_ids()
-
-            # 过滤掉已存在的数据
-            new_data = df[~df["r_id"].isin(existing_ids)]
-            updated_data = df[df["r_id"].isin(existing_ids)]
-
-            # 插入新数据
-            if not new_data.empty:
-                # 准备插入数据
-                columns = [
-                    "r_id",
-                    "fund_code",
-                    "fund_name",
-                    "fund_manager",
-                    "fund_company",
-                    "five_star_rating_count",
-                    "shanghai_securities_rating",
-                    "cms_securities_rating",
-                    "jianjinxin_rating",
-                    "fee_rate",
-                    "fund_type",
-                    "update_date",
-                    "is_active",
-                    "data_source",
-                ]
-
-                # 添加系统字段
-                new_data["is_active"] = 1
-                new_data["data_source"] = "天天基金"
-
-                # 插入新数据
-                self.insert_data(new_data, self.table_name, columns)
-                self.logger.info(f"成功插入 {len(new_data)} 条基金评级数据")
-
-            # 更新已有数据
-            if not updated_data.empty:
-                updated_count = 0
-                for _, row in updated_data.iterrows():
-                    # 构建更新SQL
-                    update_sql = f"""  # nosec B608
-                    UPDATE {self.table_name}
-                    SET
-                        fund_name = %s,
-                        fund_manager = %s,
-                        fund_company = %s,
-                        five_star_rating_count = %s,
-                        shanghai_securities_rating = %s,
-                        cms_securities_rating = %s,
-                        jianjinxin_rating = %s,
-                        fee_rate = %s,
-                        fund_type = %s,
-                        update_date = %s,
-                        updatedate = CURRENT_TIMESTAMP
-                    WHERE r_id = %s
-                    """
-
-                    # 执行更新
-                    params = (
-                        row["fund_name"],
-                        row["fund_manager"],
-                        row["fund_company"],
-                        row["five_star_rating_count"],
-                        row["shanghai_securities_rating"],
-                        row["cms_securities_rating"],
-                        row["jianjinxin_rating"],
-                        row["fee_rate"],
-                        row["fund_type"],
-                        row["update_date"],
-                        row["r_id"],
-                    )
-
-                    self.execute_sql(update_sql, params)
-                    updated_count += 1
-
-                if updated_count > 0:
-                    self.logger.info(f"成功更新 {updated_count} 条基金评级数据")
-
-            if new_data.empty and updated_data.empty:
-                self.logger.info("没有新的基金评级数据需要更新")
-
-            return True
+            save_df = df.copy()
+            save_df["is_active"] = 1
+            save_df["data_source"] = "天天基金"
+            saved_rows = self.save_data(
+                save_df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["R_ID"],
+            )
+            self.logger.info("批量写入/更新 %s 条基金评级数据", saved_rows)
+            return bool(saved_rows)
 
         except Exception as e:
             self.logger.error(f"保存基金评级数据失败: {e}")

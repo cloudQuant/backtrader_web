@@ -1,117 +1,27 @@
-# 数据库设计
+# 数据库与数据边界
 
-## 支持的数据库
+项目将应用状态与市场行情仓库分开，以避免策略/用户数据和高频或大体量行情数据混用同一个职责边界。
 
-- **SQLite** (默认) - 零配置，适合开发
-- **PostgreSQL** - 推荐用于生产
-- **MySQL** - 备选用于生产
+## 两类连接
 
-## 数据库 URL 配置
+| 连接 | 配置 | 存储内容 |
+| --- | --- | --- |
+| 应用数据库 | `DATABASE_TYPE`、`DATABASE_URL` | 用户、权限、策略、版本、回测任务、工作区、组合与审计相关状态 |
+| 行情数据仓 | `AKSHARE_DATA_DATABASE_URL` | AkShare 行情、覆盖信息、质量辅助数据和在线补齐缓存 |
 
-```bash
-# SQLite
-DATABASE_URL=sqlite:///./backtrader.db
+应用数据库支持 SQLite、PostgreSQL 和 MySQL。SQLite 适合本机开发；团队和生产环境应使用受管理的 PostgreSQL 或 MySQL，并配置备份、连接权限与监控。
 
-# PostgreSQL
-DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/backtrader
+## 访问原则
 
-# MySQL
-DATABASE_URL=mysql+aiomysql://user:pass@localhost:3306/backtrader
-```
+- 后端通过 SQLAlchemy 异步会话和仓库/服务层访问应用数据库；不要在页面或路由中拼接 SQL。
+- 行情仓读取失败时，市场数据接口给出通用可读提示，不暴露连接字符串、主机、用户或密码。
+- 需要写入或迁移时使用参数化 SQL、受控权限账户和可回滚迁移；不要以运行时自动建表替代生产迁移流程。
+- 数据同步与应用数据库迁移是不同操作，均应先在备份或测试环境验证。
 
-## 核心表
+## 初始化与迁移
 
-### users
+开发环境可按 `.env` 选择是否通过 `DB_AUTO_CREATE_SCHEMA` 和 `DB_AUTO_CREATE_DEFAULT_ADMIN` 自举。生产环境应默认关闭这类自动自举，并使用项目的 Alembic/运维迁移流程。详细操作见工程手册 `docs/operations/DATABASE_INIT.md` 与 `docs/how-to/database-migration-playbook.md`。
 
-| 列 | 类型 | 说明 |
-|----|------|------|
-| id | Integer | 主键 |
-| username | String | 唯一用户名 |
-| email | String | 唯一邮箱 |
-| password_hash | String | Bcrypt 加密密码 |
-| is_active | Boolean | 账户状态 |
-| is_admin | Boolean | 管理员角色 |
-| created_at | DateTime | 创建时间 |
+## 数据可复现性
 
-### strategies
-
-| 列 | 类型 | 说明 |
-|----|------|------|
-| id | Integer | 主键 |
-| user_id | Integer | 所有者用户 ID |
-| name | String | 策略名称 |
-| description | Text | 策略描述 |
-| code | Text | 策略代码 |
-| parameters | JSON | 策略参数 |
-| is_template | Boolean | 内置模板 |
-| created_at | DateTime | 创建时间 |
-| updated_at | DateTime | 最后更新时间 |
-
-### strategy_versions
-
-| 列 | 类型 | 说明 |
-|----|------|------|
-| id | Integer | 主键 |
-| strategy_id | Integer | 父策略 ID |
-| version_name | String | 版本名称 |
-| version_hash | String | 内容哈希 |
-| code | Text | 此版本的策略代码 |
-| message | String | 版本消息 |
-| is_default | Boolean | 默认版本 |
-| created_at | DateTime | 创建时间 |
-
-### backtest_tasks
-
-| 列 | 类型 | 说明 |
-|----|------|------|
-| id | Integer | 主键 |
-| user_id | Integer | 所有者用户 ID |
-| strategy_id | Integer | 使用的策略 |
-| status | String | pending/running/completed/failed |
-| parameters | JSON | 回测参数 |
-| result | JSON | 回测结果 |
-| created_at | DateTime | 创建时间 |
-| completed_at | DateTime | 完成时间 |
-
-### paper_trading_sessions
-
-| 列 | 类型 | 说明 |
-|----|------|------|
-| id | Integer | 主键 |
-| user_id | Integer | 所有者用户 ID |
-| name | String | 会话名称 |
-| initial_cash | Float | 起始资金 |
-| status | String | active/stopped |
-| created_at | DateTime | 创建时间 |
-
-### optimization_tasks
-
-| 列 | 类型 | 说明 |
-|----|------|------|
-| id | Integer | 主键 |
-| user_id | Integer | 所有者用户 ID |
-| strategy_id | Integer | 使用的策略 |
-| status | String | pending/running/completed/failed |
-| method | String | grid/bayesian |
-| parameters | JSON | 优化参数 |
-| results | JSON | 优化结果 |
-| created_at | DateTime | 创建时间 |
-
-## 迁移
-
-数据库迁移由 Alembic 处理。
-
-```bash
-# 创建迁移
-alembic revision --autogenerate -m "add column"
-
-# 运行迁移
-alembic upgrade head
-```
-
-## 性能索引
-
-为以下字段创建索引：
-- `backtest_tasks.user_id, status`
-- `optimization_tasks.user_id, status`
-- `paper_trading_orders.session_id`
+回测记录至少应能关联策略版本、标的、周期、数据范围、资金、手续费和运行时间。若使用在线补齐数据，记录该查询的来源与日期范围，并在重新验证时检查覆盖和质量。

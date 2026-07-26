@@ -4,7 +4,7 @@
 strategy:
   name: "玉米吊灯止损策略"
   description: "基于ATR的动态止损策略 - 玉米期货"
-  author: "backtrader_web"
+  author: "ai-for-investor"
   category: "simulate"
   
 # ============================================================

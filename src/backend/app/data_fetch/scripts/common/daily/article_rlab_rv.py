@@ -42,7 +42,17 @@ class ArticleRlabRv(AkshareToMySql):
         """
         try:
             # Fetch data from AkShare
-            df = self.fetch_ak_data("article_rlab_rv", **kwargs)
+            result = self.fetch_ak_data("article_rlab_rv", **kwargs)
+            if isinstance(result, pd.Series):
+                value_name = str(result.name or "value")
+                df = result.rename(value_name).reset_index()
+                first_col = df.columns[0]
+                if "data_date" not in df.columns:
+                    df = df.rename(columns={first_col: "data_date"})
+                if "symbol" not in df.columns and kwargs.get("symbol") is not None:
+                    df.insert(0, "symbol", str(kwargs["symbol"]))
+            else:
+                df = result
 
             if df is None or df.empty:
                 self.logger.warning("No data found")

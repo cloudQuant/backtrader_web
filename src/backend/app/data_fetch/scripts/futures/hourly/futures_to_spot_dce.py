@@ -24,9 +24,10 @@ class FuturesToSpotDce(AkshareToMySql):
             `symbol` VARCHAR(50) COMMENT '品种代码',
             `name` VARCHAR(100) COMMENT '品种名称',
             `data_date` DATE COMMENT '数据日期',
+            `合约代码` VARCHAR(50) COMMENT '合约代码',
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
             `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-        UNIQUE KEY uk_symbol_date (`symbol`, `data_date`),
+        UNIQUE KEY uk_symbol_date_contract (`symbol`, `data_date`, `合约代码`),
         INDEX idx_data_date (`data_date`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Futures To Spot Dce'
     """
@@ -41,23 +42,39 @@ class FuturesToSpotDce(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
-            # Fetch data from AkShare
-            df = self.fetch_ak_data("futures_to_spot_dce", **kwargs)
+            month_list = (
+                [str(kwargs["date"])]
+                if "date" in kwargs
+                else [
+                    self.get_current_month(),
+                    self.get_previous_month(),
+                ]
+            )
 
-            if df is None or df.empty:
-                self.logger.warning("No data found")
-                return pd.DataFrame()
+            for month in month_list:
+                call_kwargs = dict(kwargs)
+                call_kwargs["date"] = month
+                df = self.fetch_ak_data("futures_to_spot_dce", **call_kwargs)
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
+                if df is None or df.empty:
+                    self.logger.warning(f"No data found for {month}")
+                    continue
 
-            # Save to database
-            self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+                if "data_date" not in df.columns:
+                    if "期转现发生日期" in df.columns:
+                        df["data_date"] = pd.to_datetime(
+                            df["期转现发生日期"], errors="coerce"
+                        ).dt.date
+                    else:
+                        df["data_date"] = pd.to_datetime(f"{month}01").date()
 
-            return df
+                self.create_table_if_not_exists(self.table_name, self.create_table_sql)
+                self.save_data(df, self.table_name, ignore_duplicates=True)
+
+                return df
+
+            self.logger.warning("No data found")
+            return pd.DataFrame()
 
         except Exception as e:
             self.logger.error(f"Error fetching data: {e}")
@@ -68,7 +85,7 @@ def main():
     """Main function to run the data fetch"""
 
     script = FuturesToSpotDce()
-    script.run()
+    script.fetch_data()
 
 
 if __name__ == "__main__":

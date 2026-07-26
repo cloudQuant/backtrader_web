@@ -16,7 +16,41 @@ class TradingPosition(BaseModel):
     price: float | None = None
     current_price: float | None = None
     market_value: float | None = None
+    margin_value: float | None = None
+    multiplier: float | None = None
+    margin_rate: float | None = None
+    leverage: float | None = None
+    commission: float | None = None
+    commission_source: str | None = None
+    gross_pnl: float | None = None
     pnl: float | None = None
+    pnlcomm: float | None = None
+    position_pnl: float | None = None
+    updated_at: str | None = None
+    data_time: str | None = None
+    source: str | None = None
+    position_source: str | None = None
+    asset_spec_source: str | None = None
+    valuation_status: str | None = None
+    valuation_warnings: list[str] = Field(default_factory=list)
+
+
+class TradingTrade(BaseModel):
+    """Closed trade snapshot for a strategy unit."""
+
+    id: str = ""
+    datetime: str | None = None
+    dtopen: str | None = None
+    dtclose: str | None = None
+    data_name: str = ""
+    direction: str = ""
+    size: float = 0.0
+    price: float | None = None
+    value: float | None = None
+    commission: float | None = None
+    pnl: float | None = None
+    pnlcomm: float | None = None
+    barlen: int | None = None
 
 
 class TradingSnapshot(BaseModel):
@@ -43,7 +77,13 @@ class TradingSnapshot(BaseModel):
     trading_day: str | None = None
     updated_at: str | None = None
     detail_route: str | None = None
+    position_source: str | None = None
+    asset_spec_source: str | None = None
+    valuation_status: str | None = None
+    valuation_warnings: list[str] = Field(default_factory=list)
+    open_order_cancel: dict[str, Any] | None = None
     positions: list[TradingPosition] = Field(default_factory=list)
+    trades: list[TradingTrade] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -101,6 +141,22 @@ class PositionManagerItem(BaseModel):
     latest_price: float | None = None
     position_pnl: float = 0.0
     market_value: float = 0.0
+    long_market_value: float = 0.0
+    short_market_value: float = 0.0
+    margin_value: float | None = None
+    multiplier: float | None = None
+    margin_rate: float | None = None
+    leverage: float | None = None
+    commission: float | None = None
+    commission_source: str | None = None
+    gross_pnl: float | None = None
+    updated_at: str | None = None
+    data_time: str | None = None
+    data_name: str | None = None
+    position_source: str | None = None
+    asset_spec_source: str | None = None
+    valuation_status: str | None = None
+    valuation_warnings: list[str] = Field(default_factory=list)
 
 
 class PositionManagerResponse(BaseModel):

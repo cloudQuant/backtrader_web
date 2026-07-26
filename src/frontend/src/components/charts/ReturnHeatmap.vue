@@ -1,7 +1,7 @@
 <template>
   <div class="return-heatmap">
     <h4 class="text-md font-medium mb-4">
-      月度收益热力图
+      {{ t('charts.heatmapTitle') }}
     </h4>
     <div
       ref="chartRef"
@@ -11,10 +11,14 @@
 </template>
 
 <script setup lang="ts">
-import { watch } from 'vue'
-import * as echarts from 'echarts'
+import { watch, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import type * as echarts from 'echarts'
 import type { MonthlyReturn } from '@/types/analytics'
 import { useChartResize } from '@/composables/useChartResize'
+import { RETURN_HEATMAP_COLORS } from '@/constants/chartColors'
+
+const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   returns: MonthlyReturn[]
@@ -28,7 +32,20 @@ const props = withDefaults(defineProps<{
 
 const { chartRef, getChart } = useChartResize(renderChart)
 
-const months = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
+const months = computed(() => [
+  t('charts.heatmapMonth1'),
+  t('charts.heatmapMonth2'),
+  t('charts.heatmapMonth3'),
+  t('charts.heatmapMonth4'),
+  t('charts.heatmapMonth5'),
+  t('charts.heatmapMonth6'),
+  t('charts.heatmapMonth7'),
+  t('charts.heatmapMonth8'),
+  t('charts.heatmapMonth9'),
+  t('charts.heatmapMonth10'),
+  t('charts.heatmapMonth11'),
+  t('charts.heatmapMonth12'),
+])
 
 watch(
   () => `${props.returns?.length}:${props.years?.length}`,
@@ -56,9 +73,9 @@ function renderChart() {
       formatter: (params: unknown) => {
         const p = params as { data?: [number, number, number | string] }
         const year = props.years[p.data?.[1] ?? 0]
-        const month = months[p.data?.[0] ?? 0]
+        const month = months.value[p.data?.[0] ?? 0]
         const value = p.data?.[2]
-        return `${year}年${month}: ${value ?? ''}%`
+        return t('charts.yearMonth', { year, month, value: value ?? '' })
       },
     },
     grid: {
@@ -69,7 +86,7 @@ function renderChart() {
     },
     xAxis: {
       type: 'category',
-      data: months,
+      data: months.value,
       splitArea: { show: true },
       axisLabel: { fontSize: 10 },
     },
@@ -86,7 +103,7 @@ function renderChart() {
       left: 'center',
       bottom: '5%',
       inRange: {
-        color: ['#c0392b', '#e74c3c', '#f1948a', '#fadbd8', '#fdfefe', '#d5f5e3', '#82e0aa', '#27ae60', '#1e8449'],
+        color: [...RETURN_HEATMAP_COLORS],
       },
     },
     series: [

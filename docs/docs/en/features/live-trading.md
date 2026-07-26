@@ -1,81 +1,20 @@
-# Live Trading
+# Live-trading preparation and gateways
 
-## Overview
+Live capability is designed as a high-risk boundary: configuration, connection diagnostics, instance lifecycle, and runtime state must be auditable. A generated strategy or completed backtest never automatically triggers a real trade.
 
-Connect to real brokers for live trading with Backtrader Web.
+## Preparation order
 
-## Supported Brokers
+1. Complete data, strategy, backtest, and risk validation in a research workspace.
+2. Confirm the runtime unit and risk parameters in a trading workspace.
+3. An administrator manages gateway connections and diagnostics in **Configuration → Gateways**.
+4. Check instance status, start time, logs, and duplicate-runtime-directory warnings during start, list, and query operations.
+5. Follow your organization’s approval process, account permissions, and limits for any subsequent action.
 
-| Broker | Type | Region |
-|--------|------|--------|
-| CTP | Futures | China |
-| CCXT | Crypto Exchange | Global |
+## Security requirements
 
-## Features
+- Keep credentials only in `.env` or a secrets manager—never in strategies, screenshots, knowledge bases, or the repository.
+- Use least-privilege accounts and limit instruments, positions, per-order exposure, and intraday risk.
+- Validate in simulation or an isolated environment first; stop progression when gateway, data, or risk diagnostics are abnormal.
+- Native gateway logs can support diagnosis, but UI/API errors must not expose sensitive database or account details.
 
-- **Multi-Account** - Support multiple broker accounts
-- **Gateway Management** - Configurable connection parameters
-- **Real-time Data** - Live market data streaming
-- **Order Execution** - Market and limit orders
-- **Risk Control** - Position limits, daily limits
-
-## API Endpoints
-
-### Gateway Management
-
-```http
-# List gateways
-GET /api/v1/live-trading/gateways
-
-# Add gateway
-POST /api/v1/live-trading/gateways
-{
-  "broker": "ctp",
-  "name": "My CTP Gateway",
-  "config": {
-    "front": "tcp://127.0.0.1:41205",
-    "broker_id": "9999",
-    "user_id": "your_user_id"
-  }
-}
-```
-
-### Live Trading Sessions
-
-```http
-# Create session
-POST /api/v1/live-trading/sessions
-{
-  "gateway_id": 1,
-  "strategy_id": 1,
-  "symbols": ["rb2405"]
-}
-
-# Start session
-POST /api/v1/live-trading/sessions/{id}/start
-
-# Stop session
-POST /api/v1/live-trading/sessions/{id}/stop
-```
-
-### Monitor Status
-
-```http
-GET /api/v1/live-trading/sessions/{id}/status
-```
-
-## Risk Controls
-
-| Control | Description |
-|---------|-------------|
-| Single Trade Limit | Max quantity per order |
-| Daily Trade Limit | Max orders per day |
-| Max Position | Max position percentage |
-| Auto Stop Loss | Automatic stop-loss execution |
-
-## ⚠️ Important Notes
-
-1. **Use with caution** - Live trading involves real capital
-2. **Test first** - Always test thoroughly in paper trading
-3. **Risk management** - Set appropriate risk controls
-4. **Monitor closely** - Watch live trading sessions
+Available gateways and configuration vary by deployment. Check the administrator UI and `http://localhost:8000/docs` for your environment instead of relying on a fixed broker list.

@@ -10,7 +10,7 @@ class TestBacktestAPI:
     @pytest.mark.asyncio
     async def test_list_backtests(self, client: AsyncClient, auth_headers: dict):
         """Test listing backtest results."""
-        response = await client.get("/api/v1/backtest/", headers=auth_headers)
+        response = await client.get("/api/v1/backtests/", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -21,7 +21,7 @@ class TestBacktestAPI:
     async def test_submit_backtest(self, client: AsyncClient, auth_headers: dict):
         """Test submitting a backtest task."""
         response = await client.post(
-            "/api/v1/backtest/run",
+            "/api/v1/backtests/run",
             json={
                 "strategy_id": "001_ma_cross",
                 "symbol": "000001.SZ",
@@ -42,13 +42,15 @@ class TestBacktestAPI:
     @pytest.mark.asyncio
     async def test_get_backtest_result_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test getting non-existent backtest result."""
-        response = await client.get("/api/v1/backtest/non-existent-id", headers=auth_headers)
+        response = await client.get("/api/v1/backtests/non-existent-id", headers=auth_headers)
 
         assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_task_status_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test getting status of non-existent task."""
-        response = await client.get("/api/v1/backtest/non-existent-id/status", headers=auth_headers)
+        response = await client.get(
+            "/api/v1/backtests/non-existent-id/status", headers=auth_headers
+        )
 
         assert response.status_code == 404

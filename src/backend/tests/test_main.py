@@ -25,7 +25,7 @@ class TestMainApp:
         from app.main import app
 
         assert app is not None
-        assert app.title == "Backtrader Web API"
+        assert app.title == "AI for Investor API"
         assert app.version == "2.0.0"
 
     async def test_app_docs_configured(self):
@@ -46,7 +46,7 @@ class TestRootRoute:
         assert resp.status_code == 200
         data = resp.json()
         assert "service" in data
-        assert data["service"] == "Backtrader Web API"
+        assert data["service"] == "AI for Investor API"
         assert "version" in data
         assert data["version"] == "2.0.0"
         assert "status" in data
@@ -334,9 +334,8 @@ class TestAppIntegration:
         """Test that API router is included."""
         from app.main import app
 
-        routes = [route for route in app.routes if hasattr(route, "path")]
-        api_routes = [r for r in routes if r.path.startswith("/api/v1")]
-        assert len(api_routes) > 0
+        paths = app.openapi()["paths"]
+        assert any(path.startswith("/api/v1") for path in paths)
 
     async def test_openapi_schema(self, client: AsyncClient):
         """Test OpenAPI schema."""
@@ -348,29 +347,27 @@ class TestAppIntegration:
         assert "paths" in schema
 
     async def test_backtest_and_backtests_openapi_contract(self, client: AsyncClient):
-        """Test deprecated legacy backtest routes and primary enhanced backtests routes."""
+        """Test primary enhanced backtests routes exist in OpenAPI schema."""
         resp = await client.get("/openapi.json")
         assert resp.status_code == 200
         schema = resp.json()
 
-        assert "/api/v1/backtest/run" in schema["paths"]
         assert "/api/v1/backtests/run" in schema["paths"]
-        assert schema["paths"]["/api/v1/backtest/run"]["post"]["deprecated"] is True
         assert schema["paths"]["/api/v1/backtests/run"]["post"].get("deprecated") is not True
         assert "/api/v1/backtests/{task_id}/cancel" in schema["paths"]
+        # Legacy /api/v1/backtest/ routes should no longer exist
+        assert "/api/v1/backtest/run" not in schema["paths"]
 
     async def test_live_trading_openapi_contract(self, client: AsyncClient):
-        """Test legacy live-trading-crypto is deprecated while live-trading remains primary."""
+        """Test live-trading routes exist and legacy crypto routes are removed."""
         resp = await client.get("/openapi.json")
         assert resp.status_code == 200
         schema = resp.json()
 
-        assert "/api/v1/live-trading-crypto/live/submit" in schema["paths"]
         assert "/api/v1/live-trading/" in schema["paths"]
-        assert (
-            schema["paths"]["/api/v1/live-trading-crypto/live/submit"]["post"]["deprecated"] is True
-        )
         assert schema["paths"]["/api/v1/live-trading/"]["get"].get("deprecated") is not True
+        # Legacy /api/v1/live-trading-crypto/ routes should no longer exist
+        assert "/api/v1/live-trading-crypto/live/submit" not in schema["paths"]
 
     async def test_docs_accessible(self, client: AsyncClient):
         """Test that Swagger documentation is accessible."""

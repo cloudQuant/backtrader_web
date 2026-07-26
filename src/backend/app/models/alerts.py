@@ -8,7 +8,18 @@ import uuid
 from datetime import datetime, timezone
 from enum import Enum
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
@@ -73,6 +84,10 @@ class Alert(Base):
     """
 
     __tablename__ = "alerts"
+    __table_args__ = (
+        Index("ix_alerts_user_instance_created", "user_id", "instance_id", "created_at"),
+        Index("ix_alerts_dedupe_key", "dedupe_key"),
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
@@ -100,6 +115,10 @@ class Alert(Base):
         String(36), ForeignKey("paper_trading_positions.id"), nullable=True, index=True
     )
     order_id = Column(String(36), ForeignKey("paper_trading_orders.id"), nullable=True, index=True)
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=True, index=True)
+    unit_id = Column(String(36), ForeignKey("strategy_units.id"), nullable=True, index=True)
+    instance_id = Column(String(36), nullable=True, index=True)
+    dedupe_key = Column(String(200), nullable=True)
 
     # Trigger conditions
     trigger_type = Column(String(50), nullable=False)  # Trigger type (threshold, rate, manual)

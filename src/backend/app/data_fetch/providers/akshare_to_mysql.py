@@ -12,8 +12,10 @@ from typing import Any
 
 import akshare as ak
 import pandas as pd
+import requests
 
 from app.data_fetch.core.mysql_base import MysqlBase
+from app.data_fetch.utils.akshare_network_proxy import configure_akshare_network_proxy
 from app.data_fetch.utils.common_utils import retry_on_exception
 
 
@@ -33,7 +35,7 @@ class FuncThread(Thread):
             result = self.func(*self.args, **self.kwargs)
             self.result.put(("success", result))
         except Exception as e:
-            self.result.put(("error", str(e)))
+            self.result.put(("error", e))
 
     def get_result(self, timeout=None):
         try:
@@ -76,7 +78,11 @@ class AkshareToMySql(MysqlBase):
         self.max_retries = 3
         self.retry_delay = 5
 
-    @retry_on_exception(max_retries=10, retry_delay=5)
+    @retry_on_exception(
+        max_retries=2,
+        retry_delay=1,
+        stop_exceptions=(TimeoutError, requests.exceptions.Timeout),
+    )
     def fetch_ak_data(self, function_name, *args, **kwargs):
         """
         通用方法，用于从Akshare获取数据
@@ -89,6 +95,7 @@ class AkshareToMySql(MysqlBase):
             pd.DataFrame: 获取的数据
         """
         try:
+            configure_akshare_network_proxy()
             call_timeout_s = kwargs.pop("_call_timeout", None)
             if call_timeout_s is None:
                 # Default AKShare call timeout. Can be overridden per-call via `_call_timeout`
@@ -115,6 +122,8 @@ class AkshareToMySql(MysqlBase):
             elif status == "timeout":
                 raise TimeoutError(f"Function call timed out after {call_timeout_s} seconds")
             else:
+                if isinstance(result, BaseException):
+                    raise result
                 raise Exception(result)
 
         except TimeoutError as te:

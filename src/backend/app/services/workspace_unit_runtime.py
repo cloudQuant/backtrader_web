@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shutil
 import textwrap
 from copy import deepcopy
@@ -12,7 +13,24 @@ import yaml
 from app.models.workspace import StrategyUnit
 from app.services.strategy_service import get_strategy_dir
 
+logger = logging.getLogger(__name__)
+
 _WORKSPACE_UNITS_ROOT = Path(__file__).resolve().parents[4] / "workspace_units"
+_DEFAULT_LIVE_QCHECK_SECONDS = 0.5
+_SENSITIVE_CONFIG_KEYS = {
+    "access_token",
+    "api_key",
+    "apikey",
+    "auth_code",
+    "authorization",
+    "client_secret",
+    "passphrase",
+    "password",
+    "refresh_token",
+    "secret",
+    "secret_key",
+    "token",
+}
 _ASSET_TYPE_ALIASES = {
     "外汇": "forex",
     "forex": "forex",
@@ -30,24 +48,63 @@ _ASSET_TYPE_ALIASES = {
 }
 _DEFAULT_UNIT_START_DATE = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
+
+def _positive_float(value: Any, default: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if number > 0 else default
+
+
+def _bool_value(value: Any, default: bool) -> bool:
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def _exactbars_value(value: Any, default: bool | int = True) -> bool | int:
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"true", "yes", "on"}:
+        return True
+    if text in {"false", "no", "off"}:
+        return False
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return _bool_value(value, bool(default))
+
+
 _UNIT_RUN_PY = textwrap.dedent(
     """
     from __future__ import annotations
 
     import importlib.util
-    import os
-    import sys
+    import logging, os, sys, time
     from pathlib import Path
+
+    BASE_DIR = Path(__file__).resolve().parent
+    _BACKEND_SRC = next((candidate / 'src' / 'backend' for candidate in (BASE_DIR, *BASE_DIR.parents) if (candidate / 'src' / 'backend').exists()), None)
+    if _BACKEND_SRC and str(_BACKEND_SRC) not in sys.path: sys.path.insert(0, str(_BACKEND_SRC))
 
     import backtrader as bt
     import pandas as pd
     import yaml
-    from backtrader.comminfo import ComminfoFuturesPercent
+    from app.utils.backtrader_commission import ComminfoFuturesFixed, ComminfoFuturesInverse, ComminfoFuturesMixed, ComminfoFuturesPercent
 
-    BASE_DIR = Path(__file__).resolve().parent
+    logger = logging.getLogger(__name__)
+    _PANDAS_DATA_CLASS = getattr(bt.feeds, 'PandasData', None)
+    if _PANDAS_DATA_CLASS is None:
+        from backtrader.feeds.pandafeed import PandasData as _PANDAS_DATA_CLASS
 
 
-    class UnitPandasFeed(bt.feeds.PandasData):
+    class UnitPandasFeed(_PANDAS_DATA_CLASS):
         params = (
             ('datetime', None),
             ('open', -1),
@@ -78,6 +135,499 @@ _UNIT_RUN_PY = textwrap.dedent(
             return default
 
 
+    def _safe_bool(value, default=False):
+        if value in (None, ''):
+            return default
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() not in {'0', 'false', 'no', 'off', ''}
+
+
+    def _keepalive_seconds(config: dict) -> float:
+        env_keepalive = os.environ.get('BACKTRADER_KEEPALIVE_AFTER_RUN')
+        if _safe_bool(env_keepalive, False):
+            return _safe_float(os.environ.get('BACKTRADER_KEEPALIVE_SECONDS'), 3600.0)
+        for section_key in ('unit_settings', 'live', 'simulate'):
+            section = config.get(section_key) or {}
+            if not isinstance(section, dict):
+                continue
+            if _safe_bool(section.get('keepalive_after_run'), False):
+                return _safe_float(section.get('keepalive_seconds'), 3600.0)
+        return 0.0
+
+
+    def _first_number(*values, default=None):
+        for value in values:
+            if value in (None, ''):
+                continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return default
+
+
+    def _normalise_rate(value, default=0.0):
+        number = _first_number(value, default=default)
+        if number is None:
+            return default
+        if number > 1.0:
+            return number / 100.0
+        return max(number, 0.0)
+
+
+    def _normalise_signed_rate(value, default=None):
+        number = _first_number(value, default=default)
+        if number is None:
+            return default
+        if abs(number) > 1.0:
+            return number / 100.0
+        return number
+
+
+    def _symbol_keys(symbol: str) -> list[str]:
+        raw = str(symbol or '').strip()
+        exchanges = {'SHFE', 'DCE', 'CZCE', 'CFFEX', 'INE', 'GFEX'}
+        instrument = raw
+        exchange = ''
+        if '.' in raw:
+            left, right = raw.split('.', 1)
+            left = left.strip()
+            right = right.strip()
+            if left.upper() in exchanges:
+                instrument, exchange = right, left.upper()
+            elif right.upper() in exchanges:
+                instrument, exchange = left, right.upper()
+            else:
+                instrument = left
+        if '_' in raw:
+            left, right = raw.split('_', 1)
+            left = left.strip()
+            right = right.strip()
+            if left.upper() in exchanges:
+                instrument, exchange = right, left.upper()
+            elif right.upper() in exchanges:
+                instrument, exchange = left, right.upper()
+        keys = [raw, instrument, instrument.upper(), instrument.lower()]
+        if exchange and instrument:
+            keys.extend([
+                f'{exchange}.{instrument}',
+                f'{instrument}.{exchange}',
+                f'{exchange}_{instrument}',
+                f'{instrument}_{exchange}',
+            ])
+        result: list[str] = []
+        seen: set[str] = set()
+        for key in keys:
+            if key and key not in seen:
+                result.append(key)
+                seen.add(key)
+        return result
+
+
+    def _as_dict(value):
+        return dict(value) if isinstance(value, dict) else {}
+
+
+    def _contract_metadata_for(config: dict, symbol: str) -> dict:
+        for source in (
+            config,
+            _as_dict(config.get('params')),
+            _as_dict(config.get('live')),
+            _as_dict(config.get('simulate')),
+            _as_dict(config.get('data')),
+            _as_dict(config.get('backtest')),
+        ):
+            for container_key in ('contract_metadata', 'contracts', 'contract_specs', 'instrument_specs'):
+                container = source.get(container_key)
+                if not isinstance(container, dict):
+                    continue
+                for key in _symbol_keys(symbol):
+                    item = container.get(key)
+                    if isinstance(item, dict):
+                        return dict(item)
+        return {}
+
+
+    def _explicit_commission_rate(meta: dict):
+        method = str(meta.get('commission_method') or '').strip().lower()
+        for key in (
+            'commission',
+            'commission_rate',
+            'fee_rate',
+            'open_fee_rate',
+            'open_commission_rate',
+            'OpenRatioByMoney',
+            'COMMISSION_OPEN_RATIO',
+        ):
+            value = _first_number(meta.get(key))
+            if value is None:
+                continue
+            if (
+                method == 'percent_10k'
+                or key == 'COMMISSION_OPEN_RATIO'
+                or (key == 'OpenRatioByMoney' and value > 0.01)
+            ):
+                value = max(value, 0.0)
+                return value / 10000.0 if value > 0.01 else value
+            return _normalise_rate(value, 0.0)
+        return None
+
+
+    def _commission_rate(meta: dict, fallback):
+        value = _explicit_commission_rate(meta)
+        return fallback if value is None else value
+
+
+    def _commission_amount(meta: dict):
+        return _first_number(
+            meta.get('commission_amount'),
+            meta.get('fee_amount'),
+            meta.get('commission_per_lot'),
+            meta.get('open_fee_amount'),
+            meta.get('open_commission_amount'),
+            meta.get('OpenRatioByVolume'),
+            meta.get('COMMISSION_OPEN_AMOUNT'),
+        )
+
+
+    def _commission_rate_from_keys(meta: dict, keys: tuple[str, ...]):
+        method = str(meta.get('commission_method') or '').strip().lower()
+        for key in keys:
+            value = _first_number(meta.get(key))
+            if value is None:
+                continue
+            if (
+                method == 'percent_10k'
+                or key.startswith('COMMISSION_')
+                or key.endswith('RatioByMoney') and value > 0.01
+            ):
+                value = max(value, 0.0)
+                return value / 10000.0 if value > 0.01 else value
+            return _normalise_rate(value, 0.0)
+        return None
+
+
+    def _commission_amount_from_keys(meta: dict, keys: tuple[str, ...]):
+        for key in keys:
+            value = _first_number(meta.get(key))
+            if value is not None:
+                return max(value, 0.0)
+        return None
+
+
+    def _signed_commission_rate(meta: dict, *keys):
+        for key in keys:
+            value = _normalise_signed_rate(meta.get(key))
+            if value is not None:
+                return value
+        return None
+
+
+    def _text(value) -> str:
+        return str(value or '').strip().lower().replace('-', '_')
+
+
+    def _currency_code(value) -> str:
+        return ''.join(ch for ch in str(value or '').strip().upper() if ch.isalnum())
+
+
+    def _is_inverse_contract(meta: dict) -> bool:
+        explicit = _text(
+            meta.get('inverse')
+            or meta.get('is_inverse')
+            or meta.get('isInverse')
+            or meta.get('inverse_contract')
+            or meta.get('inverseContract')
+        )
+        if explicit in {'1', 'true', 'yes', 'y', 'inverse'}:
+            return True
+        if explicit in {'0', 'false', 'no', 'n', 'linear'}:
+            return False
+
+        contract_type = _text(
+            meta.get('contract_type')
+            or meta.get('contractType')
+            or meta.get('ctType')
+            or meta.get('type')
+        )
+        if 'inverse' in contract_type or 'coin_margined' in contract_type:
+            return True
+        if 'linear' in contract_type or 'usdt_margined' in contract_type or 'usdc_margined' in contract_type:
+            return False
+
+        contract_ccy = _currency_code(
+            meta.get('contract_value_currency')
+            or meta.get('contractValueCurrency')
+            or meta.get('contract_value_ccy')
+            or meta.get('ctValCcy')
+        )
+        base_ccy = _currency_code(
+            meta.get('base_currency') or meta.get('baseCurrency') or meta.get('base_asset') or meta.get('baseCcy')
+        )
+        quote_ccy = _currency_code(
+            meta.get('quote_currency') or meta.get('quoteCurrency') or meta.get('quote_asset') or meta.get('quoteCcy')
+        )
+        settle_ccy = _currency_code(
+            meta.get('settle_currency')
+            or meta.get('settleCurrency')
+            or meta.get('settle_ccy')
+            or meta.get('settleCcy')
+            or meta.get('margin_currency')
+            or meta.get('marginCcy')
+        )
+        fee_ccy = _currency_code(meta.get('fee_currency') or meta.get('feeCurrency') or meta.get('feeCcy'))
+        if contract_ccy and quote_ccy and contract_ccy == quote_ccy and contract_ccy != base_ccy:
+            return True
+        if contract_ccy and base_ccy and contract_ccy == base_ccy:
+            return False
+        if base_ccy and quote_ccy and settle_ccy == base_ccy and settle_ccy != quote_ccy:
+            return True
+        return bool((contract_ccy or settle_ccy) and base_ccy and quote_ccy and fee_ccy == base_ccy and fee_ccy != quote_ccy)
+
+
+    def _contract_multiplier(meta: dict, simulate_cfg: dict, backtest_cfg: dict, inverse_contract: bool):
+        if inverse_contract:
+            return _first_number(
+                meta.get('contract_value'),
+                meta.get('contractValue'),
+                meta.get('contract_value_amount'),
+                meta.get('contractValueAmount'),
+                meta.get('contract_notional_value'),
+                meta.get('okx_contract_value'),
+                meta.get('ctVal'),
+                meta.get('multiplier'),
+                meta.get('mult'),
+                meta.get('contract_multiplier'),
+                meta.get('contract_size'),
+                meta.get('trade_contract_size'),
+                meta.get('ctMult'),
+                meta.get('VolumeMultiple'),
+                meta.get('CONTRACT_MULTIPLIER'),
+                simulate_cfg.get('multiplier'),
+                backtest_cfg.get('multiplier'),
+                backtest_cfg.get('mult'),
+                default=1.0,
+            )
+        return _first_number(
+            meta.get('multiplier'),
+            meta.get('mult'),
+            meta.get('contract_multiplier'),
+            meta.get('contract_size'),
+            meta.get('trade_contract_size'),
+            meta.get('contract_notional_value'),
+            meta.get('okx_contract_value'),
+            meta.get('ctVal'),
+            meta.get('ctMult'),
+            meta.get('VolumeMultiple'),
+            meta.get('CONTRACT_MULTIPLIER'),
+            simulate_cfg.get('multiplier'),
+            backtest_cfg.get('multiplier'),
+            backtest_cfg.get('mult'),
+            default=1.0,
+        )
+
+
+    def _apply_commission_info(cerebro, config: dict, data_name: str) -> None:
+        simulate_cfg = _as_dict(config.get('simulate'))
+        backtest_cfg = _as_dict(config.get('backtest'))
+        data_cfg = _as_dict(config.get('data'))
+        asset_type = str(
+            data_cfg.get('asset_type')
+            or data_cfg.get('data_type')
+            or _as_dict(config.get('workspace_unit')).get('asset_type')
+            or ''
+        ).strip().lower()
+        meta = _contract_metadata_for(config, data_name)
+        inverse_contract = _is_inverse_contract(meta)
+        multiplier = _contract_multiplier(meta, simulate_cfg, backtest_cfg, inverse_contract)
+        margin_value = _first_number(
+            meta.get('margin'),
+            meta.get('margin_rate'),
+            meta.get('margin_ratio'),
+            meta.get('long_margin_rate'),
+            meta.get('LongMarginRatioByMoney'),
+            meta.get('MARGIN_BUY'),
+            backtest_cfg.get('margin'),
+        )
+        margin_amount = _first_number(
+            meta.get('margin_amount'),
+            meta.get('initial_margin_per_lot'),
+            meta.get('margin_initial'),
+            meta.get('initial_margin_amount'),
+            meta.get('SYMBOL_MARGIN_INITIAL'),
+        )
+        leverage = _first_number(meta.get('leverage'), meta.get('lever'), meta.get('max_leverage'))
+        margin_rate = 1.0 / leverage if leverage and leverage > 0 else _normalise_rate(margin_value, 1.0)
+        margin_amount_param = max(margin_amount, 0.0) if margin_amount and margin_amount > 0 else None
+        default_commission = _safe_float(backtest_cfg.get('commission'), 0.001)
+        fixed_commission = _commission_amount(meta)
+        derivative_like = bool(meta) or asset_type in {
+            'future',
+            'futures',
+            'option',
+            'options',
+            'forex',
+            'fx',
+            'otc',
+            'cfd',
+            'swap',
+            'swaps',
+            'perpetual',
+            'perp',
+        }
+        if derivative_like:
+            explicit_rate = _explicit_commission_rate(meta)
+            maker_rate = _signed_commission_rate(meta, 'maker_commission_rate', 'maker_fee_rate')
+            taker_rate = _signed_commission_rate(meta, 'taker_commission_rate', 'taker_fee_rate')
+            if explicit_rate is None:
+                explicit_rate = taker_rate if taker_rate is not None else maker_rate
+            close_rate = _commission_rate_from_keys(
+                meta,
+                (
+                    'close_commission_rate',
+                    'close_fee_rate',
+                    'CloseRatioByMoney',
+                    'CLOSE_FEE_RATE',
+                    'COMMISSION_CLOSE_RATIO',
+                ),
+            )
+            close_today_rate = _commission_rate_from_keys(
+                meta,
+                (
+                    'close_today_commission_rate',
+                    'close_today_fee_rate',
+                    'CloseTodayRatioByMoney',
+                    'CLOSETODAY_FEE_RATE',
+                    'CLOSE_TODAY_FEE_RATE',
+                    'COMMISSION_CLOSE_TODAY_RATIO',
+                ),
+            )
+            close_yesterday_rate = _commission_rate_from_keys(
+                meta,
+                (
+                    'close_yesterday_commission_rate',
+                    'close_yesterday_fee_rate',
+                    'CloseYesterdayRatioByMoney',
+                    'CLOSEYESTERDAY_FEE_RATE',
+                    'CLOSE_YESTERDAY_FEE_RATE',
+                    'COMMISSION_CLOSE_YESTERDAY_RATIO',
+                ),
+            )
+            close_amount = _commission_amount_from_keys(
+                meta,
+                (
+                    'close_commission_amount',
+                    'close_fee_amount',
+                    'CloseRatioByVolume',
+                    'CLOSE_FEE_AMOUNT',
+                    'CLOSE_FEE_PER_LOT',
+                    'COMMISSION_CLOSE_AMOUNT',
+                ),
+            )
+            close_today_amount = _commission_amount_from_keys(
+                meta,
+                (
+                    'close_today_commission_amount',
+                    'close_today_fee_amount',
+                    'CloseTodayRatioByVolume',
+                    'CLOSETODAY_FEE_AMOUNT',
+                    'CLOSE_TODAY_FEE_AMOUNT',
+                    'CLOSE_TODAY_FEE_PER_LOT',
+                    'COMMISSION_CLOSE_TODAY_AMOUNT',
+                ),
+            )
+            close_yesterday_amount = _commission_amount_from_keys(
+                meta,
+                (
+                    'close_yesterday_commission_amount',
+                    'close_yesterday_fee_amount',
+                    'CloseYesterdayRatioByVolume',
+                    'CLOSEYESTERDAY_FEE_AMOUNT',
+                    'CLOSE_YESTERDAY_FEE_AMOUNT',
+                    'CLOSE_YESTERDAY_FEE_PER_LOT',
+                    'COMMISSION_CLOSE_YESTERDAY_AMOUNT',
+                ),
+            )
+            if inverse_contract:
+                inverse_percent_rate = (
+                    explicit_rate
+                    if explicit_rate is not None
+                    else (0.0 if fixed_commission is not None else default_commission)
+                )
+                comminfo = ComminfoFuturesInverse(
+                    commission=inverse_percent_rate,
+                    open_commission=explicit_rate,
+                    close_commission=close_rate,
+                    close_today_commission=close_today_rate,
+                    close_yesterday_commission=close_yesterday_rate,
+                    maker_commission=maker_rate,
+                    taker_commission=taker_rate,
+                    commission_amount=max(fixed_commission or 0.0, 0.0),
+                    open_commission_amount=max(fixed_commission, 0.0) if fixed_commission is not None else None,
+                    close_commission_amount=close_amount,
+                    close_today_commission_amount=close_today_amount,
+                    close_yesterday_commission_amount=close_yesterday_amount,
+                    margin=max(margin_rate, 0.0),
+                    margin_amount=margin_amount_param,
+                    mult=max(multiplier or 1.0, 1e-12),
+                )
+                cerebro.broker.addcommissioninfo(comminfo, name=data_name)
+                return
+            if (
+                fixed_commission is not None
+                and explicit_rate is not None
+                and str(meta.get('commission_method') or '').lower() != 'fixed_per_lot'
+            ):
+                comminfo = ComminfoFuturesMixed(
+                    commission=max(explicit_rate, 0.0),
+                    open_commission=max(explicit_rate, 0.0),
+                    close_commission=close_rate,
+                    close_today_commission=close_today_rate,
+                    close_yesterday_commission=close_yesterday_rate,
+                    maker_commission=maker_rate,
+                    taker_commission=taker_rate,
+                    commission_amount=max(fixed_commission, 0.0),
+                    open_commission_amount=max(fixed_commission, 0.0),
+                    close_commission_amount=close_amount,
+                    close_today_commission_amount=close_today_amount,
+                    close_yesterday_commission_amount=close_yesterday_amount,
+                    margin=max(margin_rate, 0.0),
+                    margin_amount=margin_amount_param,
+                    mult=max(multiplier or 1.0, 1e-12),
+                )
+            elif fixed_commission is not None and (
+                str(meta.get('commission_method') or '').lower() == 'fixed_per_lot'
+                or explicit_rate is None
+            ):
+                comminfo = ComminfoFuturesFixed(
+                    commission=max(fixed_commission, 0.0),
+                    open_commission=max(fixed_commission, 0.0),
+                    close_commission=close_amount,
+                    close_today_commission=close_today_amount,
+                    close_yesterday_commission=close_yesterday_amount,
+                    margin=max(margin_rate, 0.0),
+                    margin_amount=margin_amount_param,
+                    mult=max(multiplier or 1.0, 1e-12),
+                )
+            else:
+                comminfo = ComminfoFuturesPercent(
+                    commission=explicit_rate if explicit_rate is not None else default_commission,
+                    open_commission=explicit_rate if explicit_rate is not None else default_commission,
+                    close_commission=close_rate,
+                    close_today_commission=close_today_rate,
+                    close_yesterday_commission=close_yesterday_rate,
+                    maker_commission=maker_rate,
+                    taker_commission=taker_rate,
+                    margin=max(margin_rate, 0.0),
+                    margin_amount=margin_amount_param,
+                    mult=max(multiplier or 1.0, 1e-12),
+                )
+            cerebro.broker.addcommissioninfo(comminfo, name=data_name)
+        else:
+            cerebro.broker.setcommission(commission=default_commission)
+
+
     def _timeframe_suffix(timeframe: str, timeframe_n: int) -> str:
         text = str(timeframe or '').strip().lower()
         if text in {'1d', 'd', 'd1', 'day', 'daily'}:
@@ -100,7 +650,14 @@ _UNIT_RUN_PY = textwrap.dedent(
         raw = str(symbol or '').strip()
         if not raw:
             return []
-        variants = [raw, raw.upper(), raw.lower()]
+        instrument = raw
+        if '.' in instrument:
+            left, right = instrument.split('.', 1)
+            instrument = right if left.upper() in {'SHFE', 'DCE', 'CZCE', 'CFFEX', 'INE', 'GFEX'} else left
+        if '_' in instrument:
+            left, right = instrument.split('_', 1)
+            instrument = right if left.upper() in {'SHFE', 'DCE', 'CZCE', 'CFFEX', 'INE', 'GFEX'} else left
+        variants = [raw, instrument, raw.upper(), raw.lower(), instrument.upper(), instrument.lower()]
         names: list[str] = []
         for value in variants:
             if suffix:
@@ -115,9 +672,71 @@ _UNIT_RUN_PY = textwrap.dedent(
         return unique
 
 
+    def _symbol_product_prefix(symbol: str) -> str:
+        raw = str(symbol or '').strip()
+        if '.' in raw:
+            left, right = raw.split('.', 1)
+            raw = right if left.upper() in {'SHFE', 'DCE', 'CZCE', 'CFFEX', 'INE', 'GFEX'} else left
+        if '_' in raw:
+            left, right = raw.split('_', 1)
+            raw = right if left.upper() in {'SHFE', 'DCE', 'CZCE', 'CFFEX', 'INE', 'GFEX'} else left
+        letters = []
+        for ch in raw:
+            if ch.isalpha():
+                letters.append(ch)
+            elif letters:
+                break
+        return ''.join(letters).upper()
+
+
+    def _candidate_patterns(symbol: str, suffix: str) -> list[str]:
+        raw = str(symbol or '').strip()
+        prefix = _symbol_product_prefix(raw)
+        base_patterns = [f'{raw}_*.csv', f'{raw.upper()}_*.csv', f'{raw.lower()}_*.csv']
+        if not prefix:
+            return base_patterns
+        prefix_patterns = []
+        if suffix:
+            prefix_patterns.extend([
+                f'{prefix}[0-9]*_{suffix}.csv',
+                f'{prefix.lower()}[0-9]*_{suffix}.csv',
+                f'{prefix}*_{suffix}.csv',
+                f'{prefix.lower()}*_{suffix}.csv',
+            ])
+        prefix_patterns.extend([
+            f'{prefix}[0-9]*.csv',
+            f'{prefix.lower()}[0-9]*.csv',
+            f'{prefix}*.csv',
+            f'{prefix.lower()}*.csv',
+        ])
+        patterns = prefix_patterns + base_patterns
+        unique: list[str] = []
+        seen: set[str] = set()
+        for pattern in patterns:
+            if pattern not in seen:
+                unique.append(pattern)
+                seen.add(pattern)
+        return unique
+
+
+    def _pick_matching_csv(matches: list[Path], suffix: str) -> Path | None:
+        if not matches:
+            return None
+        ordered = sorted(matches)
+        suffix_lower = str(suffix or '').lower()
+        if suffix_lower:
+            for match in ordered:
+                if suffix_lower in match.name.lower() or match.parent.name.lower() == suffix_lower:
+                    return match
+        return ordered[0]
+
+
     def resolve_data_file(config: dict) -> Path:
         data = config.get('data') or {}
-        directory_path = Path(str(data.get('directory_path') or '')).expanduser()
+        raw_directory = str(data.get('directory_path') or '').strip()
+        if not raw_directory:
+            raw_directory = os.environ.get('BACKTRADER_DATA_DIR', '').strip()
+        directory_path = Path(raw_directory or '.').expanduser()
         if not directory_path.is_dir():
             raise FileNotFoundError(f'Data directory not found: {directory_path}')
         symbol = str(data.get('symbol') or '').strip()
@@ -132,15 +751,14 @@ _UNIT_RUN_PY = textwrap.dedent(
                 candidate = root / name
                 if candidate.is_file():
                     return candidate
-        patterns = [f'{symbol}_*.csv', f'{symbol.upper()}_*.csv', f'{symbol.lower()}_*.csv']
-        for pattern in patterns:
-            matches = sorted(directory_path.rglob(pattern))
-            if not matches:
-                continue
-            for match in matches:
-                if suffix and (suffix.lower() in match.name.lower() or match.parent.name.lower() == suffix.lower()):
+            for pattern in _candidate_patterns(symbol, suffix):
+                match = _pick_matching_csv(list(root.glob(pattern)), suffix)
+                if match is not None:
                     return match
-            return matches[0]
+        for pattern in _candidate_patterns(symbol, suffix):
+            match = _pick_matching_csv(list(directory_path.rglob(pattern)), suffix)
+            if match is not None:
+                return match
         raise FileNotFoundError(f'No CSV file found for symbol={symbol} under {directory_path}')
 
 
@@ -221,7 +839,7 @@ _UNIT_RUN_PY = textwrap.dedent(
 
     def _pick_feed_class(module: object):
         for value in vars(module).values():
-            if isinstance(value, type) and issubclass(value, bt.feeds.PandasData) and value is not bt.feeds.PandasData:
+            if isinstance(value, type) and issubclass(value, _PANDAS_DATA_CLASS) and value is not _PANDAS_DATA_CLASS:
                 return value
         return UnitPandasFeed
 
@@ -237,26 +855,16 @@ _UNIT_RUN_PY = textwrap.dedent(
         feed_class = _pick_feed_class(module)
         df, csv_path = load_dataframe(config)
         data_cfg = config.get('data') or {}
-        backtest_cfg = config.get('backtest') or {}
         params = config.get('params') or {}
-        asset_type = str(data_cfg.get('asset_type') or workspace_unit.get('asset_type') or '').strip().lower()
-        cerebro = bt.Cerebro(stdstats=True)
+        live_cfg = config.get('live') or {}
+        simulate_cfg = config.get('simulate') or {}
+        cerebro = bt.Cerebro(
+            stdstats=_safe_bool(live_cfg.get('stdstats', simulate_cfg.get('stdstats')), False)
+        )
         name = str(data_cfg.get('symbol') or 'DATA')
         cerebro.adddata(feed_class(dataname=df), name=name)
-        commission = _safe_float(backtest_cfg.get('commission'), 0.001)
-        margin = backtest_cfg.get('margin')
-        multiplier = backtest_cfg.get('multiplier', backtest_cfg.get('mult'))
-        if asset_type in {'future', 'option'} and (margin is not None or multiplier is not None):
-            cerebro.broker.addcommissioninfo(
-                ComminfoFuturesPercent(
-                    commission=commission,
-                    margin=_safe_float(margin, 1.0),
-                    mult=_safe_float(multiplier, 1.0),
-                ),
-                name=name,
-            )
-        else:
-            cerebro.broker.setcommission(commission=commission)
+        _apply_commission_info(cerebro, config, name)
+        backtest_cfg = config.get('backtest') or {}
         cerebro.broker.setcash(_safe_float(backtest_cfg.get('initial_cash'), 100000.0))
         cerebro.addstrategy(strategy_class, **params)
         forced_log_dir = os.environ.get('BACKTRADER_LOG_DIR', '').strip()
@@ -271,10 +879,16 @@ _UNIT_RUN_PY = textwrap.dedent(
             log_dir=str(log_dir),
             log_format='text',
         )
-        print(f'Loading data from {csv_path}')
+        logger.info('Loading data from %s', csv_path)
         results = cerebro.run()
         final_value = cerebro.broker.getvalue()
-        print(f'Final value: {final_value}')
+        logger.info('Final value: %s', final_value)
+        keepalive_seconds = _keepalive_seconds(config)
+        if keepalive_seconds > 0:
+            deadline = time.monotonic() + keepalive_seconds
+            logger.info('Keeping local paper runtime alive for %.1fs', keepalive_seconds)
+            while time.monotonic() < deadline:
+                time.sleep(min(5.0, max(deadline - time.monotonic(), 0.1)))
         return results, final_value
 
 
@@ -310,6 +924,103 @@ def _asset_type_for_unit(category: str) -> str:
     text = str(category or "").strip()
     lowered = text.lower()
     return _ASSET_TYPE_ALIASES.get(text, _ASSET_TYPE_ALIASES.get(lowered, lowered or "future"))
+
+
+def _asset_type_alias(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    return _ASSET_TYPE_ALIASES.get(text) or _ASSET_TYPE_ALIASES.get(lowered)
+
+
+def _asset_type_from_symbol(symbol: Any) -> str | None:
+    normalized = str(symbol or "").strip().upper()
+    if not normalized:
+        return None
+    if normalized.endswith((".SZ", ".SH", ".BJ", ".HK", ".US")):
+        return "stock"
+    futures_suffixes = (".CFE", ".CFFEX", ".SHFE", ".INE", ".DCE", ".CZCE", ".GFEX")
+    futures_prefixes = (
+        "IF",
+        "IC",
+        "IH",
+        "IM",
+        "TF",
+        "TS",
+        "AU",
+        "AG",
+        "CU",
+        "AL",
+        "ZN",
+        "RB",
+        "HC",
+        "SC",
+        "FU",
+        "RU",
+        "MA",
+        "TA",
+        "SA",
+        "SR",
+        "CF",
+        "OI",
+        "RM",
+        "FG",
+        "JM",
+        "J",
+        "I",
+        "M",
+        "Y",
+        "P",
+        "A",
+        "B",
+        "C",
+        "CS",
+        "L",
+        "V",
+        "PP",
+        "EB",
+        "EG",
+        "PG",
+        "AP",
+    )
+    if normalized.endswith(futures_suffixes):
+        return "future"
+    if any(
+        normalized.startswith(prefix) and any(ch.isdigit() for ch in normalized[len(prefix) :])
+        for prefix in futures_prefixes
+    ):
+        return "future"
+    return None
+
+
+def _asset_type_for_unit_config(
+    *,
+    category: Any,
+    symbol: Any,
+    data_config: dict[str, Any] | None,
+    unit_settings: dict[str, Any] | None,
+    template_data: dict[str, Any] | None = None,
+) -> str:
+    data_cfg = dict(data_config or {})
+    settings = dict(unit_settings or {})
+    template = dict(template_data or {})
+    for value in (
+        data_cfg.get("asset_type"),
+        data_cfg.get("data_type"),
+        settings.get("asset_type"),
+        settings.get("data_type"),
+        category,
+        template.get("asset_type"),
+        template.get("data_type"),
+    ):
+        alias = _asset_type_alias(value)
+        if alias:
+            return alias
+    return (
+        _asset_type_from_symbol(symbol or data_cfg.get("symbol") or template.get("symbol"))
+        or "future"
+    )
 
 
 def _trading_data_type_for_asset(asset_type: str) -> str:
@@ -353,9 +1064,14 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def _strategy_module_name(template_dir: Path) -> str:
+    if not template_dir.is_dir():
+        # Template tree may be absent (see _sync_trading_runtime_sources).
+        # Return empty so config generation degrades gracefully instead of
+        # raising and 500-ing unit creation.
+        return ""
     candidates = sorted(template_dir.glob("strategy_*.py"))
     if not candidates:
-        raise FileNotFoundError(f"No strategy_*.py found under {template_dir}")
+        return ""
     return candidates[0].name
 
 
@@ -365,6 +1081,10 @@ def _default_unit_start_date_iso() -> str:
 
 def _default_unit_end_date_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _default_csv_directory_path() -> str:
+    return str((Path(__file__).resolve().parents[4] / "data" / "datas").resolve())
 
 
 def _normalize_unit_data_config(data_config: dict[str, Any] | None) -> dict[str, Any]:
@@ -404,14 +1124,24 @@ def _build_unit_config(unit: StrategyUnit, workspace_settings: dict[str, Any]) -
         if unit_settings.get(key) is not None:
             backtest_section[key] = unit_settings[key]
     template_config["backtest"] = backtest_section
-    category = unit.category or str((template_config.get("data") or {}).get("data_type") or "")
-    asset_type = _asset_type_for_unit(category)
+    template_data = dict(template_config.get("data") or {})
+    data_config = _normalize_unit_data_config(unit.data_config)
+    category = unit.category or str(template_data.get("data_type") or "")
+    asset_type = _asset_type_for_unit_config(
+        category=category,
+        symbol=unit.symbol,
+        data_config=data_config,
+        unit_settings=unit_settings,
+        template_data=template_data,
+    )
     data_source = dict(workspace_settings.get("data_source") or {})
     csv_section = dict(data_source.get("csv") or {})
     data_root = str(csv_section.get("directory_path") or "").strip()
+    if not data_root:
+        data_root = _default_csv_directory_path()
     asset_root = str((Path(data_root) / asset_type).resolve()) if data_root else ""
-    data_section = dict(template_config.get("data") or {})
-    data_section.update(_normalize_unit_data_config(unit.data_config))
+    data_section = template_data
+    data_section.update(data_config)
     data_section["symbol"] = unit.symbol or data_section.get("symbol", "")
     data_section["symbol_name"] = unit.symbol_name or data_section.get("symbol_name", "")
     data_section["asset_type"] = asset_type
@@ -481,11 +1211,30 @@ def _merge_dict_section(
     target[key] = merged
 
 
+def _is_sensitive_config_key(key: Any) -> bool:
+    normalized = str(key or "").strip().lower().replace("-", "_")
+    return normalized in _SENSITIVE_CONFIG_KEYS
+
+
+def _strip_sensitive_config_values(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _strip_sensitive_config_values(item)
+            for key, item in value.items()
+            if not _is_sensitive_config_key(key)
+        }
+    if isinstance(value, list):
+        return [_strip_sensitive_config_values(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_strip_sensitive_config_values(item) for item in value)
+    return deepcopy(value)
+
+
 def _apply_gateway_runtime_config(
     template_config: dict[str, Any],
     gateway_config: dict[str, Any] | None,
 ) -> None:
-    params = (
+    params = _strip_sensitive_config_values(
         dict((gateway_config or {}).get("params") or {}) if isinstance(gateway_config, dict) else {}
     )
     if not params:
@@ -530,9 +1279,17 @@ def _build_trading_unit_config(
         template_config["symbol"] = symbol_section
 
     data_section = dict(template_config.get("data") or {})
-    data_section.update(_normalize_unit_data_config(unit.data_config))
-    if unit.symbol:
-        data_section["symbol"] = unit.symbol
+    data_config = _normalize_unit_data_config(unit.data_config)
+    data_section.update(data_config)
+    # ``unit.symbol`` is the user-facing asset code.  Gateways can require a
+    # different, unambiguous identifier at execution time (for example an IB
+    # Client Portal conid).  Keep the display code intact on the unit while
+    # allowing the runtime feed and the live runner to use that identifier.
+    trade_symbol = str(data_config.get("trade_symbol") or unit.symbol or "").strip()
+    if trade_symbol:
+        data_section["symbol"] = trade_symbol
+    if unit.symbol and trade_symbol != str(unit.symbol):
+        data_section["display_symbol"] = unit.symbol
     if unit.symbol_name:
         data_section["symbol_name"] = unit.symbol_name
     if unit.timeframe:
@@ -541,17 +1298,27 @@ def _build_trading_unit_config(
         data_section["timeframe_n"] = unit.timeframe_n
     if unit.category:
         data_section["category"] = unit.category
-    asset_type = _asset_type_for_unit(
-        unit.category or str(data_section.get("data_type") or data_section.get("asset_type") or "")
+    unit_settings = dict(unit.unit_settings or {})
+    asset_type = _asset_type_for_unit_config(
+        category=unit.category
+        or str(data_section.get("data_type") or data_section.get("asset_type") or ""),
+        symbol=unit.symbol or data_section.get("symbol"),
+        data_config=data_config,
+        unit_settings=unit_settings,
+        template_data=data_section,
     )
     exchange_type = _trading_exchange_for_unit(unit, asset_type, data_section)
     data_section["asset_type"] = asset_type
     data_section["data_type"] = _trading_data_type_for_asset(asset_type)
     data_section["exchange"] = exchange_type
+    data_source = dict((workspace_settings or {}).get("data_source") or {})
+    csv_section = dict(data_source.get("csv") or {})
+    data_root = str(csv_section.get("directory_path") or "").strip()
+    if data_root and not str(data_section.get("directory_path") or "").strip():
+        data_section["directory_path"] = str((Path(data_root) / asset_type).resolve())
     template_config["data"] = data_section
 
     simulate_section = dict(template_config.get("simulate") or {})
-    unit_settings = dict(unit.unit_settings or {})
     for key in (
         "initial_cash",
         "commission",
@@ -566,14 +1333,62 @@ def _build_trading_unit_config(
         template_config["simulate"] = simulate_section
 
     live_section = dict(template_config.get("live") or {})
-    if unit.symbol:
-        live_section["symbol"] = unit.symbol
+    if trade_symbol:
+        live_section["symbol"] = trade_symbol
     bar_seconds = _timeframe_to_bar_seconds(unit.timeframe, unit.timeframe_n)
     if bar_seconds is not None:
         live_section["bar_seconds"] = bar_seconds
     for key in ("duration_seconds", "session_timeout"):
         if simulate_section.get(key) is not None and live_section.get(key) is None:
             live_section[key] = simulate_section[key]
+    live_qcheck = live_section.get("qcheck")
+    for key in ("qcheck", "live_qcheck", "qcheck_seconds"):
+        if unit_settings.get(key) is not None:
+            live_qcheck = unit_settings[key]
+            break
+    live_section["qcheck"] = _positive_float(live_qcheck, _DEFAULT_LIVE_QCHECK_SECONDS)
+    live_log_ticks = live_section.get("log_ticks")
+    for key in ("log_ticks", "live_log_ticks"):
+        if unit_settings.get(key) is not None:
+            live_log_ticks = unit_settings[key]
+            break
+    live_section["log_ticks"] = _bool_value(live_log_ticks, False)
+    live_log_positions = live_section.get("log_positions")
+    for key in ("log_positions", "live_log_positions"):
+        if unit_settings.get(key) is not None:
+            live_log_positions = unit_settings[key]
+            break
+    live_section["log_positions"] = _bool_value(live_log_positions, True)
+    live_log_indicators = live_section.get("log_indicators")
+    for key in ("log_indicators", "live_log_indicators"):
+        if unit_settings.get(key) is not None:
+            live_log_indicators = unit_settings[key]
+            break
+    live_section["log_indicators"] = _bool_value(live_log_indicators, False)
+    live_log_signals = live_section.get("log_signals")
+    for key in ("log_signals", "live_log_signals"):
+        if unit_settings.get(key) is not None:
+            live_log_signals = unit_settings[key]
+            break
+    live_section["log_signals"] = _bool_value(live_log_signals, True)
+    live_dispatch_ticks = live_section.get("dispatch_ticks")
+    for key in ("dispatch_ticks", "notify_ticks", "live_dispatch_ticks", "live_notify_ticks"):
+        if unit_settings.get(key) is not None:
+            live_dispatch_ticks = unit_settings[key]
+            break
+    live_section["dispatch_ticks"] = _bool_value(live_dispatch_ticks, False)
+    live_exactbars = live_section.get("exactbars")
+    for key in ("exactbars", "live_exactbars"):
+        if unit_settings.get(key) is not None:
+            live_exactbars = unit_settings[key]
+            break
+    live_section["exactbars"] = _exactbars_value(live_exactbars, True)
+    live_stdstats = live_section.get("stdstats")
+    for key in ("stdstats", "live_stdstats"):
+        if unit_settings.get(key) is not None:
+            live_stdstats = unit_settings[key]
+            break
+    live_section["stdstats"] = _bool_value(live_stdstats, False)
     if live_section:
         template_config["live"] = live_section
 
@@ -600,6 +1415,17 @@ def _build_trading_unit_config(
 
 
 def _sync_trading_runtime_sources(template_dir: Path, target_dir: Path) -> None:
+    if not template_dir.is_dir():
+        # The strategy template tree (src/strategies/) is developer-local and
+        # not always present (e.g. fresh checkout, CI). Unit creation has
+        # already persisted the unit; a missing template must not abort the
+        # request with a 500. Skip copying and let the runtime fall back to
+        # defaults — the unit can be re-synced once the template is available.
+        logger.warning(
+            "Strategy template dir not found, skipping runtime source sync: %s",
+            template_dir,
+        )
+        return
     for source in template_dir.iterdir():
         if not source.is_file():
             continue
@@ -612,7 +1438,10 @@ def sync_trading_unit_runtime(unit: StrategyUnit, workspace_settings: dict[str, 
     target_dir = unit_dir(unit.workspace_id, unit.id)
     target_dir.mkdir(parents=True, exist_ok=True)
     template_dir = get_strategy_dir(str(unit.strategy_id or "").strip())
+    template_has_run_py = (template_dir / "run.py").is_file()
     _sync_trading_runtime_sources(template_dir, target_dir)
+    if not template_has_run_py:
+        (target_dir / "run.py").write_text(_UNIT_RUN_PY, encoding="utf-8")
     config = _build_trading_unit_config(unit, workspace_settings)
     with (target_dir / "config.yaml").open("w", encoding="utf-8") as handle:
         yaml.safe_dump(config, handle, allow_unicode=True, sort_keys=False)

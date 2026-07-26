@@ -1,0 +1,105 @@
+/* Styles for TradingWorkspaceUnitsTab.vue — extracted from the SFC <style scoped> block (175 §G / REFACTORING_BACKLOG.md). Consumed via scoped src so Vue keeps scoped-attribute hashing. */
+
+.trading-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.overview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--info-border-color);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+
+.overview-card.is-success {
+  border-color: var(--success-border-color);
+  background: var(--fill-color-lighter);
+  box-shadow: inset 3px 0 0 var(--success-color);
+}
+
+.overview-card.is-warning {
+  border-color: var(--warning-border-color);
+  background: var(--fill-color-lighter);
+  box-shadow: inset 3px 0 0 var(--warning-color);
+}
+
+.overview-card.is-danger {
+  border-color: var(--danger-border-color);
+  background: var(--fill-color-lighter);
+  box-shadow: inset 3px 0 0 var(--danger-color);
+}
+
+.overview-card__label {
+  font-size: 12px;
+  color: var(--text-color-secondary);
+}
+
+.overview-card__value {
+  font-size: 24px;
+  font-weight: 760;
+  line-height: 1.1;
+  color: var(--text-color-primary);
+}
+
+.overview-card__meta {
+  font-size: 12px;
+  color: var(--text-color-placeholder);
+}
+
+.trading-schedule-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+}
+
+.trading-schedule-bar__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.trading-schedule-bar__item .label {
+  font-size: 12px;
+  color: var(--text-color-placeholder);
+}
+
+.trading-schedule-bar__item .value {
+  font-size: 13px;
+  color: var(--text-color-regular);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.detail-positions-table :deep(.el-table__header th) {
+  background: var(--bg-color-page);
+  color: var(--text-color-regular);
+  font-weight: 600;
+}
+
+@media (max-width: 1200px) {
+  .trading-overview-grid,
+  .trading-schedule-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .trading-overview-grid,
+  .trading-schedule-bar {
+    grid-template-columns: 1fr;
+  }
+}

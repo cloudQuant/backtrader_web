@@ -1,70 +1,163 @@
 <template>
-  <div class="quote-page space-y-4">
-    <!-- Data Source Tabs -->
-    <el-card
-      class="!p-0"
-      body-class="!p-3"
-    >
-      <div class="flex items-center justify-between flex-wrap gap-2">
-        <div class="flex items-center gap-1 flex-wrap">
+  <div
+    class="quote-page"
+    data-test="quote-page"
+  >
+    <section class="quote-hero">
+      <div class="quote-hero-copy">
+        <span>{{ t('quote.heroKicker') }}</span>
+        <div class="quote-title-line">
+          <h1>{{ t('quote.headerTitle') }}</h1>
           <div
-            v-for="src in store.sources"
-            :key="src.source"
-            class="source-tab"
-            :class="{
-              'source-tab--active': src.source === store.activeSource,
-              'source-tab--available': src.status === 'available',
-              'source-tab--disconnected': src.status === 'not_connected',
-              'source-tab--unavailable': src.status === 'unavailable' || src.status === 'not_configured',
-            }"
-            @click="handleSourceClick(src)"
+            class="quote-source-tabs quote-source-tabs--inline"
+            role="tablist"
+            :aria-label="t('quote.sourcePanelTitle')"
           >
-            <span class="source-tab__label">{{ src.source_label }}</span>
-            <span class="source-tab__dot" />
-          </div>
-        </div>
-        <!-- Refresh status -->
-        <div class="flex items-center gap-2 text-xs text-gray-500">
-          <el-tag
-            size="small"
-            :type="refreshModeTag"
-            effect="plain"
-          >
-            {{ refreshModeText }}
-          </el-tag>
-          <span
-            v-if="store.updateTime"
-            :class="{ 'text-orange-500': isDataStale }"
-          >
-            {{ formatTime(store.updateTime) }}
-            <el-tooltip
-              v-if="isDataStale"
-              content="数据可能已过期，建议刷新"
-              placement="top"
+            <button
+              v-for="src in store.sources"
+              :key="src.source"
+              class="source-tab"
+              :class="{
+                'source-tab--active': src.source === store.activeSource,
+                'source-tab--available': src.status === 'available',
+                'source-tab--disconnected': src.status === 'not_connected',
+                'source-tab--unavailable': src.status === 'unavailable' || src.status === 'not_configured',
+              }"
+              type="button"
+              role="tab"
+              :aria-selected="src.source === store.activeSource"
+              @click="handleSourceClick(src)"
             >
-              <el-icon class="ml-1 text-orange-500"><WarningFilled /></el-icon>
-            </el-tooltip>
-          </span>
-          <span
-            v-if="store.quotesLoading"
-            class="text-blue-500 flex items-center gap-1"
+              <span class="source-tab__label">{{ src.source_label }}</span>
+              <span class="source-tab__dot" />
+            </button>
+          </div>
+          <el-popover
+            placement="bottom-end"
+            :width="360"
+            trigger="click"
           >
-            <el-icon class="is-loading"><Loading /></el-icon> 刷新中
-          </span>
+            <template #reference>
+              <el-button
+                size="small"
+                class="quote-source-status-button"
+              >
+                <el-icon aria-hidden="true"><Connection /></el-icon>
+                {{ t('quote.sourceStatusButton') }}
+              </el-button>
+            </template>
+            <div class="quote-source-status-popover">
+              <p>{{ t('quote.sourcePanelDesc') }}</p>
+              <template v-if="store.activeSourceInfo">
+                <strong>{{ store.activeSourceInfo.source_label }}</strong>
+                <span>{{ sourceRuntimeSummary(store.activeSourceInfo) }}</span>
+              </template>
+              <div
+                v-if="activeRuntimeWorkspaces.length > 0"
+                class="quote-runtime-monitor__runs"
+              >
+                <div
+                  v-for="run in activeRuntimeWorkspaces"
+                  :key="`${run.workspace_id}-${run.gateway_key}`"
+                  class="quote-runtime-monitor__run"
+                >
+                  <strong>{{ run.workspace_name }}</strong>
+                  <span>{{ t('quote.runtimeSymbols', { count: run.symbol_count }) }}</span>
+                  <small>{{ runtimeSymbolsPreview(run.symbols) }}</small>
+                </div>
+              </div>
+              <span v-else>{{ t('quote.runtimeNoWorkspace') }}</span>
+            </div>
+          </el-popover>
         </div>
+        <p>{{ t('quote.headerDesc') }}</p>
       </div>
-    </el-card>
+
+      <div class="quote-hero-status">
+        <el-tag
+          size="small"
+          :type="refreshModeTag"
+          effect="plain"
+        >
+          {{ refreshModeText }}
+        </el-tag>
+        <span
+          v-if="store.updateTime"
+          class="quote-update-time"
+          :class="{ 'is-stale': isDataStale }"
+        >
+          {{ formatTime(store.updateTime) }}
+          <el-tooltip
+            v-if="isDataStale"
+            :content="t('quote.dataStaleTip')"
+            placement="top"
+          >
+            <el-icon aria-hidden="true">
+              <WarningFilled />
+            </el-icon>
+          </el-tooltip>
+        </span>
+        <span
+          v-if="store.quotesLoading"
+          class="quote-refreshing"
+        >
+          <el-icon
+            class="is-loading"
+            aria-hidden="true"
+          >
+            <Loading />
+          </el-icon>
+          {{ t('quote.refreshing') }}
+        </span>
+      </div>
+
+      <div class="quote-hero-stats">
+        <article
+          v-for="item in quoteStats"
+          :key="item.label"
+        >
+          <span>{{ item.label }}</span>
+          <strong :class="item.tone">{{ item.value }}</strong>
+        </article>
+      </div>
+
+    </section>
+
+    <!-- Initial load: do not show an empty quote state while the query is pending. -->
+    <template v-if="isInitialQuoteLoading">
+      <div class="quote-loading-state">
+        <div
+          class="quote-querying"
+          data-test="quote-initial-querying"
+          role="status"
+          aria-live="polite"
+        >
+          <el-icon
+            class="is-loading"
+            aria-hidden="true"
+          >
+            <Loading />
+          </el-icon>
+          <span>{{ t('quote.querying') }}</span>
+          <span
+            class="quote-querying__dots"
+            aria-hidden="true"
+          ><i /><i /><i /></span>
+        </div>
+        <DataTableSkeleton :label="t('quote.querying')" />
+      </div>
+    </template>
 
     <!-- Source unavailable / disconnected state -->
-    <template v-if="store.activeSourceInfo && store.activeSourceInfo.status !== 'available'">
-      <el-card>
+    <template v-else-if="store.activeSourceInfo && store.activeSourceInfo.status !== 'available'">
+      <el-card class="quote-state-card">
         <el-empty :description="sourceStatusText">
           <el-button
             v-if="store.activeSourceInfo.status === 'not_connected'"
             type="primary"
             @click="$router.push('/gateways')"
           >
-            前往连接 Gateway
+            {{ t('quote.btnGoConnectGateway') }}
           </el-button>
         </el-empty>
       </el-card>
@@ -73,28 +166,29 @@
     <!-- Main content (only when source is available) -->
     <template v-else>
       <!-- Toolbar -->
-      <el-card
-        class="!p-0"
-        body-class="!py-2 !px-3"
-      >
-        <div class="flex items-center justify-between flex-wrap gap-2">
-          <div class="flex items-center gap-2 flex-wrap">
+      <section class="quote-control-panel">
+        <div class="quote-section-heading">
+          <div>
+            <span>{{ t('quote.controlsTitle') }}</span>
+            <p>{{ t('quote.controlsDesc') }}</p>
+          </div>
+        </div>
+        <div class="quote-toolbar">
+          <div class="quote-filter-grid">
             <!-- Search -->
             <el-input
               v-model="store.searchKeyword"
-              placeholder="搜索代码 / 名称"
+              :placeholder="t('quote.searchPh')"
               :prefix-icon="Search"
               clearable
-              style="width: 200px"
               size="default"
             />
             <!-- Category filter -->
             <el-select
               v-model="store.filterCategory"
-              placeholder="全部分类"
+              :placeholder="t('quote.filterAllCategory')"
               clearable
               size="default"
-              style="width: 130px"
             >
               <el-option
                 v-for="cat in store.categories"
@@ -106,28 +200,28 @@
             <!-- Trend filter -->
             <el-select
               v-model="store.filterTrend"
-              placeholder="涨跌筛选"
+              :placeholder="t('quote.filterTrendPh')"
               clearable
               size="default"
-              style="width: 120px"
             >
               <el-option
-                label="上涨"
+                :label="t('quote.filterTrendUp')"
                 value="up"
               />
               <el-option
-                label="下跌"
+                :label="t('quote.filterTrendDown')"
                 value="down"
               />
               <el-option
-                label="平盘"
+                :label="t('quote.filterTrendFlat')"
                 value="flat"
               />
             </el-select>
             <!-- Custom only -->
             <el-checkbox
               v-model="store.filterCustomOnly"
-              label="仅自选"
+              :label="t('quote.filterCustomOnly')"
+              class="quote-checkbox"
             />
             <!-- Advanced filter (P1) -->
             <el-popover
@@ -140,7 +234,7 @@
                   size="default"
                   :type="store.hasAdvancedFilters ? 'primary' : ''"
                 >
-                  <el-icon><Filter /></el-icon> 高级筛选
+                  <el-icon aria-hidden="true"><Filter /></el-icon> {{ t('quote.advancedFilter') }}
                   <el-badge
                     v-if="store.hasAdvancedFilters"
                     is-dot
@@ -148,51 +242,47 @@
                   />
                 </el-button>
               </template>
-              <div class="space-y-3 text-sm">
+              <div class="quote-advanced-popover">
                 <div>
-                  <span class="text-gray-600">涨跌幅区间 (%)</span>
-                  <div class="flex items-center gap-2 mt-1">
+                  <span>{{ t('quote.rangeChangePct') }}</span>
+                  <div class="quote-range-row">
                     <el-input-number
                       v-model="store.filterChangePctMin"
                       :controls="false"
-                      placeholder="最小"
+                      :placeholder="t('quote.rangeMin')"
                       size="small"
-                      style="width: 100px"
                     />
                     <span>~</span>
                     <el-input-number
                       v-model="store.filterChangePctMax"
                       :controls="false"
-                      placeholder="最大"
+                      :placeholder="t('quote.rangeMax')"
                       size="small"
-                      style="width: 100px"
                     />
                   </div>
                 </div>
                 <div>
-                  <span class="text-gray-600">成交量区间</span>
-                  <div class="flex items-center gap-2 mt-1">
+                  <span>{{ t('quote.rangeVolume') }}</span>
+                  <div class="quote-range-row">
                     <el-input-number
                       v-model="store.filterVolumeMin"
                       :controls="false"
-                      placeholder="最小"
+                      :placeholder="t('quote.rangeMin')"
                       size="small"
-                      style="width: 100px"
                     />
                     <span>~</span>
                     <el-input-number
                       v-model="store.filterVolumeMax"
                       :controls="false"
-                      placeholder="最大"
+                      :placeholder="t('quote.rangeMax')"
                       size="small"
-                      style="width: 100px"
                     />
                   </div>
                 </div>
                 <div>
                   <el-checkbox
                     v-model="store.filterHasOpenInterest"
-                    label="仅有持仓量"
+                    :label="t('quote.filterHasOI')"
                   />
                 </div>
                 <div class="flex justify-end">
@@ -200,29 +290,33 @@
                     size="small"
                     @click="store.clearAdvancedFilters()"
                   >
-                    重置
+                    {{ t('quote.btnReset') }}
                   </el-button>
                 </div>
               </div>
             </el-popover>
           </div>
 
-          <div class="flex items-center gap-2">
+          <div class="quote-action-row">
             <!-- Auto refresh toggle -->
-            <el-tooltip content="自动刷新">
-              <el-switch
-                v-model="autoRefreshLocal"
-                active-text=""
-                inactive-text=""
-                size="small"
-                @change="(v: boolean) => store.setAutoRefresh(v)"
-              />
-            </el-tooltip>
+            <span class="quote-auto-refresh">
+              <el-tooltip :content="t('quote.autoRefreshTooltip')">
+                <el-switch
+                  v-model="autoRefreshLocal"
+                  active-text=""
+                  inactive-text=""
+                  size="small"
+                  :aria-label="t('quote.autoRefreshTooltip')"
+                  @change="(v: boolean | string | number) => store.setAutoRefresh(Boolean(v))"
+                />
+              </el-tooltip>
+            </span>
             <el-select
               v-if="store.autoRefresh"
               v-model="refreshIntervalLocal"
               size="small"
-              style="width: 80px"
+              class="quote-interval-select"
+              :aria-label="t('quote.autoRefreshInterval')"
               @change="(v: number) => store.setRefreshInterval(v)"
             >
               <el-option
@@ -245,22 +339,31 @@
                 :label="'30s'"
                 :value="30"
               />
+              <el-option
+                :label="'60s'"
+                :value="60"
+              />
             </el-select>
             <!-- Manual refresh -->
             <el-button
               :loading="store.quotesLoading"
               size="default"
-              @click="store.fetchQuotes()"
+              :aria-label="t('common.refresh')"
+              @click="refreshMonitoring()"
             >
-              <el-icon><Refresh /></el-icon>
+              <el-icon aria-hidden="true">
+                <Refresh />
+              </el-icon>
             </el-button>
             <!-- Column config (P1) -->
-            <el-tooltip content="列设置">
+            <el-tooltip :content="t('quote.columnSettingsTooltip')">
               <el-button
                 size="default"
                 @click="showColumnDialog = true"
               >
-                <el-icon><Setting /></el-icon>
+                <el-icon aria-hidden="true">
+                  <Setting />
+                </el-icon>
               </el-button>
             </el-tooltip>
             <!-- Add symbol -->
@@ -269,27 +372,23 @@
               size="default"
               @click="showAddDialog = true"
             >
-              <el-icon><Plus /></el-icon> 添加品种
+              <el-icon aria-hidden="true">
+                <Plus />
+              </el-icon>
+              {{ t('quote.btnAddSymbol') }}
             </el-button>
           </div>
         </div>
-      </el-card>
-
-      <!-- Loading -->
-      <div
-        v-if="store.quotesLoading && store.ticks.length === 0"
-        class="flex justify-center py-12"
-      >
-        <el-icon class="is-loading text-4xl text-blue-500">
-          <Loading />
-        </el-icon>
-      </div>
+      </section>
 
       <!-- Error state -->
-      <el-card v-else-if="store.quotesError">
-        <el-empty description="行情数据加载失败">
+      <el-card
+        v-if="store.quotesError"
+        class="quote-state-card"
+      >
+        <el-empty :description="t('quote.errorEmptyDesc')">
           <template #description>
-            <p class="text-red-500">
+            <p class="quote-error-text">
               {{ store.quotesError }}
             </p>
           </template>
@@ -297,244 +396,358 @@
             type="primary"
             @click="store.fetchQuotes()"
           >
-            重试
+            {{ t('quote.btnRetry') }}
           </el-button>
         </el-empty>
       </el-card>
 
       <!-- Empty state -->
-      <el-card v-else-if="store.filteredTicks.length === 0 && store.ticks.length === 0">
-        <el-empty description="暂无行情数据">
+      <el-card
+        v-else-if="store.filteredTicks.length === 0 && store.ticks.length === 0"
+        class="quote-state-card"
+      >
+        <el-empty :description="t('quote.emptyQuotes')">
           <el-button
             type="primary"
             @click="showAddDialog = true"
           >
-            添加品种
+            {{ t('quote.btnAddSymbol') }}
           </el-button>
         </el-empty>
       </el-card>
 
       <!-- Quote Table -->
-      <el-card
+      <section
         v-else
-        class="!p-0"
-        body-class="!p-0"
+        class="quote-table-panel"
       >
-        <el-table
-          :data="store.filteredTicks"
-          stripe
-          border
-          size="small"
-          class="quote-table"
-          highlight-current-row
-          max-height="calc(100vh - 320px)"
-          :default-sort="tableSortProp"
-          :row-class-name="rowClassName"
-          @sort-change="handleSortChange"
-          @row-click="handleRowClick"
-        >
-          <el-table-column
-            type="index"
-            label="#"
-            width="50"
-            fixed="left"
-          />
-          <!-- Dynamic columns based on columnConfig -->
-          <template
-            v-for="col in visibleColumns"
-            :key="col.prop"
+        <div class="quote-section-heading quote-table-heading">
+          <div>
+            <span>{{ t('quote.tableTitle') }}</span>
+            <p>{{ t('quote.tableDesc') }}</p>
+          </div>
+          <el-tag
+            size="small"
+            effect="plain"
           >
-            <el-table-column
-              v-if="col.prop === 'symbol'"
-              prop="symbol"
-              :label="col.label"
-              width="160"
-              fixed="left"
-              sortable="custom"
-              show-overflow-tooltip
+            {{ t('quote.countDisplay', { filtered: store.filteredTicks.length, total: store.ticks.length }) }}
+          </el-tag>
+        </div>
+        <ResponsiveDataGrid :mobile-label="t('quote.tableTitle')">
+          <template #desktop>
+            <el-table
+              :data="store.filteredTicks"
+              stripe
+              border
+              size="small"
+              class="quote-table"
+              highlight-current-row
+              max-height="calc(100vh - 320px)"
+              :default-sort="tableSortProp"
+              :row-class-name="rowClassName"
+              @sort-change="handleSortChange"
+              @row-click="handleRowClick"
             >
-              <template #default="{ row }">
-                <span class="font-mono font-medium whitespace-nowrap">{{ row.symbol }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              v-else-if="col.prop === 'name'"
-              prop="name"
-              :label="col.label"
-              width="130"
-              fixed="left"
-              show-overflow-tooltip
-            />
-            <el-table-column
-              v-else-if="col.prop === 'category'"
-              prop="category"
-              :label="col.label"
-              width="90"
-              show-overflow-tooltip
-            />
-            <el-table-column
-              v-else-if="col.prop === 'last_price'"
-              prop="last_price"
-              :label="col.label"
-              width="100"
-              sortable="custom"
-              align="right"
-            >
-              <template #default="{ row }">
-                <span :class="priceClass(row)">{{ fmtPrice(row.last_price, row) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              v-else-if="col.prop === 'change'"
-              prop="change"
-              :label="col.label"
-              width="90"
-              sortable="custom"
-              align="right"
-            >
-              <template #default="{ row }">
-                <span :class="changeClass(row.change)">{{ fmtChange(row.change, row) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              v-else-if="col.prop === 'change_pct'"
-              prop="change_pct"
-              :label="col.label"
-              width="90"
-              sortable="custom"
-              align="right"
-            >
-              <template #default="{ row }">
-                <span :class="changeClass(row.change_pct)">{{ fmtPct(row.change_pct) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              v-else-if="col.prop === 'update_time'"
-              prop="update_time"
-              :label="col.label"
-              width="100"
-              sortable="custom"
-              align="center"
-            >
-              <template #default="{ row }">
-                <span class="text-xs text-gray-500">{{ formatTime(row.update_time) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              v-else-if="['volume', 'turnover', 'open_interest'].includes(col.prop)"
-              :prop="col.prop"
-              :label="col.label"
-              :width="col.prop === 'volume' || col.prop === 'turnover' ? 100 : 90"
-              sortable="custom"
-              align="right"
-            >
-              <template #default="{ row }">
-                {{ fmtVol(row[col.prop]) }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              v-else
-              :prop="col.prop"
-              :label="col.label"
-              width="90"
-              sortable="custom"
-              align="right"
-            >
-              <template #default="{ row }">
-                {{ fmtPrice(row[col.prop], row) }}
-              </template>
-            </el-table-column>
-          </template>
-          <!-- Actions column -->
-          <el-table-column
-            label="操作"
-            width="100"
-            fixed="right"
-            align="center"
-          >
-            <template #default="{ row }">
-              <el-button
-                type="primary"
-                size="small"
-                link
-                @click.stop="store.openChart(row.symbol)"
+              <el-table-column
+                type="index"
+                label="#"
+                width="50"
+                fixed="left"
+              />
+              <!-- Dynamic columns based on columnConfig -->
+              <template
+                v-for="col in visibleColumns"
+                :key="col.prop"
               >
-                <el-icon><DataLine /></el-icon>
-              </el-button>
-              <el-popconfirm
-                v-if="isCustomSymbol(row.symbol)"
-                title="确定移除此品种？"
-                @confirm="store.removeSymbol(row.symbol)"
+                <el-table-column
+                  v-if="col.prop === 'symbol'"
+                  prop="symbol"
+                  :label="col.label"
+                  width="160"
+                  fixed="left"
+                  sortable="custom"
+                  show-overflow-tooltip
+                >
+                  <template #default="{ row }">
+                    <span class="quote-symbol-cell">
+                      <strong>{{ row.symbol }}</strong>
+                      <small v-if="quoteOriginText(row)">{{ quoteOriginText(row) }}</small>
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  v-else-if="col.prop === 'name'"
+                  prop="name"
+                  :label="col.label"
+                  width="130"
+                  fixed="left"
+                  show-overflow-tooltip
+                />
+                <el-table-column
+                  v-else-if="col.prop === 'category'"
+                  prop="category"
+                  :label="col.label"
+                  width="90"
+                  show-overflow-tooltip
+                />
+                <el-table-column
+                  v-else-if="col.prop === 'last_price'"
+                  prop="last_price"
+                  :label="col.label"
+                  width="100"
+                  sortable="custom"
+                  align="right"
+                >
+                  <template #default="{ row }">
+                    <span :class="priceClass(row)">{{ fmtPrice(row.last_price, row) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  v-else-if="col.prop === 'change'"
+                  prop="change"
+                  :label="col.label"
+                  width="90"
+                  sortable="custom"
+                  align="right"
+                >
+                  <template #default="{ row }">
+                    <span :class="changeClass(row.change)">{{ fmtChange(row.change, row) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  v-else-if="col.prop === 'change_pct'"
+                  prop="change_pct"
+                  :label="col.label"
+                  width="90"
+                  sortable="custom"
+                  align="right"
+                >
+                  <template #default="{ row }">
+                    <span :class="changeClass(row.change_pct)">{{ fmtPct(row.change_pct) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  v-else-if="col.prop === 'update_time'"
+                  prop="update_time"
+                  :label="col.label"
+                  width="100"
+                  sortable="custom"
+                  align="center"
+                >
+                  <template #default="{ row }">
+                    <span class="quote-time-cell">{{ formatTime(row.update_time) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  v-else-if="['volume', 'turnover', 'open_interest'].includes(col.prop)"
+                  :prop="col.prop"
+                  :label="col.label"
+                  :width="col.prop === 'volume' || col.prop === 'turnover' ? 100 : 90"
+                  sortable="custom"
+                  align="right"
+                >
+                  <template #default="{ row }">
+                    {{ fmtVol(row[col.prop]) }}
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  v-else
+                  :prop="col.prop"
+                  :label="col.label"
+                  width="90"
+                  sortable="custom"
+                  align="right"
+                >
+                  <template #default="{ row }">
+                    {{ fmtPrice(row[col.prop], row) }}
+                  </template>
+                </el-table-column>
+              </template>
+              <el-table-column
+                :label="t('quote.colOpenChart')"
+                width="64"
+                fixed="right"
+                align="center"
               >
-                <template #reference>
-                  <el-button
-                    type="danger"
-                    size="small"
-                    link
-                    @click.stop
-                  >
-                    <el-icon><Delete /></el-icon>
-                  </el-button>
+                <template #default="{ row }">
+                  <el-tooltip :content="t('quote.btnOpenChart')">
+                    <el-button
+                      type="primary"
+                      size="small"
+                      link
+                      :aria-label="t('quote.btnOpenChart')"
+                      @click.stop="store.openChart(row.symbol)"
+                    >
+                      <el-icon aria-hidden="true"><DataLine /></el-icon>
+                    </el-button>
+                  </el-tooltip>
                 </template>
-              </el-popconfirm>
-            </template>
-          </el-table-column>
-        </el-table>
+              </el-table-column>
+              <el-table-column
+                :label="t('quote.colRemoveSubscription')"
+                width="64"
+                fixed="right"
+                align="center"
+              >
+                <template #default="{ row }">
+                  <el-popconfirm
+                    :title="removeSubscriptionPrompt(row)"
+                    @confirm="removeQuoteSubscription(row)"
+                  >
+                    <template #reference>
+                      <el-button
+                        type="danger"
+                        size="small"
+                        link
+                        :aria-label="t('quote.btnRemoveSubscription')"
+                        @click.stop
+                      >
+                        <el-icon aria-hidden="true"><Delete /></el-icon>
+                      </el-button>
+                    </template>
+                  </el-popconfirm>
+                </template>
+              </el-table-column>
+            </el-table>
+          </template>
+
+          <template #mobile>
+            <ol class="quote-mobile-list">
+              <li
+                v-for="row in store.filteredTicks"
+                :key="row.quote_key || row.symbol"
+              >
+                <article
+                  class="quote-mobile-card"
+                  :aria-label="`${row.symbol} ${row.name || ''}`"
+                >
+                  <button
+                    type="button"
+                    class="quote-mobile-card__overview"
+                    :aria-label="t('quote.chartDrawerTitleTpl', { symbol: row.symbol })"
+                    @click="handleRowClick(row)"
+                  >
+                    <span class="quote-mobile-card__identity">
+                      <strong>{{ row.symbol }}</strong>
+                      <span>{{ quoteOriginText(row) || row.name || row.category || '--' }}</span>
+                    </span>
+                    <span :class="priceClass(row)">{{ fmtPrice(row.last_price, row) }}</span>
+                  </button>
+
+                  <dl class="quote-mobile-card__metrics">
+                    <div>
+                      <dt>{{ t('quote.colChangePct') }}</dt>
+                      <dd :class="changeClass(row.change_pct)">
+                        {{ fmtPct(row.change_pct) }}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{{ t('quote.colChange') }}</dt>
+                      <dd :class="changeClass(row.change)">
+                        {{ fmtChange(row.change, row) }}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{{ t('quote.colCategory') }}</dt>
+                      <dd>{{ row.category || '--' }}</dd>
+                    </div>
+                    <div>
+                      <dt>{{ t('quote.colUpdateTime') }}</dt>
+                      <dd>{{ formatTime(row.update_time) }}</dd>
+                    </div>
+                  </dl>
+
+                  <div class="quote-mobile-card__actions">
+                    <el-button
+                      type="primary"
+                      size="small"
+                      :aria-label="t('quote.chartDrawerTitleTpl', { symbol: row.symbol })"
+                      @click="store.openChart(row.symbol)"
+                    >
+                      <el-icon aria-hidden="true">
+                        <DataLine />
+                      </el-icon>
+                    </el-button>
+                    <el-popconfirm
+                      :title="removeSubscriptionPrompt(row)"
+                      @confirm="removeQuoteSubscription(row)"
+                    >
+                      <template #reference>
+                        <el-button
+                          type="danger"
+                          size="small"
+                          :aria-label="t('quote.btnRemoveSubscription')"
+                        >
+                          <el-icon aria-hidden="true">
+                            <Delete />
+                          </el-icon>
+                        </el-button>
+                      </template>
+                    </el-popconfirm>
+                  </div>
+                </article>
+              </li>
+            </ol>
+          </template>
+        </ResponsiveDataGrid>
         <!-- Table footer -->
-        <div class="flex items-center justify-between px-3 py-2 text-xs text-gray-500 border-t">
+        <div class="quote-table-footer">
           <span>
-            共 {{ store.filteredTicks.length }} / {{ store.ticks.length }} 条
+            {{ t('quote.countDisplay', { filtered: store.filteredTicks.length, total: store.ticks.length }) }}
             <template v-if="store.hasAdvancedFilters">
               <el-tag
                 size="small"
                 type="warning"
                 effect="plain"
                 class="ml-2"
-              >高级筛选已启用</el-tag>
+              >{{ t('quote.advancedFilterEnabled') }}</el-tag>
             </template>
           </span>
           <span
             v-if="store.quotesLoading"
-            class="text-blue-500"
-          >刷新中...</span>
+            class="quote-refreshing"
+          >{{ t('quote.refreshingDot') }}</span>
         </div>
-      </el-card>
+      </section>
     </template>
 
     <!-- Add Symbol Dialog -->
     <el-dialog
       v-model="showAddDialog"
-      title="添加品种"
+      :title="t('quote.addDialogTitle')"
       width="480px"
       destroy-on-close
     >
       <el-input
         v-model="addKeyword"
-        placeholder="输入品种代码或名称搜索"
+        :placeholder="t('quote.addInputPh')"
         clearable
         @input="handleAddSearch"
       />
       <div
         v-if="store.symbolSearchLoading"
-        class="py-4 text-center"
+        class="quote-dialog-loading"
       >
-        <el-icon class="is-loading">
+        <el-icon
+          class="is-loading"
+          aria-hidden="true"
+        >
           <Loading />
-        </el-icon> 搜索中...
+        </el-icon> {{ t('quote.searching') }}
       </div>
       <div
         v-else-if="store.symbolSearchResults.length > 0"
-        class="mt-3 max-h-64 overflow-auto"
+        class="quote-symbol-results"
       >
         <div
           v-for="item in store.symbolSearchResults"
           :key="item.symbol"
-          class="flex items-center justify-between px-3 py-2 hover:bg-gray-50 rounded cursor-pointer"
+          class="quote-symbol-result"
           @click="handleAddSymbol(item.symbol)"
         >
           <div>
-            <span class="font-mono font-medium">{{ item.symbol }}</span>
-            <span class="ml-2 text-sm text-gray-500">{{ item.name }}</span>
+            <span>{{ item.symbol }}</span>
+            <small>{{ item.name }}</small>
           </div>
           <el-tag
             size="small"
@@ -547,15 +760,15 @@
       </div>
       <div
         v-else-if="addKeyword && !store.symbolSearchLoading"
-        class="py-4 text-center text-gray-400"
+        class="quote-dialog-empty"
       >
-        未找到匹配品种
+        {{ t('quote.notFound') }}
       </div>
       <el-divider />
-      <div class="flex items-center gap-2">
+      <div class="quote-direct-add">
         <el-input
           v-model="addSymbolDirect"
-          placeholder="精确输入品种代码"
+          :placeholder="t('quote.addDirectPh')"
           @keyup.enter="handleDirectAdd"
         />
         <el-button
@@ -563,7 +776,7 @@
           :disabled="!addSymbolDirect"
           @click="handleDirectAdd"
         >
-          添加
+          {{ t('quote.btnAdd') }}
         </el-button>
       </div>
     </el-dialog>
@@ -571,24 +784,24 @@
     <!-- Column Config Dialog (P1) -->
     <el-dialog
       v-model="showColumnDialog"
-      title="列设置"
+      :title="t('quote.columnDialogTitle')"
       width="420px"
       destroy-on-close
     >
-      <div class="text-xs text-gray-400 mb-3">
-        勾选要显示的列，拖拽调整顺序
+      <div class="quote-column-hint">
+        {{ t('quote.columnDialogHint') }}
       </div>
-      <div class="space-y-1 max-h-80 overflow-auto">
+      <div class="quote-column-list">
         <div
           v-for="(col, idx) in columnConfigLocal"
           :key="col.prop"
-          class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50"
+          class="quote-column-row"
           draggable="true"
           @dragstart="onColDragStart(idx)"
           @dragover.prevent
           @drop="onColDrop(idx)"
         >
-          <el-icon class="cursor-move text-gray-400">
+          <el-icon class="quote-column-drag" aria-hidden="true">
             <Rank />
           </el-icon>
           <el-checkbox
@@ -599,13 +812,13 @@
       </div>
       <template #footer>
         <el-button @click="handleResetColumns">
-          恢复默认
+          {{ t('quote.btnRestoreDefault') }}
         </el-button>
         <el-button
           type="primary"
           @click="handleSaveColumns"
         >
-          保存
+          {{ t('quote.btnSave') }}
         </el-button>
       </template>
     </el-dialog>
@@ -613,40 +826,41 @@
     <!-- Chart Drawer (P1) -->
     <el-drawer
       v-model="store.chartDrawerVisible"
-      :title="`${store.chartSymbol} 图表详情`"
+      :title="t('quote.chartDrawerTitleTpl', { symbol: store.chartSymbol })"
+      class="quote-chart-drawer"
       direction="btt"
       size="50%"
       :destroy-on-close="true"
       @close="store.closeChart()"
     >
       <!-- Timeframe selector -->
-      <div class="flex items-center gap-2 mb-3">
-        <span class="text-sm text-gray-500">周期:</span>
+      <div class="quote-chart-toolbar">
+        <span>{{ t('quote.timeframeLabel') }}</span>
         <el-radio-group
           :model-value="store.chartTimeframe"
           size="small"
-          @change="(v: string) => store.setChartTimeframe(v)"
+          @change="(v: boolean | string | number | undefined) => store.setChartTimeframe(String(v))"
         >
           <el-radio-button label="M1">
-            1分
+            {{ t('quote.tf1m') }}
           </el-radio-button>
           <el-radio-button label="M5">
-            5分
+            {{ t('quote.tf5m') }}
           </el-radio-button>
           <el-radio-button label="M15">
-            15分
+            {{ t('quote.tf15m') }}
           </el-radio-button>
           <el-radio-button label="M30">
-            30分
+            {{ t('quote.tf30m') }}
           </el-radio-button>
           <el-radio-button label="H1">
-            1时
+            {{ t('quote.tf1h') }}
           </el-radio-button>
           <el-radio-button label="H4">
-            4时
+            {{ t('quote.tf4h') }}
           </el-radio-button>
           <el-radio-button label="D1">
-            日线
+            {{ t('quote.tfDay') }}
           </el-radio-button>
         </el-radio-group>
         <el-button
@@ -654,23 +868,28 @@
           :loading="store.chartLoading"
           @click="store.fetchChartData()"
         >
-          <el-icon><Refresh /></el-icon>
+          <el-icon aria-hidden="true">
+            <Refresh />
+          </el-icon>
         </el-button>
       </div>
       <!-- Chart content -->
       <div
         v-if="store.chartLoading"
-        class="flex items-center justify-center h-64"
+        class="quote-chart-state"
       >
-        <el-icon class="is-loading text-3xl text-blue-500">
+        <el-icon
+          class="is-loading"
+          aria-hidden="true"
+        >
           <Loading />
         </el-icon>
       </div>
       <div
         v-else-if="store.chartError"
-        class="flex flex-col items-center justify-center h-64 gap-3"
+        class="quote-chart-state"
       >
-        <p class="text-red-500">
+        <p class="quote-error-text">
           {{ store.chartError }}
         </p>
         <el-button
@@ -678,20 +897,20 @@
           size="small"
           @click="store.fetchChartData()"
         >
-          重试
+          {{ t('quote.btnRetry') }}
         </el-button>
       </div>
       <div
         v-else-if="store.chartBars.length === 0"
-        class="flex items-center justify-center h-64"
+        class="quote-chart-state"
       >
-        <el-empty description="暂无图表数据" />
+        <el-empty :description="t('quote.chartEmpty')" />
       </div>
       <div
         v-else
         ref="chartContainerRef"
-        class="w-full"
-        style="height: calc(100% - 50px)"
+        class="quote-chart-container"
+        data-test="quote-chart"
       />
     </el-drawer>
   </div>
@@ -699,7 +918,9 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
+import type { Sort } from 'element-plus'
 import * as echarts from 'echarts'
 import {
   Search,
@@ -711,12 +932,17 @@ import {
   Filter,
   Rank,
   DataLine,
+  Connection,
   WarningFilled,
 } from '@element-plus/icons-vue'
 import { useQuoteStore } from '@/stores/quote'
 import type { DataSourceInfo, QuoteTick } from '@/api/quote'
+import ResponsiveDataGrid from '@/components/common/ResponsiveDataGrid.vue'
+import DataTableSkeleton from '@/components/common/DataTableSkeleton.vue'
 import { formatQuoteChange, formatQuotePrice } from '@/utils/quoteFormat'
+import { CANDLE_DOWN_COLOR, CANDLE_ITEM_STYLE, CANDLE_UP_COLOR } from '@/constants/chartColors'
 
+const { t } = useI18n()
 const store = useQuoteStore()
 
 // ---- local refs synced with store ----
@@ -739,7 +965,7 @@ function handleAddSearch() {
 async function handleAddSymbol(symbol: string) {
   try {
     await store.addSymbol(symbol)
-    ElMessage.success(`已添加 ${symbol}`)
+    ElMessage.success(t('quote.msgAdded', { symbol }))
   } catch {
     // axios interceptor handles
   }
@@ -754,10 +980,43 @@ async function handleDirectAdd() {
 // ---- source click ----
 function handleSourceClick(src: DataSourceInfo) {
   if (src.status === 'unavailable' || src.status === 'not_configured') {
-    ElMessage.warning(src.status_message || '该数据源暂不可用')
+    ElMessage.warning(src.status_message || t('quote.sourceUnavailableShort'))
     return
   }
   store.switchSource(src.source)
+}
+
+function sourceRuntimeSummary(src: DataSourceInfo) {
+  return t('quote.runtimeSummary', {
+    gateways: src.gateway_count,
+    workspaces: src.workspace_count,
+    symbols: src.running_symbol_count,
+  })
+}
+
+const activeRuntimeWorkspaces = computed(() => store.activeSourceInfo?.workspaces ?? [])
+
+function runtimeSymbolsPreview(symbols: string[]) {
+  const visible = symbols.slice(0, 6).join(' · ')
+  return symbols.length > 6 ? `${visible} +${symbols.length - 6}` : visible
+}
+
+function quoteOriginText(row: QuoteTick) {
+  const origins: string[] = []
+  const rowOrigins = Array.isArray(row.origins) ? row.origins : []
+  const workspaceNames = Array.isArray(row.workspace_names) ? row.workspace_names : []
+  if (rowOrigins.includes('subscription')) origins.push(t('quote.originSubscription'))
+  if (workspaceNames.length > 0) {
+    origins.push(t('quote.originWorkspace', { names: workspaceNames.join('、') }))
+  }
+  return origins.join(' · ')
+}
+
+async function refreshMonitoring() {
+  await store.fetchSources()
+  if (store.activeSourceInfo?.status === 'available') {
+    await store.fetchQuotes()
+  }
 }
 
 // ---- source status text ----
@@ -766,11 +1025,11 @@ const sourceStatusText = computed(() => {
   if (!info) return ''
   switch (info.status) {
     case 'not_connected':
-      return info.status_message || '网关未连接，请前往 Gateway 状态页连接'
+      return info.status_message || t('quote.sourceNotConnected')
     case 'not_configured':
-      return '数据源未配置，请先完成相关配置'
+      return t('quote.sourceNotConfigured')
     case 'unavailable':
-      return info.status_message || '该数据源接入中，暂不可用'
+      return info.status_message || t('quote.sourceUnavailable')
     default:
       return ''
   }
@@ -787,11 +1046,16 @@ const refreshModeTag = computed(() => {
 
 const refreshModeText = computed(() => {
   switch (store.refreshMode) {
-    case 'push': return '实时推送'
-    case 'polling': return store.autoRefresh ? `轮询 ${store.refreshInterval}s` : '手动刷新'
-    default: return '手动刷新'
+    case 'push': return t('quote.refreshModePush')
+    case 'polling': return store.autoRefresh ? t('quote.refreshModePolling', { seconds: store.refreshInterval }) : t('quote.refreshModeManual')
+    default: return t('quote.refreshModeManual')
   }
 })
+
+const isInitialQuoteLoading = computed(() => (
+  (store.sourcesLoading && store.sources.length === 0) ||
+  (store.quotesLoading && store.ticks.length === 0)
+))
 
 // ---- data staleness detection (P1) ----
 const isDataStale = computed(() => {
@@ -804,9 +1068,35 @@ const isDataStale = computed(() => {
   }
 })
 
+const quoteStats = computed(() => {
+  const availableSources = store.sources.filter((source) => source.status === 'available').length
+  return [
+    {
+      label: t('quote.statSourceHealth'),
+      value: `${availableSources}/${store.sources.length || 0}`,
+      tone: availableSources > 0 ? 'is-positive' : '',
+    },
+    {
+      label: t('quote.statActiveSource'),
+      value: store.activeSourceInfo?.source_label || store.activeSource || '--',
+      tone: '',
+    },
+    {
+      label: t('quote.statVisibleSymbols'),
+      value: String(store.filteredTicks.length),
+      tone: '',
+    },
+    {
+      label: t('quote.statCustomSymbols'),
+      value: String(store.customSymbols.length),
+      tone: store.customSymbols.length > 0 ? 'is-positive' : '',
+    },
+  ]
+})
+
 // ---- table sort ----
-const tableSortProp = computed(() => {
-  if (!store.sortField) return {}
+const tableSortProp = computed<Sort | undefined>(() => {
+  if (!store.sortField) return undefined
   return { prop: store.sortField, order: store.sortOrder === 'asc' ? 'ascending' : 'descending' }
 })
 
@@ -841,11 +1131,12 @@ watch(
   (newTicks) => {
     const updated = new Set<string>()
     for (const t of newTicks) {
-      const prev = prevTickMap.get(t.symbol)
+      const key = t.quote_key || t.symbol
+      const prev = prevTickMap.get(key)
       if (prev !== undefined && t.last_price !== null && prev !== t.last_price) {
-        updated.add(t.symbol)
+        updated.add(key)
       }
-      if (t.last_price != null) prevTickMap.set(t.symbol, t.last_price)
+      if (t.last_price != null) prevTickMap.set(key, t.last_price)
     }
     if (updated.size > 0) {
       flashSymbols.value = updated
@@ -856,12 +1147,25 @@ watch(
 )
 
 function rowClassName({ row }: { row: QuoteTick }) {
-  return flashSymbols.value.has(row.symbol) ? 'tick-flash' : ''
+  return flashSymbols.value.has(row.quote_key || row.symbol) ? 'tick-flash' : ''
 }
 
-// ---- custom symbol check ----
-function isCustomSymbol(symbol: string) {
-  return store.customSymbols.includes(symbol)
+function isWorkspaceQuote(row: QuoteTick) {
+  return Array.isArray(row.origins) && row.origins.includes('workspace')
+}
+
+function removeSubscriptionPrompt(row: QuoteTick) {
+  return isWorkspaceQuote(row)
+    ? t('quote.confirmHideWorkspaceSubscription')
+    : t('quote.confirmRemoveSubscription')
+}
+
+async function removeQuoteSubscription(row: QuoteTick) {
+  if (isWorkspaceQuote(row)) {
+    store.dismissWorkspaceQuote(row.quote_key)
+    return
+  }
+  await store.removeSubscription(row.symbol)
 }
 
 // ---- column config (P1) ----
@@ -919,8 +1223,8 @@ function fmtPct(v: number | null): string {
 
 function fmtVol(v: number | null): string {
   if (v == null) return '--'
-  if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿'
-  if (v >= 1e4) return (v / 1e4).toFixed(2) + '万'
+  if (v >= 1e8) return (v / 1e8).toFixed(2) + t('quote.unitYi')
+  if (v >= 1e4) return (v / 1e4).toFixed(2) + t('quote.unitWan')
   return String(Math.round(v))
 }
 
@@ -960,12 +1264,17 @@ function buildChartOption() {
   const dates = bars.map((b) => b.date)
   const ohlc = bars.map((b) => [b.open, b.close, b.low, b.high])
   const volumes = bars.map((b) => b.volume)
+  const palette = chartPalette()
   // volume bar color: up=red, down=green
-  const volColors = bars.map((b) => (b.close >= b.open ? '#ec0000' : '#00da3c'))
+  const volColors = bars.map((b) => (b.close >= b.open ? CANDLE_UP_COLOR : CANDLE_DOWN_COLOR))
 
   return {
     animation: false,
-    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+    },
     axisPointer: { link: [{ xAxisIndex: 'all' }] },
     grid: [
       { left: '10%', right: '5%', height: '55%' },
@@ -976,7 +1285,8 @@ function buildChartOption() {
         type: 'category',
         data: dates,
         boundaryGap: false,
-        axisLine: { onZero: false },
+        axisLine: { onZero: false, lineStyle: { color: palette.border } },
+        axisLabel: { color: palette.secondary, hideOverlap: true },
         splitLine: { show: false },
       },
       {
@@ -984,14 +1294,19 @@ function buildChartOption() {
         gridIndex: 1,
         data: dates,
         boundaryGap: false,
-        axisLine: { onZero: false },
+        axisLine: { onZero: false, lineStyle: { color: palette.border } },
         axisTick: { show: false },
         splitLine: { show: false },
         axisLabel: { show: false },
       },
     ],
     yAxis: [
-      { scale: true, splitArea: { show: true } },
+      {
+        scale: true,
+        axisLabel: { color: palette.secondary },
+        splitLine: { lineStyle: { color: palette.grid, type: 'dashed' } },
+        splitArea: { show: false },
+      },
       {
         scale: true,
         gridIndex: 1,
@@ -999,7 +1314,7 @@ function buildChartOption() {
         axisLabel: { show: false },
         axisLine: { show: false },
         axisTick: { show: false },
-        splitLine: { show: false },
+        splitLine: { lineStyle: { color: palette.grid, type: 'dashed' } },
       },
     ],
     dataZoom: [
@@ -1008,13 +1323,13 @@ function buildChartOption() {
     ],
     series: [
       {
-        name: 'K线',
+        name: t('charts.klineSeries'),
         type: 'candlestick',
         data: ohlc,
-        itemStyle: { color: '#ec0000', color0: '#00da3c', borderColor: '#ec0000', borderColor0: '#00da3c' },
+        itemStyle: CANDLE_ITEM_STYLE,
       },
       {
-        name: '成交量',
+        name: t('charts.klineVolume'),
         type: 'bar',
         xAxisIndex: 1,
         yAxisIndex: 1,
@@ -1022,6 +1337,20 @@ function buildChartOption() {
       },
     ],
   } as echarts.EChartsOption
+}
+
+function themeColor(name: string, fallback: string) {
+  if (typeof window === 'undefined') return fallback
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return value || fallback
+}
+
+function chartPalette() {
+  return {
+    secondary: themeColor('--text-color-secondary', 'slategray'),
+    border: themeColor('--border-color', 'lightgray'),
+    grid: themeColor('--border-color-light', 'gainsboro'),
+  }
 }
 
 function renderChart() {
@@ -1046,14 +1375,10 @@ function startSourceRefresh() {
   stopSourceRefresh()
   sourceRefreshTimer = setInterval(async () => {
     await store.fetchSources()
-    if (store.activeSourceInfo?.status === 'available') {
-      stopSourceRefresh()
-      if (store.ticks.length === 0 && !store.quotesLoading) {
-        await store.fetchQuotes()
-        if (store.autoRefresh) store.startAutoRefresh()
-      }
+    if (store.activeSourceInfo?.status === 'available' && !store.quotesLoading) {
+      await store.fetchQuotes()
     }
-  }, 3000)
+  }, 60_000)
 }
 
 watch(
@@ -1070,7 +1395,6 @@ watch(
   () => store.activeSourceInfo?.status,
   async (status, prevStatus) => {
     if (status === 'available') {
-      stopSourceRefresh()
       if (prevStatus !== 'available' && !store.quotesLoading) {
         await store.fetchQuotes()
         if (store.autoRefresh) store.startAutoRefresh()
@@ -1086,11 +1410,10 @@ watch(
 // ---- lifecycle ----
 onMounted(async () => {
   await store.fetchSources()
+  startSourceRefresh()
   if (store.activeSource && store.activeSourceInfo?.status === 'available') {
     await store.fetchQuotes()
     if (store.autoRefresh) store.startAutoRefresh()
-  } else if (store.activeSourceInfo?.status) {
-    startSourceRefresh()
   }
   window.addEventListener('resize', handleChartResize)
 })
@@ -1104,55 +1427,434 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.source-tab {
+.quote-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  --quote-card-bg: var(--bg-color);
+  --quote-soft-bg: var(--fill-color-lighter);
+  --quote-hover-bg: var(--fill-color-light);
+  --quote-border: var(--border-color-light);
+  --quote-border-strong: var(--border-color);
+  color: var(--text-color-primary);
+}
+
+.quote-hero,
+.quote-control-panel,
+.quote-table-panel,
+.quote-state-card {
+  border: 1px solid var(--quote-border);
+  border-radius: 8px;
+  background: var(--quote-card-bg);
+  box-shadow: 0 10px 28px var(--shadow-color);
+}
+
+.quote-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  padding: 20px;
+}
+
+.quote-hero-copy {
+  min-width: 0;
+}
+
+.quote-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+}
+
+.quote-hero-copy > span,
+.quote-section-heading span {
+  display: inline-flex;
+  margin-bottom: 7px;
+  color: var(--primary-color);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
+.quote-hero-copy h1 {
+  margin: 0;
+  color: var(--text-color-primary);
+  font-size: 26px;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
+.quote-hero-copy p,
+.quote-section-heading p {
+  margin: 8px 0 0;
+  color: var(--text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.quote-querying {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 16px;
-  border-radius: 6px;
+  margin-top: 10px;
+  color: var(--primary-color);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.quote-querying__dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 18px;
+}
+
+.quote-querying__dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: quote-querying-pulse 1.1s ease-in-out infinite;
+}
+
+.quote-querying__dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.quote-querying__dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes quote-querying-pulse {
+  0%, 60%, 100% { opacity: 0.28; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+
+.quote-hero-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+}
+
+.quote-update-time,
+.quote-refreshing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+}
+
+.quote-update-time.is-stale {
+  color: var(--warning-color);
+}
+
+.quote-refreshing {
+  color: var(--primary-color);
+}
+
+.quote-hero-stats {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quote-hero-stats article {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--quote-border);
+  border-radius: 8px;
+  background: var(--quote-soft-bg);
+}
+
+.quote-hero-stats span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.quote-hero-stats strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text-color-primary);
+  font-size: 17px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-section-heading {
+  min-width: 0;
+}
+
+.quote-source-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.quote-source-tabs--inline {
+  justify-content: flex-start;
+}
+
+.quote-source-status-button {
+  margin-left: auto;
+}
+
+.quote-source-status-popover {
+  display: grid;
+  gap: 8px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.quote-source-status-popover p {
+  margin: 0;
+}
+
+.quote-source-status-popover > strong {
+  color: var(--text-color-primary);
+  font-size: 13px;
+}
+
+.source-tab {
+  display: inline-flex;
+  position: relative;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid var(--quote-border);
+  border-radius: 8px;
+  background: var(--quote-card-bg);
+  color: var(--text-color-regular);
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s;
+  font-size: 13px;
+  font-weight: 650;
+  transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease;
   user-select: none;
-  border: 1px solid transparent;
 }
 
 .source-tab:hover {
-  background-color: rgba(59, 130, 246, 0.08);
+  border-color: color-mix(in srgb, var(--primary-color) 32%, var(--quote-border));
+  background: color-mix(in srgb, var(--primary-color) 8%, var(--quote-card-bg));
 }
 
 .source-tab--active {
-  background-color: rgba(59, 130, 246, 0.15) !important;
-  border-color: #3b82f6;
-  color: #3b82f6;
+  border-color: color-mix(in srgb, var(--primary-color) 48%, var(--quote-border));
+  background: color-mix(in srgb, var(--primary-color) 12%, var(--quote-card-bg));
+  color: var(--primary-color);
 }
 
 .source-tab__dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
 .source-tab--available .source-tab__dot {
-  background-color: #67c23a;
+  background-color: var(--success-color);
 }
 
 .source-tab--disconnected .source-tab__dot {
-  background-color: #e6a23c;
+  background-color: var(--warning-color);
 }
 
 .source-tab--unavailable .source-tab__dot {
-  background-color: #909399;
+  background-color: var(--text-color-placeholder);
 }
 
 .source-tab--unavailable {
-  color: #909399;
+  color: var(--text-color-placeholder);
   cursor: not-allowed;
 }
 
-/* Dense table style */
+.source-tab__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-tab__runtime {
+  color: var(--text-color-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.quote-runtime-monitor__runs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quote-runtime-monitor__run {
+  display: grid;
+  gap: 2px;
+  min-width: min(100%, 230px);
+  padding: 8px 10px;
+  border: 1px solid var(--quote-border);
+  border-radius: 6px;
+  background: var(--quote-card-bg);
+}
+
+.quote-runtime-monitor__run strong {
+  overflow: hidden;
+  color: var(--text-color-primary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-runtime-monitor__run span,
+.quote-runtime-monitor__run small {
+  overflow: hidden;
+  color: var(--text-color-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-control-panel {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.quote-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+}
+
+.quote-filter-grid {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.2fr) minmax(130px, 0.7fr) minmax(130px, 0.7fr) auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.quote-checkbox {
+  min-height: 32px;
+}
+
+.quote-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.quote-interval-select {
+  width: 88px;
+}
+
+.quote-advanced-popover {
+  display: grid;
+  gap: 12px;
+  color: var(--text-color-primary);
+  font-size: 13px;
+}
+
+.quote-advanced-popover > div > span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.quote-range-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.quote-loading-state,
+.quote-chart-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  color: var(--primary-color);
+  font-size: 28px;
+}
+
+.quote-loading-state {
+  position: relative;
+  display: block;
+}
+
+.quote-loading-state :deep(.data-table-skeleton) {
+  width: 100%;
+}
+
+.quote-loading-state .quote-querying {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 28%, var(--quote-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--quote-card-bg) 92%, var(--primary-color));
+  box-shadow: 0 8px 18px var(--shadow-color);
+  transform: translate(-50%, -50%);
+}
+
+.quote-chart-state {
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quote-error-text {
+  margin: 0;
+  color: var(--danger-color);
+}
+
+.quote-state-card :deep(.el-card__body) {
+  padding: 32px 18px;
+}
+
+.quote-table-panel {
+  overflow: hidden;
+}
+
+.quote-table-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--quote-border);
+}
+
+.quote-table {
+  --el-table-bg-color: var(--quote-card-bg);
+  --el-table-tr-bg-color: var(--quote-card-bg);
+  --el-table-header-bg-color: var(--quote-soft-bg);
+  --el-table-row-hover-bg-color: var(--quote-hover-bg);
+  --el-table-border-color: var(--quote-border);
+  --el-table-text-color: var(--text-color-primary);
+  --el-table-header-text-color: var(--text-color-secondary);
+}
+
 .quote-table :deep(.el-table__row td) {
   padding: 4px 0;
   font-size: 13px;
@@ -1161,7 +1863,154 @@ onUnmounted(() => {
 .quote-table :deep(.el-table__header th) {
   padding: 6px 0;
   font-size: 12px;
-  background-color: #f8fafc !important;
+  background-color: var(--quote-soft-bg) !important;
+}
+
+.quote-table :deep(.el-table__fixed),
+.quote-table :deep(.el-table__fixed-right) {
+  background: var(--quote-card-bg);
+}
+
+.quote-symbol-cell {
+  display: grid;
+  gap: 2px;
+  color: var(--text-color-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.quote-symbol-cell strong,
+.quote-symbol-cell small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-symbol-cell strong {
+  font-weight: 720;
+}
+
+.quote-symbol-cell small {
+  color: var(--text-color-secondary);
+  font-family: var(--font-family);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.quote-time-cell {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+}
+
+.quote-table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--quote-border);
+  background: var(--quote-soft-bg);
+  color: var(--text-color-secondary);
+  font-size: 12px;
+}
+
+.quote-mobile-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0 14px 14px;
+  list-style: none;
+}
+
+.quote-mobile-card {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--quote-border);
+  border-radius: 8px;
+  background: var(--quote-soft-bg);
+}
+
+.quote-mobile-card__overview {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-color-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.quote-mobile-card__overview:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 3px;
+}
+
+.quote-mobile-card__identity {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.quote-mobile-card__identity strong {
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-mobile-card__identity span {
+  overflow: hidden;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-mobile-card__overview > :last-child {
+  flex: none;
+  font-size: 16px;
+  font-weight: 760;
+}
+
+.quote-mobile-card__metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.quote-mobile-card__metrics > div {
+  min-width: 0;
+}
+
+.quote-mobile-card__metrics dt {
+  margin-bottom: 3px;
+  color: var(--text-color-secondary);
+  font-size: 11px;
+}
+
+.quote-mobile-card__metrics dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-color-primary);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-mobile-card__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.quote-mobile-card__actions :deep(.el-button:first-child) {
+  flex: 1;
 }
 
 /* Tick flash animation (P1) */
@@ -1170,12 +2019,276 @@ onUnmounted(() => {
 }
 
 @keyframes tick-flash-anim {
-  0% { background-color: rgba(59, 130, 246, 0.15); }
+  0% { background-color: color-mix(in srgb, var(--primary-color) 16%, var(--quote-card-bg)); }
   100% { background-color: transparent; }
 }
 
 /* Row click cursor */
 .quote-table :deep(.el-table__row) {
   cursor: pointer;
+}
+
+.quote-page :deep(.el-tag) {
+  border-color: var(--quote-border);
+  background: var(--quote-soft-bg);
+  color: var(--text-color-regular);
+}
+
+.quote-page :deep(.el-tag.el-tag--success) {
+  border-color: color-mix(in srgb, var(--success-color) 36%, var(--quote-border));
+  background: color-mix(in srgb, var(--success-color) 12%, var(--quote-card-bg));
+  color: var(--success-color);
+}
+
+.quote-page :deep(.el-tag.el-tag--warning) {
+  border-color: color-mix(in srgb, var(--warning-color) 38%, var(--quote-border));
+  background: color-mix(in srgb, var(--warning-color) 12%, var(--quote-card-bg));
+  color: var(--warning-color);
+}
+
+.quote-page :deep(.el-button:not(.el-button--primary):not(.el-button--danger):not(.is-link)) {
+  border-color: var(--quote-border);
+  background: var(--quote-soft-bg);
+  color: var(--text-color-regular);
+}
+
+.quote-page :deep(.el-button:not(.el-button--primary):not(.el-button--danger):not(.is-link):hover),
+.quote-page :deep(.el-button:not(.el-button--primary):not(.el-button--danger):not(.is-link):focus) {
+  border-color: color-mix(in srgb, var(--primary-color) 36%, var(--quote-border));
+  background: color-mix(in srgb, var(--primary-color) 10%, var(--quote-card-bg));
+  color: var(--primary-color);
+}
+
+.quote-page :deep(.el-input__wrapper),
+.quote-page :deep(.el-select__wrapper),
+.quote-page :deep(.el-input-number .el-input__wrapper) {
+  background: var(--quote-soft-bg);
+  box-shadow: 0 0 0 1px var(--quote-border) inset;
+}
+
+.quote-page :deep(.el-checkbox__label),
+.quote-page :deep(.el-switch__label) {
+  color: var(--text-color-regular);
+}
+
+.quote-dialog-loading,
+.quote-dialog-empty {
+  padding: 18px 0;
+  color: var(--text-color-secondary);
+  text-align: center;
+}
+
+.quote-symbol-results,
+.quote-column-list {
+  display: grid;
+  gap: 6px;
+  max-height: 320px;
+  margin-top: 12px;
+  overflow: auto;
+}
+
+.quote-symbol-result,
+.quote-column-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--quote-border);
+  border-radius: 8px;
+  background: var(--quote-soft-bg);
+  cursor: pointer;
+}
+
+.quote-symbol-result:hover,
+.quote-column-row:hover {
+  border-color: color-mix(in srgb, var(--primary-color) 32%, var(--quote-border));
+  background: color-mix(in srgb, var(--primary-color) 8%, var(--quote-card-bg));
+}
+
+.quote-symbol-result > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.quote-symbol-result span {
+  color: var(--text-color-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-weight: 720;
+}
+
+.quote-symbol-result small {
+  overflow: hidden;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-direct-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.quote-column-hint {
+  margin-bottom: 12px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.quote-column-row {
+  justify-content: flex-start;
+}
+
+.quote-column-drag {
+  color: var(--text-color-secondary);
+  cursor: move;
+}
+
+.quote-chart-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.quote-chart-toolbar > span {
+  color: var(--text-color-secondary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.quote-chart-container {
+  width: 100%;
+  height: calc(100% - 52px);
+  min-height: 300px;
+}
+
+:global(.quote-chart-drawer) {
+  background: var(--bg-color) !important;
+  color: var(--text-color-primary);
+}
+
+:global(.quote-chart-drawer .el-drawer__header) {
+  margin-bottom: 0;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border-color-light);
+  color: var(--text-color-primary);
+}
+
+:global(.quote-chart-drawer .el-drawer__body) {
+  padding: 16px 20px 20px;
+  background: var(--bg-color);
+  color: var(--text-color-primary);
+}
+
+:global(.quote-chart-drawer .el-drawer__close-btn) {
+  color: var(--text-color-secondary);
+}
+
+:global(.quote-chart-drawer .el-radio-button__inner) {
+  border-color: var(--border-color-light);
+  background: var(--fill-color-lighter);
+  color: var(--text-color-regular);
+}
+
+:global(.quote-chart-drawer .el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  border-color: var(--primary-color);
+  background: var(--primary-color);
+  color: var(--el-color-white);
+  box-shadow: none;
+}
+
+.text-red-600 {
+  color: var(--danger-color) !important;
+  font-weight: 700;
+}
+
+.text-green-600 {
+  color: var(--success-color) !important;
+  font-weight: 700;
+}
+
+.text-gray-400,
+.text-gray-500,
+.text-gray-600 {
+  color: var(--text-color-secondary) !important;
+}
+
+.is-positive {
+  color: var(--success-color) !important;
+}
+
+@media (max-width: 1180px) {
+  .quote-hero,
+  .quote-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .quote-hero-status,
+  .quote-source-tabs,
+  .quote-action-row {
+    justify-content: flex-start;
+  }
+
+  .quote-source-status-button {
+    margin-left: 0;
+  }
+
+  .quote-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .quote-page {
+    gap: 14px;
+  }
+
+  .quote-hero,
+  .quote-control-panel {
+    padding: 14px;
+  }
+
+  .quote-hero-copy h1 {
+    font-size: 22px;
+  }
+
+  .quote-hero-stats,
+  .quote-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quote-source-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .quote-action-row :deep(.el-button),
+  .quote-action-row :deep(.el-select),
+  .quote-action-row :deep(.el-select__wrapper) {
+    width: 100%;
+  }
+
+  .quote-table-heading,
+  .quote-table-footer,
+  .quote-direct-add,
+  .quote-range-row {
+    grid-template-columns: 1fr;
+  }
+
+  .quote-table-heading,
+  .quote-table-footer {
+    display: grid;
+  }
+
+  .quote-chart-container {
+    min-height: 260px;
+  }
 }
 </style>

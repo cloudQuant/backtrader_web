@@ -2,7 +2,7 @@
 Stock Ipo Declare
 
 数据源: AkShare
-函数: stock_ipo_declare
+函数: stock_ipo_declare_em
 频率: daily
 """
 
@@ -41,21 +41,27 @@ class StockIpoDeclare(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
-            # Fetch data from AkShare
-            df = self.fetch_ak_data("stock_ipo_declare", **kwargs)
+            # Current AkShare exposes the same Eastmoney IPO-declare source as stock_ipo_declare_em.
+            df = self.fetch_ak_data("stock_ipo_declare_em", **kwargs)
 
             if df is None or df.empty:
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
+            df = df.copy()
+            df["symbol"] = df["企业名称"].astype(str)
+            df["name"] = df["企业名称"].astype(str)
+            df["data_date"] = pd.to_datetime(df["更新日期"], errors="coerce").dt.date
+            df["data_date"] = df["data_date"].fillna(pd.Timestamp.now().date())
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+            self.save_data(
+                df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["symbol", "data_date"],
+            )
 
             return df
 

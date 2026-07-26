@@ -31,6 +31,18 @@ class FuturesForeignCommodityRealtime(AkshareToMySql):
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Futures Foreign Commodity Realtime'
     """
 
+    @staticmethod
+    def _extract_symbol_codes(symbols_data):
+        if isinstance(symbols_data, pd.DataFrame):
+            if "code" in symbols_data.columns:
+                return symbols_data["code"].dropna().astype(str).tolist()
+            if "symbol" in symbols_data.columns:
+                return symbols_data["symbol"].dropna().astype(str).tolist()
+            return []
+        if isinstance(symbols_data, (list, tuple, set)):
+            return [str(item) for item in symbols_data if item]
+        return []
+
     def fetch_data(self, **kwargs):
         """Fetch data from AkShare and save to database.
 
@@ -41,6 +53,16 @@ class FuturesForeignCommodityRealtime(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
+            if "symbol" not in kwargs or not kwargs.get("symbol"):
+                symbols_data = self.fetch_ak_data(
+                    "futures_foreign_commodity_subscribe_exchange_symbol"
+                )
+                symbol_codes = self._extract_symbol_codes(symbols_data)
+                if not symbol_codes:
+                    self.logger.warning("No foreign commodity symbols found")
+                    return pd.DataFrame()
+                kwargs["symbol"] = symbol_codes
+
             # Fetch data from AkShare
             df = self.fetch_ak_data("futures_foreign_commodity_realtime", **kwargs)
 

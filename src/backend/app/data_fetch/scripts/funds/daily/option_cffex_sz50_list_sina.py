@@ -42,7 +42,18 @@ class OptionCffexSz50ListSina(AkshareToMySql):
         """
         try:
             # Fetch data from AkShare
-            df = self.fetch_ak_data("option_cffex_sz50_list_sina", **kwargs)
+            result = self.fetch_ak_data("option_cffex_sz50_list_sina", **kwargs)
+            if isinstance(result, pd.DataFrame):
+                df = result
+            elif isinstance(result, dict):
+                rows = [
+                    {"underlying": underlying, "contract": contract}
+                    for underlying, contracts in result.items()
+                    for contract in (contracts or [])
+                ]
+                df = pd.DataFrame(rows)
+            else:
+                df = pd.DataFrame()
 
             if df is None or df.empty:
                 self.logger.warning("No data found")

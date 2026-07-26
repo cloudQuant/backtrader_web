@@ -21,12 +21,25 @@ class MacroChinaSwapRate(AkshareToMySql):
         self.create_table_sql = """
     CREATE TABLE IF NOT EXISTS `MACRO_CHINA_SWAP_RATE` (
         `R_ID` INT AUTO_INCREMENT PRIMARY KEY,
-            `symbol` VARCHAR(50) COMMENT '品种代码',
-            `name` VARCHAR(100) COMMENT '品种名称',
+            `日期` DATE COMMENT '曲线日期',
+            `曲线名称` VARCHAR(100) COMMENT '曲线名称',
+            `时刻` VARCHAR(50) COMMENT '报价时刻',
+            `价格类型` VARCHAR(50) COMMENT '价格类型',
+            `1M` DOUBLE COMMENT '1月利率',
+            `3M` DOUBLE COMMENT '3月利率',
+            `6M` DOUBLE COMMENT '6月利率',
+            `9M` DOUBLE COMMENT '9月利率',
+            `1Y` DOUBLE COMMENT '1年利率',
+            `2Y` DOUBLE COMMENT '2年利率',
+            `3Y` DOUBLE COMMENT '3年利率',
+            `4Y` DOUBLE COMMENT '4年利率',
+            `5Y` DOUBLE COMMENT '5年利率',
+            `7Y` DOUBLE COMMENT '7年利率',
+            `10Y` DOUBLE COMMENT '10年利率',
             `data_date` DATE COMMENT '数据日期',
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
             `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-        UNIQUE KEY uk_symbol_date (`symbol`, `data_date`),
+        UNIQUE KEY uk_curve_quote (`日期`, `曲线名称`, `时刻`, `价格类型`),
         INDEX idx_data_date (`data_date`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Macro China Swap Rate'
     """
@@ -48,10 +61,15 @@ class MacroChinaSwapRate(AkshareToMySql):
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
+            if "日期" in df.columns:
+                df["日期"] = pd.to_datetime(df["日期"], errors="coerce").dt.date
+                df["data_date"] = df["日期"]
+            elif "data_date" not in df.columns:
                 df["data_date"] = pd.Timestamp.now().date()
+
+            for column in ["1M", "3M", "6M", "9M", "1Y", "2Y", "3Y", "4Y", "5Y", "7Y", "10Y"]:
+                if column in df.columns:
+                    df[column] = pd.to_numeric(df[column], errors="coerce")
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
@@ -68,7 +86,7 @@ def main():
     """Main function to run the data fetch"""
 
     script = MacroChinaSwapRate()
-    script.run()
+    script.fetch_data()
 
 
 if __name__ == "__main__":

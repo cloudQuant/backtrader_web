@@ -41,6 +41,9 @@ class StockIndividualFundFlow(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
+            stock = str(kwargs.get("stock") or "600094")
+            market = str(kwargs.get("market") or "sh")
+
             # Fetch data from AkShare
             df = self.fetch_ak_data("stock_individual_fund_flow", **kwargs)
 
@@ -48,9 +51,12 @@ class StockIndividualFundFlow(AkshareToMySql):
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
+            df = df.copy()
+            df["symbol"] = f"{market}{stock}"
+            df["name"] = stock
+            if "日期" in df.columns:
+                df["data_date"] = pd.to_datetime(df["日期"], errors="coerce").dt.date
+            elif "data_date" not in df.columns:
                 df["data_date"] = pd.Timestamp.now().date()
 
             # Save to database

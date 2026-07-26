@@ -48,14 +48,19 @@ class MacroShippingBdi(AkshareToMySql):
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
+            df = df.copy()
+            df["symbol"] = "BDI"
+            df["name"] = "Baltic Dry Index"
+            df["data_date"] = pd.to_datetime(df["日期"], errors="coerce").dt.date
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+            self.save_data(
+                df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["symbol", "data_date"],
+            )
 
             return df
 

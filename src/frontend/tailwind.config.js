@@ -1,28 +1,30 @@
 /** @type {import('tailwindcss').Config} */
+const colorVar = (token) => `var(${token})`
+
 export default {
   darkMode: 'class',
   content: [
-    "./index.html",
-    "./src/**/*.{vue,js,ts,jsx,tsx}",
+    './index.html',
+    './src/**/*.{vue,js,ts,jsx,tsx}',
   ],
   theme: {
     extend: {
       colors: {
         primary: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          300: '#93c5fd',
-          400: '#60a5fa',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          800: '#1e40af',
-          900: '#1e3a8a',
+          50: colorVar('--color-primary-50'),
+          100: colorVar('--color-primary-100'),
+          200: colorVar('--color-primary-200'),
+          300: colorVar('--color-primary-300'),
+          400: colorVar('--color-primary-400'),
+          500: colorVar('--color-primary-500'),
+          600: colorVar('--color-primary-600'),
+          700: colorVar('--color-primary-700'),
+          800: colorVar('--color-primary-800'),
+          900: colorVar('--color-primary-900'),
         },
-        success: '#10b981',
-        danger: '#ef4444',
-        warning: '#f59e0b',
+        success: colorVar('--color-success-500'),
+        danger: colorVar('--color-danger-500'),
+        warning: colorVar('--color-warning-500'),
       },
     },
   },

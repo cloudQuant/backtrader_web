@@ -2,11 +2,15 @@
 Backtest schemas.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.config import get_settings, production_security_mode
 
 
 class TaskStatus(str, Enum):
@@ -32,19 +36,48 @@ class BacktestRequest(BaseModel):
     timeframe: str = Field("1d", description="K-line timeframe e.g. 1d, 1h, 5m")
     timeframe_n: int = Field(1, ge=1, description="Timeframe multiplier")
     bar_count: int | None = Field(None, description="Number of bars to load (None = all)")
+    asset_type: str | None = Field(None, description="Optional asset type for data precheck")
+    data_provider: str | None = Field(None, description="Optional market data provider")
+    require_data_precheck: bool = Field(
+        False,
+        description="Reject the task when precheck finds blocking data/spec issues",
+    )
+    data_precheck: dict[str, Any] = Field(default_factory=dict, description="Precheck snapshot")
     params: dict[str, Any] = Field(default_factory=dict, description="Strategy parameters")
+
+    @model_validator(mode="after")
+    def enforce_production_data_precheck(self) -> BacktestRequest:
+        """Keep the production precheck server-side even when the client omits it."""
+        if production_security_mode(get_settings()):
+            object.__setattr__(self, "require_data_precheck", True)
+        return self
 
     model_config = ConfigDict(
         json_schema_extra={
-            "example": {
-                "strategy_id": "ma_cross",
-                "symbol": "000001.SZ",
-                "start_date": "2023-01-01T00:00:00",
-                "end_date": "2024-01-01T00:00:00",
-                "initial_cash": 100000,
-                "commission": 0.001,
-                "params": {"fast_period": 5, "slow_period": 20},
-            }
+            "examples": [
+                {
+                    "strategy_id": "strat_7f8e9d0c1b2a",
+                    "symbol": "000001.SZ",
+                    "start_date": "2023-01-01T00:00:00",
+                    "end_date": "2024-01-01T00:00:00",
+                    "initial_cash": 100000,
+                    "commission": 0.001,
+                    "timeframe": "1d",
+                    "timeframe_n": 1,
+                    "params": {"fast_period": 5, "slow_period": 20},
+                },
+                {
+                    "strategy_id": "strat_3c4d5e6f7a8b",
+                    "symbol": "600519.SH",
+                    "start_date": "2022-06-01T00:00:00",
+                    "end_date": "2023-12-31T00:00:00",
+                    "initial_cash": 500000,
+                    "commission": 0.0003,
+                    "timeframe": "1h",
+                    "timeframe_n": 4,
+                    "params": {"period": 20, "devfactor": 2.0},
+                },
+            ]
         }
     )
 
@@ -52,9 +85,25 @@ class BacktestRequest(BaseModel):
 class BacktestResponse(BaseModel):
     """Backtest task response schema."""
 
-    task_id: str = Field(..., description="Task ID")
+    task_id: str = Field(..., description="Task ID", examples=["task_9a8b7c6d5e4f"])
     status: TaskStatus = Field(..., description="Task status")
-    message: str | None = Field(None, description="Status message")
+    message: str | None = Field(
+        None,
+        description="Status message",
+        examples=["Backtest task submitted, queuing / 回测任务已提交，正在排队中"],
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "task_id": "task_9a8b7c6d5e4f",
+                    "status": "pending",
+                    "message": "Backtest task submitted, queuing / 回测任务已提交，正在排队中",
+                }
+            ]
+        }
+    )
 
 
 class TradeRecord(BaseModel):
@@ -92,6 +141,22 @@ class BacktestResult(BaseModel):
     max_drawdown: float = Field(0, description="Maximum drawdown (%)")
     win_rate: float = Field(0, description="Win rate (%)")
     metrics_source: str = Field("manual", description="Source of metric calculations")
+    average_holding_bars: float = Field(0, description="Average holding period in bars")
+    max_consecutive_wins: int = Field(0, description="Maximum consecutive winning trades")
+    max_consecutive_losses: int = Field(0, description="Maximum consecutive losing trades")
+    profit_loss_ratio: float = Field(0, description="Average profit / average loss ratio")
+    standard_metrics: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Unified metrics calculated by MetricsService",
+    )
+    result_summary: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Cached summary for fast first-screen rendering",
+    )
+    data_precheck: dict[str, Any] = Field(
+        default_factory=dict, description="Data precheck snapshot"
+    )
+    robustness: dict[str, Any] | None = Field(None, description="Latest robustness result")
 
     # Trade statistics
     total_trades: int = Field(0, description="Total trades")
@@ -110,7 +175,53 @@ class BacktestResult(BaseModel):
     created_at: datetime
     error_message: str | None = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "task_id": "task_9a8b7c6d5e4f",
+                    "strategy_id": "strat_7f8e9d0c1b2a",
+                    "symbol": "000001.SZ",
+                    "start_date": "2023-01-01T00:00:00Z",
+                    "end_date": "2024-01-01T00:00:00Z",
+                    "status": "completed",
+                    "total_return": 23.56,
+                    "annual_return": 18.42,
+                    "sharpe_ratio": 1.35,
+                    "max_drawdown": -12.8,
+                    "win_rate": 58.3,
+                    "metrics_source": "quantstats",
+                    "total_trades": 42,
+                    "profitable_trades": 24,
+                    "losing_trades": 18,
+                    "equity_curve": [100000, 101200, 99800, 103500, 123560],
+                    "equity_dates": [
+                        "2023-01-03",
+                        "2023-02-01",
+                        "2023-03-01",
+                        "2023-06-01",
+                        "2024-01-01",
+                    ],
+                    "drawdown_curve": [0, 0, -1.38, 0, 0],
+                    "trades": [
+                        {
+                            "dtopen": "2023-01-15",
+                            "dtclose": "2023-02-20",
+                            "direction": "long",
+                            "price": 13.25,
+                            "size": 1000,
+                            "pnl": 1200.0,
+                            "pnlcomm": 1173.5,
+                            "barlen": 25,
+                        }
+                    ],
+                    "created_at": "2025-01-15T10:30:00Z",
+                    "error_message": None,
+                }
+            ]
+        },
+    )
 
 
 class BacktestListResponse(BaseModel):

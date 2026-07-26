@@ -1,3 +1,8 @@
+import type {
+  DataPrecheckResponse,
+  RobustnessTestResultResponse,
+} from './trust'
+
 // 用户相关类型
 export interface UserInfo {
   id: string
@@ -33,7 +38,15 @@ export interface BacktestRequest {
   end_date: string
   initial_cash?: number
   commission?: number
-  params?: Record<string, number | string>
+  params?: Record<string, number | string | boolean | null>
+  runtime_dir?: string
+  timeframe?: string
+  timeframe_n?: number
+  bar_count?: number | null
+  asset_type?: string | null
+  data_provider?: string | null
+  require_data_precheck?: boolean
+  data_precheck?: Record<string, unknown>
 }
 
 export interface BacktestResponse {
@@ -64,12 +77,44 @@ export interface BacktestResult {
   total_trades: number
   profitable_trades: number
   losing_trades: number
+  average_holding_bars?: number | null
+  max_consecutive_wins?: number
+  max_consecutive_losses?: number
+  profit_loss_ratio?: number | null
+  metrics_source?: string | null
+  standard_metrics?: Record<string, unknown>
+  result_summary?: Record<string, unknown>
+  data_precheck?: DataPrecheckResponse | null
+  robustness?: RobustnessTestResultResponse | null
   equity_curve: number[]
   equity_dates: string[]
   drawdown_curve: number[]
   trades: TradeRecord[]
   created_at: string
   error_message?: string
+}
+
+export interface CanonicalMetrics {
+  total_return: number
+  annual_return: number
+  sharpe_ratio: number
+  max_drawdown: number
+  win_rate: number
+  total_trades: number
+  profit_loss_ratio: number
+  max_consecutive_wins: number
+  max_consecutive_losses: number
+  avg_holding_bars: number
+}
+
+export interface BacktestSummaryResponse {
+  task_id: string
+  strategy_id: string
+  symbol: string
+  status: TaskStatus
+  metrics: CanonicalMetrics
+  data_precheck: DataPrecheckResponse
+  robustness: RobustnessTestResultResponse | Record<string, never>
 }
 
 export interface TradeRecord {
@@ -430,6 +475,8 @@ export interface DataTableSchemaResponse {
   columns: DataTableSchemaColumn[]
   row_count: number
   last_update_time: string | null
+  data_available?: boolean
+  error?: string | null
 }
 
 export interface DataTableRowsResponse {
@@ -439,6 +486,8 @@ export interface DataTableRowsResponse {
   page: number
   page_size: number
   total: number
+  data_available?: boolean
+  error?: string | null
 }
 
 export interface InterfaceCategory {

@@ -1,27 +1,27 @@
 # 快速开始
 
-欢迎使用 Backtrader Web！本节将帮助您快速上手平台。
+本节帮助您完成一次最小、可验证的投研闭环：启动服务、选择数据、创建策略、运行回测并查看结果。
 
-## Backtrader Web 是什么？
+## 前提
 
-Backtrader Web 是一个**全功能量化交易管理平台**，提供从策略开发、回测分析、模拟交易到实盘监控的全流程解决方案。
+- Python 3.10+、Node.js 20+、Git。
+- 需要回测时安装 `backtrader` 额外依赖；需要在线行情时安装 `akshare`；需要语义检索时安装 `rag` 额外依赖。
+- 生产或团队协作环境建议使用 PostgreSQL/MySQL；默认应用数据库可以使用 SQLite。
 
-## 功能模块
+## 推荐路径
 
-| 模块 | 状态 | 说明 |
-|------|------|------|
-| 策略管理 | ✅ 完成 | CRUD + 版本控制 |
-| 回测分析 | ✅ 完成 | 历史数据回测 + fincore 标准化指标 |
-| 参数优化 | ✅ 完成 | 网格搜索 + 贝叶斯优化 |
-| 报告导出 | ✅ 完成 | HTML/PDF/Excel |
-| 模拟交易 | ✅ 完成 | 账户、订单、持仓 |
-| 实盘交易 | ✅ 完成 | 多券商支持 (CCXT/CTP) |
-| 实时数据 | ✅ 完成 | WebSocket 推送 |
-| 监控告警 | ✅ 完成 | 实时监控 |
-| 投资组合 | ✅ 完成 | 多策略组合管理 |
+1. [安装指南](./installation.md)：创建后端环境、安装前端依赖并配置 `.env`。
+2. [快速上手](./quickstart.md)：从市场数据到研究工作区完成首次回测。
+3. [知识库](../features/knowledge-base.md)：导入、建立索引并使用带引用的问答。
+4. [市场数据](../features/market-data.md)：理解本地 MySQL 优先和手动 AkShare 刷新的行为。
 
-## 下一步
+## 运行前检查
 
-- [安装指南](./installation.md) - 环境配置和安装步骤
-- [快速上手](./quickstart.md) - 5分钟完成首次回测
-- [API 文档](../development/api.md) - RESTful API 参考
+仓库提供环境检查脚本；在依赖安装前后各运行一次：
+
+```bash
+./scripts/dev/verify-dev-env.sh --preinstall
+./scripts/dev/verify-dev-env.sh --postinstall
+```
+
+API 契约以运行中的 `http://localhost:8000/docs` 为准。页面和 API 均要求登录；管理员设置页还需要管理员权限。

@@ -1,7 +1,7 @@
 strategy:
   name: "通用网关双均线金叉策略"
   description: "适用于 CTP / IB / MT5 的统一双均线金叉策略模板，默认用于 1 分钟纸面模拟。"
-  author: "backtrader_web"
+  author: "ai-for-investor"
   category: "simulate"
 
 symbol:
@@ -70,5 +70,7 @@ mt5:
 live:
   symbol: "AAPL"
   bar_seconds: 60
+  qcheck: 0.5
+  log_ticks: false
   duration_seconds: 7200
   session_timeout: 7260

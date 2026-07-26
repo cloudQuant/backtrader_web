@@ -4,7 +4,7 @@
 strategy:
   name: "MT5 美日ADX趋势跟踪策略"
   description: "基于ADX指标和方向线的趋势跟踪策略，ADX强势且+DI>-DI时做多。适用于USDJPY H4周期。"
-  author: "backtrader_web"
+  author: "ai-for-investor"
   category: "simulate"
 
 # ============================================================
@@ -59,7 +59,7 @@ risk:
 # ============================================================
 mt5:
   login: "5047785364"
-  password: "NyCh-i4r"
+  password: ""
   ws_uri: "wss://web.metatrader.app/terminal"
   symbol_suffix: ""
 

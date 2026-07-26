@@ -503,7 +503,7 @@ class TestAnalyticsHelperFunctions:
         mock_task = Mock()
         mock_task.log_dir = "/path/to/logs"
 
-        with patch("app.api.analytics.SQLRepository") as MockRepo:
+        with patch("app.services.backtest.logs.SQLRepository") as MockRepo:
             mock_repo_instance = AsyncMock()
             mock_repo_instance.get_by_id = AsyncMock(return_value=mock_task)
             MockRepo.return_value = mock_repo_instance
@@ -519,12 +519,12 @@ class TestAnalyticsHelperFunctions:
         """
         from app.api.analytics import _resolve_log_dir
 
-        with patch("app.api.analytics.SQLRepository") as MockRepo:
+        with patch("app.services.backtest.logs.SQLRepository") as MockRepo:
             mock_repo_instance = AsyncMock()
             mock_repo_instance.get_by_id = AsyncMock(return_value=None)
             MockRepo.return_value = mock_repo_instance
 
-            with patch("app.api.analytics.find_latest_log_dir") as mock_find:
+            with patch("app.services.backtest.logs.find_latest_log_dir") as mock_find:
                 mock_find.return_value = None  # None means no directory
 
                 result = await _resolve_log_dir("task-123", "test_strategy")
@@ -713,13 +713,13 @@ class TestGetBacktestDataExtended:
         mock_task = MagicMock()
         mock_task.log_dir = "/tmp/test_logs"
 
-        with patch("app.api.analytics.SQLRepository") as MockRepo:
+        with patch("app.services.backtest.logs.SQLRepository") as MockRepo:
             mock_repo_instance = AsyncMock()
             mock_repo_instance.get_by_id = AsyncMock(return_value=mock_task)
             MockRepo.return_value = mock_repo_instance
 
             with patch("pathlib.Path.is_dir", return_value=True):
-                with patch("app.api.analytics.has_log_artifacts", return_value=True):
+                with patch("app.services.backtest.logs.has_log_artifacts", return_value=True):
                     result = await _resolve_log_dir("task-123", "test_strategy")
                     assert result == Path("/tmp/test_logs")
 
@@ -731,15 +731,17 @@ class TestGetBacktestDataExtended:
         mock_task = MagicMock()
         mock_task.log_dir = "/tmp/test_logs/task-123"
 
-        with patch("app.api.analytics.SQLRepository") as MockRepo:
+        with patch("app.services.backtest.logs.SQLRepository") as MockRepo:
             mock_repo_instance = AsyncMock()
             mock_repo_instance.get_by_id = AsyncMock(return_value=mock_task)
             MockRepo.return_value = mock_repo_instance
 
             with patch("pathlib.Path.is_dir", return_value=True):
-                with patch("app.api.analytics.latest_meaningful_log_subdir", return_value=None):
+                with patch(
+                    "app.services.backtest.logs.latest_meaningful_log_subdir", return_value=None
+                ):
                     with patch(
-                        "app.api.analytics.has_log_artifacts",
+                        "app.services.backtest.logs.has_log_artifacts",
                         side_effect=lambda path: Path(path) == Path("/tmp/test_logs"),
                     ):
                         result = await _resolve_log_dir("task-123", "test_strategy")
@@ -753,15 +755,15 @@ class TestGetBacktestDataExtended:
         mock_task = MagicMock()
         mock_task.log_dir = "/tmp/test_logs/task-older"
 
-        with patch("app.api.analytics.SQLRepository") as MockRepo:
+        with patch("app.services.backtest.logs.SQLRepository") as MockRepo:
             mock_repo_instance = AsyncMock()
             mock_repo_instance.get_by_id = AsyncMock(return_value=mock_task)
             MockRepo.return_value = mock_repo_instance
 
             with patch("pathlib.Path.is_dir", return_value=True):
-                with patch("app.api.analytics.has_log_artifacts", return_value=False):
+                with patch("app.services.backtest.logs.has_log_artifacts", return_value=False):
                     with patch(
-                        "app.api.analytics.latest_meaningful_log_subdir",
+                        "app.services.backtest.logs.latest_meaningful_log_subdir",
                         return_value=Path("/tmp/test_logs/task-newer"),
                     ):
                         result = await _resolve_log_dir("task-123", "test_strategy")

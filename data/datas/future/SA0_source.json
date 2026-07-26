@@ -1,0 +1,12 @@
+{
+  "symbol": "SA0",
+  "source": "akshare",
+  "minute_function": "futures_zh_minute_sina(symbol=\"SA0\", period=\"60\")",
+  "daily_function": "futures_zh_daily_sina(symbol=\"SA0\")",
+  "minute_rows": 1023,
+  "daily_rows": 1592,
+  "minute_start": "2025-10-17 23:00:00",
+  "minute_end": "2026-07-03 23:00:00",
+  "daily_start": "2019-12-06 00:00:00",
+  "daily_end": "2026-07-03 00:00:00"
+}

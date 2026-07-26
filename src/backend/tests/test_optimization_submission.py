@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.optimization_submission import generate_param_grid, submit_optimization
+from app.services.optimization.submission import generate_param_grid, submit_optimization
 
 
 class TestGenerateParamGrid:

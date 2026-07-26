@@ -4,14 +4,14 @@ from unittest.mock import Mock
 
 import app.services.param_optimization_service as param_optimization_service
 from app.schemas.backtest import TaskStatus
-from app.services.optimization_submission import submit_optimization
-from app.services.optimization_task_gateway import (
+from app.services.optimization.submission import submit_optimization
+from app.services.optimization.task_gateway import (
     cancel_optimization_task,
     load_optimization_task_state,
     persist_optimization_task,
 )
-from app.services.optimization_thread_runner import run_optimization_thread
-from app.services.optimization_trial_runner import parse_trial_logs, run_single_trial
+from app.services.optimization.thread_runner import run_optimization_thread
+from app.services.optimization.trial_runner import parse_trial_logs, run_single_trial
 
 
 class DummyThread:

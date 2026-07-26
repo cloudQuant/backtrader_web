@@ -14,9 +14,25 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 
+from app.config import get_settings
+from app.db.database import create_default_admin
 from app.schemas.live_trading_instance import LiveInstanceCreate
+
+
+@pytest_asyncio.fixture
+async def admin_headers(client: AsyncClient) -> dict[str, str]:
+    """Return credentials for the explicit admin-only gateway defaults endpoint."""
+    await create_default_admin()
+    settings = get_settings()
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"username": settings.ADMIN_USERNAME, "password": settings.ADMIN_PASSWORD},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 @pytest.mark.asyncio
@@ -106,9 +122,17 @@ class TestLiveTradingList:
         data = response.json()
         ctp = next(p for p in data["presets"] if p["id"] == "ctp_futures_gateway")
         assert ctp["description"] == "Shared CTP gateway preset for domestic futures accounts."
-        assert len(ctp["editable_fields"]) == 1
-        assert ctp["editable_fields"][0]["key"] == "account_id"
-        assert ctp["editable_fields"][0]["input_type"] == "string"
+        field_keys = [field["key"] for field in ctp["editable_fields"]]
+        assert field_keys == [
+            "account_id",
+            "ctp_env",
+            "set1_group",
+            "td_front",
+            "md_front",
+            "startup_timeout_sec",
+            "command_timeout_sec",
+        ]
+        assert all(field["input_type"] == "string" for field in ctp["editable_fields"])
         assert ctp["params"]["gateway"]["provider"] == "ctp_gateway"
         assert ctp["params"]["gateway"]["exchange_type"] == "CTP"
 
@@ -219,6 +243,93 @@ class TestLiveTradingList:
         assert data["gateways"][0]["gateway_key"] == "manual:CTP:089763"
         assert data["gateways"][0]["market_connection"] == "connected"
 
+    async def test_gateway_query_offloads_blocking_call(self, client: AsyncClient, auth_headers):
+        """A slow blocking gateway query must not stall the event loop (178 §B).
+
+        ``query_gateway_account`` is a synchronous, potentially-blocking call that
+        the endpoint now offloads via ``asyncio.to_thread``. This test mocks it with
+        a blocking ``time.sleep`` and asserts that a second concurrent request to a
+        lightweight endpoint completes *before* the slow one returns — which is only
+        possible if the blocking call runs off the event loop.
+        """
+        import asyncio
+        import time
+
+        def _slow_query(_gateway_key: str) -> dict[str, str]:
+            time.sleep(0.5)  # blocking I/O stand-in
+            return {"gateway_key": "manual:CTP:089763", "state": "connected"}
+
+        order: list[str] = []
+
+        with patch("app.api.live_trading_api.get_live_trading_manager") as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.query_gateway_account.side_effect = _slow_query
+            mock_mgr.list_instances.return_value = []
+            mock_get_mgr.return_value = mock_mgr
+
+            async def slow_request() -> None:
+                resp = await client.get(
+                    "/api/v1/live-trading/gateways/manual:CTP:089763/account",
+                    headers=auth_headers,
+                )
+                assert resp.status_code == 200
+                order.append("slow")
+
+            async def fast_request() -> None:
+                # Give the slow request a head start so it is mid-sleep.
+                await asyncio.sleep(0.1)
+                resp = await client.get("/api/v1/live-trading/", headers=auth_headers)
+                assert resp.status_code == 200
+                order.append("fast")
+
+            await asyncio.gather(slow_request(), fast_request())
+
+        # If the blocking sleep had run on the event loop, "fast" could not finish
+        # first. Offloading via to_thread lets the fast request overtake it.
+        assert order == ["fast", "slow"]
+
+    async def test_gateway_positions_query_uses_strict_gateway_read(
+        self, client: AsyncClient, auth_headers
+    ):
+        def _query_positions(_gateway_key: str, *, strict: bool = False) -> list[dict[str, str]]:
+            assert strict is True
+            return [{"symbol": "rb2501", "volume": 1}]
+
+        with patch("app.api.live_trading_api.get_live_trading_manager") as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.query_gateway_positions.side_effect = _query_positions
+            mock_get_mgr.return_value = mock_mgr
+
+            response = await client.get(
+                "/api/v1/live-trading/gateways/manual:CTP:089763/positions",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data == {
+            "total": 1,
+            "positions": [{"symbol": "rb2501", "volume": 1}],
+        }
+
+    async def test_gateway_positions_query_returns_error_when_gateway_unavailable(
+        self, client: AsyncClient, auth_headers
+    ):
+        with patch("app.api.live_trading_api.get_live_trading_manager") as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.query_gateway_positions.side_effect = RuntimeError(
+                "Gateway 'manual:CTP:089763' has no runtime"
+            )
+            mock_get_mgr.return_value = mock_mgr
+
+            response = await client.get(
+                "/api/v1/live-trading/gateways/manual:CTP:089763/positions",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 404
+        assert "has no runtime" in response.json()["message"]
+
     async def test_connect_gateway_error_returns_400_not_500(
         self, client: AsyncClient, auth_headers
     ):
@@ -251,7 +362,7 @@ class TestLiveTradingList:
         assert "CTP连接失败" in str(payload)
 
     async def test_gateway_credentials_prefers_ib_web_env_values(
-        self, client: AsyncClient, auth_headers
+        self, client: AsyncClient, admin_headers
     ):
         fake_settings = SimpleNamespace(
             CTP_BROKER_ID="",
@@ -339,18 +450,461 @@ class TestLiveTradingList:
         )
         with patch("app.config.get_settings", return_value=fake_settings):
             response = await client.get(
-                "/api/v1/live-trading/gateways/credentials", headers=auth_headers
+                "/api/v1/live-trading/gateways/credentials", headers=admin_headers
             )
 
         assert response.status_code == 200
         data = response.json()["IB_WEB"]
         assert data["account_id"] == "DUP447807"
         assert data["base_url"] == "https://localhost:5000/v1/api"
-        assert data["cookie_source"] == "file:../bt_api_py/configs/ibkr_cookies.json"
+        assert data["cookie_source"] == ""
+        assert data["cookie_source_configured"] is True
         assert data["username"] == "test-ib-web-user"
-        assert data["password"] == "test-ib-web-pass"
+        assert data["password"] == ""
+        assert data["password_configured"] is True
         assert data["paper"]["account_id"] == "DUP447807"
         assert data["paper"]["login_mode"] == "paper"
+
+    async def test_gateway_credentials_prefers_crypto_legacy_env_keys(
+        self, client: AsyncClient, admin_headers
+    ):
+        fake_settings = SimpleNamespace(
+            CTP_BROKER_ID="",
+            CTP_USER_ID="",
+            CTP_INVESTOR_ID="",
+            CTP_PASSWORD="",
+            CTP_APP_ID="simnow_client_test",
+            CTP_AUTH_CODE="0000000000000000",
+            MT5_LOGIN="",
+            MT5_PASSWORD="",
+            MT5_SERVER="",
+            MT5_WS_URI="",
+            MT5_SYMBOL_SUFFIX="",
+            MT5_TIMEOUT=60,
+            MT5_DEMO_LOGIN="",
+            MT5_DEMO_PASSWORD="",
+            MT5_DEMO_SERVER="",
+            MT5_DEMO_WS_URI="",
+            MT5_LIVE_LOGIN="",
+            MT5_LIVE_PASSWORD="",
+            MT5_LIVE_SERVER="",
+            MT5_LIVE_WS_URI="",
+            IB_ACCOUNT_ID="legacy-acc",
+            IB_ASSET_TYPE="STK",
+            IB_BASE_URL="https://legacy.localhost:5000/v1/api",
+            IB_ACCESS_TOKEN="legacy-token",
+            IB_VERIFY_SSL=False,
+            IB_TIMEOUT=10,
+            IB_COOKIE_SOURCE="file:legacy.json",
+            IB_COOKIE_BROWSER="chrome",
+            IB_COOKIE_PATH="/legacy",
+            IB_USERNAME="legacy-user",
+            IB_PASSWORD="legacy-pass",
+            IB_LOGIN_BROWSER="chrome",
+            IB_LOGIN_HEADLESS=False,
+            IB_LOGIN_TIMEOUT=180,
+            IB_COOKIE_OUTPUT="legacy-output.json",
+            IB_WEB_ACCOUNT_ID="DUP447807",
+            IB_WEB_ASSET_TYPE="STK",
+            IB_WEB_BASE_URL="https://localhost:5000/v1/api",
+            IB_WEB_ACCESS_TOKEN="",
+            IB_WEB_VERIFY_SSL=False,
+            IB_WEB_TIMEOUT=10,
+            IB_WEB_COOKIE_SOURCE="file:../bt_api_py/configs/ibkr_cookies.json",
+            IB_WEB_COOKIE_BROWSER="chrome",
+            IB_WEB_COOKIE_PATH="/sso",
+            IB_WEB_USERNAME="test-ib-web-user",
+            IB_WEB_PASSWORD="test-ib-web-pass",
+            IB_WEB_LOGIN_MODE="paper",
+            IB_WEB_LOGIN_BROWSER="chrome",
+            IB_WEB_LOGIN_HEADLESS=False,
+            IB_WEB_LOGIN_TIMEOUT=180,
+            IB_WEB_COOKIE_OUTPUT="../bt_api_py/configs/ibkr_cookies.json",
+            IB_PAPER_ACCOUNT_ID="",
+            IB_PAPER_ASSET_TYPE="",
+            IB_PAPER_BASE_URL="",
+            IB_PAPER_ACCESS_TOKEN="",
+            IB_PAPER_VERIFY_SSL=False,
+            IB_PAPER_TIMEOUT=0,
+            IB_PAPER_COOKIE_SOURCE="",
+            IB_PAPER_COOKIE_BROWSER="",
+            IB_PAPER_COOKIE_PATH="",
+            IB_LIVE_ACCOUNT_ID="",
+            IB_LIVE_ASSET_TYPE="",
+            IB_LIVE_BASE_URL="",
+            IB_LIVE_ACCESS_TOKEN="",
+            IB_LIVE_VERIFY_SSL=False,
+            IB_LIVE_TIMEOUT=0,
+            IB_LIVE_COOKIE_SOURCE="",
+            IB_LIVE_COOKIE_BROWSER="",
+            IB_LIVE_COOKIE_PATH="",
+            BINANCE_ACCOUNT_ID="",
+            BINANCE_ASSET_TYPE="SWAP",
+            BINANCE_API_KEY="",
+            BINANCE_SECRET_KEY="",
+            BINANCE_TESTNET=False,
+            BINANCE_BASE_URL="",
+            OKX_ACCOUNT_ID="",
+            OKX_ASSET_TYPE="SWAP",
+            OKX_API_KEY="",
+            OKX_SECRET_KEY="",
+            OKX_PASSPHRASE="",
+            OKX_TESTNET=False,
+            OKX_BASE_URL="",
+        )
+        env_values = {
+            "BINANCE_API_KEY": "legacy-binance-key",
+            "BINANCE_PASSWORD": "legacy-binance-secret",
+            "OKX_API_KEY": "legacy-okx-key",
+            "OKX_SECRET": "legacy-okx-secret",
+            "OKX_PASSPHRASE": "legacy-okx-passphrase",
+        }
+        with (
+            patch("app.config.get_settings", return_value=fake_settings),
+            patch(
+                "app.api.live_trading_api.manual_gateway_service._load_backend_gateway_env_values",
+                return_value=env_values,
+            ),
+        ):
+            response = await client.get(
+                "/api/v1/live-trading/gateways/credentials", headers=admin_headers
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["BINANCE"]["api_key"] == ""
+        assert data["BINANCE"]["api_key_configured"] is True
+        assert data["BINANCE"]["secret_key"] == ""
+        assert data["BINANCE"]["secret_key_configured"] is True
+        assert data["OKX"]["api_key"] == ""
+        assert data["OKX"]["api_key_configured"] is True
+        assert data["OKX"]["secret_key"] == ""
+        assert data["OKX"]["secret_key_configured"] is True
+        assert data["OKX"]["passphrase"] == ""
+        assert data["OKX"]["passphrase_configured"] is True
+
+    async def test_gateway_credentials_prefers_okx_password_as_passphrase(
+        self, client: AsyncClient, admin_headers
+    ):
+        fake_settings = SimpleNamespace(
+            CTP_BROKER_ID="",
+            CTP_USER_ID="",
+            CTP_INVESTOR_ID="",
+            CTP_PASSWORD="",
+            CTP_APP_ID="simnow_client_test",
+            CTP_AUTH_CODE="0000000000000000",
+            MT5_LOGIN="",
+            MT5_PASSWORD="",
+            MT5_SERVER="",
+            MT5_WS_URI="",
+            MT5_SYMBOL_SUFFIX="",
+            MT5_TIMEOUT=60,
+            MT5_DEMO_LOGIN="",
+            MT5_DEMO_PASSWORD="",
+            MT5_DEMO_SERVER="",
+            MT5_DEMO_WS_URI="",
+            MT5_LIVE_LOGIN="",
+            MT5_LIVE_PASSWORD="",
+            MT5_LIVE_SERVER="",
+            MT5_LIVE_WS_URI="",
+            IB_ACCOUNT_ID="",
+            IB_ASSET_TYPE="STK",
+            IB_BASE_URL="https://legacy.localhost:5000/v1/api",
+            IB_ACCESS_TOKEN="legacy-token",
+            IB_VERIFY_SSL=False,
+            IB_TIMEOUT=10,
+            IB_COOKIE_SOURCE="file:legacy.json",
+            IB_COOKIE_BROWSER="chrome",
+            IB_COOKIE_PATH="/legacy",
+            IB_USERNAME="legacy-user",
+            IB_PASSWORD="legacy-pass",
+            IB_LOGIN_BROWSER="chrome",
+            IB_LOGIN_HEADLESS=False,
+            IB_LOGIN_TIMEOUT=180,
+            IB_COOKIE_OUTPUT="legacy-output.json",
+            IB_WEB_ACCOUNT_ID="DUP447807",
+            IB_WEB_ASSET_TYPE="STK",
+            IB_WEB_BASE_URL="https://localhost:5000/v1/api",
+            IB_WEB_ACCESS_TOKEN="",
+            IB_WEB_VERIFY_SSL=False,
+            IB_WEB_TIMEOUT=10,
+            IB_WEB_COOKIE_SOURCE="file:../bt_api_py/configs/ibkr_cookies.json",
+            IB_WEB_COOKIE_BROWSER="chrome",
+            IB_WEB_COOKIE_PATH="/sso",
+            IB_WEB_USERNAME="test-ib-web-user",
+            IB_WEB_PASSWORD="test-ib-web-pass",
+            IB_WEB_LOGIN_MODE="paper",
+            IB_WEB_LOGIN_BROWSER="chrome",
+            IB_WEB_LOGIN_HEADLESS=False,
+            IB_WEB_LOGIN_TIMEOUT=180,
+            IB_WEB_COOKIE_OUTPUT="../bt_api_py/configs/ibkr_cookies.json",
+            IB_PAPER_ACCOUNT_ID="",
+            IB_PAPER_ASSET_TYPE="",
+            IB_PAPER_BASE_URL="",
+            IB_PAPER_ACCESS_TOKEN="",
+            IB_PAPER_VERIFY_SSL=False,
+            IB_PAPER_TIMEOUT=0,
+            IB_PAPER_COOKIE_SOURCE="",
+            IB_PAPER_COOKIE_BROWSER="",
+            IB_PAPER_COOKIE_PATH="",
+            IB_LIVE_ACCOUNT_ID="",
+            IB_LIVE_ASSET_TYPE="",
+            IB_LIVE_BASE_URL="",
+            IB_LIVE_ACCESS_TOKEN="",
+            IB_LIVE_VERIFY_SSL=False,
+            IB_LIVE_TIMEOUT=0,
+            IB_LIVE_COOKIE_SOURCE="",
+            IB_LIVE_COOKIE_BROWSER="",
+            IB_LIVE_COOKIE_PATH="",
+            BINANCE_ACCOUNT_ID="",
+            BINANCE_ASSET_TYPE="SWAP",
+            BINANCE_API_KEY="",
+            BINANCE_SECRET_KEY="",
+            BINANCE_TESTNET=False,
+            BINANCE_BASE_URL="",
+            OKX_ACCOUNT_ID="",
+            OKX_ASSET_TYPE="SWAP",
+            OKX_API_KEY="",
+            OKX_SECRET_KEY="",
+            OKX_PASSPHRASE="",
+            OKX_TESTNET=False,
+            OKX_BASE_URL="",
+        )
+        env_values = {
+            "BINANCE_API_KEY": "legacy-binance-key",
+            "BINANCE_PASSWORD": "legacy-binance-secret",
+            "OKX_API_KEY": "legacy-okx-key",
+            "OKX_SECRET": "legacy-okx-secret",
+            "OKX_PASSWORD": "legacy-okx-passphrase",
+        }
+        with (
+            patch("app.config.get_settings", return_value=fake_settings),
+            patch(
+                "app.api.live_trading_api.manual_gateway_service._load_backend_gateway_env_values",
+                return_value=env_values,
+            ),
+        ):
+            response = await client.get(
+                "/api/v1/live-trading/gateways/credentials", headers=admin_headers
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["OKX"]["passphrase"] == ""
+        assert data["OKX"]["passphrase_configured"] is True
+
+    async def test_gateway_credentials_prefers_system_env_okx_password(
+        self, client: AsyncClient, admin_headers, monkeypatch
+    ):
+        fake_settings = SimpleNamespace(
+            CTP_BROKER_ID="",
+            CTP_USER_ID="",
+            CTP_INVESTOR_ID="",
+            CTP_PASSWORD="",
+            CTP_APP_ID="simnow_client_test",
+            CTP_AUTH_CODE="0000000000000000",
+            MT5_LOGIN="",
+            MT5_PASSWORD="",
+            MT5_SERVER="",
+            MT5_WS_URI="",
+            MT5_SYMBOL_SUFFIX="",
+            MT5_TIMEOUT=60,
+            MT5_DEMO_LOGIN="",
+            MT5_DEMO_PASSWORD="",
+            MT5_DEMO_SERVER="",
+            MT5_DEMO_WS_URI="",
+            MT5_LIVE_LOGIN="",
+            MT5_LIVE_PASSWORD="",
+            MT5_LIVE_SERVER="",
+            MT5_LIVE_WS_URI="",
+            IB_ACCOUNT_ID="",
+            IB_ASSET_TYPE="STK",
+            IB_BASE_URL="https://legacy.localhost:5000/v1/api",
+            IB_ACCESS_TOKEN="legacy-token",
+            IB_VERIFY_SSL=False,
+            IB_TIMEOUT=10,
+            IB_COOKIE_SOURCE="file:legacy.json",
+            IB_COOKIE_BROWSER="chrome",
+            IB_COOKIE_PATH="/legacy",
+            IB_USERNAME="legacy-user",
+            IB_PASSWORD="legacy-pass",
+            IB_LOGIN_BROWSER="chrome",
+            IB_LOGIN_HEADLESS=False,
+            IB_LOGIN_TIMEOUT=180,
+            IB_COOKIE_OUTPUT="legacy-output.json",
+            IB_WEB_ACCOUNT_ID="DUP447807",
+            IB_WEB_ASSET_TYPE="STK",
+            IB_WEB_BASE_URL="https://localhost:5000/v1/api",
+            IB_WEB_ACCESS_TOKEN="",
+            IB_WEB_VERIFY_SSL=False,
+            IB_WEB_TIMEOUT=10,
+            IB_WEB_COOKIE_SOURCE="file:../bt_api_py/configs/ibkr_cookies.json",
+            IB_WEB_COOKIE_BROWSER="chrome",
+            IB_WEB_COOKIE_PATH="/sso",
+            IB_WEB_USERNAME="test-ib-web-user",
+            IB_WEB_PASSWORD="test-ib-web-pass",
+            IB_WEB_LOGIN_MODE="paper",
+            IB_WEB_LOGIN_BROWSER="chrome",
+            IB_WEB_LOGIN_HEADLESS=False,
+            IB_WEB_LOGIN_TIMEOUT=180,
+            IB_WEB_COOKIE_OUTPUT="../bt_api_py/configs/ibkr_cookies.json",
+            IB_PAPER_ACCOUNT_ID="",
+            IB_PAPER_ASSET_TYPE="",
+            IB_PAPER_BASE_URL="",
+            IB_PAPER_ACCESS_TOKEN="",
+            IB_PAPER_VERIFY_SSL=False,
+            IB_PAPER_TIMEOUT=0,
+            IB_PAPER_COOKIE_SOURCE="",
+            IB_PAPER_COOKIE_BROWSER="",
+            IB_PAPER_COOKIE_PATH="",
+            IB_LIVE_ACCOUNT_ID="",
+            IB_LIVE_ASSET_TYPE="",
+            IB_LIVE_BASE_URL="",
+            IB_LIVE_ACCESS_TOKEN="",
+            IB_LIVE_VERIFY_SSL=False,
+            IB_LIVE_TIMEOUT=0,
+            IB_LIVE_COOKIE_SOURCE="",
+            IB_LIVE_COOKIE_BROWSER="",
+            IB_LIVE_COOKIE_PATH="",
+            BINANCE_ACCOUNT_ID="",
+            BINANCE_ASSET_TYPE="SWAP",
+            BINANCE_API_KEY="",
+            BINANCE_SECRET_KEY="",
+            BINANCE_TESTNET=False,
+            BINANCE_BASE_URL="",
+            OKX_ACCOUNT_ID="",
+            OKX_ASSET_TYPE="SWAP",
+            OKX_API_KEY="",
+            OKX_SECRET_KEY="",
+            OKX_PASSPHRASE="",
+            OKX_TESTNET=False,
+            OKX_BASE_URL="",
+        )
+        monkeypatch.setenv("OKX_PASSWORD", "system-okx-passphrase")
+
+        with patch("app.config.get_settings", return_value=fake_settings):
+            response = await client.get(
+                "/api/v1/live-trading/gateways/credentials", headers=admin_headers
+            )
+
+        assert response.status_code == 200
+        data = response.json()["OKX"]
+        assert data["passphrase"] == ""
+        assert data["passphrase_configured"] is True
+
+    async def test_gateway_credentials_prefers_mt5_legacy_env_keys(
+        self, client: AsyncClient, admin_headers
+    ):
+        fake_settings = SimpleNamespace(
+            CTP_BROKER_ID="",
+            CTP_USER_ID="",
+            CTP_INVESTOR_ID="",
+            CTP_PASSWORD="",
+            CTP_APP_ID="simnow_client_test",
+            CTP_AUTH_CODE="0000000000000000",
+            MT5_LOGIN="",
+            MT5_PASSWORD="",
+            MT5_SERVER="",
+            MT5_WS_URI="",
+            MT5_SYMBOL_SUFFIX="",
+            MT5_TIMEOUT=60,
+            MT5_DEMO_LOGIN="",
+            MT5_DEMO_PASSWORD="",
+            MT5_DEMO_SERVER="",
+            MT5_DEMO_WS_URI="",
+            MT5_LIVE_LOGIN="",
+            MT5_LIVE_PASSWORD="",
+            MT5_LIVE_SERVER="",
+            MT5_LIVE_WS_URI="",
+            IB_ACCOUNT_ID="legacy-acc",
+            IB_ASSET_TYPE="STK",
+            IB_BASE_URL="https://legacy.localhost:5000/v1/api",
+            IB_ACCESS_TOKEN="legacy-token",
+            IB_VERIFY_SSL=False,
+            IB_TIMEOUT=10,
+            IB_COOKIE_SOURCE="file:legacy.json",
+            IB_COOKIE_BROWSER="chrome",
+            IB_COOKIE_PATH="/legacy",
+            IB_USERNAME="legacy-user",
+            IB_PASSWORD="legacy-pass",
+            IB_LOGIN_BROWSER="chrome",
+            IB_LOGIN_HEADLESS=False,
+            IB_LOGIN_TIMEOUT=180,
+            IB_COOKIE_OUTPUT="legacy-output.json",
+            IB_WEB_ACCOUNT_ID="DUP447807",
+            IB_WEB_ASSET_TYPE="STK",
+            IB_WEB_BASE_URL="https://localhost:5000/v1/api",
+            IB_WEB_ACCESS_TOKEN="",
+            IB_WEB_VERIFY_SSL=False,
+            IB_WEB_TIMEOUT=10,
+            IB_WEB_COOKIE_SOURCE="file:../bt_api_py/configs/ibkr_cookies.json",
+            IB_WEB_COOKIE_BROWSER="chrome",
+            IB_WEB_COOKIE_PATH="/sso",
+            IB_WEB_USERNAME="test-ib-web-user",
+            IB_WEB_PASSWORD="test-ib-web-pass",
+            IB_WEB_LOGIN_MODE="paper",
+            IB_WEB_LOGIN_BROWSER="chrome",
+            IB_WEB_LOGIN_HEADLESS=False,
+            IB_WEB_LOGIN_TIMEOUT=180,
+            IB_WEB_COOKIE_OUTPUT="../bt_api_py/configs/ibkr_cookies.json",
+            IB_PAPER_ACCOUNT_ID="",
+            IB_PAPER_ASSET_TYPE="",
+            IB_PAPER_BASE_URL="",
+            IB_PAPER_ACCESS_TOKEN="",
+            IB_PAPER_VERIFY_SSL=False,
+            IB_PAPER_TIMEOUT=0,
+            IB_PAPER_COOKIE_SOURCE="",
+            IB_PAPER_COOKIE_BROWSER="",
+            IB_PAPER_COOKIE_PATH="",
+            IB_LIVE_ACCOUNT_ID="",
+            IB_LIVE_ASSET_TYPE="",
+            IB_LIVE_BASE_URL="",
+            IB_LIVE_ACCESS_TOKEN="",
+            IB_LIVE_VERIFY_SSL=False,
+            IB_LIVE_TIMEOUT=0,
+            IB_LIVE_COOKIE_SOURCE="",
+            IB_LIVE_COOKIE_BROWSER="",
+            IB_LIVE_COOKIE_PATH="",
+            BINANCE_ACCOUNT_ID="",
+            BINANCE_ASSET_TYPE="SWAP",
+            BINANCE_API_KEY="",
+            BINANCE_SECRET_KEY="",
+            BINANCE_TESTNET=False,
+            BINANCE_BASE_URL="",
+            OKX_ACCOUNT_ID="",
+            OKX_ASSET_TYPE="SWAP",
+            OKX_API_KEY="",
+            OKX_SECRET_KEY="",
+            OKX_PASSPHRASE="",
+            OKX_TESTNET=False,
+            OKX_BASE_URL="",
+        )
+        env_values = {
+            "MT5_ACCOUNT": "legacy-mt5-login",
+            "MT5_PASS": "legacy-mt5-password",
+            "MT5_SERVER": "wss://mt5-live",
+            "MT5_WS_URI": "wss://mt5-live/ws",
+            "MT5_SYMBOL_SUFFIX": ".m",
+        }
+        with (
+            patch("app.config.get_settings", return_value=fake_settings),
+            patch(
+                "app.api.live_trading_api.manual_gateway_service._load_backend_gateway_env_values",
+                return_value=env_values,
+            ),
+        ):
+            response = await client.get(
+                "/api/v1/live-trading/gateways/credentials", headers=admin_headers
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["MT5"]["login"] == "legacy-mt5-login"
+        assert data["MT5"]["password"] == ""
+        assert data["MT5"]["password_configured"] is True
+        assert data["MT5"]["server"] == "wss://mt5-live"
+        assert data["MT5"]["ws_uri"] == "wss://mt5-live/ws"
+        assert data["MT5"]["symbol_suffix"] == ".m"
 
     async def test_live_instance_create_schema_example_exposes_ib_web_gateway(self):
         schema = LiveInstanceCreate.model_json_schema()
@@ -455,7 +1009,7 @@ class TestLiveTradingControl:
         response = await client.post(
             "/api/v1/live-trading/non_existent_id/start", headers=auth_headers
         )
-        assert response.status_code == 400
+        assert response.status_code == 404
 
     async def test_stop_instance_not_found(self, client: AsyncClient, auth_headers):
         """Test stopping non-existent instance.
@@ -467,7 +1021,7 @@ class TestLiveTradingControl:
         response = await client.post(
             "/api/v1/live-trading/non_existent_id/stop", headers=auth_headers
         )
-        assert response.status_code == 400
+        assert response.status_code == 404
 
     async def test_start_all(self, client: AsyncClient, auth_headers):
         """Test batch start all instances.

@@ -209,7 +209,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   // ------------------------------------------------------------------
 
   const running = ref(false)
-  let pollTimer: ReturnType<typeof setInterval> | null = null
+  const MAX_CONSECUTIVE_POLL_FAILURES = 3
+  const MAX_POLL_BACKOFF_MS = 30_000
+  let pollTimer: ReturnType<typeof setTimeout> | null = null
+  let pollInFlight = false
+  let pollGeneration = 0
+  let pollingWorkspaceId: string | null = null
+  let pollingIntervalMs = 3000
+  let consecutivePollFailures = 0
 
   async function runSelectedUnits(workspaceId: string, parallel = false) {
     if (!selectedUnitIds.value.length) return
@@ -219,6 +226,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       for (const u of units.value) {
         if (selectedUnitIds.value.includes(u.id)) {
           u.run_status = 'queued'
+          u.run_progress = 0
+          u.run_message = '回测任务排队中'
         }
       }
       const res = await workspaceApi.runUnits(workspaceId, [...selectedUnitIds.value], parallel)
@@ -228,11 +237,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         if (idx >= 0) {
           units.value[idx].run_status = r.status as StrategyUnit['run_status']
           if (r.task_id) units.value[idx].last_task_id = r.task_id
+          units.value[idx].run_progress = r.status === 'running' ? 10 : 0
+          units.value[idx].run_message = r.status === 'running' ? '回测任务已提交' : r.error ?? null
         }
       }
       return res.results
     } finally {
       running.value = false
+      // The request may have timed out after the backend accepted a large batch.
+      // Resume a single status stream so the final state is reconciled without
+      // overlapping the previous polling cycle.
+      startPolling(workspaceId)
     }
   }
 
@@ -243,7 +258,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     await fetchUnits(workspaceId)
   }
 
-  async function pollStatus(workspaceId: string) {
+  function hasActiveUnitRuns(): boolean {
+    return units.value.some(unit => {
+      const snapshotStatus = String(unit.trading_snapshot?.instance_status ?? '').toLowerCase()
+      return ['queued', 'running'].includes(unit.run_status)
+        || ['queued', 'starting', 'running', 'live', 'connected'].includes(snapshotStatus)
+    })
+  }
+
+  async function pollStatus(workspaceId: string): Promise<boolean> {
+    if (pollInFlight) return false
+    pollInFlight = true
     try {
       const statuses: UnitStatusResponse[] = await workspaceApi.getUnitsStatus(workspaceId)
       const now = Date.now()
@@ -255,7 +280,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           // Always update non-optimization fields
           unit.run_status = s.run_status
           unit.last_task_id = s.last_task_id
+          unit.error_message = s.error_message
           unit.metrics_snapshot = s.metrics_snapshot
+          unit.run_progress = s.run_progress
+          unit.run_message = s.run_message
           unit.run_count = s.run_count
           unit.last_run_time = s.last_run_time
           unit.bar_count = s.bar_count
@@ -336,20 +364,66 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           }
         }
       }
+      return true
     } catch {
       // Silently ignore poll failures
+      return false
+    } finally {
+      pollInFlight = false
     }
   }
 
   function startPolling(workspaceId: string, intervalMs = 3000) {
     stopPolling()
-    void pollStatus(workspaceId)
-    pollTimer = setInterval(() => pollStatus(workspaceId), intervalMs)
+    pollingWorkspaceId = workspaceId
+    pollingIntervalMs = intervalMs
+    consecutivePollFailures = 0
+    const generation = pollGeneration
+
+    const scheduleNext = (delay: number) => {
+      pollTimer = setTimeout(() => {
+        void pollOnce()
+      }, delay)
+    }
+
+    const pollOnce = async () => {
+      const succeeded = await pollStatus(workspaceId)
+      if (generation !== pollGeneration || pollingWorkspaceId !== workspaceId) return
+
+      if (!succeeded) {
+        consecutivePollFailures += 1
+        if (consecutivePollFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+          pollTimer = null
+          return
+        }
+        const delay = Math.min(
+          pollingIntervalMs * 2 ** consecutivePollFailures,
+          MAX_POLL_BACKOFF_MS,
+        )
+        scheduleNext(delay)
+        return
+      }
+
+      consecutivePollFailures = 0
+      // Initial page hydration and the status request race each other.  Keep
+      // one follow-up poll while the unit list is still empty, then stop after
+      // terminal states so a failed launch cannot create an endless request loop.
+      if (units.value.length > 0 && !hasActiveUnitRuns()) {
+        pollTimer = null
+        return
+      }
+      scheduleNext(pollingIntervalMs)
+    }
+
+    void pollOnce()
   }
 
   function stopPolling() {
+    pollGeneration += 1
+    pollingWorkspaceId = null
+    consecutivePollFailures = 0
     if (pollTimer) {
-      clearInterval(pollTimer)
+      clearTimeout(pollTimer)
       pollTimer = null
     }
   }

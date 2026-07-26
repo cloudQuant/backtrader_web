@@ -1,10 +1,11 @@
 """Tests for gateway_preset_service and gateway_launch_builder modules."""
 
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.gateway_launch_builder import (
+from app.services.gateway.launch_builder import (
     build_binance_gateway_runtime_kwargs,
     build_ctp_gateway_runtime_kwargs,
     build_gateway_launch,
@@ -19,8 +20,9 @@ from app.services.gateway_launch_builder import (
     normalize_gateway_asset_type,
     normalize_gateway_exchange_type,
     parse_json_dict,
+    resolve_ctp_front_selection,
 )
-from app.services.gateway_preset_service import get_gateway_presets
+from app.services.gateway.preset import get_gateway_presets
 
 # ---- gateway_preset_service tests ----
 
@@ -47,6 +49,9 @@ class TestGetGatewayPresets:
         assert "ctp_futures_gateway" in presets
         ctp = presets["ctp_futures_gateway"]
         assert ctp["params"]["gateway"]["exchange_type"] == "CTP"
+        assert ctp["params"]["gateway"]["ctp_env"] == "auto"
+        field_keys = {item["key"] for item in ctp["editable_fields"]}
+        assert {"ctp_env", "set1_group", "td_front", "md_front"} <= field_keys
 
     def test_binance_preset_exists(self):
         presets = {p["id"]: p for p in get_gateway_presets()}
@@ -182,6 +187,59 @@ class TestGetGatewayParams:
 
 
 class TestBuildCtpGatewayRuntimeKwargs:
+    def test_resolve_ctp_front_selection_auto_regular_session(self):
+        result = resolve_ctp_front_selection(
+            gateway_params={"ctp_env": "auto", "set1_group": "2"},
+            env_data={
+                "CTP_SET1_TD_FRONT_2": "tcp://set1-td",
+                "CTP_SET1_MD_FRONT_2": "tcp://set1-md",
+            },
+            now=datetime(2026, 6, 18, 10, 0, 0),
+        )
+
+        assert result["selected_ctp_env"] == "set1_group2"
+        assert result["td_front"] == "tcp://set1-td"
+        assert result["selection_reason"] == "auto_regular_trading_session"
+
+    def test_resolve_ctp_front_selection_auto_after_hours(self):
+        result = resolve_ctp_front_selection(
+            gateway_params={"ctp_env": "auto"},
+            env_data={
+                "CTP_SET2_TD_FRONT": "tcp://set2-td",
+                "CTP_SET2_MD_FRONT": "tcp://set2-md",
+            },
+            now=datetime(2026, 6, 20, 10, 0, 0),
+        )
+
+        assert result["selected_ctp_env"] == "set2_7x24"
+        assert result["md_front"] == "tcp://set2-md"
+        assert result["selection_reason"] == "auto_outside_regular_session"
+
+    def test_resolve_ctp_front_selection_auto_falls_back_when_set1_unreachable(self):
+        checked_fronts = []
+
+        def fronts_reachable(td_front: str, md_front: str) -> bool:
+            checked_fronts.append((td_front, md_front))
+            return td_front != "tcp://set1-td"
+
+        result = resolve_ctp_front_selection(
+            gateway_params={"ctp_env": "auto"},
+            env_data={
+                "CTP_SET1_TD_FRONT_1": "tcp://set1-td",
+                "CTP_SET1_MD_FRONT_1": "tcp://set1-md",
+                "CTP_SET2_TD_FRONT": "tcp://set2-td",
+                "CTP_SET2_MD_FRONT": "tcp://set2-md",
+            },
+            now=datetime(2026, 6, 18, 10, 0, 0),
+            fronts_reachable=fronts_reachable,
+        )
+
+        assert checked_fronts == [("tcp://set1-td", "tcp://set1-md")]
+        assert result["selected_ctp_env"] == "set2_7x24"
+        assert result["td_front"] == "tcp://set2-td"
+        assert result["md_front"] == "tcp://set2-md"
+        assert result["selection_reason"] == "auto_regular_session_set1_unreachable"
+
     def test_complete_ctp_config(self):
         config = {
             "ctp": {
@@ -207,6 +265,7 @@ class TestBuildCtpGatewayRuntimeKwargs:
         assert result["account_id"] == "acc1"
         assert result["exchange_type"] == "CTP"
         assert result["transport"] == "tcp"
+        assert result["selected_ctp_env"] == "custom_front"
 
     def test_raises_on_missing_credentials(self):
         with pytest.raises(ValueError, match="CTP gateway requires"):
@@ -242,6 +301,26 @@ class TestBuildCtpGatewayRuntimeKwargs:
         assert result["password"] == "env_pwd"
         assert result["transport"] == "tcp"
 
+    def test_env_password_overrides_gateway_params(self):
+        config = {
+            "ctp": {
+                "investor_id": "config_inv",
+                "broker_id": "9999",
+                "password": "config_pwd",
+                "fronts": {"simnow": {"td_address": "tcp://td", "md_address": "tcp://md"}},
+            },
+            "live": {"network": "simnow"},
+        }
+        result = build_ctp_gateway_runtime_kwargs(
+            config_data=config,
+            env_data={"CTP_PASSWORD": "env_pwd", "CTP_AUTH_CODE": "env_auth"},
+            gateway_params={"password": "gateway_pwd", "auth_code": "gateway_auth"},
+            default_transport="tcp",
+        )
+
+        assert result["password"] == "env_pwd"
+        assert result["auth_code"] == "env_auth"
+
     def test_default_timeouts_are_extended_for_ctp(self):
         config = {
             "ctp": {
@@ -265,6 +344,93 @@ class TestBuildCtpGatewayRuntimeKwargs:
         )
         assert result["gateway_startup_timeout_sec"] == 60.0
         assert result["gateway_command_timeout_sec"] == 20.0
+
+    def test_ctp_auto_env_runtime_kwargs_include_selected_fronts(self):
+        result = build_ctp_gateway_runtime_kwargs(
+            config_data={
+                "ctp": {"investor_id": "inv001", "broker_id": "9999", "password": "secret"}
+            },
+            env_data={
+                "CTP_SET2_TD_FRONT": "tcp://set2-td",
+                "CTP_SET2_MD_FRONT": "tcp://set2-md",
+            },
+            gateway_params={"ctp_env": "set2", "account_id": "acc1"},
+            default_transport="tcp",
+        )
+
+        assert result["td_address"] == "tcp://set2-td"
+        assert result["md_address"] == "tcp://set2-md"
+        assert result["selected_ctp_env"] == "set2_7x24"
+        assert result["selection_reason"] == "forced_set2"
+
+    def test_ctp_runtime_kwargs_rewrite_fronts_when_proxy_tunnel_available(self, monkeypatch):
+        ensure_tunnel = MagicMock(side_effect=[61001, 61011])
+        monkeypatch.setattr(
+            "app.services.ctp_tunnel.is_proxy_tunnel_needed",
+            lambda: True,
+        )
+        monkeypatch.setattr("app.services.ctp_tunnel.ensure_tunnel", ensure_tunnel)
+
+        result = build_ctp_gateway_runtime_kwargs(
+            config_data={
+                "ctp": {
+                    "investor_id": "inv001",
+                    "broker_id": "9999",
+                    "password": "secret",
+                    "fronts": {
+                        "simnow": {
+                            "td_address": "tcp://td.example:41205",
+                            "md_address": "tcp://md.example:41213",
+                        }
+                    },
+                },
+                "live": {"network": "simnow"},
+            },
+            env_data={},
+            gateway_params={"account_id": "acc1"},
+            default_transport="tcp",
+        )
+
+        assert result["td_address"] == "tcp://127.0.0.1:61001"
+        assert result["md_address"] == "tcp://127.0.0.1:61011"
+        assert result["original_td_front"] == "tcp://td.example:41205"
+        assert result["original_md_front"] == "tcp://md.example:41213"
+        assert result["ctp_proxy_tunnel"] is True
+        ensure_tunnel.assert_any_call("td.example", 41205)
+        ensure_tunnel.assert_any_call("md.example", 41213)
+
+    def test_ctp_runtime_kwargs_can_disable_proxy_tunnel(self, monkeypatch):
+        ensure_tunnel = MagicMock()
+        monkeypatch.setattr(
+            "app.services.ctp_tunnel.is_proxy_tunnel_needed",
+            lambda: True,
+        )
+        monkeypatch.setattr("app.services.ctp_tunnel.ensure_tunnel", ensure_tunnel)
+
+        result = build_ctp_gateway_runtime_kwargs(
+            config_data={
+                "ctp": {
+                    "investor_id": "inv001",
+                    "broker_id": "9999",
+                    "password": "secret",
+                    "fronts": {
+                        "simnow": {
+                            "td_address": "tcp://td.example:41205",
+                            "md_address": "tcp://md.example:41213",
+                        }
+                    },
+                },
+                "live": {"network": "simnow"},
+            },
+            env_data={},
+            gateway_params={"account_id": "acc1", "proxy_tunnel": False},
+            default_transport="tcp",
+        )
+
+        assert result["td_address"] == "tcp://td.example:41205"
+        assert result["md_address"] == "tcp://md.example:41213"
+        assert result["ctp_proxy_tunnel"] is False
+        ensure_tunnel.assert_not_called()
 
 
 # ---- IB Web builder tests ----
@@ -354,6 +520,39 @@ class TestBuildMt5GatewayRuntimeKwargs:
                 gateway_params={},
             )
 
+    def test_build_mt5_runtime_kwargs_with_legacy_account_aliases(self):
+        result = build_mt5_gateway_runtime_kwargs(
+            config_data={},
+            env_data={"MT5_ACCOUNT": "789012", "MT5_PASS": "legacy-pass"},
+            gateway_params={},
+        )
+        assert result["login"] == 789012
+        assert result["password"] == "legacy-pass"
+
+    def test_env_credentials_override_mt5_config_and_gateway_params(self):
+        result = build_mt5_gateway_runtime_kwargs(
+            config_data={
+                "mt5": {"login": "111111", "password": "config-pass", "ws_uri": "config-ws"}
+            },
+            env_data={
+                "MT5_LOGIN": "222222",
+                "MT5_PASSWORD": "env-pass",
+                "MT5_ACCOUNT_ID": "env-account",
+                "MT5_WS_URI": "env-ws",
+            },
+            gateway_params={
+                "login": "333333",
+                "password": "gateway-pass",
+                "account_id": "gateway-account",
+                "ws_uri": "gateway-ws",
+            },
+        )
+
+        assert result["login"] == 222222
+        assert result["password"] == "env-pass"
+        assert result["account_id"] == "env-account"
+        assert result["ws_uri"] == "env-ws"
+
     def test_symbol_map_from_config(self):
         result = build_mt5_gateway_runtime_kwargs(
             config_data={
@@ -393,6 +592,23 @@ class TestBuildCryptoGatewayRuntimeKwargs:
         assert result["asset_type"] == "SPOT"
         assert result["account_id"] == "acct-2"
         assert result["testnet"] is True
+
+    def test_build_okx_runtime_kwargs_with_legacy_password_passphrase(self):
+        result = build_okx_gateway_runtime_kwargs(
+            config_data={},
+            env_data={
+                "OKX_API_KEY": "api",
+                "OKX_SECRET": "secret",
+                "OKX_PASSWORD": "pass",
+            },
+            gateway_params={"asset_type": "spot", "account_id": "acct-2", "testnet": False},
+            default_transport="ipc",
+        )
+        assert result["exchange_type"] == "OKX"
+        assert result["asset_type"] == "SPOT"
+        assert result["account_id"] == "acct-2"
+        assert result["passphrase"] == "pass"
+        assert result["secret_key"] == "secret"
 
 
 class TestGatewaySessionKey:

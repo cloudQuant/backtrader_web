@@ -1,4 +1,6 @@
-# 4048_kq_foreign_trade_index.py
+import argparse
+import logging
+import sys
 
 import numpy as np
 import pandas as pd
@@ -96,32 +98,29 @@ class KQForeignTradeIndex(AkshareToMySql):
 
 
 def main():
-    ...
-    # logging.basicConfig(
-    #     level=logging.INFO,
-    #     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    #     handlers=[logging.StreamHandler(sys.stdout)]
-    # )
-    # logger = logging.getLogger(__name__)
-    #
-    # parser = argparse.ArgumentParser(description='Update Keqiao Textile Foreign Trade Index Data')
-    # parser.add_argument('--update-all', action='store_true',
-    #                    help='Update all historical data')
-    # parser.add_argument('--debug', action='store_true',
-    #                    help='Enable debug logging')
-    #
-    # try:
-    #     args = parser.parse_args()
-    #     if args.debug:
-    #         logger.setLevel(logging.DEBUG)
-    #
-    #     fetcher = KQForeignTradeIndex(logger=logger)
-    #     success = fetcher.run(update_all=args.update_all)
-    #     sys.exit(0 if success else 1)
-    #
-    # except Exception as e:
-    #     logger.error(f"Error: {str(e)}", exc_info=args.debug if 'args' in locals() else False)
-    #     sys.exit(1)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
+    logger = logging.getLogger(__name__)
+
+    parser = argparse.ArgumentParser(description="Update Keqiao Textile Foreign Trade Index Data")
+    parser.add_argument("--update-all", action="store_true", help="Update all historical data")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+
+    try:
+        args = parser.parse_args()
+        if args.debug:
+            logger.setLevel(logging.DEBUG)
+
+        fetcher = KQForeignTradeIndex(logger=logger)
+        success = fetcher.run(update_all=args.update_all)
+        sys.exit(0 if success else 1)
+
+    except Exception as e:
+        logger.error(f"Error: {str(e)}", exc_info=args.debug if "args" in locals() else False)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

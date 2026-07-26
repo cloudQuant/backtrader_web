@@ -4,10 +4,9 @@ Sandbox security execution tests.
 
 from unittest.mock import patch
 
-import backtrader as bt
 import pytest
 
-from app.utils.sandbox import DockerSandbox, StrategySandbox, execute_strategy_safely
+from app.utils.sandbox import DockerSandbox, StrategySandbox, bt, execute_strategy_safely
 
 VALID_STRATEGY = """
 class MyStrategy(bt.Strategy):
@@ -171,9 +170,8 @@ class TestCreateSafeGlobals:
 
     def test_safe_globals_has_bt(self):
         g = StrategySandbox._create_safe_globals()
-        import backtrader as bt
 
-        assert g["bt"] is bt
+        assert g["bt"] is StrategySandbox._safe_import("bt")
 
     def test_safe_globals_has_safe_import(self):
         g = StrategySandbox._create_safe_globals()
@@ -193,11 +191,11 @@ class TestCreateSafeGlobals:
         """Test contains safe print function."""
         g = StrategySandbox._create_safe_globals()
         assert "__print__" in g
+        assert g["__builtins__"]["print"] == StrategySandbox._safe_print
 
     def test_safe_globals_no_dangerous_builtins(self):
         """Test does not contain dangerous built-in functions."""
         g = StrategySandbox._create_safe_globals()
-        assert "print" not in g["__builtins__"]
         assert "open" not in g["__builtins__"]
         assert "eval" not in g["__builtins__"]
         assert "exec" not in g["__builtins__"]
@@ -223,6 +221,12 @@ class TestSafeImport:
         """Test allowed import of bt."""
         result = StrategySandbox._safe_import("bt")
         assert result is not None
+
+    def test_allowed_import_backtrader(self):
+        """Test allowed import of the canonical backtrader module name."""
+        result = StrategySandbox._safe_import("backtrader")
+
+        assert result is StrategySandbox._ALLOWED_MODULES["backtrader"]
 
     def test_disallowed_import_socket(self):
         """Test disallowed import of socket."""
@@ -258,6 +262,34 @@ class TestExecuteStrategyCode:
         assert result is not None
         assert issubclass(result, bt.Strategy)
         assert result.__name__ == "MyStrategy"
+
+    def test_execute_strategy_with_backtrader_import_alias(self):
+        """AI-generated Backtrader code commonly imports backtrader as bt."""
+        code = """
+import backtrader as bt
+
+class ImportedStrategy(bt.Strategy):
+    def next(self):
+        pass
+"""
+        result = StrategySandbox.execute_strategy_code(code)
+        assert result is not None
+        assert issubclass(result, bt.Strategy)
+        assert result.__name__ == "ImportedStrategy"
+
+    def test_execute_strategy_with_backtrader_strategy_import(self):
+        """The sandbox should also support from backtrader import Strategy."""
+        code = """
+from backtrader import Strategy
+
+class ImportedBaseStrategy(Strategy):
+    def next(self):
+        pass
+"""
+        result = StrategySandbox.execute_strategy_code(code)
+        assert result is not None
+        assert issubclass(result, bt.Strategy)
+        assert result.__name__ == "ImportedBaseStrategy"
 
     def test_execute_no_strategy_class(self):
         """Test code without strategy class."""
@@ -301,6 +333,19 @@ class TestStrategy(bt.Strategy):
         code = "x = not_defined_name\n"
         with pytest.raises(NameError, match="Undefined name"):
             StrategySandbox.execute_strategy_code(code)
+
+    def test_execute_allows_safe_print(self):
+        """Strategy code may use print for logging; sandbox maps it to a no-op."""
+        code = """
+print('strategy loaded')
+
+class TestStrategy(bt.Strategy):
+    def next(self):
+        print('bar', len(self))
+"""
+        result = StrategySandbox.execute_strategy_code(code)
+
+        assert issubclass(result, bt.Strategy)
 
     def test_execute_attribute_error_at_top_level(self):
         """AttributeError should be re-raised with a helpful message."""
@@ -439,6 +484,13 @@ class TestStrategy(bt.Strategy):
         result = StrategySandbox.execute_strategy_code(code)
         assert result is not None
         assert issubclass(result, bt.Strategy)
+
+
+class TestStrategyPreflight:
+    def test_preflight_allows_bounded_startup_grace_before_cpu_limit(self):
+        result = StrategySandbox.validate_strategy_code(VALID_STRATEGY, timeout=1)
+
+        assert result == "MyStrategy"
 
 
 class TestExecuteStrategySafely:

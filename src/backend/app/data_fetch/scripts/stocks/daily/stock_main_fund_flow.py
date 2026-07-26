@@ -31,6 +31,22 @@ class StockMainFundFlow(AkshareToMySql):
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Stock Main Fund Flow'
     """
 
+    @staticmethod
+    def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+        """Populate standard query columns while preserving source columns."""
+        if df.empty:
+            return df
+
+        df = df.copy()
+        if "代码" in df.columns:
+            symbol = df["代码"].astype(str).str.strip()
+            numeric_symbol = symbol.str.fullmatch(r"\d+")
+            symbol.loc[numeric_symbol] = symbol.loc[numeric_symbol].str.zfill(6)
+            df["symbol"] = symbol
+        if "名称" in df.columns:
+            df["name"] = df["名称"].astype(str).str.strip()
+        return df
+
     def fetch_data(self, **kwargs):
         """Fetch data from AkShare and save to database.
 
@@ -52,6 +68,7 @@ class StockMainFundFlow(AkshareToMySql):
             # Add data_date if not exists
             if "data_date" not in df.columns:
                 df["data_date"] = pd.Timestamp.now().date()
+            df = self.normalize_columns(df)
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)

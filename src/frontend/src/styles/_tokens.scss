@@ -1,0 +1,114 @@
+// =============================================================================
+// Design Tokens - Single Source of Truth
+// =============================================================================
+// All color, spacing, typography, and radius values should reference these tokens.
+// Do NOT hardcode hex values in component scoped styles.
+
+// -----------------------------------------------------------------------------
+// Colors
+// -----------------------------------------------------------------------------
+
+// Brand / Primary (Blue)
+$color-primary: #3b82f6;
+$color-primary-light: #60a5fa;
+$color-primary-dark: #2563eb;
+$color-primary-bg: #eff6ff;
+$color-primary-border: #bfdbfe;
+
+// Semantic
+$color-success: #10b981;
+$color-success-light: #d1fae5;
+$color-success-dark: #059669;
+$color-danger: #ef4444;
+$color-danger-light: #fee2e2;
+$color-danger-dark: #dc2626;
+$color-warning: #f59e0b;
+$color-warning-light: #fef3c7;
+$color-warning-dark: #d97706;
+$color-info: #6b7280;
+
+// Text
+$color-text-primary: #1f2937;    // gray-800
+$color-text-regular: #4b5563;    // gray-600
+$color-text-secondary: #6b7280;  // gray-500
+$color-text-placeholder: #9ca3af; // gray-400
+
+// Background
+$color-bg-page: #f9fafb;         // gray-50
+$color-bg-card: #ffffff;
+$color-bg-hover: #f3f4f6;        // gray-100
+$color-bg-active: #eff6ff;       // blue-50
+
+// Border
+$color-border: #e5e7eb;          // gray-200
+$color-border-light: #f3f4f6;    // gray-100
+$color-border-active: #3b82f6;   // primary
+
+// -----------------------------------------------------------------------------
+// Spacing
+// -----------------------------------------------------------------------------
+$spacing-xs: 4px;
+$spacing-sm: 8px;
+$spacing-md: 12px;
+$spacing-lg: 16px;
+$spacing-xl: 20px;
+$spacing-2xl: 24px;
+$spacing-3xl: 32px;
+
+// Page-level spacing (between sections)
+$page-gap: 24px;  // Tailwind space-y-6
+
+// Card grid gap
+$card-grid-gap: 24px;  // Tailwind gap-6
+
+// -----------------------------------------------------------------------------
+// Border Radius
+// -----------------------------------------------------------------------------
+$radius-sm: 4px;    // Element Plus default
+$radius-md: 6px;    // Slightly rounded
+$radius-lg: 8px;    // Cards, panels
+$radius-xl: 12px;   // Large containers
+$radius-full: 9999px; // Pills, badges
+
+// -----------------------------------------------------------------------------
+// Typography
+// -----------------------------------------------------------------------------
+$font-size-xs: 12px;
+$font-size-sm: 13px;
+$font-size-base: 14px;
+$font-size-lg: 16px;
+$font-size-xl: 20px;
+$font-size-2xl: 24px;
+$font-size-3xl: 30px;
+
+$font-weight-normal: 400;
+$font-weight-medium: 500;
+$font-weight-semibold: 600;
+$font-weight-bold: 700;
+
+// Stat card values
+$stat-value-size: $font-size-3xl; // text-3xl (30px)
+$stat-label-size: $font-size-sm;
+
+// -----------------------------------------------------------------------------
+// Shadows
+// -----------------------------------------------------------------------------
+$shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+$shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+$shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+
+// -----------------------------------------------------------------------------
+// Table Standards
+// -----------------------------------------------------------------------------
+// All data tables should use: stripe + size="small"
+// Only QuotePage adds border for dense real-time data
+
+// -----------------------------------------------------------------------------
+// Button Standards
+// -----------------------------------------------------------------------------
+// Page-level toolbar: size="default"
+// Table/card inline actions: size="small"
+// Dialog footer: size="default"
+// Primary action: type="primary"
+// Secondary/cancel: no type (default)
+// Destructive: type="danger"

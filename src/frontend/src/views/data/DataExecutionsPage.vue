@@ -1,62 +1,92 @@
 <template>
-  <div class="space-y-6">
-    <section class="stats-grid">
-      <el-card>
-        <div class="stat-title">
-          总执行
+  <div
+    class="executions-page"
+    data-test="executions-page"
+  >
+    <section
+      class="executions-hero"
+      data-test="executions-hero"
+    >
+      <div class="executions-hero-copy">
+        <div class="executions-kicker">
+          {{ t('dataPages.execHeroKicker') }}
         </div>
-        <div class="stat-value">
-          {{ stats.total_count }}
-        </div>
-      </el-card>
-      <el-card>
-        <div class="stat-title">
-          成功
-        </div>
-        <div class="stat-value success">
-          {{ stats.success_count }}
-        </div>
-      </el-card>
-      <el-card>
-        <div class="stat-title">
-          失败
-        </div>
-        <div class="stat-value danger">
-          {{ stats.failed_count }}
-        </div>
-      </el-card>
-      <el-card>
-        <div class="stat-title">
-          运行中
-        </div>
-        <div class="stat-value primary">
-          {{ stats.running_count }}
-        </div>
-      </el-card>
+        <h1>{{ t('dataPages.execPageTitle') }}</h1>
+        <p>{{ t('dataPages.execPageDesc') }}</p>
+      </div>
+
+      <div class="executions-hero-actions">
+        <el-button
+          :icon="Refresh"
+          :loading="loading"
+          @click="loadExecutions"
+        >
+          {{ t('dataPages.execRefresh') }}
+        </el-button>
+      </div>
+
+      <div
+        class="executions-metrics"
+        data-test="executions-metrics"
+      >
+        <article class="executions-metric">
+          <el-icon aria-hidden="true">
+            <Operation />
+          </el-icon>
+          <span>{{ t('dataPages.execStatTotal') }}</span>
+          <strong>{{ stats.total_count }}</strong>
+        </article>
+        <article class="executions-metric">
+          <el-icon aria-hidden="true">
+            <CircleCheck />
+          </el-icon>
+          <span>{{ t('dataPages.execStatSuccess') }}</span>
+          <strong class="is-success">{{ stats.success_count }}</strong>
+        </article>
+        <article class="executions-metric">
+          <el-icon aria-hidden="true">
+            <Warning />
+          </el-icon>
+          <span>{{ t('dataPages.execStatFailed') }}</span>
+          <strong class="is-danger">{{ stats.failed_count }}</strong>
+        </article>
+        <article class="executions-metric">
+          <el-icon aria-hidden="true">
+            <Clock />
+          </el-icon>
+          <span>{{ t('dataPages.execStatRunning') }}</span>
+          <strong>{{ stats.running_count }}</strong>
+        </article>
+      </div>
     </section>
 
-    <el-card>
+    <el-card
+      class="executions-workbench"
+      data-test="executions-workbench"
+    >
       <template #header>
-        <div class="header-row">
+        <div class="executions-panel-heading">
           <div>
-            <div class="page-title">
-              执行记录
+            <div class="executions-kicker">
+              {{ t('dataPages.execWorkbenchKicker') }}
             </div>
-            <div class="page-subtitle">
-              按任务、脚本和状态排查 akshare 采集执行情况。
+            <div class="executions-panel-title">
+              {{ t('dataPages.execWorkbenchTitle') }}
             </div>
+            <p>{{ t('dataPages.execWorkbenchDesc') }}</p>
           </div>
-          <el-button @click="loadExecutions">
-            刷新
-          </el-button>
+          <div class="executions-count">
+            {{ t('dataPages.execVisibleCount', { count: executions.length }) }}
+            <span>{{ t('dataPages.execTotalCount', { count: total }) }}</span>
+          </div>
         </div>
       </template>
 
-      <div class="toolbar">
+      <div class="executions-toolbar">
         <el-input
           v-model="filters.script_id"
           clearable
-          placeholder="脚本 ID"
+          :placeholder="t('dataPages.execScriptIdPh')"
           class="toolbar-item"
         />
         <el-input-number
@@ -64,13 +94,13 @@
           :min="1"
           :controls="false"
           class="toolbar-item"
-          placeholder="任务 ID"
+          :placeholder="t('dataPages.execTaskIdPh')"
         />
         <el-select
           v-model="filters.status"
           clearable
           class="toolbar-item"
-          placeholder="执行状态"
+          :placeholder="t('dataPages.execStatusPh')"
         >
           <el-option
             v-for="status in statuses"
@@ -81,103 +111,179 @@
         </el-select>
         <el-button
           type="primary"
+          :icon="Search"
           @click="reloadFirstPage"
         >
-          查询
+          {{ t('dataPages.execQuery') }}
         </el-button>
       </div>
 
-      <el-table
-        v-loading="loading"
-        :data="executions"
-        stripe
+      <div
+        v-if="!loading && executions.length === 0"
+        class="executions-empty"
       >
-        <el-table-column
-          prop="execution_id"
-          label="执行 ID"
-          min-width="180"
-        />
-        <el-table-column
-          prop="script_id"
-          label="脚本"
-          min-width="140"
-        />
-        <el-table-column
-          prop="task_id"
-          label="任务"
-          width="90"
-        />
-        <el-table-column
-          label="状态"
-          width="110"
+        <strong>{{ t('dataPages.execEmptyTitle') }}</strong>
+        <span>{{ t('dataPages.execEmptyDesc') }}</span>
+      </div>
+
+      <template v-else>
+        <el-table
+          v-loading="loading"
+          :data="executions"
+          stripe
+          class="executions-table"
+          data-test="executions-table"
         >
-          <template #default="{ row }">
-            <el-tag :type="statusMap[row.status]?.type || 'info'">
-              {{ statusMap[row.status]?.label || row.status }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="triggered_by"
-          label="触发方式"
-          width="110"
-        />
-        <el-table-column
-          prop="start_time"
-          label="开始时间"
-          width="180"
+          <el-table-column
+            prop="execution_id"
+            :label="t('dataPages.execColExecId')"
+            min-width="190"
+          >
+            <template #default="{ row }">
+              <div class="execution-id-cell">
+                <strong>{{ row.execution_id }}</strong>
+                <span>{{ row.created_at ? formatDateTime(row.created_at) : '-' }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="script_id"
+            :label="t('dataPages.execColScript')"
+            min-width="150"
+          />
+          <el-table-column
+            prop="task_id"
+            :label="t('dataPages.execColTask')"
+            width="90"
+          />
+          <el-table-column
+            :label="t('dataPages.execColStatus')"
+            width="120"
+          >
+            <template #default="{ row }">
+              <el-tag :type="statusMap[row.status]?.type || 'info'">
+                {{ statusMap[row.status]?.label || row.status }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="triggered_by"
+            :label="t('dataPages.execColTriggeredBy')"
+            width="120"
+          />
+          <el-table-column
+            prop="start_time"
+            :label="t('dataPages.execColStartTime')"
+            width="180"
+          >
+            <template #default="{ row }">
+              {{ formatDateTime(row.start_time) }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="duration"
+            :label="t('dataPages.execColDuration')"
+            width="110"
+          >
+            <template #default="{ row }">
+              {{ formatDuration(row.duration) }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="t('dataPages.execColRowsDelta')"
+            width="140"
+          >
+            <template #default="{ row }">
+              {{ formatRowsDelta(row) }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            prop="error_message"
+            :label="t('dataPages.execColErrorMessage')"
+            min-width="220"
+            show-overflow-tooltip
+          >
+            <template #default="{ row }">
+              <span class="error-message">{{ row.error_message || t('dataPages.execNoErrorMessage') }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column
+            :label="t('dataPages.execColActions')"
+            fixed="right"
+            min-width="180"
+          >
+            <template #default="{ row }">
+              <div class="execution-table-actions">
+                <el-button
+                  link
+                  type="primary"
+                  @click="openDetail(row.execution_id)"
+                >
+                  {{ t('dataPages.execActionDetail') }}
+                </el-button>
+                <el-button
+                  v-if="isAdmin && row.status === 'failed'"
+                  link
+                  type="danger"
+                  @click="retryExecution(row.execution_id)"
+                >
+                  {{ t('dataPages.execActionRetry') }}
+                </el-button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div
+          class="executions-mobile-list"
+          data-test="executions-mobile-list"
         >
-          <template #default="{ row }">
-            {{ formatDateTime(row.start_time) }}
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="duration"
-          label="耗时"
-          width="100"
-        >
-          <template #default="{ row }">
-            {{ row.duration ? `${row.duration.toFixed(2)}s` : '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column
-          label="数据量"
-          width="140"
-        >
-          <template #default="{ row }">
-            {{ row.rows_before ?? '-' }} -> {{ row.rows_after ?? '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="error_message"
-          label="错误信息"
-          min-width="220"
-          show-overflow-tooltip
-        />
-        <el-table-column
-          label="操作"
-          fixed="right"
-          min-width="180"
-        >
-          <template #default="{ row }">
-            <el-button
-              link
-              type="primary"
-              @click="openDetail(row.execution_id)"
-            >
-              详情
-            </el-button>
-            <el-button
-              v-if="isAdmin && row.status === 'failed'"
-              link
-              type="danger"
-              @click="retryExecution(row.execution_id)"
-            >
-              重试
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+          <article
+            v-for="execution in executions"
+            :key="execution.execution_id"
+            class="execution-mobile-card"
+          >
+            <div class="execution-mobile-head">
+              <div>
+                <strong>{{ execution.execution_id }}</strong>
+                <span>{{ execution.script_id }}</span>
+              </div>
+              <span :class="`is-${execution.status}`">
+                {{ statusMap[execution.status]?.label || execution.status }}
+              </span>
+            </div>
+            <div class="execution-mobile-grid">
+              <span>{{ t('dataPages.execColTask') }}</span>
+              <strong>{{ execution.task_id ?? '-' }}</strong>
+              <span>{{ t('dataPages.execColTriggeredBy') }}</span>
+              <strong>{{ execution.triggered_by }}</strong>
+              <span>{{ t('dataPages.execColStartTime') }}</span>
+              <strong>{{ formatDateTime(execution.start_time) }}</strong>
+              <span>{{ t('dataPages.execColDuration') }}</span>
+              <strong>{{ formatDuration(execution.duration) }}</strong>
+              <span>{{ t('dataPages.execColRowsDelta') }}</span>
+              <strong>{{ formatRowsDelta(execution) }}</strong>
+            </div>
+            <p>{{ execution.error_message || t('dataPages.execNoErrorMessage') }}</p>
+            <div class="execution-mobile-actions">
+              <el-button
+                size="small"
+                @click="openDetail(execution.execution_id)"
+              >
+                {{ t('dataPages.execActionDetail') }}
+              </el-button>
+              <el-button
+                v-if="isAdmin && execution.status === 'failed'"
+                size="small"
+                type="danger"
+                @click="retryExecution(execution.execution_id)"
+              >
+                {{ t('dataPages.execActionRetry') }}
+              </el-button>
+            </div>
+          </article>
+        </div>
+      </template>
 
       <div class="pagination-wrap">
         <el-pagination
@@ -194,53 +300,54 @@
 
     <el-drawer
       v-model="detailVisible"
-      title="执行详情"
+      :title="t('dataPages.execDetailTitle')"
       size="55%"
+      class="execution-detail-drawer"
     >
       <div v-if="currentExecution">
         <el-descriptions
           :column="2"
           border
         >
-          <el-descriptions-item label="执行 ID">
+          <el-descriptions-item :label="t('dataPages.execDetailExecId')">
             {{ currentExecution.execution_id }}
           </el-descriptions-item>
-          <el-descriptions-item label="脚本 ID">
+          <el-descriptions-item :label="t('dataPages.execDetailScriptId')">
             {{ currentExecution.script_id }}
           </el-descriptions-item>
-          <el-descriptions-item label="任务 ID">
+          <el-descriptions-item :label="t('dataPages.execDetailTaskId')">
             {{ currentExecution.task_id ?? '-' }}
           </el-descriptions-item>
-          <el-descriptions-item label="状态">
+          <el-descriptions-item :label="t('dataPages.execDetailStatus')">
             {{ currentExecution.status }}
           </el-descriptions-item>
-          <el-descriptions-item label="开始时间">
+          <el-descriptions-item :label="t('dataPages.execDetailStartTime')">
             {{ formatDateTime(currentExecution.start_time) }}
           </el-descriptions-item>
-          <el-descriptions-item label="结束时间">
+          <el-descriptions-item :label="t('dataPages.execDetailEndTime')">
             {{ formatDateTime(currentExecution.end_time) }}
           </el-descriptions-item>
         </el-descriptions>
 
         <div class="drawer-section">
           <div class="section-title">
-            执行参数
+            {{ t('dataPages.execDetailParams') }}
           </div>
           <pre>{{ toJsonText(currentExecution.params || {}) }}</pre>
         </div>
 
         <div class="drawer-section">
           <div class="section-title">
-            执行结果
+            {{ t('dataPages.execDetailResult') }}
           </div>
           <pre>{{ toJsonText(currentExecution.result || {}) }}</pre>
         </div>
 
         <div class="drawer-section">
           <div class="section-title">
-            错误堆栈
+            {{ t('dataPages.execDetailErrorTrace') }}
           </div>
-          <pre>{{ currentExecution.error_trace || currentExecution.error_message || '无' }}</pre>
+          <pre>{{ currentExecution.error_trace || currentExecution.error_message || t('dataPages.execDetailNoError') }}</pre>
         </div>
       </div>
     </el-drawer>
@@ -249,14 +356,24 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import {
+  CircleCheck,
+  Clock,
+  Operation,
+  Refresh,
+  Search,
+  Warning,
+} from '@element-plus/icons-vue'
 import { akshareExecutionsApi } from '@/api/akshare'
 import { getErrorMessage } from '@/api/index'
 import { useAuthStore } from '@/stores/auth'
 import type { ExecutionStatsResponse, TaskExecution } from '@/types'
 import { formatDateTime, toJsonText } from '@/views/data/utils'
 
+const { t } = useI18n()
 const route = useRoute()
 const authStore = useAuthStore()
 
@@ -283,13 +400,21 @@ const filters = reactive({
 
 const isAdmin = computed(() => authStore.user?.is_admin ?? false)
 const statuses = ['pending', 'running', 'completed', 'failed', 'timeout', 'cancelled'] as const
-const statusMap: Record<string, { label: string; type: 'info' | 'primary' | 'success' | 'warning' | 'danger' }> = {
-  pending: { label: '等待中', type: 'info' },
-  running: { label: '执行中', type: 'primary' },
-  completed: { label: '已完成', type: 'success' },
-  failed: { label: '失败', type: 'danger' },
-  timeout: { label: '超时', type: 'warning' },
-  cancelled: { label: '已取消', type: 'info' },
+const statusMap = computed<Record<string, { label: string; type: 'info' | 'primary' | 'success' | 'warning' | 'danger' }>>(() => ({
+  pending: { label: t('dataPages.execStatusPending'), type: 'info' },
+  running: { label: t('dataPages.execStatusRunning'), type: 'primary' },
+  completed: { label: t('dataPages.execStatusCompleted'), type: 'success' },
+  failed: { label: t('dataPages.execStatusFailed'), type: 'danger' },
+  timeout: { label: t('dataPages.execStatusTimeout'), type: 'warning' },
+  cancelled: { label: t('dataPages.execStatusCancelled'), type: 'info' },
+}))
+
+function formatDuration(value: number | null | undefined): string {
+  return typeof value === 'number' ? `${value.toFixed(2)}s` : '-'
+}
+
+function formatRowsDelta(row: Pick<TaskExecution, 'rows_before' | 'rows_after'>): string {
+  return `${row.rows_before ?? '-'} -> ${row.rows_after ?? '-'}`
 }
 
 async function loadStats() {
@@ -309,7 +434,7 @@ async function loadExecutions() {
     executions.value = response.items
     total.value = response.total
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载执行记录失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.execLoadFailed')))
   } finally {
     loading.value = false
   }
@@ -330,17 +455,17 @@ async function openDetail(executionId: string) {
     currentExecution.value = await akshareExecutionsApi.getDetail(executionId)
     detailVisible.value = true
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载执行详情失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.execLoadDetailFailed')))
   }
 }
 
 async function retryExecution(executionId: string) {
   try {
     const result = await akshareExecutionsApi.retry(executionId)
-    ElMessage.success(`已重试：${result.execution_id}`)
+    ElMessage.success(t('dataPages.execRetried', { id: result.execution_id }))
     await Promise.all([loadStats(), loadExecutions()])
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '重试执行失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.execRetryFailed')))
   }
 }
 
@@ -357,54 +482,334 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.stats-grid {
+.executions-page {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+  gap: 24px;
 }
 
-.stat-title {
-  color: #64748b;
-  font-size: 13px;
+.executions-hero,
+.executions-workbench {
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--bg-color);
+  color: var(--text-color-primary);
+  box-shadow: 0 1px 2px var(--shadow-color);
 }
 
-.stat-value {
-  margin-top: 8px;
-  font-size: 28px;
-  font-weight: 700;
-  color: #0f172a;
+.executions-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  padding: 24px;
 }
 
-.stat-value.success { color: #15803d; }
-.stat-value.danger { color: #b91c1c; }
-.stat-value.primary { color: #1d4ed8; }
+.executions-hero-copy {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
 
-.header-row,
-.toolbar {
+.executions-kicker {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.executions-hero h1 {
+  margin: 0;
+  color: var(--text-color-primary);
+  font-size: 30px;
+  line-height: 1.12;
+}
+
+.executions-hero p,
+.executions-panel-heading p {
+  max-width: 780px;
+  margin: 0;
+  color: var(--text-color-regular);
+  line-height: 1.65;
+}
+
+.executions-hero-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   flex-wrap: wrap;
 }
 
-.page-title {
+.executions-metrics {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.executions-metric {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+}
+
+.executions-metric .el-icon {
+  color: var(--primary-color);
+  font-size: 18px;
+}
+
+.executions-metric span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.executions-metric strong {
+  color: var(--text-color-primary);
   font-size: 20px;
-  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
-.page-subtitle {
-  margin-top: 4px;
-  color: #64748b;
+.executions-metric .is-success {
+  color: var(--success-text-color);
 }
 
-.toolbar {
-  margin-bottom: 16px;
+.executions-metric .is-danger {
+  color: var(--danger-text-color);
+}
+
+.executions-workbench {
+  box-shadow: none;
+}
+
+.executions-workbench :deep(.el-card__header) {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-color-light);
+}
+
+.executions-workbench :deep(.el-card__body) {
+  padding: 18px;
+}
+
+.executions-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.executions-panel-title {
+  margin: 4px 0 6px;
+  color: var(--text-color-primary);
+  font-size: 18px;
+  font-weight: 780;
+  line-height: 1.25;
+}
+
+.executions-count {
+  display: grid;
+  gap: 4px;
+  min-width: 140px;
+  color: var(--text-color-primary);
+  font-size: 18px;
+  font-weight: 760;
+  line-height: 1.2;
+  text-align: right;
+}
+
+.executions-count span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.executions-toolbar {
+  display: flex;
+  align-items: center;
   justify-content: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
 .toolbar-item {
   width: 180px;
+  max-width: 100%;
+}
+
+.executions-table {
+  width: 100%;
+}
+
+.executions-table :deep(.el-table__header-wrapper th) {
+  background: var(--fill-color-lighter);
+  color: var(--text-color-secondary);
+  font-weight: 760;
+}
+
+.execution-id-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.execution-id-cell strong {
+  color: var(--text-color-primary);
+  font-weight: 720;
+  overflow-wrap: anywhere;
+}
+
+.execution-id-cell span,
+.error-message {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.execution-table-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px 8px;
+  flex-wrap: wrap;
+}
+
+.executions-mobile-list {
+  display: none;
+  gap: 12px;
+}
+
+.execution-mobile-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+}
+
+.execution-mobile-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.execution-mobile-head > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.execution-mobile-head strong {
+  color: var(--text-color-primary);
+  font-size: 14px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.execution-mobile-head span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.execution-mobile-head [class^='is-'] {
+  flex: none;
+  padding: 5px 8px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--bg-color);
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.execution-mobile-head .is-completed {
+  border-color: var(--success-border-color);
+  background: var(--success-surface);
+  color: var(--success-text-color);
+}
+
+.execution-mobile-head .is-failed,
+.execution-mobile-head .is-timeout {
+  border-color: var(--danger-border-color);
+  background: var(--danger-surface);
+  color: var(--danger-text-color);
+}
+
+.execution-mobile-head .is-running {
+  border-color: var(--info-border-color);
+  background: var(--info-surface);
+  color: var(--info-text-color);
+}
+
+.execution-mobile-grid {
+  display: grid;
+  grid-template-columns: minmax(95px, 0.45fr) minmax(0, 1fr);
+  gap: 8px 10px;
+  padding: 12px;
+  border: 1px solid var(--border-color-light);
+  border-radius: 8px;
+  background: var(--bg-color);
+}
+
+.execution-mobile-grid span {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.execution-mobile-grid strong {
+  color: var(--text-color-primary);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.execution-mobile-card p {
+  margin: 0;
+  color: var(--text-color-regular);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.execution-mobile-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.executions-empty {
+  display: grid;
+  gap: 8px;
+  min-height: 180px;
+  place-items: center;
+  padding: 28px;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  background: var(--fill-color-lighter);
+  text-align: center;
+}
+
+.executions-empty strong {
+  color: var(--text-color-primary);
+  font-size: 18px;
+}
+
+.executions-empty span {
+  max-width: 520px;
+  color: var(--text-color-secondary);
+  line-height: 1.5;
 }
 
 .pagination-wrap {
@@ -419,27 +824,101 @@ onMounted(() => {
 
 .section-title {
   margin-bottom: 8px;
-  font-weight: 700;
+  color: var(--text-color-primary);
+  font-weight: 760;
 }
 
 pre {
   margin: 0;
   padding: 14px;
-  background: #0f172a;
-  color: #e2e8f0;
-  border-radius: 12px;
+  border: 1px solid var(--border-color-light);
+  background: var(--code-bg-color);
+  color: var(--code-text-color);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.55;
   overflow: auto;
 }
 
+.execution-detail-drawer :deep(.el-drawer) {
+  background: var(--bg-color);
+  color: var(--text-color-primary);
+}
+
+.execution-detail-drawer :deep(.el-drawer__header) {
+  margin-bottom: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color-light);
+  color: var(--text-color-primary);
+}
+
+.execution-detail-drawer :deep(.el-drawer__body) {
+  background: var(--bg-color);
+  color: var(--text-color-primary);
+}
+
+.execution-detail-drawer :deep(.el-descriptions__body),
+.execution-detail-drawer :deep(.el-descriptions__cell) {
+  background: var(--bg-color);
+  color: var(--text-color-primary);
+}
+
 @media (max-width: 960px) {
-  .stats-grid {
+  .executions-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .executions-hero-actions {
+    justify-content: flex-start;
+  }
+
+  .executions-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .executions-table {
+    display: none;
+  }
+
+  .executions-mobile-list {
+    display: grid;
+  }
+
+  .executions-panel-heading {
+    display: grid;
+  }
+
+  .executions-count {
+    text-align: left;
   }
 }
 
 @media (max-width: 640px) {
-  .stats-grid {
+  .executions-hero {
+    padding: 18px;
+  }
+
+  .executions-hero h1 {
+    font-size: 24px;
+  }
+
+  .executions-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .executions-hero-actions,
+  .execution-mobile-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .executions-hero-actions :deep(.el-button),
+  .execution-mobile-actions :deep(.el-button) {
+    width: 100%;
+  }
+
+  .toolbar-item {
+    width: 100%;
   }
 }
 </style>

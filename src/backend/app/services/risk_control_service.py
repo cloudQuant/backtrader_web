@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
+from app.services.trading_asset_info_service import symbol_aliases
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -108,18 +109,38 @@ class RiskControlService:
         """
         if not self.config.enable_position_limit:
             return True, None
+        if account_balance <= 0:
+            alert = RiskAlert(
+                alert_type=RiskAlertType.POSITION_LIMIT,
+                level=RiskAlertLevel.CRITICAL,
+                message="账户余额无效，无法校验仓位限制",
+                instance_id=instance_id,
+                details={
+                    "symbol": symbol,
+                    "account_balance": account_balance,
+                },
+            )
+            self._add_alert(alert)
+            return False, alert
+
+        projected_symbol_position = self._projected_symbol_position(
+            symbol,
+            position_size,
+            current_positions,
+        )
 
         # 检查单品种仓位
-        single_position_pct = (position_size / account_balance) * 100
+        single_position_pct = (projected_symbol_position / account_balance) * 100
         if single_position_pct > self.config.max_position_pct:
             alert = RiskAlert(
                 alert_type=RiskAlertType.POSITION_LIMIT,
                 level=RiskAlertLevel.WARNING,
-                message=f"单品种仓位超限: {symbol} 仓位 {single_position_pct:.1f}% 超过上限 {self.config.max_position_pct}%",
+                message=f"单品种仓位超限: {symbol} 预计仓位 {single_position_pct:.1f}% 超过上限 {self.config.max_position_pct}%",
                 instance_id=instance_id,
                 details={
                     "symbol": symbol,
                     "position_pct": single_position_pct,
+                    "projected_position": projected_symbol_position,
                     "limit": self.config.max_position_pct,
                 },
             )
@@ -127,7 +148,7 @@ class RiskControlService:
             return False, alert
 
         # 检查总仓位
-        total_position = sum(current_positions.values()) + position_size
+        total_position = self._projected_total_position(symbol, position_size, current_positions)
         total_position_pct = (total_position / account_balance) * 100
         if total_position_pct > self.config.max_total_position_pct:
             alert = RiskAlert(
@@ -136,6 +157,7 @@ class RiskControlService:
                 message=f"总仓位超限: 当前 {total_position_pct:.1f}% 超过上限 {self.config.max_total_position_pct}%",
                 instance_id=instance_id,
                 details={
+                    "total_position": total_position,
                     "total_position_pct": total_position_pct,
                     "limit": self.config.max_total_position_pct,
                 },
@@ -144,6 +166,49 @@ class RiskControlService:
             return False, alert
 
         return True, None
+
+    @classmethod
+    def _projected_symbol_position(
+        cls,
+        symbol: str,
+        position_size: float,
+        current_positions: dict[str, float],
+    ) -> float:
+        current_size = 0.0
+        for current_symbol, current_value in current_positions.items():
+            if cls._symbols_match(current_symbol, symbol):
+                current_size += cls._safe_float(current_value)
+        return abs(current_size + cls._safe_float(position_size))
+
+    @classmethod
+    def _projected_total_position(
+        cls,
+        symbol: str,
+        position_size: float,
+        current_positions: dict[str, float],
+    ) -> float:
+        matching_current = 0.0
+        other_exposure = 0.0
+        for current_symbol, current_value in current_positions.items():
+            value = cls._safe_float(current_value)
+            if cls._symbols_match(current_symbol, symbol):
+                matching_current += value
+            else:
+                other_exposure += abs(value)
+        return other_exposure + abs(matching_current + cls._safe_float(position_size))
+
+    @staticmethod
+    def _symbols_match(left: Any, right: Any) -> bool:
+        left_aliases = {alias.upper() for alias in symbol_aliases(left)}
+        right_aliases = {alias.upper() for alias in symbol_aliases(right)}
+        return bool(left_aliases and right_aliases and left_aliases & right_aliases)
+
+    @staticmethod
+    def _safe_float(value: Any) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
 
     async def check_daily_loss(
         self,

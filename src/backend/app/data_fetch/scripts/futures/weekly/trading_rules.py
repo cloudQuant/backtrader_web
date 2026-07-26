@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
@@ -65,7 +67,12 @@ class FuturesRules(AkshareToMySql):
                 df["CREATEUSER"] = "system"
                 df["UPDATEDATE"] = self.get_current_datetime()
                 df["UPDATEUSER"] = "system"
-                self.save_data(df, "FUTURES_TRADING_RULES")
+                self.save_data(
+                    df,
+                    "FUTURES_TRADING_RULES",
+                    on_duplicate_update=True,
+                    unique_keys=["REFERENCE_CODE", "BASEDATE"],
+                )
 
             else:
                 self.logger.warning("获取到的数据为空")
@@ -73,17 +80,26 @@ class FuturesRules(AkshareToMySql):
             self.logger.error(e)
 
     # @retry_on_exception(max_retries=3, retry_delay=5)
-    def run(self):
+    def run(self, lookback_days=None, max_days=None):
         if not self.table_exists(self.table_name):
             self.create_table(self.create_table_sql)
+        lookback_days = int(lookback_days) if lookback_days is not None else None
+        max_days = int(max_days) if max_days is not None else None
         self.logger.info("正在获取期货交易规则数据")
         latest_date = self.get_latest_date("FUTURES_TRADING_RULES", "BASEDATE")
         if latest_date is None:
-            latest_date = "2021-01-01"
-            self.logger.info("获取最新日期失败，返回None")
-            assert 0
+            latest_date = "2023-12-05"
+            self.logger.info(f"获取最新日期失败，从 {latest_date} 开始")
+        if lookback_days is not None:
+            lookback_start = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+            if latest_date < lookback_start:
+                latest_date = lookback_start
+                self.logger.info(f"限制为最近{lookback_days}天")
         now_date = self.get_current_date()
         trading_days_list = self.get_trading_day_list(latest_date, now_date)
+        if max_days is not None and len(trading_days_list) > max_days:
+            trading_days_list = trading_days_list[-max_days:]
+            self.logger.info(f"限制处理交易日数量为{max_days}个")
         for trading_day in trading_days_list:
             self._update_trading_rule_by_day(trading_day)
 

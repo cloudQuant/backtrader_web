@@ -2,9 +2,9 @@ name: E2E - End-to-End Tests
 
 on:
   push:
-    branches: [master, develop]
+    branches: [master, dev]
   pull_request:
-    branches: [master, develop]
+    branches: [master, dev]
   workflow_dispatch:
     inputs:
       browser:
@@ -115,6 +115,9 @@ jobs:
           ADMIN_USERNAME: admin
           ADMIN_PASSWORD: Admin12345678
           ADMIN_EMAIL: admin@example.com
+          RATE_LIMIT_REGISTER: "100/hour"
+          RATE_LIMIT_LOGIN: "500/minute"
+          RATE_LIMIT_AUTH_ME: "500/minute"
         run: |
           python -c "import asyncio; from app.main import app; import uvicorn; uvicorn.run(app, host='127.0.0.1', port=8000)" &
           sleep 5
@@ -134,11 +137,11 @@ jobs:
         working-directory: src/frontend
         run: npm run build
 
-      - name: Start frontend dev server
+      - name: Start frontend preview server
         working-directory: src/frontend
         run: |
-          npm run dev -- --host 127.0.0.1 &
-          sleep 10
+          npm run preview -- --host 127.0.0.1 --port 3000 &
+          sleep 5
 
       - name: Wait for frontend
         run: |
@@ -241,6 +244,9 @@ jobs:
           ADMIN_USERNAME: admin
           ADMIN_PASSWORD: Admin12345678
           ADMIN_EMAIL: admin@example.com
+          RATE_LIMIT_REGISTER: "100/hour"
+          RATE_LIMIT_LOGIN: "500/minute"
+          RATE_LIMIT_AUTH_ME: "500/minute"
         run: |
           python -c "import asyncio; from app.main import app; import uvicorn; uvicorn.run(app, host='127.0.0.1', port=8000)" &
           sleep 5
@@ -255,11 +261,15 @@ jobs:
             sleep 2
           done
 
-      - name: Start frontend server
+      - name: Build frontend
+        working-directory: src/frontend
+        run: npm run build
+
+      - name: Start frontend preview server
         working-directory: src/frontend
         run: |
-          npm run dev -- --host 127.0.0.1 &
-          sleep 10
+          npm run preview -- --host 127.0.0.1 --port 3000 &
+          sleep 5
 
       - name: Wait for frontend
         run: |
@@ -345,6 +355,9 @@ jobs:
           ADMIN_USERNAME: admin
           ADMIN_PASSWORD: Admin12345678
           ADMIN_EMAIL: admin@example.com
+          RATE_LIMIT_REGISTER: "100/hour"
+          RATE_LIMIT_LOGIN: "500/minute"
+          RATE_LIMIT_AUTH_ME: "500/minute"
         run: |
           python -c "import asyncio; from app.main import app; import uvicorn; uvicorn.run(app, host='127.0.0.1', port=8000)" &
           sleep 5
@@ -358,11 +371,15 @@ jobs:
             sleep 2
           done
 
-      - name: Start frontend server
+      - name: Build frontend
+        working-directory: src/frontend
+        run: npm run build
+
+      - name: Start frontend preview server
         working-directory: src/frontend
         run: |
-          npm run dev -- --host 127.0.0.1 &
-          sleep 10
+          npm run preview -- --host 127.0.0.1 --port 3000 &
+          sleep 5
 
       - name: Wait for frontend
         run: |
@@ -449,6 +466,9 @@ jobs:
           ADMIN_USERNAME: admin
           ADMIN_PASSWORD: Admin12345678
           ADMIN_EMAIL: admin@example.com
+          RATE_LIMIT_REGISTER: "100/hour"
+          RATE_LIMIT_LOGIN: "500/minute"
+          RATE_LIMIT_AUTH_ME: "500/minute"
         run: |
           python -c "import asyncio; from app.main import app; import uvicorn; uvicorn.run(app, host='127.0.0.1', port=8000)" &
           sleep 5
@@ -462,11 +482,15 @@ jobs:
             sleep 2
           done
 
-      - name: Start frontend server
+      - name: Build frontend
+        working-directory: src/frontend
+        run: npm run build
+
+      - name: Start frontend preview server
         working-directory: src/frontend
         run: |
-          npm run dev -- --host 127.0.0.1 &
-          sleep 10
+          npm run preview -- --host 127.0.0.1 --port 3000 &
+          sleep 5
 
       - name: Wait for frontend
         run: |

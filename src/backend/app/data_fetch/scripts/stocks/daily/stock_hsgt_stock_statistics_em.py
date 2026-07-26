@@ -41,6 +41,10 @@ class StockHsgtStockStatisticsEm(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
+            kwargs.setdefault("symbol", "南向持股")
+            kwargs.setdefault("start_date", "20250910")
+            kwargs.setdefault("end_date", "20250912")
+            kwargs.setdefault("_call_timeout", 180)
             # Fetch data from AkShare
             df = self.fetch_ak_data("stock_hsgt_stock_statistics_em", **kwargs)
 
@@ -50,12 +54,28 @@ class StockHsgtStockStatisticsEm(AkshareToMySql):
 
             # Process data if needed
             # Add data_date if not exists
-            if "data_date" not in df.columns:
+            if "持股日期" in df.columns:
+                df["data_date"] = pd.to_datetime(df["持股日期"], errors="coerce").dt.date
+                df = df.dropna(subset=["data_date"])
+            elif "data_date" not in df.columns:
                 df["data_date"] = pd.Timestamp.now().date()
+            if "股票代码" in df.columns:
+                df["symbol"] = df["股票代码"].astype(str)
+            elif "symbol" not in df.columns:
+                df["symbol"] = str(kwargs.get("symbol") or "南向持股")
+            if "股票简称" in df.columns:
+                df["name"] = df["股票简称"].astype(str)
+            elif "name" not in df.columns:
+                df["name"] = df["symbol"].astype(str)
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+            self.save_data(
+                df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["symbol", "data_date"],
+            )
 
             return df
 

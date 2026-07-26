@@ -67,7 +67,7 @@ export class LiveTradingPage extends BasePage {
   async selectStrategy(strategyId: string) {
     // 点击策略选择器
     await this.page.click('.el-select .el-input__inner');
-    await this.page.waitForTimeout(500);
+    await expect(this.page.locator('.el-select-dropdown__item')).first().toBeVisible();
     // 选择策略
     await this.page.click(`.el-select-dropdown__item:has-text("${strategyId}")`);
   }
@@ -86,14 +86,13 @@ export class LiveTradingPage extends BasePage {
     await this.openAddDialog();
     await this.selectStrategy(strategyId);
     await this.clickAdd();
-    await this.page.waitForTimeout(1000);
+    await expect(this.page.locator(this.dialogTitle)).toBeHidden();
   }
 
   /**
    * 获取实例数量
    */
   async getInstanceCount(): Promise<number> {
-    await this.page.waitForTimeout(500);
     return await this.page.locator(this.instanceCard).count();
   }
 
@@ -110,7 +109,7 @@ export class LiveTradingPage extends BasePage {
   async startInstance(instanceId: string) {
     const card = this.getInstanceCard(instanceId);
     await card.locator(this.startButton).click();
-    await this.page.waitForTimeout(1000);
+    await expect(card.locator('.el-tag').first()).toBeVisible();
   }
 
   /**
@@ -119,7 +118,7 @@ export class LiveTradingPage extends BasePage {
   async stopInstance(instanceId: string) {
     const card = this.getInstanceCard(instanceId);
     await card.locator(this.stopButton).click();
-    await this.page.waitForTimeout(1000);
+    await expect(card.locator('.el-tag').first()).toBeVisible();
   }
 
   /**
@@ -128,7 +127,7 @@ export class LiveTradingPage extends BasePage {
   async deleteInstance(instanceId: string) {
     const card = this.getInstanceCard(instanceId);
     await card.locator(this.deleteButton).click();
-    await this.page.waitForTimeout(500);
+    await expect(card).toBeHidden();
   }
 
   /**
