@@ -334,7 +334,7 @@ class QuantToolsService:
                 self._dispatch(tool, user_id=user_id, payload=payload),
                 timeout=max(int(tool["timeout_ms"]), 1) / 1000,
             )
-        except TimeoutError:
+        except (asyncio.TimeoutError, TimeoutError):
             await self._log(
                 db,
                 user_id=user_id,

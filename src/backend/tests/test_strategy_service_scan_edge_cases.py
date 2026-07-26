@@ -18,6 +18,18 @@ def test_default_strategy_template_scan_loads_project_strategies():
     assert any(item.id.startswith("backtest/") for item in items)
 
 
+def test_legacy_strategy_dir_override_does_not_leak_to_template_module(monkeypatch, tmp_path):
+    from app.schemas.strategy import StrategyType
+    from app.services import strategy_service as ss
+    from app.services.strategy import templates
+
+    original_dir = templates.STRATEGIES_DIR
+    monkeypatch.setattr(ss, "STRATEGIES_DIR", tmp_path / "strategies", raising=True)
+
+    assert ss._scan_strategies_folder(StrategyType.backtest) == []
+    assert templates.STRATEGIES_DIR == original_dir
+
+
 def test_scan_strategies_folder_when_dir_missing(monkeypatch, tmp_path):
     from app.schemas.strategy import StrategyType
     from app.services import strategy_service as ss

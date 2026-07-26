@@ -9,6 +9,8 @@ class. Public names are re-exported here so that legacy
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -65,63 +67,70 @@ _get_templates_for_type = _templates._get_templates_for_type
 _get_template_map = _templates._get_template_map
 
 
-def _sync_strategies_dir() -> None:
-    """Mirror ``core.STRATEGIES_DIR`` into the templates module.
+@contextmanager
+def _using_strategies_dir() -> Iterator[None]:
+    """Temporarily mirror the legacy strategy root into template helpers.
 
     Some tests use ``monkeypatch.setattr(strategy_service, 'STRATEGIES_DIR', ...)``
     to redirect template scanning at a temporary directory. After the move to
     the strategy subpackage the templates module owns its own copy of
-    ``STRATEGIES_DIR``, so we re-sync it on every entry point that reads it.
+    ``STRATEGIES_DIR``. Keep that forwarding scoped to the current call so a
+    temporary legacy override cannot leak into later callers.
     """
+    previous_dir = _templates.STRATEGIES_DIR
     _templates.STRATEGIES_DIR = STRATEGIES_DIR
+    try:
+        yield
+    finally:
+        _templates.STRATEGIES_DIR = previous_dir
 
 
 def _scan_strategies_folder(strategy_type: StrategyType) -> list[StrategyTemplate]:
-    _sync_strategies_dir()
-    return _templates.scan_strategies_folder(strategy_type)
+    with _using_strategies_dir():
+        return _templates.scan_strategies_folder(strategy_type)
 
 
 def _sync_user_strategy_runtime_files(strategy: StrategyResponse) -> None:
-    _sync_strategies_dir()
-    _templates.sync_user_strategy_runtime_files(strategy)
+    with _using_strategies_dir():
+        _templates.sync_user_strategy_runtime_files(strategy)
 
 
 def get_strategy_dir(strategy_id: str) -> Path:
-    _sync_strategies_dir()
-    return _templates.get_strategy_dir(strategy_id)
+    with _using_strategies_dir():
+        return _templates.get_strategy_dir(strategy_id)
 
 
 def get_strategy_readme(template_id: str, strategy_type: StrategyType | None = None) -> str | None:
-    _sync_strategies_dir()
-    return _templates.get_strategy_readme(template_id, strategy_type)
+    with _using_strategies_dir():
+        return _templates.get_strategy_readme(template_id, strategy_type)
 
 
 def get_template_by_id(
     template_id: str, strategy_type: StrategyType | None = None
 ) -> StrategyTemplate | None:
-    _sync_strategies_dir()
-    # Bypass the lru_cache so monkeypatched STRATEGIES_DIR is honored
-    # in unit tests; the production path calls this rarely enough that
-    # the extra scan is acceptable.
-    if strategy_type:
-        for tpl in _templates.scan_strategies_folder(strategy_type):
-            if tpl.id == template_id:
-                return tpl
+    with _using_strategies_dir():
+        # Bypass the lru_cache so monkeypatched STRATEGIES_DIR is honored
+        # in unit tests; the production path calls this rarely enough that
+        # the extra scan is acceptable.
+        if strategy_type:
+            for tpl in _templates.scan_strategies_folder(strategy_type):
+                if tpl.id == template_id:
+                    return tpl
+            return None
+        for st in (StrategyType.backtest, StrategyType.simulate, StrategyType.live):
+            for tpl in _templates.scan_strategies_folder(st):
+                if tpl.id == template_id:
+                    return tpl
         return None
-    for st in (StrategyType.backtest, StrategyType.simulate, StrategyType.live):
-        for tpl in _templates.scan_strategies_folder(st):
-            if tpl.id == template_id:
-                return tpl
-    return None
 
 
 def get_all_strategy_templates() -> list[StrategyTemplate]:
-    _sync_strategies_dir()
-    return (
-        list(_templates.scan_strategies_folder(StrategyType.backtest))
-        + list(_templates.scan_strategies_folder(StrategyType.simulate))
-        + list(_templates.scan_strategies_folder(StrategyType.live))
-    )
+    with _using_strategies_dir():
+        return (
+            list(_templates.scan_strategies_folder(StrategyType.backtest))
+            + list(_templates.scan_strategies_folder(StrategyType.simulate))
+            + list(_templates.scan_strategies_folder(StrategyType.live))
+        )
 
 
 def _runtime_metadata_from_copilot_request(

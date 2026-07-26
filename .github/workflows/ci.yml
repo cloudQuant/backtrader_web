@@ -444,7 +444,9 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest --cov=app --cov-config=.coveragerc --cov-report=xml --cov-report=term --cov-report=html --cov-fail-under=70 -n auto -v
+          # Performance assertions run in the dedicated nightly workflow. They
+          # depend on shared-runner load and are not deterministic unit-test gates.
+          pytest --cov=app --cov-config=.coveragerc --cov-report=xml --cov-report=term --cov-report=html --cov-fail-under=70 -n auto -m "not performance" -v
 
       - name: Check diff coverage
         if: github.event_name == 'pull_request'
