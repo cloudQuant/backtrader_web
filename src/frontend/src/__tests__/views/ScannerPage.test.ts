@@ -287,6 +287,18 @@ describe('ScannerPage', () => {
     expect(wrapper.text()).not.toContain('条命中')
   })
 
+  it('does not start a scan automatically when no saved plan exists', async () => {
+    apiMocks.listScannerPlans.mockResolvedValueOnce({ items: [], total: 0 })
+
+    const wrapper = mountWithPlugins(ScannerPage)
+    await flushPromises()
+
+    expect(apiMocks.listScannerUniversePools).toHaveBeenCalled()
+    expect(apiMocks.listScannerPlans).toHaveBeenCalled()
+    expect(apiMocks.runScanner).not.toHaveBeenCalled()
+    expect(wrapper.find('.scanner-workbench').exists()).toBe(true)
+  })
+
   it('manages real universe pools in a dialog and saves a custom pool', async () => {
     const wrapper = mountWithPlugins(ScannerPage)
     await flushPromises()

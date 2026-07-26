@@ -855,10 +855,6 @@ async function initialize() {
   await loadScannerPlans()
   if (planRuns.value.length) {
     loadRunResult(planRuns.value[0])
-    return
-  }
-  if (!scannerPlans.value.length && selectedPoolId.value) {
-    await run()
   }
 }
 
