@@ -69,9 +69,7 @@ class SemanticRetrievalService:
         self.collection_name = collection_name or str(
             getattr(settings, "RAG_VECTOR_COLLECTION", "knowledge_base_documents_v3")
         )
-        self.upsert_batch_size = int(
-            getattr(settings, "RAG_VECTOR_UPSERT_BATCH_SIZE", 128)
-        )
+        self.upsert_batch_size = int(getattr(settings, "RAG_VECTOR_UPSERT_BATCH_SIZE", 128))
         self._collection: Any | None = None
         self._model: Any | None = None
         self._last_error: str | None = None

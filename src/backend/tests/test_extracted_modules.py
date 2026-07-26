@@ -2477,7 +2477,9 @@ class TestLiveExecutionService:
             "app.services.live_trading.execution.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=proc),
         ):
-            with patch("app.services.live_trading.execution.asyncio.create_task") as mock_create_task:
+            with patch(
+                "app.services.live_trading.execution.asyncio.create_task"
+            ) as mock_create_task:
 
                 def _create_task(coro):
                     coro.close()
@@ -3365,7 +3367,9 @@ class TestGatewayRuntimeService:
         }
 
         with (
-            patch.object(gateway_manual_service, "_ensure_ib_clientportal_running") as ensure_portal,
+            patch.object(
+                gateway_manual_service, "_ensure_ib_clientportal_running"
+            ) as ensure_portal,
             patch.object(
                 gateway_manual_service,
                 "_normalize_ib_web_base_url",

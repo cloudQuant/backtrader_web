@@ -137,7 +137,9 @@ async def test_data_trust_endpoints_validate_and_return_canonical_responses(clie
 async def test_data_trust_services_map_unexpected_failures_to_503(
     client, monkeypatch, method: str, path: str
 ):
-    _, headers = await register_and_login(client, username=f"data-trust-failure-{method}-{path[-4:]}")
+    _, headers = await register_and_login(
+        client, username=f"data-trust-failure-{method}-{path[-4:]}"
+    )
 
     class _Broken:
         def __getattr__(self, _: str):

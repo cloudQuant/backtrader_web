@@ -18,7 +18,9 @@ depends_on = None
 
 
 def _has_index(table_name: str, index_name: str) -> bool:
-    return index_name in {index["name"] for index in sa.inspect(op.get_bind()).get_indexes(table_name)}
+    return index_name in {
+        index["name"] for index in sa.inspect(op.get_bind()).get_indexes(table_name)
+    }
 
 
 def upgrade() -> None:

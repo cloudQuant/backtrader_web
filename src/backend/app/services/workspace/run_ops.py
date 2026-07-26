@@ -54,9 +54,7 @@ async def _initialize_paper_runtime_snapshots(
                 {
                     "source": "initial",
                     "total_equity": float(
-                        unit_settings.get("initial_cash")
-                        or metrics.get("initial_cash")
-                        or 100000.0
+                        unit_settings.get("initial_cash") or metrics.get("initial_cash") or 100000.0
                     ),
                     "cash": float(unit_settings.get("initial_cash") or 100000.0),
                     "metadata": {"event": "runtime_started"},

@@ -428,7 +428,10 @@ async def test_active_workspace_sources_prefers_manager_started_at(monkeypatch):
                 strategy_name="Live unit",
                 strategy_id="strat-live",
                 symbol="EURUSD",
-                trading_snapshot={"instance_status": "running", "started_at": "2024-01-01 00:00:00"},
+                trading_snapshot={
+                    "instance_status": "running",
+                    "started_at": "2024-01-01 00:00:00",
+                },
                 gateway_config={},
                 run_status="running",
                 trading_instance_id="inst-live",
@@ -621,14 +624,14 @@ def test_infer_started_day_from_log_dir_uses_file_mtime_when_records_are_stale(t
     log_dir.mkdir()
     value_log = log_dir / "value.log"
     value_log.write_text(
-        "dt\tvalue\tcash\n"
-        "2026-01-01 00:00:00\t100000\t100000\n",
+        "dt\tvalue\tcash\n2026-01-01 00:00:00\t100000\t100000\n",
         encoding="utf-8",
     )
     ts_20260103 = datetime(2026, 1, 3, 10, 0, tzinfo=timezone.utc).timestamp()
     os.utime(value_log, (ts_20260103, ts_20260103))
 
     assert portfolio_api._infer_started_day_from_log_dir(log_dir) == "2026-01-03"
+
 
 @pytest.mark.asyncio
 async def test_portfolio_sources_can_include_inactive_workspace_units(monkeypatch):
@@ -941,6 +944,7 @@ async def test_portfolio_equity_keeps_historical_points_when_include_inactive(mo
 
     assert result["dates"] == ["2024-01-01", "2026-07-20"]
     assert result["strategies"][0]["values"] == [100000.0, 105000.0]
+
 
 def test_parse_positions_for_portfolio_prefers_position_log_precision(monkeypatch, tmp_path):
     """Current-position snapshots can be rounded; position.log keeps MT5 precision."""
@@ -1611,15 +1615,21 @@ async def test_portfolio_overview_filters_running_source_history_by_started_day(
     )
 
     with patch("app.api.portfolio_api._portfolio_sources", AsyncMock(return_value=[source])):
-        with patch("app.api.portfolio_api.parse_value_log", return_value={
-            "dates": ["2024-01-01", "2026-07-20"],
-            "equity_curve": [100000.0, 105000.0],
-            "cash_curve": [50000.0, 52000.0],
-        }):
-            with patch("app.api.portfolio_api.parse_trade_log", return_value=[
-                {"dtclose": "2024-01-01", "pnlcomm": 100},
-                {"dtclose": "2026-07-20", "pnlcomm": 50},
-            ]):
+        with patch(
+            "app.api.portfolio_api.parse_value_log",
+            return_value={
+                "dates": ["2024-01-01", "2026-07-20"],
+                "equity_curve": [100000.0, 105000.0],
+                "cash_curve": [50000.0, 52000.0],
+            },
+        ):
+            with patch(
+                "app.api.portfolio_api.parse_trade_log",
+                return_value=[
+                    {"dtclose": "2024-01-01", "pnlcomm": 100},
+                    {"dtclose": "2026-07-20", "pnlcomm": 50},
+                ],
+            ):
                 result = await portfolio_api.get_portfolio_overview(
                     current_user=_USER,
                     mgr=object(),
@@ -2480,11 +2490,14 @@ async def test_portfolio_trades_filters_running_source_history_by_started_day():
     )
 
     with patch("app.api.portfolio_api._portfolio_sources", AsyncMock(return_value=[source])):
-        with patch("app.api.portfolio_api.parse_trade_log", return_value=[
-            {"dtclose": "2024-01-01", "pnlcomm": 100},
-            {"dtclose": "2026-07-20", "pnlcomm": 50},
-            {"dtopen": "2026-07-20", "dtclose": "", "pnlcomm": 20},
-        ]):
+        with patch(
+            "app.api.portfolio_api.parse_trade_log",
+            return_value=[
+                {"dtclose": "2024-01-01", "pnlcomm": 100},
+                {"dtclose": "2026-07-20", "pnlcomm": 50},
+                {"dtopen": "2026-07-20", "dtclose": "", "pnlcomm": 20},
+            ],
+        ):
             result = await portfolio_api.get_portfolio_trades(
                 current_user=_USER,
                 mgr=object(),

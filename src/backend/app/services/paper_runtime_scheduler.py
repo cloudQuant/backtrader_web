@@ -107,15 +107,13 @@ class PaperRuntimeSnapshotScheduler:
     async def _cleanup_due_snapshots(self) -> None:
         """Run one retry-safe retention pass per process/day, not per runtime."""
         now = datetime.now(timezone.utc)
-        if (
-            self._last_cleanup_at is not None
-            and now - self._last_cleanup_at < timedelta(seconds=DEFAULT_CLEANUP_INTERVAL_SECONDS)
+        if self._last_cleanup_at is not None and now - self._last_cleanup_at < timedelta(
+            seconds=DEFAULT_CLEANUP_INTERVAL_SECONDS
         ):
             return
         async with self._cleanup_lock:
-            if (
-                self._last_cleanup_at is not None
-                and now - self._last_cleanup_at < timedelta(seconds=DEFAULT_CLEANUP_INTERVAL_SECONDS)
+            if self._last_cleanup_at is not None and now - self._last_cleanup_at < timedelta(
+                seconds=DEFAULT_CLEANUP_INTERVAL_SECONDS
             ):
                 return
             result = await self._service.cleanup_snapshots(now=now)

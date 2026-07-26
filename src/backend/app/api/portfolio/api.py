@@ -615,7 +615,11 @@ def _list_user_instances(
         normalized.append(effective)
     if include_inactive:
         return normalized
-    return [inst for inst in normalized if str(inst.get("status") or "").strip().lower() in _ACTIVE_TRADING_STATUSES]
+    return [
+        inst
+        for inst in normalized
+        if str(inst.get("status") or "").strip().lower() in _ACTIVE_TRADING_STATUSES
+    ]
 
 
 def _as_path(value: Any) -> Path | None:
@@ -822,12 +826,12 @@ async def _active_workspace_sources(
             # as actively running, otherwise stale historical rows can leak old
             # equity curves into live portfolio views.
             continue
-        started_at = str(
-            instance.get("started_at") if isinstance(instance, dict) else ""
-        ).strip() or None
-        updated_at = str(
-            instance.get("updated_at") if isinstance(instance, dict) else ""
-        ).strip() or None
+        started_at = (
+            str(instance.get("started_at") if isinstance(instance, dict) else "").strip() or None
+        )
+        updated_at = (
+            str(instance.get("updated_at") if isinstance(instance, dict) else "").strip() or None
+        )
         if include_inactive and not started_at:
             started_at = (
                 str(snapshot.get("started_at") or "")
@@ -896,13 +900,16 @@ async def _persisted_running_workspace_sources(current_user: Any) -> list[_Portf
         if snapshot_status not in _ACTIVE_TRADING_STATUSES:
             continue
         unit_name = str(unit.strategy_name or unit.strategy_id or unit.id)
-        started_at = str(
-            snapshot.get("started_at")
-            or snapshot.get("instance_started_at")
-            or snapshot.get("start_time")
-            or snapshot.get("startedAt")
-            or ""
-        ).strip() or None
+        started_at = (
+            str(
+                snapshot.get("started_at")
+                or snapshot.get("instance_started_at")
+                or snapshot.get("start_time")
+                or snapshot.get("startedAt")
+                or ""
+            ).strip()
+            or None
+        )
         sources.append(
             _PortfolioSource(
                 id=instance_id,
@@ -1483,7 +1490,10 @@ async def _portfolio_sources(
     sources = (
         workspace_sources
         if workspace_sources
-        else [_source_from_instance(inst) for inst in _list_user_instances(mgr, current_user, include_inactive=include_inactive)]
+        else [
+            _source_from_instance(inst)
+            for inst in _list_user_instances(mgr, current_user, include_inactive=include_inactive)
+        ]
     )
     for source in sources:
         # A paper workspace is a collection of independent simulated portfolios.
@@ -2357,9 +2367,7 @@ def _compact_workspace_overview(rows: list[_PortfolioSource]) -> dict[str, Any]:
     # Requiring a process PID here would make the snapshot-only path discard all
     # valid first-screen data after an API-server restart.
     running_sources = [
-        source
-        for source in rows
-        if str(source.status or "").strip().lower() == "running"
+        source for source in rows if str(source.status or "").strip().lower() == "running"
     ]
 
     for source in running_sources:
@@ -2411,15 +2419,13 @@ def _compact_workspace_overview(rows: list[_PortfolioSource]) -> dict[str, Any]:
         "strategies": [],
     }
 
+
 async def _compact_portfolio_overview(
     current_user: Any,
     mgr: LiveTradingManager,
 ) -> dict[str, Any] | None:
     sources = await _active_workspace_sources(current_user, mgr, include_inactive=False)
-    if any(
-        str(source.trading_mode or "").strip().lower() == "live"
-        for source in sources
-    ):
+    if any(str(source.trading_mode or "").strip().lower() == "live" for source in sources):
         # Live workspaces may require a broker account query to remain accurate.
         # Retain the detailed path for that safety-sensitive case.
         return None
@@ -2758,7 +2764,8 @@ async def get_portfolio_trades(
         sources = [source for source in sources if source.workspace_id in workspace_id_set]
     if not include_inactive:
         sources = [
-            source for source in sources
+            source
+            for source in sources
             if str(source.status or "").strip().lower() in _ACTIVE_TRADING_STATUSES
         ]
     all_trades = []
@@ -3102,11 +3109,7 @@ async def get_portfolio_equity(
     equity_peak = 0.0
     for equity_value in total_equity:
         equity_peak = max(equity_peak, equity_value)
-        drawdown = (
-            (equity_value - equity_peak) / equity_peak
-            if equity_peak > EPSILON
-            else 0.0
-        )
+        drawdown = (equity_value - equity_peak) / equity_peak if equity_peak > EPSILON else 0.0
         total_drawdown.append(_safe_round(drawdown, 6))
 
     # Sampling only after aggregation keeps every strategy on the same time
@@ -3200,7 +3203,8 @@ async def get_portfolio_allocation(
         sources = [source for source in sources if source.workspace_id in workspace_id_set]
         if not include_inactive:
             sources = [
-                source for source in sources
+                source
+                for source in sources
                 if str(source.status or "").strip().lower() in _ACTIVE_TRADING_STATUSES
             ]
 

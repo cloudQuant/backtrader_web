@@ -107,10 +107,7 @@ async def list_workspaces(
             for workspace_id in workspace_ids
             if workspace_id in workspace_by_id
         ]
-        return total, [
-            _workspace_to_response(workspace)
-            for workspace in ordered_workspaces
-        ]
+        return total, [_workspace_to_response(workspace) for workspace in ordered_workspaces]
 
 
 async def update_workspace(

@@ -217,8 +217,7 @@ def resolve_quote_fields(source: str, ticks: list[dict[str, Any]]) -> list[dict[
         if str(field.get("prop") or "").strip()
     }
     resolved = [
-        dict(configured_by_prop.get(str(field["prop"]), field))
-        for field in GENERIC_QUOTE_FIELDS
+        dict(configured_by_prop.get(str(field["prop"]), field)) for field in GENERIC_QUOTE_FIELDS
     ]
     known_props = {str(field["prop"]) for field in GENERIC_QUOTE_FIELDS}
     for field in configured_fields:

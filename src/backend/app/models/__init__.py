@@ -11,6 +11,7 @@ from app.models.ai_research import (
     InvestmentMandate,
     ResearchPipelineEvent,
 )
+from app.models.ai_trading import AITradingLog
 from app.models.akshare_mgmt import (
     DataInterface,
     DataScript,
@@ -86,6 +87,7 @@ from app.models.workspace import StrategyUnit, Workspace
 __all__ = [
     "Account",
     "AICallLog",
+    "AITradingLog",
     "AIStrategyResearchVersion",
     "AIStrategyResearchVersionComparison",
     "Alert",

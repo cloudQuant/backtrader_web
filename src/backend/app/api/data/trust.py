@@ -28,7 +28,9 @@ def _service_unavailable(exc: Exception) -> HTTPException:
     """Map an internal trust-service failure to a stable public response."""
     del exc
     logger.exception("Market-data trust service failed")
-    return HTTPException(status_code=503, detail="Market-data trust service is temporarily unavailable")
+    return HTTPException(
+        status_code=503, detail="Market-data trust service is temporarily unavailable"
+    )
 
 
 @router.get(

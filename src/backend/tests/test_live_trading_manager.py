@@ -258,7 +258,9 @@ class TestLiveTradingManagerInitialization:
         assert _should_restore_manual_gateways() is False
         mock_start_restore.assert_not_called()
 
-    def test_recovery_reacquires_gateway_without_spawning_strategy_process(self, monkeypatch, tmp_path):
+    def test_recovery_reacquires_gateway_without_spawning_strategy_process(
+        self, monkeypatch, tmp_path
+    ):
         manager = LiveTradingManager.__new__(LiveTradingManager)
         manager._gateway_lock = threading.RLock()
         manager._gateways = {}
@@ -280,8 +282,9 @@ class TestLiveTradingManagerInitialization:
         monkeypatch.setattr(
             manager,
             "_acquire_gateway_for_instance",
-            lambda instance_id, payload, path: acquired.append((instance_id, path))
-            or {"config": object()},
+            lambda instance_id, payload, path: (
+                acquired.append((instance_id, path)) or {"config": object()}
+            ),
         )
 
         manager._restore_running_instance_gateways()

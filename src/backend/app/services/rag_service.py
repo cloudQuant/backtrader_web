@@ -387,8 +387,10 @@ class RAGService:
                     changed = True
                     vector_sync_document_ids.add(str(document.id))
                 continue
-            if has_chunks and is_indexed and (
-                self.semantic_retriever.enabled or not has_legacy_title_only_chunk
+            if (
+                has_chunks
+                and is_indexed
+                and (self.semantic_retriever.enabled or not has_legacy_title_only_chunk)
             ):
                 continue
 

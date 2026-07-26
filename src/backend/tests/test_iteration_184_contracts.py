@@ -49,7 +49,9 @@ def test_production_paper_promotion_cannot_bypass_robustness(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_production_ai_research_requires_server_side_data_precheck(monkeypatch):
-    request = AIStrategyResearchRunRequest(symbol="RB0", start_date="2024-01-01", end_date="2024-02-01")
+    request = AIStrategyResearchRunRequest(
+        symbol="RB0", start_date="2024-01-01", end_date="2024-02-01"
+    )
 
     class ProductionSettings:
         DEBUG = False
@@ -67,7 +69,9 @@ async def test_production_ai_research_requires_server_side_data_precheck(monkeyp
             )()
 
     monkeypatch.setattr(research_module, "get_settings", lambda: ProductionSettings())
-    monkeypatch.setattr(research_module, "get_market_data_precheck_service", lambda: PrecheckService())
+    monkeypatch.setattr(
+        research_module, "get_market_data_precheck_service", lambda: PrecheckService()
+    )
 
     guarded = await research_module._apply_production_data_precheck(request)
 
@@ -87,7 +91,9 @@ async def test_production_ai_research_fails_closed_when_data_precheck_fails(monk
             raise RuntimeError("coverage service unavailable")
 
     monkeypatch.setattr(research_module, "get_settings", lambda: ProductionSettings())
-    monkeypatch.setattr(research_module, "get_market_data_precheck_service", lambda: PrecheckService())
+    monkeypatch.setattr(
+        research_module, "get_market_data_precheck_service", lambda: PrecheckService()
+    )
 
     with pytest.raises(ValueError, match="precheck is unavailable"):
         await research_module._apply_production_data_precheck(request)

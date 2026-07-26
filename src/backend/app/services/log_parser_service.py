@@ -354,15 +354,19 @@ def find_latest_log_dir(strategy_dir: Path) -> Path | None:
 def _value_row_time(row: dict[str, Any], *, prefer_log_time: bool = False) -> str:
     """Return the preferred timestamp field for a parsed value-log row."""
     keys = (
-        "log_time",
-        "dt",
-        "datetime",
-        "event_time",
-    ) if prefer_log_time else (
-        "dt",
-        "datetime",
-        "event_time",
-        "log_time",
+        (
+            "log_time",
+            "dt",
+            "datetime",
+            "event_time",
+        )
+        if prefer_log_time
+        else (
+            "dt",
+            "datetime",
+            "event_time",
+            "log_time",
+        )
     )
     for key in keys:
         value = row.get(key)

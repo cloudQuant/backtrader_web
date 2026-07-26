@@ -14,7 +14,7 @@ from app.db.database import Base
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _BASELINE = "20260705_b_data_backtest_trust"
-_HEAD = "20260718_runtime_identity_lifecycle"
+_HEAD = "21d572b67d8e"
 _PRE_TRUST_BASELINE = "0015_add_workspace_listing_indexes"
 
 
@@ -87,10 +87,12 @@ def test_iteration_184_migrations_upgrade_fresh_current_and_legacy_create_all(
         "research_pipeline_events",
         "ai_strategy_research_versions",
         "ai_strategy_research_version_comparisons",
+        "broker_connection_profiles",
         "paper_review_reports",
         "live_handoff_reviews",
         "risk_rules",
         "paper_equity_snapshots",
+        "strategy_scores",
     }
     for name, preparation in (
         ("fresh", "head"),
@@ -122,7 +124,11 @@ def test_iteration_184_migrations_upgrade_fresh_current_and_legacy_create_all(
         finally:
             engine.dispose()
         identity_index = next(
-            (index for index in indexes if index["name"] == "uq_strategy_units_trading_instance_id"),
+            (
+                index
+                for index in indexes
+                if index["name"] == "uq_strategy_units_trading_instance_id"
+            ),
             None,
         )
         assert identity_index is not None, name

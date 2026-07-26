@@ -221,7 +221,9 @@ def _refresh_ib_web_session_for_launch(launch: dict[str, Any], logger: Any) -> N
         )
         return
 
-    resolved_account_id = str(session.get("account_id") or credentials.get("account_id") or "").strip()
+    resolved_account_id = str(
+        session.get("account_id") or credentials.get("account_id") or ""
+    ).strip()
     if resolved_account_id:
         credentials["account_id"] = resolved_account_id
         runtime_kwargs["account_id"] = resolved_account_id
@@ -686,7 +688,9 @@ def _connect_mt5_adapter_with_retry(
                 try:
                     disconnect()
                 except Exception:
-                    logger.debug("MT5 adapter cleanup after failed startup was unsuccessful", exc_info=True)
+                    logger.debug(
+                        "MT5 adapter cleanup after failed startup was unsuccessful", exc_info=True
+                    )
             if _is_non_retriable_gateway_error(str(exc)) or attempt >= total_attempts:
                 break
             logger.warning(

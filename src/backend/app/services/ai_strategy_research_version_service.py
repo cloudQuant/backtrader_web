@@ -274,7 +274,9 @@ def _payload_dict(value: Any) -> dict[str, Any]:
 
 def _payload_list(value: Any) -> list[dict[str, Any]]:
     """Return only object rows from an ORM JSON-list payload."""
-    return [dict(item) for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+    return (
+        [dict(item) for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+    )
 
 
 def _ai_rationale(iteration: AIStrategyResearchIteration) -> str:
@@ -331,10 +333,14 @@ def _gate_deltas(
 ) -> dict[str, Any]:
     """Return display-ready gate rows with explicit before/after semantics."""
     left_by_key = {
-        str(item.get("key") or index): item for index, item in enumerate(left) if isinstance(item, dict)
+        str(item.get("key") or index): item
+        for index, item in enumerate(left)
+        if isinstance(item, dict)
     }
     right_by_key = {
-        str(item.get("key") or index): item for index, item in enumerate(right) if isinstance(item, dict)
+        str(item.get("key") or index): item
+        for index, item in enumerate(right)
+        if isinstance(item, dict)
     }
     result: dict[str, Any] = {
         "quality_gate_status": {
@@ -357,7 +363,9 @@ def _gate_deltas(
             "delta": None
             if left_actual is None or right_actual is None
             else right_actual - left_actual,
-            "operator": str(right_gate.get("operator") or left_gate.get("operator") or "transition"),
+            "operator": str(
+                right_gate.get("operator") or left_gate.get("operator") or "transition"
+            ),
             "passed": bool(right_gate.get("passed")),
             "improved": bool(right_gate.get("passed")) and not bool(left_gate.get("passed")),
             "label": str(right_gate.get("label") or left_gate.get("label") or key),

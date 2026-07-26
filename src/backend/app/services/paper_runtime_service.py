@@ -270,7 +270,9 @@ class PaperRuntimeService:
         if reference.tzinfo is None:
             reference = reference.replace(tzinfo=timezone.utc)
         raw_cutoff = reference - timedelta(days=max(int(raw_retention_days), 1))
-        daily_cutoff = reference - timedelta(days=max(int(daily_retention_days), raw_retention_days))
+        daily_cutoff = reference - timedelta(
+            days=max(int(daily_retention_days), raw_retention_days)
+        )
         async with async_session_maker() as session:
             result = await session.execute(
                 select(PaperEquitySnapshot).order_by(
@@ -292,7 +294,9 @@ class PaperRuntimeService:
                     daily_close_ids_by_key[key] = snapshot.id
                 latest_ids_by_runtime[snapshot.instance_id] = snapshot.id
 
-            protected_ids = set(latest_ids_by_runtime.values()) | set(daily_close_ids_by_key.values())
+            protected_ids = set(latest_ids_by_runtime.values()) | set(
+                daily_close_ids_by_key.values()
+            )
             deleted = 0
             daily_retained = len(daily_close_ids_by_key)
             for snapshot in rows:
@@ -408,10 +412,9 @@ class PaperRuntimeService:
         )
         cumulative_pnl = self._number(snapshot.get("cumulative_pnl"), unrealized_pnl)
         metric_final_value = self._number(metrics.get("final_value"), 0.0)
-        metric_matches_runtime_cash = (
-            metric_initial_cash > 0
-            and abs(metric_initial_cash - initial_cash) <= max(1.0, initial_cash * 0.000001)
-        )
+        metric_matches_runtime_cash = metric_initial_cash > 0 and abs(
+            metric_initial_cash - initial_cash
+        ) <= max(1.0, initial_cash * 0.000001)
         total_equity = (
             metric_final_value
             if metric_final_value > 0 and metric_matches_runtime_cash
@@ -445,7 +448,9 @@ class PaperRuntimeService:
             number = float(value)
         except (TypeError, ValueError):
             return default
-        return number if number == number and number not in {float("inf"), float("-inf")} else default
+        return (
+            number if number == number and number not in {float("inf"), float("-inf")} else default
+        )
 
     async def list_rules(self, user_id: str, instance_id: str | None = None) -> list[RiskRule]:
         """List owned rules, optionally constrained to one runtime plus broad scopes."""
@@ -540,7 +545,9 @@ class PaperRuntimeService:
             workspace: Workspace | None = None
             if workspace_id:
                 workspace = await session.scalar(
-                    select(Workspace).where(Workspace.id == workspace_id, Workspace.user_id == user_id)
+                    select(Workspace).where(
+                        Workspace.id == workspace_id, Workspace.user_id == user_id
+                    )
                 )
                 if workspace is None:
                     raise LookupError("Workspace not found")

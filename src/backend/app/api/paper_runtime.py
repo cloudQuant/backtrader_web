@@ -173,7 +173,9 @@ async def get_paper_equity_curve(
             cursor=cursor,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     if page is None:
         raise _not_found()
     return PaperEquityCurveResponse(

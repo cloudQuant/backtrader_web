@@ -78,7 +78,14 @@ async def test_warehouse_coverage_filters_symbols_before_grouping():
             return self
 
         def all(self):
-            return [{"symbol": "000001", "start_date": "2024-01-01", "end_date": "2024-01-02", "row_count": 2}]
+            return [
+                {
+                    "symbol": "000001",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-02",
+                    "row_count": 2,
+                }
+            ]
 
     class _Connection:
         query = ""

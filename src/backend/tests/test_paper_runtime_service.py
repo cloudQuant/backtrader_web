@@ -376,7 +376,9 @@ async def test_post_fill_risk_persists_deduplicated_drawdown_alert():
     assert second.rule_ids == first.rule_ids
     async with async_session_maker() as session:
         alerts = await session.scalars(
-            select(Alert).where(Alert.instance_id == "runtime-instance", Alert.title == "模拟交易成交后风控告警")
+            select(Alert).where(
+                Alert.instance_id == "runtime-instance", Alert.title == "模拟交易成交后风控告警"
+            )
         )
         saved = list(alerts)
     assert len(saved) == 1

@@ -507,9 +507,7 @@ async def test_trading_workspace_background_batch_starts_one_unit_at_a_time(
     async with async_session_maker() as session:
         units = list(
             (
-                await session.execute(
-                    select(StrategyUnit).where(StrategyUnit.id.in_(unit_ids))
-                )
+                await session.execute(select(StrategyUnit).where(StrategyUnit.id.in_(unit_ids)))
             ).scalars()
         )
         for unit in units:

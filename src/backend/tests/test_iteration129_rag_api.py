@@ -444,12 +444,16 @@ class TestIteration129RAGAPI:
 
         async with async_session_maker() as session:
             chunks = (
-                await session.execute(
-                    select(DocumentChunk.content)
-                    .where(DocumentChunk.document_id == doc_id)
-                    .order_by(DocumentChunk.chunk_index)
+                (
+                    await session.execute(
+                        select(DocumentChunk.content)
+                        .where(DocumentChunk.document_id == doc_id)
+                        .order_by(DocumentChunk.chunk_index)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         assert chunks == [f"# {title}\n\n{source}\n\n{body}"]
 
     async def test_updated_document_removes_stale_chunks(

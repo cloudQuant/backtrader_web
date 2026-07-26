@@ -342,9 +342,7 @@ class MarketInstrumentService:
 
         warnings.append("已按查询请求从 AkShare 更新行情数据。")
         online_payload["warnings"] = warnings
-        online_payload["indicators"] = self._build_indicators(
-            online_payload["history"]["rows"]
-        )
+        online_payload["indicators"] = self._build_indicators(online_payload["history"]["rows"])
         return online_payload
 
     async def _lookup_warehouse(
@@ -2368,9 +2366,7 @@ class MarketInstrumentService:
             elif normalized_symbol.startswith("mo"):
                 history_df = ak.option_cffex_zz1000_daily_sina(symbol=resolved_symbol)
             elif "." in resolved_symbol:
-                history_df = ak.option_commodity_hist_sina(
-                    symbol=resolved_symbol.split(".", 1)[1]
-                )
+                history_df = ak.option_commodity_hist_sina(symbol=resolved_symbol.split(".", 1)[1])
             else:
                 history_df = ak.option_sse_daily_sina(symbol=resolved_symbol)
             history_rows = self._normalize_generic_ohlcv_history(history_df, start_date, end_date)

@@ -789,11 +789,7 @@ def _futures_quality_reports(
         return []
 
     reports: list[dict[str, Any]] = []
-    parsed_rows = [
-        (value, row)
-        for row in rows
-        if (value := _parse_row_datetime(row)) is not None
-    ]
+    parsed_rows = [(value, row) for row in rows if (value := _parse_row_datetime(row)) is not None]
     parsed_rows.sort(key=lambda item: item[0])
 
     closure_rows = [

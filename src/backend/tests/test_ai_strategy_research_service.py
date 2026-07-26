@@ -12537,11 +12537,15 @@ async def test_ai_strategy_research_task_api_runs_generated_goal_full_pipeline(
         versions = list(
             (
                 await session.scalars(
-                    select(AIStrategyResearchVersion).where(AIStrategyResearchVersion.run_id == run_id)
+                    select(AIStrategyResearchVersion).where(
+                        AIStrategyResearchVersion.run_id == run_id
+                    )
                 )
             ).all()
         )
-    assert any(event.stage == "robustness_validation" and event.status == "completed" for event in events)
+    assert any(
+        event.stage == "robustness_validation" and event.status == "completed" for event in events
+    )
     assert len(versions) >= 2
 
 

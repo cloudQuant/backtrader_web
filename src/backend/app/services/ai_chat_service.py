@@ -273,10 +273,14 @@ class AIChatService:
                 # this bounded but large enough to receive the final payload.
                 max_tokens=min(2048, self.settings.AI_CHAT_MAX_TOKENS),
             )
-            result = await asyncio.wait_for(
-                provider_result,
-                timeout=float(getattr(self.settings, "RAG_LLM_RERANK_TIMEOUT", 30.0)),
-            ) if inspect.isawaitable(provider_result) else provider_result
+            result = (
+                await asyncio.wait_for(
+                    provider_result,
+                    timeout=float(getattr(self.settings, "RAG_LLM_RERANK_TIMEOUT", 30.0)),
+                )
+                if inspect.isawaitable(provider_result)
+                else provider_result
+            )
         except Exception as exc:
             await self._record_ai_call(
                 assistant_mode="knowledge_rerank",
@@ -318,9 +322,7 @@ class AIChatService:
                 seen.add(normalized_id)
         if not ordered:
             return candidates, False
-        ordered.extend(
-            item for item in candidates if str(item.get("chunk_id")) not in seen
-        )
+        ordered.extend(item for item in candidates if str(item.get("chunk_id")) not in seen)
         return ordered, True
 
     async def generate_answer(

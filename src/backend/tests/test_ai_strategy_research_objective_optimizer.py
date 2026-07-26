@@ -51,7 +51,9 @@ async def test_objective_optimizer_preserves_config_as_model_hard_constraints():
     optimizer = AIStrategyResearchObjectiveOptimizer(
         ai_router=router,
         preference_service=_ConfiguredPreferenceService(),
-        settings=SimpleNamespace(AI_CHAT_TIMEOUT=30, AI_CHAT_MAX_TOKENS=1000, AI_CHAT_TEMPERATURE=0.2),
+        settings=SimpleNamespace(
+            AI_CHAT_TIMEOUT=30, AI_CHAT_MAX_TOKENS=1000, AI_CHAT_TEMPERATURE=0.2
+        ),
     )
 
     response = await optimizer.optimize(

@@ -1936,9 +1936,7 @@ class TradingWorkspaceService:
                 manager is not None
                 and refresh_gateway
                 and not is_explicit_paper
-                and self._refresh_unit_asset_specs_from_manager(
-                manager, unit, instance
-                )
+                and self._refresh_unit_asset_specs_from_manager(manager, unit, instance)
             ):
                 changed = True
             if not self._unit_has_asset_valuation_config(
@@ -1960,9 +1958,11 @@ class TradingWorkspaceService:
                 # state; otherwise merely opening a portfolio page would mark
                 # every restored unit idle.
                 persisted_snapshot = _safe_dict(getattr(unit, "trading_snapshot", None))
-                persisted_status = str(
-                    persisted_snapshot.get("instance_status") or unit.run_status or "idle"
-                ).strip().lower()
+                persisted_status = (
+                    str(persisted_snapshot.get("instance_status") or unit.run_status or "idle")
+                    .strip()
+                    .lower()
+                )
                 snapshot["instance_status"] = persisted_status or "idle"
                 if not snapshot.get("error") and persisted_snapshot.get("error"):
                     snapshot["error"] = persisted_snapshot["error"]
@@ -2017,7 +2017,9 @@ class TradingWorkspaceService:
                 continue
             value = row.get("id") or row.get("trade_id") or row.get("ref")
             if value is None:
-                value = f"{row.get('symbol', '')}:{row.get('dtclose', row.get('datetime', ''))}:{index}"
+                value = (
+                    f"{row.get('symbol', '')}:{row.get('dtclose', row.get('datetime', ''))}:{index}"
+                )
             keys.add(str(value))
         return keys
 
@@ -2060,7 +2062,9 @@ class TradingWorkspaceService:
                 current_equity=equity,
                 position_value=position_value,
                 drawdown_pct=_safe_float(snapshot.get("max_drawdown_rate"), 0.0),
-                daily_loss_pct=abs(daily_pnl) / equity * 100 if daily_pnl < 0 and equity > 0 else 0.0,
+                daily_loss_pct=abs(daily_pnl) / equity * 100
+                if daily_pnl < 0 and equity > 0
+                else 0.0,
             )
         except Exception:
             logger.warning(
@@ -2158,8 +2162,7 @@ class TradingWorkspaceService:
                         if str(exc) != "Strategy is already running":
                             raise
                         refreshed = await asyncio.to_thread(
-                            manager.get_instance,
-                            str(unit.trading_instance_id), user_id=user_id
+                            manager.get_instance, str(unit.trading_instance_id), user_id=user_id
                         )
                         if not refreshed or str(refreshed.get("status") or "").lower() != "running":
                             raise

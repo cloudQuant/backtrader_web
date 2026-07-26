@@ -187,7 +187,9 @@ class TestListInstances:
             save_instances=save_instances,
             is_pid_alive=MagicMock(return_value=True),
             resolve_strategy_dir=MagicMock(return_value=Path("/strategies/s1")),
-            scan_running_strategy_pids=MagicMock(return_value={str(Path("/strategies/s1/run.py")): 9001}),
+            scan_running_strategy_pids=MagicMock(
+                return_value={str(Path("/strategies/s1/run.py")): 9001}
+            ),
         )
         result = list_instances(user_id=None, **deps)
         assert result[0]["status"] == "running"
@@ -232,7 +234,9 @@ class TestListInstances:
         assert "old-inst" not in instances
         save_instances.assert_called()
 
-    def test_running_instance_with_reused_pid_is_stopped_when_no_strategy_process_matches(self, tmp_path):
+    def test_running_instance_with_reused_pid_is_stopped_when_no_strategy_process_matches(
+        self, tmp_path
+    ):
         strategy_dir = tmp_path / "strategy"
         strategy_dir.mkdir()
         (strategy_dir / "run.py").write_text("print('ok')", encoding="utf-8")
@@ -721,7 +725,9 @@ class TestGetInstance:
         assert result["started_at"] == "2026-06-24 10:00:00"
         save_instances.assert_called_once()
 
-    def test_get_instance_stops_reused_pid_when_no_strategy_process_matches(self, monkeypatch, tmp_path):
+    def test_get_instance_stops_reused_pid_when_no_strategy_process_matches(
+        self, monkeypatch, tmp_path
+    ):
         from pathlib import Path
 
         strategy_dir = tmp_path / "strategy"
@@ -781,7 +787,9 @@ class TestGetInstance:
                 load_instances=MagicMock(return_value=instances),
                 save_instances=save_instances,
                 is_pid_alive=MagicMock(return_value=True),
-                scan_running_strategy_pids=MagicMock(return_value={str(strategy_dir / "run.py"): 9999}),
+                scan_running_strategy_pids=MagicMock(
+                    return_value={str(strategy_dir / "run.py"): 9999}
+                ),
                 resolve_strategy_dir=MagicMock(return_value=tmp_path / "strategy"),
                 find_latest_log_dir=MagicMock(return_value=None),
             )

@@ -627,7 +627,9 @@ class TestAIChatServiceGenerateAnswer:
             service._build_messages_with_registry = AsyncMock(
                 return_value=([{"role": "user", "content": "你好"}], None, None)
             )
-            service._call_provider = MagicMock(side_effect=RuntimeError("provider temporarily failed"))
+            service._call_provider = MagicMock(
+                side_effect=RuntimeError("provider temporarily failed")
+            )
             service._record_ai_call = AsyncMock()
 
             result = await service.generate_answer(

@@ -340,7 +340,9 @@ class TestDatabaseInitialization:
 
         async with engine.begin() as conn:
             backtest_columns = await conn.execute(text("PRAGMA table_info(backtest_results)"))
-            position_columns = await conn.execute(text("PRAGMA table_info(paper_trading_positions)"))
+            position_columns = await conn.execute(
+                text("PRAGMA table_info(paper_trading_positions)")
+            )
             alert_columns = await conn.execute(text("PRAGMA table_info(alerts)"))
 
         assert {

@@ -121,7 +121,9 @@ class NewsIntelligenceService:
                 threat=classified["threat"],
                 cluster_id=cluster_id,
                 summary=article_summary or self._build_summary(headline, classified),
-                content=article_content or article_summary or self._build_summary(headline, classified),
+                content=article_content
+                or article_summary
+                or self._build_summary(headline, classified),
                 status=classified["status"],
             )
             self.db.add(article)

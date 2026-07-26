@@ -117,9 +117,7 @@ class QuoteService:
         self._custom_symbols: dict[str, dict[str, list[str]]] = load_custom_symbols()
         # Persistently hidden regular subscriptions. Running-workspace rows
         # never enter this collection because their dismissal is UI-local.
-        self._hidden_subscriptions: dict[str, dict[str, list[str]]] = (
-            load_hidden_subscriptions()
-        )
+        self._hidden_subscriptions: dict[str, dict[str, list[str]]] = load_hidden_subscriptions()
         # ZMQ receivers: {gateway_key: _ZmqTickReceiver}.  A source may have
         # several running gateways (for example, two IB workspaces), so the
         # gateway key is the only safe cache boundary.
@@ -185,8 +183,7 @@ class QuoteService:
                 self._ensure_receiver_for_gateway(source, gateway_key, state)
                 workspace_gateway = source_context.get(gateway_key, {})
                 workspace_symbols = [
-                    metadata["symbol"]
-                    for metadata in workspace_gateway.get("symbols", {}).values()
+                    metadata["symbol"] for metadata in workspace_gateway.get("symbols", {}).values()
                 ]
                 self._subscribe_symbols_on_gateway_state(
                     source,
@@ -240,7 +237,9 @@ class QuoteService:
         source = str(source or "").strip().upper()
         hidden = self._hidden_symbol_set(source, user_id)
         defaults = [
-            item for item in self._get_default_symbols_for_source(source) if item["symbol"] not in hidden
+            item
+            for item in self._get_default_symbols_for_source(source)
+            if item["symbol"] not in hidden
         ]
         customs = self._custom_symbols.get(user_id, {}).get(source, [])
         context = self._get_running_workspace_context(
@@ -770,13 +769,17 @@ class QuoteService:
             if lock is None:
                 instance_gateways = {
                     str(instance_id): str(gateway_key)
-                    for instance_id, gateway_key in getattr(manager, "_instance_gateways", {}).items()
+                    for instance_id, gateway_key in getattr(
+                        manager, "_instance_gateways", {}
+                    ).items()
                 }
             else:
                 with lock:
                     instance_gateways = {
                         str(instance_id): str(gateway_key)
-                        for instance_id, gateway_key in getattr(manager, "_instance_gateways", {}).items()
+                        for instance_id, gateway_key in getattr(
+                            manager, "_instance_gateways", {}
+                        ).items()
                     }
         except Exception:
             logger.debug("Unable to read instance gateway assignments", exc_info=True)
@@ -859,9 +862,8 @@ class QuoteService:
         normalized_source = str(source or "").strip().upper()
         result: dict[str, dict[str, Any]] = {}
         for gateway_key, state in self._snapshot_gateway_states(manager).items():
-            if (
-                str(state.get("exchange_type") or "").strip().upper() == normalized_source
-                and bool(state.get("manual"))
+            if str(state.get("exchange_type") or "").strip().upper() == normalized_source and bool(
+                state.get("manual")
             ):
                 result[gateway_key] = state
         for gateway_key, gateway in (workspace_context or {}).items():
@@ -1067,7 +1069,9 @@ class QuoteService:
             ]
             subscription_key, subscription_state = (ready or list(source_states.items()))[0]
         else:
-            subscription_key, subscription_state = self._find_gateway_state_with_key(manager, source)
+            subscription_key, subscription_state = self._find_gateway_state_with_key(
+                manager, source
+            )
             subscription_key = subscription_key or source
         subscription_plan = ensure_plan(subscription_key, subscription_state)
         for symbol in subscription_symbols:

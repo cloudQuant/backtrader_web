@@ -95,9 +95,8 @@ class ChunkService:
         chunks: list[str] = []
         pending_headings: list[str] = []
         for paragraph in paragraphs:
-            if (
-                ChunkService._is_standalone_heading(paragraph)
-                or ChunkService._is_metadata_block(paragraph)
+            if ChunkService._is_standalone_heading(paragraph) or ChunkService._is_metadata_block(
+                paragraph
             ):
                 pending_headings.append(paragraph)
                 continue

@@ -42,7 +42,7 @@ TIMEOUT_SECONDS = 120
 
 @dataclass(frozen=True)
 class Diff:
-    kind: str        # 'table' | 'column' | 'column_type' | 'index' | 'foreign_key'
+    kind: str  # 'table' | 'column' | 'column_type' | 'index' | 'foreign_key'
     object_name: str
     expected: str
     actual: str
@@ -72,19 +72,40 @@ def _run_alembic_upgrade(db_path: Path) -> None:
 
 
 def _normalise_type(t: object) -> str:
-    """Reduce SQLAlchemy type to a comparison-friendly category name."""
+    """Reduce SQLAlchemy and SQLite-reflected types to logical categories."""
     name = type(t).__name__
-    aliases = {"VARCHAR": "String", "CHAR": "String", "NVARCHAR": "String"}
+    aliases = {
+        "BIGINT": "BigInteger",
+        "BOOLEAN": "Boolean",
+        "CHAR": "String",
+        "DATE": "Date",
+        "DATETIME": "DateTime",
+        "Enum": "String",  # SQLite persists SQLAlchemy enums as strings.
+        "FLOAT": "Float",
+        "INTEGER": "Integer",
+        "NUMERIC": "Numeric",
+        "NVARCHAR": "String",
+        "REAL": "Float",
+        "SMALLINT": "SmallInteger",
+        "TEXT": "Text",
+        "TIME": "Time",
+        "VARCHAR": "String",
+    }
     return aliases.get(name, name)
 
 
 def _compare(expected_md, actual_md) -> list[Diff]:
     diffs: list[Diff] = []
     expected_tables = set(expected_md.tables)
-    actual_tables = set(actual_md.tables)
+    # Alembic owns this bookkeeping table; it is intentionally not an ORM model.
+    actual_tables = set(actual_md.tables) - {"alembic_version"}
 
     for missing in sorted(expected_tables - actual_tables):
-        diffs.append(Diff("table", missing, "present", "missing", "expected in ORM, not migrated"))
+        diffs.append(
+            Diff(
+                "table", missing, "present", "missing", "expected in ORM, not migrated"
+            )
+        )
     for extra in sorted(actual_tables - expected_tables):
         diffs.append(Diff("table", extra, "missing", "present", "in DB but not in ORM"))
 
@@ -103,18 +124,30 @@ def _compare(expected_md, actual_md) -> list[Diff]:
             et_t = _normalise_type(ec[cname].type)
             at_t = _normalise_type(ac[cname].type)
             if et_t != at_t:
-                diffs.append(Diff(
-                    "column_type",
-                    f"{tname}.{cname}",
-                    et_t,
-                    at_t,
-                ))
+                diffs.append(
+                    Diff(
+                        "column_type",
+                        f"{tname}.{cname}",
+                        et_t,
+                        at_t,
+                    )
+                )
 
         # Indexes (best-effort — SQLite reflects implicit FK indexes inconsistently)
-        ei = {(i.name, tuple(sorted(c.name for c in i.columns))) for i in et.indexes if i.name}
-        ai = {(i.name, tuple(sorted(c.name for c in i.columns))) for i in at.indexes if i.name}
+        ei = {
+            (i.name, tuple(sorted(c.name for c in i.columns)))
+            for i in et.indexes
+            if i.name
+        }
+        ai = {
+            (i.name, tuple(sorted(c.name for c in i.columns)))
+            for i in at.indexes
+            if i.name
+        }
         for missing in sorted(ei - ai):
-            diffs.append(Diff("index", f"{tname}.{missing[0]}", str(missing), "missing"))
+            diffs.append(
+                Diff("index", f"{tname}.{missing[0]}", str(missing), "missing")
+            )
         for extra in sorted(ai - ei):
             diffs.append(Diff("index", f"{tname}.{extra[0]}", "missing", str(extra)))
 
@@ -128,19 +161,23 @@ def _compare(expected_md, actual_md) -> list[Diff]:
             for fk in at.foreign_keys
         }
         for missing in sorted(ef - af):
-            diffs.append(Diff(
-                "foreign_key",
-                f"{tname}.{missing[0]}",
-                f"{tname}.{missing[0]} → {missing[1]}.{missing[2]}",
-                "missing",
-            ))
+            diffs.append(
+                Diff(
+                    "foreign_key",
+                    f"{tname}.{missing[0]}",
+                    f"{tname}.{missing[0]} → {missing[1]}.{missing[2]}",
+                    "missing",
+                )
+            )
         for extra in sorted(af - ef):
-            diffs.append(Diff(
-                "foreign_key",
-                f"{tname}.{extra[0]}",
-                "missing",
-                f"{tname}.{extra[0]} → {extra[1]}.{extra[2]}",
-            ))
+            diffs.append(
+                Diff(
+                    "foreign_key",
+                    f"{tname}.{extra[0]}",
+                    "missing",
+                    f"{tname}.{extra[0]} → {extra[1]}.{extra[2]}",
+                )
+            )
 
     return diffs
 
@@ -164,6 +201,7 @@ def main() -> int:
         try:
             from sqlalchemy import MetaData, create_engine
 
+            import app.models  # noqa: F401  # Register every ORM model with Base.metadata.
             from app.db.database import Base  # type: ignore
         except Exception as exc:
             print(
@@ -185,7 +223,10 @@ def main() -> int:
         _print_markdown(diffs)
         return 1
     except subprocess.TimeoutExpired:
-        print(f"ERROR: alembic upgrade exceeded {TIMEOUT_SECONDS}s budget", file=sys.stderr)
+        print(
+            f"ERROR: alembic upgrade exceeded {TIMEOUT_SECONDS}s budget",
+            file=sys.stderr,
+        )
         return 2
     except Exception:
         print("ERROR: drift check failed:", file=sys.stderr)

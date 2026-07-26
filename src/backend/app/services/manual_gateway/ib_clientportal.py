@@ -373,7 +373,9 @@ def login_ib_web_session_with_browser(
         verify_ssl=verify_ssl,
         timeout=max(2, int(timeout)),
     )
-    account_id = str(credentials.get("account_id") or "").strip() or session_helpers.pick_account_id(
+    account_id = str(
+        credentials.get("account_id") or ""
+    ).strip() or session_helpers.pick_account_id(
         accounts,
         str(settings.get("login_mode") or "paper"),
     )
