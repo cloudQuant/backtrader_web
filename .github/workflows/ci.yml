@@ -1102,7 +1102,7 @@ jobs:
         working-directory: src/frontend
         env:
           BASE_URL: http://localhost:4173
-        run: npx playwright test e2e/smoke-175/ --reporter=list
+        run: npx playwright test --config=playwright.smoke.config.ts --project=chromium --reporter=list
 
       - name: Upload smoke artifacts
         if: always()
