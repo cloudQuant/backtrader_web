@@ -142,6 +142,7 @@ test.describe('authenticated smoke journeys', () => {
       '[data-test=strategy-submit], button:has-text("创建"), button:has-text("保存"), button:has-text("Create"), button:has-text("Save")'
     ).first()
     await submit.click()
+    await expect(dialog).toBeHidden({ timeout: 10_000 })
 
     // Back to the list — assert the new row exists.
     await page.goto(APP_PATHS.research.strategies)
