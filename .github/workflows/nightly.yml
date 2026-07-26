@@ -162,6 +162,18 @@ jobs:
           pip install -e ".[dev,backtrader]"
 
       - name: Start services
+        env:
+          SECRET_KEY: e2e-secret-key-with-sufficient-length-123456
+          JWT_SECRET_KEY: e2e-jwt-secret-key-with-sufficient-length-654321
+          DATABASE_URL: sqlite+aiosqlite:///./backtrader_e2e.db
+          DB_AUTO_CREATE_SCHEMA: "true"
+          DB_AUTO_CREATE_DEFAULT_ADMIN: "true"
+          ADMIN_USERNAME: admin
+          ADMIN_PASSWORD: Admin12345678
+          ADMIN_EMAIL: admin@example.com
+          RATE_LIMIT_REGISTER: "100/hour"
+          RATE_LIMIT_LOGIN: "500/minute"
+          RATE_LIMIT_AUTH_ME: "500/minute"
         run: |
           # Start backend
           cd src/backend
@@ -208,6 +220,9 @@ jobs:
         env:
           BASE_URL: http://127.0.0.1:3000
           CI: true
+          E2E_ADMIN_USERNAME: admin
+          E2E_ADMIN_PASSWORD: Admin12345678
+          E2E_SETUP_BROWSER: chromium
         run: npx playwright test
 
       - name: Upload Playwright reports
