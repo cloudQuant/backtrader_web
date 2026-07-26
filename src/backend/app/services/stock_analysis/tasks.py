@@ -320,17 +320,12 @@ class StockAnalysisTaskService:
         self.db.add(report)
         await self.db.flush()
 
-        # Publish the report before exposing a completed task.  Background
-        # callers persist progress in a separate session, and a consumer may
-        # observe ``status=completed`` between awaits.  Committing the report
-        # first keeps the task result endpoint consistent with that status.
         if commit_progress:
-            await self._commit_progress()
             await self._stop_if_cancelled(task)
-
-        self._mark(task, 100, "completed", "completed", "股票分析已完成")
-        task.report_id = report.id
-        task.completed_at = self._now()
+        # Publish the report and its compatibility-pipeline audit event before
+        # exposing a completed task. Background callers persist progress in a
+        # separate session, so consumers can otherwise observe a completed
+        # task before either record is queryable.
         await self._record_ai_observability(
             task=task,
             params=params,
@@ -338,6 +333,14 @@ class StockAnalysisTaskService:
             latency_ms=self._elapsed_ms(run_started),
             response_chars=len(payload.get("executive_summary") or ""),
         )
+        await self.db.flush()
+        if commit_progress:
+            await self._commit_progress()
+            await self._stop_if_cancelled(task)
+
+        self._mark(task, 100, "completed", "completed", "股票分析已完成")
+        task.report_id = report.id
+        task.completed_at = self._now()
         return report
 
     async def _record_ai_observability(

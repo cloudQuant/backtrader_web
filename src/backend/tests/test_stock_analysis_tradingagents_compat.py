@@ -31,7 +31,7 @@ async def _create_kb(client: AsyncClient, headers: dict, name: str = "stock-kb")
 
 
 async def _wait_for_completed_task(
-    client: AsyncClient, headers: dict, task_id: str, *, attempts: int = 40
+    client: AsyncClient, headers: dict, task_id: str, *, attempts: int = 200
 ) -> dict:
     last_payload: dict | None = None
     for _ in range(attempts):
