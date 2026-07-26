@@ -36,7 +36,9 @@ def main() -> int:
     deadline = 30.0  # seconds
 
     try:
-        from app.config import settings  # type: ignore  # noqa: F401
+        from app.config import get_settings
+
+        app_settings = get_settings()
     except Exception as exc:  # pragma: no cover - defensive
         print(
             f"FATAL: cannot import backend app.config: {exc!r}",
@@ -52,7 +54,6 @@ def main() -> int:
         from sqlalchemy import select
         from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-        from app.config import settings as app_settings
         from app.utils.security import hash_password
     except Exception as exc:  # pragma: no cover - defensive
         print(
@@ -61,9 +62,12 @@ def main() -> int:
         )
         return 2
 
-    db_url = os.environ.get("DATABASE_URL") or getattr(app_settings, "database_url", None)
+    db_url = os.environ.get("DATABASE_URL") or app_settings.DATABASE_URL
     if not db_url:
-        print("FATAL: DATABASE_URL not set and settings.database_url missing", file=sys.stderr)
+        print(
+            "FATAL: DATABASE_URL not set and settings.DATABASE_URL missing",
+            file=sys.stderr,
+        )
         return 2
 
     engine = create_async_engine(db_url, future=True)
@@ -89,7 +93,11 @@ def main() -> int:
                 stmt = select(User).where(User.username == "admin")
                 existing = (await session.execute(stmt)).scalar_one_or_none()
                 if existing is None:
-                    user = User(username="admin", email="admin@example.com", hashed_password=hash_password("admin"))  # type: ignore[arg-type]
+                    user = User(
+                        username="admin",
+                        email="admin@example.com",
+                        hashed_password=hash_password("admin"),
+                    )  # type: ignore[arg-type]
                     session.add(user)
                     await session.flush()
                     counts["users"]["created"] += 1

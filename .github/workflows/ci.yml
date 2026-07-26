@@ -1190,6 +1190,9 @@ jobs:
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/pip install --no-cache-dir -e ".[dev,postgres,backtrader,data,redis]"
 
+      - name: Run alembic migrations
+        run: alembic upgrade head
+
       - name: Run integration tests
         run: |
           pytest tests/ -v -m integration --tb=short
