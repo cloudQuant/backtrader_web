@@ -35,7 +35,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install mkdocs mkdocs-material mkdocs-i18n mkdocs-git-revision-date-localized-plugin mkdocs-minify-plugin
+          pip install mkdocs mkdocs-material mkdocs-static-i18n mkdocs-git-revision-date-localized-plugin mkdocs-minify-plugin
 
       - name: Build Documentation
         run: |
