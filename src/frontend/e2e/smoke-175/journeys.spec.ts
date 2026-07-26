@@ -125,17 +125,21 @@ test.describe('authenticated smoke journeys', () => {
     const name = `e2e-smoke-${Date.now()}`
 
     const newBtn = page.locator(
-      '[data-test=new-strategy], button:has-text("新建"), button:has-text("New Strategy")'
+      '[data-test=new-strategy], button:has-text("创建策略"), button:has-text("新建策略"), button:has-text("Create Strategy"), button:has-text("New Strategy")'
     ).first()
     await newBtn.click()
 
-    const nameInput = page.locator(
-      '[data-test=strategy-name-input], input[name="name"]'
-    ).first()
+    const dialog = page.locator('.el-dialog').filter({
+      has: page.locator('textarea.strategy-code-input'),
+    }).last()
+    const nameInput = dialog.locator('[data-test=strategy-name-input], input').first()
     await nameInput.fill(name)
+    await dialog.locator('textarea.strategy-code-input').fill(
+      'class E2ESmokeStrategy:\n    pass\n'
+    )
 
-    const submit = page.locator(
-      '[data-test=strategy-submit], button[type="submit"], button:has-text("保存"), button:has-text("Save")'
+    const submit = dialog.locator(
+      '[data-test=strategy-submit], button:has-text("创建"), button:has-text("保存"), button:has-text("Create"), button:has-text("Save")'
     ).first()
     await submit.click()
 
