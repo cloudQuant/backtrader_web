@@ -54,7 +54,7 @@ def main() -> int:
         from sqlalchemy import select
         from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-        from app.utils.security import hash_password
+        from app.utils.security import get_password_hash
     except Exception as exc:  # pragma: no cover - defensive
         print(
             f"FATAL: cannot prepare seed environment: {exc!r}",
@@ -96,7 +96,7 @@ def main() -> int:
                     user = User(
                         username="admin",
                         email="admin@example.com",
-                        hashed_password=hash_password("admin"),
+                        hashed_password=get_password_hash("admin"),
                     )  # type: ignore[arg-type]
                     session.add(user)
                     await session.flush()
