@@ -30,24 +30,16 @@ async def _create_kb(client: AsyncClient, headers: dict, name: str = "stock-kb")
     return response.json()["id"]
 
 
-async def _wait_for_completed_task(
-    client: AsyncClient, headers: dict, task_id: str, *, timeout_seconds: float = 30.0
-) -> dict:
-    last_payload: dict | None = None
-    deadline = asyncio.get_running_loop().time() + timeout_seconds
-    while True:
-        response = await client.get(f"/api/v1/stock-analysis/tasks/{task_id}", headers=headers)
-        assert response.status_code == 200, response.text
-        last_payload = response.json()
-        if last_payload["status"] == "completed":
-            return last_payload
-        assert last_payload["status"] in {"pending", "running"}
-        if asyncio.get_running_loop().time() >= deadline:
-            break
-        await asyncio.sleep(0.05)
-    raise AssertionError(
-        f"stock analysis task did not complete within {timeout_seconds}s: {last_payload}"
-    )
+def _capture_pending_task_schedule(monkeypatch: pytest.MonkeyPatch):
+    """Replace detached task execution with a deterministic test-controlled runner."""
+    scheduled: list[tuple[str, str]] = []
+    run_pending_task = StockAnalysisTaskService.run_pending_task
+
+    async def fake_run_pending_task(*, task_id: str, user_id: str) -> None:
+        scheduled.append((task_id, user_id))
+
+    monkeypatch.setattr(StockAnalysisTaskService, "run_pending_task", fake_run_pending_task)
+    return run_pending_task, scheduled
 
 
 async def _user_id_for_username(username: str) -> str:
@@ -61,12 +53,7 @@ async def test_stock_analysis_task_can_be_created_from_dedicated_endpoint(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    scheduled: list[tuple[str, str]] = []
-
-    async def fake_run_pending_task(*, task_id: str, user_id: str) -> None:
-        scheduled.append((task_id, user_id))
-
-    monkeypatch.setattr(StockAnalysisTaskService, "run_pending_task", fake_run_pending_task)
+    _, scheduled = _capture_pending_task_schedule(monkeypatch)
     username = "stock_create_endpoint_user"
     _, headers = await register_and_login(client, username=username)
     user_id = await _user_id_for_username(username)
@@ -335,7 +322,10 @@ async def test_stock_analysis_concurrency_limit_blocks_extra_ai_chat_task(
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(45)
-async def test_failed_stock_analysis_task_can_be_retried(client: AsyncClient):
+async def test_failed_stock_analysis_task_can_be_retried(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
     username = "stock_retry_user"
     _, headers = await register_and_login(client, username=username)
     user_id = await _user_id_for_username(username)
@@ -353,6 +343,7 @@ async def test_failed_stock_analysis_task_can_be_retried(client: AsyncClient):
         task_id = task.id
         await session.commit()
 
+    run_pending_task, scheduled = _capture_pending_task_schedule(monkeypatch)
     retried = await client.post(
         f"/api/v1/stock-analysis/tasks/{task_id}/retry",
         headers=headers,
@@ -361,8 +352,16 @@ async def test_failed_stock_analysis_task_can_be_retried(client: AsyncClient):
     retried_payload = retried.json()
     assert retried_payload["task_id"] != task_id
     assert retried_payload["status"] in {"pending", "running", "completed"}
+    await asyncio.sleep(0)
+    assert scheduled == [(retried_payload["task_id"], user_id)]
+    await run_pending_task(task_id=retried_payload["task_id"], user_id=user_id)
 
-    completed = await _wait_for_completed_task(client, headers, retried_payload["task_id"])
+    completed_response = await client.get(
+        f"/api/v1/stock-analysis/tasks/{retried_payload['task_id']}",
+        headers=headers,
+    )
+    assert completed_response.status_code == 200, completed_response.text
+    completed = completed_response.json()
     assert completed["status"] == "completed"
     assert completed["report_id"]
 
@@ -378,10 +377,14 @@ async def test_failed_stock_analysis_task_can_be_retried(client: AsyncClient):
 @pytest.mark.timeout(45)
 async def test_stock_analysis_from_ai_chat_generates_compat_report_and_exports(
     client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
 ):
-    _, headers = await register_and_login(client, username="stock_ai_user")
+    username = "stock_ai_user"
+    _, headers = await register_and_login(client, username=username)
+    user_id = await _user_id_for_username(username)
     kb_id = await _create_kb(client, headers)
 
+    run_pending_task, scheduled = _capture_pending_task_schedule(monkeypatch)
     sent = await client.post(
         "/api/v1/kb-chat/send",
         headers=headers,
@@ -398,8 +401,16 @@ async def test_stock_analysis_from_ai_chat_generates_compat_report_and_exports(
     assert payload["stock_analysis_report"] is None
     assert task_card["status"] == "pending"
     assert task_card["progress"] == 0
+    await asyncio.sleep(0)
+    assert scheduled == [(task_card["task_id"], user_id)]
+    await run_pending_task(task_id=task_card["task_id"], user_id=user_id)
 
-    task_payload = await _wait_for_completed_task(client, headers, task_card["task_id"])
+    task_response = await client.get(
+        f"/api/v1/stock-analysis/tasks/{task_card['task_id']}",
+        headers=headers,
+    )
+    assert task_response.status_code == 200, task_response.text
+    task_payload = task_response.json()
     assert task_payload["progress"] == 100
     assert task_payload["report_id"]
 

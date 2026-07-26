@@ -901,6 +901,13 @@ class BlockingSleep:
         await asyncio.sleep(60)
 
 
+class NoopResearchPipelineEventService:
+    """Keep orchestration unit tests independent from database event persistence."""
+
+    async def safe_create_event(self, **_: Any) -> None:
+        return None
+
+
 async def _noop_sleep(_: float) -> None:
     return None
 
@@ -2362,6 +2369,7 @@ async def test_research_loop_persists_submitted_iteration_when_cancelled_before_
         workspace_service=workspace_service,
         improver=LocalStrategyImprover(),
         sleep=sleep,
+        event_service=NoopResearchPipelineEventService(),
     )
 
     task = asyncio.create_task(
