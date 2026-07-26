@@ -186,6 +186,7 @@ pip show fincore
 
 ```python
 import time
+
 start = time.time()
 metrics = calculate_metrics_from_log_data(log_data, use_fincore=True)
 print(f"Calculation time: {time.time() - start:.4f}s")

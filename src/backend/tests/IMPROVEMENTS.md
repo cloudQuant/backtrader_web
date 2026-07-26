@@ -104,6 +104,7 @@ async def test_register_short_password(self, client: AsyncClient):
     )
     assert resp.status_code == 422
 
+
 async def test_register_invalid_email(self, client: AsyncClient):
     resp = await client.post(
         "/api/v1/auth/register",
@@ -225,6 +226,7 @@ pytest tests/test_auth_improved.py -v
    async def test_login_performance(benchmark, client):
        async def login():
            return await client.post("/api/v1/auth/login", json={...})
+
        result = await benchmark(login)
        assert result.status_code == 200
    ```
