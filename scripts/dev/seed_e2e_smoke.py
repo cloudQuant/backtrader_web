@@ -82,6 +82,9 @@ def main() -> int:
 
     async def _seed() -> None:  # noqa: PLR0915
         async with Session() as session:
+            smoke_user_id: str | None = None
+            smoke_strategy_id: str | None = None
+
             # --- User
             try:
                 from app.models.user import User  # type: ignore
@@ -103,8 +106,10 @@ def main() -> int:
                     counts["users"]["created"] += 1
                     _log("created admin user")
                 else:
+                    user = existing
                     counts["users"]["skipped"] += 1
                     _log("admin user exists — skip")
+                smoke_user_id = user.id
 
             # --- Strategy draft
             try:
@@ -113,20 +118,23 @@ def main() -> int:
                 _log(f"WARN: cannot import Strategy model — skipping: {exc!r}")
                 Strategy = None  # type: ignore
 
-            if Strategy is not None and User is not None:
+            if Strategy is not None and smoke_user_id is not None:
                 stmt = select(Strategy).where(Strategy.name == "smoke-strategy")
                 existing = (await session.execute(stmt)).scalar_one_or_none()
                 if existing is None:
                     strategy = Strategy(  # type: ignore[call-arg]
                         name="smoke-strategy",
                         code="# smoke seed strategy",
-                        user_id=1,
+                        user_id=smoke_user_id,
                     )
                     session.add(strategy)
+                    await session.flush()
                     counts["strategies"]["created"] += 1
                     _log("created smoke-strategy")
                 else:
+                    strategy = existing
                     counts["strategies"]["skipped"] += 1
+                smoke_strategy_id = strategy.id
 
             # --- Knowledge base
             try:
@@ -135,11 +143,14 @@ def main() -> int:
                 _log(f"WARN: cannot import KnowledgeBase model — skipping: {exc!r}")
                 KnowledgeBase = None  # type: ignore
 
-            if KnowledgeBase is not None:
+            if KnowledgeBase is not None and smoke_user_id is not None:
                 stmt = select(KnowledgeBase).where(KnowledgeBase.name == "smoke-kb")
                 existing = (await session.execute(stmt)).scalar_one_or_none()
                 if existing is None:
-                    kb = KnowledgeBase(name="smoke-kb", user_id=1)  # type: ignore[call-arg]
+                    kb = KnowledgeBase(  # type: ignore[call-arg]
+                        name="smoke-kb",
+                        owner_id=smoke_user_id,
+                    )
                     session.add(kb)
                     counts["knowledge_bases"]["created"] += 1
                     _log("created smoke-kb")
@@ -148,25 +159,62 @@ def main() -> int:
 
             # --- Completed backtest (best-effort)
             try:
-                from app.models.backtest import Backtest  # type: ignore
+                from app.models.backtest import BacktestResultModel, BacktestTask  # type: ignore
             except Exception as exc:
-                _log(f"WARN: cannot import Backtest model — skipping: {exc!r}")
-                Backtest = None  # type: ignore
+                _log(f"WARN: cannot import Backtest models — skipping: {exc!r}")
+                BacktestResultModel = BacktestTask = None  # type: ignore
 
-            if Backtest is not None:
-                stmt = select(Backtest).limit(1)
-                existing = (await session.execute(stmt)).scalar_one_or_none()
+            if BacktestTask is not None and smoke_user_id is not None:
+                existing = await session.get(BacktestTask, "1")
                 if existing is None:
-                    bt = Backtest(  # type: ignore[call-arg]
-                        name="smoke-backtest",
+                    backtest = BacktestTask(  # type: ignore[call-arg]
+                        id="1",
                         status="completed",
-                        user_id=1,
+                        user_id=smoke_user_id,
+                        strategy_id=smoke_strategy_id,
+                        symbol="000001.SZ",
+                        request_data={
+                            "start_date": "2023-01-01T00:00:00",
+                            "end_date": "2023-12-31T00:00:00",
+                            "initial_cash": 100000,
+                        },
                     )
-                    session.add(bt)
+                    session.add(backtest)
+                    await session.flush()
                     counts["backtests"]["created"] += 1
                     _log("created smoke backtest")
                 else:
+                    backtest = existing
                     counts["backtests"]["skipped"] += 1
+
+                result_stmt = select(BacktestResultModel).where(
+                    BacktestResultModel.task_id == backtest.id
+                )
+                backtest_result = (
+                    await session.execute(result_stmt)
+                ).scalar_one_or_none()
+                if backtest_result is None:
+                    session.add(
+                        BacktestResultModel(
+                            task_id=backtest.id,
+                            total_return=12.5,
+                            annual_return=12.5,
+                            sharpe_ratio=1.2,
+                            max_drawdown=-5.0,
+                            win_rate=60.0,
+                            total_trades=10,
+                            profitable_trades=6,
+                            losing_trades=4,
+                            equity_curve=[100000.0, 102000.0, 105000.0, 112500.0],
+                            equity_dates=[
+                                "2023-01-01",
+                                "2023-04-01",
+                                "2023-08-01",
+                                "2023-12-31",
+                            ],
+                            drawdown_curve=[0.0, -1.0, -0.5, 0.0],
+                        )
+                    )
 
             await session.commit()
 
