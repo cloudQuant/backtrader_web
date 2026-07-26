@@ -31,6 +31,9 @@ regexes = [
   '''your-jwt-secret-change-in-production''',
   '''test-secret-key-for-ci-[a-z0-9-]+''',
   '''test-jwt-secret-key-for-ci-[a-z0-9-]+''',
+  # Deterministic dummy keys used only by the isolated browser-E2E workflows.
+  '''e2e-secret-key-with-sufficient-length-123456''',
+  '''e2e-jwt-secret-key-with-sufficient-length-654321''',
   # Common weak defaults referenced by the production secret-guard validator
   # (app/config.py _DEFAULT_PASSWORDS) — these are checked *against*, not used.
   '''admin123''',
