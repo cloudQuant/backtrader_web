@@ -137,10 +137,7 @@ class MarketDataCoverageService:
         refreshed = False
         if not items and refresh_if_empty:
             if provider == "akshare_data":
-                # The warehouse is optional. A coverage *listing* should still
-                # be usable on installations that do not provision it; an
-                # explicit refresh request continues to report that setup
-                # error through its dedicated endpoint.
+                # Listing remains available when the optional warehouse is absent.
                 if _get_akshare_data_engine() is None:
                     return MarketDataCoverageMatrixResponse(total=0, items=[], refreshed=False)
                 await self.refresh_warehouse_coverage(
