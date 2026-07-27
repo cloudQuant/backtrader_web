@@ -29,6 +29,7 @@ from app.schemas.ai_strategy_research import (
     AIStrategyResearchRunRecord,
     AIStrategyResearchRunRequest,
     AIStrategyResearchRunResponse,
+    InvestmentMandateResponse,
 )
 from app.schemas.strategy import (
     AIStrategyDraft,
@@ -906,6 +907,30 @@ class NoopResearchPipelineEventService:
 
     async def safe_create_event(self, **_: Any) -> None:
         return None
+
+
+class NoopResearchVersionService:
+    """Keep cancellation tests independent from version-record persistence."""
+
+    async def create_from_iteration(self, **_: Any) -> None:
+        return None
+
+
+class FakeMandateService:
+    """Supply a stable mandate without touching the shared test database."""
+
+    async def ensure_for_request(
+        self,
+        _: str,
+        request: AIStrategyResearchRunRequest,
+    ) -> InvestmentMandateResponse:
+        return InvestmentMandateResponse(
+            id="mandate-1",
+            raw_prompt=request.prompt,
+            timeframe=request.timeframe,
+            created_at="2025-01-15T12:00:00+00:00",
+            updated_at="2025-01-15T12:00:00+00:00",
+        )
 
 
 async def _noop_sleep(_: float) -> None:
@@ -2324,6 +2349,9 @@ async def test_research_loop_persists_completed_iterations_when_cancelled():
         workspace_service=workspace_service,
         improver=improver,
         sleep=_noop_sleep,
+        event_service=NoopResearchPipelineEventService(),
+        mandate_service=FakeMandateService(),
+        version_service=NoopResearchVersionService(),
     )
 
     task = asyncio.create_task(

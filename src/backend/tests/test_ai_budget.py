@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 
 import pytest
 
@@ -58,18 +58,32 @@ async def _insert_user(**overrides) -> User:
 
 
 @pytest.mark.asyncio
-async def test_budget_service_reports_remaining_daily_global_budget() -> None:
+async def test_budget_service_reports_remaining_daily_global_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.services.ai_observability.budget as budget_module
     from app.services.ai_observability.budget import AIBudgetService, AIBudgetSettings
+
+    frozen_now = datetime(2025, 1, 15, 12, tzinfo=timezone.utc)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz: tzinfo | None = None) -> datetime:
+            if tz is None:
+                return frozen_now.replace(tzinfo=None)
+            return frozen_now.astimezone(tz)
+
+    monkeypatch.setattr(budget_module, "datetime", FrozenDateTime)
 
     await _insert_ai_log(
         user_id="user-1",
         estimated_cost_usd=0.003,
-        created_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        created_at=frozen_now - timedelta(hours=1),
     )
     await _insert_ai_log(
         user_id="user-1",
         estimated_cost_usd=0.5,
-        created_at=datetime.now(timezone.utc) - timedelta(days=2),
+        created_at=frozen_now - timedelta(days=2),
         prompt_hash="b" * 64,
     )
 
@@ -82,7 +96,7 @@ async def test_budget_service_reports_remaining_daily_global_budget() -> None:
     assert snapshot.remaining_usd == pytest.approx(0.007)
     assert snapshot.mode == "soft"
     assert snapshot.exceeded is False
-    assert snapshot.reset_at > datetime.now(timezone.utc)
+    assert snapshot.reset_at == datetime(2025, 1, 16, tzinfo=timezone.utc)
 
 
 @pytest.mark.asyncio
