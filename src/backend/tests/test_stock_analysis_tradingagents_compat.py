@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from types import SimpleNamespace
 
@@ -8,12 +9,17 @@ from sqlalchemy import select
 
 from app.db.database import async_session_maker
 from app.models.ai_call_log import AICallLog
-from app.models.stock_analysis import StockAnalysisExportModel
+from app.models.stock_analysis import (
+    StockAnalysisExportModel,
+    StockAnalysisReportModel,
+    StockAnalysisTaskModel,
+)
 from app.models.user import User
 from app.schemas.stock_analysis import StockAnalysisParams
 from app.services.ai_router.router import ChatCompletionResponse
 from app.services.stock_analysis.analysis_engine import StockAnalysisEngine
 from app.services.stock_analysis.exporter import StockAnalysisExporter
+from app.services.stock_analysis.report_builder import StockAnalysisReportBuilder
 from app.services.stock_analysis.tasks import StockAnalysisTaskService
 from tests.conftest import register_and_login
 
@@ -97,6 +103,68 @@ async def test_stock_analysis_task_can_be_created_from_dedicated_endpoint(
     assert detail.json()["symbol"] == "000001.SZ"
 
 
+@pytest.mark.asyncio
+async def test_stock_analysis_latest_report_returns_the_most_recent_completed_result(
+    client: AsyncClient,
+):
+    username = "stock_latest_report_user"
+    _, headers = await register_and_login(client, username=username)
+    user_id = await _user_id_for_username(username)
+    now = datetime.now(timezone.utc)
+
+    async with async_session_maker() as session:
+        service = StockAnalysisTaskService(session)
+        older_task = await service.create_pending(
+            user_id=user_id,
+            params=StockAnalysisParams(symbol="000001.SZ"),
+            request_text="分析 000001.SZ",
+        )
+        latest_task = await service.create_pending(
+            user_id=user_id,
+            params=StockAnalysisParams(symbol="600000.SH"),
+            request_text="分析 600000.SH",
+        )
+        older_report = StockAnalysisReportModel(
+            task_id=older_task.id,
+            user_id=user_id,
+            symbol=older_task.symbol,
+            market_type=older_task.market_type,
+            analysis_date=older_task.analysis_date,
+            title="旧报告",
+            summary="旧报告摘要",
+            report_json={"meta": {"symbol": older_task.symbol}},
+            created_at=now - timedelta(minutes=1),
+        )
+        latest_report = StockAnalysisReportModel(
+            task_id=latest_task.id,
+            user_id=user_id,
+            symbol=latest_task.symbol,
+            market_type=latest_task.market_type,
+            analysis_date=latest_task.analysis_date,
+            title="最新报告",
+            summary="最新报告摘要",
+            report_json={"meta": {"symbol": latest_task.symbol}},
+            created_at=now,
+        )
+        session.add_all([older_report, latest_report])
+        await session.flush()
+        for task, report in ((older_task, older_report), (latest_task, latest_report)):
+            task.status = "completed"
+            task.progress = 100
+            task.current_step = "completed"
+            task.report_id = report.id
+            task.completed_at = report.created_at
+        await session.commit()
+
+    response = await client.get("/api/v1/stock-analysis/reports/latest", headers=headers)
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["task"]["task_id"] == latest_task.id
+    assert payload["task"]["report_id"] == latest_report.id
+    assert payload["report"] == {"meta": {"symbol": "600000.SH"}}
+
+
 def test_stock_analysis_exporter_sanitizes_file_name():
     exporter = StockAnalysisExporter()
     file_name = exporter.build_file_name(
@@ -107,6 +175,109 @@ def test_stock_analysis_exporter_sanitizes_file_name():
     assert file_name == "000001_SZ_分析报告_2026_06_15.md"
     assert "/" not in file_name
     assert "\\" not in file_name
+
+
+def test_stock_analysis_report_builder_removes_markdown_controls_from_summary():
+    raw_decision = (
+        "# 平安银行最终交易决策\n\n---\n\n**最终交易建议：持有**\n\n"
+        "## 决策依据\n\n当前处于震荡区间。"
+    )
+
+    report = StockAnalysisReportBuilder().build(
+        symbol="000001.SZ",
+        symbol_name="平安银行",
+        market_type="A股",
+        analysis_date="2026-07-24",
+        research_depth="标准",
+        snapshot={"data_quality": {"status": "ok"}},
+        pipeline_output={
+            "final_trade_decision": raw_decision,
+            "decision": {"action": "持有", "reasoning": raw_decision},
+            "scores": {},
+        },
+    )
+
+    assert "最终交易建议：持有" in report["executive_summary"]
+    assert not any(token in report["executive_summary"] for token in ("#", "**", "---"))
+    assert not any(token in report["decision"]["reasoning"] for token in ("#", "**", "---"))
+
+
+def test_stock_analysis_exporter_nests_ai_markdown_under_localized_stage_titles():
+    exporter = StockAnalysisExporter()
+    markdown = exporter.render_markdown(
+        {
+            "meta": {"symbol": "000001.SZ", "analysis_date": "2026-07-24"},
+            "decision": {},
+            COMPAT_REPORT_KEY: {
+                "market_report": "# 盘面概览\n\n**趋势：** 区间震荡。",
+            },
+            "limitations": [],
+        }
+    )
+    lines = markdown.splitlines()
+
+    assert "## 技术与市场分析" in lines
+    assert "## market_report" not in lines
+    assert "### 盘面概览" in lines
+    assert lines.count("# 000001 股票分析报告") == 1
+
+
+def test_stock_analysis_html_export_renders_nested_ai_headings():
+    exporter = StockAnalysisExporter()
+    html = exporter.render_html(
+        {
+            "meta": {"symbol": "000001.SZ", "analysis_date": "2026-07-24"},
+            "decision": {},
+            COMPAT_REPORT_KEY: {
+                "market_report": "# 盘面概览\n\n## 趋势判断\n\n区间震荡。",
+            },
+            "limitations": [],
+        }
+    )
+
+    assert "<h3>盘面概览</h3>" in html
+    assert "<h4>趋势判断</h4>" in html
+    assert "<p>#### 趋势判断</p>" not in html
+
+
+def test_stock_analysis_html_export_renders_ai_markdown_structures():
+    exporter = StockAnalysisExporter()
+    html = exporter.render_html(
+        {
+            "meta": {"symbol": "000001.SZ", "analysis_date": "2026-07-24"},
+            "decision": {},
+            COMPAT_REPORT_KEY: {
+                "market_report": (
+                    "**趋势：** 区间震荡。\n\n"
+                    "- 支撑位：10.20\n"
+                    "- 阻力位：10.80\n\n"
+                    "| 指标 | 数值 |\n"
+                    "| --- | --- |\n"
+                    "| MACD | 金叉 |\n\n"
+                    "```text\n风险控制：9.80\n```"
+                ),
+            },
+            "limitations": [],
+        }
+    )
+
+    assert "<strong>趋势：</strong>" in html
+    assert "<ul>" in html
+    assert "<li>支撑位：10.20</li>" in html
+    assert "<table>" in html
+    assert "<th>指标</th>" in html
+    assert '<pre><code class="language-text">风险控制：9.80' in html
+    assert "**趋势：**" not in html
+    assert "| 指标 | 数值 |" not in html
+
+
+def test_stock_analysis_html_export_declares_cjk_font_stack():
+    html = StockAnalysisExporter().render_html(
+        {"meta": {"symbol": "000001.SZ"}, "decision": {}, "limitations": []}
+    )
+
+    assert '"PingFang SC"' in html
+    assert '"Hiragino Sans GB"' in html
 
 
 def test_stock_analysis_pdf_export_preserves_chinese_text():
@@ -166,6 +337,16 @@ class _FakeStockAIRouter:
             completion_tokens=5,
             total_tokens=15,
         )
+
+
+class _TimeoutStockAIRouter:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def chat_completion(self, **kwargs):
+        del kwargs
+        self.calls += 1
+        raise asyncio.TimeoutError()
 
 
 class _NoModelPreference:
@@ -253,6 +434,111 @@ async def test_stock_analysis_engine_enhances_stages_and_logs_ai_calls(client: A
     assert logs[-1].mode == "ai_stage:final_trade_decision"
     assert logs[-1].prompt_template_id == "stock_analysis.final_trade_decision"
     assert logs[-1].status == "success"
+
+
+@pytest.mark.asyncio
+async def test_stock_analysis_engine_stops_ai_stages_after_provider_timeout(
+    client: AsyncClient,
+):
+    username = "stock_engine_timeout_user"
+    _, _headers = await register_and_login(client, username=username)
+    user_id = await _user_id_for_username(username)
+    timeout_router = _TimeoutStockAIRouter()
+    settings = SimpleNamespace(
+        AI_CHAT_ENABLED=True,
+        AI_CHAT_BASE_URL="http://ai.local",
+        AI_CHAT_API_KEY="test-key",
+        AI_CHAT_MODEL="test-model",
+        AI_CHAT_TIMEOUT=1,
+        AI_CHAT_TEMPERATURE=0.2,
+    )
+
+    async with async_session_maker() as session:
+        engine = StockAnalysisEngine(
+            session,
+            ai_router=timeout_router,
+            model_preference_service=_NoModelPreference(),
+            budget_checker=_no_budget_limit,
+            settings=settings,
+        )
+        enhanced = await engine.enhance(
+            task_id="task-engine-timeout",
+            user_id=user_id,
+            model_id=None,
+            symbol="000001.SZ",
+            market_type="A股",
+            research_depth="标准",
+            selected_modules=["market"],
+            snapshot={"quote": {"price": 10.0}, "data_quality": {"status": "ok"}},
+            pipeline_output={"scores": {}},
+        )
+
+    assert timeout_router.calls == 1
+    assert enhanced["ai_stage_generation"]["degraded"] is True
+    assert enhanced["ai_stage_generation"]["stages"] == [
+        {
+            "stage": "market",
+            "status": "failed",
+            "error_code": "TimeoutError",
+            "message": "",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stock_analysis_reconciles_orphaned_active_tasks_after_restart(
+    client: AsyncClient,
+):
+    username = "stock_reconcile_user"
+    _, _headers = await register_and_login(client, username=username)
+    user_id = await _user_id_for_username(username)
+    async with async_session_maker() as session:
+        task = await StockAnalysisTaskService(session).create_pending(
+            user_id=user_id,
+            params=StockAnalysisParams(symbol="000001.SZ"),
+            request_text="分析 000001.SZ",
+        )
+        task_id = task.id
+        await session.commit()
+
+    assert await StockAnalysisTaskService.reconcile_orphaned_tasks() == 1
+
+    async with async_session_maker() as session:
+        task = (
+            await session.execute(select(StockAnalysisTaskModel).where(StockAnalysisTaskModel.id == task_id))
+        ).scalar_one()
+        assert task.status == "failed"
+        assert task.progress == 100
+        assert task.current_step == "failed"
+        assert task.error_message == "Task interrupted because the stock analysis service restarted"
+
+
+@pytest.mark.asyncio
+async def test_stock_analysis_interrupts_active_tasks_during_graceful_shutdown(
+    client: AsyncClient,
+):
+    username = "stock_shutdown_user"
+    _, _headers = await register_and_login(client, username=username)
+    user_id = await _user_id_for_username(username)
+    async with async_session_maker() as session:
+        task = await StockAnalysisTaskService(session).create_pending(
+            user_id=user_id,
+            params=StockAnalysisParams(symbol="000001.SZ"),
+            request_text="分析 000001.SZ",
+        )
+        task_id = task.id
+        await session.commit()
+
+    assert await StockAnalysisTaskService.interrupt_active_tasks() == 1
+
+    async with async_session_maker() as session:
+        task = (
+            await session.execute(select(StockAnalysisTaskModel).where(StockAnalysisTaskModel.id == task_id))
+        ).scalar_one()
+        assert task.status == "cancelled"
+        assert task.progress == 100
+        assert task.current_step == "cancelled"
+        assert task.error_message == "Task cancelled due to application shutdown (graceful stop)"
 
 
 @pytest.mark.asyncio
@@ -570,7 +856,9 @@ async def test_stock_analysis_from_ai_chat_generates_compat_report_and_exports(
         headers=headers,
     )
     assert document.status_code == 200
-    assert "兼容阶段输出" in document.json()["content"]
+    document_content = document.json()["content"]
+    assert "技术与市场分析" in document_content
+    assert "## market_report" not in document_content
 
     history = await client.get(
         f"/api/v1/kb-chat/history/{payload['conversation_id']}",

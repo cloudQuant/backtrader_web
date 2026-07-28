@@ -47,26 +47,29 @@ class AIChatRouter:
         temperature: float = 0.2,
         max_tokens: int | None = None,
     ) -> ChatCompletionResponse:
+        request_timeout = max(float(timeout), 0.001)
         if self._should_use_litellm(provider, model):
-            return await self._call_litellm(
+            request = self._call_litellm(
                 messages=messages,
                 model=model,
                 temperature=temperature,
                 api_base=base_url,
                 api_key=api_key,
-                timeout=timeout,
+                timeout=request_timeout,
                 max_tokens=max_tokens,
             )
-        return await asyncio.to_thread(
-            self._call_openai_compatible,
-            messages=messages,
-            model=model,
-            base_url=base_url or "",
-            api_key=api_key or "",
-            timeout=timeout,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+        else:
+            request = asyncio.to_thread(
+                self._call_openai_compatible,
+                messages=messages,
+                model=model,
+                base_url=base_url or "",
+                api_key=api_key or "",
+                timeout=request_timeout,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        return await asyncio.wait_for(request, timeout=request_timeout)
 
     def _should_use_litellm(self, provider: str | None, model: str) -> bool:
         if self._litellm_completion is None:

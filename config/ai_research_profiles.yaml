@@ -96,7 +96,7 @@ profiles:
     group_name: AI投研 - 10年期国债期货(T0) - 日线
     backtest_timeout_seconds: 900
     poll_interval_seconds: 2
-    research_workspace_id: ''
+    research_workspace_id: e778de94-a779-486f-b07f-da4121f1b902
     seed_strategy_id: ''
     continue_from_run_id: ''
     continuation_source: ''
@@ -205,7 +205,7 @@ profiles:
     group_name: AI投研 - 10年期国债期货(T0) - 日线
     backtest_timeout_seconds: 900
     poll_interval_seconds: 2
-    research_workspace_id: 902d59ce-d758-4afb-a786-3aa85807a988
+    research_workspace_id: e778de94-a779-486f-b07f-da4121f1b902
     seed_strategy_id: ''
     continue_from_run_id: ''
     continuation_source: ''
@@ -260,7 +260,7 @@ profiles:
     group_name: ''
     backtest_timeout_seconds: 600
     poll_interval_seconds: 2
-    research_workspace_id: ''
+    research_workspace_id: b9d28179-178e-4093-b264-850c208706bf
     seed_strategy_id: ''
     continue_from_run_id: ''
     continuation_source: ''
@@ -336,7 +336,7 @@ profiles:
     group_name: AI投研 - T/TF期限价差套利 - 日线
     backtest_timeout_seconds: 900
     poll_interval_seconds: 2
-    research_workspace_id: ''
+    research_workspace_id: 803f9feb-9ce1-4f76-be6a-b79e73f33667
     seed_strategy_id: ''
     continue_from_run_id: ''
     continuation_source: ''
@@ -389,7 +389,7 @@ profiles:
     group_name: AI投研 - 原油连续(SC0) - 日线
     backtest_timeout_seconds: 900
     poll_interval_seconds: 2
-    research_workspace_id: ''
+    research_workspace_id: eb77a009-901b-4a1c-82ff-4b1e435171d0
     seed_strategy_id: ''
     continue_from_run_id: ''
     continuation_source: ''
@@ -598,7 +598,7 @@ profiles:
     group_name: AI投研 - 螺纹钢(RB0) - 日线
     backtest_timeout_seconds: 900
     poll_interval_seconds: 2
-    research_workspace_id: ''
+    research_workspace_id: 10762647-8441-4cd9-9cb9-b874385f8d3c
     seed_strategy_id: ''
     continue_from_run_id: ''
     continuation_source: ''

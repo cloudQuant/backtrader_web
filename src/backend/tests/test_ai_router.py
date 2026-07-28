@@ -1,4 +1,6 @@
+import asyncio
 import json
+import time
 from typing import Any
 
 import pytest
@@ -205,3 +207,26 @@ async def test_chat_completion_falls_back_to_openai_compatible_endpoint() -> Non
     assert response.content == "fallback answer"
     assert response.total_tokens == 7
     assert response.provider == "openai_compatible"
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_completion_enforces_wall_clock_timeout() -> None:
+    """A provider that keeps a socket open must not hold a task indefinitely."""
+    from app.services.ai_router.router import AIChatRouter
+
+    def slow_urlopen(request: Any, timeout: float) -> _FakeHTTPResponse:
+        del request, timeout
+        time.sleep(0.1)
+        return _FakeHTTPResponse({"choices": [{"message": {"content": "late"}}]})
+
+    router = AIChatRouter(litellm_completion=None, urlopen=slow_urlopen)
+
+    with pytest.raises(asyncio.TimeoutError):
+        await router.chat_completion(
+            messages=[{"role": "user", "content": "hi"}],
+            model="gpt-4o-mini",
+            provider="openai_compatible",
+            base_url="http://provider.local/v1",
+            api_key="sk-test",
+            timeout=0.01,
+        )

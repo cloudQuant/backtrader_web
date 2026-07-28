@@ -8038,6 +8038,206 @@ describe('StrategyPage', () => {
     expect(wrapper.find('[data-test="ai-research-result-context"]').text()).toContain('螺纹钢近期样本')
   })
 
+  it('defaults to the rebar plan and switches to the latest output in each plan workspace', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const t0Plan = {
+      id: 't0-plan',
+      name: '国债期货',
+      description: '国债日线方案',
+      config: {
+        symbol: 'T0',
+        timeframe: '1d',
+        timeframe_n: 1,
+        research_workspace_id: 't0-workspace',
+      },
+    }
+    const rebarPlan = {
+      id: 'rebar-plan',
+      name: '螺纹钢',
+      description: '螺纹钢一小时方案',
+      config: {
+        symbol: 'RB0',
+        symbol_name: '螺纹钢主连',
+        timeframe: '1h',
+        timeframe_n: 1,
+        start_date: '2020-01-01',
+        target_sharpe: 0.6,
+        research_workspace_id: 'rebar-workspace',
+      },
+    }
+    const latestRebarRun = {
+      run_id: 'rebar-latest-run',
+      prompt: '螺纹钢最新研究输出',
+      symbol: 'RB0',
+      symbol_name: '螺纹钢主连',
+      timeframe: '1h',
+      timeframe_n: 1,
+      start_date: '2023-01-01',
+      end_date: '2023-08-29',
+      status: 'max_iterations_reached',
+      achieved: false,
+      target_sharpe: 0.8,
+      quality_gates: {},
+      min_total_trades: 3,
+      max_iterations: 3,
+      iteration_count: 3,
+      best_sharpe: 0.4,
+      best_quality_score: 50,
+      best_quality_gate_evaluations: [],
+      best_metrics: {},
+      research_workspace_id: 'rebar-workspace',
+      paper_trading_started: false,
+      next_actions: [],
+      started_at: '2026-07-24T05:00:00Z',
+      completed_at: '2026-07-24T05:49:24Z',
+      iterations: [],
+    }
+    const olderRebarRun = {
+      ...latestRebarRun,
+      run_id: 'rebar-older-run',
+      completed_at: '2026-07-23T05:49:24Z',
+    }
+    const t0Run = {
+      ...latestRebarRun,
+      run_id: 't0-latest-run',
+      prompt: '国债最新研究输出',
+      symbol: 'T0',
+      symbol_name: '十年期国债期货',
+      timeframe: '1d',
+      research_workspace_id: 't0-workspace',
+      completed_at: '2026-07-24T06:00:00Z',
+    }
+    ;(strategyApi as any).listAIResearchConfigProfiles = vi.fn().mockResolvedValue({
+      items: [t0Plan, rebarPlan],
+      total: 2,
+      file_path: '/tmp/ai_research_profiles.yaml',
+    })
+    vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({
+      total: 3,
+      items: [t0Run, latestRebarRun, olderRebarRun],
+    } as any)
+
+    try {
+      const wrapper = doMount()
+      await flushPromises()
+      await flushPromises()
+      const vm = wrapper.vm as any
+
+      expect(vm.aiResearchSelectedConfigProfileId).toBe('rebar-plan')
+      expect(vm.aiResearchForm.research_workspace_id).toBe('rebar-workspace')
+      expect(vm.aiResearchResult?.run_id).toBe('rebar-latest-run')
+
+      vm.selectAIResearchConfigProfile('t0-plan')
+      await wrapper.vm.$nextTick()
+      expect(vm.aiResearchResult?.run_id).toBe('t0-latest-run')
+
+      vm.selectAIResearchConfigProfile('rebar-plan')
+      await wrapper.vm.$nextTick()
+      expect(vm.aiResearchResult?.run_id).toBe('rebar-latest-run')
+    } finally {
+      delete (strategyApi as any).listAIResearchConfigProfiles
+    }
+  })
+
+  it('keeps a plan result scoped to its asset when its workspace has historical mixed runs', async () => {
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    await flushPromises()
+    const aSharePlan = {
+      id: 'a-share-plan',
+      name: 'A股日线均衡投研',
+      description: '',
+      config: {
+        symbol: '000001.SZ',
+        timeframe: '1d',
+        timeframe_n: 1,
+        research_workspace_id: 'mixed-workspace',
+      },
+    }
+    const aShareRun = {
+      ...vm.aiResearchRuns[0],
+      run_id: 'a-share-run',
+      prompt: '平安银行日线研究输出',
+      symbol: '000001.SZ',
+      symbol_name: '平安银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      research_workspace_id: 'mixed-workspace',
+      completed_at: '2026-07-01T00:00:00Z',
+    }
+    const newerFuturesRun = {
+      ...aShareRun,
+      run_id: 'sa-run',
+      prompt: '纯碱一小时研究输出',
+      symbol: 'SA0',
+      symbol_name: '纯碱主连',
+      timeframe: '1h',
+      completed_at: '2026-07-24T00:00:00Z',
+    }
+    vm.aiResearchConfigProfiles = [aSharePlan]
+    vm.aiResearchRuns = [newerFuturesRun, aShareRun]
+
+    vm.applyAIResearchConfigProfile(aSharePlan, { notify: false })
+    await wrapper.vm.$nextTick()
+
+    expect(vm.aiResearchResult?.run_id).toBe('a-share-run')
+  })
+
+  it('binds an empty plan to the research workspace created by its first completed run', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    await flushPromises()
+    const plan = {
+      id: 'crude-plan',
+      name: '原油期货日线投研方案',
+      description: '',
+      config: {
+        symbol: 'SC0',
+        timeframe: '1d',
+        timeframe_n: 1,
+        research_workspace_id: '',
+      },
+    }
+    const sourceResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: 'SC0' })
+    const record = {
+      ...sourceResult.run_record,
+      run_id: 'crude-first-run',
+      prompt: '原油日线研究输出',
+      symbol: 'SC0',
+      symbol_name: '原油连续',
+      timeframe: '1d',
+      timeframe_n: 1,
+      start_date: '2018-03-26',
+      end_date: '2024-06-08',
+      research_workspace_id: 'crude-workspace',
+    }
+    const result = {
+      ...sourceResult,
+      run_id: record.run_id,
+      research_workspace: { ...sourceResult.research_workspace, id: 'crude-workspace' },
+      run_record: record,
+    }
+    ;(strategyApi as any).updateAIResearchConfigProfile = vi.fn().mockResolvedValue({
+      ...plan,
+      config: { ...plan.config, research_workspace_id: 'crude-workspace' },
+    })
+    vm.aiResearchConfigProfiles = [plan]
+    vm.applyAIResearchConfigProfile(plan, { notify: false })
+
+    try {
+      await vm.applyCompletedAIResearchResult(result)
+
+      expect(strategyApi.updateAIResearchConfigProfile).toHaveBeenCalledWith('crude-plan', {
+        config: expect.objectContaining({ research_workspace_id: 'crude-workspace' }),
+      })
+      expect(vm.aiResearchConfigProfiles[0].config.research_workspace_id).toBe('crude-workspace')
+      expect(vm.aiResearchForm.research_workspace_id).toBe('crude-workspace')
+    } finally {
+      delete (strategyApi as any).updateAIResearchConfigProfile
+    }
+  })
+
   it('clears the previous result and shows active plan progress while AI research runs', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const wrapper = doMount()

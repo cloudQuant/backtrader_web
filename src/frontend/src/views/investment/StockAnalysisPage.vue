@@ -306,7 +306,10 @@
 
       <div class="executive-summary">
         <h4>{{ t('stockAnalysis.executiveSummary') }}</h4>
-        <p>{{ report.executive_summary || decision.reasoning || t('stockAnalysis.noSummary') }}</p>
+        <div
+          class="report-markdown-content"
+          v-html="renderReportMarkdown(report.executive_summary || decision.reasoning || t('stockAnalysis.noSummary'))"
+        />
       </div>
 
       <el-tabs
@@ -330,7 +333,10 @@
                 {{ t('stockAnalysis.score', { score: Math.round(section.score * 100) }) }}
               </el-tag>
             </div>
-            <p>{{ section.summary || t('stockAnalysis.noContent') }}</p>
+            <div
+              class="report-markdown-content"
+              v-html="renderReportMarkdown(section.summary || t('stockAnalysis.noContent'))"
+            />
             <ul v-if="section.findings.length > 1">
               <li
                 v-for="finding in section.findings"
@@ -354,10 +360,12 @@ import { ElMessage } from 'element-plus'
 import { DataAnalysis } from '@element-plus/icons-vue'
 
 import { aiObservabilityApi, type AIModelOption } from '@/api/aiObservability'
+import { renderMarkdown } from '@/utils/markdown-sanitizer'
 import {
   stockAnalysisApi,
   type StockAnalysisCreateTaskParams,
   type StockAnalysisExportFormat,
+  type StockAnalysisLatestResult,
   type StockAnalysisModule,
   type StockAnalysisResult,
   type StockAnalysisTask,
@@ -598,8 +606,13 @@ const canCancel = computed(() => {
   return currentTask.value?.status === 'pending' || currentTask.value?.status === 'running'
 })
 
+function renderReportMarkdown(content: string | null | undefined): string {
+  return renderMarkdown(content, { allowImages: false, allowLinks: false })
+}
+
 onMounted(() => {
-  loadAvailableModels()
+  void loadAvailableModels()
+  void loadLatestCompletedResult()
 })
 
 onUnmounted(() => {
@@ -721,6 +734,30 @@ async function refreshTask(taskId: string) {
 async function loadResult(taskId: string) {
   const result = await stockAnalysisApi.getTaskResult(taskId)
   analysisResult.value = result
+  const firstSection = reportSections.value[0]
+  if (firstSection) {
+    activeReportTab.value = firstSection.id
+  }
+}
+
+async function loadLatestCompletedResult() {
+  try {
+    const latest = await stockAnalysisApi.getLatestResult()
+    if (!latest) return
+    restoreLatestResult(latest)
+  } catch {
+    // A missing historical report should not block a new analysis.
+  }
+}
+
+function restoreLatestResult(latest: StockAnalysisLatestResult) {
+  currentTask.value = latest.task
+  analysisResult.value = {
+    task_id: latest.task.task_id,
+    report_id: latest.task.report_id,
+    status: latest.task.status,
+    report: latest.report,
+  }
   const firstSection = reportSections.value[0]
   if (firstSection) {
     activeReportTab.value = firstSection.id
@@ -1261,12 +1298,66 @@ function formatPercent(value: unknown): string {
   margin: 0 0 8px;
 }
 
-.executive-summary p,
-.report-section p {
-  margin: 0;
+.report-markdown-content {
   line-height: 1.75;
   color: var(--text-color-regular);
-  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.report-markdown-content :deep(p),
+.report-markdown-content :deep(ul),
+.report-markdown-content :deep(ol),
+.report-markdown-content :deep(blockquote) {
+  margin: 0 0 12px;
+}
+
+.report-markdown-content :deep(p:last-child),
+.report-markdown-content :deep(ul:last-child),
+.report-markdown-content :deep(ol:last-child),
+.report-markdown-content :deep(blockquote:last-child) {
+  margin-bottom: 0;
+}
+
+.report-markdown-content :deep(h1),
+.report-markdown-content :deep(h2),
+.report-markdown-content :deep(h3),
+.report-markdown-content :deep(h4) {
+  margin: 18px 0 10px;
+  color: var(--text-color-primary);
+  line-height: 1.4;
+}
+
+.report-markdown-content :deep(h1:first-child),
+.report-markdown-content :deep(h2:first-child),
+.report-markdown-content :deep(h3:first-child),
+.report-markdown-content :deep(h4:first-child) {
+  margin-top: 0;
+}
+
+.report-markdown-content :deep(h1) { font-size: 18px; }
+.report-markdown-content :deep(h2) { font-size: 17px; }
+.report-markdown-content :deep(h3) { font-size: 16px; }
+.report-markdown-content :deep(h4) { font-size: 15px; }
+
+.report-markdown-content :deep(ul),
+.report-markdown-content :deep(ol) {
+  padding-left: 20px;
+}
+
+.report-markdown-content :deep(li + li) {
+  margin-top: 6px;
+}
+
+.report-markdown-content :deep(hr) {
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--border-color-light);
+}
+
+.report-markdown-content :deep(blockquote) {
+  padding-left: 12px;
+  border-left: 3px solid var(--primary-color);
+  color: var(--text-color-secondary);
 }
 
 .report-tabs {

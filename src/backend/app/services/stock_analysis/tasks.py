@@ -139,6 +139,60 @@ class StockAnalysisTaskService:
         await self.db.flush()
         return task
 
+    @classmethod
+    async def reconcile_orphaned_tasks(cls) -> int:
+        """Fail active tasks left behind by a previous API process."""
+        return await cls._settle_active_tasks(
+            status="failed",
+            step="failed",
+            message="股票分析服务已重启，任务已停止，请重试",
+            error_message="Task interrupted because the stock analysis service restarted",
+        )
+
+    @classmethod
+    async def interrupt_active_tasks(cls) -> int:
+        """Cancel active in-process tasks before a graceful API shutdown."""
+        return await cls._settle_active_tasks(
+            status="cancelled",
+            step="cancelled",
+            message="股票分析已取消",
+            error_message="Task cancelled due to application shutdown (graceful stop)",
+        )
+
+    @classmethod
+    async def _settle_active_tasks(
+        cls,
+        *,
+        status: str,
+        step: str,
+        message: str,
+        error_message: str,
+    ) -> int:
+        async with async_session_maker() as session:
+            tasks = list(
+                (
+                    await session.execute(
+                        select(StockAnalysisTaskModel).where(
+                            StockAnalysisTaskModel.status.in_(cls.ACTIVE_STATUSES)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if not tasks:
+                return 0
+
+            service = cls(session)
+            for task in tasks:
+                service._mark(task, 100, status, step, message)
+                task.error_message = error_message
+                task.completed_at = service._now()
+                await service._sync_assistant_message_metadata(task, None)
+
+            await session.commit()
+            return len(tasks)
+
     async def count_active_tasks(self, *, user_id: str) -> int:
         return int(
             (
@@ -443,6 +497,25 @@ class StockAnalysisTaskService:
                 )
             )
         ).scalar_one_or_none()
+
+    async def get_latest_completed_result(
+        self, *, user_id: str
+    ) -> tuple[StockAnalysisTaskModel, StockAnalysisReportModel] | None:
+        result = await self.db.execute(
+            select(StockAnalysisTaskModel, StockAnalysisReportModel)
+            .join(StockAnalysisReportModel, StockAnalysisReportModel.task_id == StockAnalysisTaskModel.id)
+            .where(
+                StockAnalysisTaskModel.user_id == user_id,
+                StockAnalysisTaskModel.status == "completed",
+                StockAnalysisReportModel.user_id == user_id,
+            )
+            .order_by(StockAnalysisReportModel.created_at.desc(), StockAnalysisReportModel.id.desc())
+            .limit(1)
+        )
+        row = result.first()
+        if row is None:
+            return None
+        return row[0], row[1]
 
     async def get_report(self, *, user_id: str, report_id: str) -> StockAnalysisReportModel | None:
         return (

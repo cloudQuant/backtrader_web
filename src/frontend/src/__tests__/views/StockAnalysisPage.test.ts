@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   createTask: vi.fn(),
   getTask: vi.fn(),
   getTaskResult: vi.fn(),
+  getLatestResult: vi.fn(),
   exportReport: vi.fn(),
   getMyAvailableModels: vi.fn(),
   messageSuccess: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock('@/api/stockAnalysis', () => ({
     createTask: mocks.createTask,
     getTask: mocks.getTask,
     getTaskResult: mocks.getTaskResult,
+    getLatestResult: mocks.getLatestResult,
     exportReport: mocks.exportReport,
   },
 }))
@@ -79,6 +81,7 @@ describe('StockAnalysisPage', () => {
     })
     mocks.createTask.mockResolvedValue(baseTask)
     mocks.getTask.mockResolvedValue(baseTask)
+    mocks.getLatestResult.mockResolvedValue(null)
   })
 
   it('renders a standalone single-stock analysis workspace instead of chat', async () => {
@@ -91,6 +94,32 @@ describe('StockAnalysisPage', () => {
     expect(wrapper.text()).toContain('研究模块')
     expect(wrapper.text()).toContain('开始智能分析')
     expect(wrapper.text()).not.toContain('AI 助手对话')
+  })
+
+  it('restores the latest completed report and its export actions on mount', async () => {
+    mocks.getLatestResult.mockResolvedValue({
+      task: {
+        ...baseTask,
+        status: 'completed',
+        progress: 100,
+        current_step: 'completed',
+        report_id: 'latest-report-1',
+      },
+      report: {
+        meta: { symbol: '000001.SZ', symbol_name: '平安银行', market_type: 'A股' },
+        executive_summary: '这是最近一次成功分析。',
+        decision: { label: '持有', confidence_score: 0.62, risk_level: '中等' },
+        sections: [],
+      },
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(mocks.getLatestResult).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.report-panel').exists()).toBe(true)
+    expect(wrapper.text()).toContain('平安银行')
+    expect(wrapper.find('.export-actions').text()).toContain('PDF')
   })
 
   it('creates stock analysis task from the form defaults', async () => {
@@ -139,5 +168,45 @@ describe('StockAnalysisPage', () => {
     vm.form.researchDepth = '全面'
     await nextTick()
     expect(vm.form.selectedModules).toEqual(['market', 'fundamentals', 'news', 'social', 'risk'])
+  })
+
+  it('renders completed report sections as sanitized Markdown instead of raw syntax', async () => {
+    mocks.createTask.mockResolvedValue({
+      ...baseTask,
+      status: 'completed',
+      progress: 100,
+      report_id: 'report-1',
+    })
+    mocks.getTaskResult.mockResolvedValue({
+      task_id: 'task-1',
+      report_id: 'report-1',
+      status: 'completed',
+      report: {
+        meta: { symbol: '000001.SZ', symbol_name: '平安银行' },
+        executive_summary: '结论：保持审慎。',
+        decision: { label: '持有', confidence_score: 0.62, risk_level: '中等' },
+        sections: [
+          {
+            id: 'technical',
+            title: '技术与市场分析',
+            summary: '# 盘面结论\n\n**趋势：** 区间震荡。',
+            findings: [],
+          },
+        ],
+      },
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+    const startButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('开始智能分析'))
+    await startButton!.trigger('click')
+    await flushPromises()
+
+    const rendered = wrapper.find('.report-section .report-markdown-content')
+    expect(rendered.exists()).toBe(true)
+    expect(rendered.html()).toContain('<h1>盘面结论</h1>')
+    expect(rendered.html()).toContain('<strong>趋势：</strong> 区间震荡。')
   })
 })

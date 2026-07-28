@@ -202,6 +202,11 @@ class StockAnalysisEngine:
                 output[stage.output_key] = str(result["content"]).strip()
                 if stage.output_key == "research_team_decision":
                     output["investment_plan"] = output[stage.output_key]
+            if result.get("error_code") == "TimeoutError":
+                # A provider that does not answer must not multiply one stuck
+                # request across every remaining analysis stage.  Keep the
+                # rule-based pipeline output and finish the report as degraded.
+                break
 
         output["decision"] = self.signal_extractor.extract(
             str(output.get("final_trade_decision") or ""),
@@ -209,6 +214,7 @@ class StockAnalysisEngine:
         )
         output["ai_stage_generation"] = {
             "enabled": True,
+            "degraded": any(result.get("status") == "failed" for result in stage_results),
             "template_version": self.TEMPLATE_VERSION,
             "stages": stage_results,
         }

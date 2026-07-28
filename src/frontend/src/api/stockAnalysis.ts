@@ -41,6 +41,11 @@ export interface StockAnalysisResult {
   report?: Record<string, unknown> | null
 }
 
+export interface StockAnalysisLatestResult {
+  task: StockAnalysisTask
+  report: Record<string, unknown>
+}
+
 export interface StockAnalysisSavedDocument {
   document_id: string
   knowledge_base_id: string
@@ -72,6 +77,9 @@ export const stockAnalysisApi = {
   },
   getTaskResult(taskId: string) {
     return api.get<StockAnalysisResult>(`/stock-analysis/tasks/${taskId}/result`)
+  },
+  getLatestResult() {
+    return api.get<StockAnalysisLatestResult | null>('/stock-analysis/reports/latest')
   },
   cancelTask(taskId: string) {
     return api.post<StockAnalysisTask>(`/stock-analysis/tasks/${taskId}/cancel`)

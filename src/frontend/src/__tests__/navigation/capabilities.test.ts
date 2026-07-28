@@ -12,6 +12,7 @@ describe('navigation capabilities', () => {
     expect(dataIds).toContain('data.quote')
     expect(dataIds).toContain('data.market')
     expect(dataIds).toContain('data.tables')
+    expect(dataIds).not.toContain('investment.scanners')
     expect(dataIds).not.toContain('data.topics')
     expect(dataIds).not.toContain('data.scripts')
     expect(dataIds).not.toContain('data.tasks')
@@ -31,7 +32,11 @@ describe('navigation capabilities', () => {
     const aiIds = getCapabilitiesForDomain('ai', true).map((item) => item.id)
     expect(aiIds).toEqual(['ai.chat', 'ai.knowledgeBase'])
     const investmentIds = getCapabilitiesForDomain('investment' as any, true).map((item) => item.id)
-    expect(investmentIds).toEqual(['investment.strategyResearch', 'investment.stockAnalysis'])
+    expect(investmentIds).toEqual([
+      'investment.strategyResearch',
+      'investment.stockAnalysis',
+      'investment.scanners',
+    ])
     const tradingIds = getCapabilitiesForDomain('trading', true).map((item) => item.id)
     expect(tradingIds).not.toContain('trading.brokers')
     expect(tradingIds).not.toContain('trading.gateways')
@@ -42,11 +47,11 @@ describe('navigation capabilities', () => {
     expect(getVisibleDomains(false).map((domain) => domain.id)).toEqual([
       'home',
       'data',
+      'ai',
       'investment',
       'research',
       'trading',
       'portfolio',
-      'ai',
     ])
     expect(getDomainByPath('/config/data/tasks').id).toBe('config')
     expect(getDomainByPath('/data/tasks').id).toBe('config')
@@ -58,6 +63,7 @@ describe('navigation capabilities', () => {
     expect(getDomainByPath('/ai/ai-observability').id).toBe('config')
     expect(getDomainByPath('/investment/strategies').id).toBe('investment')
     expect(getDomainByPath('/investment/stock-analysis').id).toBe('investment')
+    expect(getDomainByPath('/data/intelligence/scanners').id).toBe('investment')
     expect(getDomainByPath('/data/tables').id).toBe('data')
     expect(getDomainByPath('/data/tables/1292').id).toBe('data')
     expect(getDomainByPath('/config/data/tables').id).toBe('data')

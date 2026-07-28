@@ -154,6 +154,21 @@ async def get_stock_analysis_result(
     }
 
 
+@router.get("/reports/latest", response_model=None)
+async def get_latest_stock_analysis_result(
+    current_user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> typing.Any:
+    latest = await StockAnalysisTaskService(db).get_latest_completed_result(user_id=current_user.sub)
+    if latest is None:
+        return None
+    task, report = latest
+    return {
+        "task": _task_response(task),
+        "report": report.report_json,
+    }
+
+
 @router.get("/reports/{report_id}/export", response_model=None)
 async def export_stock_analysis_report(
     report_id: str,
