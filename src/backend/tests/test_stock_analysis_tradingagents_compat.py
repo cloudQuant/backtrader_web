@@ -18,6 +18,7 @@ from app.models.user import User
 from app.schemas.stock_analysis import StockAnalysisParams
 from app.services.ai_router.router import ChatCompletionResponse
 from app.services.stock_analysis.analysis_engine import StockAnalysisEngine
+from app.services.stock_analysis.data_collector import StockAnalysisDataCollector
 from app.services.stock_analysis.exporter import StockAnalysisExporter
 from app.services.stock_analysis.report_builder import StockAnalysisReportBuilder
 from app.services.stock_analysis.tasks import StockAnalysisTaskService
@@ -46,6 +47,57 @@ def _capture_pending_task_schedule(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(StockAnalysisTaskService, "run_pending_task", fake_run_pending_task)
     return run_pending_task, scheduled
+
+
+def _stub_stock_data_collection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep task-service tests deterministic instead of contacting market providers."""
+
+    async def collect(_self, **_kwargs):
+        return {
+            "symbol": "000001.SZ",
+            "market_type": "A股",
+            "analysis_date": "2026-07-30",
+            "quote": {"symbol": "000001.SZ", "name": "平安银行", "price": 11.61},
+            "info": {"symbol": "000001.SZ", "name": "平安银行"},
+            "history": {
+                "rows": [
+                    {
+                        "date": "2026-07-30",
+                        "open": 11.28,
+                        "high": 11.62,
+                        "low": 11.18,
+                        "close": 11.61,
+                        "volume": 100,
+                    }
+                ]
+            },
+            "financials": {
+                "annual": [
+                    {
+                        "report_date": "2025-12-31",
+                        "revenue": 130.0,
+                        "net_income": 42.0,
+                        "eps": 2.07,
+                        "roe": 9.15,
+                    }
+                ],
+                "quarterly": [
+                    {
+                        "report_date": "2026-03-31",
+                        "revenue": 35.0,
+                        "net_income": 14.0,
+                        "eps": 0.67,
+                        "roe": 2.83,
+                    }
+                ],
+            },
+            "peers": {"items": [], "total": 0},
+            "technicals": {"factors": {}},
+            "news": {"items": [], "total": 0},
+            "data_quality": {"status": "ok", "missing_fields": [], "degraded_reasons": []},
+        }
+
+    monkeypatch.setattr(StockAnalysisDataCollector, "collect", collect)
 
 
 async def _user_id_for_username(username: str) -> str:
@@ -505,7 +557,9 @@ async def test_stock_analysis_reconciles_orphaned_active_tasks_after_restart(
 
     async with async_session_maker() as session:
         task = (
-            await session.execute(select(StockAnalysisTaskModel).where(StockAnalysisTaskModel.id == task_id))
+            await session.execute(
+                select(StockAnalysisTaskModel).where(StockAnalysisTaskModel.id == task_id)
+            )
         ).scalar_one()
         assert task.status == "failed"
         assert task.progress == 100
@@ -533,7 +587,9 @@ async def test_stock_analysis_interrupts_active_tasks_during_graceful_shutdown(
 
     async with async_session_maker() as session:
         task = (
-            await session.execute(select(StockAnalysisTaskModel).where(StockAnalysisTaskModel.id == task_id))
+            await session.execute(
+                select(StockAnalysisTaskModel).where(StockAnalysisTaskModel.id == task_id)
+            )
         ).scalar_one()
         assert task.status == "cancelled"
         assert task.progress == 100
@@ -612,6 +668,7 @@ async def test_failed_stock_analysis_task_can_be_retried(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ):
+    _stub_stock_data_collection(monkeypatch)
     username = "stock_retry_user"
     _, headers = await register_and_login(client, username=username)
     user_id = await _user_id_for_username(username)
@@ -665,6 +722,7 @@ async def test_stock_analysis_from_ai_chat_generates_compat_report_and_exports(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ):
+    _stub_stock_data_collection(monkeypatch)
     username = "stock_ai_user"
     _, headers = await register_and_login(client, username=username)
     user_id = await _user_id_for_username(username)

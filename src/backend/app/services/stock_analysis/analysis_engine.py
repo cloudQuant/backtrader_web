@@ -406,13 +406,19 @@ class StockAnalysisEngine:
 
     def _source_context(self, snapshot: dict[str, Any]) -> str:
         financials = snapshot.get("financials") or {}
-        annual = financials.get("annual") or []
+        financial_records = [
+            item
+            for item in [*(financials.get("annual") or []), *(financials.get("quarterly") or [])]
+            if isinstance(item, dict)
+        ]
+        financial_records.sort(key=lambda item: str(item.get("report_date") or ""))
         news_items = (snapshot.get("news") or {}).get("items") or []
         compact = {
             "quote": snapshot.get("quote") or {},
             "info": snapshot.get("info") or {},
+            "peers": snapshot.get("peers") or {},
             "technicals": snapshot.get("technicals") or {},
-            "latest_financial": annual[-1] if annual else {},
+            "latest_financial": financial_records[-1] if financial_records else {},
             "news_items": news_items[:5],
             "data_quality": snapshot.get("data_quality") or {},
         }

@@ -245,7 +245,7 @@ class StockAnalysisPipeline:
     ) -> str:
         if not enabled:
             return f"{symbol} 基本面分析未启用，后续阶段按 degraded 占位处理。"
-        latest = context["latest_annual"]
+        latest = context["latest_financial"]
         peer_names = context["peer_names"] or "暂无"
         roe_text = self._format_pct(context["roe"] / 100 if context["roe"] > 1 else context["roe"])
         eps = self._float_or_default(latest.get("eps"), 0.0)
@@ -260,13 +260,14 @@ class StockAnalysisPipeline:
             f"业务描述：{context['description']}\n"
             f"可比标的：{peer_names}\n\n"
             "二、核心财务数据分析\n"
-            f"最近年度收入：{latest.get('revenue', 'N/A')}；净利润：{latest.get('net_income', 'N/A')}；"
+            f"最新披露日期：{latest.get('report_date', 'N/A')}；"
+            f"最新披露收入：{latest.get('revenue', 'N/A')}；净利润：{latest.get('net_income', 'N/A')}；"
             f"EPS：{latest.get('eps', 'N/A')}；ROE：{roe_text}。"
             f"收入同比变化约 {self._format_pct(context['revenue_growth'])}，"
             f"净利润同比变化约 {self._format_pct(context['profit_growth'])}。"
             "从已有样本看，公司仍保持正盈利和稳定股东回报，基本面阶段对最终结论形成支撑。\n\n"
             "三、估值与盈利质量\n"
-            f"按当前价格和最近年度 EPS 估算，静态市盈率约 {pe_text}。"
+            f"按当前价格和最新披露 EPS 估算，静态市盈率约 {pe_text}。"
             f"对于{context['industry']}行业，估值判断需要结合资产质量、拨备、净息差和分红能力，"
             "不能只看短期股价波动。当前 ROE 维持在两位数，说明盈利质量相对稳健，但增长弹性并不激进。\n\n"
             "四、合理价位区间与投资建议\n"
@@ -291,8 +292,8 @@ class StockAnalysisPipeline:
             f"作为看涨研究员，我认为{context['name']}（{context['code']}）的核心价值不在于短线波动，"
             "而在于盈利稳定性、行业地位和估值防守。当前基本面评分较高，说明财务数据对估值有支撑。\n\n"
             "一、看涨理由\n"
-            f"1. 盈利能力稳定：最近年度 ROE 为 {context['roe']}，净利润为 "
-            f"{context['latest_annual'].get('net_income', 'N/A')}，不是亏损型资产。\n"
+            f"1. 盈利能力稳定：最新披露 ROE 为 {context['roe']}，净利润为 "
+            f"{context['latest_financial'].get('net_income', 'N/A')}，不是亏损型资产。\n"
             f"2. 价格处于回撤观察区：当前价 {self._format_price(context['price'], context)} "
             f"相对近期样本高点已有明显折让，若风险偏好修复，存在向 "
             f"{self._format_price(context['resistance'], context)} 回归的空间。\n"
@@ -488,9 +489,9 @@ class StockAnalysisPipeline:
         technicals = snapshot.get("technicals") or {}
         factors = technicals.get("factors") or {}
         financials = snapshot.get("financials") or {}
-        annual = financials.get("annual") or []
-        latest = annual[-1] if annual else {}
-        previous = annual[-2] if len(annual) >= 2 else {}
+        financial_records = self._financial_records(financials)
+        latest = financial_records[-1] if financial_records else {}
+        previous = financial_records[-2] if len(financial_records) >= 2 else {}
         peers = (snapshot.get("peers") or {}).get("items") or []
 
         closes = [self._float_or_default(row.get("close"), 0.0) for row in history_rows]
@@ -528,8 +529,12 @@ class StockAnalysisPipeline:
         previous_revenue = self._float_or_default(previous.get("revenue"), revenue)
         profit = self._float_or_default(latest.get("net_income"), 0.0)
         previous_profit = self._float_or_default(previous.get("net_income"), profit)
-        revenue_growth = self._growth_rate(revenue, previous_revenue)
-        profit_growth = self._growth_rate(profit, previous_profit)
+        revenue_growth = self._float_or_default(
+            latest.get("revenue_growth"), self._growth_rate(revenue, previous_revenue)
+        )
+        profit_growth = self._float_or_default(
+            latest.get("profit_growth"), self._growth_rate(profit, previous_profit)
+        )
         roe = self._float_or_default(latest.get("roe"), 0.0)
         volume = int(self._float_or_default(quote.get("volume"), volumes[-1] if volumes else 0.0))
         peer_names = "、".join(item.get("name") or item.get("symbol") or "" for item in peers[:3])
@@ -559,7 +564,7 @@ class StockAnalysisPipeline:
             "history_trend": history_trend,
             "technical_signal": technical_signal,
             "technical_bias": technical_bias,
-            "latest_annual": latest,
+            "latest_financial": latest,
             "roe": roe,
             "revenue_growth": revenue_growth,
             "profit_growth": profit_growth,
@@ -629,12 +634,12 @@ class StockAnalysisPipeline:
         technical_score = max(0.0, min(100.0, 50.0 + change_pct * 2.0))
 
         financials = snapshot.get("financials") or {}
-        annual = financials.get("annual") or []
-        latest = annual[-1] if annual else {}
+        financial_records = self._financial_records(financials)
+        latest = financial_records[-1] if financial_records else {}
         roe = self._float_or_default(latest.get("roe"), 0.0)
         net_income = self._float_or_default(latest.get("net_income"), 0.0)
         fundamental_score = 50.0
-        if annual:
+        if financial_records:
             fundamental_score += 8.0
         if roe > 0:
             fundamental_score += min(12.0, roe * 100 if roe <= 1 else roe)
@@ -676,6 +681,15 @@ class StockAnalysisPipeline:
             "news_score": round(news_score, 2),
             "composite_score": round(composite_score, 2),
         }
+
+    @staticmethod
+    def _financial_records(financials: dict[str, Any]) -> list[dict[str, Any]]:
+        records = [
+            item
+            for item in [*(financials.get("annual") or []), *(financials.get("quarterly") or [])]
+            if isinstance(item, dict)
+        ]
+        return sorted(records, key=lambda item: str(item.get("report_date") or ""))
 
     @staticmethod
     def _float_or_default(value: Any, default: float) -> float:
