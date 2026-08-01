@@ -29,6 +29,8 @@ from app.services.stock_analysis.data_collector import StockAnalysisDataCollecto
 from app.services.stock_analysis.exporter import StockAnalysisExporter
 from app.services.stock_analysis.pipeline import StockAnalysisPipeline
 from app.services.stock_analysis.report_builder import StockAnalysisReportBuilder
+from app.services.stock_signal.service import StockSignalService
+from app.services.stock_signal.types import ACTION_LABELS
 
 
 class StockAnalysisCancelled(RuntimeError):
@@ -295,6 +297,41 @@ class StockAnalysisTaskService:
         )
         task.symbol_name = (snapshot.get("info") or {}).get("name") or task.symbol
         task.data_quality_json = snapshot.get("data_quality") or {}
+        signal_prediction = await StockSignalService(self.db).create_prediction(
+            snapshot=snapshot,
+            symbol=task.symbol,
+            market_type=task.market_type,
+            as_of_date=analysis_date,
+            owner_scope=StockSignalService.user_scope(task.user_id),
+            source="manual",
+            universe_code="MANUAL",
+            # Manual analysis must not block its report on an additional live calendar request.
+            # The after-close scorer resolves this authoritative date before outcome evaluation.
+            next_trading_date=None,
+        )
+        snapshot["signal_decision"] = {
+            "action": signal_prediction.signal_action,
+            "label": ACTION_LABELS[signal_prediction.signal_action],
+            "confidence_score": signal_prediction.confidence_score,
+            "risk_score": signal_prediction.risk_score,
+            "expected_excess_return": signal_prediction.expected_excess_return,
+            "eligibility_status": signal_prediction.eligibility_status,
+            "quality_reasons": list(signal_prediction.quality_reasons_json or []),
+            "feature_version": signal_prediction.feature_version,
+            "decision_policy_version": signal_prediction.decision_policy_version,
+            "model_version": signal_prediction.model_version,
+            "reasoning": "该结论由已保存的结构化信号快照生成；LLM 仅用于研究说明。",
+        }
+        snapshot["signal_features"] = dict(signal_prediction.feature_snapshot_json or {})
+        snapshot["signal_quality"] = {
+            "status": signal_prediction.eligibility_status,
+            "reasons": list(signal_prediction.quality_reasons_json or []),
+            "freshness": dict(signal_prediction.data_freshness_json or {}),
+        }
+        task.data_quality_json = {
+            **dict(task.data_quality_json or {}),
+            "signal": snapshot["signal_quality"],
+        }
 
         if commit_progress:
             await self._stop_if_cancelled(task)
@@ -358,7 +395,7 @@ class StockAnalysisTaskService:
             analysis_date=task.analysis_date,
             title=f"{task.symbol} 股票分析报告",
             summary=payload.get("executive_summary") or "",
-            recommendation_label=decision.get("label", "持有"),
+            recommendation_label=decision.get("label", "观望"),
             confidence_score=decision.get("confidence_score"),
             risk_level=decision.get("risk_level", "中等"),
             technical_score=scores.get("technical_score"),
@@ -373,6 +410,10 @@ class StockAnalysisTaskService:
         )
         self.db.add(report)
         await self.db.flush()
+        await StockSignalService(self.db).attach_report(
+            prediction_id=signal_prediction.id,
+            report_id=report.id,
+        )
 
         if commit_progress:
             await self._stop_if_cancelled(task)

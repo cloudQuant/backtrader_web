@@ -18,6 +18,33 @@ from app.services.news_intelligence import get_news_intelligence_service
 class StockAnalysisDataCollector:
     """Collect current-project data used by the stock analysis pipeline."""
 
+    _BULLISH_NEWS_TERMS = (
+        "增长",
+        "增持",
+        "回购",
+        "分红",
+        "预增",
+        "上调",
+        "获批",
+        "中标",
+        "突破",
+        "改善",
+        "利好",
+    )
+    _BEARISH_NEWS_TERMS = (
+        "下滑",
+        "下降",
+        "亏损",
+        "减持",
+        "处罚",
+        "立案",
+        "风险",
+        "违约",
+        "暴跌",
+        "利空",
+        "监管",
+    )
+
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.market_service = MarketInstrumentService()
@@ -387,6 +414,7 @@ class StockAnalysisDataCollector:
             if not headline:
                 continue
             content = str(row.get("新闻内容") or "").strip()
+            sentiment = cls._classify_cn_news_sentiment(f"{headline} {content}")
             items.append(
                 {
                     "headline": headline,
@@ -396,14 +424,26 @@ class StockAnalysisDataCollector:
                     "source": str(row.get("文章来源") or "AkShare").strip() or "AkShare",
                     "url": str(row.get("新闻链接") or "").strip(),
                     "tickers": [symbol],
-                    "sentiment": "NEUTRAL",
-                    "impact": "LOW",
-                    "threat": "LOW",
+                    "sentiment": sentiment,
+                    "impact": "MEDIUM" if sentiment != "UNKNOWN" else "UNKNOWN",
+                    "threat": "MEDIUM" if sentiment == "BEARISH" else "UNKNOWN",
                     "status": "ok",
                     "source_flag": "akshare",
                 }
             )
         return items
+
+    @classmethod
+    def _classify_cn_news_sentiment(cls, text: str) -> str:
+        """Classify only supported directional evidence; unknown is not neutral evidence."""
+        normalized = text.strip()
+        bullish = sum(term in normalized for term in cls._BULLISH_NEWS_TERMS)
+        bearish = sum(term in normalized for term in cls._BEARISH_NEWS_TERMS)
+        if bullish > bearish and bullish:
+            return "BULLISH"
+        if bearish > bullish and bearish:
+            return "BEARISH"
+        return "UNKNOWN"
 
     @staticmethod
     def _frame_key_values(frame: Any) -> dict[str, Any]:

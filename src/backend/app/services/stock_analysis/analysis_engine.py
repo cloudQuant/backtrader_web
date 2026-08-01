@@ -208,10 +208,16 @@ class StockAnalysisEngine:
                 # rule-based pipeline output and finish the report as degraded.
                 break
 
-        output["decision"] = self.signal_extractor.extract(
-            str(output.get("final_trade_decision") or ""),
-            symbol=symbol,
-        )
+        authoritative_decision = output.get("structured_signal_decision")
+        if isinstance(authoritative_decision, dict) and authoritative_decision.get("action"):
+            # The LLM is allowed to explain the research stages, never to
+            # replace the versioned signal persisted from point-in-time data.
+            output["decision"] = dict(authoritative_decision)
+        else:
+            output["decision"] = self.signal_extractor.extract(
+                str(output.get("final_trade_decision") or ""),
+                symbol=symbol,
+            )
         output["ai_stage_generation"] = {
             "enabled": True,
             "degraded": any(result.get("status") == "failed" for result in stage_results),
@@ -370,7 +376,7 @@ class StockAnalysisEngine:
         if stage.stage_id == "final_trade_decision":
             final_constraints = (
                 "\n最终交易决策必须显式包含以下字段："
-                "\n- 最终交易建议: **买入/持有/卖出**"
+                "\n- 最终交易建议: **买入/卖出/观望**"
                 "\n- 目标价位: 数字"
                 "\n- 置信度: 0-1"
                 "\n- 风险评分: 0-1"

@@ -78,7 +78,7 @@ class StockAnalysisExporter:
             "",
             "## 结构化决策摘要",
             "",
-            f"最终建议: {decision.get('label', '持有')}",
+            f"最终建议: {decision.get('label', '观望')}",
             f"目标价位: {decision.get('target_price', 'N/A')}",
             f"置信度: {decision.get('confidence_score', 0.5)}",
             f"风险等级: {decision.get('risk_level', '中等')}",

@@ -72,6 +72,7 @@ from app.models.stock_analysis import (
     StockAnalysisReportModel,
     StockAnalysisTaskModel,
 )
+from app.models.stock_signal import StockSignalPrediction, StockSignalRun
 from app.models.strategy import Strategy
 from app.models.strategy_explanation import StrategyExplanationModel
 from app.models.strategy_score import StrategyScoreModel
@@ -151,6 +152,8 @@ __all__ = [
     "StockAnalysisExportModel",
     "StockAnalysisReportModel",
     "StockAnalysisTaskModel",
+    "StockSignalPrediction",
+    "StockSignalRun",
     "StrategyVersion",
     "TaskExecution",
     "User",

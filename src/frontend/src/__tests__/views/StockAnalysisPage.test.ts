@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   getTask: vi.fn(),
   getTaskResult: vi.fn(),
   getLatestResult: vi.fn(),
+  getSignalHistory: vi.fn(),
+  getSignalSummary: vi.fn(),
   exportReport: vi.fn(),
   getMyAvailableModels: vi.fn(),
   messageSuccess: vi.fn(),
@@ -27,6 +29,8 @@ vi.mock('@/api/stockAnalysis', () => ({
     getTask: mocks.getTask,
     getTaskResult: mocks.getTaskResult,
     getLatestResult: mocks.getLatestResult,
+    getSignalHistory: mocks.getSignalHistory,
+    getSignalSummary: mocks.getSignalSummary,
     exportReport: mocks.exportReport,
   },
 }))
@@ -82,6 +86,19 @@ describe('StockAnalysisPage', () => {
     mocks.createTask.mockResolvedValue(baseTask)
     mocks.getTask.mockResolvedValue(baseTask)
     mocks.getLatestResult.mockResolvedValue(null)
+    mocks.getSignalHistory.mockResolvedValue({ items: [], next_cursor: null })
+    mocks.getSignalSummary.mockResolvedValue({
+      symbol: '000001.SZ',
+      horizon: 20,
+      actioned_generated_count: 0,
+      actioned_scorable_count: 0,
+      actioned_success_count: 0,
+      actioned_success_rate: null,
+      coverage_rate: null,
+      maturity_rate: null,
+      actions: [],
+      confidence_bins: [],
+    })
   })
 
   it('renders a standalone single-stock analysis workspace instead of chat', async () => {
@@ -93,6 +110,8 @@ describe('StockAnalysisPage', () => {
     expect(wrapper.text()).toContain('分析配置')
     expect(wrapper.text()).toContain('研究模块')
     expect(wrapper.text()).toContain('开始智能分析')
+    expect(wrapper.text()).toContain('预测成绩单')
+    expect(wrapper.text()).toContain('历史预测')
     expect(wrapper.text()).not.toContain('AI 助手对话')
   })
 
@@ -120,6 +139,8 @@ describe('StockAnalysisPage', () => {
     expect(wrapper.find('.report-panel').exists()).toBe(true)
     expect(wrapper.text()).toContain('平安银行')
     expect(wrapper.find('.export-actions').text()).toContain('PDF')
+    expect(mocks.getSignalHistory).toHaveBeenCalledWith('000001.SZ')
+    expect(mocks.getSignalSummary).toHaveBeenCalledWith('000001.SZ')
   })
 
   it('creates stock analysis task from the form defaults', async () => {

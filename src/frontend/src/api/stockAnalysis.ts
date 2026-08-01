@@ -2,6 +2,9 @@ import api from './index'
 
 export type StockAnalysisExportFormat = 'markdown' | 'html' | 'docx' | 'pdf'
 export type StockAnalysisModule = 'market' | 'social' | 'news' | 'fundamentals' | 'risk'
+export type StockSignalAction = 'BUY' | 'SELL' | 'WATCH'
+export type StockSignalEligibility = 'eligible' | 'degraded' | 'rejected'
+export type StockSignalOutcomeStatus = 'pending' | 'partial' | 'scored' | 'unscorable'
 
 export interface StockAnalysisCreateTaskParams {
   symbol: string
@@ -68,6 +71,107 @@ export interface StockAnalysisSavedWorkspaceReport {
   saved_at: string
 }
 
+export interface StockSignalRecord {
+  id: string
+  source: string
+  universe_code: string
+  symbol: string
+  symbol_name?: string | null
+  market_type: string
+  as_of_date: string
+  available_at: string
+  next_trading_date?: string | null
+  signal_action: StockSignalAction
+  action_label: string
+  confidence_score: number
+  risk_score: number
+  expected_excess_return?: number | null
+  eligibility_status: StockSignalEligibility
+  quality_reasons: string[]
+  feature_version: string
+  decision_policy_version: string
+  model_version: string
+  outcome_status: StockSignalOutcomeStatus
+  outcome_reason?: string | null
+  entry_date?: string | null
+  entry_price?: number | null
+  horizon_1d_return?: number | null
+  horizon_5d_return?: number | null
+  horizon_20d_return?: number | null
+  benchmark_20d_return?: number | null
+  excess_20d_return?: number | null
+  buy_is_correct_20d?: boolean | null
+  sell_is_correct_20d?: boolean | null
+}
+
+export interface StockSignalHistory {
+  items: StockSignalRecord[]
+  next_cursor?: string | null
+}
+
+export interface StockSignalActionSummary {
+  action: StockSignalAction
+  generated_count: number
+  scorable_count: number
+  success_count: number
+  success_rate?: number | null
+  average_return?: number | null
+  median_return?: number | null
+  average_excess_return?: number | null
+}
+
+export interface StockSignalSummary {
+  symbol: string
+  horizon: 1 | 5 | 20
+  actioned_generated_count: number
+  actioned_scorable_count: number
+  actioned_success_count: number
+  actioned_success_rate?: number | null
+  coverage_rate?: number | null
+  maturity_rate?: number | null
+  actions: StockSignalActionSummary[]
+  confidence_bins: Array<{
+    label: string
+    lower: number
+    upper: number
+    scorable_count: number
+    success_rate?: number | null
+  }>
+}
+
+export interface StockSignalRun {
+  id: string
+  source: string
+  universe_code: string
+  as_of_date: string
+  status: string
+  expected_count: number
+  created_count: number
+  eligible_count: number
+  degraded_count: number
+  failed_count: number
+  started_at?: string | null
+  finished_at?: string | null
+}
+
+export interface OpeningActionPreview {
+  execution_disabled: true
+  as_of_date: string
+  next_trading_date?: string | null
+  actions: Array<{
+    prediction_id: string
+    symbol: string
+    symbol_name?: string | null
+    signal_action: StockSignalAction
+    action_label: string
+    suggested_action: 'BUY_AT_OPEN' | 'SELL_AT_OPEN' | 'NO_ACTION'
+    next_trading_date?: string | null
+    decision_policy_version: string
+    model_version: string
+    eligibility_status: StockSignalEligibility
+  }>
+}
+
 export const stockAnalysisApi = {
   createTask(data: StockAnalysisCreateTaskParams) {
     return api.post<StockAnalysisTask>('/stock-analysis/tasks', data)
@@ -110,5 +214,24 @@ export const stockAnalysisApi = {
         ...(title ? { title } : {}),
       },
     )
+  },
+  getSignalHistory(symbol: string, params?: { source?: string; limit?: number; cursor?: string }) {
+    return api.get<StockSignalHistory>('/stock-analysis/signals', {
+      params: { symbol, ...params },
+    })
+  },
+  getSignalSummary(symbol: string, horizon: 1 | 5 | 20 = 20) {
+    return api.get<StockSignalSummary>('/stock-analysis/signals/summary', {
+      params: { symbol, horizon },
+    })
+  },
+  getLatestSignalRun() {
+    return api.get<StockSignalRun | null>('/stock-analysis/signals/runs/latest')
+  },
+  previewOpeningActions(heldSymbols: string[], asOfDate?: string) {
+    return api.post<OpeningActionPreview>('/stock-analysis/signals/opening-actions/preview', {
+      held_symbols: heldSymbols,
+      ...(asOfDate ? { as_of_date: asOfDate } : {}),
+    })
   },
 }

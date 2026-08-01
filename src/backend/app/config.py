@@ -125,6 +125,40 @@ class Settings(BaseSettings):
     AKSHARE_INTERFACE_BOOTSTRAP_MODE: str = Field(
         default="manual", description="Akshare interface bootstrap mode: manual or refresh"
     )
+    STOCK_SIGNAL_SCHEDULE_ENABLED: bool = Field(
+        default=False,
+        description="Enable the after-close auditable SSE50 signal scheduler",
+    )
+    STOCK_SIGNAL_SCHEDULE_TIMEZONE: str = Field(
+        default="Asia/Shanghai", description="Timezone for the stock signal scheduler"
+    )
+    STOCK_SIGNAL_SCHEDULE_CRON: str = Field(
+        default="10 19 * * 1-5", description="Five-field cron expression for stock signals"
+    )
+    STOCK_SIGNAL_UNIVERSE: str = Field(
+        default="sse50", description="Versioned universe identifier for nightly stock signals"
+    )
+    STOCK_SIGNAL_MAX_CONCURRENCY: int = Field(
+        default=4, ge=1, le=10, description="Maximum simultaneous symbol collections"
+    )
+    STOCK_SIGNAL_MIN_HISTORY_BARS: int = Field(
+        default=60, ge=20, le=500, description="Minimum daily bars required for an eligible signal"
+    )
+    STOCK_SIGNAL_MAX_FINANCIAL_AGE_DAYS: int = Field(
+        default=210, ge=30, le=730, description="Maximum financial report age before degradation"
+    )
+    STOCK_SIGNAL_MAX_NEWS_AGE_DAYS: int = Field(
+        default=7, ge=1, le=90, description="Maximum news age before degradation"
+    )
+    STOCK_SIGNAL_ROUND_TRIP_COST_BPS: float | None = Field(
+        default=None, ge=0, le=1000, description="Approved round-trip cost for scheduled evaluations"
+    )
+    STOCK_SIGNAL_BUY_SUCCESS_THRESHOLD_BPS: float | None = Field(
+        default=None, ge=0, le=5000, description="Approved buy-success threshold for scheduled evaluation"
+    )
+    STOCK_SIGNAL_SELL_SUCCESS_THRESHOLD_BPS: float | None = Field(
+        default=None, ge=0, le=5000, description="Approved sell-success threshold for scheduled evaluation"
+    )
     DB_AUTO_CREATE_SCHEMA: bool = Field(default=False)
     DB_AUTO_CREATE_DEFAULT_ADMIN: bool = Field(default=False)
 

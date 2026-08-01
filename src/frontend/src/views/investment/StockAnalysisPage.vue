@@ -304,6 +304,18 @@
         </div>
       </div>
 
+      <div
+        v-if="decision.signal_action || decision.eligibility_status || decision.decision_policy_version"
+        class="signal-decision-context"
+      >
+        <span>{{ t('stockAnalysis.signalEligibility') }}: {{ signalEligibilityLabel(decision.eligibility_status) }}</span>
+        <span>{{ t('stockAnalysis.signalPolicyVersion') }}: {{ decision.decision_policy_version || '--' }}</span>
+        <span>
+          {{ t('stockAnalysis.signalQualityReasons') }}:
+          {{ decision.quality_reasons?.length ? decision.quality_reasons.join('、') : t('stockAnalysis.signalNoQualityReason') }}
+        </span>
+      </div>
+
       <div class="executive-summary">
         <h4>{{ t('stockAnalysis.executiveSummary') }}</h4>
         <div
@@ -349,6 +361,20 @@
         </el-tab-pane>
       </el-tabs>
     </section>
+
+    <section
+      class="signal-evidence-grid"
+      :aria-label="t('stockAnalysis.signalQualityTitle')"
+    >
+      <SignalQualityPanel
+        :summary="signalSummary"
+        :loading="signalEvidenceLoading"
+      />
+      <SignalHistoryPanel
+        :items="signalHistory"
+        :loading="signalEvidenceLoading"
+      />
+    </section>
   </div>
 </template>
 
@@ -360,6 +386,8 @@ import { ElMessage } from 'element-plus'
 import { DataAnalysis } from '@element-plus/icons-vue'
 
 import { aiObservabilityApi, type AIModelOption } from '@/api/aiObservability'
+import SignalHistoryPanel from '@/components/stock-analysis/SignalHistoryPanel.vue'
+import SignalQualityPanel from '@/components/stock-analysis/SignalQualityPanel.vue'
 import { renderMarkdown } from '@/utils/markdown-sanitizer'
 import {
   stockAnalysisApi,
@@ -369,6 +397,8 @@ import {
   type StockAnalysisModule,
   type StockAnalysisResult,
   type StockAnalysisTask,
+  type StockSignalRecord,
+  type StockSignalSummary,
 } from '@/api/stockAnalysis'
 
 type TaskStatus = StockAnalysisTask['status']
@@ -405,6 +435,12 @@ interface ReportDecision {
   risk_score?: number | null
   risk_level?: string
   reasoning?: string
+  signal_action?: string
+  eligibility_status?: string
+  quality_reasons?: string[]
+  feature_version?: string | null
+  decision_policy_version?: string | null
+  model_version?: string | null
 }
 
 interface ReportSection {
@@ -516,6 +552,9 @@ const analysisResult = ref<StockAnalysisResult | null>(null)
 const availableModels = ref<AIModelOption[]>([])
 const taskNotice = ref('')
 const activeReportTab = ref('technical')
+const signalHistory = ref<StockSignalRecord[]>([])
+const signalSummary = ref<StockSignalSummary | null>(null)
+const signalEvidenceLoading = ref(false)
 let pollingTimer: number | null = null
 
 const modelOptions = computed(() =>
@@ -613,6 +652,7 @@ function renderReportMarkdown(content: string | null | undefined): string {
 onMounted(() => {
   void loadAvailableModels()
   void loadLatestCompletedResult()
+  void loadSignalEvidence(normalizeSymbol(form.symbol))
 })
 
 onUnmounted(() => {
@@ -734,6 +774,7 @@ async function refreshTask(taskId: string) {
 async function loadResult(taskId: string) {
   const result = await stockAnalysisApi.getTaskResult(taskId)
   analysisResult.value = result
+  await loadSignalEvidence(normalizeSymbol(currentTask.value?.symbol || form.symbol))
   const firstSection = reportSections.value[0]
   if (firstSection) {
     activeReportTab.value = firstSection.id
@@ -761,6 +802,26 @@ function restoreLatestResult(latest: StockAnalysisLatestResult) {
   const firstSection = reportSections.value[0]
   if (firstSection) {
     activeReportTab.value = firstSection.id
+  }
+  void loadSignalEvidence(normalizeSymbol(latest.task.symbol))
+}
+
+async function loadSignalEvidence(symbol: string) {
+  if (!symbol) return
+  signalEvidenceLoading.value = true
+  try {
+    const [history, summary] = await Promise.all([
+      stockAnalysisApi.getSignalHistory(symbol),
+      stockAnalysisApi.getSignalSummary(symbol),
+    ])
+    signalHistory.value = history.items ?? []
+    signalSummary.value = summary
+  } catch {
+    // Signal evidence is additive; a temporary API failure must not block analysis.
+    signalHistory.value = []
+    signalSummary.value = null
+  } finally {
+    signalEvidenceLoading.value = false
   }
 }
 
@@ -822,6 +883,13 @@ function statusTagType(status: TaskStatus): 'success' | 'warning' | 'danger' | '
 
 function formatPercent(value: unknown): string {
   return typeof value === 'number' ? `${Math.round(value * 100)}%` : '--'
+}
+
+function signalEligibilityLabel(status: string | undefined): string {
+  if (status === 'eligible') return t('stockAnalysis.signalEligible')
+  if (status === 'degraded') return t('stockAnalysis.signalDegraded')
+  if (status === 'rejected') return t('stockAnalysis.signalRejected')
+  return '--'
 }
 </script>
 
@@ -973,6 +1041,12 @@ function formatPercent(value: unknown): string {
   grid-template-columns: minmax(0, 1fr) 340px;
   gap: 18px;
   align-items: start;
+}
+
+.signal-evidence-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 18px;
 }
 
 .workbench-main,
@@ -1264,6 +1338,20 @@ function formatPercent(value: unknown): string {
   margin-bottom: 16px;
 }
 
+.signal-decision-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: -6px 0 16px;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.signal-decision-context span {
+  overflow-wrap: anywhere;
+}
+
 .decision-card {
   padding: 14px 16px;
   border: 1px solid var(--border-color-light);
@@ -1444,7 +1532,8 @@ function formatPercent(value: unknown): string {
 
 @media (max-width: 1180px) {
   .command-bar,
-  .analysis-workbench {
+  .analysis-workbench,
+  .signal-evidence-grid {
     grid-template-columns: 1fr;
   }
 

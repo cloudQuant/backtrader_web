@@ -76,4 +76,39 @@ describe('stockAnalysisApi', () => {
 
     expect(post).toHaveBeenCalledWith('/stock-analysis/tasks', payload)
   })
+
+  it('reads auditable signal history and creates only a read-only opening preview', async () => {
+    const { stockAnalysisApi } = await import('@/api/stockAnalysis')
+    const apiModule = (await import('@/api/index')).default
+    const get = vi.mocked(apiModule.get).mockResolvedValue({} as never)
+    const post = vi.mocked(apiModule.post).mockResolvedValue({} as never)
+
+    await stockAnalysisApi.getSignalHistory('600000.SH', {
+      source: 'nightly_sse50',
+      limit: 20,
+      cursor: '2026-07-30',
+    })
+    expect(get).toHaveBeenCalledWith('/stock-analysis/signals', {
+      params: {
+        symbol: '600000.SH',
+        source: 'nightly_sse50',
+        limit: 20,
+        cursor: '2026-07-30',
+      },
+    })
+
+    await stockAnalysisApi.getSignalSummary('600000.SH')
+    expect(get).toHaveBeenCalledWith('/stock-analysis/signals/summary', {
+      params: { symbol: '600000.SH', horizon: 20 },
+    })
+
+    await stockAnalysisApi.getLatestSignalRun()
+    expect(get).toHaveBeenCalledWith('/stock-analysis/signals/runs/latest')
+
+    await stockAnalysisApi.previewOpeningActions(['600000.SH'], '2026-07-30')
+    expect(post).toHaveBeenCalledWith('/stock-analysis/signals/opening-actions/preview', {
+      held_symbols: ['600000.SH'],
+      as_of_date: '2026-07-30',
+    })
+  })
 })

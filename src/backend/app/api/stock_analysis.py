@@ -23,11 +23,20 @@ from app.schemas.stock_analysis import (
     StockAnalysisSaveToWorkspaceRequest,
     StockAnalysisSaveToWorkspaceResponse,
 )
+from app.schemas.stock_signal import (
+    OpeningActionPreviewRequest,
+    OpeningActionPreviewResponse,
+    StockSignalHistoryResponse,
+    StockSignalRecordResponse,
+    StockSignalRunResponse,
+    StockSignalSummaryResponse,
+)
 from app.services.stock_analysis.exporter import StockAnalysisExporter
 from app.services.stock_analysis.tasks import (
     StockAnalysisConcurrencyLimitExceeded,
     StockAnalysisTaskService,
 )
+from app.services.stock_signal.service import StockSignalService
 
 router = APIRouter()
 
@@ -57,6 +66,92 @@ def _task_response(task: StockAnalysisTaskModel) -> dict:
         "started_at": task.started_at,
         "completed_at": task.completed_at,
     }
+
+
+@router.get("/signals", response_model=StockSignalHistoryResponse)
+async def get_stock_signal_history(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    source: str | None = Query(None, max_length=32),
+    limit: int = Query(30, ge=1, le=100),
+    cursor: str | None = Query(None, max_length=64),
+    current_user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StockSignalHistoryResponse:
+    """Return public nightly and current user's manual predictions for one stock."""
+    records, next_cursor = await StockSignalService(db).get_visible_history(
+        user_id=current_user.sub,
+        symbol=symbol,
+        source=source,
+        limit=limit,
+        cursor=cursor,
+    )
+    return StockSignalHistoryResponse(
+        items=[StockSignalRecordResponse(**StockSignalService.record_payload(record)) for record in records],
+        next_cursor=next_cursor,
+    )
+
+
+@router.get("/signals/summary", response_model=StockSignalSummaryResponse)
+async def get_stock_signal_summary(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    horizon: int = Query(20, ge=1, le=20),
+    current_user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StockSignalSummaryResponse:
+    """Return action-specific quality metrics with explicit denominators."""
+    if horizon not in {1, 5, 20}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid_horizon")
+    summary = await StockSignalService(db).get_visible_summary(
+        user_id=current_user.sub,
+        symbol=symbol,
+        horizon=horizon,
+    )
+    return StockSignalSummaryResponse(**summary)
+
+
+@router.get("/signals/runs/latest", response_model=StockSignalRunResponse | None)
+async def get_latest_stock_signal_run(
+    current_user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StockSignalRunResponse | None:
+    """Expose public batch health without leaking individual manual data."""
+    del current_user
+    run = await StockSignalService(db).latest_public_run()
+    if run is None:
+        return None
+    return StockSignalRunResponse(
+        id=run.id,
+        source=run.source,
+        universe_code=run.universe_code,
+        as_of_date=run.as_of_date,
+        status=run.status,
+        expected_count=run.expected_count,
+        created_count=run.created_count,
+        eligible_count=run.eligible_count,
+        degraded_count=run.degraded_count,
+        failed_count=run.failed_count,
+        started_at=run.started_at,
+        finished_at=run.finished_at,
+    )
+
+
+@router.post("/signals/opening-actions/preview", response_model=OpeningActionPreviewResponse)
+async def preview_stock_signal_opening_actions(
+    payload: OpeningActionPreviewRequest,
+    current_user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> OpeningActionPreviewResponse:
+    """Transform signals to read-only opening suggestions; no order is created."""
+    del current_user
+    as_of_date, next_trading_date, actions = await StockSignalService(db).opening_action_preview(
+        held_symbols=payload.held_symbols,
+        as_of_date=payload.as_of_date,
+    )
+    return OpeningActionPreviewResponse(
+        as_of_date=as_of_date,
+        next_trading_date=next_trading_date,
+        actions=actions,
+    )
 
 
 @router.post("/tasks", status_code=status.HTTP_202_ACCEPTED, response_model=None)

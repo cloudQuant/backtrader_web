@@ -63,7 +63,7 @@ class StockAnalysisReportModel(Base):
     analysis_date = Column(String(32), nullable=False)
     title = Column(String(255), nullable=False)
     summary = Column(Text, nullable=False)
-    recommendation_label = Column(String(20), nullable=False, default="持有")
+    recommendation_label = Column(String(20), nullable=False, default="观望")
     confidence_score = Column(Float, nullable=True)
     risk_level = Column(String(20), nullable=False, default="中等")
     technical_score = Column(Float, nullable=True)

@@ -131,7 +131,7 @@ function buildReportCard(taskResult: StockAnalysisResult): KBStockAnalysisReport
     report_id: taskResult.report_id ?? '',
     symbol: String(meta.symbol ?? displayTask.value.symbol),
     summary,
-    decision_label: String(decision.label ?? '持有'),
+    decision_label: String(decision.label ?? '观望'),
     risk_level: String(decision.risk_level ?? '中等'),
     confidence_score: typeof decision.confidence_score === 'number'
       ? decision.confidence_score

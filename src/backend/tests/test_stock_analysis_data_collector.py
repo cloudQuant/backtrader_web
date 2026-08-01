@@ -182,7 +182,22 @@ async def test_collect_uses_current_cn_market_financial_and_news_data(
     ]
     assert snapshot["news"]["total"] == 1
     assert snapshot["news"]["items"][0]["headline"] == "平安银行发布最新经营数据"
+    assert snapshot["news"]["items"][0]["sentiment"] == "UNKNOWN"
     assert snapshot["data_quality"]["degraded_reasons"] == []
+
+
+def test_cn_news_normalization_marks_unsupported_headlines_unknown_not_neutral() -> None:
+    news = pd.DataFrame(
+        [
+            {"新闻标题": "公司公告", "新闻内容": "例行信息披露"},
+            {"新闻标题": "业绩增长并获批新业务", "新闻内容": ""},
+            {"新闻标题": "收到监管处罚", "新闻内容": ""},
+        ]
+    )
+
+    items = StockAnalysisDataCollector._normalize_cn_news(news, "000001.SZ")
+
+    assert [item["sentiment"] for item in items] == ["UNKNOWN", "BULLISH", "BEARISH"]
 
 
 @pytest.mark.asyncio
@@ -331,3 +346,28 @@ async def test_pipeline_uses_the_most_recent_financial_disclosure_not_only_annua
 
     assert "最新披露日期：2026-03-31" in output["fundamentals_report"]
     assert "最新披露收入：35.0" in output["fundamentals_report"]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_marks_missing_market_and_financial_data_unavailable_without_defaults() -> None:
+    output = await StockAnalysisPipeline().run(
+        symbol="601398.SH",
+        market_type="A股",
+        research_depth="标准",
+        selected_modules=["market", "fundamentals", "news", "risk"],
+        snapshot={
+            "analysis_date": "2026-07-30",
+            "quote": {},
+            "info": {"symbol": "601398.SH", "name": "中国工商银行"},
+            "history": {"rows": []},
+            "technicals": {"factors": {}},
+            "financials": {"annual": [], "quarterly": []},
+            "news": {"items": [], "total": 0},
+        },
+    )
+
+    assert output["decision"]["action"] == "观望"
+    assert "技术维度不可用" in output["market_report"]
+    assert "基本面维度不可用" in output["fundamentals_report"]
+    assert "¥100.00" not in output["market_report"]
+    assert "财务数据不可用" in output["bull_researcher"]

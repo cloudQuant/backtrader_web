@@ -15,11 +15,13 @@ class StockSignalExtractor:
         "买入": "买入",
         "购买": "买入",
         "增持": "买入",
-        "hold": "持有",
-        "HOLD": "持有",
-        "持有": "持有",
-        "观望": "持有",
-        "中性": "持有",
+        "hold": "观望",
+        "HOLD": "观望",
+        "持有": "观望",
+        "观望": "观望",
+        "WATCH": "观望",
+        "watch": "观望",
+        "中性": "观望",
         "sell": "卖出",
         "SELL": "卖出",
         "卖出": "卖出",
@@ -30,7 +32,7 @@ class StockSignalExtractor:
     def extract(self, final_trade_decision: str, *, symbol: str = "") -> dict[str, Any]:
         text = str(final_trade_decision or "").strip()
         if not text:
-            return self._default_decision("最终交易决策为空，默认持有。")
+            return self._default_decision("最终交易决策为空，默认观望。")
 
         action = self._extract_action(text)
         target_price = self._extract_target_price(text)
@@ -48,18 +50,18 @@ class StockSignalExtractor:
 
     def _extract_action(self, text: str) -> str:
         preferred_patterns = [
-            r"最终交易建议[：:\s*]*([买卖持增减][入出有持]?)",
-            r"投资建议[：:\s*]*([买卖持增减][入出有持]?)",
-            r"建议[：:\s*]*(买入|持有|卖出|增持|减持|BUY|HOLD|SELL|buy|hold|sell)",
+            r"最终交易建议[：:\s*]*(买入|卖出|持有|观望|增持|减持|BUY|SELL|HOLD|WATCH)",
+            r"投资建议[：:\s*]*(买入|卖出|持有|观望|增持|减持|BUY|SELL|HOLD|WATCH)",
+            r"建议[：:\s*]*(买入|持有|观望|卖出|增持|减持|BUY|HOLD|WATCH|SELL|buy|hold|watch|sell)",
         ]
         for pattern in preferred_patterns:
             match = re.search(pattern, text)
             if match:
-                return self.ACTION_MAP.get(match.group(1), "持有")
+                return self.ACTION_MAP.get(match.group(1), "观望")
         for token, normalized in self.ACTION_MAP.items():
             if token in text:
                 return normalized
-        return "持有"
+        return "观望"
 
     def _extract_target_price(self, text: str) -> float | None:
         patterns = [
@@ -100,7 +102,7 @@ class StockSignalExtractor:
 
     def _default_decision(self, reasoning: str) -> dict[str, Any]:
         return {
-            "action": "持有",
+            "action": "观望",
             "target_price": None,
             "confidence": 0.5,
             "risk_score": 0.5,

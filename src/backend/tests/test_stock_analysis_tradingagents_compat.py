@@ -778,7 +778,7 @@ async def test_stock_analysis_from_ai_chat_generates_compat_report_and_exports(
         "final_trade_decision",
     ]:
         assert compat[key]
-    assert report["decision"]["label"] in {"买入", "持有", "卖出"}
+    assert report["decision"]["label"] in {"买入", "卖出", "观望"}
     assert 0 <= report["decision"]["confidence_score"] <= 1
     assert 0 <= report["decision"]["risk_score"] <= 1
 
@@ -901,7 +901,7 @@ async def test_stock_analysis_from_ai_chat_generates_compat_report_and_exports(
     saved_workspace_payload = saved_workspace.json()
     assert saved_workspace_payload["workspace_id"] == workspace_id
     assert saved_workspace_payload["report_id"] == report_id
-    assert saved_workspace_payload["decision_label"] in {"买入", "持有", "卖出"}
+    assert saved_workspace_payload["decision_label"] in {"买入", "卖出", "观望"}
 
     workspace_detail = await client.get(f"/api/v1/workspace/{workspace_id}", headers=headers)
     assert workspace_detail.status_code == 200
@@ -927,4 +927,4 @@ async def test_stock_analysis_from_ai_chat_generates_compat_report_and_exports(
     assert assistant["stock_analysis_task"]["task_id"] == task_card["task_id"]
     assert assistant["stock_analysis_task"]["status"] == "completed"
     assert assistant["stock_analysis_report"]["report_id"] == report_id
-    assert assistant["stock_analysis_report"]["decision_label"] in {"买入", "持有", "卖出"}
+    assert assistant["stock_analysis_report"]["decision_label"] in {"买入", "卖出", "观望"}
