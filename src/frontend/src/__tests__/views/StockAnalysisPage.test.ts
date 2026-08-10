@@ -105,7 +105,7 @@ describe('StockAnalysisPage', () => {
     const wrapper = mountPage()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('单股分析')
+    expect(wrapper.text()).toContain('AI股票')
     expect(wrapper.text()).toContain('股票代码')
     expect(wrapper.text()).toContain('分析配置')
     expect(wrapper.text()).toContain('研究模块')

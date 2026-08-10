@@ -1,0 +1,69 @@
+{
+  "assets": [
+    {
+      "asset_type": "futures",
+      "calendar_id": "CFFEX",
+      "calendar_session_count": 98,
+      "content_hash": "6803da1f4004581bb101737c636f0852a6afec5a925795a5910cdfe5b54e6c44",
+      "license_tags": [
+        "RESEARCH_APPROVED"
+      ],
+      "quality_status": "ELIGIBLE",
+      "quote": {
+        "ask": 4646.4,
+        "ask_volume": 1.0,
+        "bid": 4645.6,
+        "bid_volume": 1.0,
+        "price": 4645.6,
+        "quote_at": "2026-08-07T07:00:00+00:00"
+      },
+      "raw_schema_version": "akshare-cffex-futures-v1",
+      "reason_codes": [],
+      "source_id": "akshare_futures_sina_cffex",
+      "source_registry_status": "ACTIVE"
+    },
+    {
+      "asset_type": "bond",
+      "benchmark_id": "CN_TREASURY_10Y",
+      "calendar_id": "SSE_BOND",
+      "calendar_session_count": 98,
+      "cashflow_count": 2,
+      "content_hash": "27a6e7494d3e002ec4ded3826997554fdf45d5ec4bd93c6f2b122134ac5bda74",
+      "curve_point_count": 88,
+      "license_tags": [
+        "RESEARCH_APPROVED"
+      ],
+      "quality_status": "ELIGIBLE",
+      "quote": {
+        "ask": 118.183,
+        "ask_volume": null,
+        "bid": 118.172,
+        "bid_volume": null,
+        "price": 118.15,
+        "quote_at": "2026-08-07T07:00:02+00:00"
+      },
+      "raw_schema_version": "akshare-sse-bond-v1",
+      "reason_codes": [],
+      "source_id": "akshare_bond_sina_chinabond",
+      "source_registry_status": "ACTIVE"
+    }
+  ],
+  "claimed_count": 2,
+  "generated_at": "2026-08-07T14:31:02.307456+00:00",
+  "manifest_evidence": {
+    "path": "config/asset_research_approved_manifest.json",
+    "sha256": "beaf57c2285a941f5c67100c0237155ce914f846c3bf3bdcfd0b0b4475c86abd"
+  },
+  "passed": true,
+  "profile": "AKSHARE-REAL-T1",
+  "provider_evidence": {
+    "path": "src/backend/app/services/asset_research/providers/akshare.py",
+    "sha256": "1cde5ad93abfaafacbe54e07efc1f7ffbcc3a666ac7bb10d8c075d065b914b9f"
+  },
+  "run_count": 2,
+  "run_status": [
+    "SUCCEEDED"
+  ],
+  "schedule_fire_at": "2026-08-07T11:10:00+00:00",
+  "violations": []
+}

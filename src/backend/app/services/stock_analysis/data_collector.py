@@ -113,14 +113,20 @@ class StockAnalysisDataCollector:
     async def _collect_news(self, user_id: str, symbol: str, market_type: str) -> dict[str, Any]:
         local_news = {"items": [], "total": 0, "status": "degraded"}
         try:
-            local_news = await get_news_intelligence_service(self.db).list_articles(
-                user_id, ticker=symbol
+            local_news = await asyncio.wait_for(
+                get_news_intelligence_service(self.db).list_articles(
+                    user_id, ticker=symbol
+                ),
+                timeout=10,
             )
             if not local_news.get("items"):
                 normalized_symbol = self._cn_stock_code(symbol)
                 if normalized_symbol != symbol.upper():
-                    local_news = await get_news_intelligence_service(self.db).list_articles(
-                        user_id, ticker=normalized_symbol
+                    local_news = await asyncio.wait_for(
+                        get_news_intelligence_service(self.db).list_articles(
+                            user_id, ticker=normalized_symbol
+                        ),
+                        timeout=10,
                     )
         except Exception:
             pass
@@ -129,8 +135,9 @@ class StockAnalysisDataCollector:
             return local_news
 
         try:
-            raw_news = await asyncio.to_thread(
-                self._fetch_cn_stock_news, self._cn_stock_code(symbol)
+            raw_news = await asyncio.wait_for(
+                asyncio.to_thread(self._fetch_cn_stock_news, self._cn_stock_code(symbol)),
+                timeout=20,
             )
             items = self._normalize_cn_news(raw_news, symbol)
         except Exception:
@@ -148,15 +155,18 @@ class StockAnalysisDataCollector:
         end_date = analysis_date
         start_date = end_date - timedelta(days=365)
         try:
-            return await self.market_service.lookup(
-                asset_type="stock",
-                symbol=symbol,
-                start_date=start_date,
-                end_date=end_date,
-                period="daily",
-                # Submitting a stock-analysis task is an explicit user query.
-                # Do not let a stale warehouse snapshot masquerade as current data.
-                refresh_online=True,
+            return await asyncio.wait_for(
+                self.market_service.lookup(
+                    asset_type="stock",
+                    symbol=symbol,
+                    start_date=start_date,
+                    end_date=end_date,
+                    period="daily",
+                    # Submitting a stock-analysis task is an explicit user query.
+                    # Do not let a stale warehouse snapshot masquerade as current data.
+                    refresh_online=True,
+                ),
+                timeout=30,
             )
         except Exception:
             return {
@@ -212,8 +222,11 @@ class StockAnalysisDataCollector:
             return info, peers
 
         try:
-            profile_frame = await asyncio.to_thread(
-                self._fetch_cn_company_profile, self._cn_xq_symbol(symbol)
+            profile_frame = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._fetch_cn_company_profile, self._cn_xq_symbol(symbol)
+                ),
+                timeout=20,
             )
         except Exception:
             return info, peers
@@ -225,7 +238,10 @@ class StockAnalysisDataCollector:
             return info, peers
 
         try:
-            members_frame = await asyncio.to_thread(self._fetch_cn_industry_members, industry)
+            members_frame = await asyncio.wait_for(
+                asyncio.to_thread(self._fetch_cn_industry_members, industry),
+                timeout=20,
+            )
         except Exception:
             return info, peers
         items = self._normalize_cn_industry_peers(
@@ -250,10 +266,13 @@ class StockAnalysisDataCollector:
             return financials
 
         try:
-            abstract, indicators = await asyncio.to_thread(
-                self._fetch_cn_financial_frames,
-                self._cn_stock_code(symbol),
-                analysis_date.year - 2,
+            abstract, indicators = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._fetch_cn_financial_frames,
+                    self._cn_stock_code(symbol),
+                    analysis_date.year - 2,
+                ),
+                timeout=30,
             )
             annual, quarterly = self._normalize_cn_financials(
                 abstract,

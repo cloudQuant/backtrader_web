@@ -58,7 +58,7 @@ export default {
     brokers: 'Broker Config',
     portfolioLedger: 'Portfolio Ledger',
     newsIntelligence: 'News Intelligence',
-    stockAnalysis: 'Stock Analysis',
+    stockAnalysis: 'AI Stocks',
     optionsChain: 'Options Chain',
     scanners: 'Scanners',
     quantTools: 'Quant Tools',
@@ -417,7 +417,7 @@ export default {
 
   stockAnalysis: {
     eyebrow: 'Investment Research',
-    title: 'Stock Analysis',
+    title: 'AI Stocks',
     subtitle: 'A complete single-stock research workflow covering technicals, fundamentals, news sentiment, and final risk review.',
     taskStatus: 'Task status',
     notSubmitted: 'Not submitted',
@@ -3730,7 +3730,7 @@ export default {
     modeBacktraderStrategy: 'Backtrader Strategy',
     modeStrategyReview: 'Strategy Review',
     modeTradingExecution: 'Trading Execution',
-    modeStockAnalysis: 'Stock Analysis',
+    modeStockAnalysis: 'AI Stocks',
     // knowledge_qa
     kqaEmptyTitle: 'Start asking from your knowledge base',
     kqaEmptyDesc: 'Pick a knowledge base and ask. Answers prioritize content from saved documents.',
@@ -3831,7 +3831,7 @@ export default {
     stockPrompt1: 'Analyze 000001.SZ, A-share, standard depth, focus on technicals, fundamentals, news risk, and trading view',
     stockPrompt2: 'Analyze AAPL, US stock, deep research, focus on fundamentals, news, and risk',
     stockPrompt3: 'Analyze 600519.SH, A-share, full research and final trading stance',
-    stockToolSingleTitle: 'Single stock',
+    stockToolSingleTitle: 'AI Stocks',
     stockToolSingleDesc: 'Generate full staged report',
     stockToolSinglePrompt: 'Analyze 000001.SZ, A-share, standard depth, focus on technicals, fundamentals, news risk, and trading view',
     stockToolRiskTitle: 'Risk focus',

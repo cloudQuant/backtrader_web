@@ -43,6 +43,21 @@ cmdline_for_pid() {
     ps -p "$pid" -o args= 2>/dev/null || return 1
 }
 
+list_process_ids() {
+    # List numeric process IDs on Linux and macOS without assuming /proc.
+    local proc_dir
+
+    if [[ -d /proc ]]; then
+        for proc_dir in /proc/[0-9]*; do
+            [[ -d "$proc_dir" ]] || continue
+            printf '%s\n' "${proc_dir##*/}"
+        done
+        return 0
+    fi
+
+    ps -axo pid= 2>/dev/null | awk '{print $1}'
+}
+
 pid_matches_mode() {
     local mode="$1"
     local pid="${2:-}"
@@ -81,9 +96,8 @@ find_existing_process() {
     local relative_script_path="src/backend/scripts/run_dual_exchange_simulation.py"
     local pid cmdline
 
-    for proc_dir in /proc/[0-9]*; do
-        [[ -d "$proc_dir" ]] || continue
-        pid="${proc_dir##*/}"
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
         [[ "$pid" != "$$" ]] || continue
         cmdline="$(cmdline_for_pid "$pid" 2>/dev/null || true)"
         if [[ "$cmdline" != *"$script_path"* && "$cmdline" != *"$relative_script_path"* ]]; then
@@ -104,7 +118,7 @@ find_existing_process() {
         esac
         echo "$pid"
         return 0
-    done
+    done < <(list_process_ids)
     return 1
 }
 
@@ -113,9 +127,8 @@ find_existing_supervisor_processes() {
     local relative_script_path="src/backend/scripts/run_dual_exchange_simulation.py"
     local pid cmdline
 
-    for proc_dir in /proc/[0-9]*; do
-        [[ -d "$proc_dir" ]] || continue
-        pid="${proc_dir##*/}"
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
         [[ "$pid" != "$$" ]] || continue
         cmdline="$(cmdline_for_pid "$pid" 2>/dev/null || true)"
         if [[ "$cmdline" != *"$script_path"* && "$cmdline" != *"$relative_script_path"* ]]; then
@@ -124,7 +137,7 @@ find_existing_supervisor_processes() {
         [[ "$cmdline" != *" --monitor-only"* ]] || continue
         [[ "$cmdline" != *" --no-hold"* ]] || continue
         echo "$pid"
-    done
+    done < <(list_process_ids)
 }
 
 current_or_discovered_pid() {

@@ -598,7 +598,7 @@ profiles:
     group_name: AI投研 - 螺纹钢(RB0) - 日线
     backtest_timeout_seconds: 900
     poll_interval_seconds: 2
-    research_workspace_id: 10762647-8441-4cd9-9cb9-b874385f8d3c
+    research_workspace_id: ''
     seed_strategy_id: ''
     continue_from_run_id: ''
     continuation_source: ''

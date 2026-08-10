@@ -68,7 +68,10 @@ def _release_gateway_zmq_ports(runtime: Any) -> None:
     for key in list(_TCP_PORT_ASSIGNMENTS):
         port = _TCP_PORT_ASSIGNMENTS[key]
         cmd_ep = getattr(config, "command_endpoint", "")
-        if cmd_ep and str(port) in cmd_ep:
+        # Runtime cleanup must remain best-effort.  In particular, an early
+        # startup failure can leave a partially initialized runtime (or a test
+        # double) whose endpoint is not a string yet.
+        if isinstance(cmd_ep, str) and str(port) in cmd_ep:
             _TCP_PORT_ASSIGNMENTS.pop(key, None)
             _TCP_RESERVED_BASE_PORTS.discard(port)
 

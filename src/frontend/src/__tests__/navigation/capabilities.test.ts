@@ -35,6 +35,12 @@ describe('navigation capabilities', () => {
     expect(investmentIds).toEqual([
       'investment.strategyResearch',
       'investment.stockAnalysis',
+      'investment.aiBond',
+      'investment.aiFund',
+      'investment.aiFutures',
+      'investment.aiOption',
+      'investment.aiFx',
+      'investment.aiCrypto',
       'investment.scanners',
     ])
     const tradingIds = getCapabilitiesForDomain('trading', true).map((item) => item.id)
@@ -63,6 +69,7 @@ describe('navigation capabilities', () => {
     expect(getDomainByPath('/ai/ai-observability').id).toBe('config')
     expect(getDomainByPath('/investment/strategies').id).toBe('investment')
     expect(getDomainByPath('/investment/stock-analysis').id).toBe('investment')
+    expect(getDomainByPath('/investment/ai-assets/crypto').id).toBe('investment')
     expect(getDomainByPath('/data/intelligence/scanners').id).toBe('investment')
     expect(getDomainByPath('/data/tables').id).toBe('data')
     expect(getDomainByPath('/data/tables/1292').id).toBe('data')

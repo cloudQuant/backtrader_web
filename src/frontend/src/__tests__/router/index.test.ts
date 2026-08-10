@@ -40,7 +40,8 @@ vi.mock('@/views/workspace/WorkspaceDetailPage.vue', () => ({ default: { templat
 vi.mock('@/views/NewsIntelligencePage.vue', () => ({ default: { template: '<div>News Intelligence</div>' } }))
 vi.mock('@/views/OptionsChainPage.vue', () => ({ default: { template: '<div>Options Chain</div>' } }))
 vi.mock('@/views/ScannerPage.vue', () => ({ default: { template: '<div>Scanner</div>' } }))
-vi.mock('@/views/investment/StockAnalysisPage.vue', () => ({ default: { template: '<div>Stock Analysis</div>' } }))
+vi.mock('@/views/investment/StockAnalysisPage.vue', () => ({ default: { template: '<div>AI Stocks</div>' } }))
+vi.mock('@/views/investment/AssetAnalysisPage.vue', () => ({ default: { template: '<div>AI Asset Research</div>' } }))
 vi.mock('@/views/SettingsPage.vue', () => ({ default: { template: '<div>Settings</div>' } }))
 vi.mock('@/views/AIChatPage.vue', () => ({ default: { template: '<div>AI Chat</div>' } }))
 vi.mock('@/views/AIObservabilityPage.vue', () => ({ default: { template: '<div>AI Observability</div>' } }))
@@ -105,6 +106,7 @@ describe('router', () => {
     expect(names).toContain('ResearchBacktestResult')
     expect(names).toContain('InvestmentStrategies')
     expect(names).toContain('InvestmentStockAnalysis')
+    expect(names).toContain('InvestmentAssetAnalysis')
     expect(names).toContain('DataQuote')
     expect(names).toContain('ConfigGateways')
     expect(names).toContain('PortfolioOverview')
@@ -209,6 +211,17 @@ describe('router', () => {
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('InvestmentStockAnalysis')
   })
+
+  it.each(['bond', 'fund', 'futures', 'option', 'fx', 'crypto'])(
+    'guards the multi-asset research route and preserves the explicit %s asset type',
+    async (assetType) => {
+    mockAuthStore(true)
+    await router.push(`/investment/ai-assets/${assetType}`)
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('InvestmentAssetAnalysis')
+    expect(router.currentRoute.value.params.assetType).toBe(assetType)
+    },
+  )
 
   it('guard allows authenticated user on canonical /investment/strategies', async () => {
     mockAuthStore(true)

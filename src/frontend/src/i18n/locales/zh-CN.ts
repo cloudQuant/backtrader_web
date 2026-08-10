@@ -58,7 +58,7 @@ export default {
     brokers: 'Broker配置',
     portfolioLedger: '组合账本',
     newsIntelligence: '新闻情报',
-    stockAnalysis: '单股分析',
+    stockAnalysis: 'AI股票',
     optionsChain: '期权链',
     scanners: '条件扫描',
     quantTools: '量化工具',
@@ -417,7 +417,7 @@ export default {
 
   stockAnalysis: {
     eyebrow: '投资研究',
-    title: '单股分析',
+    title: 'AI股票',
     subtitle: '面向单一股票的完整研究流水线，覆盖技术面、基本面、新闻情绪和风险终审。',
     taskStatus: '任务状态',
     notSubmitted: '未提交',
@@ -3749,7 +3749,7 @@ export default {
     modeBacktraderStrategy: 'Backtrader策略生成',
     modeStrategyReview: '策略审查',
     modeTradingExecution: '交易执行',
-    modeStockAnalysis: '股票分析',
+    modeStockAnalysis: 'AI股票',
     // knowledge_qa
     kqaEmptyTitle: '从知识库开始提问',
     kqaEmptyDesc: '选择知识库后输入问题，回答会优先引用已经保存的文档内容。',
@@ -3850,7 +3850,7 @@ export default {
     stockPrompt1: '分析 000001.SZ，A股，标准深度，重点看技术面、基本面、新闻风险和交易建议',
     stockPrompt2: '分析 AAPL，美股，深度研究，关注基本面、新闻和风险',
     stockPrompt3: '分析 600519.SH，A股，全面研究并给出最终交易倾向',
-    stockToolSingleTitle: '单股分析',
+    stockToolSingleTitle: 'AI股票',
     stockToolSingleDesc: '生成完整阶段报告',
     stockToolSinglePrompt: '分析 000001.SZ，A股，标准深度，重点看技术面、基本面、新闻风险和交易建议',
     stockToolRiskTitle: '风险重点',

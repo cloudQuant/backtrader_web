@@ -1,0 +1,380 @@
+{
+  "source_registry": [
+    {
+      "source_id": "akshare_futures_sina_cffex",
+      "asset_types": ["futures"],
+      "jurisdictions": ["CN"],
+      "license_status": "RESEARCH_APPROVED",
+      "allowed_uses": ["RESEARCH_ONLY", "DERIVED_RESEARCH"],
+      "attribution_text": "AKShare wrapper; upstream Sina Finance and CFFEX public market data. Research-only, no redistribution.",
+      "redistribution_policy": "NO_REDISTRIBUTION",
+      "derived_data_policy": "ALLOWED",
+      "retention_policy": "research-v1",
+      "effective_from": "2026-08-07T00:00:00+00:00",
+      "freshness_sla": {
+        "daily": {
+          "cron": "10 19 * * 1-5",
+          "timezone": "Asia/Shanghai"
+        }
+      },
+      "enabled": true
+    },
+    {
+      "source_id": "akshare_bond_sina_chinabond",
+      "asset_types": ["bond"],
+      "jurisdictions": ["CN"],
+      "license_status": "RESEARCH_APPROVED",
+      "allowed_uses": ["RESEARCH_ONLY", "DERIVED_RESEARCH"],
+      "attribution_text": "AKShare wrapper; upstream Sina Finance, SSE and ChinaBond public market data. Research-only, no redistribution.",
+      "redistribution_policy": "NO_REDISTRIBUTION",
+      "derived_data_policy": "ALLOWED",
+      "retention_policy": "research-v1",
+      "effective_from": "2026-08-07T00:00:00+00:00",
+      "freshness_sla": {
+        "daily": {
+          "cron": "10 19 * * 1-5",
+          "timezone": "Asia/Shanghai"
+        }
+      },
+      "enabled": true
+    },
+    {
+      "source_id": "akshare_fund_em_sina",
+      "asset_types": ["fund"],
+      "jurisdictions": ["CN"],
+      "license_status": "RESEARCH_APPROVED",
+      "allowed_uses": ["RESEARCH_ONLY", "DERIVED_RESEARCH"],
+      "attribution_text": "AKShare wrapper; upstream EastMoney fund data. Research-only, no redistribution.",
+      "redistribution_policy": "NO_REDISTRIBUTION",
+      "derived_data_policy": "ALLOWED",
+      "retention_policy": "research-v1",
+      "effective_from": "2026-08-08T00:00:00+00:00",
+      "freshness_sla": {
+        "daily": {
+          "cron": "30 19 * * 1-5",
+          "timezone": "Asia/Shanghai"
+        }
+      },
+      "enabled": true
+    },
+    {
+      "source_id": "akshare_fx_em_boc",
+      "asset_types": ["fx"],
+      "jurisdictions": ["CN"],
+      "license_status": "RESEARCH_APPROVED",
+      "allowed_uses": ["RESEARCH_ONLY"],
+      "attribution_text": "AKShare wrapper; upstream EastMoney and BOC public FX data. Research-only, no redistribution.",
+      "redistribution_policy": "NO_REDISTRIBUTION",
+      "derived_data_policy": "ALLOWED",
+      "retention_policy": "research-v1",
+      "effective_from": "2026-08-08T00:00:00+00:00",
+      "freshness_sla": {
+        "daily": {
+          "cron": "10 17 * * 1-5",
+          "timezone": "America/New_York"
+        }
+      },
+      "enabled": true
+    },
+    {
+      "source_id": "akshare_option_sina_sse",
+      "asset_types": ["option"],
+      "jurisdictions": ["CN"],
+      "license_status": "RESEARCH_APPROVED",
+      "allowed_uses": ["RESEARCH_ONLY"],
+      "attribution_text": "AKShare wrapper; upstream Sina Finance SSE option data. Research-only, no redistribution.",
+      "redistribution_policy": "NO_REDISTRIBUTION",
+      "derived_data_policy": "ALLOWED",
+      "retention_policy": "research-v1",
+      "effective_from": "2026-08-08T00:00:00+00:00",
+      "freshness_sla": {
+        "daily": {
+          "cron": "10 19 * * 1-5",
+          "timezone": "Asia/Shanghai"
+        }
+      },
+      "enabled": true
+    },
+    {
+      "source_id": "akshare_crypto_okx",
+      "asset_types": ["crypto"],
+      "jurisdictions": ["CN"],
+      "license_status": "RESEARCH_APPROVED",
+      "allowed_uses": ["RESEARCH_ONLY"],
+      "attribution_text": "AKShare wrapper; upstream OKX public market data. Research-only, no redistribution. CN region: education and research display only.",
+      "redistribution_policy": "NO_REDISTRIBUTION",
+      "derived_data_policy": "ALLOWED",
+      "retention_policy": "research-v1",
+      "effective_from": "2026-08-08T00:00:00+00:00",
+      "freshness_sla": {
+        "daily": {
+          "cron": "10 0 * * *",
+          "timezone": "UTC"
+        }
+      },
+      "enabled": true
+    }
+  ],
+  "instruments": [
+    {
+      "asset_type": "futures",
+      "identity_level": "CONTRACT",
+      "canonical_id": "futures:CFFEX:IF2609:CNY",
+      "display_symbol": "IF2609",
+      "name": "沪深300期货2609",
+      "venue": "CFFEX",
+      "currency": "CNY",
+      "timezone": "Asia/Shanghai",
+      "identifier_type": "CONTRACT_CODE",
+      "identifier_value": "IF2609",
+      "product_type": "FUTURE",
+      "metadata_version": "akshare-2026-08-07-v1",
+      "details": {
+        "kind": "FUTURES",
+        "product_code": "IF",
+        "contract_month": "2609",
+        "underlying_id": "CN:000300",
+        "expiry_at": "2026-09-18T07:15:00+00:00",
+        "contract_multiplier": "300",
+        "trading_calendar_id": "CFFEX",
+        "mapped_contract_id": null
+      }
+    },
+    {
+      "asset_type": "bond",
+      "identity_level": "PRODUCT",
+      "canonical_id": "bond:SSE:sh110085:CNY",
+      "display_symbol": "sh110085",
+      "name": "通22转债",
+      "venue": "SSE",
+      "currency": "CNY",
+      "timezone": "Asia/Shanghai",
+      "identifier_type": "SECURITY_CODE",
+      "identifier_value": "110085",
+      "product_type": "CONVERTIBLE_BOND",
+      "metadata_version": "akshare-2026-08-07-v1",
+      "details": {
+        "kind": "BOND",
+        "bond_identity_kind": "LISTING",
+        "isin": null,
+        "issuer_id": "CN600438",
+        "maturity_date": "2028-02-24",
+        "is_perpetual": false,
+        "settlement_calendar_id": "SSE_BOND"
+      }
+    },
+    {
+      "asset_type": "fund",
+      "identity_level": "PRODUCT",
+      "canonical_id": "fund:SSE:510050:CNY",
+      "display_symbol": "510050",
+      "name": "华夏上证50ETF",
+      "venue": "SSE",
+      "currency": "CNY",
+      "timezone": "Asia/Shanghai",
+      "identifier_type": "SECURITY_CODE",
+      "identifier_value": "510050",
+      "product_type": "ETF",
+      "metadata_version": "akshare-2026-08-08-v1",
+      "details": {
+        "kind": "FUND",
+        "fund_identity_kind": "ETF",
+        "benchmark_id": "SSE50",
+        "nav_calendar_id": "SSE_FUND"
+      }
+    },
+    {
+      "asset_type": "fx",
+      "identity_level": "PRODUCT",
+      "canonical_id": "fx:OTC:USDCNH:USD",
+      "display_symbol": "USDCNH",
+      "name": "美元兑离岸人民币",
+      "venue": "OTC",
+      "currency": "CNH",
+      "timezone": "Asia/Shanghai",
+      "identifier_type": "CURRENCY_PAIR",
+      "identifier_value": "USDCNH",
+      "product_type": "SPOT",
+      "metadata_version": "akshare-2026-08-08-v1",
+      "details": {
+        "kind": "FX",
+        "base_currency": "USD",
+        "quote_currency": "CNH",
+        "fixing_calendar_id": "CN_FX"
+      }
+    },
+    {
+      "asset_type": "option",
+      "identity_level": "CONTRACT",
+      "canonical_id": "option:SSE:510050C2608M03000:CNY",
+      "display_symbol": "510050C2608M03000",
+      "name": "50ETF购8月3000",
+      "venue": "SSE",
+      "currency": "CNY",
+      "timezone": "Asia/Shanghai",
+      "identifier_type": "OPTION_CONTRACT_CODE",
+      "identifier_value": "510050C2608M03000",
+      "product_type": "VANILLA",
+      "metadata_version": "akshare-2026-08-08-v1",
+      "details": {
+        "kind": "OPTION",
+        "option_style": "EUROPEAN",
+        "option_type": "CALL",
+        "underlying_id": "510050",
+        "strike_price": "3.000",
+        "contract_multiplier": "10000",
+        "expiry_at": "2026-08-26T07:15:00+00:00",
+        "last_trade_at": "2026-08-26T07:15:00+00:00",
+        "settlement_type": "PHYSICAL",
+        "trading_calendar_id": "SSE"
+      }
+    },
+    {
+      "asset_type": "crypto",
+      "identity_level": "PRODUCT",
+      "canonical_id": "crypto:OKX:BTC-USDT:USDT",
+      "display_symbol": "BTC-USDT",
+      "name": "比特币/USDT永续",
+      "venue": "OKX",
+      "currency": "USDT",
+      "timezone": "UTC",
+      "identifier_type": "INSTRUMENT_ID",
+      "identifier_value": "BTC-USDT",
+      "product_type": "PERPETUAL",
+      "metadata_version": "akshare-2026-08-08-v1",
+      "details": {
+        "kind": "CRYPTO",
+        "base_asset": "BTC",
+        "quote_asset": "USDT",
+        "settlement_asset": "USDT",
+        "is_linear": true
+      }
+    }
+  ],
+  "manifests": [
+    {
+      "manifest_key": "iter192-akshare-cffex-sse-v1",
+      "manifest_version": "2026-08-07",
+      "owner_scope": "PUBLIC_SHADOW",
+      "approval_reference": "ITER192-REAL-AKSHARE-PILOT-2026-08-07",
+      "evidence_uri": "file://docs/reference/akshare/README.md",
+      "evidence_content_hash": "9a30ab6247b0806d46cde5d823a31fff8dd554120b3b4e28c98cef81e36867e6",
+      "entries": [
+        {
+          "entry_key": "if2609",
+          "schedule": {
+            "asset_type": "futures",
+            "canonical_id": "futures:CFFEX:IF2609:CNY",
+            "horizon_code": "standard",
+            "horizon_spec": {
+              "count": 20,
+              "unit": "TRADING_SESSION",
+              "calendar_id": "CFFEX",
+              "entry_rule": "next_eligible_close",
+              "maturity_rule": "horizon_complete"
+            },
+            "cron_expression": "10 19 * * 1-5",
+            "timezone": "Asia/Shanghai",
+            "cutoff_policy": "futures-complete-session-v1",
+            "misfire_policy": "SKIP"
+          }
+        },
+        {
+          "entry_key": "sh110085",
+          "schedule": {
+            "asset_type": "bond",
+            "canonical_id": "bond:SSE:sh110085:CNY",
+            "horizon_code": "standard",
+            "horizon_spec": {
+              "count": 20,
+              "unit": "BOND_SESSION",
+              "calendar_id": "SSE_BOND",
+              "entry_rule": "next_eligible_close",
+              "maturity_rule": "horizon_complete"
+            },
+            "cron_expression": "10 19 * * 1-5",
+            "timezone": "Asia/Shanghai",
+            "cutoff_policy": "bond-cn-after-close-v1",
+            "misfire_policy": "SKIP"
+          }
+        },
+        {
+          "entry_key": "510050",
+          "schedule": {
+            "asset_type": "fund",
+            "canonical_id": "fund:SSE:510050:CNY",
+            "horizon_code": "standard",
+            "horizon_spec": {
+              "count": 20,
+              "unit": "TRADING_SESSION",
+              "calendar_id": "SSE_FUND",
+              "entry_rule": "next_eligible_close",
+              "maturity_rule": "horizon_complete"
+            },
+            "cron_expression": "30 19 * * 1-5",
+            "timezone": "Asia/Shanghai",
+            "cutoff_policy": "fund-cn-after-nav-v1",
+            "misfire_policy": "SKIP"
+          }
+        },
+        {
+          "entry_key": "usdcnh",
+          "schedule": {
+            "asset_type": "fx",
+            "canonical_id": "fx:OTC:USDCNH:USD",
+            "horizon_code": "standard",
+            "horizon_spec": {
+              "count": 20,
+              "unit": "BUSINESS_DAY",
+              "calendar_id": "CN_FX",
+              "entry_rule": "ny_close",
+              "maturity_rule": "horizon_complete"
+            },
+            "cron_expression": "10 17 * * 1-5",
+            "timezone": "America/New_York",
+            "cutoff_policy": "fx-ny-close-v1",
+            "misfire_policy": "SKIP"
+          }
+        },
+        {
+          "entry_key": "510050c2608m03000",
+          "schedule": {
+            "asset_type": "option",
+            "canonical_id": "option:SSE:510050C2608M03000:CNY",
+            "horizon_code": "standard",
+            "horizon_spec": {
+              "count": 20,
+              "unit": "TRADING_SESSION",
+              "calendar_id": "SSE",
+              "entry_rule": "next_eligible_close",
+              "maturity_rule": "expiry_or_horizon"
+            },
+            "cron_expression": "10 19 * * 1-5",
+            "timezone": "Asia/Shanghai",
+            "cutoff_policy": "option-sse-after-close-v1",
+            "misfire_policy": "SKIP"
+          }
+        },
+        {
+          "entry_key": "btc-usdt",
+          "schedule": {
+            "asset_type": "crypto",
+            "canonical_id": "crypto:OKX:BTC-USDT:USDT",
+            "horizon_code": "standard",
+            "horizon_spec": {
+              "count": 20,
+              "unit": "CALENDAR_DAY",
+              "calendar_id": "UTC",
+              "entry_rule": "utc_midnight",
+              "maturity_rule": "horizon_complete"
+            },
+            "cron_expression": "10 0 * * *",
+            "timezone": "UTC",
+            "cutoff_policy": "crypto-utc-midnight-v1",
+            "misfire_policy": "SKIP"
+          }
+        }
+      ]
+    }
+  ]
+}

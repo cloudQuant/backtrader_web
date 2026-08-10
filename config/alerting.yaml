@@ -106,6 +106,52 @@ alerts:
     duration: 600s
     action: "Review strategy code and data quality"
 
+  # Iteration 192 Asset Research Alerts
+  - name: asset_research_task_failure_rate_warning
+    description: "Asset research task failure rate exceeds 5% over 10 minutes"
+    metric: asset_research_task_failure_rate
+    condition: "rate > 0.05"
+    threshold: 0.05
+    severity: warning
+    duration: 600s
+    action: "Pause affected asset plugins and inspect source/reason codes"
+
+  - name: asset_research_source_failure_warning
+    description: "Asset research source failed 3 consecutive times"
+    metric: asset_research_source_request_total
+    condition: "result=FAILED count >= 3"
+    threshold: 3
+    severity: warning
+    duration: 60s
+    action: "Check provider authorization and schema"
+
+  - name: asset_research_queue_backlog_warning
+    description: "Asset research queue depth exceeds twice the worker count"
+    metric: asset_research_queue_depth
+    condition: "depth > worker_concurrency * 2"
+    threshold: 8
+    severity: warning
+    duration: 600s
+    action: "Limit new creates and inspect worker health"
+
+  - name: asset_research_outcome_backlog_critical
+    description: "Mature outcome backlog exceeds two times evaluator SLA"
+    metric: asset_research_outcome_backlog
+    condition: "depth > 2 * evaluator_sla"
+    threshold: 200
+    severity: critical
+    duration: 600s
+    action: "Check source maturity, calendar and evaluator worker"
+
+  - name: asset_research_llm_budget_warning
+    description: "LLM monthly budget usage reaches 80%"
+    metric: asset_research_llm_cost_usd_total
+    condition: "monthly_usage >= 0.80"
+    threshold: 0.80
+    severity: warning
+    duration: 0s
+    action: "Stop non-essential deep reports and enforce deterministic fallback"
+
 # Notification Channels
 notification_channels:
   - type: email

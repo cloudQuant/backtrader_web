@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -12,6 +13,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.stock_signal import StockSignalPrediction, StockSignalRun
+from app.services.asset_research.stock_dual_write import (
+    DualWriteMode,
+    DualWriteOutcome,
+    StockDualWriteCoordinator,
+)
 from app.services.stock_signal.decision_policy import SignalPolicy
 from app.services.stock_signal.features import calculate_features
 from app.services.stock_signal.outcomes import OutcomeEvaluation, evaluate_outcome
@@ -133,6 +139,44 @@ class StockSignalService:
             raise
         return prediction
 
+    async def create_prediction_with_shadow(
+        self,
+        *,
+        snapshot: dict[str, Any],
+        symbol: str,
+        market_type: str,
+        as_of_date: date,
+        owner_scope: str,
+        source: str,
+        universe_code: str,
+        next_trading_date: date | None = None,
+        run_id: str | None = None,
+        shadow_write: Callable[[StockSignalPrediction], Awaitable[None]],
+        dual_write_mode: str = "OFF",
+    ) -> tuple[StockSignalPrediction, DualWriteOutcome]:
+        """Create a legacy prediction and apply OFF/SHADOW/ENFORCE shadow policy."""
+        prediction = await self.create_prediction(
+            snapshot=snapshot,
+            symbol=symbol,
+            market_type=market_type,
+            as_of_date=as_of_date,
+            owner_scope=owner_scope,
+            source=source,
+            universe_code=universe_code,
+            next_trading_date=next_trading_date,
+            run_id=run_id,
+        )
+        coordinator = StockDualWriteCoordinator(DualWriteMode(dual_write_mode.upper()))
+
+        async def primary() -> StockSignalPrediction:
+            return prediction
+
+        outcome = await coordinator.write(
+            primary_write=primary,
+            shadow_write=lambda: shadow_write(prediction),
+        )
+        return prediction, outcome
+
     async def attach_report(self, *, prediction_id: str, report_id: str) -> None:
         prediction = await self.db.get(StockSignalPrediction, prediction_id)
         if prediction is not None and prediction.report_id is None:
@@ -215,6 +259,25 @@ class StockSignalService:
             .where(StockSignalRun.owner_scope == "system")
             .order_by(desc(StockSignalRun.as_of_date), desc(StockSignalRun.created_at))
             .limit(1)
+        )
+
+    async def get_all_system_predictions(
+        self,
+        *,
+        limit: int = 100,
+    ) -> list[StockSignalPrediction]:
+        """Return bounded legacy system records for structured compatibility audit."""
+        return list(
+            (
+                await self.db.execute(
+                    select(StockSignalPrediction)
+                    .where(StockSignalPrediction.owner_scope == "system")
+                    .order_by(desc(StockSignalPrediction.as_of_date), desc(StockSignalPrediction.id))
+                    .limit(max(1, min(limit, 1_000)))
+                )
+            )
+            .scalars()
+            .all()
         )
 
     async def opening_action_preview(

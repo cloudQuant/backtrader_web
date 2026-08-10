@@ -7,6 +7,7 @@ introduced in iteration 124.
 
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -20,7 +21,7 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
 
@@ -49,18 +50,23 @@ class Workspace(Base):
         Index("ix_workspaces_user_updated_id", "user_id", "updated_at", "id"),
     )
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=False, index=True
+    )
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
-    workspace_type = Column(String(32), nullable=False, default="research", index=True)
-    settings = Column(JSON, default=dict)
+    workspace_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="research", index=True
+    )
+    settings: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=True)
     trading_config = Column(JSON, default=dict)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(
+    updated_at: Mapped[datetime | None] = mapped_column(
         DateTime,
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+        nullable=True,
     )
 
     # Relationships

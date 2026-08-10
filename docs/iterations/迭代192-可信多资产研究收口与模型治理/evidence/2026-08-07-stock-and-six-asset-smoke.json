@@ -1,0 +1,76 @@
+{
+  "profile": "STOCK_AND_SIX_ASSET_FUNCTIONAL_SMOKE",
+  "generated_at": "2026-08-07T15:00:00+00:00",
+  "database": "temporary SQLite via app.models Base.metadata.create_all",
+  "stock_real_tasks": [
+    {
+      "symbol": "600519",
+      "market_type": "A股",
+      "status": "completed",
+      "report_present": true,
+      "error": null
+    },
+    {
+      "symbol": "000001",
+      "market_type": "A股",
+      "status": "completed",
+      "report_present": true,
+      "error": null
+    }
+  ],
+  "asset_service_paths": [
+    {
+      "asset_type": "bond",
+      "task_status": "SUCCEEDED",
+      "report_present": true,
+      "run_status": "SUCCEEDED",
+      "quality_status": "ELIGIBLE",
+      "data_mode": "deterministic_service_fixture"
+    },
+    {
+      "asset_type": "fund",
+      "task_status": "SUCCEEDED",
+      "report_present": true,
+      "run_status": "SUCCEEDED",
+      "quality_status": "ELIGIBLE",
+      "data_mode": "deterministic_service_fixture"
+    },
+    {
+      "asset_type": "futures",
+      "task_status": "SUCCEEDED",
+      "report_present": true,
+      "run_status": "SUCCEEDED",
+      "quality_status": "ELIGIBLE",
+      "data_mode": "deterministic_service_fixture; real T1 evidence in 2026-08-07-akshare-real-t1.json"
+    },
+    {
+      "asset_type": "option",
+      "task_status": "SUCCEEDED",
+      "report_present": true,
+      "run_status": "SUCCEEDED",
+      "quality_status": "ELIGIBLE",
+      "data_mode": "deterministic_service_fixture"
+    },
+    {
+      "asset_type": "fx",
+      "task_status": "SUCCEEDED",
+      "report_present": true,
+      "run_status": "SUCCEEDED",
+      "quality_status": "ELIGIBLE",
+      "data_mode": "deterministic_service_fixture"
+    },
+    {
+      "asset_type": "crypto",
+      "task_status": "SUCCEEDED",
+      "report_present": true,
+      "run_status": "SUCCEEDED",
+      "quality_status": "ELIGIBLE",
+      "data_mode": "deterministic_service_fixture"
+    }
+  ],
+  "notes": [
+    "股票任务使用真实 AkShare 行情/公司/财务/新闻采集，AI_CHAT_ENABLED=false 时报告由规则流水线生成。",
+    "六类资产服务路径验证 task/run/report/prediction 生命周期；除 futures/bond 已有真实 T1 外，其余暂不宣称真实市场数据质量门禁已通过。",
+    "股票采集外部接口增加 bounded timeout，任务可正常 completed；后台 AkShare 线程可能在 CLI 退出时产生 resource_tracker 警告，不影响任务结果。"
+  ]
+}

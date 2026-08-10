@@ -8,7 +8,9 @@ Tests:
 - Task context binding
 """
 
+import json
 import logging
+from collections import namedtuple
 from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -19,9 +21,12 @@ import pytest
 from app.utils.logger import (
     LogContext,
     LogLevel,
+    _add_file_handler,
     _archive_stale_dated_logs,
     _build_daily_or_size_rotation,
     _filter_sensitive_data,
+    _patch_record,
+    _serialize_log,
     bind_request_context,
     bind_task_context,
     get_logger,
@@ -88,6 +93,102 @@ class TestSensitiveDataFiltering:
         filtered = _filter_sensitive_data(data)
         assert filtered["secret"] == "****"
 
+    def test_filter_redacts_credentials_embedded_in_safe_text_fields(self):
+        """Provider error text must not bypass key-based context redaction."""
+        api_key = "provider-api-key-should-not-appear"
+        bearer = "provider-bearer-should-not-appear"
+
+        filtered = _filter_sensitive_data(
+            {
+                "error_message": f"upstream rejected api_key={api_key}",
+                "details": f"Authorization: Bearer {bearer}",
+            }
+        )
+
+        rendered = json.dumps(filtered)
+        assert api_key not in rendered
+        assert bearer not in rendered
+        assert "****" in rendered
+
+    def test_structured_serializer_redacts_message_exception_and_context(self):
+        """All structured-log channels must redact credential-bearing text."""
+        message_secret = "message-secret-should-not-appear"
+        exception_secret = "exception-secret-should-not-appear"
+        context_secret = "context-secret-should-not-appear"
+
+        try:
+            raise RuntimeError(f"provider password={exception_secret}")
+        except RuntimeError as exc:
+            record = {
+                "time": datetime.now(),
+                "level": type("Level", (), {"name": "ERROR"})(),
+                "message": f"provider api_key={message_secret}",
+                "name": "asset_research",
+                "exception": type(
+                    "ExceptionRecord",
+                    (),
+                    {"type": type(exc), "value": exc, "traceback": exc.__traceback__},
+                )(),
+                "extra": {
+                    "request_id": "request-1",
+                    "error_message": f"Authorization: Bearer {context_secret}",
+                },
+            }
+
+        rendered = _serialize_log(record)
+        assert message_secret not in rendered
+        assert exception_secret not in rendered
+        assert context_secret not in rendered
+        assert "****" in rendered
+
+    def test_log_record_patcher_redacts_plain_sink_message_and_exception(self):
+        """Plain and serialized sinks share the same redacted log record."""
+        message_secret = "plain-message-secret-should-not-appear"
+        exception_secret = "plain-exception-secret-should-not-appear"
+        ExceptionRecord = namedtuple("ExceptionRecord", "type value traceback")
+        record = {
+            "message": f"provider secret={message_secret}",
+            "exception": ExceptionRecord(
+                RuntimeError,
+                RuntimeError(f"provider token={exception_secret}"),
+                None,
+            ),
+            "extra": {"detail": f"Bearer {exception_secret}"},
+        }
+
+        assert _patch_record(record) is True
+        assert message_secret not in record["message"]
+        assert exception_secret not in str(record["exception"].value)
+        assert exception_secret not in record["extra"]["detail"]
+
+    def test_global_loguru_patcher_redacts_actual_sink_records(self):
+        """The live logger patcher must protect every sink, not only helper calls."""
+        import app.utils.logger as logger_module
+
+        message_secret = "sink-message-secret-should-not-appear"
+        context_secret = "sink-context-secret-should-not-appear"
+        exception_secret = "sink-exception-secret-should-not-appear"
+        captured_records = []
+        sink_id = logger_module.logger.add(
+            lambda message: captured_records.append(message.record),
+            format="{message}",
+        )
+        try:
+            logger_module.logger.bind(detail=f"Bearer {context_secret}").info(
+                f"provider api_key={message_secret}"
+            )
+            try:
+                raise RuntimeError(f"provider password={exception_secret}")
+            except RuntimeError:
+                logger_module.logger.exception("provider request failed")
+        finally:
+            logger_module.logger.remove(sink_id)
+
+        rendered = str(captured_records)
+        assert message_secret not in rendered
+        assert context_secret not in rendered
+        assert exception_secret not in rendered
+
 
 class TestSetupLogger:
     """Tests for logger setup."""
@@ -150,6 +251,22 @@ class TestSetupLogger:
 
         assert log_dir != repo_logs.resolve()
         assert log_dir.name.startswith("backtrader_web_pytest_logs_")
+
+    def test_error_file_handler_never_diagnoses_local_variables(self, monkeypatch, tmp_path: Path):
+        """Exception stacks retain control flow but must not serialize locals."""
+        import app.utils.logger as logger_module
+
+        mocked_logger = MagicMock()
+        monkeypatch.setattr(logger_module, "logger", mocked_logger)
+
+        _add_file_handler(
+            tmp_path,
+            "errors_{time:YYYY-MM-DD}.log",
+            use_json=False,
+            backtrace=True,
+        )
+
+        assert mocked_logger.add.call_args.kwargs["diagnose"] is False
 
 
 class TestLogFileArchival:

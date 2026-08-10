@@ -1,0 +1,90 @@
+{
+  "commit_sha": "e7fd2d5151c86ba62173b8d19736983a0a379909",
+  "concurrency": {
+    "source_collections": 100,
+    "source_peak": 2,
+    "worker_peak": 4
+  },
+  "configuration": {
+    "config_hash_without_secrets": "e77a8e21ecafa988384728e6dc878bf17d32176451d8fdc3dd9717fb6ee4e43e",
+    "per_source_concurrency": 2,
+    "schedule_max_batch": 100,
+    "worker_concurrency": 4
+  },
+  "database": {
+    "connection_pool": "NullPool",
+    "schema_revision": "20260810_asset_research_option_context_binding",
+    "threads_connected_after": 1,
+    "threads_connected_before": 1,
+    "vendor": "MySQL",
+    "version": "9.4.0"
+  },
+  "fixture": {
+    "cache": {
+      "applicable": false,
+      "reason": "fixed in-memory provider fixture"
+    },
+    "instrument_count": 100,
+    "llm": "deterministic-none",
+    "version": "iter191-capacity-fixture-v1"
+  },
+  "host": {
+    "cpu_count": 8,
+    "os": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.11.8"
+  },
+  "iteration": 191,
+  "latency_seconds": {
+    "batch": 1.2103283340038615,
+    "error_rate": 0.0,
+    "max": 0.09374562500306638,
+    "measured_count": 100,
+    "p50": 0.0443914589995984,
+    "p95": 0.04730629199912073,
+    "p99": 0.09371641600591829,
+    "warmup_count": 0
+  },
+  "passed": true,
+  "profile": "CAPACITY",
+  "queue": {
+    "claimed_count": 100,
+    "due_remaining": 0,
+    "leased_count": 0,
+    "nonterminal_run_count": 0,
+    "pending_outcome_count": 300,
+    "retry_pending_count": 0,
+    "run_status_counts": {
+      "SUCCEEDED": 100
+    }
+  },
+  "resources": {
+    "after": {
+      "cpu_system_seconds": 1.424605,
+      "cpu_user_seconds": 2.260173,
+      "max_rss": 177651712,
+      "max_rss_unit": "bytes"
+    },
+    "before": {
+      "cpu_system_seconds": 1.360655,
+      "cpu_user_seconds": 1.46254,
+      "max_rss": 165675008,
+      "max_rss_unit": "bytes"
+    },
+    "cpu_system_seconds_delta": 0.06394999999999995,
+    "cpu_user_seconds_delta": 0.797633
+  },
+  "side_effects": {
+    "interactive_task_count": 0,
+    "report_count": 0
+  },
+  "source_files_sha256": {
+    "scripts/ci/run_asset_research_capacity.py": "c1117c40264d47fe37a5d4dfbd5f69a88818f7b95a5503671dbeef73c42db861",
+    "src/backend/app/config.py": "8cb6c599692cc0013f8e475f448605c8ae9139e32eb017b414384c0ab185dd76",
+    "src/backend/app/services/asset_research/concurrency.py": "7a71a803cba666199dadf6a4f58ed5a8abeb5637520f883e8e2c1c705c241ab5",
+    "src/backend/app/services/asset_research/orchestrator.py": "210efe5c2d140367d481fa8b72d6f8cb7130158efbd591a9d191910c43893edd",
+    "src/backend/app/services/asset_research/scheduler.py": "28a61ba8cbac281799dd2d0d8a1615e9750b792fdd1b3eadd673cba80b39ef6e"
+  },
+  "started_at": "2026-08-02T23:30:36.126335+00:00",
+  "timezone": "UTC",
+  "violations": []
+}

@@ -126,6 +126,7 @@ api_router.include_router(docs_router, prefix="/docs", tags=["Documentation"])
 
 # ── Optional routers (graceful degradation) ──────────────────────────────────
 _OPTIONAL_ROUTERS = [
+    ("asset_research", "app.api.asset_research", "/asset-research", ["Asset Research"]),
     ("auto_trading", "app.api.auto_trading", "/auto-trading", ["Auto Trading"]),
     ("paper_trading", "app.api.paper_trading", "/paper-trading", ["Paper Trading"]),
     ("comparison", "app.api.comparison", "/comparisons", ["Comparison"]),

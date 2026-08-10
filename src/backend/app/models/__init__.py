@@ -22,6 +22,23 @@ from app.models.akshare_mgmt import (
     TaskExecution,
 )
 from app.models.alerts import Alert, AlertNotification, AlertRule
+from app.models.asset_research import (
+    AssetAnalysisExport,
+    AssetAnalysisReport,
+    AssetAnalysisTask,
+    AssetDataSourceRegistry,
+    AssetInstrument,
+    AssetModelRegistry,
+    AssetModelStatusEvent,
+    AssetPositionContextSnapshot,
+    AssetReportPublication,
+    AssetScheduleManifest,
+    AssetSignalOutcome,
+    AssetSignalPrediction,
+    AssetSignalRun,
+    AssetSignalSchedule,
+    AssetSourceSnapshot,
+)
 from app.models.audit_record import AuditRecord
 from app.models.backtest import BacktestResultModel, BacktestTask
 from app.models.broker_profile import BrokerConnectionProfile
@@ -89,6 +106,21 @@ __all__ = [
     "Account",
     "AICallLog",
     "AITradingLog",
+    "AssetAnalysisExport",
+    "AssetAnalysisReport",
+    "AssetAnalysisTask",
+    "AssetDataSourceRegistry",
+    "AssetInstrument",
+    "AssetModelRegistry",
+    "AssetModelStatusEvent",
+    "AssetPositionContextSnapshot",
+    "AssetReportPublication",
+    "AssetScheduleManifest",
+    "AssetSignalOutcome",
+    "AssetSignalPrediction",
+    "AssetSignalRun",
+    "AssetSignalSchedule",
+    "AssetSourceSnapshot",
     "AIStrategyResearchVersion",
     "AIStrategyResearchVersionComparison",
     "Alert",

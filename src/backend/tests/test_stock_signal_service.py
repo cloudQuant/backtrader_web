@@ -71,3 +71,49 @@ async def test_prediction_key_is_idempotent_and_keeps_versioned_snapshot() -> No
     assert first.decision_policy_version == "baseline-v1"
     assert first.source_snapshot_hash
     assert first.eligibility_status == "eligible"
+
+
+@pytest.mark.asyncio
+async def test_create_prediction_with_shadow_supports_off_and_enforce() -> None:
+    as_of_date = date(2026, 6, 10)
+    async with async_session_maker() as session:
+        service = StockSignalService(session)
+        shadows: list[str] = []
+
+        async def shadow_write(prediction: StockSignalPrediction) -> None:
+            shadows.append(prediction.id)
+
+        prediction, off_outcome = await service.create_prediction_with_shadow(
+            snapshot=_snapshot(as_of_date),
+            symbol="600001.SH",
+            market_type="A股",
+            as_of_date=as_of_date,
+            owner_scope="user:dual-write",
+            source="manual",
+            universe_code="MANUAL",
+            shadow_write=shadow_write,
+            dual_write_mode="OFF",
+        )
+        await session.commit()
+
+    assert off_outcome.shadow_succeeded is False
+    assert shadows == []
+
+    async with async_session_maker() as session:
+        service = StockSignalService(session)
+        shadows = []
+        prediction, enforce_outcome = await service.create_prediction_with_shadow(
+            snapshot=_snapshot(as_of_date),
+            symbol="600002.SH",
+            market_type="A股",
+            as_of_date=as_of_date,
+            owner_scope="user:dual-write",
+            source="manual",
+            universe_code="MANUAL",
+            shadow_write=shadow_write,
+            dual_write_mode="ENFORCE",
+        )
+        await session.commit()
+
+    assert enforce_outcome.shadow_succeeded is True
+    assert shadows == [prediction.id]

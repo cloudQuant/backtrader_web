@@ -1,9 +1,10 @@
 """Knowledge base ORM models for iteration 129."""
 
 import uuid
+from typing import Any
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
 from app.utils.datetime_utils import utc_now_naive
@@ -14,13 +15,15 @@ class KnowledgeBase(Base):
 
     __tablename__ = "knowledge_bases"
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    owner_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=False, index=True
+    )
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
-    document_count = Column(Integer, nullable=False, default=0)
+    document_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_public = Column(Boolean, nullable=False, default=False)
-    settings = Column(JSON, default=dict)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=True)
     created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(
         DateTime,
@@ -41,7 +44,7 @@ class KBDocument(Base):
 
     __tablename__ = "kb_documents"
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     knowledge_base_id = Column(
         String(36), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False, index=True
     )

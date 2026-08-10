@@ -75,7 +75,11 @@ def _upgrade(config: Config, database_url: str, target: str) -> None:
 
 def test_iteration_184_has_one_linear_alembic_head():
     script = ScriptDirectory.from_config(_config("sqlite+aiosqlite://"))
-    assert script.get_heads() == [_HEAD]
+    # This is an Iteration 184 regression suite.  Later iterations may extend
+    # the linear chain, so assert that its terminal revision remains reachable
+    # instead of requiring the repository's global head to stay frozen here.
+    assert len(script.get_heads()) == 1
+    assert script.get_revision(_HEAD) is not None
 
 
 def test_iteration_184_migrations_upgrade_fresh_current_and_legacy_create_all(
@@ -103,10 +107,10 @@ def test_iteration_184_migrations_upgrade_fresh_current_and_legacy_create_all(
         _set_migration_database(monkeypatch, database_url)
         config = _config(database_url)
         if preparation == "head":
-            _upgrade(config, database_url, "head")
+            _upgrade(config, database_url, _HEAD)
         elif preparation == "baseline":
             _upgrade(config, database_url, _BASELINE)
-            _upgrade(config, database_url, "head")
+            _upgrade(config, database_url, _HEAD)
         else:
             _create_all(database_url)
             engine = create_engine(database_url)
@@ -116,7 +120,7 @@ def test_iteration_184_migrations_upgrade_fresh_current_and_legacy_create_all(
                     command.stamp(config, _BASELINE)
             finally:
                 engine.dispose()
-            _upgrade(config, database_url, "head")
+            _upgrade(config, database_url, _HEAD)
         assert required <= _tables(database_url), name
         engine = create_engine(database_url)
         try:
@@ -143,7 +147,7 @@ def test_pre_trust_create_all_database_upgrades_to_head(tmp_path, monkeypatch):
 
     _upgrade(config, database_url, _PRE_TRUST_BASELINE)
     _create_all(database_url)
-    _upgrade(config, database_url, "head")
+    _upgrade(config, database_url, _HEAD)
 
     assert {
         "average_holding_bars",

@@ -121,6 +121,132 @@ jobs:
           BASE_REF: origin/${{ github.base_ref }}
         run: python scripts/ci/check_migration_safety.py
 
+  asset-research-mysql-contract:
+    name: Asset Research - MySQL 9.4 Contract
+    runs-on: ubuntu-latest
+    needs: check-migrations
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: src/backend
+    services:
+      mysql:
+        image: mysql:9.4.0
+        env:
+          MYSQL_DATABASE: codex_iter191_ci
+          MYSQL_ROOT_HOST: '%'
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      DATABASE_URL: mysql+aiomysql://root:root@127.0.0.1:3306/codex_iter191_ci
+      ASSET_RESEARCH_MYSQL_SHARED_SCHEMA_URL: mysql+pymysql://root:root@127.0.0.1:3306/codex_iter191_ci
+      ASSET_RESEARCH_MYSQL_SHARED_SCHEMA_CONFIRM: "yes"
+      ASSET_RESEARCH_MYSQL_TASK_RUNNER_DISPOSABLE_URL: mysql+aiomysql://root:root@127.0.0.1:3306/codex_iter191_ci
+      ASSET_RESEARCH_MYSQL_TASK_RUNNER_DISPOSABLE_CONFIRM: "yes"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            config/requirements-dev.lock
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,mysql]"
+
+      - name: Verify disposable MySQL version
+        run: |
+          python - <<'PY'
+          from sqlalchemy import create_engine, text
+          import os
+
+          engine = create_engine(os.environ["ASSET_RESEARCH_MYSQL_SHARED_SCHEMA_URL"])
+          try:
+              with engine.connect() as connection:
+                  version = connection.execute(text("SELECT VERSION()")).scalar_one()
+                  database = connection.execute(text("SELECT DATABASE()")).scalar_one()
+              assert version == "9.4.0", version
+              assert database.startswith("codex_iter191_"), database
+              print(f"MySQL server version: {version}; disposable database: {database}")
+          finally:
+              engine.dispose()
+          PY
+
+      - name: Run Iteration 191 MySQL migration round-trip and direct-relation contract
+        run: |
+          alembic upgrade head
+          alembic downgrade 20260801_stock_signal_predictions
+          alembic upgrade head
+          alembic current
+          pytest -q \
+            tests/asset_research/test_migration.py \
+            tests/asset_research/test_mysql_contract.py
+
+  asset-research-192-contract:
+    name: Asset Research - Iteration 192 Governance Contract
+    runs-on: ubuntu-latest
+    needs: check-migrations
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: src/backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            config/requirements-dev.lock
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,mysql,backtrader]"
+
+      - name: Run Iteration 192 governance tests
+        run: |
+          pytest -q \
+            tests/asset_research/test_evaluation.py \
+            tests/asset_research/test_model_cards.py \
+            tests/asset_research/test_drift.py \
+            tests/asset_research/test_citation_verifier.py \
+            tests/asset_research/test_llm_guardrails.py \
+            tests/asset_research/test_llm_report_generator.py \
+            tests/asset_research/test_stock_dual_write.py \
+            tests/asset_research/test_stock_reconciliation.py \
+            tests/asset_research/test_stock_compat.py \
+            tests/asset_research/test_lifecycle_executor.py \
+            tests/asset_research/test_approved_manifest_importer.py \
+            tests/asset_research/test_provider_base.py \
+            tests/asset_research/test_akshare_providers.py
+          python -m json.tool ../../config/asset_research_approved_manifest.json > /dev/null
+
+      - name: Run Iteration 192 time-travel schedule regression
+        run: |
+          pytest -q \
+            tests/asset_research/test_schedule_runner.py::test_schedule_runner_publishes_queue_depth_before_claiming \
+            tests/asset_research/test_task_runner.py::test_task_runner_publishes_queue_depth_before_claiming
+
   check-openapi:
     name: Check - OpenAPI Schema
     runs-on: ubuntu-latest
@@ -188,7 +314,7 @@ jobs:
     defaults:
       run:
         working-directory: src/backend
- 
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1298,7 +1424,7 @@ jobs:
   ci-summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [check-generated-artifacts, check-doc-links, check-deps-sync, check-migrations, check-openapi, backend-lint, backend-mypy-ratchet, backend-mypy-quote, backend-mypy-api-subset, backend-mypy-services, backend-test, backend-security, secret-scan, frontend-lint, frontend-test, frontend-build, lighthouse-ci, frontend-a11y, frontend-i18n, frontend-e2e-smoke, monorepo-check, integration-test]
+    needs: [check-generated-artifacts, check-doc-links, check-deps-sync, check-migrations, asset-research-mysql-contract, asset-research-192-contract, check-openapi, backend-lint, backend-mypy-ratchet, backend-mypy-quote, backend-mypy-api-subset, backend-mypy-services, backend-test, backend-security, secret-scan, frontend-lint, frontend-test, frontend-build, lighthouse-ci, frontend-a11y, frontend-i18n, frontend-e2e-smoke, monorepo-check, integration-test]
     if: always()
 
     steps:
@@ -1366,6 +1492,8 @@ jobs:
           echo "| Check Doc Links | ${{ needs.check-doc-links.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Check Deps Sync | ${{ needs.check-deps-sync.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Check Migrations | ${{ needs.check-migrations.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Asset Research MySQL 9.4 Contract | ${{ needs.asset-research-mysql-contract.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Asset Research Iteration 192 Contract | ${{ needs.asset-research-192-contract.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Check OpenAPI | ${{ needs.check-openapi.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Lint | ${{ needs.backend-lint.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Mypy Ratchet | ${{ needs.backend-mypy-ratchet.result }} |" >> $GITHUB_STEP_SUMMARY
@@ -1406,6 +1534,8 @@ jobs:
           needs.check-doc-links.result == 'failure' ||
           needs.check-deps-sync.result == 'failure' ||
           needs.check-migrations.result == 'failure' ||
+          needs.asset-research-mysql-contract.result == 'failure' ||
+          needs.asset-research-192-contract.result == 'failure' ||
           needs.check-openapi.result == 'failure' ||
           needs.backend-lint.result == 'failure' ||
           needs.backend-mypy-ratchet.result == 'failure' ||
