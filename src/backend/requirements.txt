@@ -38,7 +38,7 @@ mysql-connector-python>=8.0.0
 PyMySQL>=1.2.0
 
 # 认证
-python-jose[cryptography]>=3.3.0
+python-jose[cryptography]>=3.5.0
 passlib[bcrypt]>=1.7.4
 
 # 日志
