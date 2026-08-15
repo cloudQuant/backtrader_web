@@ -25,6 +25,13 @@ export async function prepareStaticPreviewPage(
     } else {
       window.sessionStorage.removeItem('auth')
     }
+    // Pin zh-CN (the app default) unless an earlier init script chose a
+    // locale: headless Chromium reports en-US, and browser-language
+    // inference would otherwise render the pages in English and break
+    // zh-CN assertions.
+    if (!window.localStorage.getItem('locale')) {
+      window.localStorage.setItem('locale', 'zh-CN')
+    }
   }, authenticated)
 
   await page.route('**/api/v1/**', async (route) => {
