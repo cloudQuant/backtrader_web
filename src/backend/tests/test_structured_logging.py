@@ -146,15 +146,15 @@ class TestRequestIDProperty:
         ),
     )
     @settings(max_examples=100)
-    async def test_request_id_is_8_hex_chars(self, path: str) -> None:
-        """Every response includes X-Request-ID with exactly 8 hex characters."""
+    async def test_request_id_is_32_hex_chars(self, path: str) -> None:
+        """Every response includes X-Request-ID with exactly 32 hex characters (iteration 193)."""
         from app.main import app
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get(path)
             request_id = response.headers.get("x-request-id", "")
-            assert len(request_id) == 8, f"Expected 8 chars, got {len(request_id)}: '{request_id}'"
-            assert all(c in "0123456789abcdef-" for c in request_id), (
+            assert len(request_id) == 32, f"Expected 32 chars, got {len(request_id)}: '{request_id}'"
+            assert all(c in "0123456789abcdef" for c in request_id), (
                 f"Non-hex char in request_id: '{request_id}'"
             )
