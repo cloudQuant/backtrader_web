@@ -3,10 +3,8 @@
 These adapters collect only explicit, source-mapped fields.  They never infer
 an identity or fabricate a quote, curve, cashflow or calendar.  AkShare is an
 open-source aggregation wrapper; the provider still declares the concrete
-upstream hosts and freezes ``RESEARCH_ONLY`` source provenance in every raw
-snapshot.  Production must enable this provider only after the matching
-``asset_data_source_registry`` rows and approved manifests are imported.
-"""
+upstream hosts and freezes ``RESEARCH_ONLY`` source provenance in every raw snapshot.
+Production must enable this provider only after the matching ``asset_data_source_registry`` rows and manifests are imported."""
 
 from __future__ import annotations
 
@@ -18,6 +16,11 @@ from typing import Any
 from app.schemas.asset_research import InstrumentIdentity, RawAssetSnapshot, RawObservation
 from app.services.asset_research.data import canonical_json_hash
 from app.services.asset_research.providers.base import AssetDataProvider, NetworkPolicy
+
+Row = dict[str, Any]
+QuoteResult = tuple[dict[str, Any], datetime | None]
+CurveResult = tuple[list[dict[str, Any]], dict[str, Any] | None]
+_MIDNIGHT = datetime.min.time()
 
 FUTURES_SOURCE_ID = "akshare_futures_sina_cffex"
 BOND_SOURCE_ID = "akshare_bond_sina_chinabond"
@@ -92,9 +95,7 @@ def _parse_datetime(value: object) -> datetime | None:
         return datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         try:
-            return datetime.combine(
-                date.fromisoformat(text), datetime.min.time(), tzinfo=timezone.utc
-            )
+            return datetime.combine(date.fromisoformat(text), _MIDNIGHT, tzinfo=timezone.utc)
         except ValueError:
             return None
 
@@ -212,9 +213,8 @@ def _build_observations(
         if row_date is None:
             continue
         observed_at = datetime.combine(row_date, datetime.min.time(), tzinfo=timezone.utc)
-        for field_name, value in _scalar_fields(
-            row, prefix=f"history:{row_date.isoformat()}"
-        ).items():
+        fields = _scalar_fields(row, prefix=f"history:{row_date.isoformat()}")
+        for field_name, value in fields.items():
             if field_name.rsplit(".", maxsplit=1)[-1] == "date":
                 continue
             add(field_name=field_name, value=value, observed_at=observed_at)
@@ -455,9 +455,7 @@ class AkShareFuturesProvider(AssetDataProvider):
         return None
 
     @staticmethod
-    def _quote(
-        row: dict[str, Any] | None, *, cutoff: datetime
-    ) -> tuple[dict[str, Any], datetime | None]:
+    def _quote(row: Row | None, *, cutoff: datetime) -> QuoteResult:
         if row is None:
             return {}, None
         trade_date = _parse_date(_row_value(row, "tradedate", "日期"))
@@ -472,9 +470,7 @@ class AkShareFuturesProvider(AssetDataProvider):
                         f"{trade_date.isoformat()}T{tick_time}+08:00"
                     ).astimezone(timezone.utc)
                 except ValueError:
-                    quote_at = datetime.combine(
-                        trade_date, datetime.min.time(), tzinfo=timezone.utc
-                    )
+                    quote_at = datetime.combine(trade_date, _MIDNIGHT, tzinfo=timezone.utc)
             else:
                 quote_at = datetime.combine(trade_date, datetime.min.time(), tzinfo=timezone.utc)
         quote = {
@@ -606,9 +602,8 @@ class AkShareBondProvider(AssetDataProvider):
         curve_rows, benchmark = self._curve(curve, cutoff=cutoff)
         cashflows, coupon_schedule = self._cashflows(profile_values, cutoff=cutoff)
         observed_date = _parse_date(profile_values.get("到期日")) or cutoff.date()
-        observed_at = quote_observed_at or datetime.combine(
-            observed_date, datetime.min.time(), tzinfo=timezone.utc
-        )
+        day_end = datetime.combine(observed_date, _MIDNIGHT, tzinfo=timezone.utc)
+        observed_at = quote_observed_at or day_end
         bond_fields: dict[str, Any] = {
             "maturity_date": profile_values.get("到期日"),
             "face_value": _number(profile_values.get("债券面值（元）")),
@@ -661,9 +656,7 @@ class AkShareBondProvider(AssetDataProvider):
         return None
 
     @staticmethod
-    def _quote(
-        row: dict[str, Any] | None, *, cutoff: datetime
-    ) -> tuple[dict[str, Any], datetime | None]:
+    def _quote(row: Row | None, *, cutoff: datetime) -> QuoteResult:
         if row is None:
             return {}, None
         if cutoff.date() != _now_utc().date():
@@ -744,9 +737,7 @@ class AkShareBondProvider(AssetDataProvider):
         return cashflows, coupon_schedule
 
     @staticmethod
-    def _curve(
-        frame: Any, *, cutoff: datetime
-    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    def _curve(frame: Any, *, cutoff: datetime) -> CurveResult:
         if frame is None or frame.empty:
             return [], None
         rows: list[dict[str, Any]] = []
@@ -923,9 +914,7 @@ class AkShareFundProvider(AssetDataProvider):
         return None
 
     @staticmethod
-    def _quote(
-        row: dict[str, Any] | None, *, cutoff: datetime
-    ) -> tuple[dict[str, Any], datetime | None]:
+    def _quote(row: Row | None, *, cutoff: datetime) -> QuoteResult:
         if row is None:
             return {}, None
         trade_date = _parse_date(_row_value(row, "日期", "date"))
@@ -1034,9 +1023,7 @@ class AkShareFxProvider(AssetDataProvider):
         return None
 
     @staticmethod
-    def _quote(
-        row: dict[str, Any] | None, *, cutoff: datetime
-    ) -> tuple[dict[str, Any], datetime | None]:
+    def _quote(row: Row | None, *, cutoff: datetime) -> QuoteResult:
         if row is None:
             return {}, None
         price = _number(_row_value(row, "最新价", "price"))

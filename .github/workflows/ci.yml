@@ -979,6 +979,11 @@ jobs:
 
       - name: Run Lighthouse CI audits
         id: lhci
+        env:
+          # chrome-launcher's discovery misses the apt-installed binary on the
+          # 2026-08 runner image; point it at the explicit install from the
+          # previous step.
+          CHROME_PATH: /usr/bin/google-chrome-stable
         run: |
           # Iteration 193 Task D: fix dead gate -- config lives at config/lighthouserc.js
           # (root-level lighthouserc.js does not exist). Capture exit so the

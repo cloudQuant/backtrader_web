@@ -69,10 +69,9 @@ from app.services.asset_research.types import AssetResearchAssetType, AssetResea
 
 @dataclass(frozen=True, slots=True)
 class ConfiguredAssetResearchPlugin(AssetResearchPlugin):
-    """Asset-specific quality, features, opinion and reporting behavior.
-
-    Plugins contain no database, LLM or order side effect.  The orchestrator
-    persists raw and derived facts around these deterministic methods.
+    """Asset-specific quality, features, opinion and reporting behavior.  Plugins
+    contain no database, LLM or order side effect; the orchestrator persists raw
+    and derived facts around these deterministic methods.
     """
 
     asset_type: AssetResearchAssetType
@@ -252,12 +251,11 @@ class ConfiguredAssetResearchPlugin(AssetResearchPlugin):
         as_of: datetime,
         snapshot: RawAssetSnapshot,
     ) -> list[OutcomeEvaluation]:
-        """Create one pending shell per asset-specific outcome head.
-
-        A result row is deliberately tied to the immutable head specification,
-        not merely to an asset type.  This prevents a scorecard from combining
-        a bond credit-event probability with an executable total-return head,
-        or an option IV head with a contract P&L head.
+        """Create one pending shell per asset-specific outcome head.  A result row
+        is deliberately tied to the immutable head specification, not merely to an
+        asset type.  This prevents a scorecard from combining a bond credit-event
+        probability with an executable total-return head, or an option IV head
+        with a contract P&L head.
         """
         if decision.actionability == "RESEARCH_ONLY":
             return []

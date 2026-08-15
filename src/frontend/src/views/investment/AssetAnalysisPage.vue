@@ -3,9 +3,7 @@
   <div class="asset-analysis-page">
     <section class="hero-panel">
       <div>
-        <p class="eyebrow">
-          {{ t('assetResearch.page.eyebrow') }}
-        </p>
+        <p class="eyebrow">{{ t('assetResearch.page.eyebrow') }}</p>
         <h2>{{ assetConfig.title }}</h2>
         <p class="subtitle">
           {{ assetConfig.description }}
@@ -22,9 +20,7 @@
         <section class="panel command-panel">
           <div class="panel-heading">
             <div>
-              <p class="panel-kicker">
-                {{ t('assetResearch.page.targetConfirmKicker') }}
-              </p>
+              <p class="panel-kicker">{{ t('assetResearch.page.targetConfirmKicker') }}</p>
               <h3>{{ t('assetResearch.page.targetConfirmTitle') }}</h3>
             </div>
             <el-tag effect="plain">
@@ -149,9 +145,7 @@
         <section class="panel asset-policy-panel">
           <div class="panel-heading">
             <div>
-              <p class="panel-kicker">
-                {{ t('assetResearch.page.assetGateKicker') }}
-              </p>
+              <p class="panel-kicker">{{ t('assetResearch.page.assetGateKicker') }}</p>
               <h3>{{ assetConfig.requirement }}</h3>
             </div>
           </div>
@@ -177,9 +171,7 @@
         >
           <div class="panel-heading">
             <div>
-              <p class="panel-kicker">
-                {{ t('assetResearch.page.taskStatus') }}
-              </p>
+              <p class="panel-kicker">{{ t('assetResearch.page.taskStatus') }}</p>
               <h3>{{ statusLabel(task.status) }}</h3>
               <p>{{ task.message || task.error_code || t('assetResearch.page.waitingForLatestStatus') }}</p>
             </div>
@@ -214,9 +206,7 @@
         >
           <div class="panel-heading">
             <div>
-              <p class="panel-kicker">
-                {{ t('assetResearch.page.publishedDecision') }}
-              </p>
+              <p class="panel-kicker">{{ t('assetResearch.page.publishedDecision') }}</p>
               <h3>{{ recommendationLabel(publishedDecision.recommendation) }}</h3>
             </div>
             <el-tag
@@ -307,9 +297,7 @@
         >
           <div class="panel-heading">
             <div>
-              <p class="panel-kicker">
-                {{ t('assetResearch.page.reportKicker') }}
-              </p>
+              <p class="panel-kicker">{{ t('assetResearch.page.reportKicker') }}</p>
               <h3>{{ resolvedInstrument?.name || assetConfig.shortTitle }}</h3>
             </div>
             <div
@@ -386,9 +374,7 @@
         >
           <div class="panel-heading compact">
             <div>
-              <p class="panel-kicker">
-                {{ t('assetResearch.page.publicEvidenceKicker') }}
-              </p>
+              <p class="panel-kicker">{{ t('assetResearch.page.publicEvidenceKicker') }}</p>
               <h3>{{ t('assetResearch.page.evidenceTitle') }}</h3>
             </div>
           </div>
@@ -451,9 +437,7 @@
         <section class="panel scorecard-panel">
           <div class="panel-heading compact">
             <div>
-              <p class="panel-kicker">
-                {{ t('assetResearch.page.scorecardKicker') }}
-              </p>
+              <p class="panel-kicker">{{ t('assetResearch.page.scorecardKicker') }}</p>
               <h3>{{ t('assetResearch.page.scorecardTitle') }}</h3>
             </div>
           </div>
@@ -518,9 +502,7 @@
         <section class="panel history-panel">
           <div class="panel-heading compact">
             <div>
-              <p class="panel-kicker">
-                {{ t('assetResearch.page.historyKicker') }}
-              </p>
+              <p class="panel-kicker">{{ t('assetResearch.page.historyKicker') }}</p>
               <h3>{{ t('assetResearch.page.historyTitle') }}</h3>
             </div>
           </div>
@@ -774,19 +756,8 @@ const currentAssetType = computed<AssetResearchAssetType>(() =>
   isSupportedAssetType(props.assetType) ? props.assetType : 'bond',
 )
 const assetConfig = computed<AssetConfig>(() => {
-  const config = assetConfigs[currentAssetType.value]
-  return {
-    title: t(config.title),
-    shortTitle: t(config.shortTitle),
-    description: t(config.description),
-    identityLevelLabel: t(config.identityLevelLabel),
-    identityLabel: t(config.identityLabel),
-    placeholder: t(config.placeholder),
-    requirement: t(config.requirement),
-    focus: t(config.focus),
-    identityRequirement: t(config.identityRequirement),
-    nonSubstitutable: t(config.nonSubstitutable),
-  }
+  const { title, shortTitle, description, identityLevelLabel, identityLabel, placeholder, requirement, focus, identityRequirement, nonSubstitutable } = assetConfigs[currentAssetType.value]
+  return { title: t(title), shortTitle: t(shortTitle), description: t(description), identityLevelLabel: t(identityLevelLabel), identityLabel: t(identityLabel), placeholder: t(placeholder), requirement: t(requirement), focus: t(focus), identityRequirement: t(identityRequirement), nonSubstitutable: t(nonSubstitutable) }
 })
 
 const form = reactive({
