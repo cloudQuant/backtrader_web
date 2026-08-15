@@ -117,3 +117,10 @@ eecdff991249df38aad21b5de7f7d3d987edf27c:src/backend/tests/perf/test_api_perform
 eecdff991249df38aad21b5de7f7d3d987edf27c:src/backend/tests/perf/test_backtest_throughput.py:generic-api-key:15
 f575cce66256d111666ea6601103377f0adcf6d4:src/backend/tests/test_iteration129_kb_chat_api.py:generic-api-key:10
 f575cce66256d111666ea6601103377f0adcf6d4:src/backend/tests/test_iteration129_knowledge_base_api.py:generic-api-key:15
+# Iteration 193: three false positives from 7a68bfa7 (feat(asset-research)).
+# - 2x evidence JSON "config_hash_without_secrets": SHA-256 hash of config with
+#   secrets stripped -- intentionally non-secret by construction.
+# - test_schedules.py:90 idempotency_key="schedule-failure-1": test fixture value.
+7a68bfa798b66726ef3710a953031e4e2e57f299:docs/iterations/迭代191-AI多资产分析研究与设计/evidence/2026-08-03-mysql-capacity-traceable.json:generic-api-key:9
+7a68bfa798b66726ef3710a953031e4e2e57f299:docs/iterations/迭代192-可信多资产研究收口与模型治理/evidence/2026-08-07-mysql-capacity.json:generic-api-key:9
+7a68bfa798b66726ef3710a953031e4e2e57f299:src/backend/tests/asset_research/test_schedules.py:generic-api-key:90

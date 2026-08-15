@@ -38,6 +38,9 @@ import sys
 from datetime import date
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from baseline_update_guard import assert_update_allowed  # noqa: E402
+
 # Run mypy over the whole backend app package from the backend root.
 _BACKEND_ROOT = Path(__file__).resolve().parents[2] / "src" / "backend"
 _BASELINE_FILE = Path(__file__).resolve().parent / "mypy_app_baseline.json"
@@ -117,6 +120,7 @@ def main() -> int:
     version = _mypy_version()
 
     if args.update:
+        assert_update_allowed("mypy_ratchet")
         _write_baseline(count, version)
         print(f"mypy_ratchet: baseline updated -> {count} errors ({version})")
         return 0

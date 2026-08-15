@@ -12,18 +12,19 @@ WORKDIR /opt/workspace/ai-for-investor/src/backend
 # 安装系统依赖
 RUN true
 
+# 先 COPY 锁文件（变更频率低，利于 layer 缓存）；显式从 config/ SSOT 复制，
+# 与 CI pip-audit 审计对象保持同一份文件（迭代193 P0-1：消除双锁漂移）。
+COPY config/requirements-prod.lock ./requirements-prod.lock
+
 COPY src/backend /opt/workspace/ai-for-investor/src/backend
 COPY src/bt_api_py /opt/workspace/bt_api_py
 COPY strategies /opt/workspace/ai-for-investor/strategies
 
-# 使用锁文件安装精确版本依赖（可复现构建）
-# 如果锁文件不存在则回退到 pyproject.toml 安装
-RUN if [ -f requirements-prod.lock ]; then \
-        pip install --no-cache-dir -r requirements-prod.lock && \
-        pip install --no-cache-dir -e ".[prod]"; \
-    else \
-        pip install --no-cache-dir -e ".[postgres,mysql,redis,backtrader,data,prod]"; \
-    fi
+# 按锁文件安装精确版本依赖（可复现构建）。
+# 锁文件缺失应构建失败而非静默回退到 pyproject extras——回退会使镜像依赖
+# 集与 CI pip-audit 审计对象再次漂移。
+RUN pip install --no-cache-dir -r requirements-prod.lock && \
+    pip install --no-cache-dir -e ".[prod]"
 
 RUN mkdir -p \
     /opt/workspace/ai-for-investor/datas \

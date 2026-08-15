@@ -3,14 +3,16 @@ Database connection management.
 """
 
 import logging
+import time
 
 import sqlalchemy as sa
-from sqlalchemy import insert, select, text
+from sqlalchemy import event, insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
+from app.middleware.metrics import record_db_query
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,46 @@ settings = get_settings()
 # when using MySQL async drivers (asyncmy / aiomysql).
 _engine = None
 _async_session_maker = None
+
+
+def _register_db_metrics(engine) -> None:
+    """Wire DB query metrics (iteration 193 P0-3: dead-metric接线).
+
+    Times every cursor execution and reports it to ``record_db_query`` so the
+    ``db_query_total`` / ``db_query_duration_seconds`` gauges reflect real DB
+    activity instead of staying dead.
+    """
+
+    @event.listens_for(engine.sync_engine, "before_cursor_execute")
+    def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        context._db_query_start = time.perf_counter()
+
+    @event.listens_for(engine.sync_engine, "after_cursor_execute")
+    def _after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        start = getattr(context, "_db_query_start", None)
+        if start is None:
+            return
+        duration = time.perf_counter() - start
+        operation = (statement.strip().split()[:1] or ["unknown"])[0].lower()
+        table = _extract_table_name(statement)
+        record_db_query(operation, table, duration)
+
+
+def _extract_table_name(statement: str) -> str:
+    """Best-effort table name extraction for low-cardinality metric labels."""
+    stripped = statement.strip().lower()
+    for prefix in ("insert into ", "update ", "delete from ", "from ", "into "):
+        if stripped.startswith(prefix):
+            rest = stripped[len(prefix):]
+            # take the first identifier token
+            token = ""
+            for ch in rest:
+                if ch.isalnum() or ch in "_.":
+                    token += ch
+                else:
+                    break
+            return token or "unknown"
+    return "unknown"
 
 
 def _get_engine():
@@ -38,6 +80,7 @@ def _get_engine():
             echo=settings.SQL_ECHO,
             **extra_kwargs,
         )
+        _register_db_metrics(_engine)
     return _engine
 
 

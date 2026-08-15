@@ -91,7 +91,11 @@ async def _seed_authorized_target(service: AssetResearchOrchestrator) -> None:
             enabled=True,
         )
     )
-    await service.persist_identity(_identity())
+    # Iteration 193 Task J (T1): explicit valid_from avoids the real-now()
+    # default that made the suite date-sensitive.
+    await service.persist_identity(
+        _identity(), valid_from=datetime(2000, 1, 1, tzinfo=timezone.utc)
+    )
 
 
 @pytest.mark.asyncio

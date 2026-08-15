@@ -641,6 +641,9 @@ jobs:
       #
       # Audits the pinned production lock (the deployable dependency set) so the
       # result is deterministic and matches what ships in the image.
+      - name: Enforce single production lockfile (P0-1 anti-drift guard)
+        run: python scripts/ci/check_prod_lock_singleton.py
+
       - name: Audit Python dependencies (pip-audit, blocking)
         run: |
           pip-audit \
@@ -965,7 +968,12 @@ jobs:
       - name: Run Lighthouse CI audits
         id: lhci
         run: |
-          lhci autorun --config=lighthouserc.js || LHCI_EXIT=$?
+          # Iteration 193 Task D: fix dead gate -- config lives at config/lighthouserc.js
+          # (root-level lighthouserc.js does not exist). Capture exit so the
+          # annotation parser still runs, then fail explicitly if LHCI errored
+          # or produced no reports (previously `||` silently swallowed both).
+          LHCI_EXIT=0
+          lhci autorun --config=config/lighthouserc.js || LHCI_EXIT=$?
 
           # Parse results for annotations
           if [ -d "./lighthouse-reports" ]; then
@@ -997,6 +1005,16 @@ jobs:
                 "
               fi
             done
+          fi
+
+          # Fail if LHCI errored or produced no reports (closes the dead gate).
+          if [ "$LHCI_EXIT" -ne 0 ]; then
+            echo "::error::Lighthouse CI autorun exited with $LHCI_EXIT (accessibility threshold or runtime error)"
+            exit 1
+          fi
+          if [ ! -d "./lighthouse-reports" ] || [ ! -f "./lighthouse-reports/manifest.json" ]; then
+            echo "::error::Lighthouse CI produced no reports -- check config/lighthouserc.js and staticDistDir"
+            exit 1
           fi
 
       - name: Archive Lighthouse reports

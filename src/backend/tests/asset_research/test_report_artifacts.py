@@ -1,7 +1,7 @@
 """Public reports can be exported or published without carrying a candidate decision."""
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -221,13 +221,17 @@ async def test_public_report_export_and_knowledge_base_publish_are_owner_scoped(
         )
         await db.flush()
         orchestrator = AssetResearchOrchestrator(db, data_adapter=_Data())
-        await orchestrator.persist_identity(_identity())
+        await orchestrator.persist_identity(
+            _identity(), valid_from=datetime(2000, 1, 1, tzinfo=timezone.utc)
+        )
         task = await orchestrator.create_and_run(
             user_id=user.id,
             request=AssetAnalysisCreateRequest(
                 asset_type="futures", canonical_id="futures:CFFEX:IF2609:CNY"
             ),
-            cutoff_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            # Iteration 193 Task J (T1): dynamic cutoff so the report is always
+            # reproducible regardless of the real wall clock.
+            cutoff_at=datetime.now(timezone.utc) - timedelta(days=10),
         )
         result = await orchestrator.get_result(user_id=user.id, task_id=task.id)
         assert result is not None and result.report_id is not None

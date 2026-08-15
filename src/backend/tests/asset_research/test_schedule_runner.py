@@ -95,6 +95,18 @@ def _identity(index: int | None = None) -> InstrumentIdentity:
     )
 
 
+# Iteration 193 Task J (T1): defuse the 2026-08-03 time bomb. The suite seeded
+# due schedules with a fixed past fire_at; once the real clock moved past it,
+# internal now()-relative logic (persist_identity / lease timestamps) made the
+# suite fail -- the same root cause as iter 192's 4 expired tests. These
+# module-level references keep the relative spacing (fire -> claim = 4d+50m)
+# while anchoring to the current clock so the suite is reproducible on any
+# system date.
+_FIRE_AT = datetime.now(timezone.utc).replace(hour=11, minute=10, second=0, microsecond=0) - timedelta(days=1)
+_CLAIM_AT = _FIRE_AT + timedelta(days=4, minutes=50)  # 12:00 on day 4
+_AS_OF_AT = _FIRE_AT + timedelta(days=4)  # claim date + fire time (11:10)
+
+
 async def _seed_due_schedule(
     *,
     fire_at: datetime,
@@ -354,7 +366,7 @@ async def test_runner_limits_parallel_claim_execution_to_configured_worker_concu
     runner.claim_due = fake_claim_due  # type: ignore[method-assign]
     runner._run_claim = fake_run_claim  # type: ignore[method-assign]
 
-    assert await runner.run_due(now=datetime(2026, 8, 3, tzinfo=timezone.utc)) == 4
+    assert await runner.run_due(now=_FIRE_AT) == 4
     assert max_active == 2
 
 
@@ -416,7 +428,7 @@ async def test_capacity_fixture_persists_one_approved_100_instrument_cycle_witho
 
 @pytest.mark.asyncio
 async def test_two_workers_can_claim_one_due_schedule_only_once() -> None:
-    fire_at = datetime(2026, 8, 3, 11, 10, tzinfo=timezone.utc)
+    fire_at = _FIRE_AT
     await _seed_due_schedule(fire_at=fire_at)
     first = _runner(_FuturesData())
     second = _runner(_FuturesData())
@@ -438,7 +450,7 @@ async def test_schedule_runner_publishes_queue_depth_before_claiming(monkeypatch
         "set_asset_research_queue_depth",
         lambda **event: events.append(event),
     )
-    fire_at = datetime(2026, 8, 3, 11, 10, tzinfo=timezone.utc)
+    fire_at = _FIRE_AT
     await _seed_due_schedule(fire_at=fire_at)
 
     claims = await _runner(_FuturesData()).claim_due(now=fire_at + timedelta(minutes=1))
@@ -450,7 +462,7 @@ async def test_schedule_runner_publishes_queue_depth_before_claiming(monkeypatch
 @pytest.mark.asyncio
 async def test_runner_executes_public_shadow_schedule_without_a_user() -> None:
     """Approved static public schedules are system-owned, never converted to a user run."""
-    fire_at = datetime(2026, 8, 3, 11, 10, tzinfo=timezone.utc)
+    fire_at = _FIRE_AT
     schedule_id = await _seed_due_system_schedule(
         fire_at=fire_at,
         owner_scope="PUBLIC_SHADOW",
@@ -479,7 +491,7 @@ async def test_runner_executes_public_shadow_schedule_without_a_user() -> None:
 @pytest.mark.asyncio
 async def test_visible_history_includes_public_shadow_but_excludes_admin_evaluation() -> None:
     """A normal user sees published public shadow facts but never admin candidates."""
-    fire_at = datetime(2026, 8, 3, 11, 10, tzinfo=timezone.utc)
+    fire_at = _FIRE_AT
     public_schedule_id = await _seed_due_system_schedule(
         fire_at=fire_at,
         owner_scope="PUBLIC_SHADOW",
@@ -539,7 +551,7 @@ async def test_visible_history_includes_public_shadow_but_excludes_admin_evaluat
 
 @pytest.mark.asyncio
 async def test_runner_retries_with_original_cutoff_and_preserves_failed_run() -> None:
-    fire_at = datetime(2026, 8, 3, 11, 10, tzinfo=timezone.utc)
+    fire_at = _FIRE_AT
     user_id, schedule_id = await _seed_due_schedule(fire_at=fire_at)
     data = _FuturesData()
     data.fail = True
@@ -597,7 +609,7 @@ async def test_runner_retries_with_original_cutoff_and_preserves_failed_run() ->
 
 @pytest.mark.asyncio
 async def test_skip_misfire_advances_schedule_without_creating_a_prediction() -> None:
-    fire_at = datetime(2026, 8, 3, 11, 10, tzinfo=timezone.utc)
+    fire_at = _FIRE_AT
     _, schedule_id = await _seed_due_schedule(fire_at=fire_at)
     runner = _runner(_FuturesData(), misfire_grace_seconds=30)
     claim_time = fire_at + timedelta(days=2)
@@ -619,10 +631,10 @@ async def test_skip_misfire_advances_schedule_without_creating_a_prediction() ->
 
 @pytest.mark.asyncio
 async def test_run_once_misfire_uses_the_latest_completed_fire_only() -> None:
-    fire_at = datetime(2026, 8, 3, 11, 10, tzinfo=timezone.utc)
+    fire_at = _FIRE_AT
     _, schedule_id = await _seed_due_schedule(fire_at=fire_at)
     runner = _runner(_FuturesData(), misfire_grace_seconds=30)
-    claim_time = datetime(2026, 8, 7, 12, 0, tzinfo=timezone.utc)
+    claim_time = _CLAIM_AT
 
     async with async_session_maker() as db:
         schedule = await db.get(AssetSignalSchedule, schedule_id)
@@ -638,15 +650,15 @@ async def test_run_once_misfire_uses_the_latest_completed_fire_only() -> None:
 
     assert len(runs) == 1
     assert runs[0].status == "SUCCEEDED"
-    assert _as_utc(runs[0].as_of_at) == datetime(2026, 8, 7, 11, 10, tzinfo=timezone.utc)
+    assert _as_utc(runs[0].as_of_at) == _AS_OF_AT
 
 
 @pytest.mark.asyncio
 async def test_backfill_misfire_keeps_the_original_fire_for_the_next_bounded_poll() -> None:
-    fire_at = datetime(2026, 8, 3, 11, 10, tzinfo=timezone.utc)
+    fire_at = _FIRE_AT
     _, schedule_id = await _seed_due_schedule(fire_at=fire_at)
     runner = _runner(_FuturesData(), misfire_grace_seconds=30)
-    claim_time = datetime(2026, 8, 7, 12, 0, tzinfo=timezone.utc)
+    claim_time = _CLAIM_AT
 
     async with async_session_maker() as db:
         schedule = await db.get(AssetSignalSchedule, schedule_id)
