@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.middleware.metrics import record_error
 from app.utils.exceptions import BaseAppError
 from app.utils.logger import get_logger
 
@@ -84,7 +85,7 @@ async def handle_base_app_error(request: Request, exc: BaseAppError) -> JSONResp
     Returns:
         JSON response with error details.
     """
-    request_id = getattr(request.state, "request_id", str(uuid.uuid4())[:8])
+    request_id = getattr(request.state, "request_id", uuid.uuid4().hex)
 
     # Log the error
     _request_logger(request, request_id, error_code=exc.error_code).warning(
@@ -114,6 +115,8 @@ async def handle_base_app_error(request: Request, exc: BaseAppError) -> JSONResp
     }
 
     http_status = status_code_map.get(exc.error_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+    if http_status >= 500:
+        record_error(exc.error_code, request.url.path)
 
     error_response = ErrorResponse(
         status_code=http_status,
@@ -269,7 +272,7 @@ async def handle_generic_exception(request: Request, exc: Exception) -> JSONResp
     Returns:
         JSON response with error details (no sensitive data leaked).
     """
-    request_id = getattr(request.state, "request_id", str(uuid.uuid4())[:8])
+    request_id = getattr(request.state, "request_id", uuid.uuid4().hex)
 
     # Log the full exception for debugging
     _request_logger(request, request_id).opt(exception=exc).error(
@@ -277,6 +280,7 @@ async def handle_generic_exception(request: Request, exc: Exception) -> JSONResp
         type(exc).__name__,
         str(exc),
     )
+    record_error(type(exc).__name__, request.url.path)
 
     # Don't expose internal errors to clients
     error_response = ErrorResponse(

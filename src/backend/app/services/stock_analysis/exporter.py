@@ -9,11 +9,30 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from markdown_it import MarkdownIt
+
 from app.services.stock_analysis.report_builder import COMPAT_REPORT_KEY
 
 
 class StockAnalysisExporter:
     """Export reports as Markdown, HTML, DOCX, and PDF."""
+
+    STAGE_TITLES = {
+        "market_report": "技术与市场分析",
+        "news_report": "新闻与情绪",
+        "fundamentals_report": "基本面分析",
+        "sentiment_report": "社媒情绪",
+        "investment_plan": "多空研究与投资计划",
+        "trader_investment_plan": "交易员计划",
+        "final_trade_decision": "风险评估与终审",
+        "bull_researcher": "多头研究观点",
+        "bear_researcher": "空头研究观点",
+        "research_team_decision": "研究团队裁决",
+        "risky_analyst": "激进风险分析",
+        "safe_analyst": "稳健风险分析",
+        "neutral_analyst": "中性风险分析",
+        "risk_management_decision": "风险经理裁决",
+    }
 
     CONTENT_TYPES = {
         "markdown": "text/markdown; charset=utf-8",
@@ -45,22 +64,7 @@ class StockAnalysisExporter:
         decision = report.get("decision") or {}
         symbol = self._display_symbol(str(meta.get("symbol") or ""))
         compat = report.get(COMPAT_REPORT_KEY) or {}
-        stage_order = [
-            "market_report",
-            "news_report",
-            "fundamentals_report",
-            "sentiment_report",
-            "investment_plan",
-            "trader_investment_plan",
-            "final_trade_decision",
-            "bull_researcher",
-            "bear_researcher",
-            "research_team_decision",
-            "risky_analyst",
-            "safe_analyst",
-            "neutral_analyst",
-            "risk_management_decision",
-        ]
+        stage_order = list(self.STAGE_TITLES)
         lines = [
             f"# {symbol} 股票分析报告",
             "",
@@ -70,19 +74,17 @@ class StockAnalysisExporter:
             "",
             "## 执行摘要",
             "",
-            str(report.get("executive_summary") or ""),
+            self._nest_markdown_headings(report.get("executive_summary") or "", level=3),
             "",
             "## 结构化决策摘要",
             "",
-            f"最终建议: {decision.get('label', '持有')}",
+            f"最终建议: {decision.get('label', '观望')}",
             f"目标价位: {decision.get('target_price', 'N/A')}",
             f"置信度: {decision.get('confidence_score', 0.5)}",
             f"风险等级: {decision.get('risk_level', '中等')}",
             f"风险评分: {decision.get('risk_score', 0.5)}",
             "",
-            str(decision.get("reasoning") or ""),
-            "",
-            "## 兼容阶段输出",
+            self._nest_markdown_headings(decision.get("reasoning") or "", level=3),
             "",
         ]
         rendered = set()
@@ -91,11 +93,25 @@ class StockAnalysisExporter:
             if not value:
                 continue
             rendered.add(key)
-            lines.extend([f"## {key}", "", str(value), ""])
+            lines.extend(
+                [
+                    f"## {self.STAGE_TITLES[key]}",
+                    "",
+                    self._nest_markdown_headings(value, level=3),
+                    "",
+                ]
+            )
         for key, value in compat.items():
             if key in rendered or not value:
                 continue
-            lines.extend([f"## {key}", "", str(value), ""])
+            lines.extend(
+                [
+                    f"## {key.replace('_', ' ').title()}",
+                    "",
+                    self._nest_markdown_headings(value, level=3),
+                    "",
+                ]
+            )
         lines.extend(
             [
                 "## 数据质量、限制与免责声明",
@@ -109,22 +125,7 @@ class StockAnalysisExporter:
         return "\n".join(lines)
 
     def render_html(self, report: dict[str, Any]) -> str:
-        md = self.render_markdown(report)
-        body = []
-        for line in md.splitlines():
-            escaped = html.escape(line)
-            if line.startswith("# "):
-                body.append(f"<h1>{escaped[2:]}</h1>")
-            elif line.startswith("## "):
-                body.append(f"<h2>{escaped[3:]}</h2>")
-            elif line.startswith("### "):
-                body.append(f"<h3>{escaped[4:]}</h3>")
-            elif line.startswith("- "):
-                body.append(f"<p>{escaped}</p>")
-            elif line.strip():
-                body.append(f"<p>{escaped}</p>")
-            else:
-                body.append("")
+        body = self._markdown_renderer().render(self.render_markdown(report))
         return (
             """<!doctype html>
 <html lang="zh-CN">
@@ -132,14 +133,27 @@ class StockAnalysisExporter:
   <meta charset="utf-8" />
   <title>股票分析报告</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.75; margin: 40px; color: #1f2937; }
-    h1, h2, h3 { color: #111827; page-break-after: avoid; }
+    @page { size: A4; margin: 18mm 15mm; }
+    body { font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif; font-size: 11pt; line-height: 1.75; margin: 0; color: #1f2937; word-break: break-word; }
+    h1, h2, h3, h4, h5, h6 { color: #111827; page-break-after: avoid; }
+    h1 { font-size: 24pt; border-bottom: 2px solid #2563eb; padding-bottom: 0.35rem; }
+    h2 { font-size: 17pt; margin-top: 1.8rem; border-left: 4px solid #2563eb; padding-left: 0.6rem; }
+    h3 { font-size: 14pt; margin-top: 1.4rem; }
     p { margin: 0.55rem 0; }
+    ul, ol { padding-left: 1.6rem; }
+    li { margin: 0.25rem 0; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; page-break-inside: avoid; }
+    th, td { border: 1px solid #d1d5db; padding: 0.45rem 0.6rem; text-align: left; vertical-align: top; }
+    th { background: #eff6ff; font-weight: 600; }
+    pre { background: #f3f4f6; border-radius: 6px; padding: 0.9rem; overflow-wrap: anywhere; white-space: pre-wrap; }
+    code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    blockquote { border-left: 4px solid #93c5fd; color: #4b5563; margin: 1rem 0; padding-left: 1rem; }
+    a { color: #2563eb; }
   </style>
 </head>
 <body>
 """
-            + "\n".join(body)
+            + body
             + "\n</body>\n</html>\n"
         )
 
@@ -169,40 +183,9 @@ class StockAnalysisExporter:
     def render_pdf(self, report: dict[str, Any]) -> bytes:
         try:
             from weasyprint import HTML
-
-            return HTML(string=self.render_html(report)).write_pdf()
-        except Exception:
-            return self._render_minimal_pdf(report)
-
-    def _render_minimal_pdf(self, report: dict[str, Any]) -> bytes:
-        text = self.render_markdown(report)
-        ascii_text = html.escape(text[:3000]).encode("ascii", "ignore").decode("ascii")
-        stream = f"BT /F1 10 Tf 40 780 Td ({self._pdf_escape(ascii_text[:1800])}) Tj ET"
-        objects = [
-            b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
-            b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
-            b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj",
-            b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj",
-            f"5 0 obj << /Length {len(stream.encode('latin-1'))} >> stream\n{stream}\nendstream endobj".encode(
-                "latin-1"
-            ),
-        ]
-        buffer = io.BytesIO()
-        buffer.write(b"%PDF-1.4\n")
-        offsets = [0]
-        for obj in objects:
-            offsets.append(buffer.tell())
-            buffer.write(obj + b"\n")
-        xref = buffer.tell()
-        buffer.write(f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode("ascii"))
-        for offset in offsets[1:]:
-            buffer.write(f"{offset:010d} 00000 n \n".encode("ascii"))
-        buffer.write(
-            f"trailer << /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF".encode(
-                "ascii"
-            )
-        )
-        return buffer.getvalue()
+        except ImportError as exc:
+            raise RuntimeError("PDF export requires the weasyprint dependency") from exc
+        return HTML(string=self.render_html(report)).write_pdf()
 
     def build_file_name(self, report: dict[str, Any], export_format: str) -> str:
         meta = report.get("meta") or {}
@@ -242,10 +225,6 @@ class StockAnalysisExporter:
         )
 
     @staticmethod
-    def _pdf_escape(text: str) -> str:
-        return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)").replace("\n", " ")
-
-    @staticmethod
     def _safe_file_part(value: str, *, fallback: str) -> str:
         sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._-")
         return sanitized[:80] or fallback
@@ -257,3 +236,27 @@ class StockAnalysisExporter:
         if match:
             return match.group(1)
         return normalized or "stock"
+
+    @staticmethod
+    def _nest_markdown_headings(value: Any, *, level: int) -> str:
+        """Nest an AI Markdown fragment under a report section without losing its structure."""
+        text = str(value or "").replace("\r\n", "\n").strip()
+        if not text:
+            return ""
+        heading_pattern = re.compile(r"^(#{1,6})(\s+)", re.MULTILINE)
+        source_levels = [len(match.group(1)) for match in heading_pattern.finditer(text)]
+        if not source_levels:
+            return text
+        source_base = min(source_levels)
+
+        def replace_heading(match: re.Match[str]) -> str:
+            source_level = len(match.group(1))
+            nested_level = min(6, level + source_level - source_base)
+            return f"{'#' * nested_level}{match.group(2)}"
+
+        return heading_pattern.sub(replace_heading, text)
+
+    @staticmethod
+    def _markdown_renderer() -> MarkdownIt:
+        """Return the safe CommonMark renderer used for HTML and PDF exports."""
+        return MarkdownIt("commonmark", {"html": False}).enable("table").enable("strikethrough")

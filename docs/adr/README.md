@@ -19,6 +19,9 @@ They provide context for future developers about why certain choices were made.
 | 008 | Deprecated API Removal Strategy | Accepted | 2026-05-20 |
 | 009 | Alembic Linear Migration Chain | Accepted | 2026-05-20 |
 | 010 | Docker Compose Quick Start | Accepted | 2026-05-20 |
+| 011 | Asset Research Model Validation | Accepted | 2026-08-07 |
+| 012 | Market Data License Registry | Accepted | 2026-08-07 |
+| 013 | LLM Report Citation and Prompt Isolation | Accepted | 2026-08-07 |
 
 ## How to Create a New ADR
 

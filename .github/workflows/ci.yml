@@ -121,6 +121,132 @@ jobs:
           BASE_REF: origin/${{ github.base_ref }}
         run: python scripts/ci/check_migration_safety.py
 
+  asset-research-mysql-contract:
+    name: Asset Research - MySQL 9.4 Contract
+    runs-on: ubuntu-latest
+    needs: check-migrations
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: src/backend
+    services:
+      mysql:
+        image: mysql:9.4.0
+        env:
+          MYSQL_DATABASE: codex_iter191_ci
+          MYSQL_ROOT_HOST: '%'
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      DATABASE_URL: mysql+aiomysql://root:root@127.0.0.1:3306/codex_iter191_ci
+      ASSET_RESEARCH_MYSQL_SHARED_SCHEMA_URL: mysql+pymysql://root:root@127.0.0.1:3306/codex_iter191_ci
+      ASSET_RESEARCH_MYSQL_SHARED_SCHEMA_CONFIRM: "yes"
+      ASSET_RESEARCH_MYSQL_TASK_RUNNER_DISPOSABLE_URL: mysql+aiomysql://root:root@127.0.0.1:3306/codex_iter191_ci
+      ASSET_RESEARCH_MYSQL_TASK_RUNNER_DISPOSABLE_CONFIRM: "yes"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            config/requirements-dev.lock
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,mysql]"
+
+      - name: Verify disposable MySQL version
+        run: |
+          python - <<'PY'
+          from sqlalchemy import create_engine, text
+          import os
+
+          engine = create_engine(os.environ["ASSET_RESEARCH_MYSQL_SHARED_SCHEMA_URL"])
+          try:
+              with engine.connect() as connection:
+                  version = connection.execute(text("SELECT VERSION()")).scalar_one()
+                  database = connection.execute(text("SELECT DATABASE()")).scalar_one()
+              assert version == "9.4.0", version
+              assert database.startswith("codex_iter191_"), database
+              print(f"MySQL server version: {version}; disposable database: {database}")
+          finally:
+              engine.dispose()
+          PY
+
+      - name: Run Iteration 191 MySQL migration round-trip and direct-relation contract
+        run: |
+          alembic upgrade head
+          alembic downgrade 20260801_stock_signal_predictions
+          alembic upgrade head
+          alembic current
+          pytest -q \
+            tests/asset_research/test_migration.py \
+            tests/asset_research/test_mysql_contract.py
+
+  asset-research-192-contract:
+    name: Asset Research - Iteration 192 Governance Contract
+    runs-on: ubuntu-latest
+    needs: check-migrations
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: src/backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            config/requirements-dev.lock
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,mysql,backtrader]"
+
+      - name: Run Iteration 192 governance tests
+        run: |
+          pytest -q \
+            tests/asset_research/test_evaluation.py \
+            tests/asset_research/test_model_cards.py \
+            tests/asset_research/test_drift.py \
+            tests/asset_research/test_citation_verifier.py \
+            tests/asset_research/test_llm_guardrails.py \
+            tests/asset_research/test_llm_report_generator.py \
+            tests/asset_research/test_stock_dual_write.py \
+            tests/asset_research/test_stock_reconciliation.py \
+            tests/asset_research/test_stock_compat.py \
+            tests/asset_research/test_lifecycle_executor.py \
+            tests/asset_research/test_approved_manifest_importer.py \
+            tests/asset_research/test_provider_base.py \
+            tests/asset_research/test_akshare_providers.py
+          python -m json.tool ../../config/asset_research_approved_manifest.json > /dev/null
+
+      - name: Run Iteration 192 time-travel schedule regression
+        run: |
+          pytest -q \
+            tests/asset_research/test_schedule_runner.py::test_schedule_runner_publishes_queue_depth_before_claiming \
+            tests/asset_research/test_task_runner.py::test_task_runner_publishes_queue_depth_before_claiming
+
   check-openapi:
     name: Check - OpenAPI Schema
     runs-on: ubuntu-latest
@@ -188,7 +314,7 @@ jobs:
     defaults:
       run:
         working-directory: src/backend
- 
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -216,11 +342,16 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
-          # mypy pinned to match the 177 §E ratchet baseline
-          # (scripts/ci/mypy_app_baseline.json). Bumping mypy requires
-          # regenerating that baseline via `mypy_ratchet.py --update`.
-          .venv/bin/pip install ruff pytest pytest-asyncio httpx "mypy==1.20.2"
-          .venv/bin/pip install -e ".[backtrader]"
+          # Install from the pinned dev lock (same resolution as the
+          # backend-test canonical job) so the repo-wide mypy ratchet count is
+          # deterministic. The previous unpinned `.[backtrader]` install drifted
+          # +21 errors since the 2026-07 baseline. mypy comes from the lock at
+          # the ratchet-baseline version (1.20.2); ruff is pinned to the version
+          # used to format the tree. Bumping mypy requires regenerating the
+          # baseline via `mypy_ratchet.py --update`.
+          .venv/bin/pip install --requirement ../../config/requirements-dev.lock
+          .venv/bin/pip install --no-deps -e .
+          .venv/bin/pip install "ruff==0.16.2"
 
       - name: Activate virtualenv
         run: echo "$PWD/.venv/bin" >> $GITHUB_PATH
@@ -515,6 +646,9 @@ jobs:
       #
       # Audits the pinned production lock (the deployable dependency set) so the
       # result is deterministic and matches what ships in the image.
+      - name: Enforce single production lockfile (P0-1 anti-drift guard)
+        run: python ../../scripts/ci/check_prod_lock_singleton.py
+
       - name: Audit Python dependencies (pip-audit, blocking)
         run: |
           pip-audit \
@@ -836,10 +970,39 @@ jobs:
       - name: Install Lighthouse CI
         run: npm install -g @lhci/cli
 
+      # The 2026-08 runner image no longer ships Chrome; lhci's healthcheck
+      # fails with "Chrome installation not found" otherwise.
+      - name: Install Chrome for Lighthouse
+        run: |
+          wget -q -O /tmp/google-chrome-stable_current_amd64.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get install -y /tmp/google-chrome-stable_current_amd64.deb
+
+      # lighthouserc.js serves the SPA via `npx vite preview` (history-API
+      # fallback), so the frontend toolchain must be present.
+      - name: Install frontend dependencies (vite preview)
+        working-directory: src/frontend
+        run: npm ci
+
       - name: Run Lighthouse CI audits
         id: lhci
+        env:
+          # chrome-launcher's discovery misses the apt-installed binary on the
+          # 2026-08 runner image; point it at the explicit install from the
+          # previous step.
+          CHROME_PATH: /usr/bin/google-chrome-stable
+          # lhci/login.js injects this into sessionStorage. The current URL
+          # set audits the public /login page; full Critical_Page_Set
+          # coverage is registered in iteration 194 (needs per-endpoint API
+          # fixtures served by src/frontend/lhci-preview.config.mjs).
+          LHCI_AUTH_TOKEN: lhci-static-preview-token
+          LHCI_AUTH_USER: lhci-preview
         run: |
-          lhci autorun --config=lighthouserc.js || LHCI_EXIT=$?
+          # Iteration 193 Task D: fix dead gate -- config lives at config/lighthouserc.js
+          # (root-level lighthouserc.js does not exist). Capture exit so the
+          # annotation parser still runs, then fail explicitly if LHCI errored
+          # or produced no reports (previously `||` silently swallowed both).
+          LHCI_EXIT=0
+          lhci autorun --config=config/lighthouserc.js || LHCI_EXIT=$?
 
           # Parse results for annotations
           if [ -d "./lighthouse-reports" ]; then
@@ -871,6 +1034,16 @@ jobs:
                 "
               fi
             done
+          fi
+
+          # Fail if LHCI errored or produced no reports (closes the dead gate).
+          if [ "$LHCI_EXIT" -ne 0 ]; then
+            echo "::error::Lighthouse CI autorun exited with $LHCI_EXIT (accessibility threshold or runtime error)"
+            exit 1
+          fi
+          if [ ! -d "./lighthouse-reports" ] || [ ! -f "./lighthouse-reports/manifest.json" ]; then
+            echo "::error::Lighthouse CI produced no reports -- check config/lighthouserc.js and staticDistDir"
+            exit 1
           fi
 
       - name: Archive Lighthouse reports
@@ -1298,7 +1471,7 @@ jobs:
   ci-summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [check-generated-artifacts, check-doc-links, check-deps-sync, check-migrations, check-openapi, backend-lint, backend-mypy-ratchet, backend-mypy-quote, backend-mypy-api-subset, backend-mypy-services, backend-test, backend-security, secret-scan, frontend-lint, frontend-test, frontend-build, lighthouse-ci, frontend-a11y, frontend-i18n, frontend-e2e-smoke, monorepo-check, integration-test]
+    needs: [check-generated-artifacts, check-doc-links, check-deps-sync, check-migrations, asset-research-mysql-contract, asset-research-192-contract, check-openapi, backend-lint, backend-mypy-ratchet, backend-mypy-quote, backend-mypy-api-subset, backend-mypy-services, backend-test, backend-security, secret-scan, frontend-lint, frontend-test, frontend-build, lighthouse-ci, frontend-a11y, frontend-i18n, frontend-e2e-smoke, monorepo-check, integration-test]
     if: always()
 
     steps:
@@ -1366,6 +1539,8 @@ jobs:
           echo "| Check Doc Links | ${{ needs.check-doc-links.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Check Deps Sync | ${{ needs.check-deps-sync.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Check Migrations | ${{ needs.check-migrations.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Asset Research MySQL 9.4 Contract | ${{ needs.asset-research-mysql-contract.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Asset Research Iteration 192 Contract | ${{ needs.asset-research-192-contract.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Check OpenAPI | ${{ needs.check-openapi.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Lint | ${{ needs.backend-lint.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Mypy Ratchet | ${{ needs.backend-mypy-ratchet.result }} |" >> $GITHUB_STEP_SUMMARY
@@ -1406,6 +1581,8 @@ jobs:
           needs.check-doc-links.result == 'failure' ||
           needs.check-deps-sync.result == 'failure' ||
           needs.check-migrations.result == 'failure' ||
+          needs.asset-research-mysql-contract.result == 'failure' ||
+          needs.asset-research-192-contract.result == 'failure' ||
           needs.check-openapi.result == 'failure' ||
           needs.backend-lint.result == 'failure' ||
           needs.backend-mypy-ratchet.result == 'failure' ||

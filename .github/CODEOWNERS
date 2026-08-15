@@ -1,0 +1,22 @@
+# CODEOWNERS for iteration 193 baseline governance.
+# Baseline files may only be refreshed via a reviewed PR where the author
+# explains why an in-place fix is not feasible. The ratchet scripts refuse
+# `--update` without ALLOW_BASELINE_UPDATE=1 (never injected by CI).
+
+# Large-file ratchet baseline (god-file debt register)
+/scripts/ci/large_file_baseline.json                  @cloudQuant
+
+# Mypy error ratchet baseline (repo-wide type debt)
+/scripts/ci/mypy_app_baseline.json                    @cloudQuant
+
+# npm audit ratchet baseline (front-end vuln debt)
+/scripts/ci/npm_audit_baseline.json                   @cloudQuant
+
+# Gitleaks history baseline (secret-scan fingerprints)
+/scripts/ci/gitleaks_history_baseline.json             @cloudQuant
+
+# Ratchet update guard (controls who can refresh baselines)
+/scripts/ci/baseline_update_guard.py                   @cloudQuant
+/scripts/ci/large_file_ratchet.py                      @cloudQuant
+/scripts/ci/mypy_ratchet.py                            @cloudQuant
+/scripts/ci/npm_audit_ratchet.py                       @cloudQuant

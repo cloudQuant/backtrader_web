@@ -36,9 +36,8 @@ def _kill_process_on_port(port: int) -> None:
     )
 
 
-# ZMQ bind-error parsing helpers live in ``gateway/net_probe.py`` (179 §B,
-# P1#4 slice 1). Re-exported here under their original private names so call
-# sites and tests that reference ``manual._extract_*`` keep working unchanged.
+# ZMQ bind-error parsing helpers live in ``gateway/net_probe.py`` (179 §B).
+# Re-exported under private names so call sites/tests referencing ``manual._extract_*`` keep working.
 _extract_port_from_zmq_error = net_probe.extract_port_from_zmq_error
 _extract_err_msg_from_error_entry = net_probe.extract_err_msg_from_error_entry
 _is_address_in_use_error = net_probe.is_address_in_use_error
@@ -68,7 +67,10 @@ def _release_gateway_zmq_ports(runtime: Any) -> None:
     for key in list(_TCP_PORT_ASSIGNMENTS):
         port = _TCP_PORT_ASSIGNMENTS[key]
         cmd_ep = getattr(config, "command_endpoint", "")
-        if cmd_ep and str(port) in cmd_ep:
+        # Runtime cleanup must remain best-effort.  In particular, an early
+        # startup failure can leave a partially initialized runtime (or a test
+        # double) whose endpoint is not a string yet.
+        if isinstance(cmd_ep, str) and str(port) in cmd_ep:
             _TCP_PORT_ASSIGNMENTS.pop(key, None)
             _TCP_RESERVED_BASE_PORTS.discard(port)
 
@@ -274,9 +276,7 @@ def _get_gateway_direct_ws_proxy_kwargs() -> dict[str, Any]:
     }
 
 
-# ---------------------------------------------------------------------------
 # Proxy auto-detection for exchange gateways (Binance / OKX / MT5)
-# ---------------------------------------------------------------------------
 
 _CURRENT_CTP_SIMNOW_FRONTS = [
     {

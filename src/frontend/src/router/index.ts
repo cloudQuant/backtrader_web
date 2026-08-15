@@ -3,6 +3,8 @@ import type { RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { APP_PATHS, LEGACY_PATHS, toAppChildPath } from '@/navigation/routes'
 
+const ASSET_RESEARCH_TYPES = new Set(['bond', 'fund', 'futures', 'option', 'fx', 'crypto'])
+
 const routes: RouteRecordRaw[] = [
   {
     path: '/login',
@@ -39,6 +41,18 @@ const routes: RouteRecordRaw[] = [
         path: 'investment/stock-analysis',
         name: 'InvestmentStockAnalysis',
         component: () => import('@/views/investment/StockAnalysisPage.vue'),
+      },
+      {
+        path: 'investment/ai-assets/:assetType',
+        name: 'InvestmentAssetAnalysis',
+        component: () => import('@/views/investment/AssetAnalysisPage.vue'),
+        props: true,
+        beforeEnter: (to) => {
+          const assetType = String(to.params.assetType ?? '')
+          return ASSET_RESEARCH_TYPES.has(assetType)
+            ? true
+            : { name: 'InvestmentAssetAnalysis', params: { assetType: 'bond' } }
+        },
       },
       {
         path: 'research',

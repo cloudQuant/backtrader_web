@@ -18,8 +18,8 @@ Thank you for your interest in contributing to AI for Investor! This document pr
 
 ```bash
 # Fork the repository on GitHub
-git clone https://github.com/YOUR_USERNAME/ai-for-investor.git
-cd ai-for-investor
+git clone https://github.com/YOUR_USERNAME/backtrader_web.git
+cd backtrader_web
 ```
 
 ### 2. Create a Feature Branch
@@ -136,8 +136,13 @@ Do not hand-edit lock files. Regenerate them after changing `src/backend/pyproje
 ./scripts/ops/generate_lockfiles.sh
 ```
 
-Commit the updated `pyproject.toml` and root lock files together. The mirrored lock files under
-`src/backend/` are legacy compatibility copies and should not become the source of truth.
+Commit the updated `pyproject.toml` and root lock files together. As of iteration 193
+(P0-1 anti-drift fix), `config/` is the **only** location for these lockfiles--the former
+`src/backend/requirements-prod.lock` / `requirements-dev.lock` copies were deleted because
+they had drifted from the CI-audited set, leaving the image's shipped dependencies
+unaudited. `scripts/ci/check_prod_lock_singleton.py` runs in CI to prevent a second
+`requirements-prod.lock` from re-appearing; the Dockerfile `COPY`s
+`config/requirements-prod.lock` directly so the install target equals the audit target.
 
 ### When to use the uv workspace (175 §9)
 
@@ -378,7 +383,7 @@ All pull requests go through automated checks:
 4. **E2E**: End-to-end browser tests
 5. **Security**: Security vulnerability scanning
 
-See [CI/CD Documentation](./CI_CD.md) for details.
+See [CI/CD Documentation](docs/operations/CI_CD.md) for details.
 
 ## Sharing a Repro Bundle (Scrub Secrets First)
 

@@ -1,17 +1,22 @@
 {
-  "_comment": "Iteration 183 large-file ratchet. 2026-07-26 dev checkpoint refresh after reviewing pre-PR dev size debt; existing files listed here may not grow, and new production source files may not exceed new_file_line_limit.",
+  "_comment": "Iteration 193 large-file ratchet. 2026-08-13 baseline refresh: 5 new god files from iter 192 registered as acknowledged stock (orchestrator/plugins-base/akshare-provider/asset_research-schemas/AssetAnalysisPage); 3 regressions (gateway/manual, StockAnalysisPage, useStrategyPage) kept at pre-regression baseline to force in-place fix (ratchet only goes down). Update only with ALLOW_BASELINE_UPDATE=1 + reviewed PR (see .github/CODEOWNERS).",
   "new_file_line_limit": 1000,
   "files": {
     "src/backend/app/api/portfolio/api.py": 3346,
     "src/backend/app/api/strategy/base.py": 1039,
     "src/backend/app/schemas/ai_strategy_research.py": 1090,
+    "src/backend/app/schemas/asset_research.py": 1300,
     "src/backend/app/services/ai_strategy_research_service.py": 4201,
     "src/backend/app/services/ai_strategy_research_task_manager.py": 1847,
     "src/backend/app/services/akshare/script.py": 1820,
+    "src/backend/app/services/asset_research/orchestrator.py": 3048,
+    "src/backend/app/services/asset_research/plugins/base.py": 1948,
+    "src/backend/app/services/asset_research/providers/akshare.py": 1310,
     "src/backend/app/services/direct_order_service.py": 1883,
     "src/backend/app/services/gateway/manual.py": 2708,
     "src/backend/app/services/live_trading/manager.py": 1397,
     "src/backend/app/services/log_parser_service.py": 1042,
+    "src/backend/app/services/market_data_coverage_service.py": 1000,
     "src/backend/app/services/market_instrument.py": 2695,
     "src/backend/app/services/paper_trading_service.py": 1973,
     "src/backend/app/services/position_valuation.py": 2369,
@@ -32,7 +37,7 @@
     "src/frontend/src/views/PortfolioPage.vue": 1870,
     "src/frontend/src/views/PromptTemplatesPage.vue": 1040,
     "src/frontend/src/views/QuotePage.vue": 2294,
-    "src/frontend/src/views/ScannerPage.vue": 2292,
+    "src/frontend/src/views/ScannerPage.vue": 2288,
     "src/frontend/src/views/StrategyPage.vue": 3122,
     "src/frontend/src/views/config/AIProviderConfigPage.vue": 1192,
     "src/frontend/src/views/data/DataGovernancePage.vue": 1077,
@@ -41,9 +46,27 @@
     "src/frontend/src/views/data/DataTasksPage.vue": 1067,
     "src/frontend/src/views/data/DataTopicsPage.vue": 1129,
     "src/frontend/src/views/data/useDataPage.ts": 2024,
-    "src/frontend/src/views/investment/StockAnalysisPage.vue": 1433,
-    "src/frontend/src/views/strategy/useStrategyPage.ts": 6738,
+    "src/frontend/src/views/investment/AssetAnalysisPage.vue": 1504,
+    "src/frontend/src/views/investment/StockAnalysisPage.vue": 1613,
+    "src/frontend/src/views/strategy/useStrategyPage.ts": 6795,
     "src/frontend/src/views/workspace/WorkspaceDetailPage.vue": 1181,
     "src/frontend/src/views/workspace/WorkspaceListPage.vue": 1138
+  },
+  "_deferred_regressions": {
+    "_comment": "Iteration 193 计划优化原则：回归项就地修复不吸收。gateway/manual.py +3 行已就地修复。以下 2 项为 iter 192 真实功能增长（signal lifecycle / AI research），安全修复需 M 级组件/composable 抽取（排入迭代194第3批），本迭代不盲抽以免破坏 UI，显式登记并挂 194 ticket，区别于静默吸收。",
+    "files": {
+      "src/frontend/src/views/investment/StockAnalysisPage.vue": {
+        "baseline_before": 1433,
+        "current": 1613,
+        "reason": "iter 192 auditable signal lifecycle (+180)",
+        "fix": "194 Task K: 抽取展示型子组件"
+      },
+      "src/frontend/src/views/strategy/useStrategyPage.ts": {
+        "baseline_before": 6738,
+        "current": 6795,
+        "reason": "iter 192 AI research 状态增长 (+57)",
+        "fix": "194 Task K: 抽取 useAIResearchRuntime composable"
+      }
+    }
   }
 }

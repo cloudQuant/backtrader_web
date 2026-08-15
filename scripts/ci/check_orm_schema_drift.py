@@ -57,7 +57,7 @@ def _run_alembic_upgrade(db_path: Path) -> None:
     env["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_path}"
     env.setdefault("ASYNC_DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
     res = subprocess.run(
-        ["alembic", "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=BACKEND_SRC,
         env=env,
         capture_output=True,

@@ -1825,6 +1825,18 @@ export function useStrategyPage() {
     return Boolean(record && aiResearchRunMatchesConfigProfile(record, profile))
   }
 
+  function defaultAIResearchConfigProfile(
+    profiles: AIStrategyResearchConfigProfile[]
+  ): AIStrategyResearchConfigProfile | null {
+    return profiles.find(profile => profile.name.trim() === '螺纹钢')
+      ?? profiles.find(profile => (
+        stringFromUnknown(profile.config?.symbol).trim().toUpperCase() === 'RB0'
+        && stringFromUnknown(profile.config?.timeframe).trim().toLowerCase() === '1h'
+      ))
+      ?? profiles[0]
+      ?? null
+  }
+
   function aiResearchConfigProfileForRunRecord(record: AIStrategyResearchRunRecord) {
     return aiResearchConfigProfiles.value.find(profile =>
       aiResearchRunMatchesConfigProfile(record, profile)
@@ -1840,9 +1852,7 @@ export function useStrategyPage() {
     const profile = aiResearchSelectedConfigProfile.value
     if (!profile || aiResearchRunning.value) return
     if (currentAIResearchResultMatchesConfigProfile(profile)) return
-    const matchedRun = aiResearchRuns.value.find(record =>
-      aiResearchRunMatchesConfigProfile(record, profile)
-    )
+    const matchedRun = latestAIResearchRunForConfigProfile(profile)
     if (matchedRun) {
       selectAIResearchRunRecord(matchedRun, { keepSelectedProfile: true })
     } else {
@@ -1850,18 +1860,35 @@ export function useStrategyPage() {
     }
   }
 
+  function latestAIResearchRunForConfigProfile(profile: AIStrategyResearchConfigProfile) {
+    return aiResearchRuns.value
+      .filter(record => aiResearchRunMatchesConfigProfile(record, profile))
+      .sort((left, right) => researchRunTimestamp(right) - researchRunTimestamp(left))[0]
+      ?? null
+  }
+
+  function researchRunTimestamp(record: AIStrategyResearchRunRecord) {
+    const timestamp = Date.parse(record.completed_at || record.started_at)
+    return Number.isNaN(timestamp) ? 0 : timestamp
+  }
+
   function aiResearchRunMatchesConfigProfile(
     record: AIStrategyResearchRunRecord,
     profile: AIStrategyResearchConfigProfile
   ) {
     const config = profile.config || {}
+    const researchWorkspaceId = stringFromUnknown(config.research_workspace_id).trim()
     const symbol = stringFromUnknown(config.symbol).trim().toUpperCase()
     const timeframe = stringFromUnknown(config.timeframe).trim().toLowerCase()
     const timeframeN = optionalNumber(config.timeframe_n)
+    if (researchWorkspaceId && record.research_workspace_id.trim() !== researchWorkspaceId) {
+      return false
+    }
     if (!symbol && !timeframe && timeframeN === null) return false
     if (symbol && record.symbol.trim().toUpperCase() !== symbol) return false
     if (timeframe && record.timeframe.trim().toLowerCase() !== timeframe) return false
     if (timeframeN !== null && Number(record.timeframe_n || 1) !== timeframeN) return false
+    if (researchWorkspaceId) return true
     if (!aiResearchProfileStringMatches(config, 'symbol_name', record.symbol_name)) return false
     if (!aiResearchProfileStringMatches(config, 'prompt', record.prompt, true)) return false
     if (!aiResearchProfileStringMatches(config, 'workflow_mode', record.workflow_mode)) return false
@@ -2024,8 +2051,9 @@ export function useStrategyPage() {
       aiResearchConfigProfileFilePath.value = response.file_path
       const selected = aiResearchSelectedConfigProfile.value
       if (selected) applyAIResearchConfigProfile(selected, { notify: false })
-      if (!selected && response.items[0]) {
-        applyAIResearchConfigProfile(response.items[0], { notify: false })
+      if (!selected) {
+        const defaultProfile = defaultAIResearchConfigProfile(response.items)
+        if (defaultProfile) applyAIResearchConfigProfile(defaultProfile, { notify: false })
       }
     } catch {
       if (options.showError) ElMessage.error(t('strategy.aiResearchConfigLoadFailed'))
@@ -5786,9 +5814,38 @@ export function useStrategyPage() {
     if (canonicalPrompt) aiResearchForm.prompt = canonicalPrompt
   }
 
+  async function bindAIResearchConfigProfileToRunRecord(
+    profile: AIStrategyResearchConfigProfile,
+    record: AIStrategyResearchRunRecord
+  ) {
+    const workspaceId = record.research_workspace_id.trim()
+    if (!workspaceId || stringFromUnknown(profile.config.research_workspace_id).trim()) return
+    const api = aiResearchConfigProfileApi()
+    if (typeof api.updateAIResearchConfigProfile !== 'function') return
+    try {
+      const updated = await api.updateAIResearchConfigProfile(profile.id, {
+        config: { ...profile.config, research_workspace_id: workspaceId },
+      })
+      upsertAIResearchConfigProfile(updated)
+      if (aiResearchSelectedConfigProfileId.value === updated.id) {
+        aiResearchForm.research_workspace_id = workspaceId
+      }
+      if (aiResearchActiveConfigProfile.value?.id === updated.id) {
+        aiResearchActiveConfigProfile.value = updated
+      }
+    } catch {
+      // The completed research output remains usable even if its profile cannot be saved.
+    }
+  }
+
   async function applyCompletedAIResearchResult(result: AIStrategyResearchRunResponse) {
     aiResearchResult.value = result
     if (result.run_record) {
+      const activeProfile = aiResearchActiveConfigProfile.value
+        ?? aiResearchSelectedConfigProfile.value
+      if (activeProfile) {
+        await bindAIResearchConfigProfileToRunRecord(activeProfile, result.run_record)
+      }
       const selected = aiResearchSelectedConfigProfile.value
       if (!selected || !aiResearchRunMatchesConfigProfile(result.run_record, selected)) {
         setAIResearchConfigProfileFromRunRecord(result.run_record)

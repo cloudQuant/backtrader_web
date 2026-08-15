@@ -12,6 +12,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.middleware.metrics import record_api_error, record_api_request
 from app.utils.logger import audit_logger, bind_request_context, get_logger
 
 logger = get_logger(__name__)
@@ -33,7 +34,25 @@ _SENSITIVE_PARAMS = frozenset(
     }
 )
 
-_SKIP_PATHS = frozenset(["/health", "/metrics", "/docs", "/redoc", "/openapi.json"])
+# Prefix match: avoids logging/metricing scrape noise and health probes.
+# Iteration 193 O7: added /api/v1/metrics so the scrape path no longer
+# pollutes the request log or inflates api_request_total.
+_SKIP_PATH_PREFIXES = (
+    "/health",
+    "/ready",
+    "/metrics",
+    "/api/v1/metrics",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+)
+
+
+def _is_skip_path(path: str, skip_paths: frozenset[str] | None = None) -> bool:
+    """Match skip paths by exact hit (legacy set) or configured prefix."""
+    if skip_paths and path in skip_paths:
+        return True
+    return any(path == p or path.startswith(p + "/") for p in _SKIP_PATH_PREFIXES)
 
 
 def _sanitize_query_params(query_string: str) -> str | None:
@@ -73,15 +92,15 @@ class LoggingMiddleware:
         self.log_body = bool(kwargs.get("log_body", False))
         self.log_headers = bool(kwargs.get("log_headers", False))
         custom_skip_paths = kwargs.get("skip_paths")
-        self.skip_paths = frozenset(custom_skip_paths or _SKIP_PATHS)
+        self.skip_paths = frozenset(custom_skip_paths) if custom_skip_paths else frozenset()
 
     async def dispatch(self, request: Request, call_next):
         """Compatibility shim for legacy middleware-style tests."""
         path = request.url.path
-        request_id = str(uuid.uuid4())[:8]
+        request_id = uuid.uuid4().hex
         request.state.request_id = request_id
 
-        if path in self.skip_paths:
+        if _is_skip_path(path, self.skip_paths):
             response = await call_next(request)
             response.headers.setdefault("X-Request-ID", request_id)
             return response
@@ -122,6 +141,8 @@ class LoggingMiddleware:
                 error_message=str(exc),
                 exc_info=True,
             )
+            record_api_error(method, path, type(exc).__name__)
+            record_api_request(method, path, 500, duration)
             raise
 
         response.headers.setdefault("X-Request-ID", request_id)
@@ -136,6 +157,9 @@ class LoggingMiddleware:
             status_code=response.status_code,
             duration_ms=round(duration * 1000, 2),
         )
+        record_api_request(method, path, response.status_code, duration)
+        if response.status_code >= 500:
+            record_api_error(method, path, "http_5xx")
         return response
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -144,11 +168,11 @@ class LoggingMiddleware:
             return
 
         path = scope.get("path", "")
-        if path in self.skip_paths:
+        if _is_skip_path(path, self.skip_paths):
             await self.app(scope, receive, send)
             return
 
-        request_id = str(uuid.uuid4())[:8]
+        request_id = uuid.uuid4().hex
         scope_state = scope.setdefault("state", {})
         if isinstance(scope_state, dict):
             scope_state["request_id"] = request_id
@@ -198,6 +222,8 @@ class LoggingMiddleware:
                 error_message=str(exc),
                 exc_info=True,
             )
+            record_api_error(method, path, type(exc).__name__)
+            record_api_request(method, path, 500, duration)
             raise
         else:
             duration = time.time() - start_time
@@ -211,6 +237,9 @@ class LoggingMiddleware:
                 status_code=status_code,
                 duration_ms=round(duration * 1000, 2),
             )
+            record_api_request(method, path, status_code, duration)
+            if status_code >= 500:
+                record_api_error(method, path, "http_5xx")
 
 
 class AuditLoggingMiddleware:

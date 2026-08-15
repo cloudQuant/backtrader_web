@@ -18,6 +18,9 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from baseline_update_guard import assert_update_allowed  # noqa: E402
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_ROOT = REPO_ROOT / "src/frontend"
@@ -83,6 +86,7 @@ def main() -> int:
         return 1
 
     if args.update:
+        assert_update_allowed("npm_audit_ratchet")
         write_baseline(counts)
         print(
             f"npm_audit_ratchet: baseline updated (high={counts['high']} critical={counts['critical']})"

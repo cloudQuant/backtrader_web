@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -44,7 +45,7 @@ class StockAnalysisReportBuilder:
         decision = pipeline_output.get("decision") or {}
         scores = pipeline_output.get("scores") or {}
         final_decision = str(compat.get("final_trade_decision") or "")
-        summary = final_decision[:240].strip() + ("..." if len(final_decision) > 240 else "")
+        summary = self._plain_text(final_decision, limit=240)
         risk_level = self._risk_level(float(decision.get("risk_score") or 0.5))
 
         ai_stage_generation = pipeline_output.get("ai_stage_generation")
@@ -66,12 +67,20 @@ class StockAnalysisReportBuilder:
             },
             "executive_summary": summary,
             "decision": {
-                "label": decision.get("action", "持有"),
+                "label": decision.get("action", "观望"),
                 "target_price": decision.get("target_price"),
-                "confidence_score": decision.get("confidence", 0.5),
+                "confidence_score": decision.get(
+                    "confidence_score", decision.get("confidence", 0.5)
+                ),
                 "risk_score": decision.get("risk_score", 0.5),
                 "risk_level": risk_level,
-                "reasoning": decision.get("reasoning", ""),
+                "reasoning": self._plain_text(decision.get("reasoning", ""), limit=240),
+                "signal_action": decision.get("signal_action", "WATCH"),
+                "eligibility_status": decision.get("eligibility_status", "rejected"),
+                "quality_reasons": decision.get("quality_reasons") or [],
+                "feature_version": decision.get("feature_version"),
+                "decision_policy_version": decision.get("decision_policy_version"),
+                "model_version": decision.get("model_version"),
             },
             "sections": [
                 self._section("technical", "技术与市场分析", compat["market_report"], scores),
@@ -124,3 +133,14 @@ class StockAnalysisReportBuilder:
         if risk_score <= 0.33:
             return "低"
         return "中等"
+
+    @staticmethod
+    def _plain_text(value: Any, *, limit: int) -> str:
+        """Create a concise, display-safe excerpt from an AI Markdown response."""
+        text = str(value or "").replace("\r\n", "\n")
+        text = re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", text)
+        text = re.sub(r"(?m)^\s*(?:---+|\*\*\*+|___+)\s*$", " ", text)
+        text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)
+        text = re.sub(r"[`*_~]", "", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return f"{text[:limit].rstrip()}..." if len(text) > limit else text

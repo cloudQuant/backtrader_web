@@ -35,12 +35,20 @@ module.exports = async (browser, context) => {
   const page = await browser.newPage()
   try {
     // Visit the login page so the SPA registers its own origin in the browser
-    // context, then drop the token into localStorage and reload.
+    // context, then drop the token into storage and reload.
     const origin = new URL(url).origin
     await page.goto(`${origin}/login`, { waitUntil: 'domcontentloaded' })
     await page.evaluate(
       ({ tok, user }) => {
         try {
+          // The auth store persists via pinia-plugin-persistedstate under
+          // sessionStorage key 'auth' (JSON with .token). The plain
+          // localStorage keys are kept for older app versions.
+          window.sessionStorage.setItem('auth', JSON.stringify({
+            token: tok,
+            refreshToken: null,
+            user: user || undefined,
+          }))
           window.localStorage.setItem('access_token', tok)
           window.localStorage.setItem('token', tok)
           if (user) {

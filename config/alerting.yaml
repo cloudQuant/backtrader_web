@@ -1,11 +1,23 @@
 # Alerting Configuration
-# Defines thresholds for monitoring alerts
+# Defines thresholds for monitoring alerts.
+#
+# Iteration 193 P0-3 alignment: every `metric:` below MUST resolve to a metric
+# defined in `src/backend/app/middleware/metrics.py` (verify with
+# `grep -oE '"[a-z_]+"' src/backend/app/middleware/metrics.py`). Entries whose
+# target metric is not yet instrumented are commented out with a
+# `# DEFERRED TO 194:` marker so thresholds are preserved without silently
+# configuring alerts that can never fire.
+#
+# This file is a declaration of intent consumed by the monitoring service
+# (see `services/monitoring_service.py`); it is NOT auto-applied at startup
+# without the startup recovery hook (Task C / O10).
 
 alerts:
-  # HTTP Latency Alerts
+  # HTTP Latency Alerts (api_request_duration_seconds — RED R metric)
   - name: high_api_latency_warning
-    description: "API response time exceeds 5 seconds"
-    metric: http_request_duration_seconds
+    description: "API response time p95 exceeds 5 seconds"
+    metric: api_request_duration_seconds
+    query: 'histogram_quantile(0.95, sum(rate(api_request_duration_seconds_bucket[5m])) by (le)) > 5'
     condition: "p95 > 5"
     threshold: 5.0
     severity: warning
@@ -13,18 +25,20 @@ alerts:
     action: "Check for slow queries or resource constraints"
 
   - name: high_api_latency_critical
-    description: "API response time exceeds 10 seconds"
-    metric: http_request_duration_seconds
+    description: "API response time p95 exceeds 10 seconds"
+    metric: api_request_duration_seconds
+    query: 'histogram_quantile(0.95, sum(rate(api_request_duration_seconds_bucket[5m])) by (le)) > 10'
     condition: "p95 > 10"
     threshold: 10.0
     severity: critical
     duration: 30s
     action: "Immediate investigation required"
 
-  # Error Rate Alerts
+  # Error Rate Alerts (api_request_errors_total — RED E metric)
   - name: high_error_rate_warning
-    description: "HTTP error rate exceeds 5%"
-    metric: http_requests_error_rate
+    description: "API 5xx error rate exceeds 5%"
+    metric: api_request_errors_total
+    query: 'sum(rate(api_request_errors_total[5m])) / sum(rate(api_request_total[5m])) > 0.05'
     condition: "rate > 0.05"
     threshold: 0.05
     severity: warning
@@ -32,79 +46,96 @@ alerts:
     action: "Review recent deployments and error logs"
 
   - name: high_error_rate_critical
-    description: "HTTP error rate exceeds 10%"
-    metric: http_requests_error_rate
+    description: "API 5xx error rate exceeds 10%"
+    metric: api_request_errors_total
+    query: 'sum(rate(api_request_errors_total[5m])) / sum(rate(api_request_total[5m])) > 0.10'
     condition: "rate > 0.10"
     threshold: 0.10
     severity: critical
     duration: 60s
     action: "Immediate investigation and potential rollback"
 
-  # Database Alerts
-  - name: db_connection_pool_warning
-    description: "Database connection pool usage exceeds 80%"
-    metric: db_connection_pool_usage
-    condition: "usage > 0.80"
-    threshold: 0.80
+  # Database Alerts (db_query_duration_seconds — instrumentation wired in 193)
+  - name: db_query_latency_warning
+    description: "Database query p95 latency exceeds 1 second"
+    metric: db_query_duration_seconds
+    query: 'histogram_quantile(0.95, sum(rate(db_query_duration_seconds_bucket[5m])) by (le)) > 1'
+    condition: "p95 > 1s"
+    threshold: 1.0
     severity: warning
     duration: 180s
-    action: "Consider increasing pool size or optimizing queries"
+    action: "Consider optimizing queries or adding indexes"
 
-  - name: db_connection_pool_critical
-    description: "Database connection pool usage exceeds 95%"
-    metric: db_connection_pool_usage
-    condition: "usage > 0.95"
-    threshold: 0.95
-    severity: critical
-    duration: 60s
-    action: "Immediate action required - connections may exhaust"
+  # DEFERRED TO 194: db_connection_pool_usage — requires QueuePool instrumentation
+  # (Task H moves NullPool -> QueuePool; pool size/overflow gauges land with it).
+  # Threshold retained for reference: warning > 80%, critical > 95%.
 
-  # System Resource Alerts
-  - name: high_memory_warning
-    description: "Memory usage exceeds 85%"
-    metric: process_memory_usage_bytes
-    condition: "usage > 0.85"
-    threshold: 0.85
-    severity: warning
-    duration: 300s
-    action: "Monitor for memory leaks, consider restart"
+  # DEFERRED TO 194: process_memory_usage_bytes / process_cpu_usage — the metrics
+  # endpoint uses a custom registry that does not expose prometheus_client
+  # default process collectors. Register PROCESS_COLLECTOR + PlatformCollector
+  # into _registry in 194. Thresholds retained: mem warning > 85%, cpu warning > 90%, cpu critical > 95%.
 
-  - name: high_cpu_warning
-    description: "CPU usage exceeds 90%"
-    metric: process_cpu_usage
-    condition: "usage > 0.90"
-    threshold: 0.90
-    severity: warning
-    duration: 180s
-    action: "Investigate high CPU processes"
-
-  - name: high_cpu_critical
-    description: "CPU usage exceeds 95% for extended period"
-    metric: process_cpu_usage
-    condition: "usage > 0.95"
-    threshold: 0.95
-    severity: critical
-    duration: 120s
-    action: "Scale horizontally or optimize performance"
-
-  # Backtest Alerts
-  - name: backtest_queue_warning
-    description: "Backtest queue depth exceeds 10"
-    metric: backtest_queue_depth
-    condition: "depth > 10"
-    threshold: 10
-    severity: warning
-    duration: 300s
-    action: "Consider adding more workers"
-
+  # Backtest Alerts (backtest_failure_total / backtest_total)
   - name: backtest_failure_rate_warning
     description: "Backtest failure rate exceeds 20%"
-    metric: backtest_failure_rate
+    metric: backtest_failure_total
+    query: 'sum(rate(backtest_failure_total[10m])) / sum(rate(backtest_total[10m])) > 0.20'
     condition: "rate > 0.20"
     threshold: 0.20
     severity: warning
     duration: 600s
     action: "Review strategy code and data quality"
+
+  # DEFERRED TO 194: backtest_queue_depth — requires a queue-depth gauge
+  # (Task B/C of asset_research already has queue_depth; backtest equivalent TBD).
+  # Threshold retained: warning > 10.
+
+  # Iteration 192 Asset Research Alerts (all metrics below are wired and live)
+  - name: asset_research_task_failure_rate_warning
+    description: "Asset research task failure rate exceeds 5% over 10 minutes"
+    metric: asset_research_task_total
+    query: 'sum(rate(asset_research_task_total{status="failed"}[10m])) / sum(rate(asset_research_task_total[10m])) > 0.05'
+    condition: "rate > 0.05"
+    threshold: 0.05
+    severity: warning
+    duration: 600s
+    action: "Pause affected asset plugins and inspect source/reason codes"
+
+  - name: asset_research_source_failure_warning
+    description: "Asset research source failed 3 consecutive times"
+    metric: asset_research_source_request_total
+    condition: "result=FAILED count >= 3"
+    threshold: 3
+    severity: warning
+    duration: 60s
+    action: "Check provider authorization and schema"
+
+  - name: asset_research_queue_backlog_warning
+    description: "Asset research queue depth exceeds twice the worker count"
+    metric: asset_research_queue_depth
+    condition: "depth > worker_concurrency * 2"
+    threshold: 8
+    severity: warning
+    duration: 600s
+    action: "Limit new creates and inspect worker health"
+
+  - name: asset_research_outcome_backlog_critical
+    description: "Mature outcome backlog exceeds two times evaluator SLA"
+    metric: asset_research_outcome_backlog
+    condition: "depth > 2 * evaluator_sla"
+    threshold: 200
+    severity: critical
+    duration: 600s
+    action: "Check source maturity, calendar and evaluator worker"
+
+  - name: asset_research_llm_budget_warning
+    description: "LLM monthly budget usage reaches 80%"
+    metric: asset_research_llm_cost_usd_total
+    condition: "monthly_usage >= 0.80"
+    threshold: 0.80
+    severity: warning
+    duration: 0s
+    action: "Stop non-essential deep reports and enforce deterministic fallback"
 
 # Notification Channels
 notification_channels:

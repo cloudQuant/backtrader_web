@@ -29,6 +29,8 @@ from app.services.stock_analysis.data_collector import StockAnalysisDataCollecto
 from app.services.stock_analysis.exporter import StockAnalysisExporter
 from app.services.stock_analysis.pipeline import StockAnalysisPipeline
 from app.services.stock_analysis.report_builder import StockAnalysisReportBuilder
+from app.services.stock_signal.service import StockSignalService
+from app.services.stock_signal.types import ACTION_LABELS
 
 
 class StockAnalysisCancelled(RuntimeError):
@@ -139,6 +141,60 @@ class StockAnalysisTaskService:
         await self.db.flush()
         return task
 
+    @classmethod
+    async def reconcile_orphaned_tasks(cls) -> int:
+        """Fail active tasks left behind by a previous API process."""
+        return await cls._settle_active_tasks(
+            status="failed",
+            step="failed",
+            message="股票分析服务已重启，任务已停止，请重试",
+            error_message="Task interrupted because the stock analysis service restarted",
+        )
+
+    @classmethod
+    async def interrupt_active_tasks(cls) -> int:
+        """Cancel active in-process tasks before a graceful API shutdown."""
+        return await cls._settle_active_tasks(
+            status="cancelled",
+            step="cancelled",
+            message="股票分析已取消",
+            error_message="Task cancelled due to application shutdown (graceful stop)",
+        )
+
+    @classmethod
+    async def _settle_active_tasks(
+        cls,
+        *,
+        status: str,
+        step: str,
+        message: str,
+        error_message: str,
+    ) -> int:
+        async with async_session_maker() as session:
+            tasks = list(
+                (
+                    await session.execute(
+                        select(StockAnalysisTaskModel).where(
+                            StockAnalysisTaskModel.status.in_(cls.ACTIVE_STATUSES)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if not tasks:
+                return 0
+
+            service = cls(session)
+            for task in tasks:
+                service._mark(task, 100, status, step, message)
+                task.error_message = error_message
+                task.completed_at = service._now()
+                await service._sync_assistant_message_metadata(task, None)
+
+            await session.commit()
+            return len(tasks)
+
     async def count_active_tasks(self, *, user_id: str) -> int:
         return int(
             (
@@ -241,6 +297,41 @@ class StockAnalysisTaskService:
         )
         task.symbol_name = (snapshot.get("info") or {}).get("name") or task.symbol
         task.data_quality_json = snapshot.get("data_quality") or {}
+        signal_prediction = await StockSignalService(self.db).create_prediction(
+            snapshot=snapshot,
+            symbol=task.symbol,
+            market_type=task.market_type,
+            as_of_date=analysis_date,
+            owner_scope=StockSignalService.user_scope(task.user_id),
+            source="manual",
+            universe_code="MANUAL",
+            # Manual analysis must not block its report on an additional live calendar request.
+            # The after-close scorer resolves this authoritative date before outcome evaluation.
+            next_trading_date=None,
+        )
+        snapshot["signal_decision"] = {
+            "action": signal_prediction.signal_action,
+            "label": ACTION_LABELS[signal_prediction.signal_action],
+            "confidence_score": signal_prediction.confidence_score,
+            "risk_score": signal_prediction.risk_score,
+            "expected_excess_return": signal_prediction.expected_excess_return,
+            "eligibility_status": signal_prediction.eligibility_status,
+            "quality_reasons": list(signal_prediction.quality_reasons_json or []),
+            "feature_version": signal_prediction.feature_version,
+            "decision_policy_version": signal_prediction.decision_policy_version,
+            "model_version": signal_prediction.model_version,
+            "reasoning": "该结论由已保存的结构化信号快照生成；LLM 仅用于研究说明。",
+        }
+        snapshot["signal_features"] = dict(signal_prediction.feature_snapshot_json or {})
+        snapshot["signal_quality"] = {
+            "status": signal_prediction.eligibility_status,
+            "reasons": list(signal_prediction.quality_reasons_json or []),
+            "freshness": dict(signal_prediction.data_freshness_json or {}),
+        }
+        task.data_quality_json = {
+            **dict(task.data_quality_json or {}),
+            "signal": snapshot["signal_quality"],
+        }
 
         if commit_progress:
             await self._stop_if_cancelled(task)
@@ -304,7 +395,7 @@ class StockAnalysisTaskService:
             analysis_date=task.analysis_date,
             title=f"{task.symbol} 股票分析报告",
             summary=payload.get("executive_summary") or "",
-            recommendation_label=decision.get("label", "持有"),
+            recommendation_label=decision.get("label", "观望"),
             confidence_score=decision.get("confidence_score"),
             risk_level=decision.get("risk_level", "中等"),
             technical_score=scores.get("technical_score"),
@@ -319,6 +410,10 @@ class StockAnalysisTaskService:
         )
         self.db.add(report)
         await self.db.flush()
+        await StockSignalService(self.db).attach_report(
+            prediction_id=signal_prediction.id,
+            report_id=report.id,
+        )
 
         if commit_progress:
             await self._stop_if_cancelled(task)
@@ -443,6 +538,30 @@ class StockAnalysisTaskService:
                 )
             )
         ).scalar_one_or_none()
+
+    async def get_latest_completed_result(
+        self, *, user_id: str
+    ) -> tuple[StockAnalysisTaskModel, StockAnalysisReportModel] | None:
+        result = await self.db.execute(
+            select(StockAnalysisTaskModel, StockAnalysisReportModel)
+            .join(
+                StockAnalysisReportModel,
+                StockAnalysisReportModel.task_id == StockAnalysisTaskModel.id,
+            )
+            .where(
+                StockAnalysisTaskModel.user_id == user_id,
+                StockAnalysisTaskModel.status == "completed",
+                StockAnalysisReportModel.user_id == user_id,
+            )
+            .order_by(
+                StockAnalysisReportModel.created_at.desc(), StockAnalysisReportModel.id.desc()
+            )
+            .limit(1)
+        )
+        row = result.first()
+        if row is None:
+            return None
+        return row[0], row[1]
 
     async def get_report(self, *, user_id: str, report_id: str) -> StockAnalysisReportModel | None:
         return (

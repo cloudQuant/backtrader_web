@@ -1,0 +1,36 @@
+{
+  "assets": [
+    {
+      "asset_type": "futures",
+      "blocked_reason": [
+        "FUTURES.BID_ASK_MISSING",
+        "COMMON.CALENDAR_UNAVAILABLE"
+      ],
+      "latest_close": 4645.6,
+      "latest_date": "2026-08-07",
+      "latest_volume": 65609,
+      "provider": "akshare_futures_zh_daily_sina",
+      "quality_gate": "BLOCKED",
+      "structure_ok": true,
+      "symbol": "IF2609"
+    },
+    {
+      "asset_type": "bond",
+      "blocked_reason": [
+        "BOND.CASHFLOWS_MISSING",
+        "BOND.CURVE_MISSING",
+        "COMMON.BENCHMARK_MISSING"
+      ],
+      "latest_close": 118.991,
+      "latest_date": "2026-08-07",
+      "latest_volume": 287280,
+      "provider": "akshare_bond_zh_hs_daily",
+      "quality_gate": "BLOCKED",
+      "structure_ok": true,
+      "symbol": "019547"
+    }
+  ],
+  "generated_at": "2026-08-07T11:06:36.419465+00:00",
+  "note": "结构冒烟，不是 T1 或 T2 验收通过",
+  "profile": "ONLINE-SMOKE"
+}

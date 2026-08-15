@@ -5,12 +5,14 @@ from fastapi import FastAPI
 
 from app.startup import (
     ai_log_sink,
+    asset_research,
     audit_sink,
     database,
     orchestration,
     paper_runtime,
     reconcile,
     security_check,
+    stock_signal,
 )
 
 StartupHook = Callable[[FastAPI, Any], Awaitable[None]]
@@ -22,11 +24,15 @@ STARTUP_HOOKS: tuple[StartupHook, ...] = (
     ai_log_sink.register,
     security_check.register,
     orchestration.register,
+    asset_research.register,
+    stock_signal.register,
     paper_runtime.register,
 )
 
 SHUTDOWN_HOOKS: tuple[StartupHook, ...] = (
     orchestration.shutdown,
+    asset_research.shutdown,
+    stock_signal.shutdown,
     paper_runtime.shutdown,
     reconcile.shutdown,
     audit_sink.shutdown,

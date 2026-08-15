@@ -6,7 +6,7 @@
 [![Vue 3](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg?logo=vuedotjs&logoColor=white)](https://vuejs.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/cloudQuant/ai-for-investor/ci.yml?branch=master&label=CI&logo=githubactions&logoColor=white)](https://github.com/cloudQuant/ai-for-investor/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/cloudQuant/backtrader_web/ci.yml?branch=master&label=CI&logo=githubactions&logoColor=white)](https://github.com/cloudQuant/backtrader_web/actions)
 
 [中文文档](README.md) | **English**
 
@@ -75,8 +75,8 @@ AI for Investor is an AI + quantitative trading MVP for developers, traders, and
 
 ```bash
 # Clone
-git clone https://github.com/cloudQuant/ai-for-investor.git
-cd ai-for-investor
+git clone https://github.com/cloudQuant/backtrader_web.git
+cd backtrader_web
 
 # Backend
 cd src/backend
@@ -121,7 +121,7 @@ RC1 lets you validate the shipped AI trust capabilities end to end:
 4. Run `cd src/backend && pytest tests/perf/ -q --tb=short` to inspect API and backtest-task throughput baselines.
 5. Run `cd src/frontend && npm run test -- --run --coverage` to verify frontend coverage thresholds.
 
-AI observability, multi-model routing, VaR/CVaR, factor analytics, performance attribution, and market-regime detection remain v0.2.x roadmap items. RC1 boundaries are documented in [v0.2.0 release notes](docs/RELEASE_NOTES_V0.2.0.md).
+AI observability, multi-model routing, VaR/CVaR, factor analytics, performance attribution, and market-regime detection remain v0.2.x roadmap items. RC1 boundaries are documented in [v0.2.0 release notes](docs/explanation/RELEASE_NOTES_V0.2.0.md).
 
 ### Docker (Alternative)
 
@@ -172,7 +172,7 @@ docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
 | KB Chat | `/api/v1/kb-chat` | Knowledge base conversations and AI assistant |
 | Status | `/api/v1/status` | System health, optional router status |
 
-Full API documentation: [docs/API.md](docs/API.md)
+Full API documentation: [docs/guides/API_GUIDE.md](docs/guides/API_GUIDE.md)
 
 ## Technology Stack
 
@@ -247,7 +247,7 @@ Frontend coverage thresholds are tightened gradually from measured baselines:
 ## Project Structure
 
 ```
-ai-for-investor/
+backtrader_web/
 ├── src/
 │   ├── backend/              # FastAPI backend
 │   │   ├── app/
@@ -300,26 +300,25 @@ The project is in active development:
 - **v0.3 (2026 Q4)**: AI deep integration, smart risk control, natural language trading
 - **Future**: Strategy marketplace, plugin system, multi-tenant, cloud-native deployment
 
-See [docs/STRATEGIC_ROADMAP.md](docs/STRATEGIC_ROADMAP.md) for the full strategic plan.
+See [docs/explanation/STRATEGIC_ROADMAP.md](docs/explanation/STRATEGIC_ROADMAP.md) for the full strategic plan.
 
 ## Documentation
 
 | Document | Description |
 | -------- | ----------- |
-| [Installation Guide](docs/INSTALLATION.md) | Environment setup and installation |
-| [Quick Start](docs/QUICKSTART.md) | 5-minute first backtest tutorial |
-| [API Reference](docs/API.md) | Complete REST API documentation |
-| [API Usage Guide](docs/API_GUIDE.md) | Examples and best practices |
-| [Architecture](docs/ARCHITECTURE.md) | System design and decisions |
-| [Development Guide](docs/DEVELOPMENT.md) | Local dev environment setup |
-| [AI Strategy Copilot](docs/AI_STRATEGY_COPILOT.md) | AI assistant and NL strategy generation |
-| [Strategy Development](docs/STRATEGY_DEVELOPMENT.md) | Writing custom trading strategies |
-| [Database Design](docs/DATABASE.md) | Data models and relationships |
-| [Security Guide](docs/SECURITY.md) | Security best practices |
-| [v0.2.0 RC Release Notes](docs/RELEASE_NOTES_V0.2.0.md) | RC1 scope, validation commands, and known boundaries |
-| [Testing Guide](docs/TESTING.md) | Unit, integration, and E2E testing |
-| [Coding Standards](docs/CODING_STANDARDS.md) | Python and Vue code style |
-| [CI/CD](docs/CI_CD.md) | GitHub Actions pipeline |
+| [Installation Guide](docs/guides/INSTALLATION.md) | Environment setup and installation |
+| [Quick Start](docs/guides/QUICKSTART.md) | 5-minute first backtest tutorial |
+| [API Usage Guide](docs/guides/API_GUIDE.md) | REST API examples and best practices |
+| [Architecture](docs/explanation/ARCHITECTURE.md) | System design and decisions |
+| [Development Guide](docs/how-to/DEVELOPMENT.md) | Local dev environment setup |
+| [AI Strategy Copilot](docs/guides/AI_STRATEGY_COPILOT.md) | AI assistant and NL strategy generation |
+| [Strategy Development](docs/guides/STRATEGY_DEVELOPMENT.md) | Writing custom trading strategies |
+| [Database Design](docs/reference/DATABASE.md) | Data models and relationships |
+| [Security Guide](docs/reference/SECURITY.md) | Security best practices |
+| [v0.2.0 RC Release Notes](docs/explanation/RELEASE_NOTES_V0.2.0.md) | RC1 scope, validation commands, and known boundaries |
+| [Testing Guide](docs/how-to/TESTING.md) | Unit, integration, and E2E testing |
+| [Coding Standards](docs/reference/CODING_STANDARDS.md) | Python and Vue code style |
+| [CI/CD](docs/operations/CI_CD.md) | GitHub Actions pipeline |
 | [Accessibility Baseline](docs/explanation/accessibility-baseline.md) | WCAG 2.1 AA baseline, Critical_Page_Set scan results, exemptions (iter 175 §3) |
 | [Frontend Bundle Budget](docs/reference/frontend-bundle-budget.md) | Vendor and entry chunk gzip budgets (iter 175 §7) |
 | [Database Migration Playbook](docs/how-to/database-migration-playbook.md) | Long-lock / full-scan risks and downgrade strategy (iter 175 §8) |
@@ -334,7 +333,7 @@ See [docs/STRATEGIC_ROADMAP.md](docs/STRATEGIC_ROADMAP.md) for the full strategi
 
 <p align="center">
   Built with ❤️ for the quantitative trading community<br>
-  <a href="https://github.com/cloudQuant/ai-for-investor">GitHub</a> ·
-  <a href="https://github.com/cloudQuant/ai-for-investor/issues">Issues</a> ·
-  <a href="https://github.com/cloudQuant/ai-for-investor/discussions">Discussions</a>
+  <a href="https://github.com/cloudQuant/backtrader_web">GitHub</a> ·
+  <a href="https://github.com/cloudQuant/backtrader_web/issues">Issues</a> ·
+  <a href="https://github.com/cloudQuant/backtrader_web/discussions">Discussions</a>
 </p>

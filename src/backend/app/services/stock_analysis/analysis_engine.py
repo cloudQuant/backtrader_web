@@ -202,13 +202,25 @@ class StockAnalysisEngine:
                 output[stage.output_key] = str(result["content"]).strip()
                 if stage.output_key == "research_team_decision":
                     output["investment_plan"] = output[stage.output_key]
+            if result.get("error_code") == "TimeoutError":
+                # A provider that does not answer must not multiply one stuck
+                # request across every remaining analysis stage.  Keep the
+                # rule-based pipeline output and finish the report as degraded.
+                break
 
-        output["decision"] = self.signal_extractor.extract(
-            str(output.get("final_trade_decision") or ""),
-            symbol=symbol,
-        )
+        authoritative_decision = output.get("structured_signal_decision")
+        if isinstance(authoritative_decision, dict) and authoritative_decision.get("action"):
+            # The LLM is allowed to explain the research stages, never to
+            # replace the versioned signal persisted from point-in-time data.
+            output["decision"] = dict(authoritative_decision)
+        else:
+            output["decision"] = self.signal_extractor.extract(
+                str(output.get("final_trade_decision") or ""),
+                symbol=symbol,
+            )
         output["ai_stage_generation"] = {
             "enabled": True,
+            "degraded": any(result.get("status") == "failed" for result in stage_results),
             "template_version": self.TEMPLATE_VERSION,
             "stages": stage_results,
         }
@@ -364,7 +376,7 @@ class StockAnalysisEngine:
         if stage.stage_id == "final_trade_decision":
             final_constraints = (
                 "\n最终交易决策必须显式包含以下字段："
-                "\n- 最终交易建议: **买入/持有/卖出**"
+                "\n- 最终交易建议: **买入/卖出/观望**"
                 "\n- 目标价位: 数字"
                 "\n- 置信度: 0-1"
                 "\n- 风险评分: 0-1"
@@ -400,13 +412,19 @@ class StockAnalysisEngine:
 
     def _source_context(self, snapshot: dict[str, Any]) -> str:
         financials = snapshot.get("financials") or {}
-        annual = financials.get("annual") or []
+        financial_records = [
+            item
+            for item in [*(financials.get("annual") or []), *(financials.get("quarterly") or [])]
+            if isinstance(item, dict)
+        ]
+        financial_records.sort(key=lambda item: str(item.get("report_date") or ""))
         news_items = (snapshot.get("news") or {}).get("items") or []
         compact = {
             "quote": snapshot.get("quote") or {},
             "info": snapshot.get("info") or {},
+            "peers": snapshot.get("peers") or {},
             "technicals": snapshot.get("technicals") or {},
-            "latest_financial": annual[-1] if annual else {},
+            "latest_financial": financial_records[-1] if financial_records else {},
             "news_items": news_items[:5],
             "data_quality": snapshot.get("data_quality") or {},
         }

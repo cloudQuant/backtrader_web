@@ -26,7 +26,16 @@ class TestLoggingMiddleware:
         middleware = LoggingMiddleware(app)
         assert middleware.log_body is False
         assert middleware.log_headers is False
-        assert "/health" in middleware.skip_paths
+        # Iteration 193: default skips moved to prefix matching (_is_skip_path);
+        # the legacy per-instance skip set is empty unless passed explicitly.
+        assert middleware.skip_paths == frozenset()
+        from app.middleware.logging import _is_skip_path
+
+        assert _is_skip_path("/health") is True
+        assert _is_skip_path("/health/sub") is True
+        assert _is_skip_path("/api/v1/metrics") is True
+        assert _is_skip_path("/api/v1/metrics/sub") is True
+        assert _is_skip_path("/api/v1/users") is False
 
     def test_initialization_with_options(self):
         """Test middleware initialization with options."""
@@ -136,7 +145,7 @@ class TestLoggingMiddleware:
         headers = dict(response_start["headers"])
         request_id = headers[b"x-request-id"].decode()
 
-        assert len(request_id) == 8
+        assert len(request_id) == 32
         assert observed_state["request_id"] == request_id
 
 

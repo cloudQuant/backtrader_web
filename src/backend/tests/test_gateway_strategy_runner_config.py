@@ -1,3 +1,4 @@
+import builtins
 import importlib.util
 import json
 import os
@@ -89,6 +90,18 @@ def test_gateway_runner_configuration_helpers_import_without_local_backtrader(mo
         [entry for entry in sys.path if Path(entry).resolve() != local_backtrader],
     )
     monkeypatch.setattr(Path, "exists", _without_local_backtrader)
+
+    # A developer environment can still have the project's gateway-enabled
+    # backtrader package installed globally.  Model the public-package case at
+    # the import boundary rather than assuming sys.path removal is sufficient.
+    original_import = builtins.__import__
+
+    def _without_gateway_adapters(name, globals=None, locals=None, fromlist=(), level=0):
+        if name in {"backtrader.feeds.btapifeed", "backtrader.stores.btapistore"}:
+            raise ImportError("gateway adapters are unavailable")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", _without_gateway_adapters)
     module = _load_runner("gateway_dual_ma")
 
     assert module.BtApiFeed is None

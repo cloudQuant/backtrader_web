@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from freezegun import freeze_time
 
 from app.models.ai_call_log import AICallLog
 from app.models.backtest import BacktestResultModel, BacktestTask
@@ -17,12 +18,15 @@ from app.utils.datetime_utils import utc_now_naive
 def test_utc_now_naive_returns_current_utc_without_timezone() -> None:
     """``DateTime(timezone=False)`` values must be compatible with asyncpg."""
 
-    value = utc_now_naive()
+    # Iteration 193 Task J (T2): freeze the clock so the assertion is exact and
+    # not flaky under CI load (the previous 2-second wall-clock tolerance could
+    # fail when the scheduler preempts the test mid-call).
+    frozen = datetime(2026, 8, 13, 12, 0, 0, tzinfo=timezone.utc)
+    with freeze_time(frozen):
+        value = utc_now_naive()
 
     assert value.tzinfo is None
-    assert (
-        abs((datetime.now(timezone.utc) - value.replace(tzinfo=timezone.utc)).total_seconds()) < 2
-    )
+    assert value == frozen.replace(tzinfo=None)
 
 
 @pytest.mark.parametrize(

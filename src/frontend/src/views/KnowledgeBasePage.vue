@@ -22,7 +22,7 @@
               <div class="font-medium">
                 {{ t('kb.kbList') }}
               </div>
-              <span class="text-xs text-slate-400">{{ t('kb.kbCounter', { count: filteredKnowledgeBases.length }) }}</span>
+              <span class="text-xs text-slate-500">{{ t('kb.kbCounter', { count: filteredKnowledgeBases.length }) }}</span>
             </div>
             <input
               v-model="knowledgeBaseSearch"

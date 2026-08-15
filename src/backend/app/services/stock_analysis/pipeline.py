@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from app.services.stock_analysis.signal import StockSignalExtractor
+from app.services.stock_signal.decision_policy import decide_snapshot
+from app.services.stock_signal.types import ACTION_LABELS
 
 
 class StockAnalysisPipeline:
@@ -89,8 +92,11 @@ class StockAnalysisPipeline:
             profile,
             context,
         )
-        final_trade_decision = risk_management_decision
-        decision = self.signal_extractor.extract(final_trade_decision, symbol=symbol)
+        final_trade_decision = self._authoritative_final_decision(
+            risk_management_decision,
+            profile,
+        )
+        decision = self._structured_decision(profile, symbol=symbol)
 
         return {
             "market_report": market_report,
@@ -108,6 +114,7 @@ class StockAnalysisPipeline:
             "risk_management_decision": risk_management_decision,
             "final_trade_decision": final_trade_decision,
             "decision": decision,
+            "structured_signal_decision": decision,
             "scores": self._scores(snapshot, decision),
             "stage_order": [
                 "market",
@@ -137,6 +144,15 @@ class StockAnalysisPipeline:
     ) -> str:
         if not enabled:
             return f"{symbol} 市场分析未启用，后续阶段按 degraded 占位处理。"
+        if context["price"] is None:
+            return (
+                f"{context['name']}（{context['code']}）技术分析报告\n"
+                "一、数据状态\n"
+                "本次未取得与分析日期一致的有效行情，技术维度不可用。系统不会用默认价格、"
+                "0 值指标或旧行情替代，也不会据此给出方向性交易结论。\n\n"
+                "二、后续处理\n"
+                "待下一次获取到完整收盘价、开盘价与足够历史 K 线后，再重新计算结构化信号。"
+            )
         action = str(profile["action"])
         signal = context["technical_signal"]
         price = context["price"]
@@ -153,7 +169,7 @@ class StockAnalysisPipeline:
             f"所属市场：{context['market_type']}\n"
             f"当前价格：{self._format_price(price, context)}\n"
             f"涨跌幅：{self._format_pct(context['change_pct'])}\n"
-            f"成交量：{context['volume']} 股\n\n"
+            f"成交量：{self._format_volume(context['volume'])}\n\n"
             "二、技术指标分析\n"
             "1. 移动平均线与价格位置\n"
             f"当前 MA5 为 {self._format_price(ma5, context)}，MA10 为 "
@@ -187,13 +203,13 @@ class StockAnalysisPipeline:
             return (
                 f"{context['name']}（{context['code']}）社媒情绪分析报告\n"
                 "一、样本状态\n"
-                "当前未检索到足够的社媒或新闻情绪样本，情绪维度按中性处理。这不是利好，"
-                "也不是明确利空，而是说明短线交易需要更多依赖价格、基本面和后续事件验证。\n\n"
+                "当前未检索到足够的社媒或新闻情绪样本，情绪维度不可用，不纳入方向性判断。"
+                "这不是利好，也不是明确利空，而是说明短线交易需要更多依赖价格、基本面和后续事件验证。\n\n"
                 "二、情绪解释\n"
                 "在信息样本不足时，市场通常会回到行业景气度、资金偏好和估值约束。"
                 f"对于{context['industry']}标的，若没有新的业绩或政策催化，情绪难以独立推动估值重估。\n\n"
                 "三、交易含义\n"
-                "情绪维度对最终结论不做方向性加分，保留中性权重；后续若出现重大公告、监管政策、"
+                "情绪维度不参与最终方向评分；后续若出现重大公告、监管政策、"
                 "行业利率环境变化或同业估值重估，需要重新更新该阶段。"
             )
         bullish = sum(1 for item in news_items if item.get("sentiment") == "BULLISH")
@@ -245,11 +261,22 @@ class StockAnalysisPipeline:
     ) -> str:
         if not enabled:
             return f"{symbol} 基本面分析未启用，后续阶段按 degraded 占位处理。"
-        latest = context["latest_annual"]
+        latest = context["latest_financial"]
+        if not latest:
+            return (
+                f"{context['name']}（{context['code']}）基本面分析报告\n"
+                "一、数据状态\n"
+                "本次未取得有效财务披露，基本面维度不可用。系统不会把缺失财务字段填为 0、"
+                "也不会将未知盈利能力表述为稳定或正向。\n\n"
+                "二、交易含义\n"
+                "基本面不纳入方向性加分；结构化信号已将该缺口记录为数据质量原因，并保持观望。"
+            )
         peer_names = context["peer_names"] or "暂无"
-        roe_text = self._format_pct(context["roe"] / 100 if context["roe"] > 1 else context["roe"])
+        roe = self._float_or_none(context["roe"])
+        roe_text = self._format_pct(roe / 100 if roe is not None and roe > 1 else roe)
         eps = self._float_or_default(latest.get("eps"), 0.0)
-        pe_text = "N/A" if eps <= 0 else f"{context['price'] / eps:.2f} 倍"
+        price = self._float_or_none(context["price"])
+        pe_text = "数据不足" if eps <= 0 or price is None else f"{price / eps:.2f} 倍"
         return (
             f"{context['name']}（{context['code']}）深度基本面分析报告\n"
             f"分析日期：{context['analysis_date']} | 当前股价：{self._format_price(context['price'], context)}\n\n"
@@ -260,13 +287,14 @@ class StockAnalysisPipeline:
             f"业务描述：{context['description']}\n"
             f"可比标的：{peer_names}\n\n"
             "二、核心财务数据分析\n"
-            f"最近年度收入：{latest.get('revenue', 'N/A')}；净利润：{latest.get('net_income', 'N/A')}；"
+            f"最新披露日期：{latest.get('report_date', 'N/A')}；"
+            f"最新披露收入：{latest.get('revenue', 'N/A')}；净利润：{latest.get('net_income', 'N/A')}；"
             f"EPS：{latest.get('eps', 'N/A')}；ROE：{roe_text}。"
             f"收入同比变化约 {self._format_pct(context['revenue_growth'])}，"
             f"净利润同比变化约 {self._format_pct(context['profit_growth'])}。"
             "从已有样本看，公司仍保持正盈利和稳定股东回报，基本面阶段对最终结论形成支撑。\n\n"
             "三、估值与盈利质量\n"
-            f"按当前价格和最近年度 EPS 估算，静态市盈率约 {pe_text}。"
+            f"按当前价格和最新披露 EPS 估算，静态市盈率约 {pe_text}。"
             f"对于{context['industry']}行业，估值判断需要结合资产质量、拨备、净息差和分红能力，"
             "不能只看短期股价波动。当前 ROE 维持在两位数，说明盈利质量相对稳健，但增长弹性并不激进。\n\n"
             "四、合理价位区间与投资建议\n"
@@ -286,17 +314,28 @@ class StockAnalysisPipeline:
         profile: dict[str, Any],
         context: dict[str, Any],
     ) -> str:
+        has_financials = bool(context["latest_financial"])
+        financial_premise = (
+            "当前财务数据对估值有一定支撑。"
+            if has_financials
+            else "当前财务数据不可用，以下乐观假设不能作为买入证据。"
+        )
+        financial_reason = (
+            f"1. 已披露财务数据：最新披露 ROE 为 {context['roe']}，净利润为 "
+            f"{context['latest_financial'].get('net_income', 'N/A')}，需要结合后续披露持续验证。\n"
+            if has_financials
+            else "1. 财务数据不可用：不能把缺失数据解释为盈利稳定、低估或安全边际。\n"
+        )
         return (
             "Bull Analyst: \n"
             f"作为看涨研究员，我认为{context['name']}（{context['code']}）的核心价值不在于短线波动，"
-            "而在于盈利稳定性、行业地位和估值防守。当前基本面评分较高，说明财务数据对估值有支撑。\n\n"
+            f"而在于盈利稳定性、行业地位和估值防守。{financial_premise}\n\n"
             "一、看涨理由\n"
-            f"1. 盈利能力稳定：最近年度 ROE 为 {context['roe']}，净利润为 "
-            f"{context['latest_annual'].get('net_income', 'N/A')}，不是亏损型资产。\n"
+            f"{financial_reason}"
             f"2. 价格处于回撤观察区：当前价 {self._format_price(context['price'], context)} "
             f"相对近期样本高点已有明显折让，若风险偏好修复，存在向 "
             f"{self._format_price(context['resistance'], context)} 回归的空间。\n"
-            "3. 新闻面没有直接利空：当前新闻维度为空，至少没有新的公开负面催化压制估值。\n\n"
+            "3. 新闻面不可用：当前新闻维度为空，不能据此推断没有新的公开负面催化。\n\n"
             "二、反驳空方\n"
             "空方强调短线均线压力是合理的，但银行类资产的定价通常更依赖盈利稳定、资产质量和分红预期。"
             "只要基本面没有恶化，技术回撤更适合作为观察区，而不是直接推导出趋势性卖出。\n\n"
@@ -344,6 +383,11 @@ class StockAnalysisPipeline:
         profile: dict[str, Any],
         context: dict[str, Any],
     ) -> str:
+        fundamental_evidence = (
+            f"2. 基本面：基本面评分 {profile['fundamental_score']:.2f}，最新披露对盈利和 ROE 提供了参考。\n"
+            if context["latest_financial"]
+            else "2. 基本面：财务数据不可用，不纳入方向性判断。\n"
+        )
         return (
             "最终裁决与投资计划\n"
             f"我的决定：{profile['action']}\n\n"
@@ -353,7 +397,7 @@ class StockAnalysisPipeline:
             "为什么做出该裁决\n"
             f"1. 技术面：当前信号为{context['technical_signal']}，价格需要突破 "
             f"{self._format_price(context['resistance'], context)} 才能证明修复有效。\n"
-            f"2. 基本面：基本面评分 {profile['fundamental_score']:.2f}，盈利和 ROE 对估值形成支撑。\n"
+            f"{fundamental_evidence}"
             "3. 新闻情绪：新闻和社媒样本不足，短期缺少明确催化，不能给出强方向加分。\n"
             f"4. 风险约束：风险评分 {profile['risk_score']:.2f}，属于需要控制仓位但不必极端回避的区间。\n\n"
             "投资计划\n"
@@ -372,9 +416,14 @@ class StockAnalysisPipeline:
         context: dict[str, Any],
     ) -> str:
         action = str(profile["action"])
-        target = float(profile["target_price"])
+        target = self._float_or_none(profile["target_price"])
         confidence = float(profile["confidence"])
         risk_score = float(profile["risk_score"])
+        evidence_comment = (
+            "这组评分只作为研究辅助，财务与市场数据均已通过当前快照的质量检查。"
+            if context["latest_financial"] and context["price"] is not None
+            else "部分关键数据不可用，评分不构成基本面或技术面的方向性支持。"
+        )
         return (
             "最终交易建议\n"
             f": {action}\n"
@@ -382,7 +431,7 @@ class StockAnalysisPipeline:
             f"1. 投资建议：{action}\n"
             f"当前综合评分为 {profile['composite_score']:.2f}，技术评分 {profile['technical_score']:.2f}，"
             f"基本面评分 {profile['fundamental_score']:.2f}，新闻评分 {profile['news_score']:.2f}。"
-            "这组评分说明标的基本面有支撑，但短期趋势和催化仍需要确认。\n\n"
+            f"{evidence_comment}\n\n"
             "2. 目标价位\n"
             f"短期目标价：{self._format_price(target, context)}\n"
             f"防守价位：{self._format_price(context['support'], context)}\n"
@@ -409,25 +458,40 @@ class StockAnalysisPipeline:
         context: dict[str, Any],
     ) -> str:
         risk_score = float(profile["risk_score"])
+        has_financials = bool(context["latest_financial"])
         if stance == "激进":
+            premise = (
+                f"基本面评分 {profile['fundamental_score']:.2f} 提供了已披露财务层面的参考。"
+                if has_financials
+                else "财务数据不可用，因此不把基本面作为进攻性依据。"
+            )
             return (
                 "激进风险分析师观点\n"
-                f"我支持在{context['name']}上保留进攻性观察。基本面评分 "
-                f"{profile['fundamental_score']:.2f} 较强，说明该标的不是纯粹由题材驱动。"
+                f"我支持在{context['name']}上保留进攻性观察。{premise}"
                 f"如果价格能够站上 {self._format_price(context['resistance'], context)}，"
                 "市场会重新定价稳定盈利资产的防御价值。激进策略不是盲目追高，而是在确认突破后提高仓位。"
             )
         if stance == "保守":
+            fundamental_risk = (
+                "避免把“基本面稳定”误读为“没有下跌风险”。"
+                if has_financials
+                else "财务数据缺口本身就是风险，不能据此判断公司经营稳定。"
+            )
             return (
                 "保守风险分析师观点\n"
                 f"当前风险评分约 {risk_score:.2f}，不应忽视短线均线压力和新闻催化不足。"
                 f"防守位 {self._format_price(context['support'], context)} 是关键，一旦跌破，"
                 "说明资金对基本面支撑并不买账，应优先保护本金。保守策略建议控制仓位、设置止损，"
-                "避免把“基本面稳定”误读为“没有下跌风险”。"
+                f"{fundamental_risk}"
             )
+        neutral_premise = (
+            "多方看到已披露经营数据，空方看到趋势压力，"
+            if has_financials
+            else "财务数据不可用，趋势证据也不足，"
+        )
         return (
             "中性风险分析师观点\n"
-            f"{context['name']}当前风险收益相对均衡。多方看到盈利稳定，空方看到趋势压力，"
+            f"{context['name']}当前风险收益相对均衡。{neutral_premise}"
             "两者都成立。中性方案是维持核心观察仓位，同时用价格区间管理风险："
             f"下方关注 {self._format_price(context['support'], context)}，"
             f"上方关注 {self._format_price(context['resistance'], context)}。"
@@ -445,9 +509,25 @@ class StockAnalysisPipeline:
         context: dict[str, Any],
     ) -> str:
         action = str(profile["action"])
-        target = float(profile["target_price"])
+        target = self._float_or_none(profile["target_price"])
         confidence = float(profile["confidence"])
         risk_score = float(profile["risk_score"])
+        has_financials = bool(context["latest_financial"])
+        committee_evidence = (
+            "激进分析师强调已披露基本面与估值修复，保守分析师强调趋势压力和催化不足，"
+            if has_financials
+            else "关键财务数据不可用，激进观点缺少基本面支撑，保守观点强调数据缺口与趋势压力，"
+        )
+        core_evidence = (
+            "基本面提供参考，技术面要求纪律，新闻面暂不提供额外催化。"
+            if has_financials
+            else "基本面数据不可用，技术与新闻也不提供足够的方向性证据。"
+        )
+        conservative_evidence = (
+            "风险控制是必要的，但当前基本面没有恶化到必须全面卖出的程度。"
+            if has_financials
+            else "数据缺口使得风险控制更重要，不能据此推导出经营未恶化。"
+        )
         return (
             "作为风险管理委员会主席，在认真听取激进、保守和中性三位风险分析师的辩论后，"
             "我的最终裁决如下：\n\n"
@@ -455,16 +535,16 @@ class StockAnalysisPipeline:
             f"目标价位：{self._format_price(target, context)}\n"
             f"置信度：{confidence:.2f}\n"
             f"风险评分：{risk_score:.2f}\n\n"
-            "这是一个审慎而非情绪化的结论。激进分析师强调基本面稳定和估值修复，保守分析师强调趋势压力和催化不足，"
+            f"这是一个审慎而非情绪化的结论。{committee_evidence}"
             "中性分析师则把重点放在区间管理。综合来看，当前并不存在足以支持极端方向的证据，"
             f"因此最终建议为{action}。\n\n"
             "决策理由：基于辩论与反思的详细推理\n"
             f"1. 核心论点总结：技术面评分 {profile['technical_score']:.2f}，"
             f"基本面评分 {profile['fundamental_score']:.2f}，新闻评分 {profile['news_score']:.2f}。"
-            "基本面提供支撑，技术面要求纪律，新闻面暂不提供额外催化。\n"
+            f"{core_evidence}\n"
             "2. 对激进观点的裁决：部分采纳。若价格突破压力位，进攻策略可以提高权重；"
             "但在突破前，不应把稳定盈利直接等同为买入信号。\n"
-            "3. 对保守观点的裁决：部分采纳。风险控制是必要的，但当前基本面没有恶化到必须全面卖出的程度。\n"
+            f"3. 对保守观点的裁决：部分采纳。{conservative_evidence}\n"
             "4. 对中性观点的裁决：采纳。以区间管理和仓位纪律处理当前不完全一致的信号，是更稳健的方案。\n\n"
             "完善交易员计划\n"
             f"已有仓位：维持{action}，以 {self._format_price(context['support'], context)} 为风险线；"
@@ -488,33 +568,65 @@ class StockAnalysisPipeline:
         technicals = snapshot.get("technicals") or {}
         factors = technicals.get("factors") or {}
         financials = snapshot.get("financials") or {}
-        annual = financials.get("annual") or []
-        latest = annual[-1] if annual else {}
-        previous = annual[-2] if len(annual) >= 2 else {}
+        financial_records = self._financial_records(financials)
+        latest = financial_records[-1] if financial_records else {}
+        previous = financial_records[-2] if len(financial_records) >= 2 else {}
         peers = (snapshot.get("peers") or {}).get("items") or []
 
-        closes = [self._float_or_default(row.get("close"), 0.0) for row in history_rows]
-        lows = [self._float_or_default(row.get("low"), 0.0) for row in history_rows]
-        volumes = [self._float_or_default(row.get("volume"), 0.0) for row in history_rows]
+        closes = [
+            value
+            for row in history_rows
+            if (value := self._float_or_none(row.get("close"))) is not None and value > 0
+        ]
+        lows = [
+            value
+            for row in history_rows
+            if (value := self._float_or_none(row.get("low"))) is not None and value > 0
+        ]
+        volumes = [
+            value
+            for row in history_rows
+            if (value := self._float_or_none(row.get("volume"))) is not None and value >= 0
+        ]
 
-        fallback_close = closes[-1] if closes else 100.0
-        price = self._float_or_default(quote.get("price"), fallback_close)
-        change_pct = self._normalize_change_pct(quote.get("change_pct"))
-        ma5 = self._moving_average(closes[-5:]) or price
-        ma10 = self._moving_average(closes[-10:]) or ma5
-        first_close = closes[0] if closes else price
-        last_close = closes[-1] if closes else price
-        recent_low = min(lows[-5:] or [price])
-        support = round(min(recent_low, price * 0.97), 2)
-        resistance = round(max(ma5, ma10, price * 1.03), 2)
+        quote_price = self._float_or_none(quote.get("price"))
+        price = (
+            quote_price
+            if quote_price is not None and quote_price > 0
+            else (closes[-1] if closes else None)
+        )
+        raw_change_pct = self._float_or_none(quote.get("change_pct"))
+        change_pct = (
+            self._normalize_change_pct(raw_change_pct) if raw_change_pct is not None else None
+        )
+        ma5 = self._moving_average(closes[-5:])
+        ma10 = self._moving_average(closes[-10:])
+        if price is not None:
+            ma5 = ma5 or price
+            ma10 = ma10 or ma5
+            first_close = closes[0] if closes else price
+            last_close = closes[-1] if closes else price
+            recent_low = min(lows[-5:] or [price])
+            support = round(min(recent_low, price * 0.97), 2)
+            resistance = round(max(ma5, ma10, price * 1.03), 2)
+        else:
+            first_close = None
+            last_close = None
+            support = None
+            resistance = None
 
-        if last_close > first_close:
+        if first_close is None or last_close is None:
+            history_trend = "数据不足"
+        elif last_close > first_close:
             history_trend = "上行"
         elif last_close < first_close:
             history_trend = "下行"
         else:
             history_trend = "震荡"
-        if price >= ma5 >= ma10:
+        if price is None or ma5 is None or ma10 is None:
+            technical_signal = "行情数据不足，无法判断趋势"
+            technical_bias = "不可用"
+        elif price >= ma5 >= ma10:
             technical_signal = "短期偏强，价格位于主要短均线上方"
             technical_bias = "偏多"
         elif price <= ma5 and price <= ma10:
@@ -524,14 +636,23 @@ class StockAnalysisPipeline:
             technical_signal = "多空交织，趋势尚未完成确认"
             technical_bias = "中性"
 
-        revenue = self._float_or_default(latest.get("revenue"), 0.0)
-        previous_revenue = self._float_or_default(previous.get("revenue"), revenue)
-        profit = self._float_or_default(latest.get("net_income"), 0.0)
-        previous_profit = self._float_or_default(previous.get("net_income"), profit)
-        revenue_growth = self._growth_rate(revenue, previous_revenue)
-        profit_growth = self._growth_rate(profit, previous_profit)
-        roe = self._float_or_default(latest.get("roe"), 0.0)
-        volume = int(self._float_or_default(quote.get("volume"), volumes[-1] if volumes else 0.0))
+        revenue = self._float_or_none(latest.get("revenue"))
+        previous_revenue = self._float_or_none(previous.get("revenue"))
+        profit = self._float_or_none(latest.get("net_income"))
+        previous_profit = self._float_or_none(previous.get("net_income"))
+        revenue_growth = self._float_or_none(latest.get("revenue_growth"))
+        if revenue_growth is None and revenue is not None and previous_revenue is not None:
+            revenue_growth = self._growth_rate(revenue, previous_revenue)
+        profit_growth = self._float_or_none(latest.get("profit_growth"))
+        if profit_growth is None and profit is not None and previous_profit is not None:
+            profit_growth = self._growth_rate(profit, previous_profit)
+        roe = self._float_or_none(latest.get("roe"))
+        volume_value = self._float_or_none(quote.get("volume"))
+        volume = (
+            int(volume_value)
+            if volume_value is not None
+            else (int(volumes[-1]) if volumes else None)
+        )
         peer_names = "、".join(item.get("name") or item.get("symbol") or "" for item in peers[:3])
 
         return {
@@ -547,19 +668,31 @@ class StockAnalysisPipeline:
             "price": price,
             "change_pct": change_pct,
             "volume": volume,
-            "ma5": round(ma5, 2),
-            "ma10": round(ma10, 2),
+            "ma5": round(ma5, 2) if ma5 is not None else None,
+            "ma10": round(ma10, 2) if ma10 is not None else None,
             "support": support,
             "resistance": resistance,
-            "momentum_5": self._latest_factor(factors.get("momentum_5")),
-            "volatility_5": self._latest_factor(factors.get("volatility_5")),
-            "reversal_1": self._latest_factor(factors.get("reversal_1")),
+            "momentum_5": self._signal_feature(
+                snapshot,
+                "return_5",
+                fallback=factors.get("momentum_5"),
+            ),
+            "volatility_5": self._signal_feature(
+                snapshot,
+                "volatility20",
+                fallback=factors.get("volatility_5"),
+            ),
+            "reversal_1": self._signal_feature(
+                snapshot,
+                "return_1",
+                fallback=factors.get("reversal_1"),
+            ),
             "first_close": first_close,
             "last_close": last_close,
             "history_trend": history_trend,
             "technical_signal": technical_signal,
             "technical_bias": technical_bias,
-            "latest_annual": latest,
+            "latest_financial": latest,
             "roe": roe,
             "revenue_growth": revenue_growth,
             "profit_growth": profit_growth,
@@ -584,13 +717,19 @@ class StockAnalysisPipeline:
         return sum(valid) / len(valid)
 
     @staticmethod
-    def _latest_factor(value: Any) -> float:
+    def _latest_factor(value: Any) -> float | None:
         if isinstance(value, list):
             for item in reversed(value):
                 if item is not None:
-                    return StockAnalysisPipeline._float_or_default(item, 0.0)
-            return 0.0
-        return StockAnalysisPipeline._float_or_default(value, 0.0)
+                    return StockAnalysisPipeline._float_or_none(item)
+            return None
+        return StockAnalysisPipeline._float_or_none(value)
+
+    def _signal_feature(self, snapshot: dict[str, Any], key: str, *, fallback: Any) -> float | None:
+        features = snapshot.get("signal_features") or {}
+        if isinstance(features, dict) and features.get(key) is not None:
+            return self._float_or_none(features.get(key))
+        return self._latest_factor(fallback)
 
     @staticmethod
     def _growth_rate(current: float, previous: float) -> float:
@@ -600,17 +739,26 @@ class StockAnalysisPipeline:
 
     @staticmethod
     def _format_pct(value: Any) -> str:
-        numeric = StockAnalysisPipeline._float_or_default(value, 0.0)
+        numeric = StockAnalysisPipeline._float_or_none(value)
+        if numeric is None:
+            return "数据不足"
         if abs(numeric) <= 1:
             numeric *= 100
         return f"{numeric:.2f}%"
 
     @staticmethod
     def _format_price(value: Any, context: dict[str, Any]) -> str:
-        numeric = StockAnalysisPipeline._float_or_default(value, 0.0)
+        numeric = StockAnalysisPipeline._float_or_none(value)
+        if numeric is None:
+            return "数据不足"
         currency = str(context.get("currency") or "CNY").upper()
         unit = "¥" if currency in {"CNY", "RMB"} else "$" if currency == "USD" else currency
         return f"{unit}{numeric:.2f}"
+
+    @staticmethod
+    def _format_volume(value: Any) -> str:
+        numeric = StockAnalysisPipeline._float_or_none(value)
+        return f"{int(numeric)} 股" if numeric is not None else "数据不足"
 
     def _scores(self, snapshot: dict[str, Any], decision: dict[str, Any]) -> dict[str, float]:
         profile = self._decision_profile(snapshot)
@@ -623,49 +771,54 @@ class StockAnalysisPipeline:
         }
 
     def _decision_profile(self, snapshot: dict[str, Any]) -> dict[str, Any]:
+        stored = snapshot.get("signal_decision") or {}
+        stored_features = snapshot.get("signal_features") or {}
+        stored_quality = snapshot.get("signal_quality") or {}
+        if not isinstance(stored, dict) or not stored.get("action"):
+            as_of_date = self._snapshot_date(snapshot)
+            generated, features, quality = decide_snapshot(snapshot, as_of_date=as_of_date)
+            stored = generated.payload()
+            stored_features = features.snapshot()
+            stored_quality = {
+                "status": quality.status,
+                "reasons": list(quality.reasons),
+                "freshness": quality.freshness,
+            }
+
+        raw_action = str(stored.get("action") or "WATCH")
+        action = ACTION_LABELS.get(raw_action.upper())
+        if action is None:
+            action = (
+                raw_action
+                if raw_action in set(ACTION_LABELS.values())
+                else str(stored.get("label") or "观望")
+            )
+        if action not in set(ACTION_LABELS.values()):
+            action = "观望"
         quote = snapshot.get("quote") or {}
-        price = self._float_or_default(quote.get("price"), 100.0)
-        change_pct = self._normalize_change_pct(quote.get("change_pct"))
-        technical_score = max(0.0, min(100.0, 50.0 + change_pct * 2.0))
-
-        financials = snapshot.get("financials") or {}
-        annual = financials.get("annual") or []
-        latest = annual[-1] if annual else {}
-        roe = self._float_or_default(latest.get("roe"), 0.0)
-        net_income = self._float_or_default(latest.get("net_income"), 0.0)
-        fundamental_score = 50.0
-        if annual:
-            fundamental_score += 8.0
-        if roe > 0:
-            fundamental_score += min(12.0, roe * 100 if roe <= 1 else roe)
-        if net_income > 0:
-            fundamental_score += 5.0
-        fundamental_score = max(0.0, min(100.0, fundamental_score))
-
-        news_items = (snapshot.get("news") or {}).get("items") or []
-        bullish = sum(1 for item in news_items if item.get("sentiment") == "BULLISH")
-        bearish = sum(1 for item in news_items if item.get("sentiment") == "BEARISH")
-        news_score = 50.0 + (bullish - bearish) * 8.0 if news_items else 50.0
-        news_score = max(0.0, min(100.0, news_score))
-
-        technicals = snapshot.get("technicals") or {}
-        factors = technicals.get("factors") or {}
-        volatility = abs(self._float_or_default(factors.get("volatility_5"), 0.0))
-        volatility_penalty = min(0.25, volatility if volatility <= 1 else volatility / 100)
-        bearish_penalty = min(0.2, bearish * 0.05)
-        risk_score = max(0.05, min(0.95, 0.45 + volatility_penalty + bearish_penalty))
-
-        composite_score = technical_score * 0.35 + fundamental_score * 0.35 + news_score * 0.3
-        if composite_score >= 63.0 and risk_score <= 0.62:
-            action = "买入"
-            target_price = round(price * 1.08, 2)
-        elif composite_score <= 42.0 or risk_score >= 0.78:
-            action = "卖出"
-            target_price = round(price * 0.95, 2)
+        price = self._float_or_none(quote.get("price"))
+        if price is None:
+            price = self._float_or_none(stored_features.get("latest_close")) or 0.0
+        expected = self._float_or_none(stored.get("expected_excess_return")) or 0.0
+        if action == "买入":
+            target_price = round(price * (1.0 + max(expected, 0.01)), 2) if price else None
+        elif action == "卖出":
+            target_price = round(price * (1.0 + min(expected, -0.01)), 2) if price else None
         else:
-            action = "持有"
-            target_price = round(price * 1.03, 2)
-        confidence = max(0.5, min(0.9, 0.55 + abs(composite_score - 50.0) / 100.0))
+            # Compatibility reports expect a numeric reference price.  This is
+            # explicitly a current-price reference for WATCH, not a target.
+            target_price = round(price, 2) if price else None
+        buy_probability = self._float_or_default(stored.get("buy_probability"), 0.0)
+        sell_probability = self._float_or_default(stored.get("sell_probability"), 0.0)
+        technical_score = max(0.0, min(100.0, 50.0 + (buy_probability - sell_probability) * 50.0))
+        financial_records = self._financial_records(snapshot.get("financials") or {})
+        fundamental_score = 60.0 if financial_records else 0.0
+        news_items = (snapshot.get("news") or {}).get("items") or []
+        news_score = 60.0 if news_items else 0.0
+        risk_score = self._float_or_default(stored.get("risk_score"), 1.0)
+        confidence = self._float_or_default(
+            stored.get("confidence_score", stored.get("confidence")), 0.5
+        )
         return {
             "action": action,
             "target_price": target_price,
@@ -674,8 +827,65 @@ class StockAnalysisPipeline:
             "technical_score": round(technical_score, 2),
             "fundamental_score": round(fundamental_score, 2),
             "news_score": round(news_score, 2),
-            "composite_score": round(composite_score, 2),
+            "composite_score": round(technical_score, 2),
+            "structured_decision": stored,
+            "feature_snapshot": stored_features,
+            "quality": stored_quality,
         }
+
+    def _structured_decision(self, profile: dict[str, Any], *, symbol: str) -> dict[str, Any]:
+        stored = profile.get("structured_decision") or {}
+        action = str(profile.get("action") or "观望")
+        signal_action = next(
+            (key for key, label in ACTION_LABELS.items() if label == action),
+            "WATCH",
+        )
+        return {
+            "action": action,
+            "target_price": profile.get("target_price"),
+            "confidence": profile.get("confidence", 0.5),
+            "confidence_score": profile.get("confidence", 0.5),
+            "risk_score": profile.get("risk_score", 1.0),
+            "reasoning": stored.get("reasoning") or f"{symbol} 的结构化信号数据不足，维持观望。",
+            "signal_action": signal_action,
+            "eligibility_status": stored.get("eligibility_status", "rejected"),
+            "quality_reasons": stored.get("quality_reasons") or [],
+            "feature_version": stored.get("feature_version"),
+            "decision_policy_version": stored.get("decision_policy_version"),
+            "model_version": stored.get("model_version"),
+        }
+
+    @staticmethod
+    def _authoritative_final_decision(narrative: str, profile: dict[str, Any]) -> str:
+        decision = profile.get("structured_decision") or {}
+        reasons = "、".join(decision.get("quality_reasons") or []) or "无"
+        return (
+            f"{narrative}\n\n"
+            "结构化信号终审（此标签为唯一交易信号权威）\n"
+            f"最终交易建议：{profile.get('action', '观望')}\n"
+            f"置信度：{float(profile.get('confidence') or 0.0):.2f}\n"
+            f"风险评分：{float(profile.get('risk_score') or 1.0):.2f}\n"
+            f"数据资格：{decision.get('eligibility_status', 'rejected')}\n"
+            f"质量原因：{reasons}\n"
+            f"策略版本：{decision.get('decision_policy_version', 'unknown')}"
+        )
+
+    @staticmethod
+    def _snapshot_date(snapshot: dict[str, Any]) -> date:
+        value = str(snapshot.get("analysis_date") or "")[:10]
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return date.today()
+
+    @staticmethod
+    def _financial_records(financials: dict[str, Any]) -> list[dict[str, Any]]:
+        records = [
+            item
+            for item in [*(financials.get("annual") or []), *(financials.get("quarterly") or [])]
+            if isinstance(item, dict)
+        ]
+        return sorted(records, key=lambda item: str(item.get("report_date") or ""))
 
     @staticmethod
     def _float_or_default(value: Any, default: float) -> float:
@@ -683,6 +893,13 @@ class StockAnalysisPipeline:
             return float(value)
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _float_or_none(value: Any) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _normalize_change_pct(value: Any) -> float:

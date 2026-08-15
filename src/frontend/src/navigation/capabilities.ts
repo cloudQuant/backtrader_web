@@ -37,11 +37,11 @@ export interface Capability {
 export const productDomains: ProductDomain[] = [
   { id: 'home', path: APP_PATHS.dashboard, labelKey: 'nav.home', icon: 'HomeFilled' },
   { id: 'data', path: '/data', labelKey: 'nav.marketData', icon: 'Grid' },
+  { id: 'ai', path: '/ai', labelKey: 'nav.aiKnowledge', icon: 'ChatDotRound' },
   { id: 'investment', path: '/investment', labelKey: 'nav.investmentResearch', icon: 'Document' },
   { id: 'research', path: '/research', labelKey: 'nav.strategyResearch', icon: 'Aim' },
   { id: 'trading', path: '/trading', labelKey: 'nav.tradingOperations', icon: 'TrendCharts' },
   { id: 'portfolio', path: '/portfolio', labelKey: 'nav.portfolioRisk', icon: 'TrendCharts' },
-  { id: 'ai', path: '/ai', labelKey: 'nav.aiKnowledge', icon: 'ChatDotRound' },
   {
     id: 'config',
     path: '/config',
@@ -93,15 +93,6 @@ export const capabilities: Capability[] = [
     legacyPaths: ['/news-intelligence'],
   },
   {
-    id: 'data.scanners',
-    domainId: 'data',
-    path: '/data/intelligence/scanners',
-    labelKey: 'nav.scanners',
-    icon: 'Aim',
-    legacyPaths: ['/scanners'],
-  },
-
-  {
     id: 'investment.strategyResearch',
     domainId: 'investment',
     path: '/investment/strategies',
@@ -114,6 +105,56 @@ export const capabilities: Capability[] = [
     path: '/investment/stock-analysis',
     labelKey: 'nav.stockAnalysis',
     icon: 'Document',
+  },
+  {
+    id: 'investment.aiBond',
+    domainId: 'investment',
+    path: '/investment/ai-assets/bond',
+    labelKey: 'nav.aiBond',
+    icon: 'Document',
+  },
+  {
+    id: 'investment.aiFund',
+    domainId: 'investment',
+    path: '/investment/ai-assets/fund',
+    labelKey: 'nav.aiFund',
+    icon: 'Collection',
+  },
+  {
+    id: 'investment.aiFutures',
+    domainId: 'investment',
+    path: '/investment/ai-assets/futures',
+    labelKey: 'nav.aiFutures',
+    icon: 'TrendCharts',
+  },
+  {
+    id: 'investment.aiOption',
+    domainId: 'investment',
+    path: '/investment/ai-assets/option',
+    labelKey: 'nav.aiOption',
+    icon: 'DataAnalysis',
+  },
+  {
+    id: 'investment.aiFx',
+    domainId: 'investment',
+    path: '/investment/ai-assets/fx',
+    labelKey: 'nav.aiFx',
+    icon: 'Connection',
+  },
+  {
+    id: 'investment.aiCrypto',
+    domainId: 'investment',
+    path: '/investment/ai-assets/crypto',
+    labelKey: 'nav.aiCrypto',
+    icon: 'Coin',
+  },
+  {
+    id: 'investment.scanners',
+    domainId: 'investment',
+    path: '/data/intelligence/scanners',
+    labelKey: 'nav.scanners',
+    icon: 'Aim',
+    legacyPaths: ['/scanners'],
   },
 
   {

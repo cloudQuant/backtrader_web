@@ -18,6 +18,8 @@ dependencies = [
     "email-validator>=2.0.0",
     "pydantic-settings>=2.14.2",
     "jinja2>=3.1.0",
+    "markdown-it-py>=3.0.0,<5.0.0",
+    "weasyprint>=67.0",
     "slowapi>=0.1.9",
     "sqlalchemy[asyncio]>=2.0.25",
     "aiosqlite>=0.19.0",
@@ -48,6 +50,7 @@ dev = [
     "pytest-rerunfailures>=14.0",
     "pytest-timeout>=2.3.1",
     "pytest-xdist>=3.5.0",
+    "freezegun>=1.5.0",
     "hypothesis>=6.0.0",
     "httpx>=0.26.0",
     "ruff>=0.1.0",
@@ -56,6 +59,7 @@ dev = [
     "openapi-spec-validator>=0.7.1",
     "bandit>=1.7.0",
     "pip-audit>=2.7.0",
+    "purgedcv>=0.1.0",
 ]
 postgres = ["asyncpg>=0.29.0"]
 mysql = ["aiomysql>=0.2.0"]

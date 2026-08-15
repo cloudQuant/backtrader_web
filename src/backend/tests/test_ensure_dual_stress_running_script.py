@@ -1,10 +1,16 @@
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = PROJECT_ROOT / "scripts" / "ops" / "ensure_dual_stress_running.sh"
+TRUE_BIN = shutil.which("true")
+FALSE_BIN = shutil.which("false")
+
+if TRUE_BIN is None or FALSE_BIN is None:  # pragma: no cover - required POSIX fixture
+    raise RuntimeError("POSIX true/false commands are required for stress-script tests")
 
 
 def _fake_dual_stress_process(*, targets: str, monitor: bool) -> subprocess.Popen:
@@ -50,7 +56,7 @@ def test_restart_fails_when_existing_supervisor_does_not_exit(tmp_path: Path) ->
             {
                 "DUAL_STRESS_PID_FILE": str(pid_file),
                 "DUAL_STRESS_LOG_FILE": str(log_file),
-                "PYTHON_BIN": "/bin/true",
+                "PYTHON_BIN": TRUE_BIN,
                 "STOP_TIMEOUT_SECONDS": "1",
                 "TARGETS": targets,
             }
@@ -89,7 +95,7 @@ def test_status_discovers_running_monitor_without_pid_file(tmp_path: Path) -> No
             {
                 "DUAL_STRESS_PID_FILE": str(pid_file),
                 "DUAL_STRESS_MONITOR_PID_FILE": str(monitor_pid_file),
-                "PYTHON_BIN": "/bin/true",
+                "PYTHON_BIN": TRUE_BIN,
                 "TARGETS": targets,
             }
         )
@@ -127,7 +133,7 @@ def test_status_reports_split_supervisor_pid_files(tmp_path: Path) -> None:
             {
                 "DUAL_STRESS_PID_FILE": str(pid_file),
                 "DUAL_STRESS_SUPERVISOR_PID_FILES": str(split_pid_file),
-                "PYTHON_BIN": "/bin/true",
+                "PYTHON_BIN": TRUE_BIN,
                 "TARGETS": "unit-test-no-primary-supervisor",
             }
         )
@@ -161,7 +167,7 @@ def test_status_removes_stale_split_supervisor_pid_file(tmp_path: Path) -> None:
         {
             "DUAL_STRESS_PID_FILE": str(pid_file),
             "DUAL_STRESS_SUPERVISOR_PID_FILES": str(split_pid_file),
-            "PYTHON_BIN": "/bin/true",
+            "PYTHON_BIN": TRUE_BIN,
             "TARGETS": "unit-test-stale-split-supervisor",
         }
     )
@@ -197,7 +203,7 @@ def test_status_ignores_reused_pid_for_unrelated_split_supervisor_pid_file(
             {
                 "DUAL_STRESS_PID_FILE": str(pid_file),
                 "DUAL_STRESS_SUPERVISOR_PID_FILES": str(split_pid_file),
-                "PYTHON_BIN": "/bin/true",
+                "PYTHON_BIN": TRUE_BIN,
                 "TARGETS": "unit-test-reused-split-supervisor",
             }
         )
@@ -237,7 +243,7 @@ def test_start_reuses_running_split_supervisor(tmp_path: Path) -> None:
                 "DUAL_STRESS_PID_FILE": str(pid_file),
                 "DUAL_STRESS_LOG_FILE": str(log_file),
                 "DUAL_STRESS_SUPERVISOR_PID_FILES": str(split_pid_file),
-                "PYTHON_BIN": "/bin/false",
+                "PYTHON_BIN": FALSE_BIN,
                 "TARGETS": "unit-test-no-primary-supervisor",
             }
         )
@@ -286,7 +292,7 @@ def test_start_reports_all_running_split_supervisors(tmp_path: Path) -> None:
                 "DUAL_STRESS_PID_FILE": str(pid_file),
                 "DUAL_STRESS_LOG_FILE": str(log_file),
                 "DUAL_STRESS_SUPERVISOR_PID_FILES": (f"{first_pid_file} {second_pid_file}"),
-                "PYTHON_BIN": "/bin/false",
+                "PYTHON_BIN": FALSE_BIN,
                 "TARGETS": "unit-test-no-primary-supervisor",
             }
         )
@@ -332,7 +338,7 @@ def test_monitor_reuses_discovered_running_monitor(tmp_path: Path) -> None:
         env.update(
             {
                 "DUAL_STRESS_MONITOR_PID_FILE": str(monitor_pid_file),
-                "PYTHON_BIN": "/bin/false",
+                "PYTHON_BIN": FALSE_BIN,
                 "TARGETS": targets,
             }
         )

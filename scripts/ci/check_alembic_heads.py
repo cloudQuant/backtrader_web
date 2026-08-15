@@ -19,14 +19,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-BACKEND_DIR = Path(__file__).resolve().parents[1] / "src" / "backend"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+BACKEND_DIR = REPO_ROOT / "src" / "backend"
 ALEMBIC_DIR = BACKEND_DIR / "alembic"
 
 
 def run_alembic_command(args: list[str]) -> tuple[int, str, str]:
     """Run an alembic command and return (returncode, stdout, stderr)."""
     result = subprocess.run(
-        ["python", "-m", "alembic"] + args,
+        [sys.executable, "-m", "alembic"] + args,
         cwd=str(BACKEND_DIR),
         capture_output=True,
         text=True,

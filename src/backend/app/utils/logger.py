@@ -172,6 +172,44 @@ SENSITIVE_PATTERNS = [
     "authorization",
     "credential",
 ]
+_REDACTED_VALUE = "****"
+_SENSITIVE_TEXT_PATTERN = re.compile(
+    r"(?ix)"
+    r"(?:"
+    r"(?P<label>"
+    r"[\"']?\b(?:api[_ -]?key|access[_ -]?key|secret(?:[_ -]?key)?|"
+    r"client[_ -]?secret|private[_ -]?key|password|passwd|authorization|"
+    r"access[_ -]?token|refresh[_ -]?token|auth[_ -]?token|cookie|token)\b[\"']?"
+    r"\s*(?:=|:)\s*"
+    r")"
+    r"(?:bearer\s+)?[^\s,;;&]+"
+    r")"
+    r"|(?P<bearer>\bbearer\s+)[A-Za-z0-9._~+/=-]+"
+)
+
+
+def _redact_sensitive_text(value: str) -> str:
+    """Remove common credential forms from an otherwise unstructured string."""
+
+    def _replace(match: re.Match[str]) -> str:
+        if label := match.group("label"):
+            return f"{label}{_REDACTED_VALUE}"
+        return f"{match.group('bearer')}{_REDACTED_VALUE}"
+
+    return _SENSITIVE_TEXT_PATTERN.sub(_replace, value)
+
+
+def _redact_exception_record(exception: Any) -> Any:
+    """Return an exception record whose rendered message cannot expose a credential."""
+    try:
+        redacted_message = _redact_sensitive_text(str(exception.value))
+        if redacted_message == str(exception.value):
+            return exception
+        return exception._replace(value=RuntimeError(redacted_message))
+    except Exception:
+        # If an unusual exception record cannot be safely rewritten, omit it
+        # instead of passing an untrusted value to a sink.
+        return None
 
 
 class LogLevel(str, Enum):
@@ -225,17 +263,20 @@ def _filter_sensitive_data(data: dict[str, Any]) -> dict[str, Any]:
     for key, value in data.items():
         key_lower = key.lower()
         if any(pattern in key_lower for pattern in SENSITIVE_PATTERNS):
-            # Mask sensitive values
-            if isinstance(value, str) and len(value) > 4:
-                filtered[key] = value[:2] + "****" + value[-2:]
-            else:
-                filtered[key] = "****"
+            filtered[key] = _REDACTED_VALUE
         elif isinstance(value, dict):
             filtered[key] = _filter_sensitive_data(value)
         elif isinstance(value, list):
             filtered[key] = [
-                _filter_sensitive_data(item) if isinstance(item, dict) else item for item in value
+                _filter_sensitive_data(item)
+                if isinstance(item, dict)
+                else _redact_sensitive_text(item)
+                if isinstance(item, str)
+                else item
+                for item in value
             ]
+        elif isinstance(value, str):
+            filtered[key] = _redact_sensitive_text(value)
         else:
             filtered[key] = value
     return filtered
@@ -300,7 +341,7 @@ def _serialize_log(record: dict[str, Any]) -> str:
     module = module_source.split(".")[-1] if "." in module_source else (module_source or "root")
 
     # Truncate message to 10000 characters
-    message = record["message"]
+    message = _redact_sensitive_text(str(record["message"]))
     if len(message) > 10000:
         message = message[:10000]
 
@@ -318,14 +359,16 @@ def _serialize_log(record: dict[str, Any]) -> str:
         exception = record["exception"]
         log_entry["exception"] = {
             "type": exception.type.__name__,
-            "message": str(exception.value),
+            "message": _redact_sensitive_text(str(exception.value)),
             "traceback": " interrupted"
             if exception.type.__name__ == "KeyboardInterrupt"
-            else "".join(
-                traceback.format_exception(
-                    exception.type,
-                    exception.value,
-                    exception.traceback,
+            else _redact_sensitive_text(
+                "".join(
+                    traceback.format_exception(
+                        exception.type,
+                        exception.value,
+                        exception.traceback,
+                    )
                 )
             ),
         }
@@ -358,10 +401,26 @@ def _serialize_log(record: dict[str, Any]) -> str:
 
 
 def _patch_record(record: Any) -> bool:
-    """Ensure record has default values for optional fields."""
+    """Ensure record is redacted and has default values for optional fields."""
+    record["message"] = _redact_sensitive_text(str(record.get("message", "")))
+    extra = record.get("extra")
+    if isinstance(extra, dict):
+        record["extra"] = _filter_sensitive_data(extra)
+    if record.get("exception"):
+        record["exception"] = _redact_exception_record(record["exception"])
     if "request_id" not in record["extra"]:
         record["extra"]["request_id"] = "N/A"
     return True
+
+
+def _sanitize_log_record(record: Any) -> None:
+    """Apply record redaction through Loguru's global patcher contract."""
+    _patch_record(record)
+
+
+# Apply the same redaction to the default loguru sink and every bound logger,
+# including messages emitted before setup_logger() installs application sinks.
+logger = logger.patch(_sanitize_log_record)
 
 
 _PLAIN_FORMAT = (
@@ -418,7 +477,9 @@ def _add_file_handler(
     """Add a rotating file handler with common defaults."""
 
     def _tag_filter(record: Any) -> bool:
-        return bool(tag_filter and tag_filter in record["extra"].get("tags", []))
+        return _patch_record(record) and bool(
+            tag_filter and tag_filter in record["extra"].get("tags", [])
+        )
 
     filt: Callable[[Any], bool] = _tag_filter if tag_filter else _patch_record
 
@@ -438,7 +499,7 @@ def _add_file_handler(
             catch=True,
             filter=filt,
             backtrace=backtrace,
-            diagnose=backtrace,
+            diagnose=False,
             serialize=True,
         )
     else:
@@ -454,7 +515,7 @@ def _add_file_handler(
             catch=True,
             filter=filt,
             backtrace=backtrace,
-            diagnose=backtrace,
+            diagnose=False,
         )
 
 

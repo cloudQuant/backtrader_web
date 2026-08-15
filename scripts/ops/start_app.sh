@@ -22,6 +22,9 @@ FRONTEND_DIR="$PROJECT_ROOT/src/frontend"
 PID_DIR="$PROJECT_ROOT/.pids"
 LOG_DIR="$PROJECT_ROOT/logs"
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python || true)}"
+BACKEND_PORT="${BACKEND_PORT:-8000}"
+BACKEND_HEALTH_URL="${BACKEND_HEALTH_URL:-http://127.0.0.1:${BACKEND_PORT}/health}"
+BACKEND_STARTUP_TIMEOUT_SECONDS="${BACKEND_STARTUP_TIMEOUT_SECONDS:-30}"
 
 # PID 文件
 BACKEND_PID_FILE="$PID_DIR/backend.pid"
@@ -45,6 +48,39 @@ start_background() {
         nohup "$@" > "$log_file" 2>&1 &
     fi
     echo $!
+}
+
+backend_is_running() {
+    ps -p "$BACKEND_PID" > /dev/null 2>&1
+}
+
+backend_is_healthy() {
+    local response
+    response=$(curl --fail --silent --max-time 2 "$BACKEND_HEALTH_URL" 2>/dev/null) || return 1
+    printf '%s\n' "$response" | grep -Eq '"database"[[:space:]]*:[[:space:]]*"connected"'
+}
+
+wait_for_backend_ready() {
+    local elapsed=0
+
+    while [ "$elapsed" -lt "$BACKEND_STARTUP_TIMEOUT_SECONDS" ]; do
+        if ! backend_is_running; then
+            return 1
+        fi
+        if backend_is_healthy; then
+            return 0
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    return 1
+}
+
+show_backend_startup_failure() {
+    echo -e "${RED}后端服务启动失败或健康检查未通过: $BACKEND_HEALTH_URL${NC}"
+    echo -e "${YELLOW}请确认数据库服务已启动，并查看日志: $BACKEND_LOG${NC}"
+    tail -20 "$BACKEND_LOG" || true
 }
 
 echo -e "${CYAN}"
@@ -85,6 +121,10 @@ if [ -z "$PYTHON_BIN" ] || [ ! -x "$PYTHON_BIN" ]; then
     echo -e "${RED}错误: 未找到 Python，请先激活项目 Python 环境或设置 PYTHON_BIN${NC}"
     exit 1
 fi
+if ! [[ "$BACKEND_STARTUP_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+    echo -e "${RED}错误: BACKEND_STARTUP_TIMEOUT_SECONDS 必须是正整数${NC}"
+    exit 1
+fi
 PYTHON_VERSION=$("$PYTHON_BIN" --version | awk '{print $2}')
 echo -e "  Python 版本: ${GREEN}$PYTHON_VERSION${NC}"
 
@@ -118,6 +158,10 @@ if ! command -v npm &> /dev/null; then
     echo -e "${RED}错误: 未找到 npm${NC}"
     exit 1
 fi
+if ! command -v curl &> /dev/null; then
+    echo -e "${RED}错误: 未找到 curl，无法验证后端健康状态${NC}"
+    exit 1
+fi
 
 ###############################################################################
 # 后端启动
@@ -141,18 +185,15 @@ fi
 # 启动后端
 BACKEND_HOST="${HOST:-0.0.0.0}"
 BACKEND_DEBUG="${DEBUG:-true}"
-echo -e "  ${GREEN}启动 FastAPI 服务 (端口 8000, 地址 ${BACKEND_HOST})...${NC}"
-BACKEND_PID=$(start_background "$BACKEND_LOG" env DEBUG="$BACKEND_DEBUG" HOST="$BACKEND_HOST" "$PYTHON_BIN" -m uvicorn app.main:app --host "$BACKEND_HOST" --port 8000)
+echo -e "  ${GREEN}启动 FastAPI 服务 (端口 ${BACKEND_PORT}, 地址 ${BACKEND_HOST})...${NC}"
+BACKEND_PID=$(start_background "$BACKEND_LOG" env DEBUG="$BACKEND_DEBUG" HOST="$BACKEND_HOST" "$PYTHON_BIN" -m uvicorn app.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT")
 echo $BACKEND_PID > "$BACKEND_PID_FILE"
 
-# 等待后端启动
-sleep 3
-
-if ps -p "$BACKEND_PID" > /dev/null 2>&1; then
+# 等待后端启动并验证应用完成生命周期初始化。
+if wait_for_backend_ready; then
     echo -e "  ${GREEN}后端服务启动成功 (PID: $BACKEND_PID)${NC}"
 else
-    echo -e "${RED}后端服务启动失败，请查看日志: $BACKEND_LOG${NC}"
-    cat "$BACKEND_LOG" | tail -20
+    show_backend_startup_failure
     rm -f "$BACKEND_PID_FILE"
     exit 1
 fi
@@ -203,10 +244,13 @@ echo -e "${BLUE}[4/4]${NC} 服务状态检查..."
 sleep 2
 
 # 检查后端
-if ps -p "$BACKEND_PID" > /dev/null 2>&1; then
-    echo -e "  ${GREEN}✓${NC} 后端服务运行中 (http://localhost:8000)"
+if backend_is_running && backend_is_healthy; then
+    echo -e "  ${GREEN}✓${NC} 后端服务运行中 (${BACKEND_HEALTH_URL})"
 else
-    echo -e "  ${RED}✗${NC} 后端服务未运行"
+    echo -e "  ${RED}✗${NC} 后端服务未运行或健康检查失败"
+    show_backend_startup_failure
+    rm -f "$BACKEND_PID_FILE"
+    exit 1
 fi
 
 # 检查前端
@@ -229,9 +273,9 @@ echo "  服务启动完成！"
 echo -e "=====================================${NC}"
 echo ""
 echo -e "  ${CYAN}前端地址:${NC} http://localhost:3000"
-echo -e "  ${CYAN}后端地址:${NC} http://localhost:8000"
-echo -e "  ${CYAN}API文档:${NC}  http://localhost:8000/docs"
-echo -e "  ${CYAN}WebSocket:${NC} ws://localhost:8000/ws"
+echo -e "  ${CYAN}后端地址:${NC} http://localhost:${BACKEND_PORT}"
+echo -e "  ${CYAN}API文档:${NC}  http://localhost:${BACKEND_PORT}/docs"
+echo -e "  ${CYAN}WebSocket:${NC} ws://localhost:${BACKEND_PORT}/ws"
 echo ""
 echo -e "  ${YELLOW}日志目录:${NC} $LOG_DIR"
 echo -e "  ${YELLOW}PID目录:${NC} $PID_DIR"

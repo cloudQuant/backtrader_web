@@ -14,6 +14,9 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from baseline_update_guard import assert_update_allowed  # noqa: E402
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = Path(__file__).with_name("large_file_baseline.json")
@@ -89,6 +92,7 @@ def main() -> int:
 
     counts = source_line_counts()
     if args.update:
+        assert_update_allowed("large_file_ratchet")
         write_baseline(counts)
         print(f"large_file_ratchet: baseline updated ({len(counts)} files scanned)")
         return 0
