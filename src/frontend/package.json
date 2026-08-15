@@ -28,7 +28,7 @@
     "echarts": "^5.4.3",
     "echarts-gl": "^2.0.9",
     "element-plus": "^2.5.0",
-    "marked": "^18.0.4",
+    "marked": "^18.0.9",
     "monaco-editor": "^0.55.1",
     "pinia": "^2.1.7",
     "pinia-plugin-persistedstate": "^3.2.3",
