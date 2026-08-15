@@ -30,7 +30,7 @@
     "element-plus": "^2.5.0",
     "marked": "^18.0.4",
     "monaco-editor": "^0.55.1",
-    "pinia": "^2.1.7",
+    "pinia": "^4.0.3",
     "pinia-plugin-persistedstate": "^3.2.3",
     "vue": "^3.4.0",
     "vue-echarts": "^6.6.5",
