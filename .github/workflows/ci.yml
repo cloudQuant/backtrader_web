@@ -990,9 +990,10 @@ jobs:
           # 2026-08 runner image; point it at the explicit install from the
           # previous step.
           CHROME_PATH: /usr/bin/google-chrome-stable
-          # lhci/login.js injects this into localStorage so authenticated
-          # Critical_Page_Set routes render against the stubbed /api surface
-          # served by src/frontend/lhci-preview.config.mjs.
+          # lhci/login.js injects this into sessionStorage. The current URL
+          # set audits the public /login page; full Critical_Page_Set
+          # coverage is registered in iteration 194 (needs per-endpoint API
+          # fixtures served by src/frontend/lhci-preview.config.mjs).
           LHCI_AUTH_TOKEN: lhci-static-preview-token
           LHCI_AUTH_USER: lhci-preview
         run: |

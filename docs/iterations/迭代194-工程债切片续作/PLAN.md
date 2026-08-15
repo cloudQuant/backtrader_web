@@ -51,6 +51,13 @@
 
 `docs/runbooks/backup-restore.md` 在 staging 实跑恢复演练。
 
+### Task I：Lighthouse 多页审计恢复（193 Task D 递延）
+
+193 已把死门禁修活：Chrome 安装、SPA 预览服务（`src/frontend/lhci-preview.config.mjs` stub）、
+`/login` 实审。恢复 175 §3.1 的 Critical_Page_Set 7 页覆盖需要按端点提供真实数据形状的
+API fixture（当前通用空 envelope 下,认证页挂起不渲染）。另需 `lhci/login.js` 的
+sessionStorage 注入配合（已就绪）。
+
 ## 验收标准
 
 - `large_file_baseline.json` 中 `_deferred_regressions` 清空（2 项前端回归修复至原基线）

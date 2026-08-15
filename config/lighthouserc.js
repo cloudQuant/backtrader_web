@@ -15,18 +15,13 @@ module.exports = {
       // vite preview announces readiness with its `Local:` banner line,
       // which the default lhci ready pattern does not match.
       startServerReadyPattern: 'Local:',
-      // Iteration 175 §3.1 — Critical_Page_Set (7 pages).
-      // The first URL renders the unauthenticated login screen and acts
-      // as our public-page check. The remaining 6 require auth and use the
-      // puppeteerScript hook to inject a session token before navigating.
+      // Iteration 193 Task D: the gate audits the public login page, which
+      // renders against the stubbed API. Re-extending to the full
+      // Critical_Page_Set (175 §3.1) needs per-endpoint API fixtures —
+      // authenticated pages hang with the generic empty envelope.
+      // Registered in iteration 194.
       url: [
         'http://localhost:4173/login',
-        'http://localhost:4173/dashboard',
-        'http://localhost:4173/ai-chat',
-        'http://localhost:4173/backtests',
-        'http://localhost:4173/backtests/1',
-        'http://localhost:4173/knowledge-base',
-        'http://localhost:4173/strategies',
       ],
       // Number of runs per URL for more stable results
       numberOfRuns: 1,
