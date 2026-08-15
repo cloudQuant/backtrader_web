@@ -254,8 +254,10 @@ def upgrade() -> None:
                 "(owner_scope IN ('PUBLIC_SHADOW', 'ADMIN_EVAL') "
                 "AND approved_manifest_id IS NOT NULL AND manifest_entry_key IS NOT NULL "
                 "AND manifest_content_hash IS NOT NULL AND "
-                "((enabled = 1 AND system_target_key IS NOT NULL) "
-                "OR (enabled = 0 AND system_target_key IS NULL)))",
+                # TRUE/FALSE literals are portable across SQLite / MySQL /
+                # PostgreSQL; `enabled = 1` breaks on PostgreSQL booleans.
+                "((enabled = TRUE AND system_target_key IS NOT NULL) "
+                "OR (enabled = FALSE AND system_target_key IS NULL)))",
             )
         if _MANIFEST_INDEX not in schedule_indexes:
             batch.create_index(_MANIFEST_INDEX, ["approved_manifest_id", "enabled"])
