@@ -11,7 +11,7 @@ module.exports = {
       // Serve the built SPA through vite preview: it provides history-API
       // fallback for the deep links below. lhci's plain staticDistDir server
       // 404s on SPA routes (ERRORED_DOCUMENT_REQUEST on /login).
-      startServerCommand: 'cd src/frontend && npx vite preview --port 4173 --strictPort',
+      startServerCommand: 'cd src/frontend && npx vite preview --port 4173 --strictPort --config ./lhci-preview.config.mjs',
       // vite preview announces readiness with its `Local:` banner line,
       // which the default lhci ready pattern does not match.
       startServerReadyPattern: 'Local:',

@@ -990,6 +990,11 @@ jobs:
           # 2026-08 runner image; point it at the explicit install from the
           # previous step.
           CHROME_PATH: /usr/bin/google-chrome-stable
+          # lhci/login.js injects this into localStorage so authenticated
+          # Critical_Page_Set routes render against the stubbed /api surface
+          # served by src/frontend/lhci-preview.config.mjs.
+          LHCI_AUTH_TOKEN: lhci-static-preview-token
+          LHCI_AUTH_USER: lhci-preview
         run: |
           # Iteration 193 Task D: fix dead gate -- config lives at config/lighthouserc.js
           # (root-level lighthouserc.js does not exist). Capture exit so the
