@@ -283,13 +283,26 @@ async def test_task_runner_renews_lease_while_claimed_work_is_still_running() ->
 
         await asyncio.sleep(1.1)
 
-        async with async_session_maker() as db:
-            task = await db.get(AssetAnalysisTask, task_id)
-            assert task is not None
-            assert task.lease_heartbeat_at is not None
-            assert task.lease_heartbeat_at > initial_heartbeat
-            assert task.lease_expires_at is not None
-            assert task.lease_expires_at > task.lease_heartbeat_at
+        # Poll instead of a single read: on loaded runners the renewal tick
+        # (lease_seconds=1) can be scheduled late, and one snapshot may still
+        # show the initial heartbeat (flaky on CI py3.10).
+        task = None
+        deadline = asyncio.get_running_loop().time() + 10
+        while asyncio.get_running_loop().time() < deadline:
+            async with async_session_maker() as db:
+                task = await db.get(AssetAnalysisTask, task_id)
+            if (
+                task is not None
+                and task.lease_heartbeat_at is not None
+                and task.lease_heartbeat_at > initial_heartbeat
+            ):
+                break
+            await asyncio.sleep(0.2)
+        assert task is not None
+        assert task.lease_heartbeat_at is not None
+        assert task.lease_heartbeat_at > initial_heartbeat
+        assert task.lease_expires_at is not None
+        assert task.lease_expires_at > task.lease_heartbeat_at
     finally:
         release.set()
         await worker
