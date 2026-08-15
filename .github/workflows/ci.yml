@@ -642,7 +642,7 @@ jobs:
       # Audits the pinned production lock (the deployable dependency set) so the
       # result is deterministic and matches what ships in the image.
       - name: Enforce single production lockfile (P0-1 anti-drift guard)
-        run: python scripts/ci/check_prod_lock_singleton.py
+        run: python ../../scripts/ci/check_prod_lock_singleton.py
 
       - name: Audit Python dependencies (pip-audit, blocking)
         run: |

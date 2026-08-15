@@ -387,12 +387,12 @@ def test_plugin_preserves_raw_missing_values_then_returns_an_asset_specific_reje
         ),
         (
             "option",
-                {
-                    "option": {
-                        "underlying_return_20": 0.06,
-                        "implied_volatility": 0.50,
-                    }
-                },
+            {
+                "option": {
+                    "underlying_return_20": 0.06,
+                    "implied_volatility": 0.50,
+                }
+            },
             "contract_edge",
             "LONG",
         ),
@@ -558,12 +558,15 @@ def test_asset_level_fx_reference_stays_research_only_after_promotion() -> None:
     assert candidate.prediction_heads == []
     assert candidate.primary_head_code is None
     assert candidate.reason_codes == ["FX.REFERENCE_ONLY"]
-    assert plugin.score_outcome(
-        decision=candidate,
-        horizon_code="standard",
-        as_of=raw.cutoff_at,
-        snapshot=raw,
-    ) == []
+    assert (
+        plugin.score_outcome(
+            decision=candidate,
+            horizon_code="standard",
+            as_of=raw.cutoff_at,
+            snapshot=raw,
+        )
+        == []
+    )
     assert published.actionability == "RESEARCH_ONLY"
     assert published.recommendation == "HOLD"
     assert published.trade_intent == "NONE"
@@ -617,12 +620,15 @@ def test_futures_product_stays_research_only_until_exact_contract_is_frozen() ->
     assert candidate.prediction_heads == []
     assert candidate.primary_head_code is None
     assert candidate.reason_codes == ["FUTURES.PRODUCT_LEVEL_RESEARCH_ONLY"]
-    assert plugin.score_outcome(
-        decision=candidate,
-        horizon_code="standard",
-        as_of=raw.cutoff_at,
-        snapshot=raw,
-    ) == []
+    assert (
+        plugin.score_outcome(
+            decision=candidate,
+            horizon_code="standard",
+            as_of=raw.cutoff_at,
+            snapshot=raw,
+        )
+        == []
+    )
     assert published.actionability == "RESEARCH_ONLY"
     assert published.recommendation == "HOLD"
     assert published.trade_intent == "NONE"
@@ -659,12 +665,15 @@ def test_confirmed_perpetual_bond_is_degraded_research_only_not_an_action() -> N
     assert candidate.prediction_heads == []
     assert candidate.primary_head_code is None
     assert candidate.reason_codes == ["BOND.PERPETUAL_MODEL_REQUIRED"]
-    assert plugin.score_outcome(
-        decision=candidate,
-        horizon_code="standard",
-        as_of=raw.cutoff_at,
-        snapshot=raw,
-    ) == []
+    assert (
+        plugin.score_outcome(
+            decision=candidate,
+            horizon_code="standard",
+            as_of=raw.cutoff_at,
+            snapshot=raw,
+        )
+        == []
+    )
     assert published.quality_status == "DEGRADED"
     assert published.actionability == "RESEARCH_ONLY"
     assert published.recommendation == "HOLD"
@@ -677,7 +686,12 @@ def test_confirmed_perpetual_bond_is_degraded_research_only_not_an_action() -> N
     [
         ("bond", "bond", {"evidence_coverage_low": True}, "COMMON.EVIDENCE_COVERAGE_LOW"),
         ("fund", "fund", {"management_evidence_available": False}, "FUND.MANAGEMENT_EVIDENCE_LOW"),
-        ("futures", "futures", {"term_structure_complete": False}, "FUTURES.TERM_STRUCTURE_INCOMPLETE"),
+        (
+            "futures",
+            "futures",
+            {"term_structure_complete": False},
+            "FUTURES.TERM_STRUCTURE_INCOMPLETE",
+        ),
         (
             "option",
             "option",
@@ -722,12 +736,15 @@ def test_secondary_evidence_gap_is_degraded_research_only(
     assert candidate.prediction_heads == []
     assert candidate.primary_head_code is None
     assert candidate.reason_codes == [reason_code]
-    assert plugin.score_outcome(
-        decision=candidate,
-        horizon_code="standard",
-        as_of=raw.cutoff_at,
-        snapshot=raw,
-    ) == []
+    assert (
+        plugin.score_outcome(
+            decision=candidate,
+            horizon_code="standard",
+            as_of=raw.cutoff_at,
+            snapshot=raw,
+        )
+        == []
+    )
     assert published.actionability == "RESEARCH_ONLY"
     assert published.recommendation == "HOLD"
     assert published.trade_intent == "NONE"

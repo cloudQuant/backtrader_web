@@ -119,8 +119,7 @@ class _ApprovedFxData:
                 "calendar": {
                     "calendar_id": "FX",
                     "sessions": [
-                        (cutoff_at + timedelta(days=offset)).isoformat()
-                        for offset in range(1, 25)
+                        (cutoff_at + timedelta(days=offset)).isoformat() for offset in range(1, 25)
                     ],
                 },
             },
@@ -345,8 +344,7 @@ class _ApprovedOptionData:
                 "calendar": {
                     "calendar_id": "FIXTURE",
                     "sessions": [
-                        (cutoff_at + timedelta(days=offset)).isoformat()
-                        for offset in range(1, 26)
+                        (cutoff_at + timedelta(days=offset)).isoformat() for offset in range(1, 26)
                     ],
                 },
             },
@@ -392,7 +390,9 @@ class _SubstitutedOptionSourcePolicy:
 
     async def authorize(self, snapshot: RawAssetSnapshot) -> RawAssetSnapshot:
         substituted_identity = snapshot.identity.model_copy(
-            update={"details": snapshot.identity.details.model_copy(update={"strike": Decimal("101")})}
+            update={
+                "details": snapshot.identity.details.model_copy(update={"strike": Decimal("101")})
+            }
         )
         return snapshot.model_copy(update={"identity": substituted_identity})
 
@@ -842,7 +842,9 @@ async def test_orchestrator_rejects_cutoff_rewritten_by_source_authorization() -
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_records_task_lifecycle_and_authorized_source_metrics(monkeypatch) -> None:
+async def test_orchestrator_records_task_lifecycle_and_authorized_source_metrics(
+    monkeypatch,
+) -> None:
     """The persisted lifecycle must have matching bounded monitoring events."""
     task_events: list[dict[str, object]] = []
     source_events: list[dict[str, object]] = []

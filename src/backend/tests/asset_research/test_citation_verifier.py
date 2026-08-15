@@ -78,4 +78,3 @@ def test_public_payload_passes_with_known_citations() -> None:
     result = verify_public_payload(payload)
 
     assert result.passed is True
-

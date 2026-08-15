@@ -78,11 +78,7 @@ class InstrumentResolver:
         items = [item for item in payload.get("items", []) if isinstance(item, dict)]
         if identity_level is None:
             return items
-        return [
-            item
-            for item in items
-            if self._candidate_identity_level(item) == identity_level
-        ]
+        return [item for item in items if self._candidate_identity_level(item) == identity_level]
 
     @staticmethod
     def _filter_candidates(

@@ -37,12 +37,8 @@ def upgrade() -> None:
     """Expand task operational state without inventing a historic lease."""
     with op.batch_alter_table(_TASK_TABLE) as batch:
         batch.add_column(sa.Column("lease_token", sa.String(length=64), nullable=True))
-        batch.add_column(
-            sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=True)
-        )
-        batch.add_column(
-            sa.Column("lease_heartbeat_at", sa.DateTime(timezone=True), nullable=True)
-        )
+        batch.add_column(sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=True))
+        batch.add_column(sa.Column("lease_heartbeat_at", sa.DateTime(timezone=True), nullable=True))
         batch.add_column(
             sa.Column(
                 "attempt_count",

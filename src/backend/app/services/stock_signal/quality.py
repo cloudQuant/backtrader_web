@@ -93,7 +93,9 @@ class DataQualityGate:
             "news_latest_date": news_date.isoformat() if news_date else None,
         }
         if rejected:
-            return DataQualityAssessment("rejected", tuple(sorted(set(rejected + degraded))), freshness)
+            return DataQualityAssessment(
+                "rejected", tuple(sorted(set(rejected + degraded))), freshness
+            )
         if degraded:
             return DataQualityAssessment("degraded", tuple(sorted(set(degraded))), freshness)
         return DataQualityAssessment("eligible", (), freshness)

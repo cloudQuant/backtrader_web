@@ -141,9 +141,7 @@ async def test_capabilities_do_not_advertise_an_unbound_approved_source(
 
 
 @pytest.mark.asyncio
-async def test_admin_stock_compat_reconcile_reads_legacy_system_rows(
-    client, auth_headers
-) -> None:
+async def test_admin_stock_compat_reconcile_reads_legacy_system_rows(client, auth_headers) -> None:
     """The compatibility audit endpoint is admin-only and reports structured rows."""
     async with async_session_maker() as db:
         db.add(
@@ -266,7 +264,9 @@ async def test_evidence_endpoint_returns_only_the_public_whitelisted_manifest(
     client, auth_headers
 ) -> None:
     class _EvidenceService:
-        async def get_signal_evidence(self, *, user_id: str, prediction_id: str) -> dict[str, object]:
+        async def get_signal_evidence(
+            self, *, user_id: str, prediction_id: str
+        ) -> dict[str, object]:
             assert user_id
             assert prediction_id == "prediction-1"
             return {

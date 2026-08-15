@@ -108,7 +108,11 @@ class SignalPolicy:
             action = "BUY"
 
         confidence = _clamp(max(buy_probability, sell_probability, watch_probability))
-        direction = {"BUY": "趋势和量价特征偏强", "SELL": "风险或趋势特征偏弱", "WATCH": "方向证据不足"}[action]
+        direction = {
+            "BUY": "趋势和量价特征偏强",
+            "SELL": "风险或趋势特征偏弱",
+            "WATCH": "方向证据不足",
+        }[action]
         return SignalDecision(
             action=action,
             confidence_score=confidence,

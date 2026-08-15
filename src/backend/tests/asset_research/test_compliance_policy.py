@@ -10,9 +10,7 @@ def test_mainland_china_never_publishes_fx_or_crypto_directional_advice() -> Non
         directional_fx_crypto_enabled=True,
     )
 
-    assert policy.is_region_restricted(
-        asset_type="fx", source_manifest={"jurisdictions": ["CN"]}
-    )
+    assert policy.is_region_restricted(asset_type="fx", source_manifest={"jurisdictions": ["CN"]})
     assert policy.is_region_restricted(
         asset_type="crypto", source_manifest={"jurisdictions": ["CN"]}
     )
@@ -32,13 +30,9 @@ def test_non_mainland_fx_crypto_need_explicit_switch_and_source_jurisdiction() -
         directional_fx_crypto_enabled=True,
     )
 
-    assert disabled.is_region_restricted(
-        asset_type="fx", source_manifest={"jurisdictions": ["US"]}
-    )
+    assert disabled.is_region_restricted(asset_type="fx", source_manifest={"jurisdictions": ["US"]})
     assert enabled.is_region_restricted(asset_type="crypto", source_manifest={})
-    assert enabled.is_region_restricted(
-        asset_type="fx", source_manifest={"jurisdictions": ["GB"]}
-    )
+    assert enabled.is_region_restricted(asset_type="fx", source_manifest={"jurisdictions": ["GB"]})
     assert not enabled.is_region_restricted(
         asset_type="crypto", source_manifest={"jurisdictions": ["US", "GB"]}
     )

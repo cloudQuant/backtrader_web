@@ -69,7 +69,9 @@ class StockAnalysisReportBuilder:
             "decision": {
                 "label": decision.get("action", "观望"),
                 "target_price": decision.get("target_price"),
-                "confidence_score": decision.get("confidence_score", decision.get("confidence", 0.5)),
+                "confidence_score": decision.get(
+                    "confidence_score", decision.get("confidence", 0.5)
+                ),
                 "risk_score": decision.get("risk_score", 0.5),
                 "risk_level": risk_level,
                 "reasoning": self._plain_text(decision.get("reasoning", ""), limit=240),

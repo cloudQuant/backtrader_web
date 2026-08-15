@@ -67,7 +67,9 @@ async def test_history_is_scoped_and_summary_exposes_only_actioned_denominator(
     del auth_user
     user_scope = f"user:{await _user_id(auth_headers)}"
     async with async_session_maker() as session:
-        other = User(username="other_signal_user", email="other-signal@example.test", hashed_password="x")
+        other = User(
+            username="other_signal_user", email="other-signal@example.test", hashed_password="x"
+        )
         session.add(other)
         await session.flush()
         session.add_all(

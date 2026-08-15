@@ -96,5 +96,10 @@ def test_public_report_scalar_values_have_content_addressed_evidence_ids() -> No
     assert "annualized_carry=0.031（证据 ID：detail:" in market_state.markdown
     assert "margin_ratio=0.12（证据 ID：detail:" in market_state.markdown
     assert any(evidence_id.startswith("detail:") for evidence_id in market_state.evidence_ids)
-    assert all(len(evidence_id.split(":", maxsplit=1)[1]) == 64 for evidence_id in market_state.evidence_ids)
-    assert any(evidence_id.startswith("source_snapshot:") for evidence_id in source_version.evidence_ids)
+    assert all(
+        len(evidence_id.split(":", maxsplit=1)[1]) == 64
+        for evidence_id in market_state.evidence_ids
+    )
+    assert any(
+        evidence_id.startswith("source_snapshot:") for evidence_id in source_version.evidence_ids
+    )

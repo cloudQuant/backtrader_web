@@ -1,10 +1,11 @@
 {
   "schema_version": 1,
   "gitleaks_version": "8.30.1",
-  "audit_date": "2026-07-18",
-  "accepted_fingerprints": 114,
+  "audit_date": "2026-08-15",
+  "accepted_fingerprints": 117,
   "unresolved_findings": 0,
   "blocking_ready": true,
   "credential_status": "owner-confirmed-revoked-2026-07-18",
-  "strategy": "fingerprint-scoped risk acceptance; no history rewrite"
+  "strategy": "fingerprint-scoped risk acceptance; no history rewrite",
+  "_note": "2026-08-15 added 3 false positives from commit 7a68bfa7: two config_hash_without_secrets SHA-256 values in iteration evidence JSON files and one test idempotency_key in test_schedules.py:90. None are credentials."
 }

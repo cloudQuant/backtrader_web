@@ -33,7 +33,9 @@ def _identity() -> InstrumentIdentity:
     )
 
 
-def test_fx_outcome_evaluator_normalizes_reciprocal_source_quotes_before_scoring_long_base() -> None:
+def test_fx_outcome_evaluator_normalizes_reciprocal_source_quotes_before_scoring_long_base() -> (
+    None
+):
     result = AssetOutcomeEvaluator._score_fx_execution(
         direction="LONG",
         outcome_kind="fx.direction_pnl",

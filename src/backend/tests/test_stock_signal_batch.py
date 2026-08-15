@@ -55,7 +55,9 @@ async def test_batch_claims_one_idempotent_run_and_records_all_member_outcomes(
     runner = _configured_runner()
     calls: list[str] = []
 
-    async def process_member(*, member: dict[str, str], **_kwargs: object) -> tuple[str, str | None]:
+    async def process_member(
+        *, member: dict[str, str], **_kwargs: object
+    ) -> tuple[str, str | None]:
         calls.append(member["symbol"])
         return ("eligible" if member["symbol"] == "600000.SH" else "degraded", None)
 

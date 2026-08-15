@@ -68,7 +68,9 @@ async def test_catalog_returns_only_a_validated_current_master_identity() -> Non
     async with async_session_maker() as db:
         db.add_all(
             [
-                _record(old, valid_from=now - timedelta(days=30), valid_to=now - timedelta(seconds=1)),
+                _record(
+                    old, valid_from=now - timedelta(days=30), valid_to=now - timedelta(seconds=1)
+                ),
                 _record(current, valid_from=now - timedelta(days=1)),
             ]
         )

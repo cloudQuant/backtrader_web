@@ -26,7 +26,9 @@ class _FakeMarketInstruments:
         return {"items": self._items}
 
 
-def _identity_kwargs(*, asset_type: str, identity_level: str, venue: str | None = "FIXTURE") -> dict[str, object]:
+def _identity_kwargs(
+    *, asset_type: str, identity_level: str, venue: str | None = "FIXTURE"
+) -> dict[str, object]:
     """Return the shared, non-domain identity fields used by schema tests."""
     return {
         "asset_type": asset_type,
@@ -272,24 +274,27 @@ async def test_resolver_honors_requested_identity_level_without_reinterpreting_a
             "identifier_value": "IF2609",
             "product_type": "FUTURE",
             "metadata_version": "licensed-futures-master:v1",
-                    "details": {
-                        "kind": "FUTURES",
-                        "product_code": "IF",
-                        "contract_month": "2609",
-                        "expiry_at": "2026-09-18T07:15:00+00:00",
-                        "contract_multiplier": "300",
-                        "trading_calendar_id": "CFFEX",
-                    },
+            "details": {
+                "kind": "FUTURES",
+                "product_code": "IF",
+                "contract_month": "2609",
+                "expiry_at": "2026-09-18T07:15:00+00:00",
+                "contract_multiplier": "300",
+                "trading_calendar_id": "CFFEX",
+            },
         },
     }
     resolver = InstrumentResolver(_FakeMarketInstruments([item]))
 
-    assert await resolver.search(
-        asset_type="futures",
-        query="IF2609",
-        identity_level="PRODUCT",
-        limit=20,
-    ) == []
+    assert (
+        await resolver.search(
+            asset_type="futures",
+            query="IF2609",
+            identity_level="PRODUCT",
+            limit=20,
+        )
+        == []
+    )
     with pytest.raises(InstrumentResolutionError, match="INSTRUMENT_UNSUPPORTED"):
         await resolver.resolve(
             InstrumentResolveRequest(
@@ -394,7 +399,9 @@ async def test_resolver_rejects_candidates_without_versioned_asset_master_identi
 
 
 @pytest.mark.asyncio
-async def test_resolver_uses_authoritative_crypto_product_identity_without_reparsing_quote_asset() -> None:
+async def test_resolver_uses_authoritative_crypto_product_identity_without_reparsing_quote_asset() -> (
+    None
+):
     resolver = InstrumentResolver(
         _FakeMarketInstruments(
             [
@@ -455,7 +462,9 @@ async def test_resolver_rejects_an_ambiguous_prefix_instead_of_selecting_a_recen
 
 
 @pytest.mark.asyncio
-async def test_resolver_rejects_an_under_specified_option_instead_of_inventing_contract_terms() -> None:
+async def test_resolver_rejects_an_under_specified_option_instead_of_inventing_contract_terms() -> (
+    None
+):
     """A quote symbol is not enough to identify an option contract safely."""
     resolver = InstrumentResolver(
         _FakeMarketInstruments(

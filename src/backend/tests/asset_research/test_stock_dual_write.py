@@ -59,4 +59,3 @@ async def test_enforce_mode_fails_when_new_write_fails() -> None:
             primary_write=primary,
             shadow_write=shadow,
         )
-

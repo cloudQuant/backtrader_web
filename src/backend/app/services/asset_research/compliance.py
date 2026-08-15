@@ -50,9 +50,7 @@ class AssetResearchCompliancePolicy:
         if not self.directional_fx_crypto_enabled:
             return True
         allowed = self._source_jurisdictions(source_manifest)
-        return not allowed or (
-            operator_jurisdiction not in allowed and "GLOBAL" not in allowed
-        )
+        return not allowed or (operator_jurisdiction not in allowed and "GLOBAL" not in allowed)
 
     def frozen_context(self, *, source_manifest: Mapping[str, object]) -> dict[str, object]:
         """Return the policy facts that must participate in prediction identity."""

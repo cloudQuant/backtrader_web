@@ -349,7 +349,9 @@ async def test_pipeline_uses_the_most_recent_financial_disclosure_not_only_annua
 
 
 @pytest.mark.asyncio
-async def test_pipeline_marks_missing_market_and_financial_data_unavailable_without_defaults() -> None:
+async def test_pipeline_marks_missing_market_and_financial_data_unavailable_without_defaults() -> (
+    None
+):
     output = await StockAnalysisPipeline().run(
         symbol="601398.SH",
         market_type="A股",

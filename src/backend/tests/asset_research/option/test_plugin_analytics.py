@@ -52,7 +52,10 @@ def _cost_snapshot() -> dict[str, float | str]:
 
 
 def _chain_records(cutoff: datetime) -> list[dict[str, float | str]]:
-    expiries = (datetime(2027, 8, 1, tzinfo=timezone.utc), datetime(2027, 11, 1, tzinfo=timezone.utc))
+    expiries = (
+        datetime(2027, 8, 1, tzinfo=timezone.utc),
+        datetime(2027, 11, 1, tzinfo=timezone.utc),
+    )
     records: list[dict[str, float | str]] = []
     for expiry_index, expiry_at in enumerate(expiries):
         time_to_expiry = (expiry_at - cutoff).total_seconds() / (365.0 * 24 * 60 * 60)
@@ -188,7 +191,9 @@ def test_option_plugin_derives_model_valuation_greeks_and_bid_ask_iv() -> None:
 
     assert isinstance(candidate.asset_details, OptionResearchDetails)
     assert candidate.asset_details.pricing_model == "BSM"
-    assert float(candidate.asset_details.theoretical_value) == pytest.approx(10.4505835722, abs=1e-8)
+    assert float(candidate.asset_details.theoretical_value) == pytest.approx(
+        10.4505835722, abs=1e-8
+    )
     assert float(candidate.asset_details.delta) == pytest.approx(0.6368306512, abs=1e-8)
     assert float(candidate.asset_details.break_even) == pytest.approx(110.4505835722, abs=1e-8)
     heads = {head.head_code: head for head in candidate.prediction_heads}
@@ -227,11 +232,7 @@ def test_option_plugin_rejects_a_two_sided_quote_outside_no_arbitrage_bounds() -
 def test_option_plugin_rejects_a_contract_after_its_last_trade_time() -> None:
     raw = _option_snapshot()
     identity = raw.identity.model_copy(
-        update={
-            "details": raw.identity.details.model_copy(
-                update={"last_trade_at": raw.cutoff_at}
-            )
-        }
+        update={"details": raw.identity.details.model_copy(update={"last_trade_at": raw.cutoff_at})}
     )
     stopped = raw.model_copy(update={"identity": identity})
 

@@ -61,4 +61,3 @@ def test_build_llm_call_uses_existing_ai_router() -> None:
     import asyncio
 
     assert asyncio.run(run()) == "report-content"
-

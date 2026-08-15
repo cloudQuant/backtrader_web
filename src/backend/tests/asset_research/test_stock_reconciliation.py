@@ -57,4 +57,3 @@ def test_reconcile_batch_reports_defect_count() -> None:
 
     assert summary.defect_count == 1
     assert summary.has_unsupported_defect is True
-

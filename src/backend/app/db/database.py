@@ -52,7 +52,7 @@ def _extract_table_name(statement: str) -> str:
     stripped = statement.strip().lower()
     for prefix in ("insert into ", "update ", "delete from ", "from ", "into "):
         if stripped.startswith(prefix):
-            rest = stripped[len(prefix):]
+            rest = stripped[len(prefix) :]
             # take the first identifier token
             token = ""
             for ch in rest:

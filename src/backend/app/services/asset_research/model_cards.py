@@ -54,4 +54,3 @@ class ModelCard:
         payload = asdict(self)
         payload["content_hash"] = self.content_hash()
         return payload
-

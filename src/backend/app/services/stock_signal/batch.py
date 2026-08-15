@@ -54,7 +54,9 @@ class Sse50SignalBatchRunner:
         self.policy = SignalPolicy(
             round_trip_cost_bps=float(settings.STOCK_SIGNAL_ROUND_TRIP_COST_BPS or 0.0),
             buy_success_threshold_bps=float(settings.STOCK_SIGNAL_BUY_SUCCESS_THRESHOLD_BPS or 0.0),
-            sell_success_threshold_bps=float(settings.STOCK_SIGNAL_SELL_SUCCESS_THRESHOLD_BPS or 0.0),
+            sell_success_threshold_bps=float(
+                settings.STOCK_SIGNAL_SELL_SUCCESS_THRESHOLD_BPS or 0.0
+            ),
         )
         self.quality_gate = DataQualityGate(
             min_history_bars=settings.STOCK_SIGNAL_MIN_HISTORY_BARS,
@@ -99,7 +101,9 @@ class Sse50SignalBatchRunner:
                     next_trading_date=next_trading_date,
                 )
 
-        results = await asyncio.gather(*(process(member) for member in members), return_exceptions=True)
+        results = await asyncio.gather(
+            *(process(member) for member in members), return_exceptions=True
+        )
         created = eligible = degraded = failed = 0
         errors: dict[str, str] = {}
         for member, result in zip(members, results, strict=True):
@@ -146,7 +150,9 @@ class Sse50SignalBatchRunner:
             }
         )
         async with async_session_maker() as session:
-            existing = await session.scalar(select(StockSignalRun).where(StockSignalRun.run_key == run_key))
+            existing = await session.scalar(
+                select(StockSignalRun).where(StockSignalRun.run_key == run_key)
+            )
             if existing is not None:
                 return existing, False
             run = StockSignalRun(
@@ -238,7 +244,9 @@ class Sse50SignalBatchRunner:
                 if record.next_trading_date is not None:
                     continue
                 try:
-                    record.next_trading_date = await self.calendar.next_trading_day(record.as_of_date)
+                    record.next_trading_date = await self.calendar.next_trading_day(
+                        record.as_of_date
+                    )
                 except RuntimeError as exc:
                     logger.warning(
                         "Unable to resolve next trading date for stock signal %s: %s",
@@ -256,7 +264,9 @@ class Sse50SignalBatchRunner:
             service = StockSignalService(session)
             market = MarketInstrumentService()
             first_entry_date = min(
-                record.next_trading_date for record in records if record.next_trading_date is not None
+                record.next_trading_date
+                for record in records
+                if record.next_trading_date is not None
             )
             benchmark_rows = await self._sse50_benchmark_rows(
                 start_date=first_entry_date,

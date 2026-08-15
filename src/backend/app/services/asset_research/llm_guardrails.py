@@ -98,4 +98,3 @@ def fallback_reason_for_error(error: BaseException) -> str:
     if any(token in message for token in ("UNAVAILABLE", "MODEL_NOT_FOUND", "500")):
         return "MODEL_UNAVAILABLE"
     return "MODEL_UNAVAILABLE"
-

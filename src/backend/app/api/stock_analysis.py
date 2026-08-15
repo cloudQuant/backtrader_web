@@ -86,7 +86,10 @@ async def get_stock_signal_history(
         cursor=cursor,
     )
     return StockSignalHistoryResponse(
-        items=[StockSignalRecordResponse(**StockSignalService.record_payload(record)) for record in records],
+        items=[
+            StockSignalRecordResponse(**StockSignalService.record_payload(record))
+            for record in records
+        ],
         next_cursor=next_cursor,
     )
 
@@ -100,7 +103,9 @@ async def get_stock_signal_summary(
 ) -> StockSignalSummaryResponse:
     """Return action-specific quality metrics with explicit denominators."""
     if horizon not in {1, 5, 20}:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid_horizon")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="invalid_horizon"
+        )
     summary = await StockSignalService(db).get_visible_summary(
         user_id=current_user.sub,
         symbol=symbol,
@@ -254,7 +259,9 @@ async def get_latest_stock_analysis_result(
     current_user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> typing.Any:
-    latest = await StockAnalysisTaskService(db).get_latest_completed_result(user_id=current_user.sub)
+    latest = await StockAnalysisTaskService(db).get_latest_completed_result(
+        user_id=current_user.sub
+    )
     if latest is None:
         return None
     task, report = latest

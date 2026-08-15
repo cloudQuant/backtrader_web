@@ -52,7 +52,9 @@ def _ma_gap(closes: list[float], periods: int) -> float | None:
 def _rsi(closes: list[float], periods: int = 14) -> float | None:
     if len(closes) <= periods:
         return None
-    changes = [closes[index] - closes[index - 1] for index in range(len(closes) - periods, len(closes))]
+    changes = [
+        closes[index] - closes[index - 1] for index in range(len(closes) - periods, len(closes))
+    ]
     gains = [max(change, 0.0) for change in changes]
     losses = [max(-change, 0.0) for change in changes]
     avg_gain = _mean(gains) or 0.0

@@ -65,15 +65,21 @@ class StockSignalPrediction(Base):
     __table_args__ = (
         UniqueConstraint("prediction_key", name="uq_stock_signal_predictions_prediction_key"),
         Index("ix_stock_signal_prediction_symbol_date", "symbol", "as_of_date"),
-        Index("ix_stock_signal_prediction_scope_symbol_date", "owner_scope", "symbol", "as_of_date"),
+        Index(
+            "ix_stock_signal_prediction_scope_symbol_date", "owner_scope", "symbol", "as_of_date"
+        ),
         Index("ix_stock_signal_prediction_universe_date", "universe_code", "as_of_date"),
-        Index("ix_stock_signal_prediction_outcome_next_date", "outcome_status", "next_trading_date"),
+        Index(
+            "ix_stock_signal_prediction_outcome_next_date", "outcome_status", "next_trading_date"
+        ),
     )
 
     id = Column(String(36), primary_key=True, default=_uuid)
     prediction_key = Column(String(64), nullable=False)
     run_id = Column(String(36), ForeignKey("stock_signal_runs.id"), nullable=True, index=True)
-    report_id = Column(String(36), ForeignKey("stock_analysis_reports.id"), nullable=True, index=True)
+    report_id = Column(
+        String(36), ForeignKey("stock_analysis_reports.id"), nullable=True, index=True
+    )
     owner_scope = Column(String(80), nullable=False, default="system", index=True)
     source = Column(String(32), nullable=False, default="manual", index=True)
     universe_code = Column(String(32), nullable=False, default="MANUAL", index=True)

@@ -47,7 +47,9 @@ def upgrade() -> None:
         batch.add_column(sa.Column("last_attempt_at", sa.DateTime(timezone=True), nullable=True))
         batch.add_column(sa.Column("last_error_code", sa.String(length=128), nullable=True))
         batch.add_column(sa.Column("retry_of_run_id", sa.String(length=36), nullable=True))
-        batch.add_column(sa.Column("retry_not_before_at", sa.DateTime(timezone=True), nullable=True))
+        batch.add_column(
+            sa.Column("retry_not_before_at", sa.DateTime(timezone=True), nullable=True)
+        )
         batch.add_column(
             sa.Column("retry_scheduled_fire_at", sa.DateTime(timezone=True), nullable=True)
         )

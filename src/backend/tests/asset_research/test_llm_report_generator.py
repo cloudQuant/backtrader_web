@@ -101,4 +101,3 @@ async def test_generate_llm_report_sections_enforces_budget() -> None:
             ),
             allowed_evidence_ids=["source:known"],
         )
-

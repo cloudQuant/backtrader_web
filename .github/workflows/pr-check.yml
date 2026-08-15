@@ -30,15 +30,19 @@ jobs:
           fetch-depth: 0
 
       - name: Check PR description
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          DESCRIPTION="${{ github.event.pull_request.body }}"
+          DESCRIPTION="$PR_BODY"
           if [ -z "$DESCRIPTION" ] || [ "$DESCRIPTION" == "null" ]; then
             echo "::warning::PR description is empty. Please provide a description."
           fi
 
       - name: Check for linked issues
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          BODY="${{ github.event.pull_request.body }}"
+          BODY="$PR_BODY"
           if ! echo "$BODY" | grep -qE "(#[0-9]+|Closes|Fixes|Resolves)"; then
             echo "::notice::No linked issues found. Consider linking related issues."
           fi

@@ -91,7 +91,9 @@ def _model_scope(
         calibration_artifact_hash="c" * 64,
         training_cutoff_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
         status=status,
-        metrics_json=_promotion_metrics(head_spec_hash) if complete_metrics else {"sample_count": 10},
+        metrics_json=_promotion_metrics(head_spec_hash)
+        if complete_metrics
+        else {"sample_count": 10},
         approval_set_json={
             "model_quality": True,
             "product": True,
@@ -112,7 +114,9 @@ async def _registered_user(user_data: dict[str, str]) -> User:
         ).scalar_one()
 
 
-async def _seed_system_prediction(*, owner_scope: str, user_id: str | None) -> AssetSignalPrediction:
+async def _seed_system_prediction(
+    *, owner_scope: str, user_id: str | None
+) -> AssetSignalPrediction:
     """Persist a minimal system/private prediction solely for access-control coverage."""
     as_of_at = datetime(2026, 8, 1, tzinfo=timezone.utc)
     canonical_id = "futures:CFFEX:IF2609:CNY"
@@ -220,9 +224,7 @@ async def test_admin_model_scope_transitions_are_append_only_and_fail_closed(
 
     app.dependency_overrides[require_data_admin_user] = lambda: admin_user
     try:
-        listed = await client.get(
-            "/api/v1/asset-research/admin/model-scopes", headers=auth_headers
-        )
+        listed = await client.get("/api/v1/asset-research/admin/model-scopes", headers=auth_headers)
         card = await client.get(
             f"/api/v1/asset-research/admin/model-cards/{good.id}",
             headers=auth_headers,
@@ -358,9 +360,7 @@ async def test_admin_candidate_endpoint_exposes_only_system_shadow_candidates(
     """Candidate direction never leaks to a normal user or from a private prediction."""
     user_data, _ = auth_user
     admin_user = await _registered_user(user_data)
-    system_prediction = await _seed_system_prediction(
-        owner_scope="PUBLIC_SHADOW", user_id=None
-    )
+    system_prediction = await _seed_system_prediction(owner_scope="PUBLIC_SHADOW", user_id=None)
     private_prediction = await _seed_system_prediction(owner_scope="USER", user_id=admin_user.id)
 
     denied = await client.get(

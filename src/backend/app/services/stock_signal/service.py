@@ -31,7 +31,9 @@ def _now() -> datetime:
 
 
 def _digest(value: Any) -> str:
-    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":")
+    )
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
@@ -88,7 +90,9 @@ class StockSignalService:
             }
         )
         existing = await self.db.scalar(
-            select(StockSignalPrediction).where(StockSignalPrediction.prediction_key == prediction_key)
+            select(StockSignalPrediction).where(
+                StockSignalPrediction.prediction_key == prediction_key
+            )
         )
         if existing is not None:
             return existing
@@ -132,7 +136,9 @@ class StockSignalService:
                 await self.db.flush()
         except IntegrityError:
             existing = await self.db.scalar(
-                select(StockSignalPrediction).where(StockSignalPrediction.prediction_key == prediction_key)
+                select(StockSignalPrediction).where(
+                    StockSignalPrediction.prediction_key == prediction_key
+                )
             )
             if existing is not None:
                 return existing
@@ -224,9 +230,9 @@ class StockSignalService:
         rows = list(
             (
                 await self.db.execute(
-                    statement.order_by(desc(StockSignalPrediction.as_of_date), desc(StockSignalPrediction.id)).limit(
-                        max(1, min(limit, 100)) + 1
-                    )
+                    statement.order_by(
+                        desc(StockSignalPrediction.as_of_date), desc(StockSignalPrediction.id)
+                    ).limit(max(1, min(limit, 100)) + 1)
                 )
             )
             .scalars()
@@ -272,7 +278,9 @@ class StockSignalService:
                 await self.db.execute(
                     select(StockSignalPrediction)
                     .where(StockSignalPrediction.owner_scope == "system")
-                    .order_by(desc(StockSignalPrediction.as_of_date), desc(StockSignalPrediction.id))
+                    .order_by(
+                        desc(StockSignalPrediction.as_of_date), desc(StockSignalPrediction.id)
+                    )
                     .limit(max(1, min(limit, 1_000)))
                 )
             )
@@ -356,8 +364,14 @@ class StockSignalService:
         prediction.entry_date = evaluation.entry_date
         prediction.entry_price = evaluation.entry_price
         for horizon in (1, 5, 20):
-            setattr(prediction, f"horizon_{horizon}d_return", evaluation.horizon_returns.get(horizon))
-            setattr(prediction, f"benchmark_{horizon}d_return", evaluation.benchmark_returns.get(horizon))
+            setattr(
+                prediction, f"horizon_{horizon}d_return", evaluation.horizon_returns.get(horizon)
+            )
+            setattr(
+                prediction,
+                f"benchmark_{horizon}d_return",
+                evaluation.benchmark_returns.get(horizon),
+            )
             setattr(prediction, f"excess_{horizon}d_return", evaluation.excess_returns.get(horizon))
         prediction.buy_is_correct_20d = evaluation.buy_is_correct_20d
         prediction.sell_is_correct_20d = evaluation.sell_is_correct_20d

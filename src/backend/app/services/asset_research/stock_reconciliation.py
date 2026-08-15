@@ -117,4 +117,3 @@ def _row(
         legacy_reference=legacy_reference,
         reason=reason,
     )
-

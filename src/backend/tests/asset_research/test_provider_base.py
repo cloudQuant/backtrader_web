@@ -28,4 +28,3 @@ def test_network_policy_accepts_valid_defaults() -> None:
     policy.validate()
 
     assert policy.max_retries == 2
-

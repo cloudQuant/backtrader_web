@@ -212,7 +212,9 @@ class AssetResearchOrchestrator:
         self.data_adapter = data_adapter
         self.source_policy = source_policy or AssetSourceRegistryPolicy(db)
         self.source_limiter = source_limiter or get_asset_research_source_concurrency_limiter()
-        self.compliance_policy = compliance_policy or AssetResearchCompliancePolicy.from_runtime_settings()
+        self.compliance_policy = (
+            compliance_policy or AssetResearchCompliancePolicy.from_runtime_settings()
+        )
 
     def _declared_adapter_source_ids(self) -> tuple[str, ...] | None:
         """Return a production adapter's pre-authorized sources, if declared."""
@@ -1185,9 +1187,7 @@ class AssetResearchOrchestrator:
             run.prediction_id = None
             run.prediction_link_role = None
             run.status = "FAILED"
-            run.counts_json = {
-                "error_code": str(getattr(exc, "code", None) or type(exc).__name__)
-            }
+            run.counts_json = {"error_code": str(getattr(exc, "code", None) or type(exc).__name__)}
             run.completed_at = _now()
         await self.db.flush()
         record_asset_research_schedule_run(
@@ -1853,11 +1853,7 @@ class AssetResearchOrchestrator:
     ) -> AssetAnalysisTask | None:
         """Run a matching durable task lease without allowing a second worker to take it."""
         task = await self.db.get(AssetAnalysisTask, task_id)
-        if (
-            task is None
-            or task.status != "RUNNING"
-            or task.lease_token != lease_token
-        ):
+        if task is None or task.status != "RUNNING" or task.lease_token != lease_token:
             return None
         try:
             await self.require_research_capability(task.asset_type)
@@ -2284,7 +2280,9 @@ class AssetResearchOrchestrator:
                 position_snapshot.as_of_at.isoformat() if position_snapshot is not None else None
             ),
             "position_context_snapshot_available_at": (
-                position_snapshot.available_at.isoformat() if position_snapshot is not None else None
+                position_snapshot.available_at.isoformat()
+                if position_snapshot is not None
+                else None
             ),
             "position_context_snapshot_expires_at": (
                 position_snapshot.expires_at.isoformat()

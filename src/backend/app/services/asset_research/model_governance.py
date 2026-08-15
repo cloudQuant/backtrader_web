@@ -132,17 +132,13 @@ class AssetModelGovernanceService:
             model_name=record.model_version,
             head_spec_hash=record.head_spec_hash,
             owner=owner,
-            evaluation_manifest_hash=str(
-                metrics.get("all_attempts_manifest_hash") or "0" * 64
-            ),
+            evaluation_manifest_hash=str(metrics.get("all_attempts_manifest_hash") or "0" * 64),
             model_card_hash=str(metrics.get("model_card_hash") or "0" * 64),
             limitations=[
-                str(item) for item in metrics.get("limitations") or []
-                if isinstance(item, str)
+                str(item) for item in metrics.get("limitations") or [] if isinstance(item, str)
             ],
             failure_modes=[
-                str(item) for item in metrics.get("failure_modes") or []
-                if isinstance(item, str)
+                str(item) for item in metrics.get("failure_modes") or [] if isinstance(item, str)
             ],
         )
 

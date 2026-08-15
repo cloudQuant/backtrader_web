@@ -23,4 +23,3 @@ def test_model_card_content_hash_is_stable() -> None:
 
     assert card.content_hash() == card.content_hash()
     assert card.public_payload()["content_hash"] == card.content_hash()
-

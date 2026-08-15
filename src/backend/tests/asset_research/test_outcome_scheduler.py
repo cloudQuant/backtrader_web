@@ -131,7 +131,9 @@ async def _seed_mature_prediction() -> str:
             cutoff_at=_ENTRY_CUTOFF,
         )
         prediction = (
-            await db.execute(select(AssetSignalPrediction).where(AssetSignalPrediction.user_id == user.id))
+            await db.execute(
+                select(AssetSignalPrediction).where(AssetSignalPrediction.user_id == user.id)
+            )
         ).scalar_one()
         outcomes = list(
             (

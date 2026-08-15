@@ -23,6 +23,8 @@ _OWNER_SCOPE_CHECK = (
     "(owner_scope IN ('PUBLIC_SHADOW', 'ADMIN_EVAL') AND user_id IS NULL)"
 )
 _ASSET_TYPE_CHECK = "asset_type IN ('stock', 'bond', 'fund', 'futures', 'option', 'fx', 'crypto')"
+
+
 def _table_exists(table_name: str) -> bool:
     return table_name in sa.inspect(op.get_bind()).get_table_names()
 
@@ -47,7 +49,9 @@ class _SchemaAwareOperations:
             return None
         return self._operations.create_table(table_name, *columns, **kwargs)
 
-    def create_index(self, index_name: str, table_name: str, columns: list[str], **kwargs: Any) -> Any:
+    def create_index(
+        self, index_name: str, table_name: str, columns: list[str], **kwargs: Any
+    ) -> Any:
         if _index_exists(table_name, index_name):
             return None
         return self._operations.create_index(index_name, table_name, columns, **kwargs)
@@ -56,7 +60,9 @@ class _SchemaAwareOperations:
 def _retention_columns() -> list[sa.Column[Any]]:
     """Columns shared by every table in this bounded context."""
     return [
-        sa.Column("retention_class", sa.String(length=32), nullable=False, server_default="research-v1"),
+        sa.Column(
+            "retention_class", sa.String(length=32), nullable=False, server_default="research-v1"
+        ),
         sa.Column("retention_expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("legal_hold", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("tombstoned_at", sa.DateTime(timezone=True), nullable=True),
@@ -188,7 +194,9 @@ def upgrade() -> None:
         "asset_source_snapshots",
         ["canonical_id", "cutoff_at"],
     )
-    op.create_index("ix_asset_source_snapshots_content_hash", "asset_source_snapshots", ["content_hash"])
+    op.create_index(
+        "ix_asset_source_snapshots_content_hash", "asset_source_snapshots", ["content_hash"]
+    )
 
     op.create_table(
         "asset_analysis_tasks",
@@ -221,7 +229,9 @@ def upgrade() -> None:
             ["asset_position_context_snapshots.id"],
             ondelete="RESTRICT",
         ),
-        sa.ForeignKeyConstraint(["retry_of_task_id"], ["asset_analysis_tasks.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(
+            ["retry_of_task_id"], ["asset_analysis_tasks.id"], ondelete="RESTRICT"
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("user_id", "idempotency_key", name="uq_asset_task_user_idempotency"),
         sa.CheckConstraint("owner_scope = 'USER'", name="ck_asset_task_owner"),
@@ -237,7 +247,9 @@ def upgrade() -> None:
         sa.CheckConstraint("progress BETWEEN 0 AND 100", name="ck_asset_task_progress"),
     )
     op.create_index(
-        "ix_asset_task_user_status_created", "asset_analysis_tasks", ["user_id", "status", "created_at"]
+        "ix_asset_task_user_status_created",
+        "asset_analysis_tasks",
+        ["user_id", "status", "created_at"],
     )
     op.create_index("ix_asset_analysis_tasks_trace_id", "asset_analysis_tasks", ["trace_id"])
 
@@ -275,7 +287,9 @@ def upgrade() -> None:
             ondelete="RESTRICT",
         ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("user_id", "idempotency_key", name="uq_asset_schedule_user_idempotency"),
+        sa.UniqueConstraint(
+            "user_id", "idempotency_key", name="uq_asset_schedule_user_idempotency"
+        ),
         sa.CheckConstraint(_OWNER_SCOPE_CHECK, name="ck_asset_schedule_owner"),
         sa.CheckConstraint(_ASSET_TYPE_CHECK, name="ck_asset_schedule_asset_type"),
         sa.CheckConstraint(
@@ -288,7 +302,9 @@ def upgrade() -> None:
             name="ck_asset_schedule_misfire_policy",
         ),
     )
-    op.create_index("ix_asset_schedule_enabled_next_run", "asset_signal_schedules", ["enabled", "next_run_at"])
+    op.create_index(
+        "ix_asset_schedule_enabled_next_run", "asset_signal_schedules", ["enabled", "next_run_at"]
+    )
 
     op.create_table(
         "asset_signal_runs",
@@ -312,7 +328,9 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
         *_retention_columns(),
-        sa.ForeignKeyConstraint(["schedule_id"], ["asset_signal_schedules.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(
+            ["schedule_id"], ["asset_signal_schedules.id"], ondelete="RESTRICT"
+        ),
         sa.ForeignKeyConstraint(["task_id"], ["asset_analysis_tasks.id"], ondelete="RESTRICT"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
@@ -332,10 +350,14 @@ def upgrade() -> None:
         ),
     )
     op.create_index(
-        "ix_asset_run_owner_status_asof", "asset_signal_runs", ["owner_scope", "user_id", "status", "as_of_at"]
+        "ix_asset_run_owner_status_asof",
+        "asset_signal_runs",
+        ["owner_scope", "user_id", "status", "as_of_at"],
     )
     op.create_index(
-        "ix_asset_run_schedule_status_asof", "asset_signal_runs", ["schedule_id", "status", "as_of_at"]
+        "ix_asset_run_schedule_status_asof",
+        "asset_signal_runs",
+        ["schedule_id", "status", "as_of_at"],
     )
     op.create_index("ix_asset_signal_runs_trace_id", "asset_signal_runs", ["trace_id"])
 
@@ -380,8 +402,12 @@ def upgrade() -> None:
             ["asset_position_context_snapshots.id"],
             ondelete="RESTRICT",
         ),
-        sa.ForeignKeyConstraint(["snapshot_id"], ["asset_source_snapshots.id"], ondelete="RESTRICT"),
-        sa.ForeignKeyConstraint(["mapped_contract_id"], ["asset_instruments.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(
+            ["snapshot_id"], ["asset_source_snapshots.id"], ondelete="RESTRICT"
+        ),
+        sa.ForeignKeyConstraint(
+            ["mapped_contract_id"], ["asset_instruments.id"], ondelete="RESTRICT"
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("prediction_key", name="uq_asset_signal_predictions_prediction_key"),
         sa.CheckConstraint(_OWNER_SCOPE_CHECK, name="ck_asset_prediction_owner"),
@@ -405,12 +431,36 @@ def upgrade() -> None:
             name="ck_asset_option_long_context_snapshot",
         ),
     )
-    op.create_index("ix_asset_signal_predictions_decision_input_hash", "asset_signal_predictions", ["decision_input_hash"])
-    op.create_index("ix_asset_prediction_identity_asof", "asset_signal_predictions", ["asset_type", "canonical_id", "as_of_at"])
-    op.create_index("ix_asset_prediction_owner_asof", "asset_signal_predictions", ["owner_scope", "user_id", "as_of_at"])
-    op.create_index("ix_asset_prediction_owner_identity_asof", "asset_signal_predictions", ["owner_scope", "canonical_id", "as_of_at"])
-    op.create_index("ix_asset_prediction_actionability_quality_asof", "asset_signal_predictions", ["actionability", "quality_status", "as_of_at"])
-    op.create_index("ix_asset_prediction_versions", "asset_signal_predictions", ["model_version", "policy_version", "horizon_code"])
+    op.create_index(
+        "ix_asset_signal_predictions_decision_input_hash",
+        "asset_signal_predictions",
+        ["decision_input_hash"],
+    )
+    op.create_index(
+        "ix_asset_prediction_identity_asof",
+        "asset_signal_predictions",
+        ["asset_type", "canonical_id", "as_of_at"],
+    )
+    op.create_index(
+        "ix_asset_prediction_owner_asof",
+        "asset_signal_predictions",
+        ["owner_scope", "user_id", "as_of_at"],
+    )
+    op.create_index(
+        "ix_asset_prediction_owner_identity_asof",
+        "asset_signal_predictions",
+        ["owner_scope", "canonical_id", "as_of_at"],
+    )
+    op.create_index(
+        "ix_asset_prediction_actionability_quality_asof",
+        "asset_signal_predictions",
+        ["actionability", "quality_status", "as_of_at"],
+    )
+    op.create_index(
+        "ix_asset_prediction_versions",
+        "asset_signal_predictions",
+        ["model_version", "policy_version", "horizon_code"],
+    )
 
     op.create_table(
         "asset_signal_run_predictions",
@@ -420,9 +470,13 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         *_retention_columns(),
         sa.ForeignKeyConstraint(["run_id"], ["asset_signal_runs.id"], ondelete="RESTRICT"),
-        sa.ForeignKeyConstraint(["prediction_id"], ["asset_signal_predictions.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(
+            ["prediction_id"], ["asset_signal_predictions.id"], ondelete="RESTRICT"
+        ),
         sa.PrimaryKeyConstraint("run_id"),
-        sa.CheckConstraint("link_role IN ('CREATED', 'REUSED')", name="ck_asset_run_prediction_role"),
+        sa.CheckConstraint(
+            "link_role IN ('CREATED', 'REUSED')", name="ck_asset_run_prediction_role"
+        ),
     )
     op.create_index(
         "ix_asset_run_prediction_prediction_created",
@@ -458,19 +512,35 @@ def upgrade() -> None:
         sa.Column("reason_codes_json", sa.JSON(), nullable=False),
         sa.Column("scored_at", sa.DateTime(timezone=True), nullable=True),
         *_retention_columns(),
-        sa.ForeignKeyConstraint(["prediction_id"], ["asset_signal_predictions.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(
+            ["prediction_id"], ["asset_signal_predictions.id"], ondelete="RESTRICT"
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
-            "prediction_id", "horizon_code", "outcome_kind", "evaluator_version", name="uq_asset_outcome_evaluator"
+            "prediction_id",
+            "horizon_code",
+            "outcome_kind",
+            "evaluator_version",
+            name="uq_asset_outcome_evaluator",
         ),
         sa.CheckConstraint(
             "status IN ('PENDING', 'PARTIAL', 'SCORED', 'UNSCORABLE')",
             name="ck_asset_outcome_status",
         ),
     )
-    op.create_index("ix_asset_outcome_status_maturity", "asset_signal_outcomes", ["status", "maturity_at"])
-    op.create_index("ix_asset_outcome_head_status_scored", "asset_signal_outcomes", ["outcome_kind", "head_spec_hash", "status", "scored_at"])
-    op.create_index("ix_asset_outcome_prediction_horizon", "asset_signal_outcomes", ["prediction_id", "horizon_code"])
+    op.create_index(
+        "ix_asset_outcome_status_maturity", "asset_signal_outcomes", ["status", "maturity_at"]
+    )
+    op.create_index(
+        "ix_asset_outcome_head_status_scored",
+        "asset_signal_outcomes",
+        ["outcome_kind", "head_spec_hash", "status", "scored_at"],
+    )
+    op.create_index(
+        "ix_asset_outcome_prediction_horizon",
+        "asset_signal_outcomes",
+        ["prediction_id", "horizon_code"],
+    )
 
     op.create_table(
         "asset_analysis_reports",
@@ -484,12 +554,16 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         *_retention_columns(),
         sa.ForeignKeyConstraint(["task_id"], ["asset_analysis_tasks.id"], ondelete="RESTRICT"),
-        sa.ForeignKeyConstraint(["prediction_id"], ["asset_signal_predictions.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(
+            ["prediction_id"], ["asset_signal_predictions.id"], ondelete="RESTRICT"
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("task_id", "report_version", name="uq_asset_report_task_version"),
     )
     op.create_index("ix_asset_analysis_reports_task_id", "asset_analysis_reports", ["task_id"])
-    op.create_index("ix_asset_analysis_reports_prediction_id", "asset_analysis_reports", ["prediction_id"])
+    op.create_index(
+        "ix_asset_analysis_reports_prediction_id", "asset_analysis_reports", ["prediction_id"]
+    )
 
     op.create_table(
         "asset_analysis_exports",
@@ -509,7 +583,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["report_id"], ["asset_analysis_reports.id"], ondelete="RESTRICT"),
         sa.ForeignKeyConstraint(["requested_by"], ["users.id"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("requested_by", "idempotency_key", name="uq_asset_export_user_idempotency"),
+        sa.UniqueConstraint(
+            "requested_by", "idempotency_key", name="uq_asset_export_user_idempotency"
+        ),
     )
     op.create_index("ix_asset_analysis_exports_report_id", "asset_analysis_exports", ["report_id"])
 
@@ -538,7 +614,9 @@ def upgrade() -> None:
             name="uq_asset_publication_user_idempotency",
         ),
     )
-    op.create_index("ix_asset_report_publications_report_id", "asset_report_publications", ["report_id"])
+    op.create_index(
+        "ix_asset_report_publications_report_id", "asset_report_publications", ["report_id"]
+    )
 
     op.create_table(
         "asset_model_registry",
@@ -575,7 +653,14 @@ def upgrade() -> None:
         *_retention_columns(),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
-            "promotion_scope_key", "signal_head", "horizon_code", "head_spec_hash", "policy_version", "model_version", "calibration_version", name="uq_asset_model_registry_scope_version"
+            "promotion_scope_key",
+            "signal_head",
+            "horizon_code",
+            "head_spec_hash",
+            "policy_version",
+            "model_version",
+            "calibration_version",
+            name="uq_asset_model_registry_scope_version",
         ),
         sa.CheckConstraint(
             "status IN ('DRAFT', 'SHADOW', 'PROMOTED', 'SUSPENDED', 'RETIRED')",
@@ -601,11 +686,17 @@ def upgrade() -> None:
         sa.Column("actor_id", sa.String(length=36), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         *_retention_columns(),
-        sa.ForeignKeyConstraint(["model_registry_id"], ["asset_model_registry.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(
+            ["model_registry_id"], ["asset_model_registry.id"], ondelete="RESTRICT"
+        ),
         sa.ForeignKeyConstraint(["actor_id"], ["users.id"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_asset_model_status_events_registry_id", "asset_model_status_events", ["model_registry_id"])
+    op.create_index(
+        "ix_asset_model_status_events_registry_id",
+        "asset_model_status_events",
+        ["model_registry_id"],
+    )
 
 
 def downgrade() -> None:

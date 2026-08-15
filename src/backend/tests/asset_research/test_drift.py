@@ -29,4 +29,3 @@ def test_drift_report_is_flagged_for_shifted_cohort() -> None:
     )
 
     assert report.flagged is True
-

@@ -368,7 +368,9 @@ async def test_task_runner_preserves_a_user_cancellation_over_a_late_worker_comp
 
 
 @pytest.mark.asyncio
-async def test_task_runner_rolls_back_real_analysis_when_cancellation_wins_during_collection() -> None:
+async def test_task_runner_rolls_back_real_analysis_when_cancellation_wins_during_collection() -> (
+    None
+):
     """A cancelled real task must not leave a run or published result behind."""
     task_id = await _seed_pending_task()
     collection_started = asyncio.Event()

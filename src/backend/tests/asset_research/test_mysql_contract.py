@@ -38,9 +38,7 @@ def _shared_mysql_url() -> URL:
     """Return an explicitly approved existing-schema connection without DDL."""
     database_url = os.getenv(_DATABASE_URL_ENV)
     if not database_url or os.getenv(_CONFIRM_ENV) != "yes":
-        pytest.skip(
-            f"set {_DATABASE_URL_ENV} and {_CONFIRM_ENV}=yes for the real MySQL contract"
-        )
+        pytest.skip(f"set {_DATABASE_URL_ENV} and {_CONFIRM_ENV}=yes for the real MySQL contract")
     parsed = make_url(database_url)
     if parsed.get_backend_name() != "mysql" or not parsed.database:
         pytest.skip("real MySQL contract requires a concrete mysql database URL")
@@ -313,8 +311,7 @@ def test_mysql_asset_research_constraints_are_enforced_transactionally() -> None
                 == _HEAD
             )
             run_columns = {
-                str(column["name"])
-                for column in inspect(engine).get_columns("asset_signal_runs")
+                str(column["name"]) for column in inspect(engine).get_columns("asset_signal_runs")
             }
             assert {"prediction_id", "prediction_link_role"} <= run_columns
             task_metadata = {

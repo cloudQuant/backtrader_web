@@ -140,7 +140,9 @@ def evaluate_outcome(
             else None
         )
         benchmark_returns[horizon] = benchmark
-        excess_returns[horizon] = result - benchmark if result is not None and benchmark is not None else None
+        excess_returns[horizon] = (
+            result - benchmark if result is not None and benchmark is not None else None
+        )
 
     if all(value is None for value in horizon_returns.values()):
         return OutcomeEvaluation(

@@ -1046,9 +1046,7 @@ class ConfiguredAssetResearchPlugin(AssetResearchPlugin):
                 "clean_price": valuation_features.get("clean_price"),
                 "dirty_price": valuation_features.get("dirty_price"),
                 "accrued_interest": valuation_features.get("accrued_interest"),
-                "bond_analytics_reason_code": valuation_features.get(
-                    "bond_analytics_reason_code"
-                ),
+                "bond_analytics_reason_code": valuation_features.get("bond_analytics_reason_code"),
                 "credit_spread_bps": number(bond, "credit_spread_bps", "spread_bps"),
                 "yield_change_bps": number(bond, "yield_change_bps", "ytm_change_bps"),
                 "spread_change_bps": number(bond, "spread_change_bps"),
@@ -1157,9 +1155,7 @@ class ConfiguredAssetResearchPlugin(AssetResearchPlugin):
             "open_interest_change": number(crypto, "open_interest_change"),
             "onchain_score": number(crypto, "onchain_score", "network_score"),
             "composite_mid": market_quality_features.get("composite_mid"),
-            "depth_1pct": market_quality_features.get(
-                "depth_1pct", number(crypto, "depth_1pct")
-            ),
+            "depth_1pct": market_quality_features.get("depth_1pct", number(crypto, "depth_1pct")),
             "composite_price_venue_count": market_quality_features.get(
                 "composite_price_venue_count", number(crypto, "composite_price_venue_count")
             ),
@@ -1377,13 +1373,17 @@ class ConfiguredAssetResearchPlugin(AssetResearchPlugin):
         venue_quotes: list[CryptoVenueQuote] = []
         for raw_quote in raw_venue_quotes:
             if not isinstance(raw_quote, Mapping):
-                return self._empty_crypto_market_quality_features("CRYPTO.MARKET_QUALITY_INPUT_INVALID")
+                return self._empty_crypto_market_quality_features(
+                    "CRYPTO.MARKET_QUALITY_INPUT_INVALID"
+                )
             venue = raw_quote.get("venue")
             bid = self._decimal_number(raw_quote.get("bid"))
             ask = self._decimal_number(raw_quote.get("ask"))
             depth = self._decimal_number(raw_quote.get("depth_1pct"))
             if not isinstance(venue, str) or bid is None or ask is None or depth is None:
-                return self._empty_crypto_market_quality_features("CRYPTO.MARKET_QUALITY_INPUT_INVALID")
+                return self._empty_crypto_market_quality_features(
+                    "CRYPTO.MARKET_QUALITY_INPUT_INVALID"
+                )
             venue_quotes.append(CryptoVenueQuote(venue=venue, bid=bid, ask=ask, depth_1pct=depth))
         market_quality = calculate_crypto_market_quality(
             CryptoMarketQualityInput(
@@ -1397,7 +1397,9 @@ class ConfiguredAssetResearchPlugin(AssetResearchPlugin):
             "composite_mid": self._number(market_quality.composite_mid),
             "depth_1pct": self._number(market_quality.total_depth_1pct),
             "composite_price_venue_count": (
-                float(market_quality.venue_count) if market_quality.venue_count is not None else None
+                float(market_quality.venue_count)
+                if market_quality.venue_count is not None
+                else None
             ),
             "stablecoin_depeg_bps": self._number(market_quality.stablecoin_depeg_bps),
             "crypto_market_quality_reason_code": market_quality.reason_code,

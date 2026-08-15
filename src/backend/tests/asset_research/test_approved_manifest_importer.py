@@ -118,4 +118,3 @@ async def test_approved_manifest_import_persists_evidence_bound_facts() -> None:
         assert instruments[0].canonical_id == "futures:CFFEX:IF2609:CNY"
         assert len(sources) == 1
         assert sources[0].enabled is True
-

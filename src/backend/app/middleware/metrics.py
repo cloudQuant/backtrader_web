@@ -580,7 +580,11 @@ def record_asset_research_task(
             asset_type=label,
             status=_bounded_status(status, _TASK_STATUSES),
         ).inc()
-    if duration_seconds is not None and duration_seconds >= 0 and ASSET_RESEARCH_TASK_DURATION is not None:
+    if (
+        duration_seconds is not None
+        and duration_seconds >= 0
+        and ASSET_RESEARCH_TASK_DURATION is not None
+    ):
         ASSET_RESEARCH_TASK_DURATION.labels(asset_type=label).observe(duration_seconds)
 
 
@@ -604,7 +608,11 @@ def record_asset_research_source(
             source_id=label,
             result=_bounded_status(result, _SOURCE_RESULTS),
         ).inc()
-    if duration_seconds is not None and duration_seconds >= 0 and ASSET_RESEARCH_SOURCE_DURATION is not None:
+    if (
+        duration_seconds is not None
+        and duration_seconds >= 0
+        and ASSET_RESEARCH_SOURCE_DURATION is not None
+    ):
         ASSET_RESEARCH_SOURCE_DURATION.labels(source_id=label).observe(duration_seconds)
 
 
@@ -720,15 +728,11 @@ def record_asset_research_migration_reconciliation(
     if ASSET_RESEARCH_MIGRATION_RECONCILIATION_TOTAL is not None:
         ASSET_RESEARCH_MIGRATION_RECONCILIATION_TOTAL.labels(
             mapping_version=_mapping_version_label(mapping_version),
-            classification=_bounded_enum(
-                classification, _MIGRATION_CLASSIFICATIONS
-            ),
+            classification=_bounded_enum(classification, _MIGRATION_CLASSIFICATIONS),
         ).inc()
 
 
-def record_asset_research_lifecycle(
-    *, retention_class: str, result: str, amount: int = 1
-) -> None:
+def record_asset_research_lifecycle(*, retention_class: str, result: str, amount: int = 1) -> None:
     """Record a dry-run lifecycle classification without a record or tenant label."""
     if amount <= 0:
         return

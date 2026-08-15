@@ -43,7 +43,9 @@ class _SchemaAwareOperations:
             return None
         return self._operations.create_table(table_name, *columns, **kwargs)
 
-    def create_index(self, index_name: str, table_name: str, columns: list[str], **kwargs: Any) -> Any:
+    def create_index(
+        self, index_name: str, table_name: str, columns: list[str], **kwargs: Any
+    ) -> Any:
         if _index_exists(table_name, index_name):
             return None
         return self._operations.create_index(index_name, table_name, columns, **kwargs)

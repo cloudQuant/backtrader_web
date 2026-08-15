@@ -33,9 +33,7 @@ def test_capacity_runner_rejects_non_disposable_or_non_mysql_targets() -> None:
         == "codex_iter191_capacity_acceptance"
     )
     with pytest.raises(ValueError, match="disposable"):
-        module.validate_disposable_mysql_url(
-            "mysql+aiomysql://root@127.0.0.1:33361/ai_investor"
-        )
+        module.validate_disposable_mysql_url("mysql+aiomysql://root@127.0.0.1:33361/ai_investor")
     with pytest.raises(ValueError, match="MySQL"):
         module.validate_disposable_mysql_url("sqlite+aiosqlite:////tmp/capacity.db")
 

@@ -177,7 +177,10 @@ def downgrade() -> None:
             sa.Column("link_role", sa.String(length=16), nullable=False),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
             sa.Column(
-                "retention_class", sa.String(length=32), nullable=False, server_default="research-v1"
+                "retention_class",
+                sa.String(length=32),
+                nullable=False,
+                server_default="research-v1",
             ),
             sa.Column("retention_expires_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("legal_hold", sa.Boolean(), nullable=False, server_default=sa.false()),

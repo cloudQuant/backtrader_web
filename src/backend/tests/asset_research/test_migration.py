@@ -117,9 +117,7 @@ def test_option_context_migration_renders_mysql_preflight_and_constraints() -> N
     output = StringIO()
     config = Config(str(_BACKEND_ROOT / "alembic.ini"), output_buffer=output)
     config.set_main_option("script_location", str(_BACKEND_ROOT / "alembic"))
-    config.set_main_option(
-        "sqlalchemy.url", "mysql+pymysql://fixture:fixture@127.0.0.1/fixture"
-    )
+    config.set_main_option("sqlalchemy.url", "mysql+pymysql://fixture:fixture@127.0.0.1/fixture")
 
     command.upgrade(
         config,
@@ -180,7 +178,9 @@ def test_asset_research_migration_expands_and_rolls_back_without_touching_stock_
             "position_context_snapshot_available_at",
             "position_context_snapshot_expires_at",
         } <= prediction_columns
-        task_columns = {column["name"] for column in inspect(engine).get_columns("asset_analysis_tasks")}
+        task_columns = {
+            column["name"] for column in inspect(engine).get_columns("asset_analysis_tasks")
+        }
         assert {
             "lease_token",
             "lease_expires_at",
@@ -205,7 +205,9 @@ def test_asset_research_migration_expands_and_rolls_back_without_touching_stock_
             "fk_asset_prediction_position_context_binding",
             "fk_asset_prediction_position_context_window",
         } <= prediction_foreign_keys
-        run_columns = {column["name"] for column in inspect(engine).get_columns("asset_signal_runs")}
+        run_columns = {
+            column["name"] for column in inspect(engine).get_columns("asset_signal_runs")
+        }
         assert {"prediction_id", "prediction_link_role"} <= run_columns
         schedule_columns = {
             column["name"] for column in inspect(engine).get_columns("asset_signal_schedules")
@@ -217,7 +219,8 @@ def test_asset_research_migration_expands_and_rolls_back_without_touching_stock_
             "system_target_key",
         } <= schedule_columns
         manifest_column_metadata = {
-            column["name"]: column for column in inspect(engine).get_columns("asset_schedule_manifests")
+            column["name"]: column
+            for column in inspect(engine).get_columns("asset_schedule_manifests")
         }
         assert manifest_column_metadata["evidence_uri"]["nullable"] is False
         assert manifest_column_metadata["evidence_content_hash"]["nullable"] is False
@@ -436,9 +439,9 @@ def test_maturity_reason_migration_refuses_legacy_undefined_values(tmp_path) -> 
     engine = create_engine(database_url)
     try:
         with engine.connect() as connection:
-            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
-                "20260808_asset_research_manifest_evidence_required"
-            )
+            assert connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one() == ("20260808_asset_research_manifest_evidence_required")
     finally:
         engine.dispose()
 
@@ -490,9 +493,9 @@ def test_option_context_binding_migration_refuses_an_unbound_legacy_prediction(t
     engine = create_engine(database_url)
     try:
         with engine.connect() as connection:
-            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
-                previous_head
-            )
+            assert connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one() == (previous_head)
     finally:
         engine.dispose()
 
@@ -563,9 +566,9 @@ def test_option_context_binding_migration_refuses_an_expired_legacy_long_context
     engine = create_engine(database_url)
     try:
         with engine.connect() as connection:
-            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
-                previous_head
-            )
+            assert connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one() == (previous_head)
     finally:
         engine.dispose()
 

@@ -91,7 +91,9 @@ def calculate_fund_metrics(metrics_input: FundMetricsInput) -> FundMetrics:
             metrics_input.benchmark_points, metrics_input.benchmark_points[1:], strict=False
         )
     )
-    nav_growth = math.prod(float(Decimal("1") + period_return) for period_return in nav_period_returns)
+    nav_growth = math.prod(
+        float(Decimal("1") + period_return) for period_return in nav_period_returns
+    )
     benchmark_growth = math.prod(
         float(Decimal("1") + period_return) for period_return in benchmark_period_returns
     )

@@ -28,7 +28,10 @@ class NetworkPolicy:
         if self.max_response_bytes <= 0:
             raise ValueError("PROVIDER_RESPONSE_SIZE_INVALID")
         if not (
-            0 < self.connect_timeout_seconds < self.read_timeout_seconds <= self.total_timeout_seconds
+            0
+            < self.connect_timeout_seconds
+            < self.read_timeout_seconds
+            <= self.total_timeout_seconds
         ):
             raise ValueError("PROVIDER_TIMEOUT_ORDER_INVALID")
 
@@ -46,4 +49,3 @@ class AssetDataProvider(Protocol):
         *,
         cutoff_at: datetime,
     ) -> RawAssetSnapshot: ...
-

@@ -544,13 +544,18 @@ class StockAnalysisTaskService:
     ) -> tuple[StockAnalysisTaskModel, StockAnalysisReportModel] | None:
         result = await self.db.execute(
             select(StockAnalysisTaskModel, StockAnalysisReportModel)
-            .join(StockAnalysisReportModel, StockAnalysisReportModel.task_id == StockAnalysisTaskModel.id)
+            .join(
+                StockAnalysisReportModel,
+                StockAnalysisReportModel.task_id == StockAnalysisTaskModel.id,
+            )
             .where(
                 StockAnalysisTaskModel.user_id == user_id,
                 StockAnalysisTaskModel.status == "completed",
                 StockAnalysisReportModel.user_id == user_id,
             )
-            .order_by(StockAnalysisReportModel.created_at.desc(), StockAnalysisReportModel.id.desc())
+            .order_by(
+                StockAnalysisReportModel.created_at.desc(), StockAnalysisReportModel.id.desc()
+            )
             .limit(1)
         )
         row = result.first()

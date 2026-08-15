@@ -477,7 +477,9 @@ def _add_file_handler(
     """Add a rotating file handler with common defaults."""
 
     def _tag_filter(record: Any) -> bool:
-        return _patch_record(record) and bool(tag_filter and tag_filter in record["extra"].get("tags", []))
+        return _patch_record(record) and bool(
+            tag_filter and tag_filter in record["extra"].get("tags", [])
+        )
 
     filt: Callable[[Any], bool] = _tag_filter if tag_filter else _patch_record
 

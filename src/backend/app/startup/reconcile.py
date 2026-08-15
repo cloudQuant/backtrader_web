@@ -23,7 +23,12 @@ async def register(app: FastAPI, settings: Any) -> None:
         reconciled_stock_analysis_tasks = await StockAnalysisTaskService.reconcile_orphaned_tasks()
         reconciled_units = await workspace_service.reconcile_orphaned_run_statuses()
         reconciled_bar_counts = await workspace_service.reconcile_completed_bar_counts()
-        if reconciled_tasks or reconciled_stock_analysis_tasks or reconciled_units or reconciled_bar_counts:
+        if (
+            reconciled_tasks
+            or reconciled_stock_analysis_tasks
+            or reconciled_units
+            or reconciled_bar_counts
+        ):
             startup_logger.warning(
                 "Recovered stale runtime state on startup: backtest_tasks=%s, stock_analysis_tasks=%s, workspace_units=%s, unit_bar_counts=%s",
                 reconciled_tasks,

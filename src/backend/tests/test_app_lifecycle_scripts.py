@@ -54,7 +54,7 @@ exit 0
     )
     _write_executable(
         fake_bin / "setsid",
-        "#!/bin/bash\nexec \"$@\"\n",
+        '#!/bin/bash\nexec "$@"\n',
     )
     _write_executable(
         fake_bin / "node",

@@ -41,7 +41,10 @@ def test_asset_research_metrics_expose_bounded_task_and_source_labels() -> None:
 
     assert 'asset_research_task_total{asset_type="futures",status="SUCCEEDED"}' in output
     assert 'asset_research_task_duration_seconds_bucket{asset_type="futures"' in output
-    assert 'asset_research_source_request_total{result="AUTHORIZED",source_id="CFFEX_FIXTURE"}' in output
+    assert (
+        'asset_research_source_request_total{result="AUTHORIZED",source_id="CFFEX_FIXTURE"}'
+        in output
+    )
     assert 'source_id="UNREGISTERED"' in output
     assert "unregistered-source" not in output
 
@@ -123,10 +126,22 @@ def test_asset_research_llm_and_migration_metrics_use_bounded_labels() -> None:
 
     output = get_metrics_output()
 
-    assert 'asset_research_llm_tokens_total{asset_type="bond",model_tier="DEFAULT",stage="REPORT"}' in output
-    assert 'asset_research_llm_cost_usd_total{asset_type="futures",model_tier="ECONOMY",stage="REPORT"}' in output
-    assert 'asset_research_llm_fallback_total{asset_type="option",fallback_stage="REPORT",reason="BUDGET"}' in output
-    assert 'asset_research_migration_reconciliation_total{classification="DEFECT",mapping_version="stock-legacy-map-v1"}' in output
+    assert (
+        'asset_research_llm_tokens_total{asset_type="bond",model_tier="DEFAULT",stage="REPORT"}'
+        in output
+    )
+    assert (
+        'asset_research_llm_cost_usd_total{asset_type="futures",model_tier="ECONOMY",stage="REPORT"}'
+        in output
+    )
+    assert (
+        'asset_research_llm_fallback_total{asset_type="option",fallback_stage="REPORT",reason="BUDGET"}'
+        in output
+    )
+    assert (
+        'asset_research_migration_reconciliation_total{classification="DEFECT",mapping_version="stock-legacy-map-v1"}'
+        in output
+    )
     assert 'asset_research_queue_depth{asset_type="crypto"} 7.0' in output
     assert "tenant-model" not in output
     assert "UNKNOWN_CLASS" not in output

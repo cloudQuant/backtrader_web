@@ -53,7 +53,9 @@ class _Data:
     "relative_path",
     [Path("../outside.md"), Path("/tmp/asset-research-outside.md")],
 )
-def test_report_export_rejects_paths_outside_its_storage_root(tmp_path, relative_path: Path) -> None:
+def test_report_export_rejects_paths_outside_its_storage_root(
+    tmp_path, relative_path: Path
+) -> None:
     """Stored export URIs cannot escape the configured artifact root."""
     artifacts = AssetResearchReportArtifactsService(None, storage_root=tmp_path)  # type: ignore[arg-type]
 

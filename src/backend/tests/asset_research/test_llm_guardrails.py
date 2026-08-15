@@ -64,4 +64,3 @@ def test_budget_limits_must_be_monotonic() -> None:
 
     with pytest.raises(ValueError, match="LLM_BUDGET_LIMIT_MONOTONIC"):
         limits.validate()
-

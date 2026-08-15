@@ -146,7 +146,9 @@ def evaluate_samples(
         raise ValueError("EVALUATION_BASELINE_PROBABILITY_INVALID")
 
     brier_values = np.array([_brier(sample) for sample in samples])
-    baseline_brier_values = np.array([_baseline_brier(sample, baseline_probability) for sample in samples])
+    baseline_brier_values = np.array(
+        [_baseline_brier(sample, baseline_probability) for sample in samples]
+    )
     brier_score = float(np.mean(brier_values))
     baseline_brier_score = float(np.mean(baseline_brier_values))
     brier_skill_score = 1 - (brier_score / baseline_brier_score)
@@ -215,9 +217,7 @@ def deflated_sharpe(
 
 
 def _brier(sample: EvaluationSample) -> float:
-    one_hot = np.array(
-        [1.0 if label == sample.actual_label else 0.0 for label in sample.labels]
-    )
+    one_hot = np.array([1.0 if label == sample.actual_label else 0.0 for label in sample.labels])
     probabilities = np.asarray(sample.probabilities, dtype=float)
     return float(np.sum((probabilities - one_hot) ** 2))
 

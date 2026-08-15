@@ -18,9 +18,7 @@ def test_fund_metrics_reinvest_distributions_and_keep_the_etf_premium_separate()
         FundMetricsInput(
             nav_points=(
                 FundNavPoint(as_of=date(2026, 1, 1), nav=Decimal("100")),
-                FundNavPoint(
-                    as_of=date(2026, 1, 2), nav=Decimal("101"), distribution=Decimal("1")
-                ),
+                FundNavPoint(as_of=date(2026, 1, 2), nav=Decimal("101"), distribution=Decimal("1")),
                 FundNavPoint(as_of=date(2026, 1, 3), nav=Decimal("103")),
             ),
             benchmark_points=(

@@ -40,11 +40,14 @@ def detect_drift(
     prediction_distance = _psd(reference_probabilities, current_probabilities)
     calibration_distance = _psd(reference_actual_rates, current_actual_rates)
     data_distance = _psd(reference_feature_values, current_feature_values)
-    flagged = max(
-        prediction_distance,
-        calibration_distance,
-        data_distance,
-    ) > psd_threshold
+    flagged = (
+        max(
+            prediction_distance,
+            calibration_distance,
+            data_distance,
+        )
+        > psd_threshold
+    )
     return DriftReport(
         reference_count=len(reference_probabilities),
         current_count=len(current_probabilities),

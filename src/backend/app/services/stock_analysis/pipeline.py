@@ -484,7 +484,11 @@ class StockAnalysisPipeline:
                 "说明资金对基本面支撑并不买账，应优先保护本金。保守策略建议控制仓位、设置止损，"
                 f"{fundamental_risk}"
             )
-        neutral_premise = "多方看到已披露经营数据，空方看到趋势压力，" if has_financials else "财务数据不可用，趋势证据也不足，"
+        neutral_premise = (
+            "多方看到已披露经营数据，空方看到趋势压力，"
+            if has_financials
+            else "财务数据不可用，趋势证据也不足，"
+        )
         return (
             "中性风险分析师观点\n"
             f"{context['name']}当前风险收益相对均衡。{neutral_premise}"
@@ -586,9 +590,15 @@ class StockAnalysisPipeline:
         ]
 
         quote_price = self._float_or_none(quote.get("price"))
-        price = quote_price if quote_price is not None and quote_price > 0 else (closes[-1] if closes else None)
+        price = (
+            quote_price
+            if quote_price is not None and quote_price > 0
+            else (closes[-1] if closes else None)
+        )
         raw_change_pct = self._float_or_none(quote.get("change_pct"))
-        change_pct = self._normalize_change_pct(raw_change_pct) if raw_change_pct is not None else None
+        change_pct = (
+            self._normalize_change_pct(raw_change_pct) if raw_change_pct is not None else None
+        )
         ma5 = self._moving_average(closes[-5:])
         ma10 = self._moving_average(closes[-10:])
         if price is not None:
@@ -638,7 +648,11 @@ class StockAnalysisPipeline:
             profit_growth = self._growth_rate(profit, previous_profit)
         roe = self._float_or_none(latest.get("roe"))
         volume_value = self._float_or_none(quote.get("volume"))
-        volume = int(volume_value) if volume_value is not None else (int(volumes[-1]) if volumes else None)
+        volume = (
+            int(volume_value)
+            if volume_value is not None
+            else (int(volumes[-1]) if volumes else None)
+        )
         peer_names = "、".join(item.get("name") or item.get("symbol") or "" for item in peers[:3])
 
         return {
@@ -774,7 +788,11 @@ class StockAnalysisPipeline:
         raw_action = str(stored.get("action") or "WATCH")
         action = ACTION_LABELS.get(raw_action.upper())
         if action is None:
-            action = raw_action if raw_action in set(ACTION_LABELS.values()) else str(stored.get("label") or "观望")
+            action = (
+                raw_action
+                if raw_action in set(ACTION_LABELS.values())
+                else str(stored.get("label") or "观望")
+            )
         if action not in set(ACTION_LABELS.values()):
             action = "观望"
         quote = snapshot.get("quote") or {}
@@ -798,7 +816,9 @@ class StockAnalysisPipeline:
         news_items = (snapshot.get("news") or {}).get("items") or []
         news_score = 60.0 if news_items else 0.0
         risk_score = self._float_or_default(stored.get("risk_score"), 1.0)
-        confidence = self._float_or_default(stored.get("confidence_score", stored.get("confidence")), 0.5)
+        confidence = self._float_or_default(
+            stored.get("confidence_score", stored.get("confidence")), 0.5
+        )
         return {
             "action": action,
             "target_price": target_price,

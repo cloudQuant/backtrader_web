@@ -59,7 +59,9 @@ _MANIFEST_REQUIRED_COLUMNS = {
 
 def _retention_columns() -> list[sa.Column[Any]]:
     return [
-        sa.Column("retention_class", sa.String(length=32), nullable=False, server_default="research-v1"),
+        sa.Column(
+            "retention_class", sa.String(length=32), nullable=False, server_default="research-v1"
+        ),
         sa.Column("retention_expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("legal_hold", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("tombstoned_at", sa.DateTime(timezone=True), nullable=True),
@@ -95,9 +97,7 @@ def _constraint_names(bind: Any, table_name: str) -> set[str]:
         if item.get("name")
     }
     names.update(
-        str(item["name"])
-        for item in inspector.get_foreign_keys(table_name)
-        if item.get("name")
+        str(item["name"]) for item in inspector.get_foreign_keys(table_name) if item.get("name")
     )
     names.update(
         str(item["name"])
@@ -109,9 +109,7 @@ def _constraint_names(bind: Any, table_name: str) -> set[str]:
 
 def _index_names(bind: Any, table_name: str) -> set[str]:
     return {
-        str(item["name"])
-        for item in sa.inspect(bind).get_indexes(table_name)
-        if item.get("name")
+        str(item["name"]) for item in sa.inspect(bind).get_indexes(table_name) if item.get("name")
     }
 
 
@@ -137,7 +135,9 @@ def _create_manifest_table() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         *_retention_columns(),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("manifest_key", "manifest_version", name="uq_asset_schedule_manifest_version"),
+        sa.UniqueConstraint(
+            "manifest_key", "manifest_version", name="uq_asset_schedule_manifest_version"
+        ),
         sa.UniqueConstraint(
             "approved_by",
             "idempotency_key",
@@ -230,7 +230,9 @@ def upgrade() -> None:
         if "manifest_entry_key" not in schedule_columns:
             batch.add_column(sa.Column("manifest_entry_key", sa.String(length=128), nullable=True))
         if "manifest_content_hash" not in schedule_columns:
-            batch.add_column(sa.Column("manifest_content_hash", sa.String(length=64), nullable=True))
+            batch.add_column(
+                sa.Column("manifest_content_hash", sa.String(length=64), nullable=True)
+            )
         if "system_target_key" not in schedule_columns:
             batch.add_column(sa.Column("system_target_key", sa.String(length=64), nullable=True))
         if _MANIFEST_FOREIGN_KEY not in schedule_constraints:

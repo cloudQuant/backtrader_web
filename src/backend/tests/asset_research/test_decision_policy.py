@@ -201,9 +201,9 @@ def test_long_only_assets_translate_a_short_view_to_close_only_for_a_verified_lo
 
 def test_crypto_short_open_requires_a_frozen_derivative_product_type() -> None:
     """A configured perpetual can express a short only after its product type is frozen."""
-    candidate = _candidate(asset_type="crypto", direction="SHORT", position_context="FLAT").model_copy(
-        update={"asset_details": CryptoResearchDetails(product_type="PERPETUAL")}
-    )
+    candidate = _candidate(
+        asset_type="crypto", direction="SHORT", position_context="FLAT"
+    ).model_copy(update={"asset_details": CryptoResearchDetails(product_type="PERPETUAL")})
 
     published = apply_publication_gate(
         candidate,

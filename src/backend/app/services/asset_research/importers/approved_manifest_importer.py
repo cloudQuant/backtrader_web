@@ -165,9 +165,7 @@ class ApprovedManifestImporter:
                 "license_status": str(raw_source.get("license_status") or "UNKNOWN"),
                 "allowed_uses": raw_source.get("allowed_uses") or [],
                 "attribution_text": raw_source.get("attribution_text"),
-                "redistribution_policy": str(
-                    raw_source.get("redistribution_policy") or "UNKNOWN"
-                ),
+                "redistribution_policy": str(raw_source.get("redistribution_policy") or "UNKNOWN"),
                 "derived_data_policy": str(raw_source.get("derived_data_policy") or "UNKNOWN"),
                 "retention_policy": str(raw_source.get("retention_policy") or "research-v1"),
                 "effective_from": effective_from or datetime.now(timezone.utc),

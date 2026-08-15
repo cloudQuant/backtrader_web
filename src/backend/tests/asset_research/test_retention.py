@@ -51,9 +51,7 @@ async def test_retention_dry_run_only_lists_due_non_held_non_tombstoned_facts() 
     now = datetime(2026, 8, 1, tzinfo=timezone.utc)
     async with async_session_maker() as db:
         eligible = _instrument(suffix="eligible", expires_at=now - timedelta(days=1))
-        held = _instrument(
-            suffix="held", expires_at=now - timedelta(days=1), legal_hold=True
-        )
+        held = _instrument(suffix="held", expires_at=now - timedelta(days=1), legal_hold=True)
         future = _instrument(suffix="future", expires_at=now + timedelta(days=1))
         tombstoned = _instrument(suffix="tombstoned", expires_at=now - timedelta(days=1))
         tombstoned.tombstoned_at = now - timedelta(hours=1)

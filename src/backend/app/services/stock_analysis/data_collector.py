@@ -114,9 +114,7 @@ class StockAnalysisDataCollector:
         local_news = {"items": [], "total": 0, "status": "degraded"}
         try:
             local_news = await asyncio.wait_for(
-                get_news_intelligence_service(self.db).list_articles(
-                    user_id, ticker=symbol
-                ),
+                get_news_intelligence_service(self.db).list_articles(user_id, ticker=symbol),
                 timeout=10,
             )
             if not local_news.get("items"):
@@ -223,9 +221,7 @@ class StockAnalysisDataCollector:
 
         try:
             profile_frame = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self._fetch_cn_company_profile, self._cn_xq_symbol(symbol)
-                ),
+                asyncio.to_thread(self._fetch_cn_company_profile, self._cn_xq_symbol(symbol)),
                 timeout=20,
             )
         except Exception:

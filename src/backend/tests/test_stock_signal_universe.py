@@ -16,8 +16,7 @@ def _frame(rows: list[dict[str, str]]) -> SimpleNamespace:
 @pytest.mark.asyncio
 async def test_universe_normalizes_and_requires_exactly_fifty_members() -> None:
     rows = [
-        {"成分券代码": f"{600000 + index:06d}", "成分券名称": f"测试{index}"}
-        for index in range(50)
+        {"成分券代码": f"{600000 + index:06d}", "成分券名称": f"测试{index}"} for index in range(50)
     ]
     provider = Sse50UniverseProvider(fetcher=lambda **_kwargs: _frame(rows))
 

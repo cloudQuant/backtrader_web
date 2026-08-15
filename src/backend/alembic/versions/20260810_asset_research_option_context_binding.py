@@ -141,7 +141,9 @@ def _copy_context_windows(bind: Any) -> None:
             """
         )
         return
-    raise RuntimeError(f"asset-research context window migration does not support dialect: {dialect}")
+    raise RuntimeError(
+        f"asset-research context window migration does not support dialect: {dialect}"
+    )
 
 
 def _assert_existing_option_long_windows(bind: Any) -> None:
@@ -184,7 +186,9 @@ def upgrade() -> None:
     _assert_existing_prediction_bindings(bind)
     with op.batch_alter_table(_PREDICTION_TABLE) as batch:
         batch.add_column(
-            sa.Column("position_context_snapshot_as_of_at", sa.DateTime(timezone=True), nullable=True)
+            sa.Column(
+                "position_context_snapshot_as_of_at", sa.DateTime(timezone=True), nullable=True
+            )
         )
         batch.add_column(
             sa.Column(

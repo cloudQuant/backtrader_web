@@ -53,7 +53,9 @@ class Sse50UniverseProvider:
             members.append(
                 {
                     "symbol": _exchange_symbol(code),
-                    "name": str(row.get("成分券名称") or row.get("名称") or row.get("name") or code),
+                    "name": str(
+                        row.get("成分券名称") or row.get("名称") or row.get("name") or code
+                    ),
                 }
             )
         if len(members) != self.expected_member_count:

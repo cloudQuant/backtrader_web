@@ -85,9 +85,7 @@ def _identity(index: int | None = None) -> InstrumentIdentity:
             product_code="IF",
             contract_month=contract_code[-4:],
             expiry_at=(
-                "2026-09-18T07:15:00+00:00"
-                if index is None
-                else "2031-09-18T07:15:00+00:00"
+                "2026-09-18T07:15:00+00:00" if index is None else "2031-09-18T07:15:00+00:00"
             ),
             contract_multiplier="300",
             trading_calendar_id="CFFEX",
@@ -102,7 +100,9 @@ def _identity(index: int | None = None) -> InstrumentIdentity:
 # module-level references keep the relative spacing (fire -> claim = 4d+50m)
 # while anchoring to the current clock so the suite is reproducible on any
 # system date.
-_FIRE_AT = datetime.now(timezone.utc).replace(hour=11, minute=10, second=0, microsecond=0) - timedelta(days=1)
+_FIRE_AT = datetime.now(timezone.utc).replace(
+    hour=11, minute=10, second=0, microsecond=0
+) - timedelta(days=1)
 _CLAIM_AT = _FIRE_AT + timedelta(days=4, minutes=50)  # 12:00 on day 4
 _AS_OF_AT = _FIRE_AT + timedelta(days=4)  # claim date + fire time (11:10)
 
@@ -371,7 +371,9 @@ async def test_runner_limits_parallel_claim_execution_to_configured_worker_concu
 
 
 @pytest.mark.asyncio
-async def test_capacity_fixture_persists_one_approved_100_instrument_cycle_without_reports() -> None:
+async def test_capacity_fixture_persists_one_approved_100_instrument_cycle_without_reports() -> (
+    None
+):
     """One bounded static manifest persists only terminal schedule artifacts."""
     fire_at = datetime(2030, 1, 2, 11, 10, tzinfo=timezone.utc)
     schedule_ids = await _seed_due_system_schedule_batch(fire_at=fire_at, count=100)
@@ -472,7 +474,9 @@ async def test_runner_executes_public_shadow_schedule_without_a_user() -> None:
     async with async_session_maker() as db:
         schedule = await db.get(AssetSignalSchedule, schedule_id)
         run = (
-            await db.execute(select(AssetSignalRun).where(AssetSignalRun.schedule_id == schedule_id))
+            await db.execute(
+                select(AssetSignalRun).where(AssetSignalRun.schedule_id == schedule_id)
+            )
         ).scalar_one()
         assert run.prediction_id is not None
         prediction = await db.get(AssetSignalPrediction, run.prediction_id)
@@ -561,7 +565,9 @@ async def test_runner_retries_with_original_cutoff_and_preserves_failed_run() ->
     async with async_session_maker() as db:
         schedule = await db.get(AssetSignalSchedule, schedule_id)
         failed_run = (
-            await db.execute(select(AssetSignalRun).where(AssetSignalRun.schedule_id == schedule_id))
+            await db.execute(
+                select(AssetSignalRun).where(AssetSignalRun.schedule_id == schedule_id)
+            )
         ).scalar_one()
         assert schedule is not None
         assert failed_run.status == "FAILED"
@@ -618,7 +624,11 @@ async def test_skip_misfire_advances_schedule_without_creating_a_prediction() ->
     async with async_session_maker() as db:
         schedule = await db.get(AssetSignalSchedule, schedule_id)
         runs = list(
-            (await db.execute(select(AssetSignalRun).where(AssetSignalRun.schedule_id == schedule_id))).scalars()
+            (
+                await db.execute(
+                    select(AssetSignalRun).where(AssetSignalRun.schedule_id == schedule_id)
+                )
+            ).scalars()
         )
 
     assert schedule is not None
@@ -645,7 +655,11 @@ async def test_run_once_misfire_uses_the_latest_completed_fire_only() -> None:
     assert await runner.run_due(now=claim_time) == 1
     async with async_session_maker() as db:
         runs = list(
-            (await db.execute(select(AssetSignalRun).where(AssetSignalRun.schedule_id == schedule_id))).scalars()
+            (
+                await db.execute(
+                    select(AssetSignalRun).where(AssetSignalRun.schedule_id == schedule_id)
+                )
+            ).scalars()
         )
 
     assert len(runs) == 1

@@ -79,7 +79,9 @@ def test_crypto_plugin_derives_composite_price_and_depth_from_frozen_venue_quote
     assert features.values["crypto_market_quality_reason_code"] is None
 
 
-def test_crypto_report_details_expose_composite_depth_and_depeg_facts_without_trade_controls() -> None:
+def test_crypto_report_details_expose_composite_depth_and_depeg_facts_without_trade_controls() -> (
+    None
+):
     plugin = DEFAULT_ASSET_RESEARCH_REGISTRY.get("crypto")
     raw_snapshot = _snapshot(stablecoin_usd_rate=1.0)
     quality = plugin.assess_quality(raw_snapshot)

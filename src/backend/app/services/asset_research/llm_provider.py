@@ -71,4 +71,3 @@ def build_asset_research_llm_call(
         return response.content
 
     return call
-

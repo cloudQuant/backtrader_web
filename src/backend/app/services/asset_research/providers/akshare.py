@@ -92,7 +92,9 @@ def _parse_datetime(value: object) -> datetime | None:
         return datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         try:
-            return datetime.combine(date.fromisoformat(text), datetime.min.time(), tzinfo=timezone.utc)
+            return datetime.combine(
+                date.fromisoformat(text), datetime.min.time(), tzinfo=timezone.utc
+            )
         except ValueError:
             return None
 
@@ -210,7 +212,9 @@ def _build_observations(
         if row_date is None:
             continue
         observed_at = datetime.combine(row_date, datetime.min.time(), tzinfo=timezone.utc)
-        for field_name, value in _scalar_fields(row, prefix=f"history:{row_date.isoformat()}").items():
+        for field_name, value in _scalar_fields(
+            row, prefix=f"history:{row_date.isoformat()}"
+        ).items():
             if field_name.rsplit(".", maxsplit=1)[-1] == "date":
                 continue
             add(field_name=field_name, value=value, observed_at=observed_at)
@@ -287,9 +291,7 @@ def _build_snapshot(
         raw_fields=safe_raw_fields,
         history_rows=safe_history_rows,
         observations={
-            field_name: observation.model_copy(
-                update={"value": _json_safe(observation.value)}
-            )
+            field_name: observation.model_copy(update={"value": _json_safe(observation.value)})
             for field_name, observation in observations.items()
         },
         source_manifest=source_manifest,
@@ -453,7 +455,9 @@ class AkShareFuturesProvider(AssetDataProvider):
         return None
 
     @staticmethod
-    def _quote(row: dict[str, Any] | None, *, cutoff: datetime) -> tuple[dict[str, Any], datetime | None]:
+    def _quote(
+        row: dict[str, Any] | None, *, cutoff: datetime
+    ) -> tuple[dict[str, Any], datetime | None]:
         if row is None:
             return {}, None
         trade_date = _parse_date(_row_value(row, "tradedate", "日期"))
@@ -468,7 +472,9 @@ class AkShareFuturesProvider(AssetDataProvider):
                         f"{trade_date.isoformat()}T{tick_time}+08:00"
                     ).astimezone(timezone.utc)
                 except ValueError:
-                    quote_at = datetime.combine(trade_date, datetime.min.time(), tzinfo=timezone.utc)
+                    quote_at = datetime.combine(
+                        trade_date, datetime.min.time(), tzinfo=timezone.utc
+                    )
             else:
                 quote_at = datetime.combine(trade_date, datetime.min.time(), tzinfo=timezone.utc)
         quote = {
@@ -531,9 +537,7 @@ class AkShareFuturesProvider(AssetDataProvider):
                 _row_value(rule_row or {}, "合约乘数", "contract_multiplier")
             ),
             "tick_size": _number(_row_value(rule_row or {}, "最小变动价位", "tick_size")),
-            "margin_ratio": _number(
-                _row_value(rule_row or {}, "交易保证金比例", "margin_ratio")
-            ),
+            "margin_ratio": _number(_row_value(rule_row or {}, "交易保证金比例", "margin_ratio")),
             "price_limit": _number(_row_value(rule_row or {}, "涨跌停板幅度", "price_limit")),
             "market_context_current": True,
             "broker_margin_available": bool(rule_row),
@@ -657,7 +661,9 @@ class AkShareBondProvider(AssetDataProvider):
         return None
 
     @staticmethod
-    def _quote(row: dict[str, Any] | None, *, cutoff: datetime) -> tuple[dict[str, Any], datetime | None]:
+    def _quote(
+        row: dict[str, Any] | None, *, cutoff: datetime
+    ) -> tuple[dict[str, Any], datetime | None]:
         if row is None:
             return {}, None
         if cutoff.date() != _now_utc().date():
@@ -709,16 +715,21 @@ class AkShareBondProvider(AssetDataProvider):
         payment_dates = _parse_payment_dates(
             profile_values.get("付息日期"), issue_year=issue_date.year, end_year=maturity_date.year
         )
-        rates = _parse_coupon_rates(profile_values.get("利率说明"), profile_values.get("票面利率（%）"))
+        rates = _parse_coupon_rates(
+            profile_values.get("利率说明"), profile_values.get("票面利率（%）")
+        )
         coupon_schedule = [
-            {"year_index": index + 1, "annual_rate_percent": rate} for index, rate in enumerate(rates)
+            {"year_index": index + 1, "annual_rate_percent": rate}
+            for index, rate in enumerate(rates)
         ]
         cashflows: list[dict[str, Any]] = []
         for _payment_index, payment_date in enumerate(payment_dates, start=1):
             if payment_date <= cutoff.date():
                 continue
             year_index = max(1, payment_date.year - issue_date.year)
-            rate = rates[year_index - 1] if year_index <= len(rates) else (rates[-1] if rates else 0.0)
+            rate = (
+                rates[year_index - 1] if year_index <= len(rates) else (rates[-1] if rates else 0.0)
+            )
             coupon_amount = face_value * rate / 100.0
             is_maturity = payment_date == maturity_date
             cashflows.append(
@@ -733,7 +744,9 @@ class AkShareBondProvider(AssetDataProvider):
         return cashflows, coupon_schedule
 
     @staticmethod
-    def _curve(frame: Any, *, cutoff: datetime) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    def _curve(
+        frame: Any, *, cutoff: datetime
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         if frame is None or frame.empty:
             return [], None
         rows: list[dict[str, Any]] = []
@@ -910,7 +923,9 @@ class AkShareFundProvider(AssetDataProvider):
         return None
 
     @staticmethod
-    def _quote(row: dict[str, Any] | None, *, cutoff: datetime) -> tuple[dict[str, Any], datetime | None]:
+    def _quote(
+        row: dict[str, Any] | None, *, cutoff: datetime
+    ) -> tuple[dict[str, Any], datetime | None]:
         if row is None:
             return {}, None
         trade_date = _parse_date(_row_value(row, "日期", "date"))
@@ -982,14 +997,10 @@ class AkShareFxProvider(AssetDataProvider):
             "bid": _number(_row_value(quote_row or {}, "买入价", "bid") if quote_row else None),
             "ask": _number(_row_value(quote_row or {}, "卖出价", "ask") if quote_row else None),
             "boc_reference_rate": (
-                _number(_row_value(boc_row or {}, "中行折算价", "rate"))
-                if boc_row
-                else None
+                _number(_row_value(boc_row or {}, "中行折算价", "rate")) if boc_row else None
             ),
             "boc_rate_date": (
-                _parse_date(_row_value(boc_row or {}, "发布日期", "date"))
-                if boc_row
-                else None
+                _parse_date(_row_value(boc_row or {}, "发布日期", "date")) if boc_row else None
             ),
         }
         raw_fields: dict[str, Any] = {
@@ -1023,7 +1034,9 @@ class AkShareFxProvider(AssetDataProvider):
         return None
 
     @staticmethod
-    def _quote(row: dict[str, Any] | None, *, cutoff: datetime) -> tuple[dict[str, Any], datetime | None]:
+    def _quote(
+        row: dict[str, Any] | None, *, cutoff: datetime
+    ) -> tuple[dict[str, Any], datetime | None]:
         if row is None:
             return {}, None
         price = _number(_row_value(row, "最新价", "price"))

@@ -56,7 +56,9 @@ async def test_stock_compatibility_adapter_preserves_legacy_facts_without_promot
         )
         await db.commit()
 
-        response = await StockResearchCompatibilityAdapter(StockSignalService(db)).get_visible_history(
+        response = await StockResearchCompatibilityAdapter(
+            StockSignalService(db)
+        ).get_visible_history(
             user_id="any-user",
             symbol="600000.SH",
         )

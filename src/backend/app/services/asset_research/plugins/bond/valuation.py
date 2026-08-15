@@ -160,22 +160,22 @@ def calculate_fixed_rate_bond_analytics(valuation: BondValuationInput) -> BondAn
     if price <= 0 or not math.isfinite(price):
         return _empty_analytics(valuation, "BOND.YIELD_SOLVER_FAILED", dirty_price=dirty_price)
 
-    macaulay_duration = sum(
-        time * present_value for time, present_value in zip(times, present_values, strict=True)
-    ) / price
+    macaulay_duration = (
+        sum(time * present_value for time, present_value in zip(times, present_values, strict=True))
+        / price
+    )
     modified_duration = macaulay_duration / base
-    convexity = sum(
-        time
-        * (time + 1.0 / valuation.coupon_frequency)
-        * present_value
-        / (base**2)
-        for time, present_value in zip(times, present_values, strict=True)
-    ) / price
+    convexity = (
+        sum(
+            time * (time + 1.0 / valuation.coupon_frequency) * present_value / (base**2)
+            for time, present_value in zip(times, present_values, strict=True)
+        )
+        / price
+    )
     dv01 = modified_duration * float(dirty_price) * 0.0001
 
     if not all(
-        math.isfinite(value)
-        for value in (solved_yield, modified_duration, convexity, dv01)
+        math.isfinite(value) for value in (solved_yield, modified_duration, convexity, dv01)
     ):
         return _empty_analytics(valuation, "BOND.YIELD_SOLVER_FAILED", dirty_price=dirty_price)
 

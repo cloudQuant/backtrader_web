@@ -48,7 +48,9 @@ def _research_only(
 ) -> ResearchDecision:
     """Clear public actionability while preserving an identity-scope reason."""
     reason_codes = (
-        _with_reason(decision, reason_code) if reason_code is not None else list(decision.reason_codes)
+        _with_reason(decision, reason_code)
+        if reason_code is not None
+        else list(decision.reason_codes)
     )
     return decision.model_copy(
         update={
