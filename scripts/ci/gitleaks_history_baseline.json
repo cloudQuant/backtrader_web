@@ -2,7 +2,7 @@
   "schema_version": 1,
   "gitleaks_version": "8.30.1",
   "audit_date": "2026-08-15",
-  "accepted_fingerprints": 117,
+  "accepted_fingerprints": 118,
   "unresolved_findings": 0,
   "blocking_ready": true,
   "credential_status": "owner-confirmed-revoked-2026-07-18",

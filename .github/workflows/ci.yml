@@ -342,11 +342,16 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
-          # mypy pinned to match the 177 §E ratchet baseline
-          # (scripts/ci/mypy_app_baseline.json). Bumping mypy requires
-          # regenerating that baseline via `mypy_ratchet.py --update`.
-          .venv/bin/pip install ruff pytest pytest-asyncio httpx "mypy==1.20.2"
-          .venv/bin/pip install -e ".[backtrader]"
+          # Install from the pinned dev lock (same resolution as the
+          # backend-test canonical job) so the repo-wide mypy ratchet count is
+          # deterministic. The previous unpinned `.[backtrader]` install drifted
+          # +21 errors since the 2026-07 baseline. mypy comes from the lock at
+          # the ratchet-baseline version (1.20.2); ruff is pinned to the version
+          # used to format the tree. Bumping mypy requires regenerating the
+          # baseline via `mypy_ratchet.py --update`.
+          .venv/bin/pip install --requirement ../../config/requirements-dev.lock
+          .venv/bin/pip install --no-deps -e .
+          .venv/bin/pip install "ruff==0.16.2"
 
       - name: Activate virtualenv
         run: echo "$PWD/.venv/bin" >> $GITHUB_PATH
@@ -964,6 +969,13 @@ jobs:
 
       - name: Install Lighthouse CI
         run: npm install -g @lhci/cli
+
+      # The 2026-08 runner image no longer ships Chrome; lhci's healthcheck
+      # fails with "Chrome installation not found" otherwise.
+      - name: Install Chrome for Lighthouse
+        run: |
+          wget -q -O /tmp/google-chrome-stable_current_amd64.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get install -y /tmp/google-chrome-stable_current_amd64.deb
 
       - name: Run Lighthouse CI audits
         id: lhci

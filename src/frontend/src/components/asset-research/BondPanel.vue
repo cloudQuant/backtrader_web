@@ -1,35 +1,39 @@
 <template>
   <section class="asset-detail-panel" aria-labelledby="bond-panel-title">
     <div class="panel-head">
-      <span class="panel-kicker">债券估值</span>
-      <h3 id="bond-panel-title">收益率与风险</h3>
+      <span class="panel-kicker">{{ t('assetResearch.bondPanel.kicker') }}</span>
+      <h3 id="bond-panel-title">{{ t('assetResearch.bondPanel.title') }}</h3>
     </div>
     <dl class="detail-grid">
       <div>
-        <dt>到期收益率</dt>
-        <dd>{{ details?.yield_to_maturity ?? '未提供' }}</dd>
+        <dt>{{ t('assetResearch.bondPanel.yieldToMaturity') }}</dt>
+        <dd>{{ details?.yield_to_maturity ?? t('assetResearch.notProvided') }}</dd>
       </div>
       <div>
-        <dt>修正久期</dt>
-        <dd>{{ details?.modified_duration ?? '未提供' }}</dd>
+        <dt>{{ t('assetResearch.bondPanel.modifiedDuration') }}</dt>
+        <dd>{{ details?.modified_duration ?? t('assetResearch.notProvided') }}</dd>
       </div>
       <div>
-        <dt>凸性</dt>
-        <dd>{{ details?.convexity ?? '未提供' }}</dd>
+        <dt>{{ t('assetResearch.bondPanel.convexity') }}</dt>
+        <dd>{{ details?.convexity ?? t('assetResearch.notProvided') }}</dd>
       </div>
       <div>
         <dt>DV01</dt>
-        <dd>{{ details?.dv01 ?? '未提供' }}</dd>
+        <dd>{{ details?.dv01 ?? t('assetResearch.notProvided') }}</dd>
       </div>
       <div>
-        <dt>信用利差</dt>
-        <dd>{{ details?.credit_spread_bps ?? '未提供' }}</dd>
+        <dt>{{ t('assetResearch.bondPanel.creditSpread') }}</dt>
+        <dd>{{ details?.credit_spread_bps ?? t('assetResearch.notProvided') }}</dd>
       </div>
     </dl>
   </section>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 defineProps<{
   details?: Record<string, unknown> | null
 }>()

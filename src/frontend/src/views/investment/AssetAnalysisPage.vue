@@ -4,7 +4,7 @@
     <section class="hero-panel">
       <div>
         <p class="eyebrow">
-          多资产 AI 研究
+          {{ t('assetResearch.page.eyebrow') }}
         </p>
         <h2>{{ assetConfig.title }}</h2>
         <p class="subtitle">
@@ -12,8 +12,8 @@
         </p>
       </div>
       <div class="safety-notice">
-        <strong>研究用途，不能直接下单</strong>
-        <span>结论仅来自已发布的研究决策；候选模型、概率和未成熟评分均不会对外展示。</span>
+        <strong>{{ t('assetResearch.page.researchOnly') }}</strong>
+        <span>{{ t('assetResearch.page.publishedConclusionNote') }}</span>
       </div>
     </section>
 
@@ -23,9 +23,9 @@
           <div class="panel-heading">
             <div>
               <p class="panel-kicker">
-                标的确认
+                {{ t('assetResearch.page.targetConfirmKicker') }}
               </p>
-              <h3>先确认唯一标的，再启动分析</h3>
+              <h3>{{ t('assetResearch.page.targetConfirmTitle') }}</h3>
             </div>
             <el-tag effect="plain">
               {{ assetConfig.identityLevelLabel }}
@@ -44,7 +44,7 @@
               />
             </label>
             <label class="field">
-              <span>持仓上下文</span>
+              <span>{{ t('assetResearch.page.positionContext') }}</span>
               <el-select
                 v-model="form.positionContext"
                 size="large"
@@ -59,14 +59,14 @@
               </el-select>
             </label>
             <label class="field">
-              <span>研究周期</span>
+              <span>{{ t('assetResearch.page.horizon') }}</span>
               <el-select
                 v-model="form.horizonCode"
                 size="large"
                 class="full-width"
               >
                 <el-option
-                  label="标准周期"
+                  :label="t('assetResearch.page.standardHorizon')"
                   value="standard"
                 />
               </el-select>
@@ -78,7 +78,7 @@
               :disabled="!form.query.trim() || capabilityLoading || !researchEnabled"
               @click="searchCandidates"
             >
-              搜索候选
+              {{ t('assetResearch.page.searchCandidates') }}
             </el-button>
             <el-button
               class="analysis-submit"
@@ -88,7 +88,7 @@
               :disabled="!resolvedInstrument || capabilityLoading || !researchEnabled"
               @click="submitAnalysis"
             >
-              开始 {{ assetConfig.shortTitle }}研究
+              {{ t('assetResearch.page.startResearch', { title: assetConfig.shortTitle }) }}
             </el-button>
           </div>
 
@@ -96,7 +96,7 @@
             v-if="instrumentCandidates.length"
             class="instrument-candidates"
           >
-            <p>请选择一个候选标的；系统不会自动替你选择。</p>
+            <p>{{ t('assetResearch.page.chooseCandidate') }}</p>
             <el-button
               v-for="candidate in instrumentCandidates"
               :key="`${candidate.canonical_id || candidate.symbol}:${candidate.market || ''}`"
@@ -104,7 +104,7 @@
               :loading="candidateLoading"
               @click="confirmCandidate(candidate)"
             >
-              确认 {{ candidate.symbol }} · {{ candidate.name }}{{ candidate.market ? ` · ${candidate.market}` : '' }}
+              {{ t('assetResearch.page.confirmCandidate') }} {{ candidate.symbol }} · {{ candidate.name }}{{ candidate.market ? ` · ${candidate.market}` : '' }}
             </el-button>
           </div>
 
@@ -112,7 +112,7 @@
             v-if="capabilityLoading"
             class="notice"
           >
-            正在核验数据源许可与研究能力…
+            {{ t('assetResearch.page.verifyingCapability') }}
           </p>
           <p
             v-else-if="!researchEnabled"
@@ -139,7 +139,7 @@
             class="resolved-instrument"
           >
             <div>
-              <span>已确认标的</span>
+              <span>{{ t('assetResearch.page.confirmedTarget') }}</span>
               <strong>{{ resolvedInstrument.display_symbol }} · {{ resolvedInstrument.name }}</strong>
             </div>
             <small>{{ resolvedInstrument.canonical_id }}</small>
@@ -150,22 +150,22 @@
           <div class="panel-heading">
             <div>
               <p class="panel-kicker">
-                资产专属门控
+                {{ t('assetResearch.page.assetGateKicker') }}
               </p>
               <h3>{{ assetConfig.requirement }}</h3>
             </div>
           </div>
           <div class="policy-grid">
             <div>
-              <span>研究焦点</span>
+              <span>{{ t('assetResearch.page.researchFocus') }}</span>
               <strong>{{ assetConfig.focus }}</strong>
             </div>
             <div>
-              <span>身份必须包含</span>
+              <span>{{ t('assetResearch.page.identityMustContain') }}</span>
               <strong>{{ assetConfig.identityRequirement }}</strong>
             </div>
             <div>
-              <span>不可替代条件</span>
+              <span>{{ t('assetResearch.page.nonSubstitutable') }}</span>
               <strong>{{ assetConfig.nonSubstitutable }}</strong>
             </div>
           </div>
@@ -178,33 +178,33 @@
           <div class="panel-heading">
             <div>
               <p class="panel-kicker">
-                任务状态
+                {{ t('assetResearch.page.taskStatus') }}
               </p>
               <h3>{{ statusLabel(task.status) }}</h3>
-              <p>{{ task.message || task.error_code || '正在等待研究任务的最新状态。' }}</p>
+              <p>{{ task.message || task.error_code || t('assetResearch.page.waitingForLatestStatus') }}</p>
             </div>
             <el-button
               v-if="canCancel"
               :loading="taskLoading"
               @click="cancelTask"
             >
-              取消任务
+              {{ t('assetResearch.page.cancelTask') }}
             </el-button>
             <el-button
               v-else-if="task.status === 'FAILED'"
               :loading="taskLoading"
               @click="retryTask"
             >
-              重新尝试
+              {{ t('assetResearch.page.retryTask') }}
             </el-button>
           </div>
           <el-progress
             :percentage="task.progress"
             :stroke-width="10"
-            aria-label="研究任务进度"
+            :aria-label="t('assetResearch.page.taskProgress')"
           />
           <p class="task-id">
-            任务 ID：{{ task.task_id }}
+            {{ t('assetResearch.page.taskId', { id: task.task_id }) }}
           </p>
         </section>
 
@@ -215,7 +215,7 @@
           <div class="panel-heading">
             <div>
               <p class="panel-kicker">
-                已发布研究结论
+                {{ t('assetResearch.page.publishedDecision') }}
               </p>
               <h3>{{ recommendationLabel(publishedDecision.recommendation) }}</h3>
             </div>
@@ -229,32 +229,32 @@
 
           <div class="decision-grid">
             <div>
-              <span>市场观点</span>
+              <span>{{ t('assetResearch.page.marketView') }}</span>
               <strong>{{ marketViewLabel(publishedDecision.market_view) }}</strong>
             </div>
             <div>
-              <span>规范方向</span>
+              <span>{{ t('assetResearch.page.normalizedDirection') }}</span>
               <strong>{{ normalizedDirectionLabel(publishedDecision.normalized_direction) }}</strong>
             </div>
             <div>
-              <span>持仓上下文</span>
+              <span>{{ t('assetResearch.page.positionContext') }}</span>
               <strong>{{ positionContextLabel(publishedDecision.position_context) }}</strong>
             </div>
             <div>
-              <span>数据质量</span>
+              <span>{{ t('assetResearch.page.dataQuality') }}</span>
               <strong>{{ qualityLabel(publishedDecision.quality_status) }}</strong>
             </div>
             <div>
-              <span>持仓意图</span>
+              <span>{{ t('assetResearch.page.positionIntent') }}</span>
               <strong>{{ tradeIntentLabel(publishedDecision.trade_intent) }}</strong>
             </div>
             <div>
-              <span>研究周期</span>
+              <span>{{ t('assetResearch.page.horizon') }}</span>
               <strong>{{ publishedDecision.horizon_code }}</strong>
             </div>
             <div>
-              <span>执行状态</span>
-              <strong>{{ publishedDecision.execution_disabled ? '已禁用' : '不适用' }}</strong>
+              <span>{{ t('assetResearch.page.executionStatus') }}</span>
+              <strong>{{ publishedDecision.execution_disabled ? t('assetResearch.page.disabled') : t('assetResearch.page.notApplicable') }}</strong>
             </div>
           </div>
 
@@ -262,7 +262,7 @@
             {{ decisionSafetyText(publishedDecision.actionability) }}
           </p>
           <div class="decision-invalidation">
-            <span>失效条件</span>
+            <span>{{ t('assetResearch.page.invalidationConditions') }}</span>
             <ul v-if="publishedDecision.invalidation_conditions?.length">
               <li
                 v-for="condition in publishedDecision.invalidation_conditions"
@@ -272,7 +272,7 @@
               </li>
             </ul>
             <p v-else>
-              当前未提供可公开的失效条件；结论维持研究观察，不构成执行指令。
+              {{ t('assetResearch.page.noPublicInvalidation') }}
             </p>
           </div>
           <div
@@ -308,7 +308,7 @@
           <div class="panel-heading">
             <div>
               <p class="panel-kicker">
-                研究报告
+                {{ t('assetResearch.page.reportKicker') }}
               </p>
               <h3>{{ resolvedInstrument?.name || assetConfig.shortTitle }}</h3>
             </div>
@@ -332,7 +332,7 @@
                 v-if="publishedDecision"
                 @click="openKnowledgeBasePublication"
               >
-                保存到知识库
+                {{ t('assetResearch.page.saveToKb') }}
               </el-button>
             </div>
           </div>
@@ -352,7 +352,7 @@
                 v-if="section.evidence_ids?.length"
                 class="report-evidence-ids"
               >
-                <span>证据 ID</span>
+                <span>{{ t('assetResearch.page.evidenceIds') }}</span>
                 <code
                   v-for="evidenceId in section.evidence_ids"
                   :key="evidenceId"
@@ -370,13 +370,13 @@
             v-else-if="reportRenderFailed"
             class="notice error"
           >
-            研报正文暂不可用：报告渲染失败。已发布结构化结论仍可查看，稍后可重试生成研报。
+            {{ t('assetResearch.page.reportRenderFailed') }}
           </p>
           <p
             v-else
             class="empty-copy"
           >
-            尚无可公开的研报正文；已发布结论不受影响。
+            {{ t('assetResearch.page.noReportBody') }}
           </p>
         </section>
 
@@ -387,16 +387,16 @@
           <div class="panel-heading compact">
             <div>
               <p class="panel-kicker">
-                公开证据清单
+                {{ t('assetResearch.page.publicEvidenceKicker') }}
               </p>
-              <h3>来源、版本与数据快照</h3>
+              <h3>{{ t('assetResearch.page.evidenceTitle') }}</h3>
             </div>
           </div>
           <p
             v-if="evidenceLoading"
             class="empty-copy"
           >
-            正在读取公开证据清单…
+            {{ t('assetResearch.page.loadingEvidence') }}
           </p>
           <p
             v-else-if="evidenceError"
@@ -407,7 +407,7 @@
           <template v-else-if="signalEvidence">
             <dl class="evidence-list">
               <div v-if="signalEvidence.source_snapshot_hash">
-                <dt>快照哈希</dt>
+                <dt>{{ t('assetResearch.page.snapshotHash') }}</dt>
                 <dd class="evidence-hash">
                   {{ signalEvidence.source_snapshot_hash }}
                 </dd>
@@ -416,14 +416,14 @@
                 v-for="entry in evidenceSourceEntries"
                 :key="`source:${entry.key}`"
               >
-                <dt>来源 · {{ entry.key }}</dt>
+                <dt>{{ t('assetResearch.page.sourceLabel', { key: entry.key }) }}</dt>
                 <dd>{{ entry.value }}</dd>
               </div>
               <div
                 v-for="entry in evidenceVersionEntries"
                 :key="`version:${entry.key}`"
               >
-                <dt>版本 · {{ entry.key }}</dt>
+                <dt>{{ t('assetResearch.page.versionLabel', { key: entry.key }) }}</dt>
                 <dd>{{ entry.value }}</dd>
               </div>
             </dl>
@@ -434,14 +434,14 @@
               <span
                 v-for="tag in signalEvidence.license_tags"
                 :key="`license:${tag}`"
-              >许可：{{ tag }}</span>
+              >{{ t('assetResearch.page.licenseLabel', { tag }) }}</span>
               <span
                 v-for="reasonCode in signalEvidence.reason_codes"
                 :key="`reason:${reasonCode}`"
               >{{ reasonCode }}</span>
             </div>
             <p class="evidence-note">
-              页面仅展示来源、版本、哈希和稳定证据 ID；原始载荷与候选决策始终不向前端公开。
+              {{ t('assetResearch.page.evidenceNote') }}
             </p>
           </template>
         </section>
@@ -452,22 +452,22 @@
           <div class="panel-heading compact">
             <div>
               <p class="panel-kicker">
-                预测成绩单
+                {{ t('assetResearch.page.scorecardKicker') }}
               </p>
-              <h3>仅统计已成熟样本</h3>
+              <h3>{{ t('assetResearch.page.scorecardTitle') }}</h3>
             </div>
           </div>
           <el-select
             v-if="availableHeadSpecHashes.length > 1"
             v-model="selectedHeadSpecHash"
             class="scorecard-cohort-select"
-            aria-label="评分口径"
+            :aria-label="t('assetResearch.page.cohortAria')"
             @change="selectScorecardCohort"
           >
             <el-option
               v-for="headSpecHash in availableHeadSpecHashes"
               :key="headSpecHash"
-              :label="`评分口径 ${shortHeadSpecHash(headSpecHash)}`"
+              :label="t('assetResearch.page.cohortLabel', { hash: shortHeadSpecHash(headSpecHash) })"
               :value="headSpecHash"
             />
           </el-select>
@@ -475,7 +475,7 @@
             v-if="summaryLoading"
             class="empty-copy"
           >
-            正在读取预测成绩单…
+            {{ t('assetResearch.page.loadingScorecard') }}
           </p>
           <p
             v-else-if="summaryError"
@@ -487,31 +487,31 @@
             v-else-if="signalSummary"
             class="scorecard-list"
           >
-            <div><dt>已生成（此口径）</dt><dd>{{ signalSummary.generated_count }}</dd></div>
-            <div><dt>历史总数</dt><dd>{{ signalSummary.total_generated_count }}</dd></div>
-            <div><dt>可评分</dt><dd>{{ signalSummary.scorable_count }}</dd></div>
-            <div><dt>覆盖率</dt><dd>{{ formatPercent(signalSummary.coverage_rate) }}</dd></div>
-            <div><dt>成熟率</dt><dd>{{ formatPercent(signalSummary.maturity_rate) }}</dd></div>
-            <div><dt>已行动成功率</dt><dd>{{ formatPercent(signalSummary.actioned_success_rate) }}</dd></div>
-            <div><dt>Brier 分数</dt><dd>{{ formatScore(signalSummary.brier_score) }}</dd></div>
-            <div><dt>Brier 技能分</dt><dd>{{ formatPercent(signalSummary.brier_skill_score) }}</dd></div>
-            <div><dt>平均净收益</dt><dd>{{ formatPercent(signalSummary.average_net_return) }}</dd></div>
-            <div><dt>最大回撤</dt><dd>{{ formatPercent(signalSummary.max_drawdown) }}</dd></div>
+            <div><dt>{{ t('assetResearch.page.generatedThisCohort') }}</dt><dd>{{ signalSummary.generated_count }}</dd></div>
+            <div><dt>{{ t('assetResearch.page.historicalTotal') }}</dt><dd>{{ signalSummary.total_generated_count }}</dd></div>
+            <div><dt>{{ t('assetResearch.page.scorable') }}</dt><dd>{{ signalSummary.scorable_count }}</dd></div>
+            <div><dt>{{ t('assetResearch.page.coverageRate') }}</dt><dd>{{ formatPercent(signalSummary.coverage_rate) }}</dd></div>
+            <div><dt>{{ t('assetResearch.page.maturityRate') }}</dt><dd>{{ formatPercent(signalSummary.maturity_rate) }}</dd></div>
+            <div><dt>{{ t('assetResearch.page.actionedSuccessRate') }}</dt><dd>{{ formatPercent(signalSummary.actioned_success_rate) }}</dd></div>
+            <div><dt>{{ t('assetResearch.page.brierScore') }}</dt><dd>{{ formatScore(signalSummary.brier_score) }}</dd></div>
+            <div><dt>{{ t('assetResearch.page.brierSkillScore') }}</dt><dd>{{ formatPercent(signalSummary.brier_skill_score) }}</dd></div>
+            <div><dt>{{ t('assetResearch.page.averageNetReturn') }}</dt><dd>{{ formatPercent(signalSummary.average_net_return) }}</dd></div>
+            <div><dt>{{ t('assetResearch.page.maxDrawdown') }}</dt><dd>{{ formatPercent(signalSummary.max_drawdown) }}</dd></div>
           </dl>
           <p
             v-if="!summaryLoading && !summaryError && signalSummary?.calibration_bins?.length"
             class="calibration-copy"
           >
-            校准分桶：{{ calibrationSummary(signalSummary.calibration_bins) }}
+            {{ t('assetResearch.page.calibration', { bins: calibrationSummary(signalSummary.calibration_bins) }) }}
           </p>
           <p
             v-else-if="!summaryLoading && !summaryError"
             class="empty-copy"
           >
-            确认标的后，将显示这个资产的历史评分覆盖率与成熟度。
+            {{ t('assetResearch.page.scorecardHint') }}
           </p>
           <p class="scorecard-note">
-            不同目标定义会分开评分；没有可评分样本时，不会以 0% 冒充成功率。
+            {{ t('assetResearch.page.scorecardNote') }}
           </p>
         </section>
 
@@ -519,16 +519,16 @@
           <div class="panel-heading compact">
             <div>
               <p class="panel-kicker">
-                历史预测
+                {{ t('assetResearch.page.historyKicker') }}
               </p>
-              <h3>已发布结论</h3>
+              <h3>{{ t('assetResearch.page.historyTitle') }}</h3>
             </div>
           </div>
           <p
             v-if="historyLoading"
             class="empty-copy"
           >
-            正在读取历史预测…
+            {{ t('assetResearch.page.loadingHistory') }}
           </p>
           <p
             v-else-if="historyError"
@@ -547,7 +547,7 @@
               <strong>{{ recommendationLabel(item.published_decision.recommendation) }}</strong>
               <span>
                 {{ formatDate(item.as_of_at) }} · {{ actionabilityLabel(item.actionability) }} ·
-                {{ item.owner_scope === 'PUBLIC_SHADOW' ? '公共影子' : '我的研究' }}
+                {{ item.owner_scope === 'PUBLIC_SHADOW' ? t('assetResearch.page.publicShadow') : t('assetResearch.page.myResearch') }}
               </span>
             </li>
           </ul>
@@ -555,7 +555,7 @@
             v-else
             class="empty-copy"
           >
-            尚无已发布的历史预测。
+            {{ t('assetResearch.page.noHistory') }}
           </p>
         </section>
       </aside>
@@ -567,33 +567,33 @@
     >
       <el-dialog
         v-model="publicationDialogVisible"
-        title="保存已发布研报到知识库"
+        :title="t('assetResearch.page.dialogTitle')"
         width="520px"
         :close-on-click-modal="false"
       >
         <p class="publication-dialog-copy">
-          仅保存已发布研究结论；候选模型、内部概率和未成熟评分不会被导出。
+          {{ t('assetResearch.page.dialogCopy') }}
         </p>
         <label class="publication-field">
-          <span>目标知识库</span>
+          <span>{{ t('assetResearch.page.targetKb') }}</span>
           <p
             v-if="knowledgeBaseLoading"
             class="empty-copy"
           >
-            正在读取可写入的知识库…
+            {{ t('assetResearch.page.loadingKb') }}
           </p>
           <select
             v-else
             v-model="publicationForm.targetRef"
             class="knowledge-base-select"
-            aria-label="目标知识库"
+            :aria-label="t('assetResearch.page.targetKb')"
             :disabled="publicationLoading || !knowledgeBases.length"
           >
             <option
               disabled
               value=""
             >
-              请选择知识库
+              {{ t('assetResearch.page.selectKb') }}
             </option>
             <option
               v-for="knowledgeBase in knowledgeBases"
@@ -607,16 +607,16 @@
             v-if="!knowledgeBaseLoading && !knowledgeBases.length"
             class="empty-copy"
           >
-            当前没有可写入的知识库；请先创建一个知识库后再保存。
+            {{ t('assetResearch.page.noWritableKb') }}
           </p>
         </label>
         <label class="publication-field publication-title">
-          <span>文档标题（可选）</span>
+          <span>{{ t('assetResearch.page.titleOptional') }}</span>
           <el-input
             v-model="publicationForm.title"
             :disabled="publicationLoading"
             maxlength="500"
-            placeholder="默认使用标的名称和研究报告"
+            :placeholder="t('assetResearch.page.titlePlaceholder')"
           />
         </label>
         <p
@@ -630,7 +630,7 @@
             :disabled="publicationLoading"
             @click="publicationDialogVisible = false"
           >
-            取消
+            {{ t('assetResearch.page.cancel') }}
           </el-button>
           <el-button
             type="primary"
@@ -638,7 +638,7 @@
             :disabled="knowledgeBaseLoading || !publicationForm.targetRef"
             @click="publishToKnowledgeBase"
           >
-            确认保存
+            {{ t('assetResearch.page.confirmSave') }}
           </el-button>
         </template>
       </el-dialog>
@@ -648,6 +648,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import BondPanel from '@/components/asset-research/BondPanel.vue'
 import FuturesPanel from '@/components/asset-research/FuturesPanel.vue'
@@ -667,6 +668,8 @@ import { useAssetAnalysisTask } from '@/composables/useAssetAnalysisTask'
 import { knowledgeBaseApi, type KnowledgeBaseItem } from '@/api/knowledgeBase'
 import { renderMarkdown } from '@/utils/markdown-sanitizer'
 
+const { t } = useI18n()
+
 type PositionContext = 'FLAT' | 'LONG' | 'SHORT' | 'UNKNOWN'
 
 interface AssetConfig {
@@ -684,78 +687,80 @@ interface AssetConfig {
 
 const supportedAssetTypes: AssetResearchAssetType[] = ['bond', 'fund', 'futures', 'option', 'fx', 'crypto']
 
+// Values are i18n keys; `assetConfig` resolves them through `t()` so all
+// asset-type copy renders in the active locale.
 const assetConfigs: Record<AssetResearchAssetType, AssetConfig> = {
   bond: {
-    title: 'AI债券',
-    shortTitle: '债券',
-    description: '以单只债券为单位评估估值、久期、信用和流动性，不将缺失估值替换为其他标的。',
-    identityLevelLabel: '债券发行/上市标识',
-    identityLabel: '债券代码或 ISIN',
-    placeholder: '例如：113000 或 US0000000000',
-    requirement: '成交/估值、收益率曲线、现金流和信用信息需同时满足许可与可得性要求',
-    focus: '到期收益率、久期、信用利差、流动性',
-    identityRequirement: '发行主体、到期日、债券发行/上市层级',
-    nonSubstitutable: '官方估值/可执行价格与结算日历',
+    title: 'assetResearch.config.bond.title',
+    shortTitle: 'assetResearch.config.bond.shortTitle',
+    description: 'assetResearch.config.bond.description',
+    identityLevelLabel: 'assetResearch.config.bond.identityLevelLabel',
+    identityLabel: 'assetResearch.config.bond.identityLabel',
+    placeholder: 'assetResearch.config.bond.placeholder',
+    requirement: 'assetResearch.config.bond.requirement',
+    focus: 'assetResearch.config.bond.focus',
+    identityRequirement: 'assetResearch.config.bond.identityRequirement',
+    nonSubstitutable: 'assetResearch.config.bond.nonSubstitutable',
   },
   fund: {
-    title: 'AI基金',
-    shortTitle: '基金',
-    description: '以基金份额或上市份额为单位，区分净值、折溢价、跟踪误差与基准。',
-    identityLevelLabel: '基金份额/上市标识',
-    identityLabel: '基金代码',
-    placeholder: '例如：510300 或 000001',
-    requirement: '官方净值、基准、份额/成分与交易流动性均须可追溯',
-    focus: '净值、折溢价、跟踪误差、风格漂移',
-    identityRequirement: '基金、份额类别、净值日历与官方基准',
-    nonSubstitutable: '官方净值与基金估值日历',
+    title: 'assetResearch.config.fund.title',
+    shortTitle: 'assetResearch.config.fund.shortTitle',
+    description: 'assetResearch.config.fund.description',
+    identityLevelLabel: 'assetResearch.config.fund.identityLevelLabel',
+    identityLabel: 'assetResearch.config.fund.identityLabel',
+    placeholder: 'assetResearch.config.fund.placeholder',
+    requirement: 'assetResearch.config.fund.requirement',
+    focus: 'assetResearch.config.fund.focus',
+    identityRequirement: 'assetResearch.config.fund.identityRequirement',
+    nonSubstitutable: 'assetResearch.config.fund.nonSubstitutable',
   },
   futures: {
-    title: 'AI期货',
-    shortTitle: '期货',
-    description: '以具体合约而非模糊品种研究期限结构、基差、展期和保证金约束。',
-    identityLevelLabel: '具体期货合约',
-    identityLabel: '合约代码',
-    placeholder: '例如：IF2609',
-    requirement: '合约行情、交易日历、到期日、合约乘数与保证金数据必须可用',
-    focus: '展期与基差、期限结构、到期与保证金',
-    identityRequirement: '交易所、合约月份、到期日和交易日历',
-    nonSubstitutable: '具体合约行情与到期/展期规则',
+    title: 'assetResearch.config.futures.title',
+    shortTitle: 'assetResearch.config.futures.shortTitle',
+    description: 'assetResearch.config.futures.description',
+    identityLevelLabel: 'assetResearch.config.futures.identityLevelLabel',
+    identityLabel: 'assetResearch.config.futures.identityLabel',
+    placeholder: 'assetResearch.config.futures.placeholder',
+    requirement: 'assetResearch.config.futures.requirement',
+    focus: 'assetResearch.config.futures.focus',
+    identityRequirement: 'assetResearch.config.futures.identityRequirement',
+    nonSubstitutable: 'assetResearch.config.futures.nonSubstitutable',
   },
   option: {
-    title: 'AI期权',
-    shortTitle: '期权',
-    description: '将方向、波动率和合约结构分开评估；必须先锁定期权系列与合约条款。',
-    identityLevelLabel: '具体期权合约',
-    identityLabel: '期权合约代码',
-    placeholder: '例如：510050C2609M03000',
-    requirement: '完整期权链、合约条款与标的行情',
-    focus: '方向、隐含波动率、希腊字母和合约相对价值',
-    identityRequirement: '到期日、行权价与看涨/看跌',
-    nonSubstitutable: '完整期权链、乘数与行权/交割规则',
+    title: 'assetResearch.config.option.title',
+    shortTitle: 'assetResearch.config.option.shortTitle',
+    description: 'assetResearch.config.option.description',
+    identityLevelLabel: 'assetResearch.config.option.identityLevelLabel',
+    identityLabel: 'assetResearch.config.option.identityLabel',
+    placeholder: 'assetResearch.config.option.placeholder',
+    requirement: 'assetResearch.config.option.requirement',
+    focus: 'assetResearch.config.option.focus',
+    identityRequirement: 'assetResearch.config.option.identityRequirement',
+    nonSubstitutable: 'assetResearch.config.option.nonSubstitutable',
   },
   fx: {
-    title: 'AI外汇',
-    shortTitle: '外汇',
-    description: '明确基准/报价币、即期/远期/NDF 与报价口径，避免方向和点差的歧义。',
-    identityLevelLabel: '货币对产品',
-    identityLabel: '货币对',
-    placeholder: '例如：USD/CNY',
-    requirement: '同一报价口径的价格、结算日历与利率/远期点信息必须一致',
-    focus: '方向、利差/远期点、估值缺口与流动性',
-    identityRequirement: '基准币、报价币、产品类型与结算规则',
-    nonSubstitutable: '报价币种方向和可验证的报价口径',
+    title: 'assetResearch.config.fx.title',
+    shortTitle: 'assetResearch.config.fx.shortTitle',
+    description: 'assetResearch.config.fx.description',
+    identityLevelLabel: 'assetResearch.config.fx.identityLevelLabel',
+    identityLabel: 'assetResearch.config.fx.identityLabel',
+    placeholder: 'assetResearch.config.fx.placeholder',
+    requirement: 'assetResearch.config.fx.requirement',
+    focus: 'assetResearch.config.fx.focus',
+    identityRequirement: 'assetResearch.config.fx.identityRequirement',
+    nonSubstitutable: 'assetResearch.config.fx.nonSubstitutable',
   },
   crypto: {
-    title: 'AI数字货币',
-    shortTitle: '数字货币',
-    description: '区分链上资产、现货与衍生品；交易场所和产品结构是不可省略的身份信息。',
-    identityLevelLabel: '加密资产/交易产品',
-    identityLabel: '资产或交易对',
-    placeholder: '例如：BTC/USDT 或 ETH',
-    requirement: '指定交易场所行情、产品类型、资金费率/基差和场所风险信息须可用',
-    focus: '价格结构、资金费率、基差、链上状态与场所风险',
-    identityRequirement: '链/合约地址或交易对、场所和产品类型',
-    nonSubstitutable: '交易场所、结算资产与产品线性/反向属性',
+    title: 'assetResearch.config.crypto.title',
+    shortTitle: 'assetResearch.config.crypto.shortTitle',
+    description: 'assetResearch.config.crypto.description',
+    identityLevelLabel: 'assetResearch.config.crypto.identityLevelLabel',
+    identityLabel: 'assetResearch.config.crypto.identityLabel',
+    placeholder: 'assetResearch.config.crypto.placeholder',
+    requirement: 'assetResearch.config.crypto.requirement',
+    focus: 'assetResearch.config.crypto.focus',
+    identityRequirement: 'assetResearch.config.crypto.identityRequirement',
+    nonSubstitutable: 'assetResearch.config.crypto.nonSubstitutable',
   },
 }
 
@@ -768,19 +773,33 @@ function isSupportedAssetType(value: string): value is AssetResearchAssetType {
 const currentAssetType = computed<AssetResearchAssetType>(() =>
   isSupportedAssetType(props.assetType) ? props.assetType : 'bond',
 )
-const assetConfig = computed(() => assetConfigs[currentAssetType.value])
+const assetConfig = computed<AssetConfig>(() => {
+  const config = assetConfigs[currentAssetType.value]
+  return {
+    title: t(config.title),
+    shortTitle: t(config.shortTitle),
+    description: t(config.description),
+    identityLevelLabel: t(config.identityLevelLabel),
+    identityLabel: t(config.identityLabel),
+    placeholder: t(config.placeholder),
+    requirement: t(config.requirement),
+    focus: t(config.focus),
+    identityRequirement: t(config.identityRequirement),
+    nonSubstitutable: t(config.nonSubstitutable),
+  }
+})
 
 const form = reactive({
   query: '',
   positionContext: 'UNKNOWN' as PositionContext,
   horizonCode: 'standard',
 })
-const positionOptions: Array<{ label: string; value: PositionContext }> = [
-  { label: '未知（默认）', value: 'UNKNOWN' },
-  { label: '无持仓', value: 'FLAT' },
-  { label: '持有多头', value: 'LONG' },
-  { label: '持有空头', value: 'SHORT' },
-]
+const positionOptions = computed<Array<{ label: string; value: PositionContext }>>(() => [
+  { label: t('assetResearch.positionContext.unknown'), value: 'UNKNOWN' },
+  { label: t('assetResearch.positionContext.flat'), value: 'FLAT' },
+  { label: t('assetResearch.positionContext.long'), value: 'LONG' },
+  { label: t('assetResearch.positionContext.short'), value: 'SHORT' },
+])
 
 const taskRuntime = useAssetAnalysisTask()
 const { task, result, loading: taskLoading, error: taskError } = taskRuntime

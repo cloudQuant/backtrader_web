@@ -1,36 +1,39 @@
 <template>
   <section class="asset-detail-panel" aria-labelledby="futures-panel-title">
     <div class="panel-head">
-      <span class="panel-kicker">期货合约</span>
-      <h3 id="futures-panel-title">合约结构</h3>
+      <span class="panel-kicker">{{ t('assetResearch.futuresPanel.kicker') }}</span>
+      <h3 id="futures-panel-title">{{ t('assetResearch.futuresPanel.title') }}</h3>
     </div>
     <dl class="detail-grid">
       <div>
-        <dt>到期时间</dt>
-        <dd>{{ identity?.details.expiry_at || '未提供' }}</dd>
+        <dt>{{ t('assetResearch.futuresPanel.expiry') }}</dt>
+        <dd>{{ identity?.details.expiry_at || t('assetResearch.notProvided') }}</dd>
       </div>
       <div>
-        <dt>合约乘数</dt>
-        <dd>{{ identity?.details.contract_multiplier || '未提供' }}</dd>
+        <dt>{{ t('assetResearch.futuresPanel.contractMultiplier') }}</dt>
+        <dd>{{ identity?.details.contract_multiplier || t('assetResearch.notProvided') }}</dd>
       </div>
       <div>
-        <dt>交易日历</dt>
-        <dd>{{ identity?.details.trading_calendar_id || '未提供' }}</dd>
+        <dt>{{ t('assetResearch.futuresPanel.tradingCalendar') }}</dt>
+        <dd>{{ identity?.details.trading_calendar_id || t('assetResearch.notProvided') }}</dd>
       </div>
       <div>
-        <dt>场所</dt>
-        <dd>{{ identity?.venue || '未提供' }}</dd>
+        <dt>{{ t('assetResearch.futuresPanel.venue') }}</dt>
+        <dd>{{ identity?.venue || t('assetResearch.notProvided') }}</dd>
       </div>
       <div>
-        <dt>基差/展期</dt>
-        <dd>{{ details?.basis ?? '未提供' }}</dd>
+        <dt>{{ t('assetResearch.futuresPanel.basisRoll') }}</dt>
+        <dd>{{ details?.basis ?? t('assetResearch.notProvided') }}</dd>
       </div>
     </dl>
   </section>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import type { InstrumentIdentity } from '@/api/assetResearch'
+
+const { t } = useI18n()
 
 defineProps<{
   identity?: InstrumentIdentity | null

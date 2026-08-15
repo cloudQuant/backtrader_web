@@ -1,34 +1,38 @@
 <template>
   <section class="model-card-panel" aria-labelledby="model-card-title">
     <div class="panel-head">
-      <span class="panel-kicker">模型卡</span>
-      <h3 id="model-card-title">模型治理</h3>
+      <span class="panel-kicker">{{ t('assetResearch.modelCardPanel.kicker') }}</span>
+      <h3 id="model-card-title">{{ t('assetResearch.modelCardPanel.title') }}</h3>
     </div>
     <dl v-if="modelCard" class="detail-grid">
       <div>
-        <dt>模型名称</dt>
+        <dt>{{ t('assetResearch.modelCardPanel.modelName') }}</dt>
         <dd>{{ modelCard.model_name }}</dd>
       </div>
       <div>
-        <dt>负责人</dt>
+        <dt>{{ t('assetResearch.modelCardPanel.owner') }}</dt>
         <dd>{{ modelCard.owner }}</dd>
       </div>
       <div>
-        <dt>评估清单</dt>
+        <dt>{{ t('assetResearch.modelCardPanel.evaluationManifest') }}</dt>
         <dd>{{ modelCard.evaluation_manifest_hash }}</dd>
       </div>
       <div>
-        <dt>限制</dt>
+        <dt>{{ t('assetResearch.modelCardPanel.limitations') }}</dt>
         <dd>{{ modelCard.limitations.join('；') }}</dd>
       </div>
     </dl>
     <p v-else class="empty-copy">
-      未提供已晋级模型卡；当前公开结论保持研究观察。
+      {{ t('assetResearch.modelCardPanel.noPromotedCard') }}
     </p>
   </section>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 export interface ModelCardView {
   model_name: string
   owner: string
