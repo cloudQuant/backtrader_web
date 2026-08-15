@@ -154,7 +154,9 @@ class TestRequestIDProperty:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get(path)
             request_id = response.headers.get("x-request-id", "")
-            assert len(request_id) == 32, f"Expected 32 chars, got {len(request_id)}: '{request_id}'"
+            assert len(request_id) == 32, (
+                f"Expected 32 chars, got {len(request_id)}: '{request_id}'"
+            )
             assert all(c in "0123456789abcdef" for c in request_id), (
                 f"Non-hex char in request_id: '{request_id}'"
             )
