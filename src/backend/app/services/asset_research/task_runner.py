@@ -387,7 +387,10 @@ class AssetResearchTaskRunner:
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=interval_seconds)
                     return
-                except TimeoutError:
+                except asyncio.TimeoutError:
+                    # asyncio.TimeoutError (not the builtin TimeoutError): on
+                    # Python 3.10 they are distinct classes, and catching the
+                    # builtin here killed the heartbeat after the first tick.
                     if not await self._renew_lease(claim):
                         return
         except asyncio.CancelledError:
