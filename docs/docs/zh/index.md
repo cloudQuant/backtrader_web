@@ -50,4 +50,15 @@ AI for Investor 将自然语言研究、知识库检索、策略开发、回测�
 | 研究引擎 | Backtrader；fincore 可用时提供标准化指标适配，缺失时使用兼容计算 |
 | 数据与 AI | AkShare、MySQL 行情仓、OpenAI-compatible 生成接口、可选 ChromaDB / sentence-transformers 语义检索 |
 
+## 相关项目
+
+| 项目 | 简介 |
+| --- | --- |
+| [backtrader](https://github.com/cloudQuant/backtrader) | 专业 Python 算法交易框架（回测 + 实盘），本平台策略研究引擎的基础 fork。 |
+| [backtrader-skills](https://github.com/cloudQuant/backtrader-skills) | 离线策略"作者/评审/测试"产品：数据集与 StrategySpec v1 → pytest 策略或三文件包，静态评审 + 子进程验证。 |
+| [backtrader-mcp](https://github.com/cloudQuant/backtrader-mcp) | 本地优先 MCP 服务器：CSV 固化数据集、类型化策略草稿、受限子进程运行与状态报告（离线、仅回测）。 |
+| [backtrader_web](https://github.com/cloudQuant/backtrader_web) | 本平台：Web 全周期 Backtrader 策略管理（回测分析、模拟交易、实盘执行、数据管理）。 |
+| [backtrader-agent](https://github.com/cloudQuant/backtrader-agent) | 离线优先策略编写 agent 运行时：内容寻址存储、规范校验、脚手架、静态评审与哈希绑定执行。 |
+| [fincore](https://github.com/cloudQuant/fincore) | 统一 Python 工具集：金融指标、绩效分析、回测、AI 洞察与多数据库/多数据源支持。 |
+
 完整项目入口、内部工程文档与归档策略见仓库中的 `docs/INDEX.md`。

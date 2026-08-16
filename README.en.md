@@ -325,6 +325,19 @@ See [docs/explanation/STRATEGIC_ROADMAP.md](docs/explanation/STRATEGIC_ROADMAP.m
 | [Python Monorepo Choice](docs/explanation/python-monorepo.md) | uv workspace rationale and vendored-package handling (iter 175 §9) |
 | [Changelog](CHANGELOG.md) | Version history |
 
+## Related Projects
+
+Other resources in the cloudQuant quant ecosystem:
+
+| Project | Description |
+| --- | --- |
+| [backtrader](https://github.com/cloudQuant/backtrader) | Professional Python algorithmic trading framework (backtesting + live trading); the core fork powering this repo's strategy research engine. |
+| [backtrader-skills](https://github.com/cloudQuant/backtrader-skills) | Offline, independently installable strategy author/review/test product: turns local datasets and StrategySpec v1 into pytest strategies or three-file bundles, statically reviewed and validated in isolated child processes. |
+| [backtrader-mcp](https://github.com/cloudQuant/backtrader-mcp) | Local-first MCP server: CSVs become immutable datasets, typed strategy intent becomes private drafts, and reviewed drafts run in bounded subprocesses with durable status and reports (offline, backtest-only). |
+| [backtrader_web](https://github.com/cloudQuant/backtrader_web) | This repository: a web-based full-cycle Backtrader strategy management tool covering backtesting analysis, paper trading, live execution, and data management. |
+| [backtrader-agent](https://github.com/cloudQuant/backtrader-agent) | Offline-first strategy-authoring agent runtime: content-addressed storage, strategy-spec validation, 14 scaffolds, static review, hash-bound approvals, fixed child-process execution, and session provenance. |
+| [fincore](https://github.com/cloudQuant/fincore) | Unified Python toolkit integrating financial metrics, performance analysis, backtesting, AI-driven insights, and multi-database/data source support for quantitative finance workflows. |
+
 ## License
 
 [MIT License](LICENSE) — Use it freely for personal, commercial, or educational purposes.
