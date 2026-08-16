@@ -182,6 +182,19 @@ python scripts/ci/check_doc_links.py
 
 当前处于 `v1.x` 持续演进阶段。旧迭代、已完成方案和专项报告位于 `docs/iterations/`、`docs/archive/` 和 `docs/reports/archive/`，仅用于追溯，不应替代当前操作文档。
 
+## 相关项目
+
+与 backtrader_web 同属 cloudQuant 量化体系的相关资源：
+
+| 项目 | 简介 |
+| --- | --- |
+| [backtrader](https://github.com/cloudQuant/backtrader) | 专业 Python 算法交易框架（回测 + 实盘），本仓库策略研究引擎的基础 fork。 |
+| [backtrader-skills](https://github.com/cloudQuant/backtrader-skills) | 离线可独立安装的策略"作者/评审/测试"产品：把本地数据集与 StrategySpec v1 转成 pytest 策略或三文件包，静态评审后在独立子进程中验证。 |
+| [backtrader-mcp](https://github.com/cloudQuant/backtrader-mcp) | 本地优先的 MCP 服务器：CSV 固化为不可变数据集，类型化策略意图转为私有草稿，经评审后在受限子进程中运行并产出状态与报告（离线、仅回测）。 |
+| [backtrader_web](https://github.com/cloudQuant/backtrader_web) | 本仓库：基于 Web 的 Backtrader 全周期策略管理工具，覆盖回测分析、模拟交易、实盘执行与数据管理。 |
+| [backtrader-agent](https://github.com/cloudQuant/backtrader-agent) | 离线优先的策略编写 agent 运行时：内容寻址存储、策略规范校验、14 种脚手架、静态评审、哈希绑定审批、固定子进程执行与会话溯源。 |
+| [fincore](https://github.com/cloudQuant/fincore) | 统一 Python 工具集：金融指标、绩效分析、回测、AI 洞察与多数据库/多数据源支持，服务量化金融工作流。 |
+
 ## 许可证
 
 [MIT License](LICENSE)

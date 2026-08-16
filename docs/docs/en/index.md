@@ -50,4 +50,15 @@ AI for Investor connects natural-language research, knowledge retrieval, strateg
 | Research engine | Backtrader; fincore adapters where available, with compatible metric calculation otherwise |
 | Data and AI | AkShare, MySQL market-data warehouse, OpenAI-compatible generation, optional ChromaDB / sentence-transformers semantic retrieval |
 
+## Related projects
+
+| Project | Description |
+| --- | --- |
+| [backtrader](https://github.com/cloudQuant/backtrader) | Professional Python algorithmic trading framework (backtesting + live trading); the core fork behind this platform's research engine. |
+| [backtrader-skills](https://github.com/cloudQuant/backtrader-skills) | Offline strategy author/review/test product: datasets + StrategySpec v1 → pytest strategies or three-file bundles with static review and child-process validation. |
+| [backtrader-mcp](https://github.com/cloudQuant/backtrader-mcp) | Local-first MCP server: frozen CSV datasets, typed strategy drafts, bounded subprocess runs with status and reports (offline, backtest-only). |
+| [backtrader_web](https://github.com/cloudQuant/backtrader_web) | This platform: web-based full-cycle Backtrader strategy management (backtesting analysis, paper trading, live execution, data management). |
+| [backtrader-agent](https://github.com/cloudQuant/backtrader-agent) | Offline-first strategy-authoring agent runtime: content-addressed storage, spec validation, scaffolds, static review, and hash-bound execution. |
+| [fincore](https://github.com/cloudQuant/fincore) | Unified Python toolkit: financial metrics, performance analysis, backtesting, AI insights, and multi-database/data source support. |
+
 For repository entry points, internal engineering docs, and the archive policy, see `docs/INDEX.md`.
