@@ -7,7 +7,7 @@ AI 驱动的量化研究、策略生成、回测验证与交易辅助平台。
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-teal.svg)](https://fastapi.tiangolo.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[中文文档](https://aifortrader.cn/) · [English docs](https://aifortrader.cn/en/) · [本地 API 文档](http://localhost:8000/docs)
+[中文文档](https://cloudquant.github.io/backtrader_web/) · [English docs](https://cloudquant.github.io/backtrader_web/en/) · [本地 API 文档](http://localhost:8000/docs)
 
 ## 项目定位
 
@@ -173,7 +173,9 @@ python scripts/ci/check_doc_links.py
 
 | 目标 | 入口 |
 | --- | --- |
-| 产品概览与投研流程 | [项目介绍](docs/project-introduction/ai-for-investor-project-introduction.md) / [中文文档首页](docs/docs/zh/index.md) |
+| 在线文档（中文） | <https://cloudquant.github.io/backtrader_web/> |
+| 在线文档（English） | <https://cloudquant.github.io/backtrader_web/en/> |
+| 产品概览与投研流程 | [项目介绍](docs/project-introduction/ai-for-investor-project-introduction.md) / [中文文档首页源码](docs/docs/zh/index.md) |
 | 安装、知识库、市场数据、策略与回测 | [快速开始与功能文档](docs/docs/zh/getting-started/index.md) |
 | 架构、API、数据库与配置 | [开发文档](docs/docs/zh/development/index.md) |
 | Docker 与生产运维 | [部署文档](docs/docs/zh/deployment/index.md) |

@@ -48,6 +48,7 @@ python -m mkdocs build -f docs/mkdocs.yml --strict
 
 ## 发布与外部入口
 
-- 中文站点：<https://aifortrader.cn/>
-- English site：<https://aifortrader.cn/en/>
+- 中文站点（GitHub Pages）：<https://cloudquant.github.io/backtrader_web/>
+- English site（GitHub Pages）：<https://cloudquant.github.io/backtrader_web/en/>
 - 运行中 API：`http://localhost:8000/docs`
+- 部署流水线：`.github/workflows/docs.yml`（master 上 `docs/**` 变更自动重建）

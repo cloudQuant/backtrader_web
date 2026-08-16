@@ -2,7 +2,7 @@
 # https://www.mkdocs.org
 
 site_name: AI for Investor
-site_url: https://aifortrader.cn/
+site_url: https://cloudquant.github.io/backtrader_web/
 site_description: 基于 Backtrader 的现代化量化交易全栈管理平台 | Modern Quantitative Trading Platform based on Backtrader
 site_author: AI for Investor Team
 
