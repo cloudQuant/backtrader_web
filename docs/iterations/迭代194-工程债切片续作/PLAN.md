@@ -71,7 +71,7 @@ pinia 4、plugin-vue 6、actions major、若干 patch/minor）。后续批次按
 - **运行时 major（python/node Docker 镜像）**：发布链路无验证，需先专项验证依赖兼容性再升级。
 - **actions major**：PR 自身 CI 即验证（改的就是 CI），绿即可合；docs.yml 相关（Pages 部署）
   在 master push 后确认部署正常。
-- 可选治理：在 `.github/dependabot.yml` 为暂缓的 major 增加 `ignore` 条目，减少重复 PR 噪音。
+- 治理已落地（2026-08-16）：`.github/dependabot.yml` 已为暂缓 major 加 `ignore` 条目（mypy >=2、pinia >=3、@vitejs/plugin-vue >=6、docker python >=3.13、docker node >=21），避免被关闭的 PR 每周重复提出；解除时机 = 本 Task 对应验证完成。
 
 ## 验收标准
 
