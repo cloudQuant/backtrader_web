@@ -78,7 +78,7 @@ jobs:
           retention-days: 30
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           file: src/backend/coverage.xml
           flags: backend-nightly
@@ -118,7 +118,7 @@ jobs:
           retention-days: 30
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           file: src/frontend/coverage/coverage-final.json
           flags: frontend-nightly

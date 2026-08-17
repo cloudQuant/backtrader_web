@@ -586,7 +586,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.11'
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           file: src/backend/coverage.xml
           flags: backend
@@ -854,7 +854,7 @@ jobs:
         run: node ../../scripts/dev/coverage_core_summary.mjs
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           file: src/frontend/coverage/coverage-final.json
           flags: frontend
