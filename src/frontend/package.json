@@ -26,7 +26,7 @@
     "dayjs": "^1.11.20",
     "dompurify": "^3.3.3",
     "echarts": "^5.4.3",
-    "echarts-gl": "^2.0.9",
+    "echarts-gl": "^2.1.0",
     "element-plus": "^2.5.0",
     "marked": "^18.0.4",
     "monaco-editor": "^0.55.1",
