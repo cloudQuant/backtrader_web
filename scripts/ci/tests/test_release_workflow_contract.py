@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -64,6 +67,75 @@ def _uses(step: dict[str, object]) -> str:
     return uses.split(" #", 1)[0]
 
 
+def _provenance_result(
+    workflow: str, *, protected: bool, tag_commit: str, master_commit: str
+) -> tuple[subprocess.CompletedProcess[str], str]:
+    """Run the extracted workflow provenance step against a fake local Git."""
+    release = _job(workflow, "release-artifact")
+    _, provenance = _step(release, "Resolve and verify immutable release provenance")
+    script = _run(provenance)
+    script = script.replace("${{ github.event_name }}", "push")
+    script = script.replace("${{ inputs.dry_run }}", "true")
+    script = script.replace("${{ github.ref_protected }}", str(protected).lower())
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        fake_bin = root / "bin"
+        fake_bin.mkdir()
+        fake_git = fake_bin / "git"
+        fake_git.write_text(
+            "#!/bin/sh\n"
+            "case \"$1\" in\n"
+            "  fetch) exit 0 ;;\n"
+            "  rev-list) printf '%s\\n' \"$FAKE_TAG_COMMIT\" ;;\n"
+            "  rev-parse) printf '%s\\n' \"$FAKE_MASTER_COMMIT\" ;;\n"
+            "  *) echo \"unexpected fake git command: $*\" >&2; exit 64 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        fake_git.chmod(0o755)
+        output = root / "github-output"
+        environment = {
+            **os.environ,
+            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_TAG_COMMIT": tag_commit,
+            "FAKE_MASTER_COMMIT": master_commit,
+            "GITHUB_REF_TYPE": "tag",
+            "GITHUB_REF_NAME": "v1.2.3",
+            "GITHUB_OUTPUT": str(output),
+        }
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=root,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        return result, output.read_text(encoding="utf-8") if output.exists() else ""
+
+
+def _provenance_semantic_issues(workflow: str) -> list[str]:
+    equal_sha = "a" * 40
+    unprotected, unprotected_output = _provenance_result(
+        workflow, protected=False, tag_commit=equal_sha, master_commit=equal_sha
+    )
+    mismatch, mismatch_output = _provenance_result(
+        workflow, protected=True, tag_commit="b" * 40, master_commit=equal_sha
+    )
+    accepted, accepted_output = _provenance_result(
+        workflow, protected=True, tag_commit=equal_sha, master_commit=equal_sha
+    )
+    issues: list[str] = []
+    if unprotected.returncode == 0 or unprotected_output:
+        issues.append("semantic protection gate must fail before writing success output")
+    if mismatch.returncode == 0 or mismatch_output:
+        issues.append("semantic equality gate must fail before writing success output")
+    if accepted.returncode != 0 or "tag=v1.2.3" not in accepted_output:
+        issues.append("semantic protected exact tag must write success output")
+    return issues
+
+
 def _release_issues(workflow: str) -> list[str]:
     issues: list[str] = []
     parsed = _workflow(workflow)
@@ -99,6 +171,7 @@ def _release_issues(workflow: str) -> list[str]:
             issues.append("tag provenance must not accept ancestry in place of equality")
         if 'github.event_name }}" = "workflow_dispatch"' not in resolve_script or "dry-run only" not in resolve_script:
             issues.append("workflow_dispatch must remain visibly dry-run")
+        issues.extend(_provenance_semantic_issues(workflow))
     except AssertionError as error:
         issues.append(str(error))
         resolve_index = -1
@@ -106,7 +179,11 @@ def _release_issues(workflow: str) -> list[str]:
     raw = "\n".join(_run(step) for step in _steps(release) if isinstance(step.get("run"), str))
     if "image_tag" in workflow:
         issues.append("manual image tag input is prohibited")
-    if re.search(r"\b(?:docker\s+push|docker/login-action)\b|\bpush:\s*true\b|secrets\.", workflow):
+    if re.search(
+        r"\bdocker\s+(?:push|login)\b|\bdocker\s+buildx\s+build\b[^\n]*\B--push\b|"
+        r"\B--output\s+type=registry\b|docker/login-action|\bpush:\s*true\b|secrets\.",
+        workflow,
+    ):
         issues.append("artifact-only release must not publish or access production credentials")
     if "backend_digest" in raw.lower() or "frontend_digest" in raw.lower() or "immutable digest" in raw.lower():
         issues.append("artifact-only metadata must not call local image IDs registry digests")
@@ -167,8 +244,8 @@ def _nightly_issues(workflow: str) -> list[str]:
         evidence_run = _run(evidence)
         if evidence.get("shell") != "bash" or "set -euo pipefail" not in evidence_run:
             issues.append("nightly remote sync pipeline must fail closed with Bash pipefail")
-        if "| tee remote-sync-summary.txt" not in evidence_run:
-            issues.append("nightly remote sync must retain its human summary")
+        if "2>&1 | tee remote-sync-summary.txt" not in evidence_run:
+            issues.append("nightly remote sync must retain both stdout and stderr in its human summary")
         _, upload = _step(remote_sync, "Upload remote-sync evidence")
         if upload.get("if") != "always()" or _uses(upload) != UPLOAD_PIN:
             issues.append("nightly must always upload evidence with the reviewed immutable action pin")
@@ -202,6 +279,38 @@ def test_release_contract_rejects_dead_or_ancestry_only_equality_snippet() -> No
     assert "exact equality" in " ".join(_release_issues(unsafe))
 
 
+def test_release_contract_rejects_unreachable_protection_and_equality_guards() -> None:
+    unsafe = _read(DOCKER_PUBLISH).replace(
+        'if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_protected }}" != "true" ]; then\n'
+        '            echo "::error::Tag-push artifact builds require a protected release tag."\n'
+        "            exit 1\n"
+        "          fi",
+        'if false; then\n'
+        '            if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_protected }}" != "true" ]; then\n'
+        '              echo "::error::Tag-push artifact builds require a protected release tag."\n'
+        "              exit 1\n"
+        "            fi\n"
+        "          fi",
+        1,
+    ).replace(
+        'if [ "$TAG_COMMIT" != "$MASTER_COMMIT" ]; then\n'
+        '            echo "::error::Tag $TAG resolves to $TAG_COMMIT, not origin/master $MASTER_COMMIT."\n'
+        "            exit 1\n"
+        "          fi",
+        'if false; then\n'
+        '            if [ "$TAG_COMMIT" != "$MASTER_COMMIT" ]; then\n'
+        '              echo "::error::Tag $TAG resolves to $TAG_COMMIT, not origin/master $MASTER_COMMIT."\n'
+        "              exit 1\n"
+        "            fi\n"
+        "          fi",
+        1,
+    )
+
+    issues = " ".join(_release_issues(unsafe))
+    assert "semantic protection gate" in issues
+    assert "semantic equality gate" in issues
+
+
 def test_release_contract_rejects_digest_claims_or_mutable_upload_action() -> None:
     unsafe = _read(DOCKER_PUBLISH).replace("backend_image_id", "backend_digest", 1)
     unsafe = unsafe.replace(UPLOAD_PIN, "actions/upload-artifact@v4", 1)
@@ -209,6 +318,14 @@ def test_release_contract_rejects_digest_claims_or_mutable_upload_action() -> No
     issues = " ".join(_release_issues(unsafe))
     assert "registry digests" in issues
     assert "immutable action pin" in issues
+
+
+def test_release_contract_rejects_buildx_push_or_registry_login() -> None:
+    unsafe = _read(DOCKER_PUBLISH).replace(
+        "docker build --file", "docker buildx build --push --file", 1
+    )
+
+    assert "must not publish" in " ".join(_release_issues(unsafe))
 
 
 def test_preview_is_non_hosted_artifact_without_pull_request_writes() -> None:
@@ -219,10 +336,12 @@ def test_nightly_failure_pipeline_is_fail_closed_and_evidence_is_always_uploaded
     assert _nightly_issues(_read(NIGHTLY)) == []
 
 
-def test_nightly_contract_rejects_missing_pipefail_or_mutable_upload_action() -> None:
+def test_nightly_contract_rejects_missing_pipefail_stderr_capture_or_mutable_upload_action() -> None:
     unsafe = _read(NIGHTLY).replace("set -euo pipefail", "set -eu", 1)
+    unsafe = unsafe.replace("2>&1 | tee remote-sync-summary.txt", "| tee remote-sync-summary.txt", 1)
     unsafe = unsafe.replace(UPLOAD_PIN, "actions/upload-artifact@v4", 1)
 
     issues = " ".join(_nightly_issues(unsafe))
     assert "fail closed" in issues
+    assert "stdout and stderr" in issues
     assert "immutable action pin" in issues

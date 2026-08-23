@@ -35,7 +35,7 @@ jobs:
             --mirror https://gitee.com/yunjinqi/backtrader_web.git \
             --branches master dev \
             --exceptions .github/governance/remote-sync-exceptions.json \
-            --output remote-sync-evidence.json | tee remote-sync-summary.txt
+            --output remote-sync-evidence.json 2>&1 | tee remote-sync-summary.txt
 
       - name: Upload remote-sync evidence
         if: always()
