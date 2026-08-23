@@ -12,6 +12,41 @@ env:
 
 jobs:
   # ========================================
+  # Read-only GitHub-to-Gitee mirror evidence
+  # ========================================
+  remote-sync-evidence:
+    name: Remote Sync - Read-only Evidence
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout trusted checker
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Record remote head comparison
+        run: |
+          python scripts/ci/check_remote_sync.py \
+            --source https://github.com/cloudQuant/backtrader_web.git \
+            --mirror https://gitee.com/yunjinqi/backtrader_web.git \
+            --branches master dev \
+            --exceptions .github/governance/remote-sync-exceptions.json \
+            --output remote-sync-evidence.json | tee remote-sync-summary.txt
+
+      - name: Upload remote-sync evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-remote-sync-evidence
+          path: |
+            remote-sync-evidence.json
+            remote-sync-summary.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ========================================
   # Full Test Suite
   # ========================================
   backend-full-tests:
