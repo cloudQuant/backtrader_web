@@ -19,6 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 GOVERNANCE_CONTRACT = REPO_ROOT / "scripts" / "ci" / "governance_contract.py"
 RISK_MAP = REPO_ROOT / ".github" / "governance" / "risk-paths.json"
 MANIFEST_DIR = REPO_ROOT / ".github" / "governance" / "rulesets"
+CODEOWNERS = REPO_ROOT / ".github" / "CODEOWNERS"
 
 
 def _load_contract() -> ModuleType:
@@ -131,6 +132,30 @@ class TestRiskClassification:
             }
             for path in paths
         } == {path: {"R3"} for path in paths}
+
+    def test_security_guides_are_r3_and_have_governance_owner(self) -> None:
+        contract = _load_contract()
+        paths = [
+            "docs/reference/SECURITY.md",
+            "src/backend/docs/SECURITY.md",
+        ]
+
+        result = contract.classify_paths(paths, _risk_map(), labels=["risk:R0"])
+
+        assert result["risk"] == "R3"
+        levels_by_path = {
+            path: {
+                match["level"] for match in result["matches"] if match["path"] == path
+            }
+            for path in paths
+        }
+        assert all("R3" in levels for levels in levels_by_path.values())
+        entries = {
+            tuple(line.split()[:2])
+            for line in CODEOWNERS.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        assert ("**/SECURITY.md", "@cloudQuant") in entries
 
     def test_sensitive_paths_cannot_be_downgraded_by_pr_labels(self) -> None:
         contract = _load_contract()
@@ -349,6 +374,9 @@ class TestRulesetManifestContract:
             "actors": [{"actor_type": "Team", "actor_id": 123}],
             "source": "D3 and D6 approved GitHub API actor readback",
         }
+        manifests["release-tags"]["bypass"]["actors"] = [
+            {"actor_type": "Team", "actor_id": 123}
+        ]
 
         assert contract.validate_manifests(manifests) == []
 
@@ -365,5 +393,19 @@ class TestRulesetManifestContract:
 
         assert any(
             "release-tags.tag_protection.authorized_actors.actors[0].actor_id" in issue
+            for issue in issues
+        )
+
+    def test_pending_tag_actors_require_an_empty_bypass_pool(self) -> None:
+        contract = _load_contract()
+        manifests = copy.deepcopy(_manifests(contract))
+        manifests["release-tags"]["bypass"]["actors"] = [
+            {"actor_type": "Team", "actor_id": 123}
+        ]
+
+        issues = contract.validate_manifests(manifests)
+
+        assert any(
+            "release-tags.bypass.actors" in issue and "pending" in issue
             for issue in issues
         )

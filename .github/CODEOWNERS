@@ -53,6 +53,7 @@
 /tests/e2e/requirements.txt                                  @cloudQuant
 /src/backend/package-lock.json                               @cloudQuant
 /src/frontend/package-lock.json                              @cloudQuant
+**/SECURITY.md                                               @cloudQuant
 
 # Narrow R2/R3 domains
 /.github/workflows/**                                        @cloudQuant

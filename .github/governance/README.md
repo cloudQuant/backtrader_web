@@ -35,8 +35,9 @@ The validator recognizes the future transition only when it is evidenced:
 `required_checks.status: "verified"` needs non-empty, non-blank, unique Check
 Run contexts plus a source; an applied Ruleset needs a readback reference;
 enabled code-owner review needs D2 owner evidence; and verified tag actors need
-positive API actor IDs with D3/D6 evidence. These are schema capabilities, not
-claims that the current repository has passed those gates.
+positive API actor IDs with D3/D6 evidence and must exactly match the tag
+Ruleset's `bypass.actors` API-readback field. These are schema capabilities,
+not claims that the current repository has passed those gates.
 
 `enforcement: "active"` expresses the eventual Ruleset configuration to be
 read back after its gates pass. `activation.remote_state: "not_applied"`

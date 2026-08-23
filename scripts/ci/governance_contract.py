@@ -454,6 +454,8 @@ def _validate_tag_manifest(key: str, manifest: Mapping[str, Any]) -> list[str]:
     tag_protection = manifest.get("tag_protection")
     if not isinstance(tag_protection, Mapping):
         return [_issue(f"{key}.tag_protection", "must be an object")]
+    bypass = manifest.get("bypass")
+    bypass_actors = bypass.get("actors") if isinstance(bypass, Mapping) else None
     issues: list[str] = []
     for field in ("block_creation", "block_update", "block_deletion"):
         if tag_protection.get(field) is not True:
@@ -473,6 +475,13 @@ def _validate_tag_manifest(key: str, manifest: Mapping[str, Any]) -> list[str]:
                     _issue(
                         actor_path,
                         "must stay empty while D3/D6 actor capability is pending",
+                    )
+                )
+            if bypass_actors != []:
+                issues.append(
+                    _issue(
+                        f"{key}.bypass.actors",
+                        "must stay empty while D3/D6 tag actor capability is pending",
                     )
                 )
         elif status == "verified":
@@ -513,6 +522,13 @@ def _validate_tag_manifest(key: str, manifest: Mapping[str, Any]) -> list[str]:
                                 "must be a positive API-readback integer",
                             )
                         )
+                if _canonical_actors(actors) != _canonical_actors(bypass_actors):
+                    issues.append(
+                        _issue(
+                            actor_path,
+                            "must exactly match bypass.actors as the API-readback actor source",
+                        )
+                    )
         else:
             issues.append(
                 _issue(

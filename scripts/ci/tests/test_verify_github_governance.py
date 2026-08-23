@@ -35,6 +35,27 @@ def _fixture() -> dict[str, object]:
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
+def _future_tag_manifest_dir(
+    tmp_path: Path,
+    *,
+    bypass_actor: dict[str, object],
+    authorized_actor: dict[str, object],
+) -> Path:
+    """Write an evidenced D3/D6 tag transition without changing repo fixtures."""
+    for name in ("dev", "master", "release-tags"):
+        source = MANIFEST_DIR / f"{name}.json"
+        manifest = json.loads(source.read_text(encoding="utf-8"))
+        if name == "release-tags":
+            manifest["bypass"]["actors"] = [bypass_actor]
+            manifest["tag_protection"]["authorized_actors"] = {
+                "status": "verified",
+                "actors": [authorized_actor],
+                "source": "D3 and D6 approved GitHub API actor readback",
+            }
+        (tmp_path / f"{name}.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return tmp_path
+
+
 class TestRulesetNormalization:
     def test_api_ids_timestamps_and_rule_order_do_not_create_drift(self) -> None:
         verifier = _load_verifier()
@@ -104,6 +125,43 @@ class TestRulesetNormalization:
                 "duplicate actual Ruleset named 'Iteration 195: dev'" in difference
                 for difference in report["differences"]
             )
+
+    def test_verified_tag_actor_matches_api_bypass_actor(self, tmp_path: Path) -> None:
+        verifier = _load_verifier()
+        actor = {"actor_type": "Team", "actor_id": 123}
+        manifest_dir = _future_tag_manifest_dir(
+            tmp_path, bypass_actor=actor, authorized_actor=actor
+        )
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        tag_rule = next(
+            rule for rule in actual if rule["name"] == "Iteration 195: release tags"
+        )
+        tag_rule["bypass_actors"] = [actor]
+
+        report = verifier.verify_rulesets(manifest_dir, actual)
+
+        assert report == {"ok": True, "differences": []}
+
+    def test_verified_tag_actor_must_match_bypass_actor(self, tmp_path: Path) -> None:
+        verifier = _load_verifier()
+        manifest_dir = _future_tag_manifest_dir(
+            tmp_path,
+            bypass_actor={"actor_type": "Team", "actor_id": 123},
+            authorized_actor={"actor_type": "Team", "actor_id": 456},
+        )
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        tag_rule = next(
+            rule for rule in actual if rule["name"] == "Iteration 195: release tags"
+        )
+        tag_rule["bypass_actors"] = [{"actor_type": "Team", "actor_id": 123}]
+
+        report = verifier.verify_rulesets(manifest_dir, actual)
+
+        assert report["ok"] is False
+        assert any(
+            "release-tags.tag_protection.authorized_actors.actors" in difference
+            for difference in report["differences"]
+        )
 
 
 class TestVerifierCli:
