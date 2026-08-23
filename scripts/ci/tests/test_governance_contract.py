@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
 
@@ -20,6 +21,7 @@ GOVERNANCE_CONTRACT = REPO_ROOT / "scripts" / "ci" / "governance_contract.py"
 RISK_MAP = REPO_ROOT / ".github" / "governance" / "risk-paths.json"
 MANIFEST_DIR = REPO_ROOT / ".github" / "governance" / "rulesets"
 CODEOWNERS = REPO_ROOT / ".github" / "CODEOWNERS"
+VALIDATION_NOW = datetime(2026, 8, 24, 0, 30, tzinfo=timezone.utc)
 
 
 def _load_contract() -> ModuleType:
@@ -43,6 +45,39 @@ def _risk_map() -> dict[str, object]:
 def _manifests(contract: ModuleType) -> dict[str, dict[str, object]]:
     assert MANIFEST_DIR.is_dir(), "Task 3 ruleset manifests are not implemented"
     return contract.load_manifests(MANIFEST_DIR)
+
+
+def _evidence(*gates: str) -> dict[str, object]:
+    return {
+        "gates": list(gates),
+        "reference": f"docs/governance/evidence/{'-'.join(gates)}-readback.md",
+    }
+
+
+def _emergency_exception(actor: dict[str, object], *gates: str) -> dict[str, object]:
+    return {
+        "actor": copy.deepcopy(actor),
+        "incident": "INC-195",
+        "reason": "documented emergency recovery",
+        "issued_at": "2099-01-02T02:04:05Z",
+        "expires_at": "2099-01-02T03:04:05Z",
+        "readback_evidence": _evidence(*gates),
+    }
+
+
+def _set_verified_tag_actors(
+    manifests: dict[str, dict[str, object]], actors: list[dict[str, object]]
+) -> None:
+    manifests["release-tags"]["bypass"]["actors"] = copy.deepcopy(actors)
+    manifests["release-tags"]["bypass"]["emergency_exceptions"] = [
+        _emergency_exception(actor, "D3", "D6") for actor in actors
+    ]
+    manifests["release-tags"]["tag_protection"]["authorized_actors"] = {
+        "status": "verified",
+        "actors": copy.deepcopy(actors),
+        "source": "D3 and D6 approved GitHub API actor readback",
+        "evidence": _evidence("D3", "D6"),
+    }
 
 
 class TestRiskClassification:
@@ -94,8 +129,13 @@ class TestRiskClassification:
         paths = [
             "src/backend/app/services/auth_service.py",
             "src/backend/app/api/_dependencies.py",
+            "src/backend/app/api/deps.py",
             "src/backend/app/schemas/auth.py",
             "src/backend/app/utils/security.py",
+            "src/frontend/src/api/index.ts",
+            "src/frontend/src/api/auth.ts",
+            "src/frontend/src/utils/session.ts",
+            "src/frontend/src/utils/tokenRef.ts",
         ]
 
         result = contract.classify_paths(paths, _risk_map(), labels=["risk:R0"])
@@ -271,6 +311,7 @@ class TestRulesetManifestContract:
             "contexts": [],
             "source": "Task 4 evidence",
             "strict": True,
+            "do_not_enforce_on_create": False,
         }
         manifests["dev"]["bypass"]["actors"] = [
             {"actor_type": "Team", "actor_id": "not-a-github-actor-id"}
@@ -287,8 +328,14 @@ class TestRulesetManifestContract:
         contract = _load_contract()
 
         for contexts in (
-            ["Governance Gate", ""],
-            ["Governance Gate", "Governance Gate"],
+            [
+                {"context": "Governance Gate", "integration_id": 195},
+                {"context": "", "integration_id": 196},
+            ],
+            [
+                {"context": "Governance Gate", "integration_id": 195},
+                {"context": "Governance Gate", "integration_id": 195},
+            ],
         ):
             manifests = copy.deepcopy(_manifests(contract))
             manifests["master"]["required_checks"] = {
@@ -296,6 +343,8 @@ class TestRulesetManifestContract:
                 "contexts": contexts,
                 "source": "D4 approved draft-PR Check Run evidence",
                 "strict": True,
+                "do_not_enforce_on_create": False,
+                "evidence": _evidence("D4"),
             }
 
             issues = contract.validate_manifests(manifests)
@@ -313,11 +362,14 @@ class TestRulesetManifestContract:
                 "contexts": [],
                 "source": manifests[key]["required_checks"]["source"],
                 "strict": True,
+                "do_not_enforce_on_create": False,
             }
             assert (
                 manifests[key]["pull_request"]["code_owner_review"]["enabled"] is False
             )
         assert manifests["release-tags"]["activation"]["remote_state"] == "not_applied"
+        assert manifests["release-tags"]["bypass"]["actors"] == []
+        assert manifests["release-tags"]["bypass"]["emergency_exceptions"] == []
         assert manifests["release-tags"]["tag_protection"]["authorized_actors"] == {
             "status": "pending_D3_D6",
             "actors": [],
@@ -354,29 +406,27 @@ class TestRulesetManifestContract:
         manifests["dev"]["activation"].update(
             {
                 "remote_state": "applied",
-                "readback_evidence": "D3 approved Rulesets API readback",
+                "readback_evidence": _evidence("D3"),
             }
         )
         manifests["master"]["pull_request"]["code_owner_review"].update(
             {
                 "enabled": True,
-                "evidence": "D2 approved independent owner matrix",
+                "evidence": _evidence("D2"),
             }
         )
         manifests["master"]["required_checks"] = {
             "status": "verified",
-            "contexts": ["Governance Gate"],
+            "contexts": [{"context": "Governance Gate", "integration_id": 195}],
             "source": "D4 approved draft-PR Check Run evidence",
             "strict": True,
+            "do_not_enforce_on_create": False,
+            "evidence": _evidence("D4"),
         }
-        manifests["release-tags"]["tag_protection"]["authorized_actors"] = {
-            "status": "verified",
-            "actors": [{"actor_type": "Team", "actor_id": 123}],
-            "source": "D3 and D6 approved GitHub API actor readback",
-        }
-        manifests["release-tags"]["bypass"]["actors"] = [
-            {"actor_type": "Team", "actor_id": 123}
-        ]
+        _set_verified_tag_actors(
+            manifests,
+            [{"actor_type": "Team", "actor_id": 123, "bypass_mode": "always"}],
+        )
 
         assert contract.validate_manifests(manifests) == []
 
@@ -385,8 +435,15 @@ class TestRulesetManifestContract:
         manifests = copy.deepcopy(_manifests(contract))
         manifests["release-tags"]["tag_protection"]["authorized_actors"] = {
             "status": "verified",
-            "actors": [{"actor_type": "Team", "actor_id": "not-an-api-id"}],
+            "actors": [
+                {
+                    "actor_type": "Team",
+                    "actor_id": "not-an-api-id",
+                    "bypass_mode": "always",
+                }
+            ],
             "source": "D3 and D6 approved GitHub API actor readback",
+            "evidence": _evidence("D3", "D6"),
         }
 
         issues = contract.validate_manifests(manifests)
@@ -407,5 +464,328 @@ class TestRulesetManifestContract:
 
         assert any(
             "release-tags.bypass.actors" in issue and "pending" in issue
+            for issue in issues
+        )
+
+    def test_manifest_validation_allows_future_user_bypass_actor(self) -> None:
+        contract = _load_contract()
+        manifests = copy.deepcopy(_manifests(contract))
+        manifests["dev"]["bypass"]["actors"] = [
+            {"actor_type": "User", "actor_id": 123, "bypass_mode": "pull_request"}
+        ]
+        manifests["dev"]["bypass"]["emergency_exceptions"] = [
+            _emergency_exception(
+                {
+                    "actor_type": "User",
+                    "actor_id": 123,
+                    "bypass_mode": "pull_request",
+                },
+                "D3",
+            )
+        ]
+
+        assert contract.validate_manifests(manifests) == []
+
+    def test_branch_bypass_actor_requires_auditable_emergency_exception(self) -> None:
+        contract = _load_contract()
+        manifests = copy.deepcopy(_manifests(contract))
+        manifests["dev"]["bypass"]["actors"] = [
+            {"actor_type": "User", "actor_id": 123, "bypass_mode": "pull_request"}
+        ]
+
+        issues = contract.validate_manifests(manifests)
+
+        assert any("dev.bypass.emergency_exceptions" in issue for issue in issues)
+
+    def test_emergency_exception_requires_auditable_fields(self) -> None:
+        contract = _load_contract()
+        actor = {"actor_type": "User", "actor_id": 123, "bypass_mode": "pull_request"}
+        cases = [
+            ("incident", ""),
+            ("reason", ""),
+            ("expires_at", "not-a-timestamp"),
+            ("expires_at", "2020-01-02T03:04:05Z"),
+            ("readback_evidence", "x"),
+        ]
+
+        for field, value in cases:
+            manifests = copy.deepcopy(_manifests(contract))
+            exception = _emergency_exception(actor, "D3")
+            exception[field] = value
+            manifests["dev"]["bypass"]["actors"] = [actor]
+            manifests["dev"]["bypass"]["emergency_exceptions"] = [exception]
+
+            issues = contract.validate_manifests(manifests)
+
+            assert any(
+                f"dev.bypass.emergency_exceptions[0].{field}" in issue
+                for issue in issues
+            )
+
+    def test_emergency_exception_requires_unexpired_bounded_lifetime(self) -> None:
+        contract = _load_contract()
+        actor = {"actor_type": "User", "actor_id": 123, "bypass_mode": "pull_request"}
+        cases = [
+            ("issued_at", "not-a-timestamp", "issued_at"),
+            ("expires_at", "2026-08-24T00:00:00Z", "expires_at"),
+            ("expires_at", "2026-08-24T00:15:00Z", "expires_at"),
+            ("expires_at", "2026-08-25T00:00:01Z", "expires_at"),
+        ]
+
+        for field, value, expected_field in cases:
+            manifests = copy.deepcopy(_manifests(contract))
+            exception = _emergency_exception(actor, "D3")
+            exception.update(
+                {
+                    "issued_at": "2026-08-24T00:00:00Z",
+                    field: value,
+                }
+            )
+            manifests["dev"]["bypass"]["actors"] = [actor]
+            manifests["dev"]["bypass"]["emergency_exceptions"] = [exception]
+
+            issues = contract.validate_manifests(manifests, now=VALIDATION_NOW)
+
+            assert any(
+                f"dev.bypass.emergency_exceptions[0].{expected_field}" in issue
+                for issue in issues
+            )
+
+    def test_emergency_exception_allows_bounded_unexpired_start_time_alias(
+        self,
+    ) -> None:
+        contract = _load_contract()
+        actor = {"actor_type": "User", "actor_id": 123, "bypass_mode": "pull_request"}
+        manifests = copy.deepcopy(_manifests(contract))
+        exception = _emergency_exception(actor, "D3")
+        exception.pop("issued_at")
+        exception.update(
+            {
+                "starts_at": "2026-08-24T00:00:00Z",
+                "expires_at": "2026-08-24T01:00:00Z",
+            }
+        )
+        manifests["dev"]["bypass"]["actors"] = [actor]
+        manifests["dev"]["bypass"]["emergency_exceptions"] = [exception]
+
+        assert contract.validate_manifests(manifests, now=VALIDATION_NOW) == []
+
+    def test_manifest_validation_rejects_unstructured_future_gate_evidence(
+        self,
+    ) -> None:
+        contract = _load_contract()
+        manifests = copy.deepcopy(_manifests(contract))
+        manifests["dev"]["activation"].update(
+            {"remote_state": "applied", "readback_evidence": "x"}
+        )
+        manifests["master"]["pull_request"]["code_owner_review"].update(
+            {"enabled": True, "evidence": "x"}
+        )
+        manifests["master"]["required_checks"] = {
+            "status": "verified",
+            "contexts": [{"context": "Governance Gate", "integration_id": 195}],
+            "source": "D4 approved draft-PR Check Run evidence",
+            "strict": True,
+            "do_not_enforce_on_create": False,
+            "evidence": "x",
+        }
+        _set_verified_tag_actors(
+            manifests,
+            [{"actor_type": "Team", "actor_id": 123, "bypass_mode": "always"}],
+        )
+        manifests["release-tags"]["tag_protection"]["authorized_actors"]["evidence"] = (
+            "x"
+        )
+
+        issues = contract.validate_manifests(manifests)
+
+        assert any("dev.activation.readback_evidence" in issue for issue in issues)
+        assert any(
+            "master.pull_request.code_owner_review.evidence" in issue
+            for issue in issues
+        )
+        assert any("master.required_checks.evidence" in issue for issue in issues)
+        assert any(
+            "release-tags.tag_protection.authorized_actors.evidence" in issue
+            for issue in issues
+        )
+
+    def test_structured_future_evidence_requires_the_corresponding_gate(self) -> None:
+        contract = _load_contract()
+        manifests = copy.deepcopy(_manifests(contract))
+        manifests["dev"]["activation"].update(
+            {"remote_state": "applied", "readback_evidence": _evidence("D4")}
+        )
+
+        issues = contract.validate_manifests(manifests)
+
+        assert any(
+            "dev.activation.readback_evidence.gates" in issue for issue in issues
+        )
+
+    def test_required_checks_disallow_enforcement_on_create(self) -> None:
+        contract = _load_contract()
+        manifests = copy.deepcopy(_manifests(contract))
+        manifests["dev"]["required_checks"]["do_not_enforce_on_create"] = True
+
+        issues = contract.validate_manifests(manifests)
+
+        assert any(
+            "dev.required_checks.do_not_enforce_on_create" in issue for issue in issues
+        )
+
+    def test_bypass_actor_normalization_handles_organization_admin_and_deploy_key(
+        self,
+    ) -> None:
+        contract = _load_contract()
+        manifests = copy.deepcopy(_manifests(contract))
+        manifests["release-tags"]["bypass"]["actors"] = [
+            {
+                "actor_type": "OrganizationAdmin",
+                "actor_id": 321,
+                "bypass_mode": "always",
+            },
+            {
+                "actor_type": "DeployKey",
+                "actor_id": None,
+                "bypass_mode": "always",
+            },
+        ]
+        manifests["release-tags"]["bypass"]["emergency_exceptions"] = [
+            _emergency_exception(actor, "D3", "D6")
+            for actor in manifests["release-tags"]["bypass"]["actors"]
+        ]
+        manifests["release-tags"]["tag_protection"]["authorized_actors"] = {
+            "status": "verified",
+            "actors": [
+                {
+                    "actor_type": "OrganizationAdmin",
+                    "actor_id": None,
+                    "bypass_mode": "always",
+                },
+                {
+                    "actor_type": "DeployKey",
+                    "actor_id": None,
+                    "bypass_mode": "always",
+                },
+            ],
+            "source": "D3 and D6 approved GitHub API actor readback",
+            "evidence": _evidence("D3", "D6"),
+        }
+
+        assert contract.validate_manifests(manifests) == []
+        assert contract.normalized_manifest(manifests["release-tags"])[
+            "bypass_actors"
+        ] == [
+            {
+                "actor_type": "DeployKey",
+                "actor_id": None,
+                "bypass_mode": "always",
+            },
+            {
+                "actor_type": "OrganizationAdmin",
+                "actor_id": None,
+                "bypass_mode": "always",
+            },
+        ]
+
+    def test_manifest_validation_rejects_invalid_bypass_actor_schema(self) -> None:
+        contract = _load_contract()
+        cases = [
+            (
+                {"actor_type": "Unknown", "actor_id": 123, "bypass_mode": "always"},
+                "actor_type",
+            ),
+            (
+                {"actor_type": "User", "actor_id": None, "bypass_mode": "always"},
+                "actor_id",
+            ),
+            (
+                {"actor_type": "DeployKey", "actor_id": 123, "bypass_mode": "always"},
+                "actor_id",
+            ),
+            (
+                {"actor_type": "User", "actor_id": 123, "bypass_mode": "exempt"},
+                "bypass_mode",
+            ),
+            (
+                {
+                    "actor_type": "User",
+                    "actor_id": 123,
+                    "bypass_mode": "pull_request",
+                },
+                "bypass_mode",
+            ),
+            (
+                {
+                    "actor_type": "DeployKey",
+                    "actor_id": None,
+                    "bypass_mode": "pull_request",
+                },
+                "bypass_mode",
+            ),
+        ]
+
+        for actor, field in cases:
+            manifests = copy.deepcopy(_manifests(contract))
+            _set_verified_tag_actors(manifests, [actor])
+
+            issues = contract.validate_manifests(manifests)
+
+            assert any(
+                f"release-tags.bypass.actors[0].{field}" in issue for issue in issues
+            )
+
+    def test_branch_deploy_key_rejects_pull_request_mode(self) -> None:
+        contract = _load_contract()
+        manifests = copy.deepcopy(_manifests(contract))
+        actor = {
+            "actor_type": "DeployKey",
+            "actor_id": None,
+            "bypass_mode": "pull_request",
+        }
+        manifests["dev"]["bypass"]["actors"] = [actor]
+        manifests["dev"]["bypass"]["emergency_exceptions"] = [
+            _emergency_exception(actor, "D3")
+        ]
+
+        issues = contract.validate_manifests(manifests)
+
+        assert any(
+            "dev.bypass.actors[0].bypass_mode" in issue and "DeployKey" in issue
+            for issue in issues
+        )
+
+    def test_verified_tag_actor_mode_must_match_bypass_actor(self) -> None:
+        contract = _load_contract()
+        manifests = copy.deepcopy(_manifests(contract))
+        manifests["release-tags"]["bypass"]["actors"] = [
+            {"actor_type": "Team", "actor_id": 123, "bypass_mode": "always"}
+        ]
+        manifests["release-tags"]["bypass"]["emergency_exceptions"] = [
+            _emergency_exception(
+                {"actor_type": "Team", "actor_id": 123, "bypass_mode": "always"},
+                "D3",
+                "D6",
+            )
+        ]
+        manifests["release-tags"]["tag_protection"]["authorized_actors"] = {
+            "status": "verified",
+            "actors": [
+                {
+                    "actor_type": "Team",
+                    "actor_id": 123,
+                    "bypass_mode": "pull_request",
+                }
+            ],
+            "source": "D3 and D6 approved GitHub API actor readback",
+            "evidence": _evidence("D3", "D6"),
+        }
+
+        issues = contract.validate_manifests(manifests)
+
+        assert any(
+            "release-tags.tag_protection.authorized_actors.actors" in issue
+            and "exactly match" in issue
             for issue in issues
         )

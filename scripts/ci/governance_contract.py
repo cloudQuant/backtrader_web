@@ -11,6 +11,7 @@ import fnmatch
 import json
 import re
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +50,18 @@ VALID_BYPASS_ACTOR_TYPES = {
     "OrganizationAdmin",
     "RepositoryRole",
     "Team",
+    "DeployKey",
+    "User",
 }
+POSITIVE_ID_BYPASS_ACTOR_TYPES = {
+    "Integration",
+    "RepositoryRole",
+    "Team",
+    "User",
+}
+GITHUB_BYPASS_MODES = {"always", "pull_request", "exempt"}
+ALLOWED_BYPASS_MODES = {"always", "pull_request"}
+EVIDENCE_PATH_PREFIXES = ("docs/", ".github/", "artifacts/")
 RELEASE_BRANCH = re.compile(r"^release/v\d+\.\d+\.\d+(?:-rc\d+)?$")
 HOTFIX_BRANCH = re.compile(r"^hotfix/master-[A-Za-z0-9][A-Za-z0-9._-]*$")
 DEV_BRANCH_PREFIXES = ("feature/", "fix/", "docs/", "refactor/", "test/")
@@ -199,7 +211,155 @@ def _issue(path: str, message: str) -> str:
     return f"{path}: {message}"
 
 
-def _validate_bypass(key: str, bypass: Any, expected: Mapping[str, Any]) -> list[str]:
+def _is_positive_actor_id(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _gate_tokens(expected: Mapping[str, Any]) -> tuple[str, ...]:
+    return tuple(str(expected["activation_gate"]).split("_"))
+
+
+def _is_evidence_reference(value: str) -> bool:
+    if value.startswith("https://"):
+        return len(value) > len("https://")
+    normalized = value.replace("\\", "/")
+    return (
+        normalized.startswith(EVIDENCE_PATH_PREFIXES)
+        and "/../" not in f"/{normalized}/"
+        and not normalized.endswith("/..")
+    )
+
+
+def _validate_gate_evidence(
+    evidence: Any, path: str, required_gates: Sequence[str]
+) -> list[str]:
+    if not isinstance(evidence, Mapping):
+        return [
+            _issue(
+                path,
+                "must be an evidence object with gates and a local path or HTTPS URL",
+            )
+        ]
+
+    issues: list[str] = []
+    gates = evidence.get("gates")
+    if (
+        not isinstance(gates, list)
+        or not all(isinstance(gate, str) for gate in gates)
+        or set(gates) != set(required_gates)
+        or len(gates) != len(set(gates))
+    ):
+        gate_text = ", ".join(required_gates)
+        issues.append(_issue(f"{path}.gates", f"must cite exactly {gate_text}"))
+
+    reference = evidence.get("reference")
+    if not isinstance(reference, str) or not _is_evidence_reference(reference):
+        issues.append(
+            _issue(
+                f"{path}.reference",
+                "must be a repository-local evidence path or HTTPS URL",
+            )
+        )
+    return issues
+
+
+def _parse_utc_timestamp(value: Any) -> datetime | None:
+    """Return a timezone-aware timestamp as UTC, or ``None`` when malformed."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    timestamp = value.strip()
+    if timestamp.endswith("Z"):
+        timestamp = f"{timestamp[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(timestamp)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _validate_bypass_actor(
+    actor: Any, actor_path: str, *, target_kind: str
+) -> list[str]:
+    if not isinstance(actor, Mapping):
+        return [_issue(actor_path, "must be an object from API readback")]
+
+    issues: list[str] = []
+    actor_type = actor.get("actor_type")
+    if actor_type not in VALID_BYPASS_ACTOR_TYPES:
+        issues.append(
+            _issue(
+                f"{actor_path}.actor_type",
+                "is not a valid GitHub bypass actor type",
+            )
+        )
+
+    actor_id = actor.get("actor_id")
+    if actor_type in POSITIVE_ID_BYPASS_ACTOR_TYPES:
+        if not _is_positive_actor_id(actor_id):
+            issues.append(
+                _issue(
+                    f"{actor_path}.actor_id",
+                    "must be a positive API-readback integer for this actor type",
+                )
+            )
+    elif actor_type == "OrganizationAdmin":
+        if actor_id is not None and not _is_positive_actor_id(actor_id):
+            issues.append(
+                _issue(
+                    f"{actor_path}.actor_id",
+                    "must be null or a positive integer; OrganizationAdmin IDs are ignored",
+                )
+            )
+    elif actor_type == "DeployKey" and actor_id is not None:
+        issues.append(
+            _issue(
+                f"{actor_path}.actor_id",
+                "must be null for DeployKey",
+            )
+        )
+
+    bypass_mode = actor.get("bypass_mode")
+    if bypass_mode not in GITHUB_BYPASS_MODES:
+        modes = ", ".join(sorted(GITHUB_BYPASS_MODES))
+        issues.append(
+            _issue(
+                f"{actor_path}.bypass_mode",
+                f"must be one of {modes}",
+            )
+        )
+    elif bypass_mode not in ALLOWED_BYPASS_MODES:
+        issues.append(
+            _issue(
+                f"{actor_path}.bypass_mode",
+                "'exempt' is prohibited by the incident/reason/24-hour-postmortem emergency policy",
+            )
+        )
+    elif bypass_mode == "pull_request" and target_kind != "branch":
+        issues.append(
+            _issue(
+                f"{actor_path}.bypass_mode",
+                "is valid only for branch Rulesets",
+            )
+        )
+    elif bypass_mode == "pull_request" and actor_type == "DeployKey":
+        issues.append(
+            _issue(
+                f"{actor_path}.bypass_mode",
+                "is not valid for DeployKey",
+            )
+        )
+    return issues
+
+
+def _validate_bypass(
+    key: str,
+    bypass: Any,
+    expected: Mapping[str, Any],
+    *,
+    now: datetime,
+) -> list[str]:
     if not isinstance(bypass, Mapping):
         return [_issue(f"{key}.bypass", "must be an object")]
 
@@ -228,6 +388,7 @@ def _validate_bypass(key: str, bypass: Any, expected: Mapping[str, Any]) -> list
         )
 
     emergency = bypass.get("emergency_policy")
+    emergency_window_hours = 24
     if not isinstance(emergency, Mapping):
         issues.append(_issue(f"{key}.bypass.emergency_policy", "must be an object"))
     elif (
@@ -241,30 +402,112 @@ def _validate_bypass(key: str, bypass: Any, expected: Mapping[str, Any]) -> list
                 "must require incident, reason, and a 24-hour postmortem",
             )
         )
+    else:
+        emergency_window_hours = emergency["postmortem_within_hours"]
 
     actors = bypass.get("actors")
     if not isinstance(actors, list):
         return issues + [_issue(f"{key}.bypass.actors", "must be a list")]
     for index, actor in enumerate(actors):
-        actor_path = f"{key}.bypass.actors[{index}]"
-        if not isinstance(actor, Mapping):
-            issues.append(_issue(actor_path, "must be an object from API readback"))
+        issues.extend(
+            _validate_bypass_actor(
+                actor,
+                f"{key}.bypass.actors[{index}]",
+                target_kind=str(expected["target_kind"]),
+            )
+        )
+
+    exceptions = bypass.get("emergency_exceptions")
+    exception_path = f"{key}.bypass.emergency_exceptions"
+    if not isinstance(exceptions, list):
+        issues.append(_issue(exception_path, "must be a list"))
+        return issues
+
+    exception_actors: list[dict[str, Any]] = []
+    for index, exception in enumerate(exceptions):
+        individual_path = f"{exception_path}[{index}]"
+        if not isinstance(exception, Mapping):
+            issues.append(_issue(individual_path, "must be an object"))
             continue
-        actor_type = actor.get("actor_type")
-        if actor_type not in VALID_BYPASS_ACTOR_TYPES:
+        actor = exception.get("actor")
+        issues.extend(
+            _validate_bypass_actor(
+                actor,
+                f"{individual_path}.actor",
+                target_kind=str(expected["target_kind"]),
+            )
+        )
+        exception_actors.extend(normalize_bypass_actors([actor]))
+        for field in ("incident", "reason"):
+            value = exception.get(field)
+            if not isinstance(value, str) or not value.strip():
+                issues.append(_issue(f"{individual_path}.{field}", "must be non-empty"))
+        has_issued_at = "issued_at" in exception
+        has_starts_at = "starts_at" in exception
+        if has_issued_at and has_starts_at:
             issues.append(
                 _issue(
-                    f"{actor_path}.actor_type",
-                    "is not a valid GitHub bypass actor type",
+                    f"{individual_path}.issued_at",
+                    "must not be combined with starts_at; use one unambiguous start timestamp",
                 )
             )
-        actor_id = actor.get("actor_id")
-        if not isinstance(actor_id, int) or isinstance(actor_id, bool) or actor_id <= 0:
+        start_field = "issued_at" if has_issued_at else "starts_at"
+        start_at = _parse_utc_timestamp(exception.get(start_field))
+        if start_at is None:
             issues.append(
                 _issue(
-                    f"{actor_path}.actor_id", "must be a positive API-readback integer"
+                    f"{individual_path}.{start_field}",
+                    "must be a timezone-aware ISO-8601 start timestamp",
                 )
             )
+
+        expires_at = _parse_utc_timestamp(exception.get("expires_at"))
+        if expires_at is None:
+            issues.append(
+                _issue(
+                    f"{individual_path}.expires_at",
+                    "must be a timezone-aware ISO-8601 expiry timestamp",
+                )
+            )
+        else:
+            if expires_at <= now:
+                issues.append(
+                    _issue(
+                        f"{individual_path}.expires_at",
+                        "must be later than the validation time",
+                    )
+                )
+            if start_at is not None:
+                if expires_at <= start_at:
+                    issues.append(
+                        _issue(
+                            f"{individual_path}.expires_at",
+                            "must be later than issued_at or starts_at",
+                        )
+                    )
+                elif expires_at > start_at + timedelta(hours=emergency_window_hours):
+                    issues.append(
+                        _issue(
+                            f"{individual_path}.expires_at",
+                            "must be within the emergency policy's 24-hour window",
+                        )
+                    )
+        issues.extend(
+            _validate_gate_evidence(
+                exception.get("readback_evidence"),
+                f"{individual_path}.readback_evidence",
+                _gate_tokens(expected),
+            )
+        )
+
+    normalized_actors = normalize_bypass_actors(actors)
+    if normalized_actors != normalize_bypass_actors(exception_actors):
+        issues.append(
+            _issue(
+                exception_path,
+                "must provide one auditable emergency exception for every bypass actor",
+            )
+        )
     return issues
 
 
@@ -276,12 +519,11 @@ def _validate_required_checks(key: str, required_checks: Any) -> list[str]:
     contexts = required_checks.get("contexts")
     source = required_checks.get("source")
     issues: list[str] = []
-    if not isinstance(contexts, list) or not all(
-        isinstance(context, str) for context in contexts
-    ):
+    if not isinstance(contexts, list):
         issues.append(
             _issue(
-                f"{key}.required_checks.contexts", "must be a list of check contexts"
+                f"{key}.required_checks.contexts",
+                "must be a list of check context/integration identities",
             )
         )
         return issues
@@ -291,6 +533,13 @@ def _validate_required_checks(key: str, required_checks: Any) -> list[str]:
         )
     if required_checks.get("strict") is not True:
         issues.append(_issue(f"{key}.required_checks.strict", "must be true"))
+    if required_checks.get("do_not_enforce_on_create") is not False:
+        issues.append(
+            _issue(
+                f"{key}.required_checks.do_not_enforce_on_create",
+                "must be false",
+            )
+        )
     if status == "pending_D4":
         if contexts:
             issues.append(
@@ -307,20 +556,51 @@ def _validate_required_checks(key: str, required_checks: Any) -> list[str]:
                     "must list confirmed check contexts when status is verified",
                 )
             )
-        elif any(not context.strip() for context in contexts):
-            issues.append(
-                _issue(
-                    f"{key}.required_checks.contexts",
-                    "must not contain blank verified check contexts",
+        else:
+            identities: list[tuple[str, int]] = []
+            for index, context_entry in enumerate(contexts):
+                context_path = f"{key}.required_checks.contexts[{index}]"
+                if not isinstance(context_entry, Mapping):
+                    issues.append(
+                        _issue(
+                            context_path,
+                            "must be an object with context and integration_id",
+                        )
+                    )
+                    continue
+                context = context_entry.get("context")
+                if not isinstance(context, str) or not context.strip():
+                    issues.append(
+                        _issue(
+                            f"{context_path}.context",
+                            "must be a non-empty verified check context",
+                        )
+                    )
+                    continue
+                integration_id = context_entry.get("integration_id")
+                if not _is_positive_actor_id(integration_id):
+                    issues.append(
+                        _issue(
+                            f"{context_path}.integration_id",
+                            "must be a positive Check Run integration ID",
+                        )
+                    )
+                    continue
+                identities.append((context, integration_id))
+            if len(identities) != len(set(identities)):
+                issues.append(
+                    _issue(
+                        f"{key}.required_checks.contexts",
+                        "must not contain duplicate context/integration identities",
+                    )
                 )
+        issues.extend(
+            _validate_gate_evidence(
+                required_checks.get("evidence"),
+                f"{key}.required_checks.evidence",
+                ("D4",),
             )
-        elif len(set(contexts)) != len(contexts):
-            issues.append(
-                _issue(
-                    f"{key}.required_checks.contexts",
-                    "must not contain duplicate verified check contexts",
-                )
-            )
+        )
     else:
         issues.append(
             _issue(
@@ -363,14 +643,13 @@ def _validate_activation(
             )
         )
     if remote_state == "applied":
-        readback_evidence = activation.get("readback_evidence")
-        if not isinstance(readback_evidence, str) or not readback_evidence.strip():
-            issues.append(
-                _issue(
-                    f"{key}.activation.readback_evidence",
-                    "must cite approved external Ruleset readback when remote_state is applied",
-                )
+        issues.extend(
+            _validate_gate_evidence(
+                activation.get("readback_evidence"),
+                f"{key}.activation.readback_evidence",
+                _gate_tokens(expected),
             )
+        )
     return issues
 
 
@@ -419,14 +698,13 @@ def _validate_branch_manifest(
                 )
             )
     elif code_owner.get("enabled") is True:
-        evidence = code_owner.get("evidence")
-        if not isinstance(evidence, str) or not evidence.strip():
-            issues.append(
-                _issue(
-                    f"{key}.pull_request.code_owner_review.evidence",
-                    "must cite D2 independent-owner evidence when enabled",
-                )
+        issues.extend(
+            _validate_gate_evidence(
+                code_owner.get("evidence"),
+                f"{key}.pull_request.code_owner_review.evidence",
+                ("D2",),
             )
+        )
     else:
         issues.append(
             _issue(
@@ -450,7 +728,9 @@ def _validate_branch_manifest(
     return issues
 
 
-def _validate_tag_manifest(key: str, manifest: Mapping[str, Any]) -> list[str]:
+def _validate_tag_manifest(
+    key: str, manifest: Mapping[str, Any], expected: Mapping[str, Any]
+) -> list[str]:
     tag_protection = manifest.get("tag_protection")
     if not isinstance(tag_protection, Mapping):
         return [_issue(f"{key}.tag_protection", "must be an object")]
@@ -494,35 +774,16 @@ def _validate_tag_manifest(key: str, manifest: Mapping[str, Any]) -> list[str]:
                 )
             else:
                 for index, actor in enumerate(actors):
-                    individual_path = f"{actor_path}[{index}]"
-                    if not isinstance(actor, Mapping):
-                        issues.append(
-                            _issue(
-                                individual_path,
-                                "must be an API-readback actor object",
-                            )
+                    issues.extend(
+                        _validate_bypass_actor(
+                            actor,
+                            f"{actor_path}[{index}]",
+                            target_kind="tag",
                         )
-                        continue
-                    if actor.get("actor_type") not in VALID_BYPASS_ACTOR_TYPES:
-                        issues.append(
-                            _issue(
-                                f"{individual_path}.actor_type",
-                                "is not a valid GitHub bypass actor type",
-                            )
-                        )
-                    actor_id = actor.get("actor_id")
-                    if (
-                        not isinstance(actor_id, int)
-                        or isinstance(actor_id, bool)
-                        or actor_id <= 0
-                    ):
-                        issues.append(
-                            _issue(
-                                f"{individual_path}.actor_id",
-                                "must be a positive API-readback integer",
-                            )
-                        )
-                if _canonical_actors(actors) != _canonical_actors(bypass_actors):
+                    )
+                if normalize_bypass_actors(actors) != normalize_bypass_actors(
+                    bypass_actors
+                ):
                     issues.append(
                         _issue(
                             actor_path,
@@ -551,11 +812,28 @@ def _validate_tag_manifest(key: str, manifest: Mapping[str, Any]) -> list[str]:
                 "must cite both D3 and D6 capability evidence",
             )
         )
+    if isinstance(authorized, Mapping) and authorized.get("status") == "verified":
+        issues.extend(
+            _validate_gate_evidence(
+                authorized.get("evidence"),
+                f"{key}.tag_protection.authorized_actors.evidence",
+                _gate_tokens(expected),
+            )
+        )
     return issues
 
 
-def validate_manifests(manifests: Mapping[str, Mapping[str, Any]]) -> list[str]:
+def validate_manifests(
+    manifests: Mapping[str, Mapping[str, Any]], *, now: datetime | None = None
+) -> list[str]:
     """Validate desired-state manifests before they are compared to GitHub."""
+    if now is None:
+        validation_now = datetime.now(timezone.utc)
+    elif not isinstance(now, datetime) or now.tzinfo is None:
+        raise ValueError("now must be a timezone-aware datetime")
+    else:
+        validation_now = now.astimezone(timezone.utc)
+
     issues: list[str] = []
     for key, expected in REQUIRED_MANIFESTS.items():
         manifest = manifests.get(key)
@@ -593,24 +871,67 @@ def validate_manifests(manifests: Mapping[str, Mapping[str, Any]]) -> list[str]:
                 _issue(f"{key}.enforcement", "must be 'active' desired state")
             )
         issues.extend(_validate_activation(key, manifest.get("activation"), expected))
-        issues.extend(_validate_bypass(key, manifest.get("bypass"), expected))
+        issues.extend(
+            _validate_bypass(
+                key,
+                manifest.get("bypass"),
+                expected,
+                now=validation_now,
+            )
+        )
         if key == "release-tags":
-            issues.extend(_validate_tag_manifest(key, manifest))
+            issues.extend(_validate_tag_manifest(key, manifest, expected))
         else:
             issues.extend(_validate_branch_manifest(key, manifest, expected))
     return issues
 
 
-def _canonical_actors(actors: Any) -> list[dict[str, Any]]:
+def normalize_required_check_contexts(contexts: Any) -> list[dict[str, Any]]:
+    """Normalize Check Run identities without dropping their integration source."""
+    if not isinstance(contexts, list):
+        return []
+    canonical: list[dict[str, Any]] = []
+    for entry in contexts:
+        if isinstance(entry, str):
+            canonical.append({"context": entry, "integration_id": None})
+        elif isinstance(entry, Mapping):
+            canonical.append(
+                {
+                    "context": entry.get("context"),
+                    "integration_id": entry.get("integration_id"),
+                }
+            )
+    return sorted(
+        canonical,
+        key=lambda entry: (str(entry["context"]), str(entry["integration_id"])),
+    )
+
+
+def normalize_bypass_actors(actors: Any) -> list[dict[str, Any]]:
+    """Normalize GitHub bypass actors while retaining enforcement-relevant mode."""
     if not isinstance(actors, list):
         return []
-    canonical = [
-        {"actor_type": actor.get("actor_type"), "actor_id": actor.get("actor_id")}
-        for actor in actors
-        if isinstance(actor, Mapping)
-    ]
+    canonical: list[dict[str, Any]] = []
+    for actor in actors:
+        if not isinstance(actor, Mapping):
+            continue
+        actor_type = actor.get("actor_type")
+        canonical.append(
+            {
+                "actor_type": actor_type,
+                "actor_id": (
+                    None if actor_type == "OrganizationAdmin" else actor.get("actor_id")
+                ),
+                "bypass_mode": actor.get("bypass_mode"),
+            }
+        )
     return sorted(
-        canonical, key=lambda actor: (str(actor["actor_type"]), str(actor["actor_id"]))
+        canonical,
+        key=lambda actor: (
+            str(actor["actor_type"]),
+            str(actor["actor_id"]),
+            str(actor["bypass_mode"]),
+        ),
     )
 
 
@@ -627,7 +948,7 @@ def normalized_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
             "exclude": sorted(target_mapping.get("exclude", [])),
         },
         "enforcement": manifest.get("enforcement"),
-        "bypass_actors": _canonical_actors(
+        "bypass_actors": normalize_bypass_actors(
             bypass.get("actors", []) if isinstance(bypass, Mapping) else []
         ),
     }
@@ -655,8 +976,13 @@ def normalized_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
                     "block_deletion": protection_mapping.get("block_deletion"),
                 },
                 "required_checks": {
-                    "contexts": sorted(checks_mapping.get("contexts", [])),
+                    "contexts": normalize_required_check_contexts(
+                        checks_mapping.get("contexts", [])
+                    ),
                     "strict": checks_mapping.get("strict"),
+                    "do_not_enforce_on_create": checks_mapping.get(
+                        "do_not_enforce_on_create"
+                    ),
                 },
             }
         )

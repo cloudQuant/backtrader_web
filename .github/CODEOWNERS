@@ -60,6 +60,7 @@
 /.github/governance/**                                       @cloudQuant
 /src/backend/app/api/auth*                                   @cloudQuant
 /src/backend/app/api/_dependencies.py                        @cloudQuant
+/src/backend/app/api/deps.py                                 @cloudQuant
 /src/backend/app/services/auth*                              @cloudQuant
 /src/backend/app/schemas/auth*                               @cloudQuant
 /src/backend/app/utils/security*                             @cloudQuant
@@ -69,3 +70,7 @@
 /src/backend/app/models/**                                   @cloudQuant
 /src/frontend/src/router/**                                  @cloudQuant
 /src/frontend/src/stores/**                                  @cloudQuant
+/src/frontend/src/api/index.ts                               @cloudQuant
+/src/frontend/src/api/auth.ts                                @cloudQuant
+/src/frontend/src/utils/session.ts                           @cloudQuant
+/src/frontend/src/utils/tokenRef.ts                          @cloudQuant

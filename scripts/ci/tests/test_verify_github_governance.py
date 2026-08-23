@@ -47,10 +47,50 @@ def _future_tag_manifest_dir(
         manifest = json.loads(source.read_text(encoding="utf-8"))
         if name == "release-tags":
             manifest["bypass"]["actors"] = [bypass_actor]
+            manifest["bypass"]["emergency_exceptions"] = [
+                {
+                    "actor": copy.deepcopy(bypass_actor),
+                    "incident": "INC-195",
+                    "reason": "documented emergency recovery",
+                    "issued_at": "2099-01-02T02:04:05Z",
+                    "expires_at": "2099-01-02T03:04:05Z",
+                    "readback_evidence": {
+                        "gates": ["D3", "D6"],
+                        "reference": "docs/governance/evidence/D3-D6-readback.md",
+                    },
+                }
+            ]
             manifest["tag_protection"]["authorized_actors"] = {
                 "status": "verified",
                 "actors": [authorized_actor],
                 "source": "D3 and D6 approved GitHub API actor readback",
+                "evidence": {
+                    "gates": ["D3", "D6"],
+                    "reference": "docs/governance/evidence/D3-D6-readback.md",
+                },
+            }
+        (tmp_path / f"{name}.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return tmp_path
+
+
+def _future_branch_manifest_dir(tmp_path: Path, *, integration_id: int) -> Path:
+    """Write a D4-evidenced branch transition with a pinned Check Run source."""
+    for name in ("dev", "master", "release-tags"):
+        source = MANIFEST_DIR / f"{name}.json"
+        manifest = json.loads(source.read_text(encoding="utf-8"))
+        if name == "dev":
+            manifest["required_checks"] = {
+                "status": "verified",
+                "contexts": [
+                    {"context": "Governance Gate", "integration_id": integration_id}
+                ],
+                "source": "D4 approved draft-PR Check Run evidence",
+                "strict": True,
+                "do_not_enforce_on_create": False,
+                "evidence": {
+                    "gates": ["D4"],
+                    "reference": "docs/governance/evidence/D4-readback.md",
+                },
             }
         (tmp_path / f"{name}.json").write_text(json.dumps(manifest), encoding="utf-8")
     return tmp_path
@@ -128,7 +168,7 @@ class TestRulesetNormalization:
 
     def test_verified_tag_actor_matches_api_bypass_actor(self, tmp_path: Path) -> None:
         verifier = _load_verifier()
-        actor = {"actor_type": "Team", "actor_id": 123}
+        actor = {"actor_type": "Team", "actor_id": 123, "bypass_mode": "always"}
         manifest_dir = _future_tag_manifest_dir(
             tmp_path, bypass_actor=actor, authorized_actor=actor
         )
@@ -146,14 +186,24 @@ class TestRulesetNormalization:
         verifier = _load_verifier()
         manifest_dir = _future_tag_manifest_dir(
             tmp_path,
-            bypass_actor={"actor_type": "Team", "actor_id": 123},
-            authorized_actor={"actor_type": "Team", "actor_id": 456},
+            bypass_actor={
+                "actor_type": "Team",
+                "actor_id": 123,
+                "bypass_mode": "always",
+            },
+            authorized_actor={
+                "actor_type": "Team",
+                "actor_id": 456,
+                "bypass_mode": "always",
+            },
         )
         actual = copy.deepcopy(_fixture()["rulesets"])
         tag_rule = next(
             rule for rule in actual if rule["name"] == "Iteration 195: release tags"
         )
-        tag_rule["bypass_actors"] = [{"actor_type": "Team", "actor_id": 123}]
+        tag_rule["bypass_actors"] = [
+            {"actor_type": "Team", "actor_id": 123, "bypass_mode": "always"}
+        ]
 
         report = verifier.verify_rulesets(manifest_dir, actual)
 
@@ -162,6 +212,175 @@ class TestRulesetNormalization:
             "release-tags.tag_protection.authorized_actors.actors" in difference
             for difference in report["differences"]
         )
+
+    def test_bypass_mode_drift_is_not_ignored(self, tmp_path: Path) -> None:
+        verifier = _load_verifier()
+        expected_actor = {
+            "actor_type": "Team",
+            "actor_id": 123,
+            "bypass_mode": "always",
+        }
+        manifest_dir = _future_tag_manifest_dir(
+            tmp_path,
+            bypass_actor=expected_actor,
+            authorized_actor=expected_actor,
+        )
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        tag_rule = next(
+            rule for rule in actual if rule["name"] == "Iteration 195: release tags"
+        )
+        tag_rule["bypass_actors"] = [
+            {"actor_type": "Team", "actor_id": 123, "bypass_mode": "exempt"}
+        ]
+
+        report = verifier.verify_rulesets(manifest_dir, actual)
+
+        assert report["ok"] is False
+        assert any(
+            "release-tags.bypass_actors[0].bypass_mode" in difference
+            for difference in report["differences"]
+        )
+
+    def test_missing_api_bypass_actor_readback_fails_closed(self) -> None:
+        verifier = _load_verifier()
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        for ruleset in actual:
+            del ruleset["bypass_actors"]
+
+        report = verifier.verify_rulesets(MANIFEST_DIR, actual)
+
+        assert report["ok"] is False
+        assert all(
+            verifier.normalize_github_ruleset(ruleset)["bypass_actors"] is None
+            for ruleset in actual
+        )
+        assert any(
+            ".bypass_actors: unavailable in API readback" in difference
+            for difference in report["differences"]
+        )
+
+    def test_explicit_empty_api_bypass_actor_readback_matches_empty_manifest(
+        self,
+    ) -> None:
+        verifier = _load_verifier()
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        for ruleset in actual:
+            ruleset["bypass_actors"] = []
+
+        report = verifier.verify_rulesets(MANIFEST_DIR, actual)
+
+        assert report == {"ok": True, "differences": []}
+
+    def test_required_check_integration_id_is_preserved_for_identity_matching(
+        self,
+    ) -> None:
+        verifier = _load_verifier()
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        dev_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: dev")
+        status_checks = next(
+            rule
+            for rule in dev_rule["rules"]
+            if rule["type"] == "required_status_checks"
+        )
+        status_checks["parameters"]["required_status_checks"] = [
+            {"context": "Governance Gate", "integration_id": 195}
+        ]
+
+        normalized = verifier.normalize_github_ruleset(dev_rule)
+
+        assert normalized["required_checks"]["contexts"] == [
+            {"context": "Governance Gate", "integration_id": 195}
+        ]
+
+        differences = verifier._diff(
+            {"contexts": [{"context": "Governance Gate", "integration_id": 196}]},
+            {"contexts": normalized["required_checks"]["contexts"]},
+            "dev.required_checks",
+        )
+
+        assert any(
+            "dev.required_checks.contexts[0].integration_id" in difference
+            for difference in differences
+        )
+
+    def test_do_not_enforce_on_create_drift_is_not_ignored(self) -> None:
+        verifier = _load_verifier()
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        dev_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: dev")
+        status_checks = next(
+            rule
+            for rule in dev_rule["rules"]
+            if rule["type"] == "required_status_checks"
+        )
+        status_checks["parameters"]["do_not_enforce_on_create"] = True
+
+        report = verifier.verify_rulesets(MANIFEST_DIR, actual)
+
+        assert report["ok"] is False
+        assert any(
+            "dev.required_checks.do_not_enforce_on_create" in difference
+            for difference in report["differences"]
+        )
+
+    def test_required_check_integration_id_drift_is_reported(
+        self, tmp_path: Path
+    ) -> None:
+        verifier = _load_verifier()
+        manifest_dir = _future_branch_manifest_dir(tmp_path, integration_id=195)
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        dev_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: dev")
+        status_checks = next(
+            rule
+            for rule in dev_rule["rules"]
+            if rule["type"] == "required_status_checks"
+        )
+        status_checks["parameters"]["required_status_checks"] = [
+            {"context": "Governance Gate", "integration_id": 196}
+        ]
+
+        report = verifier.verify_rulesets(manifest_dir, actual)
+
+        assert report["ok"] is False
+        assert any(
+            "dev.required_checks.contexts[0].integration_id" in difference
+            for difference in report["differences"]
+        )
+
+    def test_api_actor_normalization_preserves_mode_and_ignores_org_admin_id(
+        self,
+    ) -> None:
+        verifier = _load_verifier()
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        tag_rule = next(
+            rule for rule in actual if rule["name"] == "Iteration 195: release tags"
+        )
+        tag_rule["bypass_actors"] = [
+            {
+                "actor_type": "OrganizationAdmin",
+                "actor_id": 321,
+                "bypass_mode": "always",
+            },
+            {
+                "actor_type": "DeployKey",
+                "actor_id": None,
+                "bypass_mode": "always",
+            },
+        ]
+
+        normalized = verifier.normalize_github_ruleset(tag_rule)
+
+        assert normalized["bypass_actors"] == [
+            {
+                "actor_type": "DeployKey",
+                "actor_id": None,
+                "bypass_mode": "always",
+            },
+            {
+                "actor_type": "OrganizationAdmin",
+                "actor_id": None,
+                "bypass_mode": "always",
+            },
+        ]
 
 
 class TestVerifierCli:
@@ -207,10 +426,28 @@ class TestVerifierCli:
         assert commands[0] == [
             "gh",
             "api",
+            "--method",
+            "GET",
             "--paginate",
             "--slurp",
             "repos/cloudQuant/backtrader_web/rulesets",
         ]
         assert all(
-            "POST" not in command and "PATCH" not in command for command in commands
+            command[:4] == ["gh", "api", "--method", "GET"] for command in commands
+        )
+        payload_flags = {
+            "-d",
+            "-f",
+            "-F",
+            "--body",
+            "--data",
+            "--data-binary",
+            "--field",
+            "--input",
+            "--raw-field",
+        }
+        assert all(not payload_flags.intersection(command) for command in commands)
+        assert all(
+            not {"POST", "PATCH", "PUT", "DELETE"}.intersection(command)
+            for command in commands
         )

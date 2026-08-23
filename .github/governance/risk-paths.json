@@ -28,13 +28,18 @@
         "src/backend/app/api/**/auth*",
         "src/backend/app/api/_dependencies.py",
         "src/backend/app/api/**/_dependencies.py",
+        "src/backend/app/api/deps.py",
         "src/backend/app/services/auth*",
         "src/backend/app/services/**/auth*",
         "src/backend/app/schemas/auth*",
         "src/backend/app/schemas/**/auth*",
         "src/backend/app/utils/security*",
         "src/backend/app/**/session*",
-        "src/backend/app/middleware/**"
+        "src/backend/app/middleware/**",
+        "src/frontend/src/api/index.ts",
+        "src/frontend/src/api/auth.ts",
+        "src/frontend/src/utils/session*",
+        "src/frontend/src/utils/tokenRef*"
       ],
       "description": "Authentication and session boundaries require elevated review."
     },

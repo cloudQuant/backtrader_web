@@ -14,23 +14,16 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from governance_contract import load_manifests, normalized_manifest, validate_manifests
+from governance_contract import (
+    load_manifests,
+    normalize_bypass_actors,
+    normalize_required_check_contexts,
+    normalized_manifest,
+    validate_manifests,
+)
 
 
 Runner = Callable[[list[str]], str]
-
-
-def _canonical_actors(actors: Any) -> list[dict[str, Any]]:
-    if not isinstance(actors, list):
-        return []
-    canonical = [
-        {"actor_type": actor.get("actor_type"), "actor_id": actor.get("actor_id")}
-        for actor in actors
-        if isinstance(actor, Mapping)
-    ]
-    return sorted(
-        canonical, key=lambda actor: (str(actor["actor_type"]), str(actor["actor_id"]))
-    )
 
 
 def _rule_by_type(rules: Any, rule_type: str) -> Mapping[str, Any]:
@@ -60,6 +53,7 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
     exclude = ref_name.get("exclude", []) if isinstance(ref_name, Mapping) else []
     rules = raw_ruleset.get("rules", [])
     target = raw_ruleset.get("target")
+    raw_bypass_actors = raw_ruleset.get("bypass_actors")
     canonical: dict[str, Any] = {
         "name": raw_ruleset.get("name"),
         "target": {
@@ -68,21 +62,17 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
             "exclude": sorted(exclude) if isinstance(exclude, list) else [],
         },
         "enforcement": raw_ruleset.get("enforcement"),
-        "bypass_actors": _canonical_actors(raw_ruleset.get("bypass_actors", [])),
+        "bypass_actors": (
+            normalize_bypass_actors(raw_bypass_actors)
+            if isinstance(raw_bypass_actors, list)
+            else None
+        ),
     }
     if target == "branch":
         pull_request = _rule_parameters(rules, "pull_request")
         status_checks = _rule_parameters(rules, "required_status_checks")
         raw_contexts = status_checks.get("required_status_checks", [])
-        contexts = []
-        if isinstance(raw_contexts, list):
-            for context in raw_contexts:
-                if isinstance(context, str):
-                    contexts.append(context)
-                elif isinstance(context, Mapping) and isinstance(
-                    context.get("context"), str
-                ):
-                    contexts.append(context["context"])
+        contexts = normalize_required_check_contexts(raw_contexts)
         canonical.update(
             {
                 "pull_request": {
@@ -102,8 +92,11 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
                     "block_deletion": _has_rule(rules, "deletion"),
                 },
                 "required_checks": {
-                    "contexts": sorted(contexts),
+                    "contexts": contexts,
                     "strict": status_checks.get("strict_required_status_checks_policy"),
+                    "do_not_enforce_on_create": status_checks.get(
+                        "do_not_enforce_on_create"
+                    ),
                 },
             }
         )
@@ -131,6 +124,21 @@ def _diff(expected: Any, actual: Any, path: str) -> list[str]:
                 )
             else:
                 differences.extend(_diff(expected[key], actual[key], child_path))
+        return differences
+    if isinstance(expected, list) and isinstance(actual, list):
+        differences = []
+        for index in range(max(len(expected), len(actual))):
+            child_path = f"{path}[{index}]"
+            if index >= len(expected):
+                differences.append(
+                    f"{child_path}: unexpected actual value {actual[index]!r}"
+                )
+            elif index >= len(actual):
+                differences.append(
+                    f"{child_path}: missing actual value; expected {expected[index]!r}"
+                )
+            else:
+                differences.extend(_diff(expected[index], actual[index], child_path))
         return differences
     if expected != actual:
         return [f"{path}: expected {expected!r}, actual {actual!r}"]
@@ -165,6 +173,18 @@ def verify_rulesets(
             differences.append(f"{key}: missing actual Ruleset named {name!r}")
             continue
         actual = matching_rulesets[0]
+        if actual.get("bypass_actors") is None:
+            differences.append(
+                f"{key}.bypass_actors: unavailable in API readback; cannot verify an explicit empty bypass pool"
+            )
+            expected = {
+                name: value
+                for name, value in expected.items()
+                if name != "bypass_actors"
+            }
+            actual = {
+                name: value for name, value in actual.items() if name != "bypass_actors"
+            }
         differences.extend(_diff(expected, actual, key))
     managed_names = set(expected_by_name)
     for name in sorted(set(actual_by_name) - managed_names):
@@ -205,7 +225,17 @@ def load_live_rulesets(
     """Read each Ruleset detail with GitHub CLI GET requests only."""
     execute = runner or _run_gh
     listing = json.loads(
-        execute(["gh", "api", "--paginate", "--slurp", f"repos/{repo}/rulesets"])
+        execute(
+            [
+                "gh",
+                "api",
+                "--method",
+                "GET",
+                "--paginate",
+                "--slurp",
+                f"repos/{repo}/rulesets",
+            ]
+        )
     )
     summaries = _flatten_pages(listing)
     details: list[dict[str, Any]] = []
@@ -214,7 +244,9 @@ def load_live_rulesets(
         if not isinstance(ruleset_id, int):
             raise ValueError("GitHub Rulesets API list response contains an invalid id")
         detail = json.loads(
-            execute(["gh", "api", f"repos/{repo}/rulesets/{ruleset_id}"])
+            execute(
+                ["gh", "api", "--method", "GET", f"repos/{repo}/rulesets/{ruleset_id}"]
+            )
         )
         if not isinstance(detail, dict):
             raise ValueError(

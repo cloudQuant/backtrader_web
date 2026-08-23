@@ -22,7 +22,8 @@
       "postmortem_within_hours": 24
     },
     "actor_source": "GitHub API readback after D3 capability validation",
-    "actors": []
+    "actors": [],
+    "emergency_exceptions": []
   },
   "pull_request": {
     "required": true,
@@ -42,6 +43,7 @@
     "status": "pending_D4",
     "contexts": [],
     "source": "Task 4 real draft-PR Check Run evidence; names must not be guessed from workflow YAML.",
-    "strict": true
+    "strict": true,
+    "do_not_enforce_on_create": false
   }
 }

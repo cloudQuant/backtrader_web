@@ -22,7 +22,8 @@
       "postmortem_within_hours": 24
     },
     "actor_source": "GitHub API readback after D3/D6 capability validation",
-    "actors": []
+    "actors": [],
+    "emergency_exceptions": []
   },
   "tag_protection": {
     "block_creation": true,
