@@ -62,6 +62,8 @@ POSITIVE_ID_BYPASS_ACTOR_TYPES = {
 GITHUB_BYPASS_MODES = {"always", "pull_request", "exempt"}
 ALLOWED_BYPASS_MODES = {"always", "pull_request"}
 EVIDENCE_PATH_PREFIXES = ("docs/", ".github/", "artifacts/")
+MALFORMED_BYPASS_ACTOR_TYPE = "__malformed_non_mapping__"
+MALFORMED_REQUIRED_CHECK_CONTEXT = "__malformed_required_check_context__"
 RELEASE_BRANCH = re.compile(r"^release/v\d+\.\d+\.\d+(?:-rc\d+)?$")
 HOTFIX_BRANCH = re.compile(r"^hotfix/master-[A-Za-z0-9][A-Za-z0-9._-]*$")
 DEV_BRANCH_PREFIXES = ("feature/", "fix/", "docs/", "refactor/", "test/")
@@ -458,6 +460,13 @@ def _validate_bypass(
                 _issue(
                     f"{individual_path}.{start_field}",
                     "must be a timezone-aware ISO-8601 start timestamp",
+                )
+            )
+        elif start_at > now:
+            issues.append(
+                _issue(
+                    f"{individual_path}.{start_field}",
+                    "must be at or before the validation time to authorize a current emergency",
                 )
             )
 
@@ -889,16 +898,26 @@ def validate_manifests(
 def normalize_required_check_contexts(contexts: Any) -> list[dict[str, Any]]:
     """Normalize Check Run identities without dropping their integration source."""
     if not isinstance(contexts, list):
-        return []
+        return [
+            {
+                "context": MALFORMED_REQUIRED_CHECK_CONTEXT,
+                "integration_id": None,
+            }
+        ]
     canonical: list[dict[str, Any]] = []
     for entry in contexts:
-        if isinstance(entry, str):
-            canonical.append({"context": entry, "integration_id": None})
-        elif isinstance(entry, Mapping):
+        if isinstance(entry, Mapping):
             canonical.append(
                 {
                     "context": entry.get("context"),
                     "integration_id": entry.get("integration_id"),
+                }
+            )
+        else:
+            canonical.append(
+                {
+                    "context": MALFORMED_REQUIRED_CHECK_CONTEXT,
+                    "integration_id": None,
                 }
             )
     return sorted(
@@ -914,6 +933,13 @@ def normalize_bypass_actors(actors: Any) -> list[dict[str, Any]]:
     canonical: list[dict[str, Any]] = []
     for actor in actors:
         if not isinstance(actor, Mapping):
+            canonical.append(
+                {
+                    "actor_type": MALFORMED_BYPASS_ACTOR_TYPE,
+                    "actor_id": None,
+                    "bypass_mode": None,
+                }
+            )
             continue
         actor_type = actor.get("actor_type")
         canonical.append(

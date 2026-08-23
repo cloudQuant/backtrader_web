@@ -47,9 +47,10 @@ exemption cannot be bound to this repository's incident, reason, expiry, and
 24-hour postmortem emergency-bypass contract. Every future bypass actor must
 therefore have a matching structured emergency exception with incident, reason,
 an ISO-8601 `issued_at` (or `starts_at`), an unexpired `expires_at` no more
-than 24 hours after that start, and gate-scoped readback evidence. These are
-schema capabilities, not claims that the current repository has passed those
-gates.
+than 24 hours after that start, and gate-scoped readback evidence. The start
+must be at or before validation/readback time, so a future-issued exception
+cannot pre-authorize an immediately active Ruleset bypass. These are schema
+capabilities, not claims that the current repository has passed those gates.
 
 Future applied activation, code-owner enablement, verified Check Runs, tag
 actors, and emergency exceptions use evidence objects with explicit gate IDs
@@ -57,7 +58,10 @@ and a repository-local evidence path or HTTPS URL; free-form strings do not
 prove a gate. Required Check Run identities retain both `context` and
 `integration_id`, and `do_not_enforce_on_create` is fixed at `false`. The
 normalizer fails closed when a Rulesets API readback omits `bypass_actors`: an
-explicit empty array is required to prove an empty bypass pool.
+explicit empty array is required to prove an empty bypass pool. It likewise
+preserves malformed bypass entries, malformed ref/check collections, and
+duplicate required-status-check rules as readable drift rather than treating
+them as empty pending fields.
 
 `enforcement: "active"` expresses the eventual Ruleset configuration to be
 read back after its gates pass. `activation.remote_state: "not_applied"`

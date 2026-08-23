@@ -58,9 +58,16 @@
 # Narrow R2/R3 domains
 /.github/workflows/**                                        @cloudQuant
 /.github/governance/**                                       @cloudQuant
+/.github/dependabot.yml                                      @cloudQuant
+/scripts/ci/governance_contract.py                           @cloudQuant
+/scripts/ci/verify_github_governance.py                      @cloudQuant
+/scripts/ci/security_scan.sh                                 @cloudQuant
+/.pre-commit-config.yaml                                     @cloudQuant
+/.dockerignore                                               @cloudQuant
 /src/backend/app/api/auth*                                   @cloudQuant
 /src/backend/app/api/_dependencies.py                        @cloudQuant
 /src/backend/app/api/deps.py                                 @cloudQuant
+/src/backend/app/api/**/deps.py                              @cloudQuant
 /src/backend/app/services/auth*                              @cloudQuant
 /src/backend/app/schemas/auth*                               @cloudQuant
 /src/backend/app/utils/security*                             @cloudQuant
@@ -72,5 +79,7 @@
 /src/frontend/src/stores/**                                  @cloudQuant
 /src/frontend/src/api/index.ts                               @cloudQuant
 /src/frontend/src/api/auth.ts                                @cloudQuant
+/src/frontend/src/api/*Topics.ts                             @cloudQuant
 /src/frontend/src/utils/session.ts                           @cloudQuant
 /src/frontend/src/utils/tokenRef.ts                          @cloudQuant
+/src/frontend/src/composables/use*Runtime.ts                @cloudQuant

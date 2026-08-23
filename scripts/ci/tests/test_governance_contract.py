@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 
@@ -55,12 +55,14 @@ def _evidence(*gates: str) -> dict[str, object]:
 
 
 def _emergency_exception(actor: dict[str, object], *gates: str) -> dict[str, object]:
+    issued_at = datetime.now(timezone.utc).replace(microsecond=0)
+    expires_at = issued_at + timedelta(hours=1)
     return {
         "actor": copy.deepcopy(actor),
         "incident": "INC-195",
         "reason": "documented emergency recovery",
-        "issued_at": "2099-01-02T02:04:05Z",
-        "expires_at": "2099-01-02T03:04:05Z",
+        "issued_at": issued_at.isoformat().replace("+00:00", "Z"),
+        "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
         "readback_evidence": _evidence(*gates),
     }
 
@@ -130,12 +132,16 @@ class TestRiskClassification:
             "src/backend/app/services/auth_service.py",
             "src/backend/app/api/_dependencies.py",
             "src/backend/app/api/deps.py",
+            "src/backend/app/api/data/deps.py",
             "src/backend/app/schemas/auth.py",
             "src/backend/app/utils/security.py",
             "src/frontend/src/api/index.ts",
             "src/frontend/src/api/auth.ts",
+            "src/frontend/src/api/dataTopics.ts",
             "src/frontend/src/utils/session.ts",
             "src/frontend/src/utils/tokenRef.ts",
+            "src/frontend/src/composables/useBacktestRuntime.ts",
+            "src/frontend/src/composables/useOverfittingRuntime.ts",
         ]
 
         result = contract.classify_paths(paths, _risk_map(), labels=["risk:R0"])
@@ -148,6 +154,16 @@ class TestRiskClassification:
             }
             for path in paths
         } == {path: {"R2"} for path in paths}
+        entries = {
+            tuple(line.split()[:2])
+            for line in CODEOWNERS.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        assert {
+            ("/src/backend/app/api/**/deps.py", "@cloudQuant"),
+            ("/src/frontend/src/api/*Topics.ts", "@cloudQuant"),
+            ("/src/frontend/src/composables/use*Runtime.ts", "@cloudQuant"),
+        }.issubset(entries)
 
     def test_dependency_and_release_operational_inputs_are_r3(self) -> None:
         contract = _load_contract()
@@ -196,6 +212,37 @@ class TestRiskClassification:
             if line.strip() and not line.lstrip().startswith("#")
         }
         assert ("**/SECURITY.md", "@cloudQuant") in entries
+
+    def test_governance_and_security_controls_are_r3_despite_labels(self) -> None:
+        contract = _load_contract()
+        paths = [
+            "scripts/ci/governance_contract.py",
+            "scripts/ci/verify_github_governance.py",
+            "scripts/ci/security_scan.sh",
+            ".github/dependabot.yml",
+            ".pre-commit-config.yaml",
+            ".dockerignore",
+        ]
+
+        result = contract.classify_paths(paths, _risk_map(), labels=["risk:R0"])
+
+        assert result["risk"] == "R3"
+        assert result["label_can_lower_risk"] is False
+        assert {
+            path: {
+                match["level"] for match in result["matches"] if match["path"] == path
+            }
+            for path in paths
+        } == {path: {"R3"} for path in paths}
+        entries = {
+            tuple(line.split()[:2])
+            for line in CODEOWNERS.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        assert {
+            ("/.pre-commit-config.yaml", "@cloudQuant"),
+            ("/.dockerignore", "@cloudQuant"),
+        }.issubset(entries)
 
     def test_sensitive_paths_cannot_be_downgraded_by_pr_labels(self) -> None:
         contract = _load_contract()
@@ -569,6 +616,30 @@ class TestRulesetManifestContract:
         manifests["dev"]["bypass"]["emergency_exceptions"] = [exception]
 
         assert contract.validate_manifests(manifests, now=VALIDATION_NOW) == []
+
+    def test_emergency_exception_cannot_be_issued_in_the_future(self) -> None:
+        contract = _load_contract()
+        actor = {"actor_type": "User", "actor_id": 123, "bypass_mode": "pull_request"}
+
+        for start_field in ("issued_at", "starts_at"):
+            manifests = copy.deepcopy(_manifests(contract))
+            exception = _emergency_exception(actor, "D3")
+            exception.pop("issued_at")
+            exception.update(
+                {
+                    start_field: "2026-08-24T00:31:00Z",
+                    "expires_at": "2026-08-24T01:00:00Z",
+                }
+            )
+            manifests["dev"]["bypass"]["actors"] = [actor]
+            manifests["dev"]["bypass"]["emergency_exceptions"] = [exception]
+
+            issues = contract.validate_manifests(manifests, now=VALIDATION_NOW)
+
+            assert any(
+                f"dev.bypass.emergency_exceptions[0].{start_field}" in issue
+                for issue in issues
+            )
 
     def test_manifest_validation_rejects_unstructured_future_gate_evidence(
         self,

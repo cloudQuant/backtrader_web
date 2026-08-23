@@ -7,6 +7,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 
@@ -42,6 +43,8 @@ def _future_tag_manifest_dir(
     authorized_actor: dict[str, object],
 ) -> Path:
     """Write an evidenced D3/D6 tag transition without changing repo fixtures."""
+    issued_at = datetime.now(timezone.utc).replace(microsecond=0)
+    expires_at = issued_at + timedelta(hours=1)
     for name in ("dev", "master", "release-tags"):
         source = MANIFEST_DIR / f"{name}.json"
         manifest = json.loads(source.read_text(encoding="utf-8"))
@@ -52,8 +55,8 @@ def _future_tag_manifest_dir(
                     "actor": copy.deepcopy(bypass_actor),
                     "incident": "INC-195",
                     "reason": "documented emergency recovery",
-                    "issued_at": "2099-01-02T02:04:05Z",
-                    "expires_at": "2099-01-02T03:04:05Z",
+                    "issued_at": issued_at.isoformat().replace("+00:00", "Z"),
+                    "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
                     "readback_evidence": {
                         "gates": ["D3", "D6"],
                         "reference": "docs/governance/evidence/D3-D6-readback.md",
@@ -270,6 +273,73 @@ class TestRulesetNormalization:
         report = verifier.verify_rulesets(MANIFEST_DIR, actual)
 
         assert report == {"ok": True, "differences": []}
+
+    def test_malformed_api_bypass_actor_readback_fails_closed(self) -> None:
+        verifier = _load_verifier()
+        for malformed_entry in (None, "unexpected-non-object", 7):
+            actual = copy.deepcopy(_fixture()["rulesets"])
+            dev_rule = next(
+                rule for rule in actual if rule["name"] == "Iteration 195: dev"
+            )
+            dev_rule["bypass_actors"] = [malformed_entry]
+
+            report = verifier.verify_rulesets(MANIFEST_DIR, actual)
+
+            assert report["ok"] is False
+            assert any(
+                "dev.bypass_actors[0]" in difference
+                for difference in report["differences"]
+            )
+
+    def test_malformed_empty_critical_readback_fields_fail_closed(self) -> None:
+        verifier = _load_verifier()
+
+        for field_path, malformed_value in (
+            ("target.exclude", "not-a-list"),
+            ("required_checks.contexts", "not-a-list"),
+            ("required_checks.contexts", [None]),
+        ):
+            actual = copy.deepcopy(_fixture()["rulesets"])
+            dev_rule = next(
+                rule for rule in actual if rule["name"] == "Iteration 195: dev"
+            )
+            if field_path == "target.exclude":
+                dev_rule["conditions"]["ref_name"]["exclude"] = malformed_value
+            else:
+                status_checks = next(
+                    rule
+                    for rule in dev_rule["rules"]
+                    if rule["type"] == "required_status_checks"
+                )
+                status_checks["parameters"]["required_status_checks"] = malformed_value
+
+            report = verifier.verify_rulesets(MANIFEST_DIR, actual)
+
+            assert report["ok"] is False
+            assert any(
+                f"dev.{field_path}" in difference
+                for difference in report["differences"]
+            )
+
+    def test_duplicate_required_status_check_rules_fail_closed(self) -> None:
+        verifier = _load_verifier()
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        dev_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: dev")
+        status_checks = next(
+            rule
+            for rule in dev_rule["rules"]
+            if rule["type"] == "required_status_checks"
+        )
+        dev_rule["rules"].append(copy.deepcopy(status_checks))
+
+        report = verifier.verify_rulesets(MANIFEST_DIR, actual)
+
+        assert report["ok"] is False
+        assert any(
+            "dev.readback_errors" in difference
+            and "duplicate required_status_checks" in difference
+            for difference in report["differences"]
+        )
 
     def test_required_check_integration_id_is_preserved_for_identity_matching(
         self,

@@ -29,6 +29,7 @@
         "src/backend/app/api/_dependencies.py",
         "src/backend/app/api/**/_dependencies.py",
         "src/backend/app/api/deps.py",
+        "src/backend/app/api/**/deps.py",
         "src/backend/app/services/auth*",
         "src/backend/app/services/**/auth*",
         "src/backend/app/schemas/auth*",
@@ -38,8 +39,10 @@
         "src/backend/app/middleware/**",
         "src/frontend/src/api/index.ts",
         "src/frontend/src/api/auth.ts",
+        "src/frontend/src/api/*Topics.ts",
         "src/frontend/src/utils/session*",
-        "src/frontend/src/utils/tokenRef*"
+        "src/frontend/src/utils/tokenRef*",
+        "src/frontend/src/composables/use*Runtime.ts"
       ],
       "description": "Authentication and session boundaries require elevated review."
     },
@@ -77,6 +80,21 @@
         ".github/governance/**"
       ],
       "description": "CI execution and governance boundaries require the highest review."
+    },
+    {
+      "id": "r3-ci-and-security-controls",
+      "level": "R3",
+      "globs": [
+        "scripts/ci/governance_contract.py",
+        "scripts/ci/verify_github_governance.py",
+        "scripts/ci/security_scan.sh",
+        "scripts/ci/governance_*.py",
+        "scripts/ci/security_*.sh",
+        ".github/dependabot.yml",
+        ".pre-commit-config.yaml",
+        ".dockerignore"
+      ],
+      "description": "Governance verification, security scanning, dependency automation, and root admission controls require the highest review."
     },
     {
       "id": "r3-container-and-release",

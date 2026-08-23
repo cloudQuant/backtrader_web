@@ -45,21 +45,54 @@ def _has_rule(rules: Any, rule_type: str) -> bool:
     return bool(_rule_by_type(rules, rule_type))
 
 
+def _count_rules(rules: Any, rule_type: str) -> int:
+    if not isinstance(rules, list):
+        return 0
+    return sum(
+        1
+        for rule in rules
+        if isinstance(rule, Mapping) and rule.get("type") == rule_type
+    )
+
+
+def _normalize_ref_name_patterns(value: Any, *, field: str) -> list[str]:
+    """Preserve malformed ref collections as drift rather than empty lists."""
+    if not isinstance(value, list):
+        return [f"__malformed_{field}_non_list__"]
+    if not all(isinstance(pattern, str) for pattern in value):
+        return [f"__malformed_{field}_entry__"]
+    return sorted(value)
+
+
 def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
     """Normalize API readback, intentionally ignoring IDs, timestamps, and order."""
-    conditions = raw_ruleset.get("conditions", {})
-    ref_name = conditions.get("ref_name", {}) if isinstance(conditions, Mapping) else {}
-    include = ref_name.get("include", []) if isinstance(ref_name, Mapping) else []
-    exclude = ref_name.get("exclude", []) if isinstance(ref_name, Mapping) else []
-    rules = raw_ruleset.get("rules", [])
+    conditions = raw_ruleset.get("conditions")
+    ref_name = conditions.get("ref_name") if isinstance(conditions, Mapping) else None
+    if isinstance(ref_name, Mapping):
+        include = _normalize_ref_name_patterns(
+            ref_name.get("include", []), field="target_include"
+        )
+        exclude = _normalize_ref_name_patterns(
+            ref_name.get("exclude", []), field="target_exclude"
+        )
+    else:
+        include = ["__malformed_ref_name__"]
+        exclude = ["__malformed_ref_name__"]
+    raw_rules = raw_ruleset.get("rules")
+    rules = raw_rules if isinstance(raw_rules, list) else []
+    readback_errors: list[str] = []
+    if not isinstance(raw_rules, list):
+        readback_errors.append("rules must be a list in API readback")
+    elif not all(isinstance(rule, Mapping) for rule in raw_rules):
+        readback_errors.append("rules contains a non-object entry in API readback")
     target = raw_ruleset.get("target")
     raw_bypass_actors = raw_ruleset.get("bypass_actors")
     canonical: dict[str, Any] = {
         "name": raw_ruleset.get("name"),
         "target": {
             "kind": target,
-            "include": sorted(include) if isinstance(include, list) else [],
-            "exclude": sorted(exclude) if isinstance(exclude, list) else [],
+            "include": include,
+            "exclude": exclude,
         },
         "enforcement": raw_ruleset.get("enforcement"),
         "bypass_actors": (
@@ -69,6 +102,8 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
         ),
     }
     if target == "branch":
+        if _count_rules(rules, "required_status_checks") > 1:
+            readback_errors.append("duplicate required_status_checks rules")
         pull_request = _rule_parameters(rules, "pull_request")
         status_checks = _rule_parameters(rules, "required_status_checks")
         raw_contexts = status_checks.get("required_status_checks", [])
@@ -106,6 +141,8 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
             "block_update": _has_rule(rules, "update"),
             "block_deletion": _has_rule(rules, "deletion"),
         }
+    if readback_errors:
+        canonical["readback_errors"] = sorted(readback_errors)
     return canonical
 
 
