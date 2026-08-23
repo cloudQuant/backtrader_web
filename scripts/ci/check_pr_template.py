@@ -12,10 +12,13 @@ Inputs:
     changed in the PR). When provided and it contains no i18n locale file, the
     check passes without requiring a manifest. When unset, the check runs
     unconditionally (backwards-compatible with the pre-179 behaviour).
+  - GOVERNANCE_PR_KIND env var (optional): enables the additional ``hotfix``
+    or ``release`` declaration field; the common governance declaration is
+    required for every non-empty PR body.
 
 Exit codes:
-  0 - manifest present & filled, OR PR changes no locale files
-  1 - locale files changed but manifest missing / has placeholders
+  0 - governance declaration and, when applicable, i18n manifest are filled
+  1 - governance declaration or required i18n manifest is incomplete
   2 - PR_BODY env var unset (don't fail in non-PR contexts)
 """
 
@@ -55,6 +58,10 @@ GOVERNANCE_HEADING = "## Governance declaration"
 _GOVERNANCE_SECTION_RE = re.compile(
     r"^##\s+Governance declaration\s*$", re.MULTILINE | re.IGNORECASE
 )
+_KIND_SECTION_RE = {
+    "hotfix": re.compile(r"^##\s+Hotfix\s+前移计划(?:\s+.*)?$", re.MULTILINE),
+    "release": re.compile(r"^##\s+Release\s+清单(?:\s+.*)?$", re.MULTILINE),
+}
 
 _PR_KINDS = ("normal", "hotfix", "release")
 
@@ -66,6 +73,16 @@ _KIND_FIELDS = {
 }
 
 _FIELD_LINE_RE_TEMPLATE = r"^\s*[-*]?\s*\**\s*{label}\s*\**\s*[:：]\s*(.*)$"
+
+
+def _section_content(body: str, heading: re.Pattern[str]) -> str | None:
+    """Return the Markdown content below ``heading``, before the next H2."""
+    match = heading.search(body)
+    if not match:
+        return None
+    rest = body[match.end() :]
+    next_heading = re.search(r"^##\s+", rest[1:], re.MULTILINE)
+    return rest[: next_heading.start() + 1] if next_heading else rest
 
 
 def _field_value(section: str, label: str) -> str | None:
@@ -90,17 +107,19 @@ def governance_declaration_issues(body: str, pr_kind: str = "normal") -> list[st
     if pr_kind not in _PR_KINDS:
         return [f"unknown governance pr_kind: {pr_kind!r}"]
 
-    if not _GOVERNANCE_SECTION_RE.search(body):
+    governance_section = _section_content(body, _GOVERNANCE_SECTION_RE)
+    if governance_section is None:
         return [f"missing required section: {GOVERNANCE_HEADING}"]
-
-    start = _GOVERNANCE_SECTION_RE.search(body).end()
-    rest = body[start:]
-    next_heading = re.search(r"^##\s+", rest[1:], re.MULTILINE)
-    section = rest[: next_heading.start() + 1] if next_heading else rest
 
     labels = list(_COMMON_FIELDS) + list(_KIND_FIELDS.get(pr_kind, ()))
     for label in labels:
+        kind_section = None
+        if label in _KIND_FIELDS.get(pr_kind, ()):
+            kind_section = _section_content(body, _KIND_SECTION_RE[pr_kind])
+        section = kind_section or governance_section
         value = _field_value(section, label)
+        if value is None and kind_section is not None:
+            value = _field_value(governance_section, label)
         if value is None:
             issues.append(f"governance field missing: {label}")
         elif not value or PLACEHOLDER.search(value):
@@ -135,8 +154,7 @@ def main() -> int:
     issues: list[str] = []
 
     gov_kind = os.environ.get("GOVERNANCE_PR_KIND", "").strip()
-    if gov_kind:
-        issues.extend(governance_declaration_issues(body, gov_kind))
+    issues.extend(governance_declaration_issues(body, gov_kind or "normal"))
 
     locale_changed = _locale_files_changed()
     if locale_changed is False:

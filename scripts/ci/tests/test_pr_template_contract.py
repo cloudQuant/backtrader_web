@@ -105,6 +105,56 @@ RELEASE_NO_CHECKLIST = """\
 - 测试证据: CI 绿色截图
 """
 
+TEMPLATE_NORMAL_COMPLETE = """\
+## What & Why
+
+Clarify the contribution flow.
+
+## Governance declaration
+
+- **目标分支**: dev（常规变更走 dev 集成分支）
+- **风险等级**: R1（文档变更）
+- **测试证据**: pytest scripts/ci/tests/test_pr_template_contract.py -q
+
+## Test Plan
+
+Contract test passed.
+"""
+
+TEMPLATE_NORMAL_MISSING_DECLARATION = """\
+## What & Why
+
+Clarify the contribution flow.
+
+## Test Plan
+
+Contract test passed.
+"""
+
+HOTFIX_TEMPLATE_LAYOUT = """\
+## Governance declaration
+
+- **目标分支**: master（hotfix/master-123 生产事故修复）
+- **风险等级**: R3（生产 hotfix）
+- **测试证据**: 回归复现脚本 + 单元测试输出已附
+
+## Hotfix 前移计划 (master hotfix PRs only)
+
+- **前移计划**: 已创建等价修复 issue #456；dev 分支等价 PR #789
+"""
+
+RELEASE_TEMPLATE_LAYOUT = """\
+## Governance declaration
+
+- **目标分支**: master（release/v1.3.0 promotion）
+- **风险等级**: R3（发布晋升）
+- **测试证据**: 完整 CI + e2e 汇总链接见下
+
+## Release 清单 (master release promotion PRs only)
+
+- **Release 清单**: docs/releases/v1.3.0-checklist.md（版本、变更日志、回滚点齐备）
+"""
+
 
 class TestGovernanceDeclarationNormalPr:
     def test_complete_normal_declaration_accepted(self) -> None:
@@ -156,6 +206,9 @@ class TestMasterHotfixContract:
         issues = checker.governance_declaration_issues(HOTFIX_NO_BACKPORT, "hotfix")
         assert any("前移" in i for i in issues)
 
+    def test_hotfix_template_layout_with_plan_in_named_section_accepted(self) -> None:
+        assert checker.governance_declaration_issues(HOTFIX_TEMPLATE_LAYOUT, "hotfix") == []
+
 
 class TestMasterReleaseContract:
     def test_release_with_checklist_accepted(self) -> None:
@@ -164,6 +217,9 @@ class TestMasterReleaseContract:
     def test_release_without_checklist_rejected(self) -> None:
         issues = checker.governance_declaration_issues(RELEASE_NO_CHECKLIST, "release")
         assert any("Release 清单" in i for i in issues)
+
+    def test_release_template_layout_with_checklist_in_named_section_accepted(self) -> None:
+        assert checker.governance_declaration_issues(RELEASE_TEMPLATE_LAYOUT, "release") == []
 
 
 class TestI18nRegression:
@@ -199,6 +255,27 @@ class TestI18nRegression:
 
 
 class TestCliGovernanceKindEnv:
+    def test_current_ci_environment_accepts_template_normal_without_kind(self) -> None:
+        code, _ = _run_cli(
+            {
+                "PR_BODY": TEMPLATE_NORMAL_COMPLETE,
+                "CHANGED_FILES": "README.md",
+                "GOVERNANCE_PR_KIND": "",
+            }
+        )
+        assert code == 0
+
+    def test_current_ci_environment_rejects_missing_common_declaration(self) -> None:
+        code, out = _run_cli(
+            {
+                "PR_BODY": TEMPLATE_NORMAL_MISSING_DECLARATION,
+                "CHANGED_FILES": "README.md",
+                "GOVERNANCE_PR_KIND": "",
+            }
+        )
+        assert code == 1
+        assert "Governance declaration" in out
+
     def test_governance_kind_env_enables_check(self) -> None:
         code, out = _run_cli({"PR_BODY": HOTFIX_NO_BACKPORT, "GOVERNANCE_PR_KIND": "hotfix"})
         assert code == 1

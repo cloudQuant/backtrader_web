@@ -27,7 +27,9 @@ emergency fixes (see CONTRIBUTING.md, "Branch Model").
 - **测试证据**: <!-- 本地/CI 测试命令与结果，或链接 -->
 
 <!--
-仅当目标分支为 master 时保留并填写以下对应区块；普通 PR 请删除这两节。
+GitHub uses one PR template and cannot conditionally hide these sections. Normal PRs should
+delete or ignore both master-only sections; only a master hotfix or release PR must keep and
+complete its corresponding section.
 -->
 ## Hotfix 前移计划 (master hotfix PRs only)
 
