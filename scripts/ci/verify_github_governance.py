@@ -22,7 +22,6 @@ from governance_contract import (
     validate_manifests,
 )
 
-
 Runner = Callable[[list[str]], str]
 
 
@@ -48,11 +47,7 @@ def _has_rule(rules: Any, rule_type: str) -> bool:
 def _count_rules(rules: Any, rule_type: str) -> int:
     if not isinstance(rules, list):
         return 0
-    return sum(
-        1
-        for rule in rules
-        if isinstance(rule, Mapping) and rule.get("type") == rule_type
-    )
+    return sum(1 for rule in rules if isinstance(rule, Mapping) and rule.get("type") == rule_type)
 
 
 def _normalize_ref_name_patterns(value: Any, *, field: str) -> list[str]:
@@ -69,12 +64,8 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
     conditions = raw_ruleset.get("conditions")
     ref_name = conditions.get("ref_name") if isinstance(conditions, Mapping) else None
     if isinstance(ref_name, Mapping):
-        include = _normalize_ref_name_patterns(
-            ref_name.get("include", []), field="target_include"
-        )
-        exclude = _normalize_ref_name_patterns(
-            ref_name.get("exclude", []), field="target_exclude"
-        )
+        include = _normalize_ref_name_patterns(ref_name.get("include", []), field="target_include")
+        exclude = _normalize_ref_name_patterns(ref_name.get("exclude", []), field="target_exclude")
     else:
         include = ["__malformed_ref_name__"]
         exclude = ["__malformed_ref_name__"]
@@ -112,12 +103,8 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
             {
                 "pull_request": {
                     "required": _has_rule(rules, "pull_request"),
-                    "required_approvals": pull_request.get(
-                        "required_approving_review_count"
-                    ),
-                    "code_owner_review_enabled": pull_request.get(
-                        "require_code_owner_review"
-                    ),
+                    "required_approvals": pull_request.get("required_approving_review_count"),
+                    "code_owner_review_enabled": pull_request.get("require_code_owner_review"),
                     "conversation_resolution": pull_request.get(
                         "required_review_thread_resolution"
                     ),
@@ -129,9 +116,7 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
                 "required_checks": {
                     "contexts": contexts,
                     "strict": status_checks.get("strict_required_status_checks_policy"),
-                    "do_not_enforce_on_create": status_checks.get(
-                        "do_not_enforce_on_create"
-                    ),
+                    "do_not_enforce_on_create": status_checks.get("do_not_enforce_on_create"),
                 },
             }
         )
@@ -152,9 +137,7 @@ def _diff(expected: Any, actual: Any, path: str) -> list[str]:
         for key in sorted(set(expected) | set(actual)):
             child_path = f"{path}.{key}" if path else str(key)
             if key not in expected:
-                differences.append(
-                    f"{child_path}: unexpected actual value {actual[key]!r}"
-                )
+                differences.append(f"{child_path}: unexpected actual value {actual[key]!r}")
             elif key not in actual:
                 differences.append(
                     f"{child_path}: missing actual value; expected {expected[key]!r}"
@@ -167,9 +150,7 @@ def _diff(expected: Any, actual: Any, path: str) -> list[str]:
         for index in range(max(len(expected), len(actual))):
             child_path = f"{path}[{index}]"
             if index >= len(expected):
-                differences.append(
-                    f"{child_path}: unexpected actual value {actual[index]!r}"
-                )
+                differences.append(f"{child_path}: unexpected actual value {actual[index]!r}")
             elif index >= len(actual):
                 differences.append(
                     f"{child_path}: missing actual value; expected {expected[index]!r}"
@@ -214,14 +195,8 @@ def verify_rulesets(
             differences.append(
                 f"{key}.bypass_actors: unavailable in API readback; cannot verify an explicit empty bypass pool"
             )
-            expected = {
-                name: value
-                for name, value in expected.items()
-                if name != "bypass_actors"
-            }
-            actual = {
-                name: value for name, value in actual.items() if name != "bypass_actors"
-            }
+            expected = {name: value for name, value in expected.items() if name != "bypass_actors"}
+            actual = {name: value for name, value in actual.items() if name != "bypass_actors"}
         differences.extend(_diff(expected, actual, key))
     managed_names = set(expected_by_name)
     for name in sorted(set(actual_by_name) - managed_names):
@@ -234,9 +209,7 @@ def load_fixture(path: Path | str) -> list[dict[str, Any]]:
     with Path(path).open(encoding="utf-8") as handle:
         payload = json.load(handle)
     rulesets = payload.get("rulesets") if isinstance(payload, Mapping) else payload
-    if not isinstance(rulesets, list) or not all(
-        isinstance(item, dict) for item in rulesets
-    ):
+    if not isinstance(rulesets, list) or not all(isinstance(item, dict) for item in rulesets):
         raise ValueError("fixture must contain a rulesets array")
     return rulesets
 
@@ -256,9 +229,7 @@ def _flatten_pages(payload: Any) -> list[dict[str, Any]]:
     return [item for item in payload if isinstance(item, dict)]
 
 
-def load_live_rulesets(
-    repo: str, *, runner: Runner | None = None
-) -> list[dict[str, Any]]:
+def load_live_rulesets(repo: str, *, runner: Runner | None = None) -> list[dict[str, Any]]:
     """Read each Ruleset detail with GitHub CLI GET requests only."""
     execute = runner or _run_gh
     listing = json.loads(
@@ -281,14 +252,10 @@ def load_live_rulesets(
         if not isinstance(ruleset_id, int):
             raise ValueError("GitHub Rulesets API list response contains an invalid id")
         detail = json.loads(
-            execute(
-                ["gh", "api", "--method", "GET", f"repos/{repo}/rulesets/{ruleset_id}"]
-            )
+            execute(["gh", "api", "--method", "GET", f"repos/{repo}/rulesets/{ruleset_id}"])
         )
         if not isinstance(detail, dict):
-            raise ValueError(
-                f"GitHub Ruleset {ruleset_id} detail response must be an object"
-            )
+            raise ValueError(f"GitHub Ruleset {ruleset_id} detail response must be an object")
         details.append(detail)
     return details
 
@@ -296,9 +263,7 @@ def load_live_rulesets(
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument(
-        "--fixture", type=Path, help="sanitized local Rulesets API fixture"
-    )
+    source.add_argument("--fixture", type=Path, help="sanitized local Rulesets API fixture")
     source.add_argument(
         "--live", action="store_true", help="read Rulesets with gh api GET requests"
     )
@@ -322,11 +287,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
-        rulesets = (
-            load_fixture(args.fixture)
-            if args.fixture
-            else load_live_rulesets(args.repo)
-        )
+        rulesets = load_fixture(args.fixture) if args.fixture else load_live_rulesets(args.repo)
         report = verify_rulesets(args.manifest_dir, rulesets)
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
         report = {"ok": False, "differences": [f"verifier error: {error}"]}

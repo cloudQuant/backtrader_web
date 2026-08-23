@@ -11,7 +11,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 VERIFIER = REPO_ROOT / "scripts" / "ci" / "verify_github_governance.py"
 MANIFEST_DIR = REPO_ROOT / ".github" / "governance" / "rulesets"
@@ -22,9 +21,7 @@ def _load_verifier() -> ModuleType:
     assert VERIFIER.is_file(), "Task 3 GitHub governance verifier is not implemented"
     if str(VERIFIER.parent) not in sys.path:
         sys.path.insert(0, str(VERIFIER.parent))
-    spec = importlib.util.spec_from_file_location(
-        "verify_github_governance_under_test", VERIFIER
-    )
+    spec = importlib.util.spec_from_file_location("verify_github_governance_under_test", VERIFIER)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -84,9 +81,7 @@ def _future_branch_manifest_dir(tmp_path: Path, *, integration_id: int) -> Path:
         if name == "dev":
             manifest["required_checks"] = {
                 "status": "verified",
-                "contexts": [
-                    {"context": "Governance Gate", "integration_id": integration_id}
-                ],
+                "contexts": [{"context": "Governance Gate", "integration_id": integration_id}],
                 "source": "D4 approved draft-PR Check Run evidence",
                 "strict": True,
                 "do_not_enforce_on_create": False,
@@ -121,18 +116,13 @@ class TestRulesetNormalization:
         verifier = _load_verifier()
         actual = copy.deepcopy(_fixture()["rulesets"])
         dev_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: dev")
-        pull_request = next(
-            rule for rule in dev_rule["rules"] if rule["type"] == "pull_request"
-        )
+        pull_request = next(rule for rule in dev_rule["rules"] if rule["type"] == "pull_request")
         pull_request["parameters"]["required_approving_review_count"] = 0
 
         report = verifier.verify_rulesets(MANIFEST_DIR, actual)
 
         assert report["ok"] is False
-        assert any(
-            "dev.pull_request.required_approvals" in diff
-            for diff in report["differences"]
-        )
+        assert any("dev.pull_request.required_approvals" in diff for diff in report["differences"])
 
     def test_ref_name_exclude_drift_is_not_ignored(self) -> None:
         verifier = _load_verifier()
@@ -148,9 +138,7 @@ class TestRulesetNormalization:
     def test_duplicate_named_actual_rulesets_fail_regardless_of_order(self) -> None:
         verifier = _load_verifier()
         original = _fixture()["rulesets"]
-        dev_rule = next(
-            rule for rule in original if rule["name"] == "Iteration 195: dev"
-        )
+        dev_rule = next(rule for rule in original if rule["name"] == "Iteration 195: dev")
 
         for duplicate_first in (True, False):
             actual = copy.deepcopy(original)
@@ -176,9 +164,7 @@ class TestRulesetNormalization:
             tmp_path, bypass_actor=actor, authorized_actor=actor
         )
         actual = copy.deepcopy(_fixture()["rulesets"])
-        tag_rule = next(
-            rule for rule in actual if rule["name"] == "Iteration 195: release tags"
-        )
+        tag_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: release tags")
         tag_rule["bypass_actors"] = [actor]
 
         report = verifier.verify_rulesets(manifest_dir, actual)
@@ -201,9 +187,7 @@ class TestRulesetNormalization:
             },
         )
         actual = copy.deepcopy(_fixture()["rulesets"])
-        tag_rule = next(
-            rule for rule in actual if rule["name"] == "Iteration 195: release tags"
-        )
+        tag_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: release tags")
         tag_rule["bypass_actors"] = [
             {"actor_type": "Team", "actor_id": 123, "bypass_mode": "always"}
         ]
@@ -229,9 +213,7 @@ class TestRulesetNormalization:
             authorized_actor=expected_actor,
         )
         actual = copy.deepcopy(_fixture()["rulesets"])
-        tag_rule = next(
-            rule for rule in actual if rule["name"] == "Iteration 195: release tags"
-        )
+        tag_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: release tags")
         tag_rule["bypass_actors"] = [
             {"actor_type": "Team", "actor_id": 123, "bypass_mode": "exempt"}
         ]
@@ -278,18 +260,13 @@ class TestRulesetNormalization:
         verifier = _load_verifier()
         for malformed_entry in (None, "unexpected-non-object", 7):
             actual = copy.deepcopy(_fixture()["rulesets"])
-            dev_rule = next(
-                rule for rule in actual if rule["name"] == "Iteration 195: dev"
-            )
+            dev_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: dev")
             dev_rule["bypass_actors"] = [malformed_entry]
 
             report = verifier.verify_rulesets(MANIFEST_DIR, actual)
 
             assert report["ok"] is False
-            assert any(
-                "dev.bypass_actors[0]" in difference
-                for difference in report["differences"]
-            )
+            assert any("dev.bypass_actors[0]" in difference for difference in report["differences"])
 
     def test_malformed_empty_critical_readback_fields_fail_closed(self) -> None:
         verifier = _load_verifier()
@@ -300,35 +277,26 @@ class TestRulesetNormalization:
             ("required_checks.contexts", [None]),
         ):
             actual = copy.deepcopy(_fixture()["rulesets"])
-            dev_rule = next(
-                rule for rule in actual if rule["name"] == "Iteration 195: dev"
-            )
+            dev_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: dev")
             if field_path == "target.exclude":
                 dev_rule["conditions"]["ref_name"]["exclude"] = malformed_value
             else:
                 status_checks = next(
-                    rule
-                    for rule in dev_rule["rules"]
-                    if rule["type"] == "required_status_checks"
+                    rule for rule in dev_rule["rules"] if rule["type"] == "required_status_checks"
                 )
                 status_checks["parameters"]["required_status_checks"] = malformed_value
 
             report = verifier.verify_rulesets(MANIFEST_DIR, actual)
 
             assert report["ok"] is False
-            assert any(
-                f"dev.{field_path}" in difference
-                for difference in report["differences"]
-            )
+            assert any(f"dev.{field_path}" in difference for difference in report["differences"])
 
     def test_duplicate_required_status_check_rules_fail_closed(self) -> None:
         verifier = _load_verifier()
         actual = copy.deepcopy(_fixture()["rulesets"])
         dev_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: dev")
         status_checks = next(
-            rule
-            for rule in dev_rule["rules"]
-            if rule["type"] == "required_status_checks"
+            rule for rule in dev_rule["rules"] if rule["type"] == "required_status_checks"
         )
         dev_rule["rules"].append(copy.deepcopy(status_checks))
 
@@ -336,8 +304,7 @@ class TestRulesetNormalization:
 
         assert report["ok"] is False
         assert any(
-            "dev.readback_errors" in difference
-            and "duplicate required_status_checks" in difference
+            "dev.readback_errors" in difference and "duplicate required_status_checks" in difference
             for difference in report["differences"]
         )
 
@@ -348,9 +315,7 @@ class TestRulesetNormalization:
         actual = copy.deepcopy(_fixture()["rulesets"])
         dev_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: dev")
         status_checks = next(
-            rule
-            for rule in dev_rule["rules"]
-            if rule["type"] == "required_status_checks"
+            rule for rule in dev_rule["rules"] if rule["type"] == "required_status_checks"
         )
         status_checks["parameters"]["required_status_checks"] = [
             {"context": "Governance Gate", "integration_id": 195}
@@ -378,9 +343,7 @@ class TestRulesetNormalization:
         actual = copy.deepcopy(_fixture()["rulesets"])
         dev_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: dev")
         status_checks = next(
-            rule
-            for rule in dev_rule["rules"]
-            if rule["type"] == "required_status_checks"
+            rule for rule in dev_rule["rules"] if rule["type"] == "required_status_checks"
         )
         status_checks["parameters"]["do_not_enforce_on_create"] = True
 
@@ -392,17 +355,13 @@ class TestRulesetNormalization:
             for difference in report["differences"]
         )
 
-    def test_required_check_integration_id_drift_is_reported(
-        self, tmp_path: Path
-    ) -> None:
+    def test_required_check_integration_id_drift_is_reported(self, tmp_path: Path) -> None:
         verifier = _load_verifier()
         manifest_dir = _future_branch_manifest_dir(tmp_path, integration_id=195)
         actual = copy.deepcopy(_fixture()["rulesets"])
         dev_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: dev")
         status_checks = next(
-            rule
-            for rule in dev_rule["rules"]
-            if rule["type"] == "required_status_checks"
+            rule for rule in dev_rule["rules"] if rule["type"] == "required_status_checks"
         )
         status_checks["parameters"]["required_status_checks"] = [
             {"context": "Governance Gate", "integration_id": 196}
@@ -421,9 +380,7 @@ class TestRulesetNormalization:
     ) -> None:
         verifier = _load_verifier()
         actual = copy.deepcopy(_fixture()["rulesets"])
-        tag_rule = next(
-            rule for rule in actual if rule["name"] == "Iteration 195: release tags"
-        )
+        tag_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: release tags")
         tag_rule["bypass_actors"] = [
             {
                 "actor_type": "OrganizationAdmin",
@@ -484,15 +441,11 @@ class TestVerifierCli:
             if command[-1].endswith("/rulesets"):
                 return json.dumps([[{"id": item["id"]} for item in raw_rulesets]])
             ruleset_id = int(command[-1].rsplit("/", maxsplit=1)[-1])
-            return json.dumps(
-                next(item for item in raw_rulesets if item["id"] == ruleset_id)
-            )
+            return json.dumps(next(item for item in raw_rulesets if item["id"] == ruleset_id))
 
         loaded = verifier.load_live_rulesets("cloudQuant/backtrader_web", runner=runner)
 
-        assert [item["name"] for item in loaded] == [
-            item["name"] for item in raw_rulesets
-        ]
+        assert [item["name"] for item in loaded] == [item["name"] for item in raw_rulesets]
         assert commands[0] == [
             "gh",
             "api",
@@ -502,9 +455,7 @@ class TestVerifierCli:
             "--slurp",
             "repos/cloudQuant/backtrader_web/rulesets",
         ]
-        assert all(
-            command[:4] == ["gh", "api", "--method", "GET"] for command in commands
-        )
+        assert all(command[:4] == ["gh", "api", "--method", "GET"] for command in commands)
         payload_flags = {
             "-d",
             "-f",
@@ -518,6 +469,5 @@ class TestVerifierCli:
         }
         assert all(not payload_flags.intersection(command) for command in commands)
         assert all(
-            not {"POST", "PATCH", "PUT", "DELETE"}.intersection(command)
-            for command in commands
+            not {"POST", "PATCH", "PUT", "DELETE"}.intersection(command) for command in commands
         )

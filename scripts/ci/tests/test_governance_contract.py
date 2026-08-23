@@ -15,7 +15,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 GOVERNANCE_CONTRACT = REPO_ROOT / "scripts" / "ci" / "governance_contract.py"
 RISK_MAP = REPO_ROOT / ".github" / "governance" / "risk-paths.json"
@@ -25,9 +24,7 @@ VALIDATION_NOW = datetime(2026, 8, 24, 0, 30, tzinfo=timezone.utc)
 
 
 def _load_contract() -> ModuleType:
-    assert GOVERNANCE_CONTRACT.is_file(), (
-        "Task 3 governance contract is not implemented"
-    )
+    assert GOVERNANCE_CONTRACT.is_file(), "Task 3 governance contract is not implemented"
     spec = importlib.util.spec_from_file_location(
         "governance_contract_under_test", GOVERNANCE_CONTRACT
     )
@@ -102,27 +99,21 @@ class TestRiskClassification:
     def test_documentation_only_change_is_r0(self) -> None:
         contract = _load_contract()
 
-        result = contract.classify_paths(
-            ["docs/architecture/community-pr.md"], _risk_map()
-        )
+        result = contract.classify_paths(["docs/architecture/community-pr.md"], _risk_map())
 
         assert result["risk"] == "R0"
 
     def test_unmapped_behavior_change_uses_default_r1(self) -> None:
         contract = _load_contract()
 
-        result = contract.classify_paths(
-            ["src/backend/app/services/market_data.py"], _risk_map()
-        )
+        result = contract.classify_paths(["src/backend/app/services/market_data.py"], _risk_map())
 
         assert result["risk"] == "R1"
 
     def test_router_change_is_r2_without_an_r3_path(self) -> None:
         contract = _load_contract()
 
-        result = contract.classify_paths(
-            ["src/frontend/src/router/index.ts"], _risk_map()
-        )
+        result = contract.classify_paths(["src/frontend/src/router/index.ts"], _risk_map())
 
         assert result["risk"] == "R2"
 
@@ -149,9 +140,7 @@ class TestRiskClassification:
         assert result["risk"] == "R2"
         assert result["label_can_lower_risk"] is False
         assert {
-            path: {
-                match["level"] for match in result["matches"] if match["path"] == path
-            }
+            path: {match["level"] for match in result["matches"] if match["path"] == path}
             for path in paths
         } == {path: {"R2"} for path in paths}
         entries = {
@@ -183,9 +172,7 @@ class TestRiskClassification:
         assert result["risk"] == "R3"
         assert result["label_can_lower_risk"] is False
         assert {
-            path: {
-                match["level"] for match in result["matches"] if match["path"] == path
-            }
+            path: {match["level"] for match in result["matches"] if match["path"] == path}
             for path in paths
         } == {path: {"R3"} for path in paths}
 
@@ -200,9 +187,7 @@ class TestRiskClassification:
 
         assert result["risk"] == "R3"
         levels_by_path = {
-            path: {
-                match["level"] for match in result["matches"] if match["path"] == path
-            }
+            path: {match["level"] for match in result["matches"] if match["path"] == path}
             for path in paths
         }
         assert all("R3" in levels for levels in levels_by_path.values())
@@ -229,9 +214,7 @@ class TestRiskClassification:
         assert result["risk"] == "R3"
         assert result["label_can_lower_risk"] is False
         assert {
-            path: {
-                match["level"] for match in result["matches"] if match["path"] == path
-            }
+            path: {match["level"] for match in result["matches"] if match["path"] == path}
             for path in paths
         } == {path: {"R3"} for path in paths}
         entries = {
@@ -257,9 +240,7 @@ class TestRiskClassification:
         assert result["risk"] == "R3"
         assert result["label_can_lower_risk"] is False
         assert {
-            path: {
-                match["level"] for match in result["matches"] if match["path"] == path
-            }
+            path: {match["level"] for match in result["matches"] if match["path"] == path}
             for path in paths
         } == {path: {"R3"} for path in paths}
         entries = {
@@ -296,9 +277,7 @@ class TestRiskClassification:
         assert result["label_can_lower_risk"] is False
         assert result["ignored_labels"] == ["merge-ready", "risk:R0"]
         levels_by_path = {
-            path: {
-                match["level"] for match in result["matches"] if match["path"] == path
-            }
+            path: {match["level"] for match in result["matches"] if match["path"] == path}
             for path in {
                 ".github/workflows/ci.yml",
                 "src/backend/app/api/auth.py",
@@ -322,13 +301,10 @@ class TestBranchRoutingContract:
     def test_master_rejects_regular_feature_branch(self) -> None:
         contract = _load_contract()
 
-        issues = contract.validate_branch_contract(
-            "master", "feature/market-screen", {}
-        )
+        issues = contract.validate_branch_contract("master", "feature/market-screen", {})
 
         assert any(
-            "master only accepts release/vX.Y.Z or hotfix/master-*" in issue
-            for issue in issues
+            "master only accepts release/vX.Y.Z or hotfix/master-*" in issue for issue in issues
         )
 
     def test_release_and_hotfix_require_different_evidence(self) -> None:
@@ -443,18 +419,14 @@ class TestRulesetManifestContract:
                 "strict": True,
                 "do_not_enforce_on_create": False,
             }
-            assert (
-                manifests[key]["pull_request"]["code_owner_review"]["enabled"] is False
-            )
+            assert manifests[key]["pull_request"]["code_owner_review"]["enabled"] is False
         assert manifests["release-tags"]["activation"]["remote_state"] == "not_applied"
         assert manifests["release-tags"]["bypass"]["actors"] == []
         assert manifests["release-tags"]["bypass"]["emergency_exceptions"] == []
         assert manifests["release-tags"]["tag_protection"]["authorized_actors"] == {
             "status": "pending_D3_D6",
             "actors": [],
-            "source": manifests["release-tags"]["tag_protection"]["authorized_actors"][
-                "source"
-            ],
+            "source": manifests["release-tags"]["tag_protection"]["authorized_actors"]["source"],
         }
 
     def test_manifest_validation_rejects_future_transitions_without_evidence(
@@ -475,8 +447,7 @@ class TestRulesetManifestContract:
         assert any("master.pull_request.code_owner_review" in issue for issue in issues)
         assert any("release-tags.activation.gate" in issue for issue in issues)
         assert any(
-            "release-tags.tag_protection.authorized_actors.source" in issue
-            for issue in issues
+            "release-tags.tag_protection.authorized_actors.source" in issue for issue in issues
         )
 
     def test_manifest_validation_allows_evidenced_future_gate_transitions(self) -> None:
@@ -535,16 +506,11 @@ class TestRulesetManifestContract:
     def test_pending_tag_actors_require_an_empty_bypass_pool(self) -> None:
         contract = _load_contract()
         manifests = copy.deepcopy(_manifests(contract))
-        manifests["release-tags"]["bypass"]["actors"] = [
-            {"actor_type": "Team", "actor_id": 123}
-        ]
+        manifests["release-tags"]["bypass"]["actors"] = [{"actor_type": "Team", "actor_id": 123}]
 
         issues = contract.validate_manifests(manifests)
 
-        assert any(
-            "release-tags.bypass.actors" in issue and "pending" in issue
-            for issue in issues
-        )
+        assert any("release-tags.bypass.actors" in issue and "pending" in issue for issue in issues)
 
     def test_manifest_validation_allows_future_user_bypass_actor(self) -> None:
         contract = _load_contract()
@@ -596,10 +562,7 @@ class TestRulesetManifestContract:
 
             issues = contract.validate_manifests(manifests)
 
-            assert any(
-                f"dev.bypass.emergency_exceptions[0].{field}" in issue
-                for issue in issues
-            )
+            assert any(f"dev.bypass.emergency_exceptions[0].{field}" in issue for issue in issues)
 
     def test_emergency_exception_requires_unexpired_bounded_lifetime(self) -> None:
         contract = _load_contract()
@@ -626,8 +589,7 @@ class TestRulesetManifestContract:
             issues = contract.validate_manifests(manifests, now=VALIDATION_NOW)
 
             assert any(
-                f"dev.bypass.emergency_exceptions[0].{expected_field}" in issue
-                for issue in issues
+                f"dev.bypass.emergency_exceptions[0].{expected_field}" in issue for issue in issues
             )
 
     def test_emergency_exception_allows_bounded_unexpired_start_time_alias(
@@ -669,8 +631,7 @@ class TestRulesetManifestContract:
             issues = contract.validate_manifests(manifests, now=VALIDATION_NOW)
 
             assert any(
-                f"dev.bypass.emergency_exceptions[0].{start_field}" in issue
-                for issue in issues
+                f"dev.bypass.emergency_exceptions[0].{start_field}" in issue for issue in issues
             )
 
     def test_manifest_validation_rejects_unstructured_future_gate_evidence(
@@ -678,9 +639,7 @@ class TestRulesetManifestContract:
     ) -> None:
         contract = _load_contract()
         manifests = copy.deepcopy(_manifests(contract))
-        manifests["dev"]["activation"].update(
-            {"remote_state": "applied", "readback_evidence": "x"}
-        )
+        manifests["dev"]["activation"].update({"remote_state": "applied", "readback_evidence": "x"})
         manifests["master"]["pull_request"]["code_owner_review"].update(
             {"enabled": True, "evidence": "x"}
         )
@@ -696,21 +655,15 @@ class TestRulesetManifestContract:
             manifests,
             [{"actor_type": "Team", "actor_id": 123, "bypass_mode": "always"}],
         )
-        manifests["release-tags"]["tag_protection"]["authorized_actors"]["evidence"] = (
-            "x"
-        )
+        manifests["release-tags"]["tag_protection"]["authorized_actors"]["evidence"] = "x"
 
         issues = contract.validate_manifests(manifests)
 
         assert any("dev.activation.readback_evidence" in issue for issue in issues)
-        assert any(
-            "master.pull_request.code_owner_review.evidence" in issue
-            for issue in issues
-        )
+        assert any("master.pull_request.code_owner_review.evidence" in issue for issue in issues)
         assert any("master.required_checks.evidence" in issue for issue in issues)
         assert any(
-            "release-tags.tag_protection.authorized_actors.evidence" in issue
-            for issue in issues
+            "release-tags.tag_protection.authorized_actors.evidence" in issue for issue in issues
         )
 
     def test_structured_future_evidence_requires_the_corresponding_gate(self) -> None:
@@ -722,9 +675,7 @@ class TestRulesetManifestContract:
 
         issues = contract.validate_manifests(manifests)
 
-        assert any(
-            "dev.activation.readback_evidence.gates" in issue for issue in issues
-        )
+        assert any("dev.activation.readback_evidence.gates" in issue for issue in issues)
 
     def test_required_checks_disallow_enforcement_on_create(self) -> None:
         contract = _load_contract()
@@ -733,9 +684,7 @@ class TestRulesetManifestContract:
 
         issues = contract.validate_manifests(manifests)
 
-        assert any(
-            "dev.required_checks.do_not_enforce_on_create" in issue for issue in issues
-        )
+        assert any("dev.required_checks.do_not_enforce_on_create" in issue for issue in issues)
 
     def test_bypass_actor_normalization_handles_organization_admin_and_deploy_key(
         self,
@@ -777,9 +726,7 @@ class TestRulesetManifestContract:
         }
 
         assert contract.validate_manifests(manifests) == []
-        assert contract.normalized_manifest(manifests["release-tags"])[
-            "bypass_actors"
-        ] == [
+        assert contract.normalized_manifest(manifests["release-tags"])["bypass_actors"] == [
             {
                 "actor_type": "DeployKey",
                 "actor_id": None,
@@ -835,9 +782,7 @@ class TestRulesetManifestContract:
 
             issues = contract.validate_manifests(manifests)
 
-            assert any(
-                f"release-tags.bypass.actors[0].{field}" in issue for issue in issues
-            )
+            assert any(f"release-tags.bypass.actors[0].{field}" in issue for issue in issues)
 
     def test_branch_deploy_key_rejects_pull_request_mode(self) -> None:
         contract = _load_contract()
@@ -848,15 +793,12 @@ class TestRulesetManifestContract:
             "bypass_mode": "pull_request",
         }
         manifests["dev"]["bypass"]["actors"] = [actor]
-        manifests["dev"]["bypass"]["emergency_exceptions"] = [
-            _emergency_exception(actor, "D3")
-        ]
+        manifests["dev"]["bypass"]["emergency_exceptions"] = [_emergency_exception(actor, "D3")]
 
         issues = contract.validate_manifests(manifests)
 
         assert any(
-            "dev.bypass.actors[0].bypass_mode" in issue and "DeployKey" in issue
-            for issue in issues
+            "dev.bypass.actors[0].bypass_mode" in issue and "DeployKey" in issue for issue in issues
         )
 
     def test_verified_tag_actor_mode_must_match_bypass_actor(self) -> None:

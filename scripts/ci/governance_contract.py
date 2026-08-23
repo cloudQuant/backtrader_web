@@ -15,7 +15,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-
 RISK_ORDER = {"R0": 0, "R1": 1, "R2": 2, "R3": 3}
 REQUIRED_MANIFESTS = {
     "dev": {
@@ -163,31 +162,21 @@ def validate_branch_contract(
     if base_branch == "master":
         if RELEASE_BRANCH.fullmatch(head_branch):
             if not _has_value(evidence, "release_checklist"):
-                issues.append(
-                    "release/vX.Y.Z -> master requires a completed release checklist"
-                )
+                issues.append("release/vX.Y.Z -> master requires a completed release checklist")
             if not _has_value(evidence, "release_validation"):
-                issues.append(
-                    "release/vX.Y.Z -> master requires release validation evidence"
-                )
+                issues.append("release/vX.Y.Z -> master requires release validation evidence")
         elif HOTFIX_BRANCH.fullmatch(head_branch):
             if not _has_value(evidence, "incident"):
                 issues.append(
                     "hotfix/master-* -> master requires an incident or private disclosure record"
                 )
             if not _has_value(evidence, "forward_port_plan"):
-                issues.append(
-                    "hotfix/master-* -> master requires a forward-port plan for dev"
-                )
+                issues.append("hotfix/master-* -> master requires a forward-port plan for dev")
         else:
-            issues.append(
-                "master only accepts release/vX.Y.Z or hotfix/master-* branches"
-            )
+            issues.append("master only accepts release/vX.Y.Z or hotfix/master-* branches")
     elif base_branch == "dev":
         if not head_branch.startswith(DEV_BRANCH_PREFIXES):
-            issues.append(
-                "dev accepts feature/*, fix/*, docs/*, refactor/*, or test/* branches"
-            )
+            issues.append("dev accepts feature/*, fix/*, docs/*, refactor/*, or test/* branches")
     else:
         issues.append(f"unsupported target branch: {base_branch}")
     return issues
@@ -232,9 +221,7 @@ def _is_evidence_reference(value: str) -> bool:
     )
 
 
-def _validate_gate_evidence(
-    evidence: Any, path: str, required_gates: Sequence[str]
-) -> list[str]:
+def _validate_gate_evidence(evidence: Any, path: str, required_gates: Sequence[str]) -> list[str]:
     if not isinstance(evidence, Mapping):
         return [
             _issue(
@@ -281,9 +268,7 @@ def _parse_utc_timestamp(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _validate_bypass_actor(
-    actor: Any, actor_path: str, *, target_kind: str
-) -> list[str]:
+def _validate_bypass_actor(actor: Any, actor_path: str, *, target_kind: str) -> list[str]:
     if not isinstance(actor, Mapping):
         return [_issue(actor_path, "must be an object from API readback")]
 
@@ -378,9 +363,7 @@ def _validate_bypass(
                 "must cite future GitHub API readback rather than none or empty text",
             )
         )
-    elif any(
-        token.casefold() not in actor_source.casefold() for token in expected_tokens
-    ):
+    elif any(token.casefold() not in actor_source.casefold() for token in expected_tokens):
         token_text = ", ".join(expected_tokens)
         issues.append(
             _issue(
@@ -537,9 +520,7 @@ def _validate_required_checks(key: str, required_checks: Any) -> list[str]:
         )
         return issues
     if not isinstance(source, str) or not source.strip():
-        issues.append(
-            _issue(f"{key}.required_checks.source", "must record the evidence source")
-        )
+        issues.append(_issue(f"{key}.required_checks.source", "must record the evidence source"))
     if required_checks.get("strict") is not True:
         issues.append(_issue(f"{key}.required_checks.strict", "must be true"))
     if required_checks.get("do_not_enforce_on_create") is not False:
@@ -620,9 +601,7 @@ def _validate_required_checks(key: str, required_checks: Any) -> list[str]:
     return issues
 
 
-def _validate_activation(
-    key: str, activation: Any, expected: Mapping[str, Any]
-) -> list[str]:
+def _validate_activation(key: str, activation: Any, expected: Mapping[str, Any]) -> list[str]:
     """Validate current and evidenced-future Ruleset activation states."""
     if not isinstance(activation, Mapping):
         return [_issue(f"{key}.activation", "must be an object")]
@@ -679,15 +658,11 @@ def _validate_branch_manifest(
             )
         )
     if pull_request.get("conversation_resolution") is not True:
-        issues.append(
-            _issue(f"{key}.pull_request.conversation_resolution", "must be true")
-        )
+        issues.append(_issue(f"{key}.pull_request.conversation_resolution", "must be true"))
 
     code_owner = pull_request.get("code_owner_review")
     if not isinstance(code_owner, Mapping):
-        issues.append(
-            _issue(f"{key}.pull_request.code_owner_review", "must be an object")
-        )
+        issues.append(_issue(f"{key}.pull_request.code_owner_review", "must be an object"))
     elif code_owner.get("desired_when_d2_ready") is not True:
         issues.append(
             _issue(
@@ -696,10 +671,7 @@ def _validate_branch_manifest(
             )
         )
     elif code_owner.get("enabled") is False:
-        if (
-            not isinstance(code_owner.get("reason"), str)
-            or not code_owner["reason"].strip()
-        ):
+        if not isinstance(code_owner.get("reason"), str) or not code_owner["reason"].strip():
             issues.append(
                 _issue(
                     f"{key}.pull_request.code_owner_review.reason",
@@ -729,9 +701,7 @@ def _validate_branch_manifest(
         protection.get("block_force_push") is not True
         or protection.get("block_deletion") is not True
     ):
-        issues.append(
-            _issue(f"{key}.protection", "must block force pushes and deletion")
-        )
+        issues.append(_issue(f"{key}.protection", "must block force pushes and deletion"))
 
     issues.extend(_validate_required_checks(key, manifest.get("required_checks")))
     return issues
@@ -751,9 +721,7 @@ def _validate_tag_manifest(
             issues.append(_issue(f"{key}.tag_protection.{field}", "must be true"))
     authorized = tag_protection.get("authorized_actors")
     if not isinstance(authorized, Mapping):
-        issues.append(
-            _issue(f"{key}.tag_protection.authorized_actors", "must be an object")
-        )
+        issues.append(_issue(f"{key}.tag_protection.authorized_actors", "must be an object"))
     else:
         status = authorized.get("status")
         actors = authorized.get("actors")
@@ -790,9 +758,7 @@ def _validate_tag_manifest(
                             target_kind="tag",
                         )
                     )
-                if normalize_bypass_actors(actors) != normalize_bypass_actors(
-                    bypass_actors
-                ):
+                if normalize_bypass_actors(actors) != normalize_bypass_actors(bypass_actors):
                     issues.append(
                         _issue(
                             actor_path,
@@ -858,9 +824,7 @@ def validate_manifests(
             issues.append(_issue(f"{key}.target", "must be an object"))
         else:
             if target.get("kind") != expected["target_kind"]:
-                issues.append(
-                    _issue(f"{key}.target.kind", f"must be {expected['target_kind']!r}")
-                )
+                issues.append(_issue(f"{key}.target.kind", f"must be {expected['target_kind']!r}"))
             if target.get("include") != expected["target_include"]:
                 issues.append(
                     _issue(
@@ -876,9 +840,7 @@ def validate_manifests(
                     )
                 )
         if manifest.get("enforcement") != "active":
-            issues.append(
-                _issue(f"{key}.enforcement", "must be 'active' desired state")
-            )
+            issues.append(_issue(f"{key}.enforcement", "must be 'active' desired state"))
         issues.extend(_validate_activation(key, manifest.get("activation"), expected))
         issues.extend(
             _validate_bypass(
@@ -945,9 +907,7 @@ def normalize_bypass_actors(actors: Any) -> list[dict[str, Any]]:
         canonical.append(
             {
                 "actor_type": actor_type,
-                "actor_id": (
-                    None if actor_type == "OrganizationAdmin" else actor.get("actor_id")
-                ),
+                "actor_id": (None if actor_type == "OrganizationAdmin" else actor.get("actor_id")),
                 "bypass_mode": actor.get("bypass_mode"),
             }
         )
@@ -993,9 +953,7 @@ def normalized_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
                     "required": pr_mapping.get("required"),
                     "required_approvals": pr_mapping.get("required_approvals"),
                     "code_owner_review_enabled": code_owner_mapping.get("enabled"),
-                    "conversation_resolution": pr_mapping.get(
-                        "conversation_resolution"
-                    ),
+                    "conversation_resolution": pr_mapping.get("conversation_resolution"),
                 },
                 "protection": {
                     "block_force_push": protection_mapping.get("block_force_push"),
@@ -1006,9 +964,7 @@ def normalized_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
                         checks_mapping.get("contexts", [])
                     ),
                     "strict": checks_mapping.get("strict"),
-                    "do_not_enforce_on_create": checks_mapping.get(
-                        "do_not_enforce_on_create"
-                    ),
+                    "do_not_enforce_on_create": checks_mapping.get("do_not_enforce_on_create"),
                 },
             }
         )
