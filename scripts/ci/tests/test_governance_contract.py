@@ -244,6 +244,38 @@ class TestRiskClassification:
             ("/.dockerignore", "@cloudQuant"),
         }.issubset(entries)
 
+    def test_backend_secret_and_redaction_controls_are_r3_despite_labels(self) -> None:
+        contract = _load_contract()
+        paths = [
+            "src/backend/app/api/live_trading/credentials.py",
+            "src/backend/app/config.py",
+            "src/backend/app/services/ai_router/provider_config_store.py",
+        ]
+
+        result = contract.classify_paths(paths, _risk_map(), labels=["risk:R0"])
+
+        assert result["risk"] == "R3"
+        assert result["label_can_lower_risk"] is False
+        assert {
+            path: {
+                match["level"] for match in result["matches"] if match["path"] == path
+            }
+            for path in paths
+        } == {path: {"R3"} for path in paths}
+        entries = {
+            tuple(line.split()[:2])
+            for line in CODEOWNERS.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        assert {
+            ("/src/backend/app/api/live_trading/credentials.py", "@cloudQuant"),
+            ("/src/backend/app/config.py", "@cloudQuant"),
+            (
+                "/src/backend/app/services/ai_router/provider_config_store.py",
+                "@cloudQuant",
+            ),
+        }.issubset(entries)
+
     def test_sensitive_paths_cannot_be_downgraded_by_pr_labels(self) -> None:
         contract = _load_contract()
 

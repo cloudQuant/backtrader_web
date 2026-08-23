@@ -68,6 +68,9 @@
 /src/backend/app/api/_dependencies.py                        @cloudQuant
 /src/backend/app/api/deps.py                                 @cloudQuant
 /src/backend/app/api/**/deps.py                              @cloudQuant
+/src/backend/app/api/live_trading/credentials.py             @cloudQuant
+/src/backend/app/config.py                                   @cloudQuant
+/src/backend/app/services/ai_router/provider_config_store.py @cloudQuant
 /src/backend/app/services/auth*                              @cloudQuant
 /src/backend/app/schemas/auth*                               @cloudQuant
 /src/backend/app/utils/security*                             @cloudQuant

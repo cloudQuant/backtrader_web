@@ -97,6 +97,16 @@
       "description": "Governance verification, security scanning, dependency automation, and root admission controls require the highest review."
     },
     {
+      "id": "r3-secret-configuration-controls",
+      "level": "R3",
+      "globs": [
+        "src/backend/app/api/live_trading/credentials.py",
+        "src/backend/app/config.py",
+        "src/backend/app/services/ai_router/provider_config_store.py"
+      ],
+      "description": "Broker credential redaction, exchange/JWT configuration guards, and provider-key encryption require the highest review."
+    },
+    {
       "id": "r3-container-and-release",
       "level": "R3",
       "globs": [
