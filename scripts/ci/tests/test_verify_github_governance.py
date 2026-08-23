@@ -70,6 +70,41 @@ class TestRulesetNormalization:
             for diff in report["differences"]
         )
 
+    def test_ref_name_exclude_drift_is_not_ignored(self) -> None:
+        verifier = _load_verifier()
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        dev_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: dev")
+        dev_rule["conditions"]["ref_name"]["exclude"] = ["refs/heads/dev"]
+
+        report = verifier.verify_rulesets(MANIFEST_DIR, actual)
+
+        assert report["ok"] is False
+        assert any("dev.target.exclude" in diff for diff in report["differences"])
+
+    def test_duplicate_named_actual_rulesets_fail_regardless_of_order(self) -> None:
+        verifier = _load_verifier()
+        original = _fixture()["rulesets"]
+        dev_rule = next(
+            rule for rule in original if rule["name"] == "Iteration 195: dev"
+        )
+
+        for duplicate_first in (True, False):
+            actual = copy.deepcopy(original)
+            duplicate = copy.deepcopy(dev_rule)
+            duplicate["id"] = 999 if duplicate_first else 998
+            if duplicate_first:
+                actual.insert(0, duplicate)
+            else:
+                actual.append(duplicate)
+
+            report = verifier.verify_rulesets(MANIFEST_DIR, actual)
+
+            assert report["ok"] is False
+            assert any(
+                "duplicate actual Ruleset named 'Iteration 195: dev'" in difference
+                for difference in report["differences"]
+            )
+
 
 class TestVerifierCli:
     def test_fixture_cli_emits_machine_readable_success(self) -> None:

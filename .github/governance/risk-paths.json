@@ -26,6 +26,14 @@
       "globs": [
         "src/backend/app/api/auth*",
         "src/backend/app/api/**/auth*",
+        "src/backend/app/api/_dependencies.py",
+        "src/backend/app/api/**/_dependencies.py",
+        "src/backend/app/services/auth*",
+        "src/backend/app/services/**/auth*",
+        "src/backend/app/schemas/auth*",
+        "src/backend/app/schemas/**/auth*",
+        "src/backend/app/utils/security*",
+        "src/backend/app/**/session*",
         "src/backend/app/middleware/**"
       ],
       "description": "Authentication and session boundaries require elevated review."
@@ -73,7 +81,11 @@
         "Dockerfile*",
         "**/Dockerfile",
         "**/*Dockerfile",
-        "scripts/ops/release.sh"
+        "scripts/ops/release.sh",
+        "scripts/ops/docker_deploy.sh",
+        "scripts/ops/deploy_server.sh",
+        "scripts/ops/generate_lockfiles.sh",
+        "scripts/ops/validate_docker_env.py"
       ],
       "description": "Container and release changes require the highest review."
     },
@@ -84,8 +96,11 @@
         "pyproject.toml",
         "uv.lock",
         "config/*.lock",
+        "**/package.json",
         "**/package-lock.json",
+        "**/pyproject.toml",
         "**/requirements*.txt",
+        "**/.env.example",
         ".env.example",
         "SECURITY.md"
       ],

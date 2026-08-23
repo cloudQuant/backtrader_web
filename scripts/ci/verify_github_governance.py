@@ -57,6 +57,7 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
     conditions = raw_ruleset.get("conditions", {})
     ref_name = conditions.get("ref_name", {}) if isinstance(conditions, Mapping) else {}
     include = ref_name.get("include", []) if isinstance(ref_name, Mapping) else []
+    exclude = ref_name.get("exclude", []) if isinstance(ref_name, Mapping) else []
     rules = raw_ruleset.get("rules", [])
     target = raw_ruleset.get("target")
     canonical: dict[str, Any] = {
@@ -64,6 +65,7 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
         "target": {
             "kind": target,
             "include": sorted(include) if isinstance(include, list) else [],
+            "exclude": sorted(exclude) if isinstance(exclude, list) else [],
         },
         "enforcement": raw_ruleset.get("enforcement"),
         "bypass_actors": _canonical_actors(raw_ruleset.get("bypass_actors", [])),
@@ -145,16 +147,24 @@ def verify_rulesets(
         manifest["name"]: (key, normalized_manifest(manifest))
         for key, manifest in manifests.items()
     }
-    actual_by_name = {
-        str(ruleset.get("name")): normalize_github_ruleset(ruleset)
-        for ruleset in actual_rulesets
-        if isinstance(ruleset, Mapping)
-    }
+    actual_by_name: dict[str, list[dict[str, Any]]] = {}
+    for ruleset in actual_rulesets:
+        if not isinstance(ruleset, Mapping):
+            continue
+        name = str(ruleset.get("name"))
+        actual_by_name.setdefault(name, []).append(normalize_github_ruleset(ruleset))
+
+    for name, matching_rulesets in sorted(actual_by_name.items()):
+        if len(matching_rulesets) > 1:
+            differences.append(
+                f"duplicate actual Ruleset named {name!r}: found {len(matching_rulesets)}"
+            )
     for name, (key, expected) in sorted(expected_by_name.items()):
-        actual = actual_by_name.get(name)
-        if actual is None:
+        matching_rulesets = actual_by_name.get(name)
+        if matching_rulesets is None:
             differences.append(f"{key}: missing actual Ruleset named {name!r}")
             continue
+        actual = matching_rulesets[0]
         differences.extend(_diff(expected, actual, key))
     managed_names = set(expected_by_name)
     for name in sorted(set(actual_by_name) - managed_names):

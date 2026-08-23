@@ -21,18 +21,27 @@ REQUIRED_MANIFESTS = {
         "name": "Iteration 195: dev",
         "target_kind": "branch",
         "target_include": ["refs/heads/dev"],
+        "target_exclude": [],
         "required_approvals": 1,
+        "activation_gate": "D3",
+        "actor_source_tokens": ("GitHub API readback", "D3"),
     },
     "master": {
         "name": "Iteration 195: master",
         "target_kind": "branch",
         "target_include": ["refs/heads/master"],
+        "target_exclude": [],
         "required_approvals": 2,
+        "activation_gate": "D3",
+        "actor_source_tokens": ("GitHub API readback", "D3"),
     },
     "release-tags": {
         "name": "Iteration 195: release tags",
         "target_kind": "tag",
         "target_include": ["refs/tags/v*"],
+        "target_exclude": [],
+        "activation_gate": "D3_D6",
+        "actor_source_tokens": ("GitHub API readback", "D3", "D6"),
     },
 }
 VALID_BYPASS_ACTOR_TYPES = {
@@ -190,13 +199,33 @@ def _issue(path: str, message: str) -> str:
     return f"{path}: {message}"
 
 
-def _validate_bypass(key: str, bypass: Any) -> list[str]:
+def _validate_bypass(key: str, bypass: Any, expected: Mapping[str, Any]) -> list[str]:
     if not isinstance(bypass, Mapping):
         return [_issue(f"{key}.bypass", "must be an object")]
 
     issues: list[str] = []
     if bypass.get("normal_policy") != "none":
         issues.append(_issue(f"{key}.bypass.normal_policy", "must be 'none'"))
+
+    actor_source = bypass.get("actor_source")
+    expected_tokens = expected["actor_source_tokens"]
+    if not isinstance(actor_source, str) or not actor_source.strip():
+        issues.append(
+            _issue(
+                f"{key}.bypass.actor_source",
+                "must cite future GitHub API readback rather than none or empty text",
+            )
+        )
+    elif any(
+        token.casefold() not in actor_source.casefold() for token in expected_tokens
+    ):
+        token_text = ", ".join(expected_tokens)
+        issues.append(
+            _issue(
+                f"{key}.bypass.actor_source",
+                f"must cite {token_text} while actors remain unverified",
+            )
+        )
 
     emergency = bypass.get("emergency_policy")
     if not isinstance(emergency, Mapping):
@@ -278,10 +307,70 @@ def _validate_required_checks(key: str, required_checks: Any) -> list[str]:
                     "must list confirmed check contexts when status is verified",
                 )
             )
+        elif any(not context.strip() for context in contexts):
+            issues.append(
+                _issue(
+                    f"{key}.required_checks.contexts",
+                    "must not contain blank verified check contexts",
+                )
+            )
+        elif len(set(contexts)) != len(contexts):
+            issues.append(
+                _issue(
+                    f"{key}.required_checks.contexts",
+                    "must not contain duplicate verified check contexts",
+                )
+            )
     else:
         issues.append(
-            _issue(f"{key}.required_checks.status", "must be pending_D4 or verified")
+            _issue(
+                f"{key}.required_checks.status",
+                "must be pending_D4 or verified",
+            )
         )
+    return issues
+
+
+def _validate_activation(
+    key: str, activation: Any, expected: Mapping[str, Any]
+) -> list[str]:
+    """Validate current and evidenced-future Ruleset activation states."""
+    if not isinstance(activation, Mapping):
+        return [_issue(f"{key}.activation", "must be an object")]
+
+    issues: list[str] = []
+    remote_state = activation.get("remote_state")
+    if remote_state not in {"not_applied", "applied"}:
+        issues.append(
+            _issue(
+                f"{key}.activation.remote_state",
+                "must be not_applied or applied",
+            )
+        )
+    if activation.get("gate") != expected["activation_gate"]:
+        issues.append(
+            _issue(
+                f"{key}.activation.gate",
+                f"must be {expected['activation_gate']!r} for the current gate state",
+            )
+        )
+    reason = activation.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        issues.append(
+            _issue(
+                f"{key}.activation.reason",
+                "must record the activation rationale",
+            )
+        )
+    if remote_state == "applied":
+        readback_evidence = activation.get("readback_evidence")
+        if not isinstance(readback_evidence, str) or not readback_evidence.strip():
+            issues.append(
+                _issue(
+                    f"{key}.activation.readback_evidence",
+                    "must cite approved external Ruleset readback when remote_state is applied",
+                )
+            )
     return issues
 
 
@@ -311,14 +400,38 @@ def _validate_branch_manifest(
         issues.append(
             _issue(f"{key}.pull_request.code_owner_review", "must be an object")
         )
-    elif (
-        code_owner.get("desired_when_d2_ready") is not True
-        or code_owner.get("enabled") is not False
-    ):
+    elif code_owner.get("desired_when_d2_ready") is not True:
         issues.append(
             _issue(
                 f"{key}.pull_request.code_owner_review",
-                "must remain desired-but-disabled until the D2 approval pool is expanded",
+                "must declare the D2 readiness contract",
+            )
+        )
+    elif code_owner.get("enabled") is False:
+        if (
+            not isinstance(code_owner.get("reason"), str)
+            or not code_owner["reason"].strip()
+        ):
+            issues.append(
+                _issue(
+                    f"{key}.pull_request.code_owner_review.reason",
+                    "must explain why D2 keeps required code-owner review disabled",
+                )
+            )
+    elif code_owner.get("enabled") is True:
+        evidence = code_owner.get("evidence")
+        if not isinstance(evidence, str) or not evidence.strip():
+            issues.append(
+                _issue(
+                    f"{key}.pull_request.code_owner_review.evidence",
+                    "must cite D2 independent-owner evidence when enabled",
+                )
+            )
+    else:
+        issues.append(
+            _issue(
+                f"{key}.pull_request.code_owner_review.enabled",
+                "must be a boolean",
             )
         )
 
@@ -350,11 +463,76 @@ def _validate_tag_manifest(key: str, manifest: Mapping[str, Any]) -> list[str]:
         issues.append(
             _issue(f"{key}.tag_protection.authorized_actors", "must be an object")
         )
-    elif authorized.get("status") != "pending_D3_D6" or authorized.get("actors") != []:
+    else:
+        status = authorized.get("status")
+        actors = authorized.get("actors")
+        actor_path = f"{key}.tag_protection.authorized_actors.actors"
+        if status == "pending_D3_D6":
+            if actors != []:
+                issues.append(
+                    _issue(
+                        actor_path,
+                        "must stay empty while D3/D6 actor capability is pending",
+                    )
+                )
+        elif status == "verified":
+            if not isinstance(actors, list) or not actors:
+                issues.append(
+                    _issue(
+                        actor_path,
+                        "must contain API-readback actors when status is verified",
+                    )
+                )
+            else:
+                for index, actor in enumerate(actors):
+                    individual_path = f"{actor_path}[{index}]"
+                    if not isinstance(actor, Mapping):
+                        issues.append(
+                            _issue(
+                                individual_path,
+                                "must be an API-readback actor object",
+                            )
+                        )
+                        continue
+                    if actor.get("actor_type") not in VALID_BYPASS_ACTOR_TYPES:
+                        issues.append(
+                            _issue(
+                                f"{individual_path}.actor_type",
+                                "is not a valid GitHub bypass actor type",
+                            )
+                        )
+                    actor_id = actor.get("actor_id")
+                    if (
+                        not isinstance(actor_id, int)
+                        or isinstance(actor_id, bool)
+                        or actor_id <= 0
+                    ):
+                        issues.append(
+                            _issue(
+                                f"{individual_path}.actor_id",
+                                "must be a positive API-readback integer",
+                            )
+                        )
+        else:
+            issues.append(
+                _issue(
+                    f"{key}.tag_protection.authorized_actors.status",
+                    "must be pending_D3_D6 or verified",
+                )
+            )
+    source = authorized.get("source") if isinstance(authorized, Mapping) else None
+    if not isinstance(source, str) or not source.strip():
         issues.append(
             _issue(
-                f"{key}.tag_protection.authorized_actors",
-                "must stay empty until D3/D6 actor capability is verified",
+                f"{key}.tag_protection.authorized_actors.source",
+                "must record D3/D6 capability evidence",
+            )
+        )
+    elif "D3" not in source or "D6" not in source:
+        issues.append(
+            _issue(
+                f"{key}.tag_protection.authorized_actors.source",
+                "must cite both D3 and D6 capability evidence",
             )
         )
     return issues
@@ -387,11 +565,19 @@ def validate_manifests(manifests: Mapping[str, Mapping[str, Any]]) -> list[str]:
                         f"must be {expected['target_include']!r}",
                     )
                 )
+            if target.get("exclude") != expected["target_exclude"]:
+                issues.append(
+                    _issue(
+                        f"{key}.target.exclude",
+                        f"must be {expected['target_exclude']!r}",
+                    )
+                )
         if manifest.get("enforcement") != "active":
             issues.append(
                 _issue(f"{key}.enforcement", "must be 'active' desired state")
             )
-        issues.extend(_validate_bypass(key, manifest.get("bypass")))
+        issues.extend(_validate_activation(key, manifest.get("activation"), expected))
+        issues.extend(_validate_bypass(key, manifest.get("bypass"), expected))
         if key == "release-tags":
             issues.extend(_validate_tag_manifest(key, manifest))
         else:
@@ -422,6 +608,7 @@ def normalized_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "target": {
             "kind": target_mapping.get("kind"),
             "include": sorted(target_mapping.get("include", [])),
+            "exclude": sorted(target_mapping.get("exclude", [])),
         },
         "enforcement": manifest.get("enforcement"),
         "bypass_actors": _canonical_actors(

@@ -5,7 +5,8 @@
     "kind": "branch",
     "include": [
       "refs/heads/dev"
-    ]
+    ],
+    "exclude": []
   },
   "enforcement": "active",
   "activation": {

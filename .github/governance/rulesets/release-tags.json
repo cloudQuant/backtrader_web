@@ -5,7 +5,8 @@
     "kind": "tag",
     "include": [
       "refs/tags/v*"
-    ]
+    ],
+    "exclude": []
   },
   "enforcement": "active",
   "activation": {
