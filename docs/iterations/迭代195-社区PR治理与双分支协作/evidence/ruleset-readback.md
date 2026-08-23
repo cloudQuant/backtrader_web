@@ -5,12 +5,12 @@
 
 ## 当前前置阻塞清单
 
-| Gate | 状态 | 读回前必须如实处理的阻塞 |
-| --- | --- | --- |
-| D2 | 未满足完整审批池条件 | R2/R3 与 `master` 的第二独立维护者审批池尚未确认；不得据此启用 required code-owner review。 |
-| D3 | 有到期日的例外 | Ruleset 字段能力、evaluate 支持和 emergency bypass 的外部能力验证尚未完成；本地 manifest 仅是 desired state。 |
-| D4 | blocked | 三类真实草稿 PR 尚未产生经读取确认的稳定 required-check context；不得猜测或回填 context。 |
-| D6 | 有到期日的例外 | 受保护 release environment、tag 权限与真实授权主体尚未由管理员配置和验证；不得激活 `release-tags`。 |
+| Gate | 状态 | 读回前必须如实处理的阻塞 | 责任/到期日 | 受控来源 |
+| --- | --- | --- | --- | --- |
+| D2 | 有到期日的例外 | R2/R3 与 `master` 的第二独立维护者审批池尚未确认；不得据此启用 required code-owner review。 | 核心维护者 `@cloudQuant`；2026-10-01 前补充备用 owner 并复核可访问性。 | `.github/governance/decisions/iteration-195.md`（D2）；[preflight](preflight.md) §4。 |
+| D3 | 有到期日的例外 | Ruleset 字段能力、evaluate 支持和 emergency bypass 的外部能力验证尚未完成；本地 manifest 仅是 desired state。 | 仓库管理员 `@cloudQuant`；2026-10-15 前完成沙盒验证及只读 verifier 对比。 | `.github/governance/decisions/iteration-195.md`（D3）；[preflight](preflight.md) §4。 |
+| D4 | blocked | 三类真实草稿 PR 尚未产生经读取确认的稳定 required-check context；不得猜测或回填 context。 | CI owner `@cloudQuant`；无已批准的到期日。 | `.github/governance/decisions/iteration-195.md`（D4）；[preflight](preflight.md) §4。 |
+| D6 | 有到期日的例外 | 受保护 release environment、tag 权限与真实授权主体尚未由管理员配置和验证；不得激活 `release-tags`。 | 发布负责人 + 仓库管理员 `@cloudQuant`；2026-10-15 前配置受保护 `release` environment 及审批规则。 | `.github/governance/decisions/iteration-195.md`（D6）；[preflight](preflight.md) §4。 |
 
 ## 后续的只读读回命令（不得在本任务执行）
 
