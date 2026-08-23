@@ -38,14 +38,29 @@ def changed_file_paths(payload: Any) -> list[str]:
     fields are accepted here because path classification must remain isolated.
     """
     paths: list[str] = []
+    seen: set[str] = set()
+
+    def add_path(path: str) -> None:
+        if path not in seen:
+            seen.add(path)
+            paths.append(path)
+
     for entry in _flatten_payload(payload):
         if isinstance(entry, str) and entry.strip():
-            paths.append(entry.strip())
+            add_path(entry.strip())
             continue
         if isinstance(entry, Mapping):
             filename = entry.get("filename")
             if isinstance(filename, str) and filename.strip():
-                paths.append(filename.strip())
+                add_path(filename.strip())
+                status = entry.get("status")
+                if isinstance(status, str) and status.casefold() == "renamed":
+                    previous_filename = entry.get("previous_filename")
+                    if not isinstance(previous_filename, str) or not previous_filename.strip():
+                        raise ValueError(
+                            "renamed changed-files entries must include a non-empty previous_filename"
+                        )
+                    add_path(previous_filename.strip())
                 continue
         raise ValueError("each changed-files entry must be a path string or filename object")
     return paths

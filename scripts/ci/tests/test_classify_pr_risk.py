@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS_CI = REPO_ROOT / "scripts" / "ci"
 CLASSIFIER_PATH = SCRIPTS_CI / "classify_pr_risk.py"
@@ -79,6 +81,64 @@ def test_workflow_lock_and_release_changes_raise_risk_to_r3() -> None:
     assert result["risk"] == "R3"
     assert {match["level"] for match in result["matches"]} == {"R3"}
     assert result["labels_can_lower_risk"] is False
+
+
+def test_renaming_a_workflow_to_docs_retains_the_r3_source_path_risk() -> None:
+    classifier = _load_classifier()
+    paths = classifier.changed_file_paths(
+        [
+            {
+                "filename": "docs/governance/ci-notes.md",
+                "previous_filename": ".github/workflows/ci.yml",
+                "status": "renamed",
+            },
+            {"filename": "docs/governance/ci-notes.md"},
+        ]
+    )
+
+    result = classifier.classify_changed_files(paths, _risk_map())
+
+    assert paths == ["docs/governance/ci-notes.md", ".github/workflows/ci.yml"]
+    assert result["risk"] == "R3"
+
+
+def test_renaming_auth_to_an_unmapped_path_retains_the_r2_source_path_risk() -> None:
+    classifier = _load_classifier()
+    paths = classifier.changed_file_paths(
+        [
+            {
+                "filename": "src/backend/app/services/market_data.py",
+                "previous_filename": "src/backend/app/api/auth.py",
+                "status": "renamed",
+            }
+        ]
+    )
+
+    result = classifier.classify_changed_files(paths, _risk_map())
+
+    assert paths == [
+        "src/backend/app/services/market_data.py",
+        "src/backend/app/api/auth.py",
+    ]
+    assert result["risk"] == "R2"
+
+
+@pytest.mark.parametrize("previous_filename", [None, "", 195])
+def test_renamed_entry_without_a_valid_previous_filename_fails_closed(
+    previous_filename: object,
+) -> None:
+    classifier = _load_classifier()
+
+    with pytest.raises(ValueError, match="previous_filename"):
+        classifier.changed_file_paths(
+            [
+                {
+                    "filename": "docs/governance/ci-notes.md",
+                    "previous_filename": previous_filename,
+                    "status": "renamed",
+                }
+            ]
+        )
 
 
 def test_cli_reads_only_a_local_changed_files_payload_and_risk_map(tmp_path: Path) -> None:
