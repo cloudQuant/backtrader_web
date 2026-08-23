@@ -20,3 +20,38 @@
 /scripts/ci/large_file_ratchet.py                      @cloudQuant
 /scripts/ci/mypy_ratchet.py                            @cloudQuant
 /scripts/ci/npm_audit_ratchet.py                       @cloudQuant
+
+# Iteration 195 governance coverage. D2 confirms @cloudQuant is the only
+# currently verified GitHub owner. Rules remain broad-to-narrow so later
+# domain owners can be added without replacing the ratchet baseline above.
+
+# Broad repository control planes
+/.github/**                                                  @cloudQuant
+/scripts/ci/**                                               @cloudQuant
+/src/backend/app/**                                          @cloudQuant
+/src/frontend/src/**                                         @cloudQuant
+/src/bt_api_py/**                                            @cloudQuant
+/docker/**                                                   @cloudQuant
+/Dockerfile*                                                 @cloudQuant
+/src/backend/Dockerfile                                      @cloudQuant
+/src/frontend/Dockerfile                                     @cloudQuant
+/scripts/ops/release.sh                                      @cloudQuant
+/pyproject.toml                                              @cloudQuant
+/uv.lock                                                     @cloudQuant
+/config/*.lock                                               @cloudQuant
+/src/backend/pyproject.toml                                  @cloudQuant
+/src/backend/requirements.txt                                @cloudQuant
+/docs/requirements.txt                                       @cloudQuant
+/tests/e2e/requirements.txt                                  @cloudQuant
+/src/backend/package-lock.json                               @cloudQuant
+/src/frontend/package-lock.json                              @cloudQuant
+
+# Narrow R2/R3 domains
+/.github/workflows/**                                        @cloudQuant
+/.github/governance/**                                       @cloudQuant
+/src/backend/app/api/auth*                                   @cloudQuant
+/src/backend/app/middleware/**                               @cloudQuant
+/src/backend/app/db/**                                       @cloudQuant
+/src/backend/app/models/**                                   @cloudQuant
+/src/frontend/src/router/**                                  @cloudQuant
+/src/frontend/src/stores/**                                  @cloudQuant

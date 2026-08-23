@@ -1,0 +1,468 @@
+#!/usr/bin/env python3
+"""Pure policy helpers for the Iteration 195 PR governance contract.
+
+This module deliberately contains no GitHub write operation.  It is shared by
+the read-only Ruleset verifier and the later PR Governance gate.
+"""
+
+from __future__ import annotations
+
+import fnmatch
+import json
+import re
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
+
+
+RISK_ORDER = {"R0": 0, "R1": 1, "R2": 2, "R3": 3}
+REQUIRED_MANIFESTS = {
+    "dev": {
+        "name": "Iteration 195: dev",
+        "target_kind": "branch",
+        "target_include": ["refs/heads/dev"],
+        "required_approvals": 1,
+    },
+    "master": {
+        "name": "Iteration 195: master",
+        "target_kind": "branch",
+        "target_include": ["refs/heads/master"],
+        "required_approvals": 2,
+    },
+    "release-tags": {
+        "name": "Iteration 195: release tags",
+        "target_kind": "tag",
+        "target_include": ["refs/tags/v*"],
+    },
+}
+VALID_BYPASS_ACTOR_TYPES = {
+    "Integration",
+    "OrganizationAdmin",
+    "RepositoryRole",
+    "Team",
+}
+RELEASE_BRANCH = re.compile(r"^release/v\d+\.\d+\.\d+(?:-rc\d+)?$")
+HOTFIX_BRANCH = re.compile(r"^hotfix/master-[A-Za-z0-9][A-Za-z0-9._-]*$")
+DEV_BRANCH_PREFIXES = ("feature/", "fix/", "docs/", "refactor/", "test/")
+
+
+def load_risk_map(path: Path | str) -> dict[str, Any]:
+    """Load the single source of truth for path risk classification."""
+    with Path(path).open(encoding="utf-8") as handle:
+        value = json.load(handle)
+    if not isinstance(value, dict):
+        raise ValueError("risk map must be a JSON object")
+    return value
+
+
+def _glob_matches(path: str, pattern: str) -> bool:
+    """Match repository-relative paths using CODEOWNERS-style glob intent."""
+    normalized_path = path.lstrip("/")
+    normalized_pattern = pattern.lstrip("/")
+    return fnmatch.fnmatchcase(normalized_path, normalized_pattern)
+
+
+def _risk_rank(level: str) -> int:
+    if level not in RISK_ORDER:
+        raise ValueError(f"unknown risk level: {level!r}")
+    return RISK_ORDER[level]
+
+
+def classify_paths(
+    changed_files: Sequence[str],
+    risk_map: Mapping[str, Any],
+    *,
+    labels: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Classify paths and always retain the highest matched risk level.
+
+    Labels are included in the result only as ignored metadata. They can
+    request more review in a human process, but cannot lower path-derived risk.
+    """
+    default = risk_map.get("default", {})
+    default_level = default.get("level", "R1") if isinstance(default, Mapping) else "R1"
+    _risk_rank(str(default_level))
+
+    rules = risk_map.get("rules", [])
+    if not isinstance(rules, list):
+        raise ValueError("risk map rules must be a list")
+
+    matches: list[dict[str, str]] = []
+    highest: str | None = None
+    for path in changed_files:
+        if not isinstance(path, str) or not path:
+            raise ValueError("changed files must be non-empty strings")
+        for rule in rules:
+            if not isinstance(rule, Mapping):
+                raise ValueError("risk map rule must be an object")
+            level = str(rule.get("level", ""))
+            patterns = rule.get("globs", [])
+            if not isinstance(patterns, list):
+                rule_id = rule.get("id", "<unknown>")
+                raise ValueError(f"risk map rule {rule_id} globs must be a list")
+            for pattern in patterns:
+                if isinstance(pattern, str) and _glob_matches(path, pattern):
+                    matches.append(
+                        {
+                            "path": path,
+                            "rule_id": str(rule.get("id", "<unnamed>")),
+                            "level": level,
+                            "glob": pattern,
+                        }
+                    )
+                    if highest is None or _risk_rank(level) > _risk_rank(highest):
+                        highest = level
+
+    selection = risk_map.get("selection", {})
+    can_lower = (
+        bool(selection.get("labels_can_lower_risk", False))
+        if isinstance(selection, Mapping)
+        else False
+    )
+    return {
+        "risk": highest or str(default_level),
+        "matches": matches,
+        "label_can_lower_risk": can_lower,
+        "ignored_labels": sorted(set(labels or [])),
+    }
+
+
+def _has_value(evidence: Mapping[str, Any], key: str) -> bool:
+    value = evidence.get(key)
+    return value is True or (isinstance(value, str) and bool(value.strip()))
+
+
+def validate_branch_contract(
+    base_branch: str, head_branch: str, evidence: Mapping[str, Any]
+) -> list[str]:
+    """Return contributor-actionable routing and evidence issues for a PR."""
+    issues: list[str] = []
+    if base_branch == "master":
+        if RELEASE_BRANCH.fullmatch(head_branch):
+            if not _has_value(evidence, "release_checklist"):
+                issues.append(
+                    "release/vX.Y.Z -> master requires a completed release checklist"
+                )
+            if not _has_value(evidence, "release_validation"):
+                issues.append(
+                    "release/vX.Y.Z -> master requires release validation evidence"
+                )
+        elif HOTFIX_BRANCH.fullmatch(head_branch):
+            if not _has_value(evidence, "incident"):
+                issues.append(
+                    "hotfix/master-* -> master requires an incident or private disclosure record"
+                )
+            if not _has_value(evidence, "forward_port_plan"):
+                issues.append(
+                    "hotfix/master-* -> master requires a forward-port plan for dev"
+                )
+        else:
+            issues.append(
+                "master only accepts release/vX.Y.Z or hotfix/master-* branches"
+            )
+    elif base_branch == "dev":
+        if not head_branch.startswith(DEV_BRANCH_PREFIXES):
+            issues.append(
+                "dev accepts feature/*, fix/*, docs/*, refactor/*, or test/* branches"
+            )
+    else:
+        issues.append(f"unsupported target branch: {base_branch}")
+    return issues
+
+
+def load_manifests(manifest_dir: Path | str) -> dict[str, dict[str, Any]]:
+    """Load the three normalized Ruleset desired-state files."""
+    directory = Path(manifest_dir)
+    manifests: dict[str, dict[str, Any]] = {}
+    for key in REQUIRED_MANIFESTS:
+        path = directory / f"{key}.json"
+        if not path.is_file():
+            continue
+        with path.open(encoding="utf-8") as handle:
+            value = json.load(handle)
+        if not isinstance(value, dict):
+            raise ValueError(f"manifest {path} must be a JSON object")
+        manifests[key] = value
+    return manifests
+
+
+def _issue(path: str, message: str) -> str:
+    return f"{path}: {message}"
+
+
+def _validate_bypass(key: str, bypass: Any) -> list[str]:
+    if not isinstance(bypass, Mapping):
+        return [_issue(f"{key}.bypass", "must be an object")]
+
+    issues: list[str] = []
+    if bypass.get("normal_policy") != "none":
+        issues.append(_issue(f"{key}.bypass.normal_policy", "must be 'none'"))
+
+    emergency = bypass.get("emergency_policy")
+    if not isinstance(emergency, Mapping):
+        issues.append(_issue(f"{key}.bypass.emergency_policy", "must be an object"))
+    elif (
+        emergency.get("incident_required") is not True
+        or emergency.get("reason_required") is not True
+        or emergency.get("postmortem_within_hours") != 24
+    ):
+        issues.append(
+            _issue(
+                f"{key}.bypass.emergency_policy",
+                "must require incident, reason, and a 24-hour postmortem",
+            )
+        )
+
+    actors = bypass.get("actors")
+    if not isinstance(actors, list):
+        return issues + [_issue(f"{key}.bypass.actors", "must be a list")]
+    for index, actor in enumerate(actors):
+        actor_path = f"{key}.bypass.actors[{index}]"
+        if not isinstance(actor, Mapping):
+            issues.append(_issue(actor_path, "must be an object from API readback"))
+            continue
+        actor_type = actor.get("actor_type")
+        if actor_type not in VALID_BYPASS_ACTOR_TYPES:
+            issues.append(
+                _issue(
+                    f"{actor_path}.actor_type",
+                    "is not a valid GitHub bypass actor type",
+                )
+            )
+        actor_id = actor.get("actor_id")
+        if not isinstance(actor_id, int) or isinstance(actor_id, bool) or actor_id <= 0:
+            issues.append(
+                _issue(
+                    f"{actor_path}.actor_id", "must be a positive API-readback integer"
+                )
+            )
+    return issues
+
+
+def _validate_required_checks(key: str, required_checks: Any) -> list[str]:
+    if not isinstance(required_checks, Mapping):
+        return [_issue(f"{key}.required_checks", "must be an object")]
+
+    status = required_checks.get("status")
+    contexts = required_checks.get("contexts")
+    source = required_checks.get("source")
+    issues: list[str] = []
+    if not isinstance(contexts, list) or not all(
+        isinstance(context, str) for context in contexts
+    ):
+        issues.append(
+            _issue(
+                f"{key}.required_checks.contexts", "must be a list of check contexts"
+            )
+        )
+        return issues
+    if not isinstance(source, str) or not source.strip():
+        issues.append(
+            _issue(f"{key}.required_checks.source", "must record the evidence source")
+        )
+    if required_checks.get("strict") is not True:
+        issues.append(_issue(f"{key}.required_checks.strict", "must be true"))
+    if status == "pending_D4":
+        if contexts:
+            issues.append(
+                _issue(
+                    f"{key}.required_checks.contexts",
+                    "must stay empty while D4 is pending",
+                )
+            )
+    elif status == "verified":
+        if not contexts:
+            issues.append(
+                _issue(
+                    f"{key}.required_checks.contexts",
+                    "must list confirmed check contexts when status is verified",
+                )
+            )
+    else:
+        issues.append(
+            _issue(f"{key}.required_checks.status", "must be pending_D4 or verified")
+        )
+    return issues
+
+
+def _validate_branch_manifest(
+    key: str, manifest: Mapping[str, Any], expected: Mapping[str, Any]
+) -> list[str]:
+    issues: list[str] = []
+    pull_request = manifest.get("pull_request")
+    if not isinstance(pull_request, Mapping):
+        return [_issue(f"{key}.pull_request", "must be an object")]
+    if pull_request.get("required") is not True:
+        issues.append(_issue(f"{key}.pull_request.required", "must be true"))
+    if pull_request.get("required_approvals") != expected["required_approvals"]:
+        issues.append(
+            _issue(
+                f"{key}.pull_request.required_approvals",
+                f"must be {expected['required_approvals']}",
+            )
+        )
+    if pull_request.get("conversation_resolution") is not True:
+        issues.append(
+            _issue(f"{key}.pull_request.conversation_resolution", "must be true")
+        )
+
+    code_owner = pull_request.get("code_owner_review")
+    if not isinstance(code_owner, Mapping):
+        issues.append(
+            _issue(f"{key}.pull_request.code_owner_review", "must be an object")
+        )
+    elif (
+        code_owner.get("desired_when_d2_ready") is not True
+        or code_owner.get("enabled") is not False
+    ):
+        issues.append(
+            _issue(
+                f"{key}.pull_request.code_owner_review",
+                "must remain desired-but-disabled until the D2 approval pool is expanded",
+            )
+        )
+
+    protection = manifest.get("protection")
+    if not isinstance(protection, Mapping):
+        issues.append(_issue(f"{key}.protection", "must be an object"))
+    elif (
+        protection.get("block_force_push") is not True
+        or protection.get("block_deletion") is not True
+    ):
+        issues.append(
+            _issue(f"{key}.protection", "must block force pushes and deletion")
+        )
+
+    issues.extend(_validate_required_checks(key, manifest.get("required_checks")))
+    return issues
+
+
+def _validate_tag_manifest(key: str, manifest: Mapping[str, Any]) -> list[str]:
+    tag_protection = manifest.get("tag_protection")
+    if not isinstance(tag_protection, Mapping):
+        return [_issue(f"{key}.tag_protection", "must be an object")]
+    issues: list[str] = []
+    for field in ("block_creation", "block_update", "block_deletion"):
+        if tag_protection.get(field) is not True:
+            issues.append(_issue(f"{key}.tag_protection.{field}", "must be true"))
+    authorized = tag_protection.get("authorized_actors")
+    if not isinstance(authorized, Mapping):
+        issues.append(
+            _issue(f"{key}.tag_protection.authorized_actors", "must be an object")
+        )
+    elif authorized.get("status") != "pending_D3_D6" or authorized.get("actors") != []:
+        issues.append(
+            _issue(
+                f"{key}.tag_protection.authorized_actors",
+                "must stay empty until D3/D6 actor capability is verified",
+            )
+        )
+    return issues
+
+
+def validate_manifests(manifests: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    """Validate desired-state manifests before they are compared to GitHub."""
+    issues: list[str] = []
+    for key, expected in REQUIRED_MANIFESTS.items():
+        manifest = manifests.get(key)
+        if manifest is None:
+            issues.append(f"missing required manifest: {key}")
+            continue
+        if manifest.get("schema_version") != 1:
+            issues.append(_issue(f"{key}.schema_version", "must be 1"))
+        if manifest.get("name") != expected["name"]:
+            issues.append(_issue(f"{key}.name", f"must be {expected['name']!r}"))
+        target = manifest.get("target")
+        if not isinstance(target, Mapping):
+            issues.append(_issue(f"{key}.target", "must be an object"))
+        else:
+            if target.get("kind") != expected["target_kind"]:
+                issues.append(
+                    _issue(f"{key}.target.kind", f"must be {expected['target_kind']!r}")
+                )
+            if target.get("include") != expected["target_include"]:
+                issues.append(
+                    _issue(
+                        f"{key}.target.include",
+                        f"must be {expected['target_include']!r}",
+                    )
+                )
+        if manifest.get("enforcement") != "active":
+            issues.append(
+                _issue(f"{key}.enforcement", "must be 'active' desired state")
+            )
+        issues.extend(_validate_bypass(key, manifest.get("bypass")))
+        if key == "release-tags":
+            issues.extend(_validate_tag_manifest(key, manifest))
+        else:
+            issues.extend(_validate_branch_manifest(key, manifest, expected))
+    return issues
+
+
+def _canonical_actors(actors: Any) -> list[dict[str, Any]]:
+    if not isinstance(actors, list):
+        return []
+    canonical = [
+        {"actor_type": actor.get("actor_type"), "actor_id": actor.get("actor_id")}
+        for actor in actors
+        if isinstance(actor, Mapping)
+    ]
+    return sorted(
+        canonical, key=lambda actor: (str(actor["actor_type"]), str(actor["actor_id"]))
+    )
+
+
+def normalized_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    """Return only the Ruleset fields that GitHub's API can read back."""
+    target = manifest.get("target", {})
+    bypass = manifest.get("bypass", {})
+    target_mapping = target if isinstance(target, Mapping) else {}
+    canonical: dict[str, Any] = {
+        "name": manifest.get("name"),
+        "target": {
+            "kind": target_mapping.get("kind"),
+            "include": sorted(target_mapping.get("include", [])),
+        },
+        "enforcement": manifest.get("enforcement"),
+        "bypass_actors": _canonical_actors(
+            bypass.get("actors", []) if isinstance(bypass, Mapping) else []
+        ),
+    }
+    if target_mapping.get("kind") == "branch":
+        pull_request = manifest.get("pull_request", {})
+        protection = manifest.get("protection", {})
+        required_checks = manifest.get("required_checks", {})
+        pr_mapping = pull_request if isinstance(pull_request, Mapping) else {}
+        protection_mapping = protection if isinstance(protection, Mapping) else {}
+        checks_mapping = required_checks if isinstance(required_checks, Mapping) else {}
+        code_owner = pr_mapping.get("code_owner_review", {})
+        code_owner_mapping = code_owner if isinstance(code_owner, Mapping) else {}
+        canonical.update(
+            {
+                "pull_request": {
+                    "required": pr_mapping.get("required"),
+                    "required_approvals": pr_mapping.get("required_approvals"),
+                    "code_owner_review_enabled": code_owner_mapping.get("enabled"),
+                    "conversation_resolution": pr_mapping.get(
+                        "conversation_resolution"
+                    ),
+                },
+                "protection": {
+                    "block_force_push": protection_mapping.get("block_force_push"),
+                    "block_deletion": protection_mapping.get("block_deletion"),
+                },
+                "required_checks": {
+                    "contexts": sorted(checks_mapping.get("contexts", [])),
+                    "strict": checks_mapping.get("strict"),
+                },
+            }
+        )
+    else:
+        tag_protection = manifest.get("tag_protection", {})
+        tag_mapping = tag_protection if isinstance(tag_protection, Mapping) else {}
+        canonical["tag_protection"] = {
+            "block_creation": tag_mapping.get("block_creation"),
+            "block_update": tag_mapping.get("block_update"),
+            "block_deletion": tag_mapping.get("block_deletion"),
+        }
+    return canonical

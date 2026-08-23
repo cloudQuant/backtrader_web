@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "name": "Iteration 195: dev",
+  "target": {
+    "kind": "branch",
+    "include": [
+      "refs/heads/dev"
+    ]
+  },
+  "enforcement": "active",
+  "activation": {
+    "remote_state": "not_applied",
+    "gate": "D3",
+    "reason": "This is desired state only until Ruleset capability and a shadow observation period are verified."
+  },
+  "bypass": {
+    "normal_policy": "none",
+    "emergency_policy": {
+      "incident_required": true,
+      "reason_required": true,
+      "postmortem_within_hours": 24
+    },
+    "actor_source": "GitHub API readback after D3 capability validation",
+    "actors": []
+  },
+  "pull_request": {
+    "required": true,
+    "required_approvals": 1,
+    "conversation_resolution": true,
+    "code_owner_review": {
+      "desired_when_d2_ready": true,
+      "enabled": false,
+      "reason": "D2 has only one verified owner; required code-owner review stays disabled until an independent approval pool is confirmed."
+    }
+  },
+  "protection": {
+    "block_force_push": true,
+    "block_deletion": true
+  },
+  "required_checks": {
+    "status": "pending_D4",
+    "contexts": [],
+    "source": "Task 4 real draft-PR Check Run evidence; names must not be guessed from workflow YAML.",
+    "strict": true
+  }
+}

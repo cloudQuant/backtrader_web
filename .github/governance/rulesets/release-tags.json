@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "name": "Iteration 195: release tags",
+  "target": {
+    "kind": "tag",
+    "include": [
+      "refs/tags/v*"
+    ]
+  },
+  "enforcement": "active",
+  "activation": {
+    "remote_state": "not_applied",
+    "gate": "D3_D6",
+    "reason": "Tag protection is desired state only until Ruleset capability, release environment, and authorized actor handling are verified."
+  },
+  "bypass": {
+    "normal_policy": "none",
+    "emergency_policy": {
+      "incident_required": true,
+      "reason_required": true,
+      "postmortem_within_hours": 24
+    },
+    "actor_source": "GitHub API readback after D3/D6 capability validation",
+    "actors": []
+  },
+  "tag_protection": {
+    "block_creation": true,
+    "block_update": true,
+    "block_deletion": true,
+    "authorized_actors": {
+      "status": "pending_D3_D6",
+      "actors": [],
+      "source": "D3 Ruleset capability and D6 protected release-environment evidence"
+    }
+  }
+}
