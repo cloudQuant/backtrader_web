@@ -1,22 +1,48 @@
-name: PR Governance (Bootstrap)
+name: PR Governance
 
-# This read-only bootstrap remains inactive until the equivalent workflow and
-# its trusted governance implementation are promoted to the default branch.
+# The trusted workflow definition comes from the base/default branch for
+# pull_request_target. It deliberately does not subscribe to review events:
+# their workflow file can come from an untrusted PR merge ref. Maintainers
+# re-run this safe gate after a review state changes.
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, edited, ready_for_review, labeled, unlabeled]
 
 permissions:
   contents: read
   pull-requests: read
 
-# This skeleton deliberately has no actions. Task 4 will add the trusted-base
-# governance check after bootstrap.
 jobs:
-  governance-bootstrap:
-    name: Governance bootstrap pending default-branch promotion
+  governance-gate:
+    name: Governance Gate
     runs-on: ubuntu-latest
-    if: ${{ github.event.pull_request.number > 0 }}
     steps:
-      - name: Report bootstrap status
-        run: echo "Read-only governance bootstrap; awaiting default-branch promotion."
+      - name: Checkout trusted base policy
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Read pull request metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GOVERNANCE_TMP: ${{ runner.temp }}/pr-governance
+        run: |
+          mkdir -p "$GOVERNANCE_TMP"
+          gh api --method GET "repos/$PR_REPOSITORY/pulls/$PR_NUMBER" > "$GOVERNANCE_TMP/pr.json"
+          gh api --method GET --paginate --slurp "repos/$PR_REPOSITORY/pulls/$PR_NUMBER/reviews" > "$GOVERNANCE_TMP/reviews.json"
+          gh api --method GET --paginate --slurp "repos/$PR_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" > "$GOVERNANCE_TMP/files.json"
+
+      - name: Evaluate trusted governance policy
+        env:
+          GOVERNANCE_TMP: ${{ runner.temp }}/pr-governance
+        run: |
+          python scripts/ci/check_pr_governance.py \
+            --pr "$GOVERNANCE_TMP/pr.json" \
+            --reviews "$GOVERNANCE_TMP/reviews.json" \
+            --changed-files "$GOVERNANCE_TMP/files.json" \
+            --risk-map .github/governance/risk-paths.json \
+            --manifest-dir .github/governance/rulesets

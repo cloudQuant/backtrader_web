@@ -138,42 +138,100 @@ class TestPrCheckWorkflowContract:
 
 
 class TestPrGovernanceWorkflowContract:
-    def test_governance_uses_only_pull_request_target(self) -> None:
-        assert _event_issues(_read(PR_GOVERNANCE), {"pull_request_target"}) == []
+    EXPECTED_EVENTS = {
+        "opened",
+        "synchronize",
+        "reopened",
+        "edited",
+        "ready_for_review",
+        "labeled",
+        "unlabeled",
+    }
 
-    def test_governance_rejects_additional_trigger(self) -> None:
+    def _governance_event(self) -> dict[str, object]:
+        workflow = _workflow_mapping(_read(PR_GOVERNANCE))
+        events = workflow.get("on")
+        assert isinstance(events, dict)
+        event = events.get("pull_request_target")
+        assert isinstance(event, dict)
+        return event
+
+    def test_governance_uses_only_trusted_pull_request_target_events(self) -> None:
+        workflow = _read(PR_GOVERNANCE)
+
+        assert _event_issues(workflow, {"pull_request_target"}) == []
+        assert set(self._governance_event().get("types", [])) == self.EXPECTED_EVENTS
+        assert "pull_request_review:" not in workflow
+
+    def test_governance_rejects_a_pull_request_review_trigger(self) -> None:
         workflow = _read(PR_GOVERNANCE).replace(
-            "    types: [opened, synchronize, reopened]\n",
-            "    types: [opened, synchronize, reopened]\n  issue_comment:\n",
-            1,
+            "  pull_request_target:\n", "  pull_request_review:\n", 1
         )
 
         assert _event_issues(workflow, {"pull_request_target"})
 
-    def test_governance_rejects_job_level_flow_mapping_write_permission(self) -> None:
+    def test_governance_rejects_job_level_write_permissions(self) -> None:
         workflow = _read(PR_GOVERNANCE).replace(
-            "  governance-bootstrap:\n",
-            "  governance-bootstrap:\n    permissions: {contents: write}\n",
+            "  governance-gate:\n",
+            "  governance-gate:\n    permissions: {contents: write}\n",
             1,
         )
 
         assert _permission_issues(workflow)
 
-    def test_governance_workflow_is_a_read_only_metadata_bootstrap(self) -> None:
+    def test_governance_workflow_is_read_only_and_has_an_always_running_gate(self) -> None:
         workflow = _read(PR_GOVERNANCE)
+        parsed = _workflow_mapping(workflow)
+        jobs = parsed.get("jobs")
 
-        assert re.search(r"^\s{2}pull_request_target:\s*$", workflow, re.MULTILINE)
+        assert parsed.get("name") == "PR Governance"
         assert _top_level_permissions(workflow) == {
             "contents": "read",
             "pull-requests": "read",
         }
         assert _permission_issues(workflow) == []
+        assert isinstance(jobs, dict)
+        assert set(jobs) == {"governance-gate"}
+        gate = jobs["governance-gate"]
+        assert isinstance(gate, dict)
+        assert gate.get("name") == "Governance Gate"
+        assert "if" not in gate
+        assert "paths" not in self._governance_event()
+        assert "paths-ignore" not in self._governance_event()
 
-    def test_governance_workflow_does_not_touch_untrusted_pr_code_or_write_state(self) -> None:
+    def test_governance_checkout_is_pinned_to_the_trusted_base_sha_without_credentials(
+        self,
+    ) -> None:
+        workflow = _read(PR_GOVERNANCE)
+        parsed = _workflow_mapping(workflow)
+        jobs = parsed["jobs"]
+        assert isinstance(jobs, dict)
+        gate = jobs["governance-gate"]
+        assert isinstance(gate, dict)
+        steps = gate.get("steps")
+        assert isinstance(steps, list)
+        checkout_steps = [
+            step
+            for step in steps
+            if isinstance(step, dict) and str(step.get("uses", "")).startswith("actions/checkout@")
+        ]
+
+        assert len(checkout_steps) == 1
+        checkout = checkout_steps[0]
+        assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", str(checkout["uses"]).split()[0])
+        checkout_with = checkout.get("with")
+        assert isinstance(checkout_with, dict)
+        assert checkout_with.get("ref") == "${{ github.event.pull_request.base.sha }}"
+        assert checkout_with.get("persist-credentials") == "false"
+        assert "github.event.pull_request.head" not in workflow
+
+    def test_governance_uses_only_read_only_metadata_requests_and_standard_library_checker(
+        self,
+    ) -> None:
         workflow = _read(PR_GOVERNANCE).lower()
 
         for forbidden in (
-            "checkout",
+            "pull_request_review:",
             "github.event.pull_request.head",
             "secrets.",
             "pip install",
@@ -183,11 +241,12 @@ class TestPrGovernanceWorkflowContract:
             "addlabels",
             "removelabel",
             "github-script",
-            "check_pr_governance.py",
+            "gh api --method post",
+            "gh api --method patch",
+            "gh api --method put",
+            "gh api --method delete",
         ):
             assert forbidden not in workflow
 
-        assert (
-            'run: echo "read-only governance bootstrap; awaiting default-branch promotion."'
-            in workflow
-        )
+        assert workflow.count("gh api --method get") == 3
+        assert "check_pr_governance.py" in workflow
