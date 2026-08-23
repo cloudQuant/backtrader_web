@@ -161,8 +161,8 @@ def _section_field_issues(visible_body: str, kind: str) -> list[str]:
 
 def _declared_target(visible_body: str) -> str | None:
     value = _governance_field(visible_body, "目标分支")
-    match = _TARGET_RE.fullmatch(value or "")
-    return match.group(1).casefold() if match else None
+    targets = {target.casefold() for target in _TARGET_RE.findall(value or "")}
+    return next(iter(targets)) if len(targets) == 1 else None
 
 
 def _declared_risk(visible_body: str) -> str | None:

@@ -355,6 +355,58 @@ def test_governance_target_and_risk_values_must_be_unambiguous() -> None:
     assert any("must name R0-R3" in issue for issue in result["issues"])
 
 
+def test_governance_target_allows_a_single_template_compatible_branch_explanation() -> None:
+    checker = _load_checker()
+    cases = (
+        (
+            _pr(
+                base="dev",
+                head="feature/market-screen",
+                body=_body(target="dev（常规变更走 dev 集成分支）", risk="R1"),
+            ),
+            [_review("maintainer", "APPROVED", "2026-08-24T00:01:00Z")],
+            ["src/backend/app/services/market_data.py"],
+        ),
+        (
+            _pr(
+                base="master",
+                head="hotfix/master-session-expiry",
+                body=_body(
+                    target="master + hotfix/master-session-expiry 生产事故修复理由",
+                    risk="R3",
+                    hotfix_plan="INC-195: session expiry; dev PR #196 carries the forward-port fix",
+                ),
+            ),
+            [
+                _review("maintainer-a", "APPROVED", "2026-08-24T00:01:00Z"),
+                _review("maintainer-b", "APPROVED", "2026-08-24T00:02:00Z"),
+            ],
+            ["src/backend/app/api/auth.py"],
+        ),
+        (
+            _pr(
+                base="master",
+                head="release/v1.2.3",
+                body=_body(
+                    target="master + release/v1.2.3 promotion 理由",
+                    risk="R3",
+                    release_checklist="v1.2.3 changelog, regression results, and rollback point",
+                ),
+            ),
+            [
+                _review("maintainer-a", "APPROVED", "2026-08-24T00:01:00Z"),
+                _review("maintainer-b", "APPROVED", "2026-08-24T00:02:00Z"),
+            ],
+            ["scripts/ops/release.sh"],
+        ),
+    )
+
+    for pr, reviews, changed_files in cases:
+        result = _evaluate(checker, pr, reviews, changed_files)
+
+        assert result["ok"] is True
+
+
 def test_common_fields_are_bound_to_governance_section_not_preamble_decoys() -> None:
     checker = _load_checker()
     body = """\
