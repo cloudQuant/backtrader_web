@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 VERIFIER = REPO_ROOT / "scripts" / "ci" / "verify_github_governance.py"
 MANIFEST_DIR = REPO_ROOT / ".github" / "governance" / "rulesets"
@@ -308,6 +310,63 @@ class TestRulesetNormalization:
             for difference in report["differences"]
         )
 
+    @pytest.mark.parametrize(
+        ("ruleset_name", "rule_type"),
+        (
+            ("Iteration 195: dev", "pull_request"),
+            ("Iteration 195: dev", "required_status_checks"),
+            ("Iteration 195: dev", "non_fast_forward"),
+            ("Iteration 195: dev", "deletion"),
+            ("Iteration 195: release tags", "creation"),
+            ("Iteration 195: release tags", "update"),
+            ("Iteration 195: release tags", "deletion"),
+        ),
+    )
+    @pytest.mark.parametrize("duplicate_first", (True, False))
+    @pytest.mark.parametrize("conflicting_parameters", (False, True))
+    def test_duplicate_security_critical_rules_fail_closed_regardless_of_order_or_content(
+        self,
+        ruleset_name: str,
+        rule_type: str,
+        duplicate_first: bool,
+        conflicting_parameters: bool,
+    ) -> None:
+        verifier = _load_verifier()
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        ruleset = next(rule for rule in actual if rule["name"] == ruleset_name)
+        source_rule = next(rule for rule in ruleset["rules"] if rule["type"] == rule_type)
+        duplicate_rule = copy.deepcopy(source_rule)
+        if conflicting_parameters:
+            duplicate_rule["parameters"] = {"unexpected_duplicate_parameter": True}
+        if duplicate_first:
+            ruleset["rules"].insert(0, duplicate_rule)
+        else:
+            ruleset["rules"].append(duplicate_rule)
+
+        report = verifier.verify_rulesets(MANIFEST_DIR, actual)
+        manifest_key = "dev" if ruleset_name.endswith("dev") else "release-tags"
+
+        assert report["ok"] is False
+        assert any(
+            f"{manifest_key}.readback_errors" in difference
+            and f"duplicate {rule_type} rules" in difference
+            for difference in report["differences"]
+        )
+
+    @pytest.mark.parametrize("ruleset_name", ("Iteration 195: dev", "Iteration 195: release tags"))
+    def test_unique_security_critical_rule_order_remains_non_semantic(
+        self,
+        ruleset_name: str,
+    ) -> None:
+        verifier = _load_verifier()
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        ruleset = next(rule for rule in actual if rule["name"] == ruleset_name)
+        ruleset["rules"].reverse()
+
+        report = verifier.verify_rulesets(MANIFEST_DIR, actual)
+
+        assert report == {"ok": True, "differences": []}
+
     def test_required_check_integration_id_is_preserved_for_identity_matching(
         self,
     ) -> None:
@@ -471,3 +530,21 @@ class TestVerifierCli:
         assert all(
             not {"POST", "PATCH", "PUT", "DELETE"}.intersection(command) for command in commands
         )
+
+    @pytest.mark.parametrize(
+        "listing",
+        (
+            [{"id": 1}, "unexpected-non-object"],
+            [[{"id": 1}, "unexpected-non-object"]],
+        ),
+    )
+    def test_live_loader_rejects_non_object_pager_entries(self, listing: object) -> None:
+        verifier = _load_verifier()
+
+        def runner(command: list[str]) -> str:
+            if command[-1].endswith("/rulesets"):
+                return json.dumps(listing)
+            return json.dumps(_fixture()["rulesets"][0])
+
+        with pytest.raises(ValueError, match="non-object entry"):
+            verifier.load_live_rulesets("cloudQuant/backtrader_web", runner=runner)

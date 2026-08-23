@@ -25,13 +25,24 @@ from governance_contract import (
 Runner = Callable[[list[str]], str]
 
 
-def _rule_by_type(rules: Any, rule_type: str) -> Mapping[str, Any]:
+_BRANCH_SECURITY_CRITICAL_RULE_TYPES = (
+    "pull_request",
+    "required_status_checks",
+    "non_fast_forward",
+    "deletion",
+)
+_TAG_SECURITY_CRITICAL_RULE_TYPES = ("creation", "update", "deletion")
+
+
+def _rules_by_type(rules: Any, rule_type: str) -> list[Mapping[str, Any]]:
     if not isinstance(rules, list):
-        return {}
-    for rule in rules:
-        if isinstance(rule, Mapping) and rule.get("type") == rule_type:
-            return rule
-    return {}
+        return []
+    return [rule for rule in rules if isinstance(rule, Mapping) and rule.get("type") == rule_type]
+
+
+def _rule_by_type(rules: Any, rule_type: str) -> Mapping[str, Any]:
+    matching_rules = _rules_by_type(rules, rule_type)
+    return matching_rules[0] if len(matching_rules) == 1 else {}
 
 
 def _rule_parameters(rules: Any, rule_type: str) -> Mapping[str, Any]:
@@ -45,9 +56,15 @@ def _has_rule(rules: Any, rule_type: str) -> bool:
 
 
 def _count_rules(rules: Any, rule_type: str) -> int:
-    if not isinstance(rules, list):
-        return 0
-    return sum(1 for rule in rules if isinstance(rule, Mapping) and rule.get("type") == rule_type)
+    return len(_rules_by_type(rules, rule_type))
+
+
+def _duplicate_rule_errors(rules: Any, rule_types: Sequence[str]) -> list[str]:
+    return [
+        f"duplicate {rule_type} rules"
+        for rule_type in rule_types
+        if _count_rules(rules, rule_type) > 1
+    ]
 
 
 def _normalize_ref_name_patterns(value: Any, *, field: str) -> list[str]:
@@ -93,8 +110,7 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
         ),
     }
     if target == "branch":
-        if _count_rules(rules, "required_status_checks") > 1:
-            readback_errors.append("duplicate required_status_checks rules")
+        readback_errors.extend(_duplicate_rule_errors(rules, _BRANCH_SECURITY_CRITICAL_RULE_TYPES))
         pull_request = _rule_parameters(rules, "pull_request")
         status_checks = _rule_parameters(rules, "required_status_checks")
         raw_contexts = status_checks.get("required_status_checks", [])
@@ -121,6 +137,7 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
             }
         )
     elif target == "tag":
+        readback_errors.extend(_duplicate_rule_errors(rules, _TAG_SECURITY_CRITICAL_RULE_TYPES))
         canonical["tag_protection"] = {
             "block_creation": _has_rule(rules, "creation"),
             "block_update": _has_rule(rules, "update"),
@@ -225,8 +242,12 @@ def _flatten_pages(payload: Any) -> list[dict[str, Any]]:
     if not isinstance(payload, list):
         raise ValueError("GitHub Rulesets API list response must be an array")
     if payload and all(isinstance(page, list) for page in payload):
-        return [item for page in payload for item in page if isinstance(item, dict)]
-    return [item for item in payload if isinstance(item, dict)]
+        rulesets = [item for page in payload for item in page]
+    else:
+        rulesets = payload
+    if not all(isinstance(item, dict) for item in rulesets):
+        raise ValueError("GitHub Rulesets API list response contains a non-object entry")
+    return rulesets
 
 
 def load_live_rulesets(repo: str, *, runner: Runner | None = None) -> list[dict[str, Any]]:
