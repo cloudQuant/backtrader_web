@@ -39,6 +39,10 @@ jobs:
             echo "::error::workflow_dispatch is dry-run only."
             exit 1
           fi
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_protected }}" != "true" ]; then
+            echo "::error::Tag-push artifact builds require a protected release tag."
+            exit 1
+          fi
           if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
             echo "::error::Release artifact builds must run from a protected version tag."
             exit 1
@@ -48,6 +52,7 @@ jobs:
             echo "::error::Invalid release tag '$TAG'."
             exit 1
           fi
+          git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
           TAG_COMMIT="$(git rev-list -n 1 "$TAG")"
           MASTER_COMMIT="$(git rev-parse origin/master)"
           if [ "$TAG_COMMIT" != "$MASTER_COMMIT" ]; then
@@ -76,28 +81,29 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-metadata
-          BACKEND_DIGEST="$(docker image inspect --format '{{.Id}}' "release-artifact/backend:${{ steps.release.outputs.tag }}")"
-          FRONTEND_DIGEST="$(docker image inspect --format '{{.Id}}' "release-artifact/frontend:${{ steps.release.outputs.tag }}")"
+          BACKEND_IMAGE_ID="$(docker image inspect --format '{{.Id}}' "release-artifact/backend:${{ steps.release.outputs.tag }}")"
+          FRONTEND_IMAGE_ID="$(docker image inspect --format '{{.Id}}' "release-artifact/frontend:${{ steps.release.outputs.tag }}")"
           jq -n \
             --arg tag "${{ steps.release.outputs.tag }}" \
             --arg commit_sha "${{ steps.release.outputs.commit_sha }}" \
-            --arg backend_digest "$BACKEND_DIGEST" \
-            --arg frontend_digest "$FRONTEND_DIGEST" \
+            --arg backend_image_id "$BACKEND_IMAGE_ID" \
+            --arg frontend_image_id "$FRONTEND_IMAGE_ID" \
             --arg mode "artifact-only-d6" \
-            '{tag: $tag, commit_sha: $commit_sha, backend_digest: $backend_digest, frontend_digest: $frontend_digest, mode: $mode}' \
+            '{tag: $tag, commit_sha: $commit_sha, backend_image_id: $backend_image_id, frontend_image_id: $frontend_image_id, mode: $mode}' \
             > release-metadata/release-metadata.json
           {
             echo "## Release artifact metadata"
             echo "- Tag: \`${{ steps.release.outputs.tag }}\`"
             echo "- Commit: \`${{ steps.release.outputs.commit_sha }}\`"
-            echo "- Backend immutable digest: \`$BACKEND_DIGEST\`"
-            echo "- Frontend immutable digest: \`$FRONTEND_DIGEST\`"
+            echo "- Backend local Docker image ID: \`$BACKEND_IMAGE_ID\`"
+            echo "- Frontend local Docker image ID: \`$FRONTEND_IMAGE_ID\`"
             echo "- D6 status: artifact-only; no registry login or image publishing occurred."
+            echo "- No registry manifest digest exists because the images were not published."
             echo "- A protected release manager must attach this metadata to an approved GitHub Release."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload release metadata artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-metadata-${{ steps.release.outputs.tag }}
           path: release-metadata/release-metadata.json

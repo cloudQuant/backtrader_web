@@ -1,7 +1,8 @@
-"""Task 5 static contracts for release, preview, and nightly evidence workflows."""
+"""Task 5 structural contracts for release, preview, and nightly workflows."""
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -11,105 +12,217 @@ WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 DOCKER_PUBLISH = WORKFLOWS / "docker-publish.yml"
 PREVIEW = WORKFLOWS / "deploy-preview.yml"
 NIGHTLY = WORKFLOWS / "nightly.yml"
+CHECKOUT_PIN = "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+UPLOAD_PIN = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+PINNED_ACTION = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _workflow(path: Path) -> dict[str, object]:
-    parsed = yaml.load(_read(path), Loader=yaml.BaseLoader)
-    assert isinstance(parsed, dict), f"{path.name} must be a YAML mapping"
+def _workflow(workflow: str) -> dict[str, object]:
+    parsed = yaml.load(workflow, Loader=yaml.BaseLoader)
+    assert isinstance(parsed, dict), "workflow must be a YAML mapping"
     return parsed
 
 
-def _walk(node: object) -> list[object]:
-    values = [node]
-    if isinstance(node, dict):
-        for value in node.values():
-            values.extend(_walk(value))
-    elif isinstance(node, list):
-        for value in node:
-            values.extend(_walk(value))
-    return values
+def _jobs(workflow: str) -> dict[str, object]:
+    jobs = _workflow(workflow).get("jobs")
+    assert isinstance(jobs, dict), "workflow jobs must be a mapping"
+    return jobs
+
+
+def _job(workflow: str, job_id: str) -> dict[str, object]:
+    job = _jobs(workflow).get(job_id)
+    assert isinstance(job, dict), f"missing {job_id} job"
+    return job
+
+
+def _steps(job: dict[str, object]) -> list[dict[str, object]]:
+    steps = job.get("steps")
+    assert isinstance(steps, list), "job steps must be a list"
+    return [step for step in steps if isinstance(step, dict)]
+
+
+def _step(job: dict[str, object], name: str) -> tuple[int, dict[str, object]]:
+    for index, step in enumerate(_steps(job)):
+        if step.get("name") == name:
+            return index, step
+    raise AssertionError(f"missing step: {name}")
+
+
+def _run(step: dict[str, object]) -> str:
+    run = step.get("run")
+    assert isinstance(run, str), f"{step.get('name')} must be a run step"
+    return "\n".join(line for line in run.splitlines() if not line.lstrip().startswith("#"))
+
+
+def _uses(step: dict[str, object]) -> str:
+    uses = step.get("uses")
+    assert isinstance(uses, str), f"{step.get('name')} must use an action"
+    return uses.split(" #", 1)[0]
 
 
 def _release_issues(workflow: str) -> list[str]:
-    parsed = yaml.load(workflow, Loader=yaml.BaseLoader)
-    assert isinstance(parsed, dict)
     issues: list[str] = []
+    parsed = _workflow(workflow)
     events = parsed.get("on")
-    if not isinstance(events, dict) or "push" not in events or "workflow_dispatch" not in events:
-        issues.append("release must support protected tag pushes and an explicit dry-run dispatch")
+    if not isinstance(events, dict) or not {"push", "workflow_dispatch"}.issubset(events):
+        issues.append("release triggers must contain tag push and dry-run dispatch")
+    elif not isinstance(events["push"], dict) or events["push"].get("tags") != ["v*"]:
+        issues.append("release must only trigger on version tags")
+
+    release = _job(workflow, "release-artifact")
+    if release.get("environment") != "release":
+        issues.append("release boundary must use the protected release environment")
+    try:
+        _, checkout = _step(release, "Checkout complete release history")
+        checkout_with = checkout.get("with")
+        if _uses(checkout) != CHECKOUT_PIN or not isinstance(checkout_with, dict):
+            issues.append("release checkout must use the reviewed immutable action pin")
+        elif checkout_with.get("fetch-depth") != "0" or checkout_with.get("persist-credentials") != "false":
+            issues.append("release checkout must fully fetch without persisted credentials")
+        resolve_index, resolve = _step(release, "Resolve and verify immutable release provenance")
+        resolve_script = _run(resolve)
+        protected_gate = (
+            'github.event_name }}" = "push"' in resolve_script
+            and 'github.ref_protected }}" != "true"' in resolve_script
+        )
+        if not protected_gate:
+            issues.append("tag-push release must reject an unprotected ref before build")
+        if 'git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master' not in resolve_script:
+            issues.append("release must explicitly fetch origin/master before comparing it")
+        if 'if [ "$TAG_COMMIT" != "$MASTER_COMMIT" ]; then' not in resolve_script:
+            issues.append("tag provenance must require exact equality, not ancestry")
+        if "merge-base --is-ancestor" in resolve_script:
+            issues.append("tag provenance must not accept ancestry in place of equality")
+        if 'github.event_name }}" = "workflow_dispatch"' not in resolve_script or "dry-run only" not in resolve_script:
+            issues.append("workflow_dispatch must remain visibly dry-run")
+    except AssertionError as error:
+        issues.append(str(error))
+        resolve_index = -1
+
+    raw = "\n".join(_run(step) for step in _steps(release) if isinstance(step.get("run"), str))
     if "image_tag" in workflow:
         issues.append("manual image tag input is prohibited")
-    if "fetch-depth: 0" not in workflow or "origin/master" not in workflow:
-        issues.append("release must compare a tag commit to fully fetched origin/master")
-    if "TAG_COMMIT" not in workflow or "MASTER_COMMIT" not in workflow or '"$TAG_COMMIT" != "$MASTER_COMMIT"' not in workflow:
-        issues.append("tag provenance must require commit equality, not ancestry")
-    if "docker/login-action" in workflow or "DOCKERHUB_TOKEN" in workflow or "push: true" in workflow:
-        issues.append("D6 artifact-only workflow must not use production credentials or push")
-    if "environment: release" not in workflow:
-        issues.append("release boundary must be represented by the protected release environment")
-    if "backend_digest" not in workflow or "frontend_digest" not in workflow or "commit_sha" not in workflow:
-        issues.append("release metadata must contain immutable image digests, tag, and commit SHA")
-    if "release-metadata" not in workflow or "GITHUB_STEP_SUMMARY" not in workflow:
-        issues.append("release metadata must be retained as an artifact and job summary")
-    if "dry-run" not in workflow.lower():
-        issues.append("workflow_dispatch must be visibly dry-run")
+    if re.search(r"\b(?:docker\s+push|docker/login-action)\b|\bpush:\s*true\b|secrets\.", workflow):
+        issues.append("artifact-only release must not publish or access production credentials")
+    if "backend_digest" in raw.lower() or "frontend_digest" in raw.lower() or "immutable digest" in raw.lower():
+        issues.append("artifact-only metadata must not call local image IDs registry digests")
+    if "backend_image_id" not in raw or "frontend_image_id" not in raw or "commit_sha" not in raw:
+        issues.append("release metadata must record tag, commit SHA, and both local image IDs")
+    if "docker image inspect --format '{{.Id}}'" not in raw or "local Docker image ID" not in raw:
+        issues.append("release metadata must identify local image IDs without claiming a registry digest")
+    if "release-metadata" not in workflow or "GITHUB_STEP_SUMMARY" not in raw:
+        issues.append("release metadata must be retained as an artifact and summary")
+
+    build_indexes = [
+        index
+        for index, step in enumerate(_steps(release))
+        if isinstance(step.get("run"), str) and "docker build" in _run(step)
+    ]
+    if not build_indexes or any(index <= resolve_index for index in build_indexes):
+        issues.append("all artifact builds must follow protected tag provenance")
+    try:
+        _, upload = _step(release, "Upload release metadata artifact")
+        if _uses(upload) != UPLOAD_PIN:
+            issues.append("release artifact upload must use the reviewed immutable action pin")
+    except AssertionError as error:
+        issues.append(str(error))
     return issues
 
 
 def _preview_issues(workflow: str) -> list[str]:
-    parsed = yaml.load(workflow, Loader=yaml.BaseLoader)
-    assert isinstance(parsed, dict)
     issues: list[str] = []
+    parsed = _workflow(workflow)
     if parsed.get("name") != "Preview Build Artifact":
         issues.append("preview workflow must identify itself as an artifact build")
-    if "pull-requests: write" in workflow or "github-script" in workflow:
-        issues.append("preview build must not comment on pull requests")
-    if "preview_url" in workflow or "Preview URL" in workflow or "Deployed" in workflow:
-        issues.append("preview build must not promise a hosted URL or deployment")
-    if "upload-artifact" not in workflow or "non-hosted preview" not in workflow.lower():
-        issues.append("preview workflow must upload and describe a non-hosted artifact")
+    preview = _job(workflow, "preview-build")
+    raw = _read(PREVIEW) if workflow == _read(PREVIEW) else workflow
+    if re.search(r"pull-requests:\s*write|github-script|preview_url|Preview URL|Deployed", raw):
+        issues.append("preview build must not write PR comments or promise a hosted deployment")
+    try:
+        _, upload = _step(preview, "Upload preview build artifact")
+        if _uses(upload) != UPLOAD_PIN:
+            issues.append("preview artifact upload must use the reviewed immutable action pin")
+        _, scope = _step(preview, "Record non-hosted artifact scope")
+        if "non-hosted preview" not in _run(scope).lower():
+            issues.append("preview artifact must explicitly state it is non-hosted")
+    except AssertionError as error:
+        issues.append(str(error))
     return issues
 
 
 def _nightly_issues(workflow: str) -> list[str]:
-    parsed = yaml.load(workflow, Loader=yaml.BaseLoader)
-    assert isinstance(parsed, dict)
     issues: list[str] = []
-    if "remote-sync-evidence" not in workflow or "check_remote_sync.py" not in workflow:
-        issues.append("nightly must retain read-only remote sync evidence")
-    if "git ls-remote --heads" in workflow:
-        issues.append("nightly must delegate remote reads to the checked script")
-    if "notification sent" in workflow.lower() or "notify owner" in workflow.lower():
-        issues.append("nightly cannot claim an unavailable D1 notification integration")
+    remote_sync = _job(workflow, "remote-sync-evidence")
+    raw = "\n".join(_run(step) for step in _steps(remote_sync) if isinstance(step.get("run"), str))
+    if "check_remote_sync.py" not in raw or "git ls-remote --heads" in raw:
+        issues.append("nightly must call the checked read-only sync script, not inline Git")
+    if re.search(r"notification sent|notify owner", workflow, flags=re.IGNORECASE):
+        issues.append("nightly cannot claim an unavailable notification integration")
+    try:
+        _, evidence = _step(remote_sync, "Record remote head comparison")
+        evidence_run = _run(evidence)
+        if evidence.get("shell") != "bash" or "set -euo pipefail" not in evidence_run:
+            issues.append("nightly remote sync pipeline must fail closed with Bash pipefail")
+        if "| tee remote-sync-summary.txt" not in evidence_run:
+            issues.append("nightly remote sync must retain its human summary")
+        _, upload = _step(remote_sync, "Upload remote-sync evidence")
+        if upload.get("if") != "always()" or _uses(upload) != UPLOAD_PIN:
+            issues.append("nightly must always upload evidence with the reviewed immutable action pin")
+    except AssertionError as error:
+        issues.append(str(error))
     return issues
 
 
 def test_workflows_parse_with_yaml_base_loader() -> None:
     for path in (DOCKER_PUBLISH, PREVIEW, NIGHTLY):
-        assert _workflow(path)
+        assert _workflow(_read(path))
 
 
-def test_release_requires_exact_tag_provenance_and_artifact_only_boundary() -> None:
+def test_release_requires_protected_tag_exact_provenance_and_image_ids() -> None:
     assert _release_issues(_read(DOCKER_PUBLISH)) == []
 
 
-def test_release_contract_rejects_ancestry_only_provenance() -> None:
+def test_release_contract_rejects_unprotected_tag_bypass() -> None:
+    unsafe = _read(DOCKER_PUBLISH).replace('github.ref_protected }}" != "true"', '"true" != "true"', 1)
+
+    assert "unprotected ref" in " ".join(_release_issues(unsafe))
+
+
+def test_release_contract_rejects_dead_or_ancestry_only_equality_snippet() -> None:
     unsafe = _read(DOCKER_PUBLISH).replace(
-        '"$TAG_COMMIT" != "$MASTER_COMMIT"',
-        '"$TAG_COMMIT" "!=" "$MASTER_COMMIT"',
+        'if [ "$TAG_COMMIT" != "$MASTER_COMMIT" ]; then',
+        '# if [ "$TAG_COMMIT" != "$MASTER_COMMIT" ]; then\n          if git merge-base --is-ancestor "$TAG_COMMIT" "$MASTER_COMMIT"; then',
         1,
     )
 
-    assert "tag provenance" in " ".join(_release_issues(unsafe))
+    assert "exact equality" in " ".join(_release_issues(unsafe))
+
+
+def test_release_contract_rejects_digest_claims_or_mutable_upload_action() -> None:
+    unsafe = _read(DOCKER_PUBLISH).replace("backend_image_id", "backend_digest", 1)
+    unsafe = unsafe.replace(UPLOAD_PIN, "actions/upload-artifact@v4", 1)
+
+    issues = " ".join(_release_issues(unsafe))
+    assert "registry digests" in issues
+    assert "immutable action pin" in issues
 
 
 def test_preview_is_non_hosted_artifact_without_pull_request_writes() -> None:
     assert _preview_issues(_read(PREVIEW)) == []
 
 
-def test_nightly_keeps_read_only_remote_sync_artifact() -> None:
+def test_nightly_failure_pipeline_is_fail_closed_and_evidence_is_always_uploaded() -> None:
     assert _nightly_issues(_read(NIGHTLY)) == []
+
+
+def test_nightly_contract_rejects_missing_pipefail_or_mutable_upload_action() -> None:
+    unsafe = _read(NIGHTLY).replace("set -euo pipefail", "set -eu", 1)
+    unsafe = unsafe.replace(UPLOAD_PIN, "actions/upload-artifact@v4", 1)
+
+    issues = " ".join(_nightly_issues(unsafe))
+    assert "fail closed" in issues
+    assert "immutable action pin" in issues

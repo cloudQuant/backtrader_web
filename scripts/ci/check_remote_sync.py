@@ -14,6 +14,12 @@ from typing import Any
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 REF_PREFIX = "refs/heads/"
+APPROVED_BRANCH = "master"
+APPROVED_SOURCE_SHA = "605d4d0e1cf1ad6627483aab6c4cef2a742b3d0f"
+APPROVED_MIRROR_SHA = "3d05130635f50c45adeaa4514af246380ff00451"
+APPROVED_INCIDENT = ".github/governance/decisions/remote-sync-incident.md"
+APPROVED_OWNER = "@cloudQuant"
+MAX_EXCEPTION_EXPIRY = datetime(2026, 9, 30, tzinfo=timezone.utc)
 
 
 class RemoteSyncError(ValueError):
@@ -60,8 +66,8 @@ def _parse_timestamp(value: object, field: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def load_exceptions(path: Path | None) -> list[dict[str, str]]:
-    """Load and validate finite, exact-SHA exception entries."""
+def load_exceptions(path: Path | None, *, now: datetime | None = None) -> list[dict[str, str]]:
+    """Load the single D1-approved exception without widening its scope."""
     if path is None:
         return []
     try:
@@ -86,6 +92,7 @@ def load_exceptions(path: Path | None) -> list[dict[str, str]]:
         "created_at",
         "expires_at",
     }
+    checked_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     validated: list[dict[str, str]] = []
     for entry in entries:
         if not isinstance(entry, dict) or not required.issubset(entry):
@@ -97,10 +104,24 @@ def load_exceptions(path: Path | None) -> list[dict[str, str]]:
             normalized["mirror_sha"]
         ):
             raise RemoteSyncError("exception SHAs must be complete 40-character lowercase SHAs")
+        if normalized["branch"] != APPROVED_BRANCH:
+            raise RemoteSyncError("only the approved master branch may be excepted")
+        if normalized["source_sha"] != APPROVED_SOURCE_SHA:
+            raise RemoteSyncError("exception source SHA must equal the approved source SHA")
+        if normalized["mirror_sha"] != APPROVED_MIRROR_SHA:
+            raise RemoteSyncError("exception mirror SHA must equal the approved mirror SHA")
+        if normalized["issue"] != APPROVED_INCIDENT:
+            raise RemoteSyncError("exception issue must cite the approved local incident")
+        if normalized["owner"] != APPROVED_OWNER:
+            raise RemoteSyncError("exception owner must be @cloudQuant")
         created = _parse_timestamp(normalized["created_at"], "created_at")
         expires = _parse_timestamp(normalized["expires_at"], "expires_at")
         if expires <= created:
             raise RemoteSyncError("exception expires_at must be after created_at")
+        if created > checked_at:
+            raise RemoteSyncError("exception created_at must not be in the future")
+        if expires > MAX_EXCEPTION_EXPIRY:
+            raise RemoteSyncError("exception expires_at must not exceed 2026-09-30T00:00:00Z")
         validated.append(normalized)
     return validated
 
@@ -134,8 +155,8 @@ def check_remote_sync(
         raise RemoteSyncError("at least one non-option branch name is required")
     source_heads = _read_remote_heads(source, run)
     mirror_heads = _read_remote_heads(mirror, run)
-    exceptions = load_exceptions(exceptions_path)
     checked_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    exceptions = load_exceptions(exceptions_path, now=checked_at)
     warnings: list[str] = []
     mismatches: list[dict[str, str | None]] = []
 
@@ -145,7 +166,7 @@ def check_remote_sync(
         if source_sha == mirror_sha and source_sha is not None:
             continue
         exception = _matching_exception(exceptions, branch, source_sha, mirror_sha)
-        if exception is not None and checked_at <= _parse_timestamp(exception["expires_at"], "expires_at"):
+        if exception is not None and checked_at < _parse_timestamp(exception["expires_at"], "expires_at"):
             warnings.append(
                 "approved temporary divergence "
                 f"branch={branch} issue={exception['issue']} owner={exception['owner']} "

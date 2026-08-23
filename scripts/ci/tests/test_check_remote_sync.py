@@ -1,4 +1,4 @@
-"""Contract tests for the read-only GitHub-to-Gitee ref comparison."""
+"""Offline contracts for the read-only GitHub-to-Gitee ref comparison."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ CHECKER_PATH = REPO_ROOT / "scripts" / "ci" / "check_remote_sync.py"
 SOURCE_MASTER = "605d4d0e1cf1ad6627483aab6c4cef2a742b3d0f"
 MIRROR_MASTER = "3d05130635f50c45adeaa4514af246380ff00451"
 DEV_SHA = "ebec2a0adf0f239784edbe4d2f3221ac581bd65e"
+CHECKED_AT = datetime(2026, 8, 24, tzinfo=timezone.utc)
 
 
 def _load_checker() -> ModuleType:
@@ -37,27 +38,33 @@ def _heads(master: str, dev: str = DEV_SHA) -> str:
     return f"{master}\trefs/heads/master\n{dev}\trefs/heads/dev\n"
 
 
-def _fake_runner(outputs: dict[str, str]):
+def _fake_runner(
+    outputs: dict[str, str], *, returncode: int = 0, stderr: str = ""
+) -> tuple[object, list[list[str]]]:
     calls: list[list[str]] = []
 
     def run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
         calls.append(command)
-        return subprocess.CompletedProcess(command, 0, stdout=outputs[command[-1]], stderr="")
+        return subprocess.CompletedProcess(
+            command, returncode, stdout=outputs.get(command[-1], ""), stderr=stderr
+        )
 
     return run, calls
 
 
-def _exception(expires_at: str = "2026-09-30T00:00:00Z") -> dict[str, object]:
-    return {
+def _exception(**changes: str) -> dict[str, object]:
+    entry: dict[str, object] = {
         "branch": "master",
         "source_sha": SOURCE_MASTER,
         "mirror_sha": MIRROR_MASTER,
         "issue": ".github/governance/decisions/remote-sync-incident.md",
-        "owner": "release/platform owner",
+        "owner": "@cloudQuant",
         "reason": "D1-approved temporary master mirror divergence",
-        "created_at": "2026-08-24T00:00:00Z",
-        "expires_at": expires_at,
+        "created_at": "2026-08-23T00:00:00Z",
+        "expires_at": "2026-09-30T00:00:00Z",
     }
+    entry.update(changes)
+    return entry
 
 
 def _exceptions_file(tmp_path: Path, entry: dict[str, object]) -> Path:
@@ -66,12 +73,12 @@ def _exceptions_file(tmp_path: Path, entry: dict[str, object]) -> Path:
     return path
 
 
-def test_equal_heads_pass_without_warnings_or_network_access() -> None:
+def test_equal_heads_pass_and_only_execute_ls_remote_heads() -> None:
     checker = _load_checker()
     runner, calls = _fake_runner({"source": _heads(DEV_SHA), "mirror": _heads(DEV_SHA)})
 
     result = checker.check_remote_sync(
-        source="source", mirror="mirror", branches=("master", "dev"), run=runner
+        source="source", mirror="mirror", branches=("master", "dev"), now=CHECKED_AT, run=runner
     )
 
     assert result["ok"] is True
@@ -82,24 +89,23 @@ def test_equal_heads_pass_without_warnings_or_network_access() -> None:
     ]
 
 
-def test_unexcepted_mismatch_fails() -> None:
+def test_unexcepted_mismatch_and_changed_sha_with_old_exception_fail(tmp_path: Path) -> None:
     checker = _load_checker()
-    runner, _ = _fake_runner({"source": _heads(SOURCE_MASTER), "mirror": _heads(MIRROR_MASTER)})
+    changed_source = "a" * 40
+    runner, _ = _fake_runner({"source": _heads(changed_source), "mirror": _heads(MIRROR_MASTER)})
 
     result = checker.check_remote_sync(
-        source="source", mirror="mirror", branches=("master", "dev"), run=runner
+        source="source",
+        mirror="mirror",
+        branches=("master", "dev"),
+        exceptions_path=_exceptions_file(tmp_path, _exception()),
+        now=CHECKED_AT,
+        run=runner,
     )
 
     assert result["ok"] is False
     assert result["warnings"] == []
-    assert result["mismatches"] == [
-        {
-            "branch": "master",
-            "source_sha": SOURCE_MASTER,
-            "mirror_sha": MIRROR_MASTER,
-            "status": "failed",
-        }
-    ]
+    assert result["mismatches"][0]["status"] == "failed"
 
 
 def test_unexpired_exact_exception_warns_but_allows_known_divergence(tmp_path: Path) -> None:
@@ -111,17 +117,40 @@ def test_unexpired_exact_exception_warns_but_allows_known_divergence(tmp_path: P
         mirror="mirror",
         branches=("master", "dev"),
         exceptions_path=_exceptions_file(tmp_path, _exception()),
-        now=datetime(2026, 8, 24, tzinfo=timezone.utc),
+        now=CHECKED_AT,
         run=runner,
     )
 
     assert result["ok"] is True
     assert result["mismatches"] == []
-    assert len(result["warnings"]) == 1
-    assert "expires_at=2026-09-30T00:00:00Z" in result["warnings"][0]
+    assert result["warnings"] == [
+        "approved temporary divergence "
+        "branch=master issue=.github/governance/decisions/remote-sync-incident.md "
+        "owner=@cloudQuant expires_at=2026-09-30T00:00:00Z"
+    ]
 
 
-def test_expired_exception_fails(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"branch": "dev"}, "master"),
+        ({"source_sha": "a" * 40}, "approved source"),
+        ({"mirror_sha": "b" * 40}, "approved mirror"),
+        ({"owner": "release/platform owner"}, "owner"),
+        ({"created_at": "2026-08-25T00:00:00Z"}, "future"),
+        ({"expires_at": "2026-10-01T00:00:00Z"}, "2026-09-30"),
+    ],
+)
+def test_exception_policy_rejects_any_scope_widening(
+    tmp_path: Path, changes: dict[str, str], message: str
+) -> None:
+    checker = _load_checker()
+
+    with pytest.raises(checker.RemoteSyncError, match=message):
+        checker.load_exceptions(_exceptions_file(tmp_path, _exception(**changes)), now=CHECKED_AT)
+
+
+def test_exception_is_inactive_at_its_exact_expiry(tmp_path: Path) -> None:
     checker = _load_checker()
     runner, _ = _fake_runner({"source": _heads(SOURCE_MASTER), "mirror": _heads(MIRROR_MASTER)})
 
@@ -129,14 +158,38 @@ def test_expired_exception_fails(tmp_path: Path) -> None:
         source="source",
         mirror="mirror",
         branches=("master", "dev"),
-        exceptions_path=_exceptions_file(tmp_path, _exception("2026-08-24T00:00:01Z")),
-        now=datetime(2026, 8, 25, tzinfo=timezone.utc),
+        exceptions_path=_exceptions_file(tmp_path, _exception()),
+        now=datetime(2026, 9, 30, tzinfo=timezone.utc),
         run=runner,
     )
 
     assert result["ok"] is False
-    assert result["warnings"] == []
     assert result["mismatches"][0]["status"] == "expired_exception"
+
+
+def test_nonzero_git_command_is_reported_without_generic_exception() -> None:
+    checker = _load_checker()
+    runner, calls = _fake_runner({}, returncode=128, stderr="remote unavailable")
+
+    with pytest.raises(checker.RemoteSyncError, match="remote unavailable"):
+        checker.check_remote_sync(
+            source="source", mirror="mirror", branches=("master",), now=CHECKED_AT, run=runner
+        )
+    assert calls == [["git", "ls-remote", "--heads", "source"]]
+
+
+def test_main_returns_machine_readable_error_status(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    checker = _load_checker()
+
+    def fail(**_: object) -> dict[str, object]:
+        raise checker.RemoteSyncError("fake command failure")
+
+    monkeypatch.setattr(checker, "check_remote_sync", fail)
+
+    status = checker.main(["--source", "source", "--mirror", "mirror", "--branches", "master"])
+
+    assert status == 2
+    assert "REMOTE_SYNC_ERROR: fake command failure" in capsys.readouterr().out
 
 
 def test_malformed_remote_output_is_a_specific_error() -> None:
