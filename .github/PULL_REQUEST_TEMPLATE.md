@@ -3,6 +3,11 @@ Iteration 175 §4.7 — the "i18n 变更清单" section is mandatory and is veri
 by `scripts/ci/check_pr_template.py`. Please leave it in place even if your
 PR does not touch any string literals (state "无变更" / "no change" in the
 relevant subfields).
+
+Iteration 195 — the static "Governance declaration" contract is verified by
+`scripts/ci/check_pr_template.py`. Regular changes must target `dev`;
+`master` only accepts `release/vX.Y.Z` promotions and `hotfix/master-*`
+emergency fixes (see CONTRIBUTING.md, "Branch Model").
 -->
 
 ## What & Why
@@ -12,6 +17,25 @@ relevant subfields).
 ## How
 
 <!-- High-level approach. Link to design doc / issue if relevant. -->
+
+## Governance declaration
+
+<!-- Required by iteration 195 PR Governance. Fill every field; placeholders fail CI. -->
+
+- **目标分支**: <!-- dev，或 master + release/hotfix 理由 -->
+- **风险等级**: <!-- R0 docs / R1 常规 / R2 核心路径（auth、DB、router/stores、bt_api_py）/ R3 workflow、docker、依赖。以变更路径自动分类为准，label 不能下调 -->
+- **测试证据**: <!-- 本地/CI 测试命令与结果，或链接 -->
+
+<!--
+仅当目标分支为 master 时保留并填写以下对应区块；普通 PR 请删除这两节。
+-->
+## Hotfix 前移计划 (master hotfix PRs only)
+
+- **前移计划**: <!-- incident reference；等价修复在 dev 的 issue/PR 链接，或“不受影响”的理由 -->
+
+## Release 清单 (master release promotion PRs only)
+
+- **Release 清单**: <!-- 版本号、changelog 链接、完整验证证据、回滚点说明 -->
 
 ## Test Plan
 

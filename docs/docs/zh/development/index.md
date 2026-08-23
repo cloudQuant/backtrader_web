@@ -27,5 +27,6 @@ src/frontend/src/
 - [架构设计](./architecture.md)
 - [API 参考](./api.md)
 - [数据库与数据边界](./database.md)
+- [贡献指南](./contributing.md)（分支模型与 PR 治理声明）
 - 工程代码规范：`docs/reference/CODING_STANDARDS.md`
 - 工程测试手册：`docs/how-to/TESTING.md`

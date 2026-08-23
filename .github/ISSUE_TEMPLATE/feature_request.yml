@@ -1,0 +1,51 @@
+name: Feature Request
+description: Suggest a new feature or improvement for AI for Investor
+title: '[Feature] '
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before requesting a feature, please search existing issues and Discussions
+        for duplicates.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve? Who benefits from it?
+    validations:
+      required: true
+  - type: textarea
+    id: users
+    attributes:
+      label: Target Users / Scenarios
+      description: Who would use this and in which workflow?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+      description: A clear description of what you want to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Alternative solutions or features you've considered, including existing workarounds.
+    validations:
+      required: true
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Willingness to Contribute
+      options:
+        - label: I am willing to submit a PR for this feature (targeting the `dev` branch)
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Related features, similar platforms, links.
+    validations:
+      required: false

@@ -275,15 +275,16 @@ backtrader_web/
 
 ## Contributing
 
-We welcome contributions from the community. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
+We welcome contributions from the community. See [CONTRIBUTING.md](CONTRIBUTING.md) or the
+[online contributing guide](docs/docs/en/development/contributing.md) for the full guide.
 
 **Quick version:**
 
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-feature`
+2. Create a feature branch **based on `dev`**: `git checkout -b feature/my-feature upstream/dev`
 3. Follow [conventional commits](https://www.conventionalcommits.org/): `feat(backtest): add cancel endpoint`
 4. Write tests for your changes
-5. Submit a Pull Request
+5. Submit a Pull Request **targeting `dev`** — `master` only accepts `release/vX.Y.Z` promotions and `hotfix/master-*` fixes, enforced by the PR Governance gate
 
 **Development tools:**
 
