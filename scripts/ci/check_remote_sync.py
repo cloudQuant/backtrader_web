@@ -96,7 +96,9 @@ def load_exceptions(path: Path | None, *, now: datetime | None = None) -> list[d
     validated: list[dict[str, str]] = []
     for entry in entries:
         if not isinstance(entry, dict) or not required.issubset(entry):
-            raise RemoteSyncError("each exception must include branch, SHAs, issue, owner, reason, and dates")
+            raise RemoteSyncError(
+                "each exception must include branch, SHAs, issue, owner, reason, and dates"
+            )
         normalized = {key: entry[key] for key in required}
         if not all(isinstance(value, str) and value.strip() for value in normalized.values()):
             raise RemoteSyncError("exception fields must be non-empty strings")
@@ -127,7 +129,10 @@ def load_exceptions(path: Path | None, *, now: datetime | None = None) -> list[d
 
 
 def _matching_exception(
-    exceptions: Sequence[dict[str, str]], branch: str, source_sha: str | None, mirror_sha: str | None
+    exceptions: Sequence[dict[str, str]],
+    branch: str,
+    source_sha: str | None,
+    mirror_sha: str | None,
 ) -> dict[str, str] | None:
     return next(
         (
@@ -166,7 +171,9 @@ def check_remote_sync(
         if source_sha == mirror_sha and source_sha is not None:
             continue
         exception = _matching_exception(exceptions, branch, source_sha, mirror_sha)
-        if exception is not None and checked_at < _parse_timestamp(exception["expires_at"], "expires_at"):
+        if exception is not None and checked_at < _parse_timestamp(
+            exception["expires_at"], "expires_at"
+        ):
             warnings.append(
                 "approved temporary divergence "
                 f"branch={branch} issue={exception['issue']} owner={exception['owner']} "

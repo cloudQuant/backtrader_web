@@ -178,7 +178,9 @@ def test_nonzero_git_command_is_reported_without_generic_exception() -> None:
     assert calls == [["git", "ls-remote", "--heads", "source"]]
 
 
-def test_main_returns_machine_readable_error_status(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_returns_machine_readable_error_status(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     checker = _load_checker()
 
     def fail(**_: object) -> dict[str, object]:

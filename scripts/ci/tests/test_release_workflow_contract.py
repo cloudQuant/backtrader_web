@@ -85,11 +85,11 @@ def _provenance_result(
         fake_git = fake_bin / "git"
         fake_git.write_text(
             "#!/bin/sh\n"
-            "case \"$1\" in\n"
+            'case "$1" in\n'
             "  fetch) exit 0 ;;\n"
             "  rev-list) printf '%s\\n' \"$FAKE_TAG_COMMIT\" ;;\n"
             "  rev-parse) printf '%s\\n' \"$FAKE_MASTER_COMMIT\" ;;\n"
-            "  *) echo \"unexpected fake git command: $*\" >&2; exit 64 ;;\n"
+            '  *) echo "unexpected fake git command: $*" >&2; exit 64 ;;\n'
             "esac\n",
             encoding="utf-8",
         )
@@ -153,7 +153,10 @@ def _release_issues(workflow: str) -> list[str]:
         checkout_with = checkout.get("with")
         if _uses(checkout) != CHECKOUT_PIN or not isinstance(checkout_with, dict):
             issues.append("release checkout must use the reviewed immutable action pin")
-        elif checkout_with.get("fetch-depth") != "0" or checkout_with.get("persist-credentials") != "false":
+        elif (
+            checkout_with.get("fetch-depth") != "0"
+            or checkout_with.get("persist-credentials") != "false"
+        ):
             issues.append("release checkout must fully fetch without persisted credentials")
         resolve_index, resolve = _step(release, "Resolve and verify immutable release provenance")
         resolve_script = _run(resolve)
@@ -163,13 +166,19 @@ def _release_issues(workflow: str) -> list[str]:
         )
         if not protected_gate:
             issues.append("tag-push release must reject an unprotected ref before build")
-        if 'git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master' not in resolve_script:
+        if (
+            "git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master"
+            not in resolve_script
+        ):
             issues.append("release must explicitly fetch origin/master before comparing it")
         if 'if [ "$TAG_COMMIT" != "$MASTER_COMMIT" ]; then' not in resolve_script:
             issues.append("tag provenance must require exact equality, not ancestry")
         if "merge-base --is-ancestor" in resolve_script:
             issues.append("tag provenance must not accept ancestry in place of equality")
-        if 'github.event_name }}" = "workflow_dispatch"' not in resolve_script or "dry-run only" not in resolve_script:
+        if (
+            'github.event_name }}" = "workflow_dispatch"' not in resolve_script
+            or "dry-run only" not in resolve_script
+        ):
             issues.append("workflow_dispatch must remain visibly dry-run")
         issues.extend(_provenance_semantic_issues(workflow))
     except AssertionError as error:
@@ -185,12 +194,18 @@ def _release_issues(workflow: str) -> list[str]:
         workflow,
     ):
         issues.append("artifact-only release must not publish or access production credentials")
-    if "backend_digest" in raw.lower() or "frontend_digest" in raw.lower() or "immutable digest" in raw.lower():
+    if (
+        "backend_digest" in raw.lower()
+        or "frontend_digest" in raw.lower()
+        or "immutable digest" in raw.lower()
+    ):
         issues.append("artifact-only metadata must not call local image IDs registry digests")
     if "backend_image_id" not in raw or "frontend_image_id" not in raw or "commit_sha" not in raw:
         issues.append("release metadata must record tag, commit SHA, and both local image IDs")
     if "docker image inspect --format '{{.Id}}'" not in raw or "local Docker image ID" not in raw:
-        issues.append("release metadata must identify local image IDs without claiming a registry digest")
+        issues.append(
+            "release metadata must identify local image IDs without claiming a registry digest"
+        )
     if "release-metadata" not in workflow or "GITHUB_STEP_SUMMARY" not in raw:
         issues.append("release metadata must be retained as an artifact and summary")
 
@@ -245,10 +260,14 @@ def _nightly_issues(workflow: str) -> list[str]:
         if evidence.get("shell") != "bash" or "set -euo pipefail" not in evidence_run:
             issues.append("nightly remote sync pipeline must fail closed with Bash pipefail")
         if "2>&1 | tee remote-sync-summary.txt" not in evidence_run:
-            issues.append("nightly remote sync must retain both stdout and stderr in its human summary")
+            issues.append(
+                "nightly remote sync must retain both stdout and stderr in its human summary"
+            )
         _, upload = _step(remote_sync, "Upload remote-sync evidence")
         if upload.get("if") != "always()" or _uses(upload) != UPLOAD_PIN:
-            issues.append("nightly must always upload evidence with the reviewed immutable action pin")
+            issues.append(
+                "nightly must always upload evidence with the reviewed immutable action pin"
+            )
     except AssertionError as error:
         issues.append(str(error))
     return issues
@@ -264,7 +283,9 @@ def test_release_requires_protected_tag_exact_provenance_and_image_ids() -> None
 
 
 def test_release_contract_rejects_unprotected_tag_bypass() -> None:
-    unsafe = _read(DOCKER_PUBLISH).replace('github.ref_protected }}" != "true"', '"true" != "true"', 1)
+    unsafe = _read(DOCKER_PUBLISH).replace(
+        'github.ref_protected }}" != "true"', '"true" != "true"', 1
+    )
 
     assert "unprotected ref" in " ".join(_release_issues(unsafe))
 
@@ -280,30 +301,34 @@ def test_release_contract_rejects_dead_or_ancestry_only_equality_snippet() -> No
 
 
 def test_release_contract_rejects_unreachable_protection_and_equality_guards() -> None:
-    unsafe = _read(DOCKER_PUBLISH).replace(
-        'if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_protected }}" != "true" ]; then\n'
-        '            echo "::error::Tag-push artifact builds require a protected release tag."\n'
-        "            exit 1\n"
-        "          fi",
-        'if false; then\n'
-        '            if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_protected }}" != "true" ]; then\n'
-        '              echo "::error::Tag-push artifact builds require a protected release tag."\n'
-        "              exit 1\n"
-        "            fi\n"
-        "          fi",
-        1,
-    ).replace(
-        'if [ "$TAG_COMMIT" != "$MASTER_COMMIT" ]; then\n'
-        '            echo "::error::Tag $TAG resolves to $TAG_COMMIT, not origin/master $MASTER_COMMIT."\n'
-        "            exit 1\n"
-        "          fi",
-        'if false; then\n'
-        '            if [ "$TAG_COMMIT" != "$MASTER_COMMIT" ]; then\n'
-        '              echo "::error::Tag $TAG resolves to $TAG_COMMIT, not origin/master $MASTER_COMMIT."\n'
-        "              exit 1\n"
-        "            fi\n"
-        "          fi",
-        1,
+    unsafe = (
+        _read(DOCKER_PUBLISH)
+        .replace(
+            'if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_protected }}" != "true" ]; then\n'
+            '            echo "::error::Tag-push artifact builds require a protected release tag."\n'
+            "            exit 1\n"
+            "          fi",
+            "if false; then\n"
+            '            if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_protected }}" != "true" ]; then\n'
+            '              echo "::error::Tag-push artifact builds require a protected release tag."\n'
+            "              exit 1\n"
+            "            fi\n"
+            "          fi",
+            1,
+        )
+        .replace(
+            'if [ "$TAG_COMMIT" != "$MASTER_COMMIT" ]; then\n'
+            '            echo "::error::Tag $TAG resolves to $TAG_COMMIT, not origin/master $MASTER_COMMIT."\n'
+            "            exit 1\n"
+            "          fi",
+            "if false; then\n"
+            '            if [ "$TAG_COMMIT" != "$MASTER_COMMIT" ]; then\n'
+            '              echo "::error::Tag $TAG resolves to $TAG_COMMIT, not origin/master $MASTER_COMMIT."\n'
+            "              exit 1\n"
+            "            fi\n"
+            "          fi",
+            1,
+        )
     )
 
     issues = " ".join(_release_issues(unsafe))
@@ -336,9 +361,13 @@ def test_nightly_failure_pipeline_is_fail_closed_and_evidence_is_always_uploaded
     assert _nightly_issues(_read(NIGHTLY)) == []
 
 
-def test_nightly_contract_rejects_missing_pipefail_stderr_capture_or_mutable_upload_action() -> None:
+def test_nightly_contract_rejects_missing_pipefail_stderr_capture_or_mutable_upload_action() -> (
+    None
+):
     unsafe = _read(NIGHTLY).replace("set -euo pipefail", "set -eu", 1)
-    unsafe = unsafe.replace("2>&1 | tee remote-sync-summary.txt", "| tee remote-sync-summary.txt", 1)
+    unsafe = unsafe.replace(
+        "2>&1 | tee remote-sync-summary.txt", "| tee remote-sync-summary.txt", 1
+    )
     unsafe = unsafe.replace(UPLOAD_PIN, "actions/upload-artifact@v4", 1)
 
     issues = " ".join(_nightly_issues(unsafe))
