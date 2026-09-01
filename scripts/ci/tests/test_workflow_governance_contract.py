@@ -167,7 +167,8 @@ def _governance_run_issues(workflow: str) -> list[str]:
     expected_evaluate = (
         'python scripts/ci/check_pr_governance.py --pr "$GOVERNANCE_TMP/pr.json" '
         '--reviews "$GOVERNANCE_TMP/reviews.json" --changed-files "$GOVERNANCE_TMP/files.json" '
-        "--risk-map .github/governance/risk-paths.json --manifest-dir .github/governance/rulesets"
+        "--risk-map .github/governance/risk-paths.json --manifest-dir .github/governance/rulesets "
+        "--reviewer-authorization .github/governance/reviewer-authorization.json"
     )
     if evaluate is None or _normalized_command(evaluate) != expected_evaluate:
         issues.append(
@@ -305,7 +306,9 @@ class TestPrGovernanceWorkflowContract:
 
         assert _permission_issues(workflow)
 
-    def test_governance_workflow_is_read_only_and_has_an_always_running_gate(self) -> None:
+    def test_governance_workflow_is_read_only_and_has_an_always_running_gate(
+        self,
+    ) -> None:
         workflow = _read(PR_GOVERNANCE)
         parsed = _workflow_mapping(workflow)
         jobs = parsed.get("jobs")
@@ -353,7 +356,9 @@ class TestPrGovernanceWorkflowContract:
         assert "github.event.pull_request.head" not in workflow
         assert _checkout_issues(workflow) == []
 
-    def test_governance_has_exactly_one_pinned_action_and_no_container_or_services(self) -> None:
+    def test_governance_has_exactly_one_pinned_action_and_no_container_or_services(
+        self,
+    ) -> None:
         workflow = _read(PR_GOVERNANCE)
         parsed = _workflow_mapping(workflow)
         gate = _governance_gate(workflow)
@@ -384,7 +389,9 @@ class TestPrGovernanceWorkflowContract:
         assert _uses_issues(containerized)
         assert _uses_issues(serviced)
 
-    def test_governance_shell_steps_match_the_metadata_and_evaluator_allowlists(self) -> None:
+    def test_governance_shell_steps_match_the_metadata_and_evaluator_allowlists(
+        self,
+    ) -> None:
         workflow = _read(PR_GOVERNANCE)
         conditional = workflow.replace(
             "      - name: Read pull request metadata\n",
@@ -396,7 +403,9 @@ class TestPrGovernanceWorkflowContract:
         assert _governance_run_issues(workflow) == []
         assert _governance_run_issues(conditional)
 
-    def test_governance_rejects_metadata_api_write_or_pr_comment_mutations(self) -> None:
+    def test_governance_rejects_metadata_api_write_or_pr_comment_mutations(
+        self,
+    ) -> None:
         workflow = _read(PR_GOVERNANCE)
         api_write = workflow.replace(
             'gh api --method GET "repos/$PR_REPOSITORY/pulls/$PR_NUMBER"',
@@ -419,7 +428,9 @@ class TestPrGovernanceWorkflowContract:
         assert _governance_run_issues(pr_comment)
         assert _governance_run_issues(pr_checkout)
 
-    def test_governance_rejects_fetching_pr_head_or_checkout_head_mutations(self) -> None:
+    def test_governance_rejects_fetching_pr_head_or_checkout_head_mutations(
+        self,
+    ) -> None:
         workflow = _read(PR_GOVERNANCE)
         fetch_head = workflow.replace(
             '          mkdir -p "$GOVERNANCE_TMP"\n',
@@ -428,7 +439,9 @@ class TestPrGovernanceWorkflowContract:
             1,
         )
         checkout_head = workflow.replace(
-            "github.event.pull_request.base.sha", "github.event.pull_request.head.sha", 1
+            "github.event.pull_request.base.sha",
+            "github.event.pull_request.head.sha",
+            1,
         )
         merge_ref = workflow.replace(
             '          mkdir -p "$GOVERNANCE_TMP"\n',

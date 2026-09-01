@@ -657,6 +657,9 @@ def _validate_branch_manifest(
                 f"must be {expected['required_approvals']}",
             )
         )
+    for field in ("dismiss_stale_reviews_on_push", "require_last_push_approval"):
+        if pull_request.get(field) is not True:
+            issues.append(_issue(f"{key}.pull_request.{field}", "must be true"))
     if pull_request.get("conversation_resolution") is not True:
         issues.append(_issue(f"{key}.pull_request.conversation_resolution", "must be true"))
 
@@ -952,6 +955,10 @@ def normalized_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
                 "pull_request": {
                     "required": pr_mapping.get("required"),
                     "required_approvals": pr_mapping.get("required_approvals"),
+                    "dismiss_stale_reviews_on_push": pr_mapping.get(
+                        "dismiss_stale_reviews_on_push"
+                    ),
+                    "require_last_push_approval": pr_mapping.get("require_last_push_approval"),
                     "code_owner_review_enabled": code_owner_mapping.get("enabled"),
                     "conversation_resolution": pr_mapping.get("conversation_resolution"),
                 },

@@ -15,7 +15,42 @@ SCRIPTS_CI = REPO_ROOT / "scripts" / "ci"
 CHECKER_PATH = SCRIPTS_CI / "check_pr_governance.py"
 RISK_MAP_PATH = REPO_ROOT / ".github" / "governance" / "risk-paths.json"
 MANIFEST_DIR = REPO_ROOT / ".github" / "governance" / "rulesets"
+REVIEWER_AUTHORIZATION_PATH = REPO_ROOT / ".github" / "governance" / "reviewer-authorization.json"
 _DEFAULT_CHANGED_FILE_COUNT = object()
+_CURRENT_HEAD_SHA = "c" * 40
+
+
+def _authorization(*, approved: bool = True) -> dict[str, object]:
+    """Return an explicit D2 authorization fixture for trusted-review tests."""
+    status = "approved" if approved else "owner_baseline_pending_second_maintainer"
+    reviewers = [
+        {
+            "login": login,
+            "author_associations": ["OWNER"],
+            "evidence": {
+                "gate": "D2",
+                "status": "approved" if approved else "owner_baseline",
+                "reference": ".github/governance/decisions/iteration-195.md",
+            },
+        }
+        for login in (
+            "maintainer",
+            "maintainer-a",
+            "maintainer-b",
+            "maintainer-c",
+            "repository-owner",
+        )
+    ]
+    return {
+        "schema_version": 1,
+        "decision": {
+            "gate": "D2",
+            "status": status,
+            "reference": ".github/governance/decisions/iteration-195.md",
+            "reason": "Synthetic test authorization only.",
+        },
+        "reviewers": reviewers,
+    }
 
 
 def _load_checker() -> ModuleType:
@@ -75,7 +110,7 @@ def _pr(
     return {
         "number": 195,
         "base": {"ref": base},
-        "head": {"ref": head},
+        "head": {"ref": head, "sha": _CURRENT_HEAD_SHA},
         "user": {"login": author},
         "body": body,
         "labels": [{"name": label} for label in labels],
@@ -89,6 +124,7 @@ def _review(
     state: str,
     submitted_at: str,
     author_association: str | None = "OWNER",
+    commit_id: object = _CURRENT_HEAD_SHA,
 ) -> dict[str, object]:
     review: dict[str, object] = {
         "user": {"login": login},
@@ -97,6 +133,8 @@ def _review(
     }
     if author_association is not None:
         review["author_association"] = author_association
+    if commit_id is not None:
+        review["commit_id"] = commit_id
     return review
 
 
@@ -109,6 +147,7 @@ def _evaluate(
     metadata_changed_file_count: object = _DEFAULT_CHANGED_FILE_COUNT,
     raw_file_entry_count: int | None = None,
     manifests: dict[str, dict[str, object]] | None = None,
+    reviewer_authorization: dict[str, object] | None = None,
 ) -> dict[str, object]:
     pr_with_count = dict(pr)
     pr_with_count["changed_files"] = (
@@ -124,6 +163,9 @@ def _evaluate(
         manifests=_manifests(checker) if manifests is None else manifests,
         changed_file_entry_count=(
             len(changed_files) if raw_file_entry_count is None else raw_file_entry_count
+        ),
+        reviewer_authorization=(
+            _authorization() if reviewer_authorization is None else reviewer_authorization
         ),
     )
 
@@ -528,7 +570,11 @@ def test_mixed_length_fences_do_not_expose_hidden_governance_declarations() -> N
 - **测试证据**: pytest hidden-fence-decoy
 """
 
-    for opening_fence, inner_fence in (("````", "```"), ("`````", "````"), ("~~~~", "~~~")):
+    for opening_fence, inner_fence in (
+        ("````", "```"),
+        ("`````", "````"),
+        ("~~~~", "~~~"),
+    ):
         body = f"{opening_fence}markdown\n{inner_fence}\n{hidden_declaration}{opening_fence}\n"
         pr = _pr(base="dev", head="feature/market-screen", body=body)
 
@@ -630,7 +676,7 @@ def test_r2_auth_change_requires_matching_declaration_and_protective_record() ->
     assert result["risk"] == "R2"
     assert result["labels_can_lower_risk"] is False
     assert any("declares R1 but changed paths require R2" in issue for issue in result["issues"])
-    assert any("verified OWNER protective approval" in issue for issue in result["issues"])
+    assert any("verified authorized protective approval" in issue for issue in result["issues"])
     assert result["code_owner_review"]["verified"] is False
 
 
@@ -1070,6 +1116,189 @@ def test_owner_approval_counts_toward_the_dev_floor() -> None:
     assert result["effective_approvals"] == ["maintainer"]
 
 
+def test_stale_approval_does_not_survive_a_pull_request_head_change() -> None:
+    checker = _load_checker()
+    pr = _pr(
+        base="dev",
+        head="feature/market-screen",
+        body=_body(target="dev", risk="R1"),
+    )
+    pr["head"] = {"ref": "feature/market-screen", "sha": "d" * 40}
+
+    result = _evaluate(
+        checker,
+        pr,
+        [_review("maintainer", "APPROVED", "2026-08-24T00:01:00Z", commit_id="c" * 40)],
+        ["src/backend/app/services/market_data.py"],
+    )
+
+    assert result["ok"] is False
+    assert result["effective_approvals"] == []
+    assert result["stale_approvals"] == ["maintainer"]
+    assert any("not tied to the current PR head" in issue for issue in result["issues"])
+
+
+def test_current_head_approval_replaces_an_older_approval_from_the_same_reviewer() -> None:
+    checker = _load_checker()
+    pr = _pr(
+        base="dev",
+        head="feature/market-screen",
+        body=_body(target="dev", risk="R1"),
+    )
+    pr["head"] = {"ref": "feature/market-screen", "sha": "d" * 40}
+
+    result = _evaluate(
+        checker,
+        pr,
+        [
+            _review("maintainer", "APPROVED", "2026-08-24T00:01:00Z", commit_id="c" * 40),
+            _review("maintainer", "APPROVED", "2026-08-24T00:02:00Z", commit_id="d" * 40),
+        ],
+        ["src/backend/app/services/market_data.py"],
+    )
+
+    assert result["ok"] is True
+    assert result["effective_approvals"] == ["maintainer"]
+    assert result["stale_approvals"] == []
+
+
+def test_missing_or_malformed_approval_commit_id_fails_closed() -> None:
+    checker = _load_checker()
+    pr = _pr(
+        base="dev",
+        head="feature/market-screen",
+        body=_body(target="dev", risk="R1"),
+    )
+
+    for commit_id in (None, "not-a-git-sha", 195):
+        result = _evaluate(
+            checker,
+            pr,
+            [
+                _review(
+                    "maintainer",
+                    "APPROVED",
+                    "2026-08-24T00:01:00Z",
+                    commit_id=commit_id,
+                )
+            ],
+            ["src/backend/app/services/market_data.py"],
+        )
+
+        assert result["ok"] is False
+        assert result["effective_approvals"] == []
+        assert result["stale_approvals"] == ["maintainer"]
+        assert any("not tied to the current PR head" in issue for issue in result["issues"])
+
+
+def test_repository_authorization_is_owner_only_while_d2_has_no_second_maintainer() -> None:
+    checker = _load_checker()
+
+    authorization = checker.load_reviewer_authorization(REVIEWER_AUTHORIZATION_PATH)
+
+    assert authorization == {"cloudquant": frozenset({"OWNER"})}
+
+
+def test_malformed_reviewer_authorization_fails_closed_before_any_review_counts() -> None:
+    checker = _load_checker()
+    pr = _pr(
+        base="dev",
+        head="feature/market-screen",
+        body=_body(target="dev", risk="R1"),
+    )
+    authorization = _authorization()
+    reviewers = authorization["reviewers"]
+    assert isinstance(reviewers, list)
+    reviewers[0]["author_associations"] = ["OWNER", "OWNER"]
+
+    result = _evaluate(
+        checker,
+        pr,
+        [_review("maintainer", "APPROVED", "2026-08-24T00:01:00Z")],
+        ["src/backend/app/services/market_data.py"],
+        reviewer_authorization=authorization,
+    )
+
+    assert result["ok"] is False
+    assert result["effective_approvals"] == []
+    assert any(
+        "reviewer authorization configuration is invalid" in issue for issue in result["issues"]
+    )
+
+
+def test_unauthorized_collaborator_approval_does_not_count() -> None:
+    checker = _load_checker()
+    pr = _pr(
+        base="dev",
+        head="feature/market-screen",
+        body=_body(target="dev", risk="R1"),
+    )
+
+    result = _evaluate(
+        checker,
+        pr,
+        [
+            _review(
+                "unapproved-collaborator",
+                "APPROVED",
+                "2026-08-24T00:01:00Z",
+                "COLLABORATOR",
+            )
+        ],
+        ["src/backend/app/services/market_data.py"],
+    )
+
+    assert result["ok"] is False
+    assert result["effective_approvals"] == []
+    assert result["unverified_reviews"] == ["unapproved-collaborator"]
+
+
+def test_d2_approved_collaborator_can_complete_the_master_two_review_floor() -> None:
+    checker = _load_checker()
+    pr = _pr(
+        base="master",
+        head="release/v1.2.3",
+        body=_body(
+            target="master",
+            risk="R3",
+            release_checklist="v1.2.3 changelog, regression results, and rollback point",
+        ),
+    )
+    authorization = _authorization()
+    reviewers = authorization["reviewers"]
+    assert isinstance(reviewers, list)
+    reviewers.append(
+        {
+            "login": "approved-collaborator",
+            "author_associations": ["COLLABORATOR"],
+            "evidence": {
+                "gate": "D2",
+                "status": "approved",
+                "reference": ".github/governance/decisions/iteration-195.md",
+            },
+        }
+    )
+
+    result = _evaluate(
+        checker,
+        pr,
+        [
+            _review("maintainer-a", "APPROVED", "2026-08-24T00:01:00Z", "OWNER"),
+            _review(
+                "approved-collaborator",
+                "APPROVED",
+                "2026-08-24T00:02:00Z",
+                "COLLABORATOR",
+            ),
+        ],
+        ["scripts/ops/release.sh"],
+        reviewer_authorization=authorization,
+    )
+
+    assert result["ok"] is True
+    assert result["effective_approvals"] == ["approved-collaborator", "maintainer-a"]
+
+
 def test_unverified_none_approval_does_not_count_toward_the_floor() -> None:
     checker = _load_checker()
     pr = _pr(
@@ -1203,10 +1432,12 @@ def test_requested_reviewer_does_not_satisfy_r2_protective_review_requirement() 
 
     assert result["ok"] is False
     assert result["protective_reviewers"] == []
-    assert any("verified OWNER protective approval" in issue for issue in result["issues"])
+    assert any("verified authorized protective approval" in issue for issue in result["issues"])
 
 
-def test_cli_uses_local_json_inputs_and_returns_a_machine_readable_result(tmp_path: Path) -> None:
+def test_cli_uses_local_json_inputs_and_returns_a_machine_readable_result(
+    tmp_path: Path,
+) -> None:
     pr_path = tmp_path / "pr.json"
     reviews_path = tmp_path / "reviews.json"
     files_path = tmp_path / "files.json"
@@ -1221,7 +1452,7 @@ def test_cli_uses_local_json_inputs_and_returns_a_machine_readable_result(tmp_pa
         encoding="utf-8",
     )
     reviews_path.write_text(
-        json.dumps([_review("maintainer", "APPROVED", "2026-08-24T00:01:00Z")]),
+        json.dumps([_review("cloudQuant", "APPROVED", "2026-08-24T00:01:00Z")]),
         encoding="utf-8",
     )
     files_path.write_text(
@@ -1243,6 +1474,8 @@ def test_cli_uses_local_json_inputs_and_returns_a_machine_readable_result(tmp_pa
             str(RISK_MAP_PATH),
             "--manifest-dir",
             str(MANIFEST_DIR),
+            "--reviewer-authorization",
+            str(REVIEWER_AUTHORIZATION_PATH),
         ],
         cwd=REPO_ROOT,
         capture_output=True,

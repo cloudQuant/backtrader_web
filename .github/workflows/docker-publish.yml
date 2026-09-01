@@ -19,9 +19,7 @@ jobs:
   release-artifact:
     name: Verify tag provenance and build release metadata
     runs-on: ubuntu-latest
-    # D6 permits artifact builds only. The protected environment represents the
-    # future release boundary; this job deliberately receives no credentials.
-    environment: release
+    # D6 permits artifact builds only; this job deliberately receives no production credentials.
 
     steps:
       - name: Checkout complete release history

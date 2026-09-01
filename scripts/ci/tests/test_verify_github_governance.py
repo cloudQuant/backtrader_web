@@ -126,6 +126,75 @@ class TestRulesetNormalization:
         assert report["ok"] is False
         assert any("dev.pull_request.required_approvals" in diff for diff in report["differences"])
 
+    def test_review_reset_and_last_push_requirements_are_compared(self) -> None:
+        verifier = _load_verifier()
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        dev_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: dev")
+        pull_request = next(rule for rule in dev_rule["rules"] if rule["type"] == "pull_request")
+        pull_request["parameters"]["dismiss_stale_reviews_on_push"] = False
+        pull_request["parameters"].pop("require_last_push_approval", None)
+
+        report = verifier.verify_rulesets(MANIFEST_DIR, actual, source="fixture")
+
+        assert report["ok"] is False
+        assert any(
+            "dev.pull_request.dismiss_stale_reviews_on_push" in diff
+            for diff in report["differences"]
+        )
+        assert any(
+            "dev.pull_request.require_last_push_approval" in diff for diff in report["differences"]
+        )
+
+    def test_unmodeled_actual_rule_type_fails_closed(self) -> None:
+        verifier = _load_verifier()
+        actual = copy.deepcopy(_fixture()["rulesets"])
+        dev_rule = next(rule for rule in actual if rule["name"] == "Iteration 195: dev")
+        dev_rule["rules"].append({"type": "required_workflows", "parameters": {}})
+
+        report = verifier.verify_rulesets(MANIFEST_DIR, actual, source="fixture")
+
+        assert report["ok"] is False
+        assert any(
+            "dev.readback_errors" in difference and "unmodeled rule type" in difference
+            for difference in report["differences"]
+        )
+
+    def test_fixture_mode_compares_desired_shape_without_claiming_remote_activation(
+        self,
+    ) -> None:
+        verifier = _load_verifier()
+
+        report = verifier.verify_rulesets(
+            MANIFEST_DIR,
+            copy.deepcopy(_fixture()["rulesets"]),
+            source="fixture",
+        )
+
+        assert report == {"ok": True, "differences": []}
+
+    def test_live_mode_rejects_present_rulesets_declared_not_applied(self) -> None:
+        verifier = _load_verifier()
+
+        report = verifier.verify_rulesets(
+            MANIFEST_DIR,
+            copy.deepcopy(_fixture()["rulesets"]),
+            source="live",
+        )
+
+        assert report["ok"] is False
+        assert any(
+            "dev.activation.remote_state" in difference for difference in report["differences"]
+        )
+
+    def test_live_mode_accepts_the_absence_of_rulesets_declared_not_applied(
+        self,
+    ) -> None:
+        verifier = _load_verifier()
+
+        report = verifier.verify_rulesets(MANIFEST_DIR, [], source="live")
+
+        assert report == {"ok": True, "differences": []}
+
     def test_ref_name_exclude_drift_is_not_ignored(self) -> None:
         verifier = _load_verifier()
         actual = copy.deepcopy(_fixture()["rulesets"])

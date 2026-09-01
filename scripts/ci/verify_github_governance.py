@@ -32,6 +32,8 @@ _BRANCH_SECURITY_CRITICAL_RULE_TYPES = (
     "deletion",
 )
 _TAG_SECURITY_CRITICAL_RULE_TYPES = ("creation", "update", "deletion")
+_BRANCH_ALLOWED_RULE_TYPES = frozenset(_BRANCH_SECURITY_CRITICAL_RULE_TYPES)
+_TAG_ALLOWED_RULE_TYPES = frozenset(_TAG_SECURITY_CRITICAL_RULE_TYPES)
 
 
 def _rules_by_type(rules: Any, rule_type: str) -> list[Mapping[str, Any]]:
@@ -65,6 +67,20 @@ def _duplicate_rule_errors(rules: Any, rule_types: Sequence[str]) -> list[str]:
         for rule_type in rule_types
         if _count_rules(rules, rule_type) > 1
     ]
+
+
+def _unmodeled_rule_errors(rules: Any, allowed_rule_types: frozenset[str]) -> list[str]:
+    """Reject API rule types that this verifier cannot compare safely."""
+    if not isinstance(rules, list):
+        return []
+    errors: list[str] = []
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, Mapping):
+            continue
+        rule_type = rule.get("type")
+        if not isinstance(rule_type, str) or rule_type not in allowed_rule_types:
+            errors.append(f"unmodeled rule type at rules[{index}]: {rule_type!r}")
+    return errors
 
 
 def _normalize_ref_name_patterns(value: Any, *, field: str) -> list[str]:
@@ -111,6 +127,7 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
     }
     if target == "branch":
         readback_errors.extend(_duplicate_rule_errors(rules, _BRANCH_SECURITY_CRITICAL_RULE_TYPES))
+        readback_errors.extend(_unmodeled_rule_errors(rules, _BRANCH_ALLOWED_RULE_TYPES))
         pull_request = _rule_parameters(rules, "pull_request")
         status_checks = _rule_parameters(rules, "required_status_checks")
         raw_contexts = status_checks.get("required_status_checks", [])
@@ -120,6 +137,10 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
                 "pull_request": {
                     "required": _has_rule(rules, "pull_request"),
                     "required_approvals": pull_request.get("required_approving_review_count"),
+                    "dismiss_stale_reviews_on_push": pull_request.get(
+                        "dismiss_stale_reviews_on_push"
+                    ),
+                    "require_last_push_approval": pull_request.get("require_last_push_approval"),
                     "code_owner_review_enabled": pull_request.get("require_code_owner_review"),
                     "conversation_resolution": pull_request.get(
                         "required_review_thread_resolution"
@@ -138,6 +159,7 @@ def normalize_github_ruleset(raw_ruleset: Mapping[str, Any]) -> dict[str, Any]:
         )
     elif target == "tag":
         readback_errors.extend(_duplicate_rule_errors(rules, _TAG_SECURITY_CRITICAL_RULE_TYPES))
+        readback_errors.extend(_unmodeled_rule_errors(rules, _TAG_ALLOWED_RULE_TYPES))
         canonical["tag_protection"] = {
             "block_creation": _has_rule(rules, "creation"),
             "block_update": _has_rule(rules, "update"),
@@ -181,9 +203,14 @@ def _diff(expected: Any, actual: Any, path: str) -> list[str]:
 
 
 def verify_rulesets(
-    manifest_dir: Path | str, actual_rulesets: Sequence[Mapping[str, Any]]
+    manifest_dir: Path | str,
+    actual_rulesets: Sequence[Mapping[str, Any]],
+    *,
+    source: str = "fixture",
 ) -> dict[str, Any]:
-    """Compare manifest desired state to a Rulesets API readback or fixture."""
+    """Compare desired Rulesets with either fixture shape or live activation state."""
+    if source not in {"fixture", "live"}:
+        raise ValueError("verification source must be 'fixture' or 'live'")
     manifests = load_manifests(manifest_dir)
     differences = validate_manifests(manifests)
     expected_by_name = {
@@ -204,6 +231,15 @@ def verify_rulesets(
             )
     for name, (key, expected) in sorted(expected_by_name.items()):
         matching_rulesets = actual_by_name.get(name)
+        activation = manifests[key].get("activation")
+        remote_state = activation.get("remote_state") if isinstance(activation, Mapping) else None
+        if source == "live" and remote_state == "not_applied":
+            if matching_rulesets is not None:
+                differences.append(
+                    f"{key}.activation.remote_state: manifest declares 'not_applied' but "
+                    f"live API returned Ruleset {name!r}"
+                )
+            continue
         if matching_rulesets is None:
             differences.append(f"{key}: missing actual Ruleset named {name!r}")
             continue
@@ -308,8 +344,9 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
+        source = "fixture" if args.fixture else "live"
         rulesets = load_fixture(args.fixture) if args.fixture else load_live_rulesets(args.repo)
-        report = verify_rulesets(args.manifest_dir, rulesets)
+        report = verify_rulesets(args.manifest_dir, rulesets, source=source)
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
         report = {"ok": False, "differences": [f"verifier error: {error}"]}
 

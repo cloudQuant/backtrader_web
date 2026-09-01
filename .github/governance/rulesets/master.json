@@ -28,6 +28,8 @@
   "pull_request": {
     "required": true,
     "required_approvals": 2,
+    "dismiss_stale_reviews_on_push": true,
+    "require_last_push_approval": true,
     "conversation_resolution": true,
     "code_owner_review": {
       "desired_when_d2_ready": true,

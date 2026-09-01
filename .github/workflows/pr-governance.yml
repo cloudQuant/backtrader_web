@@ -45,4 +45,5 @@ jobs:
             --reviews "$GOVERNANCE_TMP/reviews.json" \
             --changed-files "$GOVERNANCE_TMP/files.json" \
             --risk-map .github/governance/risk-paths.json \
-            --manifest-dir .github/governance/rulesets
+            --manifest-dir .github/governance/rulesets \
+            --reviewer-authorization .github/governance/reviewer-authorization.json

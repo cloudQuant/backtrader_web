@@ -201,8 +201,13 @@ class TestRiskClassification:
     def test_governance_and_security_controls_are_r3_despite_labels(self) -> None:
         contract = _load_contract()
         paths = [
+            ".github/CODEOWNERS",
+            ".github/PULL_REQUEST_TEMPLATE.md",
             "scripts/ci/governance_contract.py",
             "scripts/ci/verify_github_governance.py",
+            "scripts/ci/check_pr_governance.py",
+            "scripts/ci/classify_pr_risk.py",
+            "scripts/ci/check_pr_template.py",
             "scripts/ci/security_scan.sh",
             ".github/dependabot.yml",
             ".pre-commit-config.yaml",
@@ -223,6 +228,11 @@ class TestRiskClassification:
             if line.strip() and not line.lstrip().startswith("#")
         }
         assert {
+            ("/.github/CODEOWNERS", "@cloudQuant"),
+            ("/.github/PULL_REQUEST_TEMPLATE.md", "@cloudQuant"),
+            ("/scripts/ci/check_pr_governance.py", "@cloudQuant"),
+            ("/scripts/ci/classify_pr_risk.py", "@cloudQuant"),
+            ("/scripts/ci/check_pr_template.py", "@cloudQuant"),
             ("/.pre-commit-config.yaml", "@cloudQuant"),
             ("/.dockerignore", "@cloudQuant"),
         }.issubset(entries)
@@ -419,6 +429,8 @@ class TestRulesetManifestContract:
                 "strict": True,
                 "do_not_enforce_on_create": False,
             }
+            assert manifests[key]["pull_request"]["dismiss_stale_reviews_on_push"] is True
+            assert manifests[key]["pull_request"]["require_last_push_approval"] is True
             assert manifests[key]["pull_request"]["code_owner_review"]["enabled"] is False
         assert manifests["release-tags"]["activation"]["remote_state"] == "not_applied"
         assert manifests["release-tags"]["bypass"]["actors"] == []
@@ -428,6 +440,19 @@ class TestRulesetManifestContract:
             "actors": [],
             "source": manifests["release-tags"]["tag_protection"]["authorized_actors"]["source"],
         }
+
+    def test_manifest_validation_requires_stale_review_and_last_push_protections(
+        self,
+    ) -> None:
+        contract = _load_contract()
+        manifests = copy.deepcopy(_manifests(contract))
+        manifests["dev"]["pull_request"]["dismiss_stale_reviews_on_push"] = False
+        manifests["master"]["pull_request"].pop("require_last_push_approval")
+
+        issues = contract.validate_manifests(manifests)
+
+        assert any("dev.pull_request.dismiss_stale_reviews_on_push" in issue for issue in issues)
+        assert any("master.pull_request.require_last_push_approval" in issue for issue in issues)
 
     def test_manifest_validation_rejects_future_transitions_without_evidence(
         self,

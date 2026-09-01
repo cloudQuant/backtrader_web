@@ -77,9 +77,11 @@
       "level": "R3",
       "globs": [
         ".github/workflows/**",
-        ".github/governance/**"
+        ".github/governance/**",
+        ".github/CODEOWNERS",
+        ".github/PULL_REQUEST_TEMPLATE.md"
       ],
-      "description": "CI execution and governance boundaries require the highest review."
+      "description": "CI execution, trusted governance policy, ownership, and PR declaration templates require the highest review."
     },
     {
       "id": "r3-ci-and-security-controls",
@@ -87,6 +89,9 @@
       "globs": [
         "scripts/ci/governance_contract.py",
         "scripts/ci/verify_github_governance.py",
+        "scripts/ci/check_pr_governance.py",
+        "scripts/ci/classify_pr_risk.py",
+        "scripts/ci/check_pr_template.py",
         "scripts/ci/security_scan.sh",
         "scripts/ci/governance_*.py",
         "scripts/ci/security_*.sh",

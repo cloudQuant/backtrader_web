@@ -146,8 +146,10 @@ def _release_issues(workflow: str) -> list[str]:
         issues.append("release must only trigger on version tags")
 
     release = _job(workflow, "release-artifact")
-    if release.get("environment") != "release":
-        issues.append("release boundary must use the protected release environment")
+    if "environment" in release:
+        issues.append(
+            "D6 artifact-only release must not configure an environment or create one implicitly"
+        )
     try:
         _, checkout = _step(release, "Checkout complete release history")
         checkout_with = checkout.get("with")
@@ -351,6 +353,16 @@ def test_release_contract_rejects_buildx_push_or_registry_login() -> None:
     )
 
     assert "must not publish" in " ".join(_release_issues(unsafe))
+
+
+def test_release_contract_rejects_an_environment_on_the_artifact_only_job() -> None:
+    unsafe = _read(DOCKER_PUBLISH).replace(
+        "    runs-on: ubuntu-latest\n",
+        "    runs-on: ubuntu-latest\n    environment: release\n",
+        1,
+    )
+
+    assert "must not configure an environment" in " ".join(_release_issues(unsafe))
 
 
 def test_preview_is_non_hosted_artifact_without_pull_request_writes() -> None:

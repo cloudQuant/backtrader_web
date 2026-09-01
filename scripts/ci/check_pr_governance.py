@@ -61,7 +61,12 @@ _PLACEHOLDER_EVIDENCE_RE = re.compile(
 )
 _TARGET_RE = re.compile(r"\b(dev|master)\b", re.IGNORECASE)
 _RISK_RE = re.compile(r"\b(R[0-3])\b", re.IGNORECASE)
+_GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
 _TERMINAL_REVIEW_STATES = {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}
+_REVIEWER_AUTHORIZATION_SCHEMA_VERSION = 1
+_PENDING_REVIEWER_AUTHORIZATION_STATUS = "owner_baseline_pending_second_maintainer"
+_APPROVED_REVIEWER_AUTHORIZATION_STATUS = "approved"
+_ALLOWED_REVIEW_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 
 
 def _mapping(value: Any, name: str) -> Mapping[str, Any]:
@@ -139,7 +144,11 @@ def _governance_field(visible_body: str, label: str) -> str | None:
 def _section_field_issues(visible_body: str, kind: str) -> list[str]:
     """Reject ambiguous or duplicated policy fields in their designated sections."""
     requirements: list[tuple[str, re.Pattern[str], tuple[str, ...]]] = [
-        ("Governance declaration", _GOVERNANCE_HEADING_RE, ("目标分支", "风险等级", "测试证据"))
+        (
+            "Governance declaration",
+            _GOVERNANCE_HEADING_RE,
+            ("目标分支", "风险等级", "测试证据"),
+        )
     ]
     if kind == "hotfix":
         requirements.append(("Hotfix 前移计划", _HOTFIX_HEADING_RE, ("前移计划",)))
@@ -274,15 +283,142 @@ def _review_authorization(value: Any) -> str | None:
     return None
 
 
-def _latest_reviews(reviews: Sequence[Any], author: str) -> dict[str, tuple[str, str | None]]:
-    """Return each reviewer's effective terminal state and authorization.
+def _required_string(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must be a non-empty string")
+    return value.strip()
 
-    Comments and pending reviews are non-terminal.  They cannot erase an
-    earlier approval or change request.  An OWNER terminal review has
-    precedence over subsequent unverified terminal events so an unverified
-    actor cannot clear an OWNER change request or approval.
+
+def validate_reviewer_authorization(value: Any) -> dict[str, frozenset[str]]:
+    """Validate the D2-backed reviewer allowlist and return its lookup table.
+
+    The policy is deliberately identity and association based.  GitHub's
+    association alone is insufficient: a future collaborator must be named
+    explicitly in a D2-approved record before their review can count.
     """
-    histories: dict[str, list[tuple[tuple[datetime, int], str, str | None]]] = {}
+    config = _mapping(value, "reviewer authorization")
+    expected_root = {"schema_version", "decision", "reviewers"}
+    if set(config) != expected_root:
+        raise ValueError("reviewer authorization contains unknown or missing root fields")
+    if config.get("schema_version") != _REVIEWER_AUTHORIZATION_SCHEMA_VERSION:
+        raise ValueError("reviewer authorization schema_version must be 1")
+
+    decision = _mapping(config.get("decision"), "reviewer authorization decision")
+    expected_decision = {"gate", "status", "reference", "reason"}
+    if set(decision) != expected_decision:
+        raise ValueError("reviewer authorization decision contains unknown or missing fields")
+    if decision.get("gate") != "D2":
+        raise ValueError("reviewer authorization decision.gate must be 'D2'")
+    status = decision.get("status")
+    if status not in {
+        _PENDING_REVIEWER_AUTHORIZATION_STATUS,
+        _APPROVED_REVIEWER_AUTHORIZATION_STATUS,
+    }:
+        raise ValueError("reviewer authorization decision.status is not recognized")
+    _required_string(decision.get("reference"), "reviewer authorization decision.reference")
+    _required_string(decision.get("reason"), "reviewer authorization decision.reason")
+
+    reviewers = config.get("reviewers")
+    if not isinstance(reviewers, list) or not reviewers:
+        raise ValueError("reviewer authorization reviewers must be a non-empty list")
+
+    authorized: dict[str, frozenset[str]] = {}
+    for index, reviewer in enumerate(reviewers):
+        entry = _mapping(reviewer, f"reviewer authorization reviewers[{index}]")
+        if set(entry) != {"login", "author_associations", "evidence"}:
+            raise ValueError(
+                f"reviewer authorization reviewers[{index}] contains unknown or missing fields"
+            )
+        login = _required_string(
+            entry.get("login"), f"reviewer authorization reviewers[{index}].login"
+        )
+        normalized_login = login.casefold()
+        if normalized_login in authorized:
+            raise ValueError(f"reviewer authorization contains duplicate login {login!r}")
+
+        associations = entry.get("author_associations")
+        if not isinstance(associations, list) or not associations:
+            raise ValueError(
+                f"reviewer authorization reviewers[{index}].author_associations must be non-empty"
+            )
+        normalized_associations = frozenset(_review_authorization(item) for item in associations)
+        if None in normalized_associations or not normalized_associations.issubset(
+            _ALLOWED_REVIEW_ASSOCIATIONS
+        ):
+            raise ValueError(
+                f"reviewer authorization reviewers[{index}].author_associations is invalid"
+            )
+        if len(normalized_associations) != len(associations):
+            raise ValueError(
+                f"reviewer authorization reviewers[{index}].author_associations contains duplicates"
+            )
+        if status == _PENDING_REVIEWER_AUTHORIZATION_STATUS and normalized_associations != {
+            "OWNER"
+        }:
+            raise ValueError(
+                "pending D2 reviewer authorization may authorize only a verified OWNER"
+            )
+
+        evidence = _mapping(
+            entry.get("evidence"), f"reviewer authorization reviewers[{index}].evidence"
+        )
+        if set(evidence) != {"gate", "status", "reference"}:
+            raise ValueError(
+                f"reviewer authorization reviewers[{index}].evidence contains unknown or missing fields"
+            )
+        if evidence.get("gate") != "D2":
+            raise ValueError(
+                f"reviewer authorization reviewers[{index}].evidence.gate must be 'D2'"
+            )
+        expected_evidence_status = (
+            "owner_baseline"
+            if status == _PENDING_REVIEWER_AUTHORIZATION_STATUS
+            else _APPROVED_REVIEWER_AUTHORIZATION_STATUS
+        )
+        if evidence.get("status") != expected_evidence_status:
+            raise ValueError(
+                f"reviewer authorization reviewers[{index}].evidence.status must be "
+                f"{expected_evidence_status!r}"
+            )
+        _required_string(
+            evidence.get("reference"),
+            f"reviewer authorization reviewers[{index}].evidence.reference",
+        )
+        authorized[normalized_login] = normalized_associations
+    return authorized
+
+
+def _is_authorized_reviewer(
+    login: str,
+    authorization: str | None,
+    authorized_reviewers: Mapping[str, frozenset[str]],
+) -> bool:
+    return authorization is not None and authorization in authorized_reviewers.get(
+        login.casefold(), frozenset()
+    )
+
+
+def _is_current_head_commit(commit_id: Any, head_sha: str) -> bool:
+    return (
+        isinstance(commit_id, str)
+        and _GIT_SHA_RE.fullmatch(commit_id.strip()) is not None
+        and commit_id.strip().casefold() == head_sha.casefold()
+    )
+
+
+def _latest_reviews(
+    reviews: Sequence[Any],
+    author: str,
+    authorized_reviewers: Mapping[str, frozenset[str]],
+) -> dict[str, tuple[str, str | None, Any]]:
+    """Return each reviewer's effective terminal state and provenance.
+
+    Comments and pending reviews are non-terminal. They cannot erase an
+    earlier terminal state. An explicitly authorized terminal review has
+    precedence over later unrecognized terminal events, so an unauthorized
+    actor cannot clear a valid change request or approval.
+    """
+    histories: dict[str, list[tuple[tuple[datetime, int], str, str | None, Any]]] = {}
     for position, review in enumerate(reviews):
         if not isinstance(review, Mapping):
             continue
@@ -298,49 +434,67 @@ def _latest_reviews(reviews: Sequence[Any], author: str) -> dict[str, tuple[str,
                 _review_timestamp(review.get("submitted_at"), position),
                 state.strip().upper(),
                 _review_authorization(review.get("author_association")),
+                review.get("commit_id"),
             )
         )
 
-    effective: dict[str, tuple[str, str | None]] = {}
+    effective: dict[str, tuple[str, str | None, Any]] = {}
     for login, history in sorted(histories.items()):
-        latest_terminal: tuple[str, str | None] | None = None
-        latest_nonterminal: tuple[str, str | None] | None = None
-        owner_terminal: tuple[str, str | None] | None = None
-        for _, state, authorization in sorted(history, key=lambda entry: entry[0]):
+        latest_terminal: tuple[str, str | None, Any] | None = None
+        latest_nonterminal: tuple[str, str | None, Any] | None = None
+        authorized_terminal: tuple[str, str | None, Any] | None = None
+        for _, state, authorization, commit_id in sorted(history, key=lambda entry: entry[0]):
             if state in _TERMINAL_REVIEW_STATES:
-                latest_terminal = (state, authorization)
-                if authorization == "OWNER":
-                    owner_terminal = (state, authorization)
+                latest_terminal = (state, authorization, commit_id)
+                if _is_authorized_reviewer(login, authorization, authorized_reviewers):
+                    authorized_terminal = (state, authorization, commit_id)
             else:
-                latest_nonterminal = (state, authorization)
-        state = owner_terminal or latest_terminal or latest_nonterminal
+                latest_nonterminal = (state, authorization, commit_id)
+        state = authorized_terminal or latest_terminal or latest_nonterminal
         if state is not None:
             effective[login] = state
     return effective
 
 
-def _review_summary(reviews: Sequence[Any], author: str) -> dict[str, list[str]]:
-    latest = _latest_reviews(reviews, author)
+def _review_summary(
+    reviews: Sequence[Any],
+    author: str,
+    head_sha: str,
+    authorized_reviewers: Mapping[str, frozenset[str]],
+) -> dict[str, list[str]]:
+    latest = _latest_reviews(reviews, author, authorized_reviewers)
     approvals = sorted(
         login
-        for login, (state, authorization) in latest.items()
-        if state == "APPROVED" and authorization == "OWNER"
+        for login, (state, authorization, commit_id) in latest.items()
+        if state == "APPROVED"
+        and _is_authorized_reviewer(login, authorization, authorized_reviewers)
+        and _is_current_head_commit(commit_id, head_sha)
     )
     changes_requested = sorted(
         login
-        for login, (state, authorization) in latest.items()
-        if state == "CHANGES_REQUESTED" and authorization == "OWNER"
+        for login, (state, authorization, _) in latest.items()
+        if state == "CHANGES_REQUESTED"
+        and _is_authorized_reviewer(login, authorization, authorized_reviewers)
     )
     unverified = sorted(
         login
-        for login, (state, authorization) in latest.items()
-        if state == "APPROVED" and authorization != "OWNER"
+        for login, (state, authorization, _) in latest.items()
+        if state == "APPROVED"
+        and not _is_authorized_reviewer(login, authorization, authorized_reviewers)
+    )
+    stale = sorted(
+        login
+        for login, (state, authorization, commit_id) in latest.items()
+        if state == "APPROVED"
+        and _is_authorized_reviewer(login, authorization, authorized_reviewers)
+        and not _is_current_head_commit(commit_id, head_sha)
     )
     return {
         "effective_approvals": approvals,
         "changes_requested_by": changes_requested,
         "reviewers": sorted(latest),
         "unverified_reviews": unverified,
+        "stale_approvals": stale,
     }
 
 
@@ -418,6 +572,7 @@ def evaluate_pr_governance(
     risk_map: Mapping[str, Any],
     manifests: Mapping[str, Mapping[str, Any]],
     changed_file_entry_count: Any,
+    reviewer_authorization: Any,
 ) -> dict[str, Any]:
     """Return an actionable, deterministic Governance Gate result.
 
@@ -430,12 +585,15 @@ def evaluate_pr_governance(
     author_data = _mapping(pr_data.get("user"), "PR author")
     base_branch = base.get("ref")
     head_branch = head.get("ref")
+    head_sha = head.get("sha")
     author = _login(author_data)
     body = pr_data.get("body")
     if not isinstance(base_branch, str) or not base_branch.strip():
         raise ValueError("PR base.ref must be a non-empty string")
     if not isinstance(head_branch, str) or not head_branch.strip():
         raise ValueError("PR head.ref must be a non-empty string")
+    if not isinstance(head_sha, str) or _GIT_SHA_RE.fullmatch(head_sha.strip()) is None:
+        raise ValueError("PR head.sha must be a 40-character Git SHA")
     if author is None:
         raise ValueError("PR user.login must be a non-empty string")
     if not isinstance(body, str):
@@ -445,12 +603,18 @@ def evaluate_pr_governance(
 
     base_branch = base_branch.strip()
     head_branch = head_branch.strip()
+    head_sha = head_sha.strip()
     kind = _pr_kind(base_branch, head_branch)
     visible_body = _visible_body(body)
     classification = classify_changed_files(changed_files, risk_map)
     labels = _labels(pr_data)
     manifest = _branch_manifest(manifests, base_branch) if isinstance(manifests, Mapping) else None
     issues = _manifest_policy_issues(manifests)
+    try:
+        authorized_reviewers = validate_reviewer_authorization(reviewer_authorization)
+    except (TypeError, ValueError) as error:
+        authorized_reviewers = {}
+        issues.append(f"reviewer authorization configuration is invalid: {error}")
     issues.extend(_inventory_issues(pr_data, changed_file_entry_count))
     approval_floor: int | None = None
     if manifest is not None:
@@ -499,16 +663,23 @@ def evaluate_pr_governance(
     if base_branch == "master" and kind == "normal":
         issues.append("regular contribution branches must target dev; retarget this PR to dev")
 
-    review_summary = _review_summary(reviews, author)
+    review_summary = _review_summary(reviews, author, head_sha, authorized_reviewers)
     effective_approvals = review_summary["effective_approvals"]
     changes_requested_by = review_summary["changes_requested_by"]
     if approval_floor is not None and len(effective_approvals) < approval_floor:
         unverified_reviews = review_summary["unverified_reviews"]
+        stale_approvals = review_summary["stale_approvals"]
         if unverified_reviews:
             reviewers = ", ".join(unverified_reviews)
             issues.append(
                 f"review approval authorization not verified for {reviewers}; request verified "
                 "maintainer review"
+            )
+        if stale_approvals:
+            reviewers = ", ".join(stale_approvals)
+            issues.append(
+                f"review approval is not tied to the current PR head for {reviewers}; "
+                "request a fresh approval"
             )
         issues.append(
             f"{base_branch} requires {approval_floor} non-author approvals but has "
@@ -528,7 +699,7 @@ def evaluate_pr_governance(
             )
         if not protective_reviewers:
             issues.append(
-                f"{computed_risk} change requires a verified OWNER protective approval; "
+                f"{computed_risk} change requires a verified authorized protective approval; "
                 "requested reviewers alone do not satisfy it; request verified maintainer review"
             )
 
@@ -550,6 +721,7 @@ def evaluate_pr_governance(
         "effective_approvals": effective_approvals,
         "changes_requested_by": changes_requested_by,
         "unverified_reviews": review_summary["unverified_reviews"],
+        "stale_approvals": review_summary["stale_approvals"],
         "protective_reviewers": protective_reviewers,
         "requested_reviewers": requested_reviewers,
         "code_owner_review": code_owner_review,
@@ -560,6 +732,11 @@ def evaluate_pr_governance(
 def _load_json(path: Path) -> Any:
     with path.open(encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def load_reviewer_authorization(path: Path) -> dict[str, frozenset[str]]:
+    """Load the trusted-base D2 reviewer authorization allowlist."""
+    return validate_reviewer_authorization(_load_json(path))
 
 
 def _flatten_pages(value: Any) -> list[Any]:
@@ -581,6 +758,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--changed-files", required=True, type=Path)
     parser.add_argument("--risk-map", required=True, type=Path)
     parser.add_argument("--manifest-dir", required=True, type=Path)
+    parser.add_argument("--reviewer-authorization", required=True, type=Path)
     return parser.parse_args()
 
 
@@ -596,6 +774,7 @@ def main() -> int:
             risk_map=load_risk_map(args.risk_map),
             manifests=load_manifests(args.manifest_dir),
             changed_file_entry_count=len(file_entries),
+            reviewer_authorization=_load_json(args.reviewer_authorization),
         )
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(json.dumps({"ok": False, "issues": [str(error)]}, ensure_ascii=False))

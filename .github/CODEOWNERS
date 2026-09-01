@@ -56,11 +56,19 @@
 **/SECURITY.md                                               @cloudQuant
 
 # Narrow R2/R3 domains
+/.github/CODEOWNERS                                           @cloudQuant
+/.github/PULL_REQUEST_TEMPLATE.md                             @cloudQuant
 /.github/workflows/**                                        @cloudQuant
+/.github/workflows/pr-governance.yml                         @cloudQuant
 /.github/governance/**                                       @cloudQuant
+/.github/governance/risk-paths.json                          @cloudQuant
+/.github/governance/reviewer-authorization.json              @cloudQuant
 /.github/dependabot.yml                                      @cloudQuant
 /scripts/ci/governance_contract.py                           @cloudQuant
 /scripts/ci/verify_github_governance.py                      @cloudQuant
+/scripts/ci/check_pr_governance.py                            @cloudQuant
+/scripts/ci/classify_pr_risk.py                               @cloudQuant
+/scripts/ci/check_pr_template.py                              @cloudQuant
 /scripts/ci/security_scan.sh                                 @cloudQuant
 /.pre-commit-config.yaml                                     @cloudQuant
 /.dockerignore                                               @cloudQuant
