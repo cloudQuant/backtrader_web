@@ -686,8 +686,7 @@ def _ensure_akshare_mgmt_schema_compatibility_sync(bind) -> None:
                 )
             )
             logger.warning(
-                "Normalized MySQL enum column %s.%s to lowercase values "
-                "during startup schema sync",
+                "Normalized MySQL enum column %s.%s to lowercase values during startup schema sync",
                 table_name,
                 column_name,
             )
@@ -703,8 +702,7 @@ def _ensure_akshare_mgmt_schema_compatibility_sync(bind) -> None:
         ).rowcount
         if updated:
             logger.warning(
-                "Normalized %d legacy uppercase enum value(s) in %s.%s "
-                "during startup schema sync",
+                "Normalized %d legacy uppercase enum value(s) in %s.%s during startup schema sync",
                 updated,
                 table_name,
                 column_name,
