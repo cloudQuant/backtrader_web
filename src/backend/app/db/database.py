@@ -648,6 +648,118 @@ def _ensure_scanner_plan_schema_compatibility_sync(bind) -> None:
         )
 
 
+# Akshare management columns persisted by older releases as uppercase enum *names*
+# (e.g. ``MANUAL``); the current ORM persists and reads lowercase enum *values*
+# (``manual``). Legacy rows therefore raise ``LookupError`` on read.
+_AKSHARE_LEGACY_ENUM_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("ak_data_scripts", "frequency"),
+    ("ak_interface_parameters", "param_type"),
+    ("ak_scheduled_tasks", "schedule_type"),
+    ("ak_task_executions", "status"),
+    ("ak_task_executions", "triggered_by"),
+)
+
+
+def _ensure_akshare_mgmt_schema_compatibility_sync(bind) -> None:
+    """Normalize legacy uppercase akshare enum labels to lowercase values."""
+    dialect_name = bind.dialect.name
+    normalized_postgres_enum_types: set[tuple[str | None, str]] = set()
+    for table_name, column_name in _AKSHARE_LEGACY_ENUM_COLUMNS:
+        if not _has_table(bind, table_name):
+            continue
+        columns = {column["name"]: column for column in sa.inspect(bind).get_columns(table_name)}
+        column = columns.get(column_name)
+        if column is None:
+            continue
+
+        if dialect_name == "mysql":
+            enum_labels = list(getattr(column["type"], "enums", []) or [])
+            if not enum_labels or all(label == label.lower() for label in enum_labels):
+                continue
+            # Preserve the existing label order: MySQL rewrites stored values by
+            # index, which converts each 'MANUAL' to 'manual' in place.
+            labels_sql = ", ".join(f"'{label.lower()}'" for label in enum_labels)
+            null_sql = "NULL" if column.get("nullable", True) else "NOT NULL"
+            bind.execute(
+                text(
+                    f"ALTER TABLE {table_name} MODIFY COLUMN {column_name} "
+                    f"ENUM({labels_sql}) {null_sql}"
+                )
+            )
+            logger.warning(
+                "Normalized MySQL enum column %s.%s to lowercase values during startup schema sync",
+                table_name,
+                column_name,
+            )
+            continue
+
+        if dialect_name == "postgresql":
+            enum_labels = list(getattr(column["type"], "enums", []) or [])
+            enum_type_name = getattr(column["type"], "name", None)
+            if enum_labels:
+                if not enum_type_name:
+                    logger.warning(
+                        "Skipped PostgreSQL enum normalization for %s.%s: enum type has no name",
+                        table_name,
+                        column_name,
+                    )
+                    continue
+
+                rename_pairs = [
+                    (label, label.lower()) for label in enum_labels if label != label.lower()
+                ]
+                if not rename_pairs:
+                    continue
+
+                enum_schema = getattr(column["type"], "schema", None)
+                enum_key = (enum_schema, enum_type_name)
+                if enum_key in normalized_postgres_enum_types:
+                    continue
+
+                existing_labels = set(enum_labels)
+                if any(new_label in existing_labels for _, new_label in rename_pairs):
+                    logger.warning(
+                        "Skipped PostgreSQL enum normalization for %s.%s: lower-case labels already exist",
+                        table_name,
+                        column_name,
+                    )
+                    continue
+
+                quote_identifier = bind.dialect.identifier_preparer.quote
+                enum_sql = quote_identifier(enum_type_name)
+                if enum_schema:
+                    enum_sql = f"{quote_identifier(enum_schema)}.{enum_sql}"
+                for old_label, new_label in rename_pairs:
+                    old_sql = old_label.replace("'", "''")
+                    new_sql = new_label.replace("'", "''")
+                    bind.execute(
+                        text(f"ALTER TYPE {enum_sql} RENAME VALUE '{old_sql}' TO '{new_sql}'")
+                    )
+                normalized_postgres_enum_types.add(enum_key)
+                logger.warning(
+                    "Normalized PostgreSQL enum type %s to lowercase values during startup schema sync",
+                    enum_sql,
+                )
+                continue
+
+        # Text-backed dialects such as SQLite: lowercase legacy rows so ORM reads
+        # resolve to the defined enum values. PostgreSQL native enums are handled
+        # above through type-level label renames because LOWER(enum) is invalid.
+        updated = bind.execute(
+            text(
+                f"UPDATE {table_name} SET {column_name} = LOWER({column_name}) "
+                f"WHERE {column_name} <> LOWER({column_name})"
+            )
+        ).rowcount
+        if updated:
+            logger.warning(
+                "Normalized %d legacy uppercase enum value(s) in %s.%s during startup schema sync",
+                updated,
+                table_name,
+                column_name,
+            )
+
+
 def _ensure_trading_schema_compatibility_sync(bind) -> None:
     """Patch legacy trading tables that ``create_all`` cannot alter in place."""
     for column_name, ddl in (
@@ -701,6 +813,7 @@ async def ensure_schema_compatibility() -> None:
         await conn.run_sync(_ensure_news_intelligence_schema_compatibility_sync)
         await conn.run_sync(_ensure_stock_analysis_schema_compatibility_sync)
         await conn.run_sync(_ensure_scanner_plan_schema_compatibility_sync)
+        await conn.run_sync(_ensure_akshare_mgmt_schema_compatibility_sync)
         await conn.run_sync(_ensure_trading_schema_compatibility_sync)
 
 
@@ -720,6 +833,7 @@ async def create_tables() -> None:
         await conn.run_sync(_ensure_news_intelligence_schema_compatibility_sync)
         await conn.run_sync(_ensure_stock_analysis_schema_compatibility_sync)
         await conn.run_sync(_ensure_scanner_plan_schema_compatibility_sync)
+        await conn.run_sync(_ensure_akshare_mgmt_schema_compatibility_sync)
         await conn.run_sync(_ensure_trading_schema_compatibility_sync)
 
 

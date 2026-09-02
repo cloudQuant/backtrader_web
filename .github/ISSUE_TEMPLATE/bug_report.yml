@@ -1,0 +1,60 @@
+name: Bug Report
+description: Report a reproducible problem in AI for Investor
+title: '[Bug] '
+labels: ['bug']
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal Reproduction Steps
+      description: |
+        Smallest steps to reproduce, starting from a fresh state.
+        Example:
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened, including error messages.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Backtrader Web Version / Commit
+      placeholder: e.g. v1.x or commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, browser, Python, Node, database (e.g. SQLite / PostgreSQL 16 / MySQL).
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: |
+        Paste relevant logs here. Redact credentials, tokens and API keys first.
+      render: shell
+    validations:
+      required: false

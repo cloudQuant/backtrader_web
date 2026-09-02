@@ -10,6 +10,8 @@
 
 [中文文档](README.md) | **English**
 
+[中文文档](https://cloudquant.github.io/backtrader_web/) · [English docs](https://cloudquant.github.io/backtrader_web/en/) · [Local API docs](http://localhost:8000/docs)
+
 ---
 
 AI for Investor is an AI + quantitative trading MVP for developers, traders, and small research teams who want to turn market knowledge and natural-language strategy ideas into executable research workflows. Strategy development, backtesting, parameter optimization, paper trading, live trading, knowledge-base Q&A, and AI-assisted research are integrated in one product.
@@ -273,15 +275,16 @@ backtrader_web/
 
 ## Contributing
 
-We welcome contributions from the community. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
+We welcome contributions from the community. See [CONTRIBUTING.md](CONTRIBUTING.md) or the
+[online contributing guide](docs/docs/en/development/contributing.md) for the full guide.
 
 **Quick version:**
 
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-feature`
+2. Create a feature branch **based on `dev`**: `git checkout -b feature/my-feature upstream/dev`
 3. Follow [conventional commits](https://www.conventionalcommits.org/): `feat(backtest): add cancel endpoint`
 4. Write tests for your changes
-5. Submit a Pull Request
+5. Submit a Pull Request **targeting `dev`** — `master` only accepts `release/vX.Y.Z` promotions and `hotfix/master-*` fixes, enforced by the PR Governance gate
 
 **Development tools:**
 
@@ -306,6 +309,8 @@ See [docs/explanation/STRATEGIC_ROADMAP.md](docs/explanation/STRATEGIC_ROADMAP.m
 
 | Document | Description |
 | -------- | ----------- |
+| [Published docs (English)](https://cloudquant.github.io/backtrader_web/en/) | Online documentation site (GitHub Pages) |
+| [Published docs (中文)](https://cloudquant.github.io/backtrader_web/) | Online documentation site (GitHub Pages) |
 | [Installation Guide](docs/guides/INSTALLATION.md) | Environment setup and installation |
 | [Quick Start](docs/guides/QUICKSTART.md) | 5-minute first backtest tutorial |
 | [API Usage Guide](docs/guides/API_GUIDE.md) | REST API examples and best practices |

@@ -58,6 +58,21 @@
 API fixture（当前通用空 envelope 下,认证页挂起不渲染）。另需 `lhci/login.js` 的
 sessionStorage 注入配合（已就绪）。
 
+### Task J：dependabot 升级批次处理（2026-08 挂起 14 个 PR）
+
+2026-08-16 关闭了 14 个 dependabot PR（#7-#20，python/node 运行时 major、mypy 2.3、
+pinia 4、plugin-vue 6、actions major、若干 patch/minor）。后续批次按以下规则处理：
+
+- **patch/minor**：重生成 dev 锁（uv pip compile，完整 extras、`--no-emit-package pip`）；
+  npm 类需 `npm ci` 后跑 `ALLOW_BASELINE_UPDATE=1 python3 scripts/ci/npm_audit_ratchet.py --update`
+  刷新棘轮基线（锁哈希绑定是预期门禁，不是故障）；全量测试后合并。
+- **mypy major**：repo-wide 棘轮基线按版本锁定（当前 1.20.2），升级 = 锁重生成 + 基线重生成 +
+  759 个历史错误的再审计，与 Task I（mypy 历史清理）合并做。
+- **运行时 major（python/node Docker 镜像）**：发布链路无验证，需先专项验证依赖兼容性再升级。
+- **actions major**：PR 自身 CI 即验证（改的就是 CI），绿即可合；docs.yml 相关（Pages 部署）
+  在 master push 后确认部署正常。
+- 治理已落地（2026-08-16）：`.github/dependabot.yml` 已为暂缓 major 加 `ignore` 条目（mypy >=2、pinia >=3、@vitejs/plugin-vue >=6、docker python >=3.13、docker node >=21），避免被关闭的 PR 每周重复提出；解除时机 = 本 Task 对应验证完成。
+
 ## 验收标准
 
 - `large_file_baseline.json` 中 `_deferred_regressions` 清空（2 项前端回归修复至原基线）

@@ -26,6 +26,7 @@ _STANDARD_KEYS = (
     "initial_cash",
     "final_value",
     "metrics_source",
+    "metric_sources",
 )
 
 
@@ -79,9 +80,11 @@ class MetricsService:
         if trades is not None:
             normalized["profit_loss_ratio"] = _profit_loss_ratio(trades)
         normalized.setdefault("initial_cash", _float(metrics.get("initial_cash"), 100000.0))
+        initial_cash = _float(normalized.get("initial_cash"), 100000.0)
+        normalized["initial_cash"] = initial_cash
         normalized.setdefault(
             "final_value",
-            _float(metrics.get("final_value"), normalized["initial_cash"]),
+            _float(metrics.get("final_value"), initial_cash),
         )
         normalized.setdefault("metrics_source", str(metrics.get("metrics_source") or "manual"))
         for key in (

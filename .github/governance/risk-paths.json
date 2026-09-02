@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "selection": {
+    "mode": "highest_matching_risk",
+    "labels_can_lower_risk": false,
+    "description": "A pull request receives the highest risk level matched by any changed path. Labels and author-provided declarations may request more review but cannot lower path-derived risk."
+  },
+  "default": {
+    "level": "R1",
+    "description": "Unmapped behavior changes receive normal review and affected-test evidence."
+  },
+  "rules": [
+    {
+      "id": "r0-documentation",
+      "level": "R0",
+      "globs": [
+        "docs/**",
+        "README*",
+        "**/README*.md"
+      ],
+      "description": "Documentation-only changes require format and link/build evidence."
+    },
+    {
+      "id": "r2-auth-session",
+      "level": "R2",
+      "globs": [
+        "src/backend/app/api/auth*",
+        "src/backend/app/api/**/auth*",
+        "src/backend/app/api/_dependencies.py",
+        "src/backend/app/api/**/_dependencies.py",
+        "src/backend/app/api/deps.py",
+        "src/backend/app/api/**/deps.py",
+        "src/backend/app/services/auth*",
+        "src/backend/app/services/**/auth*",
+        "src/backend/app/schemas/auth*",
+        "src/backend/app/schemas/**/auth*",
+        "src/backend/app/utils/security*",
+        "src/backend/app/**/session*",
+        "src/backend/app/middleware/**",
+        "src/frontend/src/api/index.ts",
+        "src/frontend/src/api/auth.ts",
+        "src/frontend/src/api/*Topics.ts",
+        "src/frontend/src/utils/session*",
+        "src/frontend/src/utils/tokenRef*",
+        "src/frontend/src/composables/use*Runtime.ts"
+      ],
+      "description": "Authentication and session boundaries require elevated review."
+    },
+    {
+      "id": "r2-persistence-and-domain-models",
+      "level": "R2",
+      "globs": [
+        "src/backend/app/db/**",
+        "src/backend/app/models/**"
+      ],
+      "description": "Database access and domain models require elevated review."
+    },
+    {
+      "id": "r2-client-routing-state",
+      "level": "R2",
+      "globs": [
+        "src/frontend/src/router/**",
+        "src/frontend/src/stores/**"
+      ],
+      "description": "Client routing and shared state require elevated review."
+    },
+    {
+      "id": "r2-bt-api",
+      "level": "R2",
+      "globs": [
+        "src/bt_api_py/**"
+      ],
+      "description": "Broker/API adapter changes require elevated review."
+    },
+    {
+      "id": "r3-workflow-and-governance",
+      "level": "R3",
+      "globs": [
+        ".github/workflows/**",
+        ".github/governance/**",
+        ".github/CODEOWNERS",
+        ".github/PULL_REQUEST_TEMPLATE.md"
+      ],
+      "description": "CI execution, trusted governance policy, ownership, and PR declaration templates require the highest review."
+    },
+    {
+      "id": "r3-ci-and-security-controls",
+      "level": "R3",
+      "globs": [
+        "scripts/ci/governance_contract.py",
+        "scripts/ci/verify_github_governance.py",
+        "scripts/ci/check_pr_governance.py",
+        "scripts/ci/classify_pr_risk.py",
+        "scripts/ci/check_pr_template.py",
+        "scripts/ci/security_scan.sh",
+        "scripts/ci/governance_*.py",
+        "scripts/ci/security_*.sh",
+        ".github/dependabot.yml",
+        ".pre-commit-config.yaml",
+        ".dockerignore"
+      ],
+      "description": "Governance verification, security scanning, dependency automation, and root admission controls require the highest review."
+    },
+    {
+      "id": "r3-secret-configuration-controls",
+      "level": "R3",
+      "globs": [
+        "src/backend/app/api/live_trading/credentials.py",
+        "src/backend/app/config.py",
+        "src/backend/app/services/ai_router/provider_config_store.py"
+      ],
+      "description": "Broker credential redaction, exchange/JWT configuration guards, and provider-key encryption require the highest review."
+    },
+    {
+      "id": "r3-container-and-release",
+      "level": "R3",
+      "globs": [
+        "docker/**",
+        "Dockerfile*",
+        "**/Dockerfile",
+        "**/*Dockerfile",
+        "scripts/ops/release.sh",
+        "scripts/ops/docker_deploy.sh",
+        "scripts/ops/deploy_server.sh",
+        "scripts/ops/generate_lockfiles.sh",
+        "scripts/ops/validate_docker_env.py"
+      ],
+      "description": "Container and release changes require the highest review."
+    },
+    {
+      "id": "r3-dependency-and-security-inputs",
+      "level": "R3",
+      "globs": [
+        "pyproject.toml",
+        "uv.lock",
+        "config/*.lock",
+        "**/package.json",
+        "**/package-lock.json",
+        "**/pyproject.toml",
+        "**/requirements*.txt",
+        "**/.env.example",
+        ".env.example",
+        "SECURITY.md",
+        "**/SECURITY.md"
+      ],
+      "description": "Dependency, lock, environment-example, and disclosure inputs require the highest review."
+    }
+  ]
+}

@@ -140,6 +140,14 @@ Conventional Commits: `<type>(<scope>): <description>`
 
 **Examples**: `feat(backtest): add cancel endpoint`, `fix(auth): handle token refresh`
 
+## Pull Request Routing
+
+- Open regular repository changes (`feature/*`, `fix/*`, `docs/*`, `refactor/*`, and `test/*`)
+  as PRs targeting `dev`; do not directly commit changes to `master`.
+- `master` is reserved for maintainer-owned `release/vX.Y.Z` promotions and
+  `hotfix/master-*` emergency fixes. Follow [CONTRIBUTING.md](CONTRIBUTING.md) for the
+  required governance declaration and evidence.
+
 ---
 
 ## Security

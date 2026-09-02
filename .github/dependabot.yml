@@ -18,6 +18,12 @@ updates:
       - "python"
     commit-message:
       prefix: "chore(deps)"
+    # mypy 2.x is deferred (194 Task J): the repo-wide ratchet baseline is
+    # pinned to mypy 1.20.2; upgrading requires lock + baseline regeneration
+    # plus a re-audit of the 759 historical errors (194 Task I).
+    ignore:
+      - dependency-name: "mypy"
+        versions: [">=2"]
 
   # Frontend (npm)
   - package-ecosystem: "npm"
@@ -31,8 +37,19 @@ updates:
       - "frontend"
     commit-message:
       prefix: "chore(deps)"
+    # pinia 3+/4 and @vitejs/plugin-vue 6 are major migrations deferred to
+    # 194 Task J: they need full vitest/build validation and possibly code
+    # adaptation before landing, not just the ratchet baseline refresh.
+    ignore:
+      - dependency-name: "pinia"
+        versions: [">=3"]
+      - dependency-name: "@vitejs/plugin-vue"
+        versions: [">=6"]
 
   # Docker base images
+  # Runtime majors (python >=3.13, node >=21) are deferred to 194 Task J:
+  # the publish pipeline has no pre-release validation, so each upgrade
+  # needs a dedicated compatibility check first. Patch tags still flow.
   - package-ecosystem: "docker"
     directory: "/src/backend"
     schedule:
@@ -43,6 +60,9 @@ updates:
       - "docker"
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.13"]
 
   - package-ecosystem: "docker"
     directory: "/src/frontend"
@@ -54,6 +74,9 @@ updates:
       - "docker"
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      - dependency-name: "node"
+        versions: [">=21"]
 
   # GitHub Actions
   - package-ecosystem: "github-actions"

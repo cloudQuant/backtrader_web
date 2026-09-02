@@ -14,7 +14,7 @@ FastAPI-based backend service for the AI for Investor quantitative backtesting p
 - **Real-time Data** — Market data feeds and subscriptions
 - **Strategy Comparison** — Side-by-side performance analysis
 - **Analytics & Reports** — HTML/PDF/Excel report generation
-- **Financial Metrics** — Standardized metrics via [fincore](https://github.com/quantopian/fincore) library
+- **Financial Metrics** — Standardized return metrics via [fincore 0.5](https://github.com/cloudQuant/fincore) domain modules
 - **System Monitoring** — Health checks, metrics, alerts
 - **Database Abstraction** — SQLite/PostgreSQL/MySQL via env config
 - **Caching** — Optional Redis cache layer
@@ -32,7 +32,10 @@ This project uses the **fincore** library for standardized financial metric calc
 - **Profit Factor** — Ratio of average win to average loss
 - **Average Holding Period** — Mean trade duration
 
-The `FincoreAdapter` class provides a unified interface with fallback to manual calculations for backward compatibility. See [FINCORE_MIGRATION.md](FINCORE_MIGRATION.md) for details.
+The `FincoreAdapter` class converts equity curves into simple returns before
+using fincore's domain metrics, with a compatible manual fallback for Python
+3.10 or unavailable dependencies. See [FINCORE_MIGRATION.md](FINCORE_MIGRATION.md)
+for details.
 
 ## Quick Start
 

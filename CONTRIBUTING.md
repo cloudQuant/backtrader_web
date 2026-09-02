@@ -14,28 +14,51 @@ Thank you for your interest in contributing to AI for Investor! This document pr
 
 ## Development Workflow
 
+### 0. Branch Model (iteration 195)
+
+This repository uses a two-branch model:
+
+| Branch | Role | Who merges into it |
+|---|---|---|
+| `dev` | Daily integration branch | All regular PRs (`feature/*`, `fix/*`, `docs/*`, `refactor/*`, `test/*`) |
+| `master` | Release branch | Only `release/vX.Y.Z` promotion PRs and `hotfix/master-*` emergency PRs |
+
+**Regular changes must target `dev`, never `master`.** PRs that target `master` without a
+`release/*` or `hotfix/master-*` source branch are rejected by the PR Governance gate.
+
 ### 1. Fork and Clone
 
 ```bash
-# Fork the repository on GitHub
+# 1. Fork the repository on GitHub, then clone YOUR fork:
 git clone https://github.com/YOUR_USERNAME/backtrader_web.git
 cd backtrader_web
+
+# 2. Replace YOUR_USERNAME above with your own GitHub username.
+
+# 3. Add the upstream remote so you can stay in sync with the canonical repo:
+git remote add upstream https://github.com/cloudQuant/backtrader_web.git
+git fetch upstream
+
+# 4. Base your work on dev (see Branch Model above):
+git checkout -b feature/your-feature-name upstream/dev
 ```
 
 ### 2. Create a Feature Branch
 
 ```bash
-git checkout -b feature/your-feature-name
+git checkout -b feature/your-feature-name upstream/dev
 # or
-git checkout -b fix/your-bug-fix
+git checkout -b fix/your-bug-fix upstream/dev
 ```
 
-Branch naming conventions:
-- `feature/` - New features
-- `fix/` - Bug fixes
-- `refactor/` - Code refactoring
-- `docs/` - Documentation changes
-- `test/` - Test additions or updates
+Branch naming conventions (based on `dev` unless noted):
+- `feature/` - New features → PR to `dev`
+- `fix/` - Bug fixes → PR to `dev`
+- `refactor/` - Code refactoring → PR to `dev`
+- `docs/` - Documentation changes → PR to `dev`
+- `test/` - Test additions or updates → PR to `dev`
+- `release/vX.Y.Z` - Release promotion, based on `dev` → PR to `master` (maintainers)
+- `hotfix/master-*` - Production emergency fix, based on `master` → PR to `master` (maintainers, requires an incident reference and a plan to backport the fix to `dev`)
 
 ### 3. Make Your Changes
 
@@ -78,7 +101,11 @@ Commit types:
 git push origin feature/your-feature-name
 ```
 
-Then create a pull request on GitHub.
+Then create a pull request on GitHub **targeting `dev`** (see [Branch Model](#0-branch-model-iteration-195)).
+The PR template asks for a `## Governance declaration` section: declare your target branch,
+the risk level (auto-classified from changed paths; labels cannot lower it), and your test
+evidence. `master` hotfix PRs additionally require a backport plan; `master` release PRs
+additionally require a release checklist.
 
 ## Setting Up Development Environment
 
@@ -328,25 +355,25 @@ Before submitting a PR, ensure:
 
 ### Pull Request Description Template
 
+Use `.github/PULL_REQUEST_TEMPLATE.md` when you open a PR. Its key sections:
+
 ```markdown
-## Summary
-Brief description of changes.
+## What & Why
+Brief description of changes and why they are needed.
 
-## Type of Change
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Breaking change
-- [ ] Documentation update
+## Governance declaration
+- 目标分支: dev（或 master 的 release/hotfix 理由）
+- 风险等级: R0/R1/R2/R3 + 命中路径说明
+- 测试证据: 本地/CI 测试输出或链接
 
-## Testing
-Describe testing performed.
+## Test Plan
+How did you verify the change?
 
-## Screenshots (if applicable)
-Add screenshots for UI changes.
+## i18n 变更清单 (i18n change manifest, 175 §4.7)
+(only mandatory when locale files change — see template)
 
 ## Related Issues
 Fixes #123
-Related to #456
 ```
 
 ## Code Review Process
