@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "decision": {
+    "gate": "D2",
+    "status": "owner_baseline_pending_second_maintainer",
+    "reference": ".github/governance/decisions/iteration-195.md",
+    "reason": "D2 currently verifies only the repository owner. A collaborator may be authorized only after D2 records independent maintainer evidence."
+  },
+  "reviewers": [
+    {
+      "login": "cloudQuant",
+      "author_associations": [
+        "OWNER"
+      ],
+      "evidence": {
+        "gate": "D2",
+        "status": "owner_baseline",
+        "reference": ".github/governance/decisions/iteration-195.md"
+      }
+    }
+  ]
+}

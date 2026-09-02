@@ -1,8 +1,8 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
   - name: Documentation
     url: https://github.com/cloudQuant/backtrader_web/tree/master/docs
     about: Check our documentation before opening an issue
   - name: Discussions
     url: https://github.com/cloudQuant/backtrader_web/discussions
-    about: Ask questions and share ideas in Discussions
+    about: Ask general questions and share ideas in Discussions

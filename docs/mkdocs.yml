@@ -73,6 +73,7 @@ plugins:
                 - zh/features/optimization.md
             - 开发指南:
                 - zh/development/index.md
+                - zh/development/contributing.md
                 - zh/development/architecture.md
                 - zh/development/api.md
                 - zh/development/database.md
@@ -104,6 +105,7 @@ plugins:
                 - en/features/optimization.md
             - Development:
                 - en/development/index.md
+                - en/development/contributing.md
                 - en/development/architecture.md
                 - en/development/api.md
                 - en/development/database.md

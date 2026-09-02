@@ -648,6 +648,69 @@ def _ensure_scanner_plan_schema_compatibility_sync(bind) -> None:
         )
 
 
+# Akshare management columns persisted by older releases as uppercase enum *names*
+# (e.g. ``MANUAL``); the current ORM persists and reads lowercase enum *values*
+# (``manual``). Legacy rows therefore raise ``LookupError`` on read.
+_AKSHARE_LEGACY_ENUM_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("ak_data_scripts", "frequency"),
+    ("ak_interface_parameters", "param_type"),
+    ("ak_scheduled_tasks", "schedule_type"),
+    ("ak_task_executions", "status"),
+    ("ak_task_executions", "triggered_by"),
+)
+
+
+def _ensure_akshare_mgmt_schema_compatibility_sync(bind) -> None:
+    """Normalize legacy uppercase akshare enum labels to lowercase values."""
+    dialect_name = bind.dialect.name
+    for table_name, column_name in _AKSHARE_LEGACY_ENUM_COLUMNS:
+        if not _has_table(bind, table_name):
+            continue
+        columns = {column["name"]: column for column in sa.inspect(bind).get_columns(table_name)}
+        column = columns.get(column_name)
+        if column is None:
+            continue
+
+        if dialect_name == "mysql":
+            enum_labels = list(getattr(column["type"], "enums", []) or [])
+            if not enum_labels or all(label == label.lower() for label in enum_labels):
+                continue
+            # Preserve the existing label order: MySQL rewrites stored values by
+            # index, which converts each 'MANUAL' to 'manual' in place.
+            labels_sql = ", ".join(f"'{label.lower()}'" for label in enum_labels)
+            null_sql = "NULL" if column.get("nullable", True) else "NOT NULL"
+            bind.execute(
+                text(
+                    f"ALTER TABLE {table_name} MODIFY COLUMN {column_name} "
+                    f"ENUM({labels_sql}) {null_sql}"
+                )
+            )
+            logger.warning(
+                "Normalized MySQL enum column %s.%s to lowercase values "
+                "during startup schema sync",
+                table_name,
+                column_name,
+            )
+            continue
+
+        # Text-backed dialects (SQLite, PostgreSQL): lowercase legacy rows so ORM
+        # reads resolve to the defined enum values.
+        updated = bind.execute(
+            text(
+                f"UPDATE {table_name} SET {column_name} = LOWER({column_name}) "
+                f"WHERE {column_name} <> LOWER({column_name})"
+            )
+        ).rowcount
+        if updated:
+            logger.warning(
+                "Normalized %d legacy uppercase enum value(s) in %s.%s "
+                "during startup schema sync",
+                updated,
+                table_name,
+                column_name,
+            )
+
+
 def _ensure_trading_schema_compatibility_sync(bind) -> None:
     """Patch legacy trading tables that ``create_all`` cannot alter in place."""
     for column_name, ddl in (
@@ -701,6 +764,7 @@ async def ensure_schema_compatibility() -> None:
         await conn.run_sync(_ensure_news_intelligence_schema_compatibility_sync)
         await conn.run_sync(_ensure_stock_analysis_schema_compatibility_sync)
         await conn.run_sync(_ensure_scanner_plan_schema_compatibility_sync)
+        await conn.run_sync(_ensure_akshare_mgmt_schema_compatibility_sync)
         await conn.run_sync(_ensure_trading_schema_compatibility_sync)
 
 
@@ -720,6 +784,7 @@ async def create_tables() -> None:
         await conn.run_sync(_ensure_news_intelligence_schema_compatibility_sync)
         await conn.run_sync(_ensure_stock_analysis_schema_compatibility_sync)
         await conn.run_sync(_ensure_scanner_plan_schema_compatibility_sync)
+        await conn.run_sync(_ensure_akshare_mgmt_schema_compatibility_sync)
         await conn.run_sync(_ensure_trading_schema_compatibility_sync)
 
 
