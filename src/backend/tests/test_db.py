@@ -2,14 +2,17 @@
 Database module tests.
 """
 
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from sqlalchemy import delete, select, text
+from sqlalchemy.dialects import postgresql
 
 from app.config import get_settings
 from app.db.database import (
     Base,
+    _ensure_akshare_mgmt_schema_compatibility_sync,
     async_session_maker,
     create_default_admin,
     create_tables,
@@ -439,6 +442,65 @@ class TestDatabaseInitialization:
                 )
             ).scalar_one()
         assert stored_frequency == "manual"
+
+    async def test_akshare_schema_sync_skips_lowercase_postgres_enum(self, monkeypatch):
+        """Fresh PostgreSQL enums must not be passed to text ``LOWER`` calls."""
+        bind = SimpleNamespace(
+            dialect=SimpleNamespace(
+                name="postgresql",
+                identifier_preparer=postgresql.dialect().identifier_preparer,
+            ),
+            execute=Mock(return_value=SimpleNamespace(rowcount=0)),
+        )
+        enum_type = postgresql.ENUM(
+            "hourly", "daily", "weekly", "monthly", "once", "manual", name="scriptfrequency"
+        )
+        inspector = SimpleNamespace(
+            get_columns=lambda _table_name: [
+                {"name": "frequency", "type": enum_type, "nullable": True}
+            ]
+        )
+        monkeypatch.setattr(
+            "app.db.database._has_table", lambda _bind, table_name: table_name == "ak_data_scripts"
+        )
+        monkeypatch.setattr("app.db.database.sa.inspect", lambda _bind: inspector)
+
+        _ensure_akshare_mgmt_schema_compatibility_sync(bind)
+
+        bind.execute.assert_not_called()
+
+    async def test_akshare_schema_sync_renames_legacy_postgres_enum_labels(self, monkeypatch):
+        """PostgreSQL legacy enum labels need type-level renames, not ``LOWER``."""
+        bind = SimpleNamespace(
+            dialect=SimpleNamespace(
+                name="postgresql",
+                identifier_preparer=postgresql.dialect().identifier_preparer,
+            ),
+            execute=Mock(return_value=SimpleNamespace(rowcount=0)),
+        )
+        enum_type = postgresql.ENUM(
+            "HOURLY", "DAILY", "WEEKLY", "MONTHLY", "ONCE", "MANUAL", name="scriptfrequency"
+        )
+        inspector = SimpleNamespace(
+            get_columns=lambda _table_name: [
+                {"name": "frequency", "type": enum_type, "nullable": True}
+            ]
+        )
+        monkeypatch.setattr(
+            "app.db.database._has_table", lambda _bind, table_name: table_name == "ak_data_scripts"
+        )
+        monkeypatch.setattr("app.db.database.sa.inspect", lambda _bind: inspector)
+
+        _ensure_akshare_mgmt_schema_compatibility_sync(bind)
+
+        assert [str(call.args[0]) for call in bind.execute.call_args_list] == [
+            "ALTER TYPE scriptfrequency RENAME VALUE 'HOURLY' TO 'hourly'",
+            "ALTER TYPE scriptfrequency RENAME VALUE 'DAILY' TO 'daily'",
+            "ALTER TYPE scriptfrequency RENAME VALUE 'WEEKLY' TO 'weekly'",
+            "ALTER TYPE scriptfrequency RENAME VALUE 'MONTHLY' TO 'monthly'",
+            "ALTER TYPE scriptfrequency RENAME VALUE 'ONCE' TO 'once'",
+            "ALTER TYPE scriptfrequency RENAME VALUE 'MANUAL' TO 'manual'",
+        ]
 
 
 @pytest.mark.asyncio
