@@ -120,7 +120,7 @@ class TestFincoreIntegrationBasic:
         assert result_manual["total_return"] == 0.0
         assert result_fincore["total_return"] == 0.0
         assert result_manual["metrics_source"] == MetricsSource.MANUAL
-        assert result_fincore["metrics_source"] == EXPECTED_FINCORE_SOURCE
+        assert result_fincore["metrics_source"] == MetricsSource.MANUAL
 
 
 class TestFincoreVsManualConsistency:

@@ -21,6 +21,13 @@ from app.db.database import (
 )
 from app.db.session_provider import unit_of_work
 from app.db.sql_repository import SQLRepository
+from app.models.akshare_mgmt import (
+    DataScript,
+    ScriptFrequency,
+    TaskExecution,
+    TaskStatus,
+    TriggeredBy,
+)
 from app.models.permission import Role, user_roles
 from app.models.user import User
 
@@ -363,6 +370,75 @@ class TestDatabaseInitialization:
         assert {"workspace_id", "unit_id", "instance_id", "dedupe_key"} <= {
             row[1] for row in alert_columns.fetchall()
         }
+
+    async def test_ensure_schema_compatibility_normalizes_legacy_akshare_enum_values(self):
+        """Legacy rows written with uppercase enum names must become readable.
+
+        Older releases persisted ``Enum`` members by *name* (``MANUAL``), while the
+        current ORM persists/reads them by *value* (``manual``).  Loading such legacy
+        rows raises ``LookupError`` (HTTP 500 on ``GET /api/v1/data/scripts``), so the
+        startup schema sync must normalise the stored labels to lowercase values.
+        """
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO ak_data_scripts (
+                        script_id, script_name, category, frequency, source,
+                        estimated_duration, timeout, is_active, is_custom,
+                        created_at, updated_at
+                    ) VALUES (
+                        'legacy_script', 'Legacy Script', 'macro', 'MANUAL', 'akshare',
+                        60, 300, 1, 0,
+                        '2026-09-01 00:00:00', '2026-09-01 00:00:00'
+                    )
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO ak_task_executions (
+                        execution_id, script_id, status, triggered_by, retry_count,
+                        created_at, updated_at
+                    ) VALUES (
+                        'legacy_exec', 'legacy_script', 'COMPLETED', 'MANUAL', 0,
+                        '2026-09-01 00:00:00', '2026-09-01 00:00:00'
+                    )
+                    """
+                )
+            )
+
+        # Before the sync, the ORM cannot map the legacy uppercase labels.
+        async with async_session_maker() as session:
+            with pytest.raises(LookupError):
+                (await session.execute(select(DataScript))).scalars().all()
+
+        await ensure_schema_compatibility()
+
+        async with async_session_maker() as session:
+            script = (
+                await session.execute(
+                    select(DataScript).where(DataScript.script_id == "legacy_script")
+                )
+            ).scalar_one()
+            execution = (
+                await session.execute(
+                    select(TaskExecution).where(TaskExecution.execution_id == "legacy_exec")
+                )
+            ).scalar_one()
+
+        assert script.frequency is ScriptFrequency.MANUAL
+        assert execution.status is TaskStatus.COMPLETED
+        assert execution.triggered_by is TriggeredBy.MANUAL
+
+        async with engine.begin() as conn:
+            stored_frequency = (
+                await conn.execute(
+                    text("SELECT frequency FROM ak_data_scripts WHERE script_id='legacy_script'")
+                )
+            ).scalar_one()
+        assert stored_frequency == "manual"
 
 
 @pytest.mark.asyncio

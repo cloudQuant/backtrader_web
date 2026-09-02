@@ -254,17 +254,17 @@ def calculate_metrics_from_log_data(
     """Calculate all performance metrics from parsed log data.
 
     This function provides a unified interface for calculating performance
-    metrics. When use_fincore=True, it validates fincore library availability
-    and marks the metrics as coming from fincore, though calculations use
-    consistent formulas to ensure accuracy.
+    metrics. When ``use_fincore=True``, return-based metrics are delegated to
+    the installed fincore domain API. Trade-derived metrics retain their local
+    business contract and are reported separately in ``metric_sources``.
 
     Args:
         log_data: Dictionary containing parsed log data with keys:
             - equity_curve: List of portfolio values
             - dates: List of date strings
             - trades: List of trade records with pnlcomm field
-        use_fincore: If True, mark as using fincore-calculated metrics.
-                   If False (default), use manual calculations.
+        use_fincore: If True, prefer fincore for return-based metrics. If
+            unavailable, use compatible manual calculations.
 
     Returns:
         Dictionary containing calculated metrics:
@@ -277,6 +277,8 @@ def calculate_metrics_from_log_data(
             - profitable_trades: Number of profitable trades
             - losing_trades: Number of losing trades
             - metrics_source: Source of calculations ('fincore' or 'manual')
+            - metric_sources: Per-metric provenance for core return and trade
+              metrics
             - initial_cash: Initial portfolio value
             - final_value: Final portfolio value
     """
@@ -294,33 +296,43 @@ def calculate_metrics_from_log_data(
         metric_equity = _coerce_equity_values(equity)
     periods_per_year = 252.0
 
-    # Verify fincore is available if requested
-    source = MetricsSource.MANUAL
-    if use_fincore:
-        try:
-            import fincore  # noqa: F401  # conditional import for availability check
-
-            source = MetricsSource.FINCORE
-        except ImportError:
-            source = MetricsSource.MANUAL
-
-    # Initialize adapter
-    adapter = FincoreAdapter(use_fincore=False)  # Always use consistent formulas
+    adapter = FincoreAdapter(use_fincore=use_fincore)
 
     # Calculate metrics using adapter
     total_return = _calculate_total_return(adapter, equity)
+    total_return_source = adapter.last_calculation_source
     annual_return = _calculate_annual_return(
         adapter,
         metric_equity,
         periods_per_year=periods_per_year,
     )
+    annual_return_source = adapter.last_calculation_source
     sharpe_ratio = _calculate_sharpe_ratio(
         adapter,
         metric_equity,
         periods_per_year=periods_per_year,
     )
+    sharpe_ratio_source = adapter.last_calculation_source
     max_drawdown = _calculate_max_drawdown(adapter, equity)
+    max_drawdown_source = adapter.last_calculation_source
     win_rate = _calculate_win_rate(adapter, trades)
+
+    metric_sources = {
+        "total_return": total_return_source,
+        "annual_return": annual_return_source,
+        "sharpe_ratio": sharpe_ratio_source,
+        "max_drawdown": max_drawdown_source,
+        "win_rate": MetricsSource.MANUAL,
+    }
+    core_return_sources = tuple(
+        metric_sources[name] for name in metric_sources if name != "win_rate"
+    )
+    source = (
+        MetricsSource.FINCORE
+        if core_return_sources
+        and all(item == MetricsSource.FINCORE for item in core_return_sources)
+        else MetricsSource.MANUAL
+    )
 
     # Trade statistics
     total_trades = len(trades)
@@ -352,6 +364,7 @@ def calculate_metrics_from_log_data(
         "initial_cash": initial_cash,
         "final_value": round(final_value, 2),
         "metrics_source": source,
+        "metric_sources": metric_sources,
     }
 
 
@@ -389,19 +402,7 @@ def _calculate_annual_return(
     if len(equity) < 2:
         return 0.0
 
-    del adapter
-    initial_value = equity[0]
-    final_value = equity[-1]
-    periods = max(len(equity) - 1, 1)
-    if initial_value <= 0 or final_value <= 0:
-        return 0.0
-
-    try:
-        result = (final_value / initial_value) ** (periods_per_year / periods) - 1
-    except (OverflowError, ZeroDivisionError, ValueError):
-        return 0.0
-    if not math.isfinite(result):
-        return 0.0
+    result = adapter.calculate_annual_returns(equity, periods_per_year=periods_per_year)
     return round(result * 100, 4)  # Convert to percentage
 
 
@@ -423,24 +424,18 @@ def _calculate_sharpe_ratio(
     if len(equity) < 2:
         return 0.0
 
-    del adapter
     returns = _returns_from_equity(equity)
 
     if not returns:
         return 0.0
 
-    mean_return = sum(returns) / len(returns)
-    if len(returns) > 1:
-        variance = sum((item - mean_return) ** 2 for item in returns) / (len(returns) - 1)
-    else:
-        variance = 0.0
-    std_dev = math.sqrt(variance)
-    if std_dev == 0:
-        return 0.0
-
     safe_periods = max(float(periods_per_year or 252.0), 1.0)
     period_risk_free_rate = (1 + annual_risk_free_rate) ** (1 / safe_periods) - 1
-    result = (mean_return - period_risk_free_rate) / std_dev * math.sqrt(safe_periods)
+    result = adapter.calculate_sharpe_ratio(
+        returns,
+        risk_free_rate=period_risk_free_rate,
+        periods_per_year=safe_periods,
+    )
     if not math.isfinite(result):
         return 0.0
     return round(result, 4)
@@ -460,8 +455,13 @@ def _infer_periods_per_year(
     if not dates:
         return default
 
-    parsed = [_parse_metric_datetime(value) for value in dates if value not in (None, "")]
-    parsed = [value for value in parsed if value is not None]
+    parsed: list[datetime] = []
+    for value in dates:
+        if value in (None, ""):
+            continue
+        parsed_value = _parse_metric_datetime(value)
+        if parsed_value is not None:
+            parsed.append(parsed_value)
     if len(parsed) < 2:
         return default
 
