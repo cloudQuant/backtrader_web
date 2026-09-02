@@ -16,7 +16,9 @@ import happens.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
+from types import ModuleType
 
 from app.services.semantic_retrieval_service import SemanticRetrievalService
 
@@ -116,12 +118,16 @@ class TestPreferOfflineCache:
         imports ``huggingface_hub`` before warm-up runs, setting the env var
         alone is not enough — the cached constant must be corrected too.
         """
-        import huggingface_hub.constants as hf_constants
+        hf_package = ModuleType("huggingface_hub")
+        hf_constants = ModuleType("huggingface_hub.constants")
+        hf_constants.HF_HUB_OFFLINE = False
+        hf_package.constants = hf_constants
+        monkeypatch.setitem(sys.modules, "huggingface_hub", hf_package)
+        monkeypatch.setitem(sys.modules, "huggingface_hub.constants", hf_constants)
 
         cache_root = tmp_path / "hub"
         _build_cached_snapshot(cache_root)
         monkeypatch.setenv("HF_HUB_CACHE", str(cache_root))
-        monkeypatch.setattr(hf_constants, "HF_HUB_OFFLINE", False)
 
         _make_service(tmp_path)._prefer_offline_cache()
 

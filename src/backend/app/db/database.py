@@ -663,6 +663,7 @@ _AKSHARE_LEGACY_ENUM_COLUMNS: tuple[tuple[str, str], ...] = (
 def _ensure_akshare_mgmt_schema_compatibility_sync(bind) -> None:
     """Normalize legacy uppercase akshare enum labels to lowercase values."""
     dialect_name = bind.dialect.name
+    normalized_postgres_enum_types: set[tuple[str | None, str]] = set()
     for table_name, column_name in _AKSHARE_LEGACY_ENUM_COLUMNS:
         if not _has_table(bind, table_name):
             continue
@@ -692,8 +693,58 @@ def _ensure_akshare_mgmt_schema_compatibility_sync(bind) -> None:
             )
             continue
 
-        # Text-backed dialects (SQLite, PostgreSQL): lowercase legacy rows so ORM
-        # reads resolve to the defined enum values.
+        if dialect_name == "postgresql":
+            enum_labels = list(getattr(column["type"], "enums", []) or [])
+            enum_type_name = getattr(column["type"], "name", None)
+            if enum_labels:
+                if not enum_type_name:
+                    logger.warning(
+                        "Skipped PostgreSQL enum normalization for %s.%s: enum type has no name",
+                        table_name,
+                        column_name,
+                    )
+                    continue
+
+                rename_pairs = [
+                    (label, label.lower()) for label in enum_labels if label != label.lower()
+                ]
+                if not rename_pairs:
+                    continue
+
+                enum_schema = getattr(column["type"], "schema", None)
+                enum_key = (enum_schema, enum_type_name)
+                if enum_key in normalized_postgres_enum_types:
+                    continue
+
+                existing_labels = set(enum_labels)
+                if any(new_label in existing_labels for _, new_label in rename_pairs):
+                    logger.warning(
+                        "Skipped PostgreSQL enum normalization for %s.%s: lower-case labels already exist",
+                        table_name,
+                        column_name,
+                    )
+                    continue
+
+                quote_identifier = bind.dialect.identifier_preparer.quote
+                enum_sql = quote_identifier(enum_type_name)
+                if enum_schema:
+                    enum_sql = f"{quote_identifier(enum_schema)}.{enum_sql}"
+                for old_label, new_label in rename_pairs:
+                    old_sql = old_label.replace("'", "''")
+                    new_sql = new_label.replace("'", "''")
+                    bind.execute(
+                        text(f"ALTER TYPE {enum_sql} RENAME VALUE '{old_sql}' TO '{new_sql}'")
+                    )
+                normalized_postgres_enum_types.add(enum_key)
+                logger.warning(
+                    "Normalized PostgreSQL enum type %s to lowercase values during startup schema sync",
+                    enum_sql,
+                )
+                continue
+
+        # Text-backed dialects such as SQLite: lowercase legacy rows so ORM reads
+        # resolve to the defined enum values. PostgreSQL native enums are handled
+        # above through type-level label renames because LOWER(enum) is invalid.
         updated = bind.execute(
             text(
                 f"UPDATE {table_name} SET {column_name} = LOWER({column_name}) "
