@@ -1,7 +1,10 @@
 """Tests for fincore_metrics_helper - financial metric calculations."""
 
 import builtins
+import sys
 from datetime import datetime, timedelta
+
+import pytest
 
 from app.services.backtest.analyzers import FincoreAdapter
 from app.services.fincore_metrics_helper import (
@@ -248,12 +251,32 @@ class TestCalculateMetricsFromLogData:
         assert result["total_trades"] == 2
         assert result["avg_holding_bars"] == 3.0
 
+    @pytest.mark.skipif(sys.version_info < (3, 11), reason="fincore 0.5 requires Python 3.11+")
+    def test_fincore_mode_reports_metric_level_provenance(self):
+        """Return metrics use fincore while trade metrics retain their manual contract."""
+        result = calculate_metrics_from_log_data(
+            {
+                "equity_curve": [100000.0, 101000.0, 98000.0, 103000.0, 106000.0],
+                "trades": [{"pnlcomm": 100.0}, {"pnlcomm": -50.0}],
+            },
+            use_fincore=True,
+        )
+
+        assert result["metrics_source"] == MetricsSource.FINCORE
+        assert result["metric_sources"] == {
+            "total_return": MetricsSource.FINCORE,
+            "annual_return": MetricsSource.FINCORE,
+            "sharpe_ratio": MetricsSource.FINCORE,
+            "max_drawdown": MetricsSource.FINCORE,
+            "win_rate": MetricsSource.MANUAL,
+        }
+
     def test_use_fincore_flag_without_fincore(self, monkeypatch):
         """When fincore is not installed, falls back to manual."""
         original_import = builtins.__import__
 
         def import_without_fincore(name, *args, **kwargs):
-            if name == "fincore":
+            if name == "fincore" or name.startswith("fincore."):
                 raise ImportError("simulated unsupported Python runtime")
             return original_import(name, *args, **kwargs)
 

@@ -6,6 +6,8 @@ Collects detailed backtest data for analytics and reporting.
 
 import datetime
 import logging
+import math
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 logger = logging.getLogger(__name__)
@@ -267,66 +269,159 @@ def get_all_analyzers() -> dict[str, Any]:
 
 
 class FincoreAdapter:
-    """Adapter for fincore library integration with fallback to manual calculations.
+    """Adapter for fincore domain metrics with a compatible manual fallback.
 
-    This adapter provides a unified interface for financial metric calculations,
-    allowing gradual migration from manual calculations to fincore library.
-    By default, it uses manual calculations for backward compatibility.
-    Set use_fincore=True to use fincore library when ready.
+    Fincore 0.5 uses focused domain modules instead of root-level metric
+    functions. The adapter accepts the platform's equity-curve representation,
+    converts it to simple returns at the boundary, and delegates to those
+    domain modules. When the optional dependency is unavailable or rejects an
+    input, a semantically equivalent manual calculation is used instead.
 
     Attributes:
-        use_fincore: If True, use fincore library for calculations.
-                   If False (default), use manual calculations.
+        use_fincore: If True, prefer fincore domain metrics. If False, always
+            use the manual fallback.
 
     Example:
         >>> adapter = FincoreAdapter()
-        >>> sharpe = adapter.calculate_sharpe_ratio(returns, 0.02)
+        >>> sharpe = adapter.calculate_sharpe_ratio(returns, 0.0001)
         >>> adapter_with_fincore = FincoreAdapter(use_fincore=True)
-        >>> sharpe_fc = adapter_with_fincore.calculate_sharpe_ratio(returns, 0.02)
+        >>> sharpe_fc = adapter_with_fincore.calculate_sharpe_ratio(returns, 0.0001)
     """
+
+    MANUAL_SOURCE = "manual"
+    FINCORE_SOURCE = "fincore"
 
     def __init__(self, use_fincore: bool = False):
         """Initialize the FincoreAdapter.
 
         Args:
-            use_fincore: Whether to use fincore library for calculations.
-                       Defaults to False for backward compatibility.
+            use_fincore: Whether to prefer fincore domain metrics. Defaults to
+                False for backward compatibility.
         """
         self.use_fincore = use_fincore
+        self._last_calculation_source = self.MANUAL_SOURCE
 
-    def calculate_sharpe_ratio(self, returns: list, risk_free_rate: float = 0.0) -> float:
+    @property
+    def last_calculation_source(self) -> str:
+        """Return the source used by the most recently calculated metric."""
+        return self._last_calculation_source
+
+    @staticmethod
+    def _as_finite_array(values: Any) -> Any | None:
+        """Return a one-dimensional finite float array or ``None``."""
+        import numpy as np
+
+        try:
+            array = np.asarray(values, dtype=float)
+        except (TypeError, ValueError):
+            return None
+        if array.ndim != 1 or len(array) == 0 or not np.all(np.isfinite(array)):
+            return None
+        return array
+
+    @staticmethod
+    def _periods_per_year(value: float) -> float:
+        """Normalize an annualization factor to a finite positive value."""
+        try:
+            periods = float(value)
+        except (TypeError, ValueError):
+            return 252.0
+        return periods if math.isfinite(periods) and periods > 0 else 252.0
+
+    def _fincore_equity_returns(self, equity_curve: list[Any]) -> Any | None:
+        """Convert a valid equity curve with fincore's public returns utility."""
+        if not self.use_fincore:
+            return None
+
+        values = self._as_finite_array(equity_curve)
+        if values is None or len(values) < 2 or (values <= 0).any():
+            return None
+
+        try:
+            from fincore.metrics.returns import simple_returns
+
+            returns = simple_returns(values)
+        except (ImportError, TypeError, ValueError):
+            logger.debug("Unable to derive fincore returns; using manual metrics", exc_info=True)
+            return None
+
+        return returns if self._as_finite_array(returns) is not None else None
+
+    def _try_fincore(self, operation: Callable[[], Any]) -> float | None:
+        """Run one fincore operation and return a finite scalar result."""
+        self._last_calculation_source = self.MANUAL_SOURCE
+        if not self.use_fincore:
+            return None
+
+        try:
+            result = float(operation())
+        except (ArithmeticError, ImportError, TypeError, ValueError):
+            logger.debug("Fincore metric failed; using manual fallback", exc_info=True)
+            return None
+
+        if not math.isfinite(result):
+            return None
+
+        self._last_calculation_source = self.FINCORE_SOURCE
+        return result
+
+    def calculate_sharpe_ratio(
+        self,
+        returns: list[Any],
+        risk_free_rate: float = 0.0,
+        periods_per_year: float = 252.0,
+    ) -> float:
         """Calculate Sharpe ratio for a series of returns.
 
         The Sharpe ratio measures the performance of an investment compared
         to a risk-free asset, after adjusting for risk.
 
         Args:
-            returns: List of return values as decimals (e.g., 0.01 for 1%).
-            risk_free_rate: Risk-free rate as decimal (e.g., 0.02 for 2%).
-                           Defaults to 0.0.
+            returns: Non-cumulative simple returns (for example, ``0.01`` for
+                a 1% period return).
+            risk_free_rate: Per-period risk-free return. Defaults to ``0.0``.
+            periods_per_year: Annualization factor for the input frequency.
 
         Returns:
-            Sharpe ratio as float. Returns 0.0 if calculation fails.
+            Annualized Sharpe ratio. Returns ``0.0`` for insufficient or
+            invalid data.
 
         Formula:
-            Sharpe = (mean(returns) - risk_free_rate) / std(returns)
+            Sharpe = mean(excess returns) / sample_std(excess returns)
+                     * sqrt(periods_per_year)
         """
-        if not returns:
+        self._last_calculation_source = self.MANUAL_SOURCE
+        returns_array = self._as_finite_array(returns)
+        if returns_array is None or len(returns_array) < 2:
             return 0.0
 
-        # Use manual calculation for consistency
         import numpy as np
 
-        returns_array = np.array(returns)
-        excess_returns = returns_array - risk_free_rate
-        std_dev = np.std(excess_returns)
+        annualization = self._periods_per_year(periods_per_year)
 
-        if std_dev == 0:
+        def calculate_with_fincore() -> Any:
+            from fincore.metrics.ratios import sharpe_ratio
+
+            return sharpe_ratio(
+                returns_array,
+                risk_free=risk_free_rate,
+                annualization=annualization,
+            )
+
+        fincore_result = self._try_fincore(calculate_with_fincore)
+        if fincore_result is not None:
+            return fincore_result
+
+        excess_returns = returns_array - risk_free_rate
+        std_dev = np.std(excess_returns, ddof=1)
+
+        if not math.isfinite(float(std_dev)) or std_dev <= 0:
             return 0.0
 
-        return float(np.mean(excess_returns) / std_dev)
+        result = float(np.mean(excess_returns) / std_dev * math.sqrt(annualization))
+        return result if math.isfinite(result) else 0.0
 
-    def calculate_max_drawdown(self, equity_curve: list) -> float:
+    def calculate_max_drawdown(self, equity_curve: list[Any]) -> float:
         """Calculate maximum drawdown from an equity curve.
 
         Maximum drawdown is the maximum peak-to-trough decline
@@ -342,18 +437,34 @@ class FincoreAdapter:
         Formula:
             MDD = (Trough - Peak) / Peak
         """
+        self._last_calculation_source = self.MANUAL_SOURCE
         if len(equity_curve) < 2:
             return 0.0
 
-        # Use manual calculation for consistency
         import numpy as np
 
-        equity_array = np.array(equity_curve)
-        peak = np.maximum.accumulate(equity_array)
-        drawdown = (equity_array - peak) / peak
-        return float(np.min(drawdown))
+        fincore_returns = self._fincore_equity_returns(equity_curve)
+        if fincore_returns is not None:
 
-    def calculate_total_returns(self, equity_curve: list) -> float:
+            def calculate_with_fincore() -> Any:
+                from fincore.metrics.drawdown import max_drawdown
+
+                return max_drawdown(fincore_returns)
+
+            fincore_result = self._try_fincore(calculate_with_fincore)
+            if fincore_result is not None:
+                return fincore_result
+
+        equity_array = self._as_finite_array(equity_curve)
+        if equity_array is None:
+            return 0.0
+        peak = np.maximum.accumulate(equity_array)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            drawdown = (equity_array - peak) / peak
+        result = float(np.nanmin(drawdown))
+        return result if math.isfinite(result) else 0.0
+
+    def calculate_total_returns(self, equity_curve: list[Any]) -> float:
         """Calculate total returns from initial to final value.
 
         Args:
@@ -366,20 +477,38 @@ class FincoreAdapter:
         Formula:
             Total Return = (Final Value - Initial Value) / Initial Value
         """
+        self._last_calculation_source = self.MANUAL_SOURCE
         if len(equity_curve) < 2:
             return 0.0
 
-        # Manual calculation (both for fincore and manual mode for consistency)
-        # The formula is simple and identical, so we use the same calculation
-        initial_value = equity_curve[0]
-        final_value = equity_curve[-1]
+        fincore_returns = self._fincore_equity_returns(equity_curve)
+        if fincore_returns is not None:
+
+            def calculate_with_fincore() -> Any:
+                from fincore.metrics.returns import cum_returns_final
+
+                return cum_returns_final(fincore_returns)
+
+            fincore_result = self._try_fincore(calculate_with_fincore)
+            if fincore_result is not None:
+                return fincore_result
+
+        values = self._as_finite_array(equity_curve)
+        if values is None:
+            return 0.0
+        initial_value = values[0]
+        final_value = values[-1]
 
         if initial_value == 0:
             return 0.0
 
         return float((final_value - initial_value) / initial_value)
 
-    def calculate_annual_returns(self, equity_curve: list, periods_per_year: int = 252) -> float:
+    def calculate_annual_returns(
+        self,
+        equity_curve: list[Any],
+        periods_per_year: float = 252.0,
+    ) -> float:
         """Calculate annualized returns.
 
         Args:
@@ -395,22 +524,42 @@ class FincoreAdapter:
             Annual Return = (Final / Initial)^(periods_per_year / n) - 1
             where n is the number of periods
         """
+        self._last_calculation_source = self.MANUAL_SOURCE
         if len(equity_curve) < 2:
             return 0.0
 
-        # Use manual calculation for consistency
-        # fincore's annual_return uses CAGR which may give slightly different results
-        initial_value = equity_curve[0]
-        final_value = equity_curve[-1]
-        n = len(equity_curve)
+        annualization = self._periods_per_year(periods_per_year)
+        fincore_returns = self._fincore_equity_returns(equity_curve)
+        if fincore_returns is not None:
 
-        if initial_value == 0 or n == 0:
+            def calculate_with_fincore() -> Any:
+                from fincore.metrics.yearly import annual_return
+
+                return annual_return(fincore_returns, annualization=annualization)
+
+            fincore_result = self._try_fincore(calculate_with_fincore)
+            if fincore_result is not None:
+                return fincore_result
+
+        values = self._as_finite_array(equity_curve)
+        if values is None:
+            return 0.0
+        initial_value = values[0]
+        final_value = values[-1]
+        periods = len(values) - 1
+
+        if initial_value <= 0 or periods <= 0:
             return 0.0
 
-        total_return = (final_value - initial_value) / initial_value
-        annualized_return = (1 + total_return) ** (periods_per_year / n) - 1
+        if final_value <= 0:
+            return -1.0
 
-        return float(annualized_return)
+        try:
+            annualized_return = (final_value / initial_value) ** (annualization / periods) - 1
+        except (OverflowError, ValueError, ZeroDivisionError):
+            return 0.0
+
+        return float(annualized_return) if math.isfinite(annualized_return) else 0.0
 
     def calculate_win_rate(self, trades: list) -> float:
         """Calculate win rate from a list of trades.

@@ -24,7 +24,8 @@ LOG_DIR="$PROJECT_ROOT/logs"
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python || true)}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 BACKEND_HEALTH_URL="${BACKEND_HEALTH_URL:-http://127.0.0.1:${BACKEND_PORT}/health}"
-BACKEND_STARTUP_TIMEOUT_SECONDS="${BACKEND_STARTUP_TIMEOUT_SECONDS:-30}"
+# 首次冷启动需加载本地嵌入模型（含 PyTorch/MPS 初始化），30 秒常不够用。
+BACKEND_STARTUP_TIMEOUT_SECONDS="${BACKEND_STARTUP_TIMEOUT_SECONDS:-120}"
 
 # PID 文件
 BACKEND_PID_FILE="$PID_DIR/backend.pid"
@@ -81,6 +82,20 @@ show_backend_startup_failure() {
     echo -e "${RED}后端服务启动失败或健康检查未通过: $BACKEND_HEALTH_URL${NC}"
     echo -e "${YELLOW}请确认数据库服务已启动，并查看日志: $BACKEND_LOG${NC}"
     tail -20 "$BACKEND_LOG" || true
+}
+
+stop_started_backend() {
+    # 启动失败时回收本次拉起的后端进程，避免残留进程继续占用端口，
+    # 导致下一次重启误判“端口被占用”或健康检查打到旧进程。
+    if [ -n "${BACKEND_PID:-}" ] && ps -p "$BACKEND_PID" > /dev/null 2>&1; then
+        echo -e "${YELLOW}正在停止本次启动的后端进程 (PID: $BACKEND_PID)...${NC}"
+        kill "$BACKEND_PID" 2>/dev/null || true
+        for _ in 1 2 3 4 5; do
+            ps -p "$BACKEND_PID" > /dev/null 2>&1 || break
+            sleep 1
+        done
+        kill -9 "$BACKEND_PID" 2>/dev/null || true
+    fi
 }
 
 echo -e "${CYAN}"
@@ -194,6 +209,7 @@ if wait_for_backend_ready; then
     echo -e "  ${GREEN}后端服务启动成功 (PID: $BACKEND_PID)${NC}"
 else
     show_backend_startup_failure
+    stop_started_backend
     rm -f "$BACKEND_PID_FILE"
     exit 1
 fi
@@ -249,6 +265,7 @@ if backend_is_running && backend_is_healthy; then
 else
     echo -e "  ${RED}✗${NC} 后端服务未运行或健康检查失败"
     show_backend_startup_failure
+    stop_started_backend
     rm -f "$BACKEND_PID_FILE"
     exit 1
 fi

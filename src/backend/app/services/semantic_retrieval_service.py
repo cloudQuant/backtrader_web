@@ -165,6 +165,63 @@ class SemanticRetrievalService:
         self._last_error = None
         return matches
 
+    def _model_is_cached(self) -> bool:
+        """Return whether the embedding model has a local HF cache snapshot.
+
+        Implemented as a plain filesystem probe so it can run *before*
+        ``huggingface_hub`` is imported: the library freezes
+        ``HF_HUB_OFFLINE`` at import time, so the offline preference must
+        be decided ahead of any Hugging Face import.  Probe failures are
+        treated as "not cached", keeping the default online behavior for a
+        first download instead of breaking it.
+        """
+        try:
+            repo_dir = "models--" + self.model_name.replace("/", "--")
+            cache_roots: list[Path] = []
+            hf_hub_cache = os.environ.get("HF_HUB_CACHE")
+            if hf_hub_cache:
+                cache_roots.append(Path(hf_hub_cache))
+            hf_home = os.environ.get("HF_HOME")
+            if hf_home:
+                cache_roots.append(Path(hf_home) / "hub")
+            cache_roots.append(Path.home() / ".cache" / "huggingface" / "hub")
+            for cache_root in cache_roots:
+                snapshots = cache_root / repo_dir / "snapshots"
+                if not snapshots.is_dir():
+                    continue
+                for snapshot in snapshots.iterdir():
+                    if (snapshot / "config.json").is_file():
+                        return True
+        except Exception:
+            return False
+        return False
+
+    def _prefer_offline_cache(self) -> None:
+        """Force offline model loading when a local snapshot exists.
+
+        ``huggingface_hub`` performs online HEAD requests even when every
+        file is already cached.  On networks where huggingface.co is slow
+        or unreachable, those retries can block application startup for
+        minutes.  Loading offline keeps startup deterministic while still
+        allowing a first-time download when nothing is cached.  Must be
+        called before importing ``sentence_transformers`` / ``transformers``
+        because the offline flag is read at import time.
+        """
+        if not self._model_is_cached():
+            return
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+        # An unrelated dependency (e.g. ``datasets``) may have imported
+        # ``huggingface_hub`` before this point, freezing the constant to
+        # ``False`` at import time.  Correct the cached attribute directly
+        # so later requests honor the offline preference either way.
+        try:
+            import huggingface_hub.constants as hf_constants
+
+            hf_constants.HF_HUB_OFFLINE = True
+        except Exception:
+            logger.debug("Could not update huggingface_hub offline constant")
+
     def _ensure_ready(self) -> None:
         if self._collection is not None and self._model is not None:
             return
@@ -177,6 +234,10 @@ class SemanticRetrievalService:
             # for inference, and opting out prevents an unrelated Keras
             # import error.
             os.environ.setdefault("USE_TF", "0")
+            # Decide the offline preference before importing anything that
+            # pulls in ``huggingface_hub``: its offline flag is frozen at
+            # import time (see ``_prefer_offline_cache``).
+            self._prefer_offline_cache()
             import chromadb
             from sentence_transformers import SentenceTransformer
 

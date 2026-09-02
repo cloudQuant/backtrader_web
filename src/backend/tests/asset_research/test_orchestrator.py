@@ -463,7 +463,12 @@ async def test_orchestrator_persists_raw_then_hides_unpromoted_candidate_from_pu
     }
     assert {outcome.head_spec_hash for outcome in outcomes}.issubset(candidate_heads)
     assert all(outcome.maturity_at is not None for outcome in outcomes)
-    assert all(outcome.maturity_at.date() > task.completed_at.date() for outcome in outcomes)
+    # Historical replays can complete after their frozen horizon. Maturity is
+    # anchored to the prediction cutoff, not to the wall-clock completion time.
+    assert all(
+        outcome.maturity_at is not None and outcome.maturity_at > prediction.as_of_at
+        for outcome in outcomes
+    )
     assert prediction.published_decision_json["actionability"] == "RESEARCH_ONLY"
     assert result is not None
     assert result.published_decision is not None

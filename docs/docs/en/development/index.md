@@ -27,5 +27,6 @@ src/frontend/src/
 - [Architecture](./architecture.md)
 - [API reference](./api.md)
 - [Database and data boundaries](./database.md)
+- [Contributing guide](./contributing.md) (branch model and PR governance declaration)
 - Engineering coding standards: `docs/reference/CODING_STANDARDS.md`
 - Engineering test guide: `docs/how-to/TESTING.md`

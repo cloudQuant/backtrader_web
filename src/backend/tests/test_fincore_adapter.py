@@ -5,6 +5,9 @@ Tests for the FincoreAdapter class that provides a unified interface
 for financial metric calculations with fallback to manual calculations.
 """
 
+import sys
+
+import numpy as np
 import pytest
 
 from app.services.backtest.analyzers import FincoreAdapter
@@ -38,10 +41,9 @@ class TestCalculateSharpeRatio:
         returns = [0.01, 0.02, 0.015, -0.005, 0.03, 0.01]
         result = adapter.calculate_sharpe_ratio(returns, 0.02)
 
-        # Expected: mean=0.0117, std=0.012, excess=0.0117-0.02=-0.0083, sharpe=-0.69
-        assert isinstance(result, float)
-        # Just verify it computes a reasonable value
-        assert -5 < result < 5  # Sanity check
+        excess_returns = np.asarray(returns) - 0.02
+        expected = np.mean(excess_returns) / np.std(excess_returns, ddof=1) * np.sqrt(252)
+        assert result == pytest.approx(float(expected), rel=1e-12)
 
     def test_calculate_sharpe_ratio_manual_zero_std(self):
         """Test Sharpe ratio with zero standard deviation."""
@@ -66,6 +68,35 @@ class TestCalculateSharpeRatio:
         result = adapter.calculate_sharpe_ratio(returns, 0.03)
 
         assert isinstance(result, float)
+
+
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="fincore 0.5 requires Python 3.11+")
+class TestCurrentFincoreDomainApi:
+    """Contract tests for the fincore 0.5 domain-oriented metrics API."""
+
+    def test_fincore_mode_matches_domain_metric_results_for_an_equity_curve(self):
+        """The adapter converts equity values before calling fincore leaf metrics."""
+        from fincore.metrics.drawdown import max_drawdown
+        from fincore.metrics.ratios import sharpe_ratio
+        from fincore.metrics.returns import cum_returns_final, simple_returns
+        from fincore.metrics.yearly import annual_return
+
+        equity = [100000.0, 101000.0, 98000.0, 103000.0, 102000.0, 106000.0]
+        returns = simple_returns(np.asarray(equity, dtype=float))
+        adapter = FincoreAdapter(use_fincore=True)
+
+        assert adapter.calculate_total_returns(equity) == pytest.approx(
+            float(cum_returns_final(returns)), rel=1e-12
+        )
+        assert adapter.calculate_max_drawdown(equity) == pytest.approx(
+            float(max_drawdown(returns)), rel=1e-12
+        )
+        assert adapter.calculate_annual_returns(equity, periods_per_year=252) == pytest.approx(
+            float(annual_return(returns, annualization=252)), rel=1e-12
+        )
+        assert adapter.calculate_sharpe_ratio(
+            returns.tolist(), periods_per_year=252
+        ) == pytest.approx(float(sharpe_ratio(returns, annualization=252)), rel=1e-12)
 
 
 class TestCalculateMaxDrawdown:
