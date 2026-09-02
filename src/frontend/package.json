@@ -1,6 +1,6 @@
 {
   "name": "ai-for-investor-frontend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI for Investor 前端应用",
   "type": "module",
   "engines": {
