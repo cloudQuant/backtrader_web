@@ -1,0 +1,28 @@
+strategy:
+  name: "宏源期货 CTP 穿透式认证工作区"
+  description: "宏源期货仿真环境的 33 项 CTP 穿透式认证工作区。真实执行需显式确认。"
+  author: "backtrader_web"
+  category: "live"
+
+params:
+  certification_mode: "hongyuan"
+  default_case: "C01"
+
+data:
+  symbol: "rb2605"
+  symbol_name: "螺纹钢（示例合约，请按宏源当前可交易合约调整）"
+  data_type: "futures"
+  exchange: "SHFE"
+  timeframe: "5s"
+
+certification:
+  execution: "cli_explicit_confirmation"
+  provider: "ctp"
+  broker_id: "3070"
+  environments: ["telecom", "unicom"]
+
+live:
+  symbol: "rb2605"
+  bar_seconds: 5
+  duration_seconds: 86400
+  session_timeout: 86500

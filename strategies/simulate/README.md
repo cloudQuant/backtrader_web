@@ -54,3 +54,4 @@ python run.py
 | TA_cci | PTA CCI |
 | y_alligator | 豆油鳄鱼 |
 | zn_kelter | 锌肯特纳 |
+| ctp_simnow_certification | SimNow CTP 模拟认证（33 场景，需显式执行确认） |

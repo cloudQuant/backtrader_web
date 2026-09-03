@@ -159,3 +159,9 @@ strategies/simulate/a_td_sequential/config.yaml
 strategies/simulate/a_td_sequential/.env
 # All simulate strategies use .env for credentials
 strategies/simulate/*/.env
+
+# CTP certification evidence, local credentials, and generated formal reports.
+strategies/simulate/ctp_simnow_certification/reports/
+strategies/live/ctp_hongyuan_penetration/.env
+strategies/live/ctp_hongyuan_penetration/reports/
+strategies/live/ctp_hongyuan_penetration/*.docx

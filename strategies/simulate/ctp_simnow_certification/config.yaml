@@ -1,0 +1,28 @@
+strategy:
+  name: "SimNow CTP 模拟认证工作区"
+  description: "面向初学者的 SimNow 33 项 CTP 认证与交易验证工作区。真实执行需显式确认。"
+  author: "backtrader_web"
+  category: "simulate"
+
+params:
+  certification_mode: "simnow"
+  default_case: "C01"
+
+data:
+  symbol: "rb2610"
+  symbol_name: "螺纹钢（示例合约，请按当前可交易合约调整）"
+  data_type: "futures"
+  exchange: "SHFE"
+  timeframe: "5s"
+
+certification:
+  execution: "cli_explicit_confirmation"
+  provider: "ctp"
+  broker_id: "9999"
+  environments: ["new_7x24", "new_group1", "new_group2", "new_group3"]
+
+live:
+  symbol: "rb2610"
+  bar_seconds: 5
+  duration_seconds: 86400
+  session_timeout: 86500
