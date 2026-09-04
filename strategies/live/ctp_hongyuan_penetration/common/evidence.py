@@ -95,7 +95,7 @@ def capture_store_snapshot(
     path = _snapshot_path(report_dir)
     rows = _read_json(path, [])
     rows.append(snapshot)
-    path.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(rows, ensure_ascii=True, indent=2), encoding="utf-8")
     return snapshot
 
 
@@ -579,7 +579,6 @@ def build_reconciliation(result: Any, report_dir: str | Path) -> dict[str, Any]:
     expectation = get_reconciliation_expectation(case_id)
     order_seen = bool(order_events)
     trade_seen = bool(trade_events)
-    account_or_position_changed = bool(balance_changed) or bool(positions_changed)
 
     checks = {
         "required_events": {
@@ -648,7 +647,7 @@ def attach_reconciliation(result: Any, report_dir: str | Path):
     _refresh_result_certification_state(result, runtime_evidence)
     reconciliation = build_reconciliation(result, report_dir)
     path = report_dir / RECONCILIATION_FILE
-    path.write_text(json.dumps(reconciliation, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(reconciliation, ensure_ascii=True, indent=2), encoding="utf-8")
     result.details = dict(result.details or {})
     result.details["reconciliation"] = reconciliation
     _apply_strict_reconciliation_result(result, reconciliation)

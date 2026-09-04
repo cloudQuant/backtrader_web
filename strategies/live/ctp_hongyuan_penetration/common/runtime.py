@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
 import os
 import sys
 import threading
 import traceback
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Iterable
 
 _SUITE_DIR = Path(__file__).resolve().parent.parent
 _REPO_ROOT = _SUITE_DIR.parents[2]
@@ -26,14 +28,87 @@ try:
 except ImportError:
     pass
 
-import backtrader as bt
-from backtrader.brokers.btapibroker import BtApiBroker
-from backtrader.feeds.btapifeed import BtApiFeed
-from backtrader.stores.btapistore import BtApiStore
+import backtrader as bt  # noqa: E402
+from backtrader.brokers.btapibroker import BtApiBroker  # noqa: E402
+from backtrader.feeds.btapifeed import BtApiFeed  # noqa: E402
+from backtrader.stores.btapistore import BtApiStore  # noqa: E402
 
-from common import config as cfg
-from common.evidence import attach_reconciliation, capture_store_snapshot
-from common.result import CaseTimer, save_result
+from common import config as cfg  # noqa: E402
+from common.evidence import (  # noqa: E402
+    attach_reconciliation,
+    capture_store_snapshot,
+    mask_account_id,
+)
+from common.result import CaseTimer, save_result  # noqa: E402
+
+
+_SENSITIVE_RUNTIME_EVENT_KEYS = frozenset(
+    {
+        "password",
+        "authcode",
+        "investorid",
+        "userid",
+        "accountid",
+        "token",
+        "accesstoken",
+        "secret",
+        "clientsecret",
+    }
+)
+
+
+def _safe_runtime_event_value(value: Any) -> Any:
+    """Make a runtime event safe to persist as local evidence."""
+    if isinstance(value, dict):
+        return {
+            str(key): (
+                "***"
+                if "".join(char for char in str(key).lower() if char.isalnum())
+                in _SENSITIVE_RUNTIME_EVENT_KEYS
+                else _safe_runtime_event_value(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_safe_runtime_event_value(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _runtime_event_from_notification(notification: Any) -> dict[str, Any] | None:
+    """Extract a structured runtime event from a Backtrader store notification."""
+    candidates: list[Any]
+    if isinstance(notification, tuple):
+        candidates = list(reversed(notification))
+    else:
+        candidates = [notification]
+
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        event = candidate.get("event", candidate)
+        if isinstance(event, dict) and event.get("event_type"):
+            return dict(event)
+    return None
+
+
+def record_runtime_events(notifications: Iterable[Any], log_path: Path) -> set[str]:
+    """Persist Store runtime events without leaking credentials or invalid UTF-8 text."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    event_types: set[str] = set()
+    with log_path.open("w", encoding="utf-8") as handle:
+        for notification in notifications:
+            event = _runtime_event_from_notification(notification)
+            if event is None:
+                continue
+            safe_event = _safe_runtime_event_value(event)
+            event_type = str(safe_event.get("event_type") or "")
+            if event_type:
+                event_types.add(event_type)
+            handle.write(json.dumps(safe_event, ensure_ascii=True, default=str))
+            handle.write("\n")
+    return event_types
 
 
 @contextlib.contextmanager
@@ -49,7 +124,7 @@ def started_store(env_key=None, stop_on_exit=True, case_id=None, report_dir=None
     print(f"\n使用宏源期货环境: {env_info['name']}")
     print(f"  交易前置: {hy_config['td_address']}")
     print(f"  行情前置: {hy_config['md_address']}")
-    print(f"  InvestorID: {hy_config['investor_id']}")
+    print(f"  InvestorID: {mask_account_id(hy_config['investor_id'])}")
 
     try:
         store.start()

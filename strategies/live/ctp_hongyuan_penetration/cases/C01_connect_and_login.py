@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-import tempfile
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -13,11 +12,9 @@ for _p in (_SUITE, _REPO):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from common import config as cfg, helpers
-from common.result import CaseTimer, save_result
-from common.runtime import started_store, create_cerebro, run_with_timeout
-
-import backtrader as bt
+from common import config as cfg, helpers  # noqa: E402
+from common.result import CaseTimer  # noqa: E402
+from common.runtime import record_runtime_events, started_store  # noqa: E402
 
 CASE_META = {
     "case_id": "C01",
@@ -35,35 +32,15 @@ def run(report_dir):
     """
     env_key = cfg.get_env_key()
     with CaseTimer(CASE_META["case_id"], CASE_META["case_name"], env_key) as timer:
-        log_dir = str(report_dir / "logs")
+        log_dir = report_dir / "logs"
         try:
             with started_store(env_key) as (store, config, ek):
                 assert store.is_connected, "Store did not connect"
                 print("✓ 宏源期货连接成功")
-
-                # Run a minimal cerebro to trigger TradeLogger session events
-                cerebro = create_cerebro(
-                    store, bar_seconds=5, with_trade_logger=True, log_dir=log_dir
-                )
-
-                class MinimalStrategy(bt.Strategy):
-                    """Minimal strategy for testing connection."""
-
-                    def __init__(self):
-                        """Initialize minimal strategy."""
-                        self.count = 0
-
-                    def next(self):
-                        """Process bar and stop after first bar."""
-                        self.count += 1
-                        if self.count >= 1:
-                            self.cerebro.runstop()
-
-                cerebro.addstrategy(MinimalStrategy)
-                run_with_timeout(cerebro, timeout_seconds=30)
+                record_runtime_events(store.get_notifications(), log_dir / "system.log")
 
             # Verify logs
-            system_entries = helpers.read_json_lines(Path(log_dir) / "system.log")
+            system_entries = helpers.read_json_lines(log_dir / "system.log")
             events = helpers.extract_event_type_set(system_entries)
 
             assert "store_auth_success" in events, "Missing store_auth_success event"

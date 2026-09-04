@@ -140,7 +140,7 @@ def run_case(case_id: str, report_root: Path, timeout: int = DEFAULT_TIMEOUT) ->
 # ---------------------------------------------------------------------------
 
 
-def print_summary(results: list[dict], report_root: Path):
+def print_summary(results: list[dict], report_root: Path) -> int:
     """Print and save a summary table."""
     results = [enrich_result_payload(result) for result in results]
     print(f"\n{'='*60}")
@@ -187,8 +187,14 @@ def print_summary(results: list[dict], report_root: Path):
         "results": results,
     }
     with open(summary_path, "w", encoding="utf-8") as fh:
-        json.dump(summary, fh, ensure_ascii=False, indent=2)
+        json.dump(summary, fh, ensure_ascii=True, indent=2)
     print(f"\n  Summary saved -> {summary_path}")
+
+    if fail_count:
+        return 1
+    if blocked_count:
+        return 2
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -260,8 +266,8 @@ def main():
         result = run_case(cid, report_root, timeout=args.timeout)
         results.append(result)
 
-    print_summary(results, report_root)
+    return print_summary(results, report_root)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

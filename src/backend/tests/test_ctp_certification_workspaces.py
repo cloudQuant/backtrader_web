@@ -7,7 +7,9 @@ CTP credentials or an active trading session.
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -60,11 +62,29 @@ EXPECTED_CASE_IDS = {
 }
 
 
+def _report_inventory(workspace: Path) -> dict[str, tuple[bool, int, int]]:
+    """Return a stable inventory for reports that already exist locally."""
+    reports_dir = workspace / "reports"
+    if not reports_dir.exists():
+        return {}
+
+    inventory: dict[str, tuple[bool, int, int]] = {}
+    for path in reports_dir.rglob("*"):
+        stat = path.stat()
+        inventory[str(path.relative_to(reports_dir))] = (
+            path.is_dir(),
+            stat.st_mtime_ns,
+            stat.st_size,
+        )
+    return inventory
+
+
 @pytest.mark.parametrize(("workspace_name", "workspace"), WORKSPACES.items())
 def test_workspace_dry_run_is_offline_and_lists_all_cases(
     workspace_name: str, workspace: Path
 ) -> None:
     """Each workspace exposes all certification cases without a CTP connection."""
+    reports_before = _report_inventory(workspace)
     completed = subprocess.run(
         [sys.executable, str(workspace / "run.py"), "--dry-run"],
         cwd=REPOSITORY_ROOT,
@@ -78,7 +98,7 @@ def test_workspace_dry_run_is_offline_and_lists_all_cases(
     assert "33 certification cases" in completed.stdout
     assert "BtApiStore adapter: ready" in completed.stdout
     assert "No CTP connection was opened" in completed.stdout
-    assert not (workspace / "reports").exists(), workspace_name
+    assert _report_inventory(workspace) == reports_before, workspace_name
 
 
 @pytest.mark.parametrize("workspace", WORKSPACES.values())
@@ -136,6 +156,31 @@ def test_internal_case_runner_cannot_bypass_execution_confirmation(workspace: Pa
 
 
 @pytest.mark.parametrize("workspace", WORKSPACES.values())
+def test_workspace_propagates_a_case_failure_as_a_nonzero_exit_code(
+    workspace: Path, tmp_path: Path
+) -> None:
+    """The wrapper must not report success when its selected case fails."""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(workspace / "run.py"),
+            "--case",
+            "UNKNOWN",
+            "--execute",
+            "--report-root",
+            str(tmp_path / workspace.name),
+        ],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+
+
+@pytest.mark.parametrize("workspace", WORKSPACES.values())
 def test_workspace_contains_the_full_certification_case_set(workspace: Path) -> None:
     """Copy all 33 source cases, not merely a thin wrapper around a few examples."""
     case_files = sorted((workspace / "cases").glob("*.py"))
@@ -173,6 +218,226 @@ def test_hongyuan_docx_report_uses_its_workspace_paths() -> None:
 
     assert module.OUTPUT.parent == workspace
     assert module.RESULTS_ROOT == workspace / "reports/latest"
+
+
+def test_hongyuan_started_store_masks_investor_id_in_console_output(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Live-start diagnostics must never emit the complete investor identifier."""
+    workspace = WORKSPACES["hongyuan"]
+    saved_common_modules = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == "common" or name.startswith("common.")
+    }
+    for name in saved_common_modules:
+        sys.modules.pop(name)
+    sys.path.insert(0, str(workspace))
+
+    try:
+        runtime = importlib.import_module("common.runtime")
+
+        class FakeStore:
+            """No-network stand-in for the connection lifecycle."""
+
+            is_connected = True
+
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            def start(self) -> None:
+                pass
+
+            def stop(self) -> None:
+                pass
+
+        investor_id = "1234567890"
+        monkeypatch.setattr(runtime, "BtApiStore", FakeStore)
+        monkeypatch.setattr(
+            runtime.cfg,
+            "create_config",
+            lambda _env_key: {
+                "td_address": "tcp://test-td:1",
+                "md_address": "tcp://test-md:2",
+                "investor_id": investor_id,
+            },
+        )
+
+        with runtime.started_store("telecom"):
+            pass
+
+        output = capsys.readouterr().out
+        assert investor_id not in output
+        assert "12***90" in output
+    finally:
+        sys.path.remove(str(workspace))
+        for name in [
+            name
+            for name in sys.modules
+            if name == "common" or name.startswith("common.")
+        ]:
+            sys.modules.pop(name)
+        sys.modules.update(saved_common_modules)
+
+
+def test_hongyuan_runtime_records_auth_events_with_surrogate_safe_json(
+    tmp_path: Path,
+) -> None:
+    """CTP callback text must not make the login evidence writer crash."""
+    workspace = WORKSPACES["hongyuan"]
+    saved_common_modules = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == "common" or name.startswith("common.")
+    }
+    for name in saved_common_modules:
+        sys.modules.pop(name)
+    sys.path.insert(0, str(workspace))
+
+    try:
+        runtime = importlib.import_module("common.runtime")
+        log_path = tmp_path / "system.log"
+        event_types = runtime.record_runtime_events(
+            [
+                (
+                    "runtime_event",
+                    (),
+                    {
+                        "event": {
+                            "event_type": "store_auth_success",
+                            "details": {
+                                "system_name": chr(0xDC85),
+                                "password": "not-for-logs",
+                                "investor_id": "1234567890",
+                                "InvestorID": "0987654321",
+                                "AuthCode": "not-for-logs-auth-code",
+                            },
+                        }
+                    },
+                )
+            ],
+            log_path,
+        )
+
+        raw = log_path.read_bytes()
+        assert event_types == {"store_auth_success"}
+        assert b"not-for-logs" not in raw
+        assert b"1234567890" not in raw
+        assert b"0987654321" not in raw
+        assert b"not-for-logs-auth-code" not in raw
+        assert json.loads(raw.decode("utf-8"))["event_type"] == "store_auth_success"
+    finally:
+        sys.path.remove(str(workspace))
+        for name in [
+            name
+            for name in sys.modules
+            if name == "common" or name.startswith("common.")
+        ]:
+            sys.modules.pop(name)
+        sys.modules.update(saved_common_modules)
+
+
+def test_hongyuan_snapshot_writer_escapes_ctp_surrogate_text(tmp_path: Path) -> None:
+    """A legacy CTP text field must not make account evidence unwritable."""
+    workspace = WORKSPACES["hongyuan"]
+    saved_common_modules = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == "common" or name.startswith("common.")
+    }
+    for name in saved_common_modules:
+        sys.modules.pop(name)
+    sys.path.insert(0, str(workspace))
+
+    try:
+        evidence = importlib.import_module("common.evidence")
+
+        class FakeStore:
+            """No-network snapshot source with a legacy CTP text response."""
+
+            is_connected = True
+
+            def get_balance(self) -> dict[str, str]:
+                return {"StatusMsg": chr(0xDC85)}
+
+            def get_positions(self) -> list[dict[str, str]]:
+                return []
+
+            def get_open_orders(self) -> list[dict[str, str]]:
+                return []
+
+        snapshot = evidence.capture_store_snapshot(
+            report_dir=tmp_path,
+            case_id="C01",
+            label="before_action",
+            store=FakeStore(),
+            env_key="telecom",
+            config={"investor_id": "1234567890"},
+        )
+
+        raw = (tmp_path / "state_snapshots.json").read_bytes()
+        assert snapshot["account_id_masked"] == "12***90"
+        assert b"1234567890" not in raw
+        assert json.loads(raw.decode("utf-8"))[0]["balance"]["StatusMsg"] == chr(0xDC85)
+    finally:
+        sys.path.remove(str(workspace))
+        for name in [
+            name
+            for name in sys.modules
+            if name == "common" or name.startswith("common.")
+        ]:
+            sys.modules.pop(name)
+        sys.modules.update(saved_common_modules)
+
+
+def test_hongyuan_result_writer_escapes_ctp_surrogate_text(tmp_path: Path) -> None:
+    """Audit and result evidence must survive legacy CTP text fields too."""
+    workspace = WORKSPACES["hongyuan"]
+    saved_common_modules = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == "common" or name.startswith("common.")
+    }
+    for name in saved_common_modules:
+        sys.modules.pop(name)
+    sys.path.insert(0, str(workspace))
+
+    try:
+        result_module = importlib.import_module("common.result")
+        result = result_module.CaseResult(
+            case_id="C01",
+            case_name="connect",
+            status="PASS",
+            details={"system_name": chr(0xDC85)},
+            audit_events=[{"details": {"system_name": chr(0xDC85)}}],
+        )
+
+        result_module.save_result(result, tmp_path)
+
+        audit_text = (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
+        result_text = (tmp_path / "result.json").read_text(encoding="utf-8")
+        assert json.loads(audit_text)["details"]["system_name"] == chr(0xDC85)
+        assert json.loads(result_text)["details"]["system_name"] == chr(0xDC85)
+    finally:
+        sys.path.remove(str(workspace))
+        for name in [
+            name
+            for name in sys.modules
+            if name == "common" or name.startswith("common.")
+        ]:
+            sys.modules.pop(name)
+        sys.modules.update(saved_common_modules)
+
+
+def test_hongyuan_c01_validates_auth_without_starting_a_market_data_feed() -> None:
+    """The login scenario must not depend on a tradable or current contract."""
+    case_source = (WORKSPACES["hongyuan"] / "cases/C01_connect_and_login.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "record_runtime_events" in case_source
+    assert "create_cerebro(" not in case_source
+    assert "run_with_timeout(" not in case_source
 
 
 def test_workspaces_are_discoverable_strategy_templates() -> None:

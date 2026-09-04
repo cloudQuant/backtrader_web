@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
-import os
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -104,14 +103,14 @@ def save_result(result: CaseResult, report_dir: str | Path) -> Path:
         audit_path = report_dir / "audit.jsonl"
         with open(audit_path, "w", encoding="utf-8") as fh:
             for event in result.audit_events:
-                fh.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+                fh.write(json.dumps(event, ensure_ascii=True, sort_keys=True) + "\n")
         audit_path_text = str(audit_path)
         if audit_path_text not in result.evidence:
             result.evidence.append(audit_path_text)
 
     path = report_dir / "result.json"
     with open(path, "w", encoding="utf-8") as fh:
-        json.dump(result.to_dict(), fh, ensure_ascii=False, indent=2)
+        json.dump(result.to_dict(), fh, ensure_ascii=True, indent=2)
     return path
 
 
