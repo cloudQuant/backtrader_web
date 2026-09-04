@@ -24,6 +24,19 @@ def extract_event_type_set(entries: List[Dict[str, Any]]) -> Set[str]:
     return {e.get("event_type", "") for e in entries}
 
 
+def collect_log_event_types(log_dir: str | Path) -> Set[str]:
+    """Return structured event types across every certification log stream."""
+    log_dir = Path(log_dir)
+    event_types: Set[str] = set()
+    for path in sorted(log_dir.glob("*.log")):
+        try:
+            event_types.update(extract_event_type_set(read_json_lines(path)))
+        except (OSError, json.JSONDecodeError):
+            continue
+    event_types.discard("")
+    return event_types
+
+
 def collect_evidence_files(log_dir: str | Path) -> List[str]:
     """List all files in *log_dir* as evidence paths."""
     log_dir = Path(log_dir)

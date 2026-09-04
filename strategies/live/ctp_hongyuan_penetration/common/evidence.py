@@ -45,6 +45,43 @@ def _safe_call(label: str, fn):
         return None, f"{label}: {type(exc).__name__}: {exc}"
 
 
+_POSITION_SYMBOL_KEYS = (
+    "instrument",
+    "symbol",
+    "InstrumentID",
+    "Instrument",
+    "contract",
+    "contract_code",
+)
+
+
+def _matches_tracked_symbol(position: Any, tracked_symbol: str) -> bool:
+    """Return whether a normalized CTP position belongs to the test contract."""
+    if not isinstance(position, dict) or not tracked_symbol:
+        return False
+    expected = tracked_symbol.strip().lower()
+    return any(
+        str(position.get(key) or "").strip().lower() == expected
+        for key in _POSITION_SYMBOL_KEYS
+    )
+
+
+def _snapshot_tracked_positions(snapshot: dict[str, Any]) -> list[Any]:
+    """Read the tracked-contract position subset from a state snapshot."""
+    explicit = snapshot.get("tracked_positions")
+    if isinstance(explicit, list):
+        return explicit
+    tracked_symbol = str(snapshot.get("tracked_symbol") or "")
+    positions = snapshot.get("positions")
+    if not isinstance(positions, list) or not tracked_symbol:
+        return positions if isinstance(positions, list) else []
+    return [
+        position
+        for position in positions
+        if _matches_tracked_symbol(position, tracked_symbol)
+    ]
+
+
 def _snapshot_path(report_dir: str | Path) -> Path:
     return Path(report_dir) / SNAPSHOT_FILE
 
@@ -66,6 +103,7 @@ def capture_store_snapshot(
     store: Any,
     env_key: str = "",
     config: dict[str, Any] | None = None,
+    tracked_symbol: str = "",
 ) -> dict[str, Any]:
     """Query live account state and append it to state_snapshots.json."""
 
@@ -76,6 +114,8 @@ def capture_store_snapshot(
         "open_orders",
         getattr(store, "get_open_orders", lambda: []),
     )
+    tracked_symbol = str(tracked_symbol or "")
+    position_rows = positions or []
     snapshot = {
         "case_id": case_id,
         "label": label,
@@ -86,7 +126,13 @@ def capture_store_snapshot(
             config.get("investor_id") or config.get("user_id")
         ),
         "balance": balance,
-        "positions": positions or [],
+        "positions": position_rows,
+        "tracked_symbol": tracked_symbol,
+        "tracked_positions": [
+            position
+            for position in position_rows
+            if _matches_tracked_symbol(position, tracked_symbol)
+        ],
         "open_orders": open_orders or [],
         "errors": [
             item for item in (balance_error, positions_error, open_orders_error) if item
@@ -203,7 +249,13 @@ def _event_aliases(event: dict[str, Any]) -> set[str]:
     if _is_remote_counter_order_reject(event):
         aliases.add("order_reject_remote")
     if event_type == "order_submit_accepted":
-        aliases.add("order_status_accepted")
+        external_order_id = _first_value(
+            event.get("external_order_id"),
+            _event_details(event).get("external_order_id"),
+            _event_details(event).get("OrderSysID"),
+        )
+        if external_order_id not in (None, ""):
+            aliases.add("order_status_accepted")
     order_log_row = not event_type and any(
         key in event for key in ("ref", "order_type", "external_order_id")
     )
@@ -575,6 +627,14 @@ def build_reconciliation(result: Any, report_dir: str | Path) -> dict[str, Any]:
         _stable_positions(before.get("positions")) != _stable_positions(after.get("positions"))
         if before and after else None
     )
+    tracked_positions_changed = (
+        _stable_positions(_snapshot_tracked_positions(before))
+        != _stable_positions(_snapshot_tracked_positions(after))
+        if before and after else None
+    )
+    tracked_symbol = str(
+        _first_value(before.get("tracked_symbol"), after.get("tracked_symbol")) or ""
+    )
     post_open_orders = after.get("open_orders") if isinstance(after, dict) else []
     expectation = get_reconciliation_expectation(case_id)
     order_seen = bool(order_events)
@@ -595,17 +655,26 @@ def build_reconciliation(result: Any, report_dir: str | Path) -> dict[str, Any]:
         },
     }
     if expectation.get("account_position_change") == "none":
+        position_delta_for_check = (
+            tracked_positions_changed if tracked_symbol else positions_changed
+        )
         checks["account_position_unchanged"] = {
             "expected": "unchanged",
             "balance_changed": balance_changed,
             "positions_changed": positions_changed,
-            "passed": balance_changed is False and positions_changed is False,
+            "tracked_symbol": tracked_symbol,
+            "tracked_positions_changed": tracked_positions_changed,
+            "passed": balance_changed is False and position_delta_for_check is False,
         }
     elif expectation.get("account_position_change") == "allowed_if_trade":
         checks["account_position_change"] = {
             "expected": "allowed_if_trade",
             "balance_changed": balance_changed,
             "positions_changed": positions_changed,
+            "tracked_symbol": tracked_symbol,
+            "tracked_positions_changed": tracked_positions_changed,
+            "before_tracked_position_count": len(_snapshot_tracked_positions(before)),
+            "after_tracked_position_count": len(_snapshot_tracked_positions(after)),
             "trade_events": len(trade_events),
             "passed": True,
         }
@@ -627,6 +696,10 @@ def build_reconciliation(result: Any, report_dir: str | Path) -> dict[str, Any]:
         "account_delta": {
             "balance_changed": balance_changed,
             "positions_changed": positions_changed,
+            "tracked_symbol": tracked_symbol,
+            "tracked_positions_changed": tracked_positions_changed,
+            "before_tracked_position_count": len(_snapshot_tracked_positions(before)),
+            "after_tracked_position_count": len(_snapshot_tracked_positions(after)),
             "before_label": before.get("label", ""),
             "after_label": after.get("label", ""),
         },

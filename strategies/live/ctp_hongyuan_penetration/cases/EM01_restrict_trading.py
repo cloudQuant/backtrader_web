@@ -2,6 +2,7 @@
 """EM01: 验证系统可通过限制账号交易权限方式暂停交易"""
 from __future__ import annotations
 
+import datetime as dt
 import sys
 from pathlib import Path
 
@@ -17,7 +18,6 @@ from common.result import CaseTimer
 from common.runtime import started_store, create_cerebro, run_with_timeout
 
 import backtrader as bt
-from backtrader.brokers.btapibroker import BtApiBroker
 
 CASE_META = {
     "case_id": "EM01",
@@ -40,6 +40,16 @@ def run(report_dir):
     with CaseTimer(CASE_META["case_id"], CASE_META["case_name"], env_key) as timer:
         try:
             with started_store(env_key, stop_on_exit=False) as (store, config, ek):
+                seed_bar = {
+                    "datetime": dt.datetime.now().replace(microsecond=0),
+                    "open": 3000.0,
+                    "high": 3000.0,
+                    "low": 3000.0,
+                    "close": 3000.0,
+                    "volume": 1.0,
+                    "openinterest": 0.0,
+                }
+                store.set_history(symbol, [seed_bar])
                 cerebro = create_cerebro(
                     store, symbol=symbol, bar_seconds=5,
                     with_trade_logger=True, log_dir=log_dir,

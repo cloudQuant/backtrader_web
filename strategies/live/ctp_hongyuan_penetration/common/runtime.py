@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import threading
+import time
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,10 @@ from backtrader.feeds.btapifeed import BtApiFeed  # noqa: E402
 from backtrader.stores.btapistore import BtApiStore  # noqa: E402
 
 from common import config as cfg  # noqa: E402
+from common.ctp_callback_bridge import (  # noqa: E402
+    enable_ctp_order_query_callback,
+    install_ctp_callback_bridge,
+)
 from common.evidence import (  # noqa: E402
     attach_reconciliation,
     capture_store_snapshot,
@@ -55,6 +60,176 @@ _SENSITIVE_RUNTIME_EVENT_KEYS = frozenset(
         "clientsecret",
     }
 )
+REMOTE_VALIDATION_ENV = "HONGYUAN_CERTIFICATION_REMOTE_VALIDATION"
+
+# These scenarios submit a normal opening order before they can evaluate their
+# monitoring/threshold behavior.  They are deliberately stopped before the
+# broker call when the authoritative CTP Available field is not positive.
+_AVAILABLE_FUNDS_REQUIRED_CASE_IDS = frozenset(
+    {
+        "T01",
+        "T03",
+        "M04",
+        "M05",
+        "O01",
+        "O03",
+        "TH02",
+        "TH04",
+        "TH06",
+        "B01",
+        "B02",
+        "L01",
+        "L03",
+    }
+)
+_TARGET_POSITION_REQUIRED_CASE_IDS = frozenset({"T02", "O02"})
+_POSITION_SYMBOL_KEYS = (
+    "instrument",
+    "symbol",
+    "InstrumentID",
+    "Instrument",
+    "contract",
+    "contract_code",
+)
+
+
+class CertificationBlocked(BaseException):
+    """A known live-certification precondition prevents a safe execution.
+
+    Case implementations intentionally use broad ``except Exception`` blocks
+    to turn runtime defects into result files.  This control-flow sentinel is
+    outside that hierarchy so ``case_main`` can preserve a safety preflight as
+    BLOCKED instead of accidentally relabelling it as a failure.
+    """
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        next_action: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.next_action = next_action
+        self.details = details or {}
+
+
+def _remote_validation_enabled() -> bool:
+    """Return whether this child is an explicitly acknowledged CTP run."""
+    return os.getenv(REMOTE_VALIDATION_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _available_funds_state(balance: Any) -> str:
+    """Classify CTP Available without retaining the monetary amount."""
+    if not isinstance(balance, dict):
+        return "unavailable"
+    normalized = {
+        "".join(char for char in str(key).lower() if char.isalnum()): value
+        for key, value in balance.items()
+    }
+    available = next(
+        (
+            normalized[key]
+            for key in ("available", "availablefunds", "cash")
+            if key in normalized
+        ),
+        None,
+    )
+    if available is None:
+        return "unavailable"
+    try:
+        return "positive" if float(available) > 0 else "zero"
+    except (TypeError, ValueError):
+        return "unavailable"
+
+
+def _target_position_state(store: Any, symbol: str) -> str:
+    """Classify whether the configured test contract has any closeable position."""
+    try:
+        positions = store.get_positions()
+    except Exception:
+        return "unavailable"
+    if not isinstance(positions, list):
+        return "unavailable"
+    expected = symbol.strip().lower()
+    for position in positions:
+        if not isinstance(position, dict):
+            continue
+        matches_symbol = any(
+            str(position.get(key) or "").strip().lower() == expected
+            for key in _POSITION_SYMBOL_KEYS
+        )
+        if not matches_symbol:
+            continue
+        try:
+            if float(position.get("volume") or position.get("Volume") or 0) > 0:
+                return "present"
+        except (TypeError, ValueError):
+            return "unavailable"
+    return "absent"
+
+
+def build_order_preflight_block(
+    store: Any,
+    case_id: str,
+    symbol: str | None = None,
+) -> CertificationBlocked | None:
+    """Return a safe BLOCKED condition for funded order scenarios, if needed.
+
+    This preflight is active only in a child launched with ``--execute``.  It
+    protects the account by not calling the order API at all when the CTP
+    counter reports no usable funds or an unreadable available-funds response.
+    Deliberate remote-rejection cases such as E01 are not in this set.
+    """
+    if not _remote_validation_enabled():
+        return None
+    if case_id in _TARGET_POSITION_REQUIRED_CASE_IDS:
+        target_position = _target_position_state(store, symbol or cfg.get_order_symbol())
+        if target_position != "present":
+            if target_position == "absent":
+                reason = "目标合约无持仓，已停止平仓认证且未向柜台提交订单"
+                next_action = "准备专用测试合约持仓后重跑该平仓认证项"
+            else:
+                reason = "无法确认目标合约持仓，已停止平仓认证且未向柜台提交订单"
+                next_action = "确认持仓查询回调正常后重跑该平仓认证项"
+            return CertificationBlocked(
+                reason,
+                next_action=next_action,
+                details={
+                    "preflight": "target_position",
+                    "target_position": target_position,
+                    "counter_order_submitted": False,
+                },
+            )
+    if case_id not in _AVAILABLE_FUNDS_REQUIRED_CASE_IDS:
+        return None
+    try:
+        available_funds = _available_funds_state(store.get_balance())
+    except Exception:
+        available_funds = "unavailable"
+    if available_funds == "positive":
+        return None
+    if available_funds == "zero":
+        reason = "柜台可用资金为零，已停止正常委托认证且未向柜台提交订单"
+        next_action = "为仿真账户入金或释放保证金后重跑该认证项"
+    else:
+        reason = "无法确认柜台可用资金，已停止正常委托认证且未向柜台提交订单"
+        next_action = "确认资金查询回调正常后重跑该认证项"
+    return CertificationBlocked(
+        reason,
+        next_action=next_action,
+        details={
+            "preflight": "available_funds",
+            "available_funds": available_funds,
+            "counter_order_submitted": False,
+        },
+    )
 
 
 def _safe_runtime_event_value(value: Any) -> Any:
@@ -126,8 +301,11 @@ def started_store(env_key=None, stop_on_exit=True, case_id=None, report_dir=None
     print(f"  行情前置: {hy_config['md_address']}")
     print(f"  InvestorID: {mask_account_id(hy_config['investor_id'])}")
 
+    preflight_blocked = False
     try:
+        enable_ctp_order_query_callback()
         store.start()
+        install_ctp_callback_bridge(store)
         if report_dir:
             capture_store_snapshot(
                 report_dir=report_dir,
@@ -136,7 +314,16 @@ def started_store(env_key=None, stop_on_exit=True, case_id=None, report_dir=None
                 store=store,
                 env_key=env_key,
                 config=hy_config,
+                tracked_symbol=cfg.get_order_symbol(),
             )
+        preflight_block = build_order_preflight_block(
+            store,
+            case_id,
+            symbol=cfg.get_order_symbol(),
+        )
+        if preflight_block is not None:
+            preflight_blocked = True
+            raise preflight_block
         yield store, hy_config, env_key
     finally:
         if report_dir:
@@ -147,10 +334,136 @@ def started_store(env_key=None, stop_on_exit=True, case_id=None, report_dir=None
                 store=store,
                 env_key=env_key,
                 config=hy_config,
+                tracked_symbol=cfg.get_order_symbol(),
             )
-        if stop_on_exit:
+        if stop_on_exit or preflight_blocked:
             print("\n断开宏源期货连接...")
             store.stop()
+
+
+def _get_store_seed_bars(store: Any, symbol: str) -> list[Any] | None:
+    """Return explicit local test bars without invoking the CTP history API.
+
+    Certification cases register deterministic bars with ``Store.set_history``.
+    The CTP gateway may advertise a history method but return no bars, which
+    otherwise replaces that local seed cache during feed startup.
+    """
+    cached_history = getattr(store, "_historical_bars", None)
+    if not hasattr(cached_history, "get"):
+        return None
+    seed_bars = cached_history.get(symbol)
+    return list(seed_bars) if seed_bars else None
+
+
+def _explicit_order_offset(order: Any) -> str:
+    """Return the explicit CTP offset attached to one Backtrader order."""
+    info = getattr(order, "info", None)
+    getter = getattr(info, "get", None)
+    if not callable(getter):
+        return ""
+    return str(getter("offset") or "").strip().lower()
+
+
+def _enable_remote_negative_close_probe(broker: Any) -> None:
+    """Let E02 reach CTP for one explicit close-only rejection probe.
+
+    The normal broker correctly blocks a close order that exceeds local
+    position state.  E02 is specifically an integration test for CTP's own
+    insufficient-position response, so the one local rejection is bypassed
+    only in an explicitly acknowledged remote run.  Opening offsets and every
+    other pre-trade rejection remain unchanged.
+    """
+    if not _remote_validation_enabled():
+        raise RuntimeError("remote negative close probes require explicit CTP validation")
+
+    original = getattr(broker, "_ensure_required_net_offset", None)
+    if not callable(original):
+        raise RuntimeError("broker does not expose the CTP close-position precheck")
+
+    def allow_negative_close_probe(order: Any) -> Any:
+        rejection = original(order)
+        if (
+            isinstance(rejection, tuple)
+            and rejection
+            and rejection[0] == "close_size_exceeds_position"
+            and _explicit_order_offset(order) in {"close", "close_today", "close_yesterday"}
+        ):
+            return None
+        return rejection
+
+    broker._ensure_required_net_offset = allow_negative_close_probe
+
+
+def create_broker(store: Any, **broker_kwargs: Any) -> BtApiBroker:
+    """Create a broker while preserving local safety outside explicit certification.
+
+    The CTP account's available-funds query is the authoritative pre-trade
+    control.  For an explicitly confirmed certification run, bypass only the
+    adapter's duplicate local cash estimate so the report captures the remote
+    accept/reject response.  Contract, price, lot-size, and close-position
+    validation remain enabled.
+    """
+    remote_negative_close_probe = bool(broker_kwargs.pop("remote_negative_close_probe", False))
+    if remote_negative_close_probe and not _remote_validation_enabled():
+        raise RuntimeError("remote negative close probes require explicit CTP validation")
+    if _remote_validation_enabled():
+        broker_kwargs.setdefault("cash_check_enabled", False)
+        broker_kwargs.setdefault("cancel_wait_remote", True)
+    if remote_negative_close_probe:
+        broker_kwargs.setdefault("validation_enabled", False)
+    broker = BtApiBroker(store=store, **broker_kwargs)
+    if remote_negative_close_probe:
+        _enable_remote_negative_close_probe(broker)
+    return broker
+
+
+def _ctp_quote_cache_keys(symbol: str) -> tuple[str, ...]:
+    """Return common instrument aliases used by the direct CTP tick cache."""
+    text = str(symbol or "").strip()
+    if not text:
+        return ()
+    parts = [text]
+    for separator in (".", "_"):
+        if separator in text:
+            parts.append(text.split(separator, 1)[-1])
+    return tuple(dict.fromkeys(part.strip() for part in parts if part.strip()))
+
+
+def wait_for_live_market_price(
+    store: Any,
+    symbol: str,
+    *,
+    timeout_seconds: float = 10.0,
+) -> float:
+    """Subscribe and return a positive CTP last price for a bounded probe.
+
+    Certification orders must be priced from a current CTP tick.  Fixed seed
+    prices can fall outside a rolled contract's daily price band and create an
+    unrelated exchange rejection before the scenario under test is reached.
+    """
+    subscriber = getattr(store, "subscribe", None)
+    if not callable(subscriber):
+        raise RuntimeError("CTP store does not expose live market-data subscription")
+    subscriber(symbol)
+
+    keys = _ctp_quote_cache_keys(symbol)
+    deadline = time.monotonic() + max(float(timeout_seconds), 0.0)
+    while True:
+        api = getattr(store, "_api", None)
+        prices = getattr(api, "_last_tick_price", None)
+        if hasattr(prices, "get"):
+            for key in keys:
+                try:
+                    price = float(prices.get(key) or 0.0)
+                except (TypeError, ValueError):
+                    continue
+                if price > 0:
+                    return price
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.05)
+
+    raise RuntimeError("CTP live quote did not arrive before the probe timeout")
 
 
 def create_cerebro(
@@ -164,7 +477,9 @@ def create_cerebro(
 ):
     """Create a Cerebro pre-wired with BtApiBroker + BtApiFeed."""
     symbol = symbol or cfg.get_order_symbol()
-    broker = BtApiBroker(store=store, **broker_kwargs)
+    if historical_bars is None:
+        historical_bars = _get_store_seed_bars(store, symbol)
+    broker = create_broker(store, **broker_kwargs)
     data = BtApiFeed(
         store=store,
         dataname=symbol,
@@ -194,6 +509,13 @@ def run_with_timeout(cerebro, timeout_seconds=60):
         return cerebro.run()
     finally:
         timer.cancel()
+        broker = getattr(cerebro, "broker", None)
+        drain_updates = getattr(broker, "next", None)
+        if callable(drain_updates):
+            try:
+                drain_updates()
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +625,14 @@ def case_main(run_fn, meta: dict):
 
     try:
         result = run_fn(report_dir)
+    except CertificationBlocked as blocked:
+        env_key = cfg.get_env_key()
+        with CaseTimer(case_id, meta.get("case_name", case_id), env_key) as timer:
+            result = timer.blocked_result(
+                blocked.reason,
+                next_action=blocked.next_action,
+                details=blocked.details,
+            )
     except Exception:
         traceback.print_exc()
         env_key = cfg.get_env_key()

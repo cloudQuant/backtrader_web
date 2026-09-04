@@ -2,6 +2,7 @@
 """V01: 验证订单合约代码错误时系统能检查并拒绝报单"""
 from __future__ import annotations
 
+import datetime as dt
 import sys
 from pathlib import Path
 
@@ -39,6 +40,16 @@ def run(report_dir):
     with CaseTimer(CASE_META["case_id"], CASE_META["case_name"], env_key) as timer:
         try:
             with started_store(env_key, stop_on_exit=False) as (store, config, ek):
+                seed_bar = {
+                    "datetime": dt.datetime.now().replace(microsecond=0),
+                    "open": 3000.0,
+                    "high": 3000.0,
+                    "low": 3000.0,
+                    "close": 3000.0,
+                    "volume": 1.0,
+                    "openinterest": 0.0,
+                }
+                store.set_history(symbol, [seed_bar])
                 # Mark the symbol as invalid via contract_metadata to prove
                 # the local validation mechanism rejects invalid instruments.
                 cerebro = create_cerebro(

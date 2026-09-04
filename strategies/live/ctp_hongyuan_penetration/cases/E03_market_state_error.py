@@ -49,6 +49,7 @@ def run(report_dir):
                     "env": env_key,
                     "symbol": symbol,
                     "probe_result": "no_remote_market_state_error_available",
+                    "counter_order_submitted": False,
                 },
             )
 

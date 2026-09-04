@@ -15,10 +15,9 @@ for _p in (_SUITE, _REPO):
 
 from common import config as cfg, helpers
 from common.result import CaseTimer
-from common.runtime import started_store, run_with_timeout
+from common.runtime import create_broker, run_with_timeout, started_store
 
 import backtrader as bt
-from backtrader.brokers.btapibroker import BtApiBroker
 from backtrader.feeds.btapifeed import BtApiFeed
 
 CASE_META = {
@@ -51,7 +50,7 @@ def run(report_dir):
                     "volume": 1.0,
                     "openinterest": 0.0,
                 }
-                broker = BtApiBroker(store=store)
+                broker = create_broker(store)
                 data = BtApiFeed(
                     store=store,
                     dataname=symbol,

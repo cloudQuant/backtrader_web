@@ -2,6 +2,7 @@
 """L04: 验证系统日志中会记录错误提示信息"""
 from __future__ import annotations
 
+import datetime as dt
 import sys
 from pathlib import Path
 
@@ -39,6 +40,16 @@ def run(report_dir):
     with CaseTimer(CASE_META["case_id"], CASE_META["case_name"], env_key) as timer:
         try:
             with started_store(env_key, stop_on_exit=False) as (store, config, ek):
+                seed_bar = {
+                    "datetime": dt.datetime.now().replace(microsecond=0),
+                    "open": 3000.0,
+                    "high": 3000.0,
+                    "low": 3000.0,
+                    "close": 3000.0,
+                    "volume": 1.0,
+                    "openinterest": 0.0,
+                }
+                store.set_history(symbol, [seed_bar])
                 # Trigger a local rejection via invalid price tick
                 cerebro = create_cerebro(
                     store,

@@ -22,6 +22,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -73,6 +74,53 @@ CASE_ORDER = [
 # ---------------------------------------------------------------------------
 
 DEFAULT_TIMEOUT = 180
+_NATIVE_STARTUP_CRASH_EXIT_CODE = -11
+_NATIVE_STARTUP_RETRY_DELAY_SECONDS = 2
+
+
+def _is_empty_native_startup_crash(
+    completed: subprocess.CompletedProcess[str], report_dir: Path
+) -> bool:
+    """Return whether a SIGSEGV occurred before a case could reach CTP actions.
+
+    ``started_store`` writes a durable before-action snapshot after successful
+    connection and before any case can submit an order.  Retrying is safe only
+    when that evidence is absent and the child left no non-empty log output.
+    This deliberately avoids replaying a process that might have reached an
+    order path.
+    """
+    if completed.returncode != _NATIVE_STARTUP_CRASH_EXIT_CODE:
+        return False
+    if (report_dir / "result.json").exists():
+        return False
+    try:
+        artifacts = tuple(report_dir.iterdir())
+    except OSError:
+        return False
+    return all(
+        artifact.name == "stdout.log"
+        and artifact.is_file()
+        and artifact.stat().st_size == 0
+        for artifact in artifacts
+    )
+
+
+def _run_child(
+    cmd: list[str],
+    *,
+    timeout: int,
+    child_environment: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    """Launch one isolated case child with the certification environment."""
+    return subprocess.run(
+        cmd,
+        cwd=str(_REPO_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=child_environment,
+        check=False,
+    )
 
 
 def run_case(case_id: str, report_root: Path, timeout: int = DEFAULT_TIMEOUT) -> dict:
@@ -90,6 +138,8 @@ def run_case(case_id: str, report_root: Path, timeout: int = DEFAULT_TIMEOUT) ->
         sys.executable, "-u", str(case_file),
         "--report-dir", str(report_dir),
     ]
+    child_environment = os.environ.copy()
+    child_environment["HONGYUAN_CERTIFICATION_REMOTE_VALIDATION"] = "1"
 
     print(f"\n{'='*60}")
     print(f"  Running {case_id}: {case_file.stem}")
@@ -97,14 +147,10 @@ def run_case(case_id: str, report_root: Path, timeout: int = DEFAULT_TIMEOUT) ->
     print(f"{'='*60}")
 
     try:
-        completed = subprocess.run(
+        completed = _run_child(
             cmd,
-            cwd=str(_REPO_ROOT),
-            capture_output=True,
-            text=True,
             timeout=timeout,
-            env=os.environ.copy(),
-            check=False,
+            child_environment=child_environment,
         )
     except subprocess.TimeoutExpired:
         print(f"  [TIMEOUT] {case_id} exceeded {timeout}s")
@@ -113,6 +159,37 @@ def run_case(case_id: str, report_root: Path, timeout: int = DEFAULT_TIMEOUT) ->
             "status": "BLOCKED",
             "failure_reason": f"Timeout {timeout}s",
         })
+
+    if _is_empty_native_startup_crash(completed, report_dir):
+        retry_path = report_dir / "startup_retry.json"
+        with retry_path.open("w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "first_exit_code": completed.returncode,
+                    "retry_delay_seconds": _NATIVE_STARTUP_RETRY_DELAY_SECONDS,
+                },
+                handle,
+                ensure_ascii=True,
+                indent=2,
+            )
+        print(
+            "  [RETRY] Native CTP child stopped before durable startup evidence; "
+            "retrying once after cooldown"
+        )
+        time.sleep(_NATIVE_STARTUP_RETRY_DELAY_SECONDS)
+        try:
+            completed = _run_child(
+                cmd,
+                timeout=timeout,
+                child_environment=child_environment,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"  [TIMEOUT] {case_id} retry exceeded {timeout}s")
+            return enrich_result_payload({
+                "case_id": case_id,
+                "status": "BLOCKED",
+                "failure_reason": f"Retry timeout {timeout}s",
+            })
 
     # Relay output
     if completed.stdout:

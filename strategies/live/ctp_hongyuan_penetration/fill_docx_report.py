@@ -35,6 +35,15 @@ VERSION_FILE = ROOT / "src/backend/app/__init__.py"
 PACKAGE_DIR = ROOT / "src/backend"
 
 
+def certification_order_symbol() -> str:
+    """Return the contract used by the current Hongyuan certification run."""
+    return (
+        os.getenv("HONGYUAN_ORDER_SYMBOL")
+        or os.getenv("HONGYUAN_TICK_SYMBOL")
+        or "rb2610"
+    ).strip()
+
+
 SECTION_MAP = {
     2: ["C01"],
     3: ["T01", "T02", "T03"],
@@ -268,13 +277,14 @@ def overall_conclusion(results: dict[str, dict]) -> str:
     rows = [results[cid] for cid in CASE_SEQUENCE]
     counts = count_statuses(rows)
     total = len(rows)
+    symbol = certification_order_symbol()
     if counts["PASS"] == total and counts["FAIL"] == 0 and counts["BLOCKED"] == 0:
-        return f"宏源期货穿透式认证，测试合约 rb2605，{total}/{total} PASS。"
+        return f"宏源期货穿透式认证，测试合约 {symbol}，{total}/{total} PASS。"
 
     blocked_ids = [row["case_id"] for row in rows if row["status"] == "BLOCKED"]
     fail_ids = [row["case_id"] for row in rows if row["status"] == "FAIL"]
     parts = [
-        f"宏源期货穿透式认证，测试合约 rb2605，共 {total} 项",
+        f"宏源期货穿透式认证，测试合约 {symbol}，共 {total} 项",
         f"PASS {counts['PASS']} 项",
         f"BLOCKED {counts['BLOCKED']} 项",
         f"FAIL {counts['FAIL']} 项",

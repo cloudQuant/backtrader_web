@@ -15,10 +15,9 @@ for _p in (_SUITE, _REPO):
 
 from common import config as cfg, helpers
 from common.result import CaseTimer
-from common.runtime import started_store, run_with_timeout
+from common.runtime import create_broker, run_with_timeout, started_store
 
 import backtrader as bt
-from backtrader.brokers.btapibroker import BtApiBroker
 from backtrader.feeds.btapifeed import BtApiFeed
 
 CASE_META = {
@@ -51,7 +50,7 @@ def run(report_dir):
                     "volume": 1.0,
                     "openinterest": 0.0,
                 }
-                broker = BtApiBroker(store=store)
+                broker = create_broker(store)
                 data = BtApiFeed(
                     store=store,
                     dataname=symbol,
@@ -90,7 +89,7 @@ def run(report_dir):
                         status = order.getstatusname()
                         self.order_statuses.append(status)
                         print(f"  order_notify: ref={order.ref} status={status}")
-                        if status in ("Submitted", "Accepted", "Completed", "Canceled", "Rejected"):
+                        if status in ("Canceled", "Rejected", "Completed"):
                             self.cerebro.runstop()
 
                     def next(self):
@@ -124,14 +123,31 @@ def run(report_dir):
                 if not strat or strat.bar_count <= 0:
                     return timer.blocked_result("未能通过种子 bar 触发撤单流程")
 
-                system_entries = helpers.read_json_lines(Path(log_dir) / "system.log")
-                event_types = {e.get("event_type") for e in system_entries}
+                event_types = helpers.collect_log_event_types(log_dir)
                 assert strat.cancel_called, "Cancel path was not executed"
-                assert (
-                    "order_cancel_request" in event_types
-                    or strat.cancel_status == "Canceled"
-                    or "Canceled" in strat.order_statuses
-                ), "Missing cancel evidence"
+                if "order_status_completed" in event_types:
+                    return timer.fail_result(
+                        "撤单测试订单在收到柜台撤单终态前成交",
+                        evidence=helpers.collect_evidence_files(log_dir),
+                        details={
+                            "events": sorted(event_types),
+                            "submit_status": strat.submit_status,
+                            "cancel_status": strat.cancel_status,
+                            "order_statuses": strat.order_statuses,
+                        },
+                    )
+                if "order_status_canceled" not in event_types:
+                    return timer.blocked_result(
+                        "仅观察到本地撤单请求，未收到柜台撤单终态回报",
+                        next_action="确认仿真账户可用资金和柜台订单回报后重试",
+                        evidence=helpers.collect_evidence_files(log_dir),
+                        details={
+                            "events": sorted(event_types),
+                            "submit_status": strat.submit_status,
+                            "cancel_status": strat.cancel_status,
+                            "order_statuses": strat.order_statuses,
+                        },
+                    )
                 print("✓ 撤单指令已成功下达并确认 order_cancel_request")
 
                 evidence = helpers.collect_evidence_files(log_dir)
