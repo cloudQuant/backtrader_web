@@ -329,7 +329,7 @@ jobs:
             config/requirements-dev.lock
 
       - name: Cache backend virtualenv
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         id: cache-backend-venv-lint
         with:
           path: src/backend/.venv
@@ -541,7 +541,7 @@ jobs:
             config/requirements-dev.lock
 
       - name: Cache backend virtualenv
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         id: cache-backend-venv-test
         with:
           path: src/backend/.venv
