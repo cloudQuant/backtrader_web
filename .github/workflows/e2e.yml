@@ -58,7 +58,7 @@ jobs:
           pip install -e ".[dev,backtrader]"
 
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: src/frontend/node_modules/.cache/ms-playwright
           key: playwright-browsers-${{ runner.os }}-${{ hashFiles('src/frontend/package-lock.json') }}
