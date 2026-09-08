@@ -122,6 +122,31 @@ def test_query_requires_aware_half_open_time_range_and_unambiguous_bar_frequency
         )
 
 
+def test_reference_series_uses_the_reviewed_calendar_grid_window_limit() -> None:
+    """A daily B1 series is not incorrectly constrained as a seven-day snapshot."""
+    reference_series = _build_query(
+        data_kind="reference_series",
+        dataset_code="market.liquidity",
+        frequency="1d",
+        required_fields=["volume", "turnover", "turnover_rate"],
+        adjustment="unadjusted",
+        start="2025-01-02T09:30:00+08:00",
+        end="2025-02-10T09:30:00+08:00",
+    )
+
+    assert reference_series.data_kind == "reference_series"
+    with pytest.raises(ValidationError, match="direct local-first window limit"):
+        _build_query(
+            data_kind="reference_series",
+            dataset_code="market.liquidity",
+            frequency="1d",
+            required_fields=["volume", "turnover", "turnover_rate"],
+            adjustment="unadjusted",
+            start="2020-01-01T09:30:00+08:00",
+            end="2031-01-01T09:30:00+08:00",
+        )
+
+
 def test_public_v2_query_requires_a_complete_family_binding() -> None:
     """The HTTP-facing DTO cannot retain the internal unbound compatibility shape."""
     from app.schemas.market_data_platform import PublicMarketDataQueryRequest

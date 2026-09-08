@@ -116,6 +116,12 @@ class AkShareRoute:
     supported_price_bases: frozenset[str] = frozenset({"close"})
     supported_currencies: frozenset[str] | None = None
     supported_units: frozenset[str] | None = None
+    # The policy-level route ID is deliberately separate from the AkShare
+    # endpoint name.  Several single-record product families can share an
+    # asset type and data kind (for example, stock reference series), but
+    # must not be allowed to select each other's source function merely
+    # because their broad dimensions happen to overlap.
+    route_ids: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         has_endpoint = self.endpoint is not None or self.endpoint_resolver is not None
@@ -141,6 +147,15 @@ class AkShareRoute:
             raise ValueError("use None to reject all explicit AkShare currencies")
         if self.supported_units is not None and not self.supported_units:
             raise ValueError("use None to reject all explicit AkShare units")
+        if not isinstance(self.route_ids, frozenset):
+            raise TypeError("AkShare route_ids must be a frozenset")
+        if any(not isinstance(route_id, str) or not route_id.strip() for route_id in self.route_ids):
+            raise ValueError("AkShare route_ids must contain non-blank strings")
+        object.__setattr__(
+            self,
+            "route_ids",
+            frozenset(route_id.strip() for route_id in self.route_ids),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -515,6 +530,28 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         supported_adjustments=frozenset({"unadjusted", "qfq", "hfq"}),
         supported_currencies=frozenset({"CNY"}),
         supported_units=frozenset({"share"}),
+        route_ids=frozenset({"akshare-stock-primary-v1"}),
+    ),
+    # This is deliberately a separate route from stock bars even though it
+    # uses the same exact-symbol AkShare function.  The route ID prevents a
+    # future valuation/reference policy from accidentally receiving a
+    # liquidity-only field set through a broad `reference_series` match.
+    AkShareRoute(
+        asset_type="stock",
+        data_kind="reference_series",
+        frequencies=_DAILY_ONLY_FREQUENCIES,
+        endpoint="stock_zh_a_hist",
+        build_call_kwargs=_build_historical_kline_kwargs,
+        timestamp_columns=("日期", "date"),
+        allowed_markets=frozenset({"CN-SSE", "CN-SZSE"}),
+        symbol_columns=("股票代码", "symbol", "code"),
+        client_filters_window=True,
+        identity_proof="response_symbol",
+        request_validator=_validate_cn_stock_symbol,
+        supported_adjustments=frozenset({"unadjusted"}),
+        supported_currencies=frozenset({"CNY"}),
+        supported_units=frozenset({"share"}),
+        route_ids=frozenset({"akshare-stock-liquidity-primary-v1"}),
     ),
     AkShareRoute(
         asset_type="futures",
@@ -528,6 +565,7 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         supported_currencies=frozenset({"CNY"}),
         supported_units=frozenset({"contract"}),
         request_validator=_validate_cffex_futures_symbol,
+        route_ids=frozenset({"akshare-futures-primary-v1"}),
     ),
     AkShareRoute(
         asset_type="bond",
@@ -540,6 +578,7 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         client_filters_window=True,
         request_validator=_validate_cn_bond_symbol,
         supported_currencies=frozenset({"CNY"}),
+        route_ids=frozenset({"akshare-bond-primary-v1"}),
     ),
     AkShareRoute(
         asset_type="fund",
@@ -554,6 +593,25 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         supported_currencies=frozenset({"CNY"}),
         supported_units=frozenset({"share"}),
         request_validator=_validate_cn_etf_symbol,
+        route_ids=frozenset({"akshare-fund-primary-v1"}),
+    ),
+    # ETF liquidity is an exact code/date range request.  AkShare's endpoint
+    # does not echo the code in each returned row, so it retains the existing
+    # request-bound identity proof plus the deterministic ETF venue check.
+    AkShareRoute(
+        asset_type="fund",
+        data_kind="reference_series",
+        frequencies=_DAILY_ONLY_FREQUENCIES,
+        endpoint="fund_etf_hist_em",
+        build_call_kwargs=_build_historical_kline_kwargs,
+        timestamp_columns=("日期", "date"),
+        allowed_markets=frozenset({"CN-SSE", "CN-SZSE"}),
+        client_filters_window=True,
+        supported_adjustments=frozenset({"unadjusted"}),
+        supported_currencies=frozenset({"CNY"}),
+        supported_units=frozenset({"share"}),
+        request_validator=_validate_cn_etf_symbol,
+        route_ids=frozenset({"akshare-fund-liquidity-primary-v1"}),
     ),
     AkShareRoute(
         asset_type="option",
@@ -567,6 +625,7 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         client_filters_window=True,
         supported_currencies=frozenset({"CNY"}),
         supported_units=frozenset({"contract"}),
+        route_ids=frozenset({"akshare-cffex-option-primary-v1"}),
     ),
     AkShareRoute(
         asset_type="fx",
@@ -579,6 +638,7 @@ AKSHARE_ROUTE_REGISTRY: tuple[AkShareRoute, ...] = (
         symbol_columns=("代码", "code", "symbol"),
         client_filters_window=True,
         identity_proof="response_symbol",
+        route_ids=frozenset({"akshare-fx-primary-v1"}),
     ),
     AkShareRoute(
         asset_type="crypto",
@@ -711,6 +771,16 @@ class AkShareMarketDataProvider:
         ]
         if not candidates:
             raise AkShareProviderError("AKSHARE_MARKET_UNSUPPORTED")
+        # `route_id` is supplied by the reviewed source-policy route in the
+        # real query path.  Respect it here as an adapter-side second check so
+        # adding another exact route for the same asset/data-kind dimensions
+        # cannot silently select a semantically different endpoint.
+        if request.route_id is not None:
+            candidates = [
+                route for route in candidates if request.route_id in route.route_ids
+            ]
+            if not candidates:
+                raise AkShareProviderError("AKSHARE_ROUTE_UNSUPPORTED")
         if len(candidates) != 1:
             raise AkShareProviderError("AKSHARE_ROUTE_UNSUPPORTED")
         return candidates[0]
@@ -768,7 +838,15 @@ class AkShareMarketDataProvider:
     @staticmethod
     def _validate_routes(routes: tuple[AkShareRoute, ...]) -> None:
         seen_routes: dict[tuple[str, str, str], list[AkShareRoute]] = {}
+        seen_route_ids: set[str] = set()
         for route in routes:
+            duplicate_route_ids = seen_route_ids & route.route_ids
+            if duplicate_route_ids:
+                raise ValueError(
+                    "duplicate AkShare source-policy route ID: "
+                    f"{sorted(duplicate_route_ids)!r}"
+                )
+            seen_route_ids.update(route.route_ids)
             for frequency in route.frequencies:
                 key = (route.asset_type, route.data_kind, frequency)
                 conflicts = seen_routes.setdefault(key, [])

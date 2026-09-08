@@ -272,6 +272,102 @@ def _snapshot_context(
     )
 
 
+def _liquidity_reference_series_request(
+    *,
+    mode: str = "local_first",
+) -> MarketDataQueryRequest:
+    """Build the reviewed stock-liquidity calendar-grid request shape."""
+    return MarketDataQueryRequest.model_validate(
+        {
+            "identity": {"canonical_id": CANONICAL_ID},
+            "dataset_code": "market.liquidity",
+            "data_kind": "reference_series",
+            "frequency": "1d",
+            "start": _at(9).isoformat(),
+            "end": _at(12).isoformat(),
+            "required_fields": ["volume", "turnover", "turnover_rate"],
+            "adjustment": "unadjusted",
+            "price_basis": "close",
+            "currency": "CNY",
+            "unit": "share",
+            "source_policy_id": "market-default-v1",
+            "mode": mode,
+        }
+    )
+
+
+def _liquidity_reference_series_context(
+    request: MarketDataQueryRequest | None = None,
+) -> ResolvedMarketDataQueryContext:
+    """Reuse the stock identity while binding the approved liquidity dataset."""
+    request = request or _liquidity_reference_series_request()
+    query = ResolvedMarketDataQuery.from_request(
+        request,
+        canonical_id=CANONICAL_ID,
+        dataset_code="market.liquidity",
+        instrument_metadata_version=METADATA_VERSION,
+    )
+    bars_context = _context()
+    return replace(
+        bars_context,
+        query=query,
+        storage=replace(bars_context.storage, dataset_code="market.liquidity"),
+        coverage_identity=replace(
+            bars_context.coverage_identity,
+            dataset_code="market.liquidity",
+            data_kind="reference_series",
+            frequency="1d",
+            adjustment="unadjusted",
+            price_basis="close",
+            unit="share",
+        ),
+    )
+
+
+def _unsupported_option_chain_request() -> MarketDataQueryRequest:
+    """Build a representable but unconfigured multi-record query shape."""
+    return MarketDataQueryRequest.model_validate(
+        {
+            "identity": {"canonical_id": CANONICAL_ID},
+            "dataset_code": "market.option_chain",
+            "data_kind": "option_chain",
+            "frequency": "snapshot",
+            "start": _at(11).isoformat(),
+            "end": _at(12).isoformat(),
+            "required_fields": ["strike"],
+            "currency": "CNY",
+            "unit": "contract",
+            "source_policy_id": "market-default-v1",
+        }
+    )
+
+
+def _unsupported_option_chain_context(
+    request: MarketDataQueryRequest | None = None,
+) -> ResolvedMarketDataQueryContext:
+    """Bind the test-only unsupported record shape without changing the registry."""
+    request = request or _unsupported_option_chain_request()
+    query = ResolvedMarketDataQuery.from_request(
+        request,
+        canonical_id=CANONICAL_ID,
+        dataset_code="market.option_chain",
+        instrument_metadata_version=METADATA_VERSION,
+    )
+    snapshot_context = _snapshot_context()
+    return replace(
+        snapshot_context,
+        query=query,
+        storage=replace(snapshot_context.storage, dataset_code="market.option_chain"),
+        coverage_identity=replace(
+            snapshot_context.coverage_identity,
+            dataset_code="market.option_chain",
+            data_kind="option_chain",
+            frequency="snapshot",
+            unit="contract",
+        ),
+    )
+
+
 def _calendar(*, known: bool = True) -> CalendarSnapshot:
     window = TimeWindow(start_at=_at(9), end_at=_at(12))
     if not known:
@@ -660,6 +756,50 @@ def _snapshot_provider_result(
     )
 
 
+def _liquidity_reference_series_provider_result() -> ProviderFetchResult:
+    """Build one complete daily stock-liquidity receipt for the test grid."""
+    events = (_at(9), _at(10), _at(11))
+    return ProviderFetchResult(
+        provider_id="akshare",
+        source_revision="stock-liquidity-route-v1",
+        retrieved_at=_at(12),
+        observations=tuple(
+            ProviderMarketObservation(
+                event_at=event_at,
+                available_at=_at(12),
+                fields={
+                    "volume": 1000 + event_at.hour,
+                    "turnover": 10_000.0 + event_at.hour,
+                    "turnover_rate": 1.0 + event_at.hour / 100,
+                },
+            )
+            for event_at in events
+        ),
+        raw_payload={
+            "route": "akshare-stock-liquidity-primary-v1",
+            "events": [item.isoformat() for item in events],
+        },
+        request=MarketDataProviderRequest(
+            query_fingerprint="a" * 64,
+            canonical_id=CANONICAL_ID,
+            asset_type="stock",
+            provider_symbol="600000",
+            market="CN-SSE",
+            data_kind="reference_series",
+            frequency="1d",
+            start_at=_at(9),
+            end_at=_at(12),
+            required_fields=frozenset({"volume", "turnover", "turnover_rate"}),
+            provider="akshare",
+            adjustment="unadjusted",
+            price_basis="close",
+            currency="CNY",
+            unit="share",
+            source_policy_id="market-default-v1",
+        ),
+    )
+
+
 def _service(
     *,
     context: ResolvedMarketDataQueryContext,
@@ -947,6 +1087,26 @@ def _snapshot_route(provider: _Provider):
     )
 
 
+def _liquidity_reference_series_route(provider: _Provider):
+    """Route only the exact stock-liquidity reference-series product shape."""
+    from app.services.market_data.source_policy import MarketDataProviderRoute
+
+    return MarketDataProviderRoute(
+        route_id="akshare-stock-liquidity-primary-v1",
+        request_provider="akshare",
+        expected_result_provider_ids=frozenset({"akshare"}),
+        asset_types=frozenset({"stock"}),
+        data_kinds=frozenset({"reference_series"}),
+        frequencies=frozenset({"1d"}),
+        markets=frozenset({"CN-SSE"}),
+        adjustments=frozenset({"unadjusted"}),
+        price_bases=frozenset({"close"}),
+        currencies=frozenset({"CNY"}),
+        units=frozenset({"share"}),
+        adapter=provider,
+    )
+
+
 @pytest.mark.asyncio
 async def test_local_complete_data_does_not_invoke_a_provider() -> None:
     """A fully covered local query remains local and retains no network side effect."""
@@ -989,6 +1149,34 @@ async def test_missing_local_data_is_persisted_then_reread_from_local_store() ->
     assert persisted_result.request == provider.requests[0]
     assert [(item.start_at, item.end_at) for item in [provider.requests[0]]] == [(_at(10), _at(12))]
     assert result.fetches[0].provider_id == "akshare"
+
+
+@pytest.mark.asyncio
+async def test_stock_liquidity_reference_series_miss_is_persisted_then_reread_from_local_store() -> None:
+    """The approved B1 liquidity product follows calendar coverage, never freshness."""
+    request = _liquidity_reference_series_request()
+    context = _liquidity_reference_series_context(request)
+    store = _Store(calendar=_calendar(), revisions=[])
+    provider = _Provider(_liquidity_reference_series_provider_result())
+
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(_liquidity_reference_series_route(provider),),
+    ).execute(request)
+
+    assert result.coverage.status.value == "complete"
+    assert [item.fields for item in result.observations] == [
+        {"volume": 1009, "turnover": 10009.0, "turnover_rate": 1.09},
+        {"volume": 1010, "turnover": 10010.0, "turnover_rate": 1.1},
+        {"volume": 1011, "turnover": 10011.0, "turnover_rate": 1.11},
+    ]
+    assert len(provider.requests) == 1
+    assert provider.requests[0].data_kind == "reference_series"
+    assert provider.requests[0].frequency == "1d"
+    assert provider.requests[0].route_id == "akshare-stock-liquidity-primary-v1"
+    assert len(store.calendar_source_filters) >= 2
+    assert len(store.persisted) == 1
 
 
 @pytest.mark.asyncio
@@ -2411,6 +2599,26 @@ async def test_historical_quote_snapshot_miss_never_fetches_a_present_value() ->
     assert provider.requests == []
     assert [warning.code for warning in result.warnings] == ["SNAPSHOT_HISTORICAL_FETCH_FORBIDDEN"]
     assert store.calendar_reads == 0
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_multi_record_shape_fails_before_local_or_provider_work() -> None:
+    """Chains cannot accidentally borrow either B1 single-record coverage strategy."""
+    request = _unsupported_option_chain_request()
+    context = _unsupported_option_chain_context(request)
+    store = _SnapshotStore(revisions=[])
+    provider = _Provider(_snapshot_provider_result())
+
+    with pytest.raises(MarketDataQueryServiceError, match="DATA_KIND_COVERAGE_UNSUPPORTED"):
+        await _service(
+            context=context,
+            store=store,
+            provider_routes=(_snapshot_route(provider),),
+        ).execute(request)
+
+    assert store.read_cutoffs == []
+    assert store.calendar_reads == 0
+    assert provider.requests == []
 
 
 @pytest.mark.asyncio

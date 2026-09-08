@@ -73,11 +73,15 @@ _MANIFEST_KEYS = frozenset(
     }
 )
 _REQUIRED_FRONTEND_V2_MARKERS = (
-    "function readyRealtimeBarsFamilyFromQueryBundle(",
+    "function defaultFamilyId(",
     "`${assetType}.realtime`",
-    "family.status !== 'ready'",
-    "family.data_kind !== 'bars'",
-    "family.frequency_semantics !== 'calendar_grid'",
+    "function isMarketPageSelectableFamily(",
+    "function selectedMarketPageFamilyFromQueryBundle(",
+    "family.status === 'ready'",
+    "family.frequency_semantics === 'calendar_grid'",
+    "family.dimension_fields.length === 0",
+    "family.data_kind === 'bars' || family.data_kind === 'reference_series'",
+    "selectedFamilyId.value",
 )
 
 
@@ -443,11 +447,18 @@ def _manifest_row(
     declared_compatibility_periods = [
         period for period in frontend.legacy_periods if legacy_period_mapping[period] in frequencies
     ]
-    is_v2_compatibility_family = (
-        family_id == f"{asset_type}.realtime"
+    # The market page defaults to ``asset.realtime``, but its reviewed selector
+    # can execute any explicitly selected, single-record calendar-grid family
+    # meeting this exact shape.  Keep the manifest aligned with that bounded
+    # selector rather than incorrectly presenting B1 families as unavailable.
+    is_market_page_selectable_family = (
+        asset_type in frontend.asset_types
+        and family_id in frontend.family_ids
         and family["status"] == "ready"
-        and family["data_kind"] == "bars"
+        and family["source_policy_id"] is not None
         and family["frequency_semantics"] == "calendar_grid"
+        and not family["dimension_fields"]
+        and family["data_kind"] in {"bars", "reference_series"}
     )
     row_without_hash: dict[str, Any] = {
         "family_id": family_id,
@@ -473,7 +484,7 @@ def _manifest_row(
             "legacy_page_period_inputs": list(frontend.legacy_periods),
             "declared_compatibility_periods": declared_compatibility_periods,
             "v2_query_periods": (
-                declared_compatibility_periods if is_v2_compatibility_family else []
+                declared_compatibility_periods if is_market_page_selectable_family else []
             ),
         },
         "api": {

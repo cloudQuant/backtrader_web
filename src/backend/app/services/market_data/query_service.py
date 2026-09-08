@@ -1411,14 +1411,21 @@ def _with_fetch_window(
 
 
 def _uses_snapshot_freshness(context: ResolvedMarketDataQueryContext) -> bool:
-    """Return whether this resolved dataset is a current quote, never a bar grid.
+    """Select one reviewed single-record coverage strategy for a query.
 
-    Chain/surface products need their own slice-completeness evaluator and are
-    deliberately excluded here. Until that evaluator and its server-owned
-    dimensions are available, those products remain unconfigured rather than
-    inheriting quote freshness semantics.
+    The calendar planner is valid for bars and reference-series facts because
+    their contracts define a complete grid of expected events.  Quote snapshots
+    instead use an explicit freshness policy.  Other record shapes (chains,
+    surfaces, and reports) cannot safely inherit either rule: they need their
+    own server-owned slice or reporting-completeness evaluator.  Fail before a
+    local read or provider call so an internal caller cannot accidentally make
+    an unconfigured product executable by bypassing the public family bridge.
     """
-    return context.query.data_kind == "quote_snapshot"
+    if context.query.data_kind == "quote_snapshot":
+        return True
+    if context.query.data_kind in {"bars", "reference_series"}:
+        return False
+    raise MarketDataQueryServiceError("DATA_KIND_COVERAGE_UNSUPPORTED")
 
 
 def _require_snapshot_max_age(state: _LocalState) -> timedelta:

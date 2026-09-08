@@ -99,7 +99,12 @@ def test_scope_manifest_is_deterministic_and_carries_all_twenty_one_family_rows(
         "monthly",
     ]
     assert rows["futures.realtime"]["frontend"]["v2_query_periods"] == ["daily"]
+    assert rows["stock.liquidity"]["frontend"]["v2_query_periods"] == ["daily"]
+    assert rows["fund.liquidity"]["frontend"]["v2_query_periods"] == ["daily"]
+    assert rows["fx.range"]["frontend"]["v2_query_periods"] == ["daily"]
     assert rows["crypto.realtime"]["frontend"]["v2_query_periods"] == []
+    assert rows["stock.valuation"]["frontend"]["v2_query_periods"] == []
+    assert rows["option.derivative"]["frontend"]["v2_query_periods"] == []
     assert rows["option.derivative"]["frontend"]["declared_compatibility_periods"] == []
     validate_scope_manifest(manifest=first, project_root=PROJECT_ROOT)
 
@@ -163,7 +168,7 @@ def test_frontend_parser_fails_when_the_v2_family_selection_rule_is_no_longer_pr
     frontend_path.write_text(
         (PROJECT_ROOT / "src/frontend/src/views/data/useDataPage.ts")
         .read_text(encoding="utf-8")
-        .replace("family.status !== 'ready'", "family.status !== 'approved'", 1),
+        .replace("family.status === 'ready'", "family.status === 'approved'", 1),
         encoding="utf-8",
     )
 

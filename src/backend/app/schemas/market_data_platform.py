@@ -422,7 +422,7 @@ class MarketDataQueryRequest(_StrictMarketDataModel):
 
     @model_validator(mode="after")
     def validate_query_window_and_frequency(self) -> MarketDataQueryRequest:
-        """Enforce the half-open interval and the required bars cadence."""
+        """Enforce the half-open interval and the approved grid cadence."""
         if (self.family_id is None) != (self.family_contract_version is None):
             raise ValueError("family_id and family_contract_version must be specified together")
         if self.start >= self.end:
@@ -464,9 +464,15 @@ class MarketDataQueryRequest(_StrictMarketDataModel):
             and self.knowledge_cutoff > self.end
         ):
             raise ValueError("backtest knowledge_cutoff cannot be after the query end")
+        # Reference series have the same calendar-grid coverage semantics as
+        # bars: an exact daily (or later reviewed weekly/monthly) series needs
+        # a practical historical request window, not the seven-day freshness
+        # cap reserved for snapshots and unsupported record shapes.  Public
+        # callers still need a server-issued family binding, and the registry
+        # limits currently-ready reference products to their declared cadence.
         max_window = (
             _MAX_DIRECT_BAR_WINDOWS[self.frequency]
-            if self.data_kind == "bars" and self.frequency is not None
+            if self.data_kind in {"bars", "reference_series"} and self.frequency is not None
             else _MAX_DIRECT_SNAPSHOT_WINDOW
         )
         if self.end - self.start > max_window:

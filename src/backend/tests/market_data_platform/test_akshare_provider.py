@@ -28,6 +28,7 @@ def _request(
     *,
     asset_type: str = "stock",
     provider: str = "akshare",
+    data_kind: str = "bars",
     frequency: str = "1d",
     provider_symbol: str = "000001",
     market: str = "CN-SZSE",
@@ -37,6 +38,7 @@ def _request(
     currency: str | None = None,
     unit: str | None = None,
     source_policy_id: str | None = "akshare-v2",
+    route_id: str | None = None,
 ) -> MarketDataProviderRequest:
     return MarketDataProviderRequest(
         query_fingerprint="b" * 64,
@@ -44,7 +46,7 @@ def _request(
         asset_type=asset_type,
         provider_symbol=provider_symbol,
         market=market,
-        data_kind="bars",
+        data_kind=data_kind,
         frequency=frequency,
         start_at=datetime(2026, 1, 2, tzinfo=UTC),
         end_at=datetime(2026, 1, 4, tzinfo=UTC),
@@ -55,6 +57,7 @@ def _request(
         currency=currency,
         unit=unit,
         source_policy_id=source_policy_id,
+        route_id=route_id,
     )
 
 
@@ -69,6 +72,22 @@ def test_akshare_registry_declares_each_current_asset_type_explicitly() -> None:
         "fx",
         "crypto",
     }
+    assert {
+        (route.asset_type, route.data_kind, route.endpoint)
+        for route in AKSHARE_ROUTE_REGISTRY
+    } >= {
+        ("stock", "reference_series", "stock_zh_a_hist"),
+        ("fund", "reference_series", "fund_etf_hist_em"),
+    }
+    executable_routes = [
+        route
+        for route in AKSHARE_ROUTE_REGISTRY
+        if route.endpoint is not None or route.endpoint_resolver is not None
+    ]
+    assert all(route.route_ids for route in executable_routes)
+    assert len({route_id for route in executable_routes for route_id in route.route_ids}) == sum(
+        len(route.route_ids) for route in executable_routes
+    )
 
 
 def test_snapshot_row_schemas_stay_out_of_the_request_time_provider_registry() -> None:
@@ -80,7 +99,10 @@ def test_snapshot_row_schemas_stay_out_of_the_request_time_provider_registry() -
         "crypto",
         "option",
     }
-    assert all(route.data_kind == "bars" for route in AKSHARE_ROUTE_REGISTRY)
+    assert {route.data_kind for route in AKSHARE_ROUTE_REGISTRY} == {
+        "bars",
+        "reference_series",
+    }
     assert get_akshare_snapshot_row_schema("stock").collector_observed_allowed is True
     assert get_akshare_snapshot_row_schema("fund").collector_observed_allowed is False
     assert get_akshare_snapshot_row_schema("fund").field_aliases["IOPV"] == "iopv"
@@ -174,6 +196,128 @@ async def test_akshare_provider_uses_the_current_market_page_field_contract() ->
 
     assert result.observations[0].fields["change_pct"] == 5.0
     assert result.observations[0].fields["settle"] == 10.25
+
+
+@pytest.mark.asyncio
+async def test_akshare_provider_fetches_exact_stock_liquidity_reference_series() -> None:
+    """The B1 stock-liquidity route remains code/date-bound and response-proven."""
+    calls: list[dict[str, Any]] = []
+
+    def fake_stock_route(**kwargs: Any) -> list[dict[str, Any]]:
+        calls.append(kwargs)
+        return [
+            {
+                "日期": "2026-01-01",
+                "股票代码": "000001",
+                "成交量": 10,
+                "成交额": 100.0,
+                "换手率": 1.25,
+            },
+            {
+                "日期": "2026-01-02",
+                "股票代码": "000001",
+                "成交量": 20,
+                "成交额": 200.0,
+                "换手率": 2.5,
+            },
+        ]
+
+    provider = AkShareMarketDataProvider(callable_resolver=lambda _: fake_stock_route)
+    result = await provider.fetch(
+        _request(
+            data_kind="reference_series",
+            required_fields=frozenset({"volume", "turnover", "turnover_rate"}),
+            adjustment="unadjusted",
+            price_basis="close",
+            currency="CNY",
+            unit="share",
+            route_id="akshare-stock-liquidity-primary-v1",
+        )
+    )
+
+    assert calls == [
+        {
+            "symbol": "000001",
+            "period": "daily",
+            "start_date": "20260102",
+            "end_date": "20260103",
+            "adjust": "",
+        }
+    ]
+    assert [item.event_at for item in result.observations] == [datetime(2026, 1, 2, tzinfo=UTC)]
+    assert result.observations[0].fields == {
+        "volume": 20,
+        "turnover": 200.0,
+        "turnover_rate": 2.5,
+    }
+    assert result.raw_payload["route"]["endpoint"] == "stock_zh_a_hist"
+    assert result.raw_payload["request"]["route_id"] == "akshare-stock-liquidity-primary-v1"
+
+
+@pytest.mark.asyncio
+async def test_akshare_provider_fetches_exact_etf_liquidity_reference_series() -> None:
+    """The B1 ETF route cannot borrow a broad spot table as a symbol fallback."""
+    calls: list[dict[str, Any]] = []
+
+    def fake_fund_route(**kwargs: Any) -> list[dict[str, Any]]:
+        calls.append(kwargs)
+        return [
+            {
+                "日期": "2026-01-02",
+                "成交量": 30,
+                "成交额": 300.0,
+            }
+        ]
+
+    provider = AkShareMarketDataProvider(callable_resolver=lambda _: fake_fund_route)
+    result = await provider.fetch(
+        _request(
+            asset_type="fund",
+            provider_symbol="159915",
+            market="CN-SZSE",
+            data_kind="reference_series",
+            required_fields=frozenset({"volume", "turnover"}),
+            adjustment="unadjusted",
+            price_basis="close",
+            currency="CNY",
+            unit="share",
+            route_id="akshare-fund-liquidity-primary-v1",
+        )
+    )
+
+    assert calls == [
+        {
+            "symbol": "159915",
+            "period": "daily",
+            "start_date": "20260102",
+            "end_date": "20260103",
+            "adjust": "",
+        }
+    ]
+    assert [item.event_at for item in result.observations] == [datetime(2026, 1, 2, tzinfo=UTC)]
+    assert result.observations[0].fields == {"volume": 30, "turnover": 300.0}
+    assert result.warnings == ("AKSHARE_IDENTITY_SOURCE_REQUEST_BOUND",)
+    assert result.raw_payload["route"]["endpoint"] == "fund_etf_hist_em"
+    assert result.raw_payload["request"]["route_id"] == "akshare-fund-liquidity-primary-v1"
+
+
+@pytest.mark.asyncio
+async def test_akshare_provider_rejects_a_source_policy_route_id_for_another_product() -> None:
+    """A broad reference-series data kind cannot bypass the exact route binding."""
+    provider = AkShareMarketDataProvider(
+        callable_resolver=lambda _: pytest.fail("mismatched route IDs must not fetch")
+    )
+
+    with pytest.raises(AkShareProviderError) as rejected:
+        await provider.fetch(
+            _request(
+                data_kind="reference_series",
+                required_fields=frozenset({"volume", "turnover", "turnover_rate"}),
+                route_id="akshare-stock-primary-v1",
+            )
+        )
+
+    assert rejected.value.code == "AKSHARE_ROUTE_UNSUPPORTED"
 
 
 @pytest.mark.asyncio
@@ -428,6 +572,47 @@ async def test_akshare_provider_rejects_a_mismatched_forex_response_symbol() -> 
         await provider.fetch(_request(asset_type="fx", provider_symbol="USDCNH", market="OTC"))
 
     assert mismatch.value.code == "AKSHARE_IDENTITY_MISMATCH"
+
+
+@pytest.mark.asyncio
+async def test_akshare_provider_fetches_the_exact_fx_range_ohlc_shape() -> None:
+    """The FX range family keeps its full reviewed OHLC contract end to end."""
+    calls: list[dict[str, Any]] = []
+
+    def fake_forex_route(**kwargs: Any) -> list[dict[str, Any]]:
+        calls.append(kwargs)
+        return [
+            {
+                "日期": "2026-01-02",
+                "代码": "USDCNH",
+                "今开": 7.0,
+                "最新价": 7.1,
+                "最高": 7.2,
+                "最低": 6.9,
+            }
+        ]
+
+    provider = AkShareMarketDataProvider(callable_resolver=lambda _: fake_forex_route)
+    result = await provider.fetch(
+        _request(
+            asset_type="fx",
+            provider_symbol="USDCNH",
+            market="OTC",
+            required_fields=frozenset({"open", "high", "low", "close"}),
+            adjustment="unadjusted",
+            price_basis="close",
+            route_id="akshare-fx-primary-v1",
+        )
+    )
+
+    assert calls == [{"symbol": "USDCNH"}]
+    assert result.observations[0].fields == {
+        "open": 7.0,
+        "close": 7.1,
+        "high": 7.2,
+        "low": 6.9,
+    }
+    assert result.raw_payload["route"]["endpoint"] == "forex_hist_em"
 
 
 @pytest.mark.asyncio
