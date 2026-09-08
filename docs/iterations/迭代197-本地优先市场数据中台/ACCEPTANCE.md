@@ -121,7 +121,7 @@ npm run lint
 | E-197-01 | 第 4 节完整 `pytest` 命令 | AO-01 至 AO-07 与中台配置的离线契约 | `NOT_RUN` | 候选提交上的完整 stdout 摘要、退出码 0、测试总数。 |
 | E-197-02 | 第 4 节 Ruff 命令 | 新增/修改的中台模块和测试 | `NOT_RUN` | 候选提交上的退出码 0；若工具未安装，应记录为 `BLOCKED`，不得静默跳过。 |
 | E-197-03 | `alembic heads` 与升级后 schema 审计 | 197 独立链和 196 整合后的单 head | `BLOCKED` | 合并链已形成后，输出恰有一个 head，且迁移审计通过。 |
-| E-197-04 | 真实 AkShare 受控探测 | 实时路由及三个 B1 候选路由的字段、时间窗、回执和写回 | `NOT_RUN` | 第 8.1 节的匿名化请求/响应摘要、来源回执和本地复读证据。 |
+| E-197-04 | 真实 AkShare 受控探测 | 实时路由及三个 B1 候选路由的字段、时间窗、回执和写回 | `FAIL`（已执行 `stock.liquidity`；其它真实 AkShare 路线仍为 `NOT_RUN`） | 第 8.1 节的匿名化请求/响应摘要、来源回执和本地复读证据。 |
 | E-197-05 | 真实 OpenBB 隔离运行器探测 | runner 环境、协议、上游许可与写回 | `BLOCKED` | 第 8.2 节的隔离进程、协议日志摘要、原始载荷 hash、回执和本地复读证据；当前 matrix 为空，且 yfinance 真实出站 end bound 未获证明，runner 在导入前拒绝，不能记为成功验证。 |
 | E-197-06 | `/data/market`、`/investment/strategies` 端到端回归 | 页面灰度、授权、回退防护、196 工件绑定 | `BLOCKED` | 196 冻结并完成桥接后，保存浏览器/API/数据库三方一致证据。 |
 | E-197-07 | MySQL/PostgreSQL UTC session、PIT 与 exact-identity collation 演练 | 时区、跨连接写入/读取、迁移、恢复及 `RB0`/`rb0` 精确身份 | `NOT_RUN` | 每个新连接的会话时区输出、边界时间写入/读取、迁移和恢复记录，以及 authority/projection/lookup 的 MySQL `utf8mb4_bin`、PostgreSQL `C` 实际列审计和 case-distinct lookup 回归。 |
@@ -129,11 +129,11 @@ npm run lint
 | E-197-09 | OpenBB 操作系统级隔离 | service account/container、挂载、凭据与工作目录 | `NOT_RUN` | runner 账户/容器配置、挂载清单、权限审计和一次实际小窗口回填。 |
 | E-197-10 | 策略页 `research_cache_fill` 灰度 | 显式用户动作、后端写入开关、研究用途授权、receipt 与 196 工件隔离 | `BLOCKED` | 196/197 集成候选、前端显式预检、后端开关与已批准研究用途 source registry、浏览器/API/数据库三方证据。 |
 
-`E-197-01` 与 `E-197-02` 的状态仅表示正式候选；本地工作树回归单列于下节。虽然已有本地候选提交，尚未形成经过 196 整合、真实环境与发布闸门确认的候选 tag；本地命令退出码为 0 不能升级为本文的正式 `PASS`。
+`E-197-01` 与 `E-197-02` 的状态仅表示正式候选；本地工作树回归单列于下节。`E-197-04` 已有一次真实子用例失败，不能以其它离线通过记录覆盖为 `NOT_RUN` 或 `PASS`。虽然已有本地候选提交，尚未形成经过 196 整合、真实环境与发布闸门确认的候选 tag；本地命令退出码为 0 不能升级为本文的正式 `PASS`。
 
 ### 5.1.1 当前本地执行记录（不改变正式候选状态）
 
-以下结果来自独立迭代 197 候选提交（均为 2026-09-09），仅作为可复核的本地开发证据；它们不替代第 4 节的正式候选、真实环境或 196 整合回归，也不改变上表的 `NOT_RUN` / `BLOCKED` 状态。
+以下结果来自独立迭代 197 候选提交（均为 2026-09-09），仅作为可复核的本地开发证据；它们不替代第 4 节的正式候选、真实环境或 196 整合回归。若记录包含已经执行的真实子用例，其失败结果必须如 L-197-11 一样同步反映在上表，不能被其它 `NOT_RUN` / `BLOCKED` 记录掩盖。
 
 | 记录 ID | 时间快照与命令范围 | 本地结果 | 对正式验收的含义 |
 | --- | --- | --- | --- |
@@ -146,7 +146,8 @@ npm run lint
 | L-197-07 | 历史快照（2026-09-09），候选提交 `1b1c74f3`：`/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/market_data_platform tests/test_config.py`、目标 Ruff、`alembic heads`、三份 v2 前端测试、`npm run typecheck`、`npm run build`、`npm run lint`。 | `PASS`：后端 453 passed/62 warnings（98.23s），目标 Ruff 通过；当时独立链 head 为 `20260909_market_data_exact_identity_collation`，前端 157 tests/typecheck/build 通过，lint 为 0 errors/1,225 warnings。 | 此记录不描述当前 head；覆盖 B1-0 逻辑目录与精确 family shape、`research_cache_fill` 授权/开关、AkShare provenance hash 修复以及页面控制面展示；仍只是提交前后同一代码快照的本地开发回归，不能把 E-197-01 至 E-197-10 或 AC-197-023 标为正式通过。 |
 | L-197-08 | 历史快照（2026-09-09），代码候选 `c29d2d72`（包含前端 `0289dfdd`）执行完整后端命令、全中台 Ruff/`compileall`、`alembic heads`、一次性 SQLite `upgrade head`，以及三份 v2 前端测试、typecheck、build、lint。 | `PASS`：后端 `468 passed, 62 warnings`（107.08s）；Ruff 与 `compileall` 退出码 0；当时独立链唯一 head 为 `20260909_market_data_exact_identity_collation`，临时 SQLite 升级到该 revision 且 `asset_instruments`、`md_fetch_leases`、identity/lookup 表存在；前端 163 tests、typecheck/build 通过，lint 为 0 errors/1,225 warnings。 | 此记录不描述当前 head；覆盖 B1 三个候选 family 的精确 route/合同、reference-series calendar-grid 上限、`DATA_KIND_COVERAGE_UNSUPPORTED` 的多记录拒绝、市场页显式选择/在途请求作废/必填字段拒绝及范围清单。它仍只是独立工作树中的离线开发证据；E-197-01 至 E-197-10、真实 provider/多方言/多 worker、浏览器灰度和 196 整合状态均不变。 |
 | L-197-09 | 历史快照（2026-09-09），候选代码提交 `a37f0514`、`b3c52283`、`b978b3a7`：完整后端命令、目标 Ruff/`compileall`、`alembic heads`、临时 SQLite `upgrade head`，以及三份 v2 前端测试、typecheck、build、lint。 | `PASS`：后端 `473 passed, 62 warnings`（99.83s）；Ruff 与 `compileall` 退出码 0；当时独立链唯一 head 为 `20260909_market_data_exact_identity_collation`，临时 SQLite 升级到该 revision 且 `asset_instruments`、`md_fetch_leases`、`md_instrument_lookup_keys`、`md_observation_revisions` 存在。 | 此记录不描述当前 head，也不覆盖随后发现并修复的 OpenBB P1；不得据此推断当前候选没有 P0/P1。其余覆盖范围与外部 `NOT_RUN` 边界保持历史记录所述。 |
-| L-197-10 | 2026-09-09，代码候选提交 `58def33f`（含 `97fbb4d9`）：完整后端回归、目标 Ruff/`compileall`、`alembic heads`、`verify_iteration197_postgres_acceptance.py --apply`，以及三份 v2 前端测试、typecheck、build、lint。 | `PASS`：后端 `517 passed, 64 warnings`（107.33s）；Ruff/`compileall` 通过；独立 197 链 head 为 `20260909_market_data_constraint_name_portability`；在此代码提交上 disposable PostgreSQL fresh 与 predecessor→head 演练均通过，两个连接为 UTC，两个 OS 进程竞争一个精确缺口仅 1 次确定性 provider 调用，follower `local_only` 读取 2 条事实且 0 次调用，3 个截断历史 CHECK 名迁移为 portable 名，source/calendar sentinel 各 1 条保留，短 SHA 被拒绝，临时库 cleanup 完成；前端 166 tests、typecheck/build 通过，lint 为 0 errors/1,225 条既有 warnings。OpenBB `--self-check` 无网络地报告空 permit matrix 和 `OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED`；AkShare 验收脚本默认返回 `LIVE_CONFIRMATION_REQUIRED`，未发起网络或写库。 | 这是当前独立候选的本地、disposable PostgreSQL 与前端开发证据；其中 provider 为确定性 fixture，不能替代真实 AkShare/OpenBB、MySQL、HTTP/deployment worker、故障接管、OS 隔离、浏览器 E2E 或 196 整合。因此 E-197-01 至 E-197-10 的正式状态不变。 |
+| L-197-10 | 2026-09-09，代码候选提交 `58def33f`（含 `97fbb4d9`）：完整后端回归、目标 Ruff/`compileall`、`alembic heads`、`verify_iteration197_postgres_acceptance.py --apply`，以及三份 v2 前端测试、typecheck、build、lint。 | `PASS`：后端 `517 passed, 64 warnings`（107.33s）；Ruff/`compileall` 通过；独立 197 链 head 为 `20260909_market_data_constraint_name_portability`；在此代码提交上 disposable PostgreSQL fresh 与 predecessor→head 演练均通过，两个连接为 UTC，两个 OS 进程竞争一个精确缺口仅 1 次确定性 provider 调用，follower `local_only` 读取 2 条事实且 0 次调用，3 个截断历史 CHECK 名迁移为 portable 名，source/calendar sentinel 各 1 条保留，短 SHA 被拒绝，临时库 cleanup 完成；前端 166 tests、typecheck/build 通过，lint 为 0 errors/1,225 条既有 warnings。OpenBB `--self-check` 无网络地报告空 permit matrix 和 `OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED`；AkShare 验收脚本默认返回 `LIVE_CONFIRMATION_REQUIRED`，未发起网络或写库。 | 这是当前独立候选的本地、disposable PostgreSQL 与前端开发证据；其中 provider 为确定性 fixture，不能替代真实 AkShare/OpenBB、MySQL、HTTP/deployment worker、故障接管、OS 隔离、浏览器 E2E 或 196 整合。它不决定后续真实子用例的状态；L-197-11 已单列记录 E-197-04 的失败。 |
+| L-197-11 | 2026-09-09，代码候选提交 `bea8835d`：焦点离线命令 `/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/market_data_platform/test_akshare_live_acceptance_harness.py`、目标 Ruff/`compileall`，以及显式实时命令 `/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python scripts/accept_iteration197_akshare_stock_liquidity.py --live --trading-date 2024-09-02`。 | 焦点回归 `PASS`：8 passed；Ruff/`compileall` 通过。实时子用例 `FAIL`（退出码 1）：`stock.liquidity` / `akshare-stock-liquidity-primary-v1` / `reference_series` / `1d` 发起 1 次 provider 调用，安全计数为 `result_count=1`、`response_row_count=0`、`normalized_observation_count=0`；临时库内 persisted fetch/receipt 为 1，观测、passing、failed 均为 0，coverage 为 `incomplete`，无 warning；临时数据库删除成功，未输出原始载荷或凭据。 | 这证明本次适配器看到的响应行数为零，且没有出现字段、身份、时间窗验证或持久化拒绝；它不证明请求日期或上游语义本身正确。没有形成可用 observation revision、完整覆盖或独立 `local_only` 复读证据。因此 E-197-04 为 `FAIL`（该子用例），其它 AkShare 路线、真实许可和成功写回验收仍未执行。 |
 
 `L-197-01` 包含 identity projection、observation PIT、pending publication 恢复、来源回执、同一 provider 的一次性 request ID 唯一性和 calendar 同源授权、SQLite 来源治理升级/降级保护、MySQL `DATETIME(6)` DDL/fsp=0 拒绝、相邻 calendar segment/import lock，以及 OpenBB 预规范化原始封套和进程组回收的离线断言。本地可观察语义如下；T0/T1/T2 仅描述 SQLite fixture 内的逻辑可见性，不表示真实多连接数据库已验收：
 
@@ -262,7 +263,7 @@ npm run lint
 4. 验证超时、并发槽耗尽、超大响应和不支持的资产/数据类型产生稳定码，不绕过限制调用另一函数或返回样例。
 5. 成功案例必须保留匿名化的请求语义、`provider_id`、source revision、source snapshot ID、行数、字段哈希和后续 `local_only` 复读证据；不得记录账户凭据或完整未授权原始载荷。
 
-当前状态：`NOT_RUN`。离线 AkShare 假函数测试只能证明代码契约，不能证明实时服务或许可。2026-09-09 的受限 `stock_zh_a_hist("600000")` 小窗口探测返回零行；此前 `forex_hist_em("USDCNH")` 受限探测也没有形成可验收回执。两者均没有形成字段、来源回执、持久化或本地复读证据，不能用来宣称三个 B1 family 的真实来源通过。
+当前状态：`FAIL`（已执行的 `stock.liquidity` 子用例）。离线 AkShare 假函数测试只能证明代码契约，不能证明实时服务或许可。2026-09-09 的受限 `stock_zh_a_hist("600000")` 小窗口探测返回一个 `ProviderFetchResult`，但安全计数为 `response_row_count=0`、`normalized_observation_count=0`：临时库内有 1 条 persisted fetch/receipt，却没有 observation revision、完整覆盖或后续 `local_only` 复读；临时数据库随后已删除，未保留可复核的 snapshot/revision ID。此前 `forex_hist_em("USDCNH")` 的受限探测只是无成功链的历史线索，未附本候选命令、版本和输出，故不改变该 route 的正式 `NOT_RUN`。这些记录不能用来宣称三个 B1 family 的真实来源通过；除 `stock.liquidity` 的失败子用例外，其它实际启用 AkShare 路线仍为 `NOT_RUN`。
 
 ### 8.2 OpenBB 隔离运行器验证
 
