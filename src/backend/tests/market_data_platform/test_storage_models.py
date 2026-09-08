@@ -323,6 +323,18 @@ def test_constraint_portability_normalizes_only_the_postgresql_varchar_text_cast
         "length(provider_request_fingerprint_sha256::text) = 63"
     ) != migration._normalized_expression(expression)
 
+    legacy_name, (portable_name, _) = next(
+        iter(migration._RENAMES["md_source_snapshots"].items())
+    )
+    postgres_truncated_name = legacy_name[:63]
+    assert postgres_truncated_name in migration._legacy_constraint_names(legacy_name)
+    assert migration._validate_rename_state(
+        {postgres_truncated_name: migration._normalized_expression(reflected)},
+        legacy_name=legacy_name,
+        portable_name=portable_name,
+        expression=expression,
+    )
+
 
 def test_constraint_portability_rejects_a_stamped_candidate_missing_both_constraint_names() -> None:
     """A migration marker cannot conceal absence of a SHA integrity constraint."""

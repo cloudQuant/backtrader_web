@@ -52,6 +52,14 @@ _RENAMES: Mapping[str, Mapping[str, tuple[str, str]]] = {
         ),
     },
 }
+_POSTGRES_IDENTIFIER_LIMIT = 63
+_LEGACY_NAME_ALIASES: Mapping[str, tuple[str, ...]] = {
+    legacy_name: tuple(
+        dict.fromkeys((legacy_name, legacy_name[:_POSTGRES_IDENTIFIER_LIMIT]))
+    )
+    for table_renames in _RENAMES.values()
+    for legacy_name in table_renames
+}
 
 
 def _normalized_expression(expression: object) -> str:
@@ -72,6 +80,19 @@ def _observed_checks(bind: sa.Connection, table_name: str) -> dict[str, str]:
     }
 
 
+def _legacy_constraint_names(legacy_name: str) -> tuple[str, ...]:
+    """Return the full and PostgreSQL-truncated identifiers for one old check."""
+    return _LEGACY_NAME_ALIASES.get(legacy_name, (legacy_name,))
+
+
+def _present_legacy_constraint_names(
+    observed: Mapping[str, str],
+    *,
+    legacy_name: str,
+) -> tuple[str, ...]:
+    return tuple(name for name in _legacy_constraint_names(legacy_name) if name in observed)
+
+
 def _validate_rename_state(
     observed: Mapping[str, str],
     *,
@@ -81,24 +102,26 @@ def _validate_rename_state(
 ) -> bool:
     """Return whether a legacy constraint needs replacement after semantic checks."""
     expected = _normalized_expression(expression)
-    legacy_expression = observed.get(legacy_name)
+    present_legacy_names = _present_legacy_constraint_names(observed, legacy_name=legacy_name)
     portable_expression = observed.get(portable_name)
-    if legacy_expression is None and portable_expression is None:
+    if not present_legacy_names and portable_expression is None:
         raise RuntimeError(
             "MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_SCHEMA_DRIFT: "
             f"{legacy_name} and {portable_name} missing"
         )
-    if legacy_expression is not None and legacy_expression != expected:
-        raise RuntimeError(
-            "MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_SCHEMA_DRIFT: "
-            f"{legacy_name}={legacy_expression!r}"
-        )
+    for observed_legacy_name in present_legacy_names:
+        legacy_expression = observed[observed_legacy_name]
+        if legacy_expression != expected:
+            raise RuntimeError(
+                "MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_SCHEMA_DRIFT: "
+                f"{observed_legacy_name}={legacy_expression!r}"
+            )
     if portable_expression is not None and portable_expression != expected:
         raise RuntimeError(
             "MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_SCHEMA_DRIFT: "
             f"{portable_name}={portable_expression!r}"
         )
-    return legacy_expression is not None
+    return bool(present_legacy_names)
 
 
 def _reconcile_sqlite_table(bind: sa.Connection, table_name: str) -> None:
@@ -131,18 +154,27 @@ def _reconcile_non_sqlite_table(bind: sa.Connection, table_name: str) -> None:
             expression=expression,
         ):
             continue
+        present_legacy_names = _present_legacy_constraint_names(
+            observed,
+            legacy_name=legacy_name,
+        )
         if portable_name in observed:
-            op.drop_constraint(legacy_name, table_name, type_="check")
+            for observed_legacy_name in present_legacy_names:
+                op.drop_constraint(observed_legacy_name, table_name, type_="check")
             continue
         if bind.dialect.name == "postgresql":
+            primary_legacy_name, *redundant_legacy_names = present_legacy_names
             op.execute(
                 sa.text(
                     f'ALTER TABLE "{table_name}" '
-                    f'RENAME CONSTRAINT "{legacy_name}" TO "{portable_name}"'
+                    f'RENAME CONSTRAINT "{primary_legacy_name}" TO "{portable_name}"'
                 )
             )
+            for redundant_legacy_name in redundant_legacy_names:
+                op.drop_constraint(redundant_legacy_name, table_name, type_="check")
             continue
-        op.drop_constraint(legacy_name, table_name, type_="check")
+        for observed_legacy_name in present_legacy_names:
+            op.drop_constraint(observed_legacy_name, table_name, type_="check")
         op.create_check_constraint(portable_name, table_name, expression)
 
 
