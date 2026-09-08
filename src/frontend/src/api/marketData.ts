@@ -23,17 +23,11 @@ export type MarketDataFamilyContractVersion = typeof MARKET_DATA_FAMILY_CONTRACT
  * from a symbol.  This keeps the progressive rollout safe while the catalog
  * and master-data bootstrap are incomplete.
  */
-/** A query is either unbound or carries both immutable family binding axes. */
-export type MarketDataFamilyBinding = (
-  | {
-    family_id: string
-    family_contract_version: MarketDataFamilyContractVersion
-  }
-  | {
-    family_id?: undefined
-    family_contract_version?: undefined
-  }
-)
+/** Every executable v2 query carries both immutable server-issued family axes. */
+export interface MarketDataFamilyBinding {
+  family_id: string
+  family_contract_version: MarketDataFamilyContractVersion
+}
 
 export interface MarketDataQueryContractRequestBase {
   identity: {
@@ -394,11 +388,7 @@ function hasDistinctTextArray(value: unknown, minLength = 0): value is string[] 
     && new Set(value).size === value.length
 }
 
-function hasPairedMarketDataFamilyBinding(value: Record<string, unknown>): boolean {
-  const hasFamilyId = value.family_id !== undefined
-  const hasFamilyVersion = value.family_contract_version !== undefined
-  if (hasFamilyId !== hasFamilyVersion) return false
-  if (!hasFamilyId) return true
+function hasRequiredMarketDataFamilyBinding(value: Record<string, unknown>): boolean {
   return nonEmptyText(value.family_id)
     && value.family_contract_version === MARKET_DATA_FAMILY_CONTRACT_VERSION
 }
@@ -499,7 +489,7 @@ export function hasMarketDataQueryContract(value: unknown): value is MarketDataQ
       && request.required_fields.length > 0
       && request.required_fields.every(nonEmptyText)
       && nonEmptyText(request.source_policy_id)
-      && hasPairedMarketDataFamilyBinding(request)
+      && hasRequiredMarketDataFamilyBinding(request)
       && request.mode === 'local_first',
   )
 }
@@ -546,14 +536,11 @@ export function createMarketDataQueryFromContract(
     knowledge_cutoff: options.knowledge_cutoff,
     page_size: options.page_size,
   }
-  if (request.family_id && request.family_contract_version) {
-    return {
-      ...requestBase,
-      family_id: request.family_id,
-      family_contract_version: request.family_contract_version,
-    }
+  return {
+    ...requestBase,
+    family_id: request.family_id,
+    family_contract_version: request.family_contract_version,
   }
-  return requestBase
 }
 
 function marketDataQueryErrorCode(error: unknown): string | undefined {

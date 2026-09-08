@@ -153,6 +153,10 @@ def _service(
         resolver=MarketDataQueryResolver(
             catalog=DataCatalogResolver(session),
             identities=MarketDataIdentityResolver(session),
+            # This lower-level revision test deliberately exercises a broad
+            # internal field projection. Public v2 routes retain the default
+            # fail-closed family binding requirement.
+            allow_unbound_internal_requests=True,
         ),
         store=MarketDataStore(session, clock=lambda: now),
         source_policies=_policy(provider),

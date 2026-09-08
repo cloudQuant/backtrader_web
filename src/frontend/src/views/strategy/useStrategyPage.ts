@@ -48,11 +48,23 @@ import type {
 import type { DataPrecheckResponse } from '@/types/trust'
 import type { Workspace, StrategyUnit, TradingSnapshot, UnitStatusResponse } from '@/types/workspace'
 
+/**
+ * The Iteration 197 sidecar stays isolated from the Iteration 196 research
+ * contract until both rollout gates have been explicitly approved.
+ */
+function isAIResearchMarketDataPlatformBridgeEnabled(): boolean {
+  return (
+    import.meta.env.VITE_MARKET_DATA_QUERY_V2_ENABLED === 'true'
+    && import.meta.env.VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED === 'true'
+  )
+}
+
 export function useStrategyPage() {
   const { t } = useI18n()
   const route = useRoute()
   const router = useRouter()
   const strategyStore = useStrategyStore()
+  const aiResearchMarketDataPlatformBridgeEnabled = isAIResearchMarketDataPlatformBridgeEnabled()
 
   // ---- State ----
   const isInvestmentStrategyResearchRoute = computed(() =>
@@ -1349,10 +1361,15 @@ export function useStrategyPage() {
       }, { signal: controller.signal })
       if (requestSequence !== aiResearchPrecheckSequence) return
       aiResearchPrecheckResult.value = result
-      // The Iteration 196 precheck remains the authoritative result and must
-      // retain its original response timing. The v2 evidence probe is only a
-      // bounded, cancellable annotation for the current UI state.
-      void runAIResearchMarketDataPlatformPrecheck(assetType, symbol, controller)
+      // The Iteration 196 precheck remains authoritative. The Iteration 197
+      // sidecar cannot issue any v2 control-plane or fact request until its
+      // explicit frontend bridge gate is enabled after the 196 contract is
+      // frozen.
+      if (aiResearchMarketDataPlatformBridgeEnabled) {
+        void runAIResearchMarketDataPlatformPrecheck(assetType, symbol, controller)
+      } else {
+        setAIResearchMarketDataPlatformStatus({ path: 'legacy' })
+      }
       if (interactive) {
         if (result.passed) {
           ElMessage.success(t('strategy.aiResearchPrecheckPassed'))
@@ -6589,6 +6606,7 @@ export function useStrategyPage() {
     aiResearchPrecheckResult,
     aiResearchPrecheckError,
     aiResearchMarketDataPlatformStatus,
+    aiResearchMarketDataPlatformBridgeEnabled,
     AI_RESEARCH_STAGE_LABELS,
     AI_RESEARCH_RUN_STATUS_LABELS,
     AI_RESEARCH_PAPER_REVIEW_STATUS_LABELS,

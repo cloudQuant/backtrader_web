@@ -225,6 +225,7 @@ async def lookup_market_instrument(
     ),
     current_user: typing.Any = Depends(get_current_user),
     service: MarketInstrumentService = Depends(get_market_instrument_service),
+    access_authorizer: MarketDataAccessAuthorizer = Depends(get_market_data_access_authorizer),
     query_contracts: LegacyMarketDataQueryContractResolver = Depends(
         get_legacy_market_data_query_contract_resolver
     ),
@@ -246,17 +247,36 @@ async def lookup_market_instrument(
         # clients to continue using the existing compatibility endpoint.
         if get_settings().MARKET_DATA_QUERY_V2_ENABLED:
             try:
-                contract = await query_contracts.resolve(
-                    asset_type=asset_type,
-                    symbol=symbol,
-                    period=period,
-                )
-            except SQLAlchemyError:
-                # The optional bridge must never turn a completed legacy data
-                # lookup into a 500. Its request-scoped DB session is cleaned
-                # up by the dependency; omit only the optional v2 template.
-                logger.warning("market-data v2 compatibility contract unavailable")
+                principal = await access_authorizer.principal_for_user(current_user)
+                access_authorizer.require_read_data(principal=principal)
+            except MarketDataAuthorizationError:
+                # Keep the legacy lookup's historic authorization semantics,
+                # but never mint or disclose a v2 catalog/identity template to
+                # a caller without the independent data-read entitlement.
                 contract = None
+            except SQLAlchemyError:
+                # A current-principal check is optional on this legacy route.
+                # Its metadata outage must not invalidate an already completed
+                # compatibility lookup, and must never cause a v2 disclosure.
+                logger.warning("market-data v2 compatibility authorization unavailable")
+                contract = None
+            else:
+                try:
+                    contract = await query_contracts.resolve(
+                        asset_type=asset_type,
+                        symbol=symbol,
+                        period=period,
+                    )
+                except DatasetContractRegistryError:
+                    # The derived family is not executable. Keep the legacy
+                    # response usable without advertising a generic v2 route.
+                    contract = None
+                except SQLAlchemyError:
+                    # The optional bridge must never turn a completed legacy
+                    # lookup into a 500. Its metadata outage omits only the
+                    # optional v2 template.
+                    logger.warning("market-data v2 compatibility contract unavailable")
+                    contract = None
             if contract is not None:
                 payload["query_contract"] = contract
         return payload

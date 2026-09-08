@@ -22,6 +22,7 @@ from app.models.asset_research import AssetInstrument
 from app.models.data_governance import DgDataset, DgDatasetStorage, DgStorageTarget
 from app.models.market_data_platform import MdInstrumentLookupKey
 from app.schemas.asset_research import FuturesIdentityDetails, InstrumentIdentity
+from app.services.market_data.access import MarketDataAuthorizationError
 from app.services.market_data.dataset_contracts import DatasetContractRegistryError
 from app.services.market_data.identity_projection import MarketDataIdentityProjectionWriter
 from app.services.market_data.legacy_contract import (
@@ -41,6 +42,25 @@ class _PermittedMarketDataAccess:
     @staticmethod
     def require_read_data(*, principal: object) -> None:
         assert principal is not None
+
+
+class _DeniedMarketDataAccess:
+    """Model an authenticated legacy caller without the v2 data entitlement."""
+
+    async def principal_for_user(self, _user: object) -> object:
+        return object()
+
+    @staticmethod
+    def require_read_data(*, principal: object) -> None:
+        assert principal is not None
+        raise MarketDataAuthorizationError("MARKET_DATA_READ_ENTITLEMENT_DENIED")
+
+
+class _UnavailableMarketDataAccess:
+    """Model a metadata authorization-store outage on the optional bridge."""
+
+    async def principal_for_user(self, _user: object) -> object:
+        raise SQLAlchemyError("authorization database unavailable")
 
 
 @pytest.fixture
@@ -160,7 +180,7 @@ async def _add_identity(
 
 
 @pytest.mark.asyncio
-async def test_legacy_bridge_publishes_only_a_catalog_backed_exact_canonical_contract(
+async def test_legacy_bridge_derives_a_ready_realtime_family_for_an_unbound_stock_request(
     db_session: AsyncSession,
 ) -> None:
     await _add_catalog(db_session)
@@ -191,6 +211,8 @@ async def test_legacy_bridge_publishes_only_a_catalog_backed_exact_canonical_con
             "unit": "share",
             "source_policy_id": "market-default-v1",
             "mode": "local_first",
+            "family_id": "stock.realtime",
+            "family_contract_version": "market-data-family-v1",
         },
     }
 
@@ -240,7 +262,7 @@ async def test_legacy_bridge_rejects_an_unconfigured_or_cross_asset_selected_fam
     """A UI card that has no executable product cannot reach the legacy bridge."""
     resolver = LegacyMarketDataQueryContractResolver(db_session)
 
-    for family_id in ("stock.valuation", "futures.realtime", "stock.unknown"):
+    for family_id in ("", "stock.valuation", "futures.realtime", "stock.unknown"):
         with pytest.raises(DatasetContractRegistryError):
             await resolver.resolve(
                 asset_type="stock",
@@ -248,6 +270,35 @@ async def test_legacy_bridge_rejects_an_unconfigured_or_cross_asset_selected_fam
                 period="daily",
                 family_id=family_id,
             )
+
+
+@pytest.mark.asyncio
+async def test_legacy_bridge_does_not_issue_an_openbb_crypto_contract_without_a_ready_family(
+    db_session: AsyncSession,
+) -> None:
+    """An allow-listed OpenBB venue cannot bypass the missing crypto product contract."""
+    resolver = LegacyMarketDataQueryContractResolver(
+        db_session,
+        openbb_allowed_markets=frozenset({"US-NYSE"}),
+    )
+
+    # This route predicate is deliberately true: the refusal must come from
+    # the server-owned product registry, before it can become a generic bars
+    # contract or depend on a catalog/identity record.
+    assert resolver._has_reviewed_route(
+        asset_type="crypto",
+        venue="US-NYSE",
+        frequency="1d",
+        semantics=_semantics_for("crypto", "US-NYSE"),
+    )
+    with pytest.raises(DatasetContractRegistryError) as exc_info:
+        await resolver.resolve(
+            asset_type="crypto",
+            symbol="BTC-USD",
+            period="daily",
+        )
+
+    assert exc_info.value.code == "DATA_FAMILY_UNCONFIGURED"
 
 
 @pytest.mark.asyncio
@@ -465,6 +516,13 @@ class _FailingContractResolver:
         raise SQLAlchemyError("metadata database unavailable")
 
 
+class _UnconfiguredFamilyContractResolver:
+    """Model an auto-derived family whose product contract remains unavailable."""
+
+    async def resolve(self, **_kwargs: object) -> None:
+        raise DatasetContractRegistryError("DATA_FAMILY_UNCONFIGURED")
+
+
 @pytest.mark.asyncio
 async def test_contract_probe_returns_catalog_contract_without_legacy_lookup(
     client,
@@ -489,6 +547,8 @@ async def test_contract_probe_returns_catalog_contract_without_legacy_lookup(
             "unit": "share",
             "source_policy_id": "market-default-v1",
             "mode": "local_first",
+            "family_id": "stock.realtime",
+            "family_contract_version": "market-data-family-v1",
         },
     }
     resolver = _ContractResolver(expected)
@@ -617,6 +677,7 @@ async def test_legacy_lookup_survives_an_optional_v2_contract_database_failure(
     client,
     auth_headers,
     monkeypatch,
+    permitted_market_data_access,
 ) -> None:
     """A v2 compatibility probe cannot invalidate already returned legacy market data."""
     import app.api.data.base as data_base
@@ -642,6 +703,158 @@ async def test_legacy_lookup_survives_an_optional_v2_contract_database_failure(
 
     assert response.status_code == 200
     assert response.json() == {"symbol": "600000", "provider": "legacy-test"}
+
+
+@pytest.mark.asyncio
+async def test_legacy_lookup_includes_v2_contract_only_after_data_read_is_granted(
+    client,
+    auth_headers,
+    monkeypatch,
+    permitted_market_data_access,
+) -> None:
+    """The optional legacy bridge remains functional for an entitled caller."""
+    import app.api.data.base as data_base
+
+    expected = {
+        "version": "market-data-v2",
+        "request": {
+            "identity": {"canonical_id": "instrument:stock:CN-SSE:600000"},
+            "dataset_code": "market.bars",
+            "data_kind": "bars",
+            "frequency": "1d",
+            "required_fields": ["close"],
+            "source_policy_id": "market-default-v1",
+            "mode": "local_first",
+            "family_id": "stock.realtime",
+            "family_contract_version": "market-data-family-v1",
+        },
+    }
+    resolver = _ContractResolver(expected)
+    monkeypatch.setattr(
+        data_base,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
+    )
+    app.dependency_overrides[get_market_instrument_service] = _SuccessfulLegacyLookupService
+    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
+    try:
+        response = await client.get(
+            "/api/v1/data/market-instruments/lookup",
+            params={"asset_type": "stock", "symbol": "600000", "period": "daily"},
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_market_instrument_service, None)
+        app.dependency_overrides.pop(get_legacy_market_data_query_contract_resolver, None)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "symbol": "600000",
+        "provider": "legacy-test",
+        "query_contract": expected,
+    }
+    assert resolver.calls == [{"asset_type": "stock", "symbol": "600000", "period": "daily"}]
+
+
+@pytest.mark.asyncio
+async def test_legacy_lookup_omits_an_unconfigured_auto_derived_family_contract(
+    client,
+    auth_headers,
+    monkeypatch,
+    permitted_market_data_access,
+) -> None:
+    """An optional v2 refusal cannot turn a completed legacy lookup into a client error."""
+    import app.api.data.base as data_base
+
+    monkeypatch.setattr(
+        data_base,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
+    )
+    app.dependency_overrides[get_market_instrument_service] = _SuccessfulLegacyLookupService
+    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = (
+        _UnconfiguredFamilyContractResolver
+    )
+    try:
+        response = await client.get(
+            "/api/v1/data/market-instruments/lookup",
+            params={"asset_type": "crypto", "symbol": "BTC-USD", "period": "daily"},
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_market_instrument_service, None)
+        app.dependency_overrides.pop(get_legacy_market_data_query_contract_resolver, None)
+
+    assert response.status_code == 200
+    assert response.json() == {"symbol": "600000", "provider": "legacy-test"}
+
+
+@pytest.mark.asyncio
+async def test_legacy_lookup_omits_v2_contract_for_a_caller_without_data_read(
+    client,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    """Legacy compatibility data remains available, but cannot disclose v2 metadata."""
+    import app.api.data.base as data_base
+
+    resolver = _ContractResolver({"unexpected": True})
+    monkeypatch.setattr(
+        data_base,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
+    )
+    app.dependency_overrides[get_market_instrument_service] = _SuccessfulLegacyLookupService
+    app.dependency_overrides[get_market_data_access_authorizer] = _DeniedMarketDataAccess
+    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
+    try:
+        response = await client.get(
+            "/api/v1/data/market-instruments/lookup",
+            params={"asset_type": "stock", "symbol": "600000", "period": "daily"},
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_market_instrument_service, None)
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+        app.dependency_overrides.pop(get_legacy_market_data_query_contract_resolver, None)
+
+    assert response.status_code == 200
+    assert response.json() == {"symbol": "600000", "provider": "legacy-test"}
+    assert resolver.calls == []
+
+
+@pytest.mark.asyncio
+async def test_legacy_lookup_survives_an_optional_v2_authorization_database_failure(
+    client,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    """An unavailable optional entitlement lookup cannot turn legacy data into a 500."""
+    import app.api.data.base as data_base
+
+    resolver = _ContractResolver({"unexpected": True})
+    monkeypatch.setattr(
+        data_base,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
+    )
+    app.dependency_overrides[get_market_instrument_service] = _SuccessfulLegacyLookupService
+    app.dependency_overrides[get_market_data_access_authorizer] = _UnavailableMarketDataAccess
+    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
+    try:
+        response = await client.get(
+            "/api/v1/data/market-instruments/lookup",
+            params={"asset_type": "stock", "symbol": "600000", "period": "daily"},
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_market_instrument_service, None)
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+        app.dependency_overrides.pop(get_legacy_market_data_query_contract_resolver, None)
+
+    assert response.status_code == 200
+    assert response.json() == {"symbol": "600000", "provider": "legacy-test"}
+    assert resolver.calls == []
 
 
 @pytest.mark.asyncio

@@ -104,6 +104,19 @@ PIT 使用**两事务 publication protocol**，而不是把 Python `created_at`�
 
 数据系列的语义身份故意不包含调用方的字段投影。因此读取器对每一个 event 在截止点内按修订新旧顺序检查本次的必需字段和质量门槛，选择**最新的可用修订**。它不会只因修订号更新就隐藏仍满足宽字段请求的旧修订，也不会把来自两个来源回执或两个修订的字段拼接为一条行。若没有单个修订满足请求，覆盖规划器把该 event 记为字段或质量缺口，并由 `local_first` 决定是否可以走受控补齐。
 
+#### 3.2.1 多记录产品 NO-GO
+
+当前 `md_observation_revisions` 的确定性选择、覆盖与 event-key 语义以一个系列中的单一 `event_time` 为中心，不能安全表示同一 snapshot/report date 下按 expiry、strike、right、reporting entity、rank 等维度并存的多条事实。模型中的 `source_record_key` 字段本身不足以解除该限制：它尚未成为 revision writer、唯一约束、读取选择、分页游标或 provenance identity 的一部分。
+
+因此本候选只执行六个 `*.realtime` 的 `market.bars` 家族。`option_chain`、`option_risk_surface`、`position_report`、`inventory_report`、非 `bars` 的 `reference_series` 与 snapshot 产品保持 `unconfigured`。公共 v2 对任何没有 family binding 的请求（含 `bars`）在目录/identity 前返回 `DATA_FAMILY_BINDING_REQUIRED`；带有未配置 family 的请求返回 `DATA_FAMILY_UNCONFIGURED`。预 bundle 的 `query-contract` 兼容桥只保留旧输入形状，服务端为精确 asset type 推导并验证 `<asset_type>.realtime` 后才签发完整 binding，因此不能形成未绑定 `bars` 或新增产品的旁路。
+
+启用任何上述家族前，必须同时具备：
+
+1. 服务端维护、可重放的维度/record key，覆盖每一行的业务身份；
+2. 将该 key 纳入事实写入、唯一约束、修订选择、来源 provenance、稳定分页和 cursor 绑定的迁移与实现；
+3. 冻结 expected dimensions 的 `slice_completeness` 或 `report_completeness` 规划器，不能把“同一时间有一行”推断为完整；
+4. 已批准且 `ready` 的 source policy/family contract，以及“provider → store → PIT replay”覆盖同一 snapshot/report date 多行的端到端测试。
+
 ### 3.3 滚动日历分段和导入锁
 
 每个 calendar manifest 声明非空 UTC 半开覆盖窗口和逐 `(data_kind, frequency)` 的 event grid。相同 version 与相同 manifest hash 可复用；不同 version 的重叠窗口拒绝，首尾相接的窗口允许作为连续分段。读取没有指定 version 时，只能把已发布、时区一致、无重叠且其并集连续覆盖请求窗口的 segments 组合为一个 `KNOWN` 日历；出现孔洞、重叠、重复 event key、完整性错误或缺少请求 frequency grid 时返回 typed unknown，而不是猜测。
@@ -183,9 +196,9 @@ leader 不会在网络 I/O 期间持有用户或 registry 锁。provider 返回�
 - 覆盖状态、缺口、拒绝统计、读取来源和警告；
 - 可回溯的来源回执/数据系列标识。
 
-接口由功能开关保护，`MARKET_DATA_QUERY_V2_ENABLED=false` 和 `MARKET_DATA_ONLINE_FETCH_ENABLED=false` 是默认值。目录、身份、日历、活动 provider 和来源策略未就绪时保持关闭或失败关闭；启用在线获取也不会自动启用 OpenBB，后者仍要求明确市场白名单。默认公开策略只在已认证传输边界内允许 `display`、`research`、`backtest` 三种用途；付费/许可来源必须另建服务器维护的策略并完成 entitlement 审查。
+接口由功能开关保护，`MARKET_DATA_QUERY_V2_ENABLED=false` 和 `MARKET_DATA_ONLINE_FETCH_ENABLED=false` 是默认值。浏览器还以 `VITE_MARKET_DATA_QUERY_V2_ENABLED=false` 为默认灰度总开关；`VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED` 只能在此前提下启用 family bundle，策略页 sidecar 还须同时满足 `VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED=true`。目录、身份、日历、活动 provider 和来源策略未就绪时保持关闭或失败关闭；启用在线获取也不会自动启用 OpenBB，后者仍要求明确市场白名单。默认公开策略只在已认证传输边界内允许 `display`、`research`、`backtest` 三种用途；付费/许可来源必须另建服务器维护的策略并完成 entitlement 审查。
 
-行情页实现了受控 v2 尝试：先通过只读 contract 解析精确已导入 identity 与活动 dataset，成功时请求 v2；`MARKET_DATA_QUERY_V2_DISABLED` 等已定义 fallback 错误才回到 legacy lookup。v2 响应的 pagination helper 会持续请求至 `next_cursor=null`，不以 500 条或固定页数截断；它验证每页 `query_id` 与 `knowledge_cutoff` 不变，并对重复 cursor 或 revision fail closed。当前前端回归以 17 页、516 条观察验证该收集逻辑，但这不是浏览器灰度或 196 策略页整合证据。策略页仍须等待 196 的研究与回测契约冻结后，才可把解析后的数据工件写进请求和结果记录。
+行情页只在浏览器 v2 总开关开启时尝试只读 contract，解析精确已导入 identity 与活动 dataset 后才请求 v2；无论 bundle 子开关是否开启，contract 请求都携带页面期望的 `<asset_type>.realtime`，且页面验证回传 binding。`MARKET_DATA_QUERY_V2_DISABLED` 等已定义 fallback 错误才回到 legacy lookup；`DATA_FAMILY_UNCONFIGURED` 和 binding 不匹配必须失败关闭，不能用旧数据伪装为 v2 事实。总开关关闭时不得探测 contract、bundle 或事实接口。v2 响应的 pagination helper 会持续请求至 `next_cursor=null`，不以 500 条或固定页数截断；它验证每页 `query_id` 与 `knowledge_cutoff` 不变，并对重复 cursor 或 revision fail closed。普通查询使用 `local_first`，不能静默升级为 `refresh`。当前前端回归以 17 页、516 条观察验证该收集逻辑，但这不是浏览器灰度或 196 策略页整合证据。策略页 sidecar 只有两个浏览器开关均开启才可探测 v2，仍须等待 196 的研究与回测契约冻结后，才可把解析后的数据工件写进请求和结果记录。
 
 ## 7. 迁移与运维
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -86,13 +87,13 @@ def _registry(
     )
 
 
-async def _user_with_roles(*roles: Role | str) -> User:
+async def _user_with_roles(*roles: Role | str, is_active: bool = True) -> User:
     async with async_session_maker() as session:
         user = User(
             username=f"market-access-{len(roles)}-{datetime.now(UTC).timestamp()}",
             email=f"market-access-{datetime.now(UTC).timestamp()}@example.test",
             hashed_password="not-used",
-            is_active=True,
+            is_active=is_active,
         )
         session.add(user)
         await session.flush()
@@ -127,6 +128,40 @@ async def test_current_principal_requires_explicit_read_data_entitlement() -> No
 
     assert early_denied.value.code == "MARKET_DATA_READ_ENTITLEMENT_DENIED"
     assert denied.value.code == "MARKET_DATA_READ_ENTITLEMENT_DENIED"
+
+
+@pytest.mark.asyncio
+async def test_current_principal_rejects_an_inactive_account_even_with_read_data_role() -> None:
+    """A token-derived principal cannot retain an entitlement after account revocation."""
+    user = await _user_with_roles(Role.USER, is_active=False)
+    async with async_session_maker() as session:
+        authorizer = MarketDataAccessAuthorizer(session, clock=lambda: NOW)
+        with pytest.raises(MarketDataAuthorizationError) as revoked:
+            await authorizer.principal_for_user(user)
+
+    assert revoked.value.code == "MARKET_DATA_PRINCIPAL_REVOKED"
+
+
+@pytest.mark.asyncio
+async def test_current_principal_rechecks_a_token_subject_against_current_account_state() -> None:
+    """A legacy JWT payload gains no independent entitlement after account revocation."""
+    user = await _user_with_roles(Role.USER)
+    token_payload = SimpleNamespace(sub=user.id)
+    async with async_session_maker() as session:
+        authorizer = MarketDataAccessAuthorizer(session, clock=lambda: NOW)
+        active = await authorizer.principal_for_user(token_payload)
+        authorizer.require_read_data(principal=active)
+
+        current = await session.get(User, user.id)
+        assert current is not None
+        current.is_active = False
+        await session.commit()
+
+        with pytest.raises(MarketDataAuthorizationError) as revoked:
+            await authorizer.principal_for_user(token_payload)
+
+    assert active.principal_id == user.id
+    assert revoked.value.code == "MARKET_DATA_PRINCIPAL_REVOKED"
 
 
 @pytest.mark.asyncio

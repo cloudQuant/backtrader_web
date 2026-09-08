@@ -21,7 +21,17 @@ from app.services.market_data.access import (
     MarketDataPrincipal,
     MarketDataQueryAccess,
 )
-from app.services.market_data.query_service import MarketDataQueryServiceError
+from app.services.market_data.publication import MarketDataVisibilityAnchor
+from app.services.market_data.query_resolution import MarketDataQueryResolver
+from app.services.market_data.query_service import (
+    MarketDataQueryService,
+    MarketDataQueryServiceError,
+)
+from app.services.market_data.source_policy import (
+    MarketDataProviderRoute,
+    MarketDataSourcePolicy,
+    MarketDataSourcePolicyRegistry,
+)
 
 UTC = timezone.utc
 
@@ -325,6 +335,146 @@ async def test_v2_query_endpoint_maps_stable_service_code_without_traceback(
 
     assert response.status_code == 422
     assert response.json()["details"] == {"code": "CURSOR_INVALID"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "request_changes",
+    [
+        {
+            "identity": {"canonical_id": "instrument:option:CN-CFFEX:IO2609-C-3000"},
+            "dataset_code": "market.option_chain",
+            "data_kind": "option_chain",
+            "frequency": "snapshot",
+            "required_fields": ["last"],
+        },
+        {
+            "identity": {"canonical_id": "instrument:crypto:US-BINANCE:BTCUSDT"},
+            "dataset_code": "market.bars",
+            "data_kind": "bars",
+            "frequency": "1d",
+            "required_fields": ["close"],
+        },
+    ],
+)
+async def test_v2_query_endpoint_rejects_every_unbound_family_before_catalog_identity_or_provider(
+    client,
+    auth_headers,
+    monkeypatch,
+    request_changes: dict[str, object],
+) -> None:
+    """No raw public product can bypass its server-issued family contract."""
+    import app.api.data.queries as queries
+
+    class _UnexpectedCatalog:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def resolve_primary(self, _dataset_code: str) -> object:
+            self.calls += 1
+            raise AssertionError("catalog must not be read for an unbound family query")
+
+    class _UnexpectedIdentities:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def resolve(self, *_args: object, **_kwargs: object) -> object:
+            self.calls += 1
+            raise AssertionError("identity must not be read for an unbound family query")
+
+    class _UnexpectedProvider:
+        def __init__(self) -> None:
+            self.requests: list[object] = []
+
+        async def fetch(self, request: object) -> object:
+            self.requests.append(request)
+            raise AssertionError("provider must not be called for an unbound family query")
+
+    class _UnexpectedProviderPolicy(MarketDataSourcePolicy):
+        def routes_for(self, _context: object) -> tuple[MarketDataProviderRoute, ...]:
+            raise AssertionError("provider routes must not be selected for an unbound family query")
+
+    class _Store:
+        def __init__(self) -> None:
+            self.visibility_calls = 0
+
+        async def resolve_visibility_anchor(
+            self,
+            *,
+            knowledge_cutoff: datetime,
+        ) -> MarketDataVisibilityAnchor:
+            self.visibility_calls += 1
+            return MarketDataVisibilityAnchor(
+                visible_at=knowledge_cutoff,
+                max_visibility_sequence=0,
+            )
+
+        async def read_observation_revisions(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("local observations must not be read after binding rejection")
+
+        async def read_calendar_for_context(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("calendar must not be read after binding rejection")
+
+        async def ensure_provider_active(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("provider activity must not be checked after binding rejection")
+
+        async def persist_provider_result(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("provider output must not persist after binding rejection")
+
+    catalog = _UnexpectedCatalog()
+    identities = _UnexpectedIdentities()
+    provider = _UnexpectedProvider()
+    store = _Store()
+    route = MarketDataProviderRoute(
+        route_id="unexpected-option-chain-provider",
+        request_provider="unexpected",
+        expected_result_provider_ids=frozenset({"unexpected"}),
+        asset_types=frozenset({"option"}),
+        data_kinds=frozenset({"option_chain"}),
+        frequencies=frozenset({"snapshot"}),
+        markets=frozenset({"CN-CFFEX"}),
+        adjustments=frozenset({None}),
+        price_bases=frozenset({None}),
+        currencies=frozenset({None}),
+        units=frozenset({None}),
+        adapter=provider,  # type: ignore[arg-type]
+    )
+    policy = _UnexpectedProviderPolicy(
+        policy_id="market-default-v1",
+        allowed_purposes=frozenset({"display"}),
+        routes=(route,),
+    )
+    service = MarketDataQueryService(
+        resolver=MarketDataQueryResolver(
+            catalog=catalog,  # type: ignore[arg-type]
+            identities=identities,  # type: ignore[arg-type]
+        ),
+        store=store,  # type: ignore[arg-type]
+        source_policies=MarketDataSourcePolicyRegistry((policy,)),
+        clock=lambda: datetime(2026, 9, 8, 12, tzinfo=UTC),
+    )
+    authorizer = _AccessAuthorizer(_principal())
+    request = _payload()
+    request.update(request_changes)
+    monkeypatch.setattr(
+        queries,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
+    )
+    app.dependency_overrides[get_market_data_query_service] = lambda: service
+    app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
+    try:
+        response = await client.post("/api/v1/data/queries", json=request, headers=auth_headers)
+    finally:
+        app.dependency_overrides.pop(get_market_data_query_service, None)
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+
+    assert response.status_code == 422
+    assert response.json()["details"] == {"code": "DATA_FAMILY_BINDING_REQUIRED"}
+    assert store.visibility_calls == 1
+    assert catalog.calls == 0
+    assert identities.calls == 0
+    assert provider.requests == []
 
 
 @pytest.mark.asyncio

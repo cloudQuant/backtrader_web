@@ -792,7 +792,7 @@
                         {{ aiResearchPrecheckSummary }}
                       </el-tag>
                       <el-tag
-                        v-if="aiResearchPrecheckResult || aiResearchPrecheckError || aiResearchMarketDataPlatformStatus.path !== 'legacy'"
+                        v-if="aiResearchMarketDataPlatformBridgeEnabled && (aiResearchPrecheckResult || aiResearchPrecheckError || aiResearchMarketDataPlatformStatus.path !== 'legacy')"
                         size="small"
                         data-test="ai-research-data-platform-status"
                         :type="aiResearchMarketDataPlatformTagType"
@@ -2952,6 +2952,7 @@ const {
   aiResearchPrecheckResult,
   aiResearchPrecheckError,
   aiResearchMarketDataPlatformStatus,
+  aiResearchMarketDataPlatformBridgeEnabled,
   PAPER_GATEWAY_CONFIG_PLACEHOLDER,
   LIVE_GATEWAY_CONFIG_PLACEHOLDER,
   form,

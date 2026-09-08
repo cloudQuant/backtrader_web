@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -82,24 +83,26 @@ async def _add_published_instrument(
 def _request(**changes: object) -> MarketDataQueryRequest:
     payload: dict[str, object] = {
         "identity": {"canonical_id": "instrument:stock:CN-SSE:600000"},
-        "dataset_code": "market.stock_daily",
+        "dataset_code": "market.bars",
         "data_kind": "bars",
         "frequency": "1d",
         "start": "2026-09-08T09:30:00+08:00",
         "end": "2026-09-09T09:30:00+08:00",
-        "required_fields": ["open", "high", "low", "close", "volume"],
+        "required_fields": ["close"],
         "adjustment": "qfq",
         "price_basis": "close",
         "currency": "CNY",
         "unit": "share",
         "source_policy_id": "market-default-v1",
+        "family_id": "stock.realtime",
+        "family_contract_version": "market-data-family-v1",
         "mode": "local_first",
     }
     payload.update(changes)
     return MarketDataQueryRequest.model_validate(payload)
 
 
-async def _add_catalog(session, *, dataset_code: str = "market.stock_daily") -> None:
+async def _add_catalog(session, *, dataset_code: str = "market.bars") -> None:
     dataset = DgDataset(
         dataset_code=dataset_code,
         display_name="A 股日线",
@@ -181,6 +184,98 @@ async def test_query_resolver_rechecks_every_axis_of_a_bundle_selected_family() 
     assert result.query.family_id == "stock.realtime"
     assert result.query.family_contract_version == "market-data-family-v1"
     assert mismatched.value.code == "DATA_FAMILY_QUERY_CONTRACT_MISMATCH"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {
+            "dataset_code": "market.option_chain",
+            "data_kind": "option_chain",
+            "frequency": "snapshot",
+            "required_fields": ["last"],
+        },
+        {
+            "dataset_code": "market.position_report",
+            "data_kind": "position_report",
+            "frequency": "1w",
+            "required_fields": ["net_position"],
+        },
+        {
+            "identity": {"canonical_id": "instrument:crypto:US-BINANCE:BTCUSDT"},
+            "dataset_code": "market.bars",
+            "data_kind": "bars",
+            "frequency": "1d",
+            "required_fields": ["close"],
+        },
+    ],
+)
+async def test_query_resolver_rejects_every_unbound_public_product_before_catalog_or_identity(
+    changes: dict[str, object],
+) -> None:
+    """Raw public requests cannot bypass a family contract, including generic bars."""
+
+    class _UnexpectedCatalog:
+        async def resolve_primary(self, _dataset_code: str) -> object:
+            raise AssertionError("catalog must not be read for an unbound non-bars query")
+
+    class _UnexpectedIdentities:
+        async def resolve(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("identity must not be read for an unbound non-bars query")
+
+    resolver = MarketDataQueryResolver(
+        catalog=_UnexpectedCatalog(),  # type: ignore[arg-type]
+        identities=_UnexpectedIdentities(),  # type: ignore[arg-type]
+    )
+    with pytest.raises(MarketDataQueryResolutionError) as rejected:
+        await resolver.resolve(
+            _request(
+                **changes,
+                family_id=None,
+                family_contract_version=None,
+            )
+        )
+
+    assert rejected.value.code == "DATA_FAMILY_BINDING_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_query_resolver_rejects_a_bound_unconfigured_multi_record_family() -> None:
+    """A family key is not sufficient until its record-key and coverage model are ready."""
+
+    class _Catalog:
+        async def resolve_primary(self, dataset_code: str) -> object:
+            return SimpleNamespace(dataset_code=dataset_code)
+
+    class _OptionIdentities:
+        async def resolve(self, *_args: object, **_kwargs: object) -> object:
+            return SimpleNamespace(
+                asset_type="option",
+                canonical_id="instrument:option:CN-CFFEX:IO2609-C-3000",
+                metadata_version="option-v1",
+                valid_to=None,
+                venue="CN-CFFEX",
+            )
+
+    resolver = MarketDataQueryResolver(
+        catalog=_Catalog(),  # type: ignore[arg-type]
+        identities=_OptionIdentities(),  # type: ignore[arg-type]
+    )
+    request = _request(
+        identity={"canonical_id": "instrument:option:CN-CFFEX:IO2609-C-3000"},
+        dataset_code="market.option_chain",
+        data_kind="option_chain",
+        frequency="snapshot",
+        required_fields=["last"],
+        family_id="option.derivative",
+        family_contract_version="market-data-family-v1",
+    )
+
+    with pytest.raises(MarketDataQueryResolutionError) as rejected:
+        await resolver.resolve(request)
+
+    assert rejected.value.code == "DATA_FAMILY_UNCONFIGURED"
 
 
 @pytest.mark.asyncio

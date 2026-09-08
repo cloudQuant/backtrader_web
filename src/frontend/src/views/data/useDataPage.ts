@@ -47,11 +47,22 @@ type MarketAssetSelections = Partial<Record<MarketAssetType, SavedMarketAssetSel
 const V2_MARKET_DATA_PAGE_SIZE = 2000
 
 /**
- * Disabled by default until Iter196/197 integration is frozen. This enables
- * only the static v2 family-control plane; it never enables online fetching.
+ * Keep the complete v2 page path off until its browser rollout has been
+ * approved independently of the server-side v2 and online-fetch switches.
+ */
+function isMarketDataQueryV2FeatureEnabled(): boolean {
+  return import.meta.env.VITE_MARKET_DATA_QUERY_V2_ENABLED === 'true'
+}
+
+/**
+ * The family bundle is an optional control-plane addition to the already
+ * gated v2 path. It must not independently turn on contract/data requests.
  */
 function isMarketDataQueryBundleFeatureEnabled(): boolean {
-  return import.meta.env.VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED === 'true'
+  return (
+    isMarketDataQueryV2FeatureEnabled()
+    && import.meta.env.VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED === 'true'
+  )
 }
 
 export function useDataPage() {
@@ -1113,7 +1124,12 @@ export function useDataPage() {
   ): MarketDataQueryContract | null {
     if (!hasMarketDataQueryContract(contract)) return null
     const request = contract.request
-    if (request.data_kind !== 'bars' || request.frequency !== v2FrequencyForLegacyPeriod(form.period)) {
+    if (
+      request.data_kind !== 'bars'
+      || request.frequency !== v2FrequencyForLegacyPeriod(form.period)
+      || typeof request.family_id !== 'string'
+      || typeof request.family_contract_version !== 'string'
+    ) {
       return null
     }
     return contract
@@ -1201,15 +1217,25 @@ export function useDataPage() {
     symbol: string,
     declaredFamily: MarketDataQueryBundleFamily | null = null,
   ): Promise<{ contract: MarketDataQueryContract | null; fellBack: boolean }> {
+    const expectedFamilyId = declaredFamily?.family_id || `${assetType}.realtime`
     try {
       const contract = await marketDataApi.getQueryContract({
         asset_type: assetType,
         symbol,
         period: form.period as 'daily' | 'weekly' | 'monthly',
-        ...(declaredFamily ? { family_id: declaredFamily.family_id } : {}),
+        family_id: expectedFamilyId,
       })
       const currentContract = queryContractForCurrentPeriod(contract)
-      if (!currentContract || (declaredFamily && !contractMatchesDeclaredFamily(currentContract, declaredFamily))) {
+      const hasExpectedBinding = Boolean(
+        currentContract
+        && currentContract.request.family_id === expectedFamilyId
+        && currentContract.request.family_contract_version === 'market-data-family-v1',
+      )
+      if (
+        !currentContract
+        || !hasExpectedBinding
+        || (declaredFamily && !contractMatchesDeclaredFamily(currentContract, declaredFamily))
+      ) {
         throw new Error('MARKET_DATA_QUERY_CONTRACT_INVALID')
       }
       return { contract: currentContract, fellBack: false }
@@ -1493,7 +1519,10 @@ export function useDataPage() {
     const requestId = ++lookupRequestId
     const queryAssetType = form.asset_type
     const queryMarket = queryAssetType === 'futures' ? formMarketText() : ''
-    const existingContract = queryContractForCurrentLookup(result.value, queryAssetType, symbol)
+    const v2FeatureEnabled = isMarketDataQueryV2FeatureEnabled()
+    const existingContract = v2FeatureEnabled
+      ? queryContractForCurrentLookup(result.value, queryAssetType, symbol)
+      : null
     const bundleFeatureEnabled = isMarketDataQueryBundleFeatureEnabled()
     if (bundleFeatureEnabled) marketDataQueryBundle.value = null
     loading.value = true
@@ -1553,7 +1582,7 @@ export function useDataPage() {
       // exact imported canonical identity and active dataset without asking a
       // provider for data. This lets the first page request enter v2 without
       // an online legacy lookup.
-      if (!directContract) {
+      if (v2FeatureEnabled && !directContract) {
         const resolution = await resolveV2QueryContract(queryAssetType, symbol, declaredFamily)
         if (requestId !== lookupRequestId) return
         directContract = resolution.contract
@@ -1563,7 +1592,7 @@ export function useDataPage() {
         }
       }
 
-      if (directContract && directLookup) {
+      if (v2FeatureEnabled && directContract && directLookup) {
         const v2Response = await queryV2FromLookupContract(
           directContract,
           directLookup,
@@ -1608,7 +1637,7 @@ export function useDataPage() {
       // the legacy response but has not yet deployed the read-only contract
       // endpoint. The legacy read has already completed; only the v2 call may
       // decide that a bounded local-first gap fill is needed.
-      const bootstrapContract = !directContract && !refreshOnline
+      const bootstrapContract = v2FeatureEnabled && !directContract && !refreshOnline
         ? queryContractForCurrentLookup(legacyResponse, queryAssetType, symbol)
         : null
       if (bootstrapContract) {

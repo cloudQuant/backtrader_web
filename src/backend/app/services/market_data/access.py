@@ -232,11 +232,27 @@ class MarketDataAccessAuthorizer:
         self._clock = clock or _utc_now
         self._tenant_scope = normalized_tenant_scope
 
-    async def principal_for_user(self, user: User) -> MarketDataPrincipal:
-        """Build the current principal entitlement from the authoritative role table."""
-        principal_id = str(getattr(user, "id", "")).strip()
+    async def principal_for_user(self, user: object) -> MarketDataPrincipal:
+        """Build a current entitlement for an authenticated user or token payload.
+
+        Legacy compatibility routes authenticate with the signed token payload,
+        while the v2 routes already materialize a ``User`` row.  Both carry the
+        same authenticated subject, and this method always re-reads the user
+        and role rows from the authoritative database before returning a
+        principal.
+        """
+        principal_id = str(getattr(user, "id", "") or getattr(user, "sub", "")).strip()
         if not principal_id:
             raise MarketDataAuthorizationError("MARKET_DATA_PRINCIPAL_INVALID")
+        current_user = (
+            await self._db.execute(
+                select(User)
+                .where(User.id == principal_id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        if current_user is None or not current_user.is_active:
+            raise MarketDataAuthorizationError("MARKET_DATA_PRINCIPAL_REVOKED")
         return await self._principal_for_id(principal_id)
 
     async def revalidate_principal_for_write(
@@ -306,9 +322,7 @@ class MarketDataAccessAuthorizer:
         statement = select(user_roles.c.role).where(user_roles.c.user_id == principal_id)
         if lock_current:
             statement = statement.with_for_update()
-        rows = await self._db.execute(
-            statement
-        )
+        rows = await self._db.execute(statement)
         role_values = tuple(
             sorted({str(value).strip().lower() for value in rows.scalars() if value})
         )

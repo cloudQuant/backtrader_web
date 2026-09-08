@@ -24,14 +24,16 @@
 | `fx` | 汇率行情 | `1d` / 快照 |
 | `crypto` | 交易对行情 | `1d` / 分钟 / 快照 |
 
-公开请求同时支持 `bars`、`quote_snapshot`、`option_chain`、`position_report` 和 `reference_series`。某个来源尚不支持的资产/数据组合必须返回明确机器码，不能通过变更标的、频率或来源来伪造结果。
+公开 DTO 识别 `bars`、`quote_snapshot`、`option_chain`、`position_report` 和 `reference_series`，但“被识别”不等于已经可以读取。当前只有六个 `*.realtime` 的 `market.bars` 家族（股票、期货、债券、基金、期权精确合约、外汇）为 `ready`；其余页面数据家族均为明确的 `unconfigured` 状态。尤其是期权链、风险曲面、持仓/库存报告、快照和非 `bars` 参考序列尚未具备同一 snapshot/report date 多行的安全事实身份、覆盖或分页模型，不能作为已支持能力启用。
+
+在这些多记录产品具有稳定的维度/record key、修订唯一性与读取/分页/provenance 语义、slice/report 完整性规划器，以及同一时间点多行的端到端回归以前，它们只能返回明确机器码，不能通过变更标的、频率或来源来伪造结果。
 
 ### 2.2 页面与服务边界
 
-- `/data/market` 最终使用新查询接口展示历史、快照和来源状态。
-- `/investment/strategies` 最终把策略研究与回测请求绑定到已解析的 canonical identity、数据集、来源策略、数据版本和工件指纹。
+- `/data/market` 仅在 `VITE_MARKET_DATA_QUERY_V2_ENABLED=true` 的独立浏览器灰度中使用新查询接口展示历史、快照和来源状态；关闭时不得请求 v2 contract、family bundle 或事实接口。
+- `/investment/strategies` 最终把策略研究与回测请求绑定到已解析的 canonical identity、数据集、来源策略、数据版本和工件指纹。其 197 sidecar 还必须同时满足 `VITE_MARKET_DATA_QUERY_V2_ENABLED=true` 和 `VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED=true`，否则不得访问任何 v2 控制面或事实接口。
 - 旧 `/api/v1/data/market-instruments/*` 和 `/api/v1/data/kline` 保持兼容，直到新页面完成灰度和可观测性验收。
-- 迭代 196 的 AI 研究/信任契约完成前，策略页只保留桥接设计和关闭的开关，不把不稳定的 `data_config` 或 CSV 回退当作新数据层。
+- 迭代 196 的 AI 研究/信任契约完成前，策略页只保留桥接设计和默认关闭的开关，不把不稳定的 `data_config` 或 CSV 回退当作新数据层。
 
 ## 3. 用户故事与功能需求
 
@@ -40,6 +42,8 @@
 作为用户或内部调用方，我必须以 canonical ID，或完整的 `(asset_type, symbol, market)` 三元组请求数据。系统拒绝仅传代码、同时传两种选择器、大小写近似匹配、别名猜测和空字符串。
 
 请求指定：逻辑数据集、数据种类、半开时间区间 `[start, end)`、字段集、频率、复权/价格口径、币种、单位、来源策略、一致性级别、用途、知识截止点和模式。频率只能是明确的 `5min`、`30min`、`1h`、`1d`、`1w`、`1mo`。
+
+所有公共 v2 请求都必须携带服务端签发、版本匹配且状态为 `ready` 的 `family_id` / `family_contract_version`，包括 `bars`。`query-contract` 保留旧页面的无 family 输入形状，但服务端只能推导精确的 `<asset_type>.realtime` 并签发完整 binding；若该家族尚未配置，则返回 `DATA_FAMILY_UNCONFIGURED`，绝不签发通用 `bars` 模板。页面即使关闭 bundle 子开关也要请求并校验此 binding。任何缺少 binding 的原始请求在目录、主数据、日历、事实或 provider I/O 前返回 `DATA_FAMILY_BINDING_REQUIRED`。
 
 ### FR-02 本地优先读取
 
@@ -99,7 +103,7 @@ calendar snapshot 也必须声明其 `source_registry_id`、被冻结的治理 p
 
 行情页需要显示数据来自本地或刚写入的来源、数据集、canonical identity、覆盖状态、警告和更新时间。策略页需要在 196 合并后显示被冻结的数据版本/截止点，并拒绝把未验证或不完整的结果当作可回测输入。
 
-在数据目录、主数据索引、日历或来源策略尚未准备好时，页面的 v2 合同探测必须返回稳定状态。为保持既有功能，页面可明确标记为 `legacy_fallback` 后调用原兼容接口，但不得把该结果标成 v2 本地覆盖、来源回执或严格研究证据；也不得以样例、附近代码或模糊标的替代精确请求。
+在数据目录、主数据索引、日历或来源策略尚未准备好时，已启用的页面 v2 合同探测必须返回稳定状态。为保持既有功能，页面可明确标记为 `legacy_fallback` 后调用原兼容接口，但不得把该结果标成 v2 本地覆盖、来源回执或严格研究证据；也不得以样例、附近代码或模糊标的替代精确请求。普通行情页“查询”采用 `local_first`；`refresh` 必须由明确标记的受控操作触发，不能把常规查询静默变成全窗口在线刷新。
 
 ## 4. 非功能需求
 
@@ -119,3 +123,4 @@ calendar snapshot 也必须声明其 `source_registry_id`、被冻结的治理 p
 - 不把同进程 singleflight 误写成跨 worker 的分布式去重；后者需要单独的协调记录、超时/接管语义和真实多 worker 验收。
 - 不在迭代 196 未冻结前改写策略研究、回测的生产数据契约。
 - 不将实时经纪商 tick 流与历史规范化观测表混为同一种数据源。
+- 不把 `unconfigured` 的期权链、风险曲面、报告或快照家族描述成已具备本地命中、在线补齐或历史重放能力。

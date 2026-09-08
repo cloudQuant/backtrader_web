@@ -246,7 +246,7 @@ describe('marketDataApi', () => {
     expect(api.post).toHaveBeenCalledWith('/data/queries', request)
   })
 
-  it('rejects a contract that carries only one family binding axis', () => {
+  it('rejects a contract that omits or splits the required family binding axes', () => {
     const contract = {
       version: 'market-data-v2',
       request: {
@@ -266,6 +266,14 @@ describe('marketDataApi', () => {
       start: '2026-01-01T00:00:00.000Z',
       end: '2026-01-02T00:00:00.000Z',
     })).toThrow('MARKET_DATA_QUERY_CONTRACT_INVALID')
+
+    expect(hasMarketDataQueryContract({
+      ...contract,
+      request: {
+        ...contract.request,
+        family_id: undefined,
+      },
+    })).toBe(false)
   })
 
   it('recognizes only deployment and bootstrap failures as legacy-fallback errors', () => {

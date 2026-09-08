@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
@@ -884,6 +884,8 @@ describe('StrategyPage', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'false')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'false')
     aiResearchMandates.clear()
     Object.keys(routeQuery).forEach(key => delete routeQuery[key])
     routePath.value = '/investment/strategies'
@@ -902,6 +904,10 @@ describe('StrategyPage', () => {
     lookupInstrument.mockResolvedValue({ query_contract: null })
     getQueryContract.mockResolvedValue(null)
     queryLocalFirst.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   const setConfirmedAIResearchMandate = async (
@@ -7995,7 +8001,42 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('keeps the Iteration 197 sidecar off until both browser bridge gates are enabled', async () => {
+    for (const [v2Enabled, bridgeEnabled] of [
+      ['false', 'false'],
+      ['true', 'false'],
+      ['false', 'true'],
+    ]) {
+      vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', v2Enabled)
+      vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', bridgeEnabled)
+      const wrapper = doMount()
+      try {
+        const vm = wrapper.vm as any
+        await flushPromises()
+        runPrecheck.mockClear()
+        getQueryContract.mockClear()
+        queryLocalFirst.mockClear()
+
+        await vm.runAIResearchDataPrecheck({ interactive: false })
+        await flushPromises()
+
+        expect(runPrecheck).toHaveBeenCalledWith(expect.objectContaining({
+          asset_type: 'stock',
+          symbol: '000001.SZ',
+        }), expect.any(Object))
+        expect(getQueryContract).not.toHaveBeenCalled()
+        expect(queryLocalFirst).not.toHaveBeenCalled()
+        expect(vm.aiResearchMarketDataPlatformStatus.path).toBe('legacy')
+        expect(wrapper.find('[data-test="ai-research-data-platform-status"]').exists()).toBe(false)
+      } finally {
+        wrapper.unmount()
+      }
+    }
+  })
+
   it('adds strict local-only market-data evidence without replacing the Iteration 196 precheck', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
     getQueryContract.mockResolvedValue({
         version: 'market-data-v2',
         request: {
@@ -8071,6 +8112,8 @@ describe('StrategyPage', () => {
   })
 
   it('does not mark incomplete strict local coverage as a successful precheck', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
     getQueryContract.mockResolvedValue({
         version: 'market-data-v2',
         request: {
@@ -8129,6 +8172,8 @@ describe('StrategyPage', () => {
   })
 
   it('keeps a v2 execution failure after contract issuance out of the legacy fallback path', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
     getQueryContract.mockResolvedValue({
       version: 'market-data-v2',
       request: {

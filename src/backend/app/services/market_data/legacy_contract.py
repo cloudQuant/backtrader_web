@@ -36,7 +36,6 @@ from app.services.market_data.identity import (
     MarketDataIdentityResolver,
 )
 
-_DATASET_CODE = "market.bars"
 _FREQUENCY_BY_LEGACY_PERIOD = {
     "daily": "1d",
     "weekly": "1w",
@@ -137,14 +136,23 @@ class LegacyMarketDataQueryContractResolver:
         if not normalized_asset_type or not normalized_symbol or frequency is None:
             return None
 
-        family_contract: DatasetContract | None = None
-        if family_id is not None:
-            family_contract = self._family_contracts.ready_contract_for(
-                family_id=family_id,
-                asset_type=normalized_asset_type,
-            )
-            if frequency not in family_contract.frequencies:
-                return None
+        # The compatibility endpoint used to publish a generic, unbound bars
+        # request when a legacy client did not yet send a family ID.  That
+        # leaves a future product route able to bypass the server-owned
+        # product registry.  Preserve the legacy input shape, but have the
+        # server select the one compatible real-time family for the requested
+        # asset type.  There is intentionally no nearby-family fallback: an
+        # unconfigured class such as ``crypto.realtime`` raises the registry's
+        # stable error before catalog or identity work can mint a request.
+        selected_family_id = (
+            family_id if family_id is not None else f"{normalized_asset_type}.realtime"
+        )
+        family_contract: DatasetContract = self._family_contracts.ready_contract_for(
+            family_id=selected_family_id,
+            asset_type=normalized_asset_type,
+        )
+        if frequency not in family_contract.frequencies:
+            return None
 
         canonical_id = await self._unique_active_canonical_id(
             asset_type=normalized_asset_type,
@@ -154,21 +162,19 @@ class LegacyMarketDataQueryContractResolver:
             return None
         try:
             identity = await self._identities.resolve(QueryIdentity(canonical_id=canonical_id))
-            await self._catalog.resolve_primary(
-                family_contract.dataset_code if family_contract is not None else _DATASET_CODE
-            )
+            await self._catalog.resolve_primary(family_contract.dataset_code)
         except (MarketDataIdentityResolutionError, DatasetStorageNotFoundError):
             return None
         # The active legacy lookup key is only an index projection.  Its
         # asset type must agree with the published canonical identity before
         # it can mint a v2 request; a stale or corrupt projection must not
         # transform a stock page selection into a futures (or other asset)
-        # contract.  A selected family adds the same invariant at the product
-        # boundary, rather than relying on the later query resolver to catch
-        # the mismatch after this endpoint has signed a contract.
+        # contract.  The server-issued family adds the same invariant at the
+        # product boundary, rather than relying on the later query resolver to
+        # catch the mismatch after this endpoint has signed a contract.
         if identity.asset_type != normalized_asset_type:
             return None
-        if family_contract is not None and identity.asset_type != family_contract.asset_type:
+        if identity.asset_type != family_contract.asset_type:
             return None
 
         semantics = _semantics_for(identity.asset_type, identity.venue)
@@ -184,39 +190,28 @@ class LegacyMarketDataQueryContractResolver:
             return None
         request: dict[str, Any] = {
             "identity": {"canonical_id": identity.canonical_id},
-            "dataset_code": (
-                family_contract.dataset_code if family_contract is not None else _DATASET_CODE
-            ),
-            "data_kind": family_contract.data_kind if family_contract is not None else "bars",
+            "dataset_code": family_contract.dataset_code,
+            "data_kind": family_contract.data_kind,
             "frequency": frequency,
-            "required_fields": list(
-                family_contract.field_profile.required_fields
-                if family_contract is not None
-                else ("close",)
-            ),
+            "required_fields": list(family_contract.field_profile.required_fields),
             "adjustment": semantics.adjustment,
             "price_basis": semantics.price_basis,
             "currency": semantics.currency,
             "unit": semantics.unit,
-            "source_policy_id": (
-                family_contract.source_policy_id
-                if family_contract is not None
-                else "market-default-v1"
-            ),
+            "source_policy_id": family_contract.source_policy_id,
             "mode": "local_first",
         }
-        if family_contract is not None:
-            # ``ready_contract_for`` guarantees the policy is populated. Keep
-            # the check explicit so a future registry mutation cannot publish
-            # an executable contract with an omitted authorization axis.
-            if request["source_policy_id"] is None:
-                return None
-            request.update(
-                {
-                    "family_id": family_contract.family_id,
-                    "family_contract_version": FAMILY_CONTRACT_VERSION,
-                }
-            )
+        # ``ready_contract_for`` guarantees the policy is populated. Keep the
+        # check explicit so a future registry mutation cannot publish an
+        # executable contract with an omitted authorization axis.
+        if request["source_policy_id"] is None:
+            return None
+        request.update(
+            {
+                "family_id": family_contract.family_id,
+                "family_contract_version": FAMILY_CONTRACT_VERSION,
+            }
+        )
         return {
             "version": "market-data-v2",
             "request": request,

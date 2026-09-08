@@ -247,39 +247,41 @@ function stockRealtimeFamilyBinding(): FamilyBindingFixture {
   }
 }
 
-function createV2ContractFixture(familyBinding: FamilyBindingFixture | null = null) {
+function createV2ContractFixture(
+  familyBinding: FamilyBindingFixture = stockRealtimeFamilyBinding(),
+) {
   return {
     version: 'market-data-v2',
     request: {
       identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
-      dataset_code: familyBinding ? 'market.bars' : 'market.stock_daily',
+      dataset_code: 'market.bars',
       data_kind: 'bars',
       frequency: '1d',
-      required_fields: familyBinding ? ['close'] : ['close', 'volume'],
+      required_fields: ['close'],
       adjustment: 'qfq',
       price_basis: 'close',
       currency: 'CNY',
       unit: 'share',
       source_policy_id: 'market-default-v1',
-      ...(familyBinding || {}),
+      ...familyBinding,
       mode: 'local_first',
     },
   }
 }
 
 function createV2ResponseFixture(
-  familyBinding: FamilyBindingFixture | null = null,
+  familyBinding: FamilyBindingFixture = stockRealtimeFamilyBinding(),
 ): MarketDataQueryResponse {
   return {
     query_id: 'query-local-1',
     canonical_id: 'instrument:stock:CN-SZSE:000001',
-    dataset_code: familyBinding ? 'market.bars' : 'market.stock_daily',
+    dataset_code: 'market.bars',
     asset_type: 'stock',
     instrument_metadata_version: 'stock-v1',
     data_kind: 'bars',
     frequency: '1d',
     source_policy_id: 'market-default-v1',
-    ...(familyBinding || {}),
+    ...familyBinding,
     knowledge_cutoff: '2026-06-19T16:00:00Z',
     identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
     observations: [
@@ -362,6 +364,9 @@ function createQueryBundleFixture(
 describe('DataPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Existing v2-path cases opt into the page rollout explicitly. Individual
+    // default-off cases override this value and prove no v2 request escapes.
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
     vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'false')
     window.localStorage.removeItem(MARKET_ASSET_SELECTIONS_STORAGE_KEY)
     window.localStorage.removeItem(LEGACY_MARKET_SELECTION_STORAGE_KEY)
@@ -455,6 +460,38 @@ describe('DataPage', () => {
     return wrapper
   }
 
+  it('keeps the complete v2 page path off until its browser gate is enabled', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'false')
+    // The family-control plane cannot independently re-enable any v2 request.
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.getQueryBundle).not.toHaveBeenCalled()
+    expect(apiMocks.getQueryContract).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).toHaveBeenCalledWith(expect.objectContaining({
+      asset_type: 'stock',
+      symbol: '000001',
+      refresh_online: false,
+    }))
+    expect((wrapper.vm as any).marketDataPlatformStatus.path).toBe('legacy')
+  })
+
+  it('does not fall back to legacy data after a v2 contract probe denies data-read access', async () => {
+    apiMocks.getQueryContract.mockRejectedValue({
+      response: { status: 403, data: { details: { code: 'MARKET_DATA_READ_ENTITLEMENT_DENIED' } } },
+    })
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.getQueryContract).toHaveBeenCalledTimes(1)
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result).toBeNull()
+    expect((wrapper.vm as any).marketDataPlatformStatus.path).toBe('error')
+  })
+
   it('uses a single snapshot column on compact viewports', async () => {
     const originalWidth = window.innerWidth
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 700 })
@@ -530,27 +567,31 @@ describe('DataPage', () => {
       version: 'market-data-v2',
       request: {
         identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
-        dataset_code: 'market.stock_daily',
+        dataset_code: 'market.bars',
         data_kind: 'bars',
         frequency: '1d',
-        required_fields: ['close', 'volume'],
+        required_fields: ['close'],
         adjustment: 'qfq',
         price_basis: 'close',
         currency: 'CNY',
         unit: 'share',
         source_policy_id: 'market-default-v1',
+        family_id: 'stock.realtime',
+        family_contract_version: 'market-data-family-v1',
         mode: 'local_first',
       },
     })
     apiMocks.queryLocalFirst.mockResolvedValue({
       query_id: 'query-local-1',
       canonical_id: 'instrument:stock:CN-SZSE:000001',
-      dataset_code: 'market.stock_daily',
+      dataset_code: 'market.bars',
       asset_type: 'stock',
       instrument_metadata_version: 'stock-v1',
       data_kind: 'bars',
       frequency: '1d',
       source_policy_id: 'market-default-v1',
+      family_id: 'stock.realtime',
+      family_contract_version: 'market-data-family-v1',
       knowledge_cutoff: '2026-06-19T16:00:00Z',
       identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
       observations: [
@@ -589,17 +630,46 @@ describe('DataPage', () => {
       asset_type: 'stock',
       symbol: '000001',
       period: 'daily',
+      family_id: 'stock.realtime',
     })
     expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
     expect(apiMocks.queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
       identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
-      dataset_code: 'market.stock_daily',
+      dataset_code: 'market.bars',
+      family_id: 'stock.realtime',
+      family_contract_version: 'market-data-family-v1',
       mode: 'local_first',
       purpose: 'display',
       consistency: 'display',
     }), expect.objectContaining({ suppressErrorMessage: true }))
     expect((wrapper.vm as any).result.history.rows).toHaveLength(1)
     expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('本地优先')
+  })
+
+  it('fails closed when the unbundled crypto realtime family is unconfigured', async () => {
+    const wrapper = await mountPage()
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
+    apiMocks.lookupInstrument.mockClear()
+    apiMocks.getQueryContract.mockRejectedValue({
+      response: { status: 422, data: { details: { code: 'DATA_FAMILY_UNCONFIGURED' } } },
+    })
+
+    const cryptoTab = wrapper.findAll('.asset-tab').find((button) => button.text().includes('数字货币'))
+    await cryptoTab?.trigger('click')
+    await flushPromises()
+
+    expect(apiMocks.getQueryBundle).not.toHaveBeenCalled()
+    expect(apiMocks.getQueryContract).toHaveBeenCalledWith({
+      asset_type: 'crypto',
+      symbol: 'BTCJPY',
+      period: 'daily',
+      family_id: 'crypto.realtime',
+    })
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result).toBeNull()
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据平台查询失败')
   })
 
   it('drops invalid or non-pass v2 bars before they can become chart points', async () => {
@@ -903,6 +973,7 @@ describe('DataPage', () => {
       asset_type: 'stock',
       symbol: '000001',
       period: 'daily',
+      family_id: 'stock.realtime',
     })
     expect(apiMocks.queryLocalFirst).toHaveBeenCalledTimes(1)
     expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
@@ -948,27 +1019,31 @@ describe('DataPage', () => {
       version: 'market-data-v2',
       request: {
         identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
-        dataset_code: 'market.stock_daily',
+        dataset_code: 'market.bars',
         data_kind: 'bars',
         frequency: '1d',
-        required_fields: ['close', 'volume'],
+        required_fields: ['close'],
         adjustment: 'qfq',
         price_basis: 'close',
         currency: 'CNY',
         unit: 'share',
         source_policy_id: 'market-default-v1',
+        family_id: 'stock.realtime',
+        family_contract_version: 'market-data-family-v1',
         mode: 'local_first',
       },
     })
     const pages = Array.from({ length: 17 }, (_, pageIndex) => ({
       query_id: 'query-cursor-pages',
       canonical_id: 'instrument:stock:CN-SZSE:000001',
-      dataset_code: 'market.stock_daily',
+      dataset_code: 'market.bars',
       asset_type: 'stock',
       instrument_metadata_version: 'stock-v1',
       data_kind: 'bars',
       frequency: '1d',
       source_policy_id: 'market-default-v1',
+      family_id: 'stock.realtime',
+      family_contract_version: 'market-data-family-v1',
       knowledge_cutoff: '2026-06-19T16:00:00Z',
       identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
       observations: Array.from({ length: pageIndex === 0 ? 500 : 1 }, (_, rowIndex) => ({
@@ -1147,17 +1222,26 @@ describe('DataPage', () => {
     expect(wrapper.text()).not.toContain('Put / Call Ratio')
   })
 
-  it('does not use the non-persistent legacy online refresh when v2 is unavailable', async () => {
+  it('uses local-first rather than refresh when the standard query button is pressed', async () => {
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture())
+    apiMocks.queryLocalFirst.mockResolvedValue(createV2ResponseFixture())
     const wrapper = await mountPage()
     const queryButton = wrapper.findAll('button').find((button) => button.text().includes('查询'))
 
     expect(queryButton).toBeDefined()
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
     apiMocks.lookupInstrument.mockClear()
     await queryButton?.trigger('click')
     await flushPromises()
 
+    expect(apiMocks.getQueryContract).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'local_first',
+      purpose: 'display',
+      consistency: 'display',
+    }), expect.objectContaining({ suppressErrorMessage: true }))
     expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
-    expect((wrapper.vm as any).result.symbol).toBe('000001')
-    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据平台查询失败')
+    expect((wrapper.vm as any).marketDataPlatformStatus.path).toBe('local_first')
   })
 })

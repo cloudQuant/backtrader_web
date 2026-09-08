@@ -51,10 +51,15 @@ class MarketDataQueryResolver:
         catalog: DataCatalogResolver,
         identities: MarketDataIdentityResolver,
         family_contracts: DatasetContractRegistry = DEFAULT_DATASET_CONTRACT_REGISTRY,
+        allow_unbound_internal_requests: bool = False,
     ) -> None:
         self._catalog = catalog
         self._identities = identities
         self._family_contracts = family_contracts
+        # Public API composition must retain the default. This opt-in exists
+        # only for lower-level persistence/revision workflows whose field
+        # projections intentionally exceed the first market-page contract.
+        self._allow_unbound_internal_requests = allow_unbound_internal_requests
 
     async def resolve(
         self,
@@ -70,6 +75,23 @@ class MarketDataQueryResolver:
         exists in this foundational increment, so guessing from a provider,
         asset type, or legacy target table is deliberately forbidden.
         """
+        # Every public v2 request must carry the immutable, server-issued
+        # family binding. The browser may run without the bundle endpoint, but
+        # the query-contract bridge derives ``asset_type.realtime`` before
+        # returning a request. Allowing generic bars here would let a future
+        # raw provider route bypass an explicitly unconfigured family. The
+        # sole exception is an explicit internal-only resolver instance used
+        # by lower-level persistence/revision workflows, never an API route.
+        has_family_binding = (
+            request.family_id is not None
+            and request.family_contract_version is not None
+        )
+        if not has_family_binding and (
+            not self._allow_unbound_internal_requests
+            or request.family_id is not None
+            or request.family_contract_version is not None
+        ):
+            raise MarketDataQueryResolutionError("DATA_FAMILY_BINDING_REQUIRED")
         if request.dataset_code is None:
             raise MarketDataQueryResolutionError("DATASET_REQUIRED")
         if request.source_policy_id is None:
@@ -94,13 +116,10 @@ class MarketDataQueryResolver:
             raise MarketDataQueryResolutionError("IDENTITY_VERSION_WINDOW_CROSSES")
         if identity.venue is None:
             raise MarketDataQueryResolutionError("IDENTITY_MARKET_UNSUPPORTED")
-        if request.family_id is not None:
-            # The public DTO requires this version whenever ``family_id`` is
-            # present. Repeat the validation after resolving the canonical
-            # identity so a caller cannot bind a stock-looking request to a
-            # different resolved asset type or a similar dataset.
-            if request.family_contract_version is None:
-                raise MarketDataQueryResolutionError("DATA_FAMILY_QUERY_CONTRACT_MISMATCH")
+        if has_family_binding:
+            # Repeat the binding validation after canonical identity resolution
+            # so a caller cannot bind a stock-looking request to another
+            # resolved asset type or a similar dataset.
             try:
                 self._family_contracts.assert_query_binding(
                     family_id=request.family_id,

@@ -136,7 +136,7 @@
           type="primary"
           :loading="loading"
           data-test="market-instrument-query"
-          @click="lookupInstrument(true)"
+          @click="lookupInstrument(false)"
         >
           <el-icon aria-hidden="true">
             <Search />
