@@ -47,6 +47,7 @@ _FREQUENCY_BY_LEGACY_PERIOD = {
 _DATE_ALIGNED_BAR_FREQUENCIES = frozenset({"1d", "1w", "1mo"})
 _DAILY_BAR_FREQUENCIES = frozenset({"1d"})
 _OPENBB_LEGACY_ASSET_TYPES = frozenset({"stock", "futures", "fund", "fx", "crypto"})
+_MAX_LEGACY_LOOKUP_CANDIDATES = 128
 
 
 @dataclass(frozen=True)
@@ -176,6 +177,13 @@ class LegacyMarketDataQueryContractResolver:
             return None
         if identity.asset_type != family_contract.asset_type:
             return None
+        # A case-insensitive database collation must never let the legacy
+        # bridge mint a request for a differently cased display symbol.  The
+        # lookup projection and its migration use binary collations, but this
+        # second, frozen-identity comparison keeps an un-migrated or corrupt
+        # database fail-closed as well.
+        if identity.identity.display_symbol != normalized_symbol:
+            return None
 
         semantics = _semantics_for(identity.asset_type, identity.venue)
         if not self._has_reviewed_route(
@@ -227,23 +235,40 @@ class LegacyMarketDataQueryContractResolver:
         rows = list(
             (
                 await self._db.execute(
-                    select(MdInstrumentLookupKey.canonical_id)
+                    select(
+                        MdInstrumentLookupKey.canonical_id,
+                        MdInstrumentLookupKey.asset_type,
+                        MdInstrumentLookupKey.symbol,
+                    )
                     .where(
                         MdInstrumentLookupKey.asset_type == asset_type,
                         MdInstrumentLookupKey.symbol == symbol,
                         MdInstrumentLookupKey.is_active.is_(True),
                     )
                     .order_by(MdInstrumentLookupKey.market, MdInstrumentLookupKey.canonical_id)
-                    .limit(2)
+                    .limit(_MAX_LEGACY_LOOKUP_CANDIDATES + 1)
                 )
             )
-            .scalars()
             .all()
         )
-        if len(rows) != 1:
+        if len(rows) > _MAX_LEGACY_LOOKUP_CANDIDATES:
             return None
-        canonical_id = rows[0]
-        return canonical_id if isinstance(canonical_id, str) and canonical_id else None
+        # Retain the raw predicate for the binary covering index, then repeat
+        # the comparison in Python.  This defends the compatibility endpoint
+        # while a pre-existing MySQL schema is being migrated from a default
+        # case-insensitive collation: a matching-but-differently-cased row is
+        # not a valid exact identity.
+        exact_canonical_ids = [
+            canonical_id
+            for canonical_id, stored_asset_type, stored_symbol in rows
+            if isinstance(canonical_id, str)
+            and canonical_id
+            and stored_asset_type == asset_type
+            and stored_symbol == symbol
+        ]
+        if len(exact_canonical_ids) != 1:
+            return None
+        return exact_canonical_ids[0]
 
     def _has_reviewed_route(
         self,

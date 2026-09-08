@@ -487,6 +487,20 @@ class MarketDataQueryRequest(_StrictMarketDataModel):
         return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
 
 
+class PublicMarketDataQueryRequest(MarketDataQueryRequest):
+    """Public v2 request with a mandatory server-issued family binding.
+
+    ``MarketDataQueryRequest`` remains the internal orchestration DTO so
+    lower-level import and migration tools can describe normalized work before
+    a display-family contract exists.  Every HTTP v2 request uses this subtype:
+    it requires the family identifier and version before catalog, identity, or
+    provider work can begin.
+    """
+
+    family_id: str = Field(min_length=1, max_length=128)
+    family_contract_version: MarketDataFamilyContractVersion
+
+
 class ResolvedMarketDataQuery(MarketDataQueryRequest):
     """A query after the server has fixed catalog and instrument identity facts.
 
@@ -627,8 +641,8 @@ class MarketDataQueryResponse(BaseModel):
     data_kind: MarketDataKind
     frequency: str
     source_policy_id: str
-    family_id: str | None = None
-    family_contract_version: MarketDataFamilyContractVersion | None = None
+    family_id: str
+    family_contract_version: MarketDataFamilyContractVersion
     knowledge_cutoff: datetime
     identity_knowledge_cutoff: datetime
     observations: tuple[MarketDataObservationResponse, ...]

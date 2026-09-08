@@ -24,6 +24,7 @@ from app.schemas.market_data_platform import (
     MarketDataQueryRequest,
     MarketDataQueryResponse,
     MarketDataQueryWarningResponse,
+    PublicMarketDataQueryRequest,
 )
 from app.services.market_data.access import (
     MarketDataAccessAuthorizer,
@@ -302,8 +303,12 @@ async def execute_market_data_query_with_singleflight(
     their own session, which leaves them with a normal local result rather
     than a second provider request. Strict historical requests and local-only
     requests have no interactive provider path and bypass this coordinator.
-    Database uniqueness still protects cross-process races; operator-scale
-    multi-worker leasing remains a separate deployment concern.
+    The service additionally obtains a database-backed, fenced lease for each
+    exact coverage gap before it calls a provider, so separate workers become
+    lease followers and re-read local facts. This process-local coordinator
+    does not itself prove a production deployment: real multi-worker,
+    database-dialect, clock, and takeover validation remains an acceptance
+    requirement.
     """
     if cursor_binding is None and access is not None:
         binding = MarketDataCursorBinding(
@@ -422,7 +427,7 @@ async def get_market_data_query_bundle(
     summary="Query normalized local-first market data",
 )
 async def query_market_data(
-    request: MarketDataQueryRequest,
+    request: PublicMarketDataQueryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_db_user),
     service: MarketDataQueryService = Depends(get_market_data_query_service),
@@ -514,6 +519,13 @@ def _response_from_execution(execution: MarketDataQueryExecution) -> MarketDataQ
         # Resolver/context contracts make this unreachable; keep the response
         # boundary fail-closed if a future caller constructs one incorrectly.
         raise MarketDataQueryServiceError("SOURCE_POLICY_REQUIRED")
+    family_id = query.family_id
+    family_contract_version = query.family_contract_version
+    if family_id is None or family_contract_version is None:
+        # Internal migration/import DTOs may remain unbound until they are
+        # assigned a reviewed family contract. A public response may not:
+        # returning it would weaken the API's required binding invariant.
+        raise MarketDataQueryServiceError("DATA_FAMILY_BINDING_REQUIRED")
     return MarketDataQueryResponse(
         query_id=query.query_fingerprint,
         canonical_id=query.canonical_id,
@@ -523,12 +535,8 @@ def _response_from_execution(execution: MarketDataQueryExecution) -> MarketDataQ
         data_kind=query.data_kind,
         frequency=query.frequency or "snapshot",
         source_policy_id=source_policy_id,
-        # The resolver always constructs these attributes.  Keep the HTTP
-        # projection tolerant of older read-only execution fixtures during the
-        # staged rollout, where an unbound compatibility query predates the
-        # family-control-plane fields.
-        family_id=getattr(query, "family_id", None),
-        family_contract_version=getattr(query, "family_contract_version", None),
+        family_id=family_id,
+        family_contract_version=family_contract_version,
         knowledge_cutoff=execution.knowledge_cutoff,
         identity_knowledge_cutoff=execution.identity_knowledge_cutoff,
         observations=tuple(

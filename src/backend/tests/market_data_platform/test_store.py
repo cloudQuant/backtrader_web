@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -34,6 +34,10 @@ from app.services.market_data.coverage import (
     QueryIdentity,
     TimeWindow,
 )
+from app.services.market_data.fetch_lease import (
+    MarketDataFetchLeaseError,
+    MarketDataFetchLeaseManager,
+)
 from app.services.market_data.field_quality import FIELD_QUALITY_POLICY_VERSION
 from app.services.market_data.identity import ResolvedMarketDataIdentity
 from app.services.market_data.providers import (
@@ -43,6 +47,8 @@ from app.services.market_data.providers import (
 )
 from app.services.market_data.publication import (
     PUBLICATION_CALENDAR_SNAPSHOT,
+    MarketDataPublicationError,
+    MarketDataPublicationManager,
     MarketDataVisibilityAnchor,
 )
 from app.services.market_data.query_resolution import ResolvedMarketDataQueryContext
@@ -1468,3 +1474,336 @@ async def test_calendar_reader_returns_typed_unknown_then_explicit_versioned_ses
     assert known.status is CalendarStatus.KNOWN
     assert known.calendar_version == "2026.09"
     assert [key.event_at.hour for key in known.event_keys] == [10, 14]
+
+
+@pytest.mark.asyncio
+async def test_stale_fetch_lease_owner_cannot_commit_or_publish_provider_facts() -> None:
+    """A post-expiry owner rolls back staged facts before any visibility receipt exists."""
+    context = _context()
+    lease_key = _sha("stale-owner-provider-write")
+
+    async with async_session_maker() as stale_db, async_session_maker() as current_db:
+        await _seed_dataset_and_provider(stale_db)
+        stale_leases = MarketDataFetchLeaseManager(
+            stale_db,
+            clock=lambda: _at(14),
+            lease_ttl=timedelta(minutes=1),
+        )
+        stale_handle = await stale_leases.acquire(lease_key)
+        assert stale_handle is not None
+
+        current_leases = MarketDataFetchLeaseManager(
+            current_db,
+            clock=lambda: _at(15),
+            lease_ttl=timedelta(minutes=1),
+        )
+        current_handle = await current_leases.acquire(lease_key)
+        assert current_handle is not None
+
+        stale_store = MarketDataStore(stale_db, clock=lambda: _at(15))
+        with pytest.raises(MarketDataStoreError) as rejected:
+            await stale_store.persist_provider_result(
+                context,
+                _result(
+                    retrieved_at=_at(14),
+                    observations=(
+                        _observation(
+                            event_at=_at(10),
+                            available_at=_at(14),
+                            fields={"close": "10.00"},
+                        ),
+                    ),
+                ),
+                received_at=_at(15),
+                unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+                fetch_lease=stale_handle,
+            )
+        source_count = await stale_db.scalar(select(func.count()).select_from(MdSourceSnapshot))
+        publication_count = await stale_db.scalar(select(func.count()).select_from(MdPublication))
+
+    assert rejected.value.code == "FETCH_LEASE_FENCE_LOST"
+    assert source_count == 0
+    assert publication_count == 0
+
+
+@pytest.mark.asyncio
+async def test_store_closes_read_transaction_before_provider_io() -> None:
+    """A real SQLAlchemy request session cannot carry local reads into an adapter."""
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        store = MarketDataStore(db)
+
+        await db.scalar(select(DgProvider).where(DgProvider.provider_id == PROVIDER_ID))
+        assert db.in_transaction()
+
+        await store.close_transaction_before_provider_io()
+
+        assert not db.in_transaction()
+
+
+@pytest.mark.asyncio
+async def test_fetch_lease_takeover_before_publication_keeps_committed_facts_hidden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A handoff after fact commit cannot turn the old owner's receipt visible."""
+    context = _context()
+    lease_key = _sha("stale-owner-before-publication")
+
+    async with async_session_maker() as stale_db, async_session_maker() as current_db:
+        await _seed_dataset_and_provider(stale_db)
+        stale_leases = MarketDataFetchLeaseManager(
+            stale_db,
+            clock=lambda: _at(14),
+            lease_ttl=timedelta(minutes=1),
+        )
+        stale_handle = await stale_leases.acquire(lease_key)
+        assert stale_handle is not None
+
+        current_leases = MarketDataFetchLeaseManager(
+            current_db,
+            clock=lambda: _at(15),
+            lease_ttl=timedelta(minutes=1),
+        )
+        stale_store = MarketDataStore(stale_db, clock=lambda: _at(14))
+        original_publish = stale_store._publications.publish_staged
+        current_handle = None
+
+        async def take_over_before_publish(*args: object, **kwargs: object) -> datetime:
+            nonlocal current_handle
+            current_handle = await current_leases.acquire(lease_key)
+            assert current_handle is not None
+            return await original_publish(*args, **kwargs)
+
+        monkeypatch.setattr(stale_store._publications, "publish_staged", take_over_before_publish)
+
+        with pytest.raises(MarketDataStoreError) as rejected:
+            await stale_store.persist_provider_result(
+                context,
+                _result(
+                    retrieved_at=_at(14),
+                    observations=(
+                        _observation(
+                            event_at=_at(10),
+                            available_at=_at(14),
+                            fields={"close": "10.00"},
+                        ),
+                    ),
+                ),
+                received_at=_at(14),
+                unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+                fetch_lease=stale_handle,
+            )
+
+        # The pre-publish guard failure rolls its own publication transaction
+        # back; the caller session is clean before it reads the hidden receipt.
+        assert not stale_db.in_transaction()
+        publication = await stale_db.scalar(select(MdPublication))
+        source_count = await stale_db.scalar(select(func.count()).select_from(MdSourceSnapshot))
+
+    assert rejected.value.code == "FETCH_LEASE_FENCE_LOST"
+    assert current_handle is not None
+    assert source_count == 1
+    assert publication is not None
+    assert publication.published_at is None
+    assert publication.visibility_sequence is None
+
+
+@pytest.mark.asyncio
+async def test_stale_fenced_pending_receipt_stays_hidden_while_recovery_and_current_owner_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Generic recovery skips old fenced evidence without starving safe receipts."""
+    context = _context()
+    lease_key = _sha("stale-fenced-pending-recovery")
+
+    async with async_session_maker() as stale_db, async_session_maker() as current_db:
+        await _seed_dataset_and_provider(stale_db)
+        stale_handle = await MarketDataFetchLeaseManager(
+            stale_db,
+            clock=lambda: _at(14),
+            lease_ttl=timedelta(minutes=1),
+        ).acquire(lease_key)
+        assert stale_handle is not None
+
+        stale_store = MarketDataStore(stale_db, clock=lambda: _at(14))
+
+        async def interrupt_publication(*_args: object, **_kwargs: object) -> datetime:
+            raise MarketDataPublicationError("PUBLICATION_TEST_INTERRUPTED")
+
+        monkeypatch.setattr(stale_store._publications, "publish_staged", interrupt_publication)
+        with pytest.raises(MarketDataStoreError) as stale_interrupted:
+            await stale_store.persist_provider_result(
+                context,
+                _result(
+                    retrieved_at=_at(14),
+                    observations=(
+                        _observation(
+                            event_at=_at(10),
+                            available_at=_at(14),
+                            fields={"close": "10.00"},
+                        ),
+                    ),
+                ),
+                received_at=_at(14),
+                unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+                fetch_lease=stale_handle,
+            )
+        stale_snapshot = await stale_db.scalar(select(MdSourceSnapshot))
+        stale_receipt = await stale_db.scalar(select(MdPublication))
+        assert stale_snapshot is not None
+        assert stale_receipt is not None
+        stale_snapshot_id = stale_snapshot.id
+        stale_binding_key = stale_snapshot.fetch_lease_key_sha256
+        stale_binding_fence = stale_snapshot.fetch_lease_fence_token
+        stale_receipt_id = stale_receipt.id
+        stale_receipt_entity_id = stale_receipt.entity_id
+        await stale_db.rollback()
+
+        current_handle = await MarketDataFetchLeaseManager(
+            current_db,
+            clock=lambda: _at(15),
+            lease_ttl=timedelta(minutes=1),
+        ).acquire(lease_key)
+        assert current_handle is not None
+        assert current_handle.fence_token == stale_handle.fence_token + 1
+
+        async def forged_noop_guard() -> None:
+            return None
+
+        # A public caller cannot bypass the real database-owner predicate by
+        # presenting the old generation plus an arbitrary callback. The
+        # publication manager performs its own conditional fence renewal in
+        # this transaction before it considers the receipt binding.
+        with pytest.raises(MarketDataFetchLeaseError) as direct_guard_rejected:
+            await MarketDataPublicationManager(
+                stale_db,
+                clock=lambda: _at(15),
+                fetch_lease_clock=lambda: _at(15),
+            ).publish_staged(
+                (stale_receipt_id,),
+                fetch_lease=replace(stale_handle, owner_token="forged-owner-token"),
+                pre_publish_guard=forged_noop_guard,
+            )
+
+        # Leave a separate non-fenced source receipt pending. Recovery must
+        # publish it even though the older fenced receipt is permanently
+        # excluded until an owner-coordinated retry can prove its fence.
+        ordinary_store = MarketDataStore(current_db, clock=lambda: _at(15))
+        monkeypatch.setattr(ordinary_store._publications, "publish_staged", interrupt_publication)
+        with pytest.raises(MarketDataStoreError) as ordinary_interrupted:
+            await ordinary_store.persist_provider_result(
+                context,
+                _result(
+                    retrieved_at=_at(15),
+                    source_revision="ordinary-pending-v2",
+                    observations=(
+                        _observation(
+                            event_at=_at(10),
+                            available_at=_at(15),
+                            fields={"close": "11.00"},
+                        ),
+                    ),
+                ),
+                received_at=_at(15),
+                unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+            )
+        ordinary_snapshot = await current_db.scalar(
+            select(MdSourceSnapshot).where(MdSourceSnapshot.fetch_lease_key_sha256.is_(None))
+        )
+        assert ordinary_snapshot is not None
+        ordinary_receipt = await current_db.scalar(
+            select(MdPublication).where(MdPublication.entity_id == ordinary_snapshot.id)
+        )
+        assert ordinary_receipt is not None
+        ordinary_receipt_id = ordinary_receipt.id
+        await current_db.rollback()
+
+        recovered_ids = await MarketDataPublicationManager(
+            stale_db,
+            clock=lambda: _at(15),
+        ).recover_pending()
+        stale_receipt_after_recovery = await stale_db.scalar(
+            select(MdPublication)
+            .where(MdPublication.id == stale_receipt_id)
+            .execution_options(populate_existing=True)
+        )
+        assert stale_receipt_after_recovery is not None
+        stale_receipt_visible_after_recovery = stale_receipt_after_recovery.published_at
+        stale_receipt_sequence_after_recovery = stale_receipt_after_recovery.visibility_sequence
+
+        current_store = MarketDataStore(current_db, clock=lambda: _at(15))
+        current_persisted = await current_store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(15),
+                source_revision="current-owner-v3",
+                observations=(
+                    _observation(
+                        event_at=_at(10),
+                        available_at=_at(15),
+                        fields={"close": "12.00"},
+                    ),
+                ),
+            ),
+            received_at=_at(15),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+            fetch_lease=current_handle,
+        )
+        current_snapshot = await current_db.get(
+            MdSourceSnapshot,
+            current_persisted.source_snapshot_id,
+        )
+        current_receipt = await current_db.scalar(
+            select(MdPublication).where(MdPublication.entity_id == current_persisted.source_snapshot_id)
+        )
+        assert current_snapshot is not None
+        assert current_receipt is not None
+        current_binding_key = current_snapshot.fetch_lease_key_sha256
+        current_binding_fence = current_snapshot.fetch_lease_fence_token
+        current_receipt_visible = current_receipt.published_at
+        current_receipt_sequence = current_receipt.visibility_sequence
+
+    assert stale_interrupted.value.code == "OBSERVATION_PUBLICATION_FAILED"
+    assert ordinary_interrupted.value.code == "OBSERVATION_PUBLICATION_FAILED"
+    assert direct_guard_rejected.value.code == "FETCH_LEASE_FENCE_LOST"
+    assert stale_binding_key == lease_key
+    assert stale_binding_fence == stale_handle.fence_token
+    assert stale_snapshot_id == stale_receipt_entity_id
+    assert stale_receipt_visible_after_recovery is None
+    assert stale_receipt_sequence_after_recovery is None
+    assert ordinary_receipt_id in recovered_ids
+    assert stale_receipt_id not in recovered_ids
+    assert current_binding_key == lease_key
+    assert current_binding_fence == current_handle.fence_token
+    assert current_receipt_visible is not None
+    assert current_receipt_sequence is not None
+
+
+@pytest.mark.asyncio
+async def test_store_persists_normally_when_no_fetch_lease_is_supplied() -> None:
+    """Existing controlled import paths remain unchanged when no lease is requested."""
+    context = _context()
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        persisted = await MarketDataStore(db, clock=lambda: _at(14)).persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(14),
+                observations=(
+                    _observation(
+                        event_at=_at(10),
+                        available_at=_at(14),
+                        fields={"close": "10.00"},
+                    ),
+                ),
+            ),
+            received_at=_at(14),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        )
+        source_count = await db.scalar(select(func.count()).select_from(MdSourceSnapshot))
+        publication_count = await db.scalar(select(func.count()).select_from(MdPublication))
+
+    assert persisted.observation_revision_ids
+    assert source_count == 1
+    assert publication_count == 1

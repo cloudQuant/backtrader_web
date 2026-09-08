@@ -18,7 +18,9 @@ flowchart LR
   S --> CAL[冻结交易日历]
   S --> PLAN[覆盖规划器]
   PLAN -->|完整| OUT[本地结果 + 来源元数据]
-  PLAN -->|缺口/未知| POLICY
+  PLAN -->|缺口/未知| LEASE[md_fetch_leases durable lease]
+  LEASE -->|owner| POLICY[来源策略]
+  LEASE -->|follower| S
   POLICY --> AK[AkShare 适配器]
   POLICY --> OBB[隔离 OpenBB 运行器]
   AK --> TXA[事务 A 事实 + pending publication]
@@ -49,7 +51,7 @@ source-policy 配置摘要与 access grant 摘要是不同维度：前者描述�
 
 ### 2.1 公共 DTO
 
-`app.schemas.market_data_platform.MarketDataQueryRequest` 是唯一公共请求边界。它拒绝额外字段，并负责：
+`MarketDataQueryRequest` 是规范化的基础/内部 DTO，允许受控导入和迁移工具在家族合同签发前描述工作；HTTP `POST /queries` 则只接受其子类 `PublicMarketDataQueryRequest`。后者拒绝额外字段，并将 `family_id` 和 `family_contract_version` 设为必填，因此未绑定请求会在服务、目录、主数据或 provider 工作之前被 FastAPI 以 HTTP 422 拒绝。两种 DTO 共同负责：
 
 - canonical ID 与完整三元组的异或选择；
 - UTC、半开区间和直接请求窗口限制；
@@ -65,6 +67,8 @@ source-policy 配置摘要与 access grant 摘要是不同维度：前者描述�
 `asset_instruments` 是更广泛研究域的身份权威，但 v2 市场数据查询不把它的可变行或单独的 lookup key 当作严格 PIT 证据。`MdInstrumentIdentityRevision` 保存经过校验的完整 identity JSON、canonical ID、精确三元组、metadata version、有效期、递增 revision 和内容 hash；它与一条 pending `MdPublication` 在同一事务写入，只有第二事务写入 `published_at` 后才对 v2 resolver 可见。
 
 `md_instrument_lookup_keys` 仍是确定性回填和精确索引的物化投影，但当前严格 resolver 从已发布的 `MdInstrumentIdentityRevision` 读取。未来若将 lookup key 接入严格读取，也必须让它引用同一冻结 revision 和同一 publication receipt，不能回退到可变 authority 行。
+
+权威 `asset_instruments.canonical_id` 以及这两张投影表的 `canonical_id`、`asset_type`、`market` 和 `symbol` 都是字节级协议字段：模型为 SQLite 明确声明 `BINARY`、MySQL 声明 `utf8mb4_bin`、PostgreSQL 声明 `C` collation。`20260909_market_data_exact_identity_collation` 对已有服务器表执行同一转换；MySQL 迁移要求先停止 market-data writer 并设置维护 fence。这样 authority 的 `(canonical_id, metadata_version)` 唯一索引也允许两个合法的 case-distinct canonical ID，而不会在投影写入前错误冲突。legacy bridge 的 lookup 查询同时取回原始 asset type/symbol，以 Python 逐字符过滤，再把返回 canonical ID 解析为已发布 frozen identity 并再次比较 display symbol。数据库层与服务层任一层不满足精确条件均不签发 contract；因此 `RB0` 和 `rb0` 可以作为两个已登记标识分别解析，但错误大小写不能借默认 `_ci` collation 得到另一个标识的 contract。
 
 | 字段 | 作用 |
 | --- | --- |
@@ -154,13 +158,19 @@ PIT 使用**两事务 publication protocol**，而不是把 Python `created_at`�
 5. 存储层在事务 A 写入回执、观测和 pending publication 前，再以当前 registry 复核冻结的 `MarketDataSourceAuthorization`；授权已变化、未注册或 descriptor 不一致时拒绝写入。A 提交后，事务 B 才追加 post-commit visibility receipt。提供方自报时间仅作为 provenance，不允许它改变 PIT 可见性。
 6. 重新从已发布的本地证据读出并计算覆盖，响应永远以已写入且已发布的数据为准；提供方内存结果不会直接返回。
 
-### 4.3 同进程缺口合并
+### 4.3 同进程合并与跨 worker durable lease
 
 当前 HTTP 层对等价的、没有 `knowledge_cutoff` 的交互式请求，以 `(event loop identity, query_fingerprint, principal scope, tenant scope, entitlement revision)` 建立 singleflight。leader 在其请求作用域内执行来源获取；只要确有 fetch，它在完成后提交来源回执和观测修订。follower 等待 leader 的完成信号后，先结束自身可能由认证读取建立的只读事务，再通过自己的数据库会话重新执行本地读取并重新评估当前来源授权；这避免 MySQL `REPEATABLE READ` 沿用 leader 提交前的快照，也不会把 leader 的内存对象当作自己的结果或跨主体共享许可结果。
 
 leader 不会在网络 I/O 期间持有用户或 registry 锁。provider 返回后，它在 receipt 写入前对用户、角色和 route registry 执行短的 locking/current read，并要求 entitlement 与 source authorization descriptor 与 preflight 完全相同；变化或撤销返回稳定拒绝，内存结果不落库。follower rollback 后也重新读取 principal；若角色已改变，会以新 access 执行或被拒绝，不复用等待前的 access context。
 
-这是**同一 Web 进程、同一事件循环**的优化和局部一致性措施，不是分布式锁。多 worker、多个 Uvicorn/Gunicorn 进程、多个 pod 或 leader 异常后的接管不共享该表；它们仍可能对同一缺口同时访问提供方，甚至并发进入事实写入路径。当前版本没有数据库 lease、writer ownership/fencing、租约过期、跨进程通知或多 worker 故障注入验收。唯一约束和数据库冲突码不等于跨进程写入协议；启用多 worker 的生产灰度前必须另行实现并验证这些机制，在此之前不能以 singleflight 证明全局网络去重或单写入者。
+同进程 singleflight 只能消除一个 event loop 内的重复工作。跨 worker 使用 `md_fetch_leases`：一个 key 对应一个已解析 coverage gap，行中持有 owner UUID、单调递增 fence token、expiry、release 时间和维护索引。owner/follower 的 acquire 在短数据库事务中完成；新行的并发插入重试、到期接管和 SQLite 的无效 `FOR UPDATE` 路径均依赖 compare-and-swap predicate，行不删除以保留单调 generation，避免 ABA。
+
+lease key 对 canonical identity、dataset、metadata version、asset/market、产品 family ID/contract version、kind/frequency、字段和口径、source policy、模式、精确 gap、policy descriptor hash 与 access-grant descriptor hash 做规范 JSON 后 SHA-256。因而产品契约、授权或策略变化不会把不同的在线工作合并。follower 在 acquire 未取得 owner 时不调用任何 primary/fallback route；它 rollback 旧读事务、重新建立 visibility anchor 并本地复读。owner 的外部 provider I/O 永远发生在数据库事务外；事实事务 A 和 publication 事务 B 均以 `(key, owner, fence, expires_at > database UTC now)` 的条件更新作 fence guard。任何到期接管后的旧 owner 即使仍拿到 provider 返回，也不能提交事实或将 pending receipt 变为可见。
+
+事实事务 A 的 source receipt provenance 还绑定其 lease generation。通用 pending-publication recovery 一律跳过这种 source receipt；只有仍持有 exact owner/fence 的协调发布路径可以完成事务 B。这样 recovery 不需要解释 worker 崩溃后的身份，也不能把旧 owner 的事实在新 owner 发布后赋予更大的 visibility sequence。calendar、identity 等非 source-fenced publication 使用原有恢复语义；它们不能借此绕过 source receipt 的 fence。
+
+默认 TTL 为五分钟，当前 AkShare/OpenBB 的调用方等待超时为 30 秒。它为正常返回的校验、事实和 publication 留出余量，但不是上游副作用的硬上界：AkShare 通过 `asyncio.to_thread` 执行同步 SDK，超时取消等待并不能杀死已开始的线程。若线程仍在执行时 lease 到期或被释放，后续 worker 可能再次发起相同外部调用；fence 仍会阻止陈旧 owner 落盘，但不能证明零重复 AkShare I/O。除非使用可终止 runner，或以独立数据库会话保活/心跳租约到线程结束，真实 AkShare 多 worker 零重复调用保持 `NO-GO`。这个实现仍不是 E-197-08 的 `PASS`：真实 MySQL/PostgreSQL、多进程 provider 调用计数、时钟偏移、崩溃接管和部署拓扑必须另行演练。calendar import lock 仅保护 calendar manifest，不替代此租约。
 
 ### 4.4 分页与稳定回放
 
@@ -198,20 +208,20 @@ leader 不会在网络 I/O 期间持有用户或 registry 锁。provider 返回�
 
 接口由功能开关保护，`MARKET_DATA_QUERY_V2_ENABLED=false` 和 `MARKET_DATA_ONLINE_FETCH_ENABLED=false` 是默认值。浏览器还以 `VITE_MARKET_DATA_QUERY_V2_ENABLED=false` 为默认灰度总开关；`VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED` 只能在此前提下启用 family bundle，策略页 sidecar 还须同时满足 `VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED=true`。目录、身份、日历、活动 provider 和来源策略未就绪时保持关闭或失败关闭；启用在线获取也不会自动启用 OpenBB，后者仍要求明确市场白名单。默认公开策略只在已认证传输边界内允许 `display`、`research`、`backtest` 三种用途；付费/许可来源必须另建服务器维护的策略并完成 entitlement 审查。
 
-行情页只在浏览器 v2 总开关开启时尝试只读 contract，解析精确已导入 identity 与活动 dataset 后才请求 v2；无论 bundle 子开关是否开启，contract 请求都携带页面期望的 `<asset_type>.realtime`，且页面验证回传 binding。`MARKET_DATA_QUERY_V2_DISABLED` 等已定义 fallback 错误才回到 legacy lookup；`DATA_FAMILY_UNCONFIGURED` 和 binding 不匹配必须失败关闭，不能用旧数据伪装为 v2 事实。总开关关闭时不得探测 contract、bundle 或事实接口。v2 响应的 pagination helper 会持续请求至 `next_cursor=null`，不以 500 条或固定页数截断；它验证每页 `query_id` 与 `knowledge_cutoff` 不变，并对重复 cursor 或 revision fail closed。普通查询使用 `local_first`，不能静默升级为 `refresh`。当前前端回归以 17 页、516 条观察验证该收集逻辑，但这不是浏览器灰度或 196 策略页整合证据。策略页 sidecar 只有两个浏览器开关均开启才可探测 v2，仍须等待 196 的研究与回测契约冻结后，才可把解析后的数据工件写进请求和结果记录。
+行情页只在浏览器 v2 总开关开启时尝试只读 contract，解析精确已导入 identity 与活动 dataset 后才请求 v2；无论 bundle 子开关是否开启，contract 请求都携带页面期望的 `<asset_type>.realtime`，且页面验证回传 binding。`MARKET_DATA_QUERY_V2_DISABLED` 等已定义 fallback 错误才回到 legacy lookup；`DATA_FAMILY_UNCONFIGURED` 和 binding 不匹配必须失败关闭，不能用旧数据伪装为 v2 事实。遗留 lookup 若附带 contract，还必须由服务端同时回显本次精确 `symbol` 和该 contract 的 canonical ID；客户端逐字符比较这两个值及 family/版本，绝不做大小写折叠。任何缺失、错配或陈旧的附带 contract 都显式失败，不能作为 v2 bootstrap，也不能把先前标的的缓存结果显示为当前标的的本地证据。总开关关闭时不得探测 contract、bundle 或事实接口。v2 响应的 pagination helper 会持续请求至 `next_cursor=null`，不以 500 条或固定页数截断；它验证每页 `query_id` 与 `knowledge_cutoff` 不变，并对重复 cursor 或 revision fail closed。普通查询使用 `local_first`，不能静默升级为 `refresh`。当前前端回归以 17 页、516 条观察验证该收集逻辑，但这不是浏览器灰度或 196 策略页整合证据。策略页 sidecar 只有两个浏览器开关均开启才可探测 v2，仍须等待 196 的研究与回测契约冻结后，才可把解析后的数据工件写进请求和结果记录。
 
 ## 7. 迁移与运维
 
 ### 7.1 迭代 196/197 迁移整合
 
-当前 197 目录修订 `20260908_market_data_catalog` 的 `down_revision` 是 `20260811_asset_research_task_leases`；196 的 `20260904_ai_research_protocol_v2` 也从该 revision 分叉，并继续到 `20260908_ai_research_approval_authority`。因此两个候选同时进入一个版本图时，天然出现两个 head。独立 197 工作树中的单链检查不能替代联合检查。
+当前 197 链由 `20260908_market_data_catalog` 经来源治理、`20260909_market_data_fetch_leases` 继续到 `20260909_market_data_exact_identity_collation`；其根链仍从 `20260811_asset_research_task_leases` 分叉。196 的 `20260904_ai_research_protocol_v2` 也从该 revision 分叉，并继续到 `20260908_ai_research_approval_authority`。因此两个候选同时进入一个版本图时，天然出现两个 head。独立 197 工作树中的单链检查不能替代联合检查。
 
 196 冻结后，只能选择以下一种受审查路径：把 197 重基到 196 的冻结 head，或在集成分支创建带两个 `down_revision` 的 Alembic merge revision。不得任选一个 head、`stamp` 掉另一个分支或直接对生产库运行独立链。候选发布必须先在空数据库执行 `alembic heads`（恰一个 head）和 `alembic upgrade head`，再在可恢复的 MySQL/PostgreSQL 副本做同样演练；详情和证据格式见 [验收文档](ACCEPTANCE.md#7-数据库迁移与灾备验收)。
 
 ### 7.2 发布前操作顺序
 
 1. 冻结 196 的研究/回测工件契约，建立 196/197 集成候选并完成单 head 迁移修订；记录候选 SHA、`git status --short`、`alembic heads` 和备份标识。
-2. 在空库和经批准的可恢复副本执行 `alembic upgrade head`；审计 `dg_*`/`md_*` 的列、索引、外键、检查约束、时间字段与遗留 AkShare 表的行数/校验和。MySQL/PostgreSQL 必须验证每个应用连接的 UTC session time zone 与跨连接 PIT 读取。
+2. 在空库和经批准的可恢复副本执行 `alembic upgrade head`；审计 `dg_*`/`md_*` 的列、索引、外键、检查约束、时间字段与遗留 AkShare 表的行数/校验和。MySQL 执行 exact-identity DDL 前必须停止 writer 并设置 `MARKET_DATA_EXACT_IDENTITY_MAINTENANCE_FENCE=confirmed`；审计四个身份字段实际为 `utf8mb4_bin`，PostgreSQL 为 `C`，再验证每个应用连接的 UTC session time zone 与跨连接 PIT 读取。
 3. 在维护窗口依次运行 `bootstrap_market_data_platform.py` 的 dry-run 和 `--apply`，注册逻辑数据集、唯一主存储和活动 provider；未注册或已停用的 provider 在网络请求前即被拒绝。
 4. 对审核过的主数据 manifest 运行 `import_market_data_master_data.py` 的 dry-run 和 `--apply`，再对既有权威身份使用 `backfill_market_data_lookup_keys.py` 的受限批次 dry-run/`--apply`。导入器不创建猜测 identity。
 5. 按每个已启用 `(market, data_kind, frequency)` 导入版本化日历 manifest。日线、周线、月线和任何分钟频率都要分别提供完整显式网格；只导入市场交易日而没有相应频率 grid 时不得启用该请求组合。
@@ -222,4 +232,4 @@ leader 不会在网络 I/O 期间持有用户或 registry 锁。provider 返回�
 
 ## 8. 可观测性
 
-必须记录但不暴露敏感值的指标包括：本地命中率、按 `(market, data_kind, frequency)` 分组的日历未知率和 `CALENDAR_GRID_UNAVAILABLE`、每提供方请求/失败/延迟、写入行数、质量拒绝原因、因字段集选择旧但完整修订的数量、索引回填进度、来源策略或用途拒绝、provider 活动预检拒绝、receipt/request 错配、冻结游标读取、singleflight leader/follower 数量，以及 OpenBB 协议、原始载荷 hash 和受控工作目录失败。数据质量告警以稳定机器码聚合，而不是解析异常文本。
+必须记录但不暴露敏感值的指标包括：本地命中率、按 `(market, data_kind, frequency)` 分组的日历未知率和 `CALENDAR_GRID_UNAVAILABLE`、每提供方请求/失败/延迟、写入行数、质量拒绝原因、因字段集选择旧但完整修订的数量、索引回填进度、来源策略或用途拒绝、provider 活动预检拒绝、receipt/request 错配、冻结游标读取、singleflight leader/follower 数量、fetch-lease acquire owner/follower/conflict、expiry takeover、fence lost、release lost 与数据库 UTC clock 失败，以及 OpenBB 协议、原始载荷 hash 和受控工作目录失败。数据质量告警以稳定机器码聚合，而不是解析异常文本。

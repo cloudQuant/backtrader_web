@@ -44,6 +44,12 @@ from app.services.market_data.coverage import (
     ObservationQuality,
     TimeWindow,
 )
+from app.services.market_data.fetch_lease import (
+    MarketDataFetchLeaseError,
+    MarketDataFetchLeaseHandle,
+    MarketDataFetchLeaseManager,
+    assert_fetch_lease_held_in_transaction,
+)
 from app.services.market_data.field_quality import (
     FIELD_QUALITY_POLICY_VERSION,
     is_usable_field_value,
@@ -233,7 +239,41 @@ class MarketDataStore:
     ) -> None:
         self._db = db
         self._clock = clock or _utc_now
-        self._publications = MarketDataPublicationManager(db, clock=self._clock)
+        self._clock_is_test_override = clock is not None
+        self._publications = MarketDataPublicationManager(
+            db,
+            clock=self._clock,
+            fetch_lease_clock=self._clock if self._clock_is_test_override else None,
+        )
+
+    def fetch_lease_manager(self) -> MarketDataFetchLeaseManager:
+        """Return a request-session lease manager for real local-first fills."""
+        return MarketDataFetchLeaseManager(
+            self._db,
+            # Lease takeover must use a shared database clock in production;
+            # deterministic store clocks remain an explicit test seam.
+            clock=self._clock if self._clock_is_test_override else None,
+        )
+
+    async def close_transaction_before_provider_io(self) -> None:
+        """End request-local database work before an adapter can use the network.
+
+        Local reads and post-fetch authorization checks auto-begin SQLAlchemy
+        transactions, including ``FOR UPDATE`` source-registry checks.  The
+        query service owns this session and its persistence protocol commits
+        every supported write itself, so an outstanding transaction here is
+        only a read/authorization boundary that must be released before a
+        fallback provider call.  Refuse to discard caller-staged ORM changes
+        rather than silently rolling them back.
+        """
+        if not self._db.in_transaction():
+            return
+        if self._db.new or self._db.dirty or self._db.deleted:
+            raise MarketDataStoreError("PROVIDER_IO_TRANSACTION_DIRTY")
+        try:
+            await self._db.rollback()
+        except OperationalError as exc:
+            raise MarketDataStoreError("PROVIDER_IO_TRANSACTION_RESET_FAILED") from exc
 
     @staticmethod
     def series_identity(context: ResolvedMarketDataQueryContext) -> SeriesIdentity:
@@ -312,6 +352,7 @@ class MarketDataStore:
         received_at: datetime | None = None,
         source_authorization: MarketDataSourceAuthorization | None = None,
         unverified_compatibility_reason: str | None = None,
+        fetch_lease: MarketDataFetchLeaseHandle | None = None,
     ) -> PersistedProviderFetch:
         """Append one provider receipt and its normalized observation revisions.
 
@@ -325,8 +366,15 @@ class MarketDataStore:
         instead provide one of the explicit compatibility reasons; their
         receipt is durably tagged as unverified and is excluded from every
         current-authorized local read.
+
+        When a cross-worker fetch lease is supplied, the owner/fence predicate
+        is renewed in both the immutable-fact transaction and the separate
+        publication transaction.  The provider call has already completed by
+        this point, so neither short database transaction spans external I/O.
         """
         _assert_writable_context(context)
+        if fetch_lease is not None and not isinstance(fetch_lease, MarketDataFetchLeaseHandle):
+            raise TypeError("fetch_lease must be a MarketDataFetchLeaseHandle")
         local_received_at = _require_aware_utc(
             received_at or self._clock(),
             field_name="local receipt timestamp",
@@ -346,6 +394,17 @@ class MarketDataStore:
         )
 
         try:
+            # Renew the owner row before staging facts, but within the same
+            # short outer transaction that will commit them. This makes a
+            # stale owner fail before it can even flush a pending receipt, and
+            # the conditional row update prevents a takeover until the fact
+            # transaction commits or rolls back.
+            if fetch_lease is not None:
+                await assert_fetch_lease_held_in_transaction(
+                    self._db,
+                    fetch_lease,
+                    clock=self._clock if self._clock_is_test_override else None,
+                )
             async with self._db.begin_nested():
                 series = await self.get_or_create_series(context)
                 series = await self._lock_series_for_revision(series, context)
@@ -356,6 +415,7 @@ class MarketDataStore:
                     validated,
                     source_authorization=authorization,
                     local_received_at=local_received_at,
+                    fetch_lease=fetch_lease,
                 )
                 self._db.add(source_snapshot)
                 await self._db.flush()
@@ -382,9 +442,17 @@ class MarketDataStore:
                 ]
                 self._db.add_all(revisions)
                 await self._db.flush()
+        except MarketDataFetchLeaseError as exc:
+            if self._db.in_transaction():
+                await self._db.rollback()
+            raise MarketDataStoreError(exc.code) from exc
         except IntegrityError as exc:
+            if self._db.in_transaction():
+                await self._db.rollback()
             raise MarketDataStoreError("OBSERVATION_WRITE_FAILED") from exc
         except OperationalError as exc:
+            if self._db.in_transaction():
+                await self._db.rollback()
             raise MarketDataStoreError("OBSERVATION_WRITE_CONFLICT") from exc
 
         try:
@@ -393,10 +461,34 @@ class MarketDataStore:
             # unrelated writes into this session; a separate API transaction
             # remains the boundary for any future mixed workflow.
             await self._db.commit()
+        except MarketDataFetchLeaseError as exc:
+            if self._db.in_transaction():
+                await self._db.rollback()
+            raise MarketDataStoreError(exc.code) from exc
+        except OperationalError as exc:
+            if self._db.in_transaction():
+                await self._db.rollback()
+            raise MarketDataStoreError("OBSERVATION_PUBLICATION_FAILED") from exc
+
+        async def assert_publish_fence() -> None:
+            if fetch_lease is not None:
+                await assert_fetch_lease_held_in_transaction(
+                    self._db,
+                    fetch_lease,
+                    clock=self._clock if self._clock_is_test_override else None,
+                )
+
+        try:
             published_at = await self._publications.publish_staged(
                 (publication.id,),
                 not_before=local_received_at,
+                pre_publish_guard=assert_publish_fence if fetch_lease is not None else None,
+                fetch_lease=fetch_lease,
             )
+        except MarketDataFetchLeaseError as exc:
+            if self._db.in_transaction():
+                await self._db.rollback()
+            raise MarketDataStoreError(exc.code) from exc
         except (MarketDataPublicationError, OperationalError) as exc:
             if self._db.in_transaction():
                 await self._db.rollback()
@@ -960,6 +1052,7 @@ class MarketDataStore:
         *,
         source_authorization: _ValidatedSourceAuthorization,
         local_received_at: datetime,
+        fetch_lease: MarketDataFetchLeaseHandle | None,
     ) -> MdSourceSnapshot:
         provider_id = _require_text(result.provider_id, field_name="provider_id", maximum=255)
         platform = _require_text(
@@ -1013,6 +1106,12 @@ class MarketDataStore:
             query_fingerprint_sha256=validated.query_fingerprint_sha256,
             source_authorization_state=source_authorization.state,
             source_authorization_descriptor_sha256=source_authorization.descriptor_sha256,
+            fetch_lease_key_sha256=(
+                fetch_lease.lease_key_sha256 if fetch_lease is not None else None
+            ),
+            fetch_lease_fence_token=(
+                fetch_lease.fence_token if fetch_lease is not None else None
+            ),
             payload_sha256=validated.payload_sha256,
             request_json=request_json,
             payload_manifest_json=_json_safe_mapping(

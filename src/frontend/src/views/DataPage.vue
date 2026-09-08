@@ -32,6 +32,19 @@
                 {{ marketDataPlatformCoverageText }}
               </el-tag>
             </div>
+            <div
+              v-if="marketDataPlatformProvenance.length"
+              class="market-data-platform-provenance"
+              data-test="market-data-platform-provenance"
+            >
+              <span
+                v-for="item in marketDataPlatformProvenance"
+                :key="item.label"
+              >
+                <strong>{{ item.label }}：</strong>
+                <code>{{ item.value }}</code>
+              </span>
+            </div>
             <div class="history-query-stats">
               <article
                 v-for="item in heroStats"
@@ -697,6 +710,7 @@ const {
   marketDataPlatformCacheText,
   marketDataPlatformCoverageText,
   marketDataPlatformTagType,
+  marketDataPlatformProvenance,
   snapshot,
   displayHistoryRows,
   chartCanRender,

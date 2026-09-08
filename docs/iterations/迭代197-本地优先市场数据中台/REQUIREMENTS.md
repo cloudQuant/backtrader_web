@@ -41,9 +41,11 @@
 
 作为用户或内部调用方，我必须以 canonical ID，或完整的 `(asset_type, symbol, market)` 三元组请求数据。系统拒绝仅传代码、同时传两种选择器、大小写近似匹配、别名猜测和空字符串。
 
+`canonical_id` 与三元组字段是协议标识符，不采用数据库默认的人类语言排序。权威 `asset_instruments.canonical_id` 与规范化投影/lookup 的身份字段在 SQLite 使用 `BINARY`、MySQL 使用 `utf8mb4_bin`、PostgreSQL 使用 `C` 排序规则；遗留 bridge 在查询 lookup key 后仍逐字符复核 lookup 行和已发布冻结 identity 的 asset type/symbol，因而未迁移或损坏的大小写不敏感库也必须失败关闭。MySQL/PostgreSQL 启用 v2 前必须完成 `20260909_market_data_exact_identity_collation` 迁移与真实方言回归，不能仅以 SQLite 通过作为排序规则证据。
+
 请求指定：逻辑数据集、数据种类、半开时间区间 `[start, end)`、字段集、频率、复权/价格口径、币种、单位、来源策略、一致性级别、用途、知识截止点和模式。频率只能是明确的 `5min`、`30min`、`1h`、`1d`、`1w`、`1mo`。
 
-所有公共 v2 请求都必须携带服务端签发、版本匹配且状态为 `ready` 的 `family_id` / `family_contract_version`，包括 `bars`。`query-contract` 保留旧页面的无 family 输入形状，但服务端只能推导精确的 `<asset_type>.realtime` 并签发完整 binding；若该家族尚未配置，则返回 `DATA_FAMILY_UNCONFIGURED`，绝不签发通用 `bars` 模板。页面即使关闭 bundle 子开关也要请求并校验此 binding。任何缺少 binding 的原始请求在目录、主数据、日历、事实或 provider I/O 前返回 `DATA_FAMILY_BINDING_REQUIRED`。
+所有公共 v2 请求都必须携带服务端签发、版本匹配且状态为 `ready` 的 `family_id` / `family_contract_version`，包括 `bars`。HTTP DTO 把这两个字段设为必填，因此缺失字段会在目录、主数据、日历、事实或 provider I/O 前以 HTTP 422 schema rejection 拒绝；任何从内部兼容/导入路径抵达 resolver 的未绑定规范化请求仍返回稳定码 `DATA_FAMILY_BINDING_REQUIRED`。`query-contract` 保留旧页面的无 family 输入形状，但服务端只能推导精确的 `<asset_type>.realtime` 并签发完整 binding；若该家族尚未配置，则返回 `DATA_FAMILY_UNCONFIGURED`，绝不签发通用 `bars` 模板。遗留 lookup 兼容桥只有在响应同时给出精确请求 `symbol`、同一 contract canonical ID 和一致 family binding 时才可发起 v2 查询；三者任何一项缺失或逐字符不等（含大小写）都必须失败关闭。页面即使关闭 bundle 子开关也要请求并校验此 binding。
 
 ### FR-02 本地优先读取
 
@@ -69,6 +71,18 @@
 4. 重新从本地读取并计算覆盖结果，不直接把网络响应绕过存储层返回。
 
 失败来源只产生稳定错误码和经截断的运维细节，不泄露凭据、原始异常堆栈或其他用户数据。
+
+### FR-03A 跨 worker 缺口协调
+
+对于需要在线补齐的每个 server-resolved coverage gap，平台必须在调用 provider 前取得 `md_fetch_leases` 中的 durable lease。lease key 由 canonical identity、数据集/主数据版本、产品 family ID/contract version、产品语义、精确 gap、来源策略和当前 access-grant descriptor 的 SHA-256 派生；它不接受客户端 provider 名或进程内对象作为身份。
+
+- owner 在短事务中取得递增 fence token；同一 key 的 follower 不调用 primary 或 fallback provider，而是结束旧读事务并复读本地事实，返回 `FETCH_LEASE_HELD` 之类的可观察状态；
+- provider I/O 不得处于数据库事务、lease 行锁、用户锁或 registry 锁内；
+- owner 在事实事务 A 和 publication 事务 B 都必须以 `lease_key + owner_token + fence_token + 未过期` 条件续约/栅栏检查。任一检查失败时，该 owner 的事实或可见性回执不得提交；
+- 事实事务 A 已提交但事务 B 未完成时，来源回执必须保留其 lease generation。通用 pending-publication recovery 一律跳过任何带 lease generation 的 source receipt；只有仍持有 exact owner/fence 的协调发布路径可以发布它。这样即使恢复任务在 owner 到期或被接管后运行，也只保留审计证据并失败关闭，不能让旧事实以更晚 visibility sequence 覆盖新 owner 的结果；
+- owner 只能释放自己持有的精确 token。租约行保留其递增 fence，过期接管必须产生更高 token，避免 ABA；
+- 当前 AkShare/OpenBB 的调用方等待超时为 30 秒，默认 lease TTL 为 5 分钟。AkShare 的 `asyncio.to_thread` 超时不能杀死其已开始的同步线程，因此 TTL 不是实际上游副作用的硬上界；超时后的跨 worker 零重复 AkShare I/O 必须保持 `NO-GO`，直到改用可终止 runner 或由独立会话持有/心跳租约；
+- 数据库租约的代码契约不等于正式多 worker 验收。时钟一致性、真实 MySQL/PostgreSQL、多进程调用计数、故障注入、超时线程和部署拓扑仍须按 E-197-08 完成。
 
 ### FR-04 主数据与历史重放
 
@@ -108,7 +122,7 @@ calendar snapshot 也必须声明其 `source_registry_id`、被冻结的治理 p
 ## 4. 非功能需求
 
 - **正确性**：数据库排序规则不能将近似大小写或代码当成精确匹配；所有时间统一 UTC，并在 API 边界要求时区。
-- **并发性**：身份版本切换和索引写入使用保存点；失败后外层事务继续提交也不能留下半成品。观测写入只追加，不覆盖旧事实。当前 `local_first` 在同一进程、同一事件循环中按请求指纹 singleflight：leader 提交来源回执后 follower 先结束可能持有的认证只读事务，再用自己的会话复读本地库，避免 MySQL `REPEATABLE READ` 使用提交前快照。跨 worker/跨进程协调、数据库租约和故障接管尚未实现或验收；在该能力具备前，不能把多 worker 部署下的“同一缺口只访问一次网络”列为已满足需求。
+- **并发性**：身份版本切换和索引写入使用保存点；失败后外层事务继续提交也不能留下半成品。观测写入只追加，不覆盖旧事实。同进程请求按指纹 singleflight；跨 worker 的 provider 补齐按 durable fetch lease 协调，事实与 publication 分别做 fence 检查。follower 必须在复读前结束可能持有的认证只读事务，避免 MySQL `REPEATABLE READ` 使用提交前快照。候选代码与 SQLite 回归只能证明协议；在真实多 worker、MySQL/PostgreSQL 和故障接管证据完成前，不能把“同一缺口只访问一次网络”列为已验收需求。
 - **可审计性**：每一返回行可回溯到数据系列、来源回执、字段哈希、质量策略和可用时间。
 - **性能**：三元组查询使用物化索引，不扫描整个交易所；直接在线窗口有上限；分页和等待参数不改变数据语义。
 - **时间与数据库**：应用边界使用带时区 UTC；MySQL `DATETIME` 不保存时区，因此候选部署必须对每个应用连接验证 UTC session time zone，并在真实 MySQL/PostgreSQL 上完成跨连接的 PIT 写入/读取演练。SQLite 或离线 DDL 不能替代该证据。
@@ -120,7 +134,7 @@ calendar snapshot 也必须声明其 `source_registry_id`、被冻结的治理 p
 - 本迭代不替换所有旧 AkShare 数据治理/调度功能。
 - 不自动从模糊用户输入创建 canonical identity。
 - 不把 OpenBB 或其扩展安装进 FastAPI 运行环境。
-- 不把同进程 singleflight 误写成跨 worker 的分布式去重；后者需要单独的协调记录、超时/接管语义和真实多 worker 验收。
+- 不把同进程 singleflight 或候选数据库 lease 回归误写成生产级分布式去重；后者仍需要真实多 worker、多方言、时钟与故障接管验收。
 - 不在迭代 196 未冻结前改写策略研究、回测的生产数据契约。
 - 不将实时经纪商 tick 流与历史规范化观测表混为同一种数据源。
 - 不把 `unconfigured` 的期权链、风险曲面、报告或快照家族描述成已具备本地命中、在线补齐或历史重放能力。

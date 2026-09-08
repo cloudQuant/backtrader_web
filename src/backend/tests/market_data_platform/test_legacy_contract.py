@@ -329,6 +329,87 @@ async def test_legacy_bridge_fails_closed_when_the_same_symbol_has_two_active_ve
 
 
 @pytest.mark.asyncio
+async def test_legacy_lookup_rechecks_raw_symbols_after_a_case_insensitive_database_match() -> None:
+    """A MySQL ``*_ci`` match cannot turn ``RB0`` into a contract for ``rb0``."""
+
+    class _Rows:
+        @staticmethod
+        def all() -> list[tuple[str, str, str]]:
+            # Simulate a pre-migration case-insensitive SQL predicate returning
+            # a differently cased projected key.
+            return [("instrument:stock:CN-SSE:RB0", "stock", "RB0")]
+
+    class _CaseInsensitiveLookupSession:
+        @staticmethod
+        async def execute(_statement: object) -> _Rows:
+            return _Rows()
+
+    resolver = LegacyMarketDataQueryContractResolver(_CaseInsensitiveLookupSession())  # type: ignore[arg-type]
+
+    assert (
+        await resolver._unique_active_canonical_id(asset_type="stock", symbol="rb0")
+    ) is None
+    assert (
+        await resolver._unique_active_canonical_id(asset_type="stock", symbol="RB0")
+    ) == "instrument:stock:CN-SSE:RB0"
+
+
+@pytest.mark.asyncio
+async def test_legacy_bridge_rechecks_the_frozen_symbol_after_case_insensitive_lookup(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The frozen canonical projection is a second fail-closed exact-symbol proof."""
+    canonical_id = "instrument:stock:CN-SSE:RB0"
+    await _add_catalog(db_session)
+    await _add_identity(
+        db_session,
+        canonical_id=canonical_id,
+        symbol="RB0",
+        market="CN-SSE",
+    )
+    resolver = LegacyMarketDataQueryContractResolver(db_session)
+
+    async def _case_insensitive_lookup(**_kwargs: str) -> str:
+        return canonical_id
+
+    monkeypatch.setattr(resolver, "_unique_active_canonical_id", _case_insensitive_lookup)
+
+    assert (
+        await resolver.resolve(asset_type="stock", symbol="rb0", period="daily")
+    ) is None
+
+
+@pytest.mark.asyncio
+async def test_legacy_bridge_resolves_case_distinct_exact_symbols_independently(
+    db_session: AsyncSession,
+) -> None:
+    """A bytewise identity contract permits separately registered case-distinct symbols."""
+    await _add_catalog(db_session)
+    await _add_identity(
+        db_session,
+        canonical_id="instrument:stock:CN-SSE:RB0",
+        symbol="RB0",
+        market="CN-SSE",
+    )
+    await _add_identity(
+        db_session,
+        canonical_id="instrument:stock:CN-SSE:rb0",
+        symbol="rb0",
+        market="CN-SSE",
+    )
+    resolver = LegacyMarketDataQueryContractResolver(db_session)
+
+    upper = await resolver.resolve(asset_type="stock", symbol="RB0", period="daily")
+    lower = await resolver.resolve(asset_type="stock", symbol="rb0", period="daily")
+
+    assert upper is not None
+    assert lower is not None
+    assert upper["request"]["identity"] == {"canonical_id": "instrument:stock:CN-SSE:RB0"}
+    assert lower["request"]["identity"] == {"canonical_id": "instrument:stock:CN-SSE:rb0"}
+
+
+@pytest.mark.asyncio
 async def test_legacy_bridge_rejects_a_corrupt_cross_asset_lookup_projection(
     db_session: AsyncSession,
 ) -> None:
@@ -752,7 +833,42 @@ async def test_legacy_lookup_includes_v2_contract_only_after_data_read_is_grante
         "symbol": "600000",
         "provider": "legacy-test",
         "query_contract": expected,
+        "query_contract_symbol": "600000",
+        "query_contract_canonical_id": "instrument:stock:CN-SSE:600000",
     }
+    assert resolver.calls == [{"asset_type": "stock", "symbol": "600000", "period": "daily"}]
+
+
+@pytest.mark.asyncio
+async def test_legacy_lookup_omits_a_malformed_optional_v2_contract(
+    client,
+    auth_headers,
+    monkeypatch,
+    permitted_market_data_access,
+) -> None:
+    """A mixed metadata response cannot turn a successful legacy lookup into a 500."""
+    import app.api.data.base as data_base
+
+    resolver = _ContractResolver({"version": "market-data-v2", "request": {"identity": {}}})
+    monkeypatch.setattr(
+        data_base,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
+    )
+    app.dependency_overrides[get_market_instrument_service] = _SuccessfulLegacyLookupService
+    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
+    try:
+        response = await client.get(
+            "/api/v1/data/market-instruments/lookup",
+            params={"asset_type": "stock", "symbol": "600000", "period": "daily"},
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_market_instrument_service, None)
+        app.dependency_overrides.pop(get_legacy_market_data_query_contract_resolver, None)
+
+    assert response.status_code == 200
+    assert response.json() == {"symbol": "600000", "provider": "legacy-test"}
     assert resolver.calls == [{"asset_type": "stock", "symbol": "600000", "period": "daily"}]
 
 

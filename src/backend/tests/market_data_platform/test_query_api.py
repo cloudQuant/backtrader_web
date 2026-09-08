@@ -42,6 +42,8 @@ def _payload() -> dict[str, object]:
         "dataset_code": "market.stock_daily",
         "data_kind": "bars",
         "frequency": "1d",
+        "family_id": "stock.realtime",
+        "family_contract_version": "market-data-family-v1",
         "start": "2026-09-08T09:00:00+00:00",
         "end": "2026-09-08T12:00:00+00:00",
         "required_fields": ["close"],
@@ -62,6 +64,8 @@ def _execution(
         instrument_metadata_version="stock-v1",
         data_kind="bars",
         frequency="1d",
+        family_id="stock.realtime",
+        family_contract_version="market-data-family-v1",
         source_policy_id="market-default-v1",
     )
     context = SimpleNamespace(query=query, identity=SimpleNamespace(asset_type="stock"))
@@ -258,6 +262,8 @@ async def test_v2_query_endpoint_returns_only_fixed_local_first_shape(
     body = response.json()
     assert body["query_id"] == "a" * 64
     assert body["canonical_id"] == "instrument:stock:CN-SSE:600000"
+    assert body["family_id"] == "stock.realtime"
+    assert body["family_contract_version"] == "market-data-family-v1"
     assert body["identity_knowledge_cutoff"] == "2026-09-08T12:00:00Z"
     assert body["coverage"]["status"] == "complete"
     assert body["refresh_status"] is None
@@ -363,7 +369,7 @@ async def test_v2_query_endpoint_rejects_every_unbound_family_before_catalog_ide
     monkeypatch,
     request_changes: dict[str, object],
 ) -> None:
-    """No raw public product can bypass its server-issued family contract."""
+    """No raw public product can reach v2 orchestration without its family contract."""
     import app.api.data.queries as queries
 
     class _UnexpectedCatalog:
@@ -456,6 +462,8 @@ async def test_v2_query_endpoint_rejects_every_unbound_family_before_catalog_ide
     authorizer = _AccessAuthorizer(_principal())
     request = _payload()
     request.update(request_changes)
+    request.pop("family_id")
+    request.pop("family_contract_version")
     monkeypatch.setattr(
         queries,
         "get_settings",
@@ -470,8 +478,7 @@ async def test_v2_query_endpoint_rejects_every_unbound_family_before_catalog_ide
         app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
     assert response.status_code == 422
-    assert response.json()["details"] == {"code": "DATA_FAMILY_BINDING_REQUIRED"}
-    assert store.visibility_calls == 1
+    assert store.visibility_calls == 0
     assert catalog.calls == 0
     assert identities.calls == 0
     assert provider.requests == []

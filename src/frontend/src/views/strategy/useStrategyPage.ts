@@ -1236,7 +1236,10 @@ export function useStrategyPage() {
     symbol: string,
     period: 'daily' | 'weekly' | 'monthly',
   ): string {
-    return `${assetType}:${symbol.trim().toUpperCase()}:${period}`
+    // The server resolves exact imported symbols and deliberately does not
+    // case-fold identifiers. Preserve that boundary in the client cache so
+    // an earlier contract can never be reused for a different instrument.
+    return `${assetType}:${symbol.trim()}:${period}`
   }
 
   function setAIResearchMarketDataPlatformStatus(
@@ -1252,6 +1255,47 @@ export function useStrategyPage() {
     }
   }
 
+  function isAIResearchMarketDataContractCompatible(
+    contract: MarketDataQueryContract,
+    assetType: MarketAssetType,
+    period: 'daily' | 'weekly' | 'monthly',
+  ): boolean {
+    const expectedFrequency = period === 'daily' ? '1d' : period === 'weekly' ? '1w' : '1mo'
+    return contract.request.data_kind === 'bars'
+      && contract.request.frequency === expectedFrequency
+      && contract.request.family_id === `${assetType}.realtime`
+      && contract.request.family_contract_version === 'market-data-family-v1'
+  }
+
+  /**
+   * A strategy-research precheck may display strict-local evidence only when
+   * the response is bound to the exact server-issued contract.  This is a
+   * runtime check because an upgraded frontend can still receive a stale or
+   * mixed-deployment HTTP payload despite its TypeScript declaration.
+   */
+  function isAIResearchMarketDataResponseCompatible(
+    response: MarketDataQueryResponse,
+    contract: MarketDataQueryContract,
+    assetType: MarketAssetType,
+    period: 'daily' | 'weekly' | 'monthly',
+  ): boolean {
+    const expectedFrequency = period === 'daily' ? '1d' : period === 'weekly' ? '1w' : '1mo'
+    const request = contract.request
+    return typeof response.canonical_id === 'string'
+      && response.canonical_id === request.identity.canonical_id
+      && typeof response.dataset_code === 'string'
+      && response.dataset_code === request.dataset_code
+      && response.asset_type === assetType
+      && typeof response.instrument_metadata_version === 'string'
+      && response.instrument_metadata_version.trim().length > 0
+      && response.data_kind === request.data_kind
+      && response.frequency === expectedFrequency
+      && response.frequency === request.frequency
+      && response.source_policy_id === request.source_policy_id
+      && response.family_id === request.family_id
+      && response.family_contract_version === request.family_contract_version
+  }
+
   async function resolveAIResearchMarketDataContract(
     assetType: MarketAssetType,
     symbol: string,
@@ -1259,16 +1303,18 @@ export function useStrategyPage() {
   ): Promise<MarketDataQueryContract | null> {
     const key = aiResearchQueryContractKey(assetType, symbol, period)
     const cached = aiResearchMarketDataQueryContracts.get(key)
-    if (cached) return cached
+    if (cached && isAIResearchMarketDataContractCompatible(cached, assetType, period)) return cached
+    if (cached) aiResearchMarketDataQueryContracts.delete(key)
 
+    const expectedFamilyId = `${assetType}.realtime`
     const contract = await marketDataApi.getQueryContract({
       asset_type: assetType,
       symbol,
       period,
+      family_id: expectedFamilyId,
     })
     if (!hasMarketDataQueryContract(contract)) return null
-    const expectedFrequency = period === 'daily' ? '1d' : period === 'weekly' ? '1w' : '1mo'
-    if (contract.request.data_kind !== 'bars' || contract.request.frequency !== expectedFrequency) {
+    if (!isAIResearchMarketDataContractCompatible(contract, assetType, period)) {
       return null
     }
     aiResearchMarketDataQueryContracts.set(key, contract)
@@ -1310,6 +1356,14 @@ export function useStrategyPage() {
         { signal: controller.signal, suppressErrorMessage: true },
       )
       if (controller.signal.aborted) return
+      if (!isAIResearchMarketDataResponseCompatible(response, contract, assetType, period)) {
+        setAIResearchMarketDataPlatformStatus({
+          path: 'error',
+          queryId: typeof response.query_id === 'string' ? response.query_id : null,
+          detail: 'MARKET_DATA_STRICT_LOCAL_RESPONSE_MISMATCH',
+        })
+        return
+      }
       if (response.coverage.status !== 'complete') {
         setAIResearchMarketDataPlatformStatus({
           path: 'error',

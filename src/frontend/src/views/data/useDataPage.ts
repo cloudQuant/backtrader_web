@@ -169,6 +169,10 @@ export function useDataPage() {
     fetchedProviderCount: number
     fallbackReason: string | null
     queryId: string | null
+    canonicalId: string | null
+    datasetCode: string | null
+    sourcePolicyId: string | null
+    instrumentMetadataVersion: string | null
     periodConstraint: {
       familyId: string
       requestedFrequency: string
@@ -196,6 +200,11 @@ export function useDataPage() {
       label: string
       present: boolean
     }>
+  }
+
+  type MarketDataPlatformProvenance = {
+    label: string
+    value: string
   }
 
   type MarketChartOptionDraft = Omit<echarts.EChartsOption, 'legend'> & {
@@ -680,6 +689,10 @@ export function useDataPage() {
     fetchedProviderCount: 0,
     fallbackReason: null,
     queryId: null,
+    canonicalId: null,
+    datasetCode: null,
+    sourcePolicyId: null,
+    instrumentMetadataVersion: null,
     periodConstraint: null,
   })
   // A valid bundle is an authoritative capability declaration for the current
@@ -872,6 +885,18 @@ export function useDataPage() {
       || path === 'error'
     ) return 'warning'
     return 'info'
+  })
+  const marketDataPlatformProvenance = computed<MarketDataPlatformProvenance[]>(() => {
+    const status = marketDataPlatformStatus.value
+    const entries: Array<MarketDataPlatformProvenance | null> = [
+      status.canonicalId ? { label: '规范标识', value: status.canonicalId } : null,
+      status.datasetCode ? { label: '数据集', value: status.datasetCode } : null,
+      status.sourcePolicyId ? { label: '来源策略', value: status.sourcePolicyId } : null,
+      status.instrumentMetadataVersion
+        ? { label: '元数据版本', value: status.instrumentMetadataVersion }
+        : null,
+    ]
+    return entries.filter((entry): entry is MarketDataPlatformProvenance => entry !== null)
   })
   const coverageMatrixSubtitle = computed(() => {
     const provider = coverageProvider.value.trim() || t('dataMgmt.coverageAllProviders')
@@ -1115,20 +1140,35 @@ export function useDataPage() {
     symbol: string,
   ): MarketDataQueryContract | null {
     if (!lookupResult || lookupResult.asset_type !== assetType) return null
-    if (lookupResult.symbol.trim().toUpperCase() !== symbol.trim().toUpperCase()) return null
-    return queryContractForCurrentPeriod(lookupResult.query_contract)
+    const expectedSymbol = symbol.trim()
+    if (lookupResult.symbol.trim() !== expectedSymbol) return null
+    const contract = queryContractForCurrentPeriod(
+      lookupResult.query_contract,
+      `${assetType}.realtime`,
+    )
+    if (!contract) return null
+    if (
+      typeof lookupResult.query_contract_symbol !== 'string'
+      || lookupResult.query_contract_symbol.trim() !== expectedSymbol
+      || typeof lookupResult.query_contract_canonical_id !== 'string'
+      || lookupResult.query_contract_canonical_id !== contract.request.identity.canonical_id
+    ) {
+      return null
+    }
+    return contract
   }
 
   function queryContractForCurrentPeriod(
     contract: unknown,
+    expectedFamilyId: string,
   ): MarketDataQueryContract | null {
     if (!hasMarketDataQueryContract(contract)) return null
     const request = contract.request
     if (
       request.data_kind !== 'bars'
       || request.frequency !== v2FrequencyForLegacyPeriod(form.period)
-      || typeof request.family_id !== 'string'
-      || typeof request.family_contract_version !== 'string'
+      || request.family_id !== expectedFamilyId
+      || request.family_contract_version !== 'market-data-family-v1'
     ) {
       return null
     }
@@ -1225,15 +1265,9 @@ export function useDataPage() {
         period: form.period as 'daily' | 'weekly' | 'monthly',
         family_id: expectedFamilyId,
       })
-      const currentContract = queryContractForCurrentPeriod(contract)
-      const hasExpectedBinding = Boolean(
-        currentContract
-        && currentContract.request.family_id === expectedFamilyId
-        && currentContract.request.family_contract_version === 'market-data-family-v1',
-      )
+      const currentContract = queryContractForCurrentPeriod(contract, expectedFamilyId)
       if (
         !currentContract
-        || !hasExpectedBinding
         || (declaredFamily && !contractMatchesDeclaredFamily(currentContract, declaredFamily))
       ) {
         throw new Error('MARKET_DATA_QUERY_CONTRACT_INVALID')
@@ -1260,6 +1294,8 @@ export function useDataPage() {
       market: market || null,
       provider: contract ? 'local_market_data' : null,
       query_contract: contract,
+      query_contract_symbol: contract ? symbol : null,
+      query_contract_canonical_id: contract ? contract.request.identity.canonical_id : null,
       snapshot: {},
       history: {
         period: form.period,
@@ -1338,6 +1374,23 @@ export function useDataPage() {
     }
   }
 
+  /**
+   * The v2 response schema already exposes these as public provenance fields.
+   * Vue escapes rendered text, but control characters would make the status
+   * panel misleading. Keep the canonical-identity length accepted by the API
+   * instead of imposing a narrower presentation-only identifier grammar.
+   */
+  function publicMarketDataProvenanceValue(value: unknown): string | null {
+    if (typeof value !== 'string') return null
+    const normalized = value.trim()
+    if (!normalized || normalized.length > 512) return null
+    const containsControlCharacter = Array.from(normalized).some(character => {
+      const codePoint = character.codePointAt(0) || 0
+      return codePoint <= 31 || codePoint === 127
+    })
+    return containsControlCharacter ? null : normalized
+  }
+
   function setLegacyMarketDataPlatformStatus(fallbackReason: string | null = null) {
     marketDataPlatformStatus.value = {
       path: fallbackReason ? 'legacy_fallback' : 'legacy',
@@ -1347,6 +1400,10 @@ export function useDataPage() {
       fetchedProviderCount: 0,
       fallbackReason,
       queryId: null,
+      canonicalId: null,
+      datasetCode: null,
+      sourcePolicyId: null,
+      instrumentMetadataVersion: null,
       periodConstraint: null,
     }
   }
@@ -1360,6 +1417,10 @@ export function useDataPage() {
       fetchedProviderCount: 0,
       fallbackReason: null,
       queryId: null,
+      canonicalId: null,
+      datasetCode: null,
+      sourcePolicyId: null,
+      instrumentMetadataVersion: null,
       periodConstraint: null,
     }
   }
@@ -1373,6 +1434,10 @@ export function useDataPage() {
       fetchedProviderCount: 0,
       fallbackReason: null,
       queryId: null,
+      canonicalId: null,
+      datasetCode: null,
+      sourcePolicyId: null,
+      instrumentMetadataVersion: null,
       periodConstraint: null,
     }
   }
@@ -1390,6 +1455,10 @@ export function useDataPage() {
       fetchedProviderCount: 0,
       fallbackReason: null,
       queryId: null,
+      canonicalId: null,
+      datasetCode: null,
+      sourcePolicyId: null,
+      instrumentMetadataVersion: null,
       periodConstraint: {
         familyId: family.family_id,
         requestedFrequency,
@@ -1409,6 +1478,10 @@ export function useDataPage() {
       fetchedProviderCount: fetches.length,
       fallbackReason: null,
       queryId: response.query_id,
+      canonicalId: publicMarketDataProvenanceValue(response.canonical_id),
+      datasetCode: publicMarketDataProvenanceValue(response.dataset_code),
+      sourcePolicyId: publicMarketDataProvenanceValue(response.source_policy_id),
+      instrumentMetadataVersion: publicMarketDataProvenanceValue(response.instrument_metadata_version),
       periodConstraint: null,
     }
   }
@@ -1429,31 +1502,34 @@ export function useDataPage() {
         consistency: 'display',
         page_size: V2_MARKET_DATA_PAGE_SIZE,
       }),
+      legacyLookup.asset_type,
     )
     setV2MarketDataPlatformStatus(response)
     return lookupFromV2Response(response, legacyLookup)
   }
 
-  function assertMarketDataFamilyBindingEcho(
+  function assertMarketDataResponseEcho(
     response: MarketDataQueryResponse,
     request: ReturnType<typeof createMarketDataQueryFromContract>,
+    expectedAssetType: MarketAssetType,
   ): void {
-    const hasFamilyId = request.family_id !== undefined
-    const hasFamilyVersion = request.family_contract_version !== undefined
-    if (hasFamilyId !== hasFamilyVersion) {
-      throw new Error('MARKET_DATA_FAMILY_BINDING_INTEGRITY')
-    }
-    if (!hasFamilyId) return
     if (
       response.family_id !== request.family_id
       || response.family_contract_version !== request.family_contract_version
+      || response.canonical_id !== request.identity.canonical_id
+      || response.dataset_code !== request.dataset_code
+      || response.asset_type !== expectedAssetType
+      || response.data_kind !== request.data_kind
+      || response.frequency !== request.frequency
+      || response.source_policy_id !== request.source_policy_id
     ) {
-      throw new Error('MARKET_DATA_FAMILY_BINDING_INTEGRITY')
+      throw new Error('MARKET_DATA_QUERY_RESPONSE_INTEGRITY')
     }
   }
 
   async function queryAllV2MarketDataPages(
     initialRequest: ReturnType<typeof createMarketDataQueryFromContract>,
+    expectedAssetType: MarketAssetType,
   ): Promise<MarketDataQueryResponse> {
     /**
      * Read every frozen cursor page or fail visibly instead of truncating history.
@@ -1467,7 +1543,7 @@ export function useDataPage() {
       initialRequest,
       { suppressErrorMessage: true },
     )
-    assertMarketDataFamilyBindingEcho(first, initialRequest)
+    assertMarketDataResponseEcho(first, initialRequest, expectedAssetType)
     const observations = [...first.observations]
     const warnings = [...first.warnings]
     const observationIds = new Set(first.observations.map((item) => item.revision_id))
@@ -1483,7 +1559,7 @@ export function useDataPage() {
         { ...initialRequest, cursor },
         { suppressErrorMessage: true },
       )
-      assertMarketDataFamilyBindingEcho(page, initialRequest)
+      assertMarketDataResponseEcho(page, initialRequest, expectedAssetType)
       if (
         page.query_id !== first.query_id
         || page.knowledge_cutoff !== first.knowledge_cutoff
@@ -1640,6 +1716,15 @@ export function useDataPage() {
       const bootstrapContract = v2FeatureEnabled && !directContract && !refreshOnline
         ? queryContractForCurrentLookup(legacyResponse, queryAssetType, symbol)
         : null
+      if (
+        v2FeatureEnabled
+        && !directContract
+        && !refreshOnline
+        && legacyResponse.query_contract != null
+        && !bootstrapContract
+      ) {
+        throw new Error('MARKET_DATA_LEGACY_QUERY_CONTRACT_INVALID')
+      }
       if (bootstrapContract) {
         const v2Response = await queryV2FromLookupContract(bootstrapContract, legacyResponse)
         if (requestId !== lookupRequestId) return
@@ -2768,6 +2853,7 @@ export function useDataPage() {
     marketDataPlatformCacheText,
     marketDataPlatformCoverageText,
     marketDataPlatformTagType,
+    marketDataPlatformProvenance,
     coverageMatrixSubtitle,
     coverageSummaryCards,
     assetDataFamilies,

@@ -278,7 +278,30 @@ async def lookup_market_instrument(
                     logger.warning("market-data v2 compatibility contract unavailable")
                     contract = None
             if contract is not None:
-                payload["query_contract"] = contract
+                # A legacy lookup may advertise a v2 template only with an
+                # explicit echo of the exact symbol and canonical identity
+                # used to mint it.  Do not let a mixed or malformed metadata
+                # response turn an otherwise complete legacy read into a 500,
+                # or advertise a contract that the client cannot safely bind.
+                contract_request = contract.get("request") if isinstance(contract, dict) else None
+                contract_identity = (
+                    contract_request.get("identity") if isinstance(contract_request, dict) else None
+                )
+                canonical_id = (
+                    contract_identity.get("canonical_id")
+                    if isinstance(contract_identity, dict)
+                    else None
+                )
+                if not isinstance(canonical_id, str) or not canonical_id.strip():
+                    logger.warning("market-data v2 compatibility contract malformed")
+                else:
+                    payload["query_contract"] = contract
+                    # The frontend compares all three values before allowing
+                    # this compatibility bridge to issue a v2 query, so a
+                    # stale/mixed legacy payload cannot redirect a current
+                    # symbol to a different canonical instrument.
+                    payload["query_contract_symbol"] = symbol.strip()
+                    payload["query_contract_canonical_id"] = canonical_id
         return payload
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

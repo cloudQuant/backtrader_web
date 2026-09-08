@@ -176,9 +176,9 @@ export interface MarketDataQueryResponse {
   data_kind: string
   frequency: string
   source_policy_id: string
-  /** Echoes the request binding when a family-controlled query was issued. */
-  family_id?: string
-  family_contract_version?: MarketDataFamilyContractVersion
+  /** Immutable echo of the required public query family binding. */
+  family_id: string
+  family_contract_version: MarketDataFamilyContractVersion
   knowledge_cutoff: string
   identity_knowledge_cutoff: string
   observations: MarketDataQueryObservation[]
@@ -307,6 +307,13 @@ export interface MarketInstrumentLookupResponse {
    * continue through the legacy local lookup path.
    */
   query_contract?: MarketDataQueryContract | null
+  /**
+   * Legacy lookup compatibility proof for an attached v2 contract.  A client
+   * may use that contract only when these server-issued values exactly match
+   * both the current symbol and the contract identity.
+   */
+  query_contract_symbol?: string | null
+  query_contract_canonical_id?: string | null
   snapshot: MarketSnapshot
   history: {
     period: string

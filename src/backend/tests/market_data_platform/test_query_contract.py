@@ -110,6 +110,27 @@ def test_query_requires_aware_half_open_time_range_and_unambiguous_bar_frequency
         )
 
 
+def test_public_v2_query_requires_a_complete_family_binding() -> None:
+    """The HTTP-facing DTO cannot retain the internal unbound compatibility shape."""
+    from app.schemas.market_data_platform import PublicMarketDataQueryRequest
+
+    payload = _query_payload()
+    payload.update(
+        family_id="stock.realtime",
+        family_contract_version="market-data-family-v1",
+    )
+    request = PublicMarketDataQueryRequest.model_validate(payload)
+
+    assert request.family_id == "stock.realtime"
+    assert request.family_contract_version == "market-data-family-v1"
+
+    for field_name in ("family_id", "family_contract_version"):
+        invalid = deepcopy(payload)
+        invalid.pop(field_name)
+        with pytest.raises(ValidationError):
+            PublicMarketDataQueryRequest.model_validate(invalid)
+
+
 def test_required_fields_are_nonempty_distinct_and_canonically_ordered() -> None:
     """Coverage field sets cannot hide a blank or duplicate requirement."""
     query = _build_query(required_fields=[" volume ", "close", "open"])

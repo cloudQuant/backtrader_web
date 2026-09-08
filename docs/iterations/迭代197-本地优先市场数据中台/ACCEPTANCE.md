@@ -36,7 +36,7 @@
 | AO-02 | 冻结 identity projection、版本化精确主数据与物化 lookup key | `asset_instruments`、`md_instrument_identity_revisions`、`md_instrument_lookup_keys`；`test_identity.py`、`test_lookup_materializer.py` |
 | AO-03 | 规范化不可变事实、pending/post-commit publication、恢复和交易日历 | `md_data_series`、`md_source_snapshots`、`md_observation_revisions`、`md_publications`、`md_calendar_*`；`test_storage_models.py`、`test_store.py`、`test_publication_recovery.py` |
 | AO-04 | 严格公共查询契约和请求解析 | `MarketDataQueryRequest`、`MarketDataQueryResolver`；`test_query_contract.py`、`test_query_resolution.py` |
-| AO-05 | 本地读取、覆盖规划、受控补齐与重新读取 | `CoveragePlanner`、`MarketDataStore`、`MarketDataQueryService`；`test_coverage.py`、`test_store.py`、`test_query_service.py` |
+| AO-05 | 本地读取、覆盖规划、受控补齐、durable fetch lease 与重新读取 | `CoveragePlanner`、`MarketDataStore`、`MarketDataQueryService`、`MdFetchLease`；`test_coverage.py`、`test_fetch_lease.py`、`test_store.py`、`test_query_service.py` |
 | AO-06 | AkShare 显式路由与 OpenBB 隔离、索引和 interval 协议 | `akshare_provider.py`、`providers.py`、`openbb_market_data_runner.py`；`test_akshare_provider.py`、`test_openbb_provider.py` |
 | AO-07 | 关闭默认开关的 v2 HTTP 接口、遗留接口兼容、fail-closed 回退与前端游标聚合 | `POST /api/v1/data/queries`、`useDataPage.ts`、`test_query_api.py`、`marketData.test.ts`、`DataPage.test.ts`、`StrategyPage.test.ts` |
 | AO-08 | 迭代 196 的策略研究/回测桥接、页面灰度和单头迁移整合 | 合并后的集成分支、真实环境证据；本迭代工作树内不提前接入 |
@@ -48,7 +48,7 @@
 - MySQL/PostgreSQL 生产或准生产库的真实 Alembic 升级、回滚治理和性能表现。
 - `/data/market` 与 `/investment/strategies` 的真实浏览器行为、真实用户权限、数据初始化完成后的页面展示。
 - 迭代 196 的最终模型、数据工件、研究/回测契约与迭代 197 的迁移链合并结果。
-- 同一进程以外的 singleflight：当前协调器不跨多个 Web worker、多个进程或多个 pod，也没有数据库 lease/接管协议；单进程并发替身不能证明全局网络去重。
+- `md_fetch_leases` 的代码级 owner/fence/expiry 协议在候选中已实现，但 SQLite/替身回归不能证明真实多 Web worker、多个进程/pod、数据库时钟、故障接管或零重复 provider 调用。
 - 日历导入锁只串行化同一 `calendar_code` 的 calendar manifest 导入；它不是 observation/source snapshot 的多进程 writer lease，也不能证明并发写入的 ownership、fencing、接管或零重复网络调用。
 - OpenBB 运行器在独立 service account/container 中的文件系统、挂载和凭据隔离；环境变量白名单与受控 `cwd` 不能证明该边界。
 - 每个连接的 MySQL/PostgreSQL UTC session time zone、真实跨连接 PIT 行为和恢复后的时间比较。MySQL `DATETIME` 不保存时区，SQLite 时间行为不能替代。
@@ -109,7 +109,7 @@ npm run build
 npm run lint
 ```
 
-自动化范围说明：AkShare 测试使用受控假函数，OpenBB 测试使用临时 JSON runner，数据库迁移测试使用 SQLite 和离线方言渲染。它们能证明边界契约与拒绝逻辑，也能证明单进程的日历网格、字段可用修订和 singleflight 行为；不能证明真实第三方服务、真实许可证、操作系统级 OpenBB 隔离、跨 worker 去重或生产数据库。
+自动化范围说明：AkShare 测试使用受控假函数，OpenBB 测试使用临时 JSON runner，数据库迁移测试使用 SQLite 和离线方言渲染。它们能证明边界契约、拒绝逻辑、单进程日历网格/字段可用修订/singleflight，以及 durable lease 的 owner/follower/接管/fence 单元语义；不能证明真实第三方服务、真实许可证、操作系统级 OpenBB 隔离、真实跨 worker 去重或生产数据库。
 
 ## 5. 自动化验收矩阵与执行记录
 
@@ -123,8 +123,8 @@ npm run lint
 | E-197-04 | 真实 AkShare 受控探测 | 实时路由、字段、时间窗、回执和写回 | `NOT_RUN` | 第 8.1 节的匿名化请求/响应摘要、来源回执和本地复读证据。 |
 | E-197-05 | 真实 OpenBB 隔离运行器探测 | runner 环境、协议、上游许可与写回 | `NOT_RUN` | 第 8.2 节的隔离进程、协议日志摘要、原始载荷 hash、回执和本地复读证据；当前 `yfinance` 小窗口曾返回上游 HTTP 429，不能记为成功验证。 |
 | E-197-06 | `/data/market`、`/investment/strategies` 端到端回归 | 页面灰度、授权、回退防护、196 工件绑定 | `BLOCKED` | 196 冻结并完成桥接后，保存浏览器/API/数据库三方一致证据。 |
-| E-197-07 | MySQL/PostgreSQL UTC session 与 PIT 演练 | 时区、跨连接写入/读取、迁移与恢复 | `NOT_RUN` | 每个新连接的会话时区输出、边界时间写入/读取、迁移和恢复记录。 |
-| E-197-08 | 多 worker/多进程同缺口及事实写入并发 | 跨进程 writer lease/fencing、故障接管和零重复外部访问 | `NOT_RUN` | 当前实现没有分布式协调；calendar import lock 不适用于 observation 写入。实现 lease 后才可记录多 worker 压测与 provider 调用计数。 |
+| E-197-07 | MySQL/PostgreSQL UTC session、PIT 与 exact-identity collation 演练 | 时区、跨连接写入/读取、迁移、恢复及 `RB0`/`rb0` 精确身份 | `NOT_RUN` | 每个新连接的会话时区输出、边界时间写入/读取、迁移和恢复记录，以及 authority/projection/lookup 的 MySQL `utf8mb4_bin`、PostgreSQL `C` 实际列审计和 case-distinct lookup 回归。 |
+| E-197-08 | 多 worker/多进程同缺口及事实写入并发 | 跨进程 writer lease/fencing、故障接管和零重复外部访问 | `NOT_RUN` | 候选已有 `md_fetch_leases` 与事实/publication 双 fence；仍需在真实 MySQL/PostgreSQL 和多 worker 进程记录 provider 调用计数、接管与崩溃恢复。当前 AkShare thread timeout 不能杀死底层同步调用，故超时后的零重复 I/O 为 `NO-GO`，直至可终止 runner 或租约 heartbeat 设计通过验收。calendar import lock 不适用于 observation 写入。 |
 | E-197-09 | OpenBB 操作系统级隔离 | service account/container、挂载、凭据与工作目录 | `NOT_RUN` | runner 账户/容器配置、挂载清单、权限审计和一次实际小窗口回填。 |
 
 `E-197-01` 与 `E-197-02` 的状态仅表示正式候选；本地工作树回归单列于下节。虽然已有本地候选提交，尚未形成经过 196 整合、真实环境与发布闸门确认的候选 tag；本地命令退出码为 0 不能升级为本文的正式 `PASS`。
@@ -138,6 +138,9 @@ npm run lint
 | L-197-01 | 2026-09-09，`/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/market_data_platform tests/test_config.py`，候选提交 `8a2be6b7`。 | `PASS`：416 passed、45 warnings，85.31s。 | 覆盖 AO-01 至 AO-07 与中台配置、PIT visibility anchor、当前读取授权、来源回执证据、calendar 同源授权和 SQLite 来源治理迁移的离线后端开发回归；不能将 E-197-01 或任一 AC 改为正式 `PASS`。 |
 | L-197-02 | 2026-09-09，第 4 节列出的中台目标 Ruff 命令与 `python -m compileall -q` 目标模块检查，候选提交 `8a2be6b7`。 | `PASS`：两个命令退出码均为 0，未报告目标范围内的 Ruff 违规或编译错误。 | 只证明该工作树的目标静态检查；不能将 E-197-02 改为正式 `PASS`。 |
 | L-197-03 | 2026-09-09，`npm run typecheck`、三个 v2 测试文件、`npm run build`、`npm run lint`，候选提交 `8a2be6b7`。 | `PASS`：typecheck 退出码 0；v2 测试 144 passed；build 退出码 0；lint 为 0 errors、1,208 条既有 warnings。 | 仅支持前端开发回归；未执行真实浏览器 E2E。1,208 条 warning 不等于零告警或生产质量签收，且不证明浏览器灰度、真实 API 或 196 整合。 |
+| L-197-04 | 2026-09-09，当前独立 197 候选工作树执行 `/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/market_data_platform tests/test_config.py`。 | `PASS`：445 passed、62 warnings，95.41s；包括 durable fetch lease、family binding、legacy exact-echo、SQLite exact-identity migration，以及 authority、projection 和 lookup 三层 `RB0`/`rb0` 的 fail-closed 回归。 | 这是离线开发回归，不是 MySQL/PostgreSQL 排序规则或真实多 worker、第三方 provider、196 集成的通过证据；E-197-01、E-197-07、E-197-08 保持原状态。 |
+| L-197-05 | 2026-09-09，`alembic -c alembic.ini heads` 与临时 SQLite `alembic upgrade head`。 | `PASS`：独立 197 链只有 `20260909_market_data_exact_identity_collation` 一个 head；临时库升级至该 revision，`asset_instruments`、`md_fetch_leases`、lookup 和 frozen identity 表存在。 | 只证明独立链和 SQLite 默认 `BINARY` 路径；196 合并单 head 与 MySQL/PostgreSQL DDL/排序规则仍未运行。 |
+| L-197-06 | 2026-09-09，`npm run test -- --run src/__tests__/api/marketData.test.ts src/__tests__/views/DataPage.test.ts src/__tests__/views/StrategyPage.test.ts`、`npm run typecheck`、`npm run build`、`npm run lint`。 | `PASS`：154 tests、typecheck/build 退出码 0、lint 0 errors/1,208 warnings。 | 仅支持页面适配与默认关闭的策略 sidecar 开关；Vitest 的组件 stub、Browserslist/构建 chunk 警告和既有 lint warnings 不构成真实浏览器或部署验收。 |
 
 `L-197-01` 包含 identity projection、observation PIT、pending publication 恢复、来源回执、同一 provider 的一次性 request ID 唯一性和 calendar 同源授权、SQLite 来源治理升级/降级保护、MySQL `DATETIME(6)` DDL/fsp=0 拒绝、相邻 calendar segment/import lock，以及 OpenBB 预规范化原始封套和进程组回收的离线断言。本地可观察语义如下；T0/T1/T2 仅描述 SQLite fixture 内的逻辑可见性，不表示真实多连接数据库已验收：
 
@@ -151,9 +154,9 @@ npm run lint
 | --- | --- | --- | --- | --- |
 | AC-197-001 | 解析目录时仅使用活动、唯一的逻辑数据集主绑定；注入缺失、失活、歧义或损坏绑定。 | 返回稳定目录错误；不会根据遗留表名或端点猜测存储。 | `test_catalog.py` | `NOT_RUN` |
 | AC-197-002 | 升级目录和事实迁移，并在含有遗留 AkShare 元数据/事实的测试库检查前后状态。 | 新表、索引、约束完整；遗留表/行不被重写；有数据时降级受治理保护。 | `test_catalog.py`、`test_storage_models.py` | `NOT_RUN` |
-| AC-197-003 | 用 canonical ID 或完整精确三元组解析主数据；尝试邻近代码、大小写近似、过期/重叠版本和高基数市场。 | strict resolver 只接受一条精确、有效、完整且已发布的冻结 identity projection；其它输入稳定失败，绝不替换为附近标的。 | `test_identity.py`、`test_lookup_materializer.py` | `NOT_RUN` |
+| AC-197-003 | 用 canonical ID 或完整精确三元组解析主数据；尝试邻近代码、大小写近似、过期/重叠版本和高基数市场。对 MySQL/PG 实例分别登记 `RB0`/`rb0`，并用错误大小写请求 legacy contract。 | strict resolver 只接受一条精确、有效、完整且已发布的冻结 identity projection；两个合法 case-distinct 标识各自解析，错误大小写稳定失败，绝不替换为附近标的。 | `test_identity.py`、`test_lookup_materializer.py`、`test_legacy_contract.py`、`test_storage_models.py`；真实方言 E-197-07 | `NOT_RUN` |
 | AC-197-004 | 在严格截止点后才写入或尚处于 pending publication 的 identity projection、calendar snapshot 或观测修订，尝试用于更早的研究/回测查询。 | 返回不可见/稳定失败；只有 `published_at <= knowledge_cutoff` 的 hash 匹配 receipt 可见，晚回填不能穿越 cutoff。 | `test_identity.py`、`test_store.py`、`test_query_service.py`；L-197-01 | `NOT_RUN` |
-| AC-197-005 | 校验公共 DTO 的 selector 互斥、UTC 时间、半开区间、频率、字段集合、用途/一致性和语义指纹；再提交缺少 family binding 的 `option_chain` 与 `crypto bars` 原始请求，以及绑定到未配置 `option.derivative` 的请求。 | 无歧义请求被规范化；符号单独输入、重复字段、朴素时间、错误 strict 设置在 API 前失败。任意未绑定请求在 catalog/identity/provider 前以 HTTP 422 / `DATA_FAMILY_BINDING_REQUIRED` 拒绝；未配置家族以 `DATA_FAMILY_UNCONFIGURED` 拒绝，不能静默按 `bars` 或其他产品执行。 | `test_query_contract.py`、`test_query_resolution.py`、`test_query_api.py` | `NOT_RUN` |
+| AC-197-005 | 校验公共 DTO 的 selector 互斥、UTC 时间、半开区间、频率、字段集合、用途/一致性和语义指纹；再提交缺少 family binding 的 `option_chain` 与 `crypto bars` 原始请求，以及绑定到未配置 `option.derivative` 的请求。 | 无歧义请求被规范化；符号单独输入、重复字段、朴素时间、错误 strict 设置在 API 前失败。公共 HTTP 缺少 binding 在 catalog/identity/provider 前以 schema HTTP 422 拒绝；抵达 resolver 的任何未绑定内部规范化请求以 `DATA_FAMILY_BINDING_REQUIRED` 拒绝。未配置家族以 `DATA_FAMILY_UNCONFIGURED` 拒绝，不能静默按 `bars` 或其他产品执行。 | `test_query_contract.py`、`test_query_resolution.py`、`test_query_api.py` | `NOT_RUN` |
 | AC-197-006 | 对完整、缺头/中间/尾、空和无日历的本地数据运行覆盖规划；同一市场导入日线、周线、月线和缺失分钟网格。 | 只有请求对应的冻结、范围充分、显式频率网格能证明 `complete`；其它情况返回精确 gaps 或 `unknown_calendar` / `CALENDAR_GRID_UNAVAILABLE`，不会由另一个频率推断。 | `test_coverage.py`、`test_calendar_importer.py`、`test_store.py` | `NOT_RUN` |
 | AC-197-007 | 对同一 event 先写入完整字段修订，再写入较新的窄字段修订，并以宽/窄字段集和两个知识截止点读取。 | 来源回执和修订追加保留；宽请求仍选择旧的完整可用修订，窄请求可选择更新修订；早 cutoff 不见晚提交修订；不同修订字段不拼接。 | `test_store.py` | `NOT_RUN` |
 | AC-197-008 | 本地完整、local-only 缺口、local-first 缺口、日历未知、在线关闭和严格历史查询分别执行。 | 完整本地不触网；`local_only` 永不触网；成功补齐后只从本地返回；未知日历不声称完整；严格历史不以实时获取污染回放。 | `test_query_service.py` | `NOT_RUN` |
@@ -162,14 +165,14 @@ npm run lint
 | AC-197-011 | 使用临时 OpenBB JSON runner 验证正常协议、错配 request ID、未配置或非法 runner 命令、无界/朴素请求、stdout/stderr 超限、预规范化原始封套/hash、受控工作目录，以及 timeout 后的子进程回收。 | 主进程只交互 JSON；协议错配、缺/非法 runner、非法 `cwd`、任一输出流越过上限、无 `format`/records 映射封套、自洽摘要替代原始 records、hash 不一致均失败关闭；POSIX timeout/cancel 终止 runner 专属进程组，即使 leader 已退出而后代仍持有管道；不从 FastAPI 进程动态导入本地 OpenBB checkout。 | `test_openbb_provider.py` | `NOT_RUN` |
 | AC-197-012 | 在后端和浏览器 v2 开关关闭/开启的替身服务下调用 `POST /api/v1/data/queries`，并检查遗留数据路由和前端 v2 合约桥接。 | 浏览器 v2 关闭时，行情页不请求 contract、bundle 或事实接口，策略页不请求 bridge；默认后端为 503 稳定码。开启后 contract 在 bundle 开/关两种路径均带 `<asset_type>.realtime` 并回传相同 binding；`crypto.realtime` 未配置时页面不执行事实或 legacy 数据读取来伪装 v2。输入错误在服务执行前 422；遗留接口仍注册。已取得有效 v2 contract 后，v2 执行错误不能静默回退旧接口；普通行情查询使用 v2 `local_first`，`refresh` 仅由明确操作发出。 | `test_query_api.py`、`marketData.test.ts`、`DataPage.test.ts`、`StrategyPage.test.ts` | `NOT_RUN` |
 | AC-197-013 | 两个同一 Web 进程、同一事件循环内的等价 `local_first` 缺口并发到达；并发 `refresh` 请求单列。 | 只有 `local_first` leader 发起一次 provider 调用并提交；follower 在独立 session 上复读持久化结果；`refresh` 保持各自执行语义而不复用 `local_first` follower；leader 取消/失败不遗留后台事务。 | `test_query_api.py`、本地优先持久化回归 | `NOT_RUN` |
-| AC-197-014 | 多 Web worker/多进程的同一缺口或事实写入并发到达。 | 当前实现不能给出零重复外部访问或单 writer 承诺；calendar import lock 不替代数据库 writer lease。在 lease、fencing、过期/接管和多 worker 实测完成前保持 `NOT_RUN`，不可因单进程测试改写为 `PASS`。 | 后续分布式协调设计与真实压测 | `NOT_RUN` |
-| AC-197-015 | 在事务 A 写入 source snapshot、observation revisions 和 pending `MdPublication` 后模拟提交、读取、进程中断/恢复；随后才执行事务 B 或受控恢复。 | A 已提交但无 `published_at` 的事实 durable-but-hidden；coverage、API 和 strict replay 均不可见。事务 B 或受控恢复的 post-commit receipt 写入后，只有 `published_at <= cutoff` 的 hash 匹配实体才可读。 | `publication.py`、`scripts/recover_market_data_publications.py`、`test_store.py`、`test_publication_recovery.py`；observation T0/T1/T2 见 L-197-01 | `NOT_RUN` |
+| AC-197-014 | 多 Web worker/多进程的同一缺口或事实写入并发到达；分别模拟 follower、到期接管、陈旧 owner 写事实、事务 A 后 B 前失去 fence、release 丢失、通用 recovery 跳过 fenced pending receipt、provider 计数和 AkShare timeout 后同步线程仍运行。 | 候选代码以 `md_fetch_leases` 保证 exact-gap owner/follower、递增 fence、事实/可见性双栅栏；follower 不调用 provider，generic recovery 不会发布任何 fenced source receipt。真实 MySQL/PostgreSQL 多进程、数据库时间、崩溃/接管和零重复调用计数未完成前保持 `NOT_RUN`；AkShare timeout 的零重复 I/O 在可终止 runner 或心跳租约设计完成前为 `NO-GO`，不可因 SQLite 或单进程测试改写为 `PASS`。 | `test_fetch_lease.py`、`test_store.py`、`test_query_service.py`；真实多 worker 压测 | `NOT_RUN` |
+| AC-197-015 | 在事务 A 写入 source snapshot、observation revisions 和 pending `MdPublication` 后模拟提交、读取、进程中断/恢复。分别覆盖普通 calendar/identity receipt 与带 lease generation 的 source receipt。 | A 已提交但无 `published_at` 的事实 durable-but-hidden；coverage、API 和 strict replay 均不可见。非 source-fenced receipt 可由受控通用恢复完成事务 B。带 lease generation 的 source receipt 只能由未过期的 exact owner/fence 协调路径完成 B；通用 recovery 必须跳过它。owner 已丢失、到期或崩溃时该 receipt 只保留审计证据，新的 owner 必须重新获取并写入新 receipt，不能发布旧事实。 | `publication.py`、`test_store.py`、`test_publication_recovery.py`；observation T0/T1/T2 见 L-197-01 | `NOT_RUN` |
 | AC-197-016 | 先后导入首尾相接的 calendar manifest，再导入重叠 manifest；并发导入同一 `calendar_code`，并在事务 A/B 间读取。 | 已发布且时区一致的相邻 segments 可连续覆盖窗口；孔洞、重叠、重复 event 或缺少频率 grid 返回 typed unknown。`md_calendar_import_locks` 串行化同代码导入，pending segment 在 publication 前不可见。 | `test_calendar_importer.py`、`test_store.py`；相邻 segments/单 lock 见 L-197-01；MySQL/PostgreSQL 并发演练 | `NOT_RUN` |
 | AC-197-017 | 发布 identity projection 后修改可变 `asset_instruments` authority；另写入 pending projection 并以两个 cutoff 严格解析。 | strict resolver 不因可变 authority/裸 lookup key 改写历史；只按已发布 frozen revision、有效期和 cutoff 解析。pending projection 不可见，发布后才在合适 cutoff 出现。 | `test_identity.py`、`identity_projection.py`；identity T0/T1/T2 见 L-197-01 | `NOT_RUN` |
 | AC-197-018 | 让行情页 v2 返回超过 500 条的多页响应（当前开发回归为 17 页、516 条），并注入 query ID、identity/observation knowledge cutoff、revision 不一致、重复 cursor、篡改签名或不同 HMAC key 签发的 token。 | helper 持续收集至 `next_cursor=null`，不以 500 条或固定页数截断；任何分页完整性不一致 fail closed。签名不符在本地读取、provider 调用或写入前以 `CURSOR_SIGNATURE_INVALID` 拒绝。 | `src/__tests__/views/DataPage.test.ts`、`test_query_service.py`；见 L-197-01、L-197-03 | `NOT_RUN` |
 | AC-197-019 | 对 date-indexed OpenBB `OBBject` 和 yfinance runner 分别请求 `1d`、`1w`、`1mo`、分钟频率与半开日期边界。 | runner 使用 `to_df(index=None)` 保留 event 时间；仅映射 `1d→1d`、`1w→1W`、`1mo→1M`，分钟/非日对齐窗口拒绝；以 `end - 1 microsecond` 转换 provider end date 后再裁剪回父 `[start,end)`。真实 OpenBB 网络仍不在本案例的通过证据内。 | `test_openbb_provider.py`、runner 离线测试；第 8.2 节真实运行器演练 | `NOT_RUN` |
 | AC-197-020 | 用无 `data:read` 用户访问 `query-bundle`、`query-contract` 和事实查询；再分别使用失效/未授权主来源、仍获准 fallback、本地旧/compatibility 来源、撤权 calendar、授权变更后的 cursor、provider 请求期间撤销角色/registry、同一 provider 的重复 request ID、以及 provider DTO hash 错配执行查询/写入。 | 无读取权在家族、目录、主数据、calendar 或事实 I/O 前 403；只允许当前 registry 批准的 route source、`VERIFIED` `MdSourceSnapshot` 和位于同一 allow-list 的 `VERIFIED` calendar 参与读取。成功获取分别保存静态 policy 摘要、动态 access-grant 摘要和冻结 source authorization；无 grant 不能触发在线写入，显式 compatibility 回执不进入 v2 结果。网络返回后的 current/locking recheck、旧 cursor 或 follower 重读若发现角色/registry 改变均失败关闭；同一 provider 的重复 request ID 与错误 request evidence 均不落库。 | `test_access_authorization.py`、`test_query_service.py`、`test_store.py`、`test_storage_models.py`、`test_calendar_importer.py`、`test_query_api.py` | `NOT_RUN` |
-| AC-197-021 | 对同一 snapshot 的多条 `option_chain`（不同 expiry/strike/right）和同一 report date 的多条 `position_report`（不同 reporting entity/rank）发起请求；分别尝试未绑定和绑定到目前未配置家族的路径。 | **NO-GO：当前不把这类请求视为可执行的数据产品。** 任意未绑定请求在 catalog/identity/provider 前以 `DATA_FAMILY_BINDING_REQUIRED` 拒绝；已绑定的未配置家族以 `DATA_FAMILY_UNCONFIGURED` 拒绝。任何未来启用必须先证明稳定 record key、事实唯一性/读取/分页/provenance、slice/report completeness 及同一时间多行 `provider → store → PIT replay`；本地单行或空响应不能作为通过证据。 | `test_query_resolution.py`、`test_query_api.py`；未来多记录端到端回归 | `BLOCKED` |
+| AC-197-021 | 对同一 snapshot 的多条 `option_chain`（不同 expiry/strike/right）和同一 report date 的多条 `position_report`（不同 reporting entity/rank）发起请求；分别尝试未绑定和绑定到目前未配置家族的路径。 | **NO-GO：当前不把这类请求视为可执行的数据产品。** 公共 HTTP 未绑定请求在 catalog/identity/provider 前以 schema HTTP 422 拒绝；抵达 resolver 的未绑定内部请求以 `DATA_FAMILY_BINDING_REQUIRED` 拒绝；已绑定的未配置家族以 `DATA_FAMILY_UNCONFIGURED` 拒绝。任何未来启用必须先证明稳定 record key、事实唯一性/读取/分页/provenance、slice/report completeness 及同一时间多行 `provider → store → PIT replay`；本地单行或空响应不能作为通过证据。 | `test_query_resolution.py`、`test_query_api.py`；未来多记录端到端回归 | `BLOCKED` |
 
 ## 6. 数据中台专项验收
 
@@ -181,7 +184,7 @@ npm run lint
 2. **精确缺口补齐**：删除或隔离一个明确事件，调用相同请求。只允许批准路由收到该缺口的半开窗口；成功后查询 `md_source_snapshots`、`md_observation_revisions`、原始载荷 hash 和来源回执，再重复相同 `local_only` 请求。第二次请求必须零外部调用，且返回保存后的本地事实而非内存中的适配器对象。
 3. **拒绝路径**：提供错误标的、错误 provider receipt、越界 event、字段不足、原始载荷 hash 错配或缺少请求频率 grid 的日历。检查没有错误来源回执/观测进入事实表，并且 API 只返回稳定机器码、覆盖状态或 warning，不输出堆栈和凭据。
 4. **同进程并发**：让两个等价 `local_first` 请求在同一事件循环同时命中同一缺口。记录 provider 调用数、来源回执数、leader/follower 记录和两个独立数据库 session 的结果。此试验只验收单进程行为，不能替代 E-197-08 的多 worker 验收。
-5. **publication 恢复**：在事务 A 提交、事务 B 写入 `published_at` 前停止调用方，再由受控恢复程序继续 pending publication。记录事实/receipt 的 ID、hash、A/B 时间、恢复前的 `local_only` / strict 读取和恢复后的同一读取；恢复前必须不可见，恢复后只能在合适 cutoff 可见。
+5. **publication 恢复**：在事务 A 提交、事务 B 写入 `published_at` 前停止调用方。对 calendar/identity 等非 source-fenced receipt，可由受控通用恢复程序继续 pending publication；记录事实/receipt 的 ID、hash、A/B 时间、恢复前后的 `local_only` / strict 读取。对带 lease generation 的 source receipt，通用恢复必须保持其 hidden；只有仍未过期的 exact owner/fence 协调路径可完成 B。若 owner 已丢失或到期，记录旧 receipt 仍不可见，并由新 owner 重新获取生成新 receipt。任何恢复后可见的事实都只能在合适 cutoff 可读。
 
 验收人应记录每次试验的 query fingerprint、source snapshot ID、revision ID、执行时间、数据库计数前后变化和网络调用计数。仅保存屏幕截图而不保留这些可关联标识不足以证明回填链路。
 
@@ -233,10 +236,10 @@ npm run lint
 
 | 项目 | 状态 | 阻塞原因/所需证据 |
 | --- | --- | --- |
-| SQLite 升级/降级与离线方言渲染的自动化契约 | `NOT_RUN` | 需先完成第 4 节最终候选测试。 |
+| SQLite 升级/降级与离线方言渲染的自动化契约 | `PASS`（独立候选开发回归） | L-197-04/L-197-05 已覆盖目标测试、单 head 和临时 SQLite `upgrade head`；这不替代 MySQL/PostgreSQL 真实方言与 UTC/PIT 演练。 |
 | MySQL 准生产升级、UTC session、PIT 与恢复演练 | `NOT_RUN` | 需要经授权的可恢复数据库副本、每连接 UTC 验证、维护窗口和跨连接证据；MySQL `DATETIME` 时区语义不能靠 SQLite 推定。 |
 | PostgreSQL 准生产升级、UTC session、PIT 与恢复演练 | `NOT_RUN` | 需要经授权的可恢复数据库副本、每连接 UTC 验证、维护窗口和跨连接证据。 |
-| 多进程 calendar import lock 与 observation/source writer 并发 | `NOT_RUN` | calendar lock 的跨连接行为和连续分段导入需要真实方言演练；observation/source writer 另需尚未实现的 lease/fencing/接管协议，不能借用 calendar lock。 |
+| 多进程 calendar import lock 与 observation/source writer 并发 | `NOT_RUN` | calendar lock 的跨连接行为和连续分段导入需要真实方言演练；候选已实现 observation/source writer 的 durable lease、fencing 与接管代码，但仍需要真实 MySQL/PostgreSQL 多进程演练，不能借用 calendar lock 或 SQLite 结果。 |
 | 196/197 Alembic 单 head 合并 | `BLOCKED` | 迭代 196 尚未冻结；禁止在未合并链上宣称单 head。 |
 
 ## 8. 真实提供方验收
@@ -313,7 +316,7 @@ IG-196-02 的唯一可接受处置是：在 196 冻结后将 197 重基到冻结
    /Users/yunjinqi/opt/anaconda3/bin/conda run -n base python scripts/recover_market_data_publications.py --apply --limit 100
    ```
 
-   对 lookup-key 回填按返回游标重复受限批次，直到处理结果为零；先审阅 pending publication 恢复 dry-run 的 JSON 摘要，再执行 `--apply`，并保留恢复前后本地读取证据。每个已启用 `(market, data_kind, frequency)` 都需单独审核、导入和记录 calendar grid。不得使用脚本或页面代码自行创建缺失 identity、频率事件或来源许可。
+   对 lookup-key 回填按返回游标重复受限批次，直到处理结果为零；先审阅 pending publication 恢复 dry-run 的 JSON 摘要，再执行 `--apply`，并保留恢复前后本地读取证据。该通用恢复脚本只允许处理 calendar、identity 等非 source-fenced pending receipt；它必须跳过任何带 lease generation 的 source receipt。每个已启用 `(market, data_kind, frequency)` 都需单独审核、导入和记录 calendar grid。不得使用脚本或页面代码自行创建缺失 identity、频率事件或来源许可。
 
 3. 保持 `MARKET_DATA_QUERY_V2_ENABLED=false` 和 `MARKET_DATA_ONLINE_FETCH_ENABLED=false`，仅用 `local_only` 验证导入后的 identity、字段可用修订、日历网格、PIT 和来源链。单进程 concurrent case 可作为开发回归；若要在 E-197-08 仍为 `NOT_RUN` 时灰度 v2，部署范围必须显式限制为单一 Web worker，并记录该限制和回退动作。
 4. 完成第 8 节某一已许可来源的真实回填、原始载荷 hash 和 OpenBB service-account/container 审计后，才针对该来源策略和小范围 identity 开启 `local_first`。
@@ -345,7 +348,7 @@ IG-196-02 的唯一可接受处置是：在 196 冻结后将 197 重基到冻结
 - [ ] 所有 AC-197-001 至 AC-197-021 均有对应证据；开发回归、候选验收和真实验证的边界清楚可查。
 - [ ] 七类资产和当前页面已支持数据类型都有经过验证的本地命中/受控补齐，或稳定的明确不支持/未配置状态。
 - [ ] 真实 AkShare/OpenBB 验证、数据许可、来源策略登记、OpenBB 原始载荷 hash 与独立 service account/container 审计完成，或未启用对应在线路由。
-- [ ] 每个已启用频率都有审核后的显式 calendar grid、连续 calendar segment 和导入锁证据；MySQL/PostgreSQL 候选迁移、每连接 UTC/PIT A/B publication 与恢复演练和单 head 检查完成。
+- [ ] 每个已启用频率都有审核后的显式 calendar grid、连续 calendar segment 和导入锁证据；MySQL/PostgreSQL 候选迁移、每连接 UTC/PIT A/B publication 与恢复演练、`utf8mb4_bin`/`C` 精确身份列审计和单 head 检查完成。
 - [ ] 实际部署已二选一：要么限制 v2 市场数据请求到一个经验证的 Web worker 并记录容量/回退边界，要么已完成多 worker/多进程的数据库 lease、接管和并发调用计数验收；不得把同进程 singleflight 表述为全局去重。
 - [ ] IG-196-01 至 IG-196-05 全部解除阻塞，并完成页面端到端灰度证据。
 - [ ] AO-09 已使用经审查的 `iter196-market-data-baseline-v1` 冻结基线生成并验证范围清单；清单仍仅作为集成输入，不能单独开启策略页生产读取。

@@ -20,11 +20,11 @@ of that pending receipt later.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +34,10 @@ from app.models.market_data_platform import (
     MdPublication,
     MdSourceSnapshot,
     MdVisibilitySequenceAllocator,
+)
+from app.services.market_data.fetch_lease import (
+    MarketDataFetchLeaseHandle,
+    assert_fetch_lease_held_in_transaction,
 )
 
 UTC = timezone.utc
@@ -121,9 +125,15 @@ class MarketDataPublicationManager:
         db: AsyncSession,
         *,
         clock: Callable[[], datetime] | None = None,
+        fetch_lease_clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._db = db
         self._clock = clock or _utc_now
+        # Publication timestamps may intentionally use a deterministic test
+        # clock. Lease ownership must not inherit that clock in production:
+        # cross-worker fencing always needs the database UTC source unless a
+        # test explicitly supplies this separate seam.
+        self._fetch_lease_clock = fetch_lease_clock
 
     async def stage(
         self,
@@ -168,6 +178,8 @@ class MarketDataPublicationManager:
         publication_ids: Iterable[str],
         *,
         not_before: datetime | None = None,
+        pre_publish_guard: Callable[[], Awaitable[None]] | None = None,
+        fetch_lease: MarketDataFetchLeaseHandle | None = None,
     ) -> datetime:
         """Publish pending receipts only after the business transaction committed.
 
@@ -187,8 +199,24 @@ class MarketDataPublicationManager:
             if not_before is not None
             else None
         )
+        if pre_publish_guard is not None and not callable(pre_publish_guard):
+            raise TypeError("pre_publish_guard must be callable")
+        if fetch_lease is not None and not _is_fetch_lease_handle(fetch_lease):
+            raise TypeError("fetch_lease must be a MarketDataFetchLeaseHandle")
         await self._db.begin()
         try:
+            # Run optional caller checks first. The durable owner/fence update
+            # must be the final guard before receipt locks and allocation: a
+            # callback is free to reject work, but cannot invalidate a fence
+            # after it has already been checked and still publish the row.
+            if pre_publish_guard is not None:
+                await pre_publish_guard()
+            if fetch_lease is not None:
+                await assert_fetch_lease_held_in_transaction(
+                    self._db,
+                    fetch_lease,
+                    clock=self._fetch_lease_clock,
+                )
             rows = list(
                 (
                     await self._db.execute(
@@ -203,6 +231,11 @@ class MarketDataPublicationManager:
             by_id = {row.id: row for row in rows}
             if set(by_id) != set(ids):
                 raise MarketDataPublicationError("PUBLICATION_NOT_FOUND")
+            await self._assert_publish_fence_binding(
+                rows,
+                fetch_lease=fetch_lease,
+                pre_publish_guard=pre_publish_guard,
+            )
             published_at = await self._publish_locked_rows(rows, lower_bound=lower_bound)
             await self._db.commit()
             return published_at
@@ -239,6 +272,10 @@ class MarketDataPublicationManager:
         pending receipt is joined to its declared immutable entity and digest
         before it can become visible.  ``dry_run`` validates the same bounded
         candidates and rolls its transaction back without changing visibility.
+        Fetch-fenced source receipts are deliberately excluded: generic
+        recovery has no owner token to renew in the publication transaction,
+        while calendar, master-data and non-fenced source receipts retain the
+        original recovery behavior.
         """
         if not isinstance(limit, int) or not 1 <= limit <= 10_000:
             raise ValueError("limit must be between 1 and 10000")
@@ -247,13 +284,31 @@ class MarketDataPublicationManager:
         if self._db.in_transaction():
             raise MarketDataPublicationError("PUBLICATION_REQUIRES_COMMITTED_TRANSACTION")
 
+        fenced_source_receipt = (
+            select(MdSourceSnapshot.id)
+            .where(
+                MdSourceSnapshot.id == MdPublication.entity_id,
+                or_(
+                    MdSourceSnapshot.fetch_lease_key_sha256.is_not(None),
+                    MdSourceSnapshot.fetch_lease_fence_token.is_not(None),
+                ),
+            )
+            .correlate(MdPublication)
+            .exists()
+        )
         await self._db.begin()
         try:
             rows = list(
                 (
                     await self._db.execute(
                         select(MdPublication)
-                        .where(MdPublication.published_at.is_(None))
+                        .where(
+                            MdPublication.published_at.is_(None),
+                            or_(
+                                MdPublication.entity_type != PUBLICATION_SOURCE_SNAPSHOT,
+                                ~fenced_source_receipt,
+                            ),
+                        )
                         .order_by(MdPublication.created_at, MdPublication.id)
                         .limit(limit)
                         .with_for_update()
@@ -275,6 +330,75 @@ class MarketDataPublicationManager:
             if self._db.in_transaction():
                 await self._db.rollback()
             raise
+
+    async def _assert_publish_fence_binding(
+        self,
+        rows: Iterable[MdPublication],
+        *,
+        fetch_lease: MarketDataFetchLeaseHandle | None,
+        pre_publish_guard: Callable[[], Awaitable[None]] | None,
+    ) -> None:
+        """Require an exact owner guard before sealing fenced source evidence.
+
+        Calendar and master-data publication rows have no fetch lease and keep
+        the original default behavior. A source receipt that was staged by a
+        local-first fetch is different: its immutable binding says precisely
+        which lease generation was allowed to materialize it, so a later owner
+        must not seal it by passing a different or absent guard.
+        """
+        source_rows = tuple(
+            row for row in rows if row.entity_type == PUBLICATION_SOURCE_SNAPSHOT
+        )
+        if not source_rows:
+            if fetch_lease is not None:
+                raise MarketDataPublicationError("PUBLICATION_FETCH_LEASE_MISMATCH")
+            return
+        generations = await self._source_receipt_fetch_lease_generations(source_rows)
+        if not generations:
+            if fetch_lease is not None:
+                raise MarketDataPublicationError("PUBLICATION_FETCH_LEASE_MISMATCH")
+            return
+        if fetch_lease is None:
+            raise MarketDataPublicationError("PUBLICATION_FETCH_LEASE_REQUIRED")
+        if len(generations) != len(source_rows) or any(
+            lease_key_sha256 != fetch_lease.lease_key_sha256
+            or fence_token != fetch_lease.fence_token
+            for _, lease_key_sha256, fence_token in generations
+        ):
+            raise MarketDataPublicationError("PUBLICATION_FETCH_LEASE_MISMATCH")
+
+    async def _source_receipt_fetch_lease_generations(
+        self,
+        rows: Iterable[MdPublication],
+    ) -> tuple[tuple[str, str, int], ...]:
+        """Return valid immutable lease bindings for source-publication rows."""
+        source_rows = tuple(rows)
+        if not source_rows:
+            return ()
+        source_ids = tuple(row.entity_id for row in source_rows)
+        snapshots = {
+            snapshot_id: (lease_key_sha256, fence_token)
+            for snapshot_id, lease_key_sha256, fence_token in (
+                await self._db.execute(
+                    select(
+                        MdSourceSnapshot.id,
+                        MdSourceSnapshot.fetch_lease_key_sha256,
+                        MdSourceSnapshot.fetch_lease_fence_token,
+                    ).where(MdSourceSnapshot.id.in_(source_ids))
+                )
+            ).all()
+        }
+        if len(snapshots) != len(source_ids):
+            raise MarketDataPublicationError("PUBLICATION_ENTITY_INTEGRITY")
+        generations: list[tuple[str, str, int]] = []
+        for row in source_rows:
+            lease_key_sha256, fence_token = snapshots[row.entity_id]
+            if lease_key_sha256 is None and fence_token is None:
+                continue
+            if not _is_sha256(lease_key_sha256) or not _is_positive_fence_token(fence_token):
+                raise MarketDataPublicationError("PUBLICATION_FETCH_LEASE_BINDING_INTEGRITY")
+            generations.append((row.id, lease_key_sha256, fence_token))
+        return tuple(generations)
 
     async def _publish_locked_rows(
         self,
@@ -445,6 +569,20 @@ def _is_sha256(value: object) -> bool:
         isinstance(value, str)
         and len(value) == 64
         and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _is_positive_fence_token(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+def _is_fetch_lease_handle(value: object) -> bool:
+    """Avoid importing the lease manager into identity/publication import paths."""
+    return (
+        _is_sha256(getattr(value, "lease_key_sha256", None))
+        and _is_positive_fence_token(getattr(value, "fence_token", None))
+        and isinstance(getattr(value, "owner_token", None), str)
+        and bool(getattr(value, "owner_token", "").strip())
     )
 
 

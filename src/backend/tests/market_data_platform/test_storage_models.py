@@ -28,6 +28,8 @@ SHARED_DATASET_BINDINGS_REVISION = "20260908_market_data_shared_dataset_bindings
 VISIBILITY_ANCHOR_REVISION = "20260908_market_data_visibility_anchor"
 SOURCE_RECEIPT_EVIDENCE_REVISION = "20260908_market_data_source_receipt_evidence"
 SOURCE_GOVERNANCE_REVISION = "20260908_market_data_source_governance"
+FETCH_LEASE_REVISION = "20260909_market_data_fetch_leases"
+EXACT_IDENTITY_COLLATION_REVISION = "20260909_market_data_exact_identity_collation"
 STORAGE_TABLES = {
     "md_instrument_lookup_keys",
     "md_data_series",
@@ -319,6 +321,33 @@ def test_observation_schema_recovery_rejects_same_named_wrong_check_expression(
     assert "ck_md_publication_entity_sha256_length" in detail
 
 
+def test_identity_key_models_render_bytewise_identifier_collations() -> None:
+    """Fresh schemas cannot inherit a case-insensitive default for protocol identifiers."""
+    from app.models.asset_research import AssetInstrument
+    from app.models.market_data_platform import (
+        MdInstrumentIdentityRevision,
+        MdInstrumentLookupKey,
+    )
+
+    for dialect, expected_collation in (
+        (mysql.dialect(), "COLLATE utf8mb4_bin"),
+        (postgresql.dialect(), 'COLLATE "C"'),
+        (sqlite.dialect(), 'COLLATE "BINARY"'),
+    ):
+        identity_ddl = str(
+            sa.schema.CreateTable(MdInstrumentIdentityRevision.__table__).compile(dialect=dialect)
+        )
+        lookup_ddl = str(
+            sa.schema.CreateTable(MdInstrumentLookupKey.__table__).compile(dialect=dialect)
+        )
+        authority_ddl = str(
+            sa.schema.CreateTable(AssetInstrument.__table__).compile(dialect=dialect)
+        )
+        assert identity_ddl.count(expected_collation) >= 4
+        assert lookup_ddl.count(expected_collation) >= 4
+        assert authority_ddl.count(expected_collation) >= 1
+
+
 def test_storage_models_register_generic_cross_asset_fact_tables() -> None:
     """The normalized layer registers generic facts and exact lookup keys."""
     from app.models.asset_research import AssetInstrument
@@ -327,6 +356,7 @@ def test_storage_models_register_generic_cross_asset_fact_tables() -> None:
         MdCalendarEvent,
         MdCalendarSnapshot,
         MdDataSeries,
+        MdFetchLease,
         MdInstrumentLookupKey,
         MdObservationRevision,
         MdSourceSnapshot,
@@ -344,6 +374,12 @@ def test_storage_models_register_generic_cross_asset_fact_tables() -> None:
         "is_active",
     } <= set(MdInstrumentLookupKey.__table__.c.keys())
     assert "symbol" not in MdDataSeries.__table__.c.keys()
+    assert {
+        "lease_key_sha256",
+        "owner_token",
+        "fence_token",
+        "expires_at",
+    } <= set(MdFetchLease.__table__.c.keys())
     assert {"dataset_id", "canonical_id", "data_kind", "semantic_key_sha256"} <= set(
         MdDataSeries.__table__.c.keys()
     )
@@ -357,6 +393,8 @@ def test_storage_models_register_generic_cross_asset_fact_tables() -> None:
         "query_fingerprint_sha256",
         "source_authorization_state",
         "source_authorization_descriptor_sha256",
+        "fetch_lease_key_sha256",
+        "fetch_lease_fence_token",
         "provenance_json",
     } <= set(MdSourceSnapshot.__table__.c.keys())
     assert any(
@@ -900,14 +938,16 @@ def test_observation_revision_is_linear_child_of_catalog_revision() -> None:
     assert len(script.get_heads()) == 1
 
 
-def test_visibility_anchor_revision_extends_the_normalized_storage_chain() -> None:
-    """Receipt order and request evidence remain on one normalized-storage chain."""
+def test_exact_identity_collation_revision_extends_the_normalized_storage_chain() -> None:
+    """Receipt, leasing, and exact identifier semantics remain on one storage chain."""
     script = ScriptDirectory.from_config(_config("sqlite://"))
 
     shared_revision = script.get_revision(SHARED_DATASET_BINDINGS_REVISION)
     visibility_revision = script.get_revision(VISIBILITY_ANCHOR_REVISION)
     source_receipt_evidence_revision = script.get_revision(SOURCE_RECEIPT_EVIDENCE_REVISION)
     source_governance_revision = script.get_revision(SOURCE_GOVERNANCE_REVISION)
+    fetch_lease_revision = script.get_revision(FETCH_LEASE_REVISION)
+    exact_identity_collation_revision = script.get_revision(EXACT_IDENTITY_COLLATION_REVISION)
     assert shared_revision is not None
     assert shared_revision.down_revision == OBSERVATIONS_REVISION
     assert visibility_revision is not None
@@ -916,7 +956,51 @@ def test_visibility_anchor_revision_extends_the_normalized_storage_chain() -> No
     assert source_receipt_evidence_revision.down_revision == VISIBILITY_ANCHOR_REVISION
     assert source_governance_revision is not None
     assert source_governance_revision.down_revision == SOURCE_RECEIPT_EVIDENCE_REVISION
-    assert script.get_heads() == [SOURCE_GOVERNANCE_REVISION]
+    assert fetch_lease_revision is not None
+    assert fetch_lease_revision.down_revision == SOURCE_GOVERNANCE_REVISION
+    assert exact_identity_collation_revision is not None
+    assert exact_identity_collation_revision.down_revision == FETCH_LEASE_REVISION
+    assert script.get_heads() == [EXACT_IDENTITY_COLLATION_REVISION]
+
+
+def test_exact_identity_collation_migration_accepts_sqlite_binary_defaults_and_blocks_evidence_rollback(
+    tmp_path: Path,
+) -> None:
+    """SQLite defaults are binary; semantic rollback is deliberately refused."""
+    database_path = tmp_path / "market-data-exact-identity.sqlite3"
+    config = _config(f"sqlite+aiosqlite:///{database_path}")
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        command.upgrade(config, FETCH_LEASE_REVISION)
+        command.upgrade(config, EXACT_IDENTITY_COLLATION_REVISION)
+        with engine.connect() as connection:
+            table_sql = {
+                table_name: connection.execute(
+                    text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :table_name"),
+                    {"table_name": table_name},
+                ).scalar_one()
+                for table_name in ("md_instrument_identity_revisions", "md_instrument_lookup_keys")
+            }
+        assert all("COLLATE NOCASE" not in sql.upper() for sql in table_sql.values())
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO md_instrument_identity_revisions "
+                    "(id, instrument_id, canonical_id, asset_type, market, symbol, metadata_version, "
+                    "identity_json, valid_from, revision_number, revision_sha256, created_at) "
+                    "VALUES ('identity-revision-1', 'instrument-1', 'instrument:stock:CN-SSE:RB0', "
+                    "'stock', 'CN-SSE', 'RB0', 'v1', '{}', '2026-09-09 00:00:00', 1, :digest, "
+                    "'2026-09-09 00:00:00')"
+                ),
+                {"digest": _sha("identity-revision-1")},
+            )
+        with pytest.raises(RuntimeError, match="MARKET_DATA_EXACT_IDENTITY_DOWNGRADE_BLOCKED"):
+            command.downgrade(config, FETCH_LEASE_REVISION)
+        with engine.begin() as connection:
+            connection.execute(text("DELETE FROM md_instrument_identity_revisions"))
+        command.downgrade(config, FETCH_LEASE_REVISION)
+    finally:
+        engine.dispose()
 
 
 def test_visibility_anchor_migration_backfills_global_receipt_order(tmp_path: Path) -> None:
@@ -1295,6 +1379,118 @@ def test_source_governance_migration_preserves_legacy_rows_and_blocks_evidence_l
         engine.dispose()
 
 
+def test_fetch_lease_migration_creates_fenced_schema_and_blocks_generation_loss(
+    tmp_path: Path,
+) -> None:
+    """Issued fencing generations are never silently deleted by downgrade."""
+    database_path = tmp_path / "market-data-fetch-leases.sqlite3"
+    config = _config(f"sqlite+aiosqlite:///{database_path}")
+    engine = create_engine(f"sqlite:///{database_path}")
+    now = datetime(2026, 9, 9, 9, tzinfo=timezone.utc)
+    try:
+        command.upgrade(config, FETCH_LEASE_REVISION)
+
+        inspector = inspect(engine)
+        assert "md_fetch_leases" in inspector.get_table_names()
+        assert {
+            "lease_key_sha256",
+            "owner_token",
+            "fence_token",
+            "expires_at",
+            "created_at",
+            "updated_at",
+            "released_at",
+        } == {column["name"] for column in inspector.get_columns("md_fetch_leases")}
+        assert "ix_md_fetch_lease_expires_at" in {
+            index["name"] for index in inspector.get_indexes("md_fetch_leases")
+        }
+        assert {
+            "ck_md_fetch_lease_key_sha256_length",
+            "ck_md_fetch_lease_fence_token_positive",
+            "ck_md_fetch_lease_owner_expiry_state",
+        } <= {
+            constraint["name"]
+            for constraint in inspector.get_check_constraints("md_fetch_leases")
+            if constraint["name"]
+        }
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO dg_providers "
+                    "(id, provider_id, name, category, auth_type, rate_limit, is_active, created_at) "
+                    "VALUES ('provider-fetch-lease', 'akshare', 'AkShare', 'market', 'none', 60, 1, :now)"
+                ),
+                {"now": now},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO md_source_snapshots "
+                    "(id, provider_id, platform, source_id, adapter_id, endpoint_version, "
+                    "request_fingerprint_sha256, payload_sha256, request_json, payload_manifest_json, "
+                    "provenance_json, retrieved_at, created_at) "
+                    "VALUES ('snapshot-fetch-lease', 'provider-fetch-lease', 'akshare', 'akshare', "
+                    "'akshare.market-data', 'v1', :query_hash, :payload_hash, '{}', '{}', '{}', "
+                    ":now, :now)"
+                ),
+                {
+                    "query_hash": _sha("fetch-lease-public-query"),
+                    "payload_hash": _sha("fetch-lease-payload"),
+                    "now": now,
+                },
+            )
+
+        source_columns = {column["name"] for column in inspector.get_columns("md_source_snapshots")}
+        assert {"fetch_lease_key_sha256", "fetch_lease_fence_token"} <= source_columns
+        assert "ck_md_source_snapshot_fetch_lease_generation_state" in {
+            constraint["name"]
+            for constraint in inspector.get_check_constraints("md_source_snapshots")
+            if constraint["name"]
+        }
+
+        with pytest.raises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "UPDATE md_source_snapshots SET fetch_lease_fence_token = 7 "
+                        "WHERE id = 'snapshot-fetch-lease'"
+                    )
+                )
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE md_source_snapshots SET fetch_lease_key_sha256 = :key, "
+                    "fetch_lease_fence_token = 7 WHERE id = 'snapshot-fetch-lease'"
+                ),
+                {"key": _sha("source-receipt-fetch-lease")},
+            )
+
+        with pytest.raises(
+            RuntimeError,
+            match="MARKET_DATA_FETCH_LEASE_DOWNGRADE_BLOCKED",
+        ):
+            command.downgrade(config, SOURCE_GOVERNANCE_REVISION)
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO md_fetch_leases "
+                    "(lease_key_sha256, owner_token, fence_token, expires_at, "
+                    "created_at, updated_at, released_at) "
+                    "VALUES (:key, 'owner-1', 7, :expires_at, :now, :now, NULL)"
+                ),
+                {"key": _sha("issued-fetch-lease"), "expires_at": now, "now": now},
+            )
+
+        with pytest.raises(
+            RuntimeError,
+            match="MARKET_DATA_FETCH_LEASE_DOWNGRADE_BLOCKED",
+        ):
+            command.downgrade(config, SOURCE_GOVERNANCE_REVISION)
+    finally:
+        engine.dispose()
+
+
 def test_source_governance_migration_accepts_complete_startup_created_schema(
     tmp_path: Path,
 ) -> None:
@@ -1322,6 +1518,91 @@ def test_source_governance_migration_accepts_complete_startup_created_schema(
             "source_governance_state",
             "source_governance_descriptor_sha256",
         } <= calendar_columns
+    finally:
+        engine.dispose()
+
+
+def test_fetch_lease_migration_accepts_complete_startup_created_schema(
+    tmp_path: Path,
+) -> None:
+    """Startup metadata cannot cause the durable-fencing migration to replay DDL."""
+    database_path = tmp_path / "market-data-fetch-lease-startup.sqlite3"
+    config = _config(f"sqlite+aiosqlite:///{database_path}")
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        import app.models.market_data_platform  # noqa: F401
+
+        Base.metadata.create_all(engine)
+        command.stamp(config, SOURCE_GOVERNANCE_REVISION)
+        command.upgrade(config, FETCH_LEASE_REVISION)
+
+        inspector = inspect(engine)
+        assert "md_fetch_leases" in inspector.get_table_names()
+        assert "ix_md_fetch_lease_expires_at" in {
+            index["name"] for index in inspector.get_indexes("md_fetch_leases")
+        }
+        assert {"fetch_lease_key_sha256", "fetch_lease_fence_token"} <= {
+            column["name"] for column in inspector.get_columns("md_source_snapshots")
+        }
+        assert "ck_md_source_snapshot_fetch_lease_generation_state" in {
+            constraint["name"]
+            for constraint in inspector.get_check_constraints("md_source_snapshots")
+            if constraint["name"]
+        }
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("owner_token_definition", "fence_check"),
+    [
+        ("VARCHAR(64) NOT NULL", "fence_token >= 1"),
+        ("VARCHAR(64)", "fence_token >= 0"),
+    ],
+    ids=["non-nullable-owner", "weakened-fence-check"],
+)
+def test_fetch_lease_migration_rejects_weakened_same_name_startup_schema(
+    tmp_path: Path,
+    owner_token_definition: str,
+    fence_check: str,
+) -> None:
+    """A same-named lease table cannot bypass fencing with weakened DDL."""
+    database_path = tmp_path / "market-data-fetch-leases-schema-drift.sqlite3"
+    config = _config(f"sqlite+aiosqlite:///{database_path}")
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        command.upgrade(config, SOURCE_GOVERNANCE_REVISION)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    f"""
+                    CREATE TABLE md_fetch_leases (
+                        lease_key_sha256 VARCHAR(64) NOT NULL PRIMARY KEY,
+                        owner_token {owner_token_definition},
+                        fence_token BIGINT NOT NULL,
+                        expires_at DATETIME,
+                        created_at DATETIME NOT NULL,
+                        updated_at DATETIME NOT NULL,
+                        released_at DATETIME,
+                        CONSTRAINT ck_md_fetch_lease_key_sha256_length
+                            CHECK (length(lease_key_sha256) = 64),
+                        CONSTRAINT ck_md_fetch_lease_fence_token_positive
+                            CHECK ({fence_check}),
+                        CONSTRAINT ck_md_fetch_lease_owner_expiry_state
+                            CHECK (
+                                (owner_token IS NULL AND expires_at IS NULL) OR
+                                (owner_token IS NOT NULL AND expires_at IS NOT NULL)
+                            )
+                    )
+                    """
+                )
+            )
+            connection.execute(
+                text("CREATE INDEX ix_md_fetch_lease_expires_at ON md_fetch_leases (expires_at)")
+            )
+
+        with pytest.raises(RuntimeError, match="MARKET_DATA_FETCH_LEASE_SCHEMA_DRIFT"):
+            command.upgrade(config, FETCH_LEASE_REVISION)
     finally:
         engine.dispose()
 

@@ -33,6 +33,7 @@ from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import relationship, synonym
 
 from app.db.database import Base
+from app.models.identifier_types import exact_identifier_string
 
 _SHA256_LENGTH = 64
 _CALENDAR_COVERAGE_PAYLOAD_KEY = "coverage"
@@ -209,10 +210,10 @@ class MdInstrumentIdentityRevision(Base):
         ),
         nullable=False,
     )
-    canonical_id = Column(String(512), nullable=False)
-    asset_type = Column(String(16), nullable=False)
-    market = Column(String(128), nullable=True)
-    symbol = Column(String(128), nullable=False)
+    canonical_id = Column(exact_identifier_string(512), nullable=False)
+    asset_type = Column(exact_identifier_string(16), nullable=False)
+    market = Column(exact_identifier_string(128), nullable=True)
+    symbol = Column(exact_identifier_string(128), nullable=False)
     metadata_version = Column(String(64), nullable=False)
     identity_json = Column(JSON, default=dict, nullable=False)
     valid_from = Column(PITDateTime, nullable=False)
@@ -231,6 +232,42 @@ class MdCalendarImportLock(Base):
 
     calendar_code = Column(String(128), primary_key=True)
     created_at = Column(PITDateTime, default=_utcnow, nullable=False)
+
+
+class MdFetchLease(Base):
+    """Durable owner/fence state for one normalized market-data fetch gap.
+
+    The row remains after release so its monotonically increasing fence token
+    cannot be reset by a delete/reinsert ABA race.  It is mutable control-plane
+    state rather than evidence; source facts still carry their own immutable
+    receipt and publication provenance.
+    """
+
+    __tablename__ = "md_fetch_leases"
+    __table_args__ = (
+        CheckConstraint(
+            f"length(lease_key_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_fetch_lease_key_sha256_length",
+        ),
+        CheckConstraint(
+            "fence_token >= 1",
+            name="ck_md_fetch_lease_fence_token_positive",
+        ),
+        CheckConstraint(
+            "(owner_token IS NULL AND expires_at IS NULL) OR "
+            "(owner_token IS NOT NULL AND expires_at IS NOT NULL)",
+            name="ck_md_fetch_lease_owner_expiry_state",
+        ),
+        Index("ix_md_fetch_lease_expires_at", "expires_at"),
+    )
+
+    lease_key_sha256 = Column(String(_SHA256_LENGTH), primary_key=True)
+    owner_token = Column(String(64), nullable=True)
+    fence_token = Column(BigInteger, nullable=False)
+    expires_at = Column(PITDateTime, nullable=True)
+    created_at = Column(PITDateTime, default=_utcnow, nullable=False)
+    updated_at = Column(PITDateTime, default=_utcnow, nullable=False)
+    released_at = Column(PITDateTime, nullable=True)
 
 
 class MdInstrumentLookupKey(Base):
@@ -281,9 +318,9 @@ class MdInstrumentLookupKey(Base):
     )
 
     id = Column(String(36), primary_key=True, default=_uuid)
-    asset_type = Column(String(16), nullable=False)
-    market = Column(String(128), nullable=False)
-    symbol = Column(String(128), nullable=False)
+    asset_type = Column(exact_identifier_string(16), nullable=False)
+    market = Column(exact_identifier_string(128), nullable=False)
+    symbol = Column(exact_identifier_string(128), nullable=False)
     instrument_id = Column(
         String(36),
         ForeignKey(
@@ -293,7 +330,7 @@ class MdInstrumentLookupKey(Base):
         ),
         nullable=False,
     )
-    canonical_id = Column(String(512), nullable=False)
+    canonical_id = Column(exact_identifier_string(512), nullable=False)
     metadata_version = Column(String(64), nullable=False)
     is_active = Column(Boolean, nullable=False, default=True)
     # NULL for inactive history allows multiple historical versions on every
@@ -427,6 +464,13 @@ class MdSourceSnapshot(Base):
             name="ck_md_source_snapshot_source_authorization_evidence_state",
         ),
         CheckConstraint(
+            "(fetch_lease_key_sha256 IS NULL AND fetch_lease_fence_token IS NULL) OR "
+            f"(fetch_lease_key_sha256 IS NOT NULL AND fetch_lease_fence_token IS NOT NULL AND "
+            f"length(fetch_lease_key_sha256) = {_SHA256_LENGTH} AND "
+            "fetch_lease_fence_token >= 1)",
+            name="ck_md_source_snapshot_fetch_lease_generation_state",
+        ),
+        CheckConstraint(
             f"length(payload_sha256) = {_SHA256_LENGTH}",
             name="ck_md_source_snapshot_payload_sha256_length",
         ),
@@ -471,6 +515,12 @@ class MdSourceSnapshot(Base):
     query_fingerprint_sha256 = Column(String(_SHA256_LENGTH), nullable=True)
     source_authorization_state = Column(String(32), nullable=True)
     source_authorization_descriptor_sha256 = Column(String(_SHA256_LENGTH), nullable=True)
+    # A local-first provider fetch binds immutable evidence to the exact durable
+    # lease generation that staged it. The owner token is intentionally omitted:
+    # a monotonically increasing fence is enough to prove that a later takeover
+    # superseded this receipt without persisting a process-local secret.
+    fetch_lease_key_sha256 = Column(String(_SHA256_LENGTH), nullable=True)
+    fetch_lease_fence_token = Column(BigInteger, nullable=True)
     payload_sha256 = Column(String(_SHA256_LENGTH), nullable=False)
     request_json = Column(JSON, default=dict, nullable=False)
     payload_manifest_json = Column(JSON, default=dict, nullable=False)

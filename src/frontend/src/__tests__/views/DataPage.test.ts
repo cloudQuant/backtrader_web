@@ -476,6 +476,62 @@ describe('DataPage', () => {
       refresh_online: false,
     }))
     expect((wrapper.vm as any).marketDataPlatformStatus.path).toBe('legacy')
+    expect((wrapper.vm as any).marketDataPlatformStatus).toMatchObject({
+      canonicalId: null,
+      datasetCode: null,
+      sourcePolicyId: null,
+      instrumentMetadataVersion: null,
+    })
+    expect(wrapper.find('[data-test="market-data-platform-provenance"]').exists()).toBe(false)
+  })
+
+  it('renders only public v2 response provenance identifiers in the market status', async () => {
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture())
+    apiMocks.queryLocalFirst.mockResolvedValue({
+      ...createV2ResponseFixture(),
+      query_id: 'internal-query-receipt',
+      knowledge_cutoff: '2026-06-19T16:00:00Z',
+    })
+
+    const wrapper = await mountPage()
+    const provenance = wrapper.find('[data-test="market-data-platform-provenance"]')
+
+    expect(provenance.exists()).toBe(true)
+    expect(provenance.text()).toContain('规范标识：instrument:stock:CN-SZSE:000001')
+    expect(provenance.text()).toContain('数据集：market.bars')
+    expect(provenance.text()).toContain('来源策略：market-default-v1')
+    expect(provenance.text()).toContain('元数据版本：stock-v1')
+    expect(provenance.text()).not.toContain('internal-query-receipt')
+    expect((wrapper.vm as any).marketDataPlatformProvenance).toEqual([
+      { label: '规范标识', value: 'instrument:stock:CN-SZSE:000001' },
+      { label: '数据集', value: 'market.bars' },
+      { label: '来源策略', value: 'market-default-v1' },
+      { label: '元数据版本', value: 'stock-v1' },
+    ])
+  })
+
+  it('keeps a schema-valid public canonical identity visible without accepting controls', async () => {
+    const canonicalId = `instrument:stock:CN-SZSE:${'x'.repeat(180)}+class-A`
+    const contract = createV2ContractFixture()
+    contract.request.identity.canonical_id = canonicalId
+    contract.request.dataset_code = 'market.bars\u0000internal'
+    apiMocks.getQueryContract.mockResolvedValue(contract)
+    apiMocks.queryLocalFirst.mockResolvedValue({
+      ...createV2ResponseFixture(),
+      canonical_id: canonicalId,
+      dataset_code: 'market.bars\u0000internal',
+    })
+
+    const wrapper = await mountPage()
+
+    expect((wrapper.vm as any).marketDataPlatformProvenance).toEqual([
+      {
+        label: '规范标识',
+        value: canonicalId,
+      },
+      { label: '来源策略', value: 'market-default-v1' },
+      { label: '元数据版本', value: 'stock-v1' },
+    ])
   })
 
   it('does not fall back to legacy data after a v2 contract probe denies data-read access', async () => {
@@ -560,6 +616,87 @@ describe('DataPage', () => {
     })
     expect((wrapper.vm as any).instrumentOptions).toHaveLength(2)
     expect(apiMocks.listTables).toHaveBeenCalled()
+  })
+
+  it('rejects a legacy bridge contract whose product family differs from the current page', async () => {
+    const mismatchedContract = createV2ContractFixture({
+      family_id: 'stock.valuation',
+      family_contract_version: 'market-data-family-v1',
+    })
+    apiMocks.lookupInstrument.mockResolvedValue({
+      ...createLookupFixture('stock'),
+      query_contract: mismatchedContract,
+      query_contract_symbol: '000001',
+      query_contract_canonical_id: mismatchedContract.request.identity.canonical_id,
+    })
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.getQueryContract).toHaveBeenCalledTimes(1)
+    expect(apiMocks.lookupInstrument).toHaveBeenCalledTimes(1)
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result).toBeNull()
+    expect((wrapper.vm as any).marketDataPlatformStatus.path).toBe('error')
+  })
+
+  it('rejects a legacy bridge contract without an exact canonical-identity echo', async () => {
+    const contract = createV2ContractFixture()
+    apiMocks.lookupInstrument.mockResolvedValue({
+      ...createLookupFixture('stock'),
+      query_contract: contract,
+      query_contract_symbol: '000001',
+      query_contract_canonical_id: 'instrument:stock:CN-SZSE:000002',
+    })
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.getQueryContract).toHaveBeenCalledTimes(1)
+    expect(apiMocks.lookupInstrument).toHaveBeenCalledTimes(1)
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result).toBeNull()
+    expect((wrapper.vm as any).marketDataPlatformStatus.path).toBe('error')
+  })
+
+  it('does not reuse a v2 contract across case-distinct exact market symbols', async () => {
+    apiMocks.getQueryContract.mockImplementation(({ symbol }: { symbol: string }) => {
+      const contract = createV2ContractFixture()
+      contract.request.identity.canonical_id = `instrument:stock:CN-SZSE:${symbol}`
+      return Promise.resolve(contract)
+    })
+    apiMocks.queryLocalFirst.mockImplementation((request: { identity: { canonical_id: string } }) => (
+      Promise.resolve({
+        ...createV2ResponseFixture(),
+        canonical_id: request.identity.canonical_id,
+      })
+    ))
+
+    const wrapper = await mountPage()
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
+    const vm = wrapper.vm as any
+
+    vm.form.symbol = 'rb0'
+    await vm.lookupInstrument()
+    await flushPromises()
+    vm.form.symbol = 'RB0'
+    await vm.lookupInstrument()
+    await flushPromises()
+
+    expect(apiMocks.getQueryContract).toHaveBeenNthCalledWith(1, {
+      asset_type: 'stock',
+      symbol: 'rb0',
+      period: 'daily',
+      family_id: 'stock.realtime',
+    })
+    expect(apiMocks.getQueryContract).toHaveBeenNthCalledWith(2, {
+      asset_type: 'stock',
+      symbol: 'RB0',
+      period: 'daily',
+      family_id: 'stock.realtime',
+    })
+    expect(apiMocks.queryLocalFirst).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      identity: { canonical_id: 'instrument:stock:CN-SZSE:RB0' },
+    }), expect.any(Object))
   })
 
   it('uses a server-proven contract for the first local-first query without legacy lookup', async () => {

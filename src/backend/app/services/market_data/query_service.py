@@ -35,6 +35,11 @@ from app.services.market_data.coverage import (
     SnapshotCoveragePlanner,
     TimeWindow,
 )
+from app.services.market_data.fetch_lease import (
+    MarketDataFetchLeaseError,
+    MarketDataFetchLeaseHandle,
+    market_data_fetch_lease_key,
+)
 from app.services.market_data.field_quality import is_usable_field_value
 from app.services.market_data.identity import MarketDataIdentityResolutionError
 from app.services.market_data.providers import MarketDataProviderRequest, ProviderFetchResult
@@ -138,8 +143,19 @@ class _Store(Protocol):
         *,
         received_at: datetime,
         source_authorization: MarketDataSourceAuthorization | None = None,
+        fetch_lease: MarketDataFetchLeaseHandle | None = None,
     ) -> PersistedProviderFetch:
         """Append one validated source receipt and observation revisions."""
+
+
+class _FetchLeases(Protocol):
+    """Durable lease operations used by the real local-first request path."""
+
+    async def acquire(self, lease_key_sha256: str) -> MarketDataFetchLeaseHandle | None:
+        """Acquire a coverage-gap owner or report a current remote owner."""
+
+    async def release(self, handle: MarketDataFetchLeaseHandle) -> bool:
+        """Release an exact owner/fence pair without resetting its generation."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,6 +349,7 @@ class MarketDataQueryService:
         clock: Callable[[], datetime] | None = None,
         cursor_signing_key: str | bytes | None = None,
         cursor_ttl: timedelta = _DEFAULT_CURSOR_TTL,
+        fetch_leases: _FetchLeases | None = None,
     ) -> None:
         if not hasattr(resolver, "resolve"):
             raise TypeError("resolver must implement resolve")
@@ -358,6 +375,10 @@ class MarketDataQueryService:
             raise TypeError("snapshot_freshness_policies must be SnapshotFreshnessPolicyRegistry")
         if not isinstance(allow_online_fetch, bool):
             raise TypeError("allow_online_fetch must be a bool")
+        if fetch_leases is not None and not all(
+            hasattr(fetch_leases, method) for method in ("acquire", "release")
+        ):
+            raise TypeError("fetch_leases must implement acquire and release")
         if (
             not isinstance(cursor_ttl, timedelta)
             or cursor_ttl <= timedelta(0)
@@ -378,6 +399,17 @@ class MarketDataQueryService:
         self._cursor_signing_key_override = (
             _coerce_cursor_signing_key(cursor_signing_key)
             if cursor_signing_key is not None
+            else None
+        )
+        # Production API composition passes a real ``MarketDataStore``.  The
+        # database-backed manager is therefore enabled without relying on a
+        # process-local route singleton; pure in-memory contract tests retain
+        # an explicit ``None`` unless they inject a lease fake.
+        self._fetch_leases: _FetchLeases | None = (
+            fetch_leases
+            if fetch_leases is not None
+            else store.fetch_lease_manager()
+            if isinstance(store, MarketDataStore)
             else None
         )
 
@@ -495,7 +527,8 @@ class MarketDataQueryService:
         if not isinstance(context, ResolvedMarketDataQueryContext):
             raise MarketDataQueryServiceError("QUERY_CONTEXT_INVALID")
 
-        policy_routes = policy.routes_for(context)
+        candidate_policy_routes = policy.routes_for(context)
+        policy_routes = candidate_policy_routes
         allowed_source_registry_ids: frozenset[str] | None = None
         source_authorizations: dict[str, MarketDataSourceAuthorization] = {}
         if access is not None:
@@ -717,118 +750,261 @@ class MarketDataQueryService:
         for window in fetch_windows:
             fetch_context = _with_fetch_window(context, window)
             window_fresh_revision_ids: set[str] = set()
-            for route in routes:
-                source_authorization = source_authorizations.get(route.route_id)
-                if access is not None and source_authorization is None:
-                    raise MarketDataQueryServiceError("SOURCE_ROUTE_AUTHORIZATION_DENIED")
-                policy_descriptor_hash = binding.policy_descriptor_hash
-                if policy_descriptor_hash is None:
-                    raise MarketDataQueryServiceError("PROVIDER_POLICY_DESCRIPTOR_UNBOUND")
-                access_grant_descriptor_hash = binding.access_grant_descriptor_hash
-                if access_grant_descriptor_hash is None:
-                    raise MarketDataQueryServiceError("PROVIDER_ACCESS_GRANT_UNBOUND")
-                provider_request = _provider_request_for(
+            policy_descriptor_hash = binding.policy_descriptor_hash
+            if policy_descriptor_hash is None:
+                raise MarketDataQueryServiceError("PROVIDER_POLICY_DESCRIPTOR_UNBOUND")
+            access_grant_descriptor_hash = binding.access_grant_descriptor_hash
+            if access_grant_descriptor_hash is None:
+                raise MarketDataQueryServiceError("PROVIDER_ACCESS_GRANT_UNBOUND")
+
+            fetch_lease: MarketDataFetchLeaseHandle | None = None
+            if self._fetch_leases is not None:
+                lease_acquire_failed = False
+                lease_key = market_data_fetch_lease_key(
                     fetch_context,
-                    route,
+                    coverage_gap=window,
+                    mode=request.mode,
                     policy_descriptor_hash=policy_descriptor_hash,
                     access_grant_descriptor_hash=access_grant_descriptor_hash,
                 )
-                result = await self._fetch_route(route, provider_request, warnings)
-                if result is None:
-                    continue
-                if result.request != provider_request:
-                    warnings.append(
-                        MarketDataQueryWarning(
-                            code="PROVIDER_REQUEST_MISMATCH",
-                            route_id=route.route_id,
-                            provider_id=result.provider_id,
-                        )
-                    )
-                    continue
-                if result.provider_id not in route.expected_result_provider_ids:
-                    warnings.append(
-                        MarketDataQueryWarning(
-                            code="PROVIDER_RECEIPT_MISMATCH",
-                            route_id=route.route_id,
-                            provider_id=result.provider_id,
-                        )
-                    )
-                    continue
-
-                # Provider I/O happens outside the authorization critical
-                # section.  Revalidate the exact route under locks after a
-                # response arrives and before the first persistence call so a
-                # source/entitlement change cannot turn an old grant into a
-                # new immutable receipt.
-                if access is None:
-                    raise MarketDataQueryServiceError("MARKET_DATA_ACCESS_REQUIRED")
-                if source_authorization is None:
-                    raise MarketDataQueryServiceError("SOURCE_ROUTE_AUTHORIZATION_DENIED")
-                venue = fetch_context.identity.venue
-                if venue is None:
-                    raise MarketDataQueryServiceError("IDENTITY_MARKET_UNSUPPORTED")
-                write_authorization = await access.authorizer.reauthorize_route_for_write(
-                    principal=access.principal,
-                    route=route,
-                    asset_type=fetch_context.identity.asset_type,
-                    market=venue,
-                    purpose=fetch_context.query.purpose,
-                    expected_authorization=source_authorization,
-                )
-
-                local_received_at = _trusted_receipt_time(self._clock)
                 try:
-                    persisted = await self._store.persist_provider_result(
-                        fetch_context,
-                        result,
-                        received_at=local_received_at,
-                        source_authorization=write_authorization,
+                    fetch_lease = await self._fetch_leases.acquire(lease_key)
+                except MarketDataFetchLeaseError as exc:
+                    warnings.append(MarketDataQueryWarning(code=exc.code))
+                    lease_acquire_failed = True
+                    fetch_lease = None
+                if fetch_lease is None:
+                    # The acquire loser has already rolled back its read-only
+                    # lease attempt. Re-read the shared local facts before
+                    # returning; it never invokes a primary or fallback route
+                    # while a different worker owns this exact coverage gap.
+                    if not lease_acquire_failed:
+                        warnings.append(MarketDataQueryWarning(code="FETCH_LEASE_HELD"))
+                    (
+                        policy_routes,
+                        allowed_source_registry_ids,
+                        source_authorizations,
+                    ) = await self._refresh_lease_read_authorization(
+                        access=access,
+                        policy=policy,
+                        candidate_policy_routes=candidate_policy_routes,
+                        context=context,
+                        expected_access_grant_descriptor_hash=access_grant_descriptor_hash,
                     )
-                except MarketDataStoreError as exc:
-                    warnings.append(
-                        MarketDataQueryWarning(
-                            code=exc.code,
-                            route_id=route.route_id,
-                            provider_id=result.provider_id,
-                        )
+                    routes = await self._active_routes(policy_routes, warnings)
+                    knowledge_cutoff = max(knowledge_cutoff, _trusted_receipt_time(self._clock))
+                    visibility_anchor = await self._store.resolve_visibility_anchor(
+                        knowledge_cutoff=knowledge_cutoff
                     )
-                    continue
-                except ValueError:
-                    warnings.append(
-                        MarketDataQueryWarning(
-                            code="PROVIDER_RECEIPT_REJECTED",
-                            route_id=route.route_id,
-                            provider_id=result.provider_id,
-                        )
+                    state = await self._read_local_state(
+                        context,
+                        knowledge_cutoff,
+                        visibility_anchor=visibility_anchor,
+                        snapshot_max_age=snapshot_max_age,
+                        allowed_source_registry_ids=allowed_source_registry_ids,
                     )
                     continue
 
-                fetches.append(_fetch_receipt(route, result, persisted))
-                fresh_revision_ids.update(persisted.observation_revision_ids)
-                window_fresh_revision_ids.update(persisted.observation_revision_ids)
-                # Display/refresh queries have no frozen user-provided
-                # knowledge boundary.  Advance the local read cutoff only after
-                # the receipt was durably flushed by the store.
-                knowledge_cutoff = max(knowledge_cutoff, persisted.received_at, local_received_at)
-                visibility_anchor = await self._store.resolve_visibility_anchor(
-                    knowledge_cutoff=knowledge_cutoff
-                )
-                window_state = await self._read_local_state(
-                    fetch_context,
-                    knowledge_cutoff,
-                    visibility_anchor=visibility_anchor,
-                    snapshot_max_age=snapshot_max_age,
-                    allowed_source_registry_ids=allowed_source_registry_ids,
-                )
-                if self._route_satisfied_window(
-                    mode=request.mode,
-                    state=window_state,
-                    context=fetch_context,
-                    fresh_revision_ids=frozenset(window_fresh_revision_ids),
-                    passing_observation_count=persisted.passing_observation_count,
-                    knowledge_cutoff=knowledge_cutoff,
-                ):
-                    break
+            try:
+                # A prior owner can publish and release after this request's
+                # first local read but before this worker wins the next fence.
+                # Re-read after acquisition so local-first never fetches that
+                # now-complete gap from the network a second time.
+                if request.mode == "local_first" and fetch_lease is not None:
+                    (
+                        policy_routes,
+                        allowed_source_registry_ids,
+                        source_authorizations,
+                    ) = await self._refresh_lease_read_authorization(
+                        access=access,
+                        policy=policy,
+                        candidate_policy_routes=candidate_policy_routes,
+                        context=fetch_context,
+                        expected_access_grant_descriptor_hash=access_grant_descriptor_hash,
+                    )
+                    routes = await self._active_routes(policy_routes, warnings)
+                    knowledge_cutoff = max(knowledge_cutoff, _trusted_receipt_time(self._clock))
+                    visibility_anchor = await self._store.resolve_visibility_anchor(
+                        knowledge_cutoff=knowledge_cutoff
+                    )
+                    post_acquire_state = await self._read_local_state(
+                        fetch_context,
+                        knowledge_cutoff,
+                        visibility_anchor=visibility_anchor,
+                        snapshot_max_age=snapshot_max_age,
+                        allowed_source_registry_ids=allowed_source_registry_ids,
+                    )
+                    if self._route_satisfied_window(
+                        mode=request.mode,
+                        state=post_acquire_state,
+                        context=fetch_context,
+                        fresh_revision_ids=frozenset(),
+                        passing_observation_count=0,
+                        knowledge_cutoff=knowledge_cutoff,
+                    ):
+                        continue
+
+                for route in routes:
+                    source_authorization = source_authorizations.get(route.route_id)
+                    if access is not None and source_authorization is None:
+                        raise MarketDataQueryServiceError("SOURCE_ROUTE_AUTHORIZATION_DENIED")
+                    provider_request = _provider_request_for(
+                        fetch_context,
+                        route,
+                        policy_descriptor_hash=policy_descriptor_hash,
+                        access_grant_descriptor_hash=access_grant_descriptor_hash,
+                    )
+                    # Every route, including a fallback after a failed receipt
+                    # or an unsatisfied local re-read, enters its adapter with
+                    # no request-session database transaction or registry lock.
+                    await self._close_transaction_before_provider_io()
+                    result = await self._fetch_route(route, provider_request, warnings)
+                    if result is None:
+                        continue
+                    if result.request != provider_request:
+                        warnings.append(
+                            MarketDataQueryWarning(
+                                code="PROVIDER_REQUEST_MISMATCH",
+                                route_id=route.route_id,
+                                provider_id=result.provider_id,
+                            )
+                        )
+                        continue
+                    if result.provider_id not in route.expected_result_provider_ids:
+                        warnings.append(
+                            MarketDataQueryWarning(
+                                code="PROVIDER_RECEIPT_MISMATCH",
+                                route_id=route.route_id,
+                                provider_id=result.provider_id,
+                            )
+                        )
+                        continue
+
+                    # Provider I/O happens after durable acquisition and outside
+                    # any lease/write transaction. Revalidate the exact route
+                    # under access locks before the fenced persistence boundary.
+                    if access is None:
+                        raise MarketDataQueryServiceError("MARKET_DATA_ACCESS_REQUIRED")
+                    if source_authorization is None:
+                        raise MarketDataQueryServiceError("SOURCE_ROUTE_AUTHORIZATION_DENIED")
+                    venue = fetch_context.identity.venue
+                    if venue is None:
+                        raise MarketDataQueryServiceError("IDENTITY_MARKET_UNSUPPORTED")
+                    write_authorization = await access.authorizer.reauthorize_route_for_write(
+                        principal=access.principal,
+                        route=route,
+                        asset_type=fetch_context.identity.asset_type,
+                        market=venue,
+                        purpose=fetch_context.query.purpose,
+                        expected_authorization=source_authorization,
+                    )
+
+                    local_received_at = _trusted_receipt_time(self._clock)
+                    try:
+                        if fetch_lease is None:
+                            persisted = await self._store.persist_provider_result(
+                                fetch_context,
+                                result,
+                                received_at=local_received_at,
+                                source_authorization=write_authorization,
+                            )
+                        else:
+                            persisted = await self._store.persist_provider_result(
+                                fetch_context,
+                                result,
+                                received_at=local_received_at,
+                                source_authorization=write_authorization,
+                                fetch_lease=fetch_lease,
+                            )
+                    except MarketDataStoreError as exc:
+                        warnings.append(
+                            MarketDataQueryWarning(
+                                code=exc.code,
+                                route_id=route.route_id,
+                                provider_id=result.provider_id,
+                            )
+                        )
+                        if fetch_lease is not None and exc.code.startswith("FETCH_LEASE_"):
+                            break
+                        continue
+                    except ValueError:
+                        warnings.append(
+                            MarketDataQueryWarning(
+                                code="PROVIDER_RECEIPT_REJECTED",
+                                route_id=route.route_id,
+                                provider_id=result.provider_id,
+                            )
+                        )
+                        continue
+
+                    fetches.append(_fetch_receipt(route, result, persisted))
+                    fresh_revision_ids.update(persisted.observation_revision_ids)
+                    window_fresh_revision_ids.update(persisted.observation_revision_ids)
+                    # Display/refresh queries have no frozen user-provided
+                    # knowledge boundary. Advance the local read cutoff only
+                    # after the receipt was durably flushed by the store.
+                    knowledge_cutoff = max(
+                        knowledge_cutoff,
+                        persisted.received_at,
+                        local_received_at,
+                    )
+                    visibility_anchor = await self._store.resolve_visibility_anchor(
+                        knowledge_cutoff=knowledge_cutoff
+                    )
+                    if fetch_lease is not None:
+                        (
+                            policy_routes,
+                            allowed_source_registry_ids,
+                            source_authorizations,
+                        ) = await self._refresh_lease_read_authorization(
+                            access=access,
+                            policy=policy,
+                            candidate_policy_routes=candidate_policy_routes,
+                            context=fetch_context,
+                            expected_access_grant_descriptor_hash=access_grant_descriptor_hash,
+                        )
+                        routes = await self._active_routes(policy_routes, warnings)
+                    window_state = await self._read_local_state(
+                        fetch_context,
+                        knowledge_cutoff,
+                        visibility_anchor=visibility_anchor,
+                        snapshot_max_age=snapshot_max_age,
+                        allowed_source_registry_ids=allowed_source_registry_ids,
+                    )
+                    if self._route_satisfied_window(
+                        mode=request.mode,
+                        state=window_state,
+                        context=fetch_context,
+                        fresh_revision_ids=frozenset(window_fresh_revision_ids),
+                        passing_observation_count=persisted.passing_observation_count,
+                        knowledge_cutoff=knowledge_cutoff,
+                    ):
+                        break
+            finally:
+                if fetch_lease is not None:
+                    try:
+                        released = await self._fetch_leases.release(fetch_lease)
+                    except MarketDataFetchLeaseError as exc:
+                        warnings.append(MarketDataQueryWarning(code=exc.code))
+                    else:
+                        if not released:
+                            warnings.append(MarketDataQueryWarning(code="FETCH_LEASE_RELEASE_LOST"))
+
+        if self._fetch_leases is not None:
+            expected_access_grant_descriptor_hash = binding.access_grant_descriptor_hash
+            if expected_access_grant_descriptor_hash is None:
+                raise MarketDataQueryServiceError("PROVIDER_ACCESS_GRANT_UNBOUND")
+            (
+                policy_routes,
+                allowed_source_registry_ids,
+                source_authorizations,
+            ) = await self._refresh_lease_read_authorization(
+                access=access,
+                policy=policy,
+                candidate_policy_routes=candidate_policy_routes,
+                context=context,
+                expected_access_grant_descriptor_hash=expected_access_grant_descriptor_hash,
+            )
 
         state = await self._read_local_state(
             context,
@@ -863,6 +1039,59 @@ class MarketDataQueryService:
             fetches=fetches,
             warnings=warnings,
             refresh_status=refresh_status,
+        )
+
+    async def _refresh_lease_read_authorization(
+        self,
+        *,
+        access: MarketDataQueryAccess | None,
+        policy: MarketDataSourcePolicy,
+        candidate_policy_routes: tuple[MarketDataProviderRoute, ...],
+        context: ResolvedMarketDataQueryContext,
+        expected_access_grant_descriptor_hash: str,
+    ) -> tuple[
+        tuple[MarketDataProviderRoute, ...],
+        frozenset[str] | None,
+        dict[str, MarketDataSourceAuthorization],
+    ]:
+        """Re-authorize every local re-read after a durable-lease boundary.
+
+        A separate worker can hold a lease while user roles or source-registry
+        policy changes. The follower or owner must not reuse its initial grant
+        merely because the data is now local. A changed principal or grant
+        descriptor fails closed rather than returning rows under an obsolete
+        access decision.
+        """
+        if access is None:
+            # Lower-level offline imports do not enter an interactive lease
+            # path. Preserve the internal no-access seam without inventing an
+            # authorization grant for it.
+            return candidate_policy_routes, None, {}
+        venue = context.identity.venue
+        if venue is None:
+            raise MarketDataQueryServiceError("IDENTITY_MARKET_UNSUPPORTED")
+        current_principal = await access.authorizer.revalidate_principal(
+            principal=access.principal
+        )
+        grant = await access.authorizer.authorize_policy(
+            principal=current_principal,
+            policy=policy,
+            routes=candidate_policy_routes,
+            asset_type=context.identity.asset_type,
+            market=venue,
+            purpose=context.query.purpose,
+        )
+        if grant.policy_descriptor_hash != expected_access_grant_descriptor_hash:
+            raise MarketDataQueryServiceError("MARKET_DATA_ACCESS_CHANGED_DURING_FETCH")
+        authorized_routes = tuple(
+            route
+            for route in candidate_policy_routes
+            if route.route_id in grant.authorized_route_ids
+        )
+        return (
+            authorized_routes,
+            grant.authorized_source_registry_ids,
+            dict(grant.route_authorizations),
         )
 
     async def _read_local_state(
@@ -1013,6 +1242,24 @@ class MarketDataQueryService:
             )
             return fresh_coverage.status is CoverageStatus.COMPLETE
         raise MarketDataQueryServiceError("QUERY_MODE_INVALID")
+
+    async def _close_transaction_before_provider_io(self) -> None:
+        """Release local DB state before any provider adapter can block on I/O.
+
+        Production ``MarketDataStore`` exposes this boundary because ordinary
+        reads and source reauthorization auto-begin a SQLAlchemy transaction.
+        Lightweight in-memory stores used by contract tests have no database
+        transaction to close and intentionally omit the optional method.
+        """
+        closer = getattr(self._store, "close_transaction_before_provider_io", None)
+        if closer is None:
+            return
+        if not callable(closer):
+            raise MarketDataQueryServiceError("PROVIDER_IO_TRANSACTION_BOUNDARY_INVALID")
+        try:
+            await closer()
+        except MarketDataStoreError as exc:
+            raise MarketDataQueryServiceError(exc.code) from exc
 
     async def _fetch_route(
         self,

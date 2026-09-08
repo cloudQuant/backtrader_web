@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
@@ -30,6 +31,10 @@ from app.services.market_data.coverage import (
     QueryIdentity,
     TimeWindow,
 )
+from app.services.market_data.fetch_lease import (
+    MarketDataFetchLeaseHandle,
+    market_data_fetch_lease_key,
+)
 from app.services.market_data.identity import ResolvedMarketDataIdentity
 from app.services.market_data.providers import (
     MarketDataProviderRequest,
@@ -38,12 +43,19 @@ from app.services.market_data.providers import (
 )
 from app.services.market_data.publication import MarketDataVisibilityAnchor
 from app.services.market_data.query_resolution import ResolvedMarketDataQueryContext
-from app.services.market_data.query_service import MarketDataQueryService
+from app.services.market_data.query_service import (
+    MarketDataQueryService,
+    MarketDataQueryServiceError,
+)
 from app.services.market_data.snapshot_freshness import (
     SnapshotFreshnessPolicy,
     SnapshotFreshnessPolicyRegistry,
 )
-from app.services.market_data.store import LocalObservationRevision, PersistedProviderFetch
+from app.services.market_data.store import (
+    LocalObservationRevision,
+    MarketDataStoreError,
+    PersistedProviderFetch,
+)
 
 UTC = timezone.utc
 DATASET_ID = "dataset-market-stock"
@@ -360,6 +372,9 @@ class _Store:
         self.calendar_source_filters: list[frozenset[str] | None] = []
         self.authorization_checks: list[str] = []
         self.persisted_source_authorizations: list[MarketDataSourceAuthorization | None] = []
+        self.persisted_fetch_leases: list[MarketDataFetchLeaseHandle | None] = []
+        self.provider_io_boundary_calls = 0
+        self.provider_io_transaction_active = False
 
     async def resolve_visibility_anchor(
         self,
@@ -415,11 +430,14 @@ class _Store:
         return self.calendar
 
     async def ensure_provider_active(self, provider_id: str) -> None:
-        from app.services.market_data.store import MarketDataStoreError
-
         self.authorization_checks.append(provider_id)
         if provider_id in self.inactive_provider_ids:
             raise MarketDataStoreError("PROVIDER_INACTIVE")
+
+    async def close_transaction_before_provider_io(self) -> None:
+        """Model release of a request-local transaction before adapter I/O."""
+        self.provider_io_boundary_calls += 1
+        self.provider_io_transaction_active = False
 
     async def persist_provider_result(
         self,
@@ -428,9 +446,11 @@ class _Store:
         *,
         received_at: datetime,
         source_authorization: MarketDataSourceAuthorization | None = None,
+        fetch_lease: MarketDataFetchLeaseHandle | None = None,
     ) -> PersistedProviderFetch:
         self.persisted.append((context, result))
         self.persisted_source_authorizations.append(source_authorization)
+        self.persisted_fetch_leases.append(fetch_lease)
         for item in result.observations:
             self.revisions.append(
                 LocalObservationRevision(
@@ -497,6 +517,72 @@ class _Provider:
         if self.bind_request:
             return replace(self.result, request=request)
         return self.result
+
+
+class _ProviderTransactionProbe(_Provider):
+    """Fail the test if query orchestration calls an adapter under a transaction."""
+
+    def __init__(self, result: ProviderFetchResult | Exception, *, store: _Store) -> None:
+        super().__init__(result)
+        self._store = store
+
+    async def fetch(self, request: Any) -> ProviderFetchResult:
+        assert not self._store.provider_io_transaction_active
+        return await super().fetch(request)
+
+
+class _FirstPersistenceFailureStore(_Store):
+    """Leave a simulated auth/write transaction active after the first route."""
+
+    def __init__(self, *, calendar: CalendarSnapshot, revisions: list[LocalObservationRevision]) -> None:
+        super().__init__(calendar=calendar, revisions=revisions)
+        self._fail_first_persistence = True
+
+    async def persist_provider_result(
+        self,
+        context: ResolvedMarketDataQueryContext,
+        result: ProviderFetchResult,
+        *,
+        received_at: datetime,
+        source_authorization: MarketDataSourceAuthorization | None = None,
+        fetch_lease: MarketDataFetchLeaseHandle | None = None,
+    ) -> PersistedProviderFetch:
+        if self._fail_first_persistence:
+            self._fail_first_persistence = False
+            self.provider_io_transaction_active = True
+            raise MarketDataStoreError("OBSERVATION_WRITE_FAILED")
+        return await super().persist_provider_result(
+            context,
+            result,
+            received_at=received_at,
+            source_authorization=source_authorization,
+            fetch_lease=fetch_lease,
+        )
+
+
+class _FetchLeases:
+    """Observable lease fake for orchestration tests without a real provider call."""
+
+    def __init__(
+        self,
+        handle: MarketDataFetchLeaseHandle | None,
+        *,
+        on_acquire: Callable[[], None] | None = None,
+    ) -> None:
+        self.handle = handle
+        self._on_acquire = on_acquire
+        self.acquired_keys: list[str] = []
+        self.released_handles: list[MarketDataFetchLeaseHandle] = []
+
+    async def acquire(self, lease_key_sha256: str) -> MarketDataFetchLeaseHandle | None:
+        self.acquired_keys.append(lease_key_sha256)
+        if self._on_acquire is not None:
+            self._on_acquire()
+        return self.handle
+
+    async def release(self, handle: MarketDataFetchLeaseHandle) -> bool:
+        self.released_handles.append(handle)
+        return True
 
 
 def _provider_result(
@@ -583,6 +669,7 @@ def _service(
     cursor_signing_key: str = _CURSOR_SIGNING_KEY,
     cursor_ttl: timedelta = timedelta(minutes=15),
     snapshot_freshness_policies: SnapshotFreshnessPolicyRegistry | None = None,
+    fetch_leases: Any | None = None,
 ):
     from app.services.market_data.source_policy import (
         MarketDataSourcePolicy,
@@ -606,6 +693,7 @@ def _service(
         clock=lambda: _at(12),
         cursor_signing_key=cursor_signing_key,
         cursor_ttl=cursor_ttl,
+        fetch_leases=fetch_leases,
         test_store=store,
     )
 
@@ -687,6 +775,9 @@ class _AccessAuthorizer(MarketDataAccessAuthorizer):
         self.policy_authorizations: list[tuple[str, ...]] = []
         self.local_read_counts_at_authorization: list[int] = []
         self.write_reauthorizations: list[tuple[str, MarketDataSourceAuthorization]] = []
+        self.revalidated_principals: list[MarketDataPrincipal] = []
+        self.revalidation_result: MarketDataPrincipal | Exception | None = None
+        self.refreshed_grant: MarketDataAccessGrant | Exception | None = None
 
     def require_read_data(self, *, principal: MarketDataPrincipal) -> None:
         self.read_entitlement_checks += 1
@@ -701,7 +792,21 @@ class _AccessAuthorizer(MarketDataAccessAuthorizer):
         routes = kwargs["routes"]
         assert isinstance(routes, tuple)
         self.policy_authorizations.append(tuple(route.route_id for route in routes))
+        if isinstance(self.refreshed_grant, Exception):
+            raise self.refreshed_grant
+        if self.refreshed_grant is not None and len(self.policy_authorizations) > 1:
+            return self.refreshed_grant
         return self.grant
+
+    async def revalidate_principal(
+        self,
+        *,
+        principal: MarketDataPrincipal,
+    ) -> MarketDataPrincipal:
+        self.revalidated_principals.append(principal)
+        if isinstance(self.revalidation_result, Exception):
+            raise self.revalidation_result
+        return self.revalidation_result or principal
 
     async def reauthorize_route_for_write(
         self,
@@ -884,6 +989,254 @@ async def test_missing_local_data_is_persisted_then_reread_from_local_store() ->
     assert persisted_result.request == provider.requests[0]
     assert [(item.start_at, item.end_at) for item in [provider.requests[0]]] == [(_at(10), _at(12))]
     assert result.fetches[0].provider_id == "akshare"
+
+
+@pytest.mark.asyncio
+async def test_cross_worker_fetch_lease_follower_rereads_local_without_calling_a_route() -> None:
+    """A remote owner suppresses every primary/fallback adapter call in this worker."""
+    context = _context()
+    store = _Store(calendar=_calendar(), revisions=[])
+    provider = _Provider(_provider_result())
+    follower = _FetchLeases(handle=None)
+    service = _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+        fetch_leases=follower,
+    )
+
+    result = await service.execute(_request())
+
+    assert len(follower.acquired_keys) == 1
+    assert provider.requests == []
+    assert follower.released_handles == []
+    assert store.persisted == []
+    assert [warning.code for warning in result.warnings] == ["FETCH_LEASE_HELD"]
+    # The initial local read is followed by an explicit follower re-read after
+    # its failed acquire; it must not return the stale pre-acquire state.
+    assert len(store.read_cutoffs) >= 4
+
+
+@pytest.mark.asyncio
+async def test_cross_worker_fetch_lease_follower_rejects_revoked_principal_before_reread() -> None:
+    """A lease wait cannot expose local facts under a revoked user grant."""
+    context = _context()
+    store = _Store(calendar=_calendar(), revisions=[])
+    provider = _Provider(_provider_result())
+    service = _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+    )
+    resolver = service._resolver
+    assert isinstance(resolver, _Resolver)
+    access = _access(
+        source_registry_id="akshare",
+        route_id="route-akshare",
+        grant_hash="a" * 64,
+        store=store,
+        resolver=resolver,
+    )
+    follower = _FetchLeases(
+        handle=None,
+        on_acquire=lambda: setattr(
+            access.authorizer,
+            "revalidation_result",
+            MarketDataAuthorizationError("MARKET_DATA_ACCESS_CHANGED_DURING_FETCH"),
+        ),
+    )
+    service._fetch_leases = follower
+
+    with pytest.raises(MarketDataAuthorizationError) as rejected:
+        await service.execute(_request(), access=access)
+
+    assert rejected.value.code == "MARKET_DATA_ACCESS_CHANGED_DURING_FETCH"
+    assert access.authorizer.revalidated_principals == [access.principal]
+    assert provider.requests == []
+    # The initial authorized state is read, but the follower performs no
+    # post-lease local re-read after current authorization is rejected.
+    assert len(store.read_cutoffs) == 2
+
+
+@pytest.mark.asyncio
+async def test_cross_worker_fetch_lease_follower_rejects_changed_source_grant_before_reread() -> None:
+    """A source-registry descriptor change fails closed before local evidence reads."""
+    context = _context()
+    store = _Store(calendar=_calendar(), revisions=[])
+    provider = _Provider(_provider_result())
+    service = _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+    )
+    resolver = service._resolver
+    assert isinstance(resolver, _Resolver)
+    access = _access(
+        source_registry_id="akshare",
+        route_id="route-akshare",
+        grant_hash="a" * 64,
+        store=store,
+        resolver=resolver,
+    )
+    follower = _FetchLeases(
+        handle=None,
+        on_acquire=lambda: setattr(
+            access.authorizer,
+            "refreshed_grant",
+            replace(access.authorizer.grant, policy_descriptor_hash="b" * 64),
+        ),
+    )
+    service._fetch_leases = follower
+
+    with pytest.raises(MarketDataQueryServiceError) as rejected:
+        await service.execute(_request(), access=access)
+
+    assert rejected.value.code == "MARKET_DATA_ACCESS_CHANGED_DURING_FETCH"
+    assert access.authorizer.revalidated_principals == [access.principal]
+    assert provider.requests == []
+    assert len(store.read_cutoffs) == 2
+
+
+@pytest.mark.asyncio
+async def test_cross_worker_fetch_lease_owner_releases_only_its_exact_fence() -> None:
+    """The orchestration leader passes its handle to persistence and releases it in finally."""
+    context = _context()
+    store = _Store(calendar=_calendar(), revisions=[])
+    provider = _Provider(_provider_result())
+    handle = MarketDataFetchLeaseHandle(
+        lease_key_sha256="a" * 64,
+        owner_token="owner-1",
+        fence_token=7,
+        expires_at=_at(12) + timedelta(minutes=5),
+    )
+    owner = _FetchLeases(handle=handle)
+    service = _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+        fetch_leases=owner,
+    )
+
+    result = await service.execute(_request())
+
+    assert len(owner.acquired_keys) == 1
+    assert owner.released_handles == [handle]
+    assert len(provider.requests) == 1
+    assert store.persisted_fetch_leases == [handle]
+    assert result.fetches[0].provider_id == "akshare"
+
+
+@pytest.mark.asyncio
+async def test_cross_worker_lease_winner_rereads_after_prior_owner_publishes() -> None:
+    """A newly acquired local-first lease never refetches a just-published gap."""
+    context = _context()
+    store = _Store(calendar=_calendar(), revisions=[])
+    provider = _Provider(_provider_result())
+    handle = MarketDataFetchLeaseHandle(
+        lease_key_sha256="b" * 64,
+        owner_token="owner-after-release",
+        fence_token=8,
+        expires_at=_at(12) + timedelta(minutes=5),
+    )
+
+    def publish_from_previous_owner() -> None:
+        store.revisions.extend(_revision(_at(hour)) for hour in (9, 10, 11))
+
+    winner = _FetchLeases(handle=handle, on_acquire=publish_from_previous_owner)
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+        fetch_leases=winner,
+    ).execute(_request())
+
+    assert provider.requests == []
+    assert store.persisted == []
+    assert winner.released_handles == [handle]
+    assert result.coverage.status.value == "complete"
+    assert [item.event_at for item in result.observations] == [_at(9), _at(10), _at(11)]
+
+
+@pytest.mark.asyncio
+async def test_fallback_provider_starts_after_prior_route_transaction_is_closed() -> None:
+    """Fallback adapter calls never retain a failed route's auth/write transaction."""
+    context = _context()
+    store = _FirstPersistenceFailureStore(calendar=_calendar(), revisions=[])
+    primary = _ProviderTransactionProbe(_provider_result(), store=store)
+    fallback = _ProviderTransactionProbe(_provider_result(), store=store)
+
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(
+            _route(primary),
+            _route(fallback, request_provider="akshare-fallback"),
+        ),
+    ).execute(_request())
+
+    assert len(primary.requests) == 1
+    assert len(fallback.requests) == 1
+    assert store.provider_io_boundary_calls == 2
+    assert not store.provider_io_transaction_active
+    assert result.coverage.status.value == "complete"
+
+
+def test_fetch_lease_key_is_stable_for_one_resolved_gap_and_changes_with_semantics() -> None:
+    """A lease never relies on a process-local request object identity."""
+    context = _context()
+    family_bound_context = replace(
+        context,
+        query=context.query.model_copy(
+            update={
+                "family_id": "stock.realtime",
+                "family_contract_version": "market-data-family-v1",
+            }
+        ),
+    )
+    common = {
+        "mode": "local_first",
+        "policy_descriptor_hash": "b" * 64,
+        "access_grant_descriptor_hash": "c" * 64,
+    }
+
+    first = market_data_fetch_lease_key(
+        **common,
+        context=family_bound_context,
+        coverage_gap=TimeWindow(start_at=_at(9), end_at=_at(12)),
+    )
+    same = market_data_fetch_lease_key(
+        **common,
+        context=family_bound_context,
+        coverage_gap=TimeWindow(start_at=_at(9), end_at=_at(12)),
+    )
+    different_gap = market_data_fetch_lease_key(
+        **common,
+        context=family_bound_context,
+        coverage_gap=TimeWindow(start_at=_at(10), end_at=_at(12)),
+    )
+    different_family = market_data_fetch_lease_key(
+        **common,
+        context=replace(
+            family_bound_context,
+            query=family_bound_context.query.model_copy(update={"family_id": "stock.valuation"}),
+        ),
+        coverage_gap=TimeWindow(start_at=_at(9), end_at=_at(12)),
+    )
+    different_contract_version = market_data_fetch_lease_key(
+        **common,
+        context=replace(
+            family_bound_context,
+            query=family_bound_context.query.model_copy(
+                update={"family_contract_version": "market-data-family-v2"}
+            ),
+        ),
+        coverage_gap=TimeWindow(start_at=_at(9), end_at=_at(12)),
+    )
+
+    assert first == same
+    assert first != different_gap
+    assert first != different_family
+    assert first != different_contract_version
 
 
 @pytest.mark.asyncio
