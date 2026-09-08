@@ -6,7 +6,8 @@ import asyncio
 from functools import lru_cache
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,12 +19,18 @@ from app.schemas.market_data_platform import (
     MarketDataCoverageResponse,
     MarketDataFetchResponse,
     MarketDataObservationResponse,
+    MarketDataQueryBundleRequest,
+    MarketDataQueryBundleResponse,
     MarketDataQueryRequest,
     MarketDataQueryResponse,
     MarketDataQueryWarningResponse,
 )
 from app.services.market_data.akshare_provider import AkShareMarketDataProvider
 from app.services.market_data.catalog import DataCatalogResolver
+from app.services.market_data.dataset_contracts import (
+    DEFAULT_DATASET_CONTRACT_REGISTRY,
+    DatasetContractRegistryError,
+)
 from app.services.market_data.identity import (
     MarketDataIdentityResolutionError,
     MarketDataIdentityResolver,
@@ -233,6 +240,45 @@ def get_market_data_query_service(
     )
 
 
+def get_market_data_query_bundle_request(
+    http_request: Request,
+    asset_type: str = Query(..., min_length=1, max_length=32, description="Market-page asset type"),
+    family_id: str | None = Query(
+        default=None,
+        max_length=128,
+        description="Optional stable asset.family display-family key",
+    ),
+) -> MarketDataQueryBundleRequest:
+    """Parse the static bundle selector before entering the authenticated route.
+
+    This dependency intentionally accepts no symbol, provider, endpoint,
+    date, mode, or free-form data-kind axis.  Those values belong to a later
+    exact query contract, and accepting them here would make a static product
+    declaration look like a data query.
+    """
+    allowed_keys = {"asset_type", "family_id"}
+    query_keys = set(http_request.query_params.keys())
+    if query_keys - allowed_keys:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "DATA_FAMILY_REQUEST_INVALID"},
+        )
+    if any(len(http_request.query_params.getlist(key)) != 1 for key in query_keys):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "DATA_FAMILY_REQUEST_INVALID"},
+        )
+    try:
+        return MarketDataQueryBundleRequest.model_validate(
+            {"asset_type": asset_type, "family_id": family_id}
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "DATA_FAMILY_REQUEST_INVALID"},
+        ) from exc
+
+
 async def execute_market_data_query_with_singleflight(
     *,
     service: MarketDataQueryService,
@@ -286,6 +332,37 @@ async def execute_market_data_query_with_singleflight(
     # from a fresh database snapshot.
     await db.rollback()
     return await service.execute(request)
+
+
+@router.get(
+    "/market-instruments/query-bundle",
+    response_model=MarketDataQueryBundleResponse,
+    summary="Read server-owned market-page data-family contracts",
+)
+async def get_market_data_query_bundle(
+    request: MarketDataQueryBundleRequest = Depends(get_market_data_query_bundle_request),
+    current_user: Any = Depends(get_current_db_user),
+) -> MarketDataQueryBundleResponse:
+    """Return static product contracts without resolving data or invoking providers.
+
+    A ``ready`` entry remains only a bars compatibility declaration.  The
+    caller must still obtain the existing exact identity ``query-contract``
+    and execute the v2 data endpoint; the bundle itself cannot trigger online
+    fetches or create a fallback data path.
+    """
+    del current_user
+    if not get_settings().MARKET_DATA_QUERY_V2_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
+        )
+    try:
+        return DEFAULT_DATASET_CONTRACT_REGISTRY.bundle_for(request)
+    except DatasetContractRegistryError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": exc.code},
+        ) from exc
 
 
 @router.post(
@@ -342,7 +419,7 @@ def _market_data_http_error(code: str) -> HTTPException:
     }:
         response_status = status.HTTP_503_SERVICE_UNAVAILABLE
     else:
-        response_status = status.HTTP_422_UNPROCESSABLE_ENTITY
+        response_status = status.HTTP_422_UNPROCESSABLE_CONTENT
     return HTTPException(status_code=response_status, detail={"code": code})
 
 
@@ -365,6 +442,12 @@ def _response_from_execution(execution: MarketDataQueryExecution) -> MarketDataQ
         data_kind=query.data_kind,
         frequency=query.frequency or "snapshot",
         source_policy_id=source_policy_id,
+        # The resolver always constructs these attributes.  Keep the HTTP
+        # projection tolerant of older read-only execution fixtures during the
+        # staged rollout, where an unbound compatibility query predates the
+        # family-control-plane fields.
+        family_id=getattr(query, "family_id", None),
+        family_contract_version=getattr(query, "family_contract_version", None),
         knowledge_cutoff=execution.knowledge_cutoff,
         identity_knowledge_cutoff=execution.identity_knowledge_cutoff,
         observations=tuple(

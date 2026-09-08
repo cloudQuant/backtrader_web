@@ -22,11 +22,22 @@ MarketDataKind = Literal[
     "option_chain",
     "position_report",
     "reference_series",
+    "inventory_report",
+    "option_risk_surface",
 ]
 MarketDataMode = Literal["local_first", "local_only", "refresh"]
-MarketDataFrequency = Literal["5min", "30min", "1h", "1d", "1w", "1mo"]
+MarketDataFrequency = Literal["5min", "30min", "1h", "1d", "1w", "1mo", "snapshot"]
 MarketDataConsistency = Literal["display", "strict"]
 MarketDataPurpose = Literal["display", "research", "backtest", "export"]
+MarketDataFamilyStatus = Literal["ready", "unconfigured", "not_applicable"]
+MarketDataFamilyContractVersion = Literal["market-data-family-v1"]
+MarketDataFrequencySemantics = Literal["calendar_grid", "snapshot", "reporting_period"]
+MarketDataCoverageModel = Literal[
+    "calendar_grid",
+    "snapshot_freshness",
+    "slice_completeness",
+    "report_completeness",
+]
 
 _MAX_DIRECT_BAR_WINDOWS: dict[str, timedelta] = {
     "5min": timedelta(days=31),
@@ -97,6 +108,201 @@ class QueryIdentity(_StrictMarketDataModel):
         }
 
 
+class MarketDataQueryBundleRequest(_StrictMarketDataModel):
+    """Read-only request for the server-owned market-page family contract bundle.
+
+    The bundle is a control-plane declaration, not a market-data query.  It
+    therefore accepts no provider, endpoint, data window, or symbol selector.
+    A symbol-specific bars request must still obtain the existing exact
+    ``query-contract`` bridge before it can enter the v2 query service.
+    """
+
+    asset_type: MarketDataAssetType
+    family_id: str | None = Field(default=None, max_length=128)
+
+    @field_validator("family_id")
+    @classmethod
+    def normalize_family_id(cls, value: str | None) -> str | None:
+        """Accept only a compact stable ``asset.family`` control-plane key."""
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("family_id must not be blank")
+        parts = normalized.split(".")
+        if len(parts) != 2 or any(not part.replace("_", "").isalnum() for part in parts):
+            raise ValueError("family_id must use the stable asset.family form")
+        if any(not part[0].islower() or part != part.lower() for part in parts):
+            raise ValueError("family_id must use lowercase asset.family segments")
+        return normalized
+
+
+class MarketDataFieldProfileResponse(_StrictMarketDataModel):
+    """Server-owned field and slice dimensions for one data-product contract."""
+
+    profile_id: str = Field(min_length=1, max_length=128)
+    required_fields: tuple[str, ...] = Field(min_length=1)
+    optional_fields: tuple[str, ...] = ()
+    dimension_fields: tuple[str, ...] = ()
+
+    @field_validator("profile_id")
+    @classmethod
+    def normalize_profile_id(cls, value: str) -> str:
+        """Reject whitespace-only or unstable profile identifiers."""
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("profile_id must not be blank")
+        return normalized
+
+    @field_validator("required_fields", "optional_fields", "dimension_fields", mode="before")
+    @classmethod
+    def normalize_field_groups(cls, value: Any) -> tuple[str, ...]:
+        """Canonicalize field groups before checking their cross-group semantics."""
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("field-profile groups must be lists or tuples")
+        normalized_fields: list[str] = []
+        for field_name in value:
+            if not isinstance(field_name, str):
+                raise ValueError("field-profile names must be strings")
+            normalized = field_name.strip()
+            if not normalized:
+                raise ValueError("field-profile names must not be blank")
+            normalized_fields.append(normalized)
+        if len(normalized_fields) != len(set(normalized_fields)):
+            raise ValueError("field-profile names must be distinct within a group")
+        return tuple(normalized_fields)
+
+    @model_validator(mode="after")
+    def validate_disjoint_field_groups(self) -> MarketDataFieldProfileResponse:
+        """Prevent a field from silently changing value/dimension semantics."""
+        groups = (self.required_fields, self.optional_fields, self.dimension_fields)
+        flattened = [field_name for group in groups for field_name in group]
+        if len(flattened) != len(set(flattened)):
+            raise ValueError("field-profile groups must not overlap")
+        return self
+
+
+class MarketDataFamilyContractResponse(_StrictMarketDataModel):
+    """One auditable data-product declaration for a market-page display family."""
+
+    family_id: str = Field(min_length=3, max_length=128)
+    family_contract_version: MarketDataFamilyContractVersion = "market-data-family-v1"
+    asset_type: MarketDataAssetType
+    status: MarketDataFamilyStatus
+    dataset_code: str = Field(min_length=1, max_length=255)
+    data_kind: MarketDataKind
+    frequency_semantics: MarketDataFrequencySemantics
+    frequencies: tuple[MarketDataFrequency, ...] = Field(min_length=1)
+    field_profile_id: str = Field(min_length=1, max_length=128)
+    required_fields: tuple[str, ...] = Field(min_length=1)
+    optional_fields: tuple[str, ...] = ()
+    dimension_fields: tuple[str, ...] = ()
+    coverage_model: MarketDataCoverageModel
+    source_policy_id: str | None = Field(default=None, max_length=128)
+    reason_code: str | None = Field(default=None, max_length=128)
+
+    @field_validator(
+        "family_id",
+        "dataset_code",
+        "field_profile_id",
+        "source_policy_id",
+        "reason_code",
+    )
+    @classmethod
+    def normalize_contract_text(cls, value: str | None) -> str | None:
+        """Reject blank contract axes instead of converting them to wildcards."""
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("market-data family contract text must not be blank")
+        return normalized
+
+    @field_validator("frequencies", mode="before")
+    @classmethod
+    def normalize_contract_frequencies(cls, value: Any) -> tuple[str, ...]:
+        """Keep frequency declarations nonempty, ordered, and duplicate-free."""
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("frequencies must be a list or tuple")
+        normalized = tuple(value)
+        if not normalized:
+            raise ValueError("frequencies must not be empty")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("frequencies must be distinct")
+        return normalized
+
+    @field_validator("required_fields", "optional_fields", "dimension_fields", mode="before")
+    @classmethod
+    def normalize_contract_field_groups(cls, value: Any) -> tuple[str, ...]:
+        """Apply the profile field-name rules to flattened public contract fields."""
+        return MarketDataFieldProfileResponse.normalize_field_groups(value)
+
+    @model_validator(mode="after")
+    def validate_family_contract_semantics(self) -> MarketDataFamilyContractResponse:
+        """Fail closed on data-kind, cadence, and execution-status disagreements."""
+        family_asset_type, separator, family_name = self.family_id.partition(".")
+        if (
+            separator != "."
+            or not family_name
+            or family_asset_type != self.asset_type
+            or self.family_id != self.family_id.lower()
+        ):
+            raise ValueError("family contract identity must match its lowercase asset.family key")
+        # Constructing the reusable profile DTO proves that the flattened
+        # wire shape cannot overlap its required, optional, and dimension axes.
+        MarketDataFieldProfileResponse(
+            profile_id=self.field_profile_id,
+            required_fields=self.required_fields,
+            optional_fields=self.optional_fields,
+            dimension_fields=self.dimension_fields,
+        )
+        snapshot_kinds = {"quote_snapshot", "option_chain", "option_risk_surface"}
+        has_snapshot_frequency = "snapshot" in self.frequencies
+        if self.frequency_semantics == "snapshot":
+            if self.frequencies != ("snapshot",) or self.data_kind not in snapshot_kinds:
+                raise ValueError("snapshot contracts require a snapshot data kind and cadence")
+        elif has_snapshot_frequency:
+            raise ValueError("only snapshot contracts may declare the snapshot cadence")
+        if self.frequency_semantics == "reporting_period" and self.data_kind not in {
+            "position_report",
+            "inventory_report",
+        }:
+            raise ValueError("reporting-period contracts require a report data kind")
+        if self.frequency_semantics == "calendar_grid" and self.data_kind in snapshot_kinds:
+            raise ValueError("snapshot data kinds cannot use a calendar-grid cadence")
+        if self.status == "ready":
+            if (
+                self.dataset_code != "market.bars"
+                or self.data_kind != "bars"
+                or self.frequency_semantics != "calendar_grid"
+                or self.coverage_model != "calendar_grid"
+                or self.source_policy_id is None
+                or self.reason_code is not None
+            ):
+                raise ValueError("ready contracts are limited to reviewed bars compatibility")
+        elif self.source_policy_id is not None or self.reason_code is None:
+            raise ValueError(
+                "non-ready contracts require a reason and cannot expose an execution policy"
+            )
+        return self
+
+
+class MarketDataQueryBundleResponse(_StrictMarketDataModel):
+    """Read-only, server-issued contracts for one market-page asset type."""
+
+    version: Literal["market-data-family-bundle-v1"] = "market-data-family-bundle-v1"
+    requested_asset_type: MarketDataAssetType
+    families: tuple[MarketDataFamilyContractResponse, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_bundle_family_uniqueness(self) -> MarketDataQueryBundleResponse:
+        """Ensure a client never receives competing contracts for one family ID."""
+        family_ids = [family.family_id for family in self.families]
+        if len(family_ids) != len(set(family_ids)):
+            raise ValueError("query bundle family IDs must be unique")
+        return self
+
+
 class MarketDataQueryRequest(_StrictMarketDataModel):
     """Versioned public request for one bounded local-first market-data query.
 
@@ -112,6 +318,13 @@ class MarketDataQueryRequest(_StrictMarketDataModel):
     end: datetime = Field(description="Exclusive ISO-8601 timestamp with timezone")
     required_fields: tuple[str, ...] = Field(description="Distinct canonical schema field names")
 
+    # A request without this pair is the retained pre-bundle compatibility
+    # path. When a market-page family bundle selected the query, the pair is
+    # copied verbatim into the executable request and checked again after
+    # catalog and identity resolution. This prevents a control-plane card from
+    # being routed through a merely similar bars dataset.
+    family_id: str | None = Field(default=None, max_length=128)
+    family_contract_version: MarketDataFamilyContractVersion | None = None
     dataset_code: str | None = Field(default=None, max_length=255)
     frequency: MarketDataFrequency | None = None
     adjustment: str | None = Field(default=None, max_length=128)
@@ -130,6 +343,7 @@ class MarketDataQueryRequest(_StrictMarketDataModel):
     cursor: str | None = Field(default=None, max_length=2048)
 
     @field_validator(
+        "family_id",
         "dataset_code",
         "adjustment",
         "price_basis",
@@ -147,6 +361,12 @@ class MarketDataQueryRequest(_StrictMarketDataModel):
         if not normalized:
             raise ValueError("query text values must not be blank")
         return normalized
+
+    @field_validator("family_id")
+    @classmethod
+    def validate_query_family_id(cls, value: str | None) -> str | None:
+        """Require the same stable family key shape used by the bundle endpoint."""
+        return MarketDataQueryBundleRequest.normalize_family_id(value)
 
     @field_validator("start", "end", "knowledge_cutoff")
     @classmethod
@@ -183,10 +403,25 @@ class MarketDataQueryRequest(_StrictMarketDataModel):
     @model_validator(mode="after")
     def validate_query_window_and_frequency(self) -> MarketDataQueryRequest:
         """Enforce the half-open interval and the required bars cadence."""
+        if (self.family_id is None) != (self.family_contract_version is None):
+            raise ValueError("family_id and family_contract_version must be specified together")
         if self.start >= self.end:
             raise ValueError("end must be later than start for half-open [start, end) queries")
-        if self.data_kind == "bars" and self.frequency is None:
-            raise ValueError("bars queries require an explicit unambiguous frequency")
+        snapshot_kinds = {"quote_snapshot", "option_chain", "option_risk_surface"}
+        report_kinds = {"position_report", "inventory_report"}
+        if self.data_kind == "bars":
+            if self.frequency is None:
+                raise ValueError("bars queries require an explicit unambiguous frequency")
+            if self.frequency == "snapshot":
+                raise ValueError("bars queries cannot use the snapshot frequency")
+        elif self.data_kind in snapshot_kinds:
+            if self.frequency != "snapshot":
+                raise ValueError("snapshot data kinds require the explicit snapshot frequency")
+        elif self.data_kind in report_kinds | {"reference_series"}:
+            if self.frequency is None or self.frequency == "snapshot":
+                raise ValueError(
+                    "report and reference-series queries require a non-snapshot frequency"
+                )
         if self.purpose in {"research", "backtest"}:
             if self.consistency != "strict":
                 raise ValueError("research and backtest queries require strict consistency")
@@ -219,6 +454,8 @@ class MarketDataQueryRequest(_StrictMarketDataModel):
         return {
             "contract_version": "market-data-query-v1",
             "identity": self.identity.semantic_payload(),
+            "family_id": self.family_id,
+            "family_contract_version": self.family_contract_version,
             "dataset_code": self.dataset_code,
             "data_kind": self.data_kind,
             "frequency": self.frequency,
@@ -390,6 +627,8 @@ class MarketDataQueryResponse(BaseModel):
     data_kind: MarketDataKind
     frequency: str
     source_policy_id: str
+    family_id: str | None = None
+    family_contract_version: MarketDataFamilyContractVersion | None = None
     knowledge_cutoff: datetime
     identity_knowledge_cutoff: datetime
     observations: tuple[MarketDataObservationResponse, ...]

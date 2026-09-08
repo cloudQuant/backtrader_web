@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.config import get_settings
 from app.db.database import get_db
+from app.services.market_data.dataset_contracts import DatasetContractRegistryError
 from app.services.market_data.legacy_contract import LegacyMarketDataQueryContractResolver
 from app.services.market_instrument import MarketAssetType, MarketInstrumentService
 
@@ -46,9 +47,16 @@ def get_legacy_market_data_query_contract_resolver(
     response_model=None,
 )
 async def get_market_data_query_contract(
-    symbol: str = Query(..., min_length=1, description="Exact instrument code from approved master data"),
+    symbol: str = Query(
+        ..., min_length=1, description="Exact instrument code from approved master data"
+    ),
     asset_type: MarketAssetType = Query("stock", description="Instrument type"),
     period: str = Query("daily", description="Period: daily/weekly/monthly"),
+    family_id: str | None = Query(
+        default=None,
+        max_length=128,
+        description="Optional exact market-page family selected from the server bundle",
+    ),
     current_user: typing.Any = Depends(get_current_user),
     query_contracts: LegacyMarketDataQueryContractResolver = Depends(
         get_legacy_market_data_query_contract_resolver
@@ -69,11 +77,19 @@ async def get_market_data_query_contract(
             detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
         )
     try:
-        contract = await query_contracts.resolve(
-            asset_type=asset_type,
-            symbol=symbol,
-            period=period,
-        )
+        resolve_args: dict[str, str] = {
+            "asset_type": asset_type,
+            "symbol": symbol,
+            "period": period,
+        }
+        if family_id is not None:
+            resolve_args["family_id"] = family_id
+        contract = await query_contracts.resolve(**resolve_args)
+    except DatasetContractRegistryError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": exc.code},
+        ) from exc
     except SQLAlchemyError as exc:
         # A partially migrated metadata store is an unavailable compatibility
         # probe, not a server trace exposed to a market-page client.

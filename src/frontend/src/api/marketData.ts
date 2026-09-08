@@ -12,6 +12,8 @@ export type MarketDataQueryFrequency = '5min' | '30min' | '1h' | '1d' | '1w' | '
 export type MarketDataQueryMode = 'local_first' | 'local_only' | 'refresh'
 export type MarketDataQueryConsistency = 'display' | 'strict'
 export type MarketDataQueryPurpose = 'display' | 'research' | 'backtest' | 'export'
+export const MARKET_DATA_FAMILY_CONTRACT_VERSION = 'market-data-family-v1' as const
+export type MarketDataFamilyContractVersion = typeof MARKET_DATA_FAMILY_CONTRACT_VERSION
 
 /**
  * Server-proven v2 request facts attached to a legacy lookup when, and only
@@ -21,7 +23,19 @@ export type MarketDataQueryPurpose = 'display' | 'research' | 'backtest' | 'expo
  * from a symbol.  This keeps the progressive rollout safe while the catalog
  * and master-data bootstrap are incomplete.
  */
-export interface MarketDataQueryContractRequest {
+/** A query is either unbound or carries both immutable family binding axes. */
+export type MarketDataFamilyBinding = (
+  | {
+    family_id: string
+    family_contract_version: MarketDataFamilyContractVersion
+  }
+  | {
+    family_id?: undefined
+    family_contract_version?: undefined
+  }
+)
+
+export interface MarketDataQueryContractRequestBase {
   identity: {
     canonical_id: string
   }
@@ -37,12 +51,69 @@ export interface MarketDataQueryContractRequest {
   mode: 'local_first'
 }
 
+export type MarketDataQueryContractRequest = MarketDataQueryContractRequestBase & MarketDataFamilyBinding
+
 export interface MarketDataQueryContract {
   version: 'market-data-v2'
   request: MarketDataQueryContractRequest
 }
 
-export interface MarketDataQueryRequest extends Omit<MarketDataQueryContractRequest, 'mode'> {
+export type MarketDataQueryBundleFamilyStatus = 'ready' | 'unconfigured' | 'not_applicable'
+export type MarketDataQueryBundleFrequency = MarketDataQueryFrequency | 'snapshot'
+export type MarketDataQueryBundleFrequencySemantics = 'calendar_grid' | 'snapshot' | 'reporting_period'
+export type MarketDataQueryBundleCoverageModel = (
+  | 'calendar_grid'
+  | 'snapshot_freshness'
+  | 'slice_completeness'
+  | 'report_completeness'
+)
+export type MarketDataQueryBundleDataKind = (
+  | 'bars'
+  | 'quote_snapshot'
+  | 'option_chain'
+  | 'position_report'
+  | 'reference_series'
+  | 'inventory_report'
+  | 'option_risk_surface'
+)
+
+/**
+ * A read-only, server-owned declaration of one market-page data family.
+ *
+ * This is deliberately not executable query input. The data platform still
+ * issues a symbol-specific v2 query contract before a client can read bars.
+ * Keeping the static bundle separate means an unconfigured family cannot be
+ * reconstructed from a legacy page payload.
+ */
+export interface MarketDataQueryBundleFamily {
+  family_id: string
+  family_contract_version: MarketDataFamilyContractVersion
+  asset_type: MarketAssetType
+  status: MarketDataQueryBundleFamilyStatus
+  dataset_code: string
+  data_kind: MarketDataQueryBundleDataKind
+  frequency_semantics: MarketDataQueryBundleFrequencySemantics
+  frequencies: MarketDataQueryBundleFrequency[]
+  field_profile_id: string
+  required_fields: string[]
+  optional_fields: string[]
+  dimension_fields: string[]
+  coverage_model: MarketDataQueryBundleCoverageModel
+  source_policy_id: string | null
+  reason_code: string | null
+}
+
+/**
+ * Static control-plane response for all data families displayed by one asset
+ * tab.  It has no symbol, date range, provider call, or database side effect.
+ */
+export interface MarketDataQueryBundle {
+  version: 'market-data-family-bundle-v1'
+  requested_asset_type: MarketAssetType
+  families: MarketDataQueryBundleFamily[]
+}
+
+export type MarketDataQueryRequest = Omit<MarketDataQueryContractRequestBase, 'mode'> & MarketDataFamilyBinding & {
   start: string
   end: string
   mode: MarketDataQueryMode
@@ -111,6 +182,9 @@ export interface MarketDataQueryResponse {
   data_kind: string
   frequency: string
   source_policy_id: string
+  /** Echoes the request binding when a family-controlled query was issued. */
+  family_id?: string
+  family_contract_version?: MarketDataFamilyContractVersion
   knowledge_cutoff: string
   identity_knowledge_cutoff: string
   observations: MarketDataQueryObservation[]
@@ -153,6 +227,12 @@ export interface MarketDataQueryContractParams {
   asset_type: MarketAssetType
   symbol: string
   period: 'daily' | 'weekly' | 'monthly'
+  family_id?: string
+}
+
+export interface MarketDataQueryBundleParams {
+  asset_type: MarketAssetType
+  family_id?: string
 }
 
 export interface MarketInstrumentOptionsResponse {
@@ -262,6 +342,141 @@ function nonEmptyText(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+const MARKET_ASSET_TYPES: readonly MarketAssetType[] = [
+  'stock',
+  'futures',
+  'bond',
+  'fund',
+  'option',
+  'fx',
+  'crypto',
+]
+
+function isMarketAssetType(value: unknown): value is MarketAssetType {
+  return typeof value === 'string' && MARKET_ASSET_TYPES.includes(value as MarketAssetType)
+}
+
+const MARKET_DATA_QUERY_BUNDLE_DATA_KINDS: readonly MarketDataQueryBundleDataKind[] = [
+  'bars',
+  'quote_snapshot',
+  'option_chain',
+  'position_report',
+  'reference_series',
+  'inventory_report',
+  'option_risk_surface',
+]
+const MARKET_DATA_QUERY_BUNDLE_FREQUENCIES: readonly MarketDataQueryBundleFrequency[] = [
+  '5min',
+  '30min',
+  '1h',
+  '1d',
+  '1w',
+  '1mo',
+  'snapshot',
+]
+const MARKET_DATA_QUERY_BUNDLE_FREQUENCY_SEMANTICS: readonly MarketDataQueryBundleFrequencySemantics[] = [
+  'calendar_grid',
+  'snapshot',
+  'reporting_period',
+]
+const MARKET_DATA_QUERY_BUNDLE_COVERAGE_MODELS: readonly MarketDataQueryBundleCoverageModel[] = [
+  'calendar_grid',
+  'snapshot_freshness',
+  'slice_completeness',
+  'report_completeness',
+]
+
+function hasDistinctTextArray(value: unknown, minLength = 0): value is string[] {
+  return Array.isArray(value)
+    && value.length >= minLength
+    && value.every(nonEmptyText)
+    && new Set(value).size === value.length
+}
+
+function hasPairedMarketDataFamilyBinding(value: Record<string, unknown>): boolean {
+  const hasFamilyId = value.family_id !== undefined
+  const hasFamilyVersion = value.family_contract_version !== undefined
+  if (hasFamilyId !== hasFamilyVersion) return false
+  if (!hasFamilyId) return true
+  return nonEmptyText(value.family_id)
+    && value.family_contract_version === MARKET_DATA_FAMILY_CONTRACT_VERSION
+}
+
+/**
+ * Return whether a static family-control bundle is safe to use as an
+ * authoritative page capability declaration.
+ *
+ * A malformed 2xx payload must not activate the compatibility route: callers
+ * treat it as a v2 failure.  Ready entries require their descriptive
+ * read-only contract, while unavailable entries may only expose a stable
+ * reason code.
+ */
+export function hasMarketDataQueryBundle(value: unknown): value is MarketDataQueryBundle {
+  if (!value || typeof value !== 'object') return false
+  const bundle = value as Record<string, unknown>
+  if (
+    bundle.version !== 'market-data-family-bundle-v1'
+    || !isMarketAssetType(bundle.requested_asset_type)
+    || !Array.isArray(bundle.families)
+  ) {
+    return false
+  }
+
+  const requestedAssetType = bundle.requested_asset_type
+  const familyIds = new Set<string>()
+  return bundle.families.length > 0 && bundle.families.every((entry) => {
+    if (!entry || typeof entry !== 'object') return false
+    const family = entry as Record<string, unknown>
+    if (!nonEmptyText(family.family_id) || familyIds.has(family.family_id)) return false
+    familyIds.add(family.family_id)
+    if (family.family_contract_version !== MARKET_DATA_FAMILY_CONTRACT_VERSION) return false
+    if (!isMarketAssetType(family.asset_type) || !family.family_id.startsWith(`${family.asset_type}.`)) {
+      return false
+    }
+    if (
+      family.status !== 'ready'
+      && family.status !== 'unconfigured'
+      && family.status !== 'not_applicable'
+    ) {
+      return false
+    }
+    // The optional server-side family filter can explicitly return a family
+    // from another asset as not_applicable. The page requests the full bundle
+    // and performs the stricter same-asset check before consuming it.
+    if (family.asset_type !== requestedAssetType && family.status !== 'not_applicable') return false
+    if (
+      !nonEmptyText(family.dataset_code)
+      || !MARKET_DATA_QUERY_BUNDLE_DATA_KINDS.includes(family.data_kind as MarketDataQueryBundleDataKind)
+      || !MARKET_DATA_QUERY_BUNDLE_FREQUENCY_SEMANTICS.includes(
+        family.frequency_semantics as MarketDataQueryBundleFrequencySemantics,
+      )
+      || !hasDistinctTextArray(family.frequencies, 1)
+      || !family.frequencies.every((frequency) => (
+        MARKET_DATA_QUERY_BUNDLE_FREQUENCIES.includes(frequency as MarketDataQueryBundleFrequency)
+      ))
+      || !nonEmptyText(family.field_profile_id)
+      || !hasDistinctTextArray(family.required_fields, 1)
+      || !hasDistinctTextArray(family.optional_fields)
+      || !hasDistinctTextArray(family.dimension_fields)
+      || !MARKET_DATA_QUERY_BUNDLE_COVERAGE_MODELS.includes(
+        family.coverage_model as MarketDataQueryBundleCoverageModel,
+      )
+    ) {
+      return false
+    }
+    const fieldNames = [
+      ...family.required_fields,
+      ...family.optional_fields,
+      ...family.dimension_fields,
+    ]
+    if (new Set(fieldNames).size !== fieldNames.length) return false
+    if (family.status === 'ready') {
+      return nonEmptyText(family.source_policy_id) && family.reason_code === null
+    }
+    return family.source_policy_id === null && nonEmptyText(family.reason_code)
+  })
+}
+
 /** Return whether a server payload is a complete, safe v2 query contract. */
 export function hasMarketDataQueryContract(value: unknown): value is MarketDataQueryContract {
   if (!value || typeof value !== 'object') return false
@@ -283,6 +498,7 @@ export function hasMarketDataQueryContract(value: unknown): value is MarketDataQ
       && request.required_fields.length > 0
       && request.required_fields.every(nonEmptyText)
       && nonEmptyText(request.source_policy_id)
+      && hasPairedMarketDataFamilyBinding(request)
       && request.mode === 'local_first',
   )
 }
@@ -310,7 +526,7 @@ export function createMarketDataQueryFromContract(
     throw new Error('MARKET_DATA_QUERY_CONTRACT_INVALID')
   }
   const request = contract.request
-  return {
+  const requestBase = {
     identity: { canonical_id: request.identity.canonical_id },
     dataset_code: request.dataset_code,
     data_kind: request.data_kind,
@@ -329,6 +545,14 @@ export function createMarketDataQueryFromContract(
     knowledge_cutoff: options.knowledge_cutoff,
     page_size: options.page_size,
   }
+  if (request.family_id && request.family_contract_version) {
+    return {
+      ...requestBase,
+      family_id: request.family_id,
+      family_contract_version: request.family_contract_version,
+    }
+  }
+  return requestBase
 }
 
 function marketDataQueryErrorCode(error: unknown): string | undefined {
@@ -346,11 +570,11 @@ function marketDataQueryErrorCode(error: unknown): string | undefined {
 }
 
 /**
- * Identify only an unavailable v2 *contract endpoint* during progressive
- * rollout.  Callers must use this before they have a valid contract.  Once a
- * contract has been issued, a v2 execution failure is authoritative and must
- * remain visible: falling through to the legacy endpoint could bypass the
- * receipt-backed persistence protocol.
+ * Identify only an unavailable v2 control-plane endpoint during progressive
+ * rollout. Callers may use this before they have a valid family bundle or
+ * symbol-specific contract. Once either one has been issued, a v2 execution
+ * failure is authoritative and must remain visible: falling through to the
+ * legacy endpoint could bypass the receipt-backed persistence protocol.
  */
 export function isMarketDataQueryV2FallbackError(error: unknown): boolean {
   const response = error && typeof error === 'object'
@@ -361,6 +585,7 @@ export function isMarketDataQueryV2FallbackError(error: unknown): boolean {
   if (code) {
     return code === 'MARKET_DATA_QUERY_V2_DISABLED'
       || code === 'MARKET_DATA_QUERY_CONTRACT_UNAVAILABLE'
+      || code === 'MARKET_DATA_QUERY_BUNDLE_UNAVAILABLE'
   }
   // Generic route absence is a deployment state.  Do not treat a generic
   // 5xx, transport failure, or a typed business rejection as compatibility.
@@ -383,6 +608,16 @@ export const marketDataApi = {
     // response.  All other non-2xx responses remain failures, so a transient
     // server problem cannot silently activate the legacy online path.
     return request.get<unknown>('/data/market-instruments/query-contract', {
+      params,
+      suppressErrorMessage: true,
+      skipRetry: true,
+      validateStatus: (status) => status >= 200 && status < 300,
+    })
+  },
+  getQueryBundle(params: MarketDataQueryBundleParams) {
+    // This endpoint is a static, read-only control-plane declaration. The
+    // caller validates the response before letting it suppress legacy data.
+    return request.get<unknown>('/data/market-instruments/query-bundle', {
       params,
       suppressErrorMessage: true,
       skipRetry: true,

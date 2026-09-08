@@ -99,9 +99,9 @@ def _request(**changes: object) -> MarketDataQueryRequest:
     return MarketDataQueryRequest.model_validate(payload)
 
 
-async def _add_catalog(session) -> None:
+async def _add_catalog(session, *, dataset_code: str = "market.stock_daily") -> None:
     dataset = DgDataset(
-        dataset_code="market.stock_daily",
+        dataset_code=dataset_code,
         display_name="A 股日线",
         domain="market",
         canonical_schema={"event_at": "timestamp", "close": "decimal"},
@@ -147,6 +147,40 @@ async def test_query_resolver_binds_catalog_identity_and_coverage_key() -> None:
     assert result.coverage_identity.asset_type == "stock"
     assert result.coverage_identity.market == "CN-SSE"
     assert result.coverage_identity.instrument_metadata_version == "stock-v1"
+
+
+@pytest.mark.asyncio
+async def test_query_resolver_rechecks_every_axis_of_a_bundle_selected_family() -> None:
+    """An executable card stays bound through catalog and identity resolution."""
+    identity = _identity()
+    async with async_session_maker() as db:
+        await _add_catalog(db, dataset_code="market.bars")
+        await _add_published_instrument(db, identity)
+        resolver = MarketDataQueryResolver(
+            catalog=DataCatalogResolver(db),
+            identities=MarketDataIdentityResolver(db),
+        )
+        bound = _request(
+            dataset_code="market.bars",
+            required_fields=["close"],
+            family_id="stock.realtime",
+            family_contract_version="market-data-family-v1",
+        )
+        result = await resolver.resolve(bound)
+
+        with pytest.raises(MarketDataQueryResolutionError) as mismatched:
+            await resolver.resolve(
+                _request(
+                    dataset_code="market.bars",
+                    required_fields=["close", "volume"],
+                    family_id="stock.realtime",
+                    family_contract_version="market-data-family-v1",
+                )
+            )
+
+    assert result.query.family_id == "stock.realtime"
+    assert result.query.family_contract_version == "market-data-family-v1"
+    assert mismatched.value.code == "DATA_FAMILY_QUERY_CONTRACT_MISMATCH"
 
 
 @pytest.mark.asyncio

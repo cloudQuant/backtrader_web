@@ -12,6 +12,11 @@ from app.services.market_data.catalog import (
     DatasetStorageResolution,
 )
 from app.services.market_data.coverage import QueryIdentity as CoverageQueryIdentity
+from app.services.market_data.dataset_contracts import (
+    DEFAULT_DATASET_CONTRACT_REGISTRY,
+    DatasetContractRegistry,
+    DatasetContractRegistryError,
+)
 from app.services.market_data.identity import (
     MarketDataIdentityResolver,
     ResolvedMarketDataIdentity,
@@ -44,9 +49,11 @@ class MarketDataQueryResolver:
         *,
         catalog: DataCatalogResolver,
         identities: MarketDataIdentityResolver,
+        family_contracts: DatasetContractRegistry = DEFAULT_DATASET_CONTRACT_REGISTRY,
     ) -> None:
         self._catalog = catalog
         self._identities = identities
+        self._family_contracts = family_contracts
 
     async def resolve(
         self,
@@ -84,6 +91,26 @@ class MarketDataQueryResolver:
             raise MarketDataQueryResolutionError("IDENTITY_VERSION_WINDOW_CROSSES")
         if identity.venue is None:
             raise MarketDataQueryResolutionError("IDENTITY_MARKET_UNSUPPORTED")
+        if request.family_id is not None:
+            # The public DTO requires this version whenever ``family_id`` is
+            # present. Repeat the validation after resolving the canonical
+            # identity so a caller cannot bind a stock-looking request to a
+            # different resolved asset type or a similar dataset.
+            if request.family_contract_version is None:
+                raise MarketDataQueryResolutionError("DATA_FAMILY_QUERY_CONTRACT_MISMATCH")
+            try:
+                self._family_contracts.assert_query_binding(
+                    family_id=request.family_id,
+                    family_contract_version=request.family_contract_version,
+                    asset_type=identity.asset_type,
+                    dataset_code=request.dataset_code,
+                    data_kind=request.data_kind,
+                    frequency=request.frequency,
+                    required_fields=request.required_fields,
+                    source_policy_id=request.source_policy_id,
+                )
+            except DatasetContractRegistryError as exc:
+                raise MarketDataQueryResolutionError(exc.code) from exc
 
         query = ResolvedMarketDataQuery.from_request(
             request,

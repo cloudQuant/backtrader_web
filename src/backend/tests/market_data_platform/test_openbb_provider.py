@@ -17,6 +17,7 @@ from app.services.market_data.providers import (
     MarketDataProviderRequest,
     OpenBBProviderError,
     OpenBBSubprocessProvider,
+    ProviderMarketObservation,
     _openbb_runner_environment,
     _openbb_runner_workdir,
 )
@@ -50,6 +51,16 @@ def _runner_script(tmp_path: Path, body: str) -> Path:
     script = tmp_path / "fake_openbb_runner.py"
     script.write_text(body, encoding="utf-8")
     return script
+
+
+def test_provider_observation_rejects_duplicate_normalized_field_names() -> None:
+    """A direct adapter cannot overwrite a field by adding surrounding whitespace."""
+    with pytest.raises(ValueError, match="duplicate normalized field"):
+        ProviderMarketObservation(
+            event_at=datetime(2026, 1, 2, tzinfo=UTC),
+            available_at=datetime(2026, 1, 2, tzinfo=UTC),
+            fields={"close": 101.5, " close ": 99.0},
+        )
 
 
 @pytest.mark.asyncio
@@ -106,6 +117,226 @@ json.dump(
     assert result.observations[0].fields == {"open": 100.0, "close": 101.5}
     assert result.raw_payload["format"] == "openbb-records-pre-normalization-v1"
     assert result.raw_payload["records"][0]["date"] == "2026-01-02"
+
+
+@pytest.mark.asyncio
+async def test_openbb_subprocess_provider_rejects_duplicate_normalized_field_names(
+    tmp_path: Path,
+) -> None:
+    """Runner records cannot exploit a whitespace-normalized field collision."""
+    script = _runner_script(
+        tmp_path,
+        """
+import hashlib
+import json
+import sys
+
+request = json.load(sys.stdin)
+raw_payload = {
+    "format": "openbb-records-pre-normalization-v1",
+    "records": [{"date": "2026-01-02", "close": 101.5, " close ": 99.0}],
+}
+raw_payload_sha256 = hashlib.sha256(
+    json.dumps(raw_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+).hexdigest()
+json.dump(
+    {
+        "protocol_version": "openbb-market-data-v1",
+        "request_id": request["request_id"],
+        "provider_id": "openbb:yfinance",
+        "retrieved_at": "2026-01-04T00:00:00+00:00",
+        "source_revision": "yfinance-response-v1",
+        "raw_payload": raw_payload,
+        "raw_payload_sha256": raw_payload_sha256,
+        "records": [
+            {
+                "event_at": "2026-01-02T00:00:00+00:00",
+                "fields": {"close": 101.5, " close ": 99.0},
+            }
+        ],
+        "warnings": [],
+    },
+    sys.stdout,
+)
+""",
+    )
+
+    with pytest.raises(OpenBBProviderError) as rejected:
+        await OpenBBSubprocessProvider(command=(sys.executable, str(script))).fetch(_request())
+
+    assert rejected.value.code == "OPENBB_RUNNER_INVALID_RESPONSE"
+
+
+@pytest.mark.asyncio
+async def test_openbb_subprocess_provider_rejects_records_not_bound_to_raw_receipt(
+    tmp_path: Path,
+) -> None:
+    """A correct raw receipt hash cannot authorize substituted normalized values."""
+    script = _runner_script(
+        tmp_path,
+        """
+import hashlib
+import json
+import sys
+
+request = json.load(sys.stdin)
+raw_payload = {
+    "format": "openbb-records-pre-normalization-v1",
+    "records": [{"date": "2026-01-02", "open": 100.0, "close": 101.5}],
+}
+raw_payload_sha256 = hashlib.sha256(
+    json.dumps(raw_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+).hexdigest()
+json.dump(
+    {
+        "protocol_version": "openbb-market-data-v1",
+        "request_id": request["request_id"],
+        "provider_id": "openbb:yfinance",
+        "retrieved_at": "2026-01-04T00:00:00+00:00",
+        "source_revision": "yfinance-response-v1",
+        "raw_payload": raw_payload,
+        "raw_payload_sha256": raw_payload_sha256,
+        "records": [
+            {
+                "event_at": "2026-01-02T00:00:00+00:00",
+                "fields": {"open": 100.0, "close": 999.0},
+            }
+        ],
+        "warnings": [],
+    },
+    sys.stdout,
+)
+""",
+    )
+
+    with pytest.raises(OpenBBProviderError) as rejected:
+        await OpenBBSubprocessProvider(command=(sys.executable, str(script))).fetch(_request())
+
+    assert rejected.value.code == "OPENBB_RUNNER_INVALID_RESPONSE"
+
+
+@pytest.mark.asyncio
+async def test_openbb_subprocess_provider_rejects_process_wide_overload_before_launching(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A full gate rejects the second instance without starting another child process."""
+    import app.services.market_data.providers as providers
+
+    monkeypatch.setattr(providers, "_PROCESS_OPENBB_RUNNER_GATE", providers._OpenBBRunnerGate())
+    launches = tmp_path / "runner-launches"
+    script = _runner_script(
+        tmp_path,
+        f"""
+import hashlib
+import json
+from pathlib import Path
+import sys
+import time
+
+request = json.load(sys.stdin)
+with Path({str(launches)!r}).open("a", encoding="utf-8") as output:
+    output.write("1")
+time.sleep(0.3)
+raw_payload = {{"format": "openbb-records-pre-normalization-v1", "records": []}}
+raw_payload_sha256 = hashlib.sha256(
+    json.dumps(raw_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+).hexdigest()
+json.dump(
+    {{
+        "protocol_version": "openbb-market-data-v1",
+        "request_id": request["request_id"],
+        "provider_id": "openbb:yfinance",
+        "retrieved_at": "2026-01-04T00:00:00+00:00",
+        "source_revision": "yfinance-response-v1",
+        "raw_payload": raw_payload,
+        "raw_payload_sha256": raw_payload_sha256,
+        "records": [],
+        "warnings": [],
+    }},
+    sys.stdout,
+)
+""",
+    )
+    first_provider = OpenBBSubprocessProvider(
+        command=(sys.executable, str(script)),
+        max_concurrent_runs=1,
+    )
+    second_provider = OpenBBSubprocessProvider(
+        command=(sys.executable, str(script)),
+        max_concurrent_runs=1,
+    )
+    first = asyncio.create_task(first_provider.fetch(_request()))
+    for _ in range(100):
+        if launches.exists():
+            break
+        await asyncio.sleep(0.01)
+    assert launches.exists()
+
+    with pytest.raises(OpenBBProviderError) as overloaded:
+        await second_provider.fetch(_request())
+
+    assert overloaded.value.code == "OPENBB_RUNNER_OVERLOADED"
+    assert launches.read_text(encoding="utf-8") == "1"
+    assert (await first).source_revision == "yfinance-response-v1"
+
+
+@pytest.mark.asyncio
+async def test_openbb_subprocess_provider_rejects_a_cross_instance_cap_change_before_launching(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first admitted cap stays process-wide instead of being raised later."""
+    import app.services.market_data.providers as providers
+
+    monkeypatch.setattr(providers, "_PROCESS_OPENBB_RUNNER_GATE", providers._OpenBBRunnerGate())
+    launches = tmp_path / "runner-launches"
+    script = _runner_script(
+        tmp_path,
+        f"""
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+request = json.load(sys.stdin)
+with Path({str(launches)!r}).open("a", encoding="utf-8") as output:
+    output.write("1")
+raw_payload = {{"format": "openbb-records-pre-normalization-v1", "records": []}}
+raw_payload_sha256 = hashlib.sha256(
+    json.dumps(raw_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+).hexdigest()
+json.dump(
+    {{
+        "protocol_version": "openbb-market-data-v1",
+        "request_id": request["request_id"],
+        "provider_id": "openbb:yfinance",
+        "retrieved_at": "2026-01-04T00:00:00+00:00",
+        "source_revision": "yfinance-response-v1",
+        "raw_payload": raw_payload,
+        "raw_payload_sha256": raw_payload_sha256,
+        "records": [],
+        "warnings": [],
+    }},
+    sys.stdout,
+)
+""",
+    )
+    first_provider = OpenBBSubprocessProvider(
+        command=(sys.executable, str(script)),
+        max_concurrent_runs=1,
+    )
+    changed_cap_provider = OpenBBSubprocessProvider(
+        command=(sys.executable, str(script)),
+        max_concurrent_runs=2,
+    )
+
+    assert (await first_provider.fetch(_request())).source_revision == "yfinance-response-v1"
+    with pytest.raises(OpenBBProviderError) as rejected:
+        await changed_cap_provider.fetch(_request())
+
+    assert rejected.value.code == "OPENBB_RUNNER_CONCURRENCY_CONFIG_MISMATCH"
+    assert launches.read_text(encoding="utf-8") == "1"
 
 
 @pytest.mark.asyncio

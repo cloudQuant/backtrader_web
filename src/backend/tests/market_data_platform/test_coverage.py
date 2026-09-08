@@ -137,6 +137,42 @@ def test_planner_accepts_only_identity_fields_quality_and_pit_eligible_observati
     }
 
 
+@pytest.mark.parametrize("placeholder", ("--", "N/A", "   "))
+def test_planner_does_not_count_a_legacy_pass_placeholder_as_complete_coverage(
+    placeholder: str,
+) -> None:
+    """A legacy PASS label cannot override the current typed field policy."""
+    query = _identity()
+    window = TimeWindow(start_at=_at(9), end_at=_at(10))
+    calendar = CalendarSnapshot(
+        calendar_id="XSHG",
+        calendar_version="2026.01",
+        timezone_name="Asia/Shanghai",
+        coverage_window=window,
+        event_keys=(EventKey(_at(9)),),
+        status="known",
+    )
+
+    plan = CoveragePlanner().plan(
+        query=query,
+        window=window,
+        calendar=calendar,
+        observations=(
+            _observation(
+                _at(9),
+                fields={"close": placeholder},
+                quality=ObservationQuality.PASS,
+            ),
+        ),
+        required_fields=frozenset({"close"}),
+        as_of=_at(23),
+    )
+
+    assert plan.status is CoverageStatus.INCOMPLETE
+    assert plan.accepted_event_keys == ()
+    assert plan.rejection_counts == {"missing_required_fields": 1}
+
+
 def test_unknown_calendar_returns_a_typed_unknown_status_instead_of_complete() -> None:
     """A lack of calendar evidence cannot be reported as empty complete coverage."""
     plan = CoveragePlanner().plan(

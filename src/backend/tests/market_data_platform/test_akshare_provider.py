@@ -12,8 +12,10 @@ import pytest
 from app.services.market_data import akshare_provider
 from app.services.market_data.akshare_provider import (
     AKSHARE_ROUTE_REGISTRY,
+    AKSHARE_SNAPSHOT_ROW_SCHEMAS,
     AkShareMarketDataProvider,
     AkShareProviderError,
+    get_akshare_snapshot_row_schema,
 )
 from app.services.market_data.providers import MarketDataProviderRequest
 
@@ -65,6 +67,29 @@ def test_akshare_registry_declares_each_current_asset_type_explicitly() -> None:
         "fx",
         "crypto",
     }
+
+
+def test_snapshot_row_schemas_stay_out_of_the_request_time_provider_registry() -> None:
+    """Wide-table schemas exist only for the offline importer, never as a symbol fallback."""
+    assert {schema.asset_type for schema in AKSHARE_SNAPSHOT_ROW_SCHEMAS} == {
+        "stock",
+        "fund",
+        "fx",
+        "crypto",
+        "option",
+    }
+    assert all(route.data_kind == "bars" for route in AKSHARE_ROUTE_REGISTRY)
+    assert get_akshare_snapshot_row_schema("stock").collector_observed_allowed is True
+    assert get_akshare_snapshot_row_schema("fund").collector_observed_allowed is False
+    assert get_akshare_snapshot_row_schema("fund").field_aliases["IOPV"] == "iopv"
+    assert get_akshare_snapshot_row_schema("fx").field_aliases["最新价"] == "price"
+    assert get_akshare_snapshot_row_schema("crypto").source_market_columns == ("市场", "market")
+    assert get_akshare_snapshot_row_schema("crypto").field_aliases["最近报价"] == "price"
+
+    with pytest.raises(AkShareProviderError) as unsupported:
+        get_akshare_snapshot_row_schema("bond")
+
+    assert unsupported.value.code == "AKSHARE_SNAPSHOT_ASSET_UNSUPPORTED"
 
 
 @pytest.mark.asyncio

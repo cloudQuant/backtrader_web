@@ -25,6 +25,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.market_data_platform import MdInstrumentLookupKey
 from app.schemas.market_data_platform import QueryIdentity
 from app.services.market_data.catalog import DataCatalogResolver, DatasetStorageNotFoundError
+from app.services.market_data.dataset_contracts import (
+    DEFAULT_DATASET_CONTRACT_REGISTRY,
+    FAMILY_CONTRACT_VERSION,
+    DatasetContract,
+    DatasetContractRegistry,
+)
 from app.services.market_data.identity import (
     MarketDataIdentityResolutionError,
     MarketDataIdentityResolver,
@@ -100,6 +106,7 @@ class LegacyMarketDataQueryContractResolver:
         db: AsyncSession,
         *,
         openbb_allowed_markets: frozenset[str] = frozenset(),
+        family_contracts: DatasetContractRegistry = DEFAULT_DATASET_CONTRACT_REGISTRY,
     ) -> None:
         self._db = db
         self._identities = MarketDataIdentityResolver(db)
@@ -107,6 +114,7 @@ class LegacyMarketDataQueryContractResolver:
         self._openbb_allowed_markets = frozenset(
             market.strip() for market in openbb_allowed_markets if market.strip()
         )
+        self._family_contracts = family_contracts
 
     async def resolve(
         self,
@@ -114,6 +122,7 @@ class LegacyMarketDataQueryContractResolver:
         asset_type: str,
         symbol: str,
         period: str,
+        family_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Return a v2 contract only when every prerequisite is already authoritative.
 
@@ -128,6 +137,15 @@ class LegacyMarketDataQueryContractResolver:
         if not normalized_asset_type or not normalized_symbol or frequency is None:
             return None
 
+        family_contract: DatasetContract | None = None
+        if family_id is not None:
+            family_contract = self._family_contracts.ready_contract_for(
+                family_id=family_id,
+                asset_type=normalized_asset_type,
+            )
+            if frequency not in family_contract.frequencies:
+                return None
+
         canonical_id = await self._unique_active_canonical_id(
             asset_type=normalized_asset_type,
             symbol=normalized_symbol,
@@ -136,8 +154,21 @@ class LegacyMarketDataQueryContractResolver:
             return None
         try:
             identity = await self._identities.resolve(QueryIdentity(canonical_id=canonical_id))
-            await self._catalog.resolve_primary(_DATASET_CODE)
+            await self._catalog.resolve_primary(
+                family_contract.dataset_code if family_contract is not None else _DATASET_CODE
+            )
         except (MarketDataIdentityResolutionError, DatasetStorageNotFoundError):
+            return None
+        # The active legacy lookup key is only an index projection.  Its
+        # asset type must agree with the published canonical identity before
+        # it can mint a v2 request; a stale or corrupt projection must not
+        # transform a stock page selection into a futures (or other asset)
+        # contract.  A selected family adds the same invariant at the product
+        # boundary, rather than relying on the later query resolver to catch
+        # the mismatch after this endpoint has signed a contract.
+        if identity.asset_type != normalized_asset_type:
+            return None
+        if family_contract is not None and identity.asset_type != family_contract.asset_type:
             return None
 
         semantics = _semantics_for(identity.asset_type, identity.venue)
@@ -151,25 +182,44 @@ class LegacyMarketDataQueryContractResolver:
             # publishing no v2 contract here preserves the legacy page when
             # its exact period has no reviewed route yet.
             return None
+        request: dict[str, Any] = {
+            "identity": {"canonical_id": identity.canonical_id},
+            "dataset_code": (
+                family_contract.dataset_code if family_contract is not None else _DATASET_CODE
+            ),
+            "data_kind": family_contract.data_kind if family_contract is not None else "bars",
+            "frequency": frequency,
+            "required_fields": list(
+                family_contract.field_profile.required_fields
+                if family_contract is not None
+                else ("close",)
+            ),
+            "adjustment": semantics.adjustment,
+            "price_basis": semantics.price_basis,
+            "currency": semantics.currency,
+            "unit": semantics.unit,
+            "source_policy_id": (
+                family_contract.source_policy_id
+                if family_contract is not None
+                else "market-default-v1"
+            ),
+            "mode": "local_first",
+        }
+        if family_contract is not None:
+            # ``ready_contract_for`` guarantees the policy is populated. Keep
+            # the check explicit so a future registry mutation cannot publish
+            # an executable contract with an omitted authorization axis.
+            if request["source_policy_id"] is None:
+                return None
+            request.update(
+                {
+                    "family_id": family_contract.family_id,
+                    "family_contract_version": FAMILY_CONTRACT_VERSION,
+                }
+            )
         return {
             "version": "market-data-v2",
-            "request": {
-                "identity": {"canonical_id": identity.canonical_id},
-                "dataset_code": _DATASET_CODE,
-                "data_kind": "bars",
-                "frequency": frequency,
-                # ``close`` is the one cross-asset field required by the
-                # existing display. Providers may retain additional normalized
-                # OHLCV fields, but the bridge must not promise a field an
-                # approved route cannot evidence.
-                "required_fields": ["close"],
-                "adjustment": semantics.adjustment,
-                "price_basis": semantics.price_basis,
-                "currency": semantics.currency,
-                "unit": semantics.unit,
-                "source_policy_id": "market-default-v1",
-                "mode": "local_first",
-            },
+            "request": request,
         }
 
     async def _unique_active_canonical_id(

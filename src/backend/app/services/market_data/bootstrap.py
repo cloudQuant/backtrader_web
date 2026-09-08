@@ -2,13 +2,14 @@
 
 The public local-first query path deliberately never creates catalog rows.  An
 operator runs the accompanying CLI after the Alembic revisions are applied;
-this module then registers the canonical normalized store, its unified bars
-dataset, and only the providers whose route configuration has been reviewed.
+this module then registers the canonical normalized store, its reviewed bars
+and quote-snapshot datasets, and only the providers whose route configuration
+has been reviewed.
 
 The canonical facts live in ``md_observation_revisions``.  Asset type,
 identity, frequency, and policy remain dimensions of the semantic series key,
-so one logical ``market.bars`` dataset covers the seven currently supported
-page asset families without inventing duplicate physical tables.
+so logical datasets can share the same revision table without inventing
+duplicate physical facts.
 """
 
 from __future__ import annotations
@@ -41,6 +42,11 @@ CANONICAL_STORAGE_URL_ENV = "DATABASE_URL"
 CANONICAL_STORAGE_ROLE = "canonical"
 CANONICAL_PHYSICAL_TABLE = "md_observation_revisions"
 CANONICAL_DATASET_CODE = "market.bars"
+CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE = "market.quote_snapshot"
+CANONICAL_DATASET_CODES = (
+    CANONICAL_DATASET_CODE,
+    CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE,
+)
 CANONICAL_WRITE_MODE = "canonical_append_only"
 AKSHARE_PROVIDER_ID = "akshare"
 SUPPORTED_ASSET_TYPES = (
@@ -111,6 +117,16 @@ _REQUIRED_TABLE_COLUMNS: Mapping[str, frozenset[str]] = {
             "revision_number",
         }
     ),
+}
+_REQUIRED_CATALOG_UNIQUES: Mapping[str, Mapping[str, tuple[str, ...]]] = {
+    "dg_dataset_storages": {
+        "uq_dg_dataset_storage_target_table": (
+            "storage_target_id",
+            "physical_table",
+            "dataset_id",
+        ),
+        "uq_dg_dataset_storages_primary_dataset": ("primary_dataset_id",),
+    }
 }
 
 
@@ -279,6 +295,9 @@ class MarketDataBootstrapResult:
     created: tuple[str, ...]
     verified: tuple[str, ...]
     openbb_status: str
+    # ``dataset_code`` remains the legacy bars entrypoint for operator callers.
+    # The ordered tuple exposes every catalog product this bootstrap guarantees.
+    dataset_codes: tuple[str, ...] = CANONICAL_DATASET_CODES
     supported_asset_types: tuple[str, ...] = SUPPORTED_ASSET_TYPES
 
     def as_dict(self) -> dict[str, object]:
@@ -286,6 +305,7 @@ class MarketDataBootstrapResult:
         return {
             "storage_id": self.storage_id,
             "dataset_code": self.dataset_code,
+            "dataset_codes": list(self.dataset_codes),
             "registered_provider_ids": list(self.registered_provider_ids),
             "created": list(self.created),
             "verified": list(self.verified),
@@ -314,13 +334,25 @@ class MarketDataPlatformBootstrapper:
         created: list[str] = []
         verified: list[str] = []
         storage = await self._ensure_storage(spec.storage, created=created, verified=verified)
-        dataset = await self._ensure_dataset(created=created, verified=verified)
-        await self._ensure_primary_binding(
-            dataset=dataset,
-            storage=storage,
-            created=created,
-            verified=verified,
-        )
+        datasets: list[DgDataset] = []
+        for dataset_code, display_name, canonical_schema, primary_key in _canonical_dataset_specs():
+            datasets.append(
+                await self._ensure_dataset(
+                    dataset_code=dataset_code,
+                    display_name=display_name,
+                    canonical_schema=canonical_schema,
+                    primary_key=primary_key,
+                    created=created,
+                    verified=verified,
+                )
+            )
+        for dataset in datasets:
+            await self._ensure_primary_binding(
+                dataset=dataset,
+                storage=storage,
+                created=created,
+                verified=verified,
+            )
 
         provider_ids = [
             await self._ensure_provider(
@@ -348,11 +380,12 @@ class MarketDataPlatformBootstrapper:
         await self._session.flush()
         return MarketDataBootstrapResult(
             storage_id=storage.storage_id,
-            dataset_code=dataset.dataset_code,
+            dataset_code=CANONICAL_DATASET_CODE,
             registered_provider_ids=tuple(provider_ids),
             created=tuple(created),
             verified=tuple(verified),
             openbb_status=openbb_status,
+            dataset_codes=tuple(dataset.dataset_code for dataset in datasets),
         )
 
     async def _assert_schema_ready(self, *, expected_engine: str) -> None:
@@ -412,40 +445,44 @@ class MarketDataPlatformBootstrapper:
     async def _ensure_dataset(
         self,
         *,
+        dataset_code: str,
+        display_name: str,
+        canonical_schema: Mapping[str, object],
+        primary_key: Sequence[str],
         created: list[str],
         verified: list[str],
     ) -> DgDataset:
         rows = await _rows_for_unique(
             self._session,
-            select(DgDataset).where(DgDataset.dataset_code == CANONICAL_DATASET_CODE),
+            select(DgDataset).where(DgDataset.dataset_code == dataset_code),
         )
         if len(rows) > 1:
             raise MarketDataBootstrapError("MARKET_DATA_BOOTSTRAP_DATASET_INTEGRITY")
         if not rows:
             record = DgDataset(
-                dataset_code=CANONICAL_DATASET_CODE,
-                display_name="Unified market bars",
+                dataset_code=dataset_code,
+                display_name=display_name,
                 domain="market",
-                canonical_schema=_canonical_bars_schema(),
-                primary_key=_canonical_bars_primary_key(),
+                canonical_schema=dict(canonical_schema),
+                primary_key=list(primary_key),
                 is_active=True,
             )
             self._session.add(record)
             await self._session.flush()
-            created.append(f"dataset:{CANONICAL_DATASET_CODE}")
+            created.append(f"dataset:{dataset_code}")
             return record
 
         record = rows[0]
         if (
-            record.display_name != "Unified market bars"
+            record.display_name != display_name
             or record.domain != "market"
-            or not _same_json(record.canonical_schema, _canonical_bars_schema())
-            or not _same_json(record.primary_key, _canonical_bars_primary_key())
+            or not _same_json(record.canonical_schema, canonical_schema)
+            or not _same_json(record.primary_key, primary_key)
         ):
             raise MarketDataBootstrapError("MARKET_DATA_BOOTSTRAP_DATASET_CONFLICT")
         if not record.is_active:
             raise MarketDataBootstrapError("MARKET_DATA_BOOTSTRAP_DATASET_INACTIVE")
-        verified.append(f"dataset:{CANONICAL_DATASET_CODE}")
+        verified.append(f"dataset:{dataset_code}")
         return record
 
     async def _ensure_primary_binding(
@@ -463,6 +500,12 @@ class MarketDataPlatformBootstrapper:
         primary_rows = [row for row in rows if row.is_primary]
         if len(primary_rows) > 1:
             raise MarketDataBootstrapError("MARKET_DATA_BOOTSTRAP_PRIMARY_BINDING_INTEGRITY")
+        shared_bindings = await self._shared_physical_bindings(storage=storage)
+        if any(
+            shared_dataset.dataset_code not in CANONICAL_DATASET_CODES
+            for _, shared_dataset in shared_bindings
+        ):
+            raise MarketDataBootstrapError("MARKET_DATA_BOOTSTRAP_PHYSICAL_BINDING_CONFLICT")
         if primary_rows:
             record = primary_rows[0]
             if (
@@ -472,18 +515,11 @@ class MarketDataPlatformBootstrapper:
                 or record.primary_dataset_id != dataset.id
             ):
                 raise MarketDataBootstrapError("MARKET_DATA_BOOTSTRAP_PRIMARY_BINDING_CONFLICT")
-            verified.append(f"binding:{CANONICAL_DATASET_CODE}")
+            verified.append(f"binding:{dataset.dataset_code}")
             return record
 
-        colliding = await _rows_for_unique(
-            self._session,
-            select(DgDatasetStorage).where(
-                DgDatasetStorage.storage_target_id == storage.id,
-                DgDatasetStorage.physical_table == CANONICAL_PHYSICAL_TABLE,
-            ),
-        )
-        if colliding:
-            raise MarketDataBootstrapError("MARKET_DATA_BOOTSTRAP_PHYSICAL_BINDING_CONFLICT")
+        if any(binding.dataset_id == dataset.id for binding, _ in shared_bindings):
+            raise MarketDataBootstrapError("MARKET_DATA_BOOTSTRAP_PRIMARY_BINDING_CONFLICT")
         record = DgDatasetStorage(
             dataset_id=dataset.id,
             storage_target_id=storage.id,
@@ -493,8 +529,29 @@ class MarketDataPlatformBootstrapper:
         )
         self._session.add(record)
         await self._session.flush()
-        created.append(f"binding:{CANONICAL_DATASET_CODE}")
+        created.append(f"binding:{dataset.dataset_code}")
         return record
+
+    async def _shared_physical_bindings(
+        self,
+        *,
+        storage: DgStorageTarget,
+    ) -> list[tuple[DgDatasetStorage, DgDataset]]:
+        """Return all catalog claims on the shared normalized fact table.
+
+        The migration permits exactly the reviewed canonical datasets to share
+        the table.  Any third product must add an explicit storage contract
+        rather than silently piggybacking on this bootstrap's write binding.
+        """
+        rows = await self._session.execute(
+            select(DgDatasetStorage, DgDataset)
+            .join(DgDataset, DgDatasetStorage.dataset_id == DgDataset.id)
+            .where(
+                DgDatasetStorage.storage_target_id == storage.id,
+                DgDatasetStorage.physical_table == CANONICAL_PHYSICAL_TABLE,
+            )
+        )
+        return list(rows.all())
 
     async def _ensure_provider(
         self,
@@ -579,6 +636,29 @@ def _normalize_markets(values: Iterable[str]) -> tuple[str, ...]:
     return tuple(normalized)
 
 
+def _canonical_dataset_specs() -> tuple[tuple[str, str, dict[str, object], list[str]], ...]:
+    """Return the fixed, operator-owned contracts for normalized facts.
+
+    Registering a dataset only makes its catalog/storage contract resolvable.
+    It intentionally creates no endpoint, source policy, provider route, or
+    request-time quote-fetch capability.
+    """
+    return (
+        (
+            CANONICAL_DATASET_CODE,
+            "Unified market bars",
+            _canonical_bars_schema(),
+            _canonical_bars_primary_key(),
+        ),
+        (
+            CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE,
+            "Unified market quote snapshots",
+            _canonical_quote_snapshot_schema(),
+            _canonical_quote_snapshot_primary_key(),
+        ),
+    )
+
+
 def _canonical_bars_schema() -> dict[str, object]:
     """Describe the shared bars contract without collapsing asset semantics."""
     return {
@@ -623,6 +703,58 @@ def _canonical_bars_schema() -> dict[str, object]:
 
 def _canonical_bars_primary_key() -> list[str]:
     """Return the immutable revision identity exposed by the normalized fact store."""
+    return _canonical_observation_revision_primary_key()
+
+
+def _canonical_quote_snapshot_schema() -> dict[str, object]:
+    """Describe point-in-time quote facts stored beside, but apart from, bars."""
+    return {
+        "schema_version": "market-quote-snapshot-v1",
+        "data_kind": "quote_snapshot",
+        "supported_asset_types": list(SUPPORTED_ASSET_TYPES),
+        "identity_fields": [
+            "canonical_id",
+            "asset_type",
+            "market",
+            "instrument_metadata_version",
+        ],
+        "series_dimensions": [
+            "frequency",
+            "price_basis",
+            "currency",
+            "unit",
+            "source_policy_id",
+        ],
+        "observation_fields": {
+            "event_time": "timestamp",
+            "event_end": "timestamp|null",
+            "available_at": "timestamp",
+            "price": "decimal|null",
+            "bid": "decimal|null",
+            "ask": "decimal|null",
+            "bid_size": "decimal|null",
+            "ask_size": "decimal|null",
+            "volume": "decimal|null",
+            "turnover": "decimal|null",
+            "settle": "decimal|null",
+            "open_interest": "decimal|null",
+        },
+        "provenance_fields": [
+            "source_snapshot_id",
+            "revision_number",
+            "quality_status",
+            "normalization_version",
+        ],
+    }
+
+
+def _canonical_quote_snapshot_primary_key() -> list[str]:
+    """Return quote revision identity without claiming bars share its semantics."""
+    return _canonical_observation_revision_primary_key()
+
+
+def _canonical_observation_revision_primary_key() -> list[str]:
+    """Return the immutable identity exposed by ``md_observation_revisions``."""
     return [
         "semantic_key_sha256",
         "event_time",
@@ -638,9 +770,12 @@ def _same_json(left: object, right: object) -> bool:
         if set(left) != set(right):
             return False
         return all(_same_json(left[key], right[key]) for key in left)
-    if isinstance(left, Sequence) and not isinstance(left, (str, bytes)) and isinstance(
-        right, Sequence
-    ) and not isinstance(right, (str, bytes)):
+    if (
+        isinstance(left, Sequence)
+        and not isinstance(left, (str, bytes))
+        and isinstance(right, Sequence)
+        and not isinstance(right, (str, bytes))
+    ):
         return len(left) == len(right) and all(
             _same_json(left_item, right_item)
             for left_item, right_item in zip(left, right, strict=True)
@@ -670,6 +805,15 @@ def _missing_schema_parts(connection: Any) -> tuple[str, ...]:
         actual = {str(column["name"]) for column in inspector.get_columns(table_name)}
         if not required_columns.issubset(actual):
             missing.append(table_name)
+    for table_name, required_uniques in _REQUIRED_CATALOG_UNIQUES.items():
+        if not inspector.has_table(table_name):
+            continue
+        if _catalog_table_unique_constraints_are_incomplete(
+            inspector,
+            table_name,
+            required_uniques,
+        ):
+            missing.append(table_name)
     for table_name, requirement in _REQUIRED_MARKET_TABLES.items():
         if not inspector.has_table(table_name):
             missing.append(table_name)
@@ -677,6 +821,36 @@ def _missing_schema_parts(connection: Any) -> tuple[str, ...]:
         if _market_table_is_incomplete(inspector, table_name, requirement):
             missing.append(table_name)
     return tuple(missing)
+
+
+def _catalog_table_unique_constraints_are_incomplete(
+    inspector: Any,
+    table_name: str,
+    required_uniques: Mapping[str, tuple[str, ...]],
+) -> bool:
+    """Require the catalog's named shared-table and primary-slot invariants.
+
+    Some drivers expose a unique constraint as a unique index.  The named
+    contract is accepted in either reflection form, but a two-column legacy
+    claim is intentionally not treated as equivalent to the three-column
+    dataset-aware binding introduced for quote snapshots.
+    """
+    reflected: dict[str, tuple[str, ...]] = {}
+    for constraint in inspector.get_unique_constraints(table_name) or ():
+        name = constraint.get("name")
+        columns = constraint.get("column_names")
+        if name and columns:
+            reflected[str(name)] = tuple(str(column) for column in columns)
+    for index in inspector.get_indexes(table_name) or ():
+        name = index.get("name")
+        columns = index.get("column_names")
+        if name and bool(index.get("unique")) and columns:
+            sequence = tuple(str(column) for column in columns)
+            existing = reflected.get(str(name))
+            if existing is not None and existing != sequence:
+                return True
+            reflected[str(name)] = sequence
+    return any(reflected.get(name) != expected for name, expected in required_uniques.items())
 
 
 def _market_table_is_incomplete(

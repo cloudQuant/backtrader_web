@@ -8,12 +8,20 @@ import pytest
 from sqlalchemy import func, inspect, select, text
 
 from app.db.database import async_session_maker
-from app.models.data_governance import DgDataset, DgDatasetStorage, DgProvider, DgStorageTarget
+from app.models.data_governance import (
+    DgDataset,
+    DgDatasetStorage,
+    DgEndpoint,
+    DgProvider,
+    DgStorageTarget,
+)
 from app.services.market_data import bootstrap as bootstrap_module
 from app.services.market_data.bootstrap import (
     AKSHARE_PROVIDER_ID,
     CANONICAL_DATASET_CODE,
+    CANONICAL_DATASET_CODES,
     CANONICAL_PHYSICAL_TABLE,
+    CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE,
     CANONICAL_STORAGE_ID,
     CANONICAL_WRITE_MODE,
     SUPPORTED_ASSET_TYPES,
@@ -73,40 +81,118 @@ def _market_table_accepts_unique_indexes(sync_connection: object) -> bool:
     return not bootstrap_module._market_table_is_incomplete(inspector, table_name, requirement)
 
 
+class _LegacySharedBindingInspector:
+    """Reflect the pre-F2 two-column table claim from a migrated catalog."""
+
+    def __init__(self, delegate: object) -> None:
+        self._delegate = delegate
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._delegate, name)
+
+    def get_unique_constraints(self, table_name: str) -> list[dict[str, object]]:
+        constraints = list(self._delegate.get_unique_constraints(table_name))
+        if table_name != "dg_dataset_storages":
+            return constraints
+        return [
+            {
+                **constraint,
+                "column_names": ["storage_target_id", "physical_table"],
+            }
+            if constraint.get("name") == "uq_dg_dataset_storage_target_table"
+            else constraint
+            for constraint in constraints
+        ]
+
+
+def _legacy_shared_binding_constraint_is_rejected(sync_connection: object) -> bool:
+    """The operator gate must not try a shared binding before F2 DDL exists."""
+    inspector = _LegacySharedBindingInspector(inspect(sync_connection))
+    return bootstrap_module._catalog_table_unique_constraints_are_incomplete(
+        inspector,
+        "dg_dataset_storages",
+        bootstrap_module._REQUIRED_CATALOG_UNIQUES["dg_dataset_storages"],
+    )
+
+
 @pytest.mark.asyncio
-async def test_bootstrap_registers_unified_canonical_bars_and_approved_providers() -> None:
-    """A migrated empty catalog becomes query-ready without any network access."""
+async def test_bootstrap_registers_canonical_bars_and_quote_snapshot_without_routes() -> None:
+    """A migrated empty catalog exposes two products over one facts table offline."""
     async with async_session_maker() as session:
         result = await MarketDataPlatformBootstrapper(session).bootstrap(_spec())
         await session.commit()
 
-        resolution = await DataCatalogResolver(session).resolve_primary(CANONICAL_DATASET_CODE)
+        bars_resolution = await DataCatalogResolver(session).resolve_primary(CANONICAL_DATASET_CODE)
+        quote_resolution = await DataCatalogResolver(session).resolve_primary(
+            CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE
+        )
         await MarketDataStore(session).ensure_provider_active(AKSHARE_PROVIDER_ID)
         await MarketDataStore(session).ensure_provider_active("openbb:yfinance")
-        dataset = await session.scalar(
-            select(DgDataset).where(DgDataset.dataset_code == CANONICAL_DATASET_CODE)
+        datasets = {
+            dataset.dataset_code: dataset
+            for dataset in (
+                await session.execute(
+                    select(DgDataset).where(DgDataset.dataset_code.in_(CANONICAL_DATASET_CODES))
+                )
+            )
+            .scalars()
+            .all()
+        }
+        bindings = list(
+            (
+                await session.execute(
+                    select(DgDatasetStorage, DgDataset)
+                    .join(DgDataset, DgDatasetStorage.dataset_id == DgDataset.id)
+                    .where(DgDataset.dataset_code.in_(CANONICAL_DATASET_CODES))
+                )
+            ).all()
         )
         provider_ids = list(
             (await session.execute(select(DgProvider.provider_id).order_by(DgProvider.provider_id)))
             .scalars()
             .all()
         )
+        endpoint_count = await session.scalar(select(func.count()).select_from(DgEndpoint))
 
     assert result.openbb_status == "registered"
+    assert result.dataset_code == CANONICAL_DATASET_CODE
+    assert result.dataset_codes == CANONICAL_DATASET_CODES
+    assert result.as_dict()["dataset_codes"] == list(CANONICAL_DATASET_CODES)
     assert result.registered_provider_ids == (AKSHARE_PROVIDER_ID, "openbb:yfinance")
-    assert resolution.storage_id == CANONICAL_STORAGE_ID
-    assert resolution.physical_table == CANONICAL_PHYSICAL_TABLE
-    assert resolution.write_mode == CANONICAL_WRITE_MODE
-    assert dataset is not None
-    assert dataset.canonical_schema["supported_asset_types"] == list(SUPPORTED_ASSET_TYPES)
-    assert dataset.primary_key == [
+    assert bars_resolution.storage_id == quote_resolution.storage_id == CANONICAL_STORAGE_ID
+    assert (
+        bars_resolution.physical_table
+        == quote_resolution.physical_table
+        == CANONICAL_PHYSICAL_TABLE
+    )
+    assert bars_resolution.write_mode == quote_resolution.write_mode == CANONICAL_WRITE_MODE
+    assert bars_resolution.dataset_id != quote_resolution.dataset_id
+    assert set(datasets) == set(CANONICAL_DATASET_CODES)
+    bars_dataset = datasets[CANONICAL_DATASET_CODE]
+    quote_dataset = datasets[CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE]
+    assert bars_dataset.canonical_schema["supported_asset_types"] == list(SUPPORTED_ASSET_TYPES)
+    assert bars_dataset.primary_key == [
         "semantic_key_sha256",
         "event_time",
         "available_at",
         "source_snapshot_id",
         "revision_number",
     ]
+    assert quote_dataset.canonical_schema["schema_version"] == "market-quote-snapshot-v1"
+    assert quote_dataset.canonical_schema["data_kind"] == "quote_snapshot"
+    quote_fields = quote_dataset.canonical_schema["observation_fields"]
+    assert quote_fields["price"] == "decimal|null"
+    assert quote_fields["turnover"] == "decimal|null"
+    assert "last" not in quote_fields
+    assert "amount" not in quote_fields
+    assert quote_dataset.primary_key == bars_dataset.primary_key
+    assert {(binding.physical_table, binding.is_primary) for binding, _ in bindings} == {
+        (CANONICAL_PHYSICAL_TABLE, True)
+    }
+    assert {dataset.dataset_code for _, dataset in bindings} == set(CANONICAL_DATASET_CODES)
+    assert len({binding.id for binding, _ in bindings}) == 2
     assert provider_ids == [AKSHARE_PROVIDER_ID, "openbb:yfinance"]
+    assert endpoint_count == 0
 
 
 def test_bootstrap_schema_contract_covers_every_iteration197_market_table() -> None:
@@ -169,6 +255,16 @@ async def test_bootstrap_accepts_unique_index_reflection_as_equivalent_uniquenes
 
 
 @pytest.mark.asyncio
+async def test_bootstrap_refuses_the_pre_f2_shared_binding_constraint_shape() -> None:
+    """The candidate DDL is a hard prerequisite, not an IntegrityError fallback."""
+    async with async_session_maker() as session:
+        connection = await session.connection()
+        rejected = await connection.run_sync(_legacy_shared_binding_constraint_is_rejected)
+
+    assert rejected
+
+
+@pytest.mark.asyncio
 async def test_bootstrap_is_idempotent_and_does_not_duplicate_control_plane_rows() -> None:
     """A second operator run verifies the exact contract instead of rewriting it."""
     async with async_session_maker() as session:
@@ -183,16 +279,88 @@ async def test_bootstrap_is_idempotent_and_does_not_duplicate_control_plane_rows
             "provider": await session.scalar(select(func.count()).select_from(DgProvider)),
         }
 
-    assert len(first.created) == 5
+    assert len(first.created) == 7
+    assert first.dataset_code == CANONICAL_DATASET_CODE
+    assert first.dataset_codes == CANONICAL_DATASET_CODES
     assert second.created == ()
+    assert second.dataset_codes == CANONICAL_DATASET_CODES
     assert set(second.verified) == {
         "storage:canonical_market_data",
         "dataset:market.bars",
+        "dataset:market.quote_snapshot",
         "binding:market.bars",
+        "binding:market.quote_snapshot",
         "provider:akshare",
         "provider:openbb:yfinance",
     }
-    assert counts == {"storage": 1, "dataset": 1, "binding": 1, "provider": 2}
+    assert counts == {"storage": 1, "dataset": 2, "binding": 2, "provider": 2}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drifted_field", ["canonical_schema", "primary_key"])
+async def test_bootstrap_rejects_quote_snapshot_dataset_contract_drift(
+    drifted_field: str,
+) -> None:
+    """The quote dataset cannot be silently repurposed after its first registration."""
+    async with async_session_maker() as session:
+        await MarketDataPlatformBootstrapper(session).bootstrap(_spec())
+        await session.commit()
+        quote_dataset = await session.scalar(
+            select(DgDataset).where(DgDataset.dataset_code == CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE)
+        )
+        assert quote_dataset is not None
+        if drifted_field == "canonical_schema":
+            quote_dataset.canonical_schema = {
+                **dict(quote_dataset.canonical_schema),
+                "data_kind": "bars",
+            }
+        else:
+            quote_dataset.primary_key = ["event_time"]
+        await session.commit()
+
+        with pytest.raises(MarketDataBootstrapError) as blocked:
+            await MarketDataPlatformBootstrapper(session).bootstrap(_spec())
+        await session.rollback()
+
+    assert blocked.value.code == "MARKET_DATA_BOOTSTRAP_DATASET_CONFLICT"
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_rejects_an_unreviewed_dataset_claim_on_the_shared_facts_table() -> None:
+    """Only the reviewed bars/quote pair may use this bootstrap's shared binding."""
+    async with async_session_maker() as session:
+        await MarketDataPlatformBootstrapper(session).bootstrap(_spec())
+        await session.commit()
+        storage = await session.scalar(
+            select(DgStorageTarget).where(DgStorageTarget.storage_id == CANONICAL_STORAGE_ID)
+        )
+        assert storage is not None
+        unreviewed = DgDataset(
+            dataset_code="market.unreviewed",
+            display_name="Unreviewed market product",
+            domain="market",
+            canonical_schema={},
+            primary_key=[],
+            is_active=True,
+        )
+        session.add(unreviewed)
+        await session.flush()
+        session.add(
+            DgDatasetStorage(
+                dataset_id=unreviewed.id,
+                storage_target_id=storage.id,
+                physical_table=CANONICAL_PHYSICAL_TABLE,
+                write_mode=CANONICAL_WRITE_MODE,
+                is_primary=True,
+            )
+        )
+        await session.commit()
+
+        with pytest.raises(MarketDataBootstrapError) as blocked:
+            await MarketDataPlatformBootstrapper(session).bootstrap(_spec())
+        await session.rollback()
+
+    assert blocked.value.code == "MARKET_DATA_BOOTSTRAP_PHYSICAL_BINDING_CONFLICT"
 
 
 @pytest.mark.asyncio

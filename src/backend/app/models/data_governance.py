@@ -89,13 +89,19 @@ class DgStorageTarget(Base):
 
 
 class DgDatasetStorage(Base):
-    """A dataset materialization in a registered physical store."""
+    """A dataset materialization in a registered physical store.
+
+    A normalized fact table can carry several semantically distinct datasets.
+    Each catalog binding is therefore unique per storage, physical table, and
+    dataset rather than claiming the table for just one dataset.
+    """
 
     __tablename__ = "dg_dataset_storages"
     __table_args__ = (
         UniqueConstraint(
             "storage_target_id",
             "physical_table",
+            "dataset_id",
             name="uq_dg_dataset_storage_target_table",
         ),
         UniqueConstraint(

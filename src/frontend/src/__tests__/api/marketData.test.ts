@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import api from '@/api/index'
 import {
   createMarketDataQueryFromContract,
+  hasMarketDataQueryBundle,
   hasMarketDataQueryContract,
   isMarketDataQueryV2FallbackError,
   marketDataApi,
@@ -90,6 +91,123 @@ describe('marketDataApi', () => {
     expect(config?.validateStatus?.(500)).toBe(false)
   })
 
+  it('passes an explicitly selected family id to the server-owned contract resolver', async () => {
+    vi.mocked(api.get).mockResolvedValue({ version: 'market-data-v2' })
+
+    await marketDataApi.getQueryContract({
+      asset_type: 'stock',
+      symbol: '000001',
+      period: 'daily',
+      family_id: 'stock.realtime',
+    })
+
+    expect(api.get).toHaveBeenCalledWith('/data/market-instruments/query-contract', expect.objectContaining({
+      params: {
+        asset_type: 'stock',
+        symbol: '000001',
+        period: 'daily',
+        family_id: 'stock.realtime',
+      },
+    }))
+  })
+
+  it('requests the static family control bundle without a symbol or provider selector', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      version: 'market-data-family-bundle-v1',
+      requested_asset_type: 'stock',
+      families: [],
+    })
+
+    await marketDataApi.getQueryBundle({ asset_type: 'stock' })
+
+    expect(api.get).toHaveBeenCalledWith('/data/market-instruments/query-bundle', expect.objectContaining({
+      params: { asset_type: 'stock' },
+      suppressErrorMessage: true,
+      skipRetry: true,
+    }))
+    const config = vi.mocked(api.get).mock.calls[0]?.[1]
+    expect(config?.validateStatus?.(200)).toBe(true)
+    expect(config?.validateStatus?.(404)).toBe(false)
+    expect(config?.validateStatus?.(503)).toBe(false)
+  })
+
+  it('accepts only a complete server-issued family control bundle', () => {
+    const bundle = {
+      version: 'market-data-family-bundle-v1',
+      requested_asset_type: 'stock',
+      families: [
+        {
+          family_id: 'stock.realtime',
+          family_contract_version: 'market-data-family-v1',
+          asset_type: 'stock',
+          status: 'ready',
+          dataset_code: 'market.bars',
+          data_kind: 'bars',
+          frequency_semantics: 'calendar_grid',
+          frequencies: ['1d'],
+          field_profile_id: 'bars-close-v1',
+          required_fields: ['close'],
+          optional_fields: ['open', 'high', 'low', 'volume'],
+          dimension_fields: [],
+          coverage_model: 'calendar_grid',
+          source_policy_id: 'market-default-v1',
+          reason_code: null,
+        },
+        {
+          family_id: 'stock.valuation',
+          family_contract_version: 'market-data-family-v1',
+          asset_type: 'stock',
+          status: 'unconfigured',
+          dataset_code: 'market.stock_valuation',
+          data_kind: 'reference_series',
+          frequency_semantics: 'reporting_period',
+          frequencies: ['1d'],
+          field_profile_id: 'stock-valuation-v1',
+          required_fields: ['pe'],
+          optional_fields: ['pb'],
+          dimension_fields: [],
+          coverage_model: 'report_completeness',
+          source_policy_id: null,
+          reason_code: 'DATA_FAMILY_UNCONFIGURED',
+        },
+      ],
+    }
+
+    expect(hasMarketDataQueryBundle(bundle)).toBe(true)
+    expect(hasMarketDataQueryBundle({
+      ...bundle,
+      families: [{ ...bundle.families[0], source_policy_id: null }],
+    })).toBe(false)
+    expect(hasMarketDataQueryBundle({
+      ...bundle,
+      families: [{ ...bundle.families[0], family_contract_version: undefined }],
+    })).toBe(false)
+    expect(hasMarketDataQueryBundle({
+      ...bundle,
+      families: [{ ...bundle.families[0], family_contract_version: 'market-data-family-v2' }],
+    })).toBe(false)
+    expect(hasMarketDataQueryBundle({
+      ...bundle,
+      families: [{ ...bundle.families[1], source_policy_id: 'legacy-akshare' }],
+    })).toBe(false)
+    expect(hasMarketDataQueryBundle({
+      ...bundle,
+      requested_asset_type: 'stock',
+      families: [{ ...bundle.families[0], family_id: 'futures.realtime' }],
+    })).toBe(false)
+    expect(hasMarketDataQueryBundle({
+      ...bundle,
+      requested_asset_type: 'stock',
+      families: [{
+        ...bundle.families[1],
+        family_id: 'futures.inventory',
+        asset_type: 'futures',
+        status: 'not_applicable',
+        reason_code: 'DATA_FAMILY_NOT_APPLICABLE',
+      }],
+    })).toBe(true)
+  })
+
   it('posts only server-issued v2 request facts to the local-first endpoint', async () => {
     const contract: MarketDataQueryContract = {
       version: 'market-data-v2',
@@ -104,6 +222,8 @@ describe('marketDataApi', () => {
         currency: 'CNY',
         unit: 'share',
         source_policy_id: 'market-default-v1',
+        family_id: 'stock.realtime',
+        family_contract_version: 'market-data-family-v1',
         mode: 'local_first',
       },
     }
@@ -121,7 +241,31 @@ describe('marketDataApi', () => {
     expect(hasMarketDataQueryContract(contract)).toBe(true)
     expect(request.identity).toEqual({ canonical_id: 'instrument:stock:CN-SZSE:000001' })
     expect(request.dataset_code).toBe('market.stock_daily')
+    expect(request.family_id).toBe('stock.realtime')
+    expect(request.family_contract_version).toBe('market-data-family-v1')
     expect(api.post).toHaveBeenCalledWith('/data/queries', request)
+  })
+
+  it('rejects a contract that carries only one family binding axis', () => {
+    const contract = {
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        dataset_code: 'market.stock_daily',
+        data_kind: 'bars',
+        frequency: '1d',
+        required_fields: ['close'],
+        source_policy_id: 'market-default-v1',
+        family_id: 'stock.realtime',
+        mode: 'local_first',
+      },
+    }
+
+    expect(hasMarketDataQueryContract(contract)).toBe(false)
+    expect(() => createMarketDataQueryFromContract(contract as MarketDataQueryContract, {
+      start: '2026-01-01T00:00:00.000Z',
+      end: '2026-01-02T00:00:00.000Z',
+    })).toThrow('MARKET_DATA_QUERY_CONTRACT_INVALID')
   })
 
   it('recognizes only deployment and bootstrap failures as legacy-fallback errors', () => {
@@ -129,6 +273,9 @@ describe('marketDataApi', () => {
     expect(isMarketDataQueryV2FallbackError({ response: { status: 503 } })).toBe(false)
     expect(isMarketDataQueryV2FallbackError({
       response: { status: 503, data: { details: { code: 'MARKET_DATA_QUERY_V2_DISABLED' } } },
+    })).toBe(true)
+    expect(isMarketDataQueryV2FallbackError({
+      response: { status: 503, data: { details: { code: 'MARKET_DATA_QUERY_BUNDLE_UNAVAILABLE' } } },
     })).toBe(true)
     expect(isMarketDataQueryV2FallbackError({
       response: { status: 503, data: { details: { code: 'MARKET_DATA_WRITE_FAILED' } } },

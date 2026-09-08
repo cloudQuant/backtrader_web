@@ -1,13 +1,14 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import DataPage from '@/views/DataPage.vue'
 import { elStubs } from '@/test/stubs'
-import type { MarketAssetType } from '@/api/marketData'
+import type { MarketAssetType, MarketDataQueryResponse } from '@/api/marketData'
 
 const apiMocks = vi.hoisted(() => ({
   lookupInstrument: vi.fn(),
+  getQueryBundle: vi.fn(),
   getQueryContract: vi.fn(),
   queryLocalFirst: vi.fn(),
   listInstrumentOptions: vi.fn(),
@@ -22,6 +23,15 @@ vi.mock('element-plus', () => ({
 }))
 
 vi.mock('@/api/marketData', () => ({
+  hasMarketDataQueryBundle: (value: unknown) => (
+    Boolean(
+      value
+      && typeof value === 'object'
+      && (value as { version?: unknown }).version === 'market-data-family-bundle-v1'
+      && (value as { requested_asset_type?: unknown }).requested_asset_type
+      && Array.isArray((value as { families?: unknown }).families),
+    )
+  ),
   hasMarketDataQueryContract: (value: unknown) => (
     Boolean(
       value
@@ -37,10 +47,12 @@ vi.mock('@/api/marketData', () => ({
   isMarketDataQueryV2FallbackError: (error: { response?: { status?: unknown, data?: { details?: { code?: unknown } } } }) => (
     [404, 405, 501].includes(Number(error?.response?.status))
     || error?.response?.data?.details?.code === 'MARKET_DATA_QUERY_V2_DISABLED'
+    || error?.response?.data?.details?.code === 'MARKET_DATA_QUERY_BUNDLE_UNAVAILABLE'
   ),
   marketDataApi: {
     listInstrumentOptions: apiMocks.listInstrumentOptions,
     lookupInstrument: apiMocks.lookupInstrument,
+    getQueryBundle: apiMocks.getQueryBundle,
     getQueryContract: apiMocks.getQueryContract,
     queryLocalFirst: apiMocks.queryLocalFirst,
     listCoverage: apiMocks.listCoverage,
@@ -223,35 +235,51 @@ function createInstrumentOptionsFixture(assetType: MarketAssetType) {
   }
 }
 
-function createV2ContractFixture() {
+type FamilyBindingFixture = {
+  family_id: string
+  family_contract_version: 'market-data-family-v1'
+}
+
+function stockRealtimeFamilyBinding(): FamilyBindingFixture {
+  return {
+    family_id: 'stock.realtime',
+    family_contract_version: 'market-data-family-v1',
+  }
+}
+
+function createV2ContractFixture(familyBinding: FamilyBindingFixture | null = null) {
   return {
     version: 'market-data-v2',
     request: {
       identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
-      dataset_code: 'market.stock_daily',
+      dataset_code: familyBinding ? 'market.bars' : 'market.stock_daily',
       data_kind: 'bars',
       frequency: '1d',
-      required_fields: ['close', 'volume'],
+      required_fields: familyBinding ? ['close'] : ['close', 'volume'],
       adjustment: 'qfq',
       price_basis: 'close',
       currency: 'CNY',
       unit: 'share',
       source_policy_id: 'market-default-v1',
+      ...(familyBinding || {}),
       mode: 'local_first',
     },
   }
 }
 
-function createV2ResponseFixture() {
+function createV2ResponseFixture(
+  familyBinding: FamilyBindingFixture | null = null,
+): MarketDataQueryResponse {
   return {
     query_id: 'query-local-1',
     canonical_id: 'instrument:stock:CN-SZSE:000001',
-    dataset_code: 'market.stock_daily',
+    dataset_code: familyBinding ? 'market.bars' : 'market.stock_daily',
     asset_type: 'stock',
     instrument_metadata_version: 'stock-v1',
     data_kind: 'bars',
     frequency: '1d',
     source_policy_id: 'market-default-v1',
+    ...(familyBinding || {}),
     knowledge_cutoff: '2026-06-19T16:00:00Z',
     identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
     observations: [
@@ -283,14 +311,63 @@ function createV2ResponseFixture() {
   }
 }
 
+const dataFamilyIdsByAsset: Record<MarketAssetType, string[]> = {
+  stock: ['stock.realtime', 'stock.valuation', 'stock.liquidity'],
+  futures: ['futures.realtime', 'futures.settlement', 'futures.inventory'],
+  bond: ['bond.realtime', 'bond.orderbook', 'bond.fixed_income'],
+  fund: ['fund.realtime', 'fund.liquidity', 'fund.nav'],
+  option: ['option.realtime', 'option.derivative', 'option.risk_surface'],
+  fx: ['fx.realtime', 'fx.macro_fx', 'fx.range'],
+  crypto: ['crypto.realtime', 'crypto.cme_position', 'crypto.range'],
+}
+
+type DataFamilyBundleStatus = 'ready' | 'unconfigured' | 'not_applicable'
+
+function createQueryBundleFixture(
+  assetType: MarketAssetType,
+  statuses: Partial<Record<string, DataFamilyBundleStatus>> = {},
+) {
+  return {
+    version: 'market-data-family-bundle-v1',
+    requested_asset_type: assetType,
+    families: dataFamilyIdsByAsset[assetType].map((familyId) => {
+      const status = statuses[familyId] || 'unconfigured'
+      const ready = status === 'ready'
+      return {
+        family_id: familyId,
+        family_contract_version: 'market-data-family-v1',
+        asset_type: assetType,
+        status,
+        dataset_code: ready ? 'market.bars' : `market.${familyId.replace('.', '_')}`,
+        data_kind: ready ? 'bars' : 'reference_series',
+        frequency_semantics: ready ? 'calendar_grid' : 'reporting_period',
+        frequencies: ready && familyId === 'stock.realtime' ? ['1d', '1w', '1mo'] : ['1d'],
+        field_profile_id: `${familyId.replace('.', '-')}-v1`,
+        required_fields: ['close'],
+        optional_fields: ready && familyId === 'stock.realtime'
+          ? ['open', 'high', 'low', 'volume', 'turnover', 'change_pct', 'turnover_rate']
+          : ['volume'],
+        dimension_fields: [],
+        coverage_model: ready ? 'calendar_grid' : 'report_completeness',
+        source_policy_id: ready ? 'market-default-v1' : null,
+        reason_code: ready ? null : status === 'not_applicable'
+          ? 'DATA_FAMILY_NOT_APPLICABLE'
+          : 'DATA_FAMILY_UNCONFIGURED',
+      }
+    }),
+  }
+}
+
 describe('DataPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'false')
     window.localStorage.removeItem(MARKET_ASSET_SELECTIONS_STORAGE_KEY)
     window.localStorage.removeItem(LEGACY_MARKET_SELECTION_STORAGE_KEY)
     apiMocks.lookupInstrument.mockImplementation(({ asset_type }: { asset_type: MarketAssetType }) => (
       Promise.resolve(createLookupFixture(asset_type))
     ))
+    apiMocks.getQueryBundle.mockRejectedValue({ response: { status: 404 } })
     apiMocks.getQueryContract.mockRejectedValue({ response: { status: 404 } })
     apiMocks.queryLocalFirst.mockResolvedValue(undefined)
     apiMocks.listInstrumentOptions.mockImplementation(
@@ -354,6 +431,10 @@ describe('DataPage', () => {
       page: 1,
       page_size: 8,
     })
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   async function mountPage(path = '/data/market') {
@@ -501,6 +582,7 @@ describe('DataPage', () => {
 
     const wrapper = await mountPage()
 
+    expect(apiMocks.getQueryBundle).not.toHaveBeenCalled()
     expect(apiMocks.getQueryContract).toHaveBeenCalledWith({
       asset_type: 'stock',
       symbol: '000001',
@@ -516,6 +598,313 @@ describe('DataPage', () => {
     }), expect.objectContaining({ suppressErrorMessage: true }))
     expect((wrapper.vm as any).result.history.rows).toHaveLength(1)
     expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('本地优先')
+  })
+
+  it('drops invalid or non-pass v2 bars before they can become chart points', async () => {
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture())
+    const response = createV2ResponseFixture()
+    const validObservation = response.observations[0]
+    response.observations = [
+      validObservation,
+      {
+        ...validObservation,
+        revision_id: 'revision-non-pass',
+        quality: 'failed',
+        fields: { ...validObservation.fields, close: 99 },
+      },
+      {
+        ...validObservation,
+        revision_id: 'revision-placeholder',
+        quality: 'pass',
+        fields: { ...validObservation.fields, close: '--' },
+      },
+    ]
+    apiMocks.queryLocalFirst.mockResolvedValue(response)
+
+    const wrapper = await mountPage()
+
+    expect((wrapper.vm as any).result.history.rows).toEqual([
+      expect.objectContaining({ close: 12.34 }),
+    ])
+    expect((wrapper.vm as any).ohlcHistoryRows).toHaveLength(1)
+    expect(() => (wrapper.vm as any).ohlcTuple({
+      open: 12,
+      high: 13,
+      low: 11,
+      close: '--',
+    })).toThrow('MARKET_DATA_OHLC_INVALID')
+  })
+
+  it('uses a valid family bundle as the authoritative status for every stock data family', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(createQueryBundleFixture('stock', {
+      'stock.realtime': 'ready',
+      'stock.valuation': 'unconfigured',
+      'stock.liquidity': 'not_applicable',
+    }))
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture(stockRealtimeFamilyBinding()))
+    apiMocks.queryLocalFirst.mockResolvedValue(createV2ResponseFixture(stockRealtimeFamilyBinding()))
+
+    const wrapper = await mountPage()
+    const families = (wrapper.vm as any).assetDataFamilies
+
+    expect(apiMocks.getQueryBundle).toHaveBeenCalledWith({ asset_type: 'stock' })
+    expect(apiMocks.getQueryContract).toHaveBeenCalledWith({
+      asset_type: 'stock',
+      symbol: '000001',
+      period: 'daily',
+      family_id: 'stock.realtime',
+    })
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+      family_id: 'stock.realtime',
+      family_contract_version: 'market-data-family-v1',
+    }), expect.objectContaining({ suppressErrorMessage: true }))
+    expect(families.map((family: { label: string, statusLabel: string }) => [family.label, family.statusLabel])).toEqual([
+      ['日线/周线/月线 K线兼容数据（仅声明字段）', '已配置'],
+      ['估值指标', '未配置 · DATA_FAMILY_UNCONFIGURED'],
+      ['流动性', '不适用 · DATA_FAMILY_NOT_APPLICABLE'],
+    ])
+    expect(families[0].description).toContain('market.bars')
+    expect(families[0].description).toContain('服务端声明字段')
+    const realtimeFamilyCard = wrapper.findAll('.data-family-card')[0]
+    expect(realtimeFamilyCard?.text()).toContain('日线/周线/月线 K线兼容数据（仅声明字段）')
+    expect(realtimeFamilyCard?.text()).not.toContain('实时行情')
+    expect(families[0].fields.map((field: { name: string }) => field.name)).toEqual([
+      'close', 'open', 'high', 'low', 'volume', 'turnover', 'change_pct', 'turnover_rate',
+    ])
+    expect(families[0].fields.map((field: { name: string }) => field.name)).not.toContain('price')
+    expect(families[0].fields.map((field: { name: string }) => field.name)).not.toContain('bid')
+    expect(families[0].fields.map((field: { name: string }) => field.name)).not.toContain('ask')
+    expect(families[1].fields.every((field: { present: boolean }) => !field.present)).toBe(true)
+    expect(families[2].fields.every((field: { present: boolean }) => !field.present)).toBe(true)
+  })
+
+  it('renders all seven asset tabs as unconfigured from a valid bundle without a legacy lookup', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockImplementation(({ asset_type }: { asset_type: MarketAssetType }) => (
+      Promise.resolve(createQueryBundleFixture(asset_type))
+    ))
+
+    const wrapper = await mountPage()
+    for (const assetType of Object.keys(dataFamilyIdsByAsset) as MarketAssetType[]) {
+      if ((wrapper.vm as any).form.asset_type !== assetType) {
+        ;(wrapper.vm as any).setAssetType(assetType)
+        await flushPromises()
+      }
+      const families = (wrapper.vm as any).assetDataFamilies
+      expect(families).toHaveLength(dataFamilyIdsByAsset[assetType].length)
+      expect(families.every((family: { statusLabel: string }) => (
+        family.statusLabel === '未配置 · DATA_FAMILY_UNCONFIGURED'
+      ))).toBe(true)
+    }
+
+    expect(apiMocks.getQueryContract).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据族未配置')
+  })
+
+  it('does not select a different ready family when the asset realtime family is unconfigured', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(createQueryBundleFixture('stock', {
+      // This must not become executable merely because it is ready before the
+      // designated stock.realtime family in a malformed or future bundle.
+      'stock.valuation': 'ready',
+    }))
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.getQueryContract).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result?.query_contract).toBeNull()
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据族未配置')
+  })
+
+  it('constrains weekly and monthly selection to the declared daily cadence for futures, bonds, options, and FX', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockImplementation(({ asset_type }: { asset_type: MarketAssetType }) => (
+      Promise.resolve(createQueryBundleFixture(asset_type, {
+        [`${asset_type}.realtime`]: 'ready',
+      }))
+    ))
+    const wrapper = await mountPage()
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
+
+    for (const assetType of ['futures', 'bond', 'option', 'fx'] as const) {
+      ;(wrapper.vm as any).form.period = 'monthly'
+      ;(wrapper.vm as any).setAssetType(assetType)
+      await flushPromises()
+
+      expect((wrapper.vm as any).form.period).toBe('daily')
+      expect((wrapper.vm as any).periods.map((period: { value: string }) => period.value)).toEqual(['daily'])
+      const status = wrapper.find('[data-test="market-data-platform-status"]').text()
+      expect(status).toContain('数据族不支持所选周期')
+      expect(status).toContain('已重置为日线，未执行查询')
+      expect(status).toContain(`${assetType}.realtime 仅声明 日线`)
+    }
+
+    expect(apiMocks.getQueryContract).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+  })
+
+  it('preserves an existing result when a bundle rejects the selected period', async () => {
+    const wrapper = await mountPage()
+    const priorResult = (wrapper.vm as any).result
+    const dailyOnlyStockBundle = createQueryBundleFixture('stock', {
+      'stock.realtime': 'ready',
+    })
+    dailyOnlyStockBundle.families[0].frequencies = ['1d']
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(dailyOnlyStockBundle)
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
+    apiMocks.lookupInstrument.mockClear()
+    ;(wrapper.vm as any).form.period = 'weekly'
+
+    await (wrapper.vm as any).lookupInstrument()
+    await flushPromises()
+
+    expect((wrapper.vm as any).form.period).toBe('daily')
+    expect((wrapper.vm as any).result).toBe(priorResult)
+    expect(apiMocks.getQueryContract).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据族不支持所选周期')
+  })
+
+  it('rejects a bundle-selected contract whose declared family axes do not match', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(createQueryBundleFixture('stock', {
+      'stock.realtime': 'ready',
+    }))
+    const mismatchedContract = createV2ContractFixture(stockRealtimeFamilyBinding())
+    mismatchedContract.request.required_fields = ['close', 'volume']
+    apiMocks.getQueryContract.mockResolvedValue(mismatchedContract)
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.getQueryContract).toHaveBeenCalledWith({
+      asset_type: 'stock',
+      symbol: '000001',
+      period: 'daily',
+      family_id: 'stock.realtime',
+    })
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result).toBeNull()
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据平台查询失败')
+  })
+
+  it('rejects a first family-bound response whose echoed binding differs from the request', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(createQueryBundleFixture('stock', {
+      'stock.realtime': 'ready',
+    }))
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture(stockRealtimeFamilyBinding()))
+    apiMocks.queryLocalFirst.mockResolvedValue(createV2ResponseFixture({
+      family_id: 'stock.valuation',
+      family_contract_version: 'market-data-family-v1',
+    }))
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledTimes(1)
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result).toBeNull()
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据平台查询失败')
+  })
+
+  it('rejects a later cursor page whose echoed family binding differs from the first request', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(createQueryBundleFixture('stock', {
+      'stock.realtime': 'ready',
+    }))
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture(stockRealtimeFamilyBinding()))
+    const firstPage = {
+      ...createV2ResponseFixture(stockRealtimeFamilyBinding()),
+      next_cursor: 'cursor-1',
+    }
+    const laterPage = {
+      ...createV2ResponseFixture({
+        family_id: 'stock.realtime',
+        family_contract_version: 'market-data-family-v1',
+      }),
+      observations: [{
+        ...createV2ResponseFixture(stockRealtimeFamilyBinding()).observations[0],
+        revision_id: 'revision-2',
+      }],
+      family_contract_version: 'market-data-family-v2',
+      next_cursor: null,
+    }
+    apiMocks.queryLocalFirst.mockImplementation(({ cursor }: { cursor?: string }) => (
+      Promise.resolve(cursor ? laterPage : firstPage)
+    ))
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledTimes(2)
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result).toBeNull()
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据平台查询失败')
+  })
+
+  it('does not fall back to legacy data after a valid bundle has issued a bars family', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(createQueryBundleFixture('stock', {
+      'stock.realtime': 'ready',
+    }))
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture(stockRealtimeFamilyBinding()))
+    apiMocks.queryLocalFirst.mockRejectedValue({
+      response: { status: 503, data: { details: { code: 'MARKET_DATA_WRITE_FAILED' } } },
+    })
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.getQueryBundle).toHaveBeenCalledTimes(1)
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledTimes(1)
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result).toBeNull()
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据平台查询失败')
+  })
+
+  it('does not use legacy data when a valid bundle cannot resolve its exact bars contract', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(createQueryBundleFixture('stock', {
+      'stock.realtime': 'ready',
+    }))
+    apiMocks.getQueryContract.mockRejectedValue({ response: { status: 404 } })
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.getQueryBundle).toHaveBeenCalledTimes(1)
+    expect(apiMocks.getQueryContract).toHaveBeenCalledTimes(1)
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result).toBeNull()
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据平台查询失败')
+  })
+
+  it('keeps the existing bars path when the optional bundle endpoint is unavailable', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockRejectedValue({ response: { status: 404 } })
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture())
+    apiMocks.queryLocalFirst.mockResolvedValue(createV2ResponseFixture())
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.getQueryBundle).toHaveBeenCalledWith({ asset_type: 'stock' })
+    expect(apiMocks.getQueryContract).toHaveBeenCalledWith({
+      asset_type: 'stock',
+      symbol: '000001',
+      period: 'daily',
+    })
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledTimes(1)
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result.history.rows).toHaveLength(1)
   })
 
   it('does not fall back to legacy data after a valid v2 contract returns a write failure', async () => {
@@ -755,22 +1144,17 @@ describe('DataPage', () => {
     expect(wrapper.text()).not.toContain('Put / Call Ratio')
   })
 
-  it('uses AkShare only after the user clicks the market query button', async () => {
+  it('does not use the non-persistent legacy online refresh when v2 is unavailable', async () => {
     const wrapper = await mountPage()
     const queryButton = wrapper.findAll('button').find((button) => button.text().includes('查询'))
 
     expect(queryButton).toBeDefined()
+    apiMocks.lookupInstrument.mockClear()
     await queryButton?.trigger('click')
     await flushPromises()
 
-    expect(apiMocks.lookupInstrument).toHaveBeenLastCalledWith({
-      asset_type: 'stock',
-      symbol: '000001',
-      period: 'daily',
-      start_date: expect.any(String),
-      end_date: expect.any(String),
-      market: undefined,
-      refresh_online: true,
-    })
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result.symbol).toBe('000001')
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据平台查询失败')
   })
 })

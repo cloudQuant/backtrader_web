@@ -17,6 +17,7 @@ import * as echarts from 'echarts'
 import { akshareTablesApi } from '@/api/akshare'
 import {
   createMarketDataQueryFromContract,
+  hasMarketDataQueryBundle,
   hasMarketDataQueryContract,
   isMarketDataQueryV2FallbackError,
   marketDataApi,
@@ -24,6 +25,9 @@ import {
   type MarketHistoryRow,
   type MarketInstrumentOption,
   type MarketInstrumentLookupResponse,
+  type MarketDataQueryBundle,
+  type MarketDataQueryBundleFamily,
+  type MarketDataQueryBundleFamilyStatus,
   type MarketDataQueryContract,
   type MarketDataQueryResponse,
 } from '@/api/marketData'
@@ -41,6 +45,14 @@ type SavedMarketAssetSelection = {
 type MarketAssetSelections = Partial<Record<MarketAssetType, SavedMarketAssetSelection>>
 
 const V2_MARKET_DATA_PAGE_SIZE = 2000
+
+/**
+ * Disabled by default until Iter196/197 integration is frozen. This enables
+ * only the static v2 family-control plane; it never enables online fetching.
+ */
+function isMarketDataQueryBundleFeatureEnabled(): boolean {
+  return import.meta.env.VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED === 'true'
+}
 
 export function useDataPage() {
   const { t } = useI18n()
@@ -131,16 +143,31 @@ export function useDataPage() {
   }
 
   type MarketDataPlatformStatus = {
-    path: 'legacy' | 'local_first' | 'provider_persisted' | 'legacy_fallback' | 'error'
+    path: (
+      | 'legacy'
+      | 'local_first'
+      | 'provider_persisted'
+      | 'legacy_fallback'
+      | 'bundle_unconfigured'
+      | 'bundle_period_unsupported'
+      | 'error'
+    )
     provider: string | null
     coverageStatus: string | null
     coverageRatio: number | null
     fetchedProviderCount: number
     fallbackReason: string | null
     queryId: string | null
+    periodConstraint: {
+      familyId: string
+      requestedFrequency: string
+      declaredFrequencies: string[]
+      resetPeriod: string | null
+    } | null
   }
 
   type DataFamilySpec = {
+    familyId: string
     labelKey: string
     descKey: string
     fields: string[]
@@ -371,6 +398,7 @@ export function useDataPage() {
   const assetDataFamilySpecs: Record<MarketAssetType, DataFamilySpec[]> = {
     stock: [
       {
+        familyId: 'stock.realtime',
         labelKey: 'dataMgmt.familyRealtime',
         descKey: 'dataMgmt.familyRealtimeDesc',
         fields: ['price', 'change_pct', 'open', 'high', 'low', 'volume', 'turnover'],
@@ -378,12 +406,14 @@ export function useDataPage() {
         tableKeywords: ['stock_zh_a_spot', 'stock_zh_a_hist', 'stock_market'],
       },
       {
+        familyId: 'stock.valuation',
         labelKey: 'dataMgmt.familyValuation',
         descKey: 'dataMgmt.familyValuationDesc',
         fields: ['market_cap', 'float_market_cap', 'pe', 'pb'],
         tableKeywords: ['stock_market_pe', 'stock_market_pb', 'stock_individual_info'],
       },
       {
+        familyId: 'stock.liquidity',
         labelKey: 'dataMgmt.familyLiquidity',
         descKey: 'dataMgmt.familyLiquidityDesc',
         fields: ['volume', 'turnover'],
@@ -393,6 +423,7 @@ export function useDataPage() {
     ],
     futures: [
       {
+        familyId: 'futures.realtime',
         labelKey: 'dataMgmt.familyRealtime',
         descKey: 'dataMgmt.familyRealtimeDesc',
         fields: ['price', 'bid', 'ask', 'volume', 'open_interest'],
@@ -400,6 +431,7 @@ export function useDataPage() {
         tableKeywords: ['futures_zh_spot', 'daily_market_data', 'minute_market'],
       },
       {
+        familyId: 'futures.settlement',
         labelKey: 'dataMgmt.familySettlement',
         descKey: 'dataMgmt.familySettlementDesc',
         fields: ['settle', 'previous_settle', 'open_interest'],
@@ -407,6 +439,7 @@ export function useDataPage() {
         tableKeywords: ['settle', 'delivery', 'member_position'],
       },
       {
+        familyId: 'futures.inventory',
         labelKey: 'dataMgmt.familyInventory',
         descKey: 'dataMgmt.familyInventoryDesc',
         fields: ['volume', 'open_interest'],
@@ -416,6 +449,7 @@ export function useDataPage() {
     ],
     bond: [
       {
+        familyId: 'bond.realtime',
         labelKey: 'dataMgmt.familyRealtime',
         descKey: 'dataMgmt.familyRealtimeDesc',
         fields: ['price', 'change_pct', 'bid', 'ask', 'turnover'],
@@ -423,12 +457,14 @@ export function useDataPage() {
         tableKeywords: ['bond_zh_hs_cov_spot', 'bond_zh_hs_cov_daily'],
       },
       {
+        familyId: 'bond.orderbook',
         labelKey: 'dataMgmt.familyOrderBook',
         descKey: 'dataMgmt.familyOrderBookDesc',
         fields: ['bid', 'ask', 'volume', 'turnover'],
         tableKeywords: ['bond_spot', 'bond_info', 'bond_quote'],
       },
       {
+        familyId: 'bond.fixed_income',
         labelKey: 'dataMgmt.familyFixedIncome',
         descKey: 'dataMgmt.familyFixedIncomeDesc',
         fields: ['price', 'previous_close'],
@@ -438,6 +474,7 @@ export function useDataPage() {
     ],
     fund: [
       {
+        familyId: 'fund.realtime',
         labelKey: 'dataMgmt.familyRealtime',
         descKey: 'dataMgmt.familyRealtimeDesc',
         fields: ['price', 'change_pct', 'volume', 'turnover'],
@@ -445,6 +482,7 @@ export function useDataPage() {
         tableKeywords: ['fund_etf_spot', 'fund_etf_hist'],
       },
       {
+        familyId: 'fund.liquidity',
         labelKey: 'dataMgmt.familyLiquidity',
         descKey: 'dataMgmt.familyLiquidityDesc',
         fields: ['volume', 'turnover'],
@@ -452,6 +490,7 @@ export function useDataPage() {
         tableKeywords: ['fund_flow', 'fund_scale', 'fund_industry_allocation'],
       },
       {
+        familyId: 'fund.nav',
         labelKey: 'dataMgmt.familyNav',
         descKey: 'dataMgmt.familyNavDesc',
         fields: ['price', 'previous_close'],
@@ -461,6 +500,7 @@ export function useDataPage() {
     ],
     option: [
       {
+        familyId: 'option.realtime',
         labelKey: 'dataMgmt.familyRealtime',
         descKey: 'dataMgmt.familyRealtimeDesc',
         fields: ['price', 'change', 'change_pct', 'volume'],
@@ -468,6 +508,7 @@ export function useDataPage() {
         tableKeywords: ['option_sse_daily', 'option_cffex'],
       },
       {
+        familyId: 'option.derivative',
         labelKey: 'dataMgmt.familyDerivative',
         descKey: 'dataMgmt.familyDerivativeDesc',
         fields: ['price', 'volume', 'open_interest', 'strike', 'days_to_expiry'],
@@ -475,6 +516,7 @@ export function useDataPage() {
         tableKeywords: ['option_base', 'option_finance_board', 'options_stock'],
       },
       {
+        familyId: 'option.risk_surface',
         labelKey: 'dataMgmt.familyRiskSurface',
         descKey: 'dataMgmt.familyRiskSurfaceDesc',
         fields: ['change_pct', 'bid', 'ask'],
@@ -484,6 +526,7 @@ export function useDataPage() {
     ],
     fx: [
       {
+        familyId: 'fx.realtime',
         labelKey: 'dataMgmt.familyRealtime',
         descKey: 'dataMgmt.familyRealtimeDesc',
         fields: ['price', 'change_pct', 'open', 'high', 'low', 'previous_close'],
@@ -491,6 +534,7 @@ export function useDataPage() {
         tableKeywords: ['forex_spot', 'forex_hist', 'fx_quote'],
       },
       {
+        familyId: 'fx.macro_fx',
         labelKey: 'dataMgmt.familyMacroFx',
         descKey: 'dataMgmt.familyMacroFxDesc',
         fields: ['price', 'previous_close'],
@@ -498,6 +542,7 @@ export function useDataPage() {
         tableKeywords: ['macro', 'fx_quote_baidu', 'currency'],
       },
       {
+        familyId: 'fx.range',
         labelKey: 'dataMgmt.familyRange',
         descKey: 'dataMgmt.familyRangeDesc',
         fields: ['high', 'low', 'open'],
@@ -507,12 +552,14 @@ export function useDataPage() {
     ],
     crypto: [
       {
+        familyId: 'crypto.realtime',
         labelKey: 'dataMgmt.familyRealtime',
         descKey: 'dataMgmt.familyRealtimeDesc',
         fields: ['price', 'change', 'change_pct', 'high', 'low', 'volume'],
         tableKeywords: ['crypto_js_spot', 'crypto'],
       },
       {
+        familyId: 'crypto.cme_position',
         labelKey: 'dataMgmt.familyCmePosition',
         descKey: 'dataMgmt.familyCmePositionDesc',
         fields: ['volume', 'open_interest', 'change'],
@@ -520,6 +567,7 @@ export function useDataPage() {
         tableKeywords: ['crypto_bitcoin_cme', 'bitcoin_cme'],
       },
       {
+        familyId: 'crypto.range',
         labelKey: 'dataMgmt.familyRange',
         descKey: 'dataMgmt.familyRangeDesc',
         fields: ['high', 'low', 'volume'],
@@ -564,11 +612,21 @@ export function useDataPage() {
     pb: 'dataMgmt.fieldPb',
   }
 
-  const periods = [
+  const basePeriods = [
     { value: 'daily', labelKey: 'dataMgmt.periodDaily' },
     { value: 'weekly', labelKey: 'dataMgmt.periodWeekly' },
     { value: 'monthly', labelKey: 'dataMgmt.periodMonthly' },
   ]
+
+  const periods = computed(() => {
+    const bundle = marketDataQueryBundle.value
+    if (!bundle || bundle.requested_asset_type !== form.asset_type) return basePeriods
+    const family = readyRealtimeBarsFamilyFromQueryBundle(bundle, form.asset_type)
+    if (!family) return basePeriods
+    return basePeriods.filter((period) => (
+      family.frequencies.includes(v2FrequencyForLegacyPeriod(period.value))
+    ))
+  })
 
   const routeTabMap: Record<string, MarketAssetType> = {
     stock: 'stock',
@@ -611,7 +669,12 @@ export function useDataPage() {
     fetchedProviderCount: 0,
     fallbackReason: null,
     queryId: null,
+    periodConstraint: null,
   })
+  // A valid bundle is an authoritative capability declaration for the current
+  // asset tab. Do not infer a missing entry from legacy payloads or catalog
+  // table names while it is present.
+  const marketDataQueryBundle = ref<MarketDataQueryBundle | null>(null)
   const viewportWidth = ref(window.innerWidth)
   let marketChart: echarts.ECharts | null = null
   let instrumentOptionsRequestId = 0
@@ -625,9 +688,11 @@ export function useDataPage() {
     [...historyRows.value].sort((left, right) => historyRowTimestamp(right) - historyRowTimestamp(left))
   ))
   const ohlcHistoryRows = computed(() => historyRows.value.filter((row) => (
-    hasValue(row.date) && hasValue(row.close) && (
-      hasValue(row.open) || hasValue(row.high) || hasValue(row.low)
-    )
+    hasValue(row.date)
+    && isFiniteNumber(numericValue(row.open, null))
+    && isFiniteNumber(numericValue(row.high, null))
+    && isFiniteNumber(numericValue(row.low, null))
+    && isFiniteNumber(numericValue(row.close, null))
   )))
   const hasOhlcChart = computed(() => ohlcHistoryRows.value.length > 0)
   const hasStructureChart = computed(() => historyRows.value.some((row) => (
@@ -756,6 +821,8 @@ export function useDataPage() {
       return status.provider ? `本地优先 · ${status.provider}` : '本地优先'
     }
     if (status.path === 'legacy_fallback') return '传统接口回退'
+    if (status.path === 'bundle_unconfigured') return '数据族未配置'
+    if (status.path === 'bundle_period_unsupported') return '数据族不支持所选周期'
     if (status.path === 'error') return '数据平台查询失败'
     return '传统本地查询'
   })
@@ -764,11 +831,22 @@ export function useDataPage() {
     if (status.path === 'provider_persisted') return `已保存 ${status.fetchedProviderCount} 个来源回执`
     if (status.path === 'local_first') return '命中本地可追溯缓存'
     if (status.path === 'legacy_fallback') return '保留兼容查询结果'
+    if (status.path === 'bundle_unconfigured') return '已签发数据族控制面'
+    if (status.path === 'bundle_period_unsupported') {
+      const resetPeriod = status.periodConstraint?.resetPeriod
+      return resetPeriod ? `已重置为${periodLabel(resetPeriod)}，未执行查询` : '未执行查询'
+    }
     if (status.path === 'error') return '查询未回退到传统接口'
     return '兼容接口未返回缓存凭证'
   })
   const marketDataPlatformCoverageText = computed(() => {
     const status = marketDataPlatformStatus.value
+    if (status.path === 'bundle_unconfigured') return '数据族控制面未配置 bars 查询'
+    if (status.path === 'bundle_period_unsupported') {
+      const constraint = status.periodConstraint
+      if (!constraint) return '服务端未声明可用周期'
+      return `${constraint.familyId} 仅声明 ${constraint.declaredFrequencies.map(periodLabel).join('/')}`
+    }
     if (!status.coverageStatus) return '覆盖证据待数据平台提供'
     const ratio = status.coverageRatio === null ? '-' : `${(status.coverageRatio * 100).toFixed(2)}%`
     return `${status.coverageStatus} · ${ratio}`
@@ -776,7 +854,12 @@ export function useDataPage() {
   const marketDataPlatformTagType = computed<'success' | 'warning' | 'info'>(() => {
     const path = marketDataPlatformStatus.value.path
     if (path === 'local_first' || path === 'provider_persisted') return 'success'
-    if (path === 'legacy_fallback' || path === 'error') return 'warning'
+    if (
+      path === 'legacy_fallback'
+      || path === 'bundle_unconfigured'
+      || path === 'bundle_period_unsupported'
+      || path === 'error'
+    ) return 'warning'
     return 'info'
   })
   const coverageMatrixSubtitle = computed(() => {
@@ -970,6 +1053,39 @@ export function useDataPage() {
     return '1d'
   }
 
+  function legacyPeriodForV2Frequency(frequency: string): 'daily' | 'weekly' | 'monthly' | null {
+    if (frequency === '1d') return 'daily'
+    if (frequency === '1w') return 'weekly'
+    if (frequency === '1mo') return 'monthly'
+    return null
+  }
+
+  function periodLabel(period: string): string {
+    const labels: Record<string, string> = {
+      daily: '日线',
+      weekly: '周线',
+      monthly: '月线',
+      '5min': '5分钟',
+      '30min': '30分钟',
+      '1h': '1小时',
+      '1d': '日线',
+      '1w': '周线',
+      '1mo': '月线',
+      snapshot: '快照',
+    }
+    return labels[period] || period
+  }
+
+  function resetToDeclaredPeriod(
+    family: MarketDataQueryBundleFamily,
+  ): 'daily' | 'weekly' | 'monthly' | null {
+    for (const frequency of family.frequencies) {
+      const period = legacyPeriodForV2Frequency(frequency)
+      if (period) return period
+    }
+    return null
+  }
+
   function queryWindowFromDateRange(): { start: string; end: string } | null {
     const [startDate, endDate] = dateRange.value || []
     if (!startDate || !endDate) return null
@@ -1003,18 +1119,97 @@ export function useDataPage() {
     return contract
   }
 
+  function familyFromQueryBundle(
+    bundle: MarketDataQueryBundle,
+    familyId: string,
+  ): MarketDataQueryBundleFamily | null {
+    return bundle.families.find((family) => family.family_id === familyId) || null
+  }
+
+  function readyRealtimeBarsFamilyFromQueryBundle(
+    bundle: MarketDataQueryBundle,
+    assetType: MarketAssetType,
+  ): MarketDataQueryBundleFamily | null {
+    // Never take the first ready entry. The market page's executable bridge is
+    // intentionally bound to the asset's stable ``asset.realtime`` family so
+    // another ready product can never change the query semantics by ordering.
+    const family = familyFromQueryBundle(bundle, `${assetType}.realtime`)
+    if (
+      !family
+      || family.asset_type !== assetType
+      || family.status !== 'ready'
+      || family.data_kind !== 'bars'
+      || family.frequency_semantics !== 'calendar_grid'
+    ) {
+      return null
+    }
+    return family
+  }
+
+  function sameDeclaredFields(left: readonly string[], right: readonly string[]): boolean {
+    return left.length === right.length && left.every((field, index) => field === right[index])
+  }
+
+  function contractMatchesDeclaredFamily(
+    contract: MarketDataQueryContract,
+    family: MarketDataQueryBundleFamily,
+  ): boolean {
+    const request = contract.request
+    return request.family_id === family.family_id
+      && request.family_contract_version === family.family_contract_version
+      && request.dataset_code === family.dataset_code
+      && request.data_kind === family.data_kind
+      && request.frequency === v2FrequencyForLegacyPeriod(form.period)
+      && family.frequencies.includes(request.frequency)
+      && sameDeclaredFields(request.required_fields, family.required_fields)
+      && family.source_policy_id !== null
+      && request.source_policy_id === family.source_policy_id
+  }
+
+  function issuedFamilyFromCurrentQueryBundle(familyId: string): MarketDataQueryBundleFamily | null {
+    const bundle = marketDataQueryBundle.value
+    if (!bundle || bundle.requested_asset_type !== form.asset_type) return null
+    return familyFromQueryBundle(bundle, familyId)
+  }
+
+  async function resolveV2QueryBundle(
+    assetType: MarketAssetType,
+  ): Promise<{ bundle: MarketDataQueryBundle | null; fellBack: boolean }> {
+    if (!isMarketDataQueryBundleFeatureEnabled()) {
+      return { bundle: null, fellBack: false }
+    }
+    try {
+      const bundle = await marketDataApi.getQueryBundle({ asset_type: assetType })
+      if (
+        !hasMarketDataQueryBundle(bundle)
+        || bundle.requested_asset_type !== assetType
+        || bundle.families.some((family) => family.asset_type !== assetType)
+      ) {
+        throw new Error('MARKET_DATA_QUERY_BUNDLE_INVALID')
+      }
+      return { bundle, fellBack: false }
+    } catch (error) {
+      if (isMarketDataQueryV2FallbackError(error)) {
+        return { bundle: null, fellBack: true }
+      }
+      throw error
+    }
+  }
+
   async function resolveV2QueryContract(
     assetType: MarketAssetType,
     symbol: string,
+    declaredFamily: MarketDataQueryBundleFamily | null = null,
   ): Promise<{ contract: MarketDataQueryContract | null; fellBack: boolean }> {
     try {
       const contract = await marketDataApi.getQueryContract({
         asset_type: assetType,
         symbol,
         period: form.period as 'daily' | 'weekly' | 'monthly',
+        ...(declaredFamily ? { family_id: declaredFamily.family_id } : {}),
       })
       const currentContract = queryContractForCurrentPeriod(contract)
-      if (!currentContract) {
+      if (!currentContract || (declaredFamily && !contractMatchesDeclaredFamily(currentContract, declaredFamily))) {
         throw new Error('MARKET_DATA_QUERY_CONTRACT_INVALID')
       }
       return { contract: currentContract, fellBack: false }
@@ -1030,14 +1225,14 @@ export function useDataPage() {
     assetType: MarketAssetType,
     symbol: string,
     market: string,
-    contract: MarketDataQueryContract,
+    contract: MarketDataQueryContract | null,
   ): MarketInstrumentLookupResponse {
     return {
       asset_type: assetType,
       symbol,
       name: symbol,
       market: market || null,
-      provider: 'local_market_data',
+      provider: contract ? 'local_market_data' : null,
       query_contract: contract,
       snapshot: {},
       history: {
@@ -1052,6 +1247,13 @@ export function useDataPage() {
 
   function v2HistoryRows(response: MarketDataQueryResponse): MarketHistoryRow[] {
     return response.observations
+      // The API must already enforce this invariant.  Keep the display
+      // boundary fail-closed as well so a malformed intermediary response can
+      // never turn a missing/placeholder close into a synthetic zero candle.
+      .filter((observation) => (
+        observation.quality === 'pass'
+        && isFiniteNumber(numericValue(observation.fields.close, null))
+      ))
       .map((observation) => ({
         ...observation.fields,
         date: v2EventTimeLabel(observation.event_at, response.frequency),
@@ -1119,6 +1321,7 @@ export function useDataPage() {
       fetchedProviderCount: 0,
       fallbackReason,
       queryId: null,
+      periodConstraint: null,
     }
   }
 
@@ -1131,6 +1334,42 @@ export function useDataPage() {
       fetchedProviderCount: 0,
       fallbackReason: null,
       queryId: null,
+      periodConstraint: null,
+    }
+  }
+
+  function setMarketDataBundleUnconfiguredStatus() {
+    marketDataPlatformStatus.value = {
+      path: 'bundle_unconfigured',
+      provider: null,
+      coverageStatus: null,
+      coverageRatio: null,
+      fetchedProviderCount: 0,
+      fallbackReason: null,
+      queryId: null,
+      periodConstraint: null,
+    }
+  }
+
+  function setMarketDataBundlePeriodUnsupportedStatus(
+    family: MarketDataQueryBundleFamily,
+    requestedFrequency: string,
+    resetPeriod: 'daily' | 'weekly' | 'monthly' | null,
+  ) {
+    marketDataPlatformStatus.value = {
+      path: 'bundle_period_unsupported',
+      provider: null,
+      coverageStatus: null,
+      coverageRatio: null,
+      fetchedProviderCount: 0,
+      fallbackReason: null,
+      queryId: null,
+      periodConstraint: {
+        familyId: family.family_id,
+        requestedFrequency,
+        declaredFrequencies: [...family.frequencies],
+        resetPeriod,
+      },
     }
   }
 
@@ -1144,6 +1383,7 @@ export function useDataPage() {
       fetchedProviderCount: fetches.length,
       fallbackReason: null,
       queryId: response.query_id,
+      periodConstraint: null,
     }
   }
 
@@ -1168,6 +1408,24 @@ export function useDataPage() {
     return lookupFromV2Response(response, legacyLookup)
   }
 
+  function assertMarketDataFamilyBindingEcho(
+    response: MarketDataQueryResponse,
+    request: ReturnType<typeof createMarketDataQueryFromContract>,
+  ): void {
+    const hasFamilyId = request.family_id !== undefined
+    const hasFamilyVersion = request.family_contract_version !== undefined
+    if (hasFamilyId !== hasFamilyVersion) {
+      throw new Error('MARKET_DATA_FAMILY_BINDING_INTEGRITY')
+    }
+    if (!hasFamilyId) return
+    if (
+      response.family_id !== request.family_id
+      || response.family_contract_version !== request.family_contract_version
+    ) {
+      throw new Error('MARKET_DATA_FAMILY_BINDING_INTEGRITY')
+    }
+  }
+
   async function queryAllV2MarketDataPages(
     initialRequest: ReturnType<typeof createMarketDataQueryFromContract>,
   ): Promise<MarketDataQueryResponse> {
@@ -1183,6 +1441,7 @@ export function useDataPage() {
       initialRequest,
       { suppressErrorMessage: true },
     )
+    assertMarketDataFamilyBindingEcho(first, initialRequest)
     const observations = [...first.observations]
     const warnings = [...first.warnings]
     const observationIds = new Set(first.observations.map((item) => item.revision_id))
@@ -1198,6 +1457,7 @@ export function useDataPage() {
         { ...initialRequest, cursor },
         { suppressErrorMessage: true },
       )
+      assertMarketDataFamilyBindingEcho(page, initialRequest)
       if (
         page.query_id !== first.query_id
         || page.knowledge_cutoff !== first.knowledge_cutoff
@@ -1234,6 +1494,8 @@ export function useDataPage() {
     const queryAssetType = form.asset_type
     const queryMarket = queryAssetType === 'futures' ? formMarketText() : ''
     const existingContract = queryContractForCurrentLookup(result.value, queryAssetType, symbol)
+    const bundleFeatureEnabled = isMarketDataQueryBundleFeatureEnabled()
+    if (bundleFeatureEnabled) marketDataQueryBundle.value = null
     loading.value = true
     try {
       let directContract = existingContract
@@ -1241,16 +1503,61 @@ export function useDataPage() {
         ? result.value
         : null
       let v2Fallback = false
+      let bundleIssued = false
+      let declaredFamily: MarketDataQueryBundleFamily | null = null
+
+      // The family bundle is a server-owned control-plane declaration. Once
+      // accepted, missing/unconfigured families must not be inferred from a
+      // legacy lookup, and a failed v2 bridge remains visible rather than
+      // activating that compatibility path.
+      if (bundleFeatureEnabled) {
+        const bundleResolution = await resolveV2QueryBundle(queryAssetType)
+        if (requestId !== lookupRequestId) return
+        v2Fallback = bundleResolution.fellBack
+        if (bundleResolution.bundle) {
+          bundleIssued = true
+          marketDataQueryBundle.value = bundleResolution.bundle
+          declaredFamily = readyRealtimeBarsFamilyFromQueryBundle(bundleResolution.bundle, queryAssetType)
+          if (!declaredFamily) {
+            result.value = lookupShellForV2Query(queryAssetType, symbol, queryMarket, null)
+            relatedTables.value = []
+            setMarketDataBundleUnconfiguredStatus()
+            rememberMarketAssetSelection(queryAssetType, symbol, queryMarket)
+            return
+          }
+          const requestedFrequency = v2FrequencyForLegacyPeriod(form.period)
+          if (!declaredFamily.frequencies.includes(requestedFrequency)) {
+            const resetPeriod = resetToDeclaredPeriod(declaredFamily)
+            if (resetPeriod) form.period = resetPeriod
+            // Preserve the existing result. The user can see the declared
+            // cadence and issue a new query after the selector has been
+            // constrained; this must never use a legacy fallback merely to
+            // satisfy an unsupported weekly/monthly request.
+            setMarketDataBundlePeriodUnsupportedStatus(
+              declaredFamily,
+              requestedFrequency,
+              resetPeriod,
+            )
+            rememberMarketAssetSelection(queryAssetType, symbol, queryMarket)
+            return
+          }
+          // Re-resolve the exact symbol contract after the static control
+          // plane has been issued. A contract attached to an earlier legacy
+          // response may have been created under an older capability state.
+          directContract = null
+          directLookup = null
+        }
+      }
 
       // The contract endpoint is intentionally read-only: it verifies an
       // exact imported canonical identity and active dataset without asking a
       // provider for data. This lets the first page request enter v2 without
       // an online legacy lookup.
       if (!directContract) {
-        const resolution = await resolveV2QueryContract(queryAssetType, symbol)
+        const resolution = await resolveV2QueryContract(queryAssetType, symbol, declaredFamily)
         if (requestId !== lookupRequestId) return
         directContract = resolution.contract
-        v2Fallback = resolution.fellBack
+        v2Fallback = v2Fallback || resolution.fellBack
         if (directContract) {
           directLookup = lookupShellForV2Query(queryAssetType, symbol, queryMarket, directContract)
         }
@@ -1267,6 +1574,21 @@ export function useDataPage() {
         rememberMarketAssetSelection(queryAssetType, symbol, queryMarket)
         void loadRelatedTables(v2Response)
         ElMessage.success(t('dataMgmt.msgQueriedCount', { count: v2Response.history.total }))
+        return
+      }
+
+      if (bundleIssued) {
+        throw new Error('MARKET_DATA_QUERY_CONTRACT_UNAVAILABLE_AFTER_BUNDLE')
+      }
+
+      // A legacy online refresh returns an in-memory AkShare payload without
+      // the normalized source receipt and re-read required by the local-first
+      // contract.  Keep the existing legacy *local* display available during
+      // rollout, but never let the page use that non-persistent route for a
+      // refresh when no server-issued v2 contract exists.
+      if (refreshOnline) {
+        setMarketDataPlatformErrorStatus()
+        ElMessage.error(t('dataMgmt.msgQueryFail'))
         return
       }
 
@@ -1610,15 +1932,105 @@ export function useDataPage() {
     return fields.filter((field) => hasValue(snapshot.value[field]) || hasHistoryValue(field)).length
   }
 
+  function dataFamilyBundleStatusLabel(
+    status: MarketDataQueryBundleFamilyStatus,
+    reasonCode: string | null,
+  ): string {
+    const label = status === 'ready'
+      ? '已配置'
+      : status === 'not_applicable'
+        ? '不适用'
+        : '未配置'
+    return reasonCode ? `${label} · ${reasonCode}` : label
+  }
+
+  function dataFamilyBundleTagType(
+    status: MarketDataQueryBundleFamilyStatus,
+  ): DataFamilyView['tagType'] {
+    if (status === 'ready') return 'success'
+    if (status === 'unconfigured') return 'warning'
+    return 'info'
+  }
+
+  function declaredFamilyFields(family: MarketDataQueryBundleFamily): string[] {
+    return Array.from(new Set([
+      ...family.required_fields,
+      ...family.optional_fields,
+      ...family.dimension_fields,
+    ]))
+  }
+
+  function isReadyCalendarBarsFamily(family: MarketDataQueryBundleFamily): boolean {
+    return family.status === 'ready'
+      && family.data_kind === 'bars'
+      && family.frequency_semantics === 'calendar_grid'
+  }
+
+  function declaredKlineCompatibilityLabel(family: MarketDataQueryBundleFamily): string {
+    const frequencyLabels: Partial<Record<string, string>> = {
+      '5min': '5分钟',
+      '30min': '30分钟',
+      '1h': '1小时',
+      '1d': '日线',
+      '1w': '周线',
+      '1mo': '月线',
+    }
+    const declaredCadences = family.frequencies
+      .map((frequency) => frequencyLabels[frequency])
+      .filter((label): label is string => Boolean(label))
+    const cadenceLabel = declaredCadences.length ? declaredCadences.join('/') : 'K线'
+    return `${cadenceLabel} K线兼容数据（仅声明字段）`
+  }
+
+  function dataFamilyBundleDescription(family: MarketDataQueryBundleFamily): string {
+    const declaredFields = declaredFamilyFields(family).map(fieldLabel)
+    const fieldsLabel = declaredFields.length ? declaredFields.join(' / ') : '无'
+    return `${family.dataset_code} · ${family.frequency_semantics} · 服务端声明字段：${fieldsLabel}`
+  }
+
   function buildAssetDataFamilies(): DataFamilyView[] {
     return assetDataFamilySpecs[form.asset_type].map((family) => {
-      const fieldEntries = [...family.fields, ...(family.historyFields || [])]
+      const bundleIssued = marketDataQueryBundle.value?.requested_asset_type === form.asset_type
+      const issuedFamily = bundleIssued ? issuedFamilyFromCurrentQueryBundle(family.familyId) : null
+      const fieldEntries = issuedFamily
+        ? declaredFamilyFields(issuedFamily)
+        : bundleIssued
+          ? []
+          : [...family.fields, ...(family.historyFields || [])]
       const uniqueFields = Array.from(new Set(fieldEntries))
+      // A complete, valid bundle is authoritative. A missing expected family
+      // is deliberately rendered as unconfigured rather than using values or
+      // candidate tables from the legacy page implementation as evidence.
+      const issuedStatus: MarketDataQueryBundleFamilyStatus | null = bundleIssued
+        ? issuedFamily?.status || 'unconfigured'
+        : null
       const fields = uniqueFields.map((field) => ({
         name: field,
         label: fieldLabel(field),
-        present: hasValue(snapshot.value[field]) || hasHistoryValue(field),
+        present: issuedStatus === null || issuedStatus === 'ready'
+          ? hasValue(snapshot.value[field]) || hasHistoryValue(field)
+          : false,
       }))
+      if (issuedStatus !== null) {
+        return {
+          // A ready ``*.realtime`` family currently declares bars only. Its
+          // card must describe that server-owned K-line compatibility product,
+          // rather than borrowing the old page's quote/price/bid/ask wording.
+          label: issuedFamily && isReadyCalendarBarsFamily(issuedFamily)
+            ? declaredKlineCompatibilityLabel(issuedFamily)
+            : t(family.labelKey),
+          description: issuedFamily
+            ? dataFamilyBundleDescription(issuedFamily)
+            : '服务端未声明数据字段',
+          statusLabel: dataFamilyBundleStatusLabel(
+            issuedStatus,
+            issuedFamily?.reason_code || (issuedFamily ? null : 'DATA_FAMILY_UNCONFIGURED'),
+          ),
+          tagType: dataFamilyBundleTagType(issuedStatus),
+          fields,
+        }
+      }
+
       const presentFields = fields.filter((field) => field.present).length
       const relatedTableCount = countMatchingTables(family.tableKeywords)
       const denominator = fields.length + 1
@@ -1984,18 +2396,32 @@ export function useDataPage() {
   }
 
   function ohlcTuple(row: MarketHistoryRow) {
-    const close = numericValue(row.close, 0)
+    const open = numericValue(row.open, null)
+    const close = numericValue(row.close, null)
+    const low = numericValue(row.low, null)
+    const high = numericValue(row.high, null)
+    if (
+      !isFiniteNumber(open)
+      || !isFiniteNumber(close)
+      || !isFiniteNumber(low)
+      || !isFiniteNumber(high)
+    ) {
+      throw new Error('MARKET_DATA_OHLC_INVALID')
+    }
     return [
-      numericValue(row.open, close),
+      open,
       close,
-      numericValue(row.low, close),
-      numericValue(row.high, close),
+      low,
+      high,
     ]
   }
 
   function candleColor(row: MarketHistoryRow) {
-    const open = numericValue(row.open, 0)
-    const close = numericValue(row.close, open)
+    const open = numericValue(row.open, null)
+    const close = numericValue(row.close, null)
+    if (!isFiniteNumber(open) || !isFiniteNumber(close)) {
+      throw new Error('MARKET_DATA_OHLC_INVALID')
+    }
     return close >= open ? CANDLE_UP_COLOR : CANDLE_DOWN_COLOR
   }
 

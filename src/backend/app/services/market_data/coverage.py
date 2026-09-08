@@ -11,12 +11,12 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from decimal import Decimal
+from datetime import datetime, timedelta, timezone
 from enum import Enum
-from math import isfinite
 from types import MappingProxyType
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from app.services.market_data.field_quality import is_usable_field_value
 
 UTC = timezone.utc
 
@@ -63,6 +63,7 @@ class ObservationRejectionReason(str, Enum):
     MISSING_REQUIRED_FIELDS = "missing_required_fields"
     QUALITY_INELIGIBLE = "quality_ineligible"
     NOT_AVAILABLE_AT_CUTOFF = "not_available_at_cutoff"
+    STALE = "stale"
 
 
 @dataclass(frozen=True, slots=True)
@@ -352,6 +353,98 @@ class CoveragePlanner:
         )
 
 
+class SnapshotCoveragePlanner:
+    """Evaluate one locally persisted quote snapshot without inventing a calendar.
+
+    A quote is not a bar and must not be forced through a trading-session grid.
+    It is complete only when the local store contains an exact, usable snapshot
+    in the requested window that is no older than the server-owned freshness
+    threshold at the read cutoff.  The planner deliberately returns a single
+    full-window gap on a miss so the query service can make one bounded,
+    current-only provider request instead of fabricating calendar events.
+    """
+
+    def plan(
+        self,
+        *,
+        query: QueryIdentity,
+        window: TimeWindow,
+        observations: Iterable[Observation],
+        required_fields: frozenset[str],
+        as_of: datetime,
+        max_age: timedelta,
+        eligible_qualities: frozenset[ObservationQuality] = frozenset({ObservationQuality.PASS}),
+    ) -> CoveragePlan:
+        """Return exact local snapshot freshness evidence for one request."""
+        if not isinstance(query, QueryIdentity):
+            raise TypeError("query must be a QueryIdentity")
+        if not isinstance(window, TimeWindow):
+            raise TypeError("window must be a TimeWindow")
+        if not isinstance(max_age, timedelta) or max_age <= timedelta(0):
+            raise ValueError("max_age must be a positive timedelta")
+        cutoff = _as_utc(as_of, field_name="as_of")
+        normalized_required_fields = _normalize_required_fields(required_fields)
+        normalized_qualities = frozenset(ObservationQuality(item) for item in eligible_qualities)
+        if not normalized_qualities:
+            raise ValueError("eligible_qualities cannot be empty")
+
+        freshness_floor = cutoff - max_age
+        accepted: list[Observation] = []
+        rejection_counts: Counter[str] = Counter()
+        for observation in observations:
+            if not isinstance(observation, Observation):
+                raise TypeError("observations must contain Observation values")
+            rejection_reasons = _snapshot_observation_rejection_reasons(
+                observation=observation,
+                query=query,
+                window=window,
+                required_fields=normalized_required_fields,
+                eligible_qualities=normalized_qualities,
+                cutoff=cutoff,
+                freshness_floor=freshness_floor,
+            )
+            if rejection_reasons:
+                rejection_counts.update(reason.value for reason in rejection_reasons)
+                continue
+            accepted.append(observation)
+
+        if accepted:
+            selected = max(
+                accepted,
+                key=lambda item: (
+                    item.event_key.event_at,
+                    item.available_at or datetime.min.replace(tzinfo=UTC),
+                ),
+            )
+            return CoveragePlan(
+                status=CoverageStatus.COMPLETE,
+                expected_event_keys=(selected.event_key,),
+                accepted_event_keys=(selected.event_key,),
+                missing_event_keys=(),
+                gaps=(),
+                rejection_counts=MappingProxyType(dict(sorted(rejection_counts.items()))),
+            )
+
+        # The marker is inside the half-open window, but is only a missing
+        # coverage token; it is never persisted or presented as a source row.
+        missing_key = EventKey(window.end_at - timedelta(microseconds=1))
+        return CoveragePlan(
+            status=CoverageStatus.INCOMPLETE,
+            expected_event_keys=(missing_key,),
+            accepted_event_keys=(),
+            missing_event_keys=(missing_key,),
+            gaps=(
+                CoverageGap(
+                    position=GapPosition.FULL,
+                    event_keys=(missing_key,),
+                    fetch_window=window,
+                ),
+            ),
+            rejection_counts=MappingProxyType(dict(sorted(rejection_counts.items()))),
+            calendar_reason="SNAPSHOT_FRESHNESS_INCOMPLETE",
+        )
+
+
 def _observation_rejection_reasons(
     *,
     observation: Observation,
@@ -367,13 +460,44 @@ def _observation_rejection_reasons(
     if observation.event_key not in expected_event_keys:
         reasons.append(ObservationRejectionReason.OUTSIDE_EXPECTED_CALENDAR)
     if any(
-        not _has_usable_value(observation.fields.get(field_name)) for field_name in required_fields
+        not is_usable_field_value(field_name, observation.fields.get(field_name))
+        for field_name in required_fields
     ):
         reasons.append(ObservationRejectionReason.MISSING_REQUIRED_FIELDS)
     if observation.quality not in eligible_qualities:
         reasons.append(ObservationRejectionReason.QUALITY_INELIGIBLE)
     if observation.available_at is None or observation.available_at > cutoff:
         reasons.append(ObservationRejectionReason.NOT_AVAILABLE_AT_CUTOFF)
+    return tuple(reasons)
+
+
+def _snapshot_observation_rejection_reasons(
+    *,
+    observation: Observation,
+    query: QueryIdentity,
+    window: TimeWindow,
+    required_fields: frozenset[str],
+    eligible_qualities: frozenset[ObservationQuality],
+    cutoff: datetime,
+    freshness_floor: datetime,
+) -> tuple[ObservationRejectionReason, ...]:
+    """Reject a quote for identity, window, quality, PIT, or freshness drift."""
+    reasons: list[ObservationRejectionReason] = []
+    if observation.identity != query:
+        reasons.append(ObservationRejectionReason.IDENTITY_MISMATCH)
+    if not window.contains(observation.event_key):
+        reasons.append(ObservationRejectionReason.OUTSIDE_EXPECTED_CALENDAR)
+    if any(
+        not is_usable_field_value(field_name, observation.fields.get(field_name))
+        for field_name in required_fields
+    ):
+        reasons.append(ObservationRejectionReason.MISSING_REQUIRED_FIELDS)
+    if observation.quality not in eligible_qualities:
+        reasons.append(ObservationRejectionReason.QUALITY_INELIGIBLE)
+    if observation.available_at is None or observation.available_at > cutoff:
+        reasons.append(ObservationRejectionReason.NOT_AVAILABLE_AT_CUTOFF)
+    if observation.event_key.event_at > cutoff or observation.event_key.event_at < freshness_floor:
+        reasons.append(ObservationRejectionReason.STALE)
     return tuple(reasons)
 
 
@@ -433,18 +557,6 @@ def _normalize_required_fields(required_fields: frozenset[str]) -> frozenset[str
     for field_name in required_fields:
         _require_nonempty_string("required field", field_name)
     return required_fields
-
-
-def _has_usable_value(value: object) -> bool:
-    if value is None:
-        return False
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, float):
-        return isfinite(value)
-    if isinstance(value, Decimal):
-        return value.is_finite()
-    return True
 
 
 def _as_utc(value: datetime, *, field_name: str) -> datetime:

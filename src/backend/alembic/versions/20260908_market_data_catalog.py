@@ -80,6 +80,15 @@ _CATALOG_REQUIRED_UNIQUES = {
         "uq_dg_dataset_storages_primary_dataset": ("primary_dataset_id",),
     },
 }
+# A startup-created schema can already have the candidate F2 binding shape
+# when it is later stamped at this revision's parent.  Accept only that exact
+# reviewed successor so the next revision can no-op safely; fresh installs
+# still create the legacy two-column constraint below.
+_DATASET_AWARE_BINDING_UNIQUE = (
+    "storage_target_id",
+    "physical_table",
+    "dataset_id",
+)
 _CATALOG_REQUIRED_CHECKS = {
     "dg_dataset_storages": {
         _PRIMARY_SLOT_CHECK: (
@@ -113,7 +122,8 @@ def _index_exists(table_name: str, index_name: str) -> bool:
     if not _table_exists(table_name):
         return False
     return any(
-        index.get("name") == index_name for index in sa.inspect(op.get_bind()).get_indexes(table_name)
+        index.get("name") == index_name
+        for index in sa.inspect(op.get_bind()).get_indexes(table_name)
     )
 
 
@@ -138,9 +148,7 @@ def _catalog_column_definitions(
     columns: tuple[Any, ...],
 ) -> dict[str, sa.Column[Any]]:
     """Extract this migration's authoritative typed column contract."""
-    definitions = {
-        str(column.name): column for column in columns if isinstance(column, sa.Column)
-    }
+    definitions = {str(column.name): column for column in columns if isinstance(column, sa.Column)}
     if not definitions or set(definitions) != _CATALOG_REQUIRED_COLUMNS[table_name]:
         raise RuntimeError(f"MARKET_DATA_CATALOG_MIGRATION_CONTRACT_INVALID: {table_name}")
     return definitions
@@ -158,9 +166,7 @@ def _catalog_table_is_complete(
     """Recognize only a fully materialized catalog table after interrupted DDL."""
     inspector = sa.inspect(op.get_bind())
     expected_columns = _catalog_column_definitions(table_name, columns)
-    observed_columns = {
-        str(column["name"]): column for column in inspector.get_columns(table_name)
-    }
+    observed_columns = {str(column["name"]): column for column in inspector.get_columns(table_name)}
     missing_columns = _CATALOG_REQUIRED_COLUMNS[table_name] - set(observed_columns)
     invalid_columns: dict[str, dict[str, object]] = {}
     for column_name, expected in expected_columns.items():
@@ -202,7 +208,8 @@ def _catalog_table_is_complete(
         if index_name in indexes and indexes[index_name] != expected
     }
     primary_key = tuple(
-        str(column) for column in inspector.get_pk_constraint(table_name).get("constrained_columns") or ()
+        str(column)
+        for column in inspector.get_pk_constraint(table_name).get("constrained_columns") or ()
     )
     unique_constraints = {
         str(constraint["name"]): tuple(
@@ -219,7 +226,13 @@ def _catalog_table_is_complete(
             "expected": expected,
         }
         for constraint_name, expected in expected_uniques.items()
-        if constraint_name in unique_constraints and unique_constraints[constraint_name] != expected
+        if constraint_name in unique_constraints
+        and not _catalog_unique_is_compatible(
+            table_name,
+            constraint_name,
+            unique_constraints[constraint_name],
+            expected,
+        )
     }
     missing_checks: set[str] = set()
     invalid_checks: dict[str, dict[str, str]] = {}
@@ -265,6 +278,21 @@ def _catalog_table_is_complete(
         *(f"foreign_keys={sorted(missing_foreign_keys)}" for _ in [0] if missing_foreign_keys),
     ]
     return not missing_parts, "; ".join(missing_parts)
+
+
+def _catalog_unique_is_compatible(
+    table_name: str,
+    constraint_name: str,
+    actual: tuple[str, ...],
+    expected: tuple[str, ...],
+) -> bool:
+    """Accept the exact F2 successor only for startup-created catalog tables."""
+    if (
+        table_name == "dg_dataset_storages"
+        and constraint_name == "uq_dg_dataset_storage_target_table"
+    ):
+        return actual in {expected, _DATASET_AWARE_BINDING_UNIQUE}
+    return actual == expected
 
 
 def _assert_catalog_table_complete(table_name: str, columns: tuple[Any, ...]) -> None:
@@ -338,7 +366,9 @@ def _upgrade_data_table_storage_reference() -> None:
         if add_column:
             batch.add_column(sa.Column("dataset_storage_id", sa.String(length=36), nullable=True))
         if create_index:
-            batch.create_index("ix_ak_data_tables_dataset_storage_id", ["dataset_storage_id"], unique=False)
+            batch.create_index(
+                "ix_ak_data_tables_dataset_storage_id", ["dataset_storage_id"], unique=False
+            )
         if create_foreign_key:
             batch.create_foreign_key(
                 _TABLE_STORAGE_FK,

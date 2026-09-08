@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,8 @@ from app.main import app
 from app.models.asset_research import AssetInstrument
 from app.models.data_governance import DgDataset, DgDatasetStorage, DgStorageTarget
 from app.models.market_data_platform import MdInstrumentLookupKey
+from app.schemas.asset_research import FuturesIdentityDetails, InstrumentIdentity
+from app.services.market_data.dataset_contracts import DatasetContractRegistryError
 from app.services.market_data.identity_projection import MarketDataIdentityProjectionWriter
 from app.services.market_data.legacy_contract import (
     LegacyMarketDataQueryContractResolver,
@@ -59,7 +62,9 @@ async def _add_catalog(session: AsyncSession) -> None:
         dataset_code="market.bars",
         display_name="统一市场 K 线",
         domain="market",
-        canonical_schema={"asset_types": ["stock", "futures", "bond", "fund", "option", "fx", "crypto"]},
+        canonical_schema={
+            "asset_types": ["stock", "futures", "bond", "fund", "option", "fx", "crypto"]
+        },
         primary_key=["canonical_id", "event_at"],
         is_active=True,
     )
@@ -169,6 +174,61 @@ async def test_legacy_bridge_publishes_only_a_catalog_backed_exact_canonical_con
 
 
 @pytest.mark.asyncio
+async def test_legacy_bridge_binds_a_selected_ready_family_to_the_exact_contract(
+    db_session: AsyncSession,
+) -> None:
+    """A bundle-selected family returns its immutable product binding, not a nearby route."""
+    await _add_catalog(db_session)
+    await _add_identity(
+        db_session,
+        canonical_id="instrument:stock:CN-SSE:600000",
+        symbol="600000",
+        market="CN-SSE",
+    )
+
+    contract = await LegacyMarketDataQueryContractResolver(db_session).resolve(
+        asset_type="stock",
+        symbol="600000",
+        period="daily",
+        family_id="stock.realtime",
+    )
+
+    assert contract is not None
+    assert contract["request"] == {
+        "identity": {"canonical_id": "instrument:stock:CN-SSE:600000"},
+        "dataset_code": "market.bars",
+        "data_kind": "bars",
+        "frequency": "1d",
+        "required_fields": ["close"],
+        "adjustment": "qfq",
+        "price_basis": "close",
+        "currency": "CNY",
+        "unit": "share",
+        "source_policy_id": "market-default-v1",
+        "mode": "local_first",
+        "family_id": "stock.realtime",
+        "family_contract_version": "market-data-family-v1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_legacy_bridge_rejects_an_unconfigured_or_cross_asset_selected_family(
+    db_session: AsyncSession,
+) -> None:
+    """A UI card that has no executable product cannot reach the legacy bridge."""
+    resolver = LegacyMarketDataQueryContractResolver(db_session)
+
+    for family_id in ("stock.valuation", "futures.realtime", "stock.unknown"):
+        with pytest.raises(DatasetContractRegistryError):
+            await resolver.resolve(
+                asset_type="stock",
+                symbol="600000",
+                period="daily",
+                family_id=family_id,
+            )
+
+
+@pytest.mark.asyncio
 async def test_legacy_bridge_fails_closed_when_the_same_symbol_has_two_active_venues(
     db_session: AsyncSession,
 ) -> None:
@@ -190,6 +250,96 @@ async def test_legacy_bridge_fails_closed_when_the_same_symbol_has_two_active_ve
         asset_type="stock",
         symbol="600000",
         period="daily",
+    )
+
+    assert contract is None
+
+
+@pytest.mark.asyncio
+async def test_legacy_bridge_rejects_a_corrupt_cross_asset_lookup_projection(
+    db_session: AsyncSession,
+) -> None:
+    """A stock lookup must not mint a stock family contract for a futures identity."""
+    await _add_catalog(db_session)
+    await _add_identity(
+        db_session,
+        canonical_id="instrument:stock:CN-SSE:600000",
+        symbol="600000",
+        market="CN-SSE",
+    )
+
+    now = datetime(2026, 9, 8, tzinfo=UTC)
+    future_identity = InstrumentIdentity(
+        asset_type="futures",
+        identity_level="CONTRACT",
+        canonical_id="instrument:futures:CFFEX:IF2609",
+        display_symbol="IF2609",
+        name="沪深300股指期货2609",
+        venue="CFFEX",
+        currency="CNY",
+        timezone="Asia/Shanghai",
+        identifier_type="CONTRACT_CODE",
+        identifier_value="IF2609",
+        product_type="FUTURE",
+        metadata_version="market-v1",
+        details=FuturesIdentityDetails(
+            product_code="IF",
+            contract_month="2609",
+            expiry_at="2026-09-18T07:15:00+00:00",
+            contract_multiplier="300",
+            trading_calendar_id="CFFEX",
+        ),
+    )
+    future = AssetInstrument(
+        id="instrument-futures-if2609",
+        canonical_id=future_identity.canonical_id,
+        asset_type=future_identity.asset_type,
+        identity_level=future_identity.identity_level,
+        venue=future_identity.venue,
+        currency=future_identity.currency,
+        product_type=future_identity.product_type,
+        identity_json=future_identity.model_dump(mode="json"),
+        metadata_version=future_identity.metadata_version,
+        lifecycle_status="ACTIVE",
+        valid_from=now,
+        created_at=now,
+    )
+    db_session.add(future)
+    await db_session.flush()
+    projections = MarketDataIdentityProjectionWriter(db_session)
+    await projections.project(future)
+    await db_session.commit()
+    await projections.publish_staged()
+
+    stock_lookup = await db_session.scalar(
+        select(MdInstrumentLookupKey).where(
+            MdInstrumentLookupKey.asset_type == "stock",
+            MdInstrumentLookupKey.market == "CN-SSE",
+            MdInstrumentLookupKey.symbol == "600000",
+            MdInstrumentLookupKey.is_active.is_(True),
+        )
+    )
+    assert stock_lookup is not None
+    stock_lookup.is_active = False
+    db_session.add(
+        MdInstrumentLookupKey(
+            asset_type="stock",
+            market="CN-SSE",
+            symbol="600000",
+            instrument_id=future.id,
+            canonical_id=future.canonical_id,
+            metadata_version=future.metadata_version,
+            is_active=True,
+            valid_from=now,
+        )
+    )
+    await db_session.commit()
+
+    contract = await LegacyMarketDataQueryContractResolver(db_session).resolve(
+        asset_type="stock",
+        symbol="600000",
+        period="daily",
+        family_id="stock.realtime",
     )
 
     assert contract is None
@@ -264,14 +414,18 @@ class _ContractResolver:
         self.contract = contract
         self.calls: list[dict[str, str]] = []
 
-    async def resolve(self, *, asset_type: str, symbol: str, period: str) -> dict[str, object] | None:
-        self.calls.append(
-            {
-                "asset_type": asset_type,
-                "symbol": symbol,
-                "period": period,
-            }
-        )
+    async def resolve(
+        self,
+        *,
+        asset_type: str,
+        symbol: str,
+        period: str,
+        family_id: str | None = None,
+    ) -> dict[str, object] | None:
+        call = {"asset_type": asset_type, "symbol": symbol, "period": period}
+        if family_id is not None:
+            call["family_id"] = family_id
+        self.calls.append(call)
         return self.contract
 
 
@@ -336,6 +490,62 @@ async def test_contract_probe_returns_catalog_contract_without_legacy_lookup(
 
 
 @pytest.mark.asyncio
+async def test_contract_probe_forwards_the_explicit_bundle_family_to_the_server_resolver(
+    client,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    """The frontend-selected product reaches the exact-contract issuer unchanged."""
+    import app.api.data.base as data_base
+
+    expected = {
+        "version": "market-data-v2",
+        "request": {
+            "identity": {"canonical_id": "instrument:stock:CN-SSE:600000"},
+            "dataset_code": "market.bars",
+            "data_kind": "bars",
+            "frequency": "1d",
+            "required_fields": ["close"],
+            "source_policy_id": "market-default-v1",
+            "mode": "local_first",
+            "family_id": "stock.realtime",
+            "family_contract_version": "market-data-family-v1",
+        },
+    }
+    resolver = _ContractResolver(expected)
+    monkeypatch.setattr(
+        data_base,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
+    )
+    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
+    try:
+        response = await client.get(
+            "/api/v1/data/market-instruments/query-contract",
+            params={
+                "asset_type": "stock",
+                "symbol": "600000",
+                "period": "daily",
+                "family_id": "stock.realtime",
+            },
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_legacy_market_data_query_contract_resolver, None)
+
+    assert response.status_code == 200
+    assert response.json() == expected
+    assert resolver.calls == [
+        {
+            "asset_type": "stock",
+            "symbol": "600000",
+            "period": "daily",
+            "family_id": "stock.realtime",
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_contract_probe_fails_closed_when_v2_is_disabled_or_unavailable(
     client,
     auth_headers,
@@ -392,7 +602,9 @@ async def test_legacy_lookup_survives_an_optional_v2_contract_database_failure(
         lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
     )
     app.dependency_overrides[get_market_instrument_service] = _SuccessfulLegacyLookupService
-    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = _FailingContractResolver
+    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = (
+        _FailingContractResolver
+    )
     try:
         response = await client.get(
             "/api/v1/data/market-instruments/lookup",
@@ -421,7 +633,9 @@ async def test_contract_probe_maps_metadata_database_failure_to_typed_unavailabl
         "get_settings",
         lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
     )
-    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = _FailingContractResolver
+    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = (
+        _FailingContractResolver
+    )
     try:
         response = await client.get(
             "/api/v1/data/market-instruments/query-contract",

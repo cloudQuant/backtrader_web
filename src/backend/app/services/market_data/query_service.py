@@ -17,7 +17,7 @@ import hmac
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from app.schemas.market_data_platform import MarketDataQueryRequest, ResolvedMarketDataQuery
@@ -27,14 +27,22 @@ from app.services.market_data.coverage import (
     CoveragePlan,
     CoveragePlanner,
     CoverageStatus,
+    ObservationQuality,
+    SnapshotCoveragePlanner,
     TimeWindow,
 )
+from app.services.market_data.field_quality import is_usable_field_value
 from app.services.market_data.identity import MarketDataIdentityResolutionError
 from app.services.market_data.providers import MarketDataProviderRequest, ProviderFetchResult
 from app.services.market_data.query_resolution import (
     MarketDataQueryResolutionError,
     MarketDataQueryResolver,
     ResolvedMarketDataQueryContext,
+)
+from app.services.market_data.snapshot_freshness import (
+    DEFAULT_SNAPSHOT_FRESHNESS_POLICY_REGISTRY,
+    SnapshotFreshnessPolicyError,
+    SnapshotFreshnessPolicyRegistry,
 )
 from app.services.market_data.source_policy import (
     MarketDataProviderRoute,
@@ -82,8 +90,9 @@ class _Store(Protocol):
         context: ResolvedMarketDataQueryContext,
         *,
         knowledge_cutoff: datetime,
+        include_unusable_for_coverage: bool = False,
     ) -> tuple[LocalObservationRevision, ...]:
-        """Read selected local observations at a point-in-time cutoff."""
+        """Read response-safe rows or diagnostics-only coverage rows at one PIT cutoff."""
 
     async def read_calendar_for_context(
         self,
@@ -151,11 +160,13 @@ class MarketDataQueryExecution:
 
 @dataclass(frozen=True, slots=True)
 class _LocalState:
-    """Unpaged local rows plus calendar-derived coverage for one full request."""
+    """Response-safe rows, coverage diagnostics, and frozen local evidence."""
 
     observations: tuple[LocalObservationRevision, ...]
+    coverage_observations: tuple[LocalObservationRevision, ...]
     calendar: CalendarSnapshot
     coverage: CoveragePlan
+    snapshot_max_age: timedelta | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,6 +189,7 @@ class MarketDataQueryService:
         store: _Store | MarketDataStore,
         source_policies: MarketDataSourcePolicyRegistry,
         coverage_planner: CoveragePlanner | None = None,
+        snapshot_freshness_policies: SnapshotFreshnessPolicyRegistry | None = None,
         allow_online_fetch: bool = True,
         clock: Callable[[], datetime] | None = None,
         cursor_signing_key: str | bytes | None = None,
@@ -198,12 +210,21 @@ class MarketDataQueryService:
             raise TypeError("source_policies must be MarketDataSourcePolicyRegistry")
         if coverage_planner is not None and not isinstance(coverage_planner, CoveragePlanner):
             raise TypeError("coverage_planner must be CoveragePlanner")
+        if snapshot_freshness_policies is not None and not isinstance(
+            snapshot_freshness_policies,
+            SnapshotFreshnessPolicyRegistry,
+        ):
+            raise TypeError("snapshot_freshness_policies must be SnapshotFreshnessPolicyRegistry")
         if not isinstance(allow_online_fetch, bool):
             raise TypeError("allow_online_fetch must be a bool")
         self._resolver = resolver
         self._store = store
         self._source_policies = source_policies
         self._coverage_planner = coverage_planner or CoveragePlanner()
+        self._snapshot_coverage_planner = SnapshotCoveragePlanner()
+        self._snapshot_freshness_policies = (
+            snapshot_freshness_policies or DEFAULT_SNAPSHOT_FRESHNESS_POLICY_REGISTRY
+        )
         self._allow_online_fetch = allow_online_fetch
         self._clock = clock or _utc_now
         self._cursor_signing_key_override = (
@@ -225,6 +246,15 @@ class MarketDataQueryService:
         from app.config import get_settings
 
         return _coerce_cursor_signing_key(get_settings().MARKET_DATA_CURSOR_SIGNING_KEY)
+
+    def _snapshot_max_age_for(
+        self,
+        context: ResolvedMarketDataQueryContext,
+    ) -> timedelta | None:
+        """Resolve the reviewed SLA once for a quote product execution."""
+        if not _uses_snapshot_freshness(context):
+            return None
+        return self._snapshot_freshness_policies.resolve(context).max_age
 
     async def execute(self, request: MarketDataQueryRequest) -> MarketDataQueryExecution:
         """Resolve, serve locally, and conditionally persist bounded provider fills.
@@ -264,13 +294,22 @@ class MarketDataQueryService:
             raise MarketDataQueryServiceError("CURSOR_QUERY_MISMATCH")
 
         try:
+            snapshot_max_age = self._snapshot_max_age_for(context)
+        except SnapshotFreshnessPolicyError as exc:
+            raise MarketDataQueryServiceError(exc.code) from exc
+
+        try:
             policy = self._source_policies.resolve(context.query.source_policy_id)
         except MarketDataSourcePolicyError:
             raise
         if not policy.allows_purpose(context.query.purpose):
             raise MarketDataSourcePolicyError("SOURCE_POLICY_PURPOSE_DENIED")
 
-        state = await self._read_local_state(context, knowledge_cutoff)
+        state = await self._read_local_state(
+            context,
+            knowledge_cutoff,
+            snapshot_max_age=snapshot_max_age,
+        )
         warnings: list[MarketDataQueryWarning] = []
         fetches: list[MarketDataQueryFetch] = []
 
@@ -338,6 +377,33 @@ class MarketDataQueryService:
                     knowledge_cutoff=knowledge_cutoff,
                 ),
             )
+
+        # A current quote is evidence about collection time, never a way to
+        # rewrite an older display window. Strict/PIT reads returned above are
+        # already local-only. For a non-strict request whose end is older than
+        # the reviewed quote freshness budget, retain the exact local miss and
+        # require an explicitly imported historical fact instead of fetching a
+        # present-day snapshot and assigning it a past event time.
+        if _uses_snapshot_freshness(context):
+            if context.query.end <= knowledge_cutoff - _require_snapshot_max_age(state):
+                warnings.append(MarketDataQueryWarning(code="SNAPSHOT_HISTORICAL_FETCH_FORBIDDEN"))
+                return self._execution(
+                    context=context,
+                    knowledge_cutoff=knowledge_cutoff,
+                    identity_knowledge_cutoff=identity_cutoff,
+                    state=state,
+                    cursor=None,
+                    fetches=fetches,
+                    warnings=warnings,
+                    refresh_status=_refresh_status_for(
+                        request.mode,
+                        state,
+                        fresh_revision_ids=frozenset(),
+                        context=context,
+                        planner=self._coverage_planner,
+                        knowledge_cutoff=knowledge_cutoff,
+                    ),
+                )
 
         fetch_windows, window_warning = _fetch_windows_for(
             context=context,
@@ -448,7 +514,11 @@ class MarketDataQueryService:
                 # knowledge boundary.  Advance the local read cutoff only after
                 # the receipt was durably flushed by the store.
                 knowledge_cutoff = max(knowledge_cutoff, persisted.received_at, local_received_at)
-                window_state = await self._read_local_state(fetch_context, knowledge_cutoff)
+                window_state = await self._read_local_state(
+                    fetch_context,
+                    knowledge_cutoff,
+                    snapshot_max_age=snapshot_max_age,
+                )
                 if self._route_satisfied_window(
                     mode=request.mode,
                     state=window_state,
@@ -459,7 +529,11 @@ class MarketDataQueryService:
                 ):
                     break
 
-        state = await self._read_local_state(context, knowledge_cutoff)
+        state = await self._read_local_state(
+            context,
+            knowledge_cutoff,
+            snapshot_max_age=snapshot_max_age,
+        )
         refresh_status = _refresh_status_for(
             request.mode,
             state,
@@ -487,27 +561,61 @@ class MarketDataQueryService:
         self,
         context: ResolvedMarketDataQueryContext,
         knowledge_cutoff: datetime,
+        *,
+        snapshot_max_age: timedelta | None,
     ) -> _LocalState:
-        observations = await self._store.read_observation_revisions(
+        coverage_revisions = await self._store.read_observation_revisions(
+            context,
+            knowledge_cutoff=knowledge_cutoff,
+            include_unusable_for_coverage=True,
+        )
+        response_revisions = await self._store.read_observation_revisions(
             context,
             knowledge_cutoff=knowledge_cutoff,
         )
-        calendar = await self._store.read_calendar_for_context(
-            context,
-            knowledge_cutoff=knowledge_cutoff,
+        window = TimeWindow(start_at=context.query.start, end_at=context.query.end)
+        coverage_observations = tuple(
+            item.as_coverage_observation(context) for item in coverage_revisions
         )
-        coverage = self._coverage_planner.plan(
-            query=context.coverage_identity,
-            window=TimeWindow(start_at=context.query.start, end_at=context.query.end),
-            calendar=calendar,
-            observations=tuple(item.as_coverage_observation(context) for item in observations),
-            required_fields=frozenset(context.query.required_fields),
-            as_of=knowledge_cutoff,
-        )
+        if _uses_snapshot_freshness(context):
+            if snapshot_max_age is None:
+                raise MarketDataQueryServiceError("SNAPSHOT_FRESHNESS_POLICY_UNAVAILABLE")
+            # Snapshot freshness is independent of a session grid. Skipping
+            # the calendar read prevents a quote from being falsely blocked by
+            # a missing bar calendar or being represented as a synthetic bar.
+            calendar = CalendarSnapshot.unknown(
+                calendar_id=context.coverage_identity.market,
+                calendar_version="snapshot-freshness-v1",
+                timezone_name="UTC",
+                reason="SNAPSHOT_FRESHNESS",
+            )
+            coverage = self._snapshot_coverage_planner.plan(
+                query=context.coverage_identity,
+                window=window,
+                observations=coverage_observations,
+                required_fields=frozenset(context.query.required_fields),
+                as_of=knowledge_cutoff,
+                max_age=snapshot_max_age,
+            )
+        else:
+            calendar = await self._store.read_calendar_for_context(
+                context,
+                knowledge_cutoff=knowledge_cutoff,
+            )
+            coverage = self._coverage_planner.plan(
+                query=context.coverage_identity,
+                window=window,
+                calendar=calendar,
+                observations=coverage_observations,
+                required_fields=frozenset(context.query.required_fields),
+                as_of=knowledge_cutoff,
+            )
         return _LocalState(
-            observations=_sort_observations(observations),
+            observations=_sort_observations(response_revisions),
+            coverage_observations=_sort_observations(coverage_revisions),
             calendar=calendar,
             coverage=coverage,
+            snapshot_max_age=snapshot_max_age,
         )
 
     async def _active_routes(
@@ -557,7 +665,10 @@ class MarketDataQueryService:
         knowledge_cutoff: datetime,
     ) -> bool:
         """Decide route fallback from the current window, never global coverage."""
-        if state.calendar.status is CalendarStatus.UNKNOWN:
+        if (
+            not _uses_snapshot_freshness(context)
+            and state.calendar.status is CalendarStatus.UNKNOWN
+        ):
             # With no frozen calendar, no provider can prove full coverage.
             # One passing primary receipt is retained, but a zero/failed receipt
             # may still fall through to the next approved source.
@@ -619,7 +730,7 @@ class MarketDataQueryService:
         refresh_status: str | None = None,
     ) -> MarketDataQueryExecution:
         observations, next_cursor = _paginate_observations(
-            state.observations,
+            _response_observations_for(context, state),
             cursor=cursor,
             page_size=context.query.page_size,
             query_fingerprint=context.query.query_fingerprint,
@@ -708,6 +819,56 @@ def _with_fetch_window(
     return replace(context, query=query)
 
 
+def _uses_snapshot_freshness(context: ResolvedMarketDataQueryContext) -> bool:
+    """Return whether this resolved dataset is a current quote, never a bar grid.
+
+    Chain/surface products need their own slice-completeness evaluator and are
+    deliberately excluded here. Until that evaluator and its server-owned
+    dimensions are available, those products remain unconfigured rather than
+    inheriting quote freshness semantics.
+    """
+    return context.query.data_kind == "quote_snapshot"
+
+
+def _require_snapshot_max_age(state: _LocalState) -> timedelta:
+    """Return the execution's reviewed quote SLA or fail closed."""
+    if state.snapshot_max_age is None:
+        raise MarketDataQueryServiceError("SNAPSHOT_FRESHNESS_POLICY_UNAVAILABLE")
+    return state.snapshot_max_age
+
+
+def _response_observations_for(
+    context: ResolvedMarketDataQueryContext,
+    state: _LocalState,
+) -> tuple[LocalObservationRevision, ...]:
+    """Return the same local facts that the product coverage can actually claim.
+
+    The store returns one selected revision per event time.  A current quote
+    product may still contain older event times in its requested display
+    window, so return only the one event chosen by snapshot freshness coverage.
+    This prevents a page from rendering a stale quote as if it were current.
+    """
+    response_observations = tuple(
+        item for item in state.observations if _revision_is_response_usable(item, context=context)
+    )
+    if not _uses_snapshot_freshness(context):
+        return response_observations
+    accepted_event_times = {event.event_at for event in state.coverage.accepted_event_keys}
+    return tuple(item for item in response_observations if item.event_at in accepted_event_times)
+
+
+def _revision_is_response_usable(
+    revision: LocalObservationRevision,
+    *,
+    context: ResolvedMarketDataQueryContext,
+) -> bool:
+    """Defend the product boundary even if a store implementation is stale."""
+    return revision.quality is ObservationQuality.PASS and all(
+        is_usable_field_value(field_name, revision.fields.get(field_name))
+        for field_name in context.query.required_fields
+    )
+
+
 def _provider_request_for(
     context: ResolvedMarketDataQueryContext,
     route: MarketDataProviderRoute,
@@ -745,9 +906,18 @@ def _coverage_for_fresh_revisions(
 ) -> CoveragePlan:
     fresh_observations = tuple(
         item.as_coverage_observation(context)
-        for item in state.observations
+        for item in state.coverage_observations
         if item.revision_id in fresh_revision_ids
     )
+    if _uses_snapshot_freshness(context):
+        return SnapshotCoveragePlanner().plan(
+            query=context.coverage_identity,
+            window=TimeWindow(start_at=context.query.start, end_at=context.query.end),
+            observations=fresh_observations,
+            required_fields=frozenset(context.query.required_fields),
+            as_of=knowledge_cutoff,
+            max_age=_require_snapshot_max_age(state),
+        )
     return planner.plan(
         query=context.coverage_identity,
         window=TimeWindow(start_at=context.query.start, end_at=context.query.end),
@@ -769,7 +939,7 @@ def _refresh_status_for(
 ) -> str | None:
     if mode != "refresh":
         return None
-    if state.calendar.status is CalendarStatus.UNKNOWN:
+    if not _uses_snapshot_freshness(context) and state.calendar.status is CalendarStatus.UNKNOWN:
         return "fresh_unknown_calendar"
     fresh_coverage = _coverage_for_fresh_revisions(
         planner=planner,

@@ -9,7 +9,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.db.database import async_session_maker
 from app.models.data_governance import DgDataset, DgProvider
@@ -25,7 +25,13 @@ from app.schemas.asset_research import InstrumentIdentity, StockIdentityDetails
 from app.schemas.market_data_platform import MarketDataQueryRequest, ResolvedMarketDataQuery
 from app.services.market_data import store as store_module
 from app.services.market_data.catalog import DatasetStorageResolution
-from app.services.market_data.coverage import CalendarStatus, QueryIdentity, TimeWindow
+from app.services.market_data.coverage import (
+    CalendarStatus,
+    ObservationQuality,
+    QueryIdentity,
+    TimeWindow,
+)
+from app.services.market_data.field_quality import FIELD_QUALITY_POLICY_VERSION
 from app.services.market_data.identity import ResolvedMarketDataIdentity
 from app.services.market_data.providers import (
     MarketDataProviderRequest,
@@ -175,6 +181,7 @@ def _result(
     retrieved_at: datetime,
     provider_id: str = PROVIDER_ID,
     source_revision: str = "v1",
+    request_provider: str = "akshare",
     raw_payload: dict[str, object] | None = None,
     request: MarketDataProviderRequest | None = None,
     context: ResolvedMarketDataQueryContext | None = None,
@@ -199,7 +206,7 @@ def _result(
             start_at=context.query.start,
             end_at=context.query.end,
             required_fields=frozenset(context.query.required_fields),
-            provider="akshare",
+            provider=request_provider,
             adjustment=context.query.adjustment,
             price_basis=context.query.price_basis,
             currency=context.query.currency,
@@ -333,6 +340,200 @@ async def test_store_appends_source_provenance_and_normalized_revisions() -> Non
     assert failed_revision is not None
     assert failed_revision.quality_status == "failed"
     assert failed_revision.quality_details_json["missing_required_fields"] == ["close"]
+    assert revisions[0].quality_policy_version == FIELD_QUALITY_POLICY_VERSION
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("placeholder", ("--", "N/A"))
+async def test_store_marks_akshare_bar_placeholders_failed_under_the_typed_policy(
+    placeholder: str,
+) -> None:
+    """AkShare bar text sentinels can persist as evidence but cannot become PASS facts."""
+    context = _context()
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        persisted = await MarketDataStore(db).persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(12),
+                observations=(
+                    _observation(
+                        event_at=_at(10),
+                        available_at=_at(11),
+                        fields={"close": placeholder},
+                    ),
+                ),
+            ),
+            received_at=_at(12),
+        )
+        await db.commit()
+        revision = await db.scalar(select(MdObservationRevision))
+
+    assert persisted.passing_observation_count == 0
+    assert persisted.failed_observation_count == 1
+    assert revision is not None
+    assert revision.quality_status == "failed"
+    assert revision.quality_policy_version == FIELD_QUALITY_POLICY_VERSION
+    assert revision.quality_details_json["missing_required_fields"] == ["close"]
+    assert revision.fields_json == {"close": None}
+
+
+@pytest.mark.asyncio
+async def test_store_rechecks_a_legacy_pass_placeholder_without_rewriting_it() -> None:
+    """A later legacy PASS row cannot hide an older usable fact at read time."""
+    context = _context()
+    event_at = _at(10)
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        store = MarketDataStore(db)
+        await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(12),
+                observations=(
+                    _observation(
+                        event_at=event_at,
+                        available_at=_at(11),
+                        fields={"close": "10.00"},
+                    ),
+                ),
+            ),
+            received_at=_at(12),
+        )
+        await db.commit()
+        await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(14),
+                source_revision="legacy-v1",
+                observations=(
+                    _observation(
+                        event_at=event_at,
+                        available_at=_at(13),
+                        fields={"close": "11.00"},
+                    ),
+                ),
+            ),
+            received_at=_at(14),
+        )
+        await db.commit()
+        legacy = await db.scalar(
+            select(MdObservationRevision)
+            .where(MdObservationRevision.revision_number == 2)
+            .order_by(MdObservationRevision.id)
+        )
+        assert legacy is not None
+        await db.execute(
+            update(MdObservationRevision)
+            .where(MdObservationRevision.id == legacy.id)
+            .values(
+                fields_json={"close": "--"},
+                fields_sha256=_sha(
+                    json.dumps({"close": "--"}, separators=(",", ":"), sort_keys=True)
+                ),
+                quality_status="pass",
+                quality_policy_version="required-fields-v1",
+            )
+        )
+        await db.commit()
+
+        selected = await store.read_observation_revisions(context, knowledge_cutoff=_at(15))
+
+    assert len(selected) == 1
+    assert selected[0].revision_number == 1
+    assert selected[0].fields == {"close": "10.00"}
+
+
+@pytest.mark.asyncio
+async def test_store_excludes_a_legacy_pass_placeholder_from_response_rows_but_keeps_diagnostics() -> (
+    None
+):
+    """The current field policy controls product reads without rewriting history."""
+    context = _context()
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        store = MarketDataStore(db)
+        await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(12),
+                observations=(
+                    _observation(
+                        event_at=_at(10),
+                        available_at=_at(11),
+                        fields={"close": "10.00"},
+                    ),
+                ),
+            ),
+            received_at=_at(12),
+        )
+        await db.commit()
+        legacy = await db.scalar(select(MdObservationRevision))
+        assert legacy is not None
+        await db.execute(
+            update(MdObservationRevision)
+            .where(MdObservationRevision.id == legacy.id)
+            .values(
+                fields_json={"close": "--"},
+                fields_sha256=_sha(
+                    json.dumps({"close": "--"}, separators=(",", ":"), sort_keys=True)
+                ),
+                quality_status="pass",
+                quality_policy_version="required-fields-v1",
+            )
+        )
+        await db.commit()
+
+        response_rows = await store.read_observation_revisions(
+            context,
+            knowledge_cutoff=_at(15),
+        )
+        diagnostic_rows = await store.read_observation_revisions(
+            context,
+            knowledge_cutoff=_at(15),
+            include_unusable_for_coverage=True,
+        )
+
+    assert response_rows == ()
+    assert len(diagnostic_rows) == 1
+    assert diagnostic_rows[0].quality is ObservationQuality.PASS
+    assert diagnostic_rows[0].fields == {"close": "--"}
+
+
+@pytest.mark.asyncio
+async def test_store_applies_the_same_placeholder_fallback_to_openbb_without_network() -> None:
+    """The provider-neutral store rejects an OpenBB text sentinel without an adapter call."""
+    context = _context()
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db, provider_id="openbb:yfinance")
+        persisted = await MarketDataStore(db).persist_provider_result(
+            context,
+            _result(
+                provider_id="openbb:yfinance",
+                request_provider="openbb",
+                retrieved_at=_at(12),
+                observations=(
+                    _observation(
+                        event_at=_at(10),
+                        available_at=_at(11),
+                        fields={"close": "--"},
+                    ),
+                ),
+            ),
+            received_at=_at(12),
+        )
+        await db.commit()
+        revision = await db.scalar(select(MdObservationRevision))
+
+    assert persisted.passing_observation_count == 0
+    assert persisted.failed_observation_count == 1
+    assert revision is not None
+    assert revision.quality_status == "failed"
+    assert revision.fields_json == {"close": None}
 
 
 @pytest.mark.asyncio
@@ -386,7 +587,9 @@ async def test_local_read_uses_availability_and_commit_time_for_point_in_time_se
 
 
 @pytest.mark.asyncio
-async def test_local_read_keeps_an_older_complete_revision_visible_after_a_narrower_revision() -> None:
+async def test_local_read_keeps_an_older_complete_revision_visible_after_a_narrower_revision() -> (
+    None
+):
     """A field projection must not hide an already cached, broader local fact."""
     broad_context = _context(required_fields=("close", "volume"))
     narrow_context = _context(required_fields=("close",))
@@ -591,11 +794,12 @@ async def test_store_uses_local_receipt_time_not_provider_claim_for_pit_visibili
     assert len(after_receipt) == 1
     assert persisted.received_at == _at(14).replace(microsecond=1)
     assert snapshot is not None
-    assert store_module._stored_utc(snapshot.retrieved_at, field_name="snapshot retrieved_at") == _at(14)
-    assert (
-        store_module._stored_utc(snapshot.source_observed_at, field_name="snapshot observed_at")
-        == _at(10)
-    )
+    assert store_module._stored_utc(
+        snapshot.retrieved_at, field_name="snapshot retrieved_at"
+    ) == _at(14)
+    assert store_module._stored_utc(
+        snapshot.source_observed_at, field_name="snapshot observed_at"
+    ) == _at(10)
     assert snapshot.provenance_json["provider_retrieved_at"] == _at(10).isoformat()
 
 

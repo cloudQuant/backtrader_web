@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
 from typing import Any
 
@@ -27,6 +27,10 @@ from app.services.market_data.providers import (
     ProviderMarketObservation,
 )
 from app.services.market_data.query_resolution import ResolvedMarketDataQueryContext
+from app.services.market_data.snapshot_freshness import (
+    SnapshotFreshnessPolicy,
+    SnapshotFreshnessPolicyRegistry,
+)
 from app.services.market_data.store import LocalObservationRevision, PersistedProviderFetch
 
 UTC = timezone.utc
@@ -38,8 +42,8 @@ _CURSOR_SIGNING_KEY = "test-market-data-cursor-hmac-key-material-000000000000000
 _OTHER_CURSOR_SIGNING_KEY = "test-market-data-cursor-hmac-key-material-0000000000000000000002"
 
 
-def _at(hour: int, *, day: int = 8) -> datetime:
-    return datetime(2026, 9, day, hour, tzinfo=UTC)
+def _at(hour: int, minute: int = 0, *, day: int = 8) -> datetime:
+    return datetime(2026, 9, day, hour, minute, tzinfo=UTC)
 
 
 def _request(
@@ -140,6 +144,94 @@ def _context(request: MarketDataQueryRequest | None = None) -> ResolvedMarketDat
     )
 
 
+def _snapshot_request(
+    *,
+    mode: str = "local_first",
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> MarketDataQueryRequest:
+    """Build one current quote request with explicit snapshot semantics."""
+    return MarketDataQueryRequest.model_validate(
+        {
+            "identity": {"canonical_id": CANONICAL_ID},
+            "dataset_code": "market.quote_snapshot",
+            "data_kind": "quote_snapshot",
+            "frequency": "snapshot",
+            "start": (start or _at(11)).isoformat(),
+            "end": (end or _at(12, 1)).isoformat(),
+            "required_fields": ["price"],
+            "currency": "CNY",
+            "unit": "share",
+            "source_policy_id": "market-default-v1",
+            "mode": mode,
+        }
+    )
+
+
+def _snapshot_context(
+    request: MarketDataQueryRequest | None = None,
+) -> ResolvedMarketDataQueryContext:
+    request = request or _snapshot_request()
+    query = ResolvedMarketDataQuery.from_request(
+        request,
+        canonical_id=CANONICAL_ID,
+        dataset_code="market.quote_snapshot",
+        instrument_metadata_version=METADATA_VERSION,
+    )
+    identity = InstrumentIdentity(
+        asset_type="stock",
+        identity_level="ASSET",
+        canonical_id=CANONICAL_ID,
+        display_symbol="600000",
+        name="浦发银行",
+        venue="CN-SSE",
+        currency="CNY",
+        timezone="Asia/Shanghai",
+        identifier_type="EXCHANGE_SYMBOL",
+        identifier_value="600000",
+        product_type="EQUITY",
+        metadata_version=METADATA_VERSION,
+        details=StockIdentityDetails(exchange_symbol="600000.SH"),
+    )
+    return ResolvedMarketDataQueryContext(
+        query=query,
+        identity=ResolvedMarketDataIdentity(
+            instrument_id="instrument-stock-v1",
+            canonical_id=CANONICAL_ID,
+            asset_type="stock",
+            metadata_version=METADATA_VERSION,
+            venue="CN-SSE",
+            identity=identity,
+            valid_from=_at(0, day=1),
+            valid_to=None,
+            known_at=_at(0, day=1),
+        ),
+        storage=DatasetStorageResolution(
+            dataset_id="dataset-market-quote-snapshot",
+            dataset_code="market.quote_snapshot",
+            storage_id="canonical-market-data",
+            engine="postgresql",
+            database_name="market_data",
+            physical_table="md_observation_revisions",
+            write_mode="canonical_read_write",
+        ),
+        coverage_identity=QueryIdentity(
+            dataset_code="market.quote_snapshot",
+            canonical_id=CANONICAL_ID,
+            asset_type="stock",
+            instrument_metadata_version=METADATA_VERSION,
+            data_kind="quote_snapshot",
+            market="CN-SSE",
+            frequency="snapshot",
+            source_policy_id="market-default-v1",
+            adjustment=None,
+            price_basis=None,
+            currency="CNY",
+            unit="share",
+        ),
+    )
+
+
 def _calendar(*, known: bool = True) -> CalendarSnapshot:
     window = TimeWindow(start_at=_at(9), end_at=_at(12))
     if not known:
@@ -227,6 +319,7 @@ class _Store:
         self.inactive_provider_ids = inactive_provider_ids
         self.persisted: list[tuple[ResolvedMarketDataQueryContext, ProviderFetchResult]] = []
         self.read_cutoffs: list[datetime] = []
+        self.read_modes: list[bool] = []
         self.authorization_checks: list[str] = []
 
     async def read_observation_revisions(
@@ -234,8 +327,10 @@ class _Store:
         _context: ResolvedMarketDataQueryContext,
         *,
         knowledge_cutoff: datetime,
+        include_unusable_for_coverage: bool = False,
     ) -> tuple[LocalObservationRevision, ...]:
         self.read_cutoffs.append(knowledge_cutoff)
+        self.read_modes.append(include_unusable_for_coverage)
         return tuple(
             row
             for row in self.revisions
@@ -293,8 +388,28 @@ class _Store:
         )
 
 
+class _SnapshotStore(_Store):
+    """Make any accidental bar-calendar read fail the quote-snapshot contract."""
+
+    def __init__(self, *, revisions: list[LocalObservationRevision]) -> None:
+        super().__init__(calendar=_calendar(known=False), revisions=revisions)
+        self.calendar_reads = 0
+
+    async def read_calendar_for_context(
+        self,
+        _context: ResolvedMarketDataQueryContext,
+        *,
+        knowledge_cutoff: datetime,
+    ) -> CalendarSnapshot:
+        del _context, knowledge_cutoff
+        self.calendar_reads += 1
+        raise AssertionError("quote snapshots must not read a bars calendar")
+
+
 class _Provider:
-    def __init__(self, result: ProviderFetchResult | Exception, *, bind_request: bool = True) -> None:
+    def __init__(
+        self, result: ProviderFetchResult | Exception, *, bind_request: bool = True
+    ) -> None:
         self.result = result
         self.bind_request = bind_request
         self.requests: list[Any] = []
@@ -347,6 +462,42 @@ def _provider_result(
     )
 
 
+def _snapshot_provider_result(
+    *,
+    event_at: datetime = _at(12),
+) -> ProviderFetchResult:
+    """Build a receipt that represents one exact current quote observation."""
+    return ProviderFetchResult(
+        provider_id="akshare",
+        source_revision="quote-route-v1",
+        retrieved_at=_at(12),
+        observations=(
+            ProviderMarketObservation(
+                event_at=event_at,
+                available_at=_at(12),
+                fields={"price": 10.5},
+            ),
+        ),
+        raw_payload={"route": "akshare-quote", "event": event_at.isoformat()},
+        request=MarketDataProviderRequest(
+            query_fingerprint="a" * 64,
+            canonical_id=CANONICAL_ID,
+            asset_type="stock",
+            provider_symbol="600000",
+            market="CN-SSE",
+            data_kind="quote_snapshot",
+            frequency="snapshot",
+            start_at=_at(11),
+            end_at=_at(12, 1),
+            required_fields=frozenset({"price"}),
+            provider="akshare",
+            currency="CNY",
+            unit="share",
+            source_policy_id="market-default-v1",
+        ),
+    )
+
+
 def _service(
     *,
     context: ResolvedMarketDataQueryContext,
@@ -354,6 +505,7 @@ def _service(
     provider_routes: tuple[Any, ...],
     allow_online_fetch: bool = True,
     cursor_signing_key: str = _CURSOR_SIGNING_KEY,
+    snapshot_freshness_policies: SnapshotFreshnessPolicyRegistry | None = None,
 ):
     from app.services.market_data.query_service import MarketDataQueryService
     from app.services.market_data.source_policy import (
@@ -373,6 +525,7 @@ def _service(
                 ),
             )
         ),
+        snapshot_freshness_policies=snapshot_freshness_policies,
         allow_online_fetch=allow_online_fetch,
         clock=lambda: _at(12),
         cursor_signing_key=cursor_signing_key,
@@ -392,6 +545,26 @@ def _route(provider: _Provider, *, expected: str = "akshare", request_provider: 
         markets=frozenset({"CN-SSE"}),
         adjustments=frozenset({"qfq"}),
         price_bases=frozenset({"close"}),
+        currencies=frozenset({"CNY"}),
+        units=frozenset({"share"}),
+        adapter=provider,
+    )
+
+
+def _snapshot_route(provider: _Provider):
+    """Route only a reviewed stock quote-snapshot request."""
+    from app.services.market_data.source_policy import MarketDataProviderRoute
+
+    return MarketDataProviderRoute(
+        route_id="route-akshare-quote",
+        request_provider="akshare",
+        expected_result_provider_ids=frozenset({"akshare"}),
+        asset_types=frozenset({"stock"}),
+        data_kinds=frozenset({"quote_snapshot"}),
+        frequencies=frozenset({"snapshot"}),
+        markets=frozenset({"CN-SSE"}),
+        adjustments=frozenset({None}),
+        price_bases=frozenset({None}),
         currencies=frozenset({"CNY"}),
         units=frozenset({"share"}),
         adapter=provider,
@@ -438,7 +611,7 @@ async def test_missing_local_data_is_persisted_then_reread_from_local_store() ->
     assert persisted_context.query.start == _at(10)
     assert persisted_context.query.end == _at(12)
     assert persisted_result.request == provider.requests[0]
-    assert [(item.start_at, item.end_at) for item in [provider.requests[0]] ] == [(_at(10), _at(12))]
+    assert [(item.start_at, item.end_at) for item in [provider.requests[0]]] == [(_at(10), _at(12))]
     assert result.fetches[0].provider_id == "akshare"
 
 
@@ -458,6 +631,43 @@ async def test_local_only_never_requests_provider_when_coverage_is_incomplete() 
     assert result.coverage.status.value == "incomplete"
     assert provider.requests == []
     assert result.fetches == ()
+
+
+@pytest.mark.asyncio
+async def test_response_excludes_legacy_pass_placeholders_but_coverage_retains_rejection() -> None:
+    """A diagnostics-only legacy row must never escape through the product result."""
+    request = _request(mode="local_only")
+    context = _context(request)
+    rejected = LocalObservationRevision(
+        revision_id="legacy-pass-placeholder",
+        source_snapshot_id="source-legacy",
+        event_at=_at(10),
+        available_at=_at(12),
+        committed_at=_at(12),
+        revision_number=1,
+        quality=ObservationQuality.PASS,
+        fields=MappingProxyType({"close": "--"}),
+    )
+    store = _Store(
+        calendar=_calendar(),
+        revisions=[_revision(_at(9)), rejected, _revision(_at(11))],
+    )
+    provider = _Provider(_provider_result())
+
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+    ).execute(request)
+
+    assert result.coverage.status.value == "incomplete"
+    assert result.coverage.rejection_counts == {"missing_required_fields": 1}
+    assert [item.revision_id for item in result.observations] == [
+        "revision-9-10.0",
+        "revision-11-10.0",
+    ]
+    assert store.read_modes == [True, False]
+    assert provider.requests == []
 
 
 @pytest.mark.asyncio
@@ -774,7 +984,9 @@ async def test_first_and_continuation_pages_share_one_identity_pit_boundary() ->
 
 
 @pytest.mark.asyncio
-async def test_cursor_keeps_identity_cutoff_when_current_fetch_advances_observation_cutoff() -> None:
+async def test_cursor_keeps_identity_cutoff_when_current_fetch_advances_observation_cutoff() -> (
+    None
+):
     """A provider receipt cannot move a continuation's identity PIT boundary."""
     first_request = _request(page_size=1)
     cutoff_context = _context(first_request)
@@ -866,3 +1078,322 @@ async def test_refresh_discloses_when_only_old_local_coverage_exists() -> None:
     assert result.coverage.status.value == "complete"
     assert result.refresh_status == "fresh_incomplete"
     assert [warning.code for warning in result.warnings] == ["REFRESH_FRESHNESS_INCOMPLETE"]
+
+
+@pytest.mark.asyncio
+async def test_recent_local_quote_snapshot_never_reads_a_bar_calendar_or_provider() -> None:
+    """A current exact quote is local-first complete by freshness, not by bars."""
+    request = _snapshot_request()
+    context = _snapshot_context(request)
+    store = _SnapshotStore(
+        revisions=[
+            LocalObservationRevision(
+                revision_id="snapshot-local",
+                source_snapshot_id="source-local",
+                event_at=_at(12),
+                available_at=_at(12),
+                committed_at=_at(12),
+                revision_number=1,
+                quality=ObservationQuality.PASS,
+                fields=MappingProxyType({"price": 10.5}),
+            )
+        ]
+    )
+    provider = _Provider(_snapshot_provider_result())
+
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(_snapshot_route(provider),),
+    ).execute(request)
+
+    assert result.coverage.status.value == "complete"
+    assert [item.fields for item in result.observations] == [{"price": 10.5}]
+    assert store.calendar_reads == 0
+    assert provider.requests == []
+
+
+@pytest.mark.asyncio
+async def test_quote_response_hides_stale_local_snapshots_from_the_display() -> None:
+    """Coverage and returned quote rows must agree about which value is current."""
+    request = _snapshot_request()
+    context = _snapshot_context(request)
+    store = _SnapshotStore(
+        revisions=[
+            LocalObservationRevision(
+                revision_id="snapshot-stale",
+                source_snapshot_id="source-stale",
+                event_at=_at(11),
+                available_at=_at(11),
+                committed_at=_at(11),
+                revision_number=1,
+                quality=ObservationQuality.PASS,
+                fields=MappingProxyType({"price": 9.5}),
+            ),
+            LocalObservationRevision(
+                revision_id="snapshot-current",
+                source_snapshot_id="source-current",
+                event_at=_at(12),
+                available_at=_at(12),
+                committed_at=_at(12),
+                revision_number=1,
+                quality=ObservationQuality.PASS,
+                fields=MappingProxyType({"price": 10.5}),
+            ),
+        ]
+    )
+    provider = _Provider(_snapshot_provider_result())
+
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(_snapshot_route(provider),),
+    ).execute(request)
+
+    assert result.coverage.status.value == "complete"
+    assert result.coverage.rejection_counts == {"stale": 1}
+    assert [item.revision_id for item in result.observations] == ["snapshot-current"]
+    assert provider.requests == []
+    assert store.calendar_reads == 0
+
+
+@pytest.mark.asyncio
+async def test_missing_quote_snapshot_is_persisted_then_reread_without_a_calendar() -> None:
+    """A quote miss follows the same durable receipt and local reread invariant as bars."""
+    request = _snapshot_request()
+    context = _snapshot_context(request)
+    store = _SnapshotStore(revisions=[])
+    provider = _Provider(_snapshot_provider_result())
+
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(_snapshot_route(provider),),
+    ).execute(request)
+
+    assert result.coverage.status.value == "complete"
+    assert [item.fields for item in result.observations] == [{"price": 10.5}]
+    assert len(store.persisted) == 1
+    assert store.persisted[0][1].request == provider.requests[0]
+    assert store.calendar_reads == 0
+
+
+@pytest.mark.asyncio
+async def test_stale_quote_snapshot_fetches_one_current_replacement() -> None:
+    """A stale quote cannot suppress the bounded local-first refresh."""
+    request = _snapshot_request()
+    context = _snapshot_context(request)
+    store = _SnapshotStore(
+        revisions=[
+            LocalObservationRevision(
+                revision_id="snapshot-stale",
+                source_snapshot_id="source-stale",
+                event_at=_at(11),
+                available_at=_at(11),
+                committed_at=_at(11),
+                revision_number=1,
+                quality=ObservationQuality.PASS,
+                fields=MappingProxyType({"price": 9.5}),
+            )
+        ]
+    )
+    provider = _Provider(_snapshot_provider_result())
+
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(_snapshot_route(provider),),
+    ).execute(request)
+
+    assert result.coverage.status.value == "complete"
+    assert len(provider.requests) == 1
+    assert provider.requests[0].data_kind == "quote_snapshot"
+    assert provider.requests[0].frequency == "snapshot"
+    assert store.calendar_reads == 0
+
+
+@pytest.mark.asyncio
+async def test_quote_snapshot_uses_its_injected_product_freshness_policy() -> None:
+    """A product policy, rather than a query-service constant, controls staleness."""
+    request = _snapshot_request()
+    context = _snapshot_context(request)
+    store = _SnapshotStore(
+        revisions=[
+            LocalObservationRevision(
+                revision_id="snapshot-six-minutes-old",
+                source_snapshot_id="source-six-minutes-old",
+                event_at=_at(11, 54),
+                available_at=_at(11, 54),
+                committed_at=_at(11, 54),
+                revision_number=1,
+                quality=ObservationQuality.PASS,
+                fields=MappingProxyType({"price": 10.0}),
+            )
+        ]
+    )
+    provider = _Provider(_snapshot_provider_result())
+    policies = SnapshotFreshnessPolicyRegistry(
+        (
+            SnapshotFreshnessPolicy(
+                policy_id="test-stock-quote-five-minute-v1",
+                dataset_code="market.quote_snapshot",
+                asset_types=frozenset({"stock"}),
+                source_policy_ids=frozenset({"market-default-v1"}),
+                max_age=timedelta(minutes=5),
+            ),
+        )
+    )
+
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(_snapshot_route(provider),),
+        snapshot_freshness_policies=policies,
+    ).execute(request)
+
+    assert result.coverage.status.value == "complete"
+    assert len(provider.requests) == 1
+    assert store.calendar_reads == 0
+
+
+@pytest.mark.asyncio
+async def test_quote_refresh_uses_the_same_injected_freshness_policy() -> None:
+    """Refresh evidence cannot use a looser default SLA than the display read."""
+    request = _snapshot_request(mode="refresh")
+    context = _snapshot_context(request)
+    store = _SnapshotStore(revisions=[])
+    provider = _Provider(_snapshot_provider_result(event_at=_at(11, 54)))
+    policies = SnapshotFreshnessPolicyRegistry(
+        (
+            SnapshotFreshnessPolicy(
+                policy_id="test-stock-quote-five-minute-v1",
+                dataset_code="market.quote_snapshot",
+                asset_types=frozenset({"stock"}),
+                source_policy_ids=frozenset({"market-default-v1"}),
+                max_age=timedelta(minutes=5),
+            ),
+        )
+    )
+
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(_snapshot_route(provider),),
+        snapshot_freshness_policies=policies,
+    ).execute(request)
+
+    assert result.coverage.status.value == "incomplete"
+    assert result.observations == ()
+    assert len(provider.requests) == 1
+    assert result.refresh_status == "fresh_incomplete"
+    assert [warning.code for warning in result.warnings] == ["REFRESH_FRESHNESS_INCOMPLETE"]
+    assert store.calendar_reads == 0
+
+
+@pytest.mark.asyncio
+async def test_quote_snapshot_without_an_exact_product_policy_fails_before_local_read() -> None:
+    """A quote cannot inherit another product's SLA or silently fetch online."""
+    from app.services.market_data.query_service import MarketDataQueryServiceError
+
+    request = _snapshot_request()
+    context = _snapshot_context(request)
+    store = _SnapshotStore(revisions=[])
+    provider = _Provider(_snapshot_provider_result())
+    policies = SnapshotFreshnessPolicyRegistry(
+        (
+            SnapshotFreshnessPolicy(
+                policy_id="test-fund-quote-v1",
+                dataset_code="market.quote_snapshot",
+                asset_types=frozenset({"fund"}),
+                source_policy_ids=frozenset({"market-default-v1"}),
+                max_age=timedelta(minutes=5),
+            ),
+        )
+    )
+
+    with pytest.raises(MarketDataQueryServiceError, match="SNAPSHOT_FRESHNESS_POLICY_UNAVAILABLE"):
+        await _service(
+            context=context,
+            store=store,
+            provider_routes=(_snapshot_route(provider),),
+            snapshot_freshness_policies=policies,
+        ).execute(request)
+
+    assert store.read_cutoffs == []
+    assert provider.requests == []
+    assert store.calendar_reads == 0
+
+
+@pytest.mark.asyncio
+async def test_quote_snapshot_policy_must_match_the_versioned_source_policy() -> None:
+    """Changing a source-policy ID cannot reuse an SLA from another policy version."""
+    from app.services.market_data.query_service import MarketDataQueryServiceError
+
+    request = _snapshot_request()
+    context = _snapshot_context(request)
+    store = _SnapshotStore(revisions=[])
+    provider = _Provider(_snapshot_provider_result())
+    policies = SnapshotFreshnessPolicyRegistry(
+        (
+            SnapshotFreshnessPolicy(
+                policy_id="test-stock-other-source-v1",
+                dataset_code="market.quote_snapshot",
+                asset_types=frozenset({"stock"}),
+                source_policy_ids=frozenset({"market-other-v1"}),
+                max_age=timedelta(minutes=5),
+            ),
+        )
+    )
+
+    with pytest.raises(MarketDataQueryServiceError, match="SNAPSHOT_FRESHNESS_POLICY_UNAVAILABLE"):
+        await _service(
+            context=context,
+            store=store,
+            provider_routes=(_snapshot_route(provider),),
+            snapshot_freshness_policies=policies,
+        ).execute(request)
+
+    assert store.read_cutoffs == []
+    assert provider.requests == []
+    assert store.calendar_reads == 0
+
+
+@pytest.mark.asyncio
+async def test_historical_quote_snapshot_miss_never_fetches_a_present_value() -> None:
+    """A present quote must not be relabelled as evidence for a past time window."""
+    request = _snapshot_request(start=_at(9), end=_at(10))
+    context = _snapshot_context(request)
+    store = _SnapshotStore(revisions=[])
+    provider = _Provider(_snapshot_provider_result())
+
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(_snapshot_route(provider),),
+    ).execute(request)
+
+    assert result.coverage.status.value == "incomplete"
+    assert provider.requests == []
+    assert [warning.code for warning in result.warnings] == ["SNAPSHOT_HISTORICAL_FETCH_FORBIDDEN"]
+    assert store.calendar_reads == 0
+
+
+@pytest.mark.asyncio
+async def test_quote_at_the_historical_freshness_boundary_never_fetches_a_present_value() -> None:
+    """The half-open historical guard includes the exact freshness-floor endpoint."""
+    request = _snapshot_request(start=_at(11, 44), end=_at(11, 45))
+    context = _snapshot_context(request)
+    store = _SnapshotStore(revisions=[])
+    provider = _Provider(_snapshot_provider_result())
+
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(_snapshot_route(provider),),
+    ).execute(request)
+
+    assert result.coverage.status.value == "incomplete"
+    assert result.observations == ()
+    assert provider.requests == []
+    assert [warning.code for warning in result.warnings] == ["SNAPSHOT_HISTORICAL_FETCH_FORBIDDEN"]
+    assert store.calendar_reads == 0

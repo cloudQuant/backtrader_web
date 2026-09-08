@@ -22,6 +22,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from importlib import metadata
+from types import MappingProxyType
 from typing import Any
 
 from app.services.market_data.providers import (
@@ -140,6 +141,264 @@ class AkShareRoute:
             raise ValueError("use None to reject all explicit AkShare currencies")
         if self.supported_units is not None and not self.supported_units:
             raise ValueError("use None to reject all explicit AkShare units")
+
+
+@dataclass(frozen=True, slots=True)
+class AkShareSnapshotRowSchema:
+    """A schedule-only full-market row shape, deliberately separate from fetch routes.
+
+    The exact-request provider registry above must never select a broad spot
+    endpoint and then filter a symbol at request time.  These schemas exist
+    only for a scheduler or shadow worker that has already captured a bounded
+    source row set and a frozen identity map.  They declare which returned
+    columns can prove identity, source time, and normalized snapshot fields.
+    """
+
+    asset_type: str
+    identity_columns: tuple[str, ...]
+    timestamp_columns: tuple[str, ...]
+    field_aliases: Mapping[str, str]
+    source_timezone: str
+    collector_observed_allowed: bool = False
+    source_market_columns: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Reject incomplete or ambiguous schema declarations at process start."""
+        if not isinstance(self.asset_type, str) or not self.asset_type.strip():
+            raise ValueError("snapshot schema asset_type must not be blank")
+        for field_name, columns in (
+            ("identity_columns", self.identity_columns),
+            ("source_market_columns", self.source_market_columns),
+            ("timestamp_columns", self.timestamp_columns),
+        ):
+            if not isinstance(columns, tuple):
+                raise ValueError(f"snapshot schema {field_name} must be a tuple")
+            if field_name != "source_market_columns" and not columns:
+                raise ValueError(f"snapshot schema {field_name} must be a non-empty tuple")
+            if any(not isinstance(column, str) or not column.strip() for column in columns):
+                raise ValueError(f"snapshot schema {field_name} must contain non-blank strings")
+            if len(columns) != len(set(columns)):
+                raise ValueError(f"snapshot schema {field_name} must be distinct")
+        identity_column_sets = (
+            set(self.identity_columns),
+            set(self.source_market_columns),
+            set(self.timestamp_columns),
+        )
+        if any(
+            left & right
+            for index, left in enumerate(identity_column_sets)
+            for right in identity_column_sets[index + 1 :]
+        ):
+            raise ValueError(
+                "snapshot schema identity, market, and timestamp columns must not overlap"
+            )
+        if not isinstance(self.field_aliases, Mapping) or not self.field_aliases:
+            raise ValueError("snapshot schema field_aliases must be a non-empty mapping")
+        normalized_aliases: dict[str, str] = {}
+        for source_name, field_name in self.field_aliases.items():
+            if (
+                not isinstance(source_name, str)
+                or not source_name.strip()
+                or not isinstance(field_name, str)
+                or not field_name.strip()
+            ):
+                raise ValueError("snapshot schema aliases must use non-blank strings")
+            normalized_aliases[source_name.strip()] = field_name.strip()
+        if not isinstance(self.source_timezone, str) or not self.source_timezone.strip():
+            raise ValueError("snapshot schema source_timezone must not be blank")
+        if not isinstance(self.collector_observed_allowed, bool):
+            raise TypeError("snapshot schema collector_observed_allowed must be bool")
+        object.__setattr__(self, "asset_type", self.asset_type.strip())
+        object.__setattr__(self, "field_aliases", MappingProxyType(normalized_aliases))
+        object.__setattr__(self, "source_timezone", self.source_timezone.strip())
+
+
+# These are input row schemas for an offline/scheduled importer, not callable
+# AkShare routes.  In particular, none is inserted into ``AKSHARE_ROUTE_REGISTRY``.
+_STOCK_SNAPSHOT_FIELD_ALIASES = {
+    "最新价": "price",
+    "现价": "price",
+    "price": "price",
+    "涨跌额": "change",
+    "change": "change",
+    "涨跌幅": "change_pct",
+    "change_pct": "change_pct",
+    "今开": "open",
+    "开盘": "open",
+    "open": "open",
+    "最高": "high",
+    "high": "high",
+    "最低": "low",
+    "low": "low",
+    "昨收": "previous_close",
+    "previous_close": "previous_close",
+    "成交量": "volume",
+    "volume": "volume",
+    "成交额": "turnover",
+    "turnover": "turnover",
+    "换手率": "turnover_rate",
+    "市盈率": "pe",
+    "市净率": "pb",
+}
+_FUND_SNAPSHOT_FIELD_ALIASES = {
+    "最新价": "price",
+    "现价": "price",
+    "price": "price",
+    "涨跌额": "change",
+    "change": "change",
+    "涨跌幅": "change_pct",
+    "change_pct": "change_pct",
+    "今开": "open",
+    "开盘": "open",
+    "open": "open",
+    "最高": "high",
+    "high": "high",
+    "最低": "low",
+    "low": "low",
+    "昨收": "previous_close",
+    "previous_close": "previous_close",
+    "成交量": "volume",
+    "volume": "volume",
+    "成交额": "turnover",
+    "turnover": "turnover",
+    "IOPV": "iopv",
+    "iopv": "iopv",
+    "单位净值": "nav",
+    "累计净值": "cumulative_nav",
+    "日增长率": "daily_growth_rate",
+}
+_FX_SNAPSHOT_FIELD_ALIASES = {
+    "最新价": "price",
+    "现价": "price",
+    "price": "price",
+    "涨跌额": "change",
+    "change": "change",
+    "涨跌幅": "change_pct",
+    "change_pct": "change_pct",
+    "今开": "open",
+    "开盘": "open",
+    "open": "open",
+    "最高": "high",
+    "high": "high",
+    "最低": "low",
+    "low": "low",
+    "昨收": "previous_close",
+    "previous_close": "previous_close",
+    "买入价": "bid",
+    "买一": "bid",
+    "bid": "bid",
+    "卖出价": "ask",
+    "卖一": "ask",
+    "ask": "ask",
+}
+_CRYPTO_SNAPSHOT_FIELD_ALIASES = {
+    "最新价": "price",
+    "现价": "price",
+    "最近报价": "price",
+    "price": "price",
+    "last": "price",
+    "涨跌额": "change",
+    "change": "change",
+    "涨跌幅": "change_pct",
+    "change_pct": "change_pct",
+    "最高": "high",
+    "24h最高": "high",
+    "high": "high",
+    "最低": "low",
+    "24h最低": "low",
+    "low": "low",
+    "成交量": "volume",
+    "24h成交量": "volume",
+    "volume": "volume",
+    "成交额": "turnover",
+    "turnover": "turnover",
+    "持仓量": "open_interest",
+    "open_interest": "open_interest",
+    "买一": "bid",
+    "bid": "bid",
+    "卖一": "ask",
+    "ask": "ask",
+}
+_OPTION_SNAPSHOT_FIELD_ALIASES = {
+    "最新价": "price",
+    "现价": "price",
+    "price": "price",
+    "涨跌额": "change",
+    "change": "change",
+    "涨跌幅": "change_pct",
+    "change_pct": "change_pct",
+    "成交量": "volume",
+    "volume": "volume",
+    "成交额": "turnover",
+    "turnover": "turnover",
+    "持仓量": "open_interest",
+    "open_interest": "open_interest",
+    "行权价": "strike",
+    "strike": "strike",
+    "剩余天数": "days_to_expiry",
+    "days_to_expiry": "days_to_expiry",
+    "买一": "bid",
+    "bid": "bid",
+    "卖一": "ask",
+    "ask": "ask",
+}
+
+AKSHARE_SNAPSHOT_ROW_SCHEMAS: tuple[AkShareSnapshotRowSchema, ...] = (
+    AkShareSnapshotRowSchema(
+        asset_type="stock",
+        identity_columns=("代码", "股票代码", "symbol", "code"),
+        source_market_columns=(),
+        timestamp_columns=("更新时间", "时间", "timestamp", "update_time"),
+        field_aliases=_STOCK_SNAPSHOT_FIELD_ALIASES,
+        source_timezone="Asia/Shanghai",
+        collector_observed_allowed=True,
+    ),
+    AkShareSnapshotRowSchema(
+        asset_type="fund",
+        identity_columns=("基金代码", "代码", "symbol", "code"),
+        source_market_columns=(),
+        timestamp_columns=("更新时间", "时间", "timestamp", "update_time"),
+        field_aliases=_FUND_SNAPSHOT_FIELD_ALIASES,
+        source_timezone="Asia/Shanghai",
+    ),
+    AkShareSnapshotRowSchema(
+        asset_type="fx",
+        identity_columns=("代码", "货币对", "currency_pair", "symbol", "code"),
+        source_market_columns=(),
+        timestamp_columns=("更新时间", "时间", "timestamp", "update_time"),
+        field_aliases=_FX_SNAPSHOT_FIELD_ALIASES,
+        source_timezone="Asia/Shanghai",
+        collector_observed_allowed=True,
+    ),
+    AkShareSnapshotRowSchema(
+        asset_type="crypto",
+        identity_columns=("交易品种", "交易对", "代码", "symbol", "code"),
+        source_market_columns=("市场", "market"),
+        timestamp_columns=("更新时间", "时间", "timestamp", "update_time"),
+        field_aliases=_CRYPTO_SNAPSHOT_FIELD_ALIASES,
+        source_timezone="UTC",
+    ),
+    AkShareSnapshotRowSchema(
+        asset_type="option",
+        identity_columns=("合约代码", "期权代码", "代码", "symbol", "code"),
+        source_market_columns=("市场标识", "市场", "market"),
+        timestamp_columns=("更新时间", "时间", "timestamp", "update_time"),
+        field_aliases=_OPTION_SNAPSHOT_FIELD_ALIASES,
+        source_timezone="Asia/Shanghai",
+        collector_observed_allowed=True,
+    ),
+)
+
+
+def get_akshare_snapshot_row_schema(asset_type: str) -> AkShareSnapshotRowSchema:
+    """Return an explicit offline-import schema without constructing a provider route."""
+    if not isinstance(asset_type, str):
+        raise AkShareProviderError("AKSHARE_SNAPSHOT_ASSET_UNSUPPORTED")
+    normalized = asset_type.strip()
+    for schema in AKSHARE_SNAPSHOT_ROW_SCHEMAS:
+        if schema.asset_type == normalized:
+            return schema
+    raise AkShareProviderError("AKSHARE_SNAPSHOT_ASSET_UNSUPPORTED")
 
 
 def _format_akshare_date(value: datetime) -> str:

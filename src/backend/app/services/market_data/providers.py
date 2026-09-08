@@ -18,15 +18,17 @@ import tempfile
 from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from types import MappingProxyType
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 OPENBB_RUNNER_PROTOCOL_VERSION = "openbb-market-data-v1"
 _MAX_RUNNER_OUTPUT_BYTES = 10 * 1024 * 1024
 _MAX_OPENBB_RAW_PAYLOAD_BYTES = 4 * 1024 * 1024
 _RUNNER_READ_CHUNK_BYTES = 64 * 1024
+DEFAULT_OPENBB_MAX_CONCURRENT_RUNS = 4
 _OPENBB_RAW_PAYLOAD_FORMAT = "openbb-records-pre-normalization-v1"
+_OPENBB_RAW_TIMESTAMP_FIELDS = ("event_at", "date", "datetime", "timestamp")
 _RUNNER_BASE_ENVIRONMENT_KEYS = (
     "PATH",
     "LANG",
@@ -57,6 +59,41 @@ class _BoundedRunnerStream:
 
     data: bytes
     exceeded_limit: bool
+
+
+class _OpenBBRunnerGate:
+    """One process-wide non-blocking admission gate for runner subprocesses."""
+
+    def __init__(self) -> None:
+        self._active = 0
+        self._limit: int | None = None
+        self._lock = asyncio.Lock()
+
+    async def try_acquire(
+        self,
+        *,
+        limit: int,
+    ) -> Literal["acquired", "overloaded", "configuration_mismatch"]:
+        """Reserve one slot, freezing the process-wide cap at first admission."""
+        async with self._lock:
+            if self._limit is None:
+                self._limit = limit
+            elif self._limit != limit:
+                return "configuration_mismatch"
+            if self._active >= self._limit:
+                return "overloaded"
+            self._active += 1
+            return "acquired"
+
+    async def release(self) -> None:
+        """Release one previously admitted subprocess slot."""
+        async with self._lock:
+            if self._active < 1:
+                raise RuntimeError("OpenBB runner gate release without acquisition")
+            self._active -= 1
+
+
+_PROCESS_OPENBB_RUNNER_GATE = _OpenBBRunnerGate()
 
 
 async def _read_runner_stream_bounded(
@@ -143,9 +180,7 @@ async def _communicate_runner_bounded(
             pass
         finally:
             process.stdin.close()
-        returncode, stdout, stderr = await asyncio.gather(
-            process.wait(), stdout_task, stderr_task
-        )
+        returncode, stdout, stderr = await asyncio.gather(process.wait(), stdout_task, stderr_task)
         return int(returncode), stdout, stderr
 
     try:
@@ -186,6 +221,13 @@ def _require_text(value: str, *, field_name: str, maximum: int = 2048) -> str:
     if len(normalized) > maximum:
         raise ValueError(f"{field_name} is too long")
     return normalized
+
+
+def _require_openbb_max_concurrent_runs(value: int) -> int:
+    """Validate the operator-owned runner concurrency cap."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError("max_concurrent_runs must be a positive integer")
+    return value
 
 
 def _canonical_json(payload: Mapping[str, Any]) -> str:
@@ -295,7 +337,10 @@ class ProviderMarketObservation:
             raise TypeError("fields must be a mapping")
         normalized_fields: dict[str, Any] = {}
         for field_name, value in self.fields.items():
-            normalized_fields[_require_text(field_name, field_name="field", maximum=256)] = value
+            normalized_field_name = _require_text(field_name, field_name="field", maximum=256)
+            if normalized_field_name in normalized_fields:
+                raise ValueError("provider observation contains duplicate normalized field names")
+            normalized_fields[normalized_field_name] = value
         if not normalized_fields:
             raise ValueError("provider observation fields must not be empty")
         object.__setattr__(self, "event_at", event_at)
@@ -361,87 +406,107 @@ class OpenBBSubprocessProvider:
         command: tuple[str, ...] | None,
         timeout_seconds: float = 30.0,
         configuration_error: str | None = None,
+        max_concurrent_runs: int = DEFAULT_OPENBB_MAX_CONCURRENT_RUNS,
     ) -> None:
         if command is not None and not command:
             raise ValueError("runner command cannot be empty")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
-        if configuration_error is not None and configuration_error != "OPENBB_RUNNER_COMMAND_INVALID":
+        if (
+            configuration_error is not None
+            and configuration_error != "OPENBB_RUNNER_COMMAND_INVALID"
+        ):
             raise ValueError("configuration_error must be a supported stable code")
         if command is not None and configuration_error is not None:
             raise ValueError("configured runner command cannot also carry an error")
         self._command = command
         self._timeout_seconds = timeout_seconds
         self._configuration_error = configuration_error
+        self._max_concurrent_runs = _require_openbb_max_concurrent_runs(max_concurrent_runs)
 
     @classmethod
-    def from_environment(cls) -> OpenBBSubprocessProvider:
+    def from_environment(
+        cls,
+        *,
+        max_concurrent_runs: int = DEFAULT_OPENBB_MAX_CONCURRENT_RUNS,
+    ) -> OpenBBSubprocessProvider:
         """Build the adapter from an operator-defined executable command only."""
         raw_command = os.getenv("OPENBB_MARKET_DATA_RUNNER", "").strip()
         if not raw_command:
-            return cls(command=None)
+            return cls(command=None, max_concurrent_runs=max_concurrent_runs)
         try:
             command = tuple(shlex.split(raw_command))
         except ValueError:
             # Dependency construction must remain safe even when an operator
             # typo leaves an unmatched quote in the environment variable.
-            return cls(command=None, configuration_error="OPENBB_RUNNER_COMMAND_INVALID")
-        return cls(command=command)
+            return cls(
+                command=None,
+                configuration_error="OPENBB_RUNNER_COMMAND_INVALID",
+                max_concurrent_runs=max_concurrent_runs,
+            )
+        return cls(command=command, max_concurrent_runs=max_concurrent_runs)
 
     async def fetch(self, request: MarketDataProviderRequest) -> ProviderFetchResult:
         """Return one verified response or a typed failure without shell invocation."""
         if self._command is None:
             raise OpenBBProviderError(self._configuration_error or "OPENBB_RUNNER_UNAVAILABLE")
-
-        request_payload = {
-            "protocol_version": OPENBB_RUNNER_PROTOCOL_VERSION,
-            "request_id": request.request_id,
-            "request": request.dto_payload,
-        }
-        subprocess_options: dict[str, bool] = {}
-        if os.name == "posix":
-            # Required by ``_terminate_runner_process`` to make each runner
-            # its own killable process group without touching the web worker.
-            subprocess_options["start_new_session"] = True
+        admission = await _PROCESS_OPENBB_RUNNER_GATE.try_acquire(limit=self._max_concurrent_runs)
+        if admission == "configuration_mismatch":
+            raise OpenBBProviderError("OPENBB_RUNNER_CONCURRENCY_CONFIG_MISMATCH")
+        if admission == "overloaded":
+            raise OpenBBProviderError("OPENBB_RUNNER_OVERLOADED")
         try:
-            process = await asyncio.create_subprocess_exec(
-                *self._command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=_openbb_runner_environment(),
-                cwd=_openbb_runner_workdir(),
-                **subprocess_options,
-            )
-        except OSError as exc:
-            raise OpenBBProviderError("OPENBB_RUNNER_UNAVAILABLE", detail=str(exc)) from exc
+            request_payload = {
+                "protocol_version": OPENBB_RUNNER_PROTOCOL_VERSION,
+                "request_id": request.request_id,
+                "request": request.dto_payload,
+            }
+            subprocess_options: dict[str, bool] = {}
+            if os.name == "posix":
+                # Required by ``_terminate_runner_process`` to make each runner
+                # its own killable process group without touching the web worker.
+                subprocess_options["start_new_session"] = True
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *self._command,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=_openbb_runner_environment(),
+                    cwd=_openbb_runner_workdir(),
+                    **subprocess_options,
+                )
+            except OSError as exc:
+                raise OpenBBProviderError("OPENBB_RUNNER_UNAVAILABLE", detail=str(exc)) from exc
 
-        encoded_request = _canonical_json(request_payload).encode("utf-8")
-        stdout, _stderr = await _communicate_runner_bounded(
-            process,
-            encoded_request,
-            timeout_seconds=self._timeout_seconds,
-            process_group_id=process.pid if os.name == "posix" else None,
-        )
-        try:
-            response = json.loads(stdout.data.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise OpenBBProviderError("OPENBB_RUNNER_INVALID_RESPONSE") from exc
-        if not isinstance(response, Mapping):
-            raise OpenBBProviderError("OPENBB_RUNNER_INVALID_RESPONSE")
-        if response.get("protocol_version") != OPENBB_RUNNER_PROTOCOL_VERSION:
-            raise OpenBBProviderError("OPENBB_RUNNER_PROTOCOL_MISMATCH")
-        if response.get("request_id") != request.request_id:
-            raise OpenBBProviderError("OPENBB_RUNNER_PROTOCOL_MISMATCH")
-        if isinstance(response.get("error"), Mapping):
-            error = response["error"]
-            code = _require_text(
-                str(error.get("code") or "OPENBB_RUNNER_ERROR"), field_name="error code"
+            encoded_request = _canonical_json(request_payload).encode("utf-8")
+            stdout, _stderr = await _communicate_runner_bounded(
+                process,
+                encoded_request,
+                timeout_seconds=self._timeout_seconds,
+                process_group_id=process.pid if os.name == "posix" else None,
             )
-            detail = str(error.get("detail") or "")[:2048] or None
-            raise OpenBBProviderError(code, detail=detail)
+            try:
+                response = json.loads(stdout.data.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise OpenBBProviderError("OPENBB_RUNNER_INVALID_RESPONSE") from exc
+            if not isinstance(response, Mapping):
+                raise OpenBBProviderError("OPENBB_RUNNER_INVALID_RESPONSE")
+            if response.get("protocol_version") != OPENBB_RUNNER_PROTOCOL_VERSION:
+                raise OpenBBProviderError("OPENBB_RUNNER_PROTOCOL_MISMATCH")
+            if response.get("request_id") != request.request_id:
+                raise OpenBBProviderError("OPENBB_RUNNER_PROTOCOL_MISMATCH")
+            if isinstance(response.get("error"), Mapping):
+                error = response["error"]
+                code = _require_text(
+                    str(error.get("code") or "OPENBB_RUNNER_ERROR"), field_name="error code"
+                )
+                detail = str(error.get("detail") or "")[:2048] or None
+                raise OpenBBProviderError(code, detail=detail)
 
-        return self._parse_response(response, request)
+            return self._parse_response(response, request)
+        finally:
+            await _PROCESS_OPENBB_RUNNER_GATE.release()
 
     @staticmethod
     def _parse_response(
@@ -518,6 +583,12 @@ class OpenBBSubprocessProvider:
         actual_raw_payload_sha256 = hashlib.sha256(raw_payload_bytes).hexdigest()
         if actual_raw_payload_sha256 != raw_payload_sha256:
             raise OpenBBProviderError("OPENBB_RUNNER_INVALID_RESPONSE")
+        if not _normalized_records_bind_to_raw_payload(
+            observations=tuple(observations),
+            raw_records=raw_records,
+            request=request,
+        ):
+            raise OpenBBProviderError("OPENBB_RUNNER_INVALID_RESPONSE")
         warnings_raw = response.get("warnings", [])
         if not isinstance(warnings_raw, list) or any(
             not isinstance(item, str) for item in warnings_raw
@@ -544,6 +615,92 @@ def _parse_timestamp(value: object, *, field_name: str) -> datetime:
     return _as_utc(parsed, field_name=field_name)
 
 
+def _normalized_records_bind_to_raw_payload(
+    *,
+    observations: tuple[ProviderMarketObservation, ...],
+    raw_records: list[Mapping[str, Any]],
+    request: MarketDataProviderRequest,
+) -> bool:
+    """Recompute the runner's normalized record projection from hashed source rows.
+
+    The subprocess protocol keeps raw source records and normalized records
+    separate for provenance. A verified raw-payload hash alone is insufficient
+    if a compromised runner can substitute the normalized values, so accept a
+    response only when the ordered, in-window event and field projection is
+    exactly reproducible from that receipt.
+    """
+    try:
+        projected = _project_openbb_raw_records(raw_records, request=request)
+        if len(projected) != len(observations):
+            return False
+        return all(
+            expected.event_at == actual.event_at
+            and _canonical_json(dict(expected.fields)) == _canonical_json(dict(actual.fields))
+            for expected, actual in zip(projected, observations, strict=True)
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _project_openbb_raw_records(
+    raw_records: list[Mapping[str, Any]],
+    *,
+    request: MarketDataProviderRequest,
+) -> tuple[ProviderMarketObservation, ...]:
+    """Apply the reviewed runner record projection without importing OpenBB."""
+    projected: list[ProviderMarketObservation] = []
+    for raw_record in raw_records:
+        if not isinstance(raw_record, Mapping):
+            raise TypeError("raw record must be a mapping")
+        event_at = _openbb_raw_record_event_at(raw_record)
+        if not request.start_at <= event_at < request.end_at:
+            continue
+        fields = {
+            field_name: value
+            for field_name, value in raw_record.items()
+            if field_name not in _OPENBB_RAW_TIMESTAMP_FIELDS
+        }
+        if not fields:
+            continue
+        projected.append(
+            ProviderMarketObservation(
+                event_at=event_at,
+                # Availability belongs to the signed runner envelope rather
+                # than an individual raw row. It is irrelevant to this
+                # event/field projection but required by the shared DTO.
+                available_at=request.start_at,
+                fields=fields,
+            )
+        )
+    return tuple(projected)
+
+
+def _openbb_raw_record_event_at(record: Mapping[str, Any]) -> datetime:
+    """Match the isolated runner's explicit raw timestamp precedence rules."""
+    value = next(
+        (
+            record.get(field_name)
+            for field_name in _OPENBB_RAW_TIMESTAMP_FIELDS
+            if record.get(field_name) is not None
+        ),
+        None,
+    )
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, date):
+        parsed = datetime.combine(value, datetime.min.time(), tzinfo=timezone.utc)
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("raw record event timestamp is invalid") from exc
+    else:
+        raise TypeError("raw record has no usable event timestamp")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def _openbb_runner_environment(parent: Mapping[str, str] | None = None) -> dict[str, str]:
     """Build the minimal subprocess environment for a separately managed runner.
 
@@ -555,9 +712,7 @@ def _openbb_runner_environment(parent: Mapping[str, str] | None = None) -> dict[
     """
     source = os.environ if parent is None else parent
     environment = {
-        key: value
-        for key in _RUNNER_BASE_ENVIRONMENT_KEYS
-        if (value := source.get(key))
+        key: value for key in _RUNNER_BASE_ENVIRONMENT_KEYS if (value := source.get(key))
     }
     for key in _RUNNER_OPENBB_CONTROL_ENVIRONMENT_KEYS:
         value = source.get(key)

@@ -39,6 +39,11 @@ from app.services.market_data.coverage import (
     ObservationQuality,
     TimeWindow,
 )
+from app.services.market_data.field_quality import (
+    FIELD_QUALITY_POLICY_VERSION,
+    is_usable_field_value,
+    normalize_provider_fields,
+)
 from app.services.market_data.providers import ProviderFetchResult, ProviderMarketObservation
 from app.services.market_data.publication import (
     PUBLICATION_CALENDAR_SNAPSHOT,
@@ -50,7 +55,7 @@ from app.services.market_data.query_resolution import ResolvedMarketDataQueryCon
 
 UTC = timezone.utc
 SERIES_SEMANTIC_VERSION = "market-data-series-v1"
-QUALITY_POLICY_VERSION = "required-fields-v1"
+QUALITY_POLICY_VERSION = FIELD_QUALITY_POLICY_VERSION
 NORMALIZATION_VERSION = "market-data-store-v1"
 _MAX_PROVIDER_OBSERVATIONS = 50_000
 _REVISION_EVENT_QUERY_CHUNK_SIZE = 500
@@ -326,17 +331,20 @@ class MarketDataStore:
         context: ResolvedMarketDataQueryContext,
         *,
         knowledge_cutoff: datetime,
+        include_unusable_for_coverage: bool = False,
     ) -> tuple[LocalObservationRevision, ...]:
-        """Select the newest locally usable revision per event at a PIT cutoff.
+        """Select the newest response-safe revision per event at a PIT cutoff.
 
         A series deliberately does not include a field projection. A later,
         narrower request can therefore append a revision that has fewer fields
         than an older revision for the same event. Selecting that row
         unconditionally would hide a complete local fact and make a broader
         follow-up request fetch the network again. Prefer the newest revision
-        that is PASS and satisfies this request's required fields; retain the
-        newest fallback only when no usable revision exists so coverage can
-        still report the rejection deterministically.
+        that is PASS and satisfies this request's required fields. By default,
+        unusable revisions are excluded because this method feeds product
+        responses. Coverage planning may explicitly request the newest
+        unusable fallback so it can report a deterministic rejection; that
+        diagnostics-only result must never be rendered as market data.
         """
         _assert_context_integrity(context)
         cutoff = _require_aware_utc(knowledge_cutoff, field_name="knowledge_cutoff")
@@ -377,8 +385,7 @@ class MarketDataStore:
                         MdObservationRevision.id,
                     )
                 )
-            )
-            .all()
+            ).all()
         )
 
         selected_usable: dict[datetime, LocalObservationRevision] = {}
@@ -404,10 +411,12 @@ class MarketDataStore:
                 current_usable
             ):
                 selected_usable[local.event_at] = local
-        return tuple(
-            selected_usable.get(event_at, selected_fallback[event_at])
-            for event_at in sorted(selected_fallback)
-        )
+        if include_unusable_for_coverage:
+            return tuple(
+                selected_usable.get(event_at, selected_fallback[event_at])
+                for event_at in sorted(selected_fallback)
+            )
+        return tuple(selected_usable[event_at] for event_at in sorted(selected_usable))
 
     async def read_observations(
         self,
@@ -419,6 +428,7 @@ class MarketDataStore:
         revisions = await self.read_observation_revisions(
             context,
             knowledge_cutoff=knowledge_cutoff,
+            include_unusable_for_coverage=True,
         )
         return tuple(item.as_coverage_observation(context) for item in revisions)
 
@@ -494,7 +504,10 @@ class MarketDataStore:
             except MarketDataStoreError:
                 saw_integrity_error = True
                 continue
-            if coverage_window.end_at > window.start_at and coverage_window.start_at < window.end_at:
+            if (
+                coverage_window.end_at > window.start_at
+                and coverage_window.start_at < window.end_at
+            ):
                 usable.append((row, coverage_window, published_at))
 
         unknown_timezone = _unknown_timezone([row for row, _published_at in rows])
@@ -901,7 +914,11 @@ class MarketDataStore:
         )
         if witness is None:
             raise MarketDataStoreError("CALENDAR_GRID_UNAVAILABLE")
-        if not witness.is_trading_day or witness.event_type != "session" or witness.event_start is None:
+        if (
+            not witness.is_trading_day
+            or witness.event_type != "session"
+            or witness.event_start is None
+        ):
             raise MarketDataStoreError("CALENDAR_EVENT_INTEGRITY")
         try:
             descriptor = calendar_coverage_descriptor(witness.event_payload_json)
@@ -1024,7 +1041,10 @@ def _validate_provider_fetch(
         if available_at > result.retrieved_at:
             raise MarketDataStoreError("PROVIDER_AVAILABILITY_AFTER_RETRIEVAL")
         seen_events.add(event_at)
-        fields = _json_safe_mapping(observation.fields, field_name="provider observation fields")
+        fields = _json_safe_mapping(
+            normalize_provider_fields(observation.fields),
+            field_name="provider observation fields",
+        )
         canonical_fields = _canonical_json(fields, field_name="provider observation fields")
         normalized_fields_bytes += len(canonical_fields.encode("utf-8"))
         if normalized_fields_bytes > _MAX_NORMALIZED_FIELDS_BYTES:
@@ -1032,7 +1052,7 @@ def _validate_provider_fetch(
         missing_required_fields = tuple(
             field_name
             for field_name in sorted(required_fields)
-            if not _has_usable_value(observation.fields.get(field_name))
+            if not is_usable_field_value(field_name, fields.get(field_name))
         )
         quality = (
             ObservationQuality.PASS if not missing_required_fields else ObservationQuality.FAILED
@@ -1328,26 +1348,14 @@ def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _has_usable_value(value: object) -> bool:
-    """Apply the same basic missing-value semantics used by coverage planning."""
-    if value is None:
-        return False
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, float):
-        return math.isfinite(value)
-    if isinstance(value, Decimal):
-        return value.is_finite()
-    return True
-
-
 def _revision_is_usable_for_fields(
     revision: LocalObservationRevision,
     required_fields: Sequence[str],
 ) -> bool:
     """Return whether a persisted revision can satisfy this field projection."""
     return revision.quality is ObservationQuality.PASS and all(
-        _has_usable_value(revision.fields.get(field_name)) for field_name in required_fields
+        is_usable_field_value(field_name, revision.fields.get(field_name))
+        for field_name in required_fields
     )
 
 

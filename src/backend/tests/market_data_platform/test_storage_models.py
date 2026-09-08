@@ -24,6 +24,7 @@ from app.db.database import Base
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 CATALOG_REVISION = "20260908_market_data_catalog"
 OBSERVATIONS_REVISION = "20260908_market_data_observations"
+SHARED_DATASET_BINDINGS_REVISION = "20260908_market_data_shared_dataset_bindings"
 STORAGE_TABLES = {
     "md_instrument_lookup_keys",
     "md_data_series",
@@ -47,10 +48,10 @@ def _config(database_url: str) -> Config:
 
 def _load_observations_migration() -> ModuleType:
     """Load the revision module directly for offline schema-recovery probes."""
-    migration_path = (
-        BACKEND_ROOT / "alembic" / "versions" / "20260908_market_data_observations.py"
+    migration_path = BACKEND_ROOT / "alembic" / "versions" / "20260908_market_data_observations.py"
+    spec = importlib.util.spec_from_file_location(
+        "iteration197_observations_migration", migration_path
     )
-    spec = importlib.util.spec_from_file_location("iteration197_observations_migration", migration_path)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -58,7 +59,24 @@ def _load_observations_migration() -> ModuleType:
     return module
 
 
-def _publication_table_columns(monkeypatch: pytest.MonkeyPatch, migration: ModuleType) -> tuple[object, ...]:
+def _load_shared_dataset_bindings_migration() -> ModuleType:
+    """Load the candidate catalog-binding revision for isolated fence probes."""
+    migration_path = (
+        BACKEND_ROOT / "alembic" / "versions" / "20260908_market_data_shared_dataset_bindings.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "iteration197_shared_dataset_bindings_migration", migration_path
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _publication_table_columns(
+    monkeypatch: pytest.MonkeyPatch, migration: ModuleType
+) -> tuple[object, ...]:
     """Capture the migration's actual publication-table contract without a database."""
     captured: dict[str, tuple[object, ...]] = {}
 
@@ -802,6 +820,65 @@ def test_observation_revision_is_linear_child_of_catalog_revision() -> None:
     assert len(script.get_heads()) == 1
 
 
+def test_shared_dataset_binding_revision_is_linear_child_of_observations() -> None:
+    """The F2 catalog-only change is the sole child of normalized storage DDL."""
+    script = ScriptDirectory.from_config(_config("sqlite://"))
+
+    revision = script.get_revision(SHARED_DATASET_BINDINGS_REVISION)
+    assert revision is not None
+    assert revision.down_revision == OBSERVATIONS_REVISION
+    assert script.get_heads() == [SHARED_DATASET_BINDINGS_REVISION]
+
+
+def test_shared_dataset_binding_migration_refuses_mysql_without_a_maintenance_fence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Implicit-commit MySQL DDL cannot run until writers have been drained."""
+    migration = _load_shared_dataset_bindings_migration()
+
+    class _MySqlBind:
+        dialect = SimpleNamespace(name="mysql")
+
+        def execute(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("unfenced MySQL migration must not issue DDL or a lock query")
+
+    monkeypatch.delenv(migration._MYSQL_MAINTENANCE_FENCE_ENV, raising=False)
+    monkeypatch.setattr(migration, "op", SimpleNamespace(get_bind=lambda: _MySqlBind()))
+
+    with pytest.raises(RuntimeError, match="MARKET_DATA_SHARED_BINDING_MAINTENANCE_FENCE_REQUIRED"):
+        with migration._ddl_maintenance_fence():
+            pass
+
+
+def test_shared_dataset_binding_migration_uses_a_bounded_mysql_migration_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The explicit deployment fence also serializes MySQL migration runners."""
+    migration = _load_shared_dataset_bindings_migration()
+    commands: list[str] = []
+
+    class _ScalarResult:
+        def scalar_one(self) -> int:
+            return 1
+
+    class _MySqlBind:
+        dialect = SimpleNamespace(name="mysql")
+
+        def execute(self, statement: object, _params: object = None) -> _ScalarResult:
+            commands.append(str(statement))
+            return _ScalarResult()
+
+    monkeypatch.setenv(migration._MYSQL_MAINTENANCE_FENCE_ENV, "confirmed")
+    monkeypatch.setattr(migration, "op", SimpleNamespace(get_bind=lambda: _MySqlBind()))
+
+    with migration._ddl_maintenance_fence():
+        pass
+
+    assert any("SET SESSION lock_wait_timeout" in command for command in commands)
+    assert any("GET_LOCK" in command for command in commands)
+    assert any("RELEASE_LOCK" in command for command in commands)
+
+
 @pytest.mark.parametrize(
     "database_url",
     [
@@ -825,3 +902,25 @@ def test_observation_migration_renders_for_supported_server_dialects(database_ur
     assert "CREATE TABLE md_instrument_lookup_keys" in rendered
     assert "CREATE TABLE md_observation_revisions" in rendered
     assert "legacy_market_facts" not in rendered
+
+
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "mysql+aiomysql://market_data:fixture@localhost/market_data",
+        "postgresql+asyncpg://market_data:fixture@localhost/market_data",
+    ],
+)
+def test_shared_dataset_binding_migration_refuses_offline_sql_rendering(
+    database_url: str,
+) -> None:
+    """Batch table reconstruction is never misrepresented as offline-safe DDL."""
+    config = _config(database_url)
+    config.output_buffer = StringIO()
+
+    with pytest.raises(RuntimeError, match="MARKET_DATA_SHARED_BINDING_OFFLINE_UNSUPPORTED"):
+        command.upgrade(
+            config,
+            f"{OBSERVATIONS_REVISION}:{SHARED_DATASET_BINDINGS_REVISION}",
+            sql=True,
+        )
