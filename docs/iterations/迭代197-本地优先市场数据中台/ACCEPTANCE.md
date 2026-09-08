@@ -1,6 +1,6 @@
 # 迭代 197 验收文档：本地优先市场数据中台
 
-> 文档状态：实现与验收准备中（2026-09-08）
+> 文档状态：实现完成，真实验收准备中（2026-09-09）
 > 适用工作树：`codex/iteration-197-data-platform`
 > 当前结论：**尚未达到发布验收条件。** 本文把已可自动验证的契约、必须由真实环境证明的事项，以及依赖迭代 196 的整合事项分开记录；没有命令输出、数据库快照或外部回执的项目不得标记为 `PASS`。
 
@@ -127,17 +127,17 @@ npm run lint
 | E-197-08 | 多 worker/多进程同缺口及事实写入并发 | 跨进程 writer lease/fencing、故障接管和零重复外部访问 | `NOT_RUN` | 当前实现没有分布式协调；calendar import lock 不适用于 observation 写入。实现 lease 后才可记录多 worker 压测与 provider 调用计数。 |
 | E-197-09 | OpenBB 操作系统级隔离 | service account/container、挂载、凭据与工作目录 | `NOT_RUN` | runner 账户/容器配置、挂载清单、权限审计和一次实际小窗口回填。 |
 
-`E-197-01` 与 `E-197-02` 的状态仅表示正式候选；本地工作树回归单列于下节。工作树尚未冻结为候选提交或 tag，即使本地命令退出码为 0，也不能升级为本文的正式 `PASS`。
+`E-197-01` 与 `E-197-02` 的状态仅表示正式候选；本地工作树回归单列于下节。虽然已有本地候选提交，尚未形成经过 196 整合、真实环境与发布闸门确认的候选 tag；本地命令退出码为 0 不能升级为本文的正式 `PASS`。
 
 ### 5.1.1 当前本地执行记录（不改变正式候选状态）
 
-以下结果来自 2026-09-08 的独立迭代 197 实现工作树（以 `c611f7306141e258143168292c34f660cd21fd69` 为基线并包含当时未提交实现），仅作为可复核的本地开发证据；它们不替代第 4 节的候选回归，也不改变上表的 `NOT_RUN` / `BLOCKED` 状态。
+以下结果来自独立迭代 197 候选提交 `8a2be6b7`（2026-09-09），仅作为可复核的本地开发证据；它们不替代第 4 节的正式候选、真实环境或 196 整合回归，也不改变上表的 `NOT_RUN` / `BLOCKED` 状态。
 
 | 记录 ID | 时间快照与命令范围 | 本地结果 | 对正式验收的含义 |
 | --- | --- | --- | --- |
-| L-197-01 | 2026-09-08，`/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/market_data_platform tests/test_config.py` | `PASS`：403 passed、45 warnings，79.87s。 | 覆盖 AO-01 至 AO-07 与中台配置、PIT visibility anchor、当前读取授权、来源回执证据、calendar 同源授权和 SQLite 来源治理迁移的离线后端开发回归；未绑定冻结候选，不能将 E-197-01 或任一 AC 改为正式 `PASS`。 |
-| L-197-02 | 2026-09-08，第 4 节列出的中台目标 Ruff 命令与 `python -m compileall -q` 目标模块检查。 | `PASS`：两个命令退出码均为 0，未报告目标范围内的 Ruff 违规或编译错误。 | 只证明该工作树的目标静态检查；未绑定冻结候选，不能将 E-197-02 改为正式 `PASS`。 |
-| L-197-03 | 2026-09-08，`npm run typecheck`、三个 v2 测试文件、`npm run build`、`npm run lint`。 | `PASS`：typecheck 退出码 0；v2 测试 140 passed；build 退出码 0；lint 为 0 errors、1,208 条既有 warnings。 | 仅支持前端开发回归；未执行真实浏览器 E2E。1,208 条 warning 不等于零告警或生产质量签收，且不证明浏览器灰度、真实 API 或 196 整合。 |
+| L-197-01 | 2026-09-09，`/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/market_data_platform tests/test_config.py`，候选提交 `8a2be6b7`。 | `PASS`：416 passed、45 warnings，85.31s。 | 覆盖 AO-01 至 AO-07 与中台配置、PIT visibility anchor、当前读取授权、来源回执证据、calendar 同源授权和 SQLite 来源治理迁移的离线后端开发回归；不能将 E-197-01 或任一 AC 改为正式 `PASS`。 |
+| L-197-02 | 2026-09-09，第 4 节列出的中台目标 Ruff 命令与 `python -m compileall -q` 目标模块检查，候选提交 `8a2be6b7`。 | `PASS`：两个命令退出码均为 0，未报告目标范围内的 Ruff 违规或编译错误。 | 只证明该工作树的目标静态检查；不能将 E-197-02 改为正式 `PASS`。 |
+| L-197-03 | 2026-09-09，`npm run typecheck`、三个 v2 测试文件、`npm run build`、`npm run lint`，候选提交 `8a2be6b7`。 | `PASS`：typecheck 退出码 0；v2 测试 144 passed；build 退出码 0；lint 为 0 errors、1,208 条既有 warnings。 | 仅支持前端开发回归；未执行真实浏览器 E2E。1,208 条 warning 不等于零告警或生产质量签收，且不证明浏览器灰度、真实 API 或 196 整合。 |
 
 `L-197-01` 包含 identity projection、observation PIT、pending publication 恢复、来源回执、同一 provider 的一次性 request ID 唯一性和 calendar 同源授权、SQLite 来源治理升级/降级保护、MySQL `DATETIME(6)` DDL/fsp=0 拒绝、相邻 calendar segment/import lock，以及 OpenBB 预规范化原始封套和进程组回收的离线断言。本地可观察语义如下；T0/T1/T2 仅描述 SQLite fixture 内的逻辑可见性，不表示真实多连接数据库已验收：
 
