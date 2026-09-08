@@ -352,6 +352,58 @@ def test_constraint_portability_rejects_a_stamped_candidate_missing_both_constra
         )
 
 
+def test_constraint_portability_migration_refuses_mysql_without_a_maintenance_fence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Implicit-commit CHECK replacement cannot start while MySQL writers may run."""
+    migration = _load_constraint_name_portability_migration()
+
+    class _MySqlBind:
+        dialect = SimpleNamespace(name="mysql")
+
+        def execute(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("unfenced MySQL migration must not issue DDL or a lock query")
+
+    monkeypatch.delenv(migration._MYSQL_MAINTENANCE_FENCE_ENV, raising=False)
+    monkeypatch.setattr(migration, "op", SimpleNamespace(get_bind=lambda: _MySqlBind()))
+
+    with pytest.raises(
+        RuntimeError,
+        match="MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_MAINTENANCE_FENCE_REQUIRED",
+    ):
+        with migration._ddl_maintenance_fence():
+            pass
+
+
+def test_constraint_portability_migration_uses_a_bounded_mysql_migration_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The writer-drain confirmation also serializes MySQL migration runners."""
+    migration = _load_constraint_name_portability_migration()
+    commands: list[str] = []
+
+    class _ScalarResult:
+        def scalar_one(self) -> int:
+            return 1
+
+    class _MySqlBind:
+        dialect = SimpleNamespace(name="mysql")
+
+        def execute(self, statement: object, _params: object = None) -> _ScalarResult:
+            commands.append(str(statement))
+            return _ScalarResult()
+
+    monkeypatch.setenv(migration._MYSQL_MAINTENANCE_FENCE_ENV, "confirmed")
+    monkeypatch.setattr(migration, "op", SimpleNamespace(get_bind=lambda: _MySqlBind()))
+
+    with migration._ddl_maintenance_fence():
+        pass
+
+    assert any("SET SESSION lock_wait_timeout" in command for command in commands)
+    assert any("GET_LOCK" in command for command in commands)
+    assert any("RELEASE_LOCK" in command for command in commands)
+
+
 def _publication_table_columns(
     monkeypatch: pytest.MonkeyPatch, migration: ModuleType
 ) -> tuple[object, ...]:

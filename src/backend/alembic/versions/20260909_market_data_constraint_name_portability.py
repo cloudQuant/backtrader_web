@@ -19,7 +19,9 @@ differing expression as compatible.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import os
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 
 import sqlalchemy as sa
 
@@ -60,6 +62,9 @@ _LEGACY_NAME_ALIASES: Mapping[str, tuple[str, ...]] = {
     for table_renames in _RENAMES.values()
     for legacy_name in table_renames
 }
+_MYSQL_MAINTENANCE_FENCE_ENV = "MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_MAINTENANCE_FENCE"
+_MYSQL_MIGRATION_LOCK_NAME = "ai_for_investor.market_data.constraint_name_portability"
+_LOCK_TIMEOUT_SECONDS = 5
 
 
 def _normalized_expression(expression: object) -> str:
@@ -91,6 +96,48 @@ def _present_legacy_constraint_names(
     legacy_name: str,
 ) -> tuple[str, ...]:
     return tuple(name for name in _legacy_constraint_names(legacy_name) if name in observed)
+
+
+@contextmanager
+def _ddl_maintenance_fence() -> Iterator[None]:
+    """Bound DDL and require a confirmed MySQL writer drain before CHECK replacement.
+
+    MySQL implicitly commits every CHECK drop/add.  A named migration lock
+    serializes migration runners, while the explicit environment confirmation
+    records that application writers have been drained for the whole
+    drop/create window.
+    """
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        bind.execute(sa.text(f"SET LOCAL lock_timeout = '{_LOCK_TIMEOUT_SECONDS}s'"))
+        yield
+        return
+    if bind.dialect.name != "mysql":
+        yield
+        return
+    if os.getenv(_MYSQL_MAINTENANCE_FENCE_ENV) != "confirmed":
+        raise RuntimeError(
+            "MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_MAINTENANCE_FENCE_REQUIRED: "
+            "stop market-data writers and set "
+            f"{_MYSQL_MAINTENANCE_FENCE_ENV}=confirmed before MySQL DDL"
+        )
+    bind.execute(sa.text(f"SET SESSION lock_wait_timeout = {_LOCK_TIMEOUT_SECONDS}"))
+    acquired = bind.execute(
+        sa.text("SELECT GET_LOCK(:lock_name, :timeout_seconds)"),
+        {"lock_name": _MYSQL_MIGRATION_LOCK_NAME, "timeout_seconds": _LOCK_TIMEOUT_SECONDS},
+    ).scalar_one()
+    if acquired != 1:
+        raise RuntimeError(
+            "MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_MIGRATION_LOCK_UNAVAILABLE: "
+            "could not acquire the migration fence"
+        )
+    try:
+        yield
+    finally:
+        bind.execute(
+            sa.text("SELECT RELEASE_LOCK(:lock_name)"),
+            {"lock_name": _MYSQL_MIGRATION_LOCK_NAME},
+        )
 
 
 def _validate_rename_state(
@@ -186,16 +233,17 @@ def upgrade() -> None:
             "offline SQL cannot inspect existing constraint semantics"
         )
     bind = op.get_bind()
-    for table_name in _RENAMES:
-        if not sa.inspect(bind).has_table(table_name):
-            raise RuntimeError(
-                "MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_SCHEMA_UNREADY: "
-                f"{table_name} missing"
-            )
-        if bind.dialect.name == "sqlite":
-            _reconcile_sqlite_table(bind, table_name)
-        else:
-            _reconcile_non_sqlite_table(bind, table_name)
+    with _ddl_maintenance_fence():
+        for table_name in _RENAMES:
+            if not sa.inspect(bind).has_table(table_name):
+                raise RuntimeError(
+                    "MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_SCHEMA_UNREADY: "
+                    f"{table_name} missing"
+                )
+            if bind.dialect.name == "sqlite":
+                _reconcile_sqlite_table(bind, table_name)
+            else:
+                _reconcile_non_sqlite_table(bind, table_name)
 
 
 def downgrade() -> None:
