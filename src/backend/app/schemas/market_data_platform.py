@@ -28,7 +28,13 @@ MarketDataKind = Literal[
 MarketDataMode = Literal["local_first", "local_only", "refresh"]
 MarketDataFrequency = Literal["5min", "30min", "1h", "1d", "1w", "1mo", "snapshot"]
 MarketDataConsistency = Literal["display", "strict"]
-MarketDataPurpose = Literal["display", "research", "backtest", "export"]
+MarketDataPurpose = Literal[
+    "display",
+    "research",
+    "research_cache_fill",
+    "backtest",
+    "export",
+]
 MarketDataFamilyStatus = Literal["ready", "unconfigured", "not_applicable"]
 MarketDataFamilyContractVersion = Literal["market-data-family-v1"]
 MarketDataFrequencySemantics = Literal["calendar_grid", "snapshot", "reporting_period"]
@@ -271,15 +277,29 @@ class MarketDataFamilyContractResponse(_StrictMarketDataModel):
         if self.frequency_semantics == "calendar_grid" and self.data_kind in snapshot_kinds:
             raise ValueError("snapshot data kinds cannot use a calendar-grid cadence")
         if self.status == "ready":
+            # A ready response may only describe a reviewed single-record
+            # coverage shape.  The registry remains the authority for the
+            # exact family/policy allowlist; this DTO guard deliberately does
+            # not make multi-record chains, surfaces, inventories, or reports
+            # executable merely because their wire fields look plausible.
+            calendar_grid_single_record = (
+                self.data_kind in {"bars", "reference_series"}
+                and self.frequency_semantics == "calendar_grid"
+                and self.coverage_model == "calendar_grid"
+            )
+            snapshot_single_record = (
+                self.data_kind == "quote_snapshot"
+                and self.frequency_semantics == "snapshot"
+                and self.coverage_model == "snapshot_freshness"
+            )
             if (
-                self.dataset_code != "market.bars"
-                or self.data_kind != "bars"
-                or self.frequency_semantics != "calendar_grid"
-                or self.coverage_model != "calendar_grid"
+                not (calendar_grid_single_record or snapshot_single_record)
                 or self.source_policy_id is None
                 or self.reason_code is not None
             ):
-                raise ValueError("ready contracts are limited to reviewed bars compatibility")
+                raise ValueError(
+                    "ready contracts require a reviewed single-record coverage shape"
+                )
         elif self.source_policy_id is not None or self.reason_code is None:
             raise ValueError(
                 "non-ready contracts require a reason and cannot expose an execution policy"
@@ -425,6 +445,15 @@ class MarketDataQueryRequest(_StrictMarketDataModel):
         if self.purpose in {"research", "backtest"}:
             if self.consistency != "strict":
                 raise ValueError("research and backtest queries require strict consistency")
+        if self.purpose == "research_cache_fill":
+            if self.mode != "local_first":
+                raise ValueError("research_cache_fill queries require local_first mode")
+            if self.consistency != "display":
+                raise ValueError("research_cache_fill queries require display consistency")
+            if self.knowledge_cutoff is not None:
+                raise ValueError("research_cache_fill queries cannot set a knowledge_cutoff")
+            if self.cursor is not None:
+                raise ValueError("research_cache_fill queries cannot use a pagination cursor")
         if self.consistency == "strict" and self.knowledge_cutoff is None:
             raise ValueError("strict queries require a knowledge_cutoff")
         if self.mode == "refresh" and self.cursor is not None:

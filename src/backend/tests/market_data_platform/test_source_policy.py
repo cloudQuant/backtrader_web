@@ -94,6 +94,16 @@ def test_default_policy_routes_an_exact_cffex_option_contract_to_akshare() -> No
     assert [route.route_id for route in routes] == ["akshare-cffex-option-primary-v1"]
 
 
+def test_default_policy_only_grants_research_cache_fill_after_server_opt_in() -> None:
+    """A browser cannot enable the research-authorized write purpose by itself."""
+    _default_source_policy_registry.cache_clear()
+    disabled = _default_source_policy_registry("yfinance", ())
+    enabled = _default_source_policy_registry("yfinance", (), True)
+
+    assert not disabled.resolve("market-default-v1").allows_purpose("research_cache_fill")
+    assert enabled.resolve("market-default-v1").allows_purpose("research_cache_fill")
+
+
 def test_default_openbb_policy_is_limited_to_verified_date_aligned_frequencies() -> None:
     """An OpenBB fallback cannot receive intraday windows before their end semantics are reviewed."""
     _default_source_policy_registry.cache_clear()

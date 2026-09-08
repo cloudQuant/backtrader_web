@@ -466,8 +466,9 @@
         <div class="data-family-grid">
           <article
             v-for="family in assetDataFamilies"
-            :key="family.label"
+            :key="family.familyId"
             class="data-family-card"
+            :data-test="`market-data-family-${family.familyId}`"
           >
             <div class="data-family-card-head">
               <span>{{ family.label }}</span>
@@ -479,6 +480,22 @@
               </el-tag>
             </div>
             <p>{{ family.description }}</p>
+            <div
+              v-if="family.contract"
+              class="data-family-contract"
+              data-test="market-data-family-contract"
+            >
+              <code>{{ family.familyId }}</code>
+              <span>{{ family.contract.dataKind }} · {{ family.contract.frequencySemantics }}</span>
+              <span>{{ family.contract.coverageModel }} · {{ family.contract.observationShape }}</span>
+            </div>
+            <small
+              v-if="family.readStatusLabel"
+              class="data-family-read-state"
+              data-test="market-data-family-read-state"
+            >
+              {{ family.readStatusLabel }}
+            </small>
             <div class="field-chip-row">
               <span
                 v-for="field in family.fields"

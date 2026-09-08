@@ -97,6 +97,7 @@ def _context(
     start: datetime | None = None,
     end: datetime | None = None,
     required_fields: tuple[str, ...] = ("close",),
+    purpose: str = "display",
 ) -> ResolvedMarketDataQueryContext:
     start_at = start or _at(9)
     end_at = end or _at(16)
@@ -114,6 +115,7 @@ def _context(
             "currency": "CNY",
             "unit": "share",
             "source_policy_id": "market-default-v1",
+            "purpose": purpose,
         }
     )
     query = ResolvedMarketDataQuery.from_request(
@@ -197,6 +199,7 @@ async def _seed_source_registry(
     source_id: str = PROVIDER_ID,
     license_status: str = "APPROVED",
     updated_at: datetime | None = None,
+    allowed_uses: tuple[str, ...] = ("DISPLAY",),
 ) -> None:
     """Seed the live registry contract used to validate a frozen receipt grant."""
     db.add(
@@ -205,7 +208,7 @@ async def _seed_source_registry(
             asset_types=["stock"],
             jurisdictions=["CN"],
             license_status=license_status,
-            allowed_uses=["DISPLAY"],
+            allowed_uses=list(allowed_uses),
             redistribution_policy="NO_REDISTRIBUTION",
             derived_data_policy="ALLOWED",
             retention_policy="market-data-v1",
@@ -226,6 +229,7 @@ def _source_authorization(
     decision: str = "ALLOW",
     asset_type: str = "stock",
     allowed_uses: tuple[str, ...] = ("DISPLAY",),
+    purpose: str = "display",
 ) -> MarketDataSourceAuthorization:
     """Build exact source evidence in the canonical authorizer representation."""
     values: dict[str, object] = {
@@ -233,7 +237,7 @@ def _source_authorization(
         "registry_updated_at": _at(0).isoformat(),
         "asset_type": asset_type,
         "market": "CN-SSE",
-        "purpose": "display",
+        "purpose": purpose,
         "license_status": license_status,
         "allowed_uses": allowed_uses,
         "jurisdictions": ("CN",),
@@ -498,6 +502,42 @@ async def test_store_persists_separate_provider_request_and_source_authorization
     assert snapshot.source_authorization_descriptor_sha256 == authorization.descriptor_hash
     assert snapshot.request_json["provider_request"] == result.request.dto_payload
     assert snapshot.provenance_json["source_authorization"] == authorization.as_provenance()
+
+
+@pytest.mark.asyncio
+async def test_store_persists_research_cache_fill_with_research_source_authorization() -> None:
+    """A current cache receipt remains distinguishable from an Iteration 196 PIT read."""
+    context = _context(purpose="research_cache_fill")
+    result = _result(
+        retrieved_at=_at(12),
+        observations=(
+            _observation(
+                event_at=_at(10),
+                available_at=_at(11),
+                fields={"close": "10.00"},
+            ),
+        ),
+        context=context,
+    )
+    authorization = _source_authorization(
+        purpose="research_cache_fill",
+        allowed_uses=("RESEARCH_ONLY",),
+    )
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        await _seed_source_registry(db, allowed_uses=("RESEARCH_ONLY",))
+        persisted = await MarketDataStore(db).persist_provider_result(
+            context,
+            result,
+            received_at=_at(12),
+            source_authorization=authorization,
+        )
+        snapshot = await db.get(MdSourceSnapshot, persisted.source_snapshot_id)
+
+    assert snapshot is not None
+    assert snapshot.provenance_json["source_authorization"]["purpose"] == "research_cache_fill"
+    assert snapshot.provenance_json["source_authorization"]["allowed_uses"] == ["RESEARCH_ONLY"]
 
 
 @pytest.mark.asyncio

@@ -461,7 +461,13 @@ class ProviderFetchResult:
     @property
     def raw_payload_hash(self) -> str:
         """Return a deterministic integrity hash for the persisted source payload."""
-        return hashlib.sha256(_canonical_json(self.raw_payload).encode("utf-8")).hexdigest()
+        # ``__post_init__`` freezes the top-level receipt mapping so callers
+        # cannot replace its evidence envelope after provider validation.
+        # ``json.dumps`` does not know how to serialize ``mappingproxy``
+        # directly, however.  Hash a plain snapshot of that immutable mapping
+        # so the public provenance helper remains usable for every validated
+        # AkShare/OpenBB result and preserves the same canonical JSON bytes.
+        return hashlib.sha256(_canonical_json(dict(self.raw_payload)).encode("utf-8")).hexdigest()
 
 
 class MarketDataProvider(Protocol):

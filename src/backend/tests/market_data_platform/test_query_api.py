@@ -235,6 +235,71 @@ async def test_v2_query_endpoint_is_disabled_by_default(client, auth_headers, mo
 
 
 @pytest.mark.asyncio
+async def test_v2_query_endpoint_rejects_research_cache_fill_until_server_opt_in(
+    client,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    """The browser bridge cannot turn a current cache fill into an online write path."""
+    import app.api.data.queries as queries
+
+    service = _Service(_execution())
+    authorizer = _AccessAuthorizer(_principal())
+    request = _payload()
+    request["purpose"] = "research_cache_fill"
+    monkeypatch.setattr(
+        queries,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
+    )
+    app.dependency_overrides[get_market_data_query_service] = lambda: service
+    app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
+    try:
+        response = await client.post("/api/v1/data/queries", json=request, headers=auth_headers)
+    finally:
+        app.dependency_overrides.pop(get_market_data_query_service, None)
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+
+    assert response.status_code == 503
+    assert response.json()["details"] == {"code": "MARKET_DATA_RESEARCH_CACHE_FILL_DISABLED"}
+    assert service.requests == []
+
+
+@pytest.mark.asyncio
+async def test_v2_query_endpoint_allows_research_cache_fill_after_server_opt_in(
+    client,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    """A server-approved cache fill reaches the normal audited query service."""
+    import app.api.data.queries as queries
+
+    service = _Service(_execution())
+    authorizer = _AccessAuthorizer(_principal())
+    request = _payload()
+    request["purpose"] = "research_cache_fill"
+    monkeypatch.setattr(
+        queries,
+        "get_settings",
+        lambda: SimpleNamespace(
+            MARKET_DATA_QUERY_V2_ENABLED=True,
+            MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=True,
+        ),
+    )
+    app.dependency_overrides[get_market_data_query_service] = lambda: service
+    app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
+    try:
+        response = await client.post("/api/v1/data/queries", json=request, headers=auth_headers)
+    finally:
+        app.dependency_overrides.pop(get_market_data_query_service, None)
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+
+    assert response.status_code == 200
+    assert len(service.requests) == 1
+    assert service.requests[0].purpose == "research_cache_fill"
+
+
+@pytest.mark.asyncio
 async def test_v2_query_endpoint_returns_only_fixed_local_first_shape(
     client,
     auth_headers,

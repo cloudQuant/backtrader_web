@@ -300,7 +300,15 @@ export function useStrategyPage() {
   type AIResearchPromptGenerationMode = 'default' | 'ai'
 
   type AIResearchMarketDataPlatformStatus = {
-    path: 'legacy' | 'strict_local' | 'legacy_fallback' | 'unsupported' | 'error'
+    path: (
+      | 'legacy'
+      | 'strict_local'
+      | 'local_first'
+      | 'provider_persisted'
+      | 'legacy_fallback'
+      | 'unsupported'
+      | 'error'
+    )
     provider: string | null
     coverageStatus: string | null
     coverageRatio: number | null
@@ -464,7 +472,7 @@ export function useStrategyPage() {
 
   const aiResearchMarketDataPlatformTagType = computed<'success' | 'warning' | 'danger' | 'info'>(() => {
     const path = aiResearchMarketDataPlatformStatus.value.path
-    if (path === 'strict_local') return 'success'
+    if (path === 'strict_local' || path === 'local_first' || path === 'provider_persisted') return 'success'
     if (path === 'error') return 'danger'
     if (path === 'legacy_fallback' || path === 'unsupported') return 'warning'
     return 'info'
@@ -476,6 +484,16 @@ export function useStrategyPage() {
       const ratio = status.coverageRatio === null ? '-' : `${(status.coverageRatio * 100).toFixed(2)}%`
       const provider = status.provider ? ` · ${status.provider}` : ''
       return `数据中台严格本地预检${provider} · ${status.coverageStatus || 'unknown'} · ${ratio}`
+    }
+    if (status.path === 'provider_persisted') {
+      const ratio = status.coverageRatio === null ? '-' : `${(status.coverageRatio * 100).toFixed(2)}%`
+      const provider = status.provider ? ` · ${status.provider}` : ''
+      return `数据中台已补齐并持久化${provider} · ${status.coverageStatus || 'unknown'} · ${ratio}`
+    }
+    if (status.path === 'local_first') {
+      const ratio = status.coverageRatio === null ? '-' : `${(status.coverageRatio * 100).toFixed(2)}%`
+      const provider = status.provider ? ` · ${status.provider}` : ''
+      return `数据中台本地优先预检${provider} · ${status.coverageStatus || 'unknown'} · ${ratio}`
     }
     if (status.path === 'legacy_fallback') return '数据中台不可用，已保留原预检'
     if (status.path === 'unsupported') return '当前标的尚无数据中台契约'
@@ -1325,6 +1343,7 @@ export function useStrategyPage() {
     assetType: MarketAssetType | undefined,
     symbol: string,
     controller: AbortController,
+    { warmCache = false }: { warmCache?: boolean } = {},
   ): Promise<void> {
     const period = aiResearchLegacyPeriod()
     const window = aiResearchQueryWindow()
@@ -1341,17 +1360,32 @@ export function useStrategyPage() {
         return
       }
       contractIssued = true
+      // Scheduled input validation is deliberately strict-local so typing in
+      // the form never starts an external provider request. A user-triggered
+      // precheck may warm the reviewed local-first cache under the separately
+      // authorized ``research_cache_fill`` purpose. It only persists
+      // independently validated market facts and is not an Iteration 196
+      // research/backtest artifact or approval input. Iteration 196 research
+      // keeps its separate strict/PIT authorization and cannot inherit this
+      // current collection permission.
+      const executionOptions = warmCache
+        ? {
+            mode: 'local_first' as const,
+            purpose: 'research_cache_fill' as const,
+            consistency: 'display' as const,
+            page_size: 500,
+          }
+        : {
+            mode: 'local_only' as const,
+            purpose: 'research' as const,
+            consistency: 'strict' as const,
+            knowledge_cutoff: new Date().toISOString(),
+            page_size: 500,
+          }
       const response: MarketDataQueryResponse = await marketDataApi.queryLocalFirst(
         createMarketDataQueryFromContract(contract, {
           ...window,
-          mode: 'local_only',
-          purpose: 'research',
-          consistency: 'strict',
-          // The current interactive precheck is a present-time availability
-          // check. The server-side Iteration 196 gate remains authoritative
-          // for a persisted research/backtest request and its declared cutoff.
-          knowledge_cutoff: new Date().toISOString(),
-          page_size: 500,
+          ...executionOptions,
         }),
         { signal: controller.signal, suppressErrorMessage: true },
       )
@@ -1376,7 +1410,11 @@ export function useStrategyPage() {
       }
       const lastFetch = response.fetches[response.fetches.length - 1]
       setAIResearchMarketDataPlatformStatus({
-        path: 'strict_local',
+        path: warmCache
+          ? response.fetches.length > 0
+            ? 'provider_persisted'
+            : 'local_first'
+          : 'strict_local',
         provider: lastFetch?.provider_id || null,
         coverageStatus: response.coverage.status,
         coverageRatio: response.coverage.coverage_ratio,
@@ -1420,7 +1458,9 @@ export function useStrategyPage() {
       // explicit frontend bridge gate is enabled after the 196 contract is
       // frozen.
       if (aiResearchMarketDataPlatformBridgeEnabled) {
-        void runAIResearchMarketDataPlatformPrecheck(assetType, symbol, controller)
+        void runAIResearchMarketDataPlatformPrecheck(assetType, symbol, controller, {
+          warmCache: interactive,
+        })
       } else {
         setAIResearchMarketDataPlatformStatus({ path: 'legacy' })
       }

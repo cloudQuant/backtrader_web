@@ -6,8 +6,10 @@ import {
   hasMarketDataQueryBundle,
   hasMarketDataQueryContract,
   isMarketDataQueryV2FallbackError,
+  marketDataFamilyObservationShape,
   marketDataApi,
   type MarketDataQueryContract,
+  type MarketDataQueryBundle,
 } from '@/api/marketData'
 
 vi.mock('@/api/index', () => ({
@@ -132,7 +134,7 @@ describe('marketDataApi', () => {
   })
 
   it('accepts only a complete server-issued family control bundle', () => {
-    const bundle = {
+    const bundle: MarketDataQueryBundle = {
       version: 'market-data-family-bundle-v1',
       requested_asset_type: 'stock',
       families: [
@@ -160,12 +162,46 @@ describe('marketDataApi', () => {
           status: 'unconfigured',
           dataset_code: 'market.stock_valuation',
           data_kind: 'reference_series',
-          frequency_semantics: 'reporting_period',
+          frequency_semantics: 'calendar_grid',
           frequencies: ['1d'],
           field_profile_id: 'stock-valuation-v1',
           required_fields: ['pe'],
           optional_fields: ['pb'],
           dimension_fields: [],
+          coverage_model: 'calendar_grid',
+          source_policy_id: null,
+          reason_code: 'DATA_FAMILY_UNCONFIGURED',
+        },
+        {
+          family_id: 'stock.quote_snapshot',
+          family_contract_version: 'market-data-family-v1',
+          asset_type: 'stock',
+          status: 'unconfigured',
+          dataset_code: 'market.quote_snapshot',
+          data_kind: 'quote_snapshot',
+          frequency_semantics: 'snapshot',
+          frequencies: ['snapshot'],
+          field_profile_id: 'stock-quote-snapshot-v1',
+          required_fields: ['price', 'update_time'],
+          optional_fields: ['bid', 'ask'],
+          dimension_fields: [],
+          coverage_model: 'snapshot_freshness',
+          source_policy_id: null,
+          reason_code: 'DATA_FAMILY_UNCONFIGURED',
+        },
+        {
+          family_id: 'stock.inventory',
+          family_contract_version: 'market-data-family-v1',
+          asset_type: 'stock',
+          status: 'unconfigured',
+          dataset_code: 'market.inventory',
+          data_kind: 'inventory_report',
+          frequency_semantics: 'reporting_period',
+          frequencies: ['1d'],
+          field_profile_id: 'stock-inventory-v1',
+          required_fields: ['inventory_quantity'],
+          optional_fields: [],
+          dimension_fields: ['report_date', 'warehouse'],
           coverage_model: 'report_completeness',
           source_policy_id: null,
           reason_code: 'DATA_FAMILY_UNCONFIGURED',
@@ -174,6 +210,9 @@ describe('marketDataApi', () => {
     }
 
     expect(hasMarketDataQueryBundle(bundle)).toBe(true)
+    expect(marketDataFamilyObservationShape(bundle.families[1])).toBe('single_record')
+    expect(marketDataFamilyObservationShape(bundle.families[2])).toBe('single_record')
+    expect(marketDataFamilyObservationShape(bundle.families[3])).toBe('dimensioned_records')
     expect(hasMarketDataQueryBundle({
       ...bundle,
       families: [{ ...bundle.families[0], source_policy_id: null }],
@@ -206,6 +245,52 @@ describe('marketDataApi', () => {
         reason_code: 'DATA_FAMILY_NOT_APPLICABLE',
       }],
     })).toBe(true)
+    expect(hasMarketDataQueryBundle({
+      ...bundle,
+      families: [{
+        ...bundle.families[2],
+        frequency_semantics: 'calendar_grid',
+      }],
+    })).toBe(false)
+    expect(hasMarketDataQueryBundle({
+      ...bundle,
+      families: [{
+        ...bundle.families[3],
+        status: 'ready',
+        source_policy_id: 'market-default-v1',
+        reason_code: null,
+      }],
+    })).toBe(false)
+  })
+
+  it('keeps a server-issued single-record snapshot contract representable without inferring facts', () => {
+    const contract: MarketDataQueryContract = {
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        dataset_code: 'market.quote_snapshot',
+        data_kind: 'quote_snapshot',
+        frequency: 'snapshot',
+        required_fields: ['price', 'update_time'],
+        source_policy_id: 'market-default-v1',
+        family_id: 'stock.quote_snapshot',
+        family_contract_version: 'market-data-family-v1',
+        mode: 'local_first',
+      },
+    }
+
+    const request = createMarketDataQueryFromContract(contract, {
+      start: '2026-01-01T00:00:00.000Z',
+      end: '2026-01-02T00:00:00.000Z',
+      mode: 'local_only',
+      purpose: 'display',
+      consistency: 'display',
+    })
+
+    expect(hasMarketDataQueryContract(contract)).toBe(true)
+    expect(request.data_kind).toBe('quote_snapshot')
+    expect(request.frequency).toBe('snapshot')
+    expect(request.family_id).toBe('stock.quote_snapshot')
   })
 
   it('posts only server-issued v2 request facts to the local-first endpoint', async () => {

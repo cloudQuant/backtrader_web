@@ -115,6 +115,12 @@ class Settings(BaseSettings):
         default=False,
         description="Allow the normalized market-data query API to invoke approved providers",
     )
+    MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Allow an explicitly requested strategy-data cache fill with research source authorization"
+        ),
+    )
     MARKET_DATA_CURSOR_SIGNING_KEY: str = Field(
         default="",
         repr=False,

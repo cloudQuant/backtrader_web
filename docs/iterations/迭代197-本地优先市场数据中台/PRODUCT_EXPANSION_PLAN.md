@@ -62,6 +62,14 @@
 - `fx.macro_fx`、`fx.range`；
 - `crypto.realtime`、`crypto.range`。
 
+#### 3.2.1 已落地的 B1-0 合同与目录基础
+
+候选已为 B1 建立六个惰性逻辑数据集：`market.valuation`、`market.liquidity`、`market.settlement`、`market.bond_reference`、`market.fund_nav` 和 `market.fx_reference`。它们与既有 `market.bars`、`market.quote_snapshot` 共用不可变 `md_observation_revisions` 的物理绑定，但各自保留独立 dataset code、字段 profile 和允许资产类型。
+
+family contract 的 `ready` 现在有两层防线：公共 DTO 仅接受受审核的单记录 `calendar_grid` 或 `snapshot_freshness` 形状；服务端 registry 再对 17 个现有/B1 单记录 family 的 dataset、data kind、频率、必需字段和 coverage model 做精确白名单绑定。默认 B1 contract 仍为 `unconfigured`，因此这一步没有添加 provider route、source policy、在线 fetch 或事实查询能力。`bond.orderbook`、`crypto.realtime` 等快照 profile 也没有被误绑定到当前不足以表达其字段的 quote-snapshot schema。
+
+这项基础只消除了“新增 B1 产品时必须重新设计目录和合同护栏”的重复工作。任何单项 promotion 仍必须完成下面七项清单以及真实环境证据；例如一次公开 FX 历史小窗口探测返回零行，不能据此将 `fx.range` 标为 `ready`。
+
 每个单记录产品的实施清单：
 
 1. 定义 field profile、单位/币种/价格口径、事件时间或 as-of 时间、允许频率及 freshness SLA；

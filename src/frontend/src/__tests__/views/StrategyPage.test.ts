@@ -8116,6 +8116,98 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('warms and persists an exact local-first cache only after an explicit strategy precheck', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    getQueryContract.mockResolvedValue({
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        dataset_code: 'market.stock_daily',
+        data_kind: 'bars',
+        frequency: '1d',
+        required_fields: ['close', 'volume'],
+        adjustment: 'qfq',
+        price_basis: 'close',
+        currency: 'CNY',
+        unit: 'share',
+        source_policy_id: 'market-default-v1',
+        family_id: 'stock.realtime',
+        family_contract_version: 'market-data-family-v1',
+        mode: 'local_first',
+      },
+    })
+    queryLocalFirst.mockResolvedValue({
+      query_id: 'research-warm-query-1',
+      canonical_id: 'instrument:stock:CN-SZSE:000001',
+      dataset_code: 'market.stock_daily',
+      asset_type: 'stock',
+      instrument_metadata_version: 'stock-v1',
+      data_kind: 'bars',
+      frequency: '1d',
+      source_policy_id: 'market-default-v1',
+      family_id: 'stock.realtime',
+      family_contract_version: 'market-data-family-v1',
+      knowledge_cutoff: '2026-06-19T16:00:00Z',
+      identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
+      observations: [],
+      next_cursor: null,
+      coverage: {
+        status: 'complete',
+        expected_event_count: 1,
+        accepted_event_count: 1,
+        missing_event_count: 0,
+        coverage_ratio: 1,
+        gaps: [],
+        rejection_counts: {},
+        calendar_reason: null,
+      },
+      fetches: [{
+        route_id: 'akshare-stock-bars-v1',
+        provider_id: 'akshare',
+        source_snapshot_id: 'snapshot-1',
+        observation_revision_ids: ['revision-1'],
+        passing_observation_count: 1,
+        failed_observation_count: 0,
+      }],
+      warnings: [],
+      refresh_status: null,
+      historical_status: null,
+    })
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      runPrecheck.mockClear()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+
+      await vm.runAIResearchDataPrecheck()
+      await flushPromises()
+
+      expect(runPrecheck).toHaveBeenCalledWith(expect.objectContaining({
+        asset_type: 'stock',
+        symbol: '000001.SZ',
+      }), expect.any(Object))
+      expect(queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        mode: 'local_first',
+        purpose: 'research_cache_fill',
+        consistency: 'display',
+      }), expect.any(Object))
+      const [warmRequest] = queryLocalFirst.mock.calls[0]
+      expect(warmRequest).not.toHaveProperty('knowledge_cutoff')
+      expect(vm.aiResearchPrecheckResult?.passed).toBe(true)
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'provider_persisted',
+        provider: 'akshare',
+        queryId: 'research-warm-query-1',
+      })
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it('does not reuse a strict-local contract across case-distinct exact symbols', async () => {
     vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
     vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')

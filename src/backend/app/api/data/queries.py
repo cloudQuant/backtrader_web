@@ -66,6 +66,7 @@ _DAILY_BAR_FREQUENCIES = frozenset({"1d", "1w", "1mo"})
 _DAILY_ONLY_FREQUENCIES = frozenset({"1d"})
 _OPENBB_ASSET_TYPES = frozenset({"stock", "futures", "fund", "fx", "crypto"})
 _PUBLIC_MARKET_DATA_PURPOSES = frozenset({"display", "research", "backtest"})
+_RESEARCH_CACHE_FILL_PURPOSE = "research_cache_fill"
 _UNDECLARED = frozenset({None})
 _CLOSE_OR_UNDECLARED = frozenset({None, "close"})
 _UNADJUSTED_OR_UNDECLARED = frozenset({None, "unadjusted"})
@@ -94,6 +95,7 @@ def _shared_openbb_provider() -> OpenBBSubprocessProvider:
 def _default_source_policy_registry(
     openbb_provider: str,
     openbb_markets: tuple[str, ...],
+    research_cache_fill_enabled: bool = False,
 ) -> MarketDataSourcePolicyRegistry:
     """Build the reviewed default policy without importing OpenBB in FastAPI.
 
@@ -210,11 +212,14 @@ def _default_source_policy_registry(
                 adapter=_shared_openbb_provider(),
             )
         )
+    allowed_purposes = _PUBLIC_MARKET_DATA_PURPOSES
+    if research_cache_fill_enabled:
+        allowed_purposes = allowed_purposes | frozenset({_RESEARCH_CACHE_FILL_PURPOSE})
     return MarketDataSourcePolicyRegistry(
         (
             MarketDataSourcePolicy(
                 policy_id="market-default-v1",
-                allowed_purposes=_PUBLIC_MARKET_DATA_PURPOSES,
+                allowed_purposes=allowed_purposes,
                 routes=tuple(routes),
             ),
         )
@@ -244,6 +249,7 @@ def get_market_data_query_service(
         source_policies=_default_source_policy_registry(
             settings.MARKET_DATA_OPENBB_PROVIDER,
             _openbb_markets(settings),
+            bool(getattr(settings, "MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED", False)),
         ),
         allow_online_fetch=settings.MARKET_DATA_ONLINE_FETCH_ENABLED,
     )
@@ -434,10 +440,19 @@ async def query_market_data(
     access_authorizer: MarketDataAccessAuthorizer = Depends(get_market_data_access_authorizer),
 ) -> MarketDataQueryResponse:
     """Execute a typed v2 data query after the deployment gate is enabled."""
-    if not get_settings().MARKET_DATA_QUERY_V2_ENABLED:
+    settings = get_settings()
+    if not settings.MARKET_DATA_QUERY_V2_ENABLED:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
+        )
+    if (
+        request.purpose == _RESEARCH_CACHE_FILL_PURPOSE
+        and not getattr(settings, "MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED", False)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "MARKET_DATA_RESEARCH_CACHE_FILL_DISABLED"},
         )
     try:
         principal = await access_authorizer.principal_for_user(current_user)
@@ -502,6 +517,7 @@ def _market_data_http_error(code: str) -> HTTPException:
         "SOURCE_POLICY_UNAVAILABLE",
         "SOURCE_POLICY_PURPOSE_DENIED",
         "ONLINE_FETCH_DISABLED",
+        "MARKET_DATA_RESEARCH_CACHE_FILL_DISABLED",
     }:
         response_status = status.HTTP_503_SERVICE_UNAVAILABLE
     else:

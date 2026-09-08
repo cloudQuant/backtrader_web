@@ -10,6 +10,8 @@
 - [范围清单闸门](SCOPE_MANIFEST.md)：从 21 个家族合同和当前 UI/API 输入生成可复核清单；没有冻结的迭代 196 基线时失败关闭。
 - [数据产品扩展计划](PRODUCT_EXPANSION_PLAN.md)：21 个页面家族的实际能力台账，以及 11 个单记录和 4 个多记录产品的后续模型、来源与验收要求。
 
+当前实现已为 11 个 B1 单记录家族建立惰性的逻辑数据集目录、精确 family-shape 白名单和合同驱动的页面状态；这些目录项默认仍为 `unconfigured`，没有 provider route、来源策略或页面事实读取权限。它们是后续逐项开通的基础，不是“所有产品已可取数”的声明。
+
 > 当前候选仍处于实现与离线验证阶段，不能视为发布验收通过。真实 OpenBB `yfinance` 小窗口曾受到上游 HTTP 429 限流，跨 MySQL/PostgreSQL 的 PIT 验证、OpenBB 的操作系统级隔离、以及与迭代 196 合并后的迁移演练均保留为 `NOT_RUN` 或 `BLOCKED`，具体证据边界见 [验收文档](ACCEPTANCE.md)。
 
 ## 迭代边界
@@ -22,6 +24,7 @@
 - 不使用旧 `MarketInstrumentService` 的样例、附近合约或模糊代码回退。
 - 不以物理 AkShare 表名作为数据集身份；读取和写入只通过逻辑数据集、主数据版本和来源策略确定。
 - 研究与回测使用严格一致性和知识截止点，读取 `available_at <= knowledge_cutoff` 的数据。
+- `research_cache_fill` 只表示用户明确请求的当前数据缓存补齐：它只能走 `local_first + display`、不得携带 PIT 截止点或分页游标、须保留研究用途的来源授权，并且只写中台 receipt/事实表。它不是迭代 196 的研究、回测或审批工件。
 - 对需要按事件判断完整性的 `bars` 请求，覆盖事件必须来自经审核导入的 `(market, data_kind, frequency, event timestamp)` 显式网格；日线、周线、月线和任何分钟粒度各自有独立网格，不从交易日、周末规则或另一粒度推断。
 - 同一事件读取“满足本次字段集、质量门槛和截止点的最新修订”；较新的窄字段修订不得遮蔽仍可满足宽字段请求的旧修订，也不得把不同修订的字段拼接成未经来源证明的行。
 - 相同 `local_first` 缺口在同一 Web 进程内由 singleflight 合并，并由 `md_fetch_leases` 的 owner/fence/expiry 协议跨 worker 协调；事实和 publication 都受 fence guard 保护。该候选实现仍未替代真实多 worker、多方言、时钟和故障接管验收，不能据此宣称全局去重已上线。

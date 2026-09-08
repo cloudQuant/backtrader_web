@@ -102,6 +102,18 @@ def test_query_requires_aware_half_open_time_range_and_unambiguous_bar_frequency
         knowledge_cutoff="2025-01-03T10:00:00+08:00",
     )
     assert strict_research.knowledge_cutoff is not None
+    cache_fill = _build_query(purpose="research_cache_fill", mode="local_first")
+    assert cache_fill.purpose == "research_cache_fill"
+    assert cache_fill.knowledge_cutoff is None
+    for invalid_cache_fill in (
+        {"mode": "local_only"},
+        {"mode": "refresh"},
+        {"consistency": "strict", "knowledge_cutoff": "2025-01-03T10:00:00+08:00"},
+        {"cursor": "frozen-page"},
+        {"knowledge_cutoff": "2025-01-03T10:00:00+08:00"},
+    ):
+        with pytest.raises(ValidationError):
+            _build_query(purpose="research_cache_fill", **invalid_cache_fill)
     with pytest.raises(ValidationError):
         _build_query(
             purpose="backtest",

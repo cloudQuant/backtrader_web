@@ -38,9 +38,10 @@
 | AO-04 | 严格公共查询契约和请求解析 | `MarketDataQueryRequest`、`MarketDataQueryResolver`；`test_query_contract.py`、`test_query_resolution.py` |
 | AO-05 | 本地读取、覆盖规划、受控补齐、durable fetch lease 与重新读取 | `CoveragePlanner`、`MarketDataStore`、`MarketDataQueryService`、`MdFetchLease`；`test_coverage.py`、`test_fetch_lease.py`、`test_store.py`、`test_query_service.py` |
 | AO-06 | AkShare 显式路由与 OpenBB 隔离、索引和 interval 协议 | `akshare_provider.py`、`providers.py`、`openbb_market_data_runner.py`；`test_akshare_provider.py`、`test_openbb_provider.py` |
-| AO-07 | 关闭默认开关的 v2 HTTP 接口、遗留接口兼容、fail-closed 回退与前端游标聚合 | `POST /api/v1/data/queries`、`useDataPage.ts`、`test_query_api.py`、`marketData.test.ts`、`DataPage.test.ts`、`StrategyPage.test.ts` |
+| AO-07 | 关闭默认开关的 v2 HTTP 接口、遗留接口兼容、fail-closed 回退、受限策略缓存补齐与前端游标聚合 | `POST /api/v1/data/queries`、`useDataPage.ts`、`useStrategyPage.ts`、`test_query_api.py`、`marketData.test.ts`、`DataPage.test.ts`、`StrategyPage.test.ts` |
 | AO-08 | 迭代 196 的策略研究/回测桥接、页面灰度和单头迁移整合 | 合并后的集成分支、真实环境证据；本迭代工作树内不提前接入 |
 | AO-09 | 21 个家族合同与当前 UI/API 输入的冻结基线范围清单 | `scope_manifest.py`、`generate_iteration197_scope_manifest.py`、`test_scope_manifest.py`、[SCOPE_MANIFEST.md](SCOPE_MANIFEST.md)；没有冻结的 196 基线时为 `BLOCKED` |
+| AO-10 | B1 单记录产品的惰性逻辑目录、精确 ready-shape 白名单与控制面状态 | `bootstrap.py`、`dataset_contracts.py`、`test_bootstrap.py`、`test_dataset_contracts.py`、`marketData.test.ts`、`DataPage.test.ts`；默认不提供 provider route 或事实读取 |
 
 ### 2.2 不可由本次离线自动化证明的事项
 
@@ -77,7 +78,7 @@
 3. 对按事件判断完整性的 `bars` 请求，窗口已具备冻结交易日历和对应 `(market, data_kind, frequency)` 的显式事件网格，或系统明确返回 `unknown_calendar` / `CALENDAR_GRID_UNAVAILABLE`；不得把空日历、周末规则、另一频率的 session 或缺少日历的窗口当成完整覆盖。
 4. 每个准备启用的来源策略均有经过审核的提供方、路由、数据许可、允许用途、字段/口径和保留策略记录。用于证明覆盖的每个 calendar manifest 还必须声明已注册的 `source_registry_id`、冻结治理描述符和 `VERIFIED` 状态；该 source ID 必须属于对应请求当前授权的 route source allow-list，否则 calendar 只能返回 `unknown_calendar`。
 5. 参与 v2 灰度的用户已通过独立、经过批准的 RBAC provisioning 获得 `data:read`。当前注册流程不自动写入角色；不得为了开启市场数据读取而修改注册语义或把“已登录”视为授权。
-6. 线上开关默认保持关闭：`MARKET_DATA_QUERY_V2_ENABLED=false`、`MARKET_DATA_ONLINE_FETCH_ENABLED=false`、`VITE_MARKET_DATA_QUERY_V2_ENABLED=false`、`VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED=false` 和 `VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED=false`。前端 bundle 只能作为已启用页面 v2 的子开关；策略页 bridge 还必须等待 196/197 集成候选。若开启 v2，运维管理的 `MARKET_DATA_CURSOR_SIGNING_KEY` 必须存在且至少 32 bytes；不得记录其值。只有完成本文件相应闸门后才可按灰度计划开启。
+6. 线上开关默认保持关闭：`MARKET_DATA_QUERY_V2_ENABLED=false`、`MARKET_DATA_ONLINE_FETCH_ENABLED=false`、`MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=false`、`VITE_MARKET_DATA_QUERY_V2_ENABLED=false`、`VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED=false` 和 `VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED=false`。前端 bundle 只能作为已启用页面 v2 的子开关；策略页 bridge 还必须等待 196/197 集成候选。`research_cache_fill` 还需要独立的后端开关、当前研究用途授权和本节其它 v2 前置条件；浏览器 flag 不构成写入授权。若开启 v2，运维管理的 `MARKET_DATA_CURSOR_SIGNING_KEY` 必须存在且至少 32 bytes；不得记录其值。只有完成本文件相应闸门后才可按灰度计划开启。
 7. 若需启用 OpenBB，`OPENBB_MARKET_DATA_RUNNER`、`OPENBB_ALLOWED_PROVIDERS`、`OPENBB_RUNNER_HOME` 和绝对存在的 `OPENBB_RUNNER_WORKDIR` 已由 runner 运维方审核；主应用进程不能把自身的数据库凭据、项目工作树或服务账户权限作为 runner 前置条件。
 
 ## 4. 必须执行的自动化回归
@@ -126,6 +127,7 @@ npm run lint
 | E-197-07 | MySQL/PostgreSQL UTC session、PIT 与 exact-identity collation 演练 | 时区、跨连接写入/读取、迁移、恢复及 `RB0`/`rb0` 精确身份 | `NOT_RUN` | 每个新连接的会话时区输出、边界时间写入/读取、迁移和恢复记录，以及 authority/projection/lookup 的 MySQL `utf8mb4_bin`、PostgreSQL `C` 实际列审计和 case-distinct lookup 回归。 |
 | E-197-08 | 多 worker/多进程同缺口及事实写入并发 | 跨进程 writer lease/fencing、故障接管和零重复外部访问 | `NOT_RUN` | 候选已有 `md_fetch_leases` 与事实/publication 双 fence；仍需在真实 MySQL/PostgreSQL 和多 worker 进程记录 provider 调用计数、接管与崩溃恢复。当前 AkShare thread timeout 不能杀死底层同步调用，故超时后的零重复 I/O 为 `NO-GO`，直至可终止 runner 或租约 heartbeat 设计通过验收。calendar import lock 不适用于 observation 写入。 |
 | E-197-09 | OpenBB 操作系统级隔离 | service account/container、挂载、凭据与工作目录 | `NOT_RUN` | runner 账户/容器配置、挂载清单、权限审计和一次实际小窗口回填。 |
+| E-197-10 | 策略页 `research_cache_fill` 灰度 | 显式用户动作、后端写入开关、研究用途授权、receipt 与 196 工件隔离 | `BLOCKED` | 196/197 集成候选、前端显式预检、后端开关与已批准研究用途 source registry、浏览器/API/数据库三方证据。 |
 
 `E-197-01` 与 `E-197-02` 的状态仅表示正式候选；本地工作树回归单列于下节。虽然已有本地候选提交，尚未形成经过 196 整合、真实环境与发布闸门确认的候选 tag；本地命令退出码为 0 不能升级为本文的正式 `PASS`。
 
@@ -173,6 +175,8 @@ npm run lint
 | AC-197-019 | 对 date-indexed OpenBB `OBBject` 和 yfinance runner 分别请求 `1d`、`1w`、`1mo`、分钟频率与半开日期边界。 | runner 使用 `to_df(index=None)` 保留 event 时间；仅映射 `1d→1d`、`1w→1W`、`1mo→1M`，分钟/非日对齐窗口拒绝；以 `end - 1 microsecond` 转换 provider end date 后再裁剪回父 `[start,end)`。真实 OpenBB 网络仍不在本案例的通过证据内。 | `test_openbb_provider.py`、runner 离线测试；第 8.2 节真实运行器演练 | `NOT_RUN` |
 | AC-197-020 | 用无 `data:read` 用户访问 `query-bundle`、`query-contract` 和事实查询；再分别使用失效/未授权主来源、仍获准 fallback、本地旧/compatibility 来源、撤权 calendar、授权变更后的 cursor、provider 请求期间撤销角色/registry、同一 provider 的重复 request ID、以及 provider DTO hash 错配执行查询/写入。 | 无读取权在家族、目录、主数据、calendar 或事实 I/O 前 403；只允许当前 registry 批准的 route source、`VERIFIED` `MdSourceSnapshot` 和位于同一 allow-list 的 `VERIFIED` calendar 参与读取。成功获取分别保存静态 policy 摘要、动态 access-grant 摘要和冻结 source authorization；无 grant 不能触发在线写入，显式 compatibility 回执不进入 v2 结果。网络返回后的 current/locking recheck、旧 cursor 或 follower 重读若发现角色/registry 改变均失败关闭；同一 provider 的重复 request ID 与错误 request evidence 均不落库。 | `test_access_authorization.py`、`test_query_service.py`、`test_store.py`、`test_storage_models.py`、`test_calendar_importer.py`、`test_query_api.py` | `NOT_RUN` |
 | AC-197-021 | 对同一 snapshot 的多条 `option_chain`（不同 expiry/strike/right）和同一 report date 的多条 `position_report`（不同 reporting entity/rank）发起请求；分别尝试未绑定和绑定到目前未配置家族的路径。 | **NO-GO：当前不把这类请求视为可执行的数据产品。** 公共 HTTP 未绑定请求在 catalog/identity/provider 前以 schema HTTP 422 拒绝；抵达 resolver 的未绑定内部请求以 `DATA_FAMILY_BINDING_REQUIRED` 拒绝；已绑定的未配置家族以 `DATA_FAMILY_UNCONFIGURED` 拒绝。任何未来启用必须先证明稳定 record key、事实唯一性/读取/分页/provenance、slice/report completeness 及同一时间多行 `provider → store → PIT replay`；本地单行或空响应不能作为通过证据。 | `test_query_resolution.py`、`test_query_api.py`；未来多记录端到端回归 | `BLOCKED` |
+| AC-197-022 | 自动输入预检和用户明确策略预检分别执行；后者尝试手工构造错误 mode/consistency/cutoff/cursor、关闭后端开关、display-only source、research-only source、成功 receipt 与不完整响应。 | 自动预检只能 `local_only + research + strict` 且不触网。显式补齐只能 `local_first + research_cache_fill + display`，无 cutoff/cursor；后端开关关闭时以 `MARKET_DATA_RESEARCH_CACHE_FILL_DISABLED` 拒绝，display-only source 不可借用。成功时只保存带该 purpose 的中台 receipt/revision 并本地复读，页面不得把它改写为迭代 196 precheck 通过、研究/回测/审批工件或 PIT 证据。 | `test_query_contract.py`、`test_query_api.py`、`test_access_authorization.py`、`test_store.py`、`StrategyPage.test.ts`；真实 E-197-10 | `BLOCKED` |
+| AC-197-023 | 对 11 个 B1 单记录 family 读取 bundle，并尝试通过 DTO、静态卡片、dataset code 或 source policy 直接把其中任一项升级为 `ready`。 | 六个惰性 logical dataset 保留独立 schema/字段/资产范围并共用不可变 revision binding；DTO 只接受受限 single-record shape，registry 再核对精确 family shape。默认 B1 保持 `unconfigured`，页面只展示控制面，不发事实请求；没有 provider route、source policy、日历/新鲜度、写回和真实 `provider → store → local_only` 证据时不得标为可用。B2 多记录 family 仍稳定拒绝。 | `test_bootstrap.py`、`test_dataset_contracts.py`、`marketData.test.ts`、`DataPage.test.ts`；未来逐项 B1 端到端验收 | `NOT_RUN` |
 
 ## 6. 数据中台专项验收
 
@@ -204,7 +208,7 @@ npm run lint
 
 这里的“覆盖”不表示所有类型都必须由 AkShare 成功返回真实数据。验收通过的前提是：每种组合要么有可追溯且通过质量规则的批准来源，要么明确为未配置/不支持；不得因为当前来源能力不足而降低身份、时间、字段、频率、口径或许可证约束。
 
-当前候选只有六个 `*.realtime` 的 `market.bars` 家族为 `ready`。对于 `option_chain`、风险曲面、持仓/库存报告、快照和非 `bars` 参考产品，本表中的“本地命中/受控缺口补齐”是未来启用的验收要求，**不是当前能力声明**；其当前必须证明的是稳定拒绝。AC-197-021 保持 `BLOCKED` / NO-GO，直到多记录事实模型和完整性规划已实现并完成真实端到端证据。
+当前候选只有六个 `*.realtime` 的 `market.bars` 家族为 `ready`。B1 已有惰性逻辑目录和控制面合同护栏，但没有新增 provider route、source policy 或事实读取权限；因此快照和非 `bars` 参考产品仍是 `unconfigured`。本表中的“本地命中/受控缺口补齐”是未来启用的验收要求，**不是当前能力声明**；其当前必须证明的是稳定拒绝。AC-197-021 保持 `BLOCKED` / NO-GO，直到多记录事实模型和完整性规划已实现并完成真实端到端证据。
 
 ### 6.3 严格研究与回测专项
 
@@ -345,7 +349,7 @@ IG-196-02 的唯一可接受处置是：在 196 冻结后将 197 重基到冻结
 
 - [ ] 候选提交无未解释的工作树改动，且第 4 节全量 `pytest` 为 `PASS`。
 - [ ] 静态检查为 `PASS`，或有经过批准、可追踪的例外。
-- [ ] 所有 AC-197-001 至 AC-197-021 均有对应证据；开发回归、候选验收和真实验证的边界清楚可查。
+- [ ] 所有 AC-197-001 至 AC-197-023 均有对应证据；开发回归、候选验收和真实验证的边界清楚可查。
 - [ ] 七类资产和当前页面已支持数据类型都有经过验证的本地命中/受控补齐，或稳定的明确不支持/未配置状态。
 - [ ] 真实 AkShare/OpenBB 验证、数据许可、来源策略登记、OpenBB 原始载荷 hash 与独立 service account/container 审计完成，或未启用对应在线路由。
 - [ ] 每个已启用频率都有审核后的显式 calendar grid、连续 calendar segment 和导入锁证据；MySQL/PostgreSQL 候选迁移、每连接 UTC/PIT A/B publication 与恢复演练、`utf8mb4_bin`/`C` 精确身份列审计和单 head 检查完成。

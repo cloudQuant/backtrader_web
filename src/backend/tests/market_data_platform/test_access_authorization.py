@@ -52,7 +52,7 @@ def _route(
 def _policy(*routes: MarketDataProviderRoute) -> MarketDataSourcePolicy:
     return MarketDataSourcePolicy(
         policy_id="market-public-v1",
-        allowed_purposes=frozenset({"display", "research", "backtest"}),
+        allowed_purposes=frozenset({"display", "research", "research_cache_fill", "backtest"}),
         routes=routes,
     )
 
@@ -194,6 +194,30 @@ async def test_registry_grant_binds_principal_entitlement_and_source_descriptor(
     assert authorization.as_provenance()["descriptor_hash"] == authorization.descriptor_hash
     access = MarketDataQueryAccess(principal=principal, authorizer=authorizer)
     assert access.principal == principal
+
+
+@pytest.mark.asyncio
+async def test_research_cache_fill_requires_research_source_use_and_keeps_its_purpose_in_receipt() -> None:
+    """An interactive cache fill cannot borrow a display-only provider licence."""
+    user = await _user_with_roles(Role.USER)
+    route = _route()
+    async with async_session_maker() as session:
+        session.add(_registry(allowed_uses=["RESEARCH_ONLY"]))
+        await session.commit()
+        authorizer = MarketDataAccessAuthorizer(session, clock=lambda: NOW)
+        principal = await authorizer.principal_for_user(user)
+        grant = await authorizer.authorize_policy(
+            principal=principal,
+            policy=_policy(route),
+            routes=(route,),
+            asset_type="stock",
+            market="CN-SSE",
+            purpose="research_cache_fill",
+        )
+
+    authorization = grant.authorization_for_route("akshare-stock-v1")
+    assert authorization.purpose == "research_cache_fill"
+    assert authorization.allowed_uses == ("RESEARCH_ONLY",)
 
 
 @pytest.mark.asyncio

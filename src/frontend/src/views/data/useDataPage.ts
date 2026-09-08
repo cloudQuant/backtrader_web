@@ -20,8 +20,10 @@ import {
   hasMarketDataQueryBundle,
   hasMarketDataQueryContract,
   isMarketDataQueryV2FallbackError,
+  marketDataFamilyObservationShape,
   marketDataApi,
   type MarketAssetType,
+  type MarketDataFamilyObservationShape,
   type MarketHistoryRow,
   type MarketInstrumentOption,
   type MarketInstrumentLookupResponse,
@@ -173,6 +175,7 @@ export function useDataPage() {
     datasetCode: string | null
     sourcePolicyId: string | null
     instrumentMetadataVersion: string | null
+    familyId: string | null
     periodConstraint: {
       familyId: string
       requestedFrequency: string
@@ -190,11 +193,28 @@ export function useDataPage() {
     tableKeywords: string[]
   }
 
+  type DataFamilyReadState = (
+    | 'facts_loaded'
+    | 'bars_query_available'
+    | 'control_plane_only'
+    | 'unconfigured'
+    | 'not_applicable'
+  )
+
   type DataFamilyView = {
+    familyId: string
     label: string
     description: string
     statusLabel: string
     tagType: 'success' | 'warning' | 'info'
+    contract: {
+      dataKind: MarketDataQueryBundleFamily['data_kind']
+      frequencySemantics: MarketDataQueryBundleFamily['frequency_semantics']
+      coverageModel: MarketDataQueryBundleFamily['coverage_model']
+      observationShape: MarketDataFamilyObservationShape
+    } | null
+    readState: DataFamilyReadState | null
+    readStatusLabel: string | null
     fields: Array<{
       name: string
       label: string
@@ -693,6 +713,7 @@ export function useDataPage() {
     datasetCode: null,
     sourcePolicyId: null,
     instrumentMetadataVersion: null,
+    familyId: null,
     periodConstraint: null,
   })
   // A valid bundle is an authoritative capability declaration for the current
@@ -1222,12 +1243,6 @@ export function useDataPage() {
       && request.source_policy_id === family.source_policy_id
   }
 
-  function issuedFamilyFromCurrentQueryBundle(familyId: string): MarketDataQueryBundleFamily | null {
-    const bundle = marketDataQueryBundle.value
-    if (!bundle || bundle.requested_asset_type !== form.asset_type) return null
-    return familyFromQueryBundle(bundle, familyId)
-  }
-
   async function resolveV2QueryBundle(
     assetType: MarketAssetType,
   ): Promise<{ bundle: MarketDataQueryBundle | null; fellBack: boolean }> {
@@ -1404,6 +1419,7 @@ export function useDataPage() {
       datasetCode: null,
       sourcePolicyId: null,
       instrumentMetadataVersion: null,
+      familyId: null,
       periodConstraint: null,
     }
   }
@@ -1421,11 +1437,12 @@ export function useDataPage() {
       datasetCode: null,
       sourcePolicyId: null,
       instrumentMetadataVersion: null,
+      familyId: null,
       periodConstraint: null,
     }
   }
 
-  function setMarketDataBundleUnconfiguredStatus() {
+  function setMarketDataBundleUnconfiguredStatus(familyId: string | null = null) {
     marketDataPlatformStatus.value = {
       path: 'bundle_unconfigured',
       provider: null,
@@ -1438,6 +1455,7 @@ export function useDataPage() {
       datasetCode: null,
       sourcePolicyId: null,
       instrumentMetadataVersion: null,
+      familyId,
       periodConstraint: null,
     }
   }
@@ -1459,6 +1477,7 @@ export function useDataPage() {
       datasetCode: null,
       sourcePolicyId: null,
       instrumentMetadataVersion: null,
+      familyId: family.family_id,
       periodConstraint: {
         familyId: family.family_id,
         requestedFrequency,
@@ -1482,6 +1501,7 @@ export function useDataPage() {
       datasetCode: publicMarketDataProvenanceValue(response.dataset_code),
       sourcePolicyId: publicMarketDataProvenanceValue(response.source_policy_id),
       instrumentMetadataVersion: publicMarketDataProvenanceValue(response.instrument_metadata_version),
+      familyId: publicMarketDataProvenanceValue(response.family_id),
       periodConstraint: null,
     }
   }
@@ -1626,7 +1646,7 @@ export function useDataPage() {
           if (!declaredFamily) {
             result.value = lookupShellForV2Query(queryAssetType, symbol, queryMarket, null)
             relatedTables.value = []
-            setMarketDataBundleUnconfiguredStatus()
+            setMarketDataBundleUnconfiguredStatus(`${queryAssetType}.realtime`)
             rememberMarketAssetSelection(queryAssetType, symbol, queryMarket)
             return
           }
@@ -2102,48 +2122,134 @@ export function useDataPage() {
     return `${family.dataset_code} · ${family.frequency_semantics} · 服务端声明字段：${fieldsLabel}`
   }
 
-  function buildAssetDataFamilies(): DataFamilyView[] {
-    return assetDataFamilySpecs[form.asset_type].map((family) => {
-      const bundleIssued = marketDataQueryBundle.value?.requested_asset_type === form.asset_type
-      const issuedFamily = bundleIssued ? issuedFamilyFromCurrentQueryBundle(family.familyId) : null
-      const fieldEntries = issuedFamily
-        ? declaredFamilyFields(issuedFamily)
-        : bundleIssued
-          ? []
-          : [...family.fields, ...(family.historyFields || [])]
-      const uniqueFields = Array.from(new Set(fieldEntries))
-      // A complete, valid bundle is authoritative. A missing expected family
-      // is deliberately rendered as unconfigured rather than using values or
-      // candidate tables from the legacy page implementation as evidence.
-      const issuedStatus: MarketDataQueryBundleFamilyStatus | null = bundleIssued
-        ? issuedFamily?.status || 'unconfigured'
-        : null
-      const fields = uniqueFields.map((field) => ({
+  function isCurrentPageExecutableBarsFamily(family: MarketDataQueryBundleFamily): boolean {
+    return family.family_id === `${form.asset_type}.realtime`
+      && isReadyCalendarBarsFamily(family)
+  }
+
+  function hasActiveV2FactsForFamily(family: MarketDataQueryBundleFamily): boolean {
+    const status = marketDataPlatformStatus.value
+    const contract = result.value?.query_contract
+    return (
+      (status.path === 'local_first' || status.path === 'provider_persisted')
+      && status.familyId === family.family_id
+      && result.value?.asset_type === form.asset_type
+      && contract?.request.family_id === family.family_id
+      && contract.request.family_contract_version === family.family_contract_version
+    )
+  }
+
+  function dataFamilyReadState(family: MarketDataQueryBundleFamily): DataFamilyReadState {
+    if (family.status === 'unconfigured') return 'unconfigured'
+    if (family.status === 'not_applicable') return 'not_applicable'
+    if (!isCurrentPageExecutableBarsFamily(family)) return 'control_plane_only'
+    return hasActiveV2FactsForFamily(family) ? 'facts_loaded' : 'bars_query_available'
+  }
+
+  function dataFamilyReadStateLabel(readState: DataFamilyReadState): string {
+    if (readState === 'facts_loaded') return '已执行受约束事实读取'
+    if (readState === 'bars_query_available') return '本页支持 K线事实读取'
+    if (readState === 'control_plane_only') return '控制面已声明；本页不发起事实请求'
+    if (readState === 'unconfigured') return '未配置；不会发起事实请求'
+    return '不适用；不会发起事实请求'
+  }
+
+  function dataFamilySpecForCurrentAsset(familyId: string): DataFamilySpec | null {
+    return assetDataFamilySpecs[form.asset_type].find((family) => family.familyId === familyId) || null
+  }
+
+  function buildIssuedDataFamilyView(
+    family: MarketDataQueryBundleFamily,
+    familySpec: DataFamilySpec | null,
+  ): DataFamilyView {
+    const readState = dataFamilyReadState(family)
+    const hasActiveFacts = readState === 'facts_loaded'
+    const fields = declaredFamilyFields(family).map((field) => ({
+      name: field,
+      label: fieldLabel(field),
+      // A `ready` control-plane declaration is not evidence that this page has
+      // read its facts. In particular, snapshot/reference/report products are
+      // shown descriptively until a dedicated exact consumer exists.
+      present: hasActiveFacts && (hasValue(snapshot.value[field]) || hasHistoryValue(field)),
+    }))
+
+    return {
+      familyId: family.family_id,
+      // The existing K-line page remains bound to the one designated bars
+      // product. Any other declaration keeps its own product label instead of
+      // borrowing bars UI or becoming executable by ordering.
+      label: isCurrentPageExecutableBarsFamily(family)
+        ? declaredKlineCompatibilityLabel(family)
+        : familySpec
+          ? t(familySpec.labelKey)
+          : family.family_id,
+      description: dataFamilyBundleDescription(family),
+      statusLabel: dataFamilyBundleStatusLabel(family.status, family.reason_code),
+      tagType: dataFamilyBundleTagType(family.status),
+      contract: {
+        dataKind: family.data_kind,
+        frequencySemantics: family.frequency_semantics,
+        coverageModel: family.coverage_model,
+        observationShape: marketDataFamilyObservationShape(family),
+      },
+      readState,
+      readStatusLabel: dataFamilyReadStateLabel(readState),
+      fields,
+    }
+  }
+
+  function buildMissingIssuedDataFamilyView(family: DataFamilySpec): DataFamilyView {
+    return {
+      familyId: family.familyId,
+      label: t(family.labelKey),
+      description: '服务端未声明数据字段',
+      statusLabel: '未配置 · DATA_FAMILY_UNCONFIGURED',
+      tagType: 'warning',
+      contract: null,
+      readState: 'unconfigured',
+      readStatusLabel: dataFamilyReadStateLabel('unconfigured'),
+      fields: Array.from(new Set([
+        ...family.fields,
+        ...(family.historyFields || []),
+      ])).map((field) => ({
         name: field,
         label: fieldLabel(field),
-        present: issuedStatus === null || issuedStatus === 'ready'
-          ? hasValue(snapshot.value[field]) || hasHistoryValue(field)
-          : false,
+        present: false,
+      })),
+    }
+  }
+
+  function buildAssetDataFamilies(): DataFamilyView[] {
+    const bundle = marketDataQueryBundle.value
+    if (bundle?.requested_asset_type === form.asset_type) {
+      // The control plane owns issued product details. Known current cards
+      // missing from a complete response stay visibly unconfigured, while
+      // newly issued snapshot/reference/report families are appended without
+      // reconstructing either class into a fact request.
+      const knownSpecs = assetDataFamilySpecs[form.asset_type]
+      const issuedById = new Map(bundle.families.map((family) => [family.family_id, family]))
+      const knownFamilyIds = new Set(knownSpecs.map((family) => family.familyId))
+      const knownFamilyViews = knownSpecs.map((family) => {
+        const issuedFamily = issuedById.get(family.familyId)
+        return issuedFamily
+          ? buildIssuedDataFamilyView(issuedFamily, family)
+          : buildMissingIssuedDataFamilyView(family)
+      })
+      const additionalFamilyViews = bundle.families
+        .filter((family) => !knownFamilyIds.has(family.family_id))
+        .map((family) => buildIssuedDataFamilyView(family, dataFamilySpecForCurrentAsset(family.family_id)))
+      return [...knownFamilyViews, ...additionalFamilyViews]
+    }
+
+    return assetDataFamilySpecs[form.asset_type].map((family) => {
+      const fields = Array.from(new Set([
+        ...family.fields,
+        ...(family.historyFields || []),
+      ])).map((field) => ({
+        name: field,
+        label: fieldLabel(field),
+        present: hasValue(snapshot.value[field]) || hasHistoryValue(field),
       }))
-      if (issuedStatus !== null) {
-        return {
-          // A ready ``*.realtime`` family currently declares bars only. Its
-          // card must describe that server-owned K-line compatibility product,
-          // rather than borrowing the old page's quote/price/bid/ask wording.
-          label: issuedFamily && isReadyCalendarBarsFamily(issuedFamily)
-            ? declaredKlineCompatibilityLabel(issuedFamily)
-            : t(family.labelKey),
-          description: issuedFamily
-            ? dataFamilyBundleDescription(issuedFamily)
-            : '服务端未声明数据字段',
-          statusLabel: dataFamilyBundleStatusLabel(
-            issuedStatus,
-            issuedFamily?.reason_code || (issuedFamily ? null : 'DATA_FAMILY_UNCONFIGURED'),
-          ),
-          tagType: dataFamilyBundleTagType(issuedStatus),
-          fields,
-        }
-      }
 
       const presentFields = fields.filter((field) => field.present).length
       const relatedTableCount = countMatchingTables(family.tableKeywords)
@@ -2154,10 +2260,14 @@ export function useDataPage() {
         : score > 0 ? 'partial' : 'missing'
 
       return {
+        familyId: family.familyId,
         label: t(family.labelKey),
         description: t(family.descKey, { count: relatedTableCount }),
         statusLabel: t(`dataMgmt.familyStatus${capitalize(status)}`),
         tagType: status === 'available' ? 'success' : status === 'partial' ? 'warning' : 'info',
+        contract: null,
+        readState: null,
+        readStatusLabel: null,
         fields,
       }
     })

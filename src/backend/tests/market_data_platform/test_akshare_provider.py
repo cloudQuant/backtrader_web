@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import time
 from datetime import date, datetime, timezone
 from typing import Any
@@ -138,6 +140,15 @@ async def test_akshare_provider_uses_exact_symbol_route_and_preserves_provenance
     assert result.raw_payload["request"]["provider_symbol"] == "000001"
     assert result.raw_payload["route"]["endpoint"] == "stock_zh_a_hist"
     assert result.raw_payload["response_rows"][0]["股票代码"] == "000001"
+    expected_payload_hash = hashlib.sha256(
+        json.dumps(
+            dict(result.raw_payload),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    assert result.raw_payload_hash == expected_payload_hash
 
 
 @pytest.mark.asyncio

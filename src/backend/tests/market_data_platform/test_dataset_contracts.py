@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -14,8 +15,10 @@ from app.schemas.market_data_platform import (
     MarketDataQueryBundleRequest,
     MarketDataQueryRequest,
 )
+from app.services.market_data import dataset_contracts as dataset_contracts_module
 from app.services.market_data.dataset_contracts import (
     DEFAULT_DATASET_CONTRACT_REGISTRY,
+    DatasetContractRegistry,
     DatasetContractRegistryError,
 )
 
@@ -129,6 +132,78 @@ def test_ready_entries_are_only_reviewed_bars_compatibility_contracts() -> None:
     assert all(entry.reason_code is None for entry in ready)
     assert all(entry.source_policy_id is None for entry in not_ready)
     assert all(entry.reason_code is not None for entry in not_ready)
+
+
+def test_registry_accepts_only_the_whitelisted_b1_reference_series_ready_shape() -> None:
+    """A future B1 promotion needs its exact family shape, not a generic non-bar escape hatch."""
+    contracts = tuple(
+        replace(
+            contract,
+            status="ready",
+            source_policy_id="market-stock-liquidity-v1",
+            reason_code=None,
+        )
+        if contract.family_id == "stock.liquidity"
+        else contract
+        for contract in dataset_contracts_module._CONTRACTS
+    )
+
+    registry = DatasetContractRegistry(contracts)
+    family = registry.bundle_for(
+        MarketDataQueryBundleRequest(asset_type="stock", family_id="stock.liquidity")
+    ).families[0]
+
+    assert family.status == "ready"
+    assert family.dataset_code == "market.liquidity"
+    assert family.data_kind == "reference_series"
+    assert family.required_fields == ("volume", "turnover", "turnover_rate")
+    assert family.source_policy_id == "market-stock-liquidity-v1"
+
+
+def test_registry_allows_a_future_fx_range_promotion_without_a_whitelist_change() -> None:
+    """The reviewed FX OHLC shape can advance once its separate route gates pass."""
+    contracts = tuple(
+        replace(
+            contract,
+            status="ready",
+            source_policy_id="market-fx-range-v1",
+            reason_code=None,
+        )
+        if contract.family_id == "fx.range"
+        else contract
+        for contract in dataset_contracts_module._CONTRACTS
+    )
+
+    registry = DatasetContractRegistry(contracts)
+    family = registry.bundle_for(
+        MarketDataQueryBundleRequest(asset_type="fx", family_id="fx.range")
+    ).families[0]
+
+    assert family.status == "ready"
+    assert family.dataset_code == "market.bars"
+    assert family.data_kind == "bars"
+    assert family.frequencies == ("1d",)
+    assert family.required_fields == ("open", "high", "low", "close")
+
+
+def test_registry_rejects_an_unwhitelisted_ready_shape_for_a_b1_family() -> None:
+    """Changing the dataset or kind cannot make a B1 family executable by accident."""
+    contracts = tuple(
+        replace(
+            contract,
+            status="ready",
+            dataset_code="market.bars",
+            data_kind="bars",
+            source_policy_id="market-stock-liquidity-v1",
+            reason_code=None,
+        )
+        if contract.family_id == "stock.liquidity"
+        else contract
+        for contract in dataset_contracts_module._CONTRACTS
+    )
+
+    with pytest.raises(ValueError, match="ready family contract shape is not approved"):
+        DatasetContractRegistry(contracts)
 
 
 def test_registry_preserves_non_bar_record_shapes_and_coverage_models() -> None:

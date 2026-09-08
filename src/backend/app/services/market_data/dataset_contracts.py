@@ -2,10 +2,10 @@
 
 This module is deliberately a control plane.  It does not inspect a warehouse,
 resolve an instrument, construct a provider, or call the network.  A ``ready``
-entry means only that the already-reviewed ``market.bars`` compatibility path
-can be requested through the existing exact ``query-contract`` bridge.  Every
-other family is visible as an explicit unconfigured product until its catalog,
-coverage model, source route, and persistence semantics are implemented.
+entry must match one reviewed single-record family shape, but it is not itself
+proof that a provider route, persistence path, or page consumer has passed
+end-to-end acceptance.  Families stay explicit and unconfigured until those
+separate prerequisites are complete.
 """
 
 from __future__ import annotations
@@ -117,6 +117,8 @@ class DatasetContract:
         of the policy makes it impossible to misroute the result to a provider.
         """
         status = status_override or self.status
+        if status == "ready":
+            _assert_ready_family_shape(self)
         return MarketDataFamilyContractResponse(
             family_id=self.family_id,
             family_contract_version=FAMILY_CONTRACT_VERSION,
@@ -140,6 +142,182 @@ class DatasetContract:
                 else None
             ),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _ReadyFamilyShape:
+    """The immutable execution shape one family may use after separate acceptance."""
+
+    dataset_code: str
+    data_kind: str
+    frequency_semantics: str
+    frequencies: tuple[str, ...]
+    required_fields: tuple[str, ...]
+    coverage_model: str
+
+    def matches(self, contract: DatasetContract) -> bool:
+        """Return whether all material product axes remain exactly reviewed."""
+        return (
+            contract.dataset_code == self.dataset_code
+            and contract.data_kind == self.data_kind
+            and contract.frequency_semantics == self.frequency_semantics
+            and contract.frequencies == self.frequencies
+            and contract.field_profile.required_fields == self.required_fields
+            and contract.coverage_model == self.coverage_model
+        )
+
+
+# The schema DTO permits only safe *classes* of single-record products.  This
+# registry-owned map is the second, narrower boundary: it names each exact
+# reviewed page family and prevents a future product from becoming executable
+# merely by looking like a reference series or quote snapshot.  Presence here
+# does not promote the family; the default contracts below retain ``ready``
+# only for end-to-end-reviewed bars until the provider/page gates are complete.
+_READY_FAMILY_SHAPES: dict[str, _ReadyFamilyShape] = {
+    "stock.realtime": _ReadyFamilyShape(
+        "market.bars",
+        "bars",
+        "calendar_grid",
+        ("1d", "1w", "1mo"),
+        ("close",),
+        "calendar_grid",
+    ),
+    "stock.valuation": _ReadyFamilyShape(
+        "market.valuation",
+        "reference_series",
+        "calendar_grid",
+        ("1d",),
+        ("market_cap", "float_market_cap", "pe", "pb", "as_of"),
+        "calendar_grid",
+    ),
+    "stock.liquidity": _ReadyFamilyShape(
+        "market.liquidity",
+        "reference_series",
+        "calendar_grid",
+        ("1d",),
+        ("volume", "turnover", "turnover_rate"),
+        "calendar_grid",
+    ),
+    "futures.realtime": _ReadyFamilyShape(
+        "market.bars",
+        "bars",
+        "calendar_grid",
+        ("1d",),
+        ("close",),
+        "calendar_grid",
+    ),
+    "futures.settlement": _ReadyFamilyShape(
+        "market.settlement",
+        "reference_series",
+        "calendar_grid",
+        ("1d",),
+        ("settle", "previous_settle", "open_interest"),
+        "calendar_grid",
+    ),
+    "bond.realtime": _ReadyFamilyShape(
+        "market.bars",
+        "bars",
+        "calendar_grid",
+        ("1d",),
+        ("close",),
+        "calendar_grid",
+    ),
+    "bond.orderbook": _ReadyFamilyShape(
+        "market.quote_snapshot",
+        "quote_snapshot",
+        "snapshot",
+        ("snapshot",),
+        ("bid", "ask", "volume", "turnover", "update_time"),
+        "snapshot_freshness",
+    ),
+    "bond.fixed_income": _ReadyFamilyShape(
+        "market.bond_reference",
+        "reference_series",
+        "calendar_grid",
+        ("1d",),
+        ("yield_to_maturity", "coupon", "maturity_date", "previous_close"),
+        "calendar_grid",
+    ),
+    "fund.realtime": _ReadyFamilyShape(
+        "market.bars",
+        "bars",
+        "calendar_grid",
+        ("1d", "1w", "1mo"),
+        ("close",),
+        "calendar_grid",
+    ),
+    "fund.liquidity": _ReadyFamilyShape(
+        "market.liquidity",
+        "reference_series",
+        "calendar_grid",
+        ("1d",),
+        ("volume", "turnover"),
+        "calendar_grid",
+    ),
+    "fund.nav": _ReadyFamilyShape(
+        "market.fund_nav",
+        "reference_series",
+        "calendar_grid",
+        ("1d",),
+        ("nav", "cumulative_nav", "daily_growth_rate"),
+        "calendar_grid",
+    ),
+    "option.realtime": _ReadyFamilyShape(
+        "market.bars",
+        "bars",
+        "calendar_grid",
+        ("1d",),
+        ("close",),
+        "calendar_grid",
+    ),
+    "fx.realtime": _ReadyFamilyShape(
+        "market.bars",
+        "bars",
+        "calendar_grid",
+        ("1d",),
+        ("close",),
+        "calendar_grid",
+    ),
+    "fx.macro_fx": _ReadyFamilyShape(
+        "market.fx_reference",
+        "reference_series",
+        "calendar_grid",
+        ("1d",),
+        ("rate", "previous_close", "base_currency", "quote_currency"),
+        "calendar_grid",
+    ),
+    "fx.range": _ReadyFamilyShape(
+        "market.bars",
+        "bars",
+        "calendar_grid",
+        ("1d",),
+        ("open", "high", "low", "close"),
+        "calendar_grid",
+    ),
+    "crypto.realtime": _ReadyFamilyShape(
+        "market.quote_snapshot",
+        "quote_snapshot",
+        "snapshot",
+        ("snapshot",),
+        ("price", "change", "change_pct", "high", "low", "volume"),
+        "snapshot_freshness",
+    ),
+    "crypto.range": _ReadyFamilyShape(
+        "market.bars",
+        "bars",
+        "calendar_grid",
+        ("1d",),
+        ("open", "high", "low", "close", "volume"),
+        "calendar_grid",
+    ),
+}
+
+
+def _assert_ready_family_shape(contract: DatasetContract) -> None:
+    """Reject ready declarations outside the finite single-record family whitelist."""
+    shape = _READY_FAMILY_SHAPES.get(contract.family_id)
+    if shape is None or not shape.matches(contract):
+        raise ValueError("ready family contract shape is not approved")
 
 
 class DatasetContractRegistry:

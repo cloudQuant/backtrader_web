@@ -8,10 +8,30 @@ import type {
 } from '@/types/trust'
 
 export type MarketAssetType = 'stock' | 'futures' | 'bond' | 'fund' | 'option' | 'fx' | 'crypto'
-export type MarketDataQueryFrequency = '5min' | '30min' | '1h' | '1d' | '1w' | '1mo'
+/**
+ * Keep this wire union aligned with the v2 public DTO.  The current market
+ * page only consumes bar cadences, but the family control plane may describe
+ * a single-record snapshot without making that product executable in the UI.
+ */
+export type MarketDataQueryFrequency = '5min' | '30min' | '1h' | '1d' | '1w' | '1mo' | 'snapshot'
+export type MarketDataQueryDataKind = (
+  | 'bars'
+  | 'quote_snapshot'
+  | 'option_chain'
+  | 'position_report'
+  | 'reference_series'
+  | 'inventory_report'
+  | 'option_risk_surface'
+)
 export type MarketDataQueryMode = 'local_first' | 'local_only' | 'refresh'
 export type MarketDataQueryConsistency = 'display' | 'strict'
-export type MarketDataQueryPurpose = 'display' | 'research' | 'backtest' | 'export'
+export type MarketDataQueryPurpose = (
+  | 'display'
+  | 'research'
+  | 'research_cache_fill'
+  | 'backtest'
+  | 'export'
+)
 export const MARKET_DATA_FAMILY_CONTRACT_VERSION = 'market-data-family-v1' as const
 export type MarketDataFamilyContractVersion = typeof MARKET_DATA_FAMILY_CONTRACT_VERSION
 
@@ -34,7 +54,7 @@ export interface MarketDataQueryContractRequestBase {
     canonical_id: string
   }
   dataset_code: string
-  data_kind: 'bars' | 'quote_snapshot' | 'option_chain' | 'position_report' | 'reference_series'
+  data_kind: MarketDataQueryDataKind
   frequency: MarketDataQueryFrequency
   required_fields: string[]
   adjustment?: string | null
@@ -53,7 +73,7 @@ export interface MarketDataQueryContract {
 }
 
 export type MarketDataQueryBundleFamilyStatus = 'ready' | 'unconfigured' | 'not_applicable'
-export type MarketDataQueryBundleFrequency = MarketDataQueryFrequency | 'snapshot'
+export type MarketDataQueryBundleFrequency = MarketDataQueryFrequency
 export type MarketDataQueryBundleFrequencySemantics = 'calendar_grid' | 'snapshot' | 'reporting_period'
 export type MarketDataQueryBundleCoverageModel = (
   | 'calendar_grid'
@@ -61,15 +81,7 @@ export type MarketDataQueryBundleCoverageModel = (
   | 'slice_completeness'
   | 'report_completeness'
 )
-export type MarketDataQueryBundleDataKind = (
-  | 'bars'
-  | 'quote_snapshot'
-  | 'option_chain'
-  | 'position_report'
-  | 'reference_series'
-  | 'inventory_report'
-  | 'option_risk_surface'
-)
+export type MarketDataQueryBundleDataKind = MarketDataQueryDataKind
 
 /**
  * A read-only, server-owned declaration of one market-page data family.
@@ -95,6 +107,28 @@ export interface MarketDataQueryBundleFamily {
   coverage_model: MarketDataQueryBundleCoverageModel
   source_policy_id: string | null
   reason_code: string | null
+}
+
+/**
+ * The bundle describes an observation shape only.  It is intentionally not a
+ * permission to query facts: callers still need a server-issued, exact query
+ * contract for a page consumer that knows how to render the shape.
+ */
+export type MarketDataFamilyObservationShape = 'single_record' | 'dimensioned_records'
+
+export function marketDataFamilyObservationShape(
+  family: Pick<MarketDataQueryBundleFamily, 'data_kind' | 'dimension_fields'>,
+): MarketDataFamilyObservationShape {
+  if (
+    family.dimension_fields.length > 0
+    || family.data_kind === 'option_chain'
+    || family.data_kind === 'position_report'
+    || family.data_kind === 'inventory_report'
+    || family.data_kind === 'option_risk_surface'
+  ) {
+    return 'dimensioned_records'
+  }
+  return 'single_record'
 }
 
 /**
@@ -358,7 +392,7 @@ function isMarketAssetType(value: unknown): value is MarketAssetType {
   return typeof value === 'string' && MARKET_ASSET_TYPES.includes(value as MarketAssetType)
 }
 
-const MARKET_DATA_QUERY_BUNDLE_DATA_KINDS: readonly MarketDataQueryBundleDataKind[] = [
+const MARKET_DATA_QUERY_DATA_KINDS: readonly MarketDataQueryDataKind[] = [
   'bars',
   'quote_snapshot',
   'option_chain',
@@ -367,7 +401,7 @@ const MARKET_DATA_QUERY_BUNDLE_DATA_KINDS: readonly MarketDataQueryBundleDataKin
   'inventory_report',
   'option_risk_surface',
 ]
-const MARKET_DATA_QUERY_BUNDLE_FREQUENCIES: readonly MarketDataQueryBundleFrequency[] = [
+const MARKET_DATA_QUERY_FREQUENCIES: readonly MarketDataQueryFrequency[] = [
   '5min',
   '30min',
   '1h',
@@ -376,6 +410,12 @@ const MARKET_DATA_QUERY_BUNDLE_FREQUENCIES: readonly MarketDataQueryBundleFreque
   '1mo',
   'snapshot',
 ]
+const MARKET_DATA_QUERY_BUNDLE_DATA_KINDS: readonly MarketDataQueryBundleDataKind[] = (
+  MARKET_DATA_QUERY_DATA_KINDS
+)
+const MARKET_DATA_QUERY_BUNDLE_FREQUENCIES: readonly MarketDataQueryBundleFrequency[] = (
+  MARKET_DATA_QUERY_FREQUENCIES
+)
 const MARKET_DATA_QUERY_BUNDLE_FREQUENCY_SEMANTICS: readonly MarketDataQueryBundleFrequencySemantics[] = [
   'calendar_grid',
   'snapshot',
@@ -398,6 +438,42 @@ function hasDistinctTextArray(value: unknown, minLength = 0): value is string[] 
 function hasRequiredMarketDataFamilyBinding(value: Record<string, unknown>): boolean {
   return nonEmptyText(value.family_id)
     && value.family_contract_version === MARKET_DATA_FAMILY_CONTRACT_VERSION
+}
+
+function hasCoherentMarketDataQueryBundleFamilyShape(family: Record<string, unknown>): boolean {
+  const dataKind = family.data_kind as MarketDataQueryBundleDataKind
+  const frequencySemantics = family.frequency_semantics as MarketDataQueryBundleFrequencySemantics
+  const frequencies = family.frequencies as MarketDataQueryBundleFrequency[]
+  const coverageModel = family.coverage_model as MarketDataQueryBundleCoverageModel
+  const snapshotKinds: readonly MarketDataQueryBundleDataKind[] = [
+    'quote_snapshot',
+    'option_chain',
+    'option_risk_surface',
+  ]
+  const reportKinds: readonly MarketDataQueryBundleDataKind[] = [
+    'position_report',
+    'inventory_report',
+  ]
+
+  if (frequencySemantics === 'snapshot') {
+    const hasSnapshotShape = frequencies.length === 1
+      && frequencies[0] === 'snapshot'
+      && snapshotKinds.includes(dataKind)
+    if (family.status !== 'ready') return hasSnapshotShape
+    return hasSnapshotShape
+      && dataKind === 'quote_snapshot'
+      && coverageModel === 'snapshot_freshness'
+  }
+  if (frequencies.includes('snapshot') || snapshotKinds.includes(dataKind)) return false
+  if (frequencySemantics === 'reporting_period' && !reportKinds.includes(dataKind)) return false
+
+  if (family.status !== 'ready') return true
+  const calendarGridSingleRecord = (
+    (dataKind === 'bars' || dataKind === 'reference_series')
+    && frequencySemantics === 'calendar_grid'
+    && coverageModel === 'calendar_grid'
+  )
+  return calendarGridSingleRecord
 }
 
 /**
@@ -467,7 +543,12 @@ export function hasMarketDataQueryBundle(value: unknown): value is MarketDataQue
       ...family.optional_fields,
       ...family.dimension_fields,
     ]
-    if (new Set(fieldNames).size !== fieldNames.length) return false
+    if (
+      new Set(fieldNames).size !== fieldNames.length
+      || !hasCoherentMarketDataQueryBundleFamilyShape(family)
+    ) {
+      return false
+    }
     if (family.status === 'ready') {
       return nonEmptyText(family.source_policy_id) && family.reason_code === null
     }
@@ -490,8 +571,8 @@ export function hasMarketDataQueryContract(value: unknown): value is MarketDataQ
   return Boolean(
     nonEmptyText(canonicalId)
       && nonEmptyText(request.dataset_code)
-      && nonEmptyText(request.data_kind)
-      && nonEmptyText(request.frequency)
+      && MARKET_DATA_QUERY_DATA_KINDS.includes(request.data_kind as MarketDataQueryDataKind)
+      && MARKET_DATA_QUERY_FREQUENCIES.includes(request.frequency as MarketDataQueryFrequency)
       && Array.isArray(request.required_fields)
       && request.required_fields.length > 0
       && request.required_fields.every(nonEmptyText)

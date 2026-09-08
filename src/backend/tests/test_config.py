@@ -25,6 +25,7 @@ class TestConfig:
         assert settings.PORT == 8000
         assert settings.DB_AUTO_CREATE_SCHEMA is False
         assert settings.DB_AUTO_CREATE_DEFAULT_ADMIN is False
+        assert settings.MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED is False
         assert "openai" in settings.AI_PROVIDERS
         assert "ollama" in settings.AI_PROVIDERS
         assert "volcengine_ark" in settings.AI_PROVIDERS

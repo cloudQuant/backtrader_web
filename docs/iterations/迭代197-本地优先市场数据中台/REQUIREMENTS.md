@@ -32,8 +32,9 @@
 
 - `/data/market` 仅在 `VITE_MARKET_DATA_QUERY_V2_ENABLED=true` 的独立浏览器灰度中使用新查询接口展示历史、快照和来源状态；关闭时不得请求 v2 contract、family bundle 或事实接口。
 - `/investment/strategies` 最终把策略研究与回测请求绑定到已解析的 canonical identity、数据集、来源策略、数据版本和工件指纹。其 197 sidecar 还必须同时满足 `VITE_MARKET_DATA_QUERY_V2_ENABLED=true` 和 `VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED=true`，否则不得访问任何 v2 控制面或事实接口。
+- 在两个浏览器开关均开启的隔离候选中，用户明确触发“策略数据预检”时可额外请求 `purpose=research_cache_fill`；服务端还必须开启 `MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=true`，否则以稳定禁用码拒绝。输入去抖和非交互预检始终使用 `local_only + research + strict`，不得自动联网或写入。
 - 旧 `/api/v1/data/market-instruments/*` 和 `/api/v1/data/kline` 保持兼容，直到新页面完成灰度和可观测性验收。
-- 迭代 196 的 AI 研究/信任契约完成前，策略页只保留桥接设计和默认关闭的开关，不把不稳定的 `data_config` 或 CSV 回退当作新数据层。
+- 迭代 196 的 AI 研究/信任契约完成前，策略页只保留桥接设计和默认关闭的开关。`research_cache_fill` 的中台 receipt 不得写入、替代或批准不稳定的 `data_config`、CSV 回退、研究 run、holdout、回测或审批工件。
 
 ## 3. 用户故事与功能需求
 
@@ -90,6 +91,15 @@
 
 主数据版本的有效期为半开区间。新版本写入时关闭旧版本的有效期并停用旧的当前索引；旧索引仍保留，支持历史时间点解析。同一市场代码在不同、不重叠的历史合约中复用必须可解析。
 
+### FR-04A 策略页当前缓存补齐
+
+`research_cache_fill` 是一个受限的、当前时点缓存用途，供用户明确触发的策略数据预检使用。它必须满足以下契约：
+
+1. 仅允许 `mode=local_first`、`consistency=display`、无 `knowledge_cutoff`、无分页 cursor；任一组合在服务执行、目录、主数据或 provider I/O 前拒绝。
+2. 它需要 `RESEARCH`、`RESEARCH_ONLY` 或 `DERIVED_RESEARCH` 的当前来源用途授权，不能借用 `DISPLAY` 许可；成功 receipt 的冻结 authorization provenance 必须明确记录 `purpose=research_cache_fill`。
+3. 只有后端 `MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=true` 时才允许通过默认 source policy；浏览器开关仅控制体验，不能开启服务端写路径。`MARKET_DATA_ONLINE_FETCH_ENABLED`、`data:read`、当前 registry、精确 route、lease、fence 与事务 A/B 仍照常生效。
+4. 成功补齐后响应只能报告本地重新读取的覆盖、warning、source snapshot 和 revision 证据。它不得修改 `aiResearchPrecheckResult.passed`、启动研究 run，或成为迭代 196 的 PIT、holdout、回测和审批输入；后续正式研究仍必须由 196 服务端工件链以自己的 strict/PIT 请求重新绑定证据。
+
 ### FR-05 数据源
 
 作为运维人员，我可以为逻辑数据集配置批准的来源策略和数据提供方。首批适配器为：
@@ -111,11 +121,13 @@ calendar snapshot 也必须声明其 `source_registry_id`、被冻结的治理 p
 
 一次成功 provider 获取必须把 `MarketDataSourceAuthorization` 冻结在来源回执中，至少包括 registry ID/更新时间、许可和用途、辖区/有效窗口、保留与再分发决策、principal/tenant scope 的不可逆摘要、entitlement revision、允许决定及其 descriptor hash。该记录证明采集时的授权条件，不取代下一次读取时的实时授权检查。
 
+`research_cache_fill` 使用与 `research` 相同的研究用途许可证集合，但它不是 strict/PIT 读取。该用途的默认 source-policy grant 由单独的后端开关控制，关闭时即使浏览器伪造请求也返回 `MARKET_DATA_RESEARCH_CACHE_FILL_DISABLED`；store 对回执 provenance 再次核验用途、授权集合和当前 registry，不能以 display receipt 伪装为研究缓存。
+
 在线获取的授权线性化点分为两段：网络请求前的 route preflight 决定是否可以发送请求；提供方返回后、写入 receipt 前必须以当前用户角色和来源 registry 做短事务的 current/locking recheck。角色、许可或 registry descriptor 在两者之间变化时，获取结果不得持久化。singleflight follower 在 leader 提交后先结束旧读事务，再重建 principal/access 后本地复读。任何没有 `MarketDataQueryAccess` 的服务调用只能做 local read；它不得触发 provider 获取或把未授权结果写入 v2 事实表。
 
 ### FR-06 页面与可用性
 
-行情页需要显示数据来自本地或刚写入的来源、数据集、canonical identity、覆盖状态、警告和更新时间。策略页需要在 196 合并后显示被冻结的数据版本/截止点，并拒绝把未验证或不完整的结果当作可回测输入。
+行情页需要显示数据来自本地或刚写入的来源、数据集、canonical identity、覆盖状态、警告和更新时间。策略页在用户明确预检后可显示“本地优先”或“已补齐并持久化”的当前缓存状态；自动预检不触网。策略页仍需要在 196 合并后显示被冻结的数据版本/截止点，并拒绝把未验证或不完整的结果当作可回测输入。
 
 在数据目录、主数据索引、日历或来源策略尚未准备好时，已启用的页面 v2 合同探测必须返回稳定状态。为保持既有功能，页面可明确标记为 `legacy_fallback` 后调用原兼容接口，但不得把该结果标成 v2 本地覆盖、来源回执或严格研究证据；也不得以样例、附近代码或模糊标的替代精确请求。普通行情页“查询”采用 `local_first`；`refresh` 必须由明确标记的受控操作触发，不能把常规查询静默变成全窗口在线刷新。
 

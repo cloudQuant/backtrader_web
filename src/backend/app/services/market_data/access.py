@@ -44,6 +44,9 @@ _APPROVED_LICENSES = frozenset(
 _PURPOSE_ALLOWED_USES: Mapping[str, frozenset[str]] = {
     "display": frozenset({"DISPLAY", "MARKET_DATA_DISPLAY", "MARKET_DATA_READ"}),
     "research": frozenset({"RESEARCH", "RESEARCH_ONLY", "DERIVED_RESEARCH"}),
+    # An explicitly requested current cache fill retains research source-use
+    # authorization without becoming a point-in-time research read.
+    "research_cache_fill": frozenset({"RESEARCH", "RESEARCH_ONLY", "DERIVED_RESEARCH"}),
     "backtest": frozenset({"BACKTEST", "BACKTEST_ONLY"}),
 }
 _READABLE_REDISTRIBUTION_POLICIES = frozenset({"ALLOWED", "INTERNAL_ONLY", "NO_REDISTRIBUTION"})

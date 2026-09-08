@@ -86,6 +86,7 @@ _SOURCE_AUTHORIZATION_APPROVED_LICENSES = frozenset(
 _SOURCE_AUTHORIZATION_ALLOWED_USES: Mapping[str, frozenset[str]] = {
     "display": frozenset({"DISPLAY", "MARKET_DATA_DISPLAY", "MARKET_DATA_READ"}),
     "research": frozenset({"RESEARCH", "RESEARCH_ONLY", "DERIVED_RESEARCH"}),
+    "research_cache_fill": frozenset({"RESEARCH", "RESEARCH_ONLY", "DERIVED_RESEARCH"}),
     "backtest": frozenset({"BACKTEST", "BACKTEST_ONLY"}),
 }
 _SOURCE_AUTHORIZATION_READABLE_REDISTRIBUTION_POLICIES = frozenset(

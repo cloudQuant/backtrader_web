@@ -45,6 +45,8 @@ identity 解析只提供准确 asset/market，随后 query service 使用同一�
 
 calendar 导入时同样冻结其 `source_registry_id`、治理 descriptor 和 `VERIFIED` 状态；没有该 provenance 的兼容/历史 calendar 只能保留审计，不能进入 v2 `KNOWN` 覆盖。calendar 的来源可以是经审核的平台维护源，但它仍必须有明确 registry 记录；不能把空来源当作永久可信。
 
+`research_cache_fill` 使用研究许可证集合，但与 `research`/`backtest` 的 strict/PIT 读取保持不同用途。它只对用户明确触发的策略页缓存补齐开放，并要求 `local_first + display`、无 cutoff、无 cursor；默认 source policy 只有在 `MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=true` 时才注册该用途。关闭时 HTTP 边界先返回 `MARKET_DATA_RESEARCH_CACHE_FILL_DISABLED`，即使浏览器绕过自己的灰度开关也不能写入。成功的 `MdSourceSnapshot` 冻结该 purpose，随后 strict research 读取仍以自己的当前授权和 PIT cutoff 重新评估，不能继承缓存补齐的收集许可。
+
 source-policy 配置摘要与 access grant 摘要是不同维度：前者描述服务器批准的 route 配置，后者还包含当前 principal 和 registry 判断。cursor 同时绑定两者；续页先验证签名、principal/tenant/entitlement 与静态 policy，再在 identity 解析后重新计算当前 grant，且必须在任何事实/日历/provider I/O 前匹配。因而角色、来源启用状态或许可变化会使旧 cursor 失败关闭，而不会利用第一次请求的授权结果。
 
 ## 2. 请求解析与身份
@@ -58,6 +60,7 @@ source-policy 配置摘要与 access grant 摘要是不同维度：前者描述�
 - 无歧义频率；
 - 必需字段去重和排序；
 - `research/backtest → strict + knowledge_cutoff`；
+- `research_cache_fill → local_first + display + no knowledge_cutoff + no cursor`；
 - 请求语义哈希，排除分页、游标和等待等传输字段。
 
 `MarketDataQueryResolver` 将请求绑定为 `ResolvedMarketDataQueryContext`：逻辑数据集、主数据版本、物理存储登记和覆盖身份都由服务端生成。它不会从资产类型、提供方名或遗留表名猜测数据集。
@@ -114,6 +117,8 @@ PIT 使用**两事务 publication protocol**，而不是把 Python `created_at`�
 
 因此本候选只执行六个 `*.realtime` 的 `market.bars` 家族。`option_chain`、`option_risk_surface`、`position_report`、`inventory_report`、非 `bars` 的 `reference_series` 与 snapshot 产品保持 `unconfigured`。公共 v2 对任何没有 family binding 的请求（含 `bars`）在目录/identity 前返回 `DATA_FAMILY_BINDING_REQUIRED`；带有未配置 family 的请求返回 `DATA_FAMILY_UNCONFIGURED`。预 bundle 的 `query-contract` 兼容桥只保留旧输入形状，服务端为精确 asset type 推导并验证 `<asset_type>.realtime` 后才签发完整 binding，因此不能形成未绑定 `bars` 或新增产品的旁路。
 
+为让 B1 单记录产品可以逐项晋升，目录已预注册 `market.valuation`、`market.liquidity`、`market.settlement`、`market.bond_reference`、`market.fund_nav` 与 `market.fx_reference`，并与已有 `market.bars`、`market.quote_snapshot` 共用不可变 revision 存储绑定。这个目录动作不创建 provider route 或 source policy。family DTO 只允许已审核的单记录 calendar-grid 或 snapshot-freshness 形状，registry 继续以有限白名单核对 family、dataset、kind、频率、必需字段和 coverage model；所以更改一个 UI 卡片或 DTO 不能把 B1/B2 产品变成可执行请求。B2 多记录产品仍需新的 record-key、唯一性和 slice/report completeness 模型，不能沿用这条单记录路径。
+
 启用任何上述家族前，必须同时具备：
 
 1. 服务端维护、可重放的维度/record key，覆盖每一行的业务身份；
@@ -157,6 +162,8 @@ PIT 使用**两事务 publication protocol**，而不是把 Python `created_at`�
 4. 适配器必须回显同一个不可变请求；编排层和存储层分别校验 receipt 与 route/context 的所有身份、窗口和语义维度，并由存储层重算完整 provider DTO hash。错配、越界、重复事件、超大载荷、错误 request ID/DTO hash 或不可序列化字段一律不落库。
 5. 存储层在事务 A 写入回执、观测和 pending publication 前，再以当前 registry 复核冻结的 `MarketDataSourceAuthorization`；授权已变化、未注册或 descriptor 不一致时拒绝写入。A 提交后，事务 B 才追加 post-commit visibility receipt。提供方自报时间仅作为 provenance，不允许它改变 PIT 可见性。
 6. 重新从已发布的本地证据读出并计算覆盖，响应永远以已写入且已发布的数据为准；提供方内存结果不会直接返回。
+
+策略页的非交互输入校验固定为 `local_only + research + strict`，因此不会因输入、去抖或定时检查启动 provider。用户点击预检时，页面先保留迭代 196 预检的原结果，再异步发出一次上述 `research_cache_fill` 请求；它使用同一个 server-issued exact contract、覆盖规划、lease、receipt 和本地重读路径。响应含 fetch receipt 时只显示“已补齐并持久化”，无 fetch 的完整本地命中显示“本地优先”。任何 503、授权、覆盖不完整或取消都不修改 196 的 precheck、研究、回测或审批状态。
 
 ### 4.3 同进程合并与跨 worker durable lease
 
@@ -206,9 +213,9 @@ lease key 对 canonical identity、dataset、metadata version、asset/market、�
 - 覆盖状态、缺口、拒绝统计、读取来源和警告；
 - 可回溯的来源回执/数据系列标识。
 
-接口由功能开关保护，`MARKET_DATA_QUERY_V2_ENABLED=false` 和 `MARKET_DATA_ONLINE_FETCH_ENABLED=false` 是默认值。浏览器还以 `VITE_MARKET_DATA_QUERY_V2_ENABLED=false` 为默认灰度总开关；`VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED` 只能在此前提下启用 family bundle，策略页 sidecar 还须同时满足 `VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED=true`。目录、身份、日历、活动 provider 和来源策略未就绪时保持关闭或失败关闭；启用在线获取也不会自动启用 OpenBB，后者仍要求明确市场白名单。默认公开策略只在已认证传输边界内允许 `display`、`research`、`backtest` 三种用途；付费/许可来源必须另建服务器维护的策略并完成 entitlement 审查。
+接口由功能开关保护，`MARKET_DATA_QUERY_V2_ENABLED=false`、`MARKET_DATA_ONLINE_FETCH_ENABLED=false` 和 `MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=false` 是默认值。浏览器还以 `VITE_MARKET_DATA_QUERY_V2_ENABLED=false` 为默认灰度总开关；`VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED` 只能在此前提下启用 family bundle，策略页 sidecar 还须同时满足 `VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED=true`。目录、身份、日历、活动 provider 和来源策略未就绪时保持关闭或失败关闭；启用在线获取也不会自动启用 OpenBB，后者仍要求明确市场白名单。默认公开策略只在已认证传输边界内允许 `display`、`research`、`backtest`；`research_cache_fill` 只有后端明确开启时才会加入该策略。付费/许可来源必须另建服务器维护的策略并完成 entitlement 审查。
 
-行情页只在浏览器 v2 总开关开启时尝试只读 contract，解析精确已导入 identity 与活动 dataset 后才请求 v2；无论 bundle 子开关是否开启，contract 请求都携带页面期望的 `<asset_type>.realtime`，且页面验证回传 binding。`MARKET_DATA_QUERY_V2_DISABLED` 等已定义 fallback 错误才回到 legacy lookup；`DATA_FAMILY_UNCONFIGURED` 和 binding 不匹配必须失败关闭，不能用旧数据伪装为 v2 事实。遗留 lookup 若附带 contract，还必须由服务端同时回显本次精确 `symbol` 和该 contract 的 canonical ID；客户端逐字符比较这两个值及 family/版本，绝不做大小写折叠。任何缺失、错配或陈旧的附带 contract 都显式失败，不能作为 v2 bootstrap，也不能把先前标的的缓存结果显示为当前标的的本地证据。总开关关闭时不得探测 contract、bundle 或事实接口。v2 响应的 pagination helper 会持续请求至 `next_cursor=null`，不以 500 条或固定页数截断；它验证每页 `query_id` 与 `knowledge_cutoff` 不变，并对重复 cursor 或 revision fail closed。普通查询使用 `local_first`，不能静默升级为 `refresh`。当前前端回归以 17 页、516 条观察验证该收集逻辑，但这不是浏览器灰度或 196 策略页整合证据。策略页 sidecar 只有两个浏览器开关均开启才可探测 v2，仍须等待 196 的研究与回测契约冻结后，才可把解析后的数据工件写进请求和结果记录。
+行情页只在浏览器 v2 总开关开启时尝试只读 contract，解析精确已导入 identity 与活动 dataset 后才请求 v2；无论 bundle 子开关是否开启，contract 请求都携带页面期望的 `<asset_type>.realtime`，且页面验证回传 binding。`MARKET_DATA_QUERY_V2_DISABLED` 等已定义 fallback 错误才回到 legacy lookup；`DATA_FAMILY_UNCONFIGURED` 和 binding 不匹配必须失败关闭，不能用旧数据伪装为 v2 事实。遗留 lookup 若附带 contract，还必须由服务端同时回显本次精确 `symbol` 和该 contract 的 canonical ID；客户端逐字符比较这两个值及 family/版本，绝不做大小写折叠。任何缺失、错配或陈旧的附带 contract 都显式失败，不能作为 v2 bootstrap，也不能把先前标的的缓存结果显示为当前标的的本地证据。总开关关闭时不得探测 contract、bundle 或事实接口。v2 响应的 pagination helper 会持续请求至 `next_cursor=null`，不以 500 条或固定页数截断；它验证每页 `query_id` 与 `knowledge_cutoff` 不变，并对重复 cursor 或 revision fail closed。family bundle 可以安全展示 snapshot、reference 和多记录产品的合同状态，但只有精确的 `ready + bars + calendar_grid` realtime family 能进入当前 K 线事实请求，其他产品不得借用遗留表展示为已读取。普通查询使用 `local_first`，不能静默升级为 `refresh`。当前前端回归覆盖多页聚合与上述 fail-closed 分支，但这不是浏览器灰度或 196 策略页整合证据。策略页 sidecar 只有两个浏览器开关均开启才可探测 v2；明确预检可在后端 cache-fill 开关允许时补齐当前数据，但仍须等待 196 的研究与回测契约冻结后，才可把解析后的数据工件写进请求和结果记录。
 
 ## 7. 迁移与运维
 

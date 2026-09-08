@@ -4,7 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import DataPage from '@/views/DataPage.vue'
 import { elStubs } from '@/test/stubs'
-import type { MarketAssetType, MarketDataQueryResponse } from '@/api/marketData'
+import type {
+  MarketAssetType,
+  MarketDataQueryBundle,
+  MarketDataQueryResponse,
+} from '@/api/marketData'
 
 const apiMocks = vi.hoisted(() => ({
   lookupInstrument: vi.fn(),
@@ -44,6 +48,18 @@ vi.mock('@/api/marketData', () => ({
     contract: { request: Record<string, unknown> },
     options: Record<string, unknown>,
   ) => ({ ...contract.request, ...options }),
+  marketDataFamilyObservationShape: (family: {
+    data_kind?: unknown
+    dimension_fields?: unknown
+  }) => (
+    (
+      (Array.isArray(family.dimension_fields) && family.dimension_fields.length > 0)
+      || ['option_chain', 'position_report', 'inventory_report', 'option_risk_surface']
+        .includes(String(family.data_kind))
+    )
+      ? 'dimensioned_records'
+      : 'single_record'
+  ),
   isMarketDataQueryV2FallbackError: (error: { response?: { status?: unknown, data?: { details?: { code?: unknown } } } }) => (
     [404, 405, 501].includes(Number(error?.response?.status))
     || error?.response?.data?.details?.code === 'MARKET_DATA_QUERY_V2_DISABLED'
@@ -329,7 +345,7 @@ type DataFamilyBundleStatus = 'ready' | 'unconfigured' | 'not_applicable'
 function createQueryBundleFixture(
   assetType: MarketAssetType,
   statuses: Partial<Record<string, DataFamilyBundleStatus>> = {},
-) {
+): MarketDataQueryBundle {
   return {
     version: 'market-data-family-bundle-v1',
     requested_asset_type: assetType,
@@ -343,7 +359,7 @@ function createQueryBundleFixture(
         status,
         dataset_code: ready ? 'market.bars' : `market.${familyId.replace('.', '_')}`,
         data_kind: ready ? 'bars' : 'reference_series',
-        frequency_semantics: ready ? 'calendar_grid' : 'reporting_period',
+        frequency_semantics: 'calendar_grid',
         frequencies: ready && familyId === 'stock.realtime' ? ['1d', '1w', '1mo'] : ['1d'],
         field_profile_id: `${familyId.replace('.', '-')}-v1`,
         required_fields: ['close'],
@@ -351,7 +367,7 @@ function createQueryBundleFixture(
           ? ['open', 'high', 'low', 'volume', 'turnover', 'change_pct', 'turnover_rate']
           : ['volume'],
         dimension_fields: [],
-        coverage_model: ready ? 'calendar_grid' : 'report_completeness',
+        coverage_model: 'calendar_grid',
         source_policy_id: ready ? 'market-default-v1' : null,
         reason_code: ready ? null : status === 'not_applicable'
           ? 'DATA_FAMILY_NOT_APPLICABLE'
@@ -929,6 +945,96 @@ describe('DataPage', () => {
     expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
     expect((wrapper.vm as any).result?.query_contract).toBeNull()
     expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据族未配置')
+  })
+
+  it('renders declared snapshot, reference, and dimensioned families without issuing their facts', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    const bundle = createQueryBundleFixture('stock')
+    bundle.families.push(
+      {
+        family_id: 'stock.quote_snapshot',
+        family_contract_version: 'market-data-family-v1',
+        asset_type: 'stock',
+        status: 'ready',
+        dataset_code: 'market.quote_snapshot',
+        data_kind: 'quote_snapshot',
+        frequency_semantics: 'snapshot',
+        frequencies: ['snapshot'],
+        field_profile_id: 'stock-quote-snapshot-v1',
+        required_fields: ['price', 'update_time'],
+        optional_fields: ['bid', 'ask'],
+        dimension_fields: [],
+        coverage_model: 'snapshot_freshness',
+        source_policy_id: 'market-default-v1',
+        reason_code: null,
+      },
+      {
+        family_id: 'stock.inventory',
+        family_contract_version: 'market-data-family-v1',
+        asset_type: 'stock',
+        status: 'unconfigured',
+        dataset_code: 'market.inventory',
+        data_kind: 'inventory_report',
+        frequency_semantics: 'reporting_period',
+        frequencies: ['1d'],
+        field_profile_id: 'stock-inventory-v1',
+        required_fields: ['inventory_quantity'],
+        optional_fields: [],
+        dimension_fields: ['report_date', 'warehouse'],
+        coverage_model: 'report_completeness',
+        source_policy_id: null,
+        reason_code: 'DATA_FAMILY_UNCONFIGURED',
+      },
+    )
+    apiMocks.getQueryBundle.mockResolvedValue(bundle)
+
+    const wrapper = await mountPage()
+    const families = (wrapper.vm as any).assetDataFamilies
+    const quoteSnapshot = families.find((family: { familyId: string }) => (
+      family.familyId === 'stock.quote_snapshot'
+    ))
+    const valuation = families.find((family: { familyId: string }) => (
+      family.familyId === 'stock.valuation'
+    ))
+    const inventory = families.find((family: { familyId: string }) => (
+      family.familyId === 'stock.inventory'
+    ))
+
+    expect(quoteSnapshot).toEqual(expect.objectContaining({
+      statusLabel: '已配置',
+      readState: 'control_plane_only',
+      readStatusLabel: '控制面已声明；本页不发起事实请求',
+      contract: expect.objectContaining({
+        dataKind: 'quote_snapshot',
+        frequencySemantics: 'snapshot',
+        coverageModel: 'snapshot_freshness',
+        observationShape: 'single_record',
+      }),
+    }))
+    expect(valuation).toEqual(expect.objectContaining({
+      readState: 'unconfigured',
+      readStatusLabel: '未配置；不会发起事实请求',
+    }))
+    expect(inventory).toEqual(expect.objectContaining({
+      readState: 'unconfigured',
+      contract: expect.objectContaining({
+        dataKind: 'inventory_report',
+        frequencySemantics: 'reporting_period',
+        observationShape: 'dimensioned_records',
+      }),
+    }))
+    expect(quoteSnapshot.fields.every((field: { present: boolean }) => !field.present)).toBe(true)
+    expect(valuation.fields.every((field: { present: boolean }) => !field.present)).toBe(true)
+    expect(inventory.fields.every((field: { present: boolean }) => !field.present)).toBe(true)
+
+    expect(wrapper.find('[data-test="market-data-family-stock.quote_snapshot"]').text())
+      .toContain('quote_snapshot · snapshot')
+    expect(wrapper.find('[data-test="market-data-family-stock.inventory"]').text())
+      .toContain('dimensioned_records')
+    expect(apiMocks.getQueryContract).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result?.query_contract).toBeNull()
   })
 
   it('constrains weekly and monthly selection to the declared daily cadence for futures, bonds, options, and FX', async () => {

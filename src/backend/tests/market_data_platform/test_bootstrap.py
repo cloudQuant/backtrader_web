@@ -116,16 +116,16 @@ def _legacy_shared_binding_constraint_is_rejected(sync_connection: object) -> bo
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_registers_canonical_bars_and_quote_snapshot_without_routes() -> None:
-    """A migrated empty catalog exposes two products over one facts table offline."""
+async def test_bootstrap_registers_b1_logical_datasets_without_routes() -> None:
+    """A migrated empty catalog exposes reviewed B1 datasets without granting provider access."""
     async with async_session_maker() as session:
         result = await MarketDataPlatformBootstrapper(session).bootstrap(_spec())
         await session.commit()
 
-        bars_resolution = await DataCatalogResolver(session).resolve_primary(CANONICAL_DATASET_CODE)
-        quote_resolution = await DataCatalogResolver(session).resolve_primary(
-            CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE
-        )
+        resolutions = {
+            dataset_code: await DataCatalogResolver(session).resolve_primary(dataset_code)
+            for dataset_code in CANONICAL_DATASET_CODES
+        }
         await MarketDataStore(session).ensure_provider_active(AKSHARE_PROVIDER_ID)
         await MarketDataStore(session).ensure_provider_active("openbb:yfinance")
         datasets = {
@@ -159,14 +159,14 @@ async def test_bootstrap_registers_canonical_bars_and_quote_snapshot_without_rou
     assert result.dataset_codes == CANONICAL_DATASET_CODES
     assert result.as_dict()["dataset_codes"] == list(CANONICAL_DATASET_CODES)
     assert result.registered_provider_ids == (AKSHARE_PROVIDER_ID, "openbb:yfinance")
-    assert bars_resolution.storage_id == quote_resolution.storage_id == CANONICAL_STORAGE_ID
-    assert (
-        bars_resolution.physical_table
-        == quote_resolution.physical_table
-        == CANONICAL_PHYSICAL_TABLE
+    assert {resolution.storage_id for resolution in resolutions.values()} == {CANONICAL_STORAGE_ID}
+    assert {resolution.physical_table for resolution in resolutions.values()} == {
+        CANONICAL_PHYSICAL_TABLE
+    }
+    assert {resolution.write_mode for resolution in resolutions.values()} == {CANONICAL_WRITE_MODE}
+    assert len({resolution.dataset_id for resolution in resolutions.values()}) == len(
+        CANONICAL_DATASET_CODES
     )
-    assert bars_resolution.write_mode == quote_resolution.write_mode == CANONICAL_WRITE_MODE
-    assert bars_resolution.dataset_id != quote_resolution.dataset_id
     assert set(datasets) == set(CANONICAL_DATASET_CODES)
     bars_dataset = datasets[CANONICAL_DATASET_CODE]
     quote_dataset = datasets[CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE]
@@ -186,11 +186,35 @@ async def test_bootstrap_registers_canonical_bars_and_quote_snapshot_without_rou
     assert "last" not in quote_fields
     assert "amount" not in quote_fields
     assert quote_dataset.primary_key == bars_dataset.primary_key
+    expected_reference_schemas = {
+        "market.valuation": ("stock", {"market_cap", "float_market_cap", "pe", "pb", "as_of"}),
+        "market.liquidity": ("stock", {"volume", "turnover", "turnover_rate"}),
+        "market.settlement": ("futures", {"settle", "previous_settle", "open_interest"}),
+        "market.bond_reference": (
+            "bond",
+            {"yield_to_maturity", "coupon", "maturity_date", "previous_close"},
+        ),
+        "market.fund_nav": ("fund", {"nav", "cumulative_nav", "daily_growth_rate"}),
+        "market.fx_reference": (
+            "fx",
+            {"rate", "previous_close", "base_currency", "quote_currency"},
+        ),
+    }
+    for dataset_code, (asset_type, required_fields) in expected_reference_schemas.items():
+        dataset = datasets[dataset_code]
+        schema = dataset.canonical_schema
+        assert schema["data_kind"] == "reference_series"
+        assert schema["supported_asset_types"] == [asset_type] or (
+            dataset_code == "market.liquidity"
+            and schema["supported_asset_types"] == ["stock", "fund"]
+        )
+        assert required_fields <= set(schema["observation_fields"])
+        assert dataset.primary_key == bars_dataset.primary_key
     assert {(binding.physical_table, binding.is_primary) for binding, _ in bindings} == {
         (CANONICAL_PHYSICAL_TABLE, True)
     }
     assert {dataset.dataset_code for _, dataset in bindings} == set(CANONICAL_DATASET_CODES)
-    assert len({binding.id for binding, _ in bindings}) == 2
+    assert len({binding.id for binding, _ in bindings}) == len(CANONICAL_DATASET_CODES)
     assert provider_ids == [AKSHARE_PROVIDER_ID, "openbb:yfinance"]
     assert endpoint_count == 0
 
@@ -280,7 +304,7 @@ async def test_bootstrap_is_idempotent_and_does_not_duplicate_control_plane_rows
             "provider": await session.scalar(select(func.count()).select_from(DgProvider)),
         }
 
-    assert len(first.created) == 7
+    assert len(first.created) == 19
     assert first.dataset_code == CANONICAL_DATASET_CODE
     assert first.dataset_codes == CANONICAL_DATASET_CODES
     assert second.created == ()
@@ -288,13 +312,17 @@ async def test_bootstrap_is_idempotent_and_does_not_duplicate_control_plane_rows
     assert set(second.verified) == {
         "storage:canonical_market_data",
         "dataset:market.bars",
-        "dataset:market.quote_snapshot",
-        "binding:market.bars",
-        "binding:market.quote_snapshot",
+        *(f"dataset:{dataset_code}" for dataset_code in CANONICAL_DATASET_CODES),
+        *(f"binding:{dataset_code}" for dataset_code in CANONICAL_DATASET_CODES),
         "provider:akshare",
         "provider:openbb:yfinance",
     }
-    assert counts == {"storage": 1, "dataset": 2, "binding": 2, "provider": 2}
+    assert counts == {
+        "storage": 1,
+        "dataset": len(CANONICAL_DATASET_CODES),
+        "binding": len(CANONICAL_DATASET_CODES),
+        "provider": 2,
+    }
 
 
 @pytest.mark.asyncio
@@ -328,7 +356,7 @@ async def test_bootstrap_rejects_quote_snapshot_dataset_contract_drift(
 
 @pytest.mark.asyncio
 async def test_bootstrap_rejects_an_unreviewed_dataset_claim_on_the_shared_facts_table() -> None:
-    """Only the reviewed bars/quote pair may use this bootstrap's shared binding."""
+    """Only reviewed B1 logical datasets may use this bootstrap's shared binding."""
     async with async_session_maker() as session:
         await MarketDataPlatformBootstrapper(session).bootstrap(_spec())
         await session.commit()

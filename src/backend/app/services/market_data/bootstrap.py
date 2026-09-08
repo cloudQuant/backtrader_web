@@ -44,9 +44,24 @@ CANONICAL_STORAGE_ROLE = "canonical"
 CANONICAL_PHYSICAL_TABLE = "md_observation_revisions"
 CANONICAL_DATASET_CODE = "market.bars"
 CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE = "market.quote_snapshot"
+CANONICAL_VALUATION_DATASET_CODE = "market.valuation"
+CANONICAL_LIQUIDITY_DATASET_CODE = "market.liquidity"
+CANONICAL_SETTLEMENT_DATASET_CODE = "market.settlement"
+CANONICAL_BOND_REFERENCE_DATASET_CODE = "market.bond_reference"
+CANONICAL_FUND_NAV_DATASET_CODE = "market.fund_nav"
+CANONICAL_FX_REFERENCE_DATASET_CODE = "market.fx_reference"
+CANONICAL_REFERENCE_SERIES_DATASET_CODES = (
+    CANONICAL_VALUATION_DATASET_CODE,
+    CANONICAL_LIQUIDITY_DATASET_CODE,
+    CANONICAL_SETTLEMENT_DATASET_CODE,
+    CANONICAL_BOND_REFERENCE_DATASET_CODE,
+    CANONICAL_FUND_NAV_DATASET_CODE,
+    CANONICAL_FX_REFERENCE_DATASET_CODE,
+)
 CANONICAL_DATASET_CODES = (
     CANONICAL_DATASET_CODE,
     CANONICAL_QUOTE_SNAPSHOT_DATASET_CODE,
+    *CANONICAL_REFERENCE_SERIES_DATASET_CODES,
 )
 CANONICAL_WRITE_MODE = "canonical_append_only"
 AKSHARE_PROVIDER_ID = "akshare"
@@ -658,6 +673,42 @@ def _canonical_dataset_specs() -> tuple[tuple[str, str, dict[str, object], list[
             _canonical_quote_snapshot_schema(),
             _canonical_quote_snapshot_primary_key(),
         ),
+        (
+            CANONICAL_VALUATION_DATASET_CODE,
+            "Stock valuation reference series",
+            _canonical_valuation_schema(),
+            _canonical_reference_series_primary_key(),
+        ),
+        (
+            CANONICAL_LIQUIDITY_DATASET_CODE,
+            "Market liquidity reference series",
+            _canonical_liquidity_schema(),
+            _canonical_reference_series_primary_key(),
+        ),
+        (
+            CANONICAL_SETTLEMENT_DATASET_CODE,
+            "Futures settlement reference series",
+            _canonical_settlement_schema(),
+            _canonical_reference_series_primary_key(),
+        ),
+        (
+            CANONICAL_BOND_REFERENCE_DATASET_CODE,
+            "Bond fixed-income reference series",
+            _canonical_bond_reference_schema(),
+            _canonical_reference_series_primary_key(),
+        ),
+        (
+            CANONICAL_FUND_NAV_DATASET_CODE,
+            "Fund NAV reference series",
+            _canonical_fund_nav_schema(),
+            _canonical_reference_series_primary_key(),
+        ),
+        (
+            CANONICAL_FX_REFERENCE_DATASET_CODE,
+            "FX reference series",
+            _canonical_fx_reference_schema(),
+            _canonical_reference_series_primary_key(),
+        ),
     )
 
 
@@ -752,6 +803,133 @@ def _canonical_quote_snapshot_schema() -> dict[str, object]:
 
 def _canonical_quote_snapshot_primary_key() -> list[str]:
     """Return quote revision identity without claiming bars share its semantics."""
+    return _canonical_observation_revision_primary_key()
+
+
+def _canonical_valuation_schema() -> dict[str, object]:
+    """Describe daily stock valuation facts without authorizing their collection."""
+    return _canonical_reference_series_schema(
+        schema_version="market-valuation-v1",
+        supported_asset_types=("stock",),
+        observation_fields={
+            "market_cap": "decimal|null",
+            "float_market_cap": "decimal|null",
+            "pe": "decimal|null",
+            "pb": "decimal|null",
+            "as_of": "date|null",
+        },
+    )
+
+
+def _canonical_liquidity_schema() -> dict[str, object]:
+    """Describe stock/fund liquidity facts while retaining their asset identity axis."""
+    return _canonical_reference_series_schema(
+        schema_version="market-liquidity-v1",
+        supported_asset_types=("stock", "fund"),
+        observation_fields={
+            "volume": "decimal|null",
+            "turnover": "decimal|null",
+            "turnover_rate": "decimal|null",
+        },
+    )
+
+
+def _canonical_settlement_schema() -> dict[str, object]:
+    """Describe final futures settlement facts, not intraday quote approximations."""
+    return _canonical_reference_series_schema(
+        schema_version="market-settlement-v1",
+        supported_asset_types=("futures",),
+        observation_fields={
+            "settle": "decimal|null",
+            "previous_settle": "decimal|null",
+            "open_interest": "decimal|null",
+        },
+    )
+
+
+def _canonical_bond_reference_schema() -> dict[str, object]:
+    """Describe bond fixed-income observations separate from the quote product."""
+    return _canonical_reference_series_schema(
+        schema_version="market-bond-reference-v1",
+        supported_asset_types=("bond",),
+        observation_fields={
+            "yield_to_maturity": "decimal|null",
+            "coupon": "decimal|null",
+            "maturity_date": "date|null",
+            "previous_close": "decimal|null",
+        },
+    )
+
+
+def _canonical_fund_nav_schema() -> dict[str, object]:
+    """Describe fund NAV history rather than inferring NAV from an ETF price bar."""
+    return _canonical_reference_series_schema(
+        schema_version="market-fund-nav-v1",
+        supported_asset_types=("fund",),
+        observation_fields={
+            "nav": "decimal|null",
+            "cumulative_nav": "decimal|null",
+            "daily_growth_rate": "decimal|null",
+        },
+    )
+
+
+def _canonical_fx_reference_schema() -> dict[str, object]:
+    """Describe directed FX reference rates with the quoted currencies retained."""
+    return _canonical_reference_series_schema(
+        schema_version="market-fx-reference-v1",
+        supported_asset_types=("fx",),
+        observation_fields={
+            "rate": "decimal|null",
+            "previous_close": "decimal|null",
+            "base_currency": "string|null",
+            "quote_currency": "string|null",
+        },
+    )
+
+
+def _canonical_reference_series_schema(
+    *,
+    schema_version: str,
+    supported_asset_types: tuple[str, ...],
+    observation_fields: Mapping[str, str],
+) -> dict[str, object]:
+    """Return an inert logical reference-series contract over the revision fact table."""
+    return {
+        "schema_version": schema_version,
+        "data_kind": "reference_series",
+        "supported_asset_types": list(supported_asset_types),
+        "identity_fields": [
+            "canonical_id",
+            "asset_type",
+            "market",
+            "instrument_metadata_version",
+        ],
+        "series_dimensions": [
+            "frequency",
+            "adjustment",
+            "price_basis",
+            "currency",
+            "unit",
+            "source_policy_id",
+        ],
+        "observation_fields": {
+            "event_time": "timestamp",
+            "event_end": "timestamp|null",
+            "available_at": "timestamp",
+            **dict(observation_fields),
+        },
+        "provenance_fields": [
+            "source_snapshot_id",
+            "revision_number",
+            "quality_status",
+            "normalization_version",
+        ],
+    }
+
+
+def _canonical_reference_series_primary_key() -> list[str]:
+    """Reference facts share the immutable revision identity, not bars semantics."""
     return _canonical_observation_revision_primary_key()
 
 
