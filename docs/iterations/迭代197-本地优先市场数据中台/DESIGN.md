@@ -228,7 +228,7 @@ lease key 对 canonical identity、dataset、metadata version、asset/market、�
 ### 7.2 发布前操作顺序
 
 1. 冻结 196 的研究/回测工件契约，建立 196/197 集成候选并完成单 head 迁移修订；记录候选 SHA、`git status --short`、`alembic heads` 和备份标识。
-2. 在空库和经批准的可恢复副本执行 `alembic upgrade head`；审计 `dg_*`/`md_*` 的列、索引、外键、检查约束、时间字段与遗留 AkShare 表的行数/校验和。MySQL 执行 exact-identity DDL 前必须停止 writer 并设置 `MARKET_DATA_EXACT_IDENTITY_MAINTENANCE_FENCE=confirmed`；审计四个身份字段实际为 `utf8mb4_bin`，PostgreSQL 为 `C`，再验证每个应用连接的 UTC session time zone 与跨连接 PIT 读取。
+2. 在空库和经批准的可恢复副本执行 `alembic upgrade head`；审计 `dg_*`/`md_*` 的列、索引、外键、检查约束、时间字段与遗留 AkShare 表的行数/校验和。MySQL 执行 exact-identity DDL 前必须停止 writer 并设置 `MARKET_DATA_EXACT_IDENTITY_MAINTENANCE_FENCE=confirmed`；任何执行 portability revision 的 MySQL upgrade 都必须先 drain writer 并设置 `MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_MAINTENANCE_FENCE=confirmed`，即使检查结果看来无需变更也不能跳过，避免检查与 DDL 间的 TOCTOU。两个 revision 的有界 `GET_LOCK` 只串行化迁移运行，不能替代停止 writer。审计四个身份字段实际为 `utf8mb4_bin`，PostgreSQL 为 `C`，再验证每个应用连接的 UTC session time zone 与跨连接 PIT 读取。
 3. 在维护窗口依次运行 `bootstrap_market_data_platform.py` 的 dry-run 和 `--apply`，注册逻辑数据集、唯一主存储和活动 provider；未注册或已停用的 provider 在网络请求前即被拒绝。
 4. 对审核过的主数据 manifest 运行 `import_market_data_master_data.py` 的 dry-run 和 `--apply`，再对既有权威身份使用 `backfill_market_data_lookup_keys.py` 的受限批次 dry-run/`--apply`。导入器不创建猜测 identity。
 5. 按每个已启用 `(market, data_kind, frequency)` 导入版本化日历 manifest。日线、周线、月线和任何分钟频率都要分别提供完整显式网格；只导入市场交易日而没有相应频率 grid 时不得启用该请求组合。

@@ -125,7 +125,7 @@ npm run lint
 | E-197-05 | 真实 OpenBB 隔离运行器探测 | runner 环境、协议、上游许可与写回 | `BLOCKED` | 第 8.2 节的隔离进程、协议日志摘要、原始载荷 hash、回执和本地复读证据；当前 matrix 为空，且 yfinance 真实出站 end bound 未获证明，runner 在导入前拒绝，不能记为成功验证。 |
 | E-197-06 | `/data/market`、`/investment/strategies` 端到端回归 | 页面灰度、授权、回退防护、196 工件绑定 | `BLOCKED` | 196 冻结并完成桥接后，保存浏览器/API/数据库三方一致证据。 |
 | E-197-07 | MySQL/PostgreSQL UTC session、PIT 与 exact-identity collation 演练 | 时区、跨连接写入/读取、迁移、恢复及 `RB0`/`rb0` 精确身份 | `NOT_RUN` | 每个新连接的会话时区输出、边界时间写入/读取、迁移和恢复记录，以及 authority/projection/lookup 的 MySQL `utf8mb4_bin`、PostgreSQL `C` 实际列审计和 case-distinct lookup 回归。 |
-| E-197-08 | 多 worker/多进程同缺口及事实写入并发 | 跨进程 writer lease/fencing、故障接管和零重复外部访问 | `NOT_RUN` | 候选已有 `md_fetch_leases` 与事实/publication 双 fence；仍需在真实 MySQL/PostgreSQL 和多 worker 进程记录 provider 调用计数、接管与崩溃恢复。当前 AkShare thread timeout 不能杀死底层同步调用，故超时后的零重复 I/O 为 `NO-GO`，直至可终止 runner 或租约 heartbeat 设计通过验收。calendar import lock 不适用于 observation 写入。 |
+| E-197-08 | 多 worker/多进程同缺口及事实写入并发 | 跨进程 writer lease/fencing、故障接管和零重复外部访问 | `NOT_RUN` | L-197-10 已在 disposable PostgreSQL 以两个 OS 进程和确定性 provider 证明一个精确缺口只有一次调用，且 follower 从本地重读；仍需真实 AkShare/OpenBB、应用 HTTP worker、故障接管与崩溃恢复证据。当前 AkShare thread timeout 不能杀死底层同步调用，故超时后的零重复 I/O 为 `NO-GO`，直至可终止 runner 或租约 heartbeat 设计通过验收。calendar import lock 不适用于 observation 写入。 |
 | E-197-09 | OpenBB 操作系统级隔离 | service account/container、挂载、凭据与工作目录 | `NOT_RUN` | runner 账户/容器配置、挂载清单、权限审计和一次实际小窗口回填。 |
 | E-197-10 | 策略页 `research_cache_fill` 灰度 | 显式用户动作、后端写入开关、研究用途授权、receipt 与 196 工件隔离 | `BLOCKED` | 196/197 集成候选、前端显式预检、后端开关与已批准研究用途 source registry、浏览器/API/数据库三方证据。 |
 
@@ -146,6 +146,7 @@ npm run lint
 | L-197-07 | 历史快照（2026-09-09），候选提交 `1b1c74f3`：`/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/market_data_platform tests/test_config.py`、目标 Ruff、`alembic heads`、三份 v2 前端测试、`npm run typecheck`、`npm run build`、`npm run lint`。 | `PASS`：后端 453 passed/62 warnings（98.23s），目标 Ruff 通过；当时独立链 head 为 `20260909_market_data_exact_identity_collation`，前端 157 tests/typecheck/build 通过，lint 为 0 errors/1,225 warnings。 | 此记录不描述当前 head；覆盖 B1-0 逻辑目录与精确 family shape、`research_cache_fill` 授权/开关、AkShare provenance hash 修复以及页面控制面展示；仍只是提交前后同一代码快照的本地开发回归，不能把 E-197-01 至 E-197-10 或 AC-197-023 标为正式通过。 |
 | L-197-08 | 历史快照（2026-09-09），代码候选 `c29d2d72`（包含前端 `0289dfdd`）执行完整后端命令、全中台 Ruff/`compileall`、`alembic heads`、一次性 SQLite `upgrade head`，以及三份 v2 前端测试、typecheck、build、lint。 | `PASS`：后端 `468 passed, 62 warnings`（107.08s）；Ruff 与 `compileall` 退出码 0；当时独立链唯一 head 为 `20260909_market_data_exact_identity_collation`，临时 SQLite 升级到该 revision 且 `asset_instruments`、`md_fetch_leases`、identity/lookup 表存在；前端 163 tests、typecheck/build 通过，lint 为 0 errors/1,225 warnings。 | 此记录不描述当前 head；覆盖 B1 三个候选 family 的精确 route/合同、reference-series calendar-grid 上限、`DATA_KIND_COVERAGE_UNSUPPORTED` 的多记录拒绝、市场页显式选择/在途请求作废/必填字段拒绝及范围清单。它仍只是独立工作树中的离线开发证据；E-197-01 至 E-197-10、真实 provider/多方言/多 worker、浏览器灰度和 196 整合状态均不变。 |
 | L-197-09 | 历史快照（2026-09-09），候选代码提交 `a37f0514`、`b3c52283`、`b978b3a7`：完整后端命令、目标 Ruff/`compileall`、`alembic heads`、临时 SQLite `upgrade head`，以及三份 v2 前端测试、typecheck、build、lint。 | `PASS`：后端 `473 passed, 62 warnings`（99.83s）；Ruff 与 `compileall` 退出码 0；当时独立链唯一 head 为 `20260909_market_data_exact_identity_collation`，临时 SQLite 升级到该 revision 且 `asset_instruments`、`md_fetch_leases`、`md_instrument_lookup_keys`、`md_observation_revisions` 存在。 | 此记录不描述当前 head，也不覆盖随后发现并修复的 OpenBB P1；不得据此推断当前候选没有 P0/P1。其余覆盖范围与外部 `NOT_RUN` 边界保持历史记录所述。 |
+| L-197-10 | 2026-09-09，代码候选提交 `58def33f`（含 `97fbb4d9`）：完整后端回归、目标 Ruff/`compileall`、`alembic heads`、`verify_iteration197_postgres_acceptance.py --apply`，以及三份 v2 前端测试、typecheck、build、lint。 | `PASS`：后端 `517 passed, 64 warnings`（107.33s）；Ruff/`compileall` 通过；独立 197 链 head 为 `20260909_market_data_constraint_name_portability`；在此代码提交上 disposable PostgreSQL fresh 与 predecessor→head 演练均通过，两个连接为 UTC，两个 OS 进程竞争一个精确缺口仅 1 次确定性 provider 调用，follower `local_only` 读取 2 条事实且 0 次调用，3 个截断历史 CHECK 名迁移为 portable 名，source/calendar sentinel 各 1 条保留，短 SHA 被拒绝，临时库 cleanup 完成；前端 166 tests、typecheck/build 通过，lint 为 0 errors/1,225 条既有 warnings。OpenBB `--self-check` 无网络地报告空 permit matrix 和 `OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED`；AkShare 验收脚本默认返回 `LIVE_CONFIRMATION_REQUIRED`，未发起网络或写库。 | 这是当前独立候选的本地、disposable PostgreSQL 与前端开发证据；其中 provider 为确定性 fixture，不能替代真实 AkShare/OpenBB、MySQL、HTTP/deployment worker、故障接管、OS 隔离、浏览器 E2E 或 196 整合。因此 E-197-01 至 E-197-10 的正式状态不变。 |
 
 `L-197-01` 包含 identity projection、observation PIT、pending publication 恢复、来源回执、同一 provider 的一次性 request ID 唯一性和 calendar 同源授权、SQLite 来源治理升级/降级保护、MySQL `DATETIME(6)` DDL/fsp=0 拒绝、相邻 calendar segment/import lock，以及 OpenBB 预规范化原始封套和进程组回收的离线断言。本地可观察语义如下；T0/T1/T2 仅描述 SQLite fixture 内的逻辑可见性，不表示真实多连接数据库已验收：
 
@@ -232,7 +233,7 @@ npm run lint
 
 1. 记录升级前 schema、Alembic revision、遗留 AkShare 表行数及抽样校验和。
 2. 在已完成 196/197 合并链的候选版本上执行 `alembic heads`，结果必须只有一个 head；若多 head，状态为 `FAIL`，不可人工任选一条链继续上线。
-3. 执行 `alembic upgrade head`，重新审计 `dg_*`、`md_*` 的列、外键、唯一约束、检查约束和索引。
+3. 执行 `alembic upgrade head`，重新审计 `dg_*`、`md_*` 的列、外键、唯一约束、检查约束和索引。任何 MySQL 执行 `20260909_market_data_constraint_name_portability` 时，都必须先停止全部 market-data writer，并在本次命令明确设置 `MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_MAINTENANCE_FENCE=confirmed`；即使当前反射结果看似无需改动也不能跳过，以免检查与 DDL 间发生 TOCTOU。该 revision 的有限等待 `GET_LOCK` 只串行化迁移执行者，不能替代 writer drain。
 4. 在每个新建和复用的应用连接记录时区：MySQL 记录 `@@session.time_zone`（应为 UTC 等价值），PostgreSQL 记录 `SHOW TIME ZONE`（应为 `UTC`）。当前候选没有可替代这项检查的自动 session-time-zone 证据；若任何连接不符合，停止验收并先补齐部署/连接初始化合同。
 5. 使用带偏移的边界 timestamp（包括交易日和 `knowledge_cutoff` 临界前后）在事务 A 写入来源回执、观测与 pending publication，先从第二个连接重读 `local_only` 与 `strict` 请求，再以事务 B 写入 `published_at` 后重复读取。MySQL 与 PostgreSQL 都必须证明 UTC 归一化、A/B 间的不可见性、发布后的 PIT 可见性和字段选择未因连接时区偏移；SQLite 不可替代。
 6. 验证遗留 AkShare 表定义、行数和抽样校验和未被迁移改写；验证新表初始为空或只含受控引导数据。
@@ -244,9 +245,9 @@ npm run lint
 | 项目 | 状态 | 阻塞原因/所需证据 |
 | --- | --- | --- |
 | SQLite 升级/降级与离线方言渲染的自动化契约 | `PASS`（独立候选开发回归） | L-197-04/L-197-05 已覆盖目标测试、单 head 和临时 SQLite `upgrade head`；这不替代 MySQL/PostgreSQL 真实方言与 UTC/PIT 演练。 |
-| MySQL 准生产升级、UTC session、PIT 与恢复演练 | `NOT_RUN` | 需要经授权的可恢复数据库副本、每连接 UTC 验证、维护窗口和跨连接证据；MySQL `DATETIME` 时区语义不能靠 SQLite 推定。 |
-| PostgreSQL 准生产升级、UTC session、PIT 与恢复演练 | `NOT_RUN` | 需要经授权的可恢复数据库副本、每连接 UTC 验证、维护窗口和跨连接证据。 |
-| 多进程 calendar import lock 与 observation/source writer 并发 | `NOT_RUN` | calendar lock 的跨连接行为和连续分段导入需要真实方言演练；候选已实现 observation/source writer 的 durable lease、fencing 与接管代码，但仍需要真实 MySQL/PostgreSQL 多进程演练，不能借用 calendar lock 或 SQLite 结果。 |
+| MySQL 准生产升级、UTC session、PIT 与恢复演练 | `NOT_RUN` | 需要经授权的可恢复数据库副本、每连接 UTC 验证、维护窗口和跨连接证据；任何执行 portability revision 的 MySQL upgrade 均须先 drain writer 并显式设置 `MARKET_DATA_CONSTRAINT_NAME_PORTABILITY_MAINTENANCE_FENCE=confirmed`，MySQL `DATETIME` 时区语义不能靠 SQLite 推定。 |
+| PostgreSQL 准生产升级、UTC session、PIT 与恢复演练 | `NOT_RUN` | L-197-10 已在 disposable PostgreSQL 证明 fresh 与 predecessor→head 升级、两个 UTC session、截断 CHECK 名修复和清理；仍需要经授权的可恢复副本、PIT A/B publication、exact-identity 真实列审计与恢复演练。 |
+| 多进程 calendar import lock 与 observation/source writer 并发 | `NOT_RUN` | L-197-10 已以真实 PostgreSQL 的两个 OS 进程、确定性 provider 和 durable lease 验证一个精确缺口仅一次调用及 follower 本地重读；calendar lock 的跨连接行为、真实 provider、故障接管和连续分段导入仍需真实方言演练。 |
 | 196/197 Alembic 单 head 合并 | `BLOCKED` | 迭代 196 尚未冻结；禁止在未合并链上宣称单 head。 |
 
 ## 8. 真实提供方验收
