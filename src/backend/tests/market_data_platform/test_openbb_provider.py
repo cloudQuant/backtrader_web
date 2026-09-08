@@ -10,6 +10,7 @@ import sys
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -21,10 +22,14 @@ from app.services.market_data.providers import (
     _openbb_runner_environment,
     _openbb_runner_workdir,
 )
+from scripts import openbb_market_data_runner
 from scripts.openbb_market_data_runner import (
+    _has_active_runtime_route_permit,
     _normalize_records,
     _provider_error_code,
     _records,
+    _route,
+    _RunnerRuntimeRoutePermit,
     _yfinance_historical_arguments,
 )
 
@@ -848,3 +853,173 @@ def test_openbb_runner_rejects_declared_semantics_before_importing_openbb() -> N
     payload = json.loads(completed.stdout)
     assert completed.returncode == 0
     assert payload["error"]["code"] == "OPENBB_SEMANTICS_UNSUPPORTED"
+
+
+def _actual_openbb_runner() -> Path:
+    """Return the checked-in runner, rather than a permissive fake protocol peer."""
+    return Path(__file__).parents[2] / "scripts" / "openbb_market_data_runner.py"
+
+
+def _run_actual_openbb_runner(
+    *,
+    arguments: list[str] | None = None,
+    payload: dict[str, object] | None = None,
+    environment: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Execute the real runner in a controlled process without network access."""
+    return subprocess.run(
+        [sys.executable, str(_actual_openbb_runner()), *(arguments or [])],
+        input=None if payload is None else json.dumps(payload),
+        capture_output=True,
+        check=False,
+        env=environment,
+        text=True,
+    )
+
+
+def test_openbb_runner_self_check_reports_a_safe_blocked_attestation(
+    tmp_path: Path,
+) -> None:
+    """The operator-only attestation stays local and never serializes secret values."""
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "OPENBB_ALLOWED_PROVIDERS": "yfinance",
+            "OPENBB_ALLOW_MUTABLE_EXTENSIONS": "true",
+            "FMP_API_KEY": "must-not-appear-in-runner-attestation",
+            "PYTHONPATH": str(tmp_path),
+        }
+    )
+    # If the self-check imports OpenBB, this module makes the subprocess fail.
+    (tmp_path / "openbb.py").write_text("raise RuntimeError('OpenBB import attempted')\n")
+
+    completed = _run_actual_openbb_runner(arguments=["--self-check"], environment=environment)
+
+    assert completed.returncode == 0
+    attestation = json.loads(completed.stdout)
+    assert attestation["protocol_version"] == "openbb-market-data-v1"
+    assert attestation["self_check_version"] == "openbb-market-data-self-check-v1"
+    assert attestation["status"] == "blocked"
+    assert attestation["attestation"]["coverage"]["active_route_ids"] == []
+    assert attestation["attestation"]["configuration"] == {
+        "configured_provider_names": ["yfinance"],
+        "provider_allow_list_status": "exact",
+        "dangerous_openbb_environment_keys": ["OPENBB_ALLOW_MUTABLE_EXTENSIONS"],
+        "secret_values_included": False,
+    }
+    assert attestation["attestation"]["outbound_end_bound"] == {
+        "code": "OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED",
+        "status": "unattested",
+    }
+    assert "must-not-appear-in-runner-attestation" not in completed.stdout
+
+
+def test_openbb_runner_blocks_yfinance_before_import_when_outbound_end_is_unattested(
+    tmp_path: Path,
+) -> None:
+    """A valid-looking exact candidate cannot reach OpenBB until the actual call is bounded."""
+    request = replace(_request(), market="US-NYSE")
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "OPENBB_ALLOWED_PROVIDERS": "yfinance",
+            "PYTHONPATH": str(tmp_path),
+        }
+    )
+    (tmp_path / "openbb.py").write_text("raise RuntimeError('OpenBB import attempted')\n")
+
+    completed = _run_actual_openbb_runner(
+        payload={
+            "protocol_version": "openbb-market-data-v1",
+            "request_id": request.request_id,
+            "request": request.dto_payload,
+        },
+        environment=environment,
+    )
+
+    assert completed.returncode == 0
+    assert json.loads(completed.stdout)["error"]["code"] == (
+        "OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED"
+    )
+
+
+def test_openbb_runner_future_permit_requires_family_and_endpoint_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A future enablement cannot select a sibling family or OpenBB endpoint."""
+    permit = _RunnerRuntimeRoutePermit(
+        route_id="openbb-yfinance-stock-us-nyse-1d-v1",
+        family_id="stock.realtime",
+        provider="yfinance",
+        asset_type="stock",
+        market="US-NYSE",
+        data_kind="bars",
+        frequency="1d",
+        adjustment=None,
+        price_basis=None,
+        currency=None,
+        unit=None,
+        endpoint="equity.price.historical",
+    )
+    monkeypatch.setattr(openbb_market_data_runner, "_ACTIVE_RUNTIME_ROUTE_PERMITS", (permit,))
+    request = replace(
+        _request(),
+        market="US-NYSE",
+        route_id=permit.route_id,
+        family_id=permit.family_id,
+        provider_endpoint=permit.endpoint,
+    ).dto_payload
+
+    assert _has_active_runtime_route_permit(request)
+    assert not _has_active_runtime_route_permit({**request, "family_id": "stock.valuation"})
+    assert not _has_active_runtime_route_permit(
+        {**request, "provider_endpoint": "etf.historical"}
+    )
+
+
+def test_openbb_runner_dispatches_only_the_endpoint_bound_by_a_permit() -> None:
+    """Endpoint selection cannot be widened by an otherwise valid stock asset type."""
+    def historical(**_kwargs: object) -> None:
+        return None
+
+    obb = SimpleNamespace(equity=SimpleNamespace(price=SimpleNamespace(historical=historical)))
+
+    assert (
+        _route(
+            obb,
+            asset_type="stock",
+            endpoint="equity.price.historical",
+        )
+        is historical
+    )
+    with pytest.raises(ValueError, match="OPENBB_ENDPOINT_UNSUPPORTED"):
+        _route(obb, asset_type="stock", endpoint="etf.historical")
+
+
+def test_openbb_runner_rejects_an_expanded_provider_environment_before_import(
+    tmp_path: Path,
+) -> None:
+    """Adding a provider name to an environment variable cannot expand runner authority."""
+    request = replace(_request(), market="US-NYSE")
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "OPENBB_ALLOWED_PROVIDERS": "yfinance,unreviewed-provider",
+            "PYTHONPATH": str(tmp_path),
+        }
+    )
+    (tmp_path / "openbb.py").write_text("raise RuntimeError('OpenBB import attempted')\n")
+
+    completed = _run_actual_openbb_runner(
+        payload={
+            "protocol_version": "openbb-market-data-v1",
+            "request_id": request.request_id,
+            "request": request.dto_payload,
+        },
+        environment=environment,
+    )
+
+    assert completed.returncode == 0
+    assert json.loads(completed.stdout)["error"]["code"] == (
+        "OPENBB_RUNNER_PROVIDER_ALLOW_LIST_INVALID"
+    )

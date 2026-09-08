@@ -2,8 +2,9 @@
 
 The command never fetches market data and never runs from a public request.  It
 uses ``DATABASE_URL`` for the canonical application database, records only its
-environment-variable name, and registers OpenBB only when
-``MARKET_DATA_OPENBB_ALLOWED_MARKETS`` explicitly contains a reviewed venue.
+environment-variable name, and registers OpenBB only when a static reviewed
+runtime permit exists. ``MARKET_DATA_OPENBB_ALLOWED_MARKETS`` can narrow such
+a permit but cannot create one; the initial matrix is explicitly empty.
 
 Examples:
     conda run -n base python scripts/bootstrap_market_data_platform.py

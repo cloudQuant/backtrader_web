@@ -35,6 +35,10 @@ from app.services.market_data.identity import (
     MarketDataIdentityResolutionError,
     MarketDataIdentityResolver,
 )
+from app.services.market_data.openbb_runtime import (
+    OpenBBRuntimeRoutePermit,
+    approved_openbb_runtime_route_permits,
+)
 
 _FREQUENCY_BY_LEGACY_PERIOD = {
     "daily": "1d",
@@ -46,7 +50,6 @@ _FREQUENCY_BY_LEGACY_PERIOD = {
 }
 _DATE_ALIGNED_BAR_FREQUENCIES = frozenset({"1d", "1w", "1mo"})
 _DAILY_BAR_FREQUENCIES = frozenset({"1d"})
-_OPENBB_LEGACY_ASSET_TYPES = frozenset({"stock", "futures", "fund", "fx", "crypto"})
 _MAX_LEGACY_LOOKUP_CANDIDATES = 128
 
 
@@ -111,14 +114,19 @@ class LegacyMarketDataQueryContractResolver:
         self,
         db: AsyncSession,
         *,
+        openbb_provider: str = "yfinance",
         openbb_allowed_markets: frozenset[str] = frozenset(),
         family_contracts: DatasetContractRegistry = DEFAULT_DATASET_CONTRACT_REGISTRY,
     ) -> None:
         self._db = db
         self._identities = MarketDataIdentityResolver(db)
         self._catalog = DataCatalogResolver(db)
-        self._openbb_allowed_markets = frozenset(
+        normalized_openbb_markets = tuple(
             market.strip() for market in openbb_allowed_markets if market.strip()
+        )
+        self._openbb_runtime_permits = approved_openbb_runtime_route_permits(
+            openbb_provider,
+            normalized_openbb_markets,
         )
         self._family_contracts = family_contracts
 
@@ -350,12 +358,40 @@ class LegacyMarketDataQueryContractResolver:
             return frequency in _DAILY_BAR_FREQUENCIES and semantics == _CN_OPTION_DEFAULTS
         if asset_type == "fx" and venue in {"OTC", "CN-OTC"}:
             return frequency in _DAILY_BAR_FREQUENCIES and semantics == _CN_FX_DEFAULTS
-        return (
-            venue in self._openbb_allowed_markets
-            and asset_type in _OPENBB_LEGACY_ASSET_TYPES
-            and frequency in _DATE_ALIGNED_BAR_FREQUENCIES
-            and semantics == _GLOBAL_DEFAULTS
+        return any(
+            _permit_matches_legacy_request(
+                permit,
+                family_id=family_id,
+                asset_type=asset_type,
+                venue=venue,
+                frequency=frequency,
+                semantics=semantics,
+            )
+            for permit in self._openbb_runtime_permits
         )
+
+
+def _permit_matches_legacy_request(
+    permit: OpenBBRuntimeRoutePermit,
+    *,
+    family_id: str,
+    asset_type: str,
+    venue: str | None,
+    frequency: str,
+    semantics: _SemanticDefaults,
+) -> bool:
+    """Match every explicit OpenBB permit axis before a bridge can mint a contract."""
+    return (
+        permit.family_id == family_id
+        and permit.asset_type == asset_type
+        and permit.market == venue
+        and permit.data_kind == "bars"
+        and permit.frequency == frequency
+        and permit.adjustment == semantics.adjustment
+        and permit.price_basis == semantics.price_basis
+        and permit.currency == semantics.currency
+        and permit.unit == semantics.unit
+    )
 
 
 def _semantics_for(
@@ -394,7 +430,6 @@ def _semantics_for(
         return _CN_OPTION_DEFAULTS
     if asset_type == "fx" and venue in {"OTC", "CN-OTC"}:
         return _CN_FX_DEFAULTS
-    # OpenBB's isolated runner accepts only provider-native undeclared
-    # semantics. Returning None here keeps the bridge compatible with a
-    # reviewed OpenBB fallback and avoids relabelling a global provider's data.
+    # A future OpenBB permit can use provider-native undeclared semantics, but
+    # this default alone never creates a route or a compatibility contract.
     return _GLOBAL_DEFAULTS

@@ -42,7 +42,7 @@
 
 作为用户或内部调用方，我必须以 canonical ID，或完整的 `(asset_type, symbol, market)` 三元组请求数据。系统拒绝仅传代码、同时传两种选择器、大小写近似匹配、别名猜测和空字符串。
 
-`canonical_id` 与三元组字段是协议标识符，不采用数据库默认的人类语言排序。权威 `asset_instruments.canonical_id` 与规范化投影/lookup 的身份字段在 SQLite 使用 `BINARY`、MySQL 使用 `utf8mb4_bin`、PostgreSQL 使用 `C` 排序规则；遗留 bridge 在查询 lookup key 后仍逐字符复核 lookup 行和已发布冻结 identity 的 asset type/symbol，因而未迁移或损坏的大小写不敏感库也必须失败关闭。MySQL/PostgreSQL 启用 v2 前必须完成 `20260909_market_data_exact_identity_collation` 迁移与真实方言回归，不能仅以 SQLite 通过作为排序规则证据。
+`canonical_id` 与三元组字段是协议标识符，不采用数据库默认的人类语言排序。权威 `asset_instruments.canonical_id` 与规范化投影/lookup 的身份字段在 SQLite 使用 `BINARY`、MySQL 使用 `utf8mb4_bin`、PostgreSQL 使用 `C` 排序规则；遗留 bridge 在查询 lookup key 后仍逐字符复核 lookup 行和已发布冻结 identity 的 asset type/symbol，因而未迁移或损坏的大小写不敏感库也必须失败关闭。MySQL/PostgreSQL 启用 v2 前必须完成 `20260909_market_data_exact_identity_collation` 及当前独立链 successor `20260909_market_data_constraint_name_portability`，并完成真实方言回归，不能仅以 SQLite 通过作为排序规则证据。
 
 请求指定：逻辑数据集、数据种类、半开时间区间 `[start, end)`、字段集、频率、复权/价格口径、币种、单位、来源策略、一致性级别、用途、知识截止点和模式。频率只能是明确的 `5min`、`30min`、`1h`、`1d`、`1w`、`1mo`。
 

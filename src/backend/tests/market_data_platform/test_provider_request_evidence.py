@@ -53,7 +53,7 @@ def test_each_provider_attempt_has_a_distinct_csprng_request_id_and_receipt_dto_
 
 
 def test_request_fingerprint_covers_route_and_every_outbound_dto_dimension() -> None:
-    """Changing a route or semantic axis changes the receipt fingerprint."""
+    """Changing a route, family, endpoint, or semantic axis changes the receipt fingerprint."""
     request = _request(request_id="A" * 43)
 
     assert replace(
@@ -70,6 +70,12 @@ def test_request_fingerprint_covers_route_and_every_outbound_dto_dimension() -> 
     )
     assert replace(
         request, required_fields=frozenset({"close"})
+    ).provider_request_fingerprint_sha256 != (request.provider_request_fingerprint_sha256)
+    assert replace(
+        request, family_id="stock.realtime"
+    ).provider_request_fingerprint_sha256 != (request.provider_request_fingerprint_sha256)
+    assert replace(
+        request, provider_endpoint="equity.price.historical"
     ).provider_request_fingerprint_sha256 != (request.provider_request_fingerprint_sha256)
 
 

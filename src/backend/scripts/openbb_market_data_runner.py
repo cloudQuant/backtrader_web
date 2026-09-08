@@ -13,11 +13,14 @@ import math
 import os
 import sys
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from importlib import metadata
 from typing import Any
 
 PROTOCOL_VERSION = "openbb-market-data-v1"
+SELF_CHECK_VERSION = "openbb-market-data-self-check-v1"
 _ALLOWED_ASSET_TYPES = {"stock", "fund", "futures", "fx", "crypto"}
 _YFINANCE_INTERVAL_BY_FREQUENCY = {
     "1d": "1d",
@@ -25,6 +28,59 @@ _YFINANCE_INTERVAL_BY_FREQUENCY = {
     "1mo": "1M",
 }
 _MAX_RAW_PAYLOAD_BYTES = 4 * 1024 * 1024
+_EXACT_ALLOWED_PROVIDER_NAMES = ("yfinance",)
+_REQUIRED_DISTRIBUTIONS = ("openbb", "openbb-yfinance")
+_DANGEROUS_OPENBB_ENVIRONMENT_KEYS = (
+    "OPENBB_ALLOW_MUTABLE_EXTENSIONS",
+    "OPENBB_ALLOW_ON_COMMAND_OUTPUT",
+)
+_PERMIT_MATRIX_VERSION = "openbb-runtime-permit-matrix-v1"
+_OUTBOUND_END_BOUND_UNATTESTED = "OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED"
+
+
+@dataclass(frozen=True, slots=True)
+class _RunnerRuntimeRoutePermit:
+    """One exact runner-side mirror of a reviewed OpenBB route permit.
+
+    This deliberately duplicates the web application's static permit matrix
+    because this script must remain executable from an isolated OpenBB runtime
+    without importing application code. A future enablement must update both
+    sides together and prove their parity before this tuple can become
+    nonempty.
+    """
+
+    route_id: str
+    family_id: str
+    provider: str
+    asset_type: str
+    market: str
+    data_kind: str
+    frequency: str
+    adjustment: str | None
+    price_basis: str | None
+    currency: str | None
+    unit: str | None
+    endpoint: str
+
+    def matches_request(self, request: Mapping[str, Any]) -> bool:
+        """Require every permit axis and endpoint in the echoed DTO to match."""
+        return (
+            request.get("route_id") == self.route_id
+            and request.get("family_id") == self.family_id
+            and request.get("provider") == self.provider
+            and request.get("asset_type") == self.asset_type
+            and request.get("market") == self.market
+            and request.get("data_kind") == self.data_kind
+            and request.get("frequency") == self.frequency
+            and request.get("adjustment") == self.adjustment
+            and request.get("price_basis") == self.price_basis
+            and request.get("currency") == self.currency
+            and request.get("unit") == self.unit
+            and request.get("provider_endpoint") == self.endpoint
+        )
+
+
+_ACTIVE_RUNTIME_ROUTE_PERMITS: tuple[_RunnerRuntimeRoutePermit, ...] = ()
 
 
 def _emit(payload: Mapping[str, Any]) -> int:
@@ -102,6 +158,102 @@ def _error(request_id: object, code: str, detail: str) -> int:
     )
 
 
+def _configured_provider_names() -> tuple[str, ...]:
+    """Read the runner's non-secret provider control without broad defaults."""
+    return tuple(
+        item.strip()
+        for item in os.getenv("OPENBB_ALLOWED_PROVIDERS", "yfinance").split(",")
+        if item.strip()
+    )
+
+
+def _provider_allow_list_is_exact(provider_names: tuple[str, ...]) -> bool:
+    """Accept only the one reviewed provider name, once, with exact spelling."""
+    return provider_names == _EXACT_ALLOWED_PROVIDER_NAMES
+
+
+def _distribution_versions() -> dict[str, str | None]:
+    """Read installed package metadata only; this never imports an OpenBB extension."""
+    versions: dict[str, str | None] = {}
+    for distribution_name in _REQUIRED_DISTRIBUTIONS:
+        try:
+            versions[distribution_name] = metadata.version(distribution_name)
+        except (metadata.PackageNotFoundError, OSError, ValueError):
+            versions[distribution_name] = None
+    return versions
+
+
+def _self_check_payload() -> dict[str, object]:
+    """Return a local, non-secret attestation for the disabled runtime boundary.
+
+    It intentionally uses distribution metadata and this static empty permit
+    matrix rather than importing ``openbb`` or invoking provider coverage APIs.
+    That keeps a self-check non-network and prevents it from changing runtime
+    state or loading a mutable extension merely to inspect it.
+    """
+    configured_provider_names = _configured_provider_names()
+    distribution_versions = _distribution_versions()
+    dangerous_environment_keys = [
+        key for key in _DANGEROUS_OPENBB_ENVIRONMENT_KEYS if os.getenv(key)
+    ]
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "self_check_version": SELF_CHECK_VERSION,
+        "status": "blocked",
+        "attestation": {
+            "runtime": {
+                "distribution_versions": distribution_versions,
+                "missing_distributions": [
+                    name for name, version in distribution_versions.items() if version is None
+                ],
+            },
+            "coverage": {
+                "permit_matrix_version": _PERMIT_MATRIX_VERSION,
+                "coverage_source": "static-empty-permit-matrix",
+                "active_route_ids": [
+                    permit.route_id for permit in _ACTIVE_RUNTIME_ROUTE_PERMITS
+                ],
+            },
+            "configuration": {
+                "configured_provider_names": list(configured_provider_names),
+                "provider_allow_list_status": (
+                    "exact"
+                    if _provider_allow_list_is_exact(configured_provider_names)
+                    else "invalid"
+                ),
+                "dangerous_openbb_environment_keys": dangerous_environment_keys,
+                "secret_values_included": False,
+            },
+            "outbound_end_bound": {
+                "code": _OUTBOUND_END_BOUND_UNATTESTED,
+                "status": "unattested",
+            },
+        },
+    }
+
+
+def _yfinance_outbound_end_bound_is_attested() -> bool:
+    """Return whether the actual installed yfinance call has a proved end bound.
+
+    The local OpenBB yfinance helper under review passes ``end=None`` to
+    ``yf.download`` and only filters records after the upstream response.  No
+    setting can override this blocker: a later implementation must add a
+    concrete, tested outbound-call attestation before it returns ``True``.
+    """
+    return False
+
+
+def _has_active_runtime_route_permit(request: Mapping[str, Any]) -> bool:
+    """Require an exact runner-side permit even after an end-bound implementation exists.
+
+    This duplicate, intentionally empty runtime guard prevents a future change
+    to the outbound-bound attestation from implicitly enabling asset or market
+    classes. A reviewed enablement must update this runner guard and the web
+    policy matrix in the same change, with parity tests.
+    """
+    return any(permit.matches_request(request) for permit in _ACTIVE_RUNTIME_ROUTE_PERMITS)
+
+
 def _as_utc_text(value: object) -> str:
     if isinstance(value, datetime):
         parsed = value
@@ -116,18 +268,19 @@ def _as_utc_text(value: object) -> str:
     return parsed.astimezone(timezone.utc).isoformat()
 
 
-def _route(obb: Any, asset_type: str) -> Callable[..., Any]:
-    if asset_type == "stock":
+def _route(obb: Any, *, asset_type: str, endpoint: str) -> Callable[..., Any]:
+    """Resolve only the exact server-permitted endpoint for one asset class."""
+    if (asset_type, endpoint) == ("stock", "equity.price.historical"):
         return obb.equity.price.historical
-    if asset_type == "fund":
+    if (asset_type, endpoint) == ("fund", "etf.historical"):
         return obb.etf.historical
-    if asset_type == "futures":
+    if (asset_type, endpoint) == ("futures", "derivatives.futures.historical"):
         return obb.derivatives.futures.historical
-    if asset_type == "fx":
+    if (asset_type, endpoint) == ("fx", "currency.price.historical"):
         return obb.currency.price.historical
-    if asset_type == "crypto":
+    if (asset_type, endpoint) == ("crypto", "crypto.price.historical"):
         return obb.crypto.price.historical
-    raise ValueError(f"unsupported OpenBB asset type: {asset_type}")
+    raise ValueError("OPENBB_ENDPOINT_UNSUPPORTED")
 
 
 def _records(result: Any) -> list[dict[str, Any]]:
@@ -248,12 +401,14 @@ def main() -> int:
     provider = request.get("provider")
     if asset_type not in _ALLOWED_ASSET_TYPES:
         return _error(request_id, "OPENBB_UNSUPPORTED", "asset type is not approved for the runner")
-    allowed_providers = {
-        item.strip()
-        for item in os.getenv("OPENBB_ALLOWED_PROVIDERS", "yfinance").split(",")
-        if item.strip()
-    }
-    if not isinstance(provider, str) or provider not in allowed_providers:
+    allowed_providers = _configured_provider_names()
+    if not _provider_allow_list_is_exact(allowed_providers):
+        return _error(
+            request_id,
+            "OPENBB_RUNNER_PROVIDER_ALLOW_LIST_INVALID",
+            "OPENBB_ALLOWED_PROVIDERS must be exactly yfinance",
+        )
+    if not isinstance(provider, str) or provider != _EXACT_ALLOWED_PROVIDER_NAMES[0]:
         return _error(request_id, "OPENBB_UNSUPPORTED", "provider is not approved for the runner")
     if request.get("data_kind") != "bars":
         return _error(request_id, "OPENBB_UNSUPPORTED", "only bars are approved for this runner")
@@ -270,6 +425,22 @@ def main() -> int:
             "OPENBB_SEMANTICS_UNSUPPORTED",
             "runner only supports undeclared provider-native price semantics",
         )
+    if not _yfinance_outbound_end_bound_is_attested():
+        # This must remain before the OpenBB import. The installed helper's
+        # post-fetch filtering cannot prove that yfinance received the parent
+        # request's exclusive end bound, so importing it for a live request is
+        # itself disallowed until a separate reviewed change supplies proof.
+        return _error(
+            request_id,
+            _OUTBOUND_END_BOUND_UNATTESTED,
+            "the yfinance outbound end bound is not attested",
+        )
+    if not _has_active_runtime_route_permit(request):
+        return _error(
+            request_id,
+            "OPENBB_ROUTE_UNATTESTED",
+            "no exact active runner permit matches this request",
+        )
 
     try:
         from openbb import obb  # type: ignore[import-not-found]
@@ -282,7 +453,11 @@ def main() -> int:
                 request_id, "OPENBB_UNSUPPORTED", "provider window semantics are not approved"
             )
         call_arguments = _yfinance_historical_arguments(request)
-        result = _route(obb, str(asset_type))(**call_arguments)
+        result = _route(
+            obb,
+            asset_type=str(asset_type),
+            endpoint=str(request["provider_endpoint"]),
+        )(**call_arguments)
         raw_payload, raw_payload_sha256 = _raw_payload(_records(result))
         source_rows = raw_payload["records"]
         if not isinstance(source_rows, list) or any(
@@ -319,5 +494,14 @@ def main() -> int:
     )
 
 
+def _run(argv: list[str]) -> int:
+    """Choose the local self-check without allowing undocumented CLI modes."""
+    if argv == ["--self-check"]:
+        return _emit(_self_check_payload())
+    if argv:
+        return _error(None, "OPENBB_RUNNER_ARGUMENT_INVALID", "unsupported runner argument")
+    return main()
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(_run(sys.argv[1:]))

@@ -37,6 +37,11 @@ from app.models.market_data_platform import (
     MdSourceSnapshot,
     MdVisibilitySequenceAllocator,
 )
+from app.services.market_data.openbb_runtime import (
+    SUPPORTED_OPENBB_RUNNER_PROVIDERS,
+    approved_openbb_runtime_route_permits,
+    openbb_runtime_registration_status,
+)
 
 CANONICAL_STORAGE_ID = "canonical_market_data"
 CANONICAL_STORAGE_URL_ENV = "DATABASE_URL"
@@ -74,8 +79,6 @@ SUPPORTED_ASSET_TYPES = (
     "fx",
     "crypto",
 )
-SUPPORTED_OPENBB_RUNNER_PROVIDERS = frozenset({"yfinance"})
-
 _PROVIDER_TOKEN_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 _SUPPORTED_ENGINES = frozenset({"sqlite", "mysql", "postgresql"})
 _REQUIRED_TABLE_COLUMNS: Mapping[str, frozenset[str]] = {
@@ -296,8 +299,12 @@ class MarketDataBootstrapSpec:
 
     @property
     def openbb_provider_id(self) -> str | None:
-        """Return the exact receipt provider ID when OpenBB is route-approved."""
+        """Return a receipt provider only when an exact runtime permit exists."""
         if self.openbb_provider is None or not self.openbb_allowed_markets:
+            return None
+        if not approved_openbb_runtime_route_permits(
+            self.openbb_provider, self.openbb_allowed_markets
+        ):
             return None
         return f"openbb:{self.openbb_provider}"
 
@@ -392,7 +399,10 @@ class MarketDataPlatformBootstrapper:
             )
             openbb_status = "registered"
         else:
-            openbb_status = "not_configured_no_allowed_markets"
+            openbb_status = openbb_runtime_registration_status(
+                provider=spec.openbb_provider,
+                allowed_markets=spec.openbb_allowed_markets,
+            )
 
         await self._session.flush()
         return MarketDataBootstrapResult(

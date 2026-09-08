@@ -291,6 +291,10 @@ class MarketDataProviderRequest:
     unit: str | None = None
     source_policy_id: str | None = None
     route_id: str | None = None
+    # The resolved query product and the server-owned endpoint remain in the
+    # echoed DTO so an isolated runner cannot substitute a same-shaped route.
+    family_id: str | None = None
+    provider_endpoint: str | None = None
     # This is the reviewed, server-owned source-policy descriptor.  It is
     # deliberately separate from the authenticated caller's dynamic access
     # grant below, so a receipt can prove both what route policy allowed and
@@ -322,6 +326,8 @@ class MarketDataProviderRequest:
             "unit",
             "source_policy_id",
             "route_id",
+            "family_id",
+            "provider_endpoint",
         ):
             value = getattr(self, field_name)
             if value is not None:
@@ -386,6 +392,8 @@ class MarketDataProviderRequest:
             "unit": self.unit,
             "source_policy_id": self.source_policy_id,
             "route_id": self.route_id,
+            "family_id": self.family_id,
+            "provider_endpoint": self.provider_endpoint,
             "policy_descriptor_hash": self.policy_descriptor_hash,
             "access_grant_descriptor_hash": self.access_grant_descriptor_hash,
         }

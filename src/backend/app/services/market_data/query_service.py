@@ -1477,6 +1477,11 @@ def _provider_request_for(
     venue = context.identity.venue
     if venue is None:
         raise MarketDataQueryServiceError("IDENTITY_MARKET_UNSUPPORTED")
+    if route.family_id is not None and route.family_id != context.query.family_id:
+        # ``routes_for`` normally makes this impossible. Keep the check at the
+        # provider boundary as well so a future orchestration refactor cannot
+        # send a permit-derived endpoint under a sibling family binding.
+        raise MarketDataQueryServiceError("SOURCE_POLICY_ROUTE_FAMILY_MISMATCH")
     return MarketDataProviderRequest(
         query_fingerprint=context.query.query_fingerprint,
         canonical_id=context.query.canonical_id,
@@ -1495,6 +1500,8 @@ def _provider_request_for(
         unit=context.query.unit,
         source_policy_id=context.query.source_policy_id,
         route_id=route.route_id,
+        family_id=context.query.family_id,
+        provider_endpoint=route.provider_endpoint,
         policy_descriptor_hash=policy_descriptor_hash,
         access_grant_descriptor_hash=access_grant_descriptor_hash,
     )
@@ -1862,6 +1869,8 @@ def _policy_descriptor_hash(policy: MarketDataSourcePolicy) -> str:
                 "price_bases": _policy_axis_payload(route.price_bases),
                 "currencies": _policy_axis_payload(route.currencies),
                 "units": _policy_axis_payload(route.units),
+                "family_id": route.family_id,
+                "provider_endpoint": route.provider_endpoint,
             }
             for route in policy.routes
         ],

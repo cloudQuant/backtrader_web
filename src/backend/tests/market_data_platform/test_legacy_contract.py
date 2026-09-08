@@ -22,6 +22,7 @@ from app.models.asset_research import AssetInstrument
 from app.models.data_governance import DgDataset, DgDatasetStorage, DgStorageTarget
 from app.models.market_data_platform import MdInstrumentLookupKey
 from app.schemas.asset_research import FuturesIdentityDetails, InstrumentIdentity
+from app.services.market_data import openbb_runtime
 from app.services.market_data.access import MarketDataAuthorizationError
 from app.services.market_data.dataset_contracts import DatasetContractRegistryError
 from app.services.market_data.identity_projection import MarketDataIdentityProjectionWriter
@@ -29,6 +30,7 @@ from app.services.market_data.legacy_contract import (
     LegacyMarketDataQueryContractResolver,
     _semantics_for,
 )
+from app.services.market_data.openbb_runtime import OpenBBRuntimeRoutePermit
 
 UTC = timezone.utc
 
@@ -479,10 +481,9 @@ async def test_legacy_bridge_does_not_issue_an_openbb_crypto_contract_without_a_
         openbb_allowed_markets=frozenset({"US-NYSE"}),
     )
 
-    # This route predicate is deliberately true: the refusal must come from
-    # the server-owned product registry, before it can become a generic bars
-    # contract or depend on a catalog/identity record.
-    assert resolver._has_reviewed_route(
+    # A configured market name cannot stand in for an explicit OpenBB permit,
+    # even before the missing product-family gate is reached.
+    assert not resolver._has_reviewed_route(
         family_id="crypto.realtime",
         asset_type="crypto",
         venue="US-NYSE",
@@ -501,6 +502,140 @@ async def test_legacy_bridge_does_not_issue_an_openbb_crypto_contract_without_a_
         )
 
     assert exc_info.value.code == "DATA_FAMILY_UNCONFIGURED"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("asset_type", "symbol", "market", "canonical_id", "identity_factory"),
+    (
+        ("stock", "AAPL", "US-NYSE", "instrument:stock:US-NYSE:AAPL", _identity),
+        ("fund", "SPY", "US-NYSE", "instrument:fund:US-NYSE:SPY", _fund_identity),
+    ),
+)
+async def test_legacy_bridge_does_not_mint_a_global_contract_from_a_nonempty_openbb_market_list(
+    db_session: AsyncSession,
+    asset_type: str,
+    symbol: str,
+    market: str,
+    canonical_id: str,
+    identity_factory: object,
+) -> None:
+    """A contract and query policy share the same empty runtime permit matrix."""
+    await _add_catalog(db_session)
+    assert callable(identity_factory)
+    identity_payload = identity_factory(
+        canonical_id=canonical_id,
+        symbol=symbol,
+        venue=market,
+    )
+    await _add_identity(
+        db_session,
+        canonical_id=canonical_id,
+        symbol=symbol,
+        market=market,
+        identity_payload=identity_payload,
+    )
+    resolver = LegacyMarketDataQueryContractResolver(
+        db_session,
+        openbb_allowed_markets=frozenset({market}),
+    )
+
+    assert not resolver._has_reviewed_route(
+        family_id=f"{asset_type}.realtime",
+        asset_type=asset_type,
+        venue=market,
+        frequency="1d",
+        semantics=_semantics_for(
+            family_id=f"{asset_type}.realtime",
+            asset_type=asset_type,
+            venue=market,
+        ),
+    )
+    assert (
+        await resolver.resolve(
+            asset_type=asset_type,
+            symbol=symbol,
+            period="daily",
+        )
+        is None
+    )
+
+
+def test_legacy_contract_dependency_does_not_turn_openbb_settings_into_a_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The API dependency passes configuration through the same empty permit matrix."""
+    import app.api.data.base as data_base
+
+    monkeypatch.setattr(
+        data_base,
+        "get_settings",
+        lambda: SimpleNamespace(
+            MARKET_DATA_OPENBB_PROVIDER="yfinance",
+            MARKET_DATA_OPENBB_ALLOWED_MARKETS="US-NYSE,US-NASDAQ",
+        ),
+    )
+
+    resolver = data_base.get_legacy_market_data_query_contract_resolver(object())
+
+    assert not resolver._has_reviewed_route(
+        family_id="stock.realtime",
+        asset_type="stock",
+        venue="US-NYSE",
+        frequency="1d",
+        semantics=_semantics_for(
+            family_id="stock.realtime",
+            asset_type="stock",
+            venue="US-NYSE",
+        ),
+    )
+
+
+def test_legacy_bridge_matches_the_full_shape_of_a_synthetic_openbb_permit(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A future exact permit must carry the product and all semantic axes into the bridge."""
+    permit = OpenBBRuntimeRoutePermit(
+        route_id="openbb-yfinance-stock-us-nyse-1d-v1",
+        family_id="stock.realtime",
+        provider="yfinance",
+        asset_type="stock",
+        market="US-NYSE",
+        data_kind="bars",
+        frequency="1d",
+        adjustment=None,
+        price_basis=None,
+        currency=None,
+        unit=None,
+        endpoint="equity.price.historical",
+    )
+    monkeypatch.setattr(openbb_runtime, "OPENBB_RUNTIME_PERMIT_MATRIX", (permit,))
+    resolver = LegacyMarketDataQueryContractResolver(
+        db_session,
+        openbb_provider="yfinance",
+        openbb_allowed_markets=frozenset({"US-NYSE"}),
+    )
+    semantics = _semantics_for(
+        family_id="stock.realtime",
+        asset_type="stock",
+        venue="US-NYSE",
+    )
+
+    assert resolver._has_reviewed_route(
+        family_id="stock.realtime",
+        asset_type="stock",
+        venue="US-NYSE",
+        frequency="1d",
+        semantics=semantics,
+    )
+    assert not resolver._has_reviewed_route(
+        family_id="fund.realtime",
+        asset_type="fund",
+        venue="US-NYSE",
+        frequency="1d",
+        semantics=semantics,
+    )
 
 
 @pytest.mark.asyncio
@@ -828,7 +963,7 @@ async def test_legacy_bridge_only_publishes_periods_with_a_reviewed_default_rout
             venue="CN-OTC",
         ),
     )
-    assert resolver._has_reviewed_route(
+    assert not resolver._has_reviewed_route(
         family_id="crypto.realtime",
         asset_type="crypto",
         venue="US-NYSE",

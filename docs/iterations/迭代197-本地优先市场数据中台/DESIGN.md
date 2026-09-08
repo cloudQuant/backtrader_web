@@ -197,9 +197,9 @@ lease key 对 canonical identity、dataset、metadata version、asset/market、�
 
 父进程创建子进程时只转交运行所需的基础环境变量、`OPENBB_ALLOWED_PROVIDERS` 和可选 `HOME=OPENBB_RUNNER_HOME`；不会把数据库 URL、JWT/session 密钥、代理凭据、Python import path 或主应用 `HOME` 直接传给 runner。子进程 `cwd` 使用绝对且存在的 `OPENBB_RUNNER_WORKDIR`，未配置时退到系统临时目录，配置非法时失败为 `OPENBB_RUNNER_WORKDIR_INVALID`。这只能避免继承当前工作树与大量环境变量，不能阻止同一操作系统账户读取可访问的文件。
 
-`scripts/openbb_market_data_runner.py` 在 runner 环境中导入 `openbb`。它返回有大小上限的预规范化原始 records 封套（`format=openbb-records-pre-normalization-v1`）和其 SHA-256；父进程使用稳定 JSON 重新计算哈希，任何缺失、非映射载荷或哈希不一致的响应均拒绝，不进入 `md_source_snapshots`。默认 API 不注册 OpenBB route；只有运维明确配置 `MARKET_DATA_OPENBB_ALLOWED_MARKETS` 后，才会为该白名单市场加入指定 provider 的 fallback。首批 runner 不做复权、币种、单位或价格口径转换，因而仅接受这些语义为未声明的原生结果；任何声明转换要求都会失败关闭。
+`scripts/openbb_market_data_runner.py` 在 runner 环境中运行隔离 JSON 协议。它保留有大小上限的预规范化原始 records 封套（`format=openbb-records-pre-normalization-v1`）和其 SHA-256；父进程使用稳定 JSON 重新计算哈希，任何缺失、非映射载荷或哈希不一致的响应均拒绝，不进入 `md_source_snapshots`。但当前静态 OpenBB runtime permit matrix **显式为空**：`MARKET_DATA_OPENBB_ALLOWED_MARKETS` 只能收窄未来逐轴审核的 permit，不能由非空值生成 asset、market、endpoint 或 provider fallback，也不会注册 OpenBB provider。未来 permit 的 `route_id`、`family_id`、provider、asset、market、kind、frequency、四个语义轴和 `endpoint` 必须同时投影到 server-owned route、回显 provider DTO 和 runner mirror permit；runner 逐项核验后只按 `(asset_type, endpoint)` 的静态映射分发，不能仅凭 `route_id` 或 asset type 选择端点。runner 只接受恰为 `yfinance` 的 `OPENBB_ALLOWED_PROVIDERS`，扩展、重复或未知 token 一律失败关闭。首批 runner 不做复权、币种、单位或价格口径转换，因而任何声明转换要求都会失败关闭。
 
-当前 runner 对 `yfinance` 只批准日对齐的 `1d`、`1w`、`1mo`：平台频率分别显式映射到 provider `1d`、`1W`、`1M`；分钟频率和非 UTC 午夜窗口返回稳定不支持码。为维持父请求的 `[start, end)`，runner 将 provider end date 转为 `end - 1 microsecond` 所在日期，并在接收记录后再次按父窗口裁剪。OpenBB `OBBject.to_df()` 的默认 `index="date"` 会在 `orient="records"` 时丢失事件时间，因此 runner 强制 `to_df(index=None)`，从 `event_at`、`date`、`datetime` 或 `timestamp` 保留并规范化 event field。这些是离线协议与转换逻辑，非真实网络验证。
+当前 yfinance 调用同样保持禁用。虽然离线转换逻辑把 `1d`、`1w`、`1mo` 显式映射为 `1d`、`1W`、`1M`，并以 `end - 1 microsecond` 计算目标 date，审核到的本地 OpenBB yfinance helper 实际向 `yf.download` 传入 `end=None`，只在上游响应后裁剪。它不能证明父请求的 `[start,end)` 已传到出站调用。因此任一正常 yfinance 请求都在导入或调用 OpenBB 前以 `OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED` 拒绝。`--self-check` 只读取包元数据与静态空矩阵，输出协议/自检版本、安装版本摘要、空 coverage、provider 配置摘要和该阻断码；它不导入 OpenBB、不访问网络，也不输出环境变量值或密钥。只有实现真实出站 end-bound 的可审计证据、精确 permit、许可/配置审计和独立验收都齐备后，才可在独立改动中取消该阻断。OpenBB `OBBject.to_df(index=None)` 与记录规范化逻辑仍是离线协议代码，不能作为网络可用性证据。
 
 生产部署仍必须把 runner 放在独立的 service account 或容器中：运行账户不可读主应用数据库凭据，不挂载项目工作树、应用 `.env`、数据库 socket/volume 或其它应用密钥，并保留运行镜像、扩展版本、允许 provider 和挂载清单。现有环境白名单、受控 `cwd` 与临时 runner 测试不构成这项操作系统级隔离的 `PASS`；它是独立的 `NOT_RUN` 部署验收项。实际扩展可用性、上游账号和许可也不能由单元测试假定。
 
@@ -221,7 +221,7 @@ lease key 对 canonical identity、dataset、metadata version、asset/market、�
 
 ### 7.1 迭代 196/197 迁移整合
 
-当前 197 链由 `20260908_market_data_catalog` 经来源治理、`20260909_market_data_fetch_leases` 继续到 `20260909_market_data_exact_identity_collation`；其根链仍从 `20260811_asset_research_task_leases` 分叉。196 的 `20260904_ai_research_protocol_v2` 也从该 revision 分叉，并继续到 `20260908_ai_research_approval_authority`。因此两个候选同时进入一个版本图时，天然出现两个 head。独立 197 工作树中的单链检查不能替代联合检查。
+当前 197 链由 `20260908_market_data_catalog` 经来源治理、`20260909_market_data_fetch_leases`、`20260909_market_data_exact_identity_collation` 继续到当前独立链 head `20260909_market_data_constraint_name_portability`；其根链仍从 `20260811_asset_research_task_leases` 分叉。196 的 `20260904_ai_research_protocol_v2` 也从该 revision 分叉，并继续到 `20260908_ai_research_approval_authority`。因此两个候选同时进入一个版本图时，天然出现两个 head。独立 197 工作树中的单链检查不能替代联合检查。
 
 196 冻结后，只能选择以下一种受审查路径：把 197 重基到 196 的冻结 head，或在集成分支创建带两个 `down_revision` 的 Alembic merge revision。不得任选一个 head、`stamp` 掉另一个分支或直接对生产库运行独立链。候选发布必须先在空数据库执行 `alembic heads`（恰一个 head）和 `alembic upgrade head`，再在可恢复的 MySQL/PostgreSQL 副本做同样演练；详情和证据格式见 [验收文档](ACCEPTANCE.md#7-数据库迁移与灾备验收)。
 

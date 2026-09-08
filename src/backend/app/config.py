@@ -12,6 +12,7 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.ai_provider_registry import get_default_provider_registry
+from app.services.market_data.openbb_runtime import SUPPORTED_OPENBB_RUNNER_PROVIDERS
 
 _DEFAULT_SECRETS = frozenset(
     {
@@ -136,8 +137,8 @@ class Settings(BaseSettings):
     MARKET_DATA_OPENBB_ALLOWED_MARKETS: str = Field(
         default="",
         description=(
-            "Comma-separated master-data venues eligible for the OpenBB fallback; "
-            "empty keeps the fallback unregistered"
+            "Comma-separated master-data venues that may narrow an explicit OpenBB permit; "
+            "they cannot enable a route on their own"
         ),
     )
     LEGACY_SQLITE_DATABASE_URL: str = Field(
@@ -820,11 +821,16 @@ class Settings(BaseSettings):
     @field_validator("MARKET_DATA_OPENBB_PROVIDER")
     @classmethod
     def validate_market_data_openbb_provider(cls, v: str) -> str:
-        """Canonicalize the OpenBB provider ID shared by bootstrap and query routes."""
+        """Accept only runner providers with a reviewed static contract."""
         normalized = str(v or "").strip().lower()
         if not _MARKET_DATA_PROVIDER_TOKEN_PATTERN.fullmatch(normalized):
             raise ValueError(
                 "MARKET_DATA_OPENBB_PROVIDER must be a lowercase provider token up to 128 chars"
+            )
+        if normalized not in SUPPORTED_OPENBB_RUNNER_PROVIDERS:
+            raise ValueError(
+                "MARKET_DATA_OPENBB_PROVIDER must be one of: "
+                f"{', '.join(sorted(SUPPORTED_OPENBB_RUNNER_PROVIDERS))}"
             )
         return normalized
 

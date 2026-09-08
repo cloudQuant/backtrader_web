@@ -35,11 +35,12 @@ def get_legacy_market_data_query_contract_resolver(
     settings = get_settings()
     allowed_markets = frozenset(
         item.strip()
-        for item in settings.MARKET_DATA_OPENBB_ALLOWED_MARKETS.split(",")
+        for item in str(getattr(settings, "MARKET_DATA_OPENBB_ALLOWED_MARKETS", "")).split(",")
         if item.strip()
     )
     return LegacyMarketDataQueryContractResolver(
         db,
+        openbb_provider=str(getattr(settings, "MARKET_DATA_OPENBB_PROVIDER", "yfinance")),
         openbb_allowed_markets=allowed_markets,
     )
 

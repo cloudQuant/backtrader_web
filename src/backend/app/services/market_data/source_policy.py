@@ -91,6 +91,13 @@ class MarketDataProviderRoute:
     currencies: frozenset[str | None]
     units: frozenset[str | None]
     adapter: MarketDataProvider
+    # Retained routes that predate the public family binding may leave this
+    # unset. A permit-derived route must set one exact family so a similarly
+    # shaped product cannot reach the provider by sharing asset/market axes.
+    family_id: str | None = None
+    # This is a server-owned adapter dispatch token. It is copied to the
+    # signed provider DTO; callers never select it through a public request.
+    provider_endpoint: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "route_id", _nonempty_text(self.route_id, field_name="route_id"))
@@ -148,6 +155,18 @@ class MarketDataProviderRoute:
             "units",
             _semantic_capability_set(self.units, field_name="unit"),
         )
+        if self.family_id is not None:
+            object.__setattr__(
+                self,
+                "family_id",
+                _nonempty_text(self.family_id, field_name="family_id"),
+            )
+        if self.provider_endpoint is not None:
+            object.__setattr__(
+                self,
+                "provider_endpoint",
+                _nonempty_text(self.provider_endpoint, field_name="provider_endpoint", maximum=256),
+            )
         if not hasattr(self.adapter, "fetch"):
             raise TypeError("adapter must implement fetch")
 
@@ -164,6 +183,10 @@ class MarketDataProviderRoute:
             and context.query.price_basis in self.price_bases
             and context.query.currency in self.currencies
             and context.query.unit in self.units
+            and (
+                self.family_id is None
+                or getattr(context.query, "family_id", None) == self.family_id
+            )
         )
 
 

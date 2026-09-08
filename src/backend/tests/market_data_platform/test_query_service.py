@@ -1427,6 +1427,77 @@ def test_fetch_lease_key_is_stable_for_one_resolved_gap_and_changes_with_semanti
     assert first != different_contract_version
 
 
+def test_provider_request_binds_the_resolved_family_and_server_endpoint() -> None:
+    """The runner receipt has the exact product and endpoint chosen by policy."""
+    from app.services.market_data.query_service import _provider_request_for
+
+    context = _context()
+    family_bound_context = replace(
+        context,
+        query=context.query.model_copy(
+            update={
+                "family_id": "stock.realtime",
+                "family_contract_version": "market-data-family-v1",
+            }
+        ),
+    )
+    route = replace(
+        _route(_Provider(_provider_result()), request_provider="yfinance"),
+        family_id="stock.realtime",
+        provider_endpoint="equity.price.historical",
+    )
+
+    provider_request = _provider_request_for(
+        family_bound_context,
+        route,
+        policy_descriptor_hash="b" * 64,
+        access_grant_descriptor_hash="c" * 64,
+    )
+
+    assert provider_request.family_id == "stock.realtime"
+    assert provider_request.provider_endpoint == "equity.price.historical"
+    assert provider_request.dto_payload["family_id"] == "stock.realtime"
+    assert provider_request.dto_payload["provider_endpoint"] == "equity.price.historical"
+    with pytest.raises(MarketDataQueryServiceError, match="SOURCE_POLICY_ROUTE_FAMILY_MISMATCH"):
+        _provider_request_for(
+            family_bound_context,
+            replace(route, family_id="stock.valuation"),
+            policy_descriptor_hash="b" * 64,
+            access_grant_descriptor_hash="c" * 64,
+        )
+
+
+def test_policy_descriptor_hash_binds_permit_family_and_endpoint() -> None:
+    """A cursor cannot replay a route after its product or endpoint changes."""
+    from app.services.market_data.query_service import _policy_descriptor_hash
+    from app.services.market_data.source_policy import (
+        MarketDataProviderRoute,
+        MarketDataSourcePolicy,
+    )
+
+    route = replace(
+        _route(_Provider(_provider_result()), request_provider="yfinance"),
+        family_id="stock.realtime",
+        provider_endpoint="equity.price.historical",
+    )
+
+    def policy_for(candidate_route: MarketDataProviderRoute) -> MarketDataSourcePolicy:
+        return MarketDataSourcePolicy(
+            policy_id="market-default-v1",
+            allowed_purposes=frozenset({"display"}),
+            routes=(candidate_route,),
+        )
+
+    baseline = _policy_descriptor_hash(policy_for(route))
+
+    assert baseline != _policy_descriptor_hash(
+        policy_for(replace(route, family_id="stock.valuation"))
+    )
+    assert baseline != _policy_descriptor_hash(
+        policy_for(replace(route, provider_endpoint="etf.historical"))
+    )
+
+
 @pytest.mark.asyncio
 async def test_current_source_grant_filters_local_reads_and_freezes_provider_receipt_evidence() -> None:
     """Only currently allowed routes/source IDs participate in a data execution."""

@@ -81,3 +81,10 @@ class TestConfig:
                 DEBUG=True,
                 MARKET_DATA_OPENBB_PROVIDER="yfinance;unreviewed",
             )
+
+        with pytest.raises(ValidationError, match="MARKET_DATA_OPENBB_PROVIDER"):
+            Settings(
+                _env_file=None,
+                DEBUG=True,
+                MARKET_DATA_OPENBB_PROVIDER="unreviewed-provider",
+            )

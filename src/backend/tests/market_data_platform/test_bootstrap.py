@@ -117,7 +117,7 @@ def _legacy_shared_binding_constraint_is_rejected(sync_connection: object) -> bo
 
 @pytest.mark.asyncio
 async def test_bootstrap_registers_b1_logical_datasets_without_routes() -> None:
-    """A migrated empty catalog exposes reviewed B1 datasets without granting provider access."""
+    """A market allow-list cannot register OpenBB before a runtime permit exists."""
     async with async_session_maker() as session:
         result = await MarketDataPlatformBootstrapper(session).bootstrap(_spec())
         await session.commit()
@@ -127,7 +127,6 @@ async def test_bootstrap_registers_b1_logical_datasets_without_routes() -> None:
             for dataset_code in CANONICAL_DATASET_CODES
         }
         await MarketDataStore(session).ensure_provider_active(AKSHARE_PROVIDER_ID)
-        await MarketDataStore(session).ensure_provider_active("openbb:yfinance")
         datasets = {
             dataset.dataset_code: dataset
             for dataset in (
@@ -154,11 +153,11 @@ async def test_bootstrap_registers_b1_logical_datasets_without_routes() -> None:
         )
         endpoint_count = await session.scalar(select(func.count()).select_from(DgEndpoint))
 
-    assert result.openbb_status == "registered"
+    assert result.openbb_status == "not_configured_runtime_permits_unattested"
     assert result.dataset_code == CANONICAL_DATASET_CODE
     assert result.dataset_codes == CANONICAL_DATASET_CODES
     assert result.as_dict()["dataset_codes"] == list(CANONICAL_DATASET_CODES)
-    assert result.registered_provider_ids == (AKSHARE_PROVIDER_ID, "openbb:yfinance")
+    assert result.registered_provider_ids == (AKSHARE_PROVIDER_ID,)
     assert {resolution.storage_id for resolution in resolutions.values()} == {CANONICAL_STORAGE_ID}
     assert {resolution.physical_table for resolution in resolutions.values()} == {
         CANONICAL_PHYSICAL_TABLE
@@ -215,7 +214,7 @@ async def test_bootstrap_registers_b1_logical_datasets_without_routes() -> None:
     }
     assert {dataset.dataset_code for _, dataset in bindings} == set(CANONICAL_DATASET_CODES)
     assert len({binding.id for binding, _ in bindings}) == len(CANONICAL_DATASET_CODES)
-    assert provider_ids == [AKSHARE_PROVIDER_ID, "openbb:yfinance"]
+    assert provider_ids == [AKSHARE_PROVIDER_ID]
     assert endpoint_count == 0
 
 
@@ -304,7 +303,7 @@ async def test_bootstrap_is_idempotent_and_does_not_duplicate_control_plane_rows
             "provider": await session.scalar(select(func.count()).select_from(DgProvider)),
         }
 
-    assert len(first.created) == 19
+    assert len(first.created) == 18
     assert first.dataset_code == CANONICAL_DATASET_CODE
     assert first.dataset_codes == CANONICAL_DATASET_CODES
     assert second.created == ()
@@ -315,13 +314,12 @@ async def test_bootstrap_is_idempotent_and_does_not_duplicate_control_plane_rows
         *(f"dataset:{dataset_code}" for dataset_code in CANONICAL_DATASET_CODES),
         *(f"binding:{dataset_code}" for dataset_code in CANONICAL_DATASET_CODES),
         "provider:akshare",
-        "provider:openbb:yfinance",
     }
     assert counts == {
         "storage": 1,
         "dataset": len(CANONICAL_DATASET_CODES),
         "binding": len(CANONICAL_DATASET_CODES),
-        "provider": 2,
+        "provider": 1,
     }
 
 
@@ -407,12 +405,12 @@ async def test_bootstrap_does_not_register_openbb_without_an_explicit_market_all
 
 @pytest.mark.asyncio
 async def test_bootstrap_refuses_to_reactivate_a_disabled_provider() -> None:
-    """An intentional provider kill switch remains operator-owned on later runs."""
+    """An intentional registered-provider kill switch remains operator-owned on later runs."""
     async with async_session_maker() as session:
         await MarketDataPlatformBootstrapper(session).bootstrap(_spec())
         await session.commit()
         provider = await session.scalar(
-            select(DgProvider).where(DgProvider.provider_id == "openbb:yfinance")
+            select(DgProvider).where(DgProvider.provider_id == AKSHARE_PROVIDER_ID)
         )
         assert provider is not None
         provider.is_active = False
@@ -422,7 +420,7 @@ async def test_bootstrap_refuses_to_reactivate_a_disabled_provider() -> None:
             await MarketDataPlatformBootstrapper(session).bootstrap(_spec())
         await session.rollback()
         restored = await session.scalar(
-            select(DgProvider).where(DgProvider.provider_id == "openbb:yfinance")
+            select(DgProvider).where(DgProvider.provider_id == AKSHARE_PROVIDER_ID)
         )
 
     assert blocked.value.code == "MARKET_DATA_BOOTSTRAP_PROVIDER_INACTIVE"
@@ -486,8 +484,8 @@ def test_settings_spec_requires_an_explicit_openbb_market_approval() -> None:
     assert spec.openbb_provider_id is None
 
 
-def test_settings_spec_normalizes_a_mixed_case_openbb_provider_before_registration() -> None:
-    """Bootstrap IDs must equal query-policy receipt IDs for the same settings."""
+def test_settings_spec_keeps_a_mixed_case_openbb_provider_unregistered_without_a_permit() -> None:
+    """A normalized provider plus a market list remains only configuration, not authority."""
     settings = SimpleNamespace(
         DATABASE_URL="sqlite+aiosqlite:////tmp/backtrader.db",
         MARKET_DATA_OPENBB_PROVIDER="YFinance",
@@ -497,7 +495,7 @@ def test_settings_spec_normalizes_a_mixed_case_openbb_provider_before_registrati
     spec = MarketDataBootstrapSpec.from_settings(settings)
 
     assert spec.openbb_provider == "yfinance"
-    assert spec.openbb_provider_id == "openbb:yfinance"
+    assert spec.openbb_provider_id is None
 
 
 def test_bootstrap_spec_rejects_an_openbb_provider_without_a_verified_runner_contract() -> None:

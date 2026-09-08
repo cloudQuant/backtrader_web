@@ -41,6 +41,7 @@ from app.services.market_data.identity import (
     MarketDataIdentityResolutionError,
     MarketDataIdentityResolver,
 )
+from app.services.market_data.openbb_runtime import approved_openbb_runtime_route_permits
 from app.services.market_data.providers import OpenBBSubprocessProvider
 from app.services.market_data.query_resolution import (
     MarketDataQueryResolutionError,
@@ -64,7 +65,6 @@ router = APIRouter()
 
 _DAILY_BAR_FREQUENCIES = frozenset({"1d", "1w", "1mo"})
 _DAILY_ONLY_FREQUENCIES = frozenset({"1d"})
-_OPENBB_ASSET_TYPES = frozenset({"stock", "futures", "fund", "fx", "crypto"})
 _PUBLIC_MARKET_DATA_PURPOSES = frozenset({"display", "research", "backtest"})
 _RESEARCH_CACHE_FILL_PURPOSE = "research_cache_fill"
 _UNDECLARED = frozenset({None})
@@ -100,10 +100,10 @@ def _default_source_policy_registry(
     """Build the reviewed default policy without importing OpenBB in FastAPI.
 
     AkShare routes state the exact route-level capability verified by the local
-    adapter.  OpenBB is present only when an operator supplies a nonempty venue
-    allow-list and is restricted to provider-native, undeclared semantics until
-    the runner can evidence conversions.  Adding a paid/licensed route requires
-    a separate server-owned policy and entitlement review.
+    adapter. OpenBB routes must appear in the static runtime permit matrix;
+    operator market configuration can only narrow those permits. Adding a
+    paid/licensed route requires a separate server-owned policy and entitlement
+    review.
     """
     routes: list[MarketDataProviderRoute] = [
         MarketDataProviderRoute(
@@ -226,25 +226,23 @@ def _default_source_policy_registry(
             adapter=_shared_akshare_provider(),
         ),
     ]
-    if openbb_markets:
+    for permit in approved_openbb_runtime_route_permits(openbb_provider, openbb_markets):
         routes.append(
             MarketDataProviderRoute(
-                route_id=f"openbb-{openbb_provider}-fallback-v1",
-                request_provider=openbb_provider,
-                expected_result_provider_ids=frozenset({f"openbb:{openbb_provider}"}),
-                asset_types=_OPENBB_ASSET_TYPES,
-                data_kinds=frozenset({"bars"}),
-                # The isolated yfinance runner has a verified date-inclusive
-                # conversion only for date-aligned bars. Intraday semantics
-                # remain unapproved until a provider-specific half-open
-                # contract is added and tested.
-                frequencies=_DAILY_BAR_FREQUENCIES,
-                markets=frozenset(openbb_markets),
-                adjustments=_UNDECLARED,
-                price_bases=_UNDECLARED,
-                currencies=_UNDECLARED,
-                units=_UNDECLARED,
+                route_id=permit.route_id,
+                request_provider=permit.provider,
+                expected_result_provider_ids=frozenset({f"openbb:{permit.provider}"}),
+                asset_types=frozenset({permit.asset_type}),
+                data_kinds=frozenset({permit.data_kind}),
+                frequencies=frozenset({permit.frequency}),
+                markets=frozenset({permit.market}),
+                adjustments=frozenset({permit.adjustment}),
+                price_bases=frozenset({permit.price_basis}),
+                currencies=frozenset({permit.currency}),
+                units=frozenset({permit.unit}),
                 adapter=_shared_openbb_provider(),
+                family_id=permit.family_id,
+                provider_endpoint=permit.endpoint,
             )
         )
     allowed_purposes = _PUBLIC_MARKET_DATA_PURPOSES
