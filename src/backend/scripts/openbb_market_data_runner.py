@@ -159,12 +159,8 @@ def _error(request_id: object, code: str, detail: str) -> int:
 
 
 def _configured_provider_names() -> tuple[str, ...]:
-    """Read the runner's non-secret provider control without broad defaults."""
-    return tuple(
-        item.strip()
-        for item in os.getenv("OPENBB_ALLOWED_PROVIDERS", "yfinance").split(",")
-        if item.strip()
-    )
+    """Read the raw provider tokens so spelling and cardinality stay attestable."""
+    return tuple(os.getenv("OPENBB_ALLOWED_PROVIDERS", "yfinance").split(","))
 
 
 def _provider_allow_list_is_exact(provider_names: tuple[str, ...]) -> bool:

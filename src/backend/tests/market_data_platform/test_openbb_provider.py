@@ -996,15 +996,17 @@ def test_openbb_runner_dispatches_only_the_endpoint_bound_by_a_permit() -> None:
         _route(obb, asset_type="stock", endpoint="etf.historical")
 
 
-def test_openbb_runner_rejects_an_expanded_provider_environment_before_import(
+@pytest.mark.parametrize("provider_environment", ("yfinance,unreviewed-provider", "yfinance,"))
+def test_openbb_runner_rejects_a_nonexact_provider_environment_before_import(
     tmp_path: Path,
+    provider_environment: str,
 ) -> None:
-    """Adding a provider name to an environment variable cannot expand runner authority."""
+    """Extra tokens, including an empty trailing token, cannot expand runner authority."""
     request = replace(_request(), market="US-NYSE")
     environment = os.environ.copy()
     environment.update(
         {
-            "OPENBB_ALLOWED_PROVIDERS": "yfinance,unreviewed-provider",
+            "OPENBB_ALLOWED_PROVIDERS": provider_environment,
             "PYTHONPATH": str(tmp_path),
         }
     )
