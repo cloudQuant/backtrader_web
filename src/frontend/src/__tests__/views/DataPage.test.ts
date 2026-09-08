@@ -1165,6 +1165,40 @@ describe('DataPage', () => {
     expect(vm.referenceSeriesResult).toBeNull()
   })
 
+  it('clears prior family facts from the select model update before a new family can be queried', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(createStockLiquidityBundleFixture())
+    apiMocks.getQueryContract.mockImplementation(({ family_id }: { family_id: string }) => (
+      Promise.resolve(
+        family_id === 'stock.liquidity'
+          ? createStockLiquidityContractFixture()
+          : createV2ContractFixture(stockRealtimeFamilyBinding()),
+      )
+    ))
+    apiMocks.queryLocalFirst.mockImplementation(({ family_id }: { family_id: string }) => (
+      Promise.resolve(
+        family_id === 'stock.liquidity'
+          ? createStockLiquidityResponseFixture()
+          : createV2ResponseFixture(stockRealtimeFamilyBinding()),
+      )
+    ))
+
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    expect(vm.selectedFamilyId).toBe('stock.realtime')
+    expect(vm.result).not.toBeNull()
+
+    const familySelect = wrapper.findComponent('[data-test="market-data-family-select"]') as any
+    expect(familySelect.exists()).toBe(true)
+    familySelect.vm.$emit('update:modelValue', 'stock.liquidity')
+    await flushPromises()
+
+    expect(vm.selectedFamilyId).toBe('stock.liquidity')
+    expect(vm.result).toBeNull()
+    expect(vm.referenceSeriesResult).toBeNull()
+    expect(vm.chartCanRender).toBe(false)
+  })
+
   it('fails closed when the selected reference series contract does not match its bundle declaration', async () => {
     vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
     apiMocks.getQueryBundle.mockResolvedValue(createStockLiquidityBundleFixture())

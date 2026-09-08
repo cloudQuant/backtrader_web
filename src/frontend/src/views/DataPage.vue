@@ -124,10 +124,10 @@
         </el-select>
         <el-select
           v-if="selectableDataFamilies.length"
-          v-model="selectedFamilyId"
+          :model-value="selectedFamilyId"
           data-test="market-data-family-select"
           placeholder="数据族"
-          @change="selectDataFamily"
+          @update:model-value="selectDataFamily"
         >
           <el-option
             v-for="family in selectableDataFamilies"
