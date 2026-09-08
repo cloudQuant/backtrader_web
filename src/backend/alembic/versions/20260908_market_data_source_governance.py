@@ -49,7 +49,7 @@ _TABLE_CHECKS: Mapping[str, Mapping[str, str]] = {
             "source_authorization_state IS NULL OR "
             "source_authorization_state IN ('VERIFIED', 'UNVERIFIED_COMPATIBILITY')"
         ),
-        "ck_md_source_snapshot_source_authorization_descriptor_sha256_length": (
+        "ck_md_srcsnap_src_auth_desc_sha256_len": (
             "source_authorization_descriptor_sha256 IS NULL OR "
             f"length(source_authorization_descriptor_sha256) = {_SHA256_LENGTH}"
         ),
@@ -71,7 +71,7 @@ _TABLE_CHECKS: Mapping[str, Mapping[str, str]] = {
             "source_governance_state IS NULL OR "
             "source_governance_state IN ('VERIFIED', 'UNVERIFIED_COMPATIBILITY')"
         ),
-        "ck_md_calendar_snapshot_source_governance_descriptor_sha256_length": (
+        "ck_md_calsnap_src_gov_desc_sha256_len": (
             "source_governance_descriptor_sha256 IS NULL OR "
             f"length(source_governance_descriptor_sha256) = {_SHA256_LENGTH}"
         ),
@@ -83,6 +83,18 @@ _TABLE_CHECKS: Mapping[str, Mapping[str, str]] = {
             "(source_registry_id IS NOT NULL AND "
             "source_governance_state = 'UNVERIFIED_COMPATIBILITY' AND "
             "source_governance_descriptor_sha256 IS NULL)"
+        ),
+    },
+}
+_LEGACY_TABLE_CHECK_NAMES: Mapping[str, Mapping[str, tuple[str, ...]]] = {
+    _SOURCE_SNAPSHOTS: {
+        "ck_md_srcsnap_src_auth_desc_sha256_len": (
+            "ck_md_source_snapshot_source_authorization_descriptor_sha256_length",
+        ),
+    },
+    _CALENDAR_SNAPSHOTS: {
+        "ck_md_calsnap_src_gov_desc_sha256_len": (
+            "ck_md_calendar_snapshot_source_governance_descriptor_sha256_length",
         ),
     },
 }
@@ -159,19 +171,43 @@ def _observed_checks(bind: sa.Connection, table_name: str) -> dict[str, str]:
     }
 
 
+def _matching_check_name(
+    observed: Mapping[str, str],
+    *,
+    table_name: str,
+    name: str,
+    expression: str,
+) -> str | None:
+    """Accept an equivalent legacy name from an unreleased SQLite candidate."""
+    expected = _normalized_expression(expression)
+    aliases = _LEGACY_TABLE_CHECK_NAMES.get(table_name, {}).get(name, ())
+    for candidate_name in (name, *aliases):
+        actual = observed.get(candidate_name)
+        if actual is None:
+            continue
+        if actual != expected:
+            raise RuntimeError(
+                "MARKET_DATA_SOURCE_GOVERNANCE_SCHEMA_DRIFT: "
+                f"{candidate_name}={actual!r}"
+            )
+        return candidate_name
+    return None
+
+
 def _ensure_checks(bind: sa.Connection, table_name: str) -> None:
     observed = _observed_checks(bind, table_name)
     missing: dict[str, str] = {}
     for name, expression in _TABLE_CHECKS[table_name].items():
-        actual = observed.get(name)
-        expected = _normalized_expression(expression)
-        if actual is None:
-            missing[name] = expression
-        elif actual != expected:
-            raise RuntimeError(
-                "MARKET_DATA_SOURCE_GOVERNANCE_SCHEMA_DRIFT: "
-                f"{name}={actual!r}"
+        if (
+            _matching_check_name(
+                observed,
+                table_name=table_name,
+                name=name,
+                expression=expression,
             )
+            is None
+        ):
+            missing[name] = expression
     if not missing:
         return
     if bind.dialect.name == "sqlite":
@@ -282,16 +318,20 @@ def _drop_table_columns_and_constraints(bind: sa.Connection, table_name: str) ->
             if table_name == _CALENDAR_SNAPSHOTS and _CALENDAR_SOURCE_INDEX in indexes:
                 batch.drop_index(_CALENDAR_SOURCE_INDEX)
             for name in _TABLE_CHECKS[table_name]:
-                if name in observed_checks:
-                    batch.drop_constraint(name, type_="check")
+                aliases = _LEGACY_TABLE_CHECK_NAMES.get(table_name, {}).get(name, ())
+                for candidate_name in (name, *aliases):
+                    if candidate_name in observed_checks:
+                        batch.drop_constraint(candidate_name, type_="check")
             for column in present_columns:
                 batch.drop_column(column)
         return
     if table_name == _CALENDAR_SNAPSHOTS and _CALENDAR_SOURCE_INDEX in indexes:
         op.drop_index(_CALENDAR_SOURCE_INDEX, table_name=table_name)
     for name in _TABLE_CHECKS[table_name]:
-        if name in observed_checks:
-            op.drop_constraint(name, table_name, type_="check")
+        aliases = _LEGACY_TABLE_CHECK_NAMES.get(table_name, {}).get(name, ())
+        for candidate_name in (name, *aliases):
+            if candidate_name in observed_checks:
+                op.drop_constraint(candidate_name, table_name, type_="check")
     for column in present_columns:
         op.drop_column(table_name, column)
 

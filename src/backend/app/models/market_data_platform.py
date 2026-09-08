@@ -428,7 +428,7 @@ class MdSourceSnapshot(Base):
         CheckConstraint(
             "provider_request_fingerprint_sha256 IS NULL OR "
             f"length(provider_request_fingerprint_sha256) = {_SHA256_LENGTH}",
-            name="ck_md_source_snapshot_provider_request_fingerprint_sha256_length",
+            name="ck_md_srcsnap_provider_req_fp_sha256_len",
         ),
         CheckConstraint(
             "query_fingerprint_sha256 IS NULL OR "
@@ -452,7 +452,7 @@ class MdSourceSnapshot(Base):
         CheckConstraint(
             "source_authorization_descriptor_sha256 IS NULL OR "
             f"length(source_authorization_descriptor_sha256) = {_SHA256_LENGTH}",
-            name="ck_md_source_snapshot_source_authorization_descriptor_sha256_length",
+            name="ck_md_srcsnap_src_auth_desc_sha256_len",
         ),
         CheckConstraint(
             "(source_authorization_state IS NULL AND "
@@ -653,7 +653,7 @@ class MdCalendarSnapshot(Base):
         CheckConstraint(
             "source_governance_descriptor_sha256 IS NULL OR "
             f"length(source_governance_descriptor_sha256) = {_SHA256_LENGTH}",
-            name="ck_md_calendar_snapshot_source_governance_descriptor_sha256_length",
+            name="ck_md_calsnap_src_gov_desc_sha256_len",
         ),
         CheckConstraint(
             "(source_registry_id IS NULL AND source_governance_state IS NULL AND "

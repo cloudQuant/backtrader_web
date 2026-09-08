@@ -12,6 +12,8 @@ from types import ModuleType, SimpleNamespace
 import pytest
 import sqlalchemy as sa
 from alembic.config import Config
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.dialects import mysql, postgresql, sqlite
@@ -30,6 +32,7 @@ SOURCE_RECEIPT_EVIDENCE_REVISION = "20260908_market_data_source_receipt_evidence
 SOURCE_GOVERNANCE_REVISION = "20260908_market_data_source_governance"
 FETCH_LEASE_REVISION = "20260909_market_data_fetch_leases"
 EXACT_IDENTITY_COLLATION_REVISION = "20260909_market_data_exact_identity_collation"
+CONSTRAINT_NAME_PORTABILITY_REVISION = "20260909_market_data_constraint_name_portability"
 STORAGE_TABLES = {
     "md_instrument_lookup_keys",
     "md_data_series",
@@ -122,6 +125,219 @@ def _load_source_governance_migration() -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _load_constraint_name_portability_migration() -> ModuleType:
+    """Load the stamped-candidate reconciliation revision for direct probes."""
+    migration_path = (
+        BACKEND_ROOT
+        / "alembic"
+        / "versions"
+        / "20260909_market_data_constraint_name_portability.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "iteration197_constraint_name_portability_migration", migration_path
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_unreleased_legacy_check_names_are_accepted_only_with_matching_semantics() -> None:
+    """SQLite candidates created before the PG-safe rename stay upgradeable."""
+    receipt_migration = _load_source_receipt_evidence_migration()
+    receipt_name = receipt_migration._PROVIDER_FINGERPRINT_CHECK
+    receipt_legacy_name = receipt_migration._LEGACY_CHECK_NAMES[receipt_name][0]
+    receipt_expression = receipt_migration._CHECKS[receipt_name]
+    assert (
+        receipt_migration._matching_check_name(
+            {receipt_legacy_name: receipt_migration._normalized_expression(receipt_expression)},
+            name=receipt_name,
+            expression=receipt_expression,
+        )
+        == receipt_legacy_name
+    )
+    with pytest.raises(RuntimeError, match="SCHEMA_DRIFT"):
+        receipt_migration._matching_check_name(
+            {receipt_legacy_name: "different"},
+            name=receipt_name,
+            expression=receipt_expression,
+        )
+
+    governance_migration = _load_source_governance_migration()
+    governance_table = governance_migration._CALENDAR_SNAPSHOTS
+    governance_name = "ck_md_calsnap_src_gov_desc_sha256_len"
+    governance_legacy_name = governance_migration._LEGACY_TABLE_CHECK_NAMES[
+        governance_table
+    ][governance_name][0]
+    governance_expression = governance_migration._TABLE_CHECKS[governance_table][governance_name]
+    assert (
+        governance_migration._matching_check_name(
+            {
+                governance_legacy_name: governance_migration._normalized_expression(
+                    governance_expression
+                )
+            },
+            table_name=governance_table,
+            name=governance_name,
+            expression=governance_expression,
+        )
+        == governance_legacy_name
+    )
+    with pytest.raises(RuntimeError, match="SCHEMA_DRIFT"):
+        governance_migration._matching_check_name(
+            {governance_legacy_name: "different"},
+            table_name=governance_table,
+            name=governance_name,
+            expression=governance_expression,
+        )
+
+
+def test_constraint_portability_migration_preserves_a_stamped_legacy_sqlite_candidate(
+    tmp_path: Path,
+) -> None:
+    """A database that skipped edited history reaches head without rebuilding FKs."""
+    database_path = tmp_path / "market-data-legacy-constraint-names.sqlite3"
+    config = _config(f"sqlite+aiosqlite:///{database_path}")
+    engine = create_engine(f"sqlite:///{database_path}")
+    migration = _load_constraint_name_portability_migration()
+    try:
+        with engine.connect() as connection:
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            connection.commit()
+            assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one() == 1
+            config.attributes["connection"] = connection
+            command.upgrade(config, EXACT_IDENTITY_COLLATION_REVISION)
+            if connection.in_transaction():
+                connection.commit()
+            with connection.begin():
+                operations = Operations(MigrationContext.configure(connection))
+                for table_name, renames in migration._RENAMES.items():
+                    with operations.batch_alter_table(table_name, recreate="always") as batch:
+                        for legacy_name, (portable_name, expression) in renames.items():
+                            batch.drop_constraint(portable_name, type_="check")
+                            batch.create_check_constraint(legacy_name, expression)
+
+            with connection.begin():
+                receipt_at = datetime(2026, 9, 9, 12, tzinfo=timezone.utc)
+                connection.execute(
+                    text(
+                        "INSERT INTO dg_providers "
+                        "(id, provider_id, name, category, auth_type, rate_limit, is_active, created_at) "
+                        "VALUES ('provider-legacy-names', 'akshare', 'AkShare', 'market', 'none', "
+                        "60, 1, :receipt_at)"
+                    ),
+                    {"receipt_at": receipt_at},
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO md_source_snapshots "
+                        "(id, provider_id, platform, source_id, adapter_id, endpoint_version, "
+                        "request_fingerprint_sha256, payload_sha256, request_json, payload_manifest_json, "
+                        "provenance_json, retrieved_at, created_at) "
+                        "VALUES ('snapshot-legacy-names', 'provider-legacy-names', 'akshare', 'akshare', "
+                        "'akshare.market-data', 'v1', :request_fingerprint, :payload_sha256, '{}', '{}', "
+                        "'{}', :receipt_at, :receipt_at)"
+                    ),
+                    {
+                        "request_fingerprint": _sha("legacy-constraint-request"),
+                        "payload_sha256": _sha("legacy-constraint-payload"),
+                        "receipt_at": receipt_at,
+                    },
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO md_calendar_snapshots "
+                        "(id, calendar_code, calendar_version, timezone_name, source_snapshot_id, "
+                        "snapshot_sha256, definition_json, created_at) "
+                        "VALUES ('calendar-legacy-names', 'CN-SSE', '2026.09', 'Asia/Shanghai', "
+                        "'snapshot-legacy-names', :snapshot_sha256, '{}', :receipt_at)"
+                    ),
+                    {
+                        "snapshot_sha256": _sha("legacy-constraint-calendar"),
+                        "receipt_at": receipt_at,
+                    },
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO md_calendar_events "
+                        "(id, calendar_snapshot_id, trading_date, event_type, session_code, "
+                        "is_trading_day, event_payload_json, event_sha256, created_at) "
+                        "VALUES ('calendar-event-legacy-names', 'calendar-legacy-names', '2026-09-09', "
+                        "'holiday', 'closed', 0, '{}', :event_sha256, :receipt_at)"
+                    ),
+                    {
+                        "event_sha256": _sha("legacy-constraint-calendar-event"),
+                        "receipt_at": receipt_at,
+                    },
+                )
+
+            command.upgrade(config, CONSTRAINT_NAME_PORTABILITY_REVISION)
+
+            inspector = inspect(connection)
+            for table_name, renames in migration._RENAMES.items():
+                observed = {
+                    str(constraint["name"]): migration._normalized_expression(
+                        constraint.get("sqltext", "")
+                    )
+                    for constraint in inspector.get_check_constraints(table_name)
+                    if constraint.get("name")
+                }
+                for legacy_name, (portable_name, expression) in renames.items():
+                    assert observed[legacy_name] == migration._normalized_expression(expression)
+                    assert portable_name not in observed
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
+                CONSTRAINT_NAME_PORTABILITY_REVISION
+            )
+            assert connection.execute(
+                text("SELECT count(*) FROM md_source_snapshots WHERE id = 'snapshot-legacy-names'")
+            ).scalar_one() == 1
+            assert connection.execute(
+                text(
+                    "SELECT count(*) FROM md_calendar_events "
+                    "WHERE id = 'calendar-event-legacy-names'"
+                )
+            ).scalar_one() == 1
+            assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+    finally:
+        engine.dispose()
+
+
+def test_constraint_portability_normalizes_only_the_postgresql_varchar_text_cast() -> None:
+    """A reflected PostgreSQL SHA-length constraint is semantically equivalent."""
+    migration = _load_constraint_name_portability_migration()
+    expression = (
+        "provider_request_fingerprint_sha256 IS NULL OR "
+        "length(provider_request_fingerprint_sha256) = 64"
+    )
+    reflected = (
+        "provider_request_fingerprint_sha256 IS NULL OR "
+        "length(provider_request_fingerprint_sha256::text) = 64"
+    )
+
+    assert migration._normalized_expression(reflected) == migration._normalized_expression(expression)
+    assert migration._normalized_expression(
+        "provider_request_fingerprint_sha256 IS NULL OR "
+        "length(provider_request_fingerprint_sha256::text) = 63"
+    ) != migration._normalized_expression(expression)
+
+
+def test_constraint_portability_rejects_a_stamped_candidate_missing_both_constraint_names() -> None:
+    """A migration marker cannot conceal absence of a SHA integrity constraint."""
+    migration = _load_constraint_name_portability_migration()
+    legacy_name, (portable_name, expression) = next(
+        iter(migration._RENAMES["md_source_snapshots"].items())
+    )
+
+    with pytest.raises(RuntimeError, match="SCHEMA_DRIFT"):
+        migration._validate_rename_state(
+            {},
+            legacy_name=legacy_name,
+            portable_name=portable_name,
+            expression=expression,
+        )
 
 
 def _publication_table_columns(
@@ -938,8 +1154,8 @@ def test_observation_revision_is_linear_child_of_catalog_revision() -> None:
     assert len(script.get_heads()) == 1
 
 
-def test_exact_identity_collation_revision_extends_the_normalized_storage_chain() -> None:
-    """Receipt, leasing, and exact identifier semantics remain on one storage chain."""
+def test_constraint_name_portability_revision_extends_the_normalized_storage_chain() -> None:
+    """Receipt, leasing, and portable constraint names remain on one storage chain."""
     script = ScriptDirectory.from_config(_config("sqlite://"))
 
     shared_revision = script.get_revision(SHARED_DATASET_BINDINGS_REVISION)
@@ -948,6 +1164,7 @@ def test_exact_identity_collation_revision_extends_the_normalized_storage_chain(
     source_governance_revision = script.get_revision(SOURCE_GOVERNANCE_REVISION)
     fetch_lease_revision = script.get_revision(FETCH_LEASE_REVISION)
     exact_identity_collation_revision = script.get_revision(EXACT_IDENTITY_COLLATION_REVISION)
+    constraint_name_portability_revision = script.get_revision(CONSTRAINT_NAME_PORTABILITY_REVISION)
     assert shared_revision is not None
     assert shared_revision.down_revision == OBSERVATIONS_REVISION
     assert visibility_revision is not None
@@ -960,7 +1177,9 @@ def test_exact_identity_collation_revision_extends_the_normalized_storage_chain(
     assert fetch_lease_revision.down_revision == SOURCE_GOVERNANCE_REVISION
     assert exact_identity_collation_revision is not None
     assert exact_identity_collation_revision.down_revision == FETCH_LEASE_REVISION
-    assert script.get_heads() == [EXACT_IDENTITY_COLLATION_REVISION]
+    assert constraint_name_portability_revision is not None
+    assert constraint_name_portability_revision.down_revision == EXACT_IDENTITY_COLLATION_REVISION
+    assert script.get_heads() == [CONSTRAINT_NAME_PORTABILITY_REVISION]
 
 
 def test_exact_identity_collation_migration_accepts_sqlite_binary_defaults_and_blocks_evidence_rollback(
@@ -1154,7 +1373,7 @@ def test_source_receipt_evidence_migration_preserves_legacy_receipts_and_blocks_
         assert bool(request_id_index["unique"])
         assert {
             "ck_md_source_snapshot_provider_request_id_length",
-            "ck_md_source_snapshot_provider_request_fingerprint_sha256_length",
+            "ck_md_srcsnap_provider_req_fp_sha256_len",
             "ck_md_source_snapshot_query_fingerprint_sha256_length",
             "ck_md_source_snapshot_provider_request_evidence_state",
         } <= {
@@ -1319,7 +1538,7 @@ def test_source_governance_migration_preserves_legacy_rows_and_blocks_evidence_l
         }
         assert {
             "ck_md_source_snapshot_source_authorization_state",
-            "ck_md_source_snapshot_source_authorization_descriptor_sha256_length",
+            "ck_md_srcsnap_src_auth_desc_sha256_len",
             "ck_md_source_snapshot_source_authorization_evidence_state",
         } <= {
             constraint["name"]
@@ -1329,7 +1548,7 @@ def test_source_governance_migration_preserves_legacy_rows_and_blocks_evidence_l
         assert {
             "ck_md_calendar_snapshot_source_registry_id_length",
             "ck_md_calendar_snapshot_source_governance_state",
-            "ck_md_calendar_snapshot_source_governance_descriptor_sha256_length",
+            "ck_md_calsnap_src_gov_desc_sha256_len",
             "ck_md_calendar_snapshot_source_governance_evidence_state",
         } <= {
             constraint["name"]

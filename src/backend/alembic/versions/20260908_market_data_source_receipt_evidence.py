@@ -17,7 +17,7 @@ contract existed.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 
 import sqlalchemy as sa
@@ -37,9 +37,14 @@ _EVIDENCE_COLUMNS = {
     "query_fingerprint_sha256": sa.String(length=_SHA256_LENGTH),
 }
 _REQUEST_ID_CHECK = "ck_md_source_snapshot_provider_request_id_length"
-_PROVIDER_FINGERPRINT_CHECK = "ck_md_source_snapshot_provider_request_fingerprint_sha256_length"
+_PROVIDER_FINGERPRINT_CHECK = "ck_md_srcsnap_provider_req_fp_sha256_len"
 _QUERY_FINGERPRINT_CHECK = "ck_md_source_snapshot_query_fingerprint_sha256_length"
 _EVIDENCE_STATE_CHECK = "ck_md_source_snapshot_provider_request_evidence_state"
+_LEGACY_CHECK_NAMES = {
+    _PROVIDER_FINGERPRINT_CHECK: (
+        "ck_md_source_snapshot_provider_request_fingerprint_sha256_length",
+    ),
+}
 _CHECKS = {
     _REQUEST_ID_CHECK: (
         "provider_request_id IS NULL OR "
@@ -123,18 +128,33 @@ def _observed_checks(bind: sa.Connection) -> dict[str, str]:
     }
 
 
+def _matching_check_name(
+    observed: Mapping[str, str],
+    *,
+    name: str,
+    expression: str,
+) -> str | None:
+    """Accept an equivalent legacy name from an unreleased SQLite candidate."""
+    expected = _normalized_expression(expression)
+    for candidate_name in (name, *_LEGACY_CHECK_NAMES.get(name, ())):
+        actual = observed.get(candidate_name)
+        if actual is None:
+            continue
+        if actual != expected:
+            raise RuntimeError(
+                "MARKET_DATA_SOURCE_RECEIPT_EVIDENCE_SCHEMA_DRIFT: "
+                f"{candidate_name}={actual!r}"
+            )
+        return candidate_name
+    return None
+
+
 def _ensure_checks(bind: sa.Connection) -> None:
     observed = _observed_checks(bind)
     missing: dict[str, str] = {}
     for name, expression in _CHECKS.items():
-        actual = observed.get(name)
-        expected = _normalized_expression(expression)
-        if actual is None:
+        if _matching_check_name(observed, name=name, expression=expression) is None:
             missing[name] = expression
-        elif actual != expected:
-            raise RuntimeError(
-                f"MARKET_DATA_SOURCE_RECEIPT_EVIDENCE_SCHEMA_DRIFT: {name}={actual!r}"
-            )
     if not missing:
         return
     if bind.dialect.name == "sqlite":
@@ -276,8 +296,9 @@ def _drop_columns_and_constraints(bind: sa.Connection) -> None:
             elif _REQUEST_ID_INDEX in unique_constraints:
                 batch.drop_constraint(_REQUEST_ID_INDEX, type_="unique")
             for name in _CHECKS:
-                if name in observed_checks:
-                    batch.drop_constraint(name, type_="check")
+                for candidate_name in (name, *_LEGACY_CHECK_NAMES.get(name, ())):
+                    if candidate_name in observed_checks:
+                        batch.drop_constraint(candidate_name, type_="check")
             for column in present_columns:
                 batch.drop_column(column)
         return
@@ -286,8 +307,9 @@ def _drop_columns_and_constraints(bind: sa.Connection) -> None:
     elif _REQUEST_ID_INDEX in unique_constraints:
         op.drop_constraint(_REQUEST_ID_INDEX, _TABLE, type_="unique")
     for name in _CHECKS:
-        if name in observed_checks:
-            op.drop_constraint(name, _TABLE, type_="check")
+        for candidate_name in (name, *_LEGACY_CHECK_NAMES.get(name, ())):
+            if candidate_name in observed_checks:
+                op.drop_constraint(candidate_name, _TABLE, type_="check")
     for column in present_columns:
         op.drop_column(_TABLE, column)
 
