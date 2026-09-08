@@ -16,7 +16,7 @@
 | `BLOCKED` | 必须等待迭代 196、共享 migration head、真实环境授权或外部状态。 |
 | `NOT_RUN` | 本次没有在真实 AkShare/OpenBB、共享数据库、浏览器或生产环境中执行；不能从 fixture、静态审计或历史日志推断成功。 |
 
-候选后端 `market_data_platform` suite 的最终离线运行报告为 `318 passed, 32 warnings`。前端相关验证按文件串行运行：`marketData.test.ts` 为 `12 passed`，`DataPage.test.ts` 为 `28 passed`，`StrategyPage.test.ts` 为 `100 passed`；`npm run typecheck` 与 `npm run build` 均通过。后端 warnings 来自已安装 Backtrader、Alembic 配置和 Starlette 的弃用提示；前端构建仍报告 Browserslist 数据陈旧及既有大 chunk 警告。它们都已记录，但不将本地结果升级为全量、真实数据或生产验收。
+提交后复核曾发现一项 PIT 回放测试不确定性：测试使用虚构的 13:00 cutoff，却让 publication 使用真实时钟，记录正确地在该 cutoff 后才可见。候选提交 `c474a57b` 仅为该测试注入固定的可信 publication clock，未改变生产语义。随后对 `tests/market_data_platform`、`tests/test_config.py`、`tests/test_market_instrument_api.py` 和 `tests/test_market_instrument_freshness.py` 的最终组合离线运行报告为 `357 passed, 32 warnings in 76.18s`；候选提交 `20e214dd` 已格式化本迭代引入的 9 个文件，Ruff 格式和规则检查通过，Alembic head 为 `20260908_market_data_shared_dataset_bindings`。前端相关验证按文件串行运行：`marketData.test.ts` 为 `12 passed`，`DataPage.test.ts` 为 `28 passed`，`StrategyPage.test.ts` 为 `100 passed`；`npm run typecheck` 与 `npm run build` 均通过。后端 warnings 来自已安装 Backtrader、Alembic 配置和 Starlette 的弃用提示；前端构建仍报告 Browserslist 数据陈旧及既有大 chunk 警告。它们都已记录，但不将本地结果升级为全量、真实数据或生产验收。
 
 ## 2. 候选实现总览
 
@@ -122,7 +122,8 @@ collector 无法获得可信 provider row time 时，`event_at` 只能被明确�
 
 | 验收项 | 状态 | 必需证据 |
 | --- | --- | --- |
-| 候选后端 `market_data_platform` suite | `DONE`（`318 passed, 32 warnings`） | 对应测试输出、源码 revision、工作树状态；不等价于生产验收。 |
+| 候选后端及市场接口兼容总回归 | `DONE`（`357 passed, 32 warnings`） | `market_data_platform`、配置、市场接口和 freshness 套件的提交后组合输出；不等价于生产验收。 |
+| 候选代码格式、规则和 migration head | `DONE`（Ruff format/check、`alembic heads`） | 48 个目标 Python 文件格式通过，规则检查通过，head 为 `20260908_market_data_shared_dataset_bindings`；未运行真实迁移。 |
 | 前端相关单元、类型和构建门禁 | `DONE`（`12 + 28 + 100` 单元测试、`vue-tsc --noEmit`、Vite build） | 按文件串行的本地验证；Browserslist 与 bundle-size 警告已记录，不等价于浏览器 E2E。 |
 | 真实 AkShare exact route | `NOT_RUN` | 每条 route 的实际请求/回执、字段和身份 mismatch 反例、限流与错误码证据。 |
 | F2 collector 宽表刷新 | `IN_PROGRESS` | 离线 schedule/shadow snapshot importer 候选已存在，但没有 route 或网络调用；真实 feed-level singleflight、raw snapshot、ambiguous-row quarantine、首次导入后第二次同请求零网络仍为 `NOT_RUN`。 |
