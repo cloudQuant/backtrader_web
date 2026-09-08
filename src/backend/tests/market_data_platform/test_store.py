@@ -544,7 +544,10 @@ async def test_local_read_uses_availability_and_commit_time_for_point_in_time_se
 
     async with async_session_maker() as db:
         await _seed_dataset_and_provider(db)
-        store = MarketDataStore(db)
+        # The requested historical cutoffs need a deterministic trusted
+        # publication clock. A real clock later than the artificial replay
+        # window correctly makes these receipts invisible.
+        store = MarketDataStore(db, clock=lambda: _at(12))
         await store.persist_provider_result(
             context,
             _result(
