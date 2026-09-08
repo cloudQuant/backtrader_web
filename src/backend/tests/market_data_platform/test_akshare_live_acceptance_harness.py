@@ -36,7 +36,10 @@ class _FakeAkShareProvider:
                     fields={"volume": 1000, "turnover": 25000.0, "turnover_rate": 0.1},
                 ),
             ),
-            raw_payload={"access_token": "must-never-appear-in-summary"},
+            raw_payload={
+                "access_token": "must-never-appear-in-summary",
+                "response_rows": [{"sensitive_source_value": "must-never-appear-in-summary"}],
+            },
             request=request,
         )
 
@@ -50,7 +53,29 @@ class _EmptyAkShareProvider:
             source_revision="offline-empty-fixture-v1",
             retrieved_at=datetime.now(UTC),
             observations=(),
-            raw_payload={"access_token": "must-never-appear-in-empty-summary"},
+            raw_payload={
+                "access_token": "must-never-appear-in-empty-summary",
+                "response_rows": [],
+            },
+            request=request,
+        )
+
+
+class _WindowFilteredAkShareProvider:
+    """Model a source row that the adapter correctly excludes from the request window."""
+
+    async def fetch(self, request: MarketDataProviderRequest) -> ProviderFetchResult:
+        return ProviderFetchResult(
+            provider_id="akshare",
+            source_revision="offline-window-filtered-fixture-v1",
+            retrieved_at=datetime.now(UTC),
+            observations=(),
+            raw_payload={
+                "access_token": "must-never-appear-in-window-summary",
+                "response_rows": [
+                    {"sensitive_source_value": "must-never-appear-in-window-summary"}
+                ],
+            },
             request=request,
         )
 
@@ -144,6 +169,11 @@ async def test_offline_fake_chain_persists_then_independently_rereads(tmp_path) 
     assert output["status"] == "pass"
     assert output["code"] == "AKSHARE_LOCAL_FIRST_CHAIN_PASSED"
     assert output["provider_fetch_attempt_count"] == 1
+    assert output["provider_result"] == {
+        "result_count": 1,
+        "response_row_count": 1,
+        "normalized_observation_count": 1,
+    }
     assert output["first_local_first"]["persisted_fetch_count"] == 1
     assert output["independent_local_only_reread"]["provider_fetch_attempt_count"] == 0
     assert output["persistence"] == {
@@ -169,5 +199,29 @@ async def test_empty_source_result_is_a_stable_non_sensitive_failure(tmp_path) -
     assert output["status"] == "failed"
     assert output["code"] == "AKSHARE_ZERO_USABLE_OBSERVATIONS"
     assert output["provider_fetch_attempt_count"] == 1
+    assert output["provider_result"] == {
+        "result_count": 1,
+        "response_row_count": 0,
+        "normalized_observation_count": 0,
+    }
     assert output["first_local_first"]["persisted_fetch_count"] == 1
     assert "must-never-appear-in-empty-summary" not in str(output)
+
+
+@pytest.mark.asyncio
+async def test_window_filtered_result_reports_counts_without_source_rows(tmp_path) -> None:
+    """A non-empty response with zero usable rows remains distinguishable and private."""
+    output = await harness._run_live(
+        database_path=tmp_path / "window-filtered-harness.sqlite3",
+        trading_date=harness.DEFAULT_TRADING_DATE,
+        provider_factory=_WindowFilteredAkShareProvider,
+    )
+
+    assert output["status"] == "failed"
+    assert output["code"] == "AKSHARE_ZERO_USABLE_OBSERVATIONS"
+    assert output["provider_result"] == {
+        "result_count": 1,
+        "response_row_count": 1,
+        "normalized_observation_count": 0,
+    }
+    assert "must-never-appear-in-window-summary" not in str(output)

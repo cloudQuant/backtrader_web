@@ -202,15 +202,38 @@ class _DatabaseTarget:
 
 
 class _RecordingProvider:
-    """Count provider boundary attempts without exposing response content."""
+    """Count provider attempts and safe result cardinalities without emitting source content."""
 
     def __init__(self, delegate: _Provider) -> None:
         self._delegate = delegate
         self.attempt_count = 0
+        self._result_count = 0
+        self._response_row_count = 0
+        self._response_row_count_known = True
+        self._normalized_observation_count = 0
 
     async def fetch(self, request: MarketDataProviderRequest) -> ProviderFetchResult:
         self.attempt_count += 1
-        return await self._delegate.fetch(request)
+        result = await self._delegate.fetch(request)
+        if isinstance(result, ProviderFetchResult):
+            self._result_count += 1
+            self._normalized_observation_count += len(result.observations)
+            response_rows = result.raw_payload.get("response_rows")
+            if isinstance(response_rows, list):
+                self._response_row_count += len(response_rows)
+            else:
+                self._response_row_count_known = False
+        return result
+
+    def result_summary(self) -> dict[str, int | None]:
+        """Return only aggregate counts needed to diagnose an empty receipt."""
+        return {
+            "result_count": self._result_count,
+            "response_row_count": (
+                self._response_row_count if self._response_row_count_known else None
+            ),
+            "normalized_observation_count": self._normalized_observation_count,
+        }
 
 
 def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
@@ -532,6 +555,7 @@ async def _run_live(
             "frequency": "1d",
             "window_date": trading_date.isoformat(),
             "provider_fetch_attempt_count": provider.attempt_count,
+            "provider_result": provider.result_summary(),
             "first_local_first": first_summary,
             "raw_payload_emitted": False,
             "credential_writes": False,
