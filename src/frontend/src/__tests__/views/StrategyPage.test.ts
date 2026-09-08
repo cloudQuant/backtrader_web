@@ -900,13 +900,42 @@ describe('StrategyPage', () => {
     vm.confirmAIResearchMandate()
   }
 
-  const doMount = () => mount(StrategyPage, { global: { stubs: elStubs } })
+  const trustedResearchWorkbenchStub = {
+    template: '<section data-test="trusted-research-workbench-stub" />',
+  }
+  const doMount = () => mount(StrategyPage, {
+    global: {
+      stubs: {
+        ...elStubs,
+        'el-timeline': { template: '<ol class="el-timeline"><slot /></ol>' },
+        'el-timeline-item': { template: '<li class="el-timeline-item"><slot /></li>' },
+        TrustedResearchWorkbench: trustedResearchWorkbenchStub,
+      },
+    },
+  })
 
   it('mounts without error', async () => {
     const wrapper = doMount()
     await flushPromises()
     expect(wrapper.exists()).toBe(true)
     expect(wrapper.text()).toContain('阶段 质量达标')
+    expect(wrapper.find('[data-test="trusted-research-workbench-stub"]').exists()).toBe(true)
+  })
+
+  it('mounts the AI research timeline without unresolved-component warnings', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    try {
+      const wrapper = doMount()
+      await flushPromises()
+      const warnings = warnSpy.mock.calls.flat().join('\n')
+
+      expect(warnings).not.toContain('Failed to resolve component: el-timeline')
+      expect(warnings).not.toContain('Failed to resolve component: el-timeline-item')
+      wrapper.unmount()
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 
   it('shows strategy library and my strategies under strategy management', async () => {
@@ -1228,6 +1257,8 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchForm.prompt).toContain('请为 沪深300股指期货（IF2409.CFE）')
     expect(vm.aiResearchForm.prompt).toContain('1h 级别的可执行 Backtrader 策略')
     expect(vm.aiResearchForm.prompt).toContain('专业流水线')
+    expect(vm.aiResearchForm.prompt).toContain('研究目标生成：根据当前控制项自动生成。')
+    expect(vm.aiResearchForm.prompt).toContain('以下步骤仅用于组织研究提示与展示；实际服务端执行阶段和状态以运行记录为准。')
     expect(vm.aiResearchForm.prompt).toContain('策略构思')
     expect(vm.aiResearchForm.prompt).toContain('策略生成')
     expect(vm.aiResearchForm.prompt).toContain('策略回测')
@@ -1265,6 +1296,15 @@ describe('StrategyPage', () => {
       min_out_of_sample_trades: 3,
       min_paper_trading_days: 14,
     }))
+  })
+
+  it('clearly states that legacy workflow choices only shape the prompt and display', () => {
+    const wrapper = doMount()
+    const notice = wrapper.find('[data-test="ai-research-workflow-semantics"]')
+
+    expect(notice.exists()).toBe(true)
+    expect(notice.text()).toContain('只决定研究目标如何生成')
+    expect(notice.text()).toContain('实际阶段和执行状态以服务端运行记录为准')
   })
 
   it('opens a choice dialog and keeps the deterministic target when the default option is chosen', async () => {

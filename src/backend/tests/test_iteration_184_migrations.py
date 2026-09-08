@@ -6,11 +6,12 @@ from pathlib import Path
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import UniqueConstraint, create_engine, inspect
 
 import app.config as app_config
 from alembic import command
 from app.db.database import Base
+from app.models.paper_runtime import LiveHandoffReview, PaperReviewReport
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _BASELINE = "20260705_b_data_backtest_trust"
@@ -80,6 +81,23 @@ def test_iteration_184_has_one_linear_alembic_head():
     # instead of requiring the repository's global head to stay frozen here.
     assert len(script.get_heads()) == 1
     assert script.get_revision(_HEAD) is not None
+
+
+def test_paper_runtime_source_record_metadata_matches_legacy_schema() -> None:
+    """Keep the ORM aligned with the pre-existing unique index and constraint pair."""
+
+    for model, index_name in (
+        (PaperReviewReport, "ix_paper_review_reports_source_record_id"),
+        (LiveHandoffReview, "ix_live_handoff_reviews_source_record_id"),
+    ):
+        table = model.__table__
+        assert any(
+            isinstance(constraint, UniqueConstraint)
+            and {column.name for column in constraint.columns} == {"source_record_id"}
+            for constraint in table.constraints
+        )
+        index = next(index for index in table.indexes if index.name == index_name)
+        assert index.unique
 
 
 def test_iteration_184_migrations_upgrade_fresh_current_and_legacy_create_all(

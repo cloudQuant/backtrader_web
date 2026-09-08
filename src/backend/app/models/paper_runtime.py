@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 
 from app.db.database import Base
@@ -33,6 +34,7 @@ class PaperReviewReport(Base):
     __table_args__ = (
         Index("ix_paper_review_reports_runtime_created", "instance_id", "created_at"),
         Index("ix_paper_review_reports_user_runtime", "user_id", "instance_id"),
+        UniqueConstraint("source_record_id"),
     )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -58,6 +60,7 @@ class LiveHandoffReview(Base):
     __table_args__ = (
         Index("ix_live_handoff_reviews_runtime_created", "instance_id", "created_at"),
         Index("ix_live_handoff_reviews_user_runtime", "user_id", "instance_id"),
+        UniqueConstraint("source_record_id"),
     )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

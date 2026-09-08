@@ -106,6 +106,8 @@ describe('StrategyPage.vue', () => {
           'el-form': { template: '<form class="el-form"><slot /></form>' },
           'el-form-item': { template: '<div class="el-form-item"><slot /></div>' },
           'el-pagination': { template: '<div class="el-pagination"></div>' },
+          'el-timeline': { template: '<ol class="el-timeline"><slot /></ol>' },
+          'el-timeline-item': { template: '<li class="el-timeline-item"><slot /></li>' },
         },
       },
     })

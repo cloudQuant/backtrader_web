@@ -11,7 +11,8 @@
    ============================================================================= */
 :root {
   /* Brand / Primary */
-  --primary-color: var(--color-primary-500);
+  /* 500/white is only 3.68:1; use the 600 token for a WCAG AA-safe fallback. */
+  --primary-color: var(--color-primary-600);
   --primary-color-light: var(--color-primary-400);
   --primary-color-dark: var(--color-primary-600);
   --primary-on-color: #FFFFFF;
@@ -85,7 +86,7 @@
   --border-color-lighter: var(--color-bg-page);
   --sidebar-text-color: var(--text-color-primary);
   --sidebar-text-color-muted: var(--text-color-secondary);
-  --sidebar-active-color: var(--primary-color);
+  --sidebar-active-color: var(--primary-color-dark);
   --sidebar-active-bg: var(--color-primary-50);
   --sidebar-hover-bg: var(--color-bg-hover);
   --sidebar-border-color: var(--border-color);

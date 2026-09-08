@@ -1,0 +1,85 @@
+###############################################################################
+# Optional independent sealed-holdout worker overlay
+#
+# This topology starts only the control-plane worker. The HTTPS evaluator is an
+# externally operated service and is intentionally not mocked here. A successful
+# local compose/config test is NOT evidence of real evaluator reachability,
+# independent IAM, egress allowlisting, or sealed-data isolation.
+#
+# The database network is internal and contains only MySQL plus this worker. The
+# separate egress network permits HTTPS transport, but host-level allowlisting
+# and TLS/DNS controls remain deployment responsibilities and require evidence.
+###############################################################################
+
+services:
+  mysql:
+    networks:
+      - holdout-database
+
+  trusted-research-holdout:
+    profiles: ["trusted-research-holdout"]
+    build:
+      context: .
+      dockerfile: src/backend/Dockerfile
+    restart: "no"
+    init: true
+    command: ["python", "-m", "scripts.run_ai_research_v2_holdout_worker"]
+    user: "1000:1000"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    volumes:
+      - type: bind
+        source: ${AI_RESEARCH_HOLDOUT_OBJECT_ROOT:-./data/holdout/objects}
+        target: /holdout/objects
+        read_only: true
+      - type: bind
+        source: ${AI_RESEARCH_HOLDOUT_RECEIPT_STORE:-./data/holdout/receipts}
+        target: /holdout/receipts
+        read_only: true
+    environment:
+      APP_NAME: ai-for-investor-sealed-holdout-worker
+      DEBUG: "false"
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      DATABASE_TYPE: mysql
+      DATABASE_URL: mysql+aiomysql://${DB_USER:-backtrader}:${DB_PASSWORD:?DB_PASSWORD is required}@mysql:${DB_PORT:-3306}/${DB_NAME:-ai_for_investor}
+      AI_RESEARCH_PROTOCOL_V2_ENABLED: ${AI_RESEARCH_PROTOCOL_V2_ENABLED:-false}
+      AI_RESEARCH_PROTOCOL_V2_HOLDOUT_WORKER_ENABLED: ${AI_RESEARCH_PROTOCOL_V2_HOLDOUT_WORKER_ENABLED:-false}
+      AI_RESEARCH_PROTOCOL_V2_HOLDOUT_WORKER_FACTORY: ${AI_RESEARCH_PROTOCOL_V2_HOLDOUT_WORKER_FACTORY:-}
+      AI_RESEARCH_PROTOCOL_V2_HOLDOUT_WORKER_POLL_SECONDS: ${AI_RESEARCH_PROTOCOL_V2_HOLDOUT_WORKER_POLL_SECONDS:-10}
+      AI_RESEARCH_PROTOCOL_V2_HOLDOUT_ENDPOINT_URL: ${AI_RESEARCH_PROTOCOL_V2_HOLDOUT_ENDPOINT_URL:-}
+      AI_RESEARCH_PROTOCOL_V2_HOLDOUT_BEARER_TOKEN: ${AI_RESEARCH_PROTOCOL_V2_HOLDOUT_BEARER_TOKEN:-}
+      AI_RESEARCH_PROTOCOL_V2_HOLDOUT_WORKER_IDENTITY: ${AI_RESEARCH_PROTOCOL_V2_HOLDOUT_WORKER_IDENTITY:-}
+      AI_RESEARCH_PROTOCOL_V2_HOLDOUT_EVALUATOR_IDENTITY: ${AI_RESEARCH_PROTOCOL_V2_HOLDOUT_EVALUATOR_IDENTITY:-}
+      AI_RESEARCH_PROTOCOL_V2_HOLDOUT_EVALUATOR_IMAGE_DIGEST: ${AI_RESEARCH_PROTOCOL_V2_HOLDOUT_EVALUATOR_IMAGE_DIGEST:-}
+      AI_RESEARCH_PROTOCOL_V2_HOLDOUT_HTTP_TIMEOUT_SECONDS: ${AI_RESEARCH_PROTOCOL_V2_HOLDOUT_HTTP_TIMEOUT_SECONDS:-60}
+      AI_RESEARCH_PROTOCOL_V2_HOLDOUT_MAX_RESPONSE_BYTES: ${AI_RESEARCH_PROTOCOL_V2_HOLDOUT_MAX_RESPONSE_BYTES:-10000000}
+      AI_RESEARCH_PROTOCOL_V2_HOLDOUT_LEASE_SECONDS: ${AI_RESEARCH_PROTOCOL_V2_HOLDOUT_LEASE_SECONDS:-300}
+      AI_RESEARCH_PROTOCOL_V2_HOLDOUT_HEARTBEAT_SECONDS: ${AI_RESEARCH_PROTOCOL_V2_HOLDOUT_HEARTBEAT_SECONDS:-30}
+      AI_RESEARCH_PROTOCOL_V2_DATASET_OBJECT_RESOLVER_TYPE: filesystem
+      AI_RESEARCH_PROTOCOL_V2_DATASET_FILESYSTEM_ROOT: /holdout/objects
+      AI_RESEARCH_PROTOCOL_V2_DATASET_RECEIPT_STORE: /holdout/receipts
+      AI_RESEARCH_PROTOCOL_V2_DATASET_MAX_BYTES: ${AI_RESEARCH_PROTOCOL_V2_DATASET_MAX_BYTES:-0}
+      LOG_DIR: /tmp/logs
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - holdout-database
+      - holdout-evaluator-egress
+
+networks:
+  holdout-database:
+    driver: bridge
+    internal: true
+  holdout-evaluator-egress:
+    driver: bridge

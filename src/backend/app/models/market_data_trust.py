@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import JSON, Column, DateTime, Float, Integer, String, Text, UniqueConstraint
 
 from app.db.database import Base
+from app.utils.datetime_utils import utc_now_naive
 
 
 class AssetSpecModel(Base):
@@ -35,11 +35,11 @@ class AssetSpecModel(Base):
     trading_calendar = Column(String(64), default="CN", nullable=False)
     metadata_json = Column("metadata", JSON, default=dict)
     source = Column(String(120), default="", nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
     )
 
 
@@ -72,8 +72,8 @@ class MarketDataCoverageModel(Base):
     source_path = Column(Text, nullable=True)
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
     )
 
 
@@ -91,7 +91,7 @@ class MarketDataQualityReportModel(Base):
     severity = Column(String(16), nullable=False, index=True)
     issue_count = Column(Integer, default=0, nullable=False)
     sample_payload = Column(JSON, default=dict)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)
 
 
 class RobustnessTestResultModel(Base):
@@ -110,4 +110,4 @@ class RobustnessTestResultModel(Base):
     gate_evaluations = Column(JSON, default=list)
     report = Column(JSON, default=dict)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=utc_now_naive)

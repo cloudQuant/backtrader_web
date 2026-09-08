@@ -51,7 +51,7 @@ class TestUtilityFunctions:
     """Tests for utility functions."""
 
     def test_project_root_points_to_repository_root(self):
-        assert _PROJECT_ROOT.name == "backtrader_web"
+        assert (_PROJECT_ROOT / "src" / "backend" / "pyproject.toml").is_file()
         assert (_PROJECT_ROOT / "scripts" / "diagnostics").is_dir()
 
     def test_resolve_bt_api_py_import_dir_does_not_prepend_site_packages(

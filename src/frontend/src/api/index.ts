@@ -9,6 +9,11 @@ import {
 } from '@/utils/session'
 import i18n from '@/i18n'
 
+interface ApiRequestConfig<D = unknown> extends AxiosRequestConfig<D> {
+  /** The caller projects a closed, localized error code and owns user notification. */
+  suppressErrorToast?: boolean
+}
+
 function tt(key: string): string {
   return i18n.global.t(key)
 }
@@ -33,12 +38,12 @@ type ApiErrorPayload = {
 }
 
 interface ApiClient extends AxiosInstance {
-  request<T = unknown, D = unknown>(config: AxiosRequestConfig<D>): Promise<T>
-  get<T = unknown, D = unknown>(url: string, config?: AxiosRequestConfig<D>): Promise<T>
-  delete<T = unknown, D = unknown>(url: string, config?: AxiosRequestConfig<D>): Promise<T>
-  post<T = unknown, D = unknown>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<T>
-  put<T = unknown, D = unknown>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<T>
-  patch<T = unknown, D = unknown>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<T>
+  request<T = unknown, D = unknown>(config: ApiRequestConfig<D>): Promise<T>
+  get<T = unknown, D = unknown>(url: string, config?: ApiRequestConfig<D>): Promise<T>
+  delete<T = unknown, D = unknown>(url: string, config?: ApiRequestConfig<D>): Promise<T>
+  post<T = unknown, D = unknown>(url: string, data?: D, config?: ApiRequestConfig<D>): Promise<T>
+  put<T = unknown, D = unknown>(url: string, data?: D, config?: ApiRequestConfig<D>): Promise<T>
+  patch<T = unknown, D = unknown>(url: string, data?: D, config?: ApiRequestConfig<D>): Promise<T>
 }
 
 // --- Retry Interceptor Configuration ---
@@ -190,6 +195,7 @@ api.interceptors.response.use(
     const config = error.config as InternalAxiosRequestConfig & {
       __retryCount?: number
       __isRetrying?: boolean
+      suppressErrorToast?: boolean
     }
 
     // --- Retry Logic ---
@@ -223,11 +229,16 @@ api.interceptors.response.use(
     const msg = extractApiErrorMessage(data)
     const genericMsg = tt('apiClient.errGenericFailure')
     const isGenericMsg = msg === genericMsg
+    const suppressErrorToast = config?.suppressErrorToast === true
 
     if (status === 401) {
       clearAccessToken()
       dispatchAuthExpired()
-      ElMessage.error(isGenericMsg ? tt('apiClient.errAuthExpired') : msg)
+      if (!suppressErrorToast) {
+        ElMessage.error(isGenericMsg ? tt('apiClient.errAuthExpired') : msg)
+      }
+    } else if (suppressErrorToast) {
+      // Closed-projection callers render an allowlisted local message themselves.
     } else if (status === 403) {
       ElMessage.error(isGenericMsg ? tt('apiClient.errForbidden') : msg)
     } else if (status === 404) {

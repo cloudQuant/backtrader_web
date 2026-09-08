@@ -15,7 +15,9 @@ from hashlib import sha256
 
 import numpy as np
 import pandas as pd
-from purgedcv import WalkForwardSplit, deflated_sharpe_ratio
+from purgedcv import WalkForwardSplit
+
+from app.services.research.statistics import calculate_deflated_sharpe
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,21 +200,25 @@ def deflated_sharpe(
     returns: Sequence[float],
     *,
     n_trials: int,
+    trial_sharpes: Sequence[float] | None = None,
     bars_per_year: int = 252,
 ) -> float:
-    """Return Deflated Sharpe Ratio corrected for correlated model searches."""
+    """Return DSR from the recorded Sharpe values of all market trials.
+
+    ``n_trials`` remains explicit to make accidental partial ledgers visible:
+    callers must provide exactly one Sharpe value for every countable trial.
+    """
+
     if n_trials < 1:
         raise ValueError("EVALUATION_TRIAL_COUNT_INVALID")
-    if len(returns) < 2:
-        raise ValueError("EVALUATION_RETURNS_INSUFFICIENT")
-    values = np.asarray(returns, dtype=float)
-    return float(
-        deflated_sharpe_ratio(
-            values,
-            n_trials=n_trials,
-            var_sharpe=float(np.var(values, ddof=1)),
-            bars_per_year=bars_per_year,
-        )
+    if not trial_sharpes:
+        raise ValueError("EVALUATION_TRIAL_SHARPES_REQUIRED")
+    if len(trial_sharpes) != n_trials:
+        raise ValueError("EVALUATION_TRIAL_SHARPES_INCOMPLETE")
+    return calculate_deflated_sharpe(
+        returns,
+        trial_sharpes=trial_sharpes,
+        bars_per_year=bars_per_year,
     )
 
 

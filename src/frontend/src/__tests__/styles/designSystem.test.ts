@@ -20,7 +20,8 @@ describe('design system contract', () => {
   })
 
   it('maps runtime semantic variables from raw tokens', () => {
-    expect(styleCss).toContain('--primary-color: var(--color-primary-500);')
+    expect(styleCss).toContain('--primary-color: var(--color-primary-600);')
+    expect(styleCss).toContain('--sidebar-active-color: var(--primary-color-dark);')
     expect(styleCss).toContain('--info-surface: color-mix(in srgb, var(--bg-color) 86%, var(--primary-color) 14%);')
     expect(styleCss).toContain('--success-surface: color-mix(in srgb, var(--bg-color) 86%, var(--success-color) 14%);')
     expect(styleCss).toContain('--warning-surface: color-mix(in srgb, var(--bg-color) 86%, var(--warning-color) 14%);')

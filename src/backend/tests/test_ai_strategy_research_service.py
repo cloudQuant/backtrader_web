@@ -57,6 +57,8 @@ from app.services.ai_strategy_research_task_manager import (
     AIStrategyResearchTaskManager,
     AIStrategyResearchWorkspaceTaskSnapshotStore,
 )
+from app.services.research.pipeline_audit import _pipeline_summary
+from app.services.research.run_records import _research_run_record_with_pipeline
 from app.services.strategy.ai_draft import build_ai_strategy_draft, render_ai_strategy_draft_answer
 from app.services.strategy.core import _runtime_metadata_from_copilot_request
 
@@ -182,6 +184,11 @@ def test_ai_strategy_research_request_generates_prompt_from_structured_fields():
     ]
     assert "1h 级别的可执行 Backtrader 策略" in request.prompt
     assert "专业流水线" in request.prompt
+    assert "研究目标生成：根据当前控制项自动生成。" in request.prompt
+    assert (
+        "以下步骤仅用于组织研究提示与展示；实际服务端执行阶段和状态以运行记录为准。"
+        in request.prompt
+    )
     assert "策略构思" in request.prompt
     assert "策略生成" in request.prompt
     assert "策略回测" in request.prompt
@@ -200,6 +207,53 @@ def test_ai_strategy_research_request_generates_prompt_from_structured_fields():
     assert "样本外 Sharpe 不低于 0.75" in request.prompt
     assert "样本外交易数不少于 3" in request.prompt
     assert "至少观察 14 天" in request.prompt
+
+
+def test_ai_strategy_research_workflow_steps_schema_marks_them_as_prompt_display_only():
+    schema = AIStrategyResearchRunRequest.model_json_schema()
+
+    assert schema["properties"]["workflow_steps"]["description"] == (
+        "Ordered research steps used to structure the prompt and legacy display only; "
+        "they do not select or alter the server-side execution graph."
+    )
+
+
+def test_ai_strategy_research_pipeline_marks_legacy_workflow_steps_as_prompt_display_only():
+    summary = _pipeline_summary(
+        status="running",
+        achieved=False,
+        iteration_count=0,
+        max_iterations=3,
+        out_of_sample_validation=False,
+        validation_status=None,
+        paper_trading_started=False,
+        paper_trading_error=None,
+        paper_review_status=None,
+        paper_review_ready_for_live=False,
+        workflow_steps=["ideation", "generation"],
+    )
+
+    assert summary["workflow_steps_semantics"] == "prompt_display_only"
+
+
+def test_ai_strategy_research_existing_pipeline_gets_workflow_steps_semantics_on_read():
+    record = AIStrategyResearchRunRecord.model_validate(
+        _run_record(
+            "workflow-legacy-run", workspace_id="research-ws", completed_at="2026-09-05T00:00:00Z"
+        )
+    ).model_copy(
+        update={
+            "pipeline": {
+                "current_stage": "research_iteration",
+                "workflow_steps": ["ideation", "generation"],
+                "steps": [],
+            }
+        }
+    )
+
+    hydrated = _research_run_record_with_pipeline(record)
+
+    assert hydrated.pipeline["workflow_steps_semantics"] == "prompt_display_only"
 
 
 def test_research_service_public_run_facade_stays_small():
@@ -2494,7 +2548,13 @@ async def test_research_loop_persists_draft_when_cancelled_during_initial_genera
 
 
 @pytest.mark.asyncio
-async def test_research_loop_persists_draft_when_cancelled_during_backtest_submission():
+async def test_research_loop_persists_draft_when_cancelled_during_backtest_submission(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        "app.utils.sandbox.StrategySandbox.validate_strategy_code",
+        lambda *_args, **_kwargs: "test",
+    )
     workspace_service = FakeWorkspaceService()
     strategy_service = FakeBlockingBacktestSubmitStrategyService(workspace_service)
     service = AIStrategyResearchService(
@@ -2502,6 +2562,9 @@ async def test_research_loop_persists_draft_when_cancelled_during_backtest_submi
         workspace_service=workspace_service,
         improver=LocalStrategyImprover(),
         sleep=_noop_sleep,
+        event_service=NoopResearchPipelineEventService(),
+        mandate_service=FakeMandateService(),
+        version_service=NoopResearchVersionService(),
     )
 
     task = asyncio.create_task(

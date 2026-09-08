@@ -4,6 +4,8 @@ FROM node:20-alpine as builder
 WORKDIR /app
 
 ENV NODE_OPTIONS=--max-old-space-size=4096
+# This image receives an isolated frontend context, so validate the frozen manifest explicitly.
+ENV AI_RESEARCH_APPROVAL_ERROR_CATALOG_MODE=pinned-only
 
 # 复制依赖文件
 COPY package*.json ./

@@ -48,11 +48,30 @@ class TestRolePermissions:
         assert Permission.MANAGE_USERS not in perms
 
     def test_admin_has_all(self):
-        """Test admin has all permissions."""
+        """Test admin has every permission that may be assigned by default roles."""
         perms = ROLE_PERMISSIONS[Role.ADMIN]
         assert Permission.MANAGE_USERS in perms
         assert Permission.MANAGE_ROLES in perms
-        assert len(perms) == len(Permission)
+        assert set(perms) == {
+            permission
+            for permission in Permission
+            if permission
+            not in {
+                Permission.APPROVE_RESEARCH,
+                Permission.MANAGE_APPROVAL_GRANTS,
+            }
+        }
+
+    def test_default_roles_do_not_inherit_research_approval_authority(self):
+        """Test sensitive approval authority remains outside every default role."""
+        for role in (Role.GUEST, Role.USER, Role.PREMIUM, Role.ADMIN):
+            assert Permission.APPROVE_RESEARCH not in ROLE_PERMISSIONS[role]
+            assert Permission.MANAGE_APPROVAL_GRANTS not in ROLE_PERMISSIONS[role]
+
+    def test_approval_admin_only_manages_run_scoped_grants(self):
+        """Test the dedicated role manages grants without direct approval authority."""
+        assert ROLE_PERMISSIONS[Role.RESEARCH_APPROVAL_ADMIN] == [Permission.MANAGE_APPROVAL_GRANTS]
+        assert Permission.APPROVE_RESEARCH not in ROLE_PERMISSIONS[Role.RESEARCH_APPROVAL_ADMIN]
 
     def test_premium_has_export(self):
         """Test premium has export permissions."""

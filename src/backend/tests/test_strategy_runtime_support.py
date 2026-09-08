@@ -113,7 +113,9 @@ class TestLoadStrategyEnv:
     """Tests for load_strategy_env function."""
 
     def test_default_project_root_points_to_repository_root(self):
-        assert runtime_support_module._PROJECT_ROOT.name == "backtrader_web"
+        assert (
+            runtime_support_module._PROJECT_ROOT / "src" / "backend" / "pyproject.toml"
+        ).is_file()
         assert (runtime_support_module._PROJECT_ROOT / "scripts" / "diagnostics").is_dir()
 
     def test_returns_empty_dict_when_no_env_file(self, tmp_path: Path):

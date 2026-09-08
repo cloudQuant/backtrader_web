@@ -1,6 +1,7 @@
 /**
  * API 模块测试
  */
+import { AxiosError } from 'axios'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import { AUTH_EXPIRED_EVENT } from '@/utils/session'
@@ -198,6 +199,82 @@ describe('API module', () => {
       const error = { response: { status: 422, data: {} } }
       await expect(handler.rejected(error)).rejects.toBe(error)
       expect(ElMessage.error).toHaveBeenCalledWith('请求失败')
+    })
+
+    it.each([
+      [403, 's3://private-bucket/raw-holdout'],
+      [500, '/srv/research/internal.sqlite'],
+    ])('suppresses raw server text for an approval-owned %i error', async (status, detail) => {
+      const { ElMessage } = await import('element-plus')
+      const api = (await import('@/api/index')).default
+      const originalAdapter = api.defaults.adapter
+      api.defaults.adapter = async (config) => {
+        const response = {
+          status,
+          statusText: 'approval probe rejected',
+          data: { detail },
+          headers: {},
+          config,
+        }
+        throw new AxiosError('approval probe rejected', undefined, config, undefined, response)
+      }
+
+      try {
+        await expect(api.post('/approval-probe', {}, { suppressErrorToast: true })).rejects.toThrow(
+          'approval probe rejected',
+        )
+      } finally {
+        api.defaults.adapter = originalAdapter
+      }
+
+      expect(ElMessage.error).not.toHaveBeenCalled()
+    })
+
+    it('keeps ordinary API error toasts enabled through the real interceptor chain', async () => {
+      const { ElMessage } = await import('element-plus')
+      const api = (await import('@/api/index')).default
+      const originalAdapter = api.defaults.adapter
+      api.defaults.adapter = async (config) => {
+        const response = {
+          status: 500,
+          statusText: 'ordinary request rejected',
+          data: { detail: 'ordinary failure' },
+          headers: {},
+          config,
+        }
+        throw new AxiosError('ordinary request rejected', undefined, config, undefined, response)
+      }
+
+      try {
+        await expect(api.post('/ordinary-probe', {})).rejects.toThrow('ordinary request rejected')
+      } finally {
+        api.defaults.adapter = originalAdapter
+      }
+
+      expect(ElMessage.error).toHaveBeenCalledWith('ordinary failure')
+    })
+
+    it('still expires the auth session when a closed projector suppresses a 401 toast', async () => {
+      const { ElMessage } = await import('element-plus')
+      const api = (await import('@/api/index')).default
+      const handler = (api.interceptors.response as any).handlers[0]
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
+      sessionStorageMock.setItem('auth', JSON.stringify({ token: 'approval-token' }))
+      const error = {
+        config: { suppressErrorToast: true },
+        response: { status: 401, data: { detail: 'file:///private/token' } },
+      }
+
+      await expect(handler.rejected(error)).rejects.toBe(error)
+
+      expect(sessionStorageMock.setItem).toHaveBeenCalledWith(
+        'auth',
+        expect.stringContaining('"token":null'),
+      )
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: AUTH_EXPIRED_EVENT }),
+      )
+      expect(ElMessage.error).not.toHaveBeenCalled()
     })
   })
 

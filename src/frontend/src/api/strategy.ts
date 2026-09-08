@@ -51,6 +51,34 @@ import type {
   StrategyExplainRequest,
   StrategyExplanation,
 } from '@/types/strategy'
+import type {
+  AiResearchApprovalContext,
+  AiResearchApprovalDecisionCreate,
+  AiResearchApprovalDecisionReceipt,
+  AiResearchApprovalRequestCreate,
+  AiResearchApprovalRequestReceipt,
+  AiResearchV2Candidate,
+  AiResearchV2CandidateFreezeRequest,
+  AiResearchV2DataPrecheck,
+  AiResearchV2DataPrecheckRequest,
+  AiResearchV2Dataset,
+  AiResearchV2DatasetCreateRequest,
+  AiResearchV2Epoch,
+  AiResearchV2EpochCreateRequest,
+  AiResearchV2Hypothesis,
+  AiResearchV2HoldoutCommand,
+  AiResearchV2RunSubmission,
+  AiResearchV2RunSubmitRequest,
+  AiResearchV2Task,
+  AiResearchV2TaskEventPage,
+  AiResearchV2TaskPage,
+  AiResearchV2Workbench,
+} from '@/types/aiResearchV2'
+import {
+  projectAiResearchApprovalContext,
+  projectAiResearchApprovalDecision,
+  projectAiResearchApprovalRequest,
+} from '@/types/aiResearchV2'
 
 export type {
   StrategyCopilotDataSource,
@@ -199,6 +227,218 @@ export const strategyApi = {
     return api.post<AIStrategyResearchRunResponse, AIStrategyResearchRunRequest>(
       '/strategy/ai-research/run',
       data
+    )
+  },
+
+  async createTrustedAIResearchHypothesis(
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<AiResearchV2Hypothesis> {
+    return api.post<AiResearchV2Hypothesis, { payload: Record<string, unknown> }>(
+      '/strategy/ai-research/v2/hypotheses',
+      { payload },
+      { signal },
+    )
+  },
+
+  async confirmTrustedAIResearchHypothesis(
+    hypothesisId: string,
+    requestHash: string,
+    signal?: AbortSignal,
+  ): Promise<AiResearchV2Hypothesis> {
+    return api.post<AiResearchV2Hypothesis, { request_hash: string }>(
+      `/strategy/ai-research/v2/hypotheses/${hypothesisId}/confirm`,
+      { request_hash: requestHash },
+      { signal },
+    )
+  },
+
+  async createTrustedAIResearchDataset(
+    data: AiResearchV2DatasetCreateRequest,
+    signal?: AbortSignal,
+  ): Promise<AiResearchV2Dataset> {
+    return api.post<AiResearchV2Dataset, AiResearchV2DatasetCreateRequest>(
+      '/strategy/ai-research/v2/datasets',
+      data,
+      { signal },
+    )
+  },
+
+  async createTrustedAIResearchEpoch(
+    data: AiResearchV2EpochCreateRequest,
+    signal?: AbortSignal,
+  ): Promise<AiResearchV2Epoch> {
+    return api.post<AiResearchV2Epoch, AiResearchV2EpochCreateRequest>(
+      '/strategy/ai-research/v2/epochs',
+      data,
+      { signal },
+    )
+  },
+
+  async createTrustedAIResearchDataPrecheck(
+    data: AiResearchV2DataPrecheckRequest,
+    signal?: AbortSignal,
+  ): Promise<AiResearchV2DataPrecheck> {
+    return api.post<AiResearchV2DataPrecheck, AiResearchV2DataPrecheckRequest>(
+      '/strategy/ai-research/v2/data-prechecks',
+      data,
+      { signal },
+    )
+  },
+
+  async submitTrustedAIResearchRun(
+    data: AiResearchV2RunSubmitRequest,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<AiResearchV2RunSubmission> {
+    return api.post<AiResearchV2RunSubmission, AiResearchV2RunSubmitRequest>(
+      '/strategy/ai-research/v2/runs',
+      data,
+      { headers: { 'Idempotency-Key': idempotencyKey }, signal },
+    )
+  },
+
+  async getTrustedAIResearchWorkbench(
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<AiResearchV2Workbench> {
+    return api.get<AiResearchV2Workbench>(`/strategy/ai-research/v2/runs/${runId}`, { signal })
+  },
+
+  async freezeTrustedAIResearchCandidate(
+    candidateId: string,
+    data: AiResearchV2CandidateFreezeRequest,
+    signal?: AbortSignal,
+  ): Promise<AiResearchV2Candidate> {
+    return api.post<AiResearchV2Candidate, AiResearchV2CandidateFreezeRequest>(
+      `/strategy/ai-research/v2/candidates/${candidateId}/freeze`,
+      data,
+      { signal },
+    )
+  },
+
+  async requestTrustedAIResearchHoldout(
+    candidateId: string,
+    expectedHash: string,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<AiResearchV2HoldoutCommand> {
+    return api.post<AiResearchV2HoldoutCommand, { expected_candidate_hash: string }>(
+      `/strategy/ai-research/v2/candidates/${candidateId}/holdout-evaluation`,
+      { expected_candidate_hash: expectedHash },
+      { headers: { 'Idempotency-Key': idempotencyKey }, signal },
+    )
+  },
+
+  async getTrustedAIResearchHoldout(
+    commandId: string,
+    signal?: AbortSignal,
+  ): Promise<AiResearchV2HoldoutCommand> {
+    return api.get<AiResearchV2HoldoutCommand>(
+      `/strategy/ai-research/v2/holdout-evaluations/${commandId}`,
+      { signal },
+    )
+  },
+
+  async getTrustedAIResearchApprovalContext(
+    runId: string,
+    candidateId: string,
+    signal?: AbortSignal,
+  ): Promise<AiResearchApprovalContext> {
+    const response = await api.get<unknown>(
+      `/strategy/ai-research/v2/runs/${runId}/candidates/${candidateId}/approval-context`,
+      { signal, suppressErrorToast: true },
+    )
+    const context = projectAiResearchApprovalContext(response)
+    if (context === null) throw new Error('RESEARCH_APPROVAL_CONTEXT_INVALID')
+    return context
+  },
+
+  async requestTrustedAIResearchApproval(
+    runId: string,
+    candidateId: string,
+    data: AiResearchApprovalRequestCreate,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<AiResearchApprovalRequestReceipt> {
+    const request: AiResearchApprovalRequestCreate = {
+      gate_input_evidence_hash: data.gate_input_evidence_hash,
+      evidence_package_hash: data.evidence_package_hash,
+    }
+    const response = await api.post<unknown, AiResearchApprovalRequestCreate>(
+      `/strategy/ai-research/v2/runs/${runId}/candidates/${candidateId}/approval-requests`,
+      request,
+      { headers: { 'Idempotency-Key': idempotencyKey }, signal, suppressErrorToast: true },
+    )
+    const receipt = projectAiResearchApprovalRequest(response)
+    if (receipt === null) throw new Error('RESEARCH_APPROVAL_REQUEST_INVALID')
+    return receipt
+  },
+
+  async decideTrustedAIResearchApproval(
+    runId: string,
+    candidateId: string,
+    data: AiResearchApprovalDecisionCreate,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<AiResearchApprovalDecisionReceipt> {
+    const request: AiResearchApprovalDecisionCreate = {
+      approval_request_id: data.approval_request_id,
+      decision: data.decision,
+      reason: data.reason,
+      gate_input_evidence_hash: data.gate_input_evidence_hash,
+      evidence_package_hash: data.evidence_package_hash,
+      challenge_responses: { ...data.challenge_responses },
+      residual_risk_acknowledgement: data.residual_risk_acknowledgement,
+    }
+    const response = await api.post<unknown, AiResearchApprovalDecisionCreate>(
+      `/strategy/ai-research/v2/runs/${runId}/candidates/${candidateId}/approval-decisions`,
+      request,
+      { headers: { 'Idempotency-Key': idempotencyKey }, signal, suppressErrorToast: true },
+    )
+    const receipt = projectAiResearchApprovalDecision(response)
+    if (receipt === null) throw new Error('RESEARCH_APPROVAL_DECISION_INVALID')
+    return receipt
+  },
+
+  async listTrustedAIResearchTasks(
+    cursor?: string | null,
+    limit = 50,
+    signal?: AbortSignal,
+  ): Promise<AiResearchV2TaskPage> {
+    return api.get<AiResearchV2TaskPage>('/strategy/ai-research/v2/tasks', {
+      params: { cursor: cursor ?? undefined, limit },
+      signal,
+    })
+  },
+
+  async getTrustedAIResearchTask(
+    taskId: string,
+    signal?: AbortSignal,
+  ): Promise<AiResearchV2Task> {
+    return api.get<AiResearchV2Task>(`/strategy/ai-research/v2/tasks/${taskId}`, { signal })
+  },
+
+  async listTrustedAIResearchTaskEvents(
+    taskId: string,
+    cursor?: string | null,
+    limit = 50,
+    signal?: AbortSignal,
+  ): Promise<AiResearchV2TaskEventPage> {
+    return api.get<AiResearchV2TaskEventPage>(`/strategy/ai-research/v2/tasks/${taskId}/events`, {
+      params: { cursor: cursor ?? undefined, limit },
+      signal,
+    })
+  },
+
+  async cancelTrustedAIResearchTask(
+    taskId: string,
+    signal?: AbortSignal,
+  ): Promise<AiResearchV2Task> {
+    return api.post<AiResearchV2Task, undefined>(
+      `/strategy/ai-research/v2/tasks/${taskId}/cancel`,
+      undefined,
+      { signal },
     )
   },
 

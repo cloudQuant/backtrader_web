@@ -21,6 +21,7 @@ from app.config import get_settings, production_security_mode
 from app.schemas.ai_strategy_research import (
     AI_STRATEGY_RESEARCH_DEFAULT_WORKFLOW_STEPS,
     AI_STRATEGY_RESEARCH_WORKFLOW_STEP_LABELS,
+    AI_STRATEGY_RESEARCH_WORKFLOW_STEPS_SEMANTICS,
     AIStrategyLiveHandoffApprovalRecord,
     AIStrategyLiveHandoffApprovalRequest,
     AIStrategyLiveHandoffPackage,

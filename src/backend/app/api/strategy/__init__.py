@@ -28,12 +28,14 @@ from app.api.strategy.base import (
     router as base_router,
 )
 from app.api.strategy.explainer import router as explainer_router
+from app.api.strategy.research import router as research_router
 from app.api.strategy.score import router as score_router
 
 router = APIRouter()
 router.include_router(base_router)
 router.include_router(score_router)
 router.include_router(explainer_router)
+router.include_router(research_router)
 
 __all__ = [
     "add_strategy_copilot_draft_to_workspace",

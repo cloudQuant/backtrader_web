@@ -1325,6 +1325,10 @@ def _research_run_record_with_pipeline(
     record = _research_run_record_with_live_readiness_freshness(record)
     if not record.pipeline:
         record = record.model_copy(update={"pipeline": _pipeline_summary_from_record(record)})
+    elif "workflow_steps_semantics" not in record.pipeline:
+        pipeline = dict(record.pipeline)
+        pipeline["workflow_steps_semantics"] = AI_STRATEGY_RESEARCH_WORKFLOW_STEPS_SEMANTICS
+        record = record.model_copy(update={"pipeline": pipeline})
     return _research_run_record_with_promotion_audit(record)
 
 

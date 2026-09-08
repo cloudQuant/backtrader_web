@@ -10,6 +10,7 @@ from app.schemas.strategy import StrategyCopilotRunResult, StrategyResponse
 from app.schemas.workspace import StrategyUnitResponse, UnitStatusResponse, WorkspaceResponse
 
 AIStrategyResearchWorkflowMode = Literal["auto", "prompt"]
+AIStrategyResearchWorkflowStepsSemantics = Literal["prompt_display_only"]
 AIStrategyResearchWorkflowStep = Literal[
     "ideation",
     "generation",
@@ -27,6 +28,10 @@ AI_STRATEGY_RESEARCH_DEFAULT_WORKFLOW_STEPS: tuple[AIStrategyResearchWorkflowSte
     "backtest",
     "review",
     "optimization",
+)
+
+AI_STRATEGY_RESEARCH_WORKFLOW_STEPS_SEMANTICS: AIStrategyResearchWorkflowStepsSemantics = (
+    "prompt_display_only"
 )
 
 AI_STRATEGY_RESEARCH_WORKFLOW_STEP_LABELS: dict[AIStrategyResearchWorkflowStep, str] = {
@@ -267,11 +272,10 @@ def _default_ai_research_workflow_steps() -> list[AIStrategyResearchWorkflowStep
 def _research_workflow_step_lines(request: AIStrategyResearchRunRequest) -> list[str]:
     lines: list[str] = []
     mode_label = (
-        "自动规划并执行完整投研流水线"
-        if request.workflow_mode == "auto"
-        else "按用户提示执行指定投研流水线"
+        "根据当前控制项自动生成" if request.workflow_mode == "auto" else "使用用户提供的提示"
     )
-    lines.append(f"模式：{mode_label}。")
+    lines.append(f"研究目标生成：{mode_label}。")
+    lines.append("说明：以下步骤仅用于组织研究提示与展示；实际服务端执行阶段和状态以运行记录为准。")
     for index, step in enumerate(request.workflow_steps, start=1):
         label = AI_STRATEGY_RESEARCH_WORKFLOW_STEP_LABELS[step]
         description = AI_STRATEGY_RESEARCH_WORKFLOW_STEP_DESCRIPTIONS[step]
@@ -514,7 +518,10 @@ class AIStrategyResearchRunRequest(BaseModel):
     workflow_steps: list[AIStrategyResearchWorkflowStep] = Field(
         default_factory=_default_ai_research_workflow_steps,
         min_length=1,
-        description="Ordered professional research workflow steps to execute and report.",
+        description=(
+            "Ordered research steps used to structure the prompt and legacy display only; "
+            "they do not select or alter the server-side execution graph."
+        ),
     )
     symbol: str = Field(..., min_length=1, max_length=50, description="Backtest/trading symbol")
     symbol_name: str = Field("", max_length=200, description="Symbol display name")
@@ -875,6 +882,13 @@ class AIStrategyResearchRunRecord(BaseModel):
     workflow_mode: AIStrategyResearchWorkflowMode = "auto"
     workflow_steps: list[AIStrategyResearchWorkflowStep] = Field(
         default_factory=_default_ai_research_workflow_steps
+    )
+    workflow_steps_semantics: AIStrategyResearchWorkflowStepsSemantics = Field(
+        AI_STRATEGY_RESEARCH_WORKFLOW_STEPS_SEMANTICS,
+        description=(
+            "Documents that workflow_steps are a prompt/display preference rather than "
+            "the server-side execution graph."
+        ),
     )
     symbol: str
     symbol_name: str = ""

@@ -3,6 +3,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# The development image contains only src/frontend; backend comparison is not available here.
+ENV AI_RESEARCH_APPROVAL_ERROR_CATALOG_MODE=pinned-only
+
 # Install dependencies first for better layer caching
 COPY src/frontend/package*.json ./
 

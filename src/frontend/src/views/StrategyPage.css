@@ -187,8 +187,8 @@
 
 .strategy-category-filter :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
   border-color: var(--primary-color);
-  background: var(--fill-color-light);
-  color: var(--primary-color);
+  background: var(--primary-color);
+  color: var(--primary-on-color);
   box-shadow: none;
 }
 
@@ -816,6 +816,13 @@
   display: flex;
   justify-content: flex-end;
   margin-top: 8px;
+}
+
+.ai-research-workflow-semantics {
+  margin: 8px 0 0;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .ai-research-prompt-generation-intro {

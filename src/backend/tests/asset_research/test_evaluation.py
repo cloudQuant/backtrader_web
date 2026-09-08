@@ -69,9 +69,13 @@ def test_evaluate_samples_returns_promotion_ready_metrics() -> None:
 
 def test_deflated_sharpe_rejects_insufficient_returns() -> None:
     with pytest.raises(ValueError, match="EVALUATION_RETURNS_INSUFFICIENT"):
-        deflated_sharpe([0.01], n_trials=1)
+        deflated_sharpe([0.01], n_trials=1, trial_sharpes=[0.2])
 
 
 def test_deflated_sharpe_accepts_correlated_trial_count() -> None:
-    value = deflated_sharpe([0.01, 0.02, -0.01, 0.03], n_trials=10)
+    value = deflated_sharpe(
+        [0.01, 0.02, -0.01, 0.03],
+        n_trials=10,
+        trial_sharpes=[0.1] * 10,
+    )
     assert value is not None

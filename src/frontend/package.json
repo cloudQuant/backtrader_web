@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "prebuild": "npm run verify:approval-errors",
     "build": "vite build",
     "typecheck": "vue-tsc --noEmit",
     "preview": "vite preview",
@@ -17,7 +18,8 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "verify:approval-errors": "node scripts/verify-ai-research-approval-errors.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
