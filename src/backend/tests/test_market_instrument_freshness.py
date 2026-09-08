@@ -167,3 +167,123 @@ async def test_empty_akshare_response_keeps_the_mysql_market_data():
     assert payload["provider"] == "akshare_data"
     assert payload["history"]["total"] == 1
     assert "AkShare 未返回可用数据，已保留本地 MySQL 数据。" in payload["warnings"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("asset_type", "symbol", "unexpected_symbol"),
+    [
+        ("stock", "000001", "600519"),
+        ("futures", "RB2510", "IF2510"),
+        ("bond", "sh113527", "sh110074"),
+        ("fund", "510300", "159915"),
+        ("option", "10003889", "10003890"),
+        ("fx", "USDCNH", "EURUSD"),
+        ("crypto", "BTCJPY", "ETHJPY"),
+    ],
+)
+async def test_local_lookup_discards_a_payload_for_a_different_instrument(
+    asset_type: str,
+    symbol: str,
+    unexpected_symbol: str,
+):
+    """Legacy fallback must return an empty result instead of a nearby symbol."""
+
+    class MismatchedWarehouseService(MarketInstrumentService):
+        async def _lookup_warehouse(self, **kwargs):
+            return self._payload(
+                asset_type=kwargs["asset_type"],
+                symbol=unexpected_symbol,
+                name=unexpected_symbol,
+                market=kwargs["market"] or "CN",
+                snapshot={"symbol": unexpected_symbol, "price": 99.0},
+                rows=[{"date": "2026-06-19", "close": 99.0}],
+                period=kwargs["period"],
+                provider="akshare_data",
+            )
+
+    payload = await MismatchedWarehouseService().lookup(
+        asset_type=asset_type,  # type: ignore[arg-type]
+        symbol=symbol,
+        start_date="2026-06-01",
+        end_date="2026-06-19",
+        refresh_online=False,
+    )
+
+    assert payload["symbol"].upper() == symbol.upper()
+    assert payload["snapshot"] == {}
+    assert payload["history"]["total"] == 0
+    assert payload["warnings"] == ["本地行情未返回所请求的精确标的，已忽略该结果。"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_discards_an_online_payload_for_a_different_instrument():
+    """An online refresh must not replace local data with another symbol's result."""
+
+    class MismatchedOnlineService(MarketInstrumentService):
+        async def _lookup_warehouse(self, **kwargs):
+            return self._payload(
+                asset_type="stock",
+                symbol=kwargs["symbol"],
+                name=kwargs["symbol"],
+                market="CN",
+                snapshot={},
+                rows=[],
+                period=kwargs["period"],
+                provider="akshare_data",
+            )
+
+        def _lookup_stock(self, **kwargs):
+            return self._payload(
+                asset_type="stock",
+                symbol="600519",
+                name="600519",
+                market="CN",
+                snapshot={"symbol": "600519", "price": 99.0},
+                rows=[{"date": "2026-06-19", "close": 99.0}],
+                period=kwargs["period"],
+                provider="akshare",
+            )
+
+    payload = await MismatchedOnlineService().lookup(
+        asset_type="stock",
+        symbol="000001",
+        start_date="2026-06-01",
+        end_date="2026-06-19",
+        refresh_online=True,
+    )
+
+    assert payload["symbol"] == "000001"
+    assert payload["snapshot"] == {}
+    assert payload["history"]["total"] == 0
+    assert "本地行情未找到所请求的精确标的。" in payload["warnings"]
+    assert "AkShare 未返回所请求的精确标的，已忽略该结果。" in payload["warnings"]
+
+
+@pytest.mark.asyncio
+async def test_stock_warehouse_does_not_substitute_recent_rows_outside_the_requested_window():
+    """A history miss must retain its requested time window instead of showing stale bars."""
+
+    queries: list[str] = []
+
+    class ExactWindowService(MarketInstrumentService):
+        async def _fetch_one(self, *_args, **_kwargs):
+            return None
+
+        async def _fetch_rows(self, sql, *_args, **_kwargs):
+            queries.append(sql)
+            return []
+
+    payload = await ExactWindowService()._lookup_stock_warehouse(
+        symbol="000001",
+        start_date="2026-06-01",
+        end_date="2026-06-19",
+        period="daily",
+        market="CN",
+        warnings=[],
+    )
+
+    assert payload["history"]["total"] == 0
+    assert len(queries) == 2
+    assert all("BETWEEN :start AND :end" in query for query in queries)
+    assert not any("LIMIT 120" in query for query in queries)
