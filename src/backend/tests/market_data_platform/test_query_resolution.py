@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -11,7 +12,7 @@ from app.db.database import async_session_maker
 from app.models.asset_research import AssetInstrument
 from app.models.data_governance import DgDataset, DgDatasetStorage, DgStorageTarget
 from app.schemas.asset_research import InstrumentIdentity, StockIdentityDetails
-from app.schemas.market_data_platform import MarketDataQueryRequest
+from app.schemas.market_data_platform import MarketDataQueryRequest, PublicMarketDataQueryRequest
 from app.services.market_data.catalog import DataCatalogResolver
 from app.services.market_data.identity import MarketDataIdentityResolver
 from app.services.market_data.identity_projection import MarketDataIdentityProjectionWriter
@@ -184,6 +185,76 @@ async def test_query_resolver_rechecks_every_axis_of_a_bundle_selected_family() 
     assert result.query.family_id == "stock.realtime"
     assert result.query.family_contract_version == "market-data-family-v1"
     assert mismatched.value.code == "DATA_FAMILY_QUERY_CONTRACT_MISMATCH"
+
+
+@pytest.mark.asyncio
+async def test_query_resolver_requires_explicit_exact_fx_range_semantic_axes() -> None:
+    """FX's explicit ``None`` axes cannot be replaced by omitted/defaulted values."""
+
+    class _Catalog:
+        async def resolve_primary(self, dataset_code: str) -> object:
+            return SimpleNamespace(dataset_code=dataset_code)
+
+    class _FxIdentities:
+        async def resolve(self, *_args: object, **_kwargs: object) -> object:
+            return SimpleNamespace(
+                asset_type="fx",
+                canonical_id="instrument:fx:CN-OTC:USDCNH",
+                metadata_version="fx-v1",
+                valid_to=None,
+                venue="CN-OTC",
+            )
+
+    payload: dict[str, object] = {
+        "identity": {"canonical_id": "instrument:fx:CN-OTC:USDCNH"},
+        "dataset_code": "market.bars",
+        "data_kind": "bars",
+        "frequency": "1d",
+        "start": "2026-09-08T09:30:00+08:00",
+        "end": "2026-09-09T09:30:00+08:00",
+        "required_fields": ["open", "high", "low", "close"],
+        "adjustment": "unadjusted",
+        "price_basis": "close",
+        "currency": None,
+        "unit": None,
+        "source_policy_id": "market-default-v1",
+        "family_id": "fx.range",
+        "family_contract_version": "market-data-family-v1",
+        "mode": "local_first",
+    }
+    resolver = MarketDataQueryResolver(
+        catalog=_Catalog(),  # type: ignore[arg-type]
+        identities=_FxIdentities(),  # type: ignore[arg-type]
+    )
+
+    accepted = PublicMarketDataQueryRequest.model_validate_json(json.dumps(payload))
+    result = await resolver.resolve(accepted)
+
+    assert {"adjustment", "price_basis", "currency", "unit"} <= accepted.model_fields_set
+    assert result.query.family_id == "fx.range"
+    assert result.query.currency is None
+    assert result.query.unit is None
+
+    for axis_name in ("adjustment", "price_basis", "currency", "unit"):
+        omitted = dict(payload)
+        omitted.pop(axis_name)
+        request = PublicMarketDataQueryRequest.model_validate_json(json.dumps(omitted))
+        with pytest.raises(MarketDataQueryResolutionError) as rejected:
+            await resolver.resolve(request)
+        assert rejected.value.code == "DATA_FAMILY_QUERY_CONTRACT_MISMATCH"
+
+    for axis_name, value in (
+        ("adjustment", "qfq"),
+        ("price_basis", "settle"),
+        ("currency", "USD"),
+        ("unit", "contract"),
+    ):
+        request = PublicMarketDataQueryRequest.model_validate_json(
+            json.dumps(payload | {axis_name: value})
+        )
+        with pytest.raises(MarketDataQueryResolutionError) as rejected:
+            await resolver.resolve(request)
+        assert rejected.value.code == "DATA_FAMILY_QUERY_CONTRACT_MISMATCH"
 
 
 @pytest.mark.asyncio

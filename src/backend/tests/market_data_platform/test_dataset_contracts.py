@@ -428,6 +428,13 @@ def test_family_bound_query_requires_a_complete_exact_product_binding() -> None:
             "frequency": "1d",
             "required_fields": ("turnover", "turnover_rate", "volume"),
             "source_policy_id": "market-default-v1",
+            "adjustment": "unadjusted",
+            "price_basis": "close",
+            "currency": "CNY",
+            "unit": "share",
+            "explicit_semantic_axis_names": frozenset(
+                {"adjustment", "price_basis", "currency", "unit"}
+            ),
         },
         {
             "family_id": "fund.liquidity",
@@ -438,6 +445,13 @@ def test_family_bound_query_requires_a_complete_exact_product_binding() -> None:
             "frequency": "1d",
             "required_fields": ("turnover", "volume"),
             "source_policy_id": "market-default-v1",
+            "adjustment": "unadjusted",
+            "price_basis": "close",
+            "currency": "CNY",
+            "unit": "share",
+            "explicit_semantic_axis_names": frozenset(
+                {"adjustment", "price_basis", "currency", "unit"}
+            ),
         },
         {
             "family_id": "fx.range",
@@ -448,6 +462,13 @@ def test_family_bound_query_requires_a_complete_exact_product_binding() -> None:
             "frequency": "1d",
             "required_fields": ("close", "high", "low", "open"),
             "source_policy_id": "market-default-v1",
+            "adjustment": "unadjusted",
+            "price_basis": "close",
+            "currency": None,
+            "unit": None,
+            "explicit_semantic_axis_names": frozenset(
+                {"adjustment", "price_basis", "currency", "unit"}
+            ),
         },
     ],
 )
@@ -457,6 +478,17 @@ def test_registry_rejects_any_drift_from_a_bound_ready_family(
     """Family execution must preserve each server-declared dataset and field profile."""
     DEFAULT_DATASET_CONTRACT_REGISTRY.assert_query_binding(**binding)
 
+    semantic_drift = (
+        (
+            {"adjustment": "qfq"},
+            {"price_basis": "settle"},
+            {"currency": "USD"},
+            {"unit": "contract"},
+            {"explicit_semantic_axis_names": frozenset({"adjustment", "price_basis"})},
+        )
+        if binding["family_id"] in {"stock.liquidity", "fund.liquidity", "fx.range"}
+        else ()
+    )
     for changes in (
         {"dataset_code": "market.stock_daily"},
         {"data_kind": "quote_snapshot"},
@@ -465,6 +497,7 @@ def test_registry_rejects_any_drift_from_a_bound_ready_family(
         {"source_policy_id": "market-premium-v2"},
         {"asset_type": "crypto"},
         {"family_contract_version": "market-data-family-v0"},
+        *semantic_drift,
     ):
         with pytest.raises(DatasetContractRegistryError):
             DEFAULT_DATASET_CONTRACT_REGISTRY.assert_query_binding(**(binding | changes))

@@ -22,6 +22,7 @@ from app.schemas.market_data_platform import (
 _ASSET_TYPES = frozenset({"stock", "futures", "bond", "fund", "option", "fx", "crypto"})
 _BAR_FREQUENCIES = frozenset({"5min", "30min", "1h", "1d", "1w", "1mo"})
 FAMILY_CONTRACT_VERSION = "market-data-family-v1"
+_SEMANTIC_AXIS_NAMES = frozenset({"adjustment", "price_basis", "currency", "unit"})
 _REQUIRED_FAMILY_IDS = frozenset(
     {
         "stock.realtime",
@@ -55,6 +56,47 @@ class DatasetContractRegistryError(ValueError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+@dataclass(frozen=True, slots=True)
+class DatasetSemanticBinding:
+    """Exact semantic axes attached to one executable family contract.
+
+    ``None`` is a real, reviewed value for an undeclared axis.  It is not a
+    wildcard and does not permit a client to omit that axis: callers must pass
+    all four names through ``explicit_axis_names`` so the registry can tell a
+    deliberately undeclared axis from a generic/defaulted request.
+    """
+
+    adjustment: str | None
+    price_basis: str | None
+    currency: str | None
+    unit: str | None
+
+    def __post_init__(self) -> None:
+        """Reject blank strings that would otherwise collapse into an unset axis."""
+        for field_name in _SEMANTIC_AXIS_NAMES:
+            value = getattr(self, field_name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{field_name} must be a non-blank string or None")
+
+    def matches(
+        self,
+        *,
+        adjustment: str | None,
+        price_basis: str | None,
+        currency: str | None,
+        unit: str | None,
+        explicit_axis_names: frozenset[str],
+    ) -> bool:
+        """Return whether a request carries every exact, explicitly supplied axis."""
+        return (
+            _SEMANTIC_AXIS_NAMES <= explicit_axis_names
+            and adjustment == self.adjustment
+            and price_basis == self.price_basis
+            and currency == self.currency
+            and unit == self.unit
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +144,7 @@ class DatasetContract:
     coverage_model: str
     source_policy_id: str | None = None
     reason_code: str | None = None
+    semantic_binding: DatasetSemanticBinding | None = None
 
     def to_response(
         self,
@@ -154,6 +197,7 @@ class _ReadyFamilyShape:
     frequencies: tuple[str, ...]
     required_fields: tuple[str, ...]
     coverage_model: str
+    semantic_binding: DatasetSemanticBinding | None = None
 
     def matches(self, contract: DatasetContract) -> bool:
         """Return whether all material product axes remain exactly reviewed."""
@@ -164,6 +208,7 @@ class _ReadyFamilyShape:
             and contract.frequencies == self.frequencies
             and contract.field_profile.required_fields == self.required_fields
             and contract.coverage_model == self.coverage_model
+            and contract.semantic_binding == self.semantic_binding
         )
 
 
@@ -198,6 +243,12 @@ _READY_FAMILY_SHAPES: dict[str, _ReadyFamilyShape] = {
         ("1d",),
         ("volume", "turnover", "turnover_rate"),
         "calendar_grid",
+        DatasetSemanticBinding(
+            adjustment="unadjusted",
+            price_basis="close",
+            currency="CNY",
+            unit="share",
+        ),
     ),
     "futures.realtime": _ReadyFamilyShape(
         "market.bars",
@@ -254,6 +305,12 @@ _READY_FAMILY_SHAPES: dict[str, _ReadyFamilyShape] = {
         ("1d",),
         ("volume", "turnover"),
         "calendar_grid",
+        DatasetSemanticBinding(
+            adjustment="unadjusted",
+            price_basis="close",
+            currency="CNY",
+            unit="share",
+        ),
     ),
     "fund.nav": _ReadyFamilyShape(
         "market.fund_nav",
@@ -294,6 +351,12 @@ _READY_FAMILY_SHAPES: dict[str, _ReadyFamilyShape] = {
         ("1d",),
         ("open", "high", "low", "close"),
         "calendar_grid",
+        DatasetSemanticBinding(
+            adjustment="unadjusted",
+            price_basis="close",
+            currency=None,
+            unit=None,
+        ),
     ),
     "crypto.realtime": _ReadyFamilyShape(
         "market.quote_snapshot",
@@ -409,6 +472,11 @@ class DatasetContractRegistry:
         frequency: str | None,
         required_fields: tuple[str, ...],
         source_policy_id: str | None,
+        adjustment: str | None = None,
+        price_basis: str | None = None,
+        currency: str | None = None,
+        unit: str | None = None,
+        explicit_semantic_axis_names: frozenset[str] = frozenset(),
     ) -> None:
         """Reject a v2 request whose executable axes drift from its family card.
 
@@ -427,6 +495,16 @@ class DatasetContractRegistry:
             or frequency not in contract.frequencies
             or tuple(required_fields) != tuple(sorted(contract.field_profile.required_fields))
             or source_policy_id != contract.source_policy_id
+            or (
+                contract.semantic_binding is not None
+                and not contract.semantic_binding.matches(
+                    adjustment=adjustment,
+                    price_basis=price_basis,
+                    currency=currency,
+                    unit=unit,
+                    explicit_axis_names=explicit_semantic_axis_names,
+                )
+            )
         ):
             raise DatasetContractRegistryError("DATA_FAMILY_QUERY_CONTRACT_MISMATCH")
 
@@ -502,6 +580,12 @@ _CONTRACTS: tuple[DatasetContract, ...] = (
         _profile("stock-liquidity-v1", ("volume", "turnover", "turnover_rate")),
         "calendar_grid",
         source_policy_id="market-default-v1",
+        semantic_binding=DatasetSemanticBinding(
+            adjustment="unadjusted",
+            price_basis="close",
+            currency="CNY",
+            unit="share",
+        ),
     ),
     DatasetContract(
         "futures.realtime",
@@ -617,6 +701,12 @@ _CONTRACTS: tuple[DatasetContract, ...] = (
         _profile("fund-liquidity-v1", ("volume", "turnover")),
         "calendar_grid",
         source_policy_id="market-default-v1",
+        semantic_binding=DatasetSemanticBinding(
+            adjustment="unadjusted",
+            price_basis="close",
+            currency="CNY",
+            unit="share",
+        ),
     ),
     DatasetContract(
         "fund.nav",
@@ -723,6 +813,12 @@ _CONTRACTS: tuple[DatasetContract, ...] = (
         _profile("fx-range-v1", ("open", "high", "low", "close")),
         "calendar_grid",
         source_policy_id="market-default-v1",
+        semantic_binding=DatasetSemanticBinding(
+            adjustment="unadjusted",
+            price_basis="close",
+            currency=None,
+            unit=None,
+        ),
     ),
     DatasetContract(
         "crypto.realtime",

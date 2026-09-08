@@ -1002,6 +1002,72 @@ async def test_contract_probe_forwards_the_explicit_bundle_family_to_the_server_
 
 
 @pytest.mark.asyncio
+async def test_contract_probe_preserves_explicit_null_fx_semantic_axes(
+    client,
+    auth_headers,
+    monkeypatch,
+    permitted_market_data_access,
+) -> None:
+    """A signed FX contract keeps reviewed undeclared axes as JSON nulls."""
+    import app.api.data.base as data_base
+
+    expected = {
+        "version": "market-data-v2",
+        "request": {
+            "identity": {"canonical_id": "instrument:fx:CN-OTC:USDCNH"},
+            "dataset_code": "market.bars",
+            "data_kind": "bars",
+            "frequency": "1d",
+            "required_fields": ["open", "high", "low", "close"],
+            "adjustment": "unadjusted",
+            "price_basis": "close",
+            "currency": None,
+            "unit": None,
+            "source_policy_id": "market-default-v1",
+            "mode": "local_first",
+            "family_id": "fx.range",
+            "family_contract_version": "market-data-family-v1",
+        },
+    }
+    resolver = _ContractResolver(expected)
+    monkeypatch.setattr(
+        data_base,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
+    )
+    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
+    try:
+        response = await client.get(
+            "/api/v1/data/market-instruments/query-contract",
+            params={
+                "asset_type": "fx",
+                "symbol": "USDCNH",
+                "period": "daily",
+                "family_id": "fx.range",
+            },
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_legacy_market_data_query_contract_resolver, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == expected
+    assert "currency" in body["request"]
+    assert "unit" in body["request"]
+    assert body["request"]["currency"] is None
+    assert body["request"]["unit"] is None
+    assert resolver.calls == [
+        {
+            "asset_type": "fx",
+            "symbol": "USDCNH",
+            "period": "daily",
+            "family_id": "fx.range",
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_contract_probe_fails_closed_when_v2_is_disabled_or_unavailable(
     client,
     auth_headers,

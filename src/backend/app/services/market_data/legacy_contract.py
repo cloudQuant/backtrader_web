@@ -196,7 +196,22 @@ class LegacyMarketDataQueryContractResolver:
             asset_type=identity.asset_type,
             venue=identity.venue,
         )
-        if semantics is None or not self._has_reviewed_route(
+        # A compatibility bridge signs every B1 semantic field explicitly.
+        # Keep that signature tied to the same registry-owned binding used by
+        # the v2 resolver; otherwise a later edit to legacy defaults could mint
+        # a request the public endpoint interprets with a generic default.
+        if semantics is None:
+            return None
+        semantic_binding = family_contract.semantic_binding
+        if semantic_binding is not None and not semantic_binding.matches(
+            adjustment=semantics.adjustment,
+            price_basis=semantics.price_basis,
+            currency=semantics.currency,
+            unit=semantics.unit,
+            explicit_axis_names=frozenset({"adjustment", "price_basis", "currency", "unit"}),
+        ):
+            return None
+        if not self._has_reviewed_route(
             family_id=family_contract.family_id,
             asset_type=identity.asset_type,
             venue=identity.venue,

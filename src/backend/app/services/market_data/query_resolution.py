@@ -130,6 +130,16 @@ class MarketDataQueryResolver:
                     frequency=request.frequency,
                     required_fields=request.required_fields,
                     source_policy_id=request.source_policy_id,
+                    adjustment=request.adjustment,
+                    price_basis=request.price_basis,
+                    currency=request.currency,
+                    unit=request.unit,
+                    # ``None`` can be a reviewed semantic value (for example,
+                    # an FX pair whose currency/unit axis is deliberately
+                    # undeclared). Preserve Pydantic's field-presence record
+                    # so the contract can reject an omitted axis instead of
+                    # treating it as a generic provider default.
+                    explicit_semantic_axis_names=frozenset(request.model_fields_set),
                 )
             except DatasetContractRegistryError as exc:
                 raise MarketDataQueryResolutionError(exc.code) from exc
