@@ -2,9 +2,10 @@
 
 This command never accepts an application database URL.  It requires an
 explicit ``postgresql+asyncpg`` administrative URL whose database is exactly
-``postgres``; when ``--apply`` is supplied it creates one UUID-named temporary
-database, upgrades it with Alembic, exercises the real normalized market-data
-services, and drops that same database in ``finally``.
+``postgres``; when ``--apply`` is supplied it creates only UUID-named temporary
+databases, upgrades them with Alembic, exercises the real normalized market-data
+services and the stamped-legacy constraint portability path, then drops those
+same databases in ``finally``.
 
 The default is a dry run: it validates the administrative connection shape but
 does not open a connection, create a database, migrate, or fetch any data.
@@ -38,7 +39,7 @@ import sys
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -60,7 +61,13 @@ from alembic import command
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.models.asset_research import AssetDataSourceRegistry
-from app.models.market_data_platform import MdFetchLease, MdObservationRevision, MdSourceSnapshot
+from app.models.data_governance import DgProvider
+from app.models.market_data_platform import (
+    MdCalendarSnapshot,
+    MdFetchLease,
+    MdObservationRevision,
+    MdSourceSnapshot,
+)
 from app.models.permission import Role, user_roles
 from app.models.user import User
 from app.schemas.asset_research import InstrumentIdentity
@@ -136,6 +143,8 @@ WINDOW_END = datetime(2026, 9, 3, tzinfo=UTC)
 RECEIPT_AT = datetime(2026, 9, 3, 7, tzinfo=UTC)
 _PROCESS_EVENT_TIMEOUT_SECONDS = 20.0
 _PROCESS_RESULT_TIMEOUT_SECONDS = 30.0
+_PORTABILITY_PREDECESSOR_REVISION = "20260909_market_data_exact_identity_collation"
+_POSTGRES_IDENTIFIER_LIMIT = 63
 
 
 class PostgresAcceptanceHarnessError(RuntimeError):
@@ -144,6 +153,80 @@ class PostgresAcceptanceHarnessError(RuntimeError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+@dataclass(frozen=True, slots=True)
+class _LegacyConstraintCase:
+    """One renamed CHECK whose old PostgreSQL identifier was truncated."""
+
+    table_name: str
+    portable_name: str
+    legacy_name: str
+
+    @property
+    def postgres_truncated_legacy_name(self) -> str:
+        """Return PostgreSQL's deterministic 63-byte result for this ASCII identifier."""
+        return self.legacy_name[:_POSTGRES_IDENTIFIER_LIMIT]
+
+
+_LEGACY_CONSTRAINT_CASES = (
+    _LegacyConstraintCase(
+        table_name="md_source_snapshots",
+        portable_name="ck_md_srcsnap_provider_req_fp_sha256_len",
+        legacy_name="ck_md_source_snapshot_provider_request_fingerprint_sha256_length",
+    ),
+    _LegacyConstraintCase(
+        table_name="md_source_snapshots",
+        portable_name="ck_md_srcsnap_src_auth_desc_sha256_len",
+        legacy_name="ck_md_source_snapshot_source_authorization_descriptor_sha256_length",
+    ),
+    _LegacyConstraintCase(
+        table_name="md_calendar_snapshots",
+        portable_name="ck_md_calsnap_src_gov_desc_sha256_len",
+        legacy_name="ck_md_calendar_snapshot_source_governance_descriptor_sha256_length",
+    ),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _LegacyConstraintFixture:
+    """Identifiers and content digests needed to prove an upgrade preserves sentinels."""
+
+    source_snapshot_id: str
+    calendar_snapshot_id: str
+    provider_request_fingerprint_sha256: str
+    source_authorization_descriptor_sha256: str
+    source_payload_sha256: str
+    calendar_governance_descriptor_sha256: str
+    calendar_snapshot_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class _LegacyConstraintPortabilityEvidence:
+    """Safe facts emitted after a stamped predecessor PostgreSQL upgrade."""
+
+    predecessor_revision: str
+    current_head: str
+    legacy_truncated_constraint_count: int
+    portable_constraint_count: int
+    source_snapshot_count: int
+    calendar_snapshot_count: int
+    sentinels_preserved: bool
+    short_digest_rejected: bool
+    truncated_legacy_to_portable: Mapping[str, str]
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "predecessor_revision": self.predecessor_revision,
+            "current_head": self.current_head,
+            "legacy_truncated_constraint_count": self.legacy_truncated_constraint_count,
+            "portable_constraint_count": self.portable_constraint_count,
+            "source_snapshot_count": self.source_snapshot_count,
+            "calendar_snapshot_count": self.calendar_snapshot_count,
+            "sentinels_preserved": self.sentinels_preserved,
+            "short_digest_rejected": self.short_digest_rejected,
+            "truncated_legacy_to_portable": dict(self.truncated_legacy_to_portable),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,7 +361,10 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument(
         "--apply",
         action="store_true",
-        help="Create, migrate, verify, and delete one UUID-named temporary database.",
+        help=(
+            "Create, migrate, verify, and delete UUID-named temporary databases; "
+            "includes one stamped legacy-constraint portability upgrade."
+        ),
     )
     return parser.parse_args()
 
@@ -405,16 +491,30 @@ async def _drop_temporary_database(admin_url: URL, database_name: str) -> None:
         await engine.dispose()
 
 
-def _run_alembic_upgrade(target_url: URL) -> str:
-    """Run the project's normal Alembic path against the disposable target only."""
+def _alembic_config(target_url: URL) -> Config:
+    """Build an Alembic configuration whose only target is the generated database."""
+    config = Config(str(_BACKEND_DIRECTORY / "alembic.ini"))
+    config.set_main_option("script_location", str(_BACKEND_DIRECTORY / "alembic"))
+    config.set_main_option("sqlalchemy.url", _alembic_url_text(target_url))
+    return config
+
+
+def _run_alembic_upgrade_to_revision(target_url: URL, revision: str) -> None:
+    """Run Alembic only against a generated temporary database at one revision."""
     try:
-        config = Config(str(_BACKEND_DIRECTORY / "alembic.ini"))
-        config.set_main_option("script_location", str(_BACKEND_DIRECTORY / "alembic"))
-        config.set_main_option("sqlalchemy.url", _alembic_url_text(target_url))
-        command.upgrade(config, "head")
-        head = ScriptDirectory.from_config(config).get_current_head()
+        command.upgrade(_alembic_config(target_url), revision)
     except Exception as exc:
         raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_ALEMBIC_UPGRADE_FAILED") from exc
+
+
+def _run_alembic_upgrade(target_url: URL) -> str:
+    """Run the project's normal Alembic head path against the disposable target."""
+    config = _alembic_config(target_url)
+    _run_alembic_upgrade_to_revision(target_url, "head")
+    try:
+        head = ScriptDirectory.from_config(config).get_current_head()
+    except Exception as exc:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_ALEMBIC_HEAD_INVALID") from exc
     if not isinstance(head, str) or not head:
         raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_ALEMBIC_HEAD_INVALID")
     return head
@@ -468,6 +568,253 @@ async def _assert_utc_session_timezone(session: AsyncSession) -> str:
     if timezone_name.upper() not in {"UTC", "ETC/UTC"}:
         raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_SESSION_TIMEZONE_NOT_UTC")
     return timezone_name
+
+
+async def _assert_alembic_revision(session: AsyncSession, expected_revision: str) -> None:
+    """Fail closed unless the disposable database has exactly one expected revision."""
+    revision_rows = (
+        (await session.execute(text("SELECT version_num FROM alembic_version"))).scalars().all()
+    )
+    if revision_rows != [expected_revision]:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_ALEMBIC_VERSION_MISMATCH")
+
+
+def _check_constraint_names(sync_connection: Any, table_name: str) -> frozenset[str]:
+    """Return named checks reflected by PostgreSQL from one known table."""
+    return frozenset(
+        str(check["name"])
+        for check in sa.inspect(sync_connection).get_check_constraints(table_name)
+        if check.get("name")
+    )
+
+
+async def _reflected_check_constraint_names(
+    session: AsyncSession,
+    table_name: str,
+) -> frozenset[str]:
+    """Reflect current PostgreSQL CHECK names through this session's connection."""
+    connection = await session.connection()
+    return await connection.run_sync(_check_constraint_names, table_name)
+
+
+def _fixture_digest(label: str) -> str:
+    """Generate a deterministic non-secret SHA-256 value for the legacy fixture."""
+    return hashlib.sha256(f"iteration197-postgres-legacy:{label}".encode()).hexdigest()
+
+
+async def _seed_stamped_legacy_constraint_fixture(
+    target_url: URL,
+) -> _LegacyConstraintFixture:
+    """Seed sentinels and let PostgreSQL truncate the simulated old CHECK names."""
+    engine = _target_engine(target_url)
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    source_snapshot_id = str(uuid.uuid4())
+    calendar_snapshot_id = str(uuid.uuid4())
+    fixture = _LegacyConstraintFixture(
+        source_snapshot_id=source_snapshot_id,
+        calendar_snapshot_id=calendar_snapshot_id,
+        provider_request_fingerprint_sha256=_fixture_digest("provider-request"),
+        source_authorization_descriptor_sha256=_fixture_digest("source-authorization"),
+        source_payload_sha256=_fixture_digest("source-payload"),
+        calendar_governance_descriptor_sha256=_fixture_digest("calendar-governance"),
+        calendar_snapshot_sha256=_fixture_digest("calendar-snapshot"),
+    )
+    try:
+        async with session_factory() as session:
+            await _assert_utc_session_timezone(session)
+            await _assert_alembic_revision(session, _PORTABILITY_PREDECESSOR_REVISION)
+            provider = DgProvider(
+                id=str(uuid.uuid4()),
+                provider_id="iteration197-legacy-portability",
+                name="Iteration 197 legacy portability fixture",
+                category="market_data",
+                auth_type="none",
+                rate_limit=1,
+                is_active=True,
+            )
+            source_snapshot = MdSourceSnapshot(
+                id=fixture.source_snapshot_id,
+                provider_id=provider.id,
+                platform="iteration197-postgres-acceptance",
+                source_id="legacy-constraint-portability-fixture",
+                adapter_id="iteration197.legacy.fixture",
+                endpoint_version="v1",
+                request_fingerprint_sha256=_fixture_digest("query-request"),
+                provider_request_id="iteration197-legacy-portability-request-0001",
+                provider_request_fingerprint_sha256=(fixture.provider_request_fingerprint_sha256),
+                query_fingerprint_sha256=_fixture_digest("query-fingerprint"),
+                source_authorization_state="VERIFIED",
+                source_authorization_descriptor_sha256=(
+                    fixture.source_authorization_descriptor_sha256
+                ),
+                payload_sha256=fixture.source_payload_sha256,
+                request_json={"fixture": "legacy_constraint_portability"},
+                payload_manifest_json={"fixture": "legacy_constraint_portability"},
+                provenance_json={"fixture": "legacy_constraint_portability"},
+                source_observed_at=RECEIPT_AT,
+                source_published_at=RECEIPT_AT,
+                retrieved_at=RECEIPT_AT,
+                created_at=RECEIPT_AT,
+            )
+            calendar_snapshot = MdCalendarSnapshot(
+                id=fixture.calendar_snapshot_id,
+                calendar_code="ITER197-LEGACY-PORTABILITY",
+                calendar_version="v1",
+                timezone_name="UTC",
+                source_registry_id="iteration197-legacy-fixture",
+                source_governance_state="VERIFIED",
+                source_governance_descriptor_sha256=(fixture.calendar_governance_descriptor_sha256),
+                source_snapshot_id=fixture.source_snapshot_id,
+                snapshot_sha256=fixture.calendar_snapshot_sha256,
+                definition_json={"fixture": "legacy_constraint_portability"},
+                effective_from=date(2026, 9, 1),
+                effective_to=date(2026, 9, 3),
+                created_at=RECEIPT_AT,
+            )
+            session.add_all((provider, source_snapshot, calendar_snapshot))
+            await session.commit()
+
+        # These values are internal constants, never operator input. PostgreSQL
+        # performs the historical 63-byte truncation when it receives each old
+        # long name; the following reflection verifies the actual result.
+        async with engine.begin() as connection:
+            for case in _LEGACY_CONSTRAINT_CASES:
+                await connection.execute(
+                    text(
+                        f'ALTER TABLE "{case.table_name}" '
+                        f'RENAME CONSTRAINT "{case.portable_name}" '
+                        f'TO "{case.legacy_name}"'
+                    )
+                )
+
+        async with session_factory() as session:
+            await _assert_utc_session_timezone(session)
+            await _assert_alembic_revision(session, _PORTABILITY_PREDECESSOR_REVISION)
+            for case in _LEGACY_CONSTRAINT_CASES:
+                names = await _reflected_check_constraint_names(session, case.table_name)
+                if case.postgres_truncated_legacy_name not in names or case.portable_name in names:
+                    raise PostgresAcceptanceHarnessError(
+                        "POSTGRES_ACCEPTANCE_LEGACY_TRUNCATION_NOT_OBSERVED"
+                    )
+        return fixture
+    finally:
+        await engine.dispose()
+
+
+async def _verify_stamped_legacy_constraint_upgrade(
+    target_url: URL,
+    *,
+    fixture: _LegacyConstraintFixture,
+    current_head: str,
+) -> _LegacyConstraintPortabilityEvidence:
+    """Verify the portable rename, sentinel preservation, and enforced CHECK."""
+    engine = _target_engine(target_url)
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        async with session_factory() as session:
+            await _assert_schema_and_timezone(session, expected_alembic_head=current_head)
+            for case in _LEGACY_CONSTRAINT_CASES:
+                names = await _reflected_check_constraint_names(session, case.table_name)
+                if case.portable_name not in names or case.postgres_truncated_legacy_name in names:
+                    raise PostgresAcceptanceHarnessError(
+                        "POSTGRES_ACCEPTANCE_PORTABLE_CONSTRAINT_NOT_OBSERVED"
+                    )
+            source_snapshot = await session.get(MdSourceSnapshot, fixture.source_snapshot_id)
+            calendar_snapshot = await session.get(MdCalendarSnapshot, fixture.calendar_snapshot_id)
+            if (
+                source_snapshot is None
+                or calendar_snapshot is None
+                or source_snapshot.provider_request_fingerprint_sha256
+                != fixture.provider_request_fingerprint_sha256
+                or source_snapshot.source_authorization_descriptor_sha256
+                != fixture.source_authorization_descriptor_sha256
+                or source_snapshot.payload_sha256 != fixture.source_payload_sha256
+                or calendar_snapshot.source_snapshot_id != fixture.source_snapshot_id
+                or calendar_snapshot.source_governance_descriptor_sha256
+                != fixture.calendar_governance_descriptor_sha256
+                or calendar_snapshot.snapshot_sha256 != fixture.calendar_snapshot_sha256
+            ):
+                raise PostgresAcceptanceHarnessError(
+                    "POSTGRES_ACCEPTANCE_LEGACY_SENTINEL_NOT_PRESERVED"
+                )
+            source_snapshot_count = int(
+                await session.scalar(select(func.count()).select_from(MdSourceSnapshot)) or 0
+            )
+            calendar_snapshot_count = int(
+                await session.scalar(select(func.count()).select_from(MdCalendarSnapshot)) or 0
+            )
+            if source_snapshot_count != 1 or calendar_snapshot_count != 1:
+                raise PostgresAcceptanceHarnessError(
+                    "POSTGRES_ACCEPTANCE_LEGACY_SENTINEL_COUNT_INVALID"
+                )
+
+        short_digest_rejected = False
+        async with session_factory() as session:
+            try:
+                await session.execute(
+                    text(
+                        "UPDATE md_source_snapshots "
+                        "SET provider_request_fingerprint_sha256 = :invalid_digest "
+                        "WHERE id = :snapshot_id"
+                    ),
+                    {"invalid_digest": "short", "snapshot_id": fixture.source_snapshot_id},
+                )
+                await session.commit()
+            except sa.exc.IntegrityError:
+                short_digest_rejected = True
+                await session.rollback()
+        if not short_digest_rejected:
+            raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_PORTABLE_CHECK_NOT_ENFORCED")
+
+        async with session_factory() as session:
+            source_snapshot = await session.get(MdSourceSnapshot, fixture.source_snapshot_id)
+            if (
+                source_snapshot is None
+                or source_snapshot.provider_request_fingerprint_sha256
+                != fixture.provider_request_fingerprint_sha256
+            ):
+                raise PostgresAcceptanceHarnessError(
+                    "POSTGRES_ACCEPTANCE_LEGACY_SENTINEL_NOT_PRESERVED"
+                )
+        return _LegacyConstraintPortabilityEvidence(
+            predecessor_revision=_PORTABILITY_PREDECESSOR_REVISION,
+            current_head=current_head,
+            legacy_truncated_constraint_count=len(_LEGACY_CONSTRAINT_CASES),
+            portable_constraint_count=len(_LEGACY_CONSTRAINT_CASES),
+            source_snapshot_count=source_snapshot_count,
+            calendar_snapshot_count=calendar_snapshot_count,
+            sentinels_preserved=True,
+            short_digest_rejected=short_digest_rejected,
+            truncated_legacy_to_portable={
+                case.postgres_truncated_legacy_name: case.portable_name
+                for case in _LEGACY_CONSTRAINT_CASES
+            },
+        )
+    finally:
+        await engine.dispose()
+
+
+def _run_legacy_constraint_portability_stage(
+    target_url: URL,
+) -> _LegacyConstraintPortabilityEvidence:
+    """Simulate a stamped old PostgreSQL candidate before upgrading it to head."""
+    try:
+        _run_alembic_upgrade_to_revision(target_url, _PORTABILITY_PREDECESSOR_REVISION)
+        fixture = asyncio.run(_seed_stamped_legacy_constraint_fixture(target_url))
+        current_head = _run_alembic_upgrade(target_url)
+        return asyncio.run(
+            _verify_stamped_legacy_constraint_upgrade(
+                target_url,
+                fixture=fixture,
+                current_head=current_head,
+            )
+        )
+    except PostgresAcceptanceHarnessError:
+        raise
+    except Exception as exc:
+        raise PostgresAcceptanceHarnessError(
+            "POSTGRES_ACCEPTANCE_LEGACY_PORTABILITY_STAGE_FAILED"
+        ) from exc
 
 
 def _request(*, mode: str) -> MarketDataQueryRequest:
@@ -1200,15 +1547,26 @@ def _dry_run_output(admin_url: URL) -> dict[str, object]:
 
 def _apply(admin_url: URL) -> tuple[int, dict[str, object]]:
     """Run the full disposable acceptance flow and always attempt safe cleanup."""
-    database_name = _temporary_database_name()
-    created = False
+    legacy_database_name = _temporary_database_name()
+    acceptance_database_name = _temporary_database_name()
+    database_names = (legacy_database_name, acceptance_database_name)
+    created_database_names: list[str] = []
     cleanup = "not_needed"
     result: _HarnessResult | None = None
+    legacy_portability_result: _LegacyConstraintPortabilityEvidence | None = None
     failure: PostgresAcceptanceHarnessError | None = None
     try:
-        asyncio.run(_create_temporary_database(admin_url, database_name))
-        created = True
-        target_url = _target_url(admin_url, database_name)
+        if len(set(database_names)) != len(database_names):
+            raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_DATABASE_COLLISION")
+
+        asyncio.run(_create_temporary_database(admin_url, legacy_database_name))
+        created_database_names.append(legacy_database_name)
+        legacy_target_url = _target_url(admin_url, legacy_database_name)
+        legacy_portability_result = _run_legacy_constraint_portability_stage(legacy_target_url)
+
+        asyncio.run(_create_temporary_database(admin_url, acceptance_database_name))
+        created_database_names.append(acceptance_database_name)
+        target_url = _target_url(admin_url, acceptance_database_name)
         alembic_head = _run_alembic_upgrade(target_url)
         result = asyncio.run(_verify_temporary_database(target_url, alembic_head=alembic_head))
     except PostgresAcceptanceHarnessError as exc:
@@ -1216,16 +1574,21 @@ def _apply(admin_url: URL) -> tuple[int, dict[str, object]]:
     except Exception:
         failure = PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FAILED")
     finally:
-        if created:
-            try:
-                asyncio.run(_drop_temporary_database(admin_url, database_name))
-                cleanup = "complete"
-            except PostgresAcceptanceHarnessError as cleanup_error:
-                # Cleanup failure is always the terminal result: a generated
-                # temporary database may remain and needs explicit operator
+        if created_database_names:
+            cleanup_errors: list[PostgresAcceptanceHarnessError] = []
+            for database_name in reversed(created_database_names):
+                try:
+                    asyncio.run(_drop_temporary_database(admin_url, database_name))
+                except PostgresAcceptanceHarnessError as cleanup_error:
+                    cleanup_errors.append(cleanup_error)
+            if cleanup_errors:
+                # Cleanup failure is always the terminal result: generated
+                # temporary databases may remain and need explicit operator
                 # action, while no existing database was ever targeted.
                 cleanup = "failed"
-                failure = cleanup_error
+                failure = cleanup_errors[0]
+            else:
+                cleanup = "complete"
 
     output: dict[str, object] = {
         "connection": _safe_connection_descriptor(admin_url),
@@ -1234,6 +1597,9 @@ def _apply(admin_url: URL) -> tuple[int, dict[str, object]]:
         "scope": {
             "provider": "deterministic_fixture_only",
             "lease": "two_os_process_exact_gap_with_postgresql_durable_lease",
+            "legacy_constraint_portability": (
+                "stamped_predecessor_postgresql_truncated_check_names"
+            ),
             "not_proven": [
                 "real_akshare_or_openbb_io",
                 "http_server_or_deployment_worker_topology",
@@ -1243,10 +1609,12 @@ def _apply(admin_url: URL) -> tuple[int, dict[str, object]]:
     if failure is not None:
         output.update({"status": "error", "code": failure.code})
         return 2, output
-    if result is None:
+    if result is None or legacy_portability_result is None:
         output.update({"status": "error", "code": "POSTGRES_ACCEPTANCE_RESULT_MISSING"})
         return 2, output
-    output.update({"status": "ok", "mode": "applied", "evidence": result.as_dict()})
+    evidence = result.as_dict()
+    evidence["legacy_constraint_portability"] = legacy_portability_result.as_dict()
+    output.update({"status": "ok", "mode": "applied", "evidence": evidence})
     return 0, output
 
 

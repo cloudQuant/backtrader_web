@@ -238,3 +238,42 @@ def test_two_process_evidence_describes_only_database_level_contention() -> None
         "fetch_count": 0,
         "observation_count": 2,
     }
+
+
+def test_legacy_constraint_cases_model_postgresql_truncated_names() -> None:
+    assert len(harness._LEGACY_CONSTRAINT_CASES) == 3
+
+    for case in harness._LEGACY_CONSTRAINT_CASES:
+        assert len(case.legacy_name) > harness._POSTGRES_IDENTIFIER_LIMIT
+        assert len(case.postgres_truncated_legacy_name) == harness._POSTGRES_IDENTIFIER_LIMIT
+        assert case.postgres_truncated_legacy_name != case.portable_name
+
+
+def test_legacy_portability_evidence_reports_real_acceptance_claims() -> None:
+    mapping = {
+        case.postgres_truncated_legacy_name: case.portable_name
+        for case in harness._LEGACY_CONSTRAINT_CASES
+    }
+    evidence = harness._LegacyConstraintPortabilityEvidence(
+        predecessor_revision=harness._PORTABILITY_PREDECESSOR_REVISION,
+        current_head="iteration197-head",
+        legacy_truncated_constraint_count=3,
+        portable_constraint_count=3,
+        source_snapshot_count=1,
+        calendar_snapshot_count=1,
+        sentinels_preserved=True,
+        short_digest_rejected=True,
+        truncated_legacy_to_portable=mapping,
+    )
+
+    assert evidence.as_dict() == {
+        "predecessor_revision": harness._PORTABILITY_PREDECESSOR_REVISION,
+        "current_head": "iteration197-head",
+        "legacy_truncated_constraint_count": 3,
+        "portable_constraint_count": 3,
+        "source_snapshot_count": 1,
+        "calendar_snapshot_count": 1,
+        "sentinels_preserved": True,
+        "short_digest_rejected": True,
+        "truncated_legacy_to_portable": mapping,
+    }
