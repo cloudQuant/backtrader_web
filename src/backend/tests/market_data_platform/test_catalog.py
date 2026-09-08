@@ -261,7 +261,9 @@ async def test_catalog_rejects_inconsistent_primary_slot_from_core_sql() -> None
             )
 
 
-def test_catalog_migration_creates_metadata_without_legacy_market_table_rewrite(tmp_path: Path) -> None:
+def test_catalog_migration_creates_metadata_without_legacy_market_table_rewrite(
+    tmp_path: Path,
+) -> None:
     """The catalog schema extends metadata and leaves legacy market facts untouched."""
     database_path = tmp_path / "catalog.sqlite3"
     config = Config(str(BACKEND_ROOT / "alembic.ini"))
@@ -283,7 +285,9 @@ def test_catalog_migration_creates_metadata_without_legacy_market_table_rewrite(
         engine.dispose()
 
 
-def test_catalog_migration_accepts_startup_created_schema_at_legacy_revision(tmp_path: Path) -> None:
+def test_catalog_migration_accepts_startup_created_schema_at_legacy_revision(
+    tmp_path: Path,
+) -> None:
     """Upgrade remains safe when startup schema creation predates Alembic stamping."""
     database_path = tmp_path / "startup-created.sqlite3"
     sync_database_url = f"sqlite:///{database_path}"
@@ -356,7 +360,9 @@ def test_catalog_migration_rejects_same_named_wrong_column_contract(tmp_path: Pa
             )
         command.stamp(config, "20260811_asset_research_task_leases")
 
-        with pytest.raises(RuntimeError, match="MARKET_DATA_CATALOG_PARTIAL_SCHEMA_UNSAFE") as unsafe:
+        with pytest.raises(
+            RuntimeError, match="MARKET_DATA_CATALOG_PARTIAL_SCHEMA_UNSAFE"
+        ) as unsafe:
             command.upgrade(config, "head")
     finally:
         engine.dispose()
@@ -393,14 +399,9 @@ def test_catalog_migration_rejects_same_named_but_wrong_catalog_index(tmp_path: 
                 )
             )
             connection.execute(
-                text(
-                    "CREATE UNIQUE INDEX ix_dg_datasets_dataset_code "
-                    "ON dg_datasets (domain)"
-                )
+                text("CREATE UNIQUE INDEX ix_dg_datasets_dataset_code ON dg_datasets (domain)")
             )
-            connection.execute(
-                text("CREATE INDEX ix_dg_datasets_domain ON dg_datasets (domain)")
-            )
+            connection.execute(text("CREATE INDEX ix_dg_datasets_domain ON dg_datasets (domain)"))
         command.stamp(config, "20260811_asset_research_task_leases")
 
         with pytest.raises(RuntimeError, match="MARKET_DATA_CATALOG_PARTIAL_SCHEMA_UNSAFE"):
@@ -515,9 +516,7 @@ def test_catalog_migration_preserves_legacy_metadata_and_fact_rows(tmp_path: Pat
                     "FROM ak_data_tables WHERE id = 1"
                 )
             ).one()
-            fact = connection.execute(
-                text("SELECT symbol, close FROM legacy_market_facts")
-            ).one()
+            fact = connection.execute(text("SELECT symbol, close FROM legacy_market_facts")).one()
 
         assert endpoint == ("akshare_data", "STOCK_ZH_A_HIST", None)
         assert table == ("STOCK_ZH_A_HIST", 1, None)

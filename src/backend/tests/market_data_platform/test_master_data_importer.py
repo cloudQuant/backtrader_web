@@ -195,7 +195,9 @@ async def test_importer_is_idempotent_only_for_an_exact_existing_identity_versio
 
 
 @pytest.mark.asyncio
-async def test_incremental_import_publishes_mixed_reused_and_pending_receipts_then_clears_them() -> None:
+async def test_incremental_import_publishes_mixed_reused_and_pending_receipts_then_clears_them() -> (
+    None
+):
     """A long-lived importer can add a new identity after an idempotent re-import."""
     first_manifest = _manifest([_identity("stock", suffix="first")])
     second_manifest = _manifest(
@@ -209,7 +211,9 @@ async def test_incremental_import_publishes_mixed_reused_and_pending_receipts_th
         await importer.publish_staged()
         assert importer.staged_publication_ids == ()
 
-        result = await importer.import_manifest(second_manifest, manifest_sha256=_digest(second_manifest))
+        result = await importer.import_manifest(
+            second_manifest, manifest_sha256=_digest(second_manifest)
+        )
         await session.commit()
         await importer.publish_staged()
 
@@ -249,11 +253,17 @@ async def test_dry_run_executes_the_same_path_then_rolls_back_every_identity_and
             manifest,
             manifest_sha256=_digest(manifest),
         )
-        pending_instruments = await session.scalar(select(func.count()).select_from(AssetInstrument))
+        pending_instruments = await session.scalar(
+            select(func.count()).select_from(AssetInstrument)
+        )
         pending_keys = await session.scalar(select(func.count()).select_from(MdInstrumentLookupKey))
         await session.rollback()
-        persisted_instruments = await session.scalar(select(func.count()).select_from(AssetInstrument))
-        persisted_keys = await session.scalar(select(func.count()).select_from(MdInstrumentLookupKey))
+        persisted_instruments = await session.scalar(
+            select(func.count()).select_from(AssetInstrument)
+        )
+        persisted_keys = await session.scalar(
+            select(func.count()).select_from(MdInstrumentLookupKey)
+        )
 
     assert result.created_count == 2
     assert pending_instruments == 2
@@ -286,7 +296,9 @@ async def test_importer_rolls_back_the_entire_batch_when_a_later_identity_confli
 
 
 @pytest.mark.asyncio
-async def test_importer_allows_a_venue_less_identity_only_as_canonical_identity_without_key() -> None:
+async def test_importer_allows_a_venue_less_identity_only_as_canonical_identity_without_key() -> (
+    None
+):
     """A no-venue identity remains canonical-ID-only and is never guessed into a triple key."""
     raw = _identity("fx", venue=None)
     raw["identity_level"] = "ASSET"
@@ -308,7 +320,9 @@ async def test_importer_allows_a_venue_less_identity_only_as_canonical_identity_
 
 
 @pytest.mark.asyncio
-async def test_importer_rejects_duplicate_canonical_id_and_metadata_version_in_one_manifest() -> None:
+async def test_importer_rejects_duplicate_canonical_id_and_metadata_version_in_one_manifest() -> (
+    None
+):
     """The input cannot rely on intra-batch ordering to reinterpret a frozen version."""
     raw = _identity("stock")
     manifest = _manifest([raw, dict(raw)])

@@ -231,7 +231,9 @@ async def _seed_authoritative_prerequisites() -> None:
 
 
 @pytest.mark.asyncio
-async def test_local_first_persists_once_then_reuses_complete_older_revision_without_network() -> None:
+async def test_local_first_persists_once_then_reuses_complete_older_revision_without_network() -> (
+    None
+):
     """A completed cache serves later broad requests even after a narrower refresh revision."""
     await _seed_authoritative_prerequisites()
     provider = _RecordingProvider()
@@ -247,9 +249,7 @@ async def test_local_first_persists_once_then_reuses_complete_older_revision_wit
             narrow_refresh_session,
             provider,
             now=RECEIPT_AT + timedelta(microseconds=2),
-        ).execute(
-            _request(required_fields=["close"], mode="refresh")
-        )
+        ).execute(_request(required_fields=["close"], mode="refresh"))
         await narrow_refresh_session.commit()
 
     async with async_session_maker() as reused_session:
@@ -257,9 +257,7 @@ async def test_local_first_persists_once_then_reuses_complete_older_revision_wit
             reused_session,
             provider,
             now=RECEIPT_AT + timedelta(microseconds=4),
-        ).execute(
-            _request(required_fields=["close", "volume"])
-        )
+        ).execute(_request(required_fields=["close", "volume"]))
         source_snapshot_count = await reused_session.scalar(
             select(func.count()).select_from(MdSourceSnapshot)
         )

@@ -128,7 +128,9 @@ class MarketDataCalendarManifest(_StrictModel):
     @classmethod
     def validate_hash(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+        if len(normalized) != 64 or any(
+            character not in "0123456789abcdef" for character in normalized
+        ):
             raise ValueError("evidence_content_hash must be a SHA-256 hex digest")
         return normalized
 
@@ -297,7 +299,9 @@ class MarketDataCalendarImporter:
             .all()
         )
         same_version = [
-            snapshot for snapshot in snapshots if snapshot.calendar_version == manifest.calendar_version
+            snapshot
+            for snapshot in snapshots
+            if snapshot.calendar_version == manifest.calendar_version
         ]
         if len(same_version) > 1:
             raise MarketDataCalendarImportError("CALENDAR_IMPORT_INTEGRITY")

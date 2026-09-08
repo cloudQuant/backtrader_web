@@ -145,9 +145,7 @@ class MarketDataPublicationManager:
             rows = list(
                 (
                     await self._db.execute(
-                        select(MdPublication)
-                        .where(MdPublication.id.in_(ids))
-                        .with_for_update()
+                        select(MdPublication).where(MdPublication.id.in_(ids)).with_for_update()
                     )
                 )
                 .scalars()
@@ -249,9 +247,7 @@ class MarketDataPublicationManager:
         if not materialized:
             raise MarketDataPublicationError("PUBLICATION_IDS_EMPTY")
         existing_times = [
-            _stored_utc(row.published_at)
-            for row in materialized
-            if row.published_at is not None
+            _stored_utc(row.published_at) for row in materialized if row.published_at is not None
         ]
         pending_ids = tuple(row.id for row in materialized if row.published_at is None)
         if not pending_ids:

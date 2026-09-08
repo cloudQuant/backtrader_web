@@ -146,7 +146,11 @@ def _published_projection(
         canonical_id=record.canonical_id,
         asset_type=record.asset_type,
         market=record.venue,
-        symbol=(record.identity_json.get("display_symbol") if isinstance(record.identity_json, dict) else "")
+        symbol=(
+            record.identity_json.get("display_symbol")
+            if isinstance(record.identity_json, dict)
+            else ""
+        )
         or "",
         metadata_version=record.metadata_version,
         identity_json=record.identity_json,

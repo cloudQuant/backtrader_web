@@ -654,7 +654,9 @@ async def test_market_instrument_option_alias_does_not_resolve_to_a_different_co
     from app.services.market_instrument import MarketInstrumentService
 
     def alias_lookup_must_not_run(**_kwargs: object) -> pd.DataFrame:
-        raise AssertionError("a main-contract alias must not invoke an exact-contract provider route")
+        raise AssertionError(
+            "a main-contract alias must not invoke an exact-contract provider route"
+        )
 
     monkeypatch.setattr(
         dummy_akshare, "option_cffex_zz1000_daily_sina", alias_lookup_must_not_run, raising=False

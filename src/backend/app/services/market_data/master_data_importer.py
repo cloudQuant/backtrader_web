@@ -183,7 +183,9 @@ class MarketDataMasterDataImporter:
         for identity in identities:
             key = (identity.canonical_id, identity.metadata_version)
             if key in seen:
-                raise MarketDataMasterDataImportError("MASTER_DATA_IMPORT_DUPLICATE_MANIFEST_VERSION")
+                raise MarketDataMasterDataImportError(
+                    "MASTER_DATA_IMPORT_DUPLICATE_MANIFEST_VERSION"
+                )
             seen.add(key)
             rows = list(
                 (
@@ -201,8 +203,12 @@ class MarketDataMasterDataImporter:
                 raise MarketDataMasterDataImportError("MASTER_DATA_IMPORT_VERSION_INTEGRITY")
             existing = rows[0] if rows else None
             if existing is not None and not _matches_existing_identity(existing, identity):
-                raise MarketDataMasterDataImportError("MASTER_DATA_IMPORT_EXISTING_VERSION_CONFLICT")
-            prepared.append(_PreparedIdentity(identity=identity, already_persisted=existing is not None))
+                raise MarketDataMasterDataImportError(
+                    "MASTER_DATA_IMPORT_EXISTING_VERSION_CONFLICT"
+                )
+            prepared.append(
+                _PreparedIdentity(identity=identity, already_persisted=existing is not None)
+            )
         return tuple(prepared)
 
     async def _validate_materialization(
@@ -214,7 +220,9 @@ class MarketDataMasterDataImporter:
         rows = list(
             (
                 await self._session.execute(
-                    select(MdInstrumentLookupKey).where(MdInstrumentLookupKey.instrument_id == record.id)
+                    select(MdInstrumentLookupKey).where(
+                        MdInstrumentLookupKey.instrument_id == record.id
+                    )
                 )
             )
             .scalars()
@@ -222,7 +230,9 @@ class MarketDataMasterDataImporter:
         )
         if identity.venue is None:
             if rows:
-                raise MarketDataMasterDataImportError("MASTER_DATA_IMPORT_CANONICAL_ONLY_KEY_CONFLICT")
+                raise MarketDataMasterDataImportError(
+                    "MASTER_DATA_IMPORT_CANONICAL_ONLY_KEY_CONFLICT"
+                )
             return False
         if len(rows) != 1:
             raise MarketDataMasterDataImportError("MASTER_DATA_IMPORT_LOOKUP_KEY_MISSING")

@@ -87,10 +87,14 @@ async def test_calendar_dry_run_exercises_insert_path_and_leaves_no_snapshot_or_
     """The default operator path must not make a calendar reusable by accident."""
     async with async_session_maker() as session:
         result = await MarketDataCalendarImporter(session).import_payload(payload=_manifest())
-        pending_snapshots = await session.scalar(select(func.count()).select_from(MdCalendarSnapshot))
+        pending_snapshots = await session.scalar(
+            select(func.count()).select_from(MdCalendarSnapshot)
+        )
         pending_events = await session.scalar(select(func.count()).select_from(MdCalendarEvent))
         await session.rollback()
-        persisted_snapshots = await session.scalar(select(func.count()).select_from(MdCalendarSnapshot))
+        persisted_snapshots = await session.scalar(
+            select(func.count()).select_from(MdCalendarSnapshot)
+        )
         persisted_events = await session.scalar(select(func.count()).select_from(MdCalendarEvent))
 
     assert result.dry_run is True
