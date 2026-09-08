@@ -21,6 +21,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from app.schemas.market_data_platform import MarketDataQueryRequest, ResolvedMarketDataQuery
+from app.services.market_data.access import (
+    MarketDataQueryAccess,
+    MarketDataSourceAuthorization,
+)
 from app.services.market_data.coverage import (
     CalendarSnapshot,
     CalendarStatus,
@@ -34,6 +38,7 @@ from app.services.market_data.coverage import (
 from app.services.market_data.field_quality import is_usable_field_value
 from app.services.market_data.identity import MarketDataIdentityResolutionError
 from app.services.market_data.providers import MarketDataProviderRequest, ProviderFetchResult
+from app.services.market_data.publication import MarketDataVisibilityAnchor
 from app.services.market_data.query_resolution import (
     MarketDataQueryResolutionError,
     MarketDataQueryResolver,
@@ -46,6 +51,7 @@ from app.services.market_data.snapshot_freshness import (
 )
 from app.services.market_data.source_policy import (
     MarketDataProviderRoute,
+    MarketDataSourcePolicy,
     MarketDataSourcePolicyError,
     MarketDataSourcePolicyRegistry,
 )
@@ -60,7 +66,15 @@ UTC = timezone.utc
 MAX_PROVIDER_FETCH_WINDOWS = 32
 _CURSOR_HMAC_DIGEST_BYTES = hashlib.sha256().digest_size
 _MAX_CURSOR_TOKEN_LENGTH = 2048
-_MAX_CURSOR_PAYLOAD_BYTES = 1024
+# A request accepts cursor tokens up to 2048 characters.  Accounting for the
+# fixed HMAC segment leaves 1503 URL-safe payload bytes; retain a small margin
+# so a token emitted here is always acceptable to the request schema.
+_MAX_CURSOR_PAYLOAD_BYTES = 1500
+_CURSOR_VERSION = 3
+_DEFAULT_CURSOR_TTL = timedelta(minutes=15)
+_UNBOUND_CURSOR_PRINCIPAL_SCOPE = "unbound"
+_UNBOUND_CURSOR_TENANT_SCOPE = "unbound"
+_UNBOUND_CURSOR_ENTITLEMENT_REVISION = "unbound-v1"
 _BASE64URL_CHARACTERS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 )
@@ -80,17 +94,27 @@ class _Resolver(Protocol):
         request: MarketDataQueryRequest,
         *,
         identity_knowledge_cutoff: datetime | None = None,
+        identity_visibility_anchor: MarketDataVisibilityAnchor | None = None,
     ) -> ResolvedMarketDataQueryContext:
         """Resolve public input to server-owned catalog and master-data facts."""
 
 
 class _Store(Protocol):
+    async def resolve_visibility_anchor(
+        self,
+        *,
+        knowledge_cutoff: datetime,
+    ) -> MarketDataVisibilityAnchor:
+        """Freeze the complete receipt anchor before any context lookup."""
+
     async def read_observation_revisions(
         self,
         context: ResolvedMarketDataQueryContext,
         *,
         knowledge_cutoff: datetime,
+        visibility_anchor: MarketDataVisibilityAnchor | None = None,
         include_unusable_for_coverage: bool = False,
+        allowed_source_registry_ids: frozenset[str] | None = None,
     ) -> tuple[LocalObservationRevision, ...]:
         """Read response-safe rows or diagnostics-only coverage rows at one PIT cutoff."""
 
@@ -99,6 +123,8 @@ class _Store(Protocol):
         context: ResolvedMarketDataQueryContext,
         *,
         knowledge_cutoff: datetime,
+        visibility_anchor: MarketDataVisibilityAnchor | None = None,
+        allowed_source_registry_ids: frozenset[str] | None = None,
     ) -> CalendarSnapshot:
         """Read frozen calendar evidence for a resolved query."""
 
@@ -111,6 +137,7 @@ class _Store(Protocol):
         result: ProviderFetchResult,
         *,
         received_at: datetime,
+        source_authorization: MarketDataSourceAuthorization | None = None,
     ) -> PersistedProviderFetch:
         """Append one validated source receipt and observation revisions."""
 
@@ -150,12 +177,121 @@ class MarketDataQueryExecution:
     context: ResolvedMarketDataQueryContext
     knowledge_cutoff: datetime
     identity_knowledge_cutoff: datetime
+    visibility_anchor: MarketDataVisibilityAnchor
+    identity_visibility_anchor: MarketDataVisibilityAnchor
     coverage: CoveragePlan
     observations: tuple[LocalObservationRevision, ...]
     next_cursor: str | None
     fetches: tuple[MarketDataQueryFetch, ...]
     warnings: tuple[MarketDataQueryWarning, ...]
     refresh_status: str | None = None
+    historical_status: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MarketDataCursorBinding:
+    """Caller-provided auth/policy dimensions signed into a pagination token.
+
+    This module deliberately does not decide authorization.  The API layer can
+    provide the currently authenticated principal and entitlement revision, and
+    a future immutable policy registry can provide its descriptor hash.  Until
+    that integration is enabled, the explicit unbound sentinel preserves the
+    disabled v2 compatibility path without silently omitting token fields.
+    """
+
+    principal_scope: str = _UNBOUND_CURSOR_PRINCIPAL_SCOPE
+    tenant_scope: str = _UNBOUND_CURSOR_TENANT_SCOPE
+    entitlement_revision: str = _UNBOUND_CURSOR_ENTITLEMENT_REVISION
+    policy_descriptor_hash: str | None = None
+    access_grant_descriptor_hash: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_text(self.principal_scope, field_name="cursor principal scope", maximum=256)
+        _require_text(self.tenant_scope, field_name="cursor tenant scope", maximum=256)
+        _require_text(
+            self.entitlement_revision,
+            field_name="cursor entitlement revision",
+            maximum=128,
+        )
+        if self.policy_descriptor_hash is not None:
+            _require_sha256(
+                self.policy_descriptor_hash,
+                field_name="cursor policy descriptor hash",
+            )
+        if self.access_grant_descriptor_hash is not None:
+            _require_sha256(
+                self.access_grant_descriptor_hash,
+                field_name="cursor access grant descriptor hash",
+            )
+
+    def with_policy_descriptor_hash(self, policy_descriptor_hash: str) -> MarketDataCursorBinding:
+        """Bind the caller scope to the resolved immutable policy descriptor."""
+        _require_sha256(policy_descriptor_hash, field_name="cursor policy descriptor hash")
+        if self.policy_descriptor_hash is not None and self.policy_descriptor_hash != policy_descriptor_hash:
+            raise MarketDataQueryServiceError("CURSOR_POLICY_MISMATCH")
+        return replace(self, policy_descriptor_hash=policy_descriptor_hash)
+
+    def with_access_grant_descriptor_hash(
+        self,
+        access_grant_descriptor_hash: str,
+    ) -> MarketDataCursorBinding:
+        """Bind a cursor to the current principal's source-registry decision.
+
+        The server-owned source-policy hash and the access-grant hash have
+        distinct meanings.  The former is available before identity resolution;
+        the latter is recomputed only after the exact asset/market and current
+        source registry have been evaluated.
+        """
+        _require_sha256(
+            access_grant_descriptor_hash,
+            field_name="cursor access grant descriptor hash",
+        )
+        if (
+            self.access_grant_descriptor_hash is not None
+            and self.access_grant_descriptor_hash != access_grant_descriptor_hash
+        ):
+            raise MarketDataQueryServiceError("CURSOR_ACCESS_GRANT_MISMATCH")
+        return replace(self, access_grant_descriptor_hash=access_grant_descriptor_hash)
+
+
+@dataclass(frozen=True, slots=True)
+class _CursorBindingDigest:
+    """Fixed-size access dimensions stored in an issued cursor payload.
+
+    Raw principal and tenant values can be long or contain Unicode.  Keeping
+    their domain-separated SHA-256 digests in a token preserves exact replay
+    binding without exposing those identifiers or making a valid authenticated
+    scope exceed the public cursor length limit.
+    """
+
+    principal_scope_sha256: str
+    tenant_scope_sha256: str
+    entitlement_revision_sha256: str
+    policy_descriptor_hash: str
+    access_grant_descriptor_hash: str | None
+
+    def __post_init__(self) -> None:
+        _require_sha256(
+            self.principal_scope_sha256,
+            field_name="cursor principal scope hash",
+        )
+        _require_sha256(
+            self.tenant_scope_sha256,
+            field_name="cursor tenant scope hash",
+        )
+        _require_sha256(
+            self.entitlement_revision_sha256,
+            field_name="cursor entitlement revision hash",
+        )
+        _require_sha256(
+            self.policy_descriptor_hash,
+            field_name="cursor policy descriptor hash",
+        )
+        if self.access_grant_descriptor_hash is not None:
+            _require_sha256(
+                self.access_grant_descriptor_hash,
+                field_name="cursor access grant descriptor hash",
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,8 +311,11 @@ class _Cursor:
 
     query_fingerprint: str
     key: tuple[str, str]
-    knowledge_cutoff: datetime
-    identity_knowledge_cutoff: datetime
+    visibility_anchor: MarketDataVisibilityAnchor
+    identity_visibility_anchor: MarketDataVisibilityAnchor
+    binding: _CursorBindingDigest
+    issued_at: datetime
+    expires_at: datetime
 
 
 class MarketDataQueryService:
@@ -193,12 +332,14 @@ class MarketDataQueryService:
         allow_online_fetch: bool = True,
         clock: Callable[[], datetime] | None = None,
         cursor_signing_key: str | bytes | None = None,
+        cursor_ttl: timedelta = _DEFAULT_CURSOR_TTL,
     ) -> None:
         if not hasattr(resolver, "resolve"):
             raise TypeError("resolver must implement resolve")
         if not all(
             hasattr(store, method)
             for method in (
+                "resolve_visibility_anchor",
                 "read_observation_revisions",
                 "read_calendar_for_context",
                 "ensure_provider_active",
@@ -217,6 +358,12 @@ class MarketDataQueryService:
             raise TypeError("snapshot_freshness_policies must be SnapshotFreshnessPolicyRegistry")
         if not isinstance(allow_online_fetch, bool):
             raise TypeError("allow_online_fetch must be a bool")
+        if (
+            not isinstance(cursor_ttl, timedelta)
+            or cursor_ttl <= timedelta(0)
+            or cursor_ttl > timedelta(days=1)
+        ):
+            raise ValueError("cursor_ttl must be greater than zero and no more than one day")
         self._resolver = resolver
         self._store = store
         self._source_policies = source_policies
@@ -227,6 +374,7 @@ class MarketDataQueryService:
         )
         self._allow_online_fetch = allow_online_fetch
         self._clock = clock or _utc_now
+        self._cursor_ttl = cursor_ttl
         self._cursor_signing_key_override = (
             _coerce_cursor_signing_key(cursor_signing_key)
             if cursor_signing_key is not None
@@ -256,7 +404,13 @@ class MarketDataQueryService:
             return None
         return self._snapshot_freshness_policies.resolve(context).max_age
 
-    async def execute(self, request: MarketDataQueryRequest) -> MarketDataQueryExecution:
+    async def execute(
+        self,
+        request: MarketDataQueryRequest,
+        *,
+        cursor_binding: MarketDataCursorBinding | None = None,
+        access: MarketDataQueryAccess | None = None,
+    ) -> MarketDataQueryExecution:
         """Resolve, serve locally, and conditionally persist bounded provider fills.
 
         A cursor is parsed before any local or external work, then fixes both
@@ -266,9 +420,47 @@ class MarketDataQueryService:
         """
         if not isinstance(request, MarketDataQueryRequest):
             raise TypeError("request must be a MarketDataQueryRequest")
+        if cursor_binding is not None and not isinstance(cursor_binding, MarketDataCursorBinding):
+            raise TypeError("cursor_binding must be a MarketDataCursorBinding")
+        if access is not None and not isinstance(access, MarketDataQueryAccess):
+            raise TypeError("access must be a MarketDataQueryAccess")
+        if access is not None:
+            access.authorizer.require_read_data(principal=access.principal)
+
+        # A strict refresh is categorically an interactive attempt to rewrite
+        # a frozen historical view.  Reject it before resolving a policy,
+        # cursor, identity, local evidence, or provider route.
+        if request.consistency == "strict" and request.mode == "refresh":
+            raise MarketDataQueryServiceError("STRICT_FETCH_FORBIDDEN")
+        # Online collection is an authenticated write path.  Direct callers
+        # may still perform explicitly local-only or strict historical reads,
+        # but cannot use this orchestration service as an unaudited importer.
+        if (
+            access is None
+            and request.mode != "local_only"
+            and request.consistency != "strict"
+        ):
+            raise MarketDataQueryServiceError("MARKET_DATA_ACCESS_REQUIRED")
+
+        try:
+            policy = self._source_policies.resolve(request.source_policy_id)
+        except MarketDataSourcePolicyError:
+            raise
+        if not policy.allows_purpose(request.purpose):
+            raise MarketDataSourcePolicyError("SOURCE_POLICY_PURPOSE_DENIED")
+        binding = _binding_for_access(cursor_binding=cursor_binding, access=access)
+        binding = binding.with_policy_descriptor_hash(_policy_descriptor_hash(policy))
+
+        request_started_at = _trusted_receipt_time(self._clock)
 
         cursor = (
-            _decode_cursor(request.cursor, signing_key=self._cursor_signing_key())
+            _decode_cursor(
+                request.cursor,
+                signing_key=self._cursor_signing_key(),
+                now=request_started_at,
+                expected_binding=binding,
+                query_fingerprint=request.query_fingerprint,
+            )
             if request.cursor is not None
             else None
         )
@@ -276,12 +468,24 @@ class MarketDataQueryService:
         # identity cutoff stays distinct from the observation cutoff because
         # a current local-first request can write observations after its
         # identity was resolved; a continuation must replay both boundaries.
-        knowledge_cutoff = _resolve_knowledge_cutoff(request, self._clock, cursor)
-        identity_cutoff = _identity_knowledge_cutoff_for(knowledge_cutoff, cursor)
+        knowledge_cutoff = _resolve_knowledge_cutoff(request, request_started_at, cursor)
+        visibility_anchor = (
+            cursor.visibility_anchor
+            if cursor is not None
+            else await self._store.resolve_visibility_anchor(knowledge_cutoff=knowledge_cutoff)
+        )
+        identity_visibility_anchor = (
+            cursor.identity_visibility_anchor if cursor is not None else visibility_anchor
+        )
+        identity_cutoff = _identity_knowledge_cutoff_for(
+            knowledge_cutoff,
+            identity_visibility_anchor,
+        )
         try:
             context = await self._resolver.resolve(
                 request,
                 identity_knowledge_cutoff=identity_cutoff,
+                identity_visibility_anchor=identity_visibility_anchor,
             )
         except (MarketDataIdentityResolutionError, MarketDataQueryResolutionError):
             raise
@@ -290,25 +494,42 @@ class MarketDataQueryService:
 
         if not isinstance(context, ResolvedMarketDataQueryContext):
             raise MarketDataQueryServiceError("QUERY_CONTEXT_INVALID")
-        if cursor is not None and cursor.query_fingerprint != context.query.query_fingerprint:
-            raise MarketDataQueryServiceError("CURSOR_QUERY_MISMATCH")
+
+        policy_routes = policy.routes_for(context)
+        allowed_source_registry_ids: frozenset[str] | None = None
+        source_authorizations: dict[str, MarketDataSourceAuthorization] = {}
+        if access is not None:
+            venue = context.identity.venue
+            if venue is None:
+                raise MarketDataQueryServiceError("IDENTITY_MARKET_UNSUPPORTED")
+            grant = await access.authorizer.authorize_policy(
+                principal=access.principal,
+                policy=policy,
+                routes=policy_routes,
+                asset_type=context.identity.asset_type,
+                market=venue,
+                purpose=context.query.purpose,
+            )
+            binding = binding.with_access_grant_descriptor_hash(grant.policy_descriptor_hash)
+            if cursor is not None:
+                _assert_cursor_access_grant_matches(cursor.binding, binding)
+            policy_routes = tuple(
+                route for route in policy_routes if route.route_id in grant.authorized_route_ids
+            )
+            allowed_source_registry_ids = grant.authorized_source_registry_ids
+            source_authorizations = dict(grant.route_authorizations)
 
         try:
             snapshot_max_age = self._snapshot_max_age_for(context)
         except SnapshotFreshnessPolicyError as exc:
             raise MarketDataQueryServiceError(exc.code) from exc
 
-        try:
-            policy = self._source_policies.resolve(context.query.source_policy_id)
-        except MarketDataSourcePolicyError:
-            raise
-        if not policy.allows_purpose(context.query.purpose):
-            raise MarketDataSourcePolicyError("SOURCE_POLICY_PURPOSE_DENIED")
-
         state = await self._read_local_state(
             context,
             knowledge_cutoff,
+            visibility_anchor=visibility_anchor,
             snapshot_max_age=snapshot_max_age,
+            allowed_source_registry_ids=allowed_source_registry_ids,
         )
         warnings: list[MarketDataQueryWarning] = []
         fetches: list[MarketDataQueryFetch] = []
@@ -321,49 +542,74 @@ class MarketDataQueryService:
                 warnings.append(MarketDataQueryWarning(code="CURSOR_FROZEN_LOCAL_ONLY"))
             return self._execution(
                 context=context,
+                cursor_query_fingerprint=request.query_fingerprint,
                 knowledge_cutoff=knowledge_cutoff,
                 identity_knowledge_cutoff=identity_cutoff,
+                visibility_anchor=visibility_anchor,
+                identity_visibility_anchor=identity_visibility_anchor,
+                cursor_binding=binding,
+                cursor_issued_at=request_started_at,
                 state=state,
                 cursor=cursor,
                 fetches=fetches,
                 warnings=warnings,
+                historical_status=_historical_status_for(
+                    state,
+                    strict=request.consistency == "strict",
+                ),
             )
 
         if request.mode == "local_only":
             return self._execution(
                 context=context,
+                cursor_query_fingerprint=request.query_fingerprint,
                 knowledge_cutoff=knowledge_cutoff,
                 identity_knowledge_cutoff=identity_cutoff,
+                visibility_anchor=visibility_anchor,
+                identity_visibility_anchor=identity_visibility_anchor,
+                cursor_binding=binding,
+                cursor_issued_at=request_started_at,
                 state=state,
                 cursor=None,
                 fetches=fetches,
                 warnings=warnings,
+                historical_status=_historical_status_for(
+                    state,
+                    strict=request.consistency == "strict",
+                ),
             )
 
-        # Current online adapters timestamp availability at collection time.
-        # They cannot safely contribute to a research/backtest result whose
-        # knowledge cutoff is already fixed in the past.  A historical import
-        # with independently evidenced availability may populate the store
-        # beforehand, but an interactive provider call cannot smuggle a later
-        # fact into a strict replay.
-        if request.knowledge_cutoff is not None:
-            warnings.append(MarketDataQueryWarning(code="STRICT_ONLINE_FETCH_INELIGIBLE"))
+        # Strict local-first queries are a read of their signed initial
+        # visibility anchor. A missing calendar remains a typed calendar state;
+        # every other incomplete result has one stable historical status.
+        if request.consistency == "strict":
             return self._execution(
                 context=context,
+                cursor_query_fingerprint=request.query_fingerprint,
                 knowledge_cutoff=knowledge_cutoff,
                 identity_knowledge_cutoff=identity_cutoff,
+                visibility_anchor=visibility_anchor,
+                identity_visibility_anchor=identity_visibility_anchor,
+                cursor_binding=binding,
+                cursor_issued_at=request_started_at,
                 state=state,
                 cursor=None,
                 fetches=fetches,
                 warnings=warnings,
+                historical_status=_historical_status_for(state, strict=True),
             )
 
         if not self._allow_online_fetch:
             warnings.append(MarketDataQueryWarning(code="ONLINE_FETCH_DISABLED"))
             return self._execution(
                 context=context,
+                cursor_query_fingerprint=request.query_fingerprint,
                 knowledge_cutoff=knowledge_cutoff,
                 identity_knowledge_cutoff=identity_cutoff,
+                visibility_anchor=visibility_anchor,
+                identity_visibility_anchor=identity_visibility_anchor,
+                cursor_binding=binding,
+                cursor_issued_at=request_started_at,
                 state=state,
                 cursor=None,
                 fetches=fetches,
@@ -389,8 +635,13 @@ class MarketDataQueryService:
                 warnings.append(MarketDataQueryWarning(code="SNAPSHOT_HISTORICAL_FETCH_FORBIDDEN"))
                 return self._execution(
                     context=context,
+                    cursor_query_fingerprint=request.query_fingerprint,
                     knowledge_cutoff=knowledge_cutoff,
                     identity_knowledge_cutoff=identity_cutoff,
+                    visibility_anchor=visibility_anchor,
+                    identity_visibility_anchor=identity_visibility_anchor,
+                    cursor_binding=binding,
+                    cursor_issued_at=request_started_at,
                     state=state,
                     cursor=None,
                     fetches=fetches,
@@ -415,8 +666,13 @@ class MarketDataQueryService:
         if not fetch_windows:
             return self._execution(
                 context=context,
+                cursor_query_fingerprint=request.query_fingerprint,
                 knowledge_cutoff=knowledge_cutoff,
                 identity_knowledge_cutoff=identity_cutoff,
+                visibility_anchor=visibility_anchor,
+                identity_visibility_anchor=identity_visibility_anchor,
+                cursor_binding=binding,
+                cursor_issued_at=request_started_at,
                 state=state,
                 cursor=None,
                 fetches=fetches,
@@ -431,13 +687,17 @@ class MarketDataQueryService:
                 ),
             )
 
-        policy_routes = policy.routes_for(context)
         if not policy_routes:
             warnings.append(MarketDataQueryWarning(code="SOURCE_POLICY_NO_ELIGIBLE_PROVIDER"))
             return self._execution(
                 context=context,
+                cursor_query_fingerprint=request.query_fingerprint,
                 knowledge_cutoff=knowledge_cutoff,
                 identity_knowledge_cutoff=identity_cutoff,
+                visibility_anchor=visibility_anchor,
+                identity_visibility_anchor=identity_visibility_anchor,
+                cursor_binding=binding,
+                cursor_issued_at=request_started_at,
                 state=state,
                 cursor=None,
                 fetches=fetches,
@@ -458,7 +718,21 @@ class MarketDataQueryService:
             fetch_context = _with_fetch_window(context, window)
             window_fresh_revision_ids: set[str] = set()
             for route in routes:
-                provider_request = _provider_request_for(fetch_context, route)
+                source_authorization = source_authorizations.get(route.route_id)
+                if access is not None and source_authorization is None:
+                    raise MarketDataQueryServiceError("SOURCE_ROUTE_AUTHORIZATION_DENIED")
+                policy_descriptor_hash = binding.policy_descriptor_hash
+                if policy_descriptor_hash is None:
+                    raise MarketDataQueryServiceError("PROVIDER_POLICY_DESCRIPTOR_UNBOUND")
+                access_grant_descriptor_hash = binding.access_grant_descriptor_hash
+                if access_grant_descriptor_hash is None:
+                    raise MarketDataQueryServiceError("PROVIDER_ACCESS_GRANT_UNBOUND")
+                provider_request = _provider_request_for(
+                    fetch_context,
+                    route,
+                    policy_descriptor_hash=policy_descriptor_hash,
+                    access_grant_descriptor_hash=access_grant_descriptor_hash,
+                )
                 result = await self._fetch_route(route, provider_request, warnings)
                 if result is None:
                     continue
@@ -481,12 +755,34 @@ class MarketDataQueryService:
                     )
                     continue
 
+                # Provider I/O happens outside the authorization critical
+                # section.  Revalidate the exact route under locks after a
+                # response arrives and before the first persistence call so a
+                # source/entitlement change cannot turn an old grant into a
+                # new immutable receipt.
+                if access is None:
+                    raise MarketDataQueryServiceError("MARKET_DATA_ACCESS_REQUIRED")
+                if source_authorization is None:
+                    raise MarketDataQueryServiceError("SOURCE_ROUTE_AUTHORIZATION_DENIED")
+                venue = fetch_context.identity.venue
+                if venue is None:
+                    raise MarketDataQueryServiceError("IDENTITY_MARKET_UNSUPPORTED")
+                write_authorization = await access.authorizer.reauthorize_route_for_write(
+                    principal=access.principal,
+                    route=route,
+                    asset_type=fetch_context.identity.asset_type,
+                    market=venue,
+                    purpose=fetch_context.query.purpose,
+                    expected_authorization=source_authorization,
+                )
+
                 local_received_at = _trusted_receipt_time(self._clock)
                 try:
                     persisted = await self._store.persist_provider_result(
                         fetch_context,
                         result,
                         received_at=local_received_at,
+                        source_authorization=write_authorization,
                     )
                 except MarketDataStoreError as exc:
                     warnings.append(
@@ -514,10 +810,15 @@ class MarketDataQueryService:
                 # knowledge boundary.  Advance the local read cutoff only after
                 # the receipt was durably flushed by the store.
                 knowledge_cutoff = max(knowledge_cutoff, persisted.received_at, local_received_at)
+                visibility_anchor = await self._store.resolve_visibility_anchor(
+                    knowledge_cutoff=knowledge_cutoff
+                )
                 window_state = await self._read_local_state(
                     fetch_context,
                     knowledge_cutoff,
+                    visibility_anchor=visibility_anchor,
                     snapshot_max_age=snapshot_max_age,
+                    allowed_source_registry_ids=allowed_source_registry_ids,
                 )
                 if self._route_satisfied_window(
                     mode=request.mode,
@@ -532,7 +833,9 @@ class MarketDataQueryService:
         state = await self._read_local_state(
             context,
             knowledge_cutoff,
+            visibility_anchor=visibility_anchor,
             snapshot_max_age=snapshot_max_age,
+            allowed_source_registry_ids=allowed_source_registry_ids,
         )
         refresh_status = _refresh_status_for(
             request.mode,
@@ -548,8 +851,13 @@ class MarketDataQueryService:
             warnings.append(MarketDataQueryWarning(code="REFRESH_FRESHNESS_UNKNOWN_CALENDAR"))
         return self._execution(
             context=context,
+            cursor_query_fingerprint=request.query_fingerprint,
             knowledge_cutoff=knowledge_cutoff,
             identity_knowledge_cutoff=identity_cutoff,
+            visibility_anchor=visibility_anchor,
+            identity_visibility_anchor=identity_visibility_anchor,
+            cursor_binding=binding,
+            cursor_issued_at=request_started_at,
             state=state,
             cursor=None,
             fetches=fetches,
@@ -562,16 +870,33 @@ class MarketDataQueryService:
         context: ResolvedMarketDataQueryContext,
         knowledge_cutoff: datetime,
         *,
+        visibility_anchor: MarketDataVisibilityAnchor,
         snapshot_max_age: timedelta | None,
+        allowed_source_registry_ids: frozenset[str] | None = None,
     ) -> _LocalState:
+        coverage_kwargs: dict[str, object] = {
+            "knowledge_cutoff": knowledge_cutoff,
+            "visibility_anchor": visibility_anchor,
+            "include_unusable_for_coverage": True,
+        }
+        response_kwargs: dict[str, object] = {
+            "knowledge_cutoff": knowledge_cutoff,
+            "visibility_anchor": visibility_anchor,
+        }
+        # Keep compatibility with the pure in-memory stores used by legacy
+        # query-service tests.  Production access calls always carry a
+        # nonempty, current registry allow-list and therefore invoke the SQL
+        # source filter added to MarketDataStore.
+        if allowed_source_registry_ids is not None:
+            coverage_kwargs["allowed_source_registry_ids"] = allowed_source_registry_ids
+            response_kwargs["allowed_source_registry_ids"] = allowed_source_registry_ids
         coverage_revisions = await self._store.read_observation_revisions(
             context,
-            knowledge_cutoff=knowledge_cutoff,
-            include_unusable_for_coverage=True,
+            **coverage_kwargs,
         )
         response_revisions = await self._store.read_observation_revisions(
             context,
-            knowledge_cutoff=knowledge_cutoff,
+            **response_kwargs,
         )
         window = TimeWindow(start_at=context.query.start, end_at=context.query.end)
         coverage_observations = tuple(
@@ -598,10 +923,13 @@ class MarketDataQueryService:
                 max_age=snapshot_max_age,
             )
         else:
-            calendar = await self._store.read_calendar_for_context(
-                context,
-                knowledge_cutoff=knowledge_cutoff,
-            )
+            calendar_kwargs: dict[str, object] = {
+                "knowledge_cutoff": knowledge_cutoff,
+                "visibility_anchor": visibility_anchor,
+            }
+            if allowed_source_registry_ids is not None:
+                calendar_kwargs["allowed_source_registry_ids"] = allowed_source_registry_ids
+            calendar = await self._store.read_calendar_for_context(context, **calendar_kwargs)
             coverage = self._coverage_planner.plan(
                 query=context.coverage_identity,
                 window=window,
@@ -721,55 +1049,71 @@ class MarketDataQueryService:
         self,
         *,
         context: ResolvedMarketDataQueryContext,
+        cursor_query_fingerprint: str,
         knowledge_cutoff: datetime,
         identity_knowledge_cutoff: datetime,
+        visibility_anchor: MarketDataVisibilityAnchor,
+        identity_visibility_anchor: MarketDataVisibilityAnchor,
+        cursor_binding: MarketDataCursorBinding,
+        cursor_issued_at: datetime,
         state: _LocalState,
         cursor: _Cursor | None,
         fetches: Sequence[MarketDataQueryFetch],
         warnings: Sequence[MarketDataQueryWarning],
         refresh_status: str | None = None,
+        historical_status: str | None = None,
     ) -> MarketDataQueryExecution:
+        issued_at = cursor.issued_at if cursor is not None else cursor_issued_at
+        expires_at = cursor.expires_at if cursor is not None else issued_at + self._cursor_ttl
         observations, next_cursor = _paginate_observations(
             _response_observations_for(context, state),
             cursor=cursor,
             page_size=context.query.page_size,
-            query_fingerprint=context.query.query_fingerprint,
-            knowledge_cutoff=knowledge_cutoff,
-            identity_knowledge_cutoff=identity_knowledge_cutoff,
+            query_fingerprint=cursor_query_fingerprint,
+            visibility_anchor=visibility_anchor,
+            identity_visibility_anchor=identity_visibility_anchor,
+            binding=cursor_binding,
+            issued_at=issued_at,
+            expires_at=expires_at,
             signing_key_supplier=self._cursor_signing_key,
         )
         return MarketDataQueryExecution(
             context=context,
             knowledge_cutoff=knowledge_cutoff,
             identity_knowledge_cutoff=identity_knowledge_cutoff,
+            visibility_anchor=visibility_anchor,
+            identity_visibility_anchor=identity_visibility_anchor,
             coverage=state.coverage,
             observations=observations,
             next_cursor=next_cursor,
             fetches=tuple(fetches),
             warnings=tuple(warnings),
             refresh_status=refresh_status,
+            historical_status=historical_status,
         )
 
 
 def _identity_knowledge_cutoff_for(
     knowledge_cutoff: datetime,
-    cursor: _Cursor | None,
+    identity_visibility_anchor: MarketDataVisibilityAnchor,
 ) -> datetime:
     """Keep identity replay fixed even when a first page publishes new observations."""
-    if cursor is not None:
-        return cursor.identity_knowledge_cutoff
-    return knowledge_cutoff
+    if identity_visibility_anchor.visible_at > knowledge_cutoff:
+        raise MarketDataQueryServiceError("IDENTITY_VISIBILITY_ANCHOR_INVALID")
+    return identity_visibility_anchor.visible_at
 
 
 def _resolve_knowledge_cutoff(
     request: MarketDataQueryRequest,
-    clock: Callable[[], datetime],
+    request_started_at: datetime,
     cursor: _Cursor | None,
 ) -> datetime:
     if cursor is not None:
-        cutoff = cursor.knowledge_cutoff
+        cutoff = cursor.visibility_anchor.visible_at
+        if request.knowledge_cutoff is not None and request.knowledge_cutoff != cutoff:
+            raise MarketDataQueryServiceError("CURSOR_CUTOFF_MISMATCH")
     else:
-        cutoff = request.knowledge_cutoff or clock()
+        cutoff = request.knowledge_cutoff or request_started_at
     if not isinstance(cutoff, datetime) or cutoff.tzinfo is None or cutoff.utcoffset() is None:
         raise MarketDataQueryServiceError("KNOWLEDGE_CUTOFF_INVALID")
     return cutoff.astimezone(UTC)
@@ -872,6 +1216,9 @@ def _revision_is_response_usable(
 def _provider_request_for(
     context: ResolvedMarketDataQueryContext,
     route: MarketDataProviderRoute,
+    *,
+    policy_descriptor_hash: str,
+    access_grant_descriptor_hash: str,
 ) -> MarketDataProviderRequest:
     venue = context.identity.venue
     if venue is None:
@@ -893,6 +1240,9 @@ def _provider_request_for(
         currency=context.query.currency,
         unit=context.query.unit,
         source_policy_id=context.query.source_policy_id,
+        route_id=route.route_id,
+        policy_descriptor_hash=policy_descriptor_hash,
+        access_grant_descriptor_hash=access_grant_descriptor_hash,
     )
 
 
@@ -976,8 +1326,8 @@ def _sort_observations(
             observations,
             key=lambda item: (
                 item.event_at,
-                item.available_at,
-                item.committed_at,
+                item.visibility_sequence,
+                item.revision_number,
                 item.revision_id,
             ),
         )
@@ -990,14 +1340,23 @@ def _paginate_observations(
     cursor: _Cursor | None,
     page_size: int,
     query_fingerprint: str,
-    knowledge_cutoff: datetime,
-    identity_knowledge_cutoff: datetime,
+    visibility_anchor: MarketDataVisibilityAnchor,
+    identity_visibility_anchor: MarketDataVisibilityAnchor,
+    binding: MarketDataCursorBinding,
+    issued_at: datetime,
+    expires_at: datetime,
     signing_key_supplier: Callable[[], bytes],
 ) -> tuple[tuple[LocalObservationRevision, ...], str | None]:
     start_index = 0
     if cursor is not None:
         if cursor.query_fingerprint != query_fingerprint:
             raise MarketDataQueryServiceError("CURSOR_QUERY_MISMATCH")
+        if cursor.visibility_anchor != visibility_anchor:
+            raise MarketDataQueryServiceError("CURSOR_VISIBILITY_ANCHOR_MISMATCH")
+        if cursor.identity_visibility_anchor != identity_visibility_anchor:
+            raise MarketDataQueryServiceError("CURSOR_IDENTITY_ANCHOR_MISMATCH")
+        if cursor.binding != _cursor_binding_digest(binding):
+            raise MarketDataQueryServiceError("CURSOR_ACCESS_MISMATCH")
         for index, item in enumerate(observations):
             if _observation_cursor_key(item) == cursor.key:
                 start_index = index + 1
@@ -1010,8 +1369,11 @@ def _paginate_observations(
     return page, _encode_cursor(
         _observation_cursor_key(page[-1]),
         query_fingerprint=query_fingerprint,
-        knowledge_cutoff=knowledge_cutoff,
-        identity_knowledge_cutoff=identity_knowledge_cutoff,
+        visibility_anchor=visibility_anchor,
+        identity_visibility_anchor=identity_visibility_anchor,
+        binding=binding,
+        issued_at=issued_at,
+        expires_at=expires_at,
         signing_key=signing_key_supplier(),
     )
 
@@ -1024,29 +1386,53 @@ def _encode_cursor(
     key: tuple[str, str],
     *,
     query_fingerprint: str,
-    knowledge_cutoff: datetime,
-    identity_knowledge_cutoff: datetime,
+    visibility_anchor: MarketDataVisibilityAnchor,
+    identity_visibility_anchor: MarketDataVisibilityAnchor,
+    binding: MarketDataCursorBinding,
+    issued_at: datetime,
+    expires_at: datetime,
     signing_key: bytes,
 ) -> str:
-    payload = json.dumps(
+    _require_sha256(query_fingerprint, field_name="cursor query fingerprint")
+    _require_text(key[1], field_name="cursor revision_id", maximum=255)
+    parsed_event_at = _parse_cursor_datetime(key[0], field_name="cursor event_at")
+    normalized_issued_at = _normalize_cursor_datetime(issued_at, field_name="cursor issued_at")
+    normalized_expires_at = _normalize_cursor_datetime(expires_at, field_name="cursor expires_at")
+    if normalized_expires_at <= normalized_issued_at:
+        raise MarketDataQueryServiceError("CURSOR_EXPIRY_INVALID")
+    if binding.policy_descriptor_hash is None:
+        raise MarketDataQueryServiceError("CURSOR_POLICY_UNBOUND")
+    binding_digest = _cursor_binding_digest(binding)
+    payload = _canonical_cursor_payload(
         {
+            "version": _CURSOR_VERSION,
             "query_fingerprint": query_fingerprint,
-            "event_at": key[0],
+            "policy_descriptor_hash": binding_digest.policy_descriptor_hash,
+            "access_grant_descriptor_hash": binding_digest.access_grant_descriptor_hash,
+            "principal_scope_sha256": binding_digest.principal_scope_sha256,
+            "tenant_scope_sha256": binding_digest.tenant_scope_sha256,
+            "entitlement_revision_sha256": binding_digest.entitlement_revision_sha256,
+            "visibility_anchor": _cursor_anchor_payload(visibility_anchor),
+            "identity_visibility_anchor": _cursor_anchor_payload(identity_visibility_anchor),
+            "event_at": parsed_event_at.isoformat(),
             "revision_id": key[1],
-            "knowledge_cutoff": knowledge_cutoff.astimezone(UTC).isoformat(),
-            "identity_knowledge_cutoff": identity_knowledge_cutoff.astimezone(UTC).isoformat(),
-        },
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
+            "issued_at": normalized_issued_at.isoformat(),
+            "expires_at": normalized_expires_at.isoformat(),
+        }
+    )
     signature = hmac.new(signing_key, payload, hashlib.sha256).digest()
-    return f"{_base64url_encode(payload)}.{_base64url_encode(signature)}"
+    token = f"{_base64url_encode(payload)}.{_base64url_encode(signature)}"
+    if len(token) > _MAX_CURSOR_TOKEN_LENGTH:
+        raise MarketDataQueryServiceError("CURSOR_PAYLOAD_TOO_LARGE")
+    return token
 
 
 def _decode_cursor(
     cursor: str,
     *,
     signing_key: bytes,
+    now: datetime,
+    expected_binding: MarketDataCursorBinding | None = None,
     query_fingerprint: str | None = None,
 ) -> _Cursor:
     try:
@@ -1070,54 +1456,295 @@ def _decode_cursor(
     ) as exc:
         raise MarketDataQueryServiceError("CURSOR_INVALID") from exc
     if not isinstance(payload, Mapping) or set(payload) != {
+        "version",
         "query_fingerprint",
+        "policy_descriptor_hash",
+        "access_grant_descriptor_hash",
+        "principal_scope_sha256",
+        "tenant_scope_sha256",
+        "entitlement_revision_sha256",
+        "visibility_anchor",
+        "identity_visibility_anchor",
         "event_at",
         "revision_id",
-        "knowledge_cutoff",
-        "identity_knowledge_cutoff",
+        "issued_at",
+        "expires_at",
     }:
         raise MarketDataQueryServiceError("CURSOR_INVALID")
+    if payload.get("version") != _CURSOR_VERSION:
+        raise MarketDataQueryServiceError("CURSOR_VERSION_UNSUPPORTED")
     fingerprint = payload.get("query_fingerprint")
     event_at = payload.get("event_at")
     revision_id = payload.get("revision_id")
-    cutoff_value = payload.get("knowledge_cutoff")
-    identity_cutoff_value = payload.get("identity_knowledge_cutoff")
-    if (
-        not isinstance(fingerprint, str)
-        or len(fingerprint) != 64
-        or any(character not in "0123456789abcdef" for character in fingerprint.lower())
-        or not isinstance(event_at, str)
-        or not isinstance(revision_id, str)
-        or not isinstance(cutoff_value, str)
-        or not isinstance(identity_cutoff_value, str)
+    if not isinstance(fingerprint, str) or not isinstance(event_at, str) or not isinstance(
+        revision_id, str
     ):
         raise MarketDataQueryServiceError("CURSOR_INVALID")
+    try:
+        _require_sha256(fingerprint, field_name="cursor query fingerprint")
+        binding = _CursorBindingDigest(
+            principal_scope_sha256=payload.get("principal_scope_sha256"),
+            tenant_scope_sha256=payload.get("tenant_scope_sha256"),
+            entitlement_revision_sha256=payload.get("entitlement_revision_sha256"),
+            policy_descriptor_hash=payload.get("policy_descriptor_hash"),
+            access_grant_descriptor_hash=payload.get("access_grant_descriptor_hash"),
+        )
+        visibility_anchor = _decode_cursor_anchor(
+            payload.get("visibility_anchor"),
+            field_name="cursor visibility_anchor",
+        )
+        identity_visibility_anchor = _decode_cursor_anchor(
+            payload.get("identity_visibility_anchor"),
+            field_name="cursor identity_visibility_anchor",
+        )
+        parsed_event = _parse_cursor_datetime(event_at, field_name="cursor event_at")
+        parsed_issued_at = _parse_cursor_datetime(
+            payload.get("issued_at"),
+            field_name="cursor issued_at",
+        )
+        parsed_expires_at = _parse_cursor_datetime(
+            payload.get("expires_at"),
+            field_name="cursor expires_at",
+        )
+    except (TypeError, ValueError) as exc:
+        raise MarketDataQueryServiceError("CURSOR_INVALID") from exc
+    if parsed_expires_at <= parsed_issued_at:
+        raise MarketDataQueryServiceError("CURSOR_INVALID")
+    try:
+        normalized_now = _normalize_cursor_datetime(now, field_name="cursor verification time")
+    except (TypeError, ValueError) as exc:
+        raise MarketDataQueryServiceError("CURSOR_INVALID") from exc
+    if normalized_now >= parsed_expires_at:
+        raise MarketDataQueryServiceError("CURSOR_EXPIRED")
     if query_fingerprint is not None and fingerprint != query_fingerprint:
         raise MarketDataQueryServiceError("CURSOR_QUERY_MISMATCH")
+    if expected_binding is not None:
+        _assert_cursor_binding_matches(binding, expected_binding)
     try:
-        parsed_event = datetime.fromisoformat(event_at.replace("Z", "+00:00"))
-        parsed_cutoff = datetime.fromisoformat(cutoff_value.replace("Z", "+00:00"))
-        parsed_identity_cutoff = datetime.fromisoformat(
-            identity_cutoff_value.replace("Z", "+00:00")
+        normalized_revision_id = _require_text(
+            revision_id,
+            field_name="cursor revision_id",
+            maximum=255,
         )
-    except ValueError as exc:
+    except (TypeError, ValueError) as exc:
         raise MarketDataQueryServiceError("CURSOR_INVALID") from exc
-    if (
-        parsed_event.tzinfo is None
-        or parsed_event.utcoffset() is None
-        or parsed_cutoff.tzinfo is None
-        or parsed_cutoff.utcoffset() is None
-        or parsed_identity_cutoff.tzinfo is None
-        or parsed_identity_cutoff.utcoffset() is None
-    ):
-        raise MarketDataQueryServiceError("CURSOR_INVALID")
-    _require_text(revision_id, field_name="cursor revision_id", maximum=255)
     return _Cursor(
         query_fingerprint=fingerprint,
-        key=(parsed_event.astimezone(UTC).isoformat(), revision_id),
-        knowledge_cutoff=parsed_cutoff.astimezone(UTC),
-        identity_knowledge_cutoff=parsed_identity_cutoff.astimezone(UTC),
+        key=(parsed_event.isoformat(), normalized_revision_id),
+        visibility_anchor=visibility_anchor,
+        identity_visibility_anchor=identity_visibility_anchor,
+        binding=binding,
+        issued_at=parsed_issued_at,
+        expires_at=parsed_expires_at,
     )
+
+
+def _historical_status_for(
+    state: _LocalState,
+    *,
+    strict: bool,
+) -> str | None:
+    """Return the stable strict-read result without treating a gap as a fetch cue."""
+    if not strict or state.coverage.status is CoverageStatus.COMPLETE:
+        return None
+    if state.coverage.status is CoverageStatus.UNKNOWN_CALENDAR:
+        return "unknown_calendar"
+    return "HISTORICAL_COVERAGE_UNAVAILABLE"
+
+
+def _binding_for_access(
+    *,
+    cursor_binding: MarketDataCursorBinding | None,
+    access: MarketDataQueryAccess | None,
+) -> MarketDataCursorBinding:
+    """Build one cursor binding from the current authenticated execution.
+
+    A public caller must not be able to supply a cursor scope for another
+    principal. When access is present, the only accepted unbound dimensions
+    are the exact values derived from the principal that the API just
+    authenticated. Policy and grant hashes remain server-owned and are set
+    later in this execution.
+    """
+    if access is None:
+        return cursor_binding or MarketDataCursorBinding()
+    expected = MarketDataCursorBinding(
+        principal_scope=access.principal.principal_scope,
+        tenant_scope=access.principal.tenant_scope,
+        entitlement_revision=access.principal.entitlement_revision,
+    )
+    if cursor_binding is None:
+        return expected
+    if (
+        cursor_binding.principal_scope != expected.principal_scope
+        or cursor_binding.tenant_scope != expected.tenant_scope
+        or cursor_binding.entitlement_revision != expected.entitlement_revision
+        or cursor_binding.policy_descriptor_hash is not None
+        or cursor_binding.access_grant_descriptor_hash is not None
+    ):
+        raise MarketDataQueryServiceError("CURSOR_ACCESS_CONTEXT_MISMATCH")
+    return expected
+
+
+def _policy_descriptor_hash(policy: MarketDataSourcePolicy) -> str:
+    """Hash only the immutable, reviewed policy dimensions a cursor must replay.
+
+    Provider adapters deliberately stay out of this document because they are
+    process objects. Their registered route capability and priority are what
+    determine whether a request was authorized for a route.
+    """
+    descriptor = {
+        "policy_id": policy.policy_id,
+        "allowed_purposes": sorted(policy.allowed_purposes),
+        "routes": [
+            {
+                "route_id": route.route_id,
+                "request_provider": route.request_provider,
+                "expected_result_provider_ids": sorted(route.expected_result_provider_ids),
+                "asset_types": sorted(route.asset_types),
+                "data_kinds": sorted(route.data_kinds),
+                "frequencies": sorted(route.frequencies),
+                "markets": sorted(route.markets),
+                "adjustments": _policy_axis_payload(route.adjustments),
+                "price_bases": _policy_axis_payload(route.price_bases),
+                "currencies": _policy_axis_payload(route.currencies),
+                "units": _policy_axis_payload(route.units),
+            }
+            for route in policy.routes
+        ],
+    }
+    # A reviewed policy may legitimately have several routes.  It is hashed
+    # before it becomes the fixed-size cursor field, so policy canonicalization
+    # must not inherit the much smaller transport-token size limit.
+    return hashlib.sha256(_canonical_json_bytes(descriptor)).hexdigest()
+
+
+def _policy_axis_payload(values: frozenset[str | None]) -> list[str | None]:
+    """Canonicalize capability axes which intentionally permit an explicit null."""
+    return sorted(values, key=lambda item: (item is not None, item or ""))
+
+
+def _cursor_anchor_payload(anchor: MarketDataVisibilityAnchor) -> dict[str, object]:
+    return {
+        "visible_at": anchor.visible_at.isoformat(),
+        "max_visibility_sequence": anchor.max_visibility_sequence,
+    }
+
+
+def _decode_cursor_anchor(value: object, *, field_name: str) -> MarketDataVisibilityAnchor:
+    if not isinstance(value, Mapping) or set(value) != {
+        "visible_at",
+        "max_visibility_sequence",
+    }:
+        raise ValueError(f"{field_name} must have the complete anchor shape")
+    return MarketDataVisibilityAnchor(
+        visible_at=_parse_cursor_datetime(value.get("visible_at"), field_name=f"{field_name} visible_at"),
+        max_visibility_sequence=value.get("max_visibility_sequence"),
+    )
+
+
+def _assert_cursor_binding_matches(
+    cursor_binding: _CursorBindingDigest,
+    expected_binding: MarketDataCursorBinding,
+) -> None:
+    """Reject a token replayed under a different authenticated access context."""
+    expected = _cursor_binding_digest(expected_binding)
+    if cursor_binding.principal_scope_sha256 != expected.principal_scope_sha256:
+        raise MarketDataQueryServiceError("CURSOR_PRINCIPAL_MISMATCH")
+    if cursor_binding.tenant_scope_sha256 != expected.tenant_scope_sha256:
+        raise MarketDataQueryServiceError("CURSOR_TENANT_MISMATCH")
+    if cursor_binding.entitlement_revision_sha256 != expected.entitlement_revision_sha256:
+        raise MarketDataQueryServiceError("CURSOR_ENTITLEMENT_MISMATCH")
+    if cursor_binding.policy_descriptor_hash != expected.policy_descriptor_hash:
+        raise MarketDataQueryServiceError("CURSOR_POLICY_MISMATCH")
+    if (
+        expected.access_grant_descriptor_hash is not None
+        and cursor_binding.access_grant_descriptor_hash
+        != expected.access_grant_descriptor_hash
+    ):
+        raise MarketDataQueryServiceError("CURSOR_ACCESS_GRANT_MISMATCH")
+
+
+def _assert_cursor_access_grant_matches(
+    cursor_binding: _CursorBindingDigest,
+    expected_binding: MarketDataCursorBinding,
+) -> None:
+    """Recheck the source decision once identity/context becomes available."""
+    expected_hash = expected_binding.access_grant_descriptor_hash
+    if expected_hash is None:
+        raise MarketDataQueryServiceError("CURSOR_ACCESS_GRANT_UNBOUND")
+    if cursor_binding.access_grant_descriptor_hash != expected_hash:
+        raise MarketDataQueryServiceError("CURSOR_ACCESS_GRANT_MISMATCH")
+
+
+def _cursor_binding_digest(binding: MarketDataCursorBinding) -> _CursorBindingDigest:
+    """Hash every caller-supplied access dimension with a field domain tag."""
+    if binding.policy_descriptor_hash is None:
+        raise MarketDataQueryServiceError("CURSOR_POLICY_UNBOUND")
+    return _CursorBindingDigest(
+        principal_scope_sha256=_cursor_binding_value_hash(
+            "principal_scope",
+            binding.principal_scope,
+        ),
+        tenant_scope_sha256=_cursor_binding_value_hash(
+            "tenant_scope",
+            binding.tenant_scope,
+        ),
+        entitlement_revision_sha256=_cursor_binding_value_hash(
+            "entitlement_revision",
+            binding.entitlement_revision,
+        ),
+        policy_descriptor_hash=binding.policy_descriptor_hash,
+        access_grant_descriptor_hash=binding.access_grant_descriptor_hash,
+    )
+
+
+def _cursor_binding_value_hash(field_name: str, value: str) -> str:
+    """Return a non-secret fixed-size digest for one cursor access field."""
+    normalized_name = _require_text(field_name, field_name="cursor binding field", maximum=64)
+    normalized_value = _require_text(value, field_name=f"cursor {normalized_name}", maximum=256)
+    return hashlib.sha256(
+        b"market-data-cursor-access-binding-v1\x00"
+        + normalized_name.encode("utf-8")
+        + b"\x00"
+        + normalized_value.encode("utf-8")
+    ).hexdigest()
+
+
+def _canonical_cursor_payload(value: Mapping[str, object]) -> bytes:
+    """Encode one bounded deterministic HMAC message without JSON whitespace."""
+    payload = _canonical_json_bytes(value)
+    if len(payload) > _MAX_CURSOR_PAYLOAD_BYTES:
+        raise MarketDataQueryServiceError("CURSOR_PAYLOAD_TOO_LARGE")
+    return payload
+
+
+def _canonical_json_bytes(value: object) -> bytes:
+    """Canonicalize hash inputs independently from cursor transport limits."""
+    try:
+        return json.dumps(
+            value,
+            separators=(",", ":"),
+            sort_keys=True,
+            ensure_ascii=True,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise MarketDataQueryServiceError("CURSOR_CANONICALIZATION_INVALID") from exc
+
+
+def _normalize_cursor_datetime(value: object, *, field_name: str) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{field_name} must be timezone-aware")
+    return value.astimezone(UTC)
+
+
+def _parse_cursor_datetime(value: object, *, field_name: str) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be an ISO-8601 string")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be ISO-8601") from exc
+    return _normalize_cursor_datetime(parsed, field_name=field_name)
 
 
 def _coerce_cursor_signing_key(value: str | bytes) -> bytes:
@@ -1173,6 +1800,13 @@ def _require_text(value: object, *, field_name: str, maximum: int) -> str:
     normalized = value.strip()
     if not normalized or len(normalized) > maximum:
         raise ValueError(f"{field_name} must be non-empty and no longer than {maximum} characters")
+    return normalized
+
+
+def _require_sha256(value: object, *, field_name: str) -> str:
+    normalized = _require_text(value, field_name=field_name, maximum=64)
+    if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+        raise ValueError(f"{field_name} must be a lowercase SHA-256 digest")
     return normalized
 
 

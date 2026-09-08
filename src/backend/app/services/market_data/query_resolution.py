@@ -21,6 +21,7 @@ from app.services.market_data.identity import (
     MarketDataIdentityResolver,
     ResolvedMarketDataIdentity,
 )
+from app.services.market_data.publication import MarketDataVisibilityAnchor
 
 
 class MarketDataQueryResolutionError(ValueError):
@@ -60,6 +61,7 @@ class MarketDataQueryResolver:
         request: MarketDataQueryRequest,
         *,
         identity_knowledge_cutoff: datetime | None = None,
+        identity_visibility_anchor: MarketDataVisibilityAnchor | None = None,
     ) -> ResolvedMarketDataQueryContext:
         """Return a query whose persistence key contains all authoritative identity facts.
 
@@ -86,6 +88,7 @@ class MarketDataQueryResolver:
             request.identity,
             effective_at=request.start,
             knowledge_cutoff=cutoff,
+            visibility_anchor=identity_visibility_anchor,
         )
         if identity.valid_to is not None and identity.valid_to < request.end:
             raise MarketDataQueryResolutionError("IDENTITY_VERSION_WINDOW_CROSSES")

@@ -14,9 +14,13 @@ import pytest
 from sqlalchemy import func, select
 
 from app.db.database import async_session_maker
+from app.models.asset_research import AssetDataSourceRegistry
 from app.models.market_data_platform import MdObservationRevision, MdSourceSnapshot
+from app.models.permission import Role, user_roles
+from app.models.user import User
 from app.schemas.asset_research import InstrumentIdentity
 from app.schemas.market_data_platform import MarketDataQueryRequest
+from app.services.market_data.access import MarketDataAccessAuthorizer, MarketDataQueryAccess
 from app.services.market_data.bootstrap import (
     CanonicalStorageSpec,
     MarketDataBootstrapSpec,
@@ -158,7 +162,7 @@ def _service(
     )
 
 
-async def _seed_authoritative_prerequisites() -> None:
+async def _seed_authoritative_prerequisites() -> str:
     """Create only operator-owned prerequisites before a public query begins."""
     identity = InstrumentIdentity.model_validate(
         {
@@ -182,6 +186,7 @@ async def _seed_authoritative_prerequisites() -> None:
         "approval_reference": "CAB-197-E2E-001",
         "evidence_uri": "file:///approved/calendars/CN-SSE-2026-09.json",
         "evidence_content_hash": "a" * 64,
+        "source_registry_id": "akshare",
         "calendar_code": "CN-SSE",
         "calendar_version": "2026.09",
         "timezone_name": "Asia/Shanghai",
@@ -217,6 +222,33 @@ async def _seed_authoritative_prerequisites() -> None:
         await MarketDataPlatformBootstrapper(session).bootstrap(spec)
         await session.commit()
 
+        user = User(
+            username="market-data-local-first-fixture",
+            email="market-data-local-first-fixture@example.test",
+            hashed_password="not-used",
+            is_active=True,
+        )
+        session.add(user)
+        session.add(
+            AssetDataSourceRegistry(
+                source_id="akshare",
+                asset_types=["stock"],
+                jurisdictions=["CN"],
+                license_status="APPROVED",
+                allowed_uses=["DISPLAY"],
+                redistribution_policy="NO_REDISTRIBUTION",
+                derived_data_policy="ALLOWED",
+                retention_policy="market-data-v1",
+                effective_from=datetime(2020, 1, 1, tzinfo=UTC),
+                enabled=True,
+                updated_at=RECEIPT_AT,
+            )
+        )
+        await session.flush()
+        await session.execute(user_roles.insert().values(user_id=user.id, role=Role.USER.value))
+        user_id = str(user.id)
+        await session.commit()
+
         identity_writer = MarketDataIdentityWriter(session)
         await identity_writer.persist_identity(
             identity,
@@ -228,6 +260,22 @@ async def _seed_authoritative_prerequisites() -> None:
             payload=calendar,
             dry_run=False,
         )
+        await session.commit()
+        return user_id
+
+
+async def _access_for_session(
+    session,
+    *,
+    user_id: str,
+    now: datetime,
+) -> MarketDataQueryAccess:
+    """Build a real current user/source-registry grant for a query execution."""
+    user = await session.get(User, user_id)
+    assert user is not None
+    authorizer = MarketDataAccessAuthorizer(session, clock=lambda: now)
+    principal = await authorizer.principal_for_user(user)
+    return MarketDataQueryAccess(principal=principal, authorizer=authorizer)
 
 
 @pytest.mark.asyncio
@@ -235,12 +283,17 @@ async def test_local_first_persists_once_then_reuses_complete_older_revision_wit
     None
 ):
     """A completed cache serves later broad requests even after a narrower refresh revision."""
-    await _seed_authoritative_prerequisites()
+    user_id = await _seed_authoritative_prerequisites()
     provider = _RecordingProvider()
 
     async with async_session_maker() as first_session:
         first = await _service(first_session, provider, now=RECEIPT_AT).execute(
-            _request(required_fields=["close", "volume"])
+            _request(required_fields=["close", "volume"]),
+            access=await _access_for_session(
+                first_session,
+                user_id=user_id,
+                now=RECEIPT_AT,
+            ),
         )
         await first_session.commit()
 
@@ -249,7 +302,14 @@ async def test_local_first_persists_once_then_reuses_complete_older_revision_wit
             narrow_refresh_session,
             provider,
             now=RECEIPT_AT + timedelta(microseconds=2),
-        ).execute(_request(required_fields=["close"], mode="refresh"))
+        ).execute(
+            _request(required_fields=["close"], mode="refresh"),
+            access=await _access_for_session(
+                narrow_refresh_session,
+                user_id=user_id,
+                now=RECEIPT_AT + timedelta(microseconds=2),
+            ),
+        )
         await narrow_refresh_session.commit()
 
     async with async_session_maker() as reused_session:
@@ -257,7 +317,14 @@ async def test_local_first_persists_once_then_reuses_complete_older_revision_wit
             reused_session,
             provider,
             now=RECEIPT_AT + timedelta(microseconds=4),
-        ).execute(_request(required_fields=["close", "volume"]))
+        ).execute(
+            _request(required_fields=["close", "volume"]),
+            access=await _access_for_session(
+                reused_session,
+                user_id=user_id,
+                now=RECEIPT_AT + timedelta(microseconds=4),
+            ),
+        )
         source_snapshot_count = await reused_session.scalar(
             select(func.count()).select_from(MdSourceSnapshot)
         )

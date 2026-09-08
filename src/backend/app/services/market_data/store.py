@@ -20,8 +20,12 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.asset_research import AssetDataSourceRegistry
 from app.models.data_governance import DgProvider
 from app.models.market_data_platform import (
+    CALENDAR_SOURCE_GOVERNANCE_STATE_VERIFIED,
+    SOURCE_AUTHORIZATION_STATE_UNVERIFIED_COMPATIBILITY,
+    SOURCE_AUTHORIZATION_STATE_VERIFIED,
     MdCalendarEvent,
     MdCalendarSnapshot,
     MdDataSeries,
@@ -31,6 +35,7 @@ from app.models.market_data_platform import (
     calendar_coverage_descriptor,
     calendar_coverage_event_key,
 )
+from app.services.market_data.access import MarketDataSourceAuthorization
 from app.services.market_data.coverage import (
     CalendarSnapshot,
     CalendarStatus,
@@ -50,6 +55,7 @@ from app.services.market_data.publication import (
     PUBLICATION_SOURCE_SNAPSHOT,
     MarketDataPublicationError,
     MarketDataPublicationManager,
+    MarketDataVisibilityAnchor,
 )
 from app.services.market_data.query_resolution import ResolvedMarketDataQueryContext
 
@@ -61,6 +67,59 @@ _MAX_PROVIDER_OBSERVATIONS = 50_000
 _REVISION_EVENT_QUERY_CHUNK_SIZE = 500
 MAX_SOURCE_PAYLOAD_BYTES = 10 * 1024 * 1024
 _MAX_NORMALIZED_FIELDS_BYTES = 10 * 1024 * 1024
+_SOURCE_AUTHORIZATION_VERSION = "market-data-source-authorization-v1"
+_SOURCE_AUTHORIZATION_APPROVED_LICENSES = frozenset(
+    {
+        "APPROVED",
+        "LICENSED",
+        "MARKET_DATA_APPROVED",
+        "PUBLIC",
+        "RESEARCH_APPROVED",
+    }
+)
+_SOURCE_AUTHORIZATION_ALLOWED_USES: Mapping[str, frozenset[str]] = {
+    "display": frozenset({"DISPLAY", "MARKET_DATA_DISPLAY", "MARKET_DATA_READ"}),
+    "research": frozenset({"RESEARCH", "RESEARCH_ONLY", "DERIVED_RESEARCH"}),
+    "backtest": frozenset({"BACKTEST", "BACKTEST_ONLY"}),
+}
+_SOURCE_AUTHORIZATION_READABLE_REDISTRIBUTION_POLICIES = frozenset(
+    {"ALLOWED", "INTERNAL_ONLY", "NO_REDISTRIBUTION"}
+)
+_SOURCE_AUTHORIZATION_PROHIBITED_RETENTION_POLICIES = frozenset(
+    {"", "DENIED", "EXPIRED", "PROHIBITED", "UNKNOWN"}
+)
+_SOURCE_AUTHORIZATION_PROVENANCE_FIELDS = frozenset(
+    {
+        "source_registry_id",
+        "registry_updated_at",
+        "asset_type",
+        "market",
+        "purpose",
+        "license_status",
+        "allowed_uses",
+        "jurisdictions",
+        "effective_from",
+        "effective_to",
+        "retention_policy",
+        "retention_expires_at",
+        "redistribution_policy",
+        "principal_scope",
+        "tenant_scope",
+        "entitlement_revision",
+        "decision",
+        "descriptor_hash",
+    }
+)
+UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT = "legacy_import"
+UNVERIFIED_COMPATIBILITY_REASON_OPERATOR_RECOVERY = "operator_recovery"
+_UNVERIFIED_COMPATIBILITY_REASONS = frozenset(
+    {
+        UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        UNVERIFIED_COMPATIBILITY_REASON_OPERATOR_RECOVERY,
+    }
+)
+_UNVERIFIED_COMPATIBILITY_PROVENANCE_VERSION = "market-data-unverified-source-write-v1"
+_CALENDAR_SOURCE_GOVERNANCE_VERSION = "market-data-calendar-source-governance-v1"
 
 
 def _utc_now() -> datetime:
@@ -105,6 +164,8 @@ class LocalObservationRevision:
     event_at: datetime
     available_at: datetime
     committed_at: datetime
+    visible_at: datetime
+    visibility_sequence: int
     revision_number: int
     quality: ObservationQuality
     fields: Mapping[str, object]
@@ -140,6 +201,18 @@ class _ValidatedProviderFetch:
     raw_payload: Mapping[str, object]
     payload_sha256: str
     observations: tuple[_ValidatedProviderObservation, ...]
+    provider_request_id: str
+    provider_request_fingerprint_sha256: str
+    query_fingerprint_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ValidatedSourceAuthorization:
+    """Persistence-ready source trust state detached from caller prose."""
+
+    state: str
+    descriptor_sha256: str | None
+    provenance: Mapping[str, object]
 
 
 class MarketDataStore:
@@ -237,6 +310,8 @@ class MarketDataStore:
         result: ProviderFetchResult,
         *,
         received_at: datetime | None = None,
+        source_authorization: MarketDataSourceAuthorization | None = None,
+        unverified_compatibility_reason: str | None = None,
     ) -> PersistedProviderFetch:
         """Append one provider receipt and its normalized observation revisions.
 
@@ -244,6 +319,12 @@ class MarketDataStore:
         source snapshot, revisions and a pending publication receipt share a
         savepoint. After that transaction commits, a second transaction records
         a trusted visibility instant; an interrupted publication stays hidden.
+
+        V2 provider writes require a registry-validated structured source
+        authorization.  Controlled historical import/recovery callers may
+        instead provide one of the explicit compatibility reasons; their
+        receipt is durably tagged as unverified and is excluded from every
+        current-authorized local read.
         """
         _assert_writable_context(context)
         local_received_at = _require_aware_utc(
@@ -256,6 +337,13 @@ class MarketDataStore:
             local_received_at=local_received_at,
         )
         provider = await self._require_active_provider(result.provider_id)
+        authorization = await self._validate_source_authorization(
+            context,
+            result,
+            source_authorization,
+            local_received_at=local_received_at,
+            unverified_compatibility_reason=unverified_compatibility_reason,
+        )
 
         try:
             async with self._db.begin_nested():
@@ -266,6 +354,7 @@ class MarketDataStore:
                     provider,
                     result,
                     validated,
+                    source_authorization=authorization,
                     local_received_at=local_received_at,
                 )
                 self._db.add(source_snapshot)
@@ -326,12 +415,57 @@ class MarketDataStore:
             received_at=published_at,
         )
 
+    async def resolve_visibility_anchor(
+        self,
+        *,
+        knowledge_cutoff: datetime,
+    ) -> MarketDataVisibilityAnchor:
+        """Freeze the complete sealed-receipt boundary at one UTC cutoff.
+
+        The maximum sequence is sampled before identity, calendar, coverage, or
+        observation reads.  A later receipt with the same visible timestamp is
+        therefore excluded from a continuation even on engines that retain only
+        microsecond timestamp precision.
+        """
+        cutoff = _require_aware_utc(knowledge_cutoff, field_name="knowledge_cutoff")
+        missing_sequence = await self._db.scalar(
+            select(MdPublication.id)
+            .where(
+                MdPublication.published_at.is_not(None),
+                MdPublication.published_at <= cutoff,
+                MdPublication.visibility_sequence.is_(None),
+            )
+            .limit(1)
+        )
+        if missing_sequence is not None:
+            raise MarketDataStoreError("PUBLICATION_VISIBILITY_INTEGRITY")
+        max_sequence = await self._db.scalar(
+            select(func.max(MdPublication.visibility_sequence)).where(
+                MdPublication.published_at.is_not(None),
+                MdPublication.published_at <= cutoff,
+                MdPublication.visibility_sequence.is_not(None),
+            )
+        )
+        if max_sequence is None:
+            return MarketDataVisibilityAnchor(
+                visible_at=cutoff,
+                max_visibility_sequence=0,
+            )
+        if not isinstance(max_sequence, int) or isinstance(max_sequence, bool) or max_sequence < 1:
+            raise MarketDataStoreError("PUBLICATION_VISIBILITY_INTEGRITY")
+        return MarketDataVisibilityAnchor(
+            visible_at=cutoff,
+            max_visibility_sequence=max_sequence,
+        )
+
     async def read_observation_revisions(
         self,
         context: ResolvedMarketDataQueryContext,
         *,
         knowledge_cutoff: datetime,
+        visibility_anchor: MarketDataVisibilityAnchor | None = None,
         include_unusable_for_coverage: bool = False,
+        allowed_source_registry_ids: frozenset[str] | None = None,
     ) -> tuple[LocalObservationRevision, ...]:
         """Select the newest response-safe revision per event at a PIT cutoff.
 
@@ -347,57 +481,94 @@ class MarketDataStore:
         diagnostics-only result must never be rendered as market data.
         """
         _assert_context_integrity(context)
-        cutoff = _require_aware_utc(knowledge_cutoff, field_name="knowledge_cutoff")
+        allowed_source_ids = _normalize_allowed_source_registry_ids(allowed_source_registry_ids)
+        if allowed_source_ids is not None and not allowed_source_ids:
+            return ()
+        anchor = await self._resolve_visibility_anchor(
+            knowledge_cutoff=knowledge_cutoff,
+            visibility_anchor=visibility_anchor,
+        )
         series = await self.get_series(context)
         if series is None:
             return ()
 
         query = context.query
-        rows = list(
-            (
-                await self._db.execute(
-                    select(MdObservationRevision, MdPublication.published_at)
-                    .join(
-                        MdSourceSnapshot,
-                        MdSourceSnapshot.id == MdObservationRevision.source_snapshot_id,
-                    )
-                    .join(
-                        MdPublication,
-                        and_(
-                            MdPublication.entity_type == PUBLICATION_SOURCE_SNAPSHOT,
-                            MdPublication.entity_id == MdSourceSnapshot.id,
-                        ),
-                    )
-                    .where(
-                        MdObservationRevision.series_id == series.id,
-                        MdObservationRevision.event_time >= query.start,
-                        MdObservationRevision.event_time < query.end,
-                        MdObservationRevision.available_at <= cutoff,
-                        MdPublication.entity_sha256 == MdSourceSnapshot.payload_sha256,
-                        MdPublication.published_at.is_not(None),
-                        MdPublication.published_at <= cutoff,
-                    )
-                    .order_by(
-                        MdObservationRevision.event_time,
-                        MdObservationRevision.available_at,
-                        MdPublication.published_at,
-                        MdObservationRevision.revision_number,
-                        MdObservationRevision.id,
-                    )
-                )
-            ).all()
+        statement = (
+            select(
+                MdObservationRevision,
+                MdSourceSnapshot,
+                MdPublication.published_at,
+                MdPublication.visibility_sequence,
+            )
+            .join(
+                MdSourceSnapshot,
+                MdSourceSnapshot.id == MdObservationRevision.source_snapshot_id,
+            )
+            .join(
+                MdPublication,
+                and_(
+                    MdPublication.entity_type == PUBLICATION_SOURCE_SNAPSHOT,
+                    MdPublication.entity_id == MdSourceSnapshot.id,
+                ),
+            )
+            .where(
+                MdObservationRevision.series_id == series.id,
+                MdObservationRevision.event_time >= query.start,
+                MdObservationRevision.event_time < query.end,
+                MdPublication.entity_sha256 == MdSourceSnapshot.payload_sha256,
+                MdPublication.published_at.is_not(None),
+                MdPublication.visibility_sequence.is_not(None),
+                _publication_is_visible_at_anchor(anchor),
+            )
+            .order_by(
+                MdObservationRevision.event_time,
+                MdPublication.published_at,
+                MdPublication.visibility_sequence,
+                MdObservationRevision.revision_number,
+                MdObservationRevision.id,
+            )
         )
+        if allowed_source_ids is not None:
+            # A valid source ID alone is not enough: rows imported through an
+            # explicit compatibility path and rows written before authorization
+            # receipts existed cannot become v2 facts merely because a current
+            # provider happens to use the same identifier.
+            statement = statement.where(
+                MdSourceSnapshot.source_id.in_(sorted(allowed_source_ids)),
+                MdSourceSnapshot.source_authorization_state
+                == SOURCE_AUTHORIZATION_STATE_VERIFIED,
+            ).execution_options(populate_existing=True)
+        rows = list((await self._db.execute(statement)).all())
 
         selected_usable: dict[datetime, LocalObservationRevision] = {}
         selected_fallback: dict[datetime, LocalObservationRevision] = {}
-        for row, published_at in rows:
-            if published_at is None:
+        verified_source_registry_ids: dict[str, str | None] = {}
+        for row, source_snapshot, published_at, visibility_sequence in rows:
+            if published_at is None or not _is_visibility_sequence(visibility_sequence):
                 raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
+            if allowed_source_ids is not None:
+                source_registry_id = verified_source_registry_ids.get(source_snapshot.id)
+                if source_snapshot.id not in verified_source_registry_ids:
+                    try:
+                        source_registry_id = _verified_source_authorization_registry_id(
+                            source_snapshot,
+                            context=context,
+                        )
+                    except MarketDataStoreError:
+                        # A raw/internal write must not turn a syntactically
+                        # populated state column into a v2 fact. Compatibility,
+                        # legacy, and structurally forged receipts remain absent
+                        # from the authorization-filtered local response.
+                        source_registry_id = None
+                    verified_source_registry_ids[source_snapshot.id] = source_registry_id
+                if source_registry_id not in allowed_source_ids:
+                    continue
             local = _decode_local_revision(
                 row,
                 context=context,
-                cutoff=cutoff,
+                visibility_anchor=anchor,
                 published_at=_stored_utc(published_at, field_name="publication published_at"),
+                visibility_sequence=visibility_sequence,
             )
             current_fallback = selected_fallback.get(local.event_at)
             if current_fallback is None or _revision_sort_key(local) > _revision_sort_key(
@@ -418,17 +589,37 @@ class MarketDataStore:
             )
         return tuple(selected_usable[event_at] for event_at in sorted(selected_usable))
 
+    async def _resolve_visibility_anchor(
+        self,
+        *,
+        knowledge_cutoff: datetime,
+        visibility_anchor: MarketDataVisibilityAnchor | None,
+    ) -> MarketDataVisibilityAnchor:
+        """Use a cursor's signed anchor or resolve one exactly once for a read."""
+        cutoff = _require_aware_utc(knowledge_cutoff, field_name="knowledge_cutoff")
+        if visibility_anchor is None:
+            return await self.resolve_visibility_anchor(knowledge_cutoff=cutoff)
+        if not isinstance(visibility_anchor, MarketDataVisibilityAnchor):
+            raise TypeError("visibility_anchor must be a MarketDataVisibilityAnchor")
+        if visibility_anchor.visible_at != cutoff:
+            raise MarketDataStoreError("VISIBILITY_ANCHOR_CUTOFF_MISMATCH")
+        return visibility_anchor
+
     async def read_observations(
         self,
         context: ResolvedMarketDataQueryContext,
         *,
         knowledge_cutoff: datetime,
+        visibility_anchor: MarketDataVisibilityAnchor | None = None,
+        allowed_source_registry_ids: frozenset[str] | None = None,
     ) -> tuple[Observation, ...]:
         """Return local observations in the pure shape expected by coverage planning."""
         revisions = await self.read_observation_revisions(
             context,
             knowledge_cutoff=knowledge_cutoff,
+            visibility_anchor=visibility_anchor,
             include_unusable_for_coverage=True,
+            allowed_source_registry_ids=allowed_source_registry_ids,
         )
         return tuple(item.as_coverage_observation(context) for item in revisions)
 
@@ -439,8 +630,10 @@ class MarketDataStore:
         window: TimeWindow,
         calendar_version: str | None = None,
         knowledge_cutoff: datetime | None = None,
+        visibility_anchor: MarketDataVisibilityAnchor | None = None,
         data_kind: str = "bars",
         frequency: str = "1d",
+        allowed_source_registry_ids: frozenset[str] | None = None,
     ) -> CalendarSnapshot:
         """Return one explicit calendar version or a typed unknown result.
 
@@ -456,6 +649,7 @@ class MarketDataStore:
             field_name="calendar frequency",
             maximum=16,
         )
+        allowed_source_ids = _normalize_allowed_source_registry_ids(allowed_source_registry_ids)
         if not isinstance(window, TimeWindow):
             raise TypeError("window must be a TimeWindow")
         version = (
@@ -463,14 +657,22 @@ class MarketDataStore:
             if calendar_version is not None
             else None
         )
-        cutoff = (
-            _require_aware_utc(knowledge_cutoff, field_name="knowledge_cutoff")
-            if knowledge_cutoff is not None
-            else None
-        )
+        if knowledge_cutoff is None:
+            if visibility_anchor is not None:
+                raise MarketDataStoreError("VISIBILITY_ANCHOR_CUTOFF_MISMATCH")
+            anchor = None
+        else:
+            anchor = await self._resolve_visibility_anchor(
+                knowledge_cutoff=knowledge_cutoff,
+                visibility_anchor=visibility_anchor,
+            )
 
         statement = (
-            select(MdCalendarSnapshot, MdPublication.published_at)
+            select(
+                MdCalendarSnapshot,
+                MdPublication.published_at,
+                MdPublication.visibility_sequence,
+            )
             .join(
                 MdPublication,
                 and_(
@@ -482,23 +684,42 @@ class MarketDataStore:
                 MdCalendarSnapshot.calendar_code == code,
                 MdPublication.entity_sha256 == MdCalendarSnapshot.snapshot_sha256,
                 MdPublication.published_at.is_not(None),
+                MdPublication.visibility_sequence.is_not(None),
             )
         )
+        if anchor is not None:
+            statement = statement.where(_publication_is_visible_at_anchor(anchor))
         if version is not None:
             statement = statement.where(MdCalendarSnapshot.calendar_version == version)
         raw_rows = list((await self._db.execute(statement)).all())
-        rows: list[tuple[MdCalendarSnapshot, datetime]] = []
-        for row, published_at in raw_rows:
-            if published_at is None:
+        rows: list[tuple[MdCalendarSnapshot, datetime, int]] = []
+        saw_unverified_source = False
+        saw_unauthorized_source = False
+        for row, published_at, visibility_sequence in raw_rows:
+            if published_at is None or not _is_visibility_sequence(visibility_sequence):
                 continue
             visible_at = _stored_utc(published_at, field_name="calendar publication")
-            if cutoff is not None and visible_at > cutoff:
+            if anchor is not None and not anchor.permits(
+                visible_at=visible_at,
+                visibility_sequence=visibility_sequence,
+            ):
                 continue
-            rows.append((row, visible_at))
+            try:
+                source_registry_id = _verified_calendar_source_registry_id(row)
+            except MarketDataStoreError:
+                saw_unverified_source = True
+                continue
+            if (
+                allowed_source_ids is not None
+                and source_registry_id not in allowed_source_ids
+            ):
+                saw_unauthorized_source = True
+                continue
+            rows.append((row, visible_at, visibility_sequence))
 
-        usable: list[tuple[MdCalendarSnapshot, TimeWindow, datetime]] = []
+        usable: list[tuple[MdCalendarSnapshot, TimeWindow, datetime, int]] = []
         saw_integrity_error = False
-        for row, published_at in rows:
+        for row, published_at, visibility_sequence in rows:
             try:
                 coverage_window = _calendar_coverage_window(row)
             except MarketDataStoreError:
@@ -508,12 +729,16 @@ class MarketDataStore:
                 coverage_window.end_at > window.start_at
                 and coverage_window.start_at < window.end_at
             ):
-                usable.append((row, coverage_window, published_at))
+                usable.append((row, coverage_window, published_at, visibility_sequence))
 
-        unknown_timezone = _unknown_timezone([row for row, _published_at in rows])
+        unknown_timezone = _unknown_timezone([row for row, _published_at, _sequence in rows])
         unknown_version = version or "unresolved"
         if not usable:
-            if not rows:
+            if saw_unauthorized_source:
+                reason = "CALENDAR_SOURCE_UNAUTHORIZED"
+            elif saw_unverified_source:
+                reason = "CALENDAR_SOURCE_UNVERIFIED"
+            elif not rows:
                 reason = "CALENDAR_VERSION_NOT_FOUND"
             elif saw_integrity_error:
                 reason = "CALENDAR_INTEGRITY"
@@ -553,7 +778,7 @@ class MarketDataStore:
             if len({snapshot.timezone_name for snapshot in snapshots}) != 1:
                 raise MarketDataStoreError("CALENDAR_INTEGRITY")
             event_keys: list[EventKey] = []
-            for snapshot, coverage_window, _published_at in selected:
+            for snapshot, coverage_window, _published_at, _visibility_sequence in selected:
                 event_keys.extend(
                     await self._calendar_event_keys(
                         snapshot,
@@ -595,6 +820,8 @@ class MarketDataStore:
         *,
         calendar_version: str | None = None,
         knowledge_cutoff: datetime | None = None,
+        visibility_anchor: MarketDataVisibilityAnchor | None = None,
+        allowed_source_registry_ids: frozenset[str] | None = None,
     ) -> CalendarSnapshot:
         """Load calendar evidence for a resolved query's exact market and window."""
         _assert_context_integrity(context)
@@ -603,8 +830,10 @@ class MarketDataStore:
             window=TimeWindow(start_at=context.query.start, end_at=context.query.end),
             calendar_version=calendar_version,
             knowledge_cutoff=knowledge_cutoff,
+            visibility_anchor=visibility_anchor,
             data_kind=context.query.data_kind,
             frequency=context.query.frequency or "snapshot",
+            allowed_source_registry_ids=allowed_source_registry_ids,
         )
 
     async def _find_series(
@@ -658,6 +887,70 @@ class MarketDataStore:
         normalized = _require_text(provider_id, field_name="provider_id", maximum=255)
         await self._require_active_provider(normalized)
 
+    async def _validate_source_authorization(
+        self,
+        context: ResolvedMarketDataQueryContext,
+        result: ProviderFetchResult,
+        source_authorization: MarketDataSourceAuthorization | None,
+        *,
+        local_received_at: datetime,
+        unverified_compatibility_reason: str | None,
+    ) -> _ValidatedSourceAuthorization:
+        """Validate a frozen source grant against the live registry before persistence.
+
+        A normal v2 write must supply the grant.  The only bypass is a bounded,
+        explicit compatibility reason, which produces a permanently
+        unverified receipt that v2 local reads reject.  Once a grant is
+        supplied this method accepts neither an arbitrary mapping nor a
+        caller-computed descriptor alone: it verifies the typed evidence, its
+        canonical digest, request context, and the current registry row before
+        the source snapshot can be staged.
+        """
+        if source_authorization is None:
+            reason = _normalize_unverified_compatibility_reason(
+                unverified_compatibility_reason
+            )
+            return _ValidatedSourceAuthorization(
+                state=SOURCE_AUTHORIZATION_STATE_UNVERIFIED_COMPATIBILITY,
+                descriptor_sha256=None,
+                provenance=MappingProxyType(
+                    {
+                        "version": _UNVERIFIED_COMPATIBILITY_PROVENANCE_VERSION,
+                        "reason": reason,
+                        "decision": "UNVERIFIED",
+                    }
+                ),
+            )
+        if unverified_compatibility_reason is not None:
+            raise MarketDataStoreError("SOURCE_AUTHORIZATION_MODE_CONFLICT")
+        provenance = _normalized_source_authorization_provenance(
+            context,
+            result,
+            source_authorization,
+        )
+        # Re-read rather than use ``Session.get``: a long-lived request
+        # session may already have an identity-mapped registry row from an
+        # earlier control-plane lookup.  The query service owns any short
+        # write authorization lock; this is the independent post-query
+        # freshness/integrity check without taking a second lock.
+        registry = await self._db.scalar(
+            select(AssetDataSourceRegistry)
+            .where(AssetDataSourceRegistry.source_id == provenance["source_registry_id"])
+            .execution_options(populate_existing=True)
+        )
+        if registry is None:
+            raise MarketDataStoreError("SOURCE_AUTHORIZATION_REGISTRY_UNREGISTERED")
+        _assert_source_authorization_matches_registry(
+            provenance,
+            registry,
+            local_received_at=local_received_at,
+        )
+        return _ValidatedSourceAuthorization(
+            state=SOURCE_AUTHORIZATION_STATE_VERIFIED,
+            descriptor_sha256=str(provenance["descriptor_hash"]),
+            provenance=MappingProxyType(provenance),
+        )
+
     def _make_source_snapshot(
         self,
         context: ResolvedMarketDataQueryContext,
@@ -665,6 +958,7 @@ class MarketDataStore:
         result: ProviderFetchResult,
         validated: _ValidatedProviderFetch,
         *,
+        source_authorization: _ValidatedSourceAuthorization,
         local_received_at: datetime,
     ) -> MdSourceSnapshot:
         provider_id = _require_text(result.provider_id, field_name="provider_id", maximum=255)
@@ -699,6 +993,14 @@ class MarketDataStore:
             "warnings": list(result.warnings),
             "normalization_version": NORMALIZATION_VERSION,
         }
+        if source_authorization.state == SOURCE_AUTHORIZATION_STATE_VERIFIED:
+            # The mapping originates from the registry-checked normalizer above,
+            # rather than from a caller-controlled free-form provenance field.
+            provenance["source_authorization"] = dict(source_authorization.provenance)
+        elif source_authorization.state == SOURCE_AUTHORIZATION_STATE_UNVERIFIED_COMPATIBILITY:
+            provenance["unverified_compatibility"] = dict(source_authorization.provenance)
+        else:
+            raise MarketDataStoreError("SOURCE_AUTHORIZATION_INVALID")
         return MdSourceSnapshot(
             provider_id=provider.id,
             platform=platform,
@@ -706,6 +1008,11 @@ class MarketDataStore:
             adapter_id=adapter_id,
             endpoint_version=source_revision,
             request_fingerprint_sha256=context.query.query_fingerprint,
+            provider_request_id=validated.provider_request_id,
+            provider_request_fingerprint_sha256=(validated.provider_request_fingerprint_sha256),
+            query_fingerprint_sha256=validated.query_fingerprint_sha256,
+            source_authorization_state=source_authorization.state,
+            source_authorization_descriptor_sha256=source_authorization.descriptor_sha256,
             payload_sha256=validated.payload_sha256,
             request_json=request_json,
             payload_manifest_json=_json_safe_mapping(
@@ -1010,6 +1317,7 @@ def _validate_provider_fetch(
         raise TypeError("result must be a ProviderFetchResult")
     if not _provider_request_matches_context(context, result.request):
         raise MarketDataStoreError("PROVIDER_REQUEST_MISMATCH")
+    provider_request_evidence = _validated_provider_request_evidence(context, result)
     received_at = _require_aware_utc(
         local_received_at,
         field_name="local receipt timestamp",
@@ -1081,7 +1389,604 @@ def _validate_provider_fetch(
         raw_payload=MappingProxyType(raw_payload),
         payload_sha256=_sha256(canonical_raw_payload),
         observations=tuple(observations),
+        provider_request_id=provider_request_evidence["provider_request_id"],
+        provider_request_fingerprint_sha256=provider_request_evidence[
+            "provider_request_fingerprint_sha256"
+        ],
+        query_fingerprint_sha256=provider_request_evidence["query_fingerprint_sha256"],
     )
+
+
+def _validated_provider_request_evidence(
+    context: ResolvedMarketDataQueryContext,
+    result: ProviderFetchResult,
+) -> Mapping[str, str]:
+    """Bind a persisted source receipt to the exact one-time provider DTO.
+
+    ``MarketDataProviderRequest`` already validates its own construction.  The
+    store recomputes the DTO digest nevertheless, because this is the last
+    boundary before immutable evidence is written and it must not silently
+    equate the public query identity with a provider-call identity.
+    """
+    request = result.request
+    request_id = _require_provider_request_id(request.request_id)
+    query_fingerprint = _require_sha256_digest(
+        context.query.query_fingerprint,
+        code="QUERY_FINGERPRINT_INVALID",
+    )
+    dto_payload = _json_safe_mapping(request.dto_payload, field_name="provider request DTO")
+    if dto_payload.get("request_id") != request_id:
+        raise MarketDataStoreError("PROVIDER_REQUEST_EVIDENCE_INVALID")
+    if dto_payload.get("query_fingerprint") != query_fingerprint:
+        raise MarketDataStoreError("PROVIDER_REQUEST_EVIDENCE_INVALID")
+    computed_fingerprint = _sha256(_canonical_json(dto_payload, field_name="provider request DTO"))
+    declared_fingerprint = _require_sha256_digest(
+        request.provider_request_fingerprint_sha256,
+        code="PROVIDER_REQUEST_EVIDENCE_INVALID",
+    )
+    if declared_fingerprint != computed_fingerprint:
+        raise MarketDataStoreError("PROVIDER_REQUEST_EVIDENCE_INVALID")
+    return MappingProxyType(
+        {
+            "provider_request_id": request_id,
+            "provider_request_fingerprint_sha256": declared_fingerprint,
+            "query_fingerprint_sha256": query_fingerprint,
+        }
+    )
+
+
+def _normalized_source_authorization_provenance(
+    context: ResolvedMarketDataQueryContext,
+    result: ProviderFetchResult,
+    source_authorization: MarketDataSourceAuthorization,
+) -> dict[str, object]:
+    """Return a canonical authorization receipt mapping for store validation.
+
+    The persistence API intentionally does not accept a free-form mapping.  A
+    real ``MarketDataSourceAuthorization`` must identify the actual provider,
+    match the resolved query dimensions, state an ALLOW decision, and carry a
+    digest recomputed from every persisted authorization field.  The digest is
+    an integrity binding, not a cryptographic signature: the store separately
+    compares the frozen fields with the current registry.  Public v2 callers
+    obtain this typed DTO from the access authorizer before reaching this
+    internal persistence boundary.
+    """
+    if type(source_authorization) is not MarketDataSourceAuthorization:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_INVALID")
+
+    source_registry_id = _require_text(
+        source_authorization.source_registry_id,
+        field_name="source_registry_id",
+        maximum=255,
+    )
+    provider_id = _require_text(result.provider_id, field_name="provider_id", maximum=255)
+    if source_registry_id != provider_id:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_PROVIDER_MISMATCH")
+
+    asset_type = _require_authorization_lower(
+        source_authorization.asset_type,
+        field_name="source authorization asset_type",
+        maximum=32,
+    )
+    market = _require_authorization_upper(
+        source_authorization.market,
+        field_name="source authorization market",
+        maximum=128,
+    )
+    purpose = _require_authorization_lower(
+        source_authorization.purpose,
+        field_name="source authorization purpose",
+        maximum=32,
+    )
+    venue = context.identity.venue
+    if (
+        venue is None
+        or asset_type != context.identity.asset_type
+        or market != venue
+        or purpose != context.query.purpose
+    ):
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_CONTEXT_MISMATCH")
+    if purpose not in _SOURCE_AUTHORIZATION_ALLOWED_USES:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_CONTEXT_MISMATCH")
+
+    authorization = {
+        "source_registry_id": source_registry_id,
+        "registry_updated_at": _require_utc_authorization_timestamp(
+            source_authorization.registry_updated_at,
+            field_name="source authorization registry_updated_at",
+        ),
+        "asset_type": asset_type,
+        "market": market,
+        "purpose": purpose,
+        "license_status": _require_authorization_upper(
+            source_authorization.license_status,
+            field_name="source authorization license_status",
+            maximum=64,
+        ),
+        "allowed_uses": list(
+            _require_authorization_tokens(
+                source_authorization.allowed_uses,
+                field_name="source authorization allowed_uses",
+            )
+        ),
+        "jurisdictions": list(
+            _require_authorization_tokens(
+                source_authorization.jurisdictions,
+                field_name="source authorization jurisdictions",
+            )
+        ),
+        "effective_from": _require_utc_authorization_timestamp(
+            source_authorization.effective_from,
+            field_name="source authorization effective_from",
+        ),
+        "effective_to": _require_optional_utc_authorization_timestamp(
+            source_authorization.effective_to,
+            field_name="source authorization effective_to",
+        ),
+        "retention_policy": _require_authorization_upper(
+            source_authorization.retention_policy,
+            field_name="source authorization retention_policy",
+            maximum=64,
+        ),
+        "retention_expires_at": _require_optional_utc_authorization_timestamp(
+            source_authorization.retention_expires_at,
+            field_name="source authorization retention_expires_at",
+        ),
+        "redistribution_policy": _require_authorization_upper(
+            source_authorization.redistribution_policy,
+            field_name="source authorization redistribution_policy",
+            maximum=64,
+        ),
+        "principal_scope": _require_text(
+            source_authorization.principal_scope,
+            field_name="source authorization principal_scope",
+            maximum=256,
+        ),
+        "tenant_scope": _require_text(
+            source_authorization.tenant_scope,
+            field_name="source authorization tenant_scope",
+            maximum=256,
+        ),
+        "entitlement_revision": _require_sha256_digest(
+            source_authorization.entitlement_revision,
+            code="SOURCE_AUTHORIZATION_INVALID",
+        ),
+        "decision": source_authorization.decision,
+    }
+    if authorization["decision"] != "ALLOW":
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_DENIED")
+    descriptor_hash = _require_sha256_digest(
+        source_authorization.descriptor_hash,
+        code="SOURCE_AUTHORIZATION_INVALID",
+    )
+    descriptor_payload = {
+        "version": _SOURCE_AUTHORIZATION_VERSION,
+        **authorization,
+    }
+    computed_descriptor_hash = _sha256(
+        _canonical_json(
+            descriptor_payload,
+            field_name="source authorization descriptor",
+        )
+    )
+    if descriptor_hash != computed_descriptor_hash:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_DESCRIPTOR_MISMATCH")
+    authorization["descriptor_hash"] = descriptor_hash
+    return authorization
+
+
+def _assert_source_authorization_matches_registry(
+    authorization: Mapping[str, object],
+    registry: AssetDataSourceRegistry,
+    *,
+    local_received_at: datetime,
+) -> None:
+    """Refuse persistence if the supplied authorization is stale or unlicensed.
+
+    Authorization is first evaluated at the query boundary before a local read
+    or provider call.  This independent check closes the race between that
+    evaluation and immutable receipt persistence by comparing every frozen
+    registry field against a freshly loaded current row.  It is not a
+    cryptographic trust boundary against code already running in this process.
+    """
+    if not registry.enabled:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_REGISTRY_DENIED")
+    expected = _registry_authorization_fields(registry)
+    for field_name, expected_value in expected.items():
+        if authorization.get(field_name) != expected_value:
+            raise MarketDataStoreError("SOURCE_AUTHORIZATION_REGISTRY_STALE")
+
+    asset_type = str(authorization["asset_type"])
+    market = str(authorization["market"])
+    purpose = str(authorization["purpose"])
+    if asset_type.upper() not in _registry_authorization_tokens(
+        registry.asset_types,
+        field_name="registry asset_types",
+    ):
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_REGISTRY_DENIED")
+    if authorization["license_status"] not in _SOURCE_AUTHORIZATION_APPROVED_LICENSES:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_REGISTRY_DENIED")
+    allowed_uses = frozenset(str(value) for value in authorization["allowed_uses"])
+    if not (_SOURCE_AUTHORIZATION_ALLOWED_USES[purpose] & allowed_uses):
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_REGISTRY_DENIED")
+    jurisdictions = tuple(str(value) for value in authorization["jurisdictions"])
+    if not _source_authorization_jurisdiction_allows(jurisdictions, market):
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_REGISTRY_DENIED")
+    if authorization["retention_policy"] in _SOURCE_AUTHORIZATION_PROHIBITED_RETENTION_POLICIES:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_REGISTRY_DENIED")
+    if (
+        authorization["redistribution_policy"]
+        not in _SOURCE_AUTHORIZATION_READABLE_REDISTRIBUTION_POLICIES
+    ):
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_REGISTRY_DENIED")
+
+    at = _require_aware_utc(local_received_at, field_name="local receipt timestamp")
+    effective_from = _parse_authorization_timestamp(
+        str(authorization["effective_from"]),
+        field_name="source authorization effective_from",
+    )
+    effective_to = _parse_optional_authorization_timestamp(
+        authorization["effective_to"],
+        field_name="source authorization effective_to",
+    )
+    retention_expires_at = _parse_optional_authorization_timestamp(
+        authorization["retention_expires_at"],
+        field_name="source authorization retention_expires_at",
+    )
+    if effective_from > at or (effective_to is not None and effective_to < at):
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_REGISTRY_DENIED")
+    if retention_expires_at is not None and retention_expires_at < at:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_REGISTRY_DENIED")
+
+
+def _verified_source_authorization_registry_id(
+    snapshot: MdSourceSnapshot,
+    *,
+    context: ResolvedMarketDataQueryContext,
+) -> str:
+    """Validate frozen authorization evidence before a v2 local read uses it.
+
+    The relational state filters legacy and compatibility rows in SQL.  This
+    verifier then binds a verified state to its canonical provenance, immutable
+    source identifier, and the query's asset/market/purpose dimensions.  It is
+    an integrity check for persisted evidence, not a cryptographic signature
+    against trusted code already running inside this process.
+    """
+    if snapshot.source_authorization_state != SOURCE_AUTHORIZATION_STATE_VERIFIED:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_UNVERIFIED")
+    try:
+        descriptor_sha256 = _require_sha256_digest(
+            snapshot.source_authorization_descriptor_sha256,
+            code="SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY",
+        )
+        snapshot_source_id = _require_text(
+            snapshot.source_id,
+            field_name="source snapshot source_id",
+            maximum=255,
+        )
+        provenance = _json_safe_mapping(
+            snapshot.provenance_json,
+            field_name="source snapshot provenance",
+        )
+        authorization = _json_safe_mapping(
+            provenance.get("source_authorization"),
+            field_name="source authorization provenance",
+        )
+        if set(authorization) != _SOURCE_AUTHORIZATION_PROVENANCE_FIELDS:
+            raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")
+        persisted_descriptor = authorization.pop("descriptor_hash")
+        if persisted_descriptor != descriptor_sha256:
+            raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")
+        canonical_descriptor = _sha256(
+            _canonical_json(
+                {"version": _SOURCE_AUTHORIZATION_VERSION, **authorization},
+                field_name="source authorization provenance",
+            )
+        )
+        if canonical_descriptor != descriptor_sha256:
+            raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")
+
+        source_registry_id = _require_text(
+            authorization["source_registry_id"],
+            field_name="source authorization source_registry_id",
+            maximum=255,
+        )
+        if source_registry_id != snapshot_source_id:
+            raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")
+        asset_type = _require_authorization_lower(
+            authorization["asset_type"],
+            field_name="source authorization asset_type",
+            maximum=32,
+        )
+        market = _require_authorization_upper(
+            authorization["market"],
+            field_name="source authorization market",
+            maximum=128,
+        )
+        purpose = _require_authorization_lower(
+            authorization["purpose"],
+            field_name="source authorization purpose",
+            maximum=32,
+        )
+        venue = context.identity.venue
+        if (
+            venue is None
+            or asset_type != context.identity.asset_type
+            or market != venue
+            or purpose != context.query.purpose
+            or purpose not in _SOURCE_AUTHORIZATION_ALLOWED_USES
+        ):
+            raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")
+
+        _require_utc_authorization_timestamp(
+            authorization["registry_updated_at"],
+            field_name="source authorization registry_updated_at",
+        )
+        license_status = _require_authorization_upper(
+            authorization["license_status"],
+            field_name="source authorization license_status",
+            maximum=64,
+        )
+        allowed_uses = _require_persisted_authorization_tokens(
+            authorization["allowed_uses"],
+            field_name="source authorization allowed_uses",
+        )
+        jurisdictions = _require_persisted_authorization_tokens(
+            authorization["jurisdictions"],
+            field_name="source authorization jurisdictions",
+        )
+        effective_from = _parse_authorization_timestamp(
+            _require_utc_authorization_timestamp(
+                authorization["effective_from"],
+                field_name="source authorization effective_from",
+            ),
+            field_name="source authorization effective_from",
+        )
+        effective_to_value = _require_optional_utc_authorization_timestamp(
+            authorization["effective_to"],
+            field_name="source authorization effective_to",
+        )
+        effective_to = _parse_optional_authorization_timestamp(
+            effective_to_value,
+            field_name="source authorization effective_to",
+        )
+        retention_policy = _require_authorization_upper(
+            authorization["retention_policy"],
+            field_name="source authorization retention_policy",
+            maximum=64,
+        )
+        retention_expires_at_value = _require_optional_utc_authorization_timestamp(
+            authorization["retention_expires_at"],
+            field_name="source authorization retention_expires_at",
+        )
+        retention_expires_at = _parse_optional_authorization_timestamp(
+            retention_expires_at_value,
+            field_name="source authorization retention_expires_at",
+        )
+        redistribution_policy = _require_authorization_upper(
+            authorization["redistribution_policy"],
+            field_name="source authorization redistribution_policy",
+            maximum=64,
+        )
+        _require_text(
+            authorization["principal_scope"],
+            field_name="source authorization principal_scope",
+            maximum=256,
+        )
+        _require_text(
+            authorization["tenant_scope"],
+            field_name="source authorization tenant_scope",
+            maximum=256,
+        )
+        _require_sha256_digest(
+            authorization["entitlement_revision"],
+            code="SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY",
+        )
+        if authorization["decision"] != "ALLOW":
+            raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")
+        if (
+            license_status not in _SOURCE_AUTHORIZATION_APPROVED_LICENSES
+            or not (_SOURCE_AUTHORIZATION_ALLOWED_USES[purpose] & frozenset(allowed_uses))
+            or not _source_authorization_jurisdiction_allows(jurisdictions, market)
+            or retention_policy in _SOURCE_AUTHORIZATION_PROHIBITED_RETENTION_POLICIES
+            or redistribution_policy not in _SOURCE_AUTHORIZATION_READABLE_REDISTRIBUTION_POLICIES
+        ):
+            raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")
+        receipt_at = _stored_utc(snapshot.retrieved_at, field_name="source snapshot retrieved_at")
+        if effective_from > receipt_at or (
+            effective_to is not None and effective_to < receipt_at
+        ):
+            raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")
+        if retention_expires_at is not None and retention_expires_at < receipt_at:
+            raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")
+    except (KeyError, TypeError, ValueError, MarketDataStoreError) as exc:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY") from exc
+    return source_registry_id
+
+
+def _registry_authorization_fields(registry: AssetDataSourceRegistry) -> dict[str, object]:
+    """Normalize exactly the registry dimensions frozen into a receipt."""
+    return {
+        "source_registry_id": _require_text(
+            registry.source_id,
+            field_name="registry source_id",
+            maximum=255,
+        ),
+        "registry_updated_at": _stored_utc(
+            registry.updated_at,
+            field_name="registry updated_at",
+        ).isoformat(),
+        "license_status": _require_authorization_upper(
+            _normalized_registry_authorization_token(
+                registry.license_status,
+                field_name="registry license_status",
+                maximum=64,
+            ),
+            field_name="registry license_status",
+            maximum=64,
+        ),
+        "allowed_uses": list(
+            _registry_authorization_tokens(
+                registry.allowed_uses,
+                field_name="registry allowed_uses",
+            )
+        ),
+        "jurisdictions": list(
+            _registry_authorization_tokens(
+                registry.jurisdictions,
+                field_name="registry jurisdictions",
+            )
+        ),
+        "effective_from": _stored_utc(
+            registry.effective_from,
+            field_name="registry effective_from",
+        ).isoformat(),
+        "effective_to": (
+            _stored_utc(registry.effective_to, field_name="registry effective_to").isoformat()
+            if registry.effective_to is not None
+            else None
+        ),
+        "retention_policy": _require_authorization_upper(
+            _normalized_registry_authorization_token(
+                registry.retention_policy,
+                field_name="registry retention_policy",
+                maximum=64,
+            ),
+            field_name="registry retention_policy",
+            maximum=64,
+        ),
+        "retention_expires_at": (
+            _stored_utc(
+                registry.retention_expires_at,
+                field_name="registry retention_expires_at",
+            ).isoformat()
+            if registry.retention_expires_at is not None
+            else None
+        ),
+        "redistribution_policy": _require_authorization_upper(
+            _normalized_registry_authorization_token(
+                registry.redistribution_policy,
+                field_name="registry redistribution_policy",
+                maximum=64,
+            ),
+            field_name="registry redistribution_policy",
+            maximum=64,
+        ),
+    }
+
+
+def _require_authorization_tokens(value: object, *, field_name: str) -> tuple[str, ...]:
+    """Require the immutable tuple shape emitted by the authorization boundary."""
+    if not isinstance(value, tuple):
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_INVALID")
+    normalized = tuple(
+        _require_authorization_upper(item, field_name=field_name, maximum=128) for item in value
+    )
+    if not normalized or normalized != tuple(sorted(set(normalized))):
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_INVALID")
+    return normalized
+
+
+def _require_persisted_authorization_tokens(value: object, *, field_name: str) -> tuple[str, ...]:
+    """Require the canonical JSON list stored from an authorization receipt."""
+    if not isinstance(value, list):
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")
+    normalized = tuple(
+        _require_authorization_upper(item, field_name=field_name, maximum=128) for item in value
+    )
+    if not normalized or normalized != tuple(sorted(set(normalized))):
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")
+    return normalized
+
+
+def _registry_authorization_tokens(value: object, *, field_name: str) -> tuple[str, ...]:
+    """Normalize a registry JSON list without accepting a free-form scalar."""
+    if not isinstance(value, (list, tuple)):
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_REGISTRY_INVALID")
+    normalized = tuple(
+        sorted(
+            {
+                _normalized_registry_authorization_token(
+                    item,
+                    field_name=field_name,
+                    maximum=128,
+                )
+                for item in value
+            }
+        )
+    )
+    if not normalized:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_REGISTRY_INVALID")
+    return normalized
+
+
+def _normalized_registry_authorization_token(
+    value: object,
+    *,
+    field_name: str,
+    maximum: int,
+) -> str:
+    """Normalize registry text just as the authorization boundary does."""
+    return _require_text(value, field_name=field_name, maximum=maximum).upper()
+
+
+def _require_authorization_lower(value: object, *, field_name: str, maximum: int) -> str:
+    """Require a canonical lowercase authorization token."""
+    normalized = _require_text(value, field_name=field_name, maximum=maximum)
+    if normalized != normalized.lower():
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_INVALID")
+    return normalized
+
+
+def _require_authorization_upper(value: object, *, field_name: str, maximum: int) -> str:
+    """Require a canonical uppercase authorization token."""
+    normalized = _require_text(value, field_name=field_name, maximum=maximum)
+    if normalized != normalized.upper():
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_INVALID")
+    return normalized
+
+
+def _require_utc_authorization_timestamp(value: object, *, field_name: str) -> str:
+    """Require the canonical UTC ISO-8601 form emitted by the authorizer."""
+    parsed = _parse_authorization_timestamp(value, field_name=field_name)
+    canonical = parsed.isoformat()
+    if value != canonical:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_INVALID")
+    return canonical
+
+
+def _require_optional_utc_authorization_timestamp(
+    value: object,
+    *,
+    field_name: str,
+) -> str | None:
+    if value is None:
+        return None
+    return _require_utc_authorization_timestamp(value, field_name=field_name)
+
+
+def _parse_authorization_timestamp(value: object, *, field_name: str) -> datetime:
+    if not isinstance(value, str):
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_INVALID")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_INVALID") from exc
+    return _require_aware_utc(parsed, field_name=field_name)
+
+
+def _parse_optional_authorization_timestamp(value: object, *, field_name: str) -> datetime | None:
+    if value is None:
+        return None
+    return _parse_authorization_timestamp(value, field_name=field_name)
+
+
+def _source_authorization_jurisdiction_allows(jurisdictions: Sequence[str], market: str) -> bool:
+    """Apply the registry's global, venue, and country-prefix market rules."""
+    if "GLOBAL" in jurisdictions:
+        return True
+    market_prefix = market.split("-", maxsplit=1)[0]
+    return market in jurisdictions or market_prefix in jurisdictions
 
 
 def _provider_request_matches_context(
@@ -1124,8 +2029,9 @@ def _decode_local_revision(
     row: MdObservationRevision,
     *,
     context: ResolvedMarketDataQueryContext,
-    cutoff: datetime,
+    visibility_anchor: MarketDataVisibilityAnchor,
     published_at: datetime,
+    visibility_sequence: int,
 ) -> LocalObservationRevision:
     """Validate a persisted row before it can contribute local coverage."""
     event_at = _stored_utc(row.event_time, field_name="observation event_time")
@@ -1136,7 +2042,10 @@ def _decode_local_revision(
     committed_at = _stored_utc(published_at, field_name="publication published_at")
     if not context.query.start <= event_at < context.query.end:
         raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
-    if available_at > cutoff or committed_at > cutoff:
+    if not _is_visibility_sequence(visibility_sequence) or not visibility_anchor.permits(
+        visible_at=committed_at,
+        visibility_sequence=visibility_sequence,
+    ):
         raise MarketDataStoreError("LOCAL_OBSERVATION_INTEGRITY")
     try:
         quality = ObservationQuality(row.quality_status)
@@ -1156,6 +2065,8 @@ def _decode_local_revision(
         event_at=event_at,
         available_at=available_at,
         committed_at=committed_at,
+        visible_at=committed_at,
+        visibility_sequence=visibility_sequence,
         revision_number=row.revision_number,
         quality=quality,
         fields=MappingProxyType(fields),
@@ -1185,6 +2096,149 @@ def _calendar_coverage_window(snapshot: MdCalendarSnapshot) -> TimeWindow:
         raise MarketDataStoreError("CALENDAR_INTEGRITY") from exc
 
 
+def _verified_calendar_source_registry_id(snapshot: MdCalendarSnapshot) -> str:
+    """Validate immutable calendar governance before it can prove coverage.
+
+    Calendar imports freeze a registry-backed descriptor into the immutable
+    definition.  The reader recomputes its digest and binds it to the relational
+    source columns before treating an importer-written snapshot as evidence.
+    This verifies persisted structure and integrity; it is not a signature over
+    arbitrary in-process input.  The current v2 access grant performs the
+    separate present-tense source entitlement check through
+    ``allowed_source_registry_ids``.
+    """
+    if snapshot.source_governance_state != CALENDAR_SOURCE_GOVERNANCE_STATE_VERIFIED:
+        raise MarketDataStoreError("CALENDAR_SOURCE_UNVERIFIED")
+    source_registry_id = _require_text(
+        snapshot.source_registry_id,
+        field_name="calendar source_registry_id",
+        maximum=128,
+    )
+    descriptor_sha256 = _require_sha256_digest(
+        snapshot.source_governance_descriptor_sha256,
+        code="CALENDAR_SOURCE_GOVERNANCE_INTEGRITY",
+    )
+    definition = _json_safe_mapping(snapshot.definition_json, field_name="calendar definition")
+    manifest_hash = _require_sha256_digest(
+        definition.get("manifest_hash"),
+        code="CALENDAR_SOURCE_GOVERNANCE_INTEGRITY",
+    )
+    snapshot_hash = _require_sha256_digest(
+        snapshot.snapshot_sha256,
+        code="CALENDAR_SOURCE_GOVERNANCE_INTEGRITY",
+    )
+    if manifest_hash != snapshot_hash:
+        raise MarketDataStoreError("CALENDAR_SOURCE_GOVERNANCE_INTEGRITY")
+    governance = _json_safe_mapping(
+        definition.get("source_governance"),
+        field_name="calendar source governance",
+    )
+    actual_descriptor = governance.pop("descriptor_hash", None)
+    if actual_descriptor != descriptor_sha256:
+        raise MarketDataStoreError("CALENDAR_SOURCE_GOVERNANCE_INTEGRITY")
+    if _sha256(_canonical_json(governance, field_name="calendar source governance")) != (
+        descriptor_sha256
+    ):
+        raise MarketDataStoreError("CALENDAR_SOURCE_GOVERNANCE_INTEGRITY")
+    if set(governance) != {
+        "version",
+        "source_registry_id",
+        "registry_updated_at",
+        "license_status",
+        "asset_types",
+        "jurisdictions",
+        "allowed_uses",
+        "effective_from",
+        "effective_to",
+        "retention_policy",
+        "retention_expires_at",
+        "redistribution_policy",
+        "approval_reference",
+        "evidence_uri",
+        "evidence_content_hash",
+        "calendar_manifest_hash",
+        "decision",
+    }:
+        raise MarketDataStoreError("CALENDAR_SOURCE_GOVERNANCE_INTEGRITY")
+    if (
+        governance["version"] != _CALENDAR_SOURCE_GOVERNANCE_VERSION
+        or governance["source_registry_id"] != source_registry_id
+        or governance["calendar_manifest_hash"] != manifest_hash
+        or governance["decision"] != "ALLOW"
+    ):
+        raise MarketDataStoreError("CALENDAR_SOURCE_GOVERNANCE_INTEGRITY")
+    _require_utc_authorization_timestamp(
+        governance["registry_updated_at"],
+        field_name="calendar source registry_updated_at",
+    )
+    _require_authorization_upper(
+        governance["license_status"],
+        field_name="calendar source license_status",
+        maximum=64,
+    )
+    _require_calendar_governance_tokens(
+        governance["asset_types"],
+        field_name="calendar source asset_types",
+    )
+    _require_calendar_governance_tokens(
+        governance["jurisdictions"],
+        field_name="calendar source jurisdictions",
+    )
+    _require_calendar_governance_tokens(
+        governance["allowed_uses"],
+        field_name="calendar source allowed_uses",
+    )
+    _require_utc_authorization_timestamp(
+        governance["effective_from"],
+        field_name="calendar source effective_from",
+    )
+    _require_optional_utc_authorization_timestamp(
+        governance["effective_to"],
+        field_name="calendar source effective_to",
+    )
+    _require_authorization_upper(
+        governance["retention_policy"],
+        field_name="calendar source retention_policy",
+        maximum=64,
+    )
+    _require_optional_utc_authorization_timestamp(
+        governance["retention_expires_at"],
+        field_name="calendar source retention_expires_at",
+    )
+    _require_authorization_upper(
+        governance["redistribution_policy"],
+        field_name="calendar source redistribution_policy",
+        maximum=64,
+    )
+    _require_text(
+        governance["approval_reference"],
+        field_name="calendar approval_reference",
+        maximum=255,
+    )
+    _require_text(
+        governance["evidence_uri"],
+        field_name="calendar evidence_uri",
+        maximum=2048,
+    )
+    _require_sha256_digest(
+        governance["evidence_content_hash"],
+        code="CALENDAR_SOURCE_GOVERNANCE_INTEGRITY",
+    )
+    return source_registry_id
+
+
+def _require_calendar_governance_tokens(value: object, *, field_name: str) -> tuple[str, ...]:
+    """Require a canonical list frozen by the registry-backed importer."""
+    if not isinstance(value, list):
+        raise MarketDataStoreError("CALENDAR_SOURCE_GOVERNANCE_INTEGRITY")
+    normalized = tuple(
+        _require_authorization_upper(item, field_name=field_name, maximum=128) for item in value
+    )
+    if not normalized or normalized != tuple(sorted(set(normalized))):
+        raise MarketDataStoreError("CALENDAR_SOURCE_GOVERNANCE_INTEGRITY")
+    return normalized
+
+
 def _window_covers(coverage_window: TimeWindow, requested_window: TimeWindow) -> bool:
     """Return whether explicitly advertised calendar evidence covers a request."""
     return (
@@ -1203,20 +2257,20 @@ def _window_intersection(left: TimeWindow, right: TimeWindow) -> TimeWindow:
 
 
 def _compose_calendar_segments(
-    candidates: Sequence[tuple[MdCalendarSnapshot, TimeWindow, datetime]],
+    candidates: Sequence[tuple[MdCalendarSnapshot, TimeWindow, datetime, int]],
     requested: TimeWindow,
-) -> list[tuple[MdCalendarSnapshot, TimeWindow, datetime]] | None:
+) -> list[tuple[MdCalendarSnapshot, TimeWindow, datetime, int]] | None:
     """Select contiguous immutable blocks that prove one full calendar window.
 
     Import serialization rejects overlaps. This reader repeats that invariant
     defensively and concatenates adjacent rolling manifests without inventing
     weekday or holiday behavior. A gap remains an unknown calendar.
     """
-    selected: list[tuple[MdCalendarSnapshot, TimeWindow, datetime]] = []
+    selected: list[tuple[MdCalendarSnapshot, TimeWindow, datetime, int]] = []
     cursor = requested.start_at
     ordered = sorted(candidates, key=lambda item: (item[1].start_at, item[1].end_at, item[0].id))
     for candidate in ordered:
-        _snapshot, coverage, _published_at = candidate
+        _snapshot, coverage, _published_at, _visibility_sequence = candidate
         if coverage.end_at <= cursor:
             continue
         if coverage.start_at > cursor:
@@ -1231,7 +2285,7 @@ def _compose_calendar_segments(
 
 
 def _composed_calendar_version(
-    segments: Sequence[tuple[MdCalendarSnapshot, TimeWindow, datetime]],
+    segments: Sequence[tuple[MdCalendarSnapshot, TimeWindow, datetime, int]],
 ) -> str:
     """Return a bounded audit label for one or more immutable calendar blocks."""
     versions = tuple(item[0].calendar_version for item in segments)
@@ -1280,6 +2334,75 @@ def _stored_utc(value: datetime, *, field_name: str) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _publication_is_visible_at_anchor(anchor: MarketDataVisibilityAnchor):
+    """Build the portable complete-boundary predicate for one PIT anchor.
+
+    The timestamp is a ceiling and the globally monotonic sequence is a
+    separate ceiling.  Both are necessary: a client may ask for a future
+    historical cutoff, and a subsequent receipt can retain an earlier
+    timestamp while still receiving a later global sequence.
+    """
+    return and_(
+        MdPublication.published_at <= anchor.visible_at,
+        MdPublication.visibility_sequence <= anchor.max_visibility_sequence,
+    )
+
+
+def _is_visibility_sequence(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+def _normalize_allowed_source_registry_ids(
+    value: frozenset[str] | None,
+) -> frozenset[str] | None:
+    """Validate the exact current-source allow-list used for a local read."""
+    if value is None:
+        return None
+    if not isinstance(value, frozenset):
+        raise TypeError("allowed_source_registry_ids must be a frozenset when supplied")
+    return frozenset(
+        _require_text(source_id, field_name="allowed source_registry_id", maximum=255)
+        for source_id in value
+    )
+
+
+def _normalize_unverified_compatibility_reason(value: object) -> str:
+    """Require a deliberately named, narrowly scoped no-grant write path."""
+    if value is None:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_REQUIRED")
+    normalized = _require_text(
+        value,
+        field_name="unverified compatibility reason",
+        maximum=64,
+    )
+    if normalized not in _UNVERIFIED_COMPATIBILITY_REASONS:
+        raise MarketDataStoreError("SOURCE_AUTHORIZATION_REQUIRED")
+    return normalized
+
+
+def _require_provider_request_id(value: object) -> str:
+    """Validate the CSPRNG request ID shape before it becomes receipt evidence."""
+    normalized = _require_text(value, field_name="provider request_id", maximum=128)
+    if len(normalized) < 32 or any(
+        character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+        for character in normalized
+    ):
+        raise MarketDataStoreError("PROVIDER_REQUEST_EVIDENCE_INVALID")
+    return normalized
+
+
+def _require_sha256_digest(value: object, *, code: str) -> str:
+    """Return one canonical lowercase SHA-256 digest or a stable failure code."""
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or value != value.lower()
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise MarketDataStoreError(code)
+    return value
 
 
 def _require_text(value: object, *, field_name: str, maximum: int) -> str:
@@ -1364,11 +2487,10 @@ def _chunks(values: Sequence[datetime], size: int) -> tuple[tuple[datetime, ...]
     return tuple(tuple(values[index : index + size]) for index in range(0, len(values), size))
 
 
-def _revision_sort_key(revision: LocalObservationRevision) -> tuple[datetime, datetime, int, str]:
-    """Order revisions deterministically after their local PIT eligibility check."""
+def _revision_sort_key(revision: LocalObservationRevision) -> tuple[int, int, str]:
+    """Order selected revisions by sealed receipt, ordinal, then immutable ID."""
     return (
-        revision.available_at,
-        revision.committed_at,
+        revision.visibility_sequence,
         revision.revision_number,
         revision.revision_id,
     )

@@ -25,6 +25,9 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 CATALOG_REVISION = "20260908_market_data_catalog"
 OBSERVATIONS_REVISION = "20260908_market_data_observations"
 SHARED_DATASET_BINDINGS_REVISION = "20260908_market_data_shared_dataset_bindings"
+VISIBILITY_ANCHOR_REVISION = "20260908_market_data_visibility_anchor"
+SOURCE_RECEIPT_EVIDENCE_REVISION = "20260908_market_data_source_receipt_evidence"
+SOURCE_GOVERNANCE_REVISION = "20260908_market_data_source_governance"
 STORAGE_TABLES = {
     "md_instrument_lookup_keys",
     "md_data_series",
@@ -66,6 +69,51 @@ def _load_shared_dataset_bindings_migration() -> ModuleType:
     )
     spec = importlib.util.spec_from_file_location(
         "iteration197_shared_dataset_bindings_migration", migration_path
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_visibility_anchor_migration() -> ModuleType:
+    """Load the receipt-order migration for isolated offline-mode probes."""
+    migration_path = (
+        BACKEND_ROOT / "alembic" / "versions" / "20260908_market_data_visibility_anchor.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "iteration197_visibility_anchor_migration", migration_path
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_source_receipt_evidence_migration() -> ModuleType:
+    """Load the receipt-evidence revision for offline fence probes."""
+    migration_path = (
+        BACKEND_ROOT / "alembic" / "versions" / "20260908_market_data_source_receipt_evidence.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "iteration197_source_receipt_evidence_migration", migration_path
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_source_governance_migration() -> ModuleType:
+    """Load the source-governance revision for isolated maintenance-fence probes."""
+    migration_path = (
+        BACKEND_ROOT / "alembic" / "versions" / "20260908_market_data_source_governance.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "iteration197_source_governance_migration", migration_path
     )
     assert spec is not None
     assert spec.loader is not None
@@ -302,7 +350,30 @@ def test_storage_models_register_generic_cross_asset_fact_tables() -> None:
     assert {"series_id", "event_time", "available_at", "source_snapshot_id", "fields_json"} <= set(
         MdObservationRevision.__table__.c.keys()
     )
-    assert {"calendar_code", "calendar_version", "snapshot_sha256"} <= set(
+    assert {
+        "request_fingerprint_sha256",
+        "provider_request_id",
+        "provider_request_fingerprint_sha256",
+        "query_fingerprint_sha256",
+        "source_authorization_state",
+        "source_authorization_descriptor_sha256",
+        "provenance_json",
+    } <= set(MdSourceSnapshot.__table__.c.keys())
+    assert any(
+        index.name == "ix_md_source_snapshot_provider_request_id"
+        and tuple(column.name for column in index.columns)
+        == ("provider_id", "provider_request_id")
+        and index.unique
+        for index in MdSourceSnapshot.__table__.indexes
+    )
+    assert {
+        "calendar_code",
+        "calendar_version",
+        "snapshot_sha256",
+        "source_registry_id",
+        "source_governance_state",
+        "source_governance_descriptor_sha256",
+    } <= set(
         MdCalendarSnapshot.__table__.c.keys()
     )
     assert {"calendar_snapshot_id", "trading_date", "event_type", "event_sha256"} <= set(
@@ -439,6 +510,15 @@ def test_storage_models_register_generic_cross_asset_fact_tables() -> None:
             assert exact_lookup.active_lookup_scope == "ACTIVE"
             assert session.scalar(select(MdDataSeries).where(MdDataSeries.id == "series-stock"))
             assert session.scalar(select(MdDataSeries).where(MdDataSeries.id == "series-crypto"))
+            legacy_snapshot = session.scalar(
+                select(MdSourceSnapshot).where(MdSourceSnapshot.id == "source-snapshot-1")
+            )
+            assert legacy_snapshot is not None
+            assert legacy_snapshot.provider_request_id is None
+            assert legacy_snapshot.provider_request_fingerprint_sha256 is None
+            assert legacy_snapshot.query_fingerprint_sha256 is None
+            assert legacy_snapshot.source_authorization_state is None
+            assert legacy_snapshot.source_authorization_descriptor_sha256 is None
             duplicate_key = MdDataSeries(
                 id="series-duplicate",
                 dataset_id="dataset-crypto",
@@ -820,14 +900,430 @@ def test_observation_revision_is_linear_child_of_catalog_revision() -> None:
     assert len(script.get_heads()) == 1
 
 
-def test_shared_dataset_binding_revision_is_linear_child_of_observations() -> None:
-    """The F2 catalog-only change is the sole child of normalized storage DDL."""
+def test_visibility_anchor_revision_extends_the_normalized_storage_chain() -> None:
+    """Receipt order and request evidence remain on one normalized-storage chain."""
     script = ScriptDirectory.from_config(_config("sqlite://"))
 
-    revision = script.get_revision(SHARED_DATASET_BINDINGS_REVISION)
-    assert revision is not None
-    assert revision.down_revision == OBSERVATIONS_REVISION
-    assert script.get_heads() == [SHARED_DATASET_BINDINGS_REVISION]
+    shared_revision = script.get_revision(SHARED_DATASET_BINDINGS_REVISION)
+    visibility_revision = script.get_revision(VISIBILITY_ANCHOR_REVISION)
+    source_receipt_evidence_revision = script.get_revision(SOURCE_RECEIPT_EVIDENCE_REVISION)
+    source_governance_revision = script.get_revision(SOURCE_GOVERNANCE_REVISION)
+    assert shared_revision is not None
+    assert shared_revision.down_revision == OBSERVATIONS_REVISION
+    assert visibility_revision is not None
+    assert visibility_revision.down_revision == SHARED_DATASET_BINDINGS_REVISION
+    assert source_receipt_evidence_revision is not None
+    assert source_receipt_evidence_revision.down_revision == VISIBILITY_ANCHOR_REVISION
+    assert source_governance_revision is not None
+    assert source_governance_revision.down_revision == SOURCE_RECEIPT_EVIDENCE_REVISION
+    assert script.get_heads() == [SOURCE_GOVERNANCE_REVISION]
+
+
+def test_visibility_anchor_migration_backfills_global_receipt_order(tmp_path: Path) -> None:
+    """Pre-existing sealed receipts gain a stable sequence and allocator seed."""
+    database_path = tmp_path / "market-data-visibility-anchor.sqlite3"
+    config = _config(f"sqlite+aiosqlite:///{database_path}")
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        command.upgrade(config, SHARED_DATASET_BINDINGS_REVISION)
+        first_visible_at = datetime(2026, 9, 8, 9, 0, tzinfo=timezone.utc)
+        second_visible_at = datetime(2026, 9, 8, 10, 0, tzinfo=timezone.utc)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO md_publications "
+                    "(id, entity_type, entity_id, entity_sha256, published_at, created_at) "
+                    "VALUES (:id, 'source_snapshot', :entity_id, :digest, :published_at, :created_at)"
+                ),
+                [
+                    {
+                        "id": "receipt-later-id",
+                        "entity_id": "entity-later-id",
+                        "digest": _sha("receipt-later-id"),
+                        "published_at": second_visible_at,
+                        "created_at": second_visible_at,
+                    },
+                    {
+                        "id": "receipt-earlier-id",
+                        "entity_id": "entity-earlier-id",
+                        "digest": _sha("receipt-earlier-id"),
+                        "published_at": first_visible_at,
+                        "created_at": first_visible_at,
+                    },
+                ],
+            )
+
+        command.upgrade(config, VISIBILITY_ANCHOR_REVISION)
+        inspector = inspect(engine)
+        assert "visibility_sequence" in {
+            column["name"] for column in inspector.get_columns("md_publications")
+        }
+        assert "md_visibility_sequence_allocator" in inspector.get_table_names()
+        assert {
+            "uq_md_publication_visibility_sequence",
+            "ix_md_publication_visible_anchor",
+        } <= {index["name"] for index in inspector.get_indexes("md_publications")}
+        assert "ck_md_publication_visibility_sequence_positive" in {
+            constraint["name"] for constraint in inspector.get_check_constraints("md_publications")
+        }
+        assert "ck_md_publication_visibility_state" in {
+            constraint["name"] for constraint in inspector.get_check_constraints("md_publications")
+        }
+        with engine.connect() as connection:
+            receipts = connection.execute(
+                text(
+                    "SELECT id, visibility_sequence FROM md_publications "
+                    "ORDER BY visibility_sequence"
+                )
+            ).all()
+            allocator = connection.execute(
+                text(
+                    "SELECT singleton_id, next_visibility_sequence "
+                    "FROM md_visibility_sequence_allocator"
+                )
+            ).one()
+        assert receipts == [("receipt-earlier-id", 1), ("receipt-later-id", 2)]
+        assert allocator == (1, 3)
+
+        # A rollback would discard the only durable tie-breaker for these two
+        # immutable receipts.  The migration must fail before it drops any
+        # derived table, constraint, or column.
+        with pytest.raises(
+            RuntimeError,
+            match="MARKET_DATA_VISIBILITY_ANCHOR_DOWNGRADE_BLOCKED",
+        ):
+            command.downgrade(config, SHARED_DATASET_BINDINGS_REVISION)
+        assert "md_visibility_sequence_allocator" in inspect(engine).get_table_names()
+    finally:
+        engine.dispose()
+
+
+def test_source_receipt_evidence_migration_preserves_legacy_receipts_and_blocks_evidence_loss(
+    tmp_path: Path,
+) -> None:
+    """The expansion leaves legacy rows NULL and never permits evidence-dropping rollback."""
+    database_path = tmp_path / "market-data-source-receipt-evidence.sqlite3"
+    config = _config(f"sqlite+aiosqlite:///{database_path}")
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        command.upgrade(config, VISIBILITY_ANCHOR_REVISION)
+        receipt_at = datetime(2026, 9, 8, 12, tzinfo=timezone.utc)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO dg_providers "
+                    "(id, provider_id, name, category, auth_type, rate_limit, is_active, created_at) "
+                    "VALUES ('provider-legacy', 'akshare', 'AkShare', 'market', 'none', 60, 1, :now)"
+                ),
+                {"now": receipt_at},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO md_source_snapshots "
+                    "(id, provider_id, platform, source_id, adapter_id, endpoint_version, "
+                    "request_fingerprint_sha256, payload_sha256, request_json, payload_manifest_json, "
+                    "provenance_json, retrieved_at, created_at) "
+                    "VALUES ('snapshot-legacy', 'provider-legacy', 'akshare', 'akshare', "
+                    "'akshare.market-data', 'v1', :query_hash, :payload_hash, '{}', '{}', '{}', "
+                    ":now, :now)"
+                ),
+                {
+                    "query_hash": _sha("legacy-public-query"),
+                    "payload_hash": _sha("legacy-payload"),
+                    "now": receipt_at,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO md_source_snapshots "
+                    "(id, provider_id, platform, source_id, adapter_id, endpoint_version, "
+                    "request_fingerprint_sha256, payload_sha256, request_json, payload_manifest_json, "
+                    "provenance_json, retrieved_at, created_at) "
+                    "VALUES ('snapshot-legacy-null', 'provider-legacy', 'akshare', 'akshare', "
+                    "'akshare.market-data', 'v1', :query_hash, :payload_hash, '{}', '{}', '{}', "
+                    ":now, :now)"
+                ),
+                {
+                    "query_hash": _sha("legacy-public-query-second-null"),
+                    "payload_hash": _sha("legacy-payload-second-null"),
+                    "now": receipt_at,
+                },
+            )
+
+        command.upgrade(config, SOURCE_RECEIPT_EVIDENCE_REVISION)
+        inspector = inspect(engine)
+        columns = {column["name"] for column in inspector.get_columns("md_source_snapshots")}
+        assert {
+            "provider_request_id",
+            "provider_request_fingerprint_sha256",
+            "query_fingerprint_sha256",
+        } <= columns
+        request_id_index = next(
+            index
+            for index in inspector.get_indexes("md_source_snapshots")
+            if index["name"] == "ix_md_source_snapshot_provider_request_id"
+        )
+        assert tuple(request_id_index["column_names"]) == (
+            "provider_id",
+            "provider_request_id",
+        )
+        assert bool(request_id_index["unique"])
+        assert {
+            "ck_md_source_snapshot_provider_request_id_length",
+            "ck_md_source_snapshot_provider_request_fingerprint_sha256_length",
+            "ck_md_source_snapshot_query_fingerprint_sha256_length",
+            "ck_md_source_snapshot_provider_request_evidence_state",
+        } <= {
+            constraint["name"]
+            for constraint in inspector.get_check_constraints("md_source_snapshots")
+            if constraint["name"]
+        }
+        with engine.connect() as connection:
+            legacy = connection.execute(
+                text(
+                    "SELECT request_fingerprint_sha256, provider_request_id, "
+                    "provider_request_fingerprint_sha256, query_fingerprint_sha256 "
+                    "FROM md_source_snapshots WHERE id = 'snapshot-legacy'"
+                )
+            ).one()
+            legacy_null_count = connection.execute(
+                text(
+                    "SELECT count(*) FROM md_source_snapshots "
+                    "WHERE provider_id = 'provider-legacy' AND provider_request_id IS NULL"
+                )
+            ).scalar_one()
+        assert legacy == (_sha("legacy-public-query"), None, None, None)
+        assert legacy_null_count == 2
+
+        provider_request_id = "a" * 32
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE md_source_snapshots SET "
+                    "provider_request_id = :request_id, "
+                    "provider_request_fingerprint_sha256 = :request_hash, "
+                    "query_fingerprint_sha256 = :query_hash "
+                    "WHERE id = 'snapshot-legacy'"
+                ),
+                {
+                    "request_id": provider_request_id,
+                    "request_hash": _sha("provider-request"),
+                    "query_hash": _sha("explicit-public-query"),
+                },
+            )
+        with pytest.raises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO md_source_snapshots "
+                        "(id, provider_id, platform, source_id, adapter_id, endpoint_version, "
+                        "request_fingerprint_sha256, provider_request_id, "
+                        "provider_request_fingerprint_sha256, query_fingerprint_sha256, "
+                        "payload_sha256, request_json, payload_manifest_json, provenance_json, "
+                        "retrieved_at, created_at) "
+                        "VALUES ('snapshot-duplicate-provider-request', 'provider-legacy', "
+                        "'akshare', 'akshare', 'akshare.market-data', 'v1', :request_fingerprint, "
+                        ":provider_request_id, :provider_request_fingerprint, :query_fingerprint, "
+                        ":payload_hash, '{}', '{}', '{}', :now, :now)"
+                    ),
+                    {
+                        "request_fingerprint": _sha("duplicate-public-query"),
+                        "provider_request_id": provider_request_id,
+                        "provider_request_fingerprint": _sha("duplicate-provider-request"),
+                        "query_fingerprint": _sha("duplicate-explicit-public-query"),
+                        "payload_hash": _sha("duplicate-payload"),
+                        "now": receipt_at,
+                    },
+                )
+        with pytest.raises(
+            RuntimeError,
+            match="MARKET_DATA_SOURCE_RECEIPT_EVIDENCE_DOWNGRADE_BLOCKED",
+        ):
+            command.downgrade(config, VISIBILITY_ANCHOR_REVISION)
+    finally:
+        engine.dispose()
+
+
+def test_source_receipt_evidence_migration_accepts_complete_startup_created_schema(
+    tmp_path: Path,
+) -> None:
+    """A complete ORM startup schema is accepted instead of replaying incompatible DDL."""
+    database_path = tmp_path / "market-data-source-receipt-startup.sqlite3"
+    config = _config(f"sqlite+aiosqlite:///{database_path}")
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        # Import registration is explicit so this remains a true create_all
+        # compatibility probe regardless of test collection order.
+        import app.models.market_data_platform  # noqa: F401
+
+        Base.metadata.create_all(engine)
+        command.stamp(config, VISIBILITY_ANCHOR_REVISION)
+        command.upgrade(config, SOURCE_RECEIPT_EVIDENCE_REVISION)
+
+        assert {
+            "provider_request_id",
+            "provider_request_fingerprint_sha256",
+            "query_fingerprint_sha256",
+        } <= {column["name"] for column in inspect(engine).get_columns("md_source_snapshots")}
+    finally:
+        engine.dispose()
+
+
+def test_source_governance_migration_preserves_legacy_rows_and_blocks_evidence_loss(
+    tmp_path: Path,
+) -> None:
+    """Legacy receipts stay NULL while governed source state can never be dropped."""
+    database_path = tmp_path / "market-data-source-governance.sqlite3"
+    config = _config(f"sqlite+aiosqlite:///{database_path}")
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        command.upgrade(config, SOURCE_RECEIPT_EVIDENCE_REVISION)
+        receipt_at = datetime(2026, 9, 8, 12, tzinfo=timezone.utc)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO dg_providers "
+                    "(id, provider_id, name, category, auth_type, rate_limit, is_active, created_at) "
+                    "VALUES ('provider-governance', 'akshare', 'AkShare', 'market', 'none', 60, 1, :now)"
+                ),
+                {"now": receipt_at},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO md_source_snapshots "
+                    "(id, provider_id, platform, source_id, adapter_id, endpoint_version, "
+                    "request_fingerprint_sha256, payload_sha256, request_json, payload_manifest_json, "
+                    "provenance_json, retrieved_at, created_at) "
+                    "VALUES ('snapshot-governance-legacy', 'provider-governance', 'akshare', 'akshare', "
+                    "'akshare.market-data', 'v1', :query_hash, :payload_hash, '{}', '{}', '{}', "
+                    ":now, :now)"
+                ),
+                {
+                    "query_hash": _sha("governance-legacy-public-query"),
+                    "payload_hash": _sha("governance-legacy-payload"),
+                    "now": receipt_at,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO md_calendar_snapshots "
+                    "(id, calendar_code, calendar_version, timezone_name, snapshot_sha256, "
+                    "definition_json, effective_from, effective_to, created_at) "
+                    "VALUES ('calendar-governance-legacy', 'CN-SSE', '2026.09', 'Asia/Shanghai', "
+                    ":snapshot_hash, '{}', '2026-01-01', '2026-12-31', :now)"
+                ),
+                {"snapshot_hash": _sha("calendar-governance-legacy"), "now": receipt_at},
+            )
+
+        command.upgrade(config, SOURCE_GOVERNANCE_REVISION)
+        inspector = inspect(engine)
+        source_columns = {column["name"] for column in inspector.get_columns("md_source_snapshots")}
+        calendar_columns = {
+            column["name"] for column in inspector.get_columns("md_calendar_snapshots")
+        }
+        assert {
+            "source_authorization_state",
+            "source_authorization_descriptor_sha256",
+        } <= source_columns
+        assert {
+            "source_registry_id",
+            "source_governance_state",
+            "source_governance_descriptor_sha256",
+        } <= calendar_columns
+        assert "ix_md_calendar_snapshot_source_registry" in {
+            index["name"] for index in inspector.get_indexes("md_calendar_snapshots")
+        }
+        assert {
+            "ck_md_source_snapshot_source_authorization_state",
+            "ck_md_source_snapshot_source_authorization_descriptor_sha256_length",
+            "ck_md_source_snapshot_source_authorization_evidence_state",
+        } <= {
+            constraint["name"]
+            for constraint in inspector.get_check_constraints("md_source_snapshots")
+            if constraint["name"]
+        }
+        assert {
+            "ck_md_calendar_snapshot_source_registry_id_length",
+            "ck_md_calendar_snapshot_source_governance_state",
+            "ck_md_calendar_snapshot_source_governance_descriptor_sha256_length",
+            "ck_md_calendar_snapshot_source_governance_evidence_state",
+        } <= {
+            constraint["name"]
+            for constraint in inspector.get_check_constraints("md_calendar_snapshots")
+            if constraint["name"]
+        }
+        with engine.connect() as connection:
+            legacy_source = connection.execute(
+                text(
+                    "SELECT source_authorization_state, source_authorization_descriptor_sha256 "
+                    "FROM md_source_snapshots WHERE id = 'snapshot-governance-legacy'"
+                )
+            ).one()
+            legacy_calendar = connection.execute(
+                text(
+                    "SELECT source_registry_id, source_governance_state, "
+                    "source_governance_descriptor_sha256 FROM md_calendar_snapshots "
+                    "WHERE id = 'calendar-governance-legacy'"
+                )
+            ).one()
+        assert legacy_source == (None, None)
+        assert legacy_calendar == (None, None, None)
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE md_source_snapshots SET "
+                    "source_authorization_state = 'UNVERIFIED_COMPATIBILITY' "
+                    "WHERE id = 'snapshot-governance-legacy'"
+                )
+            )
+            connection.execute(
+                text(
+                    "UPDATE md_calendar_snapshots SET source_registry_id = 'akshare', "
+                    "source_governance_state = 'VERIFIED', "
+                    "source_governance_descriptor_sha256 = :descriptor_hash "
+                    "WHERE id = 'calendar-governance-legacy'"
+                ),
+                {"descriptor_hash": _sha("calendar-governance-descriptor")},
+            )
+        with pytest.raises(
+            RuntimeError,
+            match="MARKET_DATA_SOURCE_GOVERNANCE_DOWNGRADE_BLOCKED",
+        ):
+            command.downgrade(config, SOURCE_RECEIPT_EVIDENCE_REVISION)
+    finally:
+        engine.dispose()
+
+
+def test_source_governance_migration_accepts_complete_startup_created_schema(
+    tmp_path: Path,
+) -> None:
+    """The migration accepts the complete current ORM schema without replaying DDL."""
+    database_path = tmp_path / "market-data-source-governance-startup.sqlite3"
+    config = _config(f"sqlite+aiosqlite:///{database_path}")
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        import app.models.market_data_platform  # noqa: F401
+
+        Base.metadata.create_all(engine)
+        command.stamp(config, SOURCE_RECEIPT_EVIDENCE_REVISION)
+        command.upgrade(config, SOURCE_GOVERNANCE_REVISION)
+
+        source_columns = {column["name"] for column in inspect(engine).get_columns("md_source_snapshots")}
+        calendar_columns = {
+            column["name"] for column in inspect(engine).get_columns("md_calendar_snapshots")
+        }
+        assert {
+            "source_authorization_state",
+            "source_authorization_descriptor_sha256",
+        } <= source_columns
+        assert {
+            "source_registry_id",
+            "source_governance_state",
+            "source_governance_descriptor_sha256",
+        } <= calendar_columns
+    finally:
+        engine.dispose()
 
 
 def test_shared_dataset_binding_migration_refuses_mysql_without_a_maintenance_fence(
@@ -855,6 +1351,162 @@ def test_shared_dataset_binding_migration_uses_a_bounded_mysql_migration_lock(
 ) -> None:
     """The explicit deployment fence also serializes MySQL migration runners."""
     migration = _load_shared_dataset_bindings_migration()
+    commands: list[str] = []
+
+    class _ScalarResult:
+        def scalar_one(self) -> int:
+            return 1
+
+    class _MySqlBind:
+        dialect = SimpleNamespace(name="mysql")
+
+        def execute(self, statement: object, _params: object = None) -> _ScalarResult:
+            commands.append(str(statement))
+            return _ScalarResult()
+
+    monkeypatch.setenv(migration._MYSQL_MAINTENANCE_FENCE_ENV, "confirmed")
+    monkeypatch.setattr(migration, "op", SimpleNamespace(get_bind=lambda: _MySqlBind()))
+
+    with migration._ddl_maintenance_fence():
+        pass
+
+    assert any("SET SESSION lock_wait_timeout" in command for command in commands)
+    assert any("GET_LOCK" in command for command in commands)
+    assert any("RELEASE_LOCK" in command for command in commands)
+
+
+def test_visibility_anchor_migration_refuses_mysql_without_a_maintenance_fence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The receipt-order backfill never starts MySQL DDL while writers may run."""
+    migration = _load_visibility_anchor_migration()
+
+    class _MySqlBind:
+        dialect = SimpleNamespace(name="mysql")
+
+        def execute(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("unfenced MySQL migration must not issue a lock query")
+
+    monkeypatch.delenv(migration._MYSQL_MAINTENANCE_FENCE_ENV, raising=False)
+    monkeypatch.setattr(migration, "op", SimpleNamespace(get_bind=lambda: _MySqlBind()))
+
+    with pytest.raises(
+        RuntimeError,
+        match="MARKET_DATA_VISIBILITY_ANCHOR_MAINTENANCE_FENCE_REQUIRED",
+    ):
+        with migration._ddl_maintenance_fence():
+            pass
+
+
+def test_visibility_anchor_migration_uses_a_bounded_mysql_migration_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The explicit fence serializes concurrent visibility-anchor migrations."""
+    migration = _load_visibility_anchor_migration()
+    commands: list[str] = []
+
+    class _ScalarResult:
+        def scalar_one(self) -> int:
+            return 1
+
+    class _MySqlBind:
+        dialect = SimpleNamespace(name="mysql")
+
+        def execute(self, statement: object, _params: object = None) -> _ScalarResult:
+            commands.append(str(statement))
+            return _ScalarResult()
+
+    monkeypatch.setenv(migration._MYSQL_MAINTENANCE_FENCE_ENV, "confirmed")
+    monkeypatch.setattr(migration, "op", SimpleNamespace(get_bind=lambda: _MySqlBind()))
+
+    with migration._ddl_maintenance_fence():
+        pass
+
+    assert any("SET SESSION lock_wait_timeout" in command for command in commands)
+    assert any("GET_LOCK" in command for command in commands)
+    assert any("RELEASE_LOCK" in command for command in commands)
+
+
+def test_source_receipt_evidence_migration_refuses_mysql_without_a_maintenance_fence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Implicit-commit receipt-schema DDL waits for an explicit writer drain."""
+    migration = _load_source_receipt_evidence_migration()
+
+    class _MySqlBind:
+        dialect = SimpleNamespace(name="mysql")
+
+        def execute(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("unfenced MySQL migration must not issue a lock query")
+
+    monkeypatch.delenv(migration._MYSQL_MAINTENANCE_FENCE_ENV, raising=False)
+    monkeypatch.setattr(migration, "op", SimpleNamespace(get_bind=lambda: _MySqlBind()))
+
+    with pytest.raises(
+        RuntimeError,
+        match="MARKET_DATA_SOURCE_RECEIPT_EVIDENCE_MAINTENANCE_FENCE_REQUIRED",
+    ):
+        with migration._ddl_maintenance_fence():
+            pass
+
+
+def test_source_receipt_evidence_migration_uses_a_bounded_mysql_migration_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The receipt-evidence migration serializes MySQL runners under the fence."""
+    migration = _load_source_receipt_evidence_migration()
+    commands: list[str] = []
+
+    class _ScalarResult:
+        def scalar_one(self) -> int:
+            return 1
+
+    class _MySqlBind:
+        dialect = SimpleNamespace(name="mysql")
+
+        def execute(self, statement: object, _params: object = None) -> _ScalarResult:
+            commands.append(str(statement))
+            return _ScalarResult()
+
+    monkeypatch.setenv(migration._MYSQL_MAINTENANCE_FENCE_ENV, "confirmed")
+    monkeypatch.setattr(migration, "op", SimpleNamespace(get_bind=lambda: _MySqlBind()))
+
+    with migration._ddl_maintenance_fence():
+        pass
+
+    assert any("SET SESSION lock_wait_timeout" in command for command in commands)
+    assert any("GET_LOCK" in command for command in commands)
+    assert any("RELEASE_LOCK" in command for command in commands)
+
+
+def test_source_governance_migration_refuses_mysql_without_a_maintenance_fence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Governance DDL cannot start on MySQL until market-data writers are drained."""
+    migration = _load_source_governance_migration()
+
+    class _MySqlBind:
+        dialect = SimpleNamespace(name="mysql")
+
+        def execute(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("unfenced MySQL migration must not issue a lock query")
+
+    monkeypatch.delenv(migration._MYSQL_MAINTENANCE_FENCE_ENV, raising=False)
+    monkeypatch.setattr(migration, "op", SimpleNamespace(get_bind=lambda: _MySqlBind()))
+
+    with pytest.raises(
+        RuntimeError,
+        match="MARKET_DATA_SOURCE_GOVERNANCE_MAINTENANCE_FENCE_REQUIRED",
+    ):
+        with migration._ddl_maintenance_fence():
+            pass
+
+
+def test_source_governance_migration_uses_a_bounded_mysql_migration_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The writer-drain fence serializes concurrent governance migrations."""
+    migration = _load_source_governance_migration()
     commands: list[str] = []
 
     class _ScalarResult:

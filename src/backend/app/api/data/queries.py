@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import asyncio
 from functools import lru_cache
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.data.deps import get_current_db_user
+from app.api.data.deps import get_current_db_user, get_market_data_access_authorizer
 from app.config import Settings, get_settings
 from app.db.database import get_db
+from app.models.user import User
 from app.schemas.market_data_platform import (
     MarketDataCoverageGapResponse,
     MarketDataCoverageResponse,
@@ -24,6 +24,11 @@ from app.schemas.market_data_platform import (
     MarketDataQueryRequest,
     MarketDataQueryResponse,
     MarketDataQueryWarningResponse,
+)
+from app.services.market_data.access import (
+    MarketDataAccessAuthorizer,
+    MarketDataAuthorizationError,
+    MarketDataQueryAccess,
 )
 from app.services.market_data.akshare_provider import AkShareMarketDataProvider
 from app.services.market_data.catalog import DataCatalogResolver
@@ -41,6 +46,7 @@ from app.services.market_data.query_resolution import (
     MarketDataQueryResolver,
 )
 from app.services.market_data.query_service import (
+    MarketDataCursorBinding,
     MarketDataQueryExecution,
     MarketDataQueryService,
     MarketDataQueryServiceError,
@@ -66,7 +72,9 @@ _STOCK_FUND_ADJUSTMENTS = frozenset({None, "unadjusted", "qfq", "hfq"})
 _CNY_OR_UNDECLARED = frozenset({None, "CNY"})
 _SHARE_OR_UNDECLARED = frozenset({None, "share"})
 _CONTRACT_OR_UNDECLARED = frozenset({None, "contract"})
-_INFLIGHT_LOCAL_FIRST_QUERIES: dict[tuple[int, str], asyncio.Future[MarketDataQueryExecution]] = {}
+_INFLIGHT_LOCAL_FIRST_QUERIES: dict[
+    tuple[int, str, str, str, str], asyncio.Future[MarketDataQueryExecution]
+] = {}
 
 
 @lru_cache(maxsize=1)
@@ -284,6 +292,8 @@ async def execute_market_data_query_with_singleflight(
     service: MarketDataQueryService,
     db: AsyncSession,
     request: MarketDataQueryRequest,
+    cursor_binding: MarketDataCursorBinding | None = None,
+    access: MarketDataQueryAccess | None = None,
 ) -> MarketDataQueryExecution:
     """Coalesce equivalent current local-first misses until their receipt commits.
 
@@ -295,17 +305,31 @@ async def execute_market_data_query_with_singleflight(
     Database uniqueness still protects cross-process races; operator-scale
     multi-worker leasing remains a separate deployment concern.
     """
+    if cursor_binding is None and access is not None:
+        binding = MarketDataCursorBinding(
+            principal_scope=access.principal.principal_scope,
+            tenant_scope=access.principal.tenant_scope,
+            entitlement_revision=access.principal.entitlement_revision,
+        )
+    else:
+        binding = cursor_binding or MarketDataCursorBinding()
     if request.mode != "local_first" or request.knowledge_cutoff is not None:
-        return await service.execute(request)
+        return await service.execute(request, cursor_binding=binding, access=access)
 
     loop = asyncio.get_running_loop()
-    key = (id(loop), request.query_fingerprint)
+    key = (
+        id(loop),
+        request.query_fingerprint,
+        binding.principal_scope,
+        binding.tenant_scope,
+        binding.entitlement_revision,
+    )
     completion = _INFLIGHT_LOCAL_FIRST_QUERIES.get(key)
     if completion is None:
         completion = loop.create_future()
         _INFLIGHT_LOCAL_FIRST_QUERIES[key] = completion
         try:
-            execution = await service.execute(request)
+            execution = await service.execute(request, cursor_binding=binding, access=access)
             if execution.fetches:
                 await db.commit()
         except BaseException:
@@ -331,7 +355,30 @@ async def execute_market_data_query_with_singleflight(
     # read-only transaction here is safe and forces the re-read below to begin
     # from a fresh database snapshot.
     await db.rollback()
-    return await service.execute(request)
+    follower_access = access
+    follower_binding = binding
+    if access is not None:
+        # The leader can have spent arbitrary time in provider I/O.  Rebuild
+        # this follower's execution context after its old read transaction is
+        # ended, so a changed role/entitlement cannot be smuggled through the
+        # coalesced local reread.
+        current_principal = await access.authorizer.revalidate_principal(
+            principal=access.principal
+        )
+        follower_access = MarketDataQueryAccess(
+            principal=current_principal,
+            authorizer=access.authorizer,
+        )
+        follower_binding = MarketDataCursorBinding(
+            principal_scope=current_principal.principal_scope,
+            tenant_scope=current_principal.tenant_scope,
+            entitlement_revision=current_principal.entitlement_revision,
+        )
+    return await service.execute(
+        request,
+        cursor_binding=follower_binding,
+        access=follower_access,
+    )
 
 
 @router.get(
@@ -341,7 +388,8 @@ async def execute_market_data_query_with_singleflight(
 )
 async def get_market_data_query_bundle(
     request: MarketDataQueryBundleRequest = Depends(get_market_data_query_bundle_request),
-    current_user: Any = Depends(get_current_db_user),
+    current_user: User = Depends(get_current_db_user),
+    access_authorizer: MarketDataAccessAuthorizer = Depends(get_market_data_access_authorizer),
 ) -> MarketDataQueryBundleResponse:
     """Return static product contracts without resolving data or invoking providers.
 
@@ -350,14 +398,17 @@ async def get_market_data_query_bundle(
     and execute the v2 data endpoint; the bundle itself cannot trigger online
     fetches or create a fallback data path.
     """
-    del current_user
     if not get_settings().MARKET_DATA_QUERY_V2_ENABLED:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
         )
     try:
+        principal = await access_authorizer.principal_for_user(current_user)
+        access_authorizer.require_read_data(principal=principal)
         return DEFAULT_DATASET_CONTRACT_REGISTRY.bundle_for(request)
+    except MarketDataAuthorizationError as exc:
+        raise _market_data_http_error(exc.code) from exc
     except DatasetContractRegistryError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -373,23 +424,35 @@ async def get_market_data_query_bundle(
 async def query_market_data(
     request: MarketDataQueryRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: Any = Depends(get_current_db_user),
+    current_user: User = Depends(get_current_db_user),
     service: MarketDataQueryService = Depends(get_market_data_query_service),
+    access_authorizer: MarketDataAccessAuthorizer = Depends(get_market_data_access_authorizer),
 ) -> MarketDataQueryResponse:
     """Execute a typed v2 data query after the deployment gate is enabled."""
-    del current_user  # Authentication is a required transport boundary for this public policy.
     if not get_settings().MARKET_DATA_QUERY_V2_ENABLED:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
         )
     try:
+        principal = await access_authorizer.principal_for_user(current_user)
+        access_authorizer.require_read_data(principal=principal)
         execution = await execute_market_data_query_with_singleflight(
             service=service,
             db=db,
             request=request,
+            cursor_binding=MarketDataCursorBinding(
+                principal_scope=principal.principal_scope,
+                tenant_scope=principal.tenant_scope,
+                entitlement_revision=principal.entitlement_revision,
+            ),
+            access=MarketDataQueryAccess(
+                principal=principal,
+                authorizer=access_authorizer,
+            ),
         )
     except (
+        MarketDataAuthorizationError,
         MarketDataQueryResolutionError,
         MarketDataIdentityResolutionError,
         MarketDataSourcePolicyError,
@@ -409,7 +472,25 @@ async def query_market_data(
 
 def _market_data_http_error(code: str) -> HTTPException:
     """Map stable internal codes to bounded public HTTP semantics."""
-    if code == "IDENTITY_NOT_FOUND":
+    if code in {
+        "MARKET_DATA_READ_ENTITLEMENT_DENIED",
+        "MARKET_DATA_ACCESS_REQUIRED",
+        "MARKET_DATA_PRINCIPAL_REVOKED",
+        "MARKET_DATA_ACCESS_CHANGED_DURING_FETCH",
+        "SOURCE_REGISTRY_UNREGISTERED",
+        "SOURCE_REGISTRY_DISABLED",
+        "SOURCE_REGISTRY_ASSET_TYPE_DENIED",
+        "SOURCE_LICENSE_DENIED",
+        "SOURCE_USE_DENIED",
+        "SOURCE_EFFECTIVE_WINDOW_DENIED",
+        "SOURCE_JURISDICTION_DENIED",
+        "SOURCE_RETENTION_DENIED",
+        "SOURCE_REDISTRIBUTION_DENIED",
+        "SOURCE_ROUTE_AUTHORIZATION_DENIED",
+        "CURSOR_ACCESS_GRANT_MISMATCH",
+    }:
+        response_status = status.HTTP_403_FORBIDDEN
+    elif code == "IDENTITY_NOT_FOUND":
         response_status = status.HTTP_404_NOT_FOUND
     elif code in {
         "DATASET_UNAVAILABLE",
@@ -502,4 +583,5 @@ def _response_from_execution(execution: MarketDataQueryExecution) -> MarketDataQ
             for item in execution.warnings
         ),
         refresh_status=execution.refresh_status,
+        historical_status=getattr(execution, "historical_status", None),
     )

@@ -199,6 +199,7 @@ def test_bootstrap_schema_contract_covers_every_iteration197_market_table() -> N
     """A future table cannot be omitted from the pre-bootstrap readiness gate."""
     assert set(bootstrap_module._REQUIRED_MARKET_TABLES) == {
         "md_publications",
+        "md_visibility_sequence_allocator",
         "md_instrument_identity_revisions",
         "md_calendar_import_locks",
         "md_instrument_lookup_keys",

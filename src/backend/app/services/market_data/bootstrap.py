@@ -35,6 +35,7 @@ from app.models.market_data_platform import (
     MdObservationRevision,
     MdPublication,
     MdSourceSnapshot,
+    MdVisibilitySequenceAllocator,
 )
 
 CANONICAL_STORAGE_ID = "canonical_market_data"
@@ -189,6 +190,7 @@ _REQUIRED_MARKET_TABLES: Mapping[str, _MarketTableRequirement] = {
     model.__tablename__: _market_table_requirement(model.__table__)
     for model in (
         MdPublication,
+        MdVisibilitySequenceAllocator,
         MdInstrumentIdentityRevision,
         MdCalendarImportLock,
         MdInstrumentLookupKey,

@@ -12,8 +12,10 @@ import pytest
 from sqlalchemy import func, select, update
 
 from app.db.database import async_session_maker
+from app.models.asset_research import AssetDataSourceRegistry
 from app.models.data_governance import DgDataset, DgProvider
 from app.models.market_data_platform import (
+    CALENDAR_SOURCE_GOVERNANCE_STATE_VERIFIED,
     MdCalendarEvent,
     MdCalendarSnapshot,
     MdDataSeries,
@@ -24,6 +26,7 @@ from app.models.market_data_platform import (
 from app.schemas.asset_research import InstrumentIdentity, StockIdentityDetails
 from app.schemas.market_data_platform import MarketDataQueryRequest, ResolvedMarketDataQuery
 from app.services.market_data import store as store_module
+from app.services.market_data.access import MarketDataSourceAuthorization
 from app.services.market_data.catalog import DatasetStorageResolution
 from app.services.market_data.coverage import (
     CalendarStatus,
@@ -38,9 +41,16 @@ from app.services.market_data.providers import (
     ProviderFetchResult,
     ProviderMarketObservation,
 )
-from app.services.market_data.publication import PUBLICATION_CALENDAR_SNAPSHOT
+from app.services.market_data.publication import (
+    PUBLICATION_CALENDAR_SNAPSHOT,
+    MarketDataVisibilityAnchor,
+)
 from app.services.market_data.query_resolution import ResolvedMarketDataQueryContext
-from app.services.market_data.store import MarketDataStore, MarketDataStoreError
+from app.services.market_data.store import (
+    UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+    MarketDataStore,
+    MarketDataStoreError,
+)
 
 UTC = timezone.utc
 DATASET_ID = "dataset-market-stock"
@@ -175,6 +185,104 @@ async def _seed_dataset_and_provider(
     await db.commit()
 
 
+async def _seed_source_registry(
+    db,
+    *,
+    source_id: str = PROVIDER_ID,
+    license_status: str = "APPROVED",
+    updated_at: datetime | None = None,
+) -> None:
+    """Seed the live registry contract used to validate a frozen receipt grant."""
+    db.add(
+        AssetDataSourceRegistry(
+            source_id=source_id,
+            asset_types=["stock"],
+            jurisdictions=["CN"],
+            license_status=license_status,
+            allowed_uses=["DISPLAY"],
+            redistribution_policy="NO_REDISTRIBUTION",
+            derived_data_policy="ALLOWED",
+            retention_policy="market-data-v1",
+            effective_from=datetime(2020, 1, 1, tzinfo=UTC),
+            effective_to=None,
+            retention_expires_at=None,
+            enabled=True,
+            updated_at=updated_at or _at(0),
+        )
+    )
+    await db.commit()
+
+
+def _source_authorization(
+    *,
+    source_registry_id: str = PROVIDER_ID,
+    license_status: str = "APPROVED",
+    decision: str = "ALLOW",
+    asset_type: str = "stock",
+    allowed_uses: tuple[str, ...] = ("DISPLAY",),
+) -> MarketDataSourceAuthorization:
+    """Build exact source evidence in the canonical authorizer representation."""
+    values: dict[str, object] = {
+        "source_registry_id": source_registry_id,
+        "registry_updated_at": _at(0).isoformat(),
+        "asset_type": asset_type,
+        "market": "CN-SSE",
+        "purpose": "display",
+        "license_status": license_status,
+        "allowed_uses": allowed_uses,
+        "jurisdictions": ("CN",),
+        "effective_from": datetime(2020, 1, 1, tzinfo=UTC).isoformat(),
+        "effective_to": None,
+        "retention_policy": "MARKET-DATA-V1",
+        "retention_expires_at": None,
+        "redistribution_policy": "NO_REDISTRIBUTION",
+        "principal_scope": "principal-v1:test-receipt",
+        "tenant_scope": "default",
+        "entitlement_revision": _sha("test-entitlement"),
+        "decision": decision,
+    }
+    descriptor_hash = hashlib.sha256(
+        json.dumps(
+            {"version": "market-data-source-authorization-v1", **values},
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    return MarketDataSourceAuthorization(descriptor_hash=descriptor_hash, **values)  # type: ignore[arg-type]
+
+
+def _calendar_source_governance(
+    *,
+    manifest_hash: str,
+    source_registry_id: str = PROVIDER_ID,
+) -> dict[str, object]:
+    """Build the importer-owned descriptor shape expected by the calendar reader."""
+    values: dict[str, object] = {
+        "version": "market-data-calendar-source-governance-v1",
+        "source_registry_id": source_registry_id,
+        "registry_updated_at": _at(0).isoformat(),
+        "license_status": "APPROVED",
+        "asset_types": ["STOCK"],
+        "jurisdictions": ["CN"],
+        "allowed_uses": ["DISPLAY"],
+        "effective_from": datetime(2020, 1, 1, tzinfo=UTC).isoformat(),
+        "effective_to": None,
+        "retention_policy": "MARKET-DATA-V1",
+        "retention_expires_at": None,
+        "redistribution_policy": "NO_REDISTRIBUTION",
+        "approval_reference": "CAB-197-CALENDAR-TEST",
+        "evidence_uri": "file:///approved/calendars/CN-SSE-2026-09.json",
+        "evidence_content_hash": _sha("calendar-source-evidence"),
+        "calendar_manifest_hash": manifest_hash,
+        "decision": "ALLOW",
+    }
+    descriptor_hash = _sha(
+        json.dumps(values, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    )
+    return {**values, "descriptor_hash": descriptor_hash}
+
+
 def _result(
     *,
     observations: tuple[ProviderMarketObservation, ...],
@@ -285,6 +393,7 @@ async def test_store_appends_source_provenance_and_normalized_revisions() -> Non
                 raw_payload={"records": [{"close": Decimal("10.50")}]},
             ),
             received_at=_at(14),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
         )
         await db.commit()
 
@@ -302,6 +411,7 @@ async def test_store_appends_source_provenance_and_normalized_revisions() -> Non
                 ),
             ),
             received_at=_at(16),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
         )
         await db.commit()
 
@@ -344,6 +454,343 @@ async def test_store_appends_source_provenance_and_normalized_revisions() -> Non
 
 
 @pytest.mark.asyncio
+async def test_store_persists_separate_provider_request_and_source_authorization_evidence() -> None:
+    """One receipt retains public-query, provider-call, and registry evidence separately."""
+    context = _context()
+    result = _result(
+        retrieved_at=_at(12),
+        observations=(
+            _observation(
+                event_at=_at(10),
+                available_at=_at(11),
+                fields={"close": "10.00"},
+            ),
+        ),
+    )
+    authorization = _source_authorization()
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        await _seed_source_registry(db)
+        persisted = await MarketDataStore(db).persist_provider_result(
+            context,
+            result,
+            received_at=_at(12),
+            source_authorization=authorization,
+        )
+        snapshot = await db.get(MdSourceSnapshot, persisted.source_snapshot_id)
+
+    assert snapshot is not None
+    assert snapshot.request_fingerprint_sha256 == context.query.query_fingerprint
+    assert snapshot.query_fingerprint_sha256 == context.query.query_fingerprint
+    assert snapshot.provider_request_id == result.request.request_id
+    assert (
+        snapshot.provider_request_fingerprint_sha256
+        == result.request.provider_request_fingerprint_sha256
+    )
+    assert snapshot.source_authorization_state == "VERIFIED"
+    assert snapshot.source_authorization_descriptor_sha256 == authorization.descriptor_hash
+    assert snapshot.request_json["provider_request"] == result.request.dto_payload
+    assert snapshot.provenance_json["source_authorization"] == authorization.as_provenance()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("authorization", "expected_code"),
+    [
+        (
+            _source_authorization(source_registry_id="openbb:yfinance"),
+            "SOURCE_AUTHORIZATION_PROVIDER_MISMATCH",
+        ),
+        (_source_authorization(decision="DENY"), "SOURCE_AUTHORIZATION_DENIED"),
+        (_source_authorization(asset_type="bond"), "SOURCE_AUTHORIZATION_CONTEXT_MISMATCH"),
+        (
+            _source_authorization(allowed_uses=("DISPLAY", "RESEARCH")),
+            "SOURCE_AUTHORIZATION_REGISTRY_STALE",
+        ),
+        (
+            replace(_source_authorization(), license_status="PUBLIC"),
+            "SOURCE_AUTHORIZATION_DESCRIPTOR_MISMATCH",
+        ),
+    ],
+)
+async def test_store_rejects_untrusted_or_non_allow_source_authorization(
+    authorization: MarketDataSourceAuthorization,
+    expected_code: str,
+) -> None:
+    """Mismatched or stale authorization fields cannot bypass the registry recheck."""
+    context = _context()
+    result = _result(
+        retrieved_at=_at(12),
+        observations=(
+            _observation(
+                event_at=_at(10),
+                available_at=_at(11),
+                fields={"close": "10.00"},
+            ),
+        ),
+    )
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        await _seed_source_registry(db)
+        with pytest.raises(MarketDataStoreError) as rejected:
+            await MarketDataStore(db).persist_provider_result(
+                context,
+                result,
+                received_at=_at(12),
+                source_authorization=authorization,
+            )
+        count = await db.scalar(select(func.count()).select_from(MdSourceSnapshot))
+
+    assert rejected.value.code == expected_code
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_store_requires_a_grant_or_explicitly_tags_compatibility_writes() -> None:
+    """No-grant direct writes cannot silently create facts usable by a v2 read."""
+    context = _context()
+    result = _result(
+        retrieved_at=_at(12),
+        observations=(
+            _observation(
+                event_at=_at(10),
+                available_at=_at(11),
+                fields={"close": "10.00"},
+            ),
+        ),
+    )
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        store = MarketDataStore(db, clock=lambda: _at(12))
+        with pytest.raises(MarketDataStoreError) as missing_grant:
+            await store.persist_provider_result(context, result, received_at=_at(12))
+        await db.rollback()
+
+        with pytest.raises(MarketDataStoreError) as conflicting_mode:
+            await store.persist_provider_result(
+                context,
+                result,
+                received_at=_at(12),
+                source_authorization=_source_authorization(),
+                unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+            )
+        await db.rollback()
+
+        with pytest.raises(MarketDataStoreError) as undeclared_compatibility_mode:
+            await store.persist_provider_result(
+                context,
+                result,
+                received_at=_at(12),
+                unverified_compatibility_reason="ad_hoc_import",
+            )
+        await db.rollback()
+
+        persisted = await store.persist_provider_result(
+            context,
+            result,
+            received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        )
+        snapshot = await db.get(MdSourceSnapshot, persisted.source_snapshot_id)
+        assert snapshot is not None
+        persisted_state = snapshot.source_authorization_state
+        persisted_descriptor = snapshot.source_authorization_descriptor_sha256
+        persisted_provenance = snapshot.provenance_json["unverified_compatibility"]
+        direct_rows = await store.read_observation_revisions(
+            context,
+            knowledge_cutoff=_at(13),
+        )
+        v2_rows = await store.read_observation_revisions(
+            context,
+            knowledge_cutoff=_at(13),
+            allowed_source_registry_ids=frozenset({PROVIDER_ID}),
+        )
+        await db.execute(
+            update(MdSourceSnapshot)
+            .where(MdSourceSnapshot.id == persisted.source_snapshot_id)
+            .values(
+                source_authorization_state=None,
+                source_authorization_descriptor_sha256=None,
+            )
+        )
+        await db.commit()
+        legacy_v2_rows = await store.read_observation_revisions(
+            context,
+            knowledge_cutoff=_at(13),
+            allowed_source_registry_ids=frozenset({PROVIDER_ID}),
+        )
+
+    assert missing_grant.value.code == "SOURCE_AUTHORIZATION_REQUIRED"
+    assert conflicting_mode.value.code == "SOURCE_AUTHORIZATION_MODE_CONFLICT"
+    assert undeclared_compatibility_mode.value.code == "SOURCE_AUTHORIZATION_REQUIRED"
+    assert persisted_state == "UNVERIFIED_COMPATIBILITY"
+    assert persisted_descriptor is None
+    assert persisted_provenance == {
+        "version": "market-data-unverified-source-write-v1",
+        "reason": UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        "decision": "UNVERIFIED",
+    }
+    assert len(direct_rows) == 1
+    assert v2_rows == ()
+    assert legacy_v2_rows == ()
+
+
+@pytest.mark.asyncio
+async def test_store_rechecks_frozen_authorization_against_current_source_registry() -> None:
+    """A registry change after provider collection blocks receipt persistence."""
+    context = _context()
+    result = _result(
+        retrieved_at=_at(12),
+        observations=(
+            _observation(
+                event_at=_at(10),
+                available_at=_at(11),
+                fields={"close": "10.00"},
+            ),
+        ),
+    )
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        await _seed_source_registry(db, license_status="UNKNOWN")
+        with pytest.raises(MarketDataStoreError) as rejected:
+            await MarketDataStore(db).persist_provider_result(
+                context,
+                result,
+                received_at=_at(12),
+                source_authorization=_source_authorization(),
+            )
+        count = await db.scalar(select(func.count()).select_from(MdSourceSnapshot))
+
+    assert rejected.value.code == "SOURCE_AUTHORIZATION_REGISTRY_STALE"
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_store_filters_local_reads_by_currently_authorized_source_registry_ids() -> None:
+    """A sealed local fact is not returned when its source is no longer allowed."""
+    context = _context()
+    event_at = _at(10)
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        await _seed_source_registry(db)
+        await _seed_source_registry(db, source_id="openbb:yfinance")
+        db.add(
+            DgProvider(
+                id="provider-openbb-yfinance",
+                provider_id="openbb:yfinance",
+                name="OpenBB yfinance",
+                category="market",
+                is_active=True,
+            )
+        )
+        await db.commit()
+        store = MarketDataStore(db, clock=lambda: _at(14))
+        await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(12),
+                observations=(
+                    _observation(
+                        event_at=event_at,
+                        available_at=_at(11),
+                        fields={"close": "10.00"},
+                    ),
+                ),
+            ),
+            received_at=_at(12),
+            source_authorization=_source_authorization(),
+        )
+        await store.persist_provider_result(
+            context,
+            _result(
+                provider_id="openbb:yfinance",
+                request_provider="openbb",
+                source_revision="v2",
+                retrieved_at=_at(14),
+                observations=(
+                    _observation(
+                        event_at=event_at,
+                        available_at=_at(13),
+                        fields={"close": "11.00"},
+                    ),
+                ),
+            ),
+            received_at=_at(14),
+            source_authorization=_source_authorization(source_registry_id="openbb:yfinance"),
+        )
+        allowed = await store.read_observation_revisions(
+            context,
+            knowledge_cutoff=_at(15),
+            allowed_source_registry_ids=frozenset({PROVIDER_ID}),
+        )
+        denied = await store.read_observation_revisions(
+            context,
+            knowledge_cutoff=_at(15),
+            allowed_source_registry_ids=frozenset(),
+        )
+
+    assert len(allowed) == 1
+    assert allowed[0].fields == {"close": "10.00"}
+    assert denied == ()
+
+
+@pytest.mark.asyncio
+async def test_store_v2_read_excludes_a_forged_verified_authorization_receipt() -> None:
+    """State and source ID alone cannot make a raw/internal row a v2 fact."""
+    context = _context()
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        await _seed_source_registry(db)
+        store = MarketDataStore(db, clock=lambda: _at(14))
+        persisted = await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(12),
+                observations=(
+                    _observation(
+                        event_at=_at(10),
+                        available_at=_at(11),
+                        fields={"close": "10.00"},
+                    ),
+                ),
+            ),
+            received_at=_at(12),
+            source_authorization=_source_authorization(),
+        )
+        snapshot = await db.get(MdSourceSnapshot, persisted.source_snapshot_id)
+        assert snapshot is not None
+        forged_provenance = dict(snapshot.provenance_json)
+        forged_authorization = dict(forged_provenance["source_authorization"])
+        forged_authorization["market"] = "US-NYSE"
+        forged_provenance["source_authorization"] = forged_authorization
+        await db.execute(
+            update(MdSourceSnapshot)
+            .where(MdSourceSnapshot.id == persisted.source_snapshot_id)
+            .values(provenance_json=forged_provenance)
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
+
+        unrestricted = await store.read_observation_revisions(
+            context,
+            knowledge_cutoff=_at(15),
+        )
+        current_authorized = await store.read_observation_revisions(
+            context,
+            knowledge_cutoff=_at(15),
+            allowed_source_registry_ids=frozenset({PROVIDER_ID}),
+        )
+
+    assert len(unrestricted) == 1
+    assert current_authorized == ()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("placeholder", ("--", "N/A"))
 async def test_store_marks_akshare_bar_placeholders_failed_under_the_typed_policy(
     placeholder: str,
@@ -366,6 +813,7 @@ async def test_store_marks_akshare_bar_placeholders_failed_under_the_typed_polic
                 ),
             ),
             received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
         )
         await db.commit()
         revision = await db.scalar(select(MdObservationRevision))
@@ -387,7 +835,7 @@ async def test_store_rechecks_a_legacy_pass_placeholder_without_rewriting_it() -
 
     async with async_session_maker() as db:
         await _seed_dataset_and_provider(db)
-        store = MarketDataStore(db)
+        store = MarketDataStore(db, clock=lambda: _at(14))
         await store.persist_provider_result(
             context,
             _result(
@@ -401,6 +849,7 @@ async def test_store_rechecks_a_legacy_pass_placeholder_without_rewriting_it() -
                 ),
             ),
             received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
         )
         await db.commit()
         await store.persist_provider_result(
@@ -417,6 +866,7 @@ async def test_store_rechecks_a_legacy_pass_placeholder_without_rewriting_it() -
                 ),
             ),
             received_at=_at(14),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
         )
         await db.commit()
         legacy = await db.scalar(
@@ -455,7 +905,9 @@ async def test_store_excludes_a_legacy_pass_placeholder_from_response_rows_but_k
 
     async with async_session_maker() as db:
         await _seed_dataset_and_provider(db)
-        store = MarketDataStore(db)
+        # Publication visibility is sampled after commit rather than copied
+        # from a provider's receipt time, so this PIT test fixes that clock.
+        store = MarketDataStore(db, clock=lambda: _at(12))
         await store.persist_provider_result(
             context,
             _result(
@@ -469,6 +921,7 @@ async def test_store_excludes_a_legacy_pass_placeholder_from_response_rows_but_k
                 ),
             ),
             received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
         )
         await db.commit()
         legacy = await db.scalar(select(MdObservationRevision))
@@ -525,6 +978,7 @@ async def test_store_applies_the_same_placeholder_fallback_to_openbb_without_net
                 ),
             ),
             received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
         )
         await db.commit()
         revision = await db.scalar(select(MdObservationRevision))
@@ -561,6 +1015,7 @@ async def test_local_read_uses_availability_and_commit_time_for_point_in_time_se
                 ),
             ),
             received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
         )
         await db.commit()
         await store.persist_provider_result(
@@ -577,6 +1032,7 @@ async def test_local_read_uses_availability_and_commit_time_for_point_in_time_se
                 ),
             ),
             received_at=_at(16),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
         )
         await db.commit()
 
@@ -600,7 +1056,7 @@ async def test_local_read_keeps_an_older_complete_revision_visible_after_a_narro
 
     async with async_session_maker() as db:
         await _seed_dataset_and_provider(db)
-        store = MarketDataStore(db)
+        store = MarketDataStore(db, clock=lambda: _at(14))
         await store.persist_provider_result(
             broad_context,
             _result(
@@ -615,6 +1071,7 @@ async def test_local_read_keeps_an_older_complete_revision_visible_after_a_narro
                 ),
             ),
             received_at=_at(12),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
         )
         await db.commit()
         await store.persist_provider_result(
@@ -632,6 +1089,7 @@ async def test_local_read_keeps_an_older_complete_revision_visible_after_a_narro
                 ),
             ),
             received_at=_at(14),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
         )
         await db.commit()
 
@@ -674,6 +1132,7 @@ async def test_store_rejects_unregistered_out_of_window_and_duplicate_provider_e
                     observations=(valid_observation,),
                 ),
                 received_at=_at(12),
+                unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
             )
         with pytest.raises(MarketDataStoreError) as out_of_window:
             await store.persist_provider_result(
@@ -689,6 +1148,7 @@ async def test_store_rejects_unregistered_out_of_window_and_duplicate_provider_e
                     ),
                 ),
                 received_at=_at(17),
+                unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
             )
         with pytest.raises(MarketDataStoreError) as duplicate:
             await store.persist_provider_result(
@@ -698,6 +1158,7 @@ async def test_store_rejects_unregistered_out_of_window_and_duplicate_provider_e
                     observations=(valid_observation, valid_observation),
                 ),
                 received_at=_at(13),
+                unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
             )
         count = await db.scalar(select(func.count()).select_from(MdSourceSnapshot))
 
@@ -730,6 +1191,7 @@ async def test_store_bounds_inline_raw_payload_before_writing_source_evidence(mo
                     raw_payload={"payload": "x" * 128},
                 ),
                 received_at=_at(12),
+                unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
             )
         count = await db.scalar(select(func.count()).select_from(MdSourceSnapshot))
 
@@ -756,6 +1218,7 @@ async def test_store_rejects_a_receipt_bound_to_another_query_before_writing() -
                 context,
                 replace(base_result, request=mismatched_request),
                 received_at=_at(12),
+                unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
             )
         count = await db.scalar(select(func.count()).select_from(MdSourceSnapshot))
 
@@ -780,6 +1243,7 @@ async def test_store_uses_local_receipt_time_not_provider_claim_for_pit_visibili
             context,
             _result(retrieved_at=_at(10), observations=(observation,)),
             received_at=_at(14),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
         )
         await db.commit()
         before_receipt = await store.read_observations(context, knowledge_cutoff=_at(13))
@@ -804,6 +1268,93 @@ async def test_store_uses_local_receipt_time_not_provider_claim_for_pit_visibili
         snapshot.source_observed_at, field_name="snapshot observed_at"
     ) == _at(10)
     assert snapshot.provenance_json["provider_retrieved_at"] == _at(10).isoformat()
+
+
+@pytest.mark.asyncio
+async def test_store_uses_visibility_sequence_to_exclude_later_receipts_at_or_before_cutoff() -> (
+    None
+):
+    """A frozen sequence excludes later seals even under a future time cutoff."""
+    context = _context()
+    event_at = _at(10)
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        store = MarketDataStore(db, clock=lambda: _at(14))
+        first = await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(14),
+                observations=(
+                    _observation(
+                        event_at=event_at,
+                        available_at=_at(14),
+                        fields={"close": "10.00"},
+                    ),
+                ),
+            ),
+            received_at=_at(14),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        )
+        # A historical request may name a future availability cutoff.  Freeze
+        # its sequence now, before a later receipt is sealed at the old
+        # representable timestamp.
+        future_anchor = await store.resolve_visibility_anchor(knowledge_cutoff=_at(15))
+        second = await store.persist_provider_result(
+            context,
+            _result(
+                retrieved_at=_at(14),
+                source_revision="same-visible-at-v2",
+                observations=(
+                    _observation(
+                        event_at=event_at,
+                        available_at=_at(14),
+                        fields={"close": "11.00"},
+                    ),
+                ),
+            ),
+            received_at=_at(14),
+            unverified_compatibility_reason=UNVERIFIED_COMPATIBILITY_REASON_LEGACY_IMPORT,
+        )
+        assert first.received_at == second.received_at
+        first_anchor = MarketDataVisibilityAnchor(
+            visible_at=first.received_at,
+            max_visibility_sequence=1,
+        )
+        second_anchor = MarketDataVisibilityAnchor(
+            visible_at=second.received_at,
+            max_visibility_sequence=2,
+        )
+        at_first = await store.read_observation_revisions(
+            context,
+            knowledge_cutoff=first.received_at,
+            visibility_anchor=first_anchor,
+        )
+        at_second = await store.read_observation_revisions(
+            context,
+            knowledge_cutoff=second.received_at,
+            visibility_anchor=second_anchor,
+        )
+        at_future_anchor = await store.read_observation_revisions(
+            context,
+            knowledge_cutoff=_at(15),
+            visibility_anchor=future_anchor,
+        )
+
+    assert [
+        (row.revision_number, row.fields["close"], row.visibility_sequence) for row in at_first
+    ] == [(1, "10.00", 1)]
+    assert [
+        (row.revision_number, row.fields["close"], row.visibility_sequence) for row in at_second
+    ] == [(2, "11.00", 2)]
+    assert future_anchor == MarketDataVisibilityAnchor(
+        visible_at=_at(15),
+        max_visibility_sequence=1,
+    )
+    assert [
+        (row.revision_number, row.fields["close"], row.visibility_sequence)
+        for row in at_future_anchor
+    ] == [(1, "10.00", 1)]
 
 
 @pytest.mark.asyncio
@@ -843,13 +1394,20 @@ async def test_calendar_reader_returns_typed_unknown_then_explicit_versioned_ses
         store = MarketDataStore(db)
         unknown = await store.read_calendar(calendar_code="CN-SSE", window=window)
 
+        snapshot_hash = _sha("calendar-cn-sse-2026-09")
+        source_governance = _calendar_source_governance(manifest_hash=snapshot_hash)
         snapshot = MdCalendarSnapshot(
             id="calendar-cn-sse-2026-09",
             calendar_code="CN-SSE",
             calendar_version="2026.09",
             timezone_name="Asia/Shanghai",
-            snapshot_sha256=_sha("calendar-cn-sse-2026-09"),
+            source_registry_id=PROVIDER_ID,
+            source_governance_state=CALENDAR_SOURCE_GOVERNANCE_STATE_VERIFIED,
+            source_governance_descriptor_sha256=str(source_governance["descriptor_hash"]),
+            snapshot_sha256=snapshot_hash,
             definition_json={
+                "manifest_hash": snapshot_hash,
+                "source_governance": source_governance,
                 "coverage_start_at": _at(9).isoformat(),
                 "coverage_end_at": _at(16).isoformat(),
             },
@@ -896,6 +1454,7 @@ async def test_calendar_reader_returns_typed_unknown_then_explicit_versioned_ses
                     entity_id=snapshot.id,
                     entity_sha256=snapshot.snapshot_sha256,
                     published_at=_at(8),
+                    visibility_sequence=1,
                     created_at=_at(8),
                 ),
             ]

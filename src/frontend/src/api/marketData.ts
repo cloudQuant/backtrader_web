@@ -193,6 +193,7 @@ export interface MarketDataQueryResponse {
   fetches: MarketDataQueryFetch[]
   warnings: MarketDataQueryWarning[]
   refresh_status: 'fresh_complete' | 'fresh_incomplete' | 'fresh_unknown_calendar' | null
+  historical_status: 'unknown_calendar' | 'HISTORICAL_COVERAGE_UNAVAILABLE' | null
 }
 
 export interface MarketInstrumentLookupParams {

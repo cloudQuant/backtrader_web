@@ -6,10 +6,12 @@ import json
 from datetime import datetime, timezone
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 
 from app.db.database import async_session_maker
+from app.models.asset_research import AssetDataSourceRegistry
 from app.models.market_data_platform import (
     MdCalendarEvent,
     MdCalendarImportLock,
@@ -24,6 +26,32 @@ from app.services.market_data.calendar_importer import (
 from app.services.market_data.coverage import CalendarStatus, TimeWindow
 from app.services.market_data.store import MarketDataStore
 
+CALENDAR_SOURCE_ID = "akshare"
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def seed_calendar_source_registry() -> None:
+    """Every reviewed calendar fixture names an explicit governed source."""
+    async with async_session_maker() as session:
+        session.add(
+            AssetDataSourceRegistry(
+                source_id=CALENDAR_SOURCE_ID,
+                asset_types=["stock"],
+                jurisdictions=["CN"],
+                license_status="APPROVED",
+                allowed_uses=["DISPLAY"],
+                redistribution_policy="NO_REDISTRIBUTION",
+                derived_data_policy="ALLOWED",
+                retention_policy="market-data-v1",
+                effective_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                effective_to=None,
+                retention_expires_at=None,
+                enabled=True,
+                updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            )
+        )
+        await session.commit()
+
 
 def _manifest(
     *,
@@ -37,6 +65,7 @@ def _manifest(
         "approval_reference": "CAB-197-CALENDAR-001",
         "evidence_uri": "file:///approved/calendars/CN-SSE-2026-09.json",
         "evidence_content_hash": evidence_hash,
+        "source_registry_id": CALENDAR_SOURCE_ID,
         "calendar_code": "CN-SSE",
         "calendar_version": calendar_version,
         "timezone_name": "Asia/Shanghai",

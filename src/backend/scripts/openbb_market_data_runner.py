@@ -241,6 +241,8 @@ def main() -> int:
     request = envelope.get("request")
     if not isinstance(request, Mapping):
         return _error(request_id, "OPENBB_RUNNER_INVALID_REQUEST", "request body must be an object")
+    if request.get("request_id") != request_id:
+        return _error(request_id, "OPENBB_RUNNER_INVALID_REQUEST", "request ID must match envelope")
 
     asset_type = request.get("asset_type")
     provider = request.get("provider")
@@ -276,7 +278,9 @@ def main() -> int:
 
     try:
         if provider != "yfinance":
-            return _error(request_id, "OPENBB_UNSUPPORTED", "provider window semantics are not approved")
+            return _error(
+                request_id, "OPENBB_UNSUPPORTED", "provider window semantics are not approved"
+            )
         call_arguments = _yfinance_historical_arguments(request)
         result = _route(obb, str(asset_type))(**call_arguments)
         raw_payload, raw_payload_sha256 = _raw_payload(_records(result))
@@ -303,6 +307,7 @@ def main() -> int:
         {
             "protocol_version": PROTOCOL_VERSION,
             "request_id": request_id,
+            "request": dict(request),
             "provider_id": f"openbb:{provider}",
             "retrieved_at": datetime.now(timezone.utc).isoformat(),
             "source_revision": source_revision,

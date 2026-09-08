@@ -40,6 +40,7 @@
 | AO-06 | AkShare 显式路由与 OpenBB 隔离、索引和 interval 协议 | `akshare_provider.py`、`providers.py`、`openbb_market_data_runner.py`；`test_akshare_provider.py`、`test_openbb_provider.py` |
 | AO-07 | 关闭默认开关的 v2 HTTP 接口、遗留接口兼容、fail-closed 回退与前端游标聚合 | `POST /api/v1/data/queries`、`useDataPage.ts`、`test_query_api.py`、`marketData.test.ts`、`DataPage.test.ts`、`StrategyPage.test.ts` |
 | AO-08 | 迭代 196 的策略研究/回测桥接、页面灰度和单头迁移整合 | 合并后的集成分支、真实环境证据；本迭代工作树内不提前接入 |
+| AO-09 | 21 个家族合同与当前 UI/API 输入的冻结基线范围清单 | `scope_manifest.py`、`generate_iteration197_scope_manifest.py`、`test_scope_manifest.py`、[SCOPE_MANIFEST.md](SCOPE_MANIFEST.md)；没有冻结的 196 基线时为 `BLOCKED` |
 
 ### 2.2 不可由本次离线自动化证明的事项
 
@@ -74,9 +75,10 @@
 1. 每个待启用逻辑数据集已注册唯一活动主存储；不存在歧义主绑定。
 2. 请求所涉 canonical identity、已发布的冻结 identity projection、版本化主数据和精确 `(asset_type, market, symbol)` lookup key 均已导入并通过审核；strict resolver 的 PIT 证据是已发布 projection，不是可变 authority 行或单独 lookup key。
 3. 对按事件判断完整性的 `bars` 请求，窗口已具备冻结交易日历和对应 `(market, data_kind, frequency)` 的显式事件网格，或系统明确返回 `unknown_calendar` / `CALENDAR_GRID_UNAVAILABLE`；不得把空日历、周末规则、另一频率的 session 或缺少日历的窗口当成完整覆盖。
-4. 每个准备启用的来源策略均有经过审核的提供方、路由、数据许可、允许用途、字段/口径和保留策略记录。
-5. 线上开关默认保持关闭：`MARKET_DATA_QUERY_V2_ENABLED=false`、`MARKET_DATA_ONLINE_FETCH_ENABLED=false`。若开启 v2，运维管理的 `MARKET_DATA_CURSOR_SIGNING_KEY` 必须存在且至少 32 bytes；不得记录其值。只有完成本文件相应闸门后才可按灰度计划开启。
-6. 若需启用 OpenBB，`OPENBB_MARKET_DATA_RUNNER`、`OPENBB_ALLOWED_PROVIDERS`、`OPENBB_RUNNER_HOME` 和绝对存在的 `OPENBB_RUNNER_WORKDIR` 已由 runner 运维方审核；主应用进程不能把自身的数据库凭据、项目工作树或服务账户权限作为 runner 前置条件。
+4. 每个准备启用的来源策略均有经过审核的提供方、路由、数据许可、允许用途、字段/口径和保留策略记录。用于证明覆盖的每个 calendar manifest 还必须声明已注册的 `source_registry_id`、冻结治理描述符和 `VERIFIED` 状态；该 source ID 必须属于对应请求当前授权的 route source allow-list，否则 calendar 只能返回 `unknown_calendar`。
+5. 参与 v2 灰度的用户已通过独立、经过批准的 RBAC provisioning 获得 `data:read`。当前注册流程不自动写入角色；不得为了开启市场数据读取而修改注册语义或把“已登录”视为授权。
+6. 线上开关默认保持关闭：`MARKET_DATA_QUERY_V2_ENABLED=false`、`MARKET_DATA_ONLINE_FETCH_ENABLED=false`。若开启 v2，运维管理的 `MARKET_DATA_CURSOR_SIGNING_KEY` 必须存在且至少 32 bytes；不得记录其值。只有完成本文件相应闸门后才可按灰度计划开启。
+7. 若需启用 OpenBB，`OPENBB_MARKET_DATA_RUNNER`、`OPENBB_ALLOWED_PROVIDERS`、`OPENBB_RUNNER_HOME` 和绝对存在的 `OPENBB_RUNNER_WORKDIR` 已由 runner 运维方审核；主应用进程不能把自身的数据库凭据、项目工作树或服务账户权限作为 runner 前置条件。
 
 ## 4. 必须执行的自动化回归
 
@@ -133,11 +135,11 @@ npm run lint
 
 | 记录 ID | 时间快照与命令范围 | 本地结果 | 对正式验收的含义 |
 | --- | --- | --- | --- |
-| L-197-01 | 2026-09-08，`/Users/yunjinqi/opt/anaconda3/bin/conda run -n base python -m pytest -q tests/market_data_platform tests/test_config.py` | `PASS`：203 passed、30 warnings，47.25s。 | 覆盖 AO-01 至 AO-07 与中台配置的当前离线后端开发回归；未绑定冻结候选，不能将 E-197-01 或任一 AC 改为正式 `PASS`。 |
-| L-197-02 | 2026-09-08，第 4 节列出的中台目标 Ruff 命令。 | `PASS`：退出码 0，未报告目标范围内的 Ruff 违规。 | 只证明该工作树的目标静态检查；未绑定冻结候选，不能将 E-197-02 改为正式 `PASS`。 |
-| L-197-03 | 2026-09-08，`npm run typecheck`、三个 v2 测试文件、`npm run build`、`npm run lint`。 | `PASS`：typecheck 退出码 0；v2 测试 124 passed；build 退出码 0；lint 为 0 errors、1,208 条既有 warnings。 | 仅支持前端开发回归；未执行真实浏览器 E2E。1,208 条 warning 不等于零告警或生产质量签收，且不证明浏览器灰度、真实 API 或 196 整合。 |
+| L-197-01 | 2026-09-08，`/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/market_data_platform tests/test_config.py` | `PASS`：403 passed、45 warnings，79.87s。 | 覆盖 AO-01 至 AO-07 与中台配置、PIT visibility anchor、当前读取授权、来源回执证据、calendar 同源授权和 SQLite 来源治理迁移的离线后端开发回归；未绑定冻结候选，不能将 E-197-01 或任一 AC 改为正式 `PASS`。 |
+| L-197-02 | 2026-09-08，第 4 节列出的中台目标 Ruff 命令与 `python -m compileall -q` 目标模块检查。 | `PASS`：两个命令退出码均为 0，未报告目标范围内的 Ruff 违规或编译错误。 | 只证明该工作树的目标静态检查；未绑定冻结候选，不能将 E-197-02 改为正式 `PASS`。 |
+| L-197-03 | 2026-09-08，`npm run typecheck`、三个 v2 测试文件、`npm run build`、`npm run lint`。 | `PASS`：typecheck 退出码 0；v2 测试 140 passed；build 退出码 0；lint 为 0 errors、1,208 条既有 warnings。 | 仅支持前端开发回归；未执行真实浏览器 E2E。1,208 条 warning 不等于零告警或生产质量签收，且不证明浏览器灰度、真实 API 或 196 整合。 |
 
-`L-197-01` 包含 identity projection、observation PIT、pending publication 恢复、MySQL `DATETIME(6)` DDL/fsp=0 拒绝、相邻 calendar segment/import lock，以及 OpenBB 预规范化原始封套和进程组回收的离线断言。本地可观察语义如下；T0/T1/T2 仅描述 SQLite fixture 内的逻辑可见性，不表示真实多连接数据库已验收：
+`L-197-01` 包含 identity projection、observation PIT、pending publication 恢复、来源回执、同一 provider 的一次性 request ID 唯一性和 calendar 同源授权、SQLite 来源治理升级/降级保护、MySQL `DATETIME(6)` DDL/fsp=0 拒绝、相邻 calendar segment/import lock，以及 OpenBB 预规范化原始封套和进程组回收的离线断言。本地可观察语义如下；T0/T1/T2 仅描述 SQLite fixture 内的逻辑可见性，不表示真实多连接数据库已验收：
 
 1. **冻结 identity projection**：T0 为事务 A 已提交、事务 B 尚未发布；即使 cutoff 晚于计划的 publication instant，resolver 仍返回 `IDENTITY_NOT_FOUND`。事务 B 后在 `published_at - 1 microsecond` 返回 `IDENTITY_NOT_KNOWN_AT_CUTOFF`（T1），在 `published_at` 返回冻结 projection（T2）。
 2. **observation PIT**：提供方自报时间为 T0=10:00，平台本地收据时间为 T1=14:00；测试在 13:00（已晚于 T0、仍早于 T1）和 T1 恰好时读取均为空，事务 B 将可见性推进至 T2=14:00:00.000001 后才返回观测。这证明来源自报时间不能回填本地可见性。
@@ -166,6 +168,7 @@ npm run lint
 | AC-197-017 | 发布 identity projection 后修改可变 `asset_instruments` authority；另写入 pending projection 并以两个 cutoff 严格解析。 | strict resolver 不因可变 authority/裸 lookup key 改写历史；只按已发布 frozen revision、有效期和 cutoff 解析。pending projection 不可见，发布后才在合适 cutoff 出现。 | `test_identity.py`、`identity_projection.py`；identity T0/T1/T2 见 L-197-01 | `NOT_RUN` |
 | AC-197-018 | 让行情页 v2 返回超过 500 条的多页响应（当前开发回归为 17 页、516 条），并注入 query ID、identity/observation knowledge cutoff、revision 不一致、重复 cursor、篡改签名或不同 HMAC key 签发的 token。 | helper 持续收集至 `next_cursor=null`，不以 500 条或固定页数截断；任何分页完整性不一致 fail closed。签名不符在本地读取、provider 调用或写入前以 `CURSOR_SIGNATURE_INVALID` 拒绝。 | `src/__tests__/views/DataPage.test.ts`、`test_query_service.py`；见 L-197-01、L-197-03 | `NOT_RUN` |
 | AC-197-019 | 对 date-indexed OpenBB `OBBject` 和 yfinance runner 分别请求 `1d`、`1w`、`1mo`、分钟频率与半开日期边界。 | runner 使用 `to_df(index=None)` 保留 event 时间；仅映射 `1d→1d`、`1w→1W`、`1mo→1M`，分钟/非日对齐窗口拒绝；以 `end - 1 microsecond` 转换 provider end date 后再裁剪回父 `[start,end)`。真实 OpenBB 网络仍不在本案例的通过证据内。 | `test_openbb_provider.py`、runner 离线测试；第 8.2 节真实运行器演练 | `NOT_RUN` |
+| AC-197-020 | 用无 `data:read` 用户访问 `query-bundle`、`query-contract` 和事实查询；再分别使用失效/未授权主来源、仍获准 fallback、本地旧/compatibility 来源、撤权 calendar、授权变更后的 cursor、provider 请求期间撤销角色/registry、同一 provider 的重复 request ID、以及 provider DTO hash 错配执行查询/写入。 | 无读取权在家族、目录、主数据、calendar 或事实 I/O 前 403；只允许当前 registry 批准的 route source、`VERIFIED` `MdSourceSnapshot` 和位于同一 allow-list 的 `VERIFIED` calendar 参与读取。成功获取分别保存静态 policy 摘要、动态 access-grant 摘要和冻结 source authorization；无 grant 不能触发在线写入，显式 compatibility 回执不进入 v2 结果。网络返回后的 current/locking recheck、旧 cursor 或 follower 重读若发现角色/registry 改变均失败关闭；同一 provider 的重复 request ID 与错误 request evidence 均不落库。 | `test_access_authorization.py`、`test_query_service.py`、`test_store.py`、`test_storage_models.py`、`test_calendar_importer.py`、`test_query_api.py` | `NOT_RUN` |
 
 ## 6. 数据中台专项验收
 
@@ -336,12 +339,13 @@ IG-196-02 的唯一可接受处置是：在 196 冻结后将 197 重基到冻结
 
 - [ ] 候选提交无未解释的工作树改动，且第 4 节全量 `pytest` 为 `PASS`。
 - [ ] 静态检查为 `PASS`，或有经过批准、可追踪的例外。
-- [ ] 所有 AC-197-001 至 AC-197-019 均有对应证据；开发回归、候选验收和真实验证的边界清楚可查。
+- [ ] 所有 AC-197-001 至 AC-197-020 均有对应证据；开发回归、候选验收和真实验证的边界清楚可查。
 - [ ] 七类资产和当前页面已支持数据类型都有经过验证的本地命中/受控补齐，或稳定的明确不支持/未配置状态。
 - [ ] 真实 AkShare/OpenBB 验证、数据许可、来源策略登记、OpenBB 原始载荷 hash 与独立 service account/container 审计完成，或未启用对应在线路由。
 - [ ] 每个已启用频率都有审核后的显式 calendar grid、连续 calendar segment 和导入锁证据；MySQL/PostgreSQL 候选迁移、每连接 UTC/PIT A/B publication 与恢复演练和单 head 检查完成。
 - [ ] 实际部署已二选一：要么限制 v2 市场数据请求到一个经验证的 Web worker 并记录容量/回退边界，要么已完成多 worker/多进程的数据库 lease、接管和并发调用计数验收；不得把同进程 singleflight 表述为全局去重。
 - [ ] IG-196-01 至 IG-196-05 全部解除阻塞，并完成页面端到端灰度证据。
+- [ ] AO-09 已使用经审查的 `iter196-market-data-baseline-v1` 冻结基线生成并验证范围清单；清单仍仅作为集成输入，不能单独开启策略页生产读取。
 - [ ] 开关、告警、审计指标和回退程序经过演练；无凭据或敏感原始载荷进入测试输出、日志或文档。
 
 在上述任一项未满足时，最终签收状态为 **`NOT_ACCEPTED`**；可继续保留为独立工作树中的实现/验证候选，但不得表述为生产可用的数据中台。

@@ -12,12 +12,13 @@ import asyncio
 import hashlib
 import json
 import os
+import secrets
 import shlex
 import signal
 import tempfile
 from collections.abc import Mapping
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from types import MappingProxyType
 from typing import Any, Literal, Protocol
@@ -223,6 +224,35 @@ def _require_text(value: str, *, field_name: str, maximum: int = 2048) -> str:
     return normalized
 
 
+def _require_request_id(value: object) -> str:
+    """Validate the opaque CSPRNG correlation token accepted from internal code."""
+    if not isinstance(value, str):
+        raise ValueError("request_id must be a string")
+    normalized = value.strip()
+    if (
+        len(normalized) < 32
+        or len(normalized) > 128
+        or any(
+            character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+            for character in normalized
+        )
+    ):
+        raise ValueError("request_id must be an opaque base64url token")
+    return normalized
+
+
+def _require_sha256(value: object, *, field_name: str) -> str:
+    """Validate a canonical SHA-256 hex digest without accepting a prefix."""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    normalized = value.strip().lower()
+    if len(normalized) != 64 or any(
+        character not in "0123456789abcdef" for character in normalized
+    ):
+        raise ValueError(f"{field_name} must be a SHA-256 hex digest")
+    return normalized
+
+
 def _require_openbb_max_concurrent_runs(value: int) -> int:
     """Validate the operator-owned runner concurrency cap."""
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
@@ -236,7 +266,13 @@ def _canonical_json(payload: Mapping[str, Any]) -> str:
 
 @dataclass(frozen=True, slots=True)
 class MarketDataProviderRequest:
-    """The bounded, provider-neutral request sent to one market-data adapter."""
+    """The bounded, provider-neutral request sent to one market-data adapter.
+
+    ``request_id`` is generated once for each authorized fetch attempt with
+    the operating-system CSPRNG.  It intentionally differs from the public
+    query fingerprint, which describes business semantics rather than a
+    specific provider call.
+    """
 
     query_fingerprint: str
     canonical_id: str
@@ -254,6 +290,14 @@ class MarketDataProviderRequest:
     currency: str | None = None
     unit: str | None = None
     source_policy_id: str | None = None
+    route_id: str | None = None
+    # This is the reviewed, server-owned source-policy descriptor.  It is
+    # deliberately separate from the authenticated caller's dynamic access
+    # grant below, so a receipt can prove both what route policy allowed and
+    # which current principal/source decision authorized the attempt.
+    policy_descriptor_hash: str | None = None
+    access_grant_descriptor_hash: str | None = None
+    request_id: str = field(default_factory=lambda: secrets.token_urlsafe(32))
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -271,7 +315,14 @@ class MarketDataProviderRequest:
                 field_name,
                 _require_text(getattr(self, field_name), field_name=field_name),
             )
-        for field_name in ("adjustment", "price_basis", "currency", "unit", "source_policy_id"):
+        for field_name in (
+            "adjustment",
+            "price_basis",
+            "currency",
+            "unit",
+            "source_policy_id",
+            "route_id",
+        ):
             value = getattr(self, field_name)
             if value is not None:
                 object.__setattr__(
@@ -279,6 +330,25 @@ class MarketDataProviderRequest:
                     field_name,
                     _require_text(value, field_name=field_name, maximum=256),
                 )
+        object.__setattr__(self, "request_id", _require_request_id(self.request_id))
+        if self.policy_descriptor_hash is not None:
+            object.__setattr__(
+                self,
+                "policy_descriptor_hash",
+                _require_sha256(
+                    self.policy_descriptor_hash,
+                    field_name="policy_descriptor_hash",
+                ),
+            )
+        if self.access_grant_descriptor_hash is not None:
+            object.__setattr__(
+                self,
+                "access_grant_descriptor_hash",
+                _require_sha256(
+                    self.access_grant_descriptor_hash,
+                    field_name="access_grant_descriptor_hash",
+                ),
+            )
         if len(self.query_fingerprint) != 64 or any(
             character not in "0123456789abcdef" for character in self.query_fingerprint.lower()
         ):
@@ -295,14 +365,10 @@ class MarketDataProviderRequest:
         object.__setattr__(self, "end_at", end_at)
 
     @property
-    def request_id(self) -> str:
-        """Return a stable correlation ID that the runner must echo exactly."""
-        return hashlib.sha256(_canonical_json(self.dto_payload).encode("utf-8")).hexdigest()
-
-    @property
     def dto_payload(self) -> dict[str, Any]:
-        """Return the JSON-safe request body, excluding the derived request ID."""
+        """Return the exact outbound DTO that a provider receipt must echo."""
         return {
+            "request_id": self.request_id,
             "query_fingerprint": self.query_fingerprint,
             "canonical_id": self.canonical_id,
             "asset_type": self.asset_type,
@@ -319,7 +385,15 @@ class MarketDataProviderRequest:
             "currency": self.currency,
             "unit": self.unit,
             "source_policy_id": self.source_policy_id,
+            "route_id": self.route_id,
+            "policy_descriptor_hash": self.policy_descriptor_hash,
+            "access_grant_descriptor_hash": self.access_grant_descriptor_hash,
         }
+
+    @property
+    def provider_request_fingerprint_sha256(self) -> str:
+        """Hash the complete outbound DTO independently from query identity."""
+        return hashlib.sha256(_canonical_json(self.dto_payload).encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -503,6 +577,15 @@ class OpenBBSubprocessProvider:
                 )
                 detail = str(error.get("detail") or "")[:2048] or None
                 raise OpenBBProviderError(code, detail=detail)
+            echoed_request = response.get("request")
+            try:
+                echoed_request_matches = isinstance(echoed_request, Mapping) and _canonical_json(
+                    dict(echoed_request)
+                ) == _canonical_json(request.dto_payload)
+            except (TypeError, ValueError):
+                echoed_request_matches = False
+            if not echoed_request_matches:
+                raise OpenBBProviderError("OPENBB_RUNNER_PROTOCOL_MISMATCH")
 
             return self._parse_response(response, request)
         finally:

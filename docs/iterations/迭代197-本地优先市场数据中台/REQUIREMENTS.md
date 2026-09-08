@@ -60,7 +60,7 @@
 作为平台，我在允许在线获取时依次尝试来源策略批准的适配器。每次成功响应必须：
 
 1. 校验请求的精确标的、时间窗、事件唯一性和字段；
-2. 保存来源回执、请求指纹、有界原始载荷封套或受控引用及其 SHA-256、适配器/端点版本、获取时间和警告；OpenBB 运行器须先返回预规范化 records 封套及 SHA-256，父进程复算一致后才接收；
+2. 保存来源回执、公共查询指纹、一次性 provider request ID、完整 provider DTO 的 SHA-256、有界原始载荷封套或受控引用及其 SHA-256、适配器/端点版本、获取时间和警告；公共查询语义与单次外部调用必须分开保存，不能把二者复用为同一个指纹。OpenBB 运行器须先返回预规范化 records 封套及 SHA-256，父进程复算一致后才接收；
 3. 追加不可变观测修订，保存字段哈希、质量判定、可用时间和规范化版本；读取每一事件时选择满足本次字段集和质量门槛的最新可用修订，不能让较新的窄字段修订遮蔽较早但完整的修订，也不能混合不同修订的字段；
 4. 重新从本地读取并计算覆盖结果，不直接把网络响应绕过存储层返回。
 
@@ -80,6 +80,20 @@
 - **OpenBB**：独立 JSON 子进程协议；Web 进程不导入 OpenBB 扩展；请求 ID、协议版本、超时、输出大小、返回时间窗、去重、有界预规范化原始 records 封套与 SHA-256 全部校验。父进程只传递最小环境变量白名单，并把运行目录设为 `OPENBB_RUNNER_WORKDIR`（未配置时为系统临时目录）；这不是文件系统或身份隔离的证明。生产运行器必须由独立 service account 或容器托管，且不能读取应用工作树、主应用数据库凭据或其他应用密钥。
 
 所有七种资产类型在 AkShare 路由表中显式声明。股票、期货、债券、基金和外汇具有已审核的有界历史路由；期权只允许 CFFEX 的 `IO`、`HO`、`MO` 精确合约日线，绝不做主力、期权链或附近合约回退；加密资产在 AkShare 中明确不可用。没有安全、精确、受限时间窗实现的组合必须返回不支持，不能伪装为已有数据。OpenBB 只可补充其明确批准的资产/市场组合，最终可用性仍由本地扩展、来源许可和运行器配置决定。
+
+### FR-05A 当前读取授权与许可证快照
+
+每个 v2 查询先从当前认证用户构造 principal、tenant scope 和 entitlement revision。没有 `data:read` 的用户必须在任何市场数据控制面或事实读取前失败关闭；系统不得把旧 cursor、旧回执或“已登录”本身当作读取授权。
+
+`/market-instruments/query-bundle` 与 `/market-instruments/query-contract` 也属于 v2 市场数据控制面：前者返回可执行家族合同，后者读取目录和冻结主数据以生成精确请求模板。二者必须在返回家族、目录或 identity 元数据前执行同一 `data:read` 检查；遗留 `/kline` 和 `/lookup` 的兼容授权语义不因此被暗中改写。
+
+在解析出精确资产、市场和服务器维护的 source policy 后、读取 observation/calendar、计算覆盖或调用 provider 前，系统必须逐一校验每个可用 route 对应的 `AssetDataSourceRegistry`：启用状态、资产类型、许可状态、允许用途、生效窗口、辖区、保留期和再分发策略。已采集的历史事实不自动保留当前读取权；来源停用、用途撤销、许可证过期或用户角色变化后，同一请求和旧分页 cursor 必须被拒绝或只允许仍获授权的来源。
+
+calendar snapshot 也必须声明其 `source_registry_id`、被冻结的治理 provenance 和验证状态；v2 查询只能把来源 ID 位于当前 grant 的 `VERIFIED` calendar 当作 `KNOWN` 覆盖证据。缺失、未验证、已撤权或不在 allow-list 的 calendar 返回 `unknown_calendar`，不得以它驱动网络补齐或声称本地覆盖完整。
+
+一次成功 provider 获取必须把 `MarketDataSourceAuthorization` 冻结在来源回执中，至少包括 registry ID/更新时间、许可和用途、辖区/有效窗口、保留与再分发决策、principal/tenant scope 的不可逆摘要、entitlement revision、允许决定及其 descriptor hash。该记录证明采集时的授权条件，不取代下一次读取时的实时授权检查。
+
+在线获取的授权线性化点分为两段：网络请求前的 route preflight 决定是否可以发送请求；提供方返回后、写入 receipt 前必须以当前用户角色和来源 registry 做短事务的 current/locking recheck。角色、许可或 registry descriptor 在两者之间变化时，获取结果不得持久化。singleflight follower 在 leader 提交后先结束旧读事务，再重建 principal/access 后本地复读。任何没有 `MarketDataQueryAccess` 的服务调用只能做 local read；它不得触发 provider 获取或把未授权结果写入 v2 事实表。
 
 ### FR-06 页面与可用性
 

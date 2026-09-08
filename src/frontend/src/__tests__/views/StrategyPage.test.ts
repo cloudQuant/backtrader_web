@@ -8038,6 +8038,7 @@ describe('StrategyPage', () => {
       fetches: [],
       warnings: [],
       refresh_status: null,
+      historical_status: null,
     })
     const wrapper = doMount()
     try {
@@ -8108,6 +8109,7 @@ describe('StrategyPage', () => {
       fetches: [],
       warnings: [],
       refresh_status: null,
+      historical_status: null,
     })
     const wrapper = doMount()
     try {

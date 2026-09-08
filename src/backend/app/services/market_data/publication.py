@@ -21,9 +21,10 @@ of that pending receipt later.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +33,7 @@ from app.models.market_data_platform import (
     MdInstrumentIdentityRevision,
     MdPublication,
     MdSourceSnapshot,
+    MdVisibilitySequenceAllocator,
 )
 
 UTC = timezone.utc
@@ -54,6 +56,51 @@ class MarketDataPublicationError(ValueError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+@dataclass(frozen=True, slots=True)
+class MarketDataVisibilityAnchor:
+    """The complete, server-frozen boundary for one strict local replay.
+
+    Timestamps alone cannot distinguish receipts sealed in the same database
+    timestamp tick.  The canonical sequence supplies that missing order.  A
+    zero maximum is valid and represents a cutoff before any sealed receipt.
+    """
+
+    visible_at: datetime
+    max_visibility_sequence: int
+
+    def __post_init__(self) -> None:
+        if self.visible_at.tzinfo is None or self.visible_at.utcoffset() is None:
+            raise ValueError("visibility anchor visible_at must be timezone-aware")
+        if (
+            not isinstance(self.max_visibility_sequence, int)
+            or isinstance(self.max_visibility_sequence, bool)
+            or self.max_visibility_sequence < 0
+        ):
+            raise ValueError("visibility anchor sequence must be a non-negative integer")
+        object.__setattr__(self, "visible_at", self.visible_at.astimezone(UTC))
+
+    def permits(self, *, visible_at: datetime, visibility_sequence: int) -> bool:
+        """Return whether one sealed receipt belongs to this immutable replay."""
+        if (
+            not isinstance(visibility_sequence, int)
+            or isinstance(visibility_sequence, bool)
+            or visibility_sequence < 1
+        ):
+            raise ValueError("visibility sequence must be a positive integer")
+        if visible_at.tzinfo is None or visible_at.utcoffset() is None:
+            raise ValueError("receipt visible_at must be timezone-aware")
+        # Both components are independently required.  A strict request may
+        # deliberately name a future availability cutoff.  A receipt sealed
+        # *after* the anchor can still have a visibility timestamp below that
+        # cutoff (for example because a writer's clock was held at an earlier
+        # representable instant).  A purely lexicographic comparison would
+        # then leak its larger global sequence into the frozen replay.
+        return (
+            visible_at.astimezone(UTC) <= self.visible_at
+            and visibility_sequence <= self.max_visibility_sequence
+        )
 
 
 def _utc_now() -> datetime:
@@ -246,10 +293,18 @@ class MarketDataPublicationManager:
         materialized = tuple(rows)
         if not materialized:
             raise MarketDataPublicationError("PUBLICATION_IDS_EMPTY")
-        existing_times = [
-            _stored_utc(row.published_at) for row in materialized if row.published_at is not None
-        ]
-        pending_ids = tuple(row.id for row in materialized if row.published_at is None)
+        existing_times = []
+        pending_rows: list[MdPublication] = []
+        for row in materialized:
+            if row.published_at is None:
+                if row.visibility_sequence is not None:
+                    raise MarketDataPublicationError("PUBLICATION_VISIBILITY_INTEGRITY")
+                pending_rows.append(row)
+                continue
+            if not _is_visibility_sequence(row.visibility_sequence):
+                raise MarketDataPublicationError("PUBLICATION_VISIBILITY_INTEGRITY")
+            existing_times.append(_stored_utc(row.published_at))
+        pending_ids = tuple(row.id for row in pending_rows)
         if not pending_ids:
             return max(existing_times)
 
@@ -258,20 +313,95 @@ class MarketDataPublicationManager:
             # Equal timestamps are ambiguous in a strict ``<=`` replay.
             # Move one representable instant forward to remain conservative.
             published_at = lower_bound + timedelta(microseconds=1)
-        # Use a guarded SQL transition rather than making the immutable ORM
-        # evidence object mutable. The predicate prevents a second publisher
-        # from rewriting an already visible receipt.
-        result = await self._db.execute(
-            update(MdPublication)
-            .where(
-                MdPublication.id.in_(pending_ids),
-                MdPublication.published_at.is_(None),
-            )
-            .values(published_at=published_at)
+        allocator = await self._locked_visibility_allocator()
+        prior_visible_at = (
+            _stored_utc(allocator.last_visible_at)
+            if allocator.last_visible_at is not None
+            else None
         )
-        if result.rowcount != len(pending_ids):
-            raise MarketDataPublicationError("PUBLICATION_WRITE_CONFLICT")
+        # The sequence is the authoritative tie-breaker, so equal visible_at
+        # values are allowed.  A local clock regression may never move the
+        # logical boundary backwards relative to an earlier seal.
+        if prior_visible_at is not None and published_at < prior_visible_at:
+            published_at = prior_visible_at
+        first_sequence = allocator.next_visibility_sequence
+        if not _is_visibility_sequence(first_sequence):
+            raise MarketDataPublicationError("PUBLICATION_VISIBILITY_ALLOCATOR_INTEGRITY")
+        ordered_pending = tuple(sorted(pending_rows, key=lambda row: row.id))
+        allocator.next_visibility_sequence = first_sequence + len(ordered_pending)
+        allocator.last_visible_at = published_at
+        await self._db.flush()
+
+        # Use guarded SQL transitions rather than mutating immutable evidence
+        # objects.  A concurrent second publisher cannot rewrite an existing
+        # receipt, and the allocator lock makes every assigned value global.
+        for offset, row in enumerate(ordered_pending):
+            result = await self._db.execute(
+                update(MdPublication)
+                .where(
+                    MdPublication.id == row.id,
+                    MdPublication.published_at.is_(None),
+                    MdPublication.visibility_sequence.is_(None),
+                )
+                .values(
+                    published_at=published_at,
+                    visibility_sequence=first_sequence + offset,
+                )
+            )
+            if result.rowcount != 1:
+                raise MarketDataPublicationError("PUBLICATION_WRITE_CONFLICT")
         return max((*existing_times, published_at))
+
+    async def _locked_visibility_allocator(self) -> MdVisibilitySequenceAllocator:
+        """Return the durable singleton that serializes global receipt order."""
+        try:
+            allocator = await self._db.scalar(
+                select(MdVisibilitySequenceAllocator)
+                .where(MdVisibilitySequenceAllocator.singleton_id == 1)
+                .with_for_update()
+            )
+            if allocator is None:
+                max_sequence = await self._db.scalar(
+                    select(func.max(MdPublication.visibility_sequence)).where(
+                        MdPublication.visibility_sequence.is_not(None)
+                    )
+                )
+                latest_visible_at = await self._db.scalar(
+                    select(func.max(MdPublication.published_at)).where(
+                        MdPublication.published_at.is_not(None)
+                    )
+                )
+                candidate = MdVisibilitySequenceAllocator(
+                    singleton_id=1,
+                    next_visibility_sequence=(int(max_sequence) + 1 if max_sequence is not None else 1),
+                    last_visible_at=latest_visible_at,
+                )
+                try:
+                    async with self._db.begin_nested():
+                        self._db.add(candidate)
+                        await self._db.flush()
+                except IntegrityError:
+                    # Another worker created the sentinel. Re-read it under
+                    # the same row-lock protocol before allocating anything.
+                    pass
+                allocator = await self._db.scalar(
+                    select(MdVisibilitySequenceAllocator)
+                    .where(MdVisibilitySequenceAllocator.singleton_id == 1)
+                    .with_for_update()
+                )
+        except IntegrityError as exc:
+            raise MarketDataPublicationError("PUBLICATION_VISIBILITY_ALLOCATOR_CONFLICT") from exc
+        if allocator is None or not _is_visibility_sequence(allocator.next_visibility_sequence):
+            raise MarketDataPublicationError("PUBLICATION_VISIBILITY_ALLOCATOR_INTEGRITY")
+
+        max_sequence = await self._db.scalar(
+            select(func.max(MdPublication.visibility_sequence)).where(
+                MdPublication.visibility_sequence.is_not(None)
+            )
+        )
+        if max_sequence is not None and allocator.next_visibility_sequence <= int(max_sequence):
+            raise MarketDataPublicationError("PUBLICATION_VISIBILITY_ALLOCATOR_INTEGRITY")
+        return allocator
 
     async def _assert_pending_entity_integrity(
         self,
@@ -316,6 +446,10 @@ def _is_sha256(value: object) -> bool:
         and len(value) == 64
         and all(character in "0123456789abcdef" for character in value)
     )
+
+
+def _is_visibility_sequence(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
 
 
 def _stored_utc(value: datetime) -> datetime:

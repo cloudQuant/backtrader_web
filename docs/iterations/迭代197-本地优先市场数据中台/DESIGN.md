@@ -7,15 +7,18 @@
 ```mermaid
 flowchart LR
   UI[行情页 / 策略页] --> API[POST /api/v1/data/queries]
-  API --> R[请求解析器]
+  API --> AUTH[当前 principal / entitlement]
+  AUTH --> R[请求解析器]
   R --> C[数据目录]
   R --> I[版本化主数据]
   I --> K[精确三元组索引]
-  R --> S[规范化本地存储]
+  I --> SA[来源 registry 授权]
+  SA --> S[规范化本地存储]
+  SA --> POLICY[来源策略]
   S --> CAL[冻结交易日历]
   S --> PLAN[覆盖规划器]
   PLAN -->|完整| OUT[本地结果 + 来源元数据]
-  PLAN -->|缺口/未知| POLICY[来源策略]
+  PLAN -->|缺口/未知| POLICY
   POLICY --> AK[AkShare 适配器]
   POLICY --> OBB[隔离 OpenBB 运行器]
   AK --> TXA[事务 A 事实 + pending publication]
@@ -26,6 +29,21 @@ flowchart LR
 ```
 
 新链路与遗留 AkShare 仓库并行。页面迁移前，旧接口保持原路径和返回形状；新接口从第一天起使用明确 DTO，不调用旧 `MarketInstrumentService`。
+
+### 1.1 当前读取授权
+
+`MarketDataAccessAuthorizer` 在 API 层从数据库当前角色构建不可变的 `MarketDataPrincipal`。principal scope、tenant scope 和 entitlement revision 会进入 v2 分页的签名绑定；scope 在 token 内以摘要形式出现，避免泄露用户标识或使 token 因过长的原始 scope 失效。没有 `Permission.READ_DATA` 的调用在进入 anchor、identity、calendar、observation 或 provider 查询前拒绝。
+
+同一 gate 也适用于返回家族合同的 `query-bundle` 和读取目录/主数据生成模板的 `query-contract`；它们是市场数据控制面，不因自身不返回 observation 而只要求登录。遗留兼容路由保持原有授权契约，直到单独的迁移验收批准变更。
+
+identity 解析只提供准确 asset/market，随后 query service 使用同一个 principal 对 server-owned policy 的 eligible routes 执行 `AssetDataSourceRegistry` 授权。它是允许读取事实、计算覆盖和访问 provider 的最后前置条件。授权结果同时产生两类证据：
+
+- `authorized_source_registry_ids` 被传给 observation 和 calendar 读取 SQL，限定 `MdSourceSnapshot.source_id` 与 `MdCalendarSnapshot.source_registry_id`，所以旧本地事实或日历不会绕过当前许可证或用途状态；
+- 每个成功 route 的 `MarketDataSourceAuthorization` 被保存到 receipt provenance，记录采集当时的 registry、许可证、用途、时间窗、辖区、保留/再分发规则和 entitlement 摘要。
+
+calendar 导入时同样冻结其 `source_registry_id`、治理 descriptor 和 `VERIFIED` 状态；没有该 provenance 的兼容/历史 calendar 只能保留审计，不能进入 v2 `KNOWN` 覆盖。calendar 的来源可以是经审核的平台维护源，但它仍必须有明确 registry 记录；不能把空来源当作永久可信。
+
+source-policy 配置摘要与 access grant 摘要是不同维度：前者描述服务器批准的 route 配置，后者还包含当前 principal 和 registry 判断。cursor 同时绑定两者；续页先验证签名、principal/tenant/entitlement 与静态 policy，再在 identity 解析后重新计算当前 grant，且必须在任何事实/日历/provider I/O 前匹配。因而角色、来源启用状态或许可变化会使旧 cursor 失败关闭，而不会利用第一次请求的授权结果。
 
 ## 2. 请求解析与身份
 
@@ -69,7 +87,7 @@ flowchart LR
 | 表 | 职责 |
 | --- | --- |
 | `md_data_series` | 一个完整语义数据系列；哈希包含数据集、canonical identity、主数据版本、数据种类、频率、来源策略和口径，不包含请求时间窗或字段投影。 |
-| `md_source_snapshots` | 一次来源请求的不可变回执：提供方、适配器、端点版本、请求/载荷哈希、有界原始载荷封套或受控引用、来源元数据。 |
+| `md_source_snapshots` | 一次来源请求的不可变回执：公共 query fingerprint、一次性 provider request ID、完整 provider DTO hash、载荷 hash、提供方、适配器、端点版本、有界原始载荷封套或受控引用、来源授权 provenance。 |
 | `md_observation_revisions` | 每个事件的不可变规范化修订：字段、字段哈希、质量、应用收据时间、来源自报可用时间、来源回执和规范化版本。 |
 | `md_publications` | 每个来源 snapshot、calendar snapshot 或 identity revision 的 pending / post-commit visibility receipt；`entity_sha256` 绑定实体，`published_at` 是唯一严格读取闸门。 |
 | `md_calendar_snapshots` / `md_calendar_events` | 版本化、显式覆盖范围与频率网格的交易日历和事件，不按周末规则或其它粒度推断。 |
@@ -80,7 +98,7 @@ PIT 使用**两事务 publication protocol**，而不是把 Python `created_at`�
 
 1. **事务 A**：校验结果后，在一个事务/保存点写入 source snapshot、observation revisions 与同 hash 的 pending `MdPublication`；随后提交事务 A。
 2. **事务 B**：仅在 A 已提交且 session 无活动事务时，以可信本地时钟写入不可变的 post-commit `published_at`。若时钟不晚于收据下界，向前推进一个可表达时间单位，避免 `<=` cutoff 的等值歧义。
-3. **读取**：只 join hash 匹配且 `published_at IS NOT NULL AND published_at <= knowledge_cutoff` 的 receipt。source self-reported availability 仅保存为 provenance；规范化 observation 的 `available_at` 是本地收据时间，不能由上游时间回填。A 成功、B 尚未完成的事实是 durable-but-hidden，不能被 coverage、API、策略或 strict replay 读取。
+3. **读取**：先冻结完整 anchor `(visible_at=knowledge_cutoff, max_visibility_sequence)`，再只 join hash 匹配、`published_at IS NOT NULL` 且同时满足 `published_at <= visible_at AND visibility_sequence <= max_visibility_sequence` 的 receipt。两项条件是合取关系，不能将 timestamp/sequence 作词典序替代。source self-reported availability 仅保存为 provenance；规范化 observation 的 `available_at` 是本地收据时间，不能由上游时间回填。A 成功、B 尚未完成的事实是 durable-but-hidden，不能被 coverage、API、策略或 strict replay 读取。
 
 `published_at` 表示可审计的系统逻辑可见性，不声称取得了目标数据库的物理 commit timestamp。MySQL/PostgreSQL 的真实跨连接时区与 PIT 语义仍未验证。
 
@@ -108,30 +126,32 @@ PIT 使用**两事务 publication protocol**，而不是把 Python `created_at`�
 
 ### 4.1 本地读取
 
-1. 验证公共请求。
-2. 解析逻辑数据集和主数据版本。
-3. 用解析后的语义查找 `md_data_series`。
-4. 读取截止点前的观测修订与适用日历。
+1. 验证公共请求，并从当前认证用户建立 principal、tenant 和 entitlement revision；没有 `data:read` 时在任何数据控制面读取前拒绝。
+2. 解析逻辑数据集和主数据版本，得到精确 asset/market。
+3. 对 source policy 的 eligible routes 重新评估当前 `AssetDataSourceRegistry`，得到允许 route 与 `authorized_source_registry_ids`；此时尚未读取 observation/calendar 或执行 provider。
+4. 用解析后的语义查找 `md_data_series`，并仅从 `MdSourceSnapshot.source_id IN authorized_source_registry_ids` 的已发布修订读取观测和适用日历。
 5. 执行覆盖规划，返回本地行、质量、来源和缺口。
 
 ### 4.2 缺口补齐
 
 1. 解析服务器维护的来源策略，确认 policy 允许本次 `purpose`，并从精确资产、市场、频率、字段口径中选择显式 capable route；没有路由返回稳定拒绝码，绝不猜测 provider 或扩展。
 2. `local_first` 只在覆盖不完整或未知时补齐；`local_only` 永远不触网；`refresh` 对完整窗口请求新修订并另行报告 `fresh_complete`、`fresh_incomplete` 或 `fresh_unknown_calendar`。严格请求已有 `knowledge_cutoff` 时不能进行交互式在线补齐。
-3. 在发送网络请求前，逐个验证 route 预期的 receipt provider 已在治理目录注册且处于活动状态。构造包含精确 canonical identity、显示代码、市场、频率、时间窗、字段、口径、source policy 和 query fingerprint 的 provider 请求。
-4. 适配器必须回显同一个不可变请求；编排层和存储层分别校验 receipt 与 route/context 的所有身份、窗口和语义维度。错配、越界、重复事件、超大载荷或不可序列化字段一律不落库。
-5. 存储层在事务 A 写入回执、观测和 pending publication；A 提交后，事务 B 才追加 post-commit visibility receipt。提供方自报时间仅作为 provenance，不允许它改变 PIT 可见性。
+3. 在发送网络请求前，逐个验证 route 预期的 receipt provider 已在治理目录注册且处于活动状态。构造包含精确 canonical identity、显示代码、市场、频率、时间窗、字段、口径、source policy、query fingerprint、一次性 request ID 和当前 access-grant 摘要的 provider 请求。
+4. 适配器必须回显同一个不可变请求；编排层和存储层分别校验 receipt 与 route/context 的所有身份、窗口和语义维度，并由存储层重算完整 provider DTO hash。错配、越界、重复事件、超大载荷、错误 request ID/DTO hash 或不可序列化字段一律不落库。
+5. 存储层在事务 A 写入回执、观测和 pending publication 前，再以当前 registry 复核冻结的 `MarketDataSourceAuthorization`；授权已变化、未注册或 descriptor 不一致时拒绝写入。A 提交后，事务 B 才追加 post-commit visibility receipt。提供方自报时间仅作为 provenance，不允许它改变 PIT 可见性。
 6. 重新从已发布的本地证据读出并计算覆盖，响应永远以已写入且已发布的数据为准；提供方内存结果不会直接返回。
 
 ### 4.3 同进程缺口合并
 
-当前 HTTP 层对等价的、没有 `knowledge_cutoff` 的交互式请求，以 `(event loop identity, query_fingerprint)` 建立 singleflight。leader 在其请求作用域内执行来源获取；只要确有 fetch，它在完成后提交来源回执和观测修订。follower 等待 leader 的完成信号后，先结束自身可能由认证读取建立的只读事务，再通过自己的数据库会话重新执行本地读取；这避免 MySQL `REPEATABLE READ` 沿用 leader 提交前的快照，也不会把 leader 的内存对象当作自己的结果。
+当前 HTTP 层对等价的、没有 `knowledge_cutoff` 的交互式请求，以 `(event loop identity, query_fingerprint, principal scope, tenant scope, entitlement revision)` 建立 singleflight。leader 在其请求作用域内执行来源获取；只要确有 fetch，它在完成后提交来源回执和观测修订。follower 等待 leader 的完成信号后，先结束自身可能由认证读取建立的只读事务，再通过自己的数据库会话重新执行本地读取并重新评估当前来源授权；这避免 MySQL `REPEATABLE READ` 沿用 leader 提交前的快照，也不会把 leader 的内存对象当作自己的结果或跨主体共享许可结果。
+
+leader 不会在网络 I/O 期间持有用户或 registry 锁。provider 返回后，它在 receipt 写入前对用户、角色和 route registry 执行短的 locking/current read，并要求 entitlement 与 source authorization descriptor 与 preflight 完全相同；变化或撤销返回稳定拒绝，内存结果不落库。follower rollback 后也重新读取 principal；若角色已改变，会以新 access 执行或被拒绝，不复用等待前的 access context。
 
 这是**同一 Web 进程、同一事件循环**的优化和局部一致性措施，不是分布式锁。多 worker、多个 Uvicorn/Gunicorn 进程、多个 pod 或 leader 异常后的接管不共享该表；它们仍可能对同一缺口同时访问提供方，甚至并发进入事实写入路径。当前版本没有数据库 lease、writer ownership/fencing、租约过期、跨进程通知或多 worker 故障注入验收。唯一约束和数据库冲突码不等于跨进程写入协议；启用多 worker 的生产灰度前必须另行实现并验证这些机制，在此之前不能以 singleflight 证明全局网络去重或单写入者。
 
 ### 4.4 分页与稳定回放
 
-游标在任何本地或网络读取前解析，并绑定 query fingerprint、事件排序键和首次读取的 `knowledge_cutoff`。后续页面用该 cutoff 同时冻结主数据身份和本地观测可见性，不再进行 provider 调用；`local_first` 会返回 `CURSOR_FROZEN_LOCAL_ONLY` 提示。游标不包含可变 provider 配置，换查询语义或试图提供不同 cutoff 都会被拒绝。
+游标在任何本地或网络读取前解析，并绑定 query fingerprint、事件排序键、首次读取的完整 visibility anchor、principal/tenant/entitlement 的摘要和静态 source-policy 摘要。后续页面用该 anchor 同时冻结主数据身份和本地观测可见性，不再进行 provider 调用；`local_first` 会返回 `CURSOR_FROZEN_LOCAL_ONLY` 提示。identity 解析后会重新计算当前 access-grant 摘要；它与 token 中的摘要不一致时，在 observation/calendar/provider I/O 前拒绝。游标不包含可变 provider 配置，换查询语义或试图提供不同 cutoff 都会被拒绝。
 
 游标载荷以运维管理的 `MARKET_DATA_CURSOR_SIGNING_KEY` 做 HMAC-SHA256 签名；v2 开关开启时该 key 必须存在且至少 32 bytes。签名篡改或 key 轮换后的旧 token 在任何本地读取、provider 调用或写入前以 `CURSOR_SIGNATURE_INVALID` 拒绝。签名 key 不进入日志、响应、文档样例或 runner 环境。
 

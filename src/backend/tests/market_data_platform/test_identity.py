@@ -29,6 +29,7 @@ from app.services.market_data.identity_projection import MarketDataIdentityProje
 from app.services.market_data.publication import (
     PUBLICATION_INSTRUMENT_IDENTITY,
     MarketDataPublicationManager,
+    MarketDataVisibilityAnchor,
 )
 
 NOW = datetime(2026, 9, 8, 12, tzinfo=timezone.utc)
@@ -129,6 +130,7 @@ def _published_projection(
     record: AssetInstrument,
     *,
     published_at: datetime | None = None,
+    revision_number: int = 1,
 ) -> tuple[MdInstrumentIdentityRevision, MdPublication]:
     """Create an explicit immutable projection fixture with a visibility receipt.
 
@@ -156,7 +158,7 @@ def _published_projection(
         identity_json=record.identity_json,
         valid_from=record.valid_from,
         valid_to=record.valid_to,
-        revision_number=1,
+        revision_number=revision_number,
         revision_sha256=digest,
         created_at=record.created_at,
     )
@@ -165,6 +167,9 @@ def _published_projection(
         entity_id=revision_id,
         entity_sha256=digest,
         published_at=visible_at,
+        visibility_sequence=(
+            int(visible_at.timestamp()) * 1_000_000 + int(digest[:12], 16) % 1_000_000 + 1
+        ),
         created_at=visible_at,
     )
     return revision, receipt
@@ -303,6 +308,55 @@ async def test_resolver_selects_the_latest_valid_version_and_freezes_its_metadat
 
 
 @pytest.mark.asyncio
+async def test_resolver_keeps_prior_validity_segments_of_one_instrument_for_strict_pit() -> None:
+    """A later lifecycle receipt cannot erase the same instrument's prior interval."""
+    old = _stock_identity(version="stock-lifecycle-v1")
+    current = _stock_identity(version="stock-lifecycle-v2")
+    transition_at = NOW - timedelta(days=1)
+    record = _record(
+        old,
+        valid_from=NOW - timedelta(days=30),
+        valid_to=transition_at,
+    )
+    old_revision, old_receipt = _published_projection(
+        record,
+        published_at=NOW - timedelta(days=2),
+        revision_number=1,
+    )
+    # A lifecycle evolution keeps the authoritative instrument ID stable while
+    # appending a new immutable projection for the next effective interval.
+    record.identity_json = current.model_dump(mode="json")
+    record.metadata_version = current.metadata_version
+    record.valid_from = transition_at
+    record.valid_to = None
+    current_revision, current_receipt = _published_projection(
+        record,
+        published_at=NOW - timedelta(days=1),
+        revision_number=2,
+    )
+
+    async with async_session_maker() as db:
+        db.add_all([record, old_revision, old_receipt, current_revision, current_receipt])
+        await db.commit()
+        resolver = MarketDataIdentityResolver(db)
+        historical = await resolver.resolve(
+            QueryIdentity(canonical_id=old.canonical_id),
+            effective_at=NOW - timedelta(days=5),
+            knowledge_cutoff=NOW,
+        )
+        latest = await resolver.resolve(
+            QueryIdentity(canonical_id=current.canonical_id),
+            effective_at=NOW,
+            knowledge_cutoff=NOW,
+        )
+
+    assert historical.metadata_version == "stock-lifecycle-v1"
+    assert historical.valid_to == transition_at
+    assert latest.metadata_version == "stock-lifecycle-v2"
+    assert latest.valid_from == transition_at
+
+
+@pytest.mark.asyncio
 async def test_strict_cutoff_rejects_a_master_identity_backfilled_after_the_cutoff() -> None:
     """Market-effective validity cannot make a later local identity import retroactive."""
     identity = _stock_identity()
@@ -329,6 +383,86 @@ async def test_strict_cutoff_rejects_a_master_identity_backfilled_after_the_cuto
 
     assert hidden.value.code == "IDENTITY_NOT_KNOWN_AT_CUTOFF"
     assert resolved.canonical_id == identity.canonical_id
+
+
+@pytest.mark.asyncio
+async def test_identity_anchor_excludes_later_sequence_below_a_future_cutoff() -> None:
+    """A future PIT cutoff cannot admit an identity correction sealed after its anchor."""
+    original = _stock_identity(version="stock-anchor-v1")
+    correction = _stock_identity(version="stock-anchor-v2")
+    record = _record(original, created_at=NOW)
+    first_revision, first_receipt = _published_projection(
+        record,
+        published_at=NOW,
+        revision_number=1,
+    )
+    first_receipt.visibility_sequence = 1
+
+    # The authoritative row is allowed to evolve, while each market-data
+    # projection remains an immutable revision of the same validity segment.
+    record.identity_json = correction.model_dump(mode="json")
+    record.metadata_version = correction.metadata_version
+    second_revision, second_receipt = _published_projection(
+        record,
+        published_at=NOW,
+        revision_number=2,
+    )
+    second_receipt.visibility_sequence = 2
+    future_anchor = MarketDataVisibilityAnchor(
+        visible_at=NOW + timedelta(days=1),
+        max_visibility_sequence=1,
+    )
+
+    async with async_session_maker() as db:
+        db.add_all([record, first_revision, first_receipt, second_revision, second_receipt])
+        await db.commit()
+        resolved = await MarketDataIdentityResolver(db).resolve(
+            QueryIdentity(canonical_id=original.canonical_id),
+            effective_at=NOW,
+            knowledge_cutoff=future_anchor.visible_at,
+            visibility_anchor=future_anchor,
+        )
+
+    assert resolved.metadata_version == "stock-anchor-v1"
+    assert resolved.visibility_sequence == 1
+
+
+@pytest.mark.asyncio
+async def test_identity_correction_order_uses_revision_number_not_batch_sequence() -> None:
+    """Receipt allocation order cannot revive an older correction in one sealed batch."""
+    original = _stock_identity(version="stock-batch-v1")
+    correction = _stock_identity(version="stock-batch-v2")
+    record = _record(original, created_at=NOW)
+    first_revision, first_receipt = _published_projection(
+        record,
+        published_at=NOW,
+        revision_number=1,
+    )
+    # Publication IDs are sorted when a staged batch is sealed, independently
+    # of semantic revision numbers.  This is a valid global receipt order.
+    first_receipt.visibility_sequence = 2
+    record.identity_json = correction.model_dump(mode="json")
+    record.metadata_version = correction.metadata_version
+    second_revision, second_receipt = _published_projection(
+        record,
+        published_at=NOW,
+        revision_number=2,
+    )
+    second_receipt.visibility_sequence = 1
+    anchor = MarketDataVisibilityAnchor(visible_at=NOW, max_visibility_sequence=2)
+
+    async with async_session_maker() as db:
+        db.add_all([record, first_revision, first_receipt, second_revision, second_receipt])
+        await db.commit()
+        resolved = await MarketDataIdentityResolver(db).resolve(
+            QueryIdentity(canonical_id=original.canonical_id),
+            effective_at=NOW,
+            knowledge_cutoff=anchor.visible_at,
+            visibility_anchor=anchor,
+        )
+
+    assert resolved.metadata_version == "stock-batch-v2"
+    assert resolved.visibility_sequence == 1
 
 
 @pytest.mark.asyncio

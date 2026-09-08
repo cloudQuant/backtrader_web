@@ -308,6 +308,7 @@ function createV2ResponseFixture(
     fetches: [],
     warnings: [],
     refresh_status: null,
+    historical_status: null,
   }
 }
 
@@ -578,6 +579,7 @@ describe('DataPage', () => {
       fetches: [],
       warnings: [],
       refresh_status: null,
+      historical_status: null,
     })
 
     const wrapper = await mountPage()
@@ -993,6 +995,7 @@ describe('DataPage', () => {
       fetches: [],
       warnings: [],
       refresh_status: null,
+      historical_status: null,
     }))
     apiMocks.queryLocalFirst.mockImplementation(({ cursor }: { cursor?: string }) => {
       const pageIndex = cursor ? Number(cursor.replace('cursor-', '')) : 0

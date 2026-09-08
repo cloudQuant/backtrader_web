@@ -639,3 +639,4 @@ class MarketDataQueryResponse(BaseModel):
     refresh_status: (
         Literal["fresh_complete", "fresh_incomplete", "fresh_unknown_calendar"] | None
     ) = None
+    historical_status: Literal["unknown_calendar", "HISTORICAL_COVERAGE_UNAVAILABLE"] | None = None

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -16,7 +16,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.asset_research import AssetDataSourceRegistry
 from app.models.market_data_platform import (
+    CALENDAR_SOURCE_GOVERNANCE_STATE_VERIFIED,
     MdCalendarEvent,
     MdCalendarImportLock,
     MdCalendarSnapshot,
@@ -30,6 +32,18 @@ from app.services.market_data.publication import (
 UTC = timezone.utc
 MANIFEST_VERSION = "market-data-calendar-v1"
 MAX_CALENDAR_MANIFEST_BYTES = 5 * 1024 * 1024
+_CALENDAR_SOURCE_GOVERNANCE_VERSION = "market-data-calendar-source-governance-v1"
+_APPROVED_LICENSES = frozenset(
+    {
+        "APPROVED",
+        "LICENSED",
+        "MARKET_DATA_APPROVED",
+        "PUBLIC",
+        "RESEARCH_APPROVED",
+    }
+)
+_READABLE_REDISTRIBUTION_POLICIES = frozenset({"ALLOWED", "INTERNAL_ONLY", "NO_REDISTRIBUTION"})
+_PROHIBITED_RETENTION_POLICIES = frozenset({"", "DENIED", "EXPIRED", "PROHIBITED", "UNKNOWN"})
 
 
 class MarketDataCalendarImportError(ValueError):
@@ -109,6 +123,7 @@ class MarketDataCalendarManifest(_StrictModel):
     approval_reference: str = Field(min_length=1, max_length=255)
     evidence_uri: str = Field(min_length=1, max_length=2048)
     evidence_content_hash: str = Field(min_length=64, max_length=64)
+    source_registry_id: str = Field(min_length=1, max_length=128)
     calendar_code: str = Field(min_length=1, max_length=128)
     calendar_version: str = Field(min_length=1, max_length=128)
     timezone_name: str = Field(min_length=1, max_length=128)
@@ -116,7 +131,13 @@ class MarketDataCalendarManifest(_StrictModel):
     coverage_end_at: datetime
     events: tuple[MarketDataCalendarEventManifest, ...] = ()
 
-    @field_validator("approval_reference", "evidence_uri", "calendar_code", "calendar_version")
+    @field_validator(
+        "approval_reference",
+        "evidence_uri",
+        "source_registry_id",
+        "calendar_code",
+        "calendar_version",
+    )
     @classmethod
     def normalize_text(cls, value: str) -> str:
         normalized = value.strip()
@@ -209,8 +230,14 @@ class MarketDataCalendarImportReport:
 class MarketDataCalendarImporter:
     """Import a reviewed calendar through a post-commit visibility receipt."""
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self._db = db
+        self._clock = clock or _utc_now
         self._publications = MarketDataPublicationManager(db)
 
     async def import_payload(
@@ -287,6 +314,10 @@ class MarketDataCalendarImporter:
         dry_run: bool,
     ) -> MarketDataCalendarImportReport:
         await self._lock_calendar_code(manifest.calendar_code)
+        source_governance = await self._source_governance_for_manifest(
+            manifest,
+            manifest_hash=manifest_hash,
+        )
         snapshots = list(
             (
                 await self._db.execute(
@@ -309,6 +340,13 @@ class MarketDataCalendarImporter:
             snapshot = same_version[0]
             if snapshot.snapshot_sha256 != manifest_hash:
                 raise MarketDataCalendarImportError("CALENDAR_VERSION_CONFLICT")
+            if (
+                snapshot.source_registry_id != manifest.source_registry_id
+                or snapshot.source_governance_state != CALENDAR_SOURCE_GOVERNANCE_STATE_VERIFIED
+                or snapshot.source_governance_descriptor_sha256
+                != source_governance["descriptor_hash"]
+            ):
+                raise MarketDataCalendarImportError("CALENDAR_SOURCE_GOVERNANCE_CONFLICT")
             try:
                 publication = await self._publications.stage(
                     entity_type=PUBLICATION_CALENDAR_SNAPSHOT,
@@ -342,6 +380,9 @@ class MarketDataCalendarImporter:
             calendar_code=manifest.calendar_code,
             calendar_version=manifest.calendar_version,
             timezone_name=manifest.timezone_name,
+            source_registry_id=manifest.source_registry_id,
+            source_governance_state=CALENDAR_SOURCE_GOVERNANCE_STATE_VERIFIED,
+            source_governance_descriptor_sha256=str(source_governance["descriptor_hash"]),
             snapshot_sha256=manifest_hash,
             definition_json={
                 "schema_version": MANIFEST_VERSION,
@@ -349,6 +390,7 @@ class MarketDataCalendarImporter:
                 "evidence_uri": manifest.evidence_uri,
                 "evidence_content_hash": manifest.evidence_content_hash,
                 "manifest_hash": manifest_hash,
+                "source_governance": source_governance,
                 "coverage_window": {
                     "start_at": manifest.coverage_start_at.isoformat(),
                     "end_at": manifest.coverage_end_at.isoformat(),
@@ -405,6 +447,120 @@ class MarketDataCalendarImporter:
             event_count=len(manifest.events),
             publication_id=publication.id,
         )
+
+    async def _source_governance_for_manifest(
+        self,
+        manifest: MarketDataCalendarManifest,
+        *,
+        manifest_hash: str,
+    ) -> dict[str, object]:
+        """Freeze a registry-backed calendar source descriptor for one import.
+
+        The calendar importer is an operator workflow, but it does not get to
+        make a registry or licence decision by itself.  It re-reads the exact
+        configured source and records a canonical digest of that decision;
+        product reads then require the same source to appear in the current
+        access grant before the calendar can prove coverage.
+        """
+        registry = await self._db.scalar(
+            select(AssetDataSourceRegistry)
+            .where(AssetDataSourceRegistry.source_id == manifest.source_registry_id)
+            .execution_options(populate_existing=True)
+        )
+        if registry is None:
+            raise MarketDataCalendarImportError("CALENDAR_SOURCE_REGISTRY_UNREGISTERED")
+        try:
+            source_id = _required_text(
+                registry.source_id,
+                field_name="calendar source_registry_id",
+                maximum=128,
+            )
+            if source_id != manifest.source_registry_id:
+                raise ValueError("source registry identity mismatch")
+            enabled = registry.enabled
+            if not isinstance(enabled, bool):
+                raise ValueError("calendar source enabled state is invalid")
+            asset_types = _registry_tokens(registry.asset_types, field_name="calendar asset_types")
+            jurisdictions = _registry_tokens(
+                registry.jurisdictions,
+                field_name="calendar jurisdictions",
+            )
+            allowed_uses = _registry_tokens(
+                registry.allowed_uses,
+                field_name="calendar allowed_uses",
+            )
+            license_status = _registry_token(
+                registry.license_status,
+                field_name="calendar license_status",
+                maximum=64,
+            )
+            retention_policy = _registry_token(
+                registry.retention_policy,
+                field_name="calendar retention_policy",
+                maximum=64,
+            )
+            redistribution_policy = _registry_token(
+                registry.redistribution_policy,
+                field_name="calendar redistribution_policy",
+                maximum=64,
+            )
+            effective_from = _stored_utc(
+                registry.effective_from,
+                field_name="calendar source effective_from",
+            )
+            effective_to = (
+                _stored_utc(registry.effective_to, field_name="calendar source effective_to")
+                if registry.effective_to is not None
+                else None
+            )
+            retention_expires_at = (
+                _stored_utc(
+                    registry.retention_expires_at,
+                    field_name="calendar source retention_expires_at",
+                )
+                if registry.retention_expires_at is not None
+                else None
+            )
+            registry_updated_at = _stored_utc(
+                registry.updated_at,
+                field_name="calendar source registry_updated_at",
+            )
+            now = _trusted_now(self._clock)
+        except (TypeError, ValueError) as exc:
+            raise MarketDataCalendarImportError("CALENDAR_SOURCE_REGISTRY_INVALID") from exc
+        if (
+            not enabled
+            or license_status not in _APPROVED_LICENSES
+            or retention_policy in _PROHIBITED_RETENTION_POLICIES
+            or redistribution_policy not in _READABLE_REDISTRIBUTION_POLICIES
+            or not _jurisdiction_allows(jurisdictions, manifest.calendar_code)
+            or effective_from > now
+            or (effective_to is not None and effective_to < now)
+            or (retention_expires_at is not None and retention_expires_at < now)
+        ):
+            raise MarketDataCalendarImportError("CALENDAR_SOURCE_REGISTRY_DENIED")
+        payload: dict[str, object] = {
+            "version": _CALENDAR_SOURCE_GOVERNANCE_VERSION,
+            "source_registry_id": source_id,
+            "registry_updated_at": registry_updated_at.isoformat(),
+            "license_status": license_status,
+            "asset_types": list(asset_types),
+            "jurisdictions": list(jurisdictions),
+            "allowed_uses": list(allowed_uses),
+            "effective_from": effective_from.isoformat(),
+            "effective_to": effective_to.isoformat() if effective_to is not None else None,
+            "retention_policy": retention_policy,
+            "retention_expires_at": (
+                retention_expires_at.isoformat() if retention_expires_at is not None else None
+            ),
+            "redistribution_policy": redistribution_policy,
+            "approval_reference": manifest.approval_reference,
+            "evidence_uri": manifest.evidence_uri,
+            "evidence_content_hash": manifest.evidence_content_hash,
+            "calendar_manifest_hash": manifest_hash,
+            "decision": "ALLOW",
+        }
+        return {**payload, "descriptor_hash": _sha256(_canonical_json(payload))}
 
     async def _lock_calendar_code(self, calendar_code: str) -> None:
         """Serialize overlap checks per calendar code on every supported database.
@@ -484,6 +640,58 @@ def _parse_timestamp(value: object) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("calendar timestamp must include a timezone")
     return parsed.astimezone(UTC)
+
+
+def _utc_now() -> datetime:
+    """Return the import-time clock used for registry validity checks."""
+    return datetime.now(UTC)
+
+
+def _trusted_now(clock: Callable[[], datetime]) -> datetime:
+    value = clock()
+    if not isinstance(value, datetime):
+        raise ValueError("calendar source clock invalid")
+    return _stored_utc(value, field_name="calendar source clock")
+
+
+def _stored_utc(value: object, *, field_name: str) -> datetime:
+    if not isinstance(value, datetime):
+        raise ValueError(f"{field_name} must be a datetime")
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _required_text(value: object, *, field_name: str, maximum: int) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be text")
+    normalized = value.strip()
+    if not normalized or len(normalized) > maximum:
+        raise ValueError(f"{field_name} is invalid")
+    return normalized
+
+
+def _registry_token(value: object, *, field_name: str, maximum: int) -> str:
+    return _required_text(value, field_name=field_name, maximum=maximum).upper()
+
+
+def _registry_tokens(value: object, *, field_name: str) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{field_name} must be a list")
+    normalized = tuple(
+        sorted({_registry_token(item, field_name=field_name, maximum=128) for item in value})
+    )
+    if not normalized:
+        raise ValueError(f"{field_name} must not be empty")
+    return normalized
+
+
+def _jurisdiction_allows(jurisdictions: Sequence[str], market: str) -> bool:
+    if "GLOBAL" in jurisdictions:
+        return True
+    normalized_market = market.upper()
+    market_prefix = normalized_market.split("-", maxsplit=1)[0]
+    return normalized_market in jurisdictions or market_prefix in jurisdictions
 
 
 def _overlaps(

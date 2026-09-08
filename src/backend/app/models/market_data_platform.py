@@ -15,6 +15,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
@@ -29,12 +30,20 @@ from sqlalchemy import (
     event,
 )
 from sqlalchemy.dialects import mysql
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, synonym
 
 from app.db.database import Base
 
 _SHA256_LENGTH = 64
 _CALENDAR_COVERAGE_PAYLOAD_KEY = "coverage"
+# These states are intentionally stored in relational columns rather than
+# inferred from a caller-controlled JSON blob.  A current v2 source grant can
+# therefore exclude compatibility/legacy receipts before they participate in
+# a local response or coverage decision.
+SOURCE_AUTHORIZATION_STATE_VERIFIED = "VERIFIED"
+SOURCE_AUTHORIZATION_STATE_UNVERIFIED_COMPATIBILITY = "UNVERIFIED_COMPATIBILITY"
+CALENDAR_SOURCE_GOVERNANCE_STATE_VERIFIED = "VERIFIED"
+CALENDAR_SOURCE_GOVERNANCE_STATE_UNVERIFIED_COMPATIBILITY = "UNVERIFIED_COMPATIBILITY"
 # MySQL defaults DATETIME columns to whole seconds.  Point-in-time publication
 # makes an explicit one-microsecond ordering guarantee, so all Iteration 197
 # evidence timestamps must retain microseconds on that dialect as well.
@@ -75,11 +84,29 @@ class MdPublication(Base):
             f"length(entity_sha256) = {_SHA256_LENGTH}",
             name="ck_md_publication_entity_sha256_length",
         ),
+        CheckConstraint(
+            "visibility_sequence IS NULL OR visibility_sequence >= 1",
+            name="ck_md_publication_visibility_sequence_positive",
+        ),
+        CheckConstraint(
+            "(published_at IS NULL AND visibility_sequence IS NULL) OR "
+            "(published_at IS NOT NULL AND visibility_sequence >= 1)",
+            name="ck_md_publication_visibility_state",
+        ),
+        UniqueConstraint(
+            "visibility_sequence",
+            name="uq_md_publication_visibility_sequence",
+        ),
         Index(
             "ix_md_publication_entity_visible",
             "entity_type",
             "entity_id",
             "published_at",
+        ),
+        Index(
+            "ix_md_publication_visible_anchor",
+            "published_at",
+            "visibility_sequence",
         ),
     )
 
@@ -88,6 +115,41 @@ class MdPublication(Base):
     entity_id = Column(String(36), nullable=False)
     entity_sha256 = Column(String(_SHA256_LENGTH), nullable=False)
     published_at = Column(PITDateTime, nullable=True)
+    # ``published_at`` is the historical physical column name.  ``visible_at``
+    # is the public semantic name used by Iteration 197's complete visibility
+    # anchor.  Keeping the synonym avoids a destructive table rewrite while
+    # preventing callers from treating an ORM ``created_at`` as a seal time.
+    visible_at = synonym("published_at")
+    # Pending receipts have no sequence.  Every sealed receipt receives one
+    # unique, globally monotonic value in the post-commit transaction.
+    visibility_sequence = Column(BigInteger, nullable=True)
+    created_at = Column(PITDateTime, default=_utcnow, nullable=False)
+
+
+class MdVisibilitySequenceAllocator(Base):
+    """The locked singleton that allocates globally ordered visibility receipts.
+
+    It is mutable control-plane state, rather than immutable evidence.  The
+    publication manager locks this row in the same transaction that seals
+    receipts, so sequence allocation remains portable across PostgreSQL,
+    MySQL, and SQLite without trusting process-local counters.
+    """
+
+    __tablename__ = "md_visibility_sequence_allocator"
+    __table_args__ = (
+        CheckConstraint(
+            "singleton_id = 1",
+            name="ck_md_visibility_sequence_allocator_singleton",
+        ),
+        CheckConstraint(
+            "next_visibility_sequence >= 1",
+            name="ck_md_visibility_sequence_allocator_next_positive",
+        ),
+    )
+
+    singleton_id = Column(Integer, primary_key=True)
+    next_visibility_sequence = Column(BigInteger, nullable=False)
+    last_visible_at = Column(PITDateTime, nullable=True)
     created_at = Column(PITDateTime, default=_utcnow, nullable=False)
 
 
@@ -305,13 +367,64 @@ class MdDataSeries(Base):
 
 
 class MdSourceSnapshot(Base):
-    """Immutable raw-source receipt with request, payload, and provider provenance."""
+    """Immutable raw-source receipt with query, provider-call, and payload evidence.
+
+    ``request_fingerprint_sha256`` predates the provider-call receipt fields and
+    keeps its public-query semantic meaning for historical compatibility.  New
+    snapshots additionally carry the one-time provider request ID, the digest
+    of the complete outbound provider DTO, and an explicit query digest.  The
+    three new fields remain nullable only so receipts written before Iteration
+    197's expanded evidence contract continue to be readable.
+    """
 
     __tablename__ = "md_source_snapshots"
     __table_args__ = (
         CheckConstraint(
             f"length(request_fingerprint_sha256) = {_SHA256_LENGTH}",
             name="ck_md_source_snapshot_request_fingerprint_sha256_length",
+        ),
+        CheckConstraint(
+            "provider_request_id IS NULL OR "
+            "(length(provider_request_id) >= 32 AND length(provider_request_id) <= 128)",
+            name="ck_md_source_snapshot_provider_request_id_length",
+        ),
+        CheckConstraint(
+            "provider_request_fingerprint_sha256 IS NULL OR "
+            f"length(provider_request_fingerprint_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_source_snapshot_provider_request_fingerprint_sha256_length",
+        ),
+        CheckConstraint(
+            "query_fingerprint_sha256 IS NULL OR "
+            f"length(query_fingerprint_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_source_snapshot_query_fingerprint_sha256_length",
+        ),
+        CheckConstraint(
+            "(provider_request_id IS NULL AND "
+            "provider_request_fingerprint_sha256 IS NULL AND "
+            "query_fingerprint_sha256 IS NULL) OR "
+            "(provider_request_id IS NOT NULL AND "
+            "provider_request_fingerprint_sha256 IS NOT NULL AND "
+            "query_fingerprint_sha256 IS NOT NULL)",
+            name="ck_md_source_snapshot_provider_request_evidence_state",
+        ),
+        CheckConstraint(
+            "source_authorization_state IS NULL OR "
+            "source_authorization_state IN ('VERIFIED', 'UNVERIFIED_COMPATIBILITY')",
+            name="ck_md_source_snapshot_source_authorization_state",
+        ),
+        CheckConstraint(
+            "source_authorization_descriptor_sha256 IS NULL OR "
+            f"length(source_authorization_descriptor_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_source_snapshot_source_authorization_descriptor_sha256_length",
+        ),
+        CheckConstraint(
+            "(source_authorization_state IS NULL AND "
+            "source_authorization_descriptor_sha256 IS NULL) OR "
+            "(source_authorization_state = 'VERIFIED' AND "
+            "source_authorization_descriptor_sha256 IS NOT NULL) OR "
+            "(source_authorization_state = 'UNVERIFIED_COMPATIBILITY' AND "
+            "source_authorization_descriptor_sha256 IS NULL)",
+            name="ck_md_source_snapshot_source_authorization_evidence_state",
         ),
         CheckConstraint(
             f"length(payload_sha256) = {_SHA256_LENGTH}",
@@ -321,6 +434,16 @@ class MdSourceSnapshot(Base):
             "ix_md_source_snapshot_provider_request",
             "provider_id",
             "request_fingerprint_sha256",
+        ),
+        Index(
+            "ix_md_source_snapshot_provider_request_id",
+            "provider_id",
+            "provider_request_id",
+            # A regular SQL unique index allows multiple NULL values, so
+            # receipts written before the provider-call evidence contract keep
+            # their legitimate legacy shape while one provider cannot record
+            # the same non-NULL external attempt twice.
+            unique=True,
         ),
         Index("ix_md_source_snapshot_payload_sha256", "payload_sha256"),
     )
@@ -339,7 +462,15 @@ class MdSourceSnapshot(Base):
     source_id = Column(String(255), nullable=False)
     adapter_id = Column(String(128), nullable=False)
     endpoint_version = Column(String(128), nullable=False)
+    # Legacy name retained because existing rows and downstream reports use it
+    # as the public query fingerprint.  Do not repurpose it as provider-call
+    # identity: a query can legitimately produce multiple external attempts.
     request_fingerprint_sha256 = Column(String(_SHA256_LENGTH), nullable=False)
+    provider_request_id = Column(String(128), nullable=True)
+    provider_request_fingerprint_sha256 = Column(String(_SHA256_LENGTH), nullable=True)
+    query_fingerprint_sha256 = Column(String(_SHA256_LENGTH), nullable=True)
+    source_authorization_state = Column(String(32), nullable=True)
+    source_authorization_descriptor_sha256 = Column(String(_SHA256_LENGTH), nullable=True)
     payload_sha256 = Column(String(_SHA256_LENGTH), nullable=False)
     request_json = Column(JSON, default=dict, nullable=False)
     payload_manifest_json = Column(JSON, default=dict, nullable=False)
@@ -459,13 +590,47 @@ class MdCalendarSnapshot(Base):
             "effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from",
             name="ck_md_calendar_snapshot_effective_window",
         ),
+        CheckConstraint(
+            "source_registry_id IS NULL OR "
+            "(length(source_registry_id) >= 1 AND length(source_registry_id) <= 128)",
+            name="ck_md_calendar_snapshot_source_registry_id_length",
+        ),
+        CheckConstraint(
+            "source_governance_state IS NULL OR "
+            "source_governance_state IN ('VERIFIED', 'UNVERIFIED_COMPATIBILITY')",
+            name="ck_md_calendar_snapshot_source_governance_state",
+        ),
+        CheckConstraint(
+            "source_governance_descriptor_sha256 IS NULL OR "
+            f"length(source_governance_descriptor_sha256) = {_SHA256_LENGTH}",
+            name="ck_md_calendar_snapshot_source_governance_descriptor_sha256_length",
+        ),
+        CheckConstraint(
+            "(source_registry_id IS NULL AND source_governance_state IS NULL AND "
+            "source_governance_descriptor_sha256 IS NULL) OR "
+            "(source_registry_id IS NOT NULL AND source_governance_state = 'VERIFIED' AND "
+            "source_governance_descriptor_sha256 IS NOT NULL) OR "
+            "(source_registry_id IS NOT NULL AND "
+            "source_governance_state = 'UNVERIFIED_COMPATIBILITY' AND "
+            "source_governance_descriptor_sha256 IS NULL)",
+            name="ck_md_calendar_snapshot_source_governance_evidence_state",
+        ),
         Index("ix_md_calendar_snapshot_code_version", "calendar_code", "calendar_version"),
+        Index(
+            "ix_md_calendar_snapshot_source_registry",
+            "source_registry_id",
+            "calendar_code",
+            "calendar_version",
+        ),
     )
 
     id = Column(String(36), primary_key=True, default=_uuid)
     calendar_code = Column(String(128), nullable=False)
     calendar_version = Column(String(128), nullable=False)
     timezone_name = Column(String(128), nullable=False)
+    source_registry_id = Column(String(128), nullable=True)
+    source_governance_state = Column(String(32), nullable=True)
+    source_governance_descriptor_sha256 = Column(String(_SHA256_LENGTH), nullable=True)
     source_snapshot_id = Column(
         String(36),
         ForeignKey(
@@ -605,10 +770,7 @@ def calendar_coverage_event_key(
         raise ValueError("calendar coverage event_start must be timezone-aware")
     if not data_kind or not frequency:
         raise ValueError("calendar coverage identity must not be blank")
-    return (
-        f"{data_kind}:{frequency}@"
-        f"{event_start.astimezone(timezone.utc).isoformat()}"
-    )
+    return f"{data_kind}:{frequency}@{event_start.astimezone(timezone.utc).isoformat()}"
 
 
 def calendar_coverage_descriptor(payload: object) -> tuple[str, str] | None:

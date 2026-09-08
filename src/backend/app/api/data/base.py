@@ -10,9 +10,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.data.deps import get_current_db_user, get_market_data_access_authorizer
 from app.api.deps import get_current_user
 from app.config import get_settings
 from app.db.database import get_db
+from app.models.user import User
+from app.services.market_data.access import MarketDataAccessAuthorizer, MarketDataAuthorizationError
 from app.services.market_data.dataset_contracts import DatasetContractRegistryError
 from app.services.market_data.legacy_contract import LegacyMarketDataQueryContractResolver
 from app.services.market_instrument import MarketAssetType, MarketInstrumentService
@@ -57,7 +60,8 @@ async def get_market_data_query_contract(
         max_length=128,
         description="Optional exact market-page family selected from the server bundle",
     ),
-    current_user: typing.Any = Depends(get_current_user),
+    current_user: User = Depends(get_current_db_user),
+    access_authorizer: MarketDataAccessAuthorizer = Depends(get_market_data_access_authorizer),
     query_contracts: LegacyMarketDataQueryContractResolver = Depends(
         get_legacy_market_data_query_contract_resolver
     ),
@@ -70,13 +74,14 @@ async def get_market_data_query_contract(
     symbol and the endpoint intentionally returns 404 if bootstrap or
     approved master data is incomplete; clients then retain the legacy path.
     """
-    del current_user
     if not get_settings().MARKET_DATA_QUERY_V2_ENABLED:
         raise HTTPException(
             status_code=503,
             detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
         )
     try:
+        principal = await access_authorizer.principal_for_user(current_user)
+        access_authorizer.require_read_data(principal=principal)
         resolve_args: dict[str, str] = {
             "asset_type": asset_type,
             "symbol": symbol,
@@ -85,6 +90,8 @@ async def get_market_data_query_contract(
         if family_id is not None:
             resolve_args["family_id"] = family_id
         contract = await query_contracts.resolve(**resolve_args)
+    except MarketDataAuthorizationError as exc:
+        raise HTTPException(status_code=403, detail={"code": exc.code}) from exc
     except DatasetContractRegistryError as exc:
         raise HTTPException(
             status_code=422,

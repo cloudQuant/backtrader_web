@@ -90,6 +90,7 @@ json.dump(
     {
         "protocol_version": "openbb-market-data-v1",
         "request_id": request["request_id"],
+        "request": request["request"],
         "provider_id": "openbb:yfinance",
         "retrieved_at": "2026-01-04T00:00:00+00:00",
         "source_revision": "yfinance-response-v1",
@@ -120,6 +121,37 @@ json.dump(
 
 
 @pytest.mark.asyncio
+async def test_openbb_subprocess_provider_rejects_a_receipt_with_a_changed_outbound_dto(
+    tmp_path: Path,
+) -> None:
+    """Matching a correlation ID alone cannot authenticate a runner receipt."""
+    script = _runner_script(
+        tmp_path,
+        """
+import json
+import sys
+
+envelope = json.load(sys.stdin)
+request = dict(envelope["request"])
+request["provider_symbol"] = "SUBSTITUTED"
+json.dump(
+    {
+        "protocol_version": "openbb-market-data-v1",
+        "request_id": envelope["request_id"],
+        "request": request,
+    },
+    sys.stdout,
+)
+""",
+    )
+
+    with pytest.raises(OpenBBProviderError) as rejected:
+        await OpenBBSubprocessProvider(command=(sys.executable, str(script))).fetch(_request())
+
+    assert rejected.value.code == "OPENBB_RUNNER_PROTOCOL_MISMATCH"
+
+
+@pytest.mark.asyncio
 async def test_openbb_subprocess_provider_rejects_duplicate_normalized_field_names(
     tmp_path: Path,
 ) -> None:
@@ -143,6 +175,7 @@ json.dump(
     {
         "protocol_version": "openbb-market-data-v1",
         "request_id": request["request_id"],
+        "request": request["request"],
         "provider_id": "openbb:yfinance",
         "retrieved_at": "2026-01-04T00:00:00+00:00",
         "source_revision": "yfinance-response-v1",
@@ -191,6 +224,7 @@ json.dump(
     {
         "protocol_version": "openbb-market-data-v1",
         "request_id": request["request_id"],
+        "request": request["request"],
         "provider_id": "openbb:yfinance",
         "retrieved_at": "2026-01-04T00:00:00+00:00",
         "source_revision": "yfinance-response-v1",
@@ -246,6 +280,7 @@ json.dump(
     {{
         "protocol_version": "openbb-market-data-v1",
         "request_id": request["request_id"],
+        "request": request["request"],
         "provider_id": "openbb:yfinance",
         "retrieved_at": "2026-01-04T00:00:00+00:00",
         "source_revision": "yfinance-response-v1",
@@ -310,6 +345,7 @@ json.dump(
     {{
         "protocol_version": "openbb-market-data-v1",
         "request_id": request["request_id"],
+        "request": request["request"],
         "provider_id": "openbb:yfinance",
         "retrieved_at": "2026-01-04T00:00:00+00:00",
         "source_revision": "yfinance-response-v1",
@@ -533,6 +569,7 @@ if blocked:
         {
             "protocol_version": "openbb-market-data-v1",
             "request_id": request["request_id"],
+        "request": request["request"],
             "error": {"code": "OPENBB_ENV_LEAK", "detail": ",".join(blocked)},
         },
         sys.stdout,
@@ -546,6 +583,7 @@ else:
         {
             "protocol_version": "openbb-market-data-v1",
             "request_id": request["request_id"],
+        "request": request["request"],
             "provider_id": "openbb:yfinance",
             "retrieved_at": "2026-01-04T00:00:00+00:00",
             "source_revision": "isolated-env-v1",
@@ -590,6 +628,7 @@ if os.getcwd() != {str(runner_workdir)!r}:
         {{
             "protocol_version": "openbb-market-data-v1",
             "request_id": request["request_id"],
+        "request": request["request"],
             "error": {{"code": "OPENBB_WORKDIR_LEAK", "detail": os.getcwd()}},
         }},
         sys.stdout,
@@ -603,6 +642,7 @@ else:
         {{
             "protocol_version": "openbb-market-data-v1",
             "request_id": request["request_id"],
+        "request": request["request"],
             "provider_id": "openbb:yfinance",
             "retrieved_at": "2026-01-04T00:00:00+00:00",
             "source_revision": "isolated-workdir-v1",
@@ -643,6 +683,7 @@ json.dump(
     {
         "protocol_version": "openbb-market-data-v1",
         "request_id": request["request_id"],
+        "request": request["request"],
         "provider_id": "openbb:yfinance",
         "retrieved_at": "2026-01-04T00:00:00+00:00",
         "source_revision": "unverifiable-v1",

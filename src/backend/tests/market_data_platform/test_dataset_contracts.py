@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
+from app.api.data.deps import get_market_data_access_authorizer
 from app.main import app
 from app.schemas.market_data_platform import (
     MarketDataFamilyContractResponse,
@@ -42,6 +43,27 @@ _FAMILY_IDS = {
     "crypto.cme_position",
     "crypto.range",
 }
+
+
+class _PermittedMarketDataAccess:
+    """Keep static-contract tests focused after v2 control-plane RBAC is enforced."""
+
+    async def principal_for_user(self, _user: object) -> object:
+        return object()
+
+    @staticmethod
+    def require_read_data(*, principal: object) -> None:
+        assert principal is not None
+
+
+@pytest.fixture
+def permitted_market_data_access() -> None:
+    """Supply the approved data-read gate required by v2 control-plane routes."""
+    app.dependency_overrides[get_market_data_access_authorizer] = _PermittedMarketDataAccess
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
 
 def _query_payload(**changes: object) -> dict[str, object]:
@@ -305,6 +327,7 @@ async def test_query_bundle_endpoint_is_disabled_with_the_v2_rollout_flag(
     client,
     auth_headers,
     monkeypatch,
+    permitted_market_data_access,
 ) -> None:
     """The static control plane shares the existing explicit v2 rollout gate."""
     import app.api.data.queries as queries
@@ -330,6 +353,7 @@ async def test_query_bundle_endpoint_returns_static_contracts_without_a_query_se
     client,
     auth_headers,
     monkeypatch,
+    permitted_market_data_access,
 ) -> None:
     """The bundle endpoint has no provider/service dependency and exposes all three stock cards."""
     import app.api.data.queries as queries
@@ -368,6 +392,7 @@ async def test_query_bundle_endpoint_fails_closed_for_unknown_or_extra_query_axe
     client,
     auth_headers,
     monkeypatch,
+    permitted_market_data_access,
 ) -> None:
     """No arbitrary provider, endpoint, or nearest family may be selected by a bundle request."""
     import app.api.data.queries as queries
@@ -405,6 +430,7 @@ async def test_query_bundle_endpoint_marks_cross_asset_filter_not_applicable(
     client,
     auth_headers,
     monkeypatch,
+    permitted_market_data_access,
 ) -> None:
     """A known product from another asset type is explicit and still non-executable."""
     import app.api.data.queries as queries
@@ -425,6 +451,30 @@ async def test_query_bundle_endpoint_marks_cross_asset_filter_not_applicable(
     assert family["status"] == "not_applicable"
     assert family["reason_code"] == "DATA_FAMILY_NOT_APPLICABLE"
     assert family["source_policy_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_query_bundle_requires_data_read_before_returning_control_plane_metadata(
+    client,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    """An authenticated principal without a role cannot enumerate v2 contracts."""
+    import app.api.data.queries as queries
+
+    monkeypatch.setattr(
+        queries,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
+    )
+    response = await client.get(
+        "/api/v1/data/market-instruments/query-bundle",
+        params={"asset_type": "stock"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 403
+    assert response.json()["details"] == {"code": "MARKET_DATA_READ_ENTITLEMENT_DENIED"}
 
 
 def test_query_bundle_route_is_registered_alongside_existing_bars_contract_routes() -> None:

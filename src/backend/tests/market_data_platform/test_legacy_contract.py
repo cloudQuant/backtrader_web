@@ -15,6 +15,7 @@ from app.api.data.base import (
     get_legacy_market_data_query_contract_resolver,
     get_market_instrument_service,
 )
+from app.api.data.deps import get_market_data_access_authorizer
 from app.db.database import async_session_maker
 from app.main import app
 from app.models.asset_research import AssetInstrument
@@ -29,6 +30,27 @@ from app.services.market_data.legacy_contract import (
 )
 
 UTC = timezone.utc
+
+
+class _PermittedMarketDataAccess:
+    """Provide the explicit data-read gate for query-contract bridge tests."""
+
+    async def principal_for_user(self, _user: object) -> object:
+        return object()
+
+    @staticmethod
+    def require_read_data(*, principal: object) -> None:
+        assert principal is not None
+
+
+@pytest.fixture
+def permitted_market_data_access() -> None:
+    """Keep contract semantics tests independent of RBAC provisioning fixtures."""
+    app.dependency_overrides[get_market_data_access_authorizer] = _PermittedMarketDataAccess
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
 
 
 @pytest_asyncio.fixture
@@ -448,6 +470,7 @@ async def test_contract_probe_returns_catalog_contract_without_legacy_lookup(
     client,
     auth_headers,
     monkeypatch,
+    permitted_market_data_access,
 ) -> None:
     """The first page probe only asks the strict resolver and never invokes a provider."""
     import app.api.data.base as data_base
@@ -494,6 +517,7 @@ async def test_contract_probe_forwards_the_explicit_bundle_family_to_the_server_
     client,
     auth_headers,
     monkeypatch,
+    permitted_market_data_access,
 ) -> None:
     """The frontend-selected product reaches the exact-contract issuer unchanged."""
     import app.api.data.base as data_base
@@ -550,6 +574,7 @@ async def test_contract_probe_fails_closed_when_v2_is_disabled_or_unavailable(
     client,
     auth_headers,
     monkeypatch,
+    permitted_market_data_access,
 ) -> None:
     """A rollout gate or absent authoritative identity cannot silently create a contract."""
     import app.api.data.base as data_base
@@ -624,6 +649,7 @@ async def test_contract_probe_maps_metadata_database_failure_to_typed_unavailabl
     client,
     auth_headers,
     monkeypatch,
+    permitted_market_data_access,
 ) -> None:
     """A probe failure remains an explicit progressive-rollout compatibility state."""
     import app.api.data.base as data_base
@@ -647,3 +673,33 @@ async def test_contract_probe_maps_metadata_database_failure_to_typed_unavailabl
 
     assert response.status_code == 503
     assert response.json()["details"] == {"code": "MARKET_DATA_QUERY_CONTRACT_UNAVAILABLE"}
+
+
+@pytest.mark.asyncio
+async def test_contract_probe_requires_data_read_before_catalog_or_identity_resolution(
+    client,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    """The bridge cannot expose catalog/master-data metadata to an unentitled user."""
+    import app.api.data.base as data_base
+
+    resolver = _ContractResolver({"unexpected": True})
+    monkeypatch.setattr(
+        data_base,
+        "get_settings",
+        lambda: SimpleNamespace(MARKET_DATA_QUERY_V2_ENABLED=True),
+    )
+    app.dependency_overrides[get_legacy_market_data_query_contract_resolver] = lambda: resolver
+    try:
+        response = await client.get(
+            "/api/v1/data/market-instruments/query-contract",
+            params={"asset_type": "stock", "symbol": "600000", "period": "daily"},
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_legacy_market_data_query_contract_resolver, None)
+
+    assert response.status_code == 403
+    assert response.json()["details"] == {"code": "MARKET_DATA_READ_ENTITLEMENT_DENIED"}
+    assert resolver.calls == []

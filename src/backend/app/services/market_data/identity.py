@@ -14,13 +14,16 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.market_data_platform import MdInstrumentIdentityRevision, MdPublication
 from app.schemas.asset_research import InstrumentIdentity
 from app.schemas.market_data_platform import QueryIdentity
-from app.services.market_data.publication import PUBLICATION_INSTRUMENT_IDENTITY
+from app.services.market_data.publication import (
+    PUBLICATION_INSTRUMENT_IDENTITY,
+    MarketDataVisibilityAnchor,
+)
 
 _MAX_CANONICAL_VERSION_CANDIDATES = 128
 _MAX_TRIPLE_VERSION_CANDIDATES = 128
@@ -60,12 +63,14 @@ class ResolvedMarketDataIdentity:
     valid_from: datetime
     valid_to: datetime | None
     known_at: datetime
+    visibility_sequence: int = 0
 
 
 @dataclass(frozen=True)
 class _PublishedIdentityRevision:
     revision: MdInstrumentIdentityRevision
     published_at: datetime
+    visibility_sequence: int
 
 
 class MarketDataIdentityResolver:
@@ -80,6 +85,7 @@ class MarketDataIdentityResolver:
         *,
         effective_at: datetime | None = None,
         knowledge_cutoff: datetime | None = None,
+        visibility_anchor: MarketDataVisibilityAnchor | None = None,
     ) -> ResolvedMarketDataIdentity:
         """Resolve one canonical ID or complete asset/symbol/market selector.
 
@@ -89,12 +95,15 @@ class MarketDataIdentityResolver:
         projection is deliberately absent from this endpoint.
         """
         effective = self._normalize_effective_at(effective_at)
-        cutoff = self._normalize_knowledge_cutoff(knowledge_cutoff)
+        anchor = await self._resolve_visibility_anchor(
+            knowledge_cutoff=knowledge_cutoff,
+            visibility_anchor=visibility_anchor,
+        )
         rows = await self._load_candidate_rows(selector)
-        known_rows = self._known_rows_at_cutoff(rows, cutoff)
-        if cutoff is not None and rows and not known_rows:
+        known_rows = self._known_rows_at_anchor(rows, anchor)
+        if anchor is not None and rows and not known_rows:
             raise MarketDataIdentityResolutionError("IDENTITY_NOT_KNOWN_AT_CUTOFF")
-        rows = self._latest_published_projection_per_instrument(known_rows)
+        rows = self._latest_published_projection_per_validity_start(known_rows)
         self._assert_no_overlapping_versions(rows)
         groups = self._current_groups(rows, effective)
 
@@ -143,14 +152,21 @@ class MarketDataIdentityResolver:
         return knowledge_cutoff.astimezone(UTC)
 
     @staticmethod
-    def _known_rows_at_cutoff(
+    def _known_rows_at_anchor(
         rows: Iterable[_PublishedIdentityRevision],
-        knowledge_cutoff: datetime | None,
+        visibility_anchor: MarketDataVisibilityAnchor | None,
     ) -> list[_PublishedIdentityRevision]:
-        """Retain only identities with a durable post-commit receipt at cutoff."""
-        if knowledge_cutoff is None:
+        """Retain only identities sealed at or before a complete PIT anchor."""
+        if visibility_anchor is None:
             return list(rows)
-        return [row for row in rows if row.published_at <= knowledge_cutoff]
+        return [
+            row
+            for row in rows
+            if visibility_anchor.permits(
+                visible_at=row.published_at,
+                visibility_sequence=row.visibility_sequence,
+            )
+        ]
 
     async def _load_candidate_rows(
         self,
@@ -196,33 +212,55 @@ class MarketDataIdentityResolver:
             if publication.entity_sha256 != revision.revision_sha256:
                 raise MarketDataIdentityResolutionError("IDENTITY_PUBLICATION_INTEGRITY")
             published_at = publication.published_at
-            if published_at is None:
+            if published_at is None or not _is_visibility_sequence(publication.visibility_sequence):
                 raise MarketDataIdentityResolutionError("IDENTITY_PUBLICATION_INTEGRITY")
             result.append(
                 _PublishedIdentityRevision(
                     revision=revision,
                     published_at=_as_utc(published_at),
+                    visibility_sequence=publication.visibility_sequence,
                 )
             )
         return result
 
     @staticmethod
-    def _latest_published_projection_per_instrument(
+    def _latest_published_projection_per_validity_start(
         rows: Iterable[_PublishedIdentityRevision],
     ) -> list[_PublishedIdentityRevision]:
-        selected: dict[str, _PublishedIdentityRevision] = {}
+        """Keep corrections for one validity segment without erasing prior segments.
+
+        An ``instrument_id`` is stable across its lifecycle.  Collapsing every
+        visible projection for that ID before applying ``effective_at`` would
+        incorrectly hide an earlier valid interval whenever a later lifecycle
+        revision was sealed.  A revision with the same ``valid_from`` is a
+        correction of that segment, so only that group is superseded by the
+        newest sealed receipt.  Distinct validity starts remain available for
+        historical resolution and are subsequently checked for overlap.
+        """
+        selected: dict[tuple[str, datetime], _PublishedIdentityRevision] = {}
         for candidate in rows:
-            current = selected.get(candidate.revision.instrument_id)
+            segment_key = (
+                candidate.revision.instrument_id,
+                _as_utc(candidate.revision.valid_from),
+            )
+            current = selected.get(segment_key)
+            # Visibility sequence decides whether a receipt is available at
+            # the anchor.  Once several published receipts for one validity
+            # segment are available, their immutable revision number decides
+            # which correction is semantically current.  A batch publisher
+            # assigns global sequences by receipt ID, so using sequence as
+            # the primary correction order could revive revision 1 after a
+            # later revision 2 was sealed in the same batch.
             if current is None or (
-                candidate.published_at,
                 candidate.revision.revision_number,
+                candidate.visibility_sequence,
                 candidate.revision.id,
             ) > (
-                current.published_at,
                 current.revision.revision_number,
+                current.visibility_sequence,
                 current.revision.id,
             ):
-                selected[candidate.revision.instrument_id] = candidate
+                selected[segment_key] = candidate
         return list(selected.values())
 
     @staticmethod
@@ -300,6 +338,7 @@ class MarketDataIdentityResolver:
             valid_from=_as_utc(revision.valid_from),
             valid_to=_as_utc(revision.valid_to) if revision.valid_to is not None else None,
             known_at=published.published_at,
+            visibility_sequence=published.visibility_sequence,
         )
 
     @staticmethod
@@ -316,3 +355,50 @@ class MarketDataIdentityResolver:
     @staticmethod
     def _freeze(resolved: ResolvedMarketDataIdentity) -> ResolvedMarketDataIdentity:
         return resolved
+
+    async def _resolve_visibility_anchor(
+        self,
+        *,
+        knowledge_cutoff: datetime | None,
+        visibility_anchor: MarketDataVisibilityAnchor | None,
+    ) -> MarketDataVisibilityAnchor | None:
+        """Use the query's anchor or derive an equivalent direct-resolver anchor."""
+        cutoff = self._normalize_knowledge_cutoff(knowledge_cutoff)
+        if visibility_anchor is not None:
+            if cutoff is None or visibility_anchor.visible_at != cutoff:
+                raise MarketDataIdentityResolutionError("IDENTITY_VISIBILITY_ANCHOR_MISMATCH")
+            return visibility_anchor
+        if cutoff is None:
+            return None
+        missing_sequence = await self._db.scalar(
+            select(MdPublication.id)
+            .where(
+                MdPublication.published_at.is_not(None),
+                MdPublication.published_at <= cutoff,
+                MdPublication.visibility_sequence.is_(None),
+            )
+            .limit(1)
+        )
+        if missing_sequence is not None:
+            raise MarketDataIdentityResolutionError("IDENTITY_PUBLICATION_INTEGRITY")
+        maximum = await self._db.scalar(
+            select(func.max(MdPublication.visibility_sequence)).where(
+                MdPublication.published_at.is_not(None),
+                MdPublication.published_at <= cutoff,
+                MdPublication.visibility_sequence.is_not(None),
+            )
+        )
+        if maximum is None:
+            sequence = 0
+        elif _is_visibility_sequence(maximum):
+            sequence = maximum
+        else:
+            raise MarketDataIdentityResolutionError("IDENTITY_PUBLICATION_INTEGRITY")
+        return MarketDataVisibilityAnchor(
+            visible_at=cutoff,
+            max_visibility_sequence=sequence,
+        )
+
+
+def _is_visibility_sequence(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1

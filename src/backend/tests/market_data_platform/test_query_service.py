@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
@@ -11,6 +13,14 @@ import pytest
 
 from app.schemas.asset_research import InstrumentIdentity, StockIdentityDetails
 from app.schemas.market_data_platform import MarketDataQueryRequest, ResolvedMarketDataQuery
+from app.services.market_data.access import (
+    MarketDataAccessAuthorizer,
+    MarketDataAccessGrant,
+    MarketDataAuthorizationError,
+    MarketDataPrincipal,
+    MarketDataQueryAccess,
+    MarketDataSourceAuthorization,
+)
 from app.services.market_data.catalog import DatasetStorageResolution
 from app.services.market_data.coverage import (
     CalendarSnapshot,
@@ -26,7 +36,9 @@ from app.services.market_data.providers import (
     ProviderFetchResult,
     ProviderMarketObservation,
 )
+from app.services.market_data.publication import MarketDataVisibilityAnchor
 from app.services.market_data.query_resolution import ResolvedMarketDataQueryContext
+from app.services.market_data.query_service import MarketDataQueryService
 from app.services.market_data.snapshot_freshness import (
     SnapshotFreshnessPolicy,
     SnapshotFreshnessPolicyRegistry,
@@ -44,6 +56,22 @@ _OTHER_CURSOR_SIGNING_KEY = "test-market-data-cursor-hmac-key-material-000000000
 
 def _at(hour: int, minute: int = 0, *, day: int = 8) -> datetime:
     return datetime(2026, 9, day, hour, minute, tzinfo=UTC)
+
+
+def _cursor_payload(token: str) -> dict[str, object]:
+    encoded, _signature = token.split(".")
+    decoded = base64.urlsafe_b64decode((encoded + "=" * (-len(encoded) % 4)).encode("ascii"))
+    payload = json.loads(decoded.decode("utf-8"))
+    assert isinstance(payload, dict)
+    return payload
+
+
+def _cursor_with_payload(token: str, payload: dict[str, object]) -> str:
+    _encoded, signature = token.split(".")
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+    return f"{encoded}.{signature}"
 
 
 def _request(
@@ -258,6 +286,8 @@ def _revision(event_at: datetime, *, value: float = 10.0) -> LocalObservationRev
         event_at=event_at,
         available_at=_at(12),
         committed_at=_at(12),
+        visible_at=_at(12),
+        visibility_sequence=event_at.hour,
         revision_number=1,
         quality=ObservationQuality.PASS,
         fields=MappingProxyType({"close": value}),
@@ -269,15 +299,18 @@ class _Resolver:
         self.context = context
         self.requests: list[MarketDataQueryRequest] = []
         self.identity_cutoffs: list[datetime | None] = []
+        self.identity_visibility_anchors: list[MarketDataVisibilityAnchor | None] = []
 
     async def resolve(
         self,
         request: MarketDataQueryRequest,
         *,
         identity_knowledge_cutoff: datetime | None = None,
+        identity_visibility_anchor: MarketDataVisibilityAnchor | None = None,
     ) -> ResolvedMarketDataQueryContext:
         self.requests.append(request)
         self.identity_cutoffs.append(identity_knowledge_cutoff)
+        self.identity_visibility_anchors.append(identity_visibility_anchor)
         if identity_knowledge_cutoff is not None:
             assert identity_knowledge_cutoff.tzinfo is not None
         return self.context
@@ -300,9 +333,11 @@ class _CurrentIdentityResolver(_Resolver):
         request: MarketDataQueryRequest,
         *,
         identity_knowledge_cutoff: datetime | None = None,
+        identity_visibility_anchor: MarketDataVisibilityAnchor | None = None,
     ) -> ResolvedMarketDataQueryContext:
         self.requests.append(request)
         self.identity_cutoffs.append(identity_knowledge_cutoff)
+        self.identity_visibility_anchors.append(identity_visibility_anchor)
         return self.context if identity_knowledge_cutoff is None else self.cutoff_context
 
 
@@ -319,24 +354,50 @@ class _Store:
         self.inactive_provider_ids = inactive_provider_ids
         self.persisted: list[tuple[ResolvedMarketDataQueryContext, ProviderFetchResult]] = []
         self.read_cutoffs: list[datetime] = []
+        self.visibility_anchors: list[MarketDataVisibilityAnchor] = []
         self.read_modes: list[bool] = []
+        self.read_source_filters: list[frozenset[str] | None] = []
+        self.calendar_source_filters: list[frozenset[str] | None] = []
         self.authorization_checks: list[str] = []
+        self.persisted_source_authorizations: list[MarketDataSourceAuthorization | None] = []
+
+    async def resolve_visibility_anchor(
+        self,
+        *,
+        knowledge_cutoff: datetime,
+    ) -> MarketDataVisibilityAnchor:
+        visible_sequences = [
+            row.visibility_sequence for row in self.revisions if row.visible_at <= knowledge_cutoff
+        ]
+        return MarketDataVisibilityAnchor(
+            visible_at=knowledge_cutoff,
+            max_visibility_sequence=max(visible_sequences, default=0),
+        )
 
     async def read_observation_revisions(
         self,
         _context: ResolvedMarketDataQueryContext,
         *,
         knowledge_cutoff: datetime,
+        visibility_anchor: MarketDataVisibilityAnchor | None = None,
         include_unusable_for_coverage: bool = False,
+        allowed_source_registry_ids: frozenset[str] | None = None,
     ) -> tuple[LocalObservationRevision, ...]:
         self.read_cutoffs.append(knowledge_cutoff)
         self.read_modes.append(include_unusable_for_coverage)
+        self.read_source_filters.append(allowed_source_registry_ids)
+        anchor = visibility_anchor or await self.resolve_visibility_anchor(
+            knowledge_cutoff=knowledge_cutoff
+        )
+        self.visibility_anchors.append(anchor)
         return tuple(
             row
             for row in self.revisions
             if _context.query.start <= row.event_at < _context.query.end
-            and row.available_at <= knowledge_cutoff
-            and row.committed_at <= knowledge_cutoff
+            and anchor.permits(
+                visible_at=row.visible_at,
+                visibility_sequence=row.visibility_sequence,
+            )
         )
 
     async def read_calendar_for_context(
@@ -344,8 +405,13 @@ class _Store:
         _context: ResolvedMarketDataQueryContext,
         *,
         knowledge_cutoff: datetime,
+        visibility_anchor: MarketDataVisibilityAnchor | None = None,
+        allowed_source_registry_ids: frozenset[str] | None = None,
     ) -> CalendarSnapshot:
         assert knowledge_cutoff.tzinfo is not None
+        assert visibility_anchor is not None
+        self.visibility_anchors.append(visibility_anchor)
+        self.calendar_source_filters.append(allowed_source_registry_ids)
         return self.calendar
 
     async def ensure_provider_active(self, provider_id: str) -> None:
@@ -361,8 +427,10 @@ class _Store:
         result: ProviderFetchResult,
         *,
         received_at: datetime,
+        source_authorization: MarketDataSourceAuthorization | None = None,
     ) -> PersistedProviderFetch:
         self.persisted.append((context, result))
+        self.persisted_source_authorizations.append(source_authorization)
         for item in result.observations:
             self.revisions.append(
                 LocalObservationRevision(
@@ -371,6 +439,12 @@ class _Store:
                     event_at=item.event_at,
                     available_at=received_at,
                     committed_at=received_at,
+                    visible_at=received_at,
+                    visibility_sequence=max(
+                        (row.visibility_sequence for row in self.revisions),
+                        default=0,
+                    )
+                    + 1,
                     revision_number=1,
                     quality=ObservationQuality.PASS,
                     fields=item.fields,
@@ -400,8 +474,10 @@ class _SnapshotStore(_Store):
         _context: ResolvedMarketDataQueryContext,
         *,
         knowledge_cutoff: datetime,
+        visibility_anchor: MarketDataVisibilityAnchor | None = None,
+        allowed_source_registry_ids: frozenset[str] | None = None,
     ) -> CalendarSnapshot:
-        del _context, knowledge_cutoff
+        del _context, knowledge_cutoff, visibility_anchor, allowed_source_registry_ids
         self.calendar_reads += 1
         raise AssertionError("quote snapshots must not read a bars calendar")
 
@@ -505,15 +581,15 @@ def _service(
     provider_routes: tuple[Any, ...],
     allow_online_fetch: bool = True,
     cursor_signing_key: str = _CURSOR_SIGNING_KEY,
+    cursor_ttl: timedelta = timedelta(minutes=15),
     snapshot_freshness_policies: SnapshotFreshnessPolicyRegistry | None = None,
 ):
-    from app.services.market_data.query_service import MarketDataQueryService
     from app.services.market_data.source_policy import (
         MarketDataSourcePolicy,
         MarketDataSourcePolicyRegistry,
     )
 
-    return MarketDataQueryService(
+    return _AuthorizedTestQueryService(
         resolver=_Resolver(context),
         store=store,
         source_policies=MarketDataSourcePolicyRegistry(
@@ -529,6 +605,8 @@ def _service(
         allow_online_fetch=allow_online_fetch,
         clock=lambda: _at(12),
         cursor_signing_key=cursor_signing_key,
+        cursor_ttl=cursor_ttl,
+        test_store=store,
     )
 
 
@@ -549,6 +627,199 @@ def _route(provider: _Provider, *, expected: str = "akshare", request_provider: 
         units=frozenset({"share"}),
         adapter=provider,
     )
+
+
+def _principal() -> MarketDataPrincipal:
+    return MarketDataPrincipal(
+        principal_id="user-1",
+        principal_scope="principal-v1:test-user",
+        tenant_scope="default",
+        roles=("user",),
+        permissions=("data:read",),
+        entitlement_revision="e" * 64,
+    )
+
+
+def _source_authorization(
+    *,
+    source_registry_id: str,
+    descriptor_hash: str,
+) -> MarketDataSourceAuthorization:
+    principal = _principal()
+    return MarketDataSourceAuthorization(
+        source_registry_id=source_registry_id,
+        registry_updated_at=_at(12).isoformat(),
+        asset_type="stock",
+        market="CN-SSE",
+        purpose="display",
+        license_status="APPROVED",
+        allowed_uses=("DISPLAY",),
+        jurisdictions=("CN",),
+        effective_from=_at(0, day=1).isoformat(),
+        effective_to=None,
+        retention_policy="market-data-v1",
+        retention_expires_at=None,
+        redistribution_policy="NO_REDISTRIBUTION",
+        principal_scope=principal.principal_scope,
+        tenant_scope=principal.tenant_scope,
+        entitlement_revision=principal.entitlement_revision,
+        decision="ALLOW",
+        descriptor_hash=descriptor_hash,
+    )
+
+
+class _AccessAuthorizer(MarketDataAccessAuthorizer):
+    """Service-level authorization fake that preserves the production type boundary."""
+
+    def __init__(
+        self,
+        *,
+        grant: MarketDataAccessGrant,
+        store: _Store,
+        resolver: _Resolver,
+        write_authorization: MarketDataSourceAuthorization | Exception | None = None,
+    ) -> None:
+        self.grant = grant
+        self.store = store
+        self.resolver = resolver
+        self.write_authorization = write_authorization
+        self.read_entitlement_checks = 0
+        self.policy_authorizations: list[tuple[str, ...]] = []
+        self.local_read_counts_at_authorization: list[int] = []
+        self.write_reauthorizations: list[tuple[str, MarketDataSourceAuthorization]] = []
+
+    def require_read_data(self, *, principal: MarketDataPrincipal) -> None:
+        self.read_entitlement_checks += 1
+        if not principal.can_read_data:
+            raise AssertionError("test access principal must have data:read")
+
+    async def authorize_policy(self, **kwargs: object) -> MarketDataAccessGrant:
+        # Identity is resolved first, while source-dependent local reads,
+        # calendar planning, provider work, and persistence are still absent.
+        assert self.resolver.requests
+        self.local_read_counts_at_authorization.append(len(self.store.read_cutoffs))
+        routes = kwargs["routes"]
+        assert isinstance(routes, tuple)
+        self.policy_authorizations.append(tuple(route.route_id for route in routes))
+        return self.grant
+
+    async def reauthorize_route_for_write(
+        self,
+        *,
+        principal: MarketDataPrincipal,
+        route: Any,
+        asset_type: str,
+        market: str,
+        purpose: str,
+        expected_authorization: MarketDataSourceAuthorization,
+    ) -> MarketDataSourceAuthorization:
+        """Model the production post-fetch write boundary without a real database."""
+        del principal, asset_type, market, purpose
+        self.write_reauthorizations.append((route.route_id, expected_authorization))
+        if isinstance(self.write_authorization, Exception):
+            raise self.write_authorization
+        return self.write_authorization or expected_authorization
+
+
+def _access(
+    *,
+    source_registry_id: str,
+    route_id: str,
+    grant_hash: str,
+    store: _Store,
+    resolver: _Resolver,
+    write_authorization: MarketDataSourceAuthorization | Exception | None = None,
+) -> MarketDataQueryAccess:
+    authorization = _source_authorization(
+        source_registry_id=source_registry_id,
+        descriptor_hash="c" * 64,
+    )
+    principal = _principal()
+    grant = MarketDataAccessGrant(
+        principal=principal,
+        policy_id="market-default-v1",
+        purpose="display",
+        route_authorizations=((route_id, authorization),),
+        policy_descriptor_hash=grant_hash,
+    )
+    return MarketDataQueryAccess(
+        principal=principal,
+        authorizer=_AccessAuthorizer(
+            grant=grant,
+            store=store,
+            resolver=resolver,
+            write_authorization=write_authorization,
+        ),
+    )
+
+
+def _allow_all_routes_access(
+    service: MarketDataQueryService,
+    store: _Store,
+) -> MarketDataQueryAccess:
+    """Build an explicit current grant for ordinary online service tests."""
+    resolver = service._resolver
+    assert isinstance(resolver, _Resolver)
+    policy = service._source_policies.resolve("market-default-v1")
+    authorizations = tuple(
+        (
+            route.route_id,
+            _source_authorization(
+                source_registry_id=sorted(route.expected_result_provider_ids)[0],
+                descriptor_hash=f"{index + 1:064x}",
+            ),
+        )
+        for index, route in enumerate(policy.routes)
+    )
+    principal = _principal()
+    grant = MarketDataAccessGrant(
+        principal=principal,
+        policy_id=policy.policy_id,
+        purpose="display",
+        route_authorizations=authorizations,
+        policy_descriptor_hash="f" * 64,
+    )
+    return MarketDataQueryAccess(
+        principal=principal,
+        authorizer=_AccessAuthorizer(grant=grant, store=store, resolver=resolver),
+    )
+
+
+class _AuthorizedTestQueryService(MarketDataQueryService):
+    """Make legacy behavior tests explicit authorized executions by default.
+
+    The production service itself rejects unauthenticated interactive queries.
+    This harness supplies a grant only where a test did not choose a narrower
+    one; tests for the rejection call ``execute_without_access`` directly.
+    """
+
+    def __init__(self, *args: object, test_store: _Store, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        self._test_store = test_store
+
+    async def execute(
+        self,
+        request: MarketDataQueryRequest,
+        *,
+        cursor_binding: object = None,
+        access: MarketDataQueryAccess | None = None,
+    ) -> Any:
+        if access is None and cursor_binding is None:
+            access = _allow_all_routes_access(self, self._test_store)
+        return await super().execute(
+            request,
+            cursor_binding=cursor_binding,
+            access=access,
+        )
+
+    async def execute_without_access(
+        self,
+        request: MarketDataQueryRequest,
+        *,
+        cursor_binding: object = None,
+    ) -> Any:
+        """Exercise the production no-access path without test-harness defaults."""
+        return await super().execute(request, cursor_binding=cursor_binding)
 
 
 def _snapshot_route(provider: _Provider):
@@ -616,6 +887,173 @@ async def test_missing_local_data_is_persisted_then_reread_from_local_store() ->
 
 
 @pytest.mark.asyncio
+async def test_current_source_grant_filters_local_reads_and_freezes_provider_receipt_evidence() -> None:
+    """Only currently allowed routes/source IDs participate in a data execution."""
+    context = _context()
+    store = _Store(calendar=_calendar(), revisions=[_revision(_at(9))])
+    denied_primary = _Provider(_provider_result(events=(_at(10), _at(11))))
+    allowed_fallback = _Provider(
+        _provider_result(
+            provider_id="openbb:yfinance",
+            events=(_at(10), _at(11)),
+        )
+    )
+    service = _service(
+        context=context,
+        store=store,
+        provider_routes=(
+            _route(denied_primary),
+            _route(
+                allowed_fallback,
+                expected="openbb:yfinance",
+                request_provider="yfinance",
+            ),
+        ),
+    )
+    resolver = service._resolver
+    assert isinstance(resolver, _Resolver)
+    access = _access(
+        source_registry_id="openbb:yfinance",
+        route_id="route-yfinance",
+        grant_hash="a" * 64,
+        store=store,
+        resolver=resolver,
+    )
+
+    result = await service.execute(_request(), access=access)
+
+    assert result.coverage.status.value == "complete"
+    assert denied_primary.requests == []
+    assert len(allowed_fallback.requests) == 1
+    from app.services.market_data.query_service import _policy_descriptor_hash
+
+    static_policy_hash = _policy_descriptor_hash(
+        service._source_policies.resolve("market-default-v1")
+    )
+    assert allowed_fallback.requests[0].policy_descriptor_hash == static_policy_hash
+    assert allowed_fallback.requests[0].policy_descriptor_hash != "a" * 64
+    assert allowed_fallback.requests[0].access_grant_descriptor_hash == "a" * 64
+    assert store.read_source_filters
+    assert all(item == frozenset({"openbb:yfinance"}) for item in store.read_source_filters)
+    assert store.calendar_source_filters
+    assert all(
+        item == frozenset({"openbb:yfinance"}) for item in store.calendar_source_filters
+    )
+    assert len(store.persisted_source_authorizations) == 1
+    persisted_authorization = store.persisted_source_authorizations[0]
+    assert persisted_authorization is not None
+    assert persisted_authorization.source_registry_id == "openbb:yfinance"
+    assert persisted_authorization.decision == "ALLOW"
+    assert access.authorizer.read_entitlement_checks == 1
+    assert access.authorizer.policy_authorizations == [("route-akshare", "route-yfinance")]
+    assert access.authorizer.local_read_counts_at_authorization == [0]
+    assert access.authorizer.write_reauthorizations == [("route-yfinance", persisted_authorization)]
+
+
+@pytest.mark.asyncio
+async def test_post_fetch_access_change_rejects_the_receipt_before_persistence() -> None:
+    """A provider response cannot write when its in-flight grant has changed."""
+    context = _context()
+    store = _Store(calendar=_calendar(), revisions=[])
+    provider = _Provider(_provider_result())
+    service = _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+    )
+    resolver = service._resolver
+    assert isinstance(resolver, _Resolver)
+    access = _access(
+        source_registry_id="akshare",
+        route_id="route-akshare",
+        grant_hash="a" * 64,
+        store=store,
+        resolver=resolver,
+        write_authorization=MarketDataAuthorizationError("MARKET_DATA_ACCESS_CHANGED_DURING_FETCH"),
+    )
+
+    with pytest.raises(MarketDataAuthorizationError) as rejected:
+        await service.execute(_request(), access=access)
+
+    assert rejected.value.code == "MARKET_DATA_ACCESS_CHANGED_DURING_FETCH"
+    assert len(provider.requests) == 1
+    assert access.authorizer.write_reauthorizations
+    assert store.persisted == []
+
+
+@pytest.mark.asyncio
+async def test_online_execution_requires_authenticated_access_before_local_or_provider_work() -> None:
+    """The service cannot be used as a direct unaudited online importer."""
+    from app.services.market_data.query_service import MarketDataQueryServiceError
+
+    context = _context()
+    store = _Store(calendar=_calendar(), revisions=[])
+    provider = _Provider(_provider_result())
+    service = _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+    )
+
+    with pytest.raises(MarketDataQueryServiceError) as rejected:
+        await service.execute_without_access(_request())
+
+    assert rejected.value.code == "MARKET_DATA_ACCESS_REQUIRED"
+    assert service._resolver.requests == []
+    assert store.read_cutoffs == []
+    assert provider.requests == []
+    assert store.persisted == []
+
+
+@pytest.mark.asyncio
+async def test_cursor_rejects_changed_source_grant_before_any_local_data_read() -> None:
+    """A cursor cannot replay local facts after the current source decision changes."""
+    first_request = _request(page_size=1)
+    context = _context(first_request)
+    store = _Store(
+        calendar=_calendar(),
+        revisions=[_revision(_at(hour)) for hour in (9, 10, 11)],
+    )
+    provider = _Provider(_provider_result())
+    service = _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+    )
+    resolver = service._resolver
+    assert isinstance(resolver, _Resolver)
+    first_access = _access(
+        source_registry_id="akshare",
+        route_id="route-akshare",
+        grant_hash="a" * 64,
+        store=store,
+        resolver=resolver,
+    )
+    first = await service.execute(first_request, access=first_access)
+    assert first.next_cursor is not None
+    reads_before = len(store.read_cutoffs)
+
+    changed_access = _access(
+        source_registry_id="akshare",
+        route_id="route-akshare",
+        grant_hash="b" * 64,
+        store=store,
+        resolver=resolver,
+    )
+    from app.services.market_data.query_service import MarketDataQueryServiceError
+
+    with pytest.raises(MarketDataQueryServiceError) as rejected:
+        await service.execute(
+            _request(page_size=1, cursor=first.next_cursor),
+            access=changed_access,
+        )
+
+    assert rejected.value.code == "CURSOR_ACCESS_GRANT_MISMATCH"
+    assert len(store.read_cutoffs) == reads_before
+    assert provider.requests == []
+
+
+@pytest.mark.asyncio
 async def test_local_only_never_requests_provider_when_coverage_is_incomplete() -> None:
     """Local-only mode returns a typed gap instead of making a hidden online call."""
     context = _context()
@@ -644,6 +1082,8 @@ async def test_response_excludes_legacy_pass_placeholders_but_coverage_retains_r
         event_at=_at(10),
         available_at=_at(12),
         committed_at=_at(12),
+        visible_at=_at(12),
+        visibility_sequence=10,
         revision_number=1,
         quality=ObservationQuality.PASS,
         fields=MappingProxyType({"close": "--"}),
@@ -791,7 +1231,50 @@ async def test_strict_query_does_not_fetch_facts_after_its_fixed_cutoff() -> Non
 
     assert provider.requests == []
     assert result.coverage.status.value == "incomplete"
-    assert [warning.code for warning in result.warnings] == ["STRICT_ONLINE_FETCH_INELIGIBLE"]
+    assert result.historical_status == "HISTORICAL_COVERAGE_UNAVAILABLE"
+    assert result.warnings == ()
+
+
+@pytest.mark.asyncio
+async def test_strict_query_returns_unknown_calendar_without_a_provider_call() -> None:
+    """A frozen view retains unknown calendar evidence instead of trying a live fill."""
+    cutoff = _at(12)
+    request = _request(mode="local_first", knowledge_cutoff=cutoff)
+    context = _context(request)
+    store = _Store(calendar=_calendar(known=False), revisions=[])
+    provider = _Provider(_provider_result())
+
+    result = await _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+    ).execute(request)
+
+    assert result.coverage.status.value == "unknown_calendar"
+    assert result.historical_status == "unknown_calendar"
+    assert provider.requests == []
+    assert store.persisted == []
+
+
+@pytest.mark.asyncio
+async def test_strict_refresh_is_rejected_before_resolver_store_or_provider_work() -> None:
+    """Interactive refresh cannot mutate a strict historical visibility anchor."""
+    from app.services.market_data.query_service import MarketDataQueryServiceError
+
+    request = _request(mode="refresh", knowledge_cutoff=_at(12))
+    context = _context(request)
+    store = _Store(calendar=_calendar(), revisions=[])
+    provider = _Provider(_provider_result())
+    service = _service(context=context, store=store, provider_routes=(_route(provider),))
+
+    with pytest.raises(MarketDataQueryServiceError) as rejected:
+        await service.execute(request)
+
+    assert rejected.value.code == "STRICT_FETCH_FORBIDDEN"
+    assert service._resolver.requests == []
+    assert store.read_cutoffs == []
+    assert store.persisted == []
+    assert provider.requests == []
 
 
 @pytest.mark.asyncio
@@ -847,9 +1330,11 @@ async def test_tampered_signed_cursor_is_rejected_before_local_or_provider_work(
 
     first = await service.execute(first_request)
     assert first.next_cursor is not None
-    payload, signature = first.next_cursor.split(".")
-    replacement = "A" if payload[0] != "A" else "B"
-    tampered_cursor = f"{replacement}{payload[1:]}.{signature}"
+    payload = _cursor_payload(first.next_cursor)
+    anchor = payload["visibility_anchor"]
+    assert isinstance(anchor, dict)
+    anchor["max_visibility_sequence"] = 0
+    tampered_cursor = _cursor_with_payload(first.next_cursor, payload)
     reads_before = len(store.read_cutoffs)
     resolver_requests_before = len(service._resolver.requests)
 
@@ -863,6 +1348,137 @@ async def test_tampered_signed_cursor_is_rejected_before_local_or_provider_work(
     assert len(service._resolver.requests) == resolver_requests_before
     assert provider.requests == []
     assert store.persisted == []
+
+
+@pytest.mark.asyncio
+async def test_cursor_binds_complete_visibility_anchor_and_expires_without_local_work() -> None:
+    """A page token has both anchor coordinates plus a finite immutable lifetime."""
+    from app.services.market_data.query_service import MarketDataQueryServiceError
+
+    first_request = _request(page_size=1)
+    context = _context(first_request)
+    store = _Store(calendar=_calendar(), revisions=[_revision(_at(hour)) for hour in (9, 10, 11)])
+    provider = _Provider(_provider_result())
+    service = _service(
+        context=context,
+        store=store,
+        provider_routes=(_route(provider),),
+        cursor_ttl=timedelta(minutes=1),
+    )
+
+    first = await service.execute(first_request)
+    assert first.next_cursor is not None
+    payload = _cursor_payload(first.next_cursor)
+    assert payload["version"] == 3
+    assert payload["visibility_anchor"] == {
+        "visible_at": _at(12).isoformat(),
+        "max_visibility_sequence": 11,
+    }
+    assert payload["identity_visibility_anchor"] == payload["visibility_anchor"]
+    assert payload["issued_at"] == _at(12).isoformat()
+    assert payload["expires_at"] == _at(12, 1).isoformat()
+    assert isinstance(payload["policy_descriptor_hash"], str)
+    assert payload["access_grant_descriptor_hash"] == "f" * 64
+    assert "principal_scope" not in payload
+    assert "tenant_scope" not in payload
+    assert "entitlement_revision" not in payload
+    for field_name in (
+        "principal_scope_sha256",
+        "tenant_scope_sha256",
+        "entitlement_revision_sha256",
+    ):
+        assert isinstance(payload[field_name], str)
+        assert len(payload[field_name]) == 64
+
+    reads_before = len(store.read_cutoffs)
+    resolver_requests_before = len(service._resolver.requests)
+    service._clock = lambda: _at(12, 1)
+    with pytest.raises(MarketDataQueryServiceError) as expired:
+        await service.execute(_request(page_size=1, cursor=first.next_cursor))
+
+    assert expired.value.code == "CURSOR_EXPIRED"
+    assert len(store.read_cutoffs) == reads_before
+    assert len(service._resolver.requests) == resolver_requests_before
+    assert provider.requests == []
+
+
+@pytest.mark.asyncio
+async def test_cursor_rejects_cross_principal_replay_before_resolver_or_store_work() -> None:
+    """The access-binding seam prevents a signed token crossing principals or tenants."""
+    from app.services.market_data.query_service import (
+        MarketDataCursorBinding,
+        MarketDataQueryServiceError,
+    )
+
+    first_request = _request(page_size=1, mode="local_only")
+    context = _context(first_request)
+    store = _Store(calendar=_calendar(), revisions=[_revision(_at(hour)) for hour in (9, 10, 11)])
+    provider = _Provider(_provider_result())
+    service = _service(context=context, store=store, provider_routes=(_route(provider),))
+    owner_binding = MarketDataCursorBinding(
+        principal_scope="principal-a",
+        tenant_scope="tenant-a",
+        entitlement_revision="entitlement-v1",
+    )
+    first = await service.execute(first_request, cursor_binding=owner_binding)
+    assert first.next_cursor is not None
+    reads_before = len(store.read_cutoffs)
+    resolver_requests_before = len(service._resolver.requests)
+
+    with pytest.raises(MarketDataQueryServiceError) as rejected:
+        await service.execute_without_access(
+            _request(page_size=1, mode="local_only", cursor=first.next_cursor),
+            cursor_binding=MarketDataCursorBinding(
+                principal_scope="principal-b",
+                tenant_scope="tenant-a",
+                entitlement_revision="entitlement-v1",
+            ),
+        )
+
+    assert rejected.value.code == "CURSOR_PRINCIPAL_MISMATCH"
+    assert len(store.read_cutoffs) == reads_before
+    assert len(service._resolver.requests) == resolver_requests_before
+    assert provider.requests == []
+
+
+@pytest.mark.asyncio
+async def test_cursor_hashes_long_unicode_access_scopes_without_exceeding_transport_limit() -> None:
+    """Access binding remains exact even when its raw values cannot fit in a token."""
+    from app.services.market_data.query_service import MarketDataCursorBinding
+
+    first_request = _request(page_size=1, mode="local_only")
+    context = _context(first_request)
+    store = _Store(calendar=_calendar(), revisions=[_revision(_at(hour)) for hour in (9, 10, 11)])
+    provider = _Provider(_provider_result())
+    service = _service(context=context, store=store, provider_routes=(_route(provider),))
+    binding = MarketDataCursorBinding(
+        principal_scope="用户" * 128,
+        tenant_scope="租户" * 128,
+        entitlement_revision="e" * 128,
+    )
+
+    first = await service.execute_without_access(first_request, cursor_binding=binding)
+
+    assert first.next_cursor is not None
+    assert len(first.next_cursor) <= 2048
+    payload = _cursor_payload(first.next_cursor)
+    assert payload["principal_scope_sha256"] != binding.principal_scope
+    assert payload["tenant_scope_sha256"] != binding.tenant_scope
+    second = await service.execute_without_access(
+        _request(page_size=1, mode="local_only", cursor=first.next_cursor),
+        cursor_binding=binding,
+    )
+    assert [item.event_at for item in second.observations] == [_at(10)]
+
+
+def test_policy_descriptor_hash_is_independent_of_cursor_transport_size() -> None:
+    """The six reviewed default routes fit through a fixed-size hash field."""
+    from app.api.data.queries import _default_source_policy_registry
+    from app.services.market_data.query_service import _policy_descriptor_hash
+
+    policy = _default_source_policy_registry("", ()).resolve("market-default-v1")
+
+    assert len(_policy_descriptor_hash(policy)) == 64
 
 
 @pytest.mark.asyncio
@@ -900,38 +1516,90 @@ async def test_signed_cursor_rejects_a_different_hmac_key_before_local_or_provid
 
 
 @pytest.mark.asyncio
-async def test_cursor_freezes_the_local_snapshot_and_never_refetches() -> None:
-    """The second page remains on the first page's receipt boundary after newer rows arrive."""
-    first_request = _request(page_size=1)
+async def test_strict_cursor_excludes_a_later_receipt_with_the_same_visible_at() -> None:
+    """A strict continuation uses both anchor coordinates for same-time receipts."""
+    first_request = _request(page_size=1, knowledge_cutoff=_at(12))
     context = _context(first_request)
-    store = _Store(calendar=_calendar(), revisions=[_revision(_at(hour)) for hour in (9, 10, 11)])
+    store = _Store(calendar=_calendar(), revisions=[_revision(_at(hour)) for hour in (9, 11)])
     provider = _Provider(_provider_result())
     service = _service(context=context, store=store, provider_routes=(_route(provider),))
     resolver = service._resolver
 
     first = await service.execute(first_request)
     assert first.next_cursor is not None
+    assert first.visibility_anchor == MarketDataVisibilityAnchor(
+        visible_at=_at(12),
+        max_visibility_sequence=11,
+    )
     store.revisions.append(
         LocalObservationRevision(
             revision_id="revision-later-correction",
             source_snapshot_id="snapshot-later",
             event_at=_at(10),
-            available_at=_at(13),
-            committed_at=_at(13),
-            revision_number=2,
+            available_at=_at(12),
+            committed_at=_at(12),
+            visible_at=_at(12),
+            visibility_sequence=12,
+            revision_number=1,
             quality=ObservationQuality.PASS,
             fields=MappingProxyType({"close": 99.0}),
         )
     )
 
-    second = await service.execute(_request(page_size=1, cursor=first.next_cursor))
+    second = await service.execute(
+        _request(page_size=1, knowledge_cutoff=_at(12), cursor=first.next_cursor)
+    )
 
-    assert [item.event_at for item in second.observations] == [_at(10)]
+    assert [item.event_at for item in second.observations] == [_at(11)]
     assert second.observations[0].fields["close"] == 10.0
+    assert second.visibility_anchor == first.visibility_anchor
+    assert second.historical_status == "HISTORICAL_COVERAGE_UNAVAILABLE"
     assert provider.requests == []
     assert [warning.code for warning in second.warnings] == ["CURSOR_FROZEN_LOCAL_ONLY"]
     assert set(store.read_cutoffs) == {_at(12)}
     assert resolver.identity_cutoffs == [_at(12), _at(12)]
+
+
+@pytest.mark.asyncio
+async def test_strict_cursor_excludes_later_sequence_below_a_future_cutoff() -> None:
+    """A future historical cutoff cannot make a later receipt retroactively visible."""
+    first_request = _request(page_size=1, knowledge_cutoff=_at(13))
+    context = _context(first_request)
+    store = _Store(calendar=_calendar(), revisions=[_revision(_at(hour)) for hour in (9, 11)])
+    provider = _Provider(_provider_result())
+    service = _service(context=context, store=store, provider_routes=(_route(provider),))
+
+    first = await service.execute(first_request)
+    assert first.next_cursor is not None
+    assert first.visibility_anchor == MarketDataVisibilityAnchor(
+        visible_at=_at(13),
+        max_visibility_sequence=11,
+    )
+    store.revisions.append(
+        LocalObservationRevision(
+            revision_id="revision-later-but-earlier-time",
+            source_snapshot_id="snapshot-later",
+            event_at=_at(10),
+            available_at=_at(12),
+            committed_at=_at(12),
+            # This remains below the caller's explicit future cutoff, but
+            # its larger global sequence proves it was sealed after page one.
+            visible_at=_at(12),
+            visibility_sequence=12,
+            revision_number=1,
+            quality=ObservationQuality.PASS,
+            fields=MappingProxyType({"close": 99.0}),
+        )
+    )
+
+    second = await service.execute(
+        _request(page_size=1, knowledge_cutoff=_at(13), cursor=first.next_cursor)
+    )
+
+    assert [item.event_at for item in second.observations] == [_at(11)]
+    assert second.observations[0].fields["close"] == 10.0
+    assert second.visibility_anchor == first.visibility_anchor
+    assert provider.requests == []
 
 
 @pytest.mark.asyncio
@@ -1024,16 +1692,20 @@ async def test_cursor_keeps_identity_cutoff_when_current_fetch_advances_observat
         cutoff_context=cutoff_context,
     )
     service._resolver = resolver
-    clock_values = iter((_at(12), _at(13)))
+    # A continuation must retain its identity boundary while its first-page
+    # provider receipt advances the observation cutoff.  Keep the synthetic
+    # times inside the production cursor TTL so this remains a PIT test rather
+    # than accidentally exercising expiry.
+    clock_values = iter((_at(12), _at(12, 1), _at(12, 2)))
     service._clock = lambda: next(clock_values)
 
     first = await service.execute(first_request)
     assert first.next_cursor is not None
     second = await service.execute(_request(page_size=1, cursor=first.next_cursor))
 
-    assert first.knowledge_cutoff == _at(13)
+    assert first.knowledge_cutoff == _at(12, 1)
     assert first.identity_knowledge_cutoff == _at(12)
-    assert second.knowledge_cutoff == _at(13)
+    assert second.knowledge_cutoff == _at(12, 1)
     assert second.identity_knowledge_cutoff == _at(12)
     assert [item.event_at for item in second.observations] == [_at(10)]
     assert resolver.identity_cutoffs == [_at(12), _at(12)]
@@ -1093,6 +1765,8 @@ async def test_recent_local_quote_snapshot_never_reads_a_bar_calendar_or_provide
                 event_at=_at(12),
                 available_at=_at(12),
                 committed_at=_at(12),
+                visible_at=_at(12),
+                visibility_sequence=12,
                 revision_number=1,
                 quality=ObservationQuality.PASS,
                 fields=MappingProxyType({"price": 10.5}),
@@ -1126,6 +1800,8 @@ async def test_quote_response_hides_stale_local_snapshots_from_the_display() -> 
                 event_at=_at(11),
                 available_at=_at(11),
                 committed_at=_at(11),
+                visible_at=_at(11),
+                visibility_sequence=11,
                 revision_number=1,
                 quality=ObservationQuality.PASS,
                 fields=MappingProxyType({"price": 9.5}),
@@ -1136,6 +1812,8 @@ async def test_quote_response_hides_stale_local_snapshots_from_the_display() -> 
                 event_at=_at(12),
                 available_at=_at(12),
                 committed_at=_at(12),
+                visible_at=_at(12),
+                visibility_sequence=12,
                 revision_number=1,
                 quality=ObservationQuality.PASS,
                 fields=MappingProxyType({"price": 10.5}),
@@ -1191,6 +1869,8 @@ async def test_stale_quote_snapshot_fetches_one_current_replacement() -> None:
                 event_at=_at(11),
                 available_at=_at(11),
                 committed_at=_at(11),
+                visible_at=_at(11),
+                visibility_sequence=11,
                 revision_number=1,
                 quality=ObservationQuality.PASS,
                 fields=MappingProxyType({"price": 9.5}),
@@ -1225,6 +1905,8 @@ async def test_quote_snapshot_uses_its_injected_product_freshness_policy() -> No
                 event_at=_at(11, 54),
                 available_at=_at(11, 54),
                 committed_at=_at(11, 54),
+                visible_at=_at(11, 54),
+                visibility_sequence=11,
                 revision_number=1,
                 quality=ObservationQuality.PASS,
                 fields=MappingProxyType({"price": 10.0}),
