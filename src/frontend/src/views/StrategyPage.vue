@@ -791,6 +791,14 @@
                       >
                         {{ aiResearchPrecheckSummary }}
                       </el-tag>
+                      <el-tag
+                        v-if="aiResearchPrecheckResult || aiResearchPrecheckError || aiResearchMarketDataPlatformStatus.path !== 'legacy'"
+                        size="small"
+                        data-test="ai-research-data-platform-status"
+                        :type="aiResearchMarketDataPlatformTagType"
+                      >
+                        {{ aiResearchMarketDataPlatformSummary }}
+                      </el-tag>
                     </div>
                     <div
                       v-if="aiResearchPrecheckResult?.gate_evaluations?.length"
@@ -802,7 +810,10 @@
                         :key="issue.key"
                         class="ai-research-precheck-issue"
                       >
-                        <el-tag size="small" :type="issue.severity === 'error' ? 'danger' : 'warning'">
+                        <el-tag
+                          size="small"
+                          :type="issue.severity === 'error' ? 'danger' : 'warning'"
+                        >
                           {{ issue.severity === 'error' ? '阻断' : '提示' }}
                         </el-tag>
                         <span>{{ issue.message || issue.label }}</span>
@@ -2940,6 +2951,7 @@ const {
   aiResearchPrecheckLoading,
   aiResearchPrecheckResult,
   aiResearchPrecheckError,
+  aiResearchMarketDataPlatformStatus,
   PAPER_GATEWAY_CONFIG_PLACEHOLDER,
   LIVE_GATEWAY_CONFIG_PLACEHOLDER,
   form,
@@ -2948,6 +2960,8 @@ const {
   aiResearchHeroMetrics,
   aiResearchPrecheckTagType,
   aiResearchPrecheckSummary,
+  aiResearchMarketDataPlatformTagType,
+  aiResearchMarketDataPlatformSummary,
   strategies,
   loading,
   filteredTemplates,

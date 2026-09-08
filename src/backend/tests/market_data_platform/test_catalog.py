@@ -79,6 +79,7 @@ async def test_catalog_resolution_uses_registered_binding_not_legacy_endpoint_ta
 
         resolution = await DataCatalogResolver(session).resolve_primary("market.stock_daily")
 
+        assert resolution.dataset_id == dataset.id
         assert resolution.dataset_code == "market.stock_daily"
         assert resolution.storage_id == "mysql_akshare_data"
         assert resolution.physical_table == "STOCK_ZH_A_HIST"
@@ -326,6 +327,42 @@ def test_catalog_migration_rejects_partial_catalog_schema(tmp_path: Path) -> Non
             command.upgrade(config, "head")
     finally:
         engine.dispose()
+
+
+def test_catalog_migration_rejects_same_named_wrong_column_contract(tmp_path: Path) -> None:
+    """Recovery refuses a table whose names match but type/nullability do not."""
+    database_path = tmp_path / "wrong-catalog-columns.sqlite3"
+    config = Config(str(BACKEND_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_ROOT / "alembic"))
+    config.set_main_option("sqlalchemy.url", f"sqlite+aiosqlite:///{database_path}")
+    engine = create_engine(f"sqlite:///{database_path}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE dg_datasets (
+                        id VARCHAR(36) PRIMARY KEY,
+                        dataset_code VARCHAR(160) NOT NULL,
+                        display_name VARCHAR(255) NOT NULL,
+                        domain INTEGER NULL,
+                        canonical_schema JSON NOT NULL,
+                        primary_key JSON NOT NULL,
+                        is_active BOOLEAN NOT NULL,
+                        created_at DATETIME NOT NULL
+                    )
+                    """
+                )
+            )
+        command.stamp(config, "20260811_asset_research_task_leases")
+
+        with pytest.raises(RuntimeError, match="MARKET_DATA_CATALOG_PARTIAL_SCHEMA_UNSAFE") as unsafe:
+            command.upgrade(config, "head")
+    finally:
+        engine.dispose()
+
+    assert "invalid_columns" in str(unsafe.value)
+    assert "domain" in str(unsafe.value)
 
 
 def test_catalog_migration_rejects_same_named_but_wrong_catalog_index(tmp_path: Path) -> None:

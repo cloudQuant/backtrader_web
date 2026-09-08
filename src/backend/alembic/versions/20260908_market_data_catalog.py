@@ -133,12 +133,59 @@ def _foreign_key_exists(
     )
 
 
-def _catalog_table_is_complete(table_name: str) -> tuple[bool, str]:
+def _catalog_column_definitions(
+    table_name: str,
+    columns: tuple[Any, ...],
+) -> dict[str, sa.Column[Any]]:
+    """Extract this migration's authoritative typed column contract."""
+    definitions = {
+        str(column.name): column for column in columns if isinstance(column, sa.Column)
+    }
+    if not definitions or set(definitions) != _CATALOG_REQUIRED_COLUMNS[table_name]:
+        raise RuntimeError(f"MARKET_DATA_CATALOG_MIGRATION_CONTRACT_INVALID: {table_name}")
+    return definitions
+
+
+def _type_signature(type_: sa.types.TypeEngine[Any]) -> tuple[type[object], int | None]:
+    """Compare portable SQLAlchemy type affinities and declared string lengths."""
+    return type_._type_affinity, getattr(type_, "length", None)
+
+
+def _catalog_table_is_complete(
+    table_name: str,
+    columns: tuple[Any, ...],
+) -> tuple[bool, str]:
     """Recognize only a fully materialized catalog table after interrupted DDL."""
     inspector = sa.inspect(op.get_bind())
-    missing_columns = _CATALOG_REQUIRED_COLUMNS[table_name] - {
-        column["name"] for column in inspector.get_columns(table_name)
+    expected_columns = _catalog_column_definitions(table_name, columns)
+    observed_columns = {
+        str(column["name"]): column for column in inspector.get_columns(table_name)
     }
+    missing_columns = _CATALOG_REQUIRED_COLUMNS[table_name] - set(observed_columns)
+    invalid_columns: dict[str, dict[str, object]] = {}
+    for column_name, expected in expected_columns.items():
+        actual = observed_columns.get(column_name)
+        if actual is None:
+            continue
+        expected_default = (
+            None if expected.server_default is None else str(expected.server_default.arg)
+        )
+        actual_default = actual.get("default")
+        actual_type_signature = _type_signature(actual["type"])
+        expected_type_signature = _type_signature(expected.type)
+        if (
+            actual_type_signature != expected_type_signature
+            or bool(actual.get("nullable")) != bool(expected.nullable)
+            or actual_default != expected_default
+        ):
+            invalid_columns[column_name] = {
+                "actual_type": actual_type_signature,
+                "expected_type": expected_type_signature,
+                "actual_nullable": bool(actual.get("nullable")),
+                "expected_nullable": bool(expected.nullable),
+                "actual_default": actual_default,
+                "expected_default": expected_default,
+            }
     indexes = {
         str(index["name"]): (
             tuple(str(column) for column in index.get("column_names") or ()),
@@ -203,6 +250,7 @@ def _catalog_table_is_complete(table_name: str) -> tuple[bool, str]:
 
     missing_parts = [
         *(f"columns={sorted(missing_columns)}" for _ in [0] if missing_columns),
+        *(f"invalid_columns={invalid_columns}" for _ in [0] if invalid_columns),
         *(
             f"primary_key={primary_key!r} expected={_CATALOG_REQUIRED_PRIMARY_KEYS[table_name]!r}"
             for _ in [0]
@@ -219,8 +267,8 @@ def _catalog_table_is_complete(table_name: str) -> tuple[bool, str]:
     return not missing_parts, "; ".join(missing_parts)
 
 
-def _assert_catalog_table_complete(table_name: str) -> None:
-    complete, detail = _catalog_table_is_complete(table_name)
+def _assert_catalog_table_complete(table_name: str, columns: tuple[Any, ...]) -> None:
+    complete, detail = _catalog_table_is_complete(table_name, columns)
     if not complete:
         raise RuntimeError(
             "MARKET_DATA_CATALOG_PARTIAL_SCHEMA_UNSAFE: "
@@ -236,7 +284,7 @@ class _SchemaAwareOperations:
 
     def create_table(self, table_name: str, *columns: Any, **kwargs: Any) -> Any:
         if _table_exists(table_name):
-            _assert_catalog_table_complete(table_name)
+            _assert_catalog_table_complete(table_name, columns)
             return None
         return self._operations.create_table(table_name, *columns, **kwargs)
 

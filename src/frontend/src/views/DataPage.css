@@ -80,6 +80,28 @@
   min-width: min(460px, 42vw);
 }
 
+.market-data-platform-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 460px;
+  color: var(--text-color-secondary);
+  font-size: 11px;
+}
+
+.market-data-platform-status > span {
+  white-space: nowrap;
+}
+
+.market-data-platform-status :deep(.el-tag) {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .history-query-header :deep(.el-tag) {
   height: 26px;
   font-weight: 600;

@@ -15,6 +15,23 @@
             <el-tag type="info">
               {{ t('dataMgmt.providerTag', { provider: result?.provider || '-' }) }}
             </el-tag>
+            <div
+              class="market-data-platform-status"
+              data-test="market-data-platform-status"
+            >
+              <span>路径</span>
+              <el-tag :type="marketDataPlatformTagType">
+                {{ marketDataPlatformSourceText }}
+              </el-tag>
+              <span>缓存</span>
+              <el-tag :type="marketDataPlatformTagType">
+                {{ marketDataPlatformCacheText }}
+              </el-tag>
+              <span>覆盖</span>
+              <el-tag :type="marketDataPlatformTagType">
+                {{ marketDataPlatformCoverageText }}
+              </el-tag>
+            </div>
             <div class="history-query-stats">
               <article
                 v-for="item in heroStats"
@@ -676,6 +693,10 @@ const {
   coverageError,
   coverageTimeframe,
   coverageProvider,
+  marketDataPlatformSourceText,
+  marketDataPlatformCacheText,
+  marketDataPlatformCoverageText,
+  marketDataPlatformTagType,
   snapshot,
   displayHistoryRows,
   chartCanRender,

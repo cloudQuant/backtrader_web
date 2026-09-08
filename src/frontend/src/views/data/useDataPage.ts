@@ -16,11 +16,16 @@ import {
 import * as echarts from 'echarts'
 import { akshareTablesApi } from '@/api/akshare'
 import {
+  createMarketDataQueryFromContract,
+  hasMarketDataQueryContract,
+  isMarketDataQueryV2FallbackError,
   marketDataApi,
   type MarketAssetType,
   type MarketHistoryRow,
   type MarketInstrumentOption,
   type MarketInstrumentLookupResponse,
+  type MarketDataQueryContract,
+  type MarketDataQueryResponse,
 } from '@/api/marketData'
 import { CANDLE_DOWN_COLOR, CANDLE_ITEM_STYLE, CANDLE_UP_COLOR } from '@/constants/chartColors'
 import type { DataTable } from '@/types'
@@ -34,6 +39,8 @@ type SavedMarketAssetSelection = {
 }
 
 type MarketAssetSelections = Partial<Record<MarketAssetType, SavedMarketAssetSelection>>
+
+const V2_MARKET_DATA_PAGE_SIZE = 2000
 
 export function useDataPage() {
   const { t } = useI18n()
@@ -121,6 +128,16 @@ export function useDataPage() {
     label: string
     value: string
     coverage: number
+  }
+
+  type MarketDataPlatformStatus = {
+    path: 'legacy' | 'local_first' | 'provider_persisted' | 'legacy_fallback' | 'error'
+    provider: string | null
+    coverageStatus: string | null
+    coverageRatio: number | null
+    fetchedProviderCount: number
+    fallbackReason: string | null
+    queryId: string | null
   }
 
   type DataFamilySpec = {
@@ -586,11 +603,21 @@ export function useDataPage() {
   const coverageError = ref('')
   const coverageTimeframe = ref('1d')
   const coverageProvider = ref('akshare_data')
+  const marketDataPlatformStatus = ref<MarketDataPlatformStatus>({
+    path: 'legacy',
+    provider: null,
+    coverageStatus: null,
+    coverageRatio: null,
+    fetchedProviderCount: 0,
+    fallbackReason: null,
+    queryId: null,
+  })
   const viewportWidth = ref(window.innerWidth)
   let marketChart: echarts.ECharts | null = null
   let instrumentOptionsRequestId = 0
   let relatedTableRequestId = 0
   let coverageRequestId = 0
+  let lookupRequestId = 0
 
   const snapshot = computed<Record<string, unknown>>(() => result.value?.snapshot || {})
   const historyRows = computed(() => result.value?.history.rows || [])
@@ -720,6 +747,38 @@ export function useDataPage() {
     metricCard('dataMgmt.heroStatRows', formatNumber(result.value?.history.total)),
     metricCard('dataMgmt.heroStatCoverage', `${coverageScore.value}%`),
   ])
+  const marketDataPlatformSourceText = computed(() => {
+    const status = marketDataPlatformStatus.value
+    if (status.path === 'provider_persisted') {
+      return status.provider ? `已获取并入库 · ${status.provider}` : '已获取并入库'
+    }
+    if (status.path === 'local_first') {
+      return status.provider ? `本地优先 · ${status.provider}` : '本地优先'
+    }
+    if (status.path === 'legacy_fallback') return '传统接口回退'
+    if (status.path === 'error') return '数据平台查询失败'
+    return '传统本地查询'
+  })
+  const marketDataPlatformCacheText = computed(() => {
+    const status = marketDataPlatformStatus.value
+    if (status.path === 'provider_persisted') return `已保存 ${status.fetchedProviderCount} 个来源回执`
+    if (status.path === 'local_first') return '命中本地可追溯缓存'
+    if (status.path === 'legacy_fallback') return '保留兼容查询结果'
+    if (status.path === 'error') return '查询未回退到传统接口'
+    return '兼容接口未返回缓存凭证'
+  })
+  const marketDataPlatformCoverageText = computed(() => {
+    const status = marketDataPlatformStatus.value
+    if (!status.coverageStatus) return '覆盖证据待数据平台提供'
+    const ratio = status.coverageRatio === null ? '-' : `${(status.coverageRatio * 100).toFixed(2)}%`
+    return `${status.coverageStatus} · ${ratio}`
+  })
+  const marketDataPlatformTagType = computed<'success' | 'warning' | 'info'>(() => {
+    const path = marketDataPlatformStatus.value.path
+    if (path === 'local_first' || path === 'provider_persisted') return 'success'
+    if (path === 'legacy_fallback' || path === 'error') return 'warning'
+    return 'info'
+  })
   const coverageMatrixSubtitle = computed(() => {
     const provider = coverageProvider.value.trim() || t('dataMgmt.coverageAllProviders')
     return `${assetLabel(form.asset_type)} · ${coverageTimeframe.value} · ${provider}`
@@ -905,17 +964,313 @@ export function useDataPage() {
     }
   }
 
+  function v2FrequencyForLegacyPeriod(period: string): '1d' | '1w' | '1mo' {
+    if (period === 'weekly') return '1w'
+    if (period === 'monthly') return '1mo'
+    return '1d'
+  }
+
+  function queryWindowFromDateRange(): { start: string; end: string } | null {
+    const [startDate, endDate] = dateRange.value || []
+    if (!startDate || !endDate) return null
+    const start = new Date(`${startDate}T00:00:00.000Z`)
+    const endInclusive = new Date(`${endDate}T00:00:00.000Z`)
+    if (Number.isNaN(start.getTime()) || Number.isNaN(endInclusive.getTime()) || start > endInclusive) {
+      return null
+    }
+    endInclusive.setUTCDate(endInclusive.getUTCDate() + 1)
+    return { start: start.toISOString(), end: endInclusive.toISOString() }
+  }
+
+  function queryContractForCurrentLookup(
+    lookupResult: MarketInstrumentLookupResponse | null,
+    assetType: MarketAssetType,
+    symbol: string,
+  ): MarketDataQueryContract | null {
+    if (!lookupResult || lookupResult.asset_type !== assetType) return null
+    if (lookupResult.symbol.trim().toUpperCase() !== symbol.trim().toUpperCase()) return null
+    return queryContractForCurrentPeriod(lookupResult.query_contract)
+  }
+
+  function queryContractForCurrentPeriod(
+    contract: unknown,
+  ): MarketDataQueryContract | null {
+    if (!hasMarketDataQueryContract(contract)) return null
+    const request = contract.request
+    if (request.data_kind !== 'bars' || request.frequency !== v2FrequencyForLegacyPeriod(form.period)) {
+      return null
+    }
+    return contract
+  }
+
+  async function resolveV2QueryContract(
+    assetType: MarketAssetType,
+    symbol: string,
+  ): Promise<{ contract: MarketDataQueryContract | null; fellBack: boolean }> {
+    try {
+      const contract = await marketDataApi.getQueryContract({
+        asset_type: assetType,
+        symbol,
+        period: form.period as 'daily' | 'weekly' | 'monthly',
+      })
+      const currentContract = queryContractForCurrentPeriod(contract)
+      if (!currentContract) {
+        throw new Error('MARKET_DATA_QUERY_CONTRACT_INVALID')
+      }
+      return { contract: currentContract, fellBack: false }
+    } catch (error) {
+      if (isMarketDataQueryV2FallbackError(error)) {
+        return { contract: null, fellBack: true }
+      }
+      throw error
+    }
+  }
+
+  function lookupShellForV2Query(
+    assetType: MarketAssetType,
+    symbol: string,
+    market: string,
+    contract: MarketDataQueryContract,
+  ): MarketInstrumentLookupResponse {
+    return {
+      asset_type: assetType,
+      symbol,
+      name: symbol,
+      market: market || null,
+      provider: 'local_market_data',
+      query_contract: contract,
+      snapshot: {},
+      history: {
+        period: form.period,
+        rows: [],
+        total: 0,
+      },
+      indicators: {},
+      warnings: [],
+    }
+  }
+
+  function v2HistoryRows(response: MarketDataQueryResponse): MarketHistoryRow[] {
+    return response.observations
+      .map((observation) => ({
+        ...observation.fields,
+        date: v2EventTimeLabel(observation.event_at, response.frequency),
+      }))
+      .sort((left, right) => historyRowTimestamp(left) - historyRowTimestamp(right))
+  }
+
+  function v2EventTimeLabel(value: string, frequency: string): string {
+    const timestamp = new Date(value)
+    if (Number.isNaN(timestamp.getTime())) return value
+    const iso = timestamp.toISOString()
+    return ['1d', '1w', '1mo'].includes(frequency) ? iso.slice(0, 10) : iso
+  }
+
+  function lookupFromV2Response(
+    response: MarketDataQueryResponse,
+    legacyLookup: MarketInstrumentLookupResponse,
+  ): MarketInstrumentLookupResponse {
+    const rows = v2HistoryRows(response)
+    const latestRow = rows[rows.length - 1]
+    const latestFields: Record<string, unknown> = latestRow ? { ...latestRow } : {}
+    delete latestFields.date
+    const closeValues = numericSeries(rows, 'close')
+    const volumeValues = numericSeries(rows, 'volume')
+    const latestClose = closeValues[closeValues.length - 1] ?? null
+    const lastFetch = response.fetches[response.fetches.length - 1]
+    const lastObservation = response.observations[response.observations.length - 1]
+    const provider = lastFetch?.provider_id || legacyLookup.provider || 'local_market_data'
+    const warnings = response.warnings.map((warning) => warning.code)
+
+    return {
+      ...legacyLookup,
+      asset_type: response.asset_type,
+      provider,
+      snapshot: {
+        ...legacyLookup.snapshot,
+        ...latestFields,
+        price: numericValue(latestFields.price ?? latestFields.close, legacyLookup.snapshot.price ?? null),
+        update_time: lastObservation?.available_at || legacyLookup.snapshot.update_time,
+        data_source_table: response.dataset_code,
+      },
+      history: {
+        period: form.period,
+        rows,
+        total: rows.length,
+      },
+      indicators: {
+        latest_close: latestClose,
+        return_pct: periodReturnPct(closeValues),
+        highest_close: closeValues.length ? Math.max(...closeValues) : null,
+        lowest_close: closeValues.length ? Math.min(...closeValues) : null,
+        avg_volume: averageNumbers(volumeValues),
+        observation_count: rows.length,
+      },
+      warnings,
+    }
+  }
+
+  function setLegacyMarketDataPlatformStatus(fallbackReason: string | null = null) {
+    marketDataPlatformStatus.value = {
+      path: fallbackReason ? 'legacy_fallback' : 'legacy',
+      provider: null,
+      coverageStatus: null,
+      coverageRatio: null,
+      fetchedProviderCount: 0,
+      fallbackReason,
+      queryId: null,
+    }
+  }
+
+  function setMarketDataPlatformErrorStatus() {
+    marketDataPlatformStatus.value = {
+      path: 'error',
+      provider: null,
+      coverageStatus: null,
+      coverageRatio: null,
+      fetchedProviderCount: 0,
+      fallbackReason: null,
+      queryId: null,
+    }
+  }
+
+  function setV2MarketDataPlatformStatus(response: MarketDataQueryResponse) {
+    const fetches = response.fetches || []
+    marketDataPlatformStatus.value = {
+      path: fetches.length ? 'provider_persisted' : 'local_first',
+      provider: fetches[fetches.length - 1]?.provider_id || null,
+      coverageStatus: response.coverage.status,
+      coverageRatio: response.coverage.coverage_ratio,
+      fetchedProviderCount: fetches.length,
+      fallbackReason: null,
+      queryId: response.query_id,
+    }
+  }
+
+  async function queryV2FromLookupContract(
+    contract: MarketDataQueryContract,
+    legacyLookup: MarketInstrumentLookupResponse,
+    refreshOnline = false,
+  ): Promise<MarketInstrumentLookupResponse> {
+    const window = queryWindowFromDateRange()
+    if (!window) throw new Error('MARKET_DATA_QUERY_WINDOW_INVALID')
+
+    const response = await queryAllV2MarketDataPages(
+      createMarketDataQueryFromContract(contract, {
+        ...window,
+        mode: refreshOnline ? 'refresh' : 'local_first',
+        purpose: 'display',
+        consistency: 'display',
+        page_size: V2_MARKET_DATA_PAGE_SIZE,
+      }),
+    )
+    setV2MarketDataPlatformStatus(response)
+    return lookupFromV2Response(response, legacyLookup)
+  }
+
+  async function queryAllV2MarketDataPages(
+    initialRequest: ReturnType<typeof createMarketDataQueryFromContract>,
+  ): Promise<MarketDataQueryResponse> {
+    /**
+     * Read every frozen cursor page or fail visibly instead of truncating history.
+     *
+     * The server fixes a cursor to the first page's local knowledge cutoff and
+     * never fetches a provider for cursor pages. Keeping the original request
+     * semantics while adding only the cursor therefore preserves the local-first
+     * result without silently dropping history past the first response page.
+     */
+    const first = await marketDataApi.queryLocalFirst(
+      initialRequest,
+      { suppressErrorMessage: true },
+    )
+    const observations = [...first.observations]
+    const warnings = [...first.warnings]
+    const observationIds = new Set(first.observations.map((item) => item.revision_id))
+    const cursors = new Set<string>()
+    let cursor = first.next_cursor
+
+    while (cursor) {
+      if (cursors.has(cursor)) {
+        throw new Error('MARKET_DATA_CURSOR_PAGINATION_INTEGRITY')
+      }
+      cursors.add(cursor)
+      const page = await marketDataApi.queryLocalFirst(
+        { ...initialRequest, cursor },
+        { suppressErrorMessage: true },
+      )
+      if (
+        page.query_id !== first.query_id
+        || page.knowledge_cutoff !== first.knowledge_cutoff
+        || page.identity_knowledge_cutoff !== first.identity_knowledge_cutoff
+      ) {
+        throw new Error('MARKET_DATA_CURSOR_PAGINATION_INTEGRITY')
+      }
+      for (const observation of page.observations) {
+        if (observationIds.has(observation.revision_id)) {
+          throw new Error('MARKET_DATA_CURSOR_PAGINATION_INTEGRITY')
+        }
+        observationIds.add(observation.revision_id)
+        observations.push(observation)
+      }
+      warnings.push(...page.warnings)
+      cursor = page.next_cursor
+    }
+
+    return {
+      ...first,
+      observations,
+      next_cursor: null,
+      warnings,
+    }
+  }
+
   async function lookupInstrument(refreshOnline = false) {
     const symbol = formSymbolText()
     if (!symbol) {
       ElMessage.error(t('dataMgmt.msgSymbolRequired'))
       return
     }
+    const requestId = ++lookupRequestId
     const queryAssetType = form.asset_type
     const queryMarket = queryAssetType === 'futures' ? formMarketText() : ''
+    const existingContract = queryContractForCurrentLookup(result.value, queryAssetType, symbol)
     loading.value = true
     try {
-      const response = await marketDataApi.lookupInstrument({
+      let directContract = existingContract
+      let directLookup = existingContract && result.value
+        ? result.value
+        : null
+      let v2Fallback = false
+
+      // The contract endpoint is intentionally read-only: it verifies an
+      // exact imported canonical identity and active dataset without asking a
+      // provider for data. This lets the first page request enter v2 without
+      // an online legacy lookup.
+      if (!directContract) {
+        const resolution = await resolveV2QueryContract(queryAssetType, symbol)
+        if (requestId !== lookupRequestId) return
+        directContract = resolution.contract
+        v2Fallback = resolution.fellBack
+        if (directContract) {
+          directLookup = lookupShellForV2Query(queryAssetType, symbol, queryMarket, directContract)
+        }
+      }
+
+      if (directContract && directLookup) {
+        const v2Response = await queryV2FromLookupContract(
+          directContract,
+          directLookup,
+          refreshOnline,
+        )
+        if (requestId !== lookupRequestId) return
+        result.value = v2Response
+        rememberMarketAssetSelection(queryAssetType, symbol, queryMarket)
+        void loadRelatedTables(v2Response)
+        ElMessage.success(t('dataMgmt.msgQueriedCount', { count: v2Response.history.total }))
+        return
+      }
+
+      const legacyResponse = await marketDataApi.lookupInstrument({
         asset_type: queryAssetType,
         symbol,
         period: form.period,
@@ -924,16 +1279,37 @@ export function useDataPage() {
         market: queryMarket || undefined,
         refresh_online: refreshOnline,
       })
+      if (requestId !== lookupRequestId) return
+
+      let response = legacyResponse
+      // Compatibility bridge for a server that returns a typed contract from
+      // the legacy response but has not yet deployed the read-only contract
+      // endpoint. The legacy read has already completed; only the v2 call may
+      // decide that a bounded local-first gap fill is needed.
+      const bootstrapContract = !directContract && !refreshOnline
+        ? queryContractForCurrentLookup(legacyResponse, queryAssetType, symbol)
+        : null
+      if (bootstrapContract) {
+        const v2Response = await queryV2FromLookupContract(bootstrapContract, legacyResponse)
+        if (requestId !== lookupRequestId) return
+        response = v2Response
+      }
+      if (!bootstrapContract && !directContract) {
+        setLegacyMarketDataPlatformStatus(v2Fallback ? 'MARKET_DATA_QUERY_V2_UNAVAILABLE' : null)
+      }
+
       result.value = response
       rememberMarketAssetSelection(queryAssetType, symbol, queryMarket)
       void loadRelatedTables(response)
       ElMessage.success(t('dataMgmt.msgQueriedCount', { count: response.history.total }))
     } catch {
+      if (requestId !== lookupRequestId) return
       result.value = null
       relatedTables.value = []
+      setMarketDataPlatformErrorStatus()
       ElMessage.error(t('dataMgmt.msgQueryFail'))
     } finally {
-      loading.value = false
+      if (requestId === lookupRequestId) loading.value = false
     }
   }
 
@@ -1899,6 +2275,7 @@ export function useDataPage() {
     coverageError,
     coverageTimeframe,
     coverageProvider,
+    marketDataPlatformStatus,
     snapshotDescriptionColumns,
     marketChart,
     instrumentOptionsRequestId,
@@ -1932,6 +2309,10 @@ export function useDataPage() {
     dataCoverageRows,
     coverageScore,
     heroStats,
+    marketDataPlatformSourceText,
+    marketDataPlatformCacheText,
+    marketDataPlatformCoverageText,
+    marketDataPlatformTagType,
     coverageMatrixSubtitle,
     coverageSummaryCards,
     assetDataFamilies,
@@ -1954,6 +2335,15 @@ export function useDataPage() {
     ensureCurrentInstrumentOption,
     formSymbolText,
     formMarketText,
+    v2FrequencyForLegacyPeriod,
+    queryWindowFromDateRange,
+    queryContractForCurrentLookup,
+    v2HistoryRows,
+    v2EventTimeLabel,
+    lookupFromV2Response,
+    setLegacyMarketDataPlatformStatus,
+    setV2MarketDataPlatformStatus,
+    queryV2FromLookupContract,
     instrumentOptionLabel,
     formatInstrumentHistoryStatus,
     toDateInput,

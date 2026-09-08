@@ -22,6 +22,9 @@ const routeQuery = vi.hoisted(() => ({} as Record<string, unknown>))
 const routePath = vi.hoisted(() => ({ value: '/investment/strategies' }))
 const aiResearchMandates = vi.hoisted(() => new Map<string, any>())
 const runPrecheck = vi.hoisted(() => vi.fn())
+const lookupInstrument = vi.hoisted(() => vi.fn())
+const getQueryContract = vi.hoisted(() => vi.fn())
+const queryLocalFirst = vi.hoisted(() => vi.fn())
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({
@@ -858,7 +861,23 @@ vi.mock('@/components/common/MonacoEditor.vue', () => ({
 }))
 
 vi.mock('@/api/marketData', () => ({
-  marketDataApi: { runPrecheck },
+  hasMarketDataQueryContract: (value: unknown) => (
+    Boolean(
+      value
+      && typeof value === 'object'
+      && (value as { version?: unknown }).version === 'market-data-v2'
+      && (value as { request?: unknown }).request,
+    )
+  ),
+  createMarketDataQueryFromContract: (
+    contract: { request: Record<string, unknown> },
+    options: Record<string, unknown>,
+  ) => ({ ...contract.request, ...options }),
+  isMarketDataQueryV2FallbackError: (error: { response?: { status?: unknown, data?: { details?: { code?: unknown } } } }) => (
+    [404, 405, 501].includes(Number(error?.response?.status))
+    || error?.response?.data?.details?.code === 'MARKET_DATA_QUERY_V2_DISABLED'
+  ),
+  marketDataApi: { runPrecheck, lookupInstrument, getQueryContract, queryLocalFirst },
 }))
 
 describe('StrategyPage', () => {
@@ -880,6 +899,9 @@ describe('StrategyPage', () => {
       quality_reports: [],
       gate_evaluations: [],
     })
+    lookupInstrument.mockResolvedValue({ query_contract: null })
+    getQueryContract.mockResolvedValue(null)
+    queryLocalFirst.mockResolvedValue(undefined)
   })
 
   const setConfirmedAIResearchMandate = async (
@@ -7970,6 +7992,170 @@ describe('StrategyPage', () => {
     } finally {
       wrapper.unmount()
       vi.useRealTimers()
+    }
+  })
+
+  it('adds strict local-only market-data evidence without replacing the Iteration 196 precheck', async () => {
+    getQueryContract.mockResolvedValue({
+        version: 'market-data-v2',
+        request: {
+          identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+          dataset_code: 'market.stock_daily',
+          data_kind: 'bars',
+          frequency: '1d',
+          required_fields: ['close', 'volume'],
+          adjustment: 'qfq',
+          price_basis: 'close',
+          currency: 'CNY',
+          unit: 'share',
+          source_policy_id: 'market-default-v1',
+          mode: 'local_first',
+        },
+    })
+    queryLocalFirst.mockResolvedValue({
+      query_id: 'research-query-1',
+      canonical_id: 'instrument:stock:CN-SZSE:000001',
+      dataset_code: 'market.stock_daily',
+      asset_type: 'stock',
+      instrument_metadata_version: 'stock-v1',
+      data_kind: 'bars',
+      frequency: '1d',
+      source_policy_id: 'market-default-v1',
+      knowledge_cutoff: '2026-06-19T16:00:00Z',
+      identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
+      observations: [],
+      next_cursor: null,
+      coverage: {
+        status: 'complete',
+        expected_event_count: 1,
+        accepted_event_count: 1,
+        missing_event_count: 0,
+        coverage_ratio: 1,
+        gaps: [],
+        rejection_counts: {},
+        calendar_reason: null,
+      },
+      fetches: [],
+      warnings: [],
+      refresh_status: null,
+    })
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await vm.runAIResearchDataPrecheck({ interactive: false })
+      await flushPromises()
+
+      expect(runPrecheck).toHaveBeenCalledWith(expect.objectContaining({
+        asset_type: 'stock',
+        symbol: '000001.SZ',
+      }), expect.any(Object))
+      expect(getQueryContract).toHaveBeenCalledWith(expect.objectContaining({
+        asset_type: 'stock',
+        symbol: '000001.SZ',
+        period: 'daily',
+      }))
+      expect(lookupInstrument).not.toHaveBeenCalled()
+      expect(queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        mode: 'local_only',
+        purpose: 'research',
+        consistency: 'strict',
+        knowledge_cutoff: expect.any(String),
+      }), expect.any(Object))
+      expect(vm.aiResearchPrecheckResult?.passed).toBe(true)
+      expect(vm.aiResearchMarketDataPlatformStatus.path).toBe('strict_local')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('does not mark incomplete strict local coverage as a successful precheck', async () => {
+    getQueryContract.mockResolvedValue({
+        version: 'market-data-v2',
+        request: {
+          identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+          dataset_code: 'market.stock_daily',
+          data_kind: 'bars',
+          frequency: '1d',
+          required_fields: ['close', 'volume'],
+          source_policy_id: 'market-default-v1',
+          mode: 'local_first',
+        },
+    })
+    queryLocalFirst.mockResolvedValue({
+      query_id: 'research-query-incomplete',
+      canonical_id: 'instrument:stock:CN-SZSE:000001',
+      dataset_code: 'market.stock_daily',
+      asset_type: 'stock',
+      instrument_metadata_version: 'stock-v1',
+      data_kind: 'bars',
+      frequency: '1d',
+      source_policy_id: 'market-default-v1',
+      knowledge_cutoff: '2026-06-19T16:00:00Z',
+      identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
+      observations: [],
+      next_cursor: null,
+      coverage: {
+        status: 'incomplete',
+        expected_event_count: 2,
+        accepted_event_count: 1,
+        missing_event_count: 1,
+        coverage_ratio: 0.5,
+        gaps: [],
+        rejection_counts: {},
+        calendar_reason: null,
+      },
+      fetches: [],
+      warnings: [],
+      refresh_status: null,
+    })
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await vm.runAIResearchDataPrecheck({ interactive: false })
+      await flushPromises()
+
+      expect(vm.aiResearchPrecheckResult?.passed).toBe(true)
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'error',
+        coverageStatus: 'incomplete',
+        detail: 'MARKET_DATA_STRICT_LOCAL_INCOMPLETE',
+      })
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('keeps a v2 execution failure after contract issuance out of the legacy fallback path', async () => {
+    getQueryContract.mockResolvedValue({
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        dataset_code: 'market.stock_daily',
+        data_kind: 'bars',
+        frequency: '1d',
+        required_fields: ['close', 'volume'],
+        source_policy_id: 'market-default-v1',
+        mode: 'local_first',
+      },
+    })
+    queryLocalFirst.mockRejectedValue({ response: { status: 404 } })
+
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await vm.runAIResearchDataPrecheck({ interactive: false })
+      await flushPromises()
+
+      expect(getQueryContract).toHaveBeenCalledTimes(1)
+      expect(queryLocalFirst).toHaveBeenCalledTimes(1)
+      expect(lookupInstrument).not.toHaveBeenCalled()
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'error',
+        detail: 'MARKET_DATA_QUERY_V2_PRECHECK_FAILED',
+      })
+    } finally {
+      wrapper.unmount()
     }
   })
 

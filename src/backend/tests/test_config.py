@@ -1,6 +1,7 @@
-"""
-Configuration module tests.
-"""
+"""Configuration module tests."""
+
+import pytest
+from pydantic import ValidationError
 
 from app.config import Settings, get_settings
 
@@ -44,3 +45,38 @@ class TestConfig:
 
         assert settings.AI_PROVIDERS["local"]["base_url"] == "http://localhost:11434"
         assert settings.AI_PROVIDERS["local"]["models"] == ["ollama/qwen2.5-coder:7b"]
+
+    def test_market_data_v2_requires_an_operator_cursor_hmac_key(self):
+        """The enabled local-first API cannot issue unsigned pagination tokens."""
+        with pytest.raises(ValidationError, match="MARKET_DATA_CURSOR_SIGNING_KEY"):
+            Settings(
+                _env_file=None,
+                DEBUG=True,
+                MARKET_DATA_QUERY_V2_ENABLED=True,
+            )
+
+        settings = Settings(
+            _env_file=None,
+            DEBUG=True,
+            MARKET_DATA_QUERY_V2_ENABLED=True,
+            MARKET_DATA_CURSOR_SIGNING_KEY="x" * 32,
+        )
+
+        assert settings.MARKET_DATA_CURSOR_SIGNING_KEY == "x" * 32
+
+    def test_market_data_openbb_provider_uses_one_canonical_token_across_runtime_paths(self):
+        """Mixed-case operator input cannot create a route/receipt provider-ID split."""
+        settings = Settings(
+            _env_file=None,
+            DEBUG=True,
+            MARKET_DATA_OPENBB_PROVIDER="YFinance",
+        )
+
+        assert settings.MARKET_DATA_OPENBB_PROVIDER == "yfinance"
+
+        with pytest.raises(ValidationError, match="MARKET_DATA_OPENBB_PROVIDER"):
+            Settings(
+                _env_file=None,
+                DEBUG=True,
+                MARKET_DATA_OPENBB_PROVIDER="yfinance;unreviewed",
+            )

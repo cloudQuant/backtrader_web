@@ -18,6 +18,7 @@ class DatasetStorageNotFoundError(LookupError):
 class DatasetStorageResolution:
     """A non-secret reference to one physical data materialization."""
 
+    dataset_id: str
     dataset_code: str
     storage_id: str
     engine: str
@@ -54,6 +55,7 @@ class DataCatalogResolver:
 
         binding, dataset, storage = rows[0]
         return DatasetStorageResolution(
+            dataset_id=dataset.id,
             dataset_code=dataset.dataset_code,
             storage_id=storage.storage_id,
             engine=storage.engine,

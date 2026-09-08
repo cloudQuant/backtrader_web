@@ -8,6 +8,8 @@ import type { MarketAssetType } from '@/api/marketData'
 
 const apiMocks = vi.hoisted(() => ({
   lookupInstrument: vi.fn(),
+  getQueryContract: vi.fn(),
+  queryLocalFirst: vi.fn(),
   listInstrumentOptions: vi.fn(),
   listCoverage: vi.fn(),
   refreshLocalCoverage: vi.fn(),
@@ -20,9 +22,27 @@ vi.mock('element-plus', () => ({
 }))
 
 vi.mock('@/api/marketData', () => ({
+  hasMarketDataQueryContract: (value: unknown) => (
+    Boolean(
+      value
+      && typeof value === 'object'
+      && (value as { version?: unknown }).version === 'market-data-v2'
+      && (value as { request?: unknown }).request,
+    )
+  ),
+  createMarketDataQueryFromContract: (
+    contract: { request: Record<string, unknown> },
+    options: Record<string, unknown>,
+  ) => ({ ...contract.request, ...options }),
+  isMarketDataQueryV2FallbackError: (error: { response?: { status?: unknown, data?: { details?: { code?: unknown } } } }) => (
+    [404, 405, 501].includes(Number(error?.response?.status))
+    || error?.response?.data?.details?.code === 'MARKET_DATA_QUERY_V2_DISABLED'
+  ),
   marketDataApi: {
     listInstrumentOptions: apiMocks.listInstrumentOptions,
     lookupInstrument: apiMocks.lookupInstrument,
+    getQueryContract: apiMocks.getQueryContract,
+    queryLocalFirst: apiMocks.queryLocalFirst,
     listCoverage: apiMocks.listCoverage,
     refreshLocalCoverage: apiMocks.refreshLocalCoverage,
     refreshWarehouseCoverage: apiMocks.refreshWarehouseCoverage,
@@ -203,6 +223,66 @@ function createInstrumentOptionsFixture(assetType: MarketAssetType) {
   }
 }
 
+function createV2ContractFixture() {
+  return {
+    version: 'market-data-v2',
+    request: {
+      identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+      dataset_code: 'market.stock_daily',
+      data_kind: 'bars',
+      frequency: '1d',
+      required_fields: ['close', 'volume'],
+      adjustment: 'qfq',
+      price_basis: 'close',
+      currency: 'CNY',
+      unit: 'share',
+      source_policy_id: 'market-default-v1',
+      mode: 'local_first',
+    },
+  }
+}
+
+function createV2ResponseFixture() {
+  return {
+    query_id: 'query-local-1',
+    canonical_id: 'instrument:stock:CN-SZSE:000001',
+    dataset_code: 'market.stock_daily',
+    asset_type: 'stock',
+    instrument_metadata_version: 'stock-v1',
+    data_kind: 'bars',
+    frequency: '1d',
+    source_policy_id: 'market-default-v1',
+    knowledge_cutoff: '2026-06-19T16:00:00Z',
+    identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
+    observations: [
+      {
+        revision_id: 'revision-1',
+        source_snapshot_id: 'snapshot-1',
+        event_at: '2026-06-19T00:00:00Z',
+        available_at: '2026-06-19T15:00:00Z',
+        committed_at: '2026-06-19T15:00:01Z',
+        revision_number: 1,
+        quality: 'pass',
+        fields: { open: 12.1, high: 12.4, low: 12, close: 12.34, volume: 1000 },
+      },
+    ],
+    next_cursor: null,
+    coverage: {
+      status: 'complete',
+      expected_event_count: 1,
+      accepted_event_count: 1,
+      missing_event_count: 0,
+      coverage_ratio: 1,
+      gaps: [],
+      rejection_counts: {},
+      calendar_reason: null,
+    },
+    fetches: [],
+    warnings: [],
+    refresh_status: null,
+  }
+}
+
 describe('DataPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -211,6 +291,8 @@ describe('DataPage', () => {
     apiMocks.lookupInstrument.mockImplementation(({ asset_type }: { asset_type: MarketAssetType }) => (
       Promise.resolve(createLookupFixture(asset_type))
     ))
+    apiMocks.getQueryContract.mockRejectedValue({ response: { status: 404 } })
+    apiMocks.queryLocalFirst.mockResolvedValue(undefined)
     apiMocks.listInstrumentOptions.mockImplementation(
       ({ asset_type }: { asset_type: MarketAssetType }) => Promise.resolve(createInstrumentOptionsFixture(asset_type)),
     )
@@ -359,6 +441,185 @@ describe('DataPage', () => {
     })
     expect((wrapper.vm as any).instrumentOptions).toHaveLength(2)
     expect(apiMocks.listTables).toHaveBeenCalled()
+  })
+
+  it('uses a server-proven contract for the first local-first query without legacy lookup', async () => {
+    apiMocks.getQueryContract.mockResolvedValue({
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        dataset_code: 'market.stock_daily',
+        data_kind: 'bars',
+        frequency: '1d',
+        required_fields: ['close', 'volume'],
+        adjustment: 'qfq',
+        price_basis: 'close',
+        currency: 'CNY',
+        unit: 'share',
+        source_policy_id: 'market-default-v1',
+        mode: 'local_first',
+      },
+    })
+    apiMocks.queryLocalFirst.mockResolvedValue({
+      query_id: 'query-local-1',
+      canonical_id: 'instrument:stock:CN-SZSE:000001',
+      dataset_code: 'market.stock_daily',
+      asset_type: 'stock',
+      instrument_metadata_version: 'stock-v1',
+      data_kind: 'bars',
+      frequency: '1d',
+      source_policy_id: 'market-default-v1',
+      knowledge_cutoff: '2026-06-19T16:00:00Z',
+      identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
+      observations: [
+        {
+          revision_id: 'revision-1',
+          source_snapshot_id: 'snapshot-1',
+          event_at: '2026-06-19T00:00:00Z',
+          available_at: '2026-06-19T15:00:00Z',
+          committed_at: '2026-06-19T15:00:01Z',
+          revision_number: 1,
+          quality: 'pass',
+          fields: { open: 12.1, high: 12.4, low: 12, close: 12.34, volume: 1000 },
+        },
+      ],
+      next_cursor: null,
+      coverage: {
+        status: 'complete',
+        expected_event_count: 1,
+        accepted_event_count: 1,
+        missing_event_count: 0,
+        coverage_ratio: 1,
+        gaps: [],
+        rejection_counts: {},
+        calendar_reason: null,
+      },
+      fetches: [],
+      warnings: [],
+      refresh_status: null,
+    })
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.getQueryContract).toHaveBeenCalledWith({
+      asset_type: 'stock',
+      symbol: '000001',
+      period: 'daily',
+    })
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+      identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+      dataset_code: 'market.stock_daily',
+      mode: 'local_first',
+      purpose: 'display',
+      consistency: 'display',
+    }), expect.objectContaining({ suppressErrorMessage: true }))
+    expect((wrapper.vm as any).result.history.rows).toHaveLength(1)
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('本地优先')
+  })
+
+  it('does not fall back to legacy data after a valid v2 contract returns a write failure', async () => {
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture())
+    apiMocks.queryLocalFirst.mockRejectedValue({
+      response: { status: 503, data: { details: { code: 'MARKET_DATA_WRITE_FAILED' } } },
+    })
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledTimes(1)
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect((wrapper.vm as any).result).toBeNull()
+    const status = wrapper.find('[data-test="market-data-platform-status"]').text()
+    expect(status).toContain('数据平台查询失败')
+    expect(status).toContain('查询未回退到传统接口')
+    expect(status).not.toContain('传统本地查询')
+  })
+
+  it('uses the v2 refresh mode after a contract has been issued', async () => {
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture())
+    apiMocks.queryLocalFirst.mockResolvedValue(createV2ResponseFixture())
+    const wrapper = await mountPage()
+    apiMocks.queryLocalFirst.mockClear()
+
+    await (wrapper.vm as any).lookupInstrument(true)
+    await flushPromises()
+
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'refresh',
+      purpose: 'display',
+      consistency: 'display',
+    }), expect.objectContaining({ suppressErrorMessage: true }))
+  })
+
+  it('aggregates every v2 cursor page before rendering more than 500 historical observations', async () => {
+    apiMocks.getQueryContract.mockResolvedValue({
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        dataset_code: 'market.stock_daily',
+        data_kind: 'bars',
+        frequency: '1d',
+        required_fields: ['close', 'volume'],
+        adjustment: 'qfq',
+        price_basis: 'close',
+        currency: 'CNY',
+        unit: 'share',
+        source_policy_id: 'market-default-v1',
+        mode: 'local_first',
+      },
+    })
+    const pages = Array.from({ length: 17 }, (_, pageIndex) => ({
+      query_id: 'query-cursor-pages',
+      canonical_id: 'instrument:stock:CN-SZSE:000001',
+      dataset_code: 'market.stock_daily',
+      asset_type: 'stock',
+      instrument_metadata_version: 'stock-v1',
+      data_kind: 'bars',
+      frequency: '1d',
+      source_policy_id: 'market-default-v1',
+      knowledge_cutoff: '2026-06-19T16:00:00Z',
+      identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
+      observations: Array.from({ length: pageIndex === 0 ? 500 : 1 }, (_, rowIndex) => ({
+        revision_id: `revision-${pageIndex}-${rowIndex}`,
+        source_snapshot_id: `snapshot-${pageIndex}`,
+        event_at: new Date(Date.UTC(2026, 0, 1, 0, pageIndex * 500 + rowIndex)).toISOString(),
+        available_at: '2026-06-19T15:00:00Z',
+        committed_at: '2026-06-19T15:00:01Z',
+        revision_number: 1,
+        quality: 'pass',
+        fields: { open: 12.1, high: 12.4, low: 12, close: 12.34, volume: 1000 },
+      })),
+      next_cursor: pageIndex < 16 ? `cursor-${pageIndex + 1}` : null,
+      coverage: {
+        status: 'complete',
+        expected_event_count: 516,
+        accepted_event_count: 516,
+        missing_event_count: 0,
+        coverage_ratio: 1,
+        gaps: [],
+        rejection_counts: {},
+        calendar_reason: null,
+      },
+      fetches: [],
+      warnings: [],
+      refresh_status: null,
+    }))
+    apiMocks.queryLocalFirst.mockImplementation(({ cursor }: { cursor?: string }) => {
+      const pageIndex = cursor ? Number(cursor.replace('cursor-', '')) : 0
+      return Promise.resolve(pages[pageIndex])
+    })
+
+    const wrapper = await mountPage()
+
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledTimes(17)
+    expect(apiMocks.queryLocalFirst.mock.calls.map(([request]) => request.cursor)).toEqual([
+      undefined,
+      ...Array.from({ length: 16 }, (_, index) => `cursor-${index + 1}`),
+    ])
+    expect((wrapper.vm as any).result.history.total).toBe(516)
+    expect((wrapper.vm as any).historyRows).toHaveLength(516)
   })
 
   it('remembers successful queries independently for each asset type', async () => {

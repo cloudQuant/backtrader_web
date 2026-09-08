@@ -7,8 +7,13 @@ import typing
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.config import get_settings
+from app.db.database import get_db
+from app.services.market_data.legacy_contract import LegacyMarketDataQueryContractResolver
 from app.services.market_instrument import MarketAssetType, MarketInstrumentService
 
 router = APIRouter()
@@ -17,6 +22,72 @@ logger = logging.getLogger(__name__)
 
 def get_market_instrument_service() -> MarketInstrumentService:
     return MarketInstrumentService()
+
+
+def get_legacy_market_data_query_contract_resolver(
+    db: AsyncSession = Depends(get_db),
+) -> LegacyMarketDataQueryContractResolver:
+    """Build the read-only v2 compatibility bridge for a request database session."""
+    settings = get_settings()
+    allowed_markets = frozenset(
+        item.strip()
+        for item in settings.MARKET_DATA_OPENBB_ALLOWED_MARKETS.split(",")
+        if item.strip()
+    )
+    return LegacyMarketDataQueryContractResolver(
+        db,
+        openbb_allowed_markets=allowed_markets,
+    )
+
+
+@router.get(
+    "/market-instruments/query-contract",
+    summary="Resolve a local-first market-data query contract",
+    response_model=None,
+)
+async def get_market_data_query_contract(
+    symbol: str = Query(..., min_length=1, description="Exact instrument code from approved master data"),
+    asset_type: MarketAssetType = Query("stock", description="Instrument type"),
+    period: str = Query("daily", description="Period: daily/weekly/monthly"),
+    current_user: typing.Any = Depends(get_current_user),
+    query_contracts: LegacyMarketDataQueryContractResolver = Depends(
+        get_legacy_market_data_query_contract_resolver
+    ),
+) -> typing.Any:
+    """Return a strict v2 template without touching legacy data providers.
+
+    A page uses this probe before the legacy lookup so a catalog-backed,
+    uniquely registered identity can take the normalized local-first path on
+    its first request. The resolver does not derive an identity from a nearby
+    symbol and the endpoint intentionally returns 404 if bootstrap or
+    approved master data is incomplete; clients then retain the legacy path.
+    """
+    del current_user
+    if not get_settings().MARKET_DATA_QUERY_V2_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
+        )
+    try:
+        contract = await query_contracts.resolve(
+            asset_type=asset_type,
+            symbol=symbol,
+            period=period,
+        )
+    except SQLAlchemyError as exc:
+        # A partially migrated metadata store is an unavailable compatibility
+        # probe, not a server trace exposed to a market-page client.
+        logger.warning("market-data v2 query contract unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "MARKET_DATA_QUERY_CONTRACT_UNAVAILABLE"},
+        ) from exc
+    if contract is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "MARKET_DATA_QUERY_CONTRACT_UNAVAILABLE"},
+        )
+    return contract
 
 
 @router.get("/kline", summary="Query K-line data", response_model=None)
@@ -131,10 +202,13 @@ async def lookup_market_instrument(
     ),
     current_user: typing.Any = Depends(get_current_user),
     service: MarketInstrumentService = Depends(get_market_instrument_service),
+    query_contracts: LegacyMarketDataQueryContractResolver = Depends(
+        get_legacy_market_data_query_contract_resolver
+    ),
 ) -> typing.Any:
     """Return a normalized snapshot, historical rows, and derived indicators."""
     try:
-        return await service.lookup(
+        payload = await service.lookup(
             asset_type=asset_type,
             symbol=symbol,
             start_date=start_date,
@@ -143,6 +217,26 @@ async def lookup_market_instrument(
             market=market,
             refresh_online=refresh_online,
         )
+        # The legacy shape remains authoritative until the v2 rollout is
+        # explicitly enabled and its catalog/master-data prerequisites are
+        # satisfied.  Absence of this optional field is a safe instruction for
+        # clients to continue using the existing compatibility endpoint.
+        if get_settings().MARKET_DATA_QUERY_V2_ENABLED:
+            try:
+                contract = await query_contracts.resolve(
+                    asset_type=asset_type,
+                    symbol=symbol,
+                    period=period,
+                )
+            except SQLAlchemyError:
+                # The optional bridge must never turn a completed legacy data
+                # lookup into a 500. Its request-scoped DB session is cleaned
+                # up by the dependency; omit only the optional v2 template.
+                logger.warning("market-data v2 compatibility contract unavailable")
+                contract = None
+            if contract is not None:
+                payload["query_contract"] = contract
+        return payload
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

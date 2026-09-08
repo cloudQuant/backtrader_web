@@ -19,6 +19,12 @@ type ErrorField = {
   type?: string
 }
 
+/** Per-request controls for progressive or explicitly handled API fallbacks. */
+export interface ApiRequestConfig<D = unknown> extends AxiosRequestConfig<D> {
+  suppressErrorMessage?: boolean
+  skipRetry?: boolean
+}
+
 type ApiErrorPayload = {
   detail?: unknown
   message?: unknown
@@ -33,12 +39,12 @@ type ApiErrorPayload = {
 }
 
 interface ApiClient extends AxiosInstance {
-  request<T = unknown, D = unknown>(config: AxiosRequestConfig<D>): Promise<T>
-  get<T = unknown, D = unknown>(url: string, config?: AxiosRequestConfig<D>): Promise<T>
-  delete<T = unknown, D = unknown>(url: string, config?: AxiosRequestConfig<D>): Promise<T>
-  post<T = unknown, D = unknown>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<T>
-  put<T = unknown, D = unknown>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<T>
-  patch<T = unknown, D = unknown>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<T>
+  request<T = unknown, D = unknown>(config: ApiRequestConfig<D>): Promise<T>
+  get<T = unknown, D = unknown>(url: string, config?: ApiRequestConfig<D>): Promise<T>
+  delete<T = unknown, D = unknown>(url: string, config?: ApiRequestConfig<D>): Promise<T>
+  post<T = unknown, D = unknown>(url: string, data?: D, config?: ApiRequestConfig<D>): Promise<T>
+  put<T = unknown, D = unknown>(url: string, data?: D, config?: ApiRequestConfig<D>): Promise<T>
+  patch<T = unknown, D = unknown>(url: string, data?: D, config?: ApiRequestConfig<D>): Promise<T>
 }
 
 // --- Retry Interceptor Configuration ---
@@ -190,10 +196,12 @@ api.interceptors.response.use(
     const config = error.config as InternalAxiosRequestConfig & {
       __retryCount?: number
       __isRetrying?: boolean
+      suppressErrorMessage?: boolean
+      skipRetry?: boolean
     }
 
     // --- Retry Logic ---
-    if (config) {
+    if (config && !config.skipRetry) {
       const retryCount = config.__retryCount || 0
 
       if (
@@ -215,6 +223,10 @@ api.interceptors.response.use(
     // Skip ElMessage if this was a retrying request that just completed its final retry
     const isRetrying = config?.__isRetrying && (config.__retryCount || 0) < RETRY_CONFIG.maxRetries
     if (isRetrying) {
+      return Promise.reject(error)
+    }
+
+    if (config?.suppressErrorMessage) {
       return Promise.reject(error)
     }
 
