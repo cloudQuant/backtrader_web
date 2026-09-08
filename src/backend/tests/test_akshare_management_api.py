@@ -2973,7 +2973,7 @@ def test_shfe_delivery_script_uses_shfe_target_table():
     service.table_name = "FUTURES_DELIVERY_SHFE"
     service.table_exists = lambda table_name: True
     service._ensure_unique_index = lambda: None
-    service.fetch_ak_data = lambda *args, **kwargs: pd.DataFrame(
+    service._fetch_shfe_delivery = lambda *args, **kwargs: pd.DataFrame(
         [
             {
                 "品种": "铜",

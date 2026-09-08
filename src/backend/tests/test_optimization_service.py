@@ -887,13 +887,13 @@ class TestIntegration:
         # Mock the entire workflow
         with patch("app.services.strategy_service.STRATEGIES_DIR", Path("/tmp/strategies")):
             with patch("pathlib.Path.is_file", return_value=True):
-                with patch("threading.Thread"):
+                with patch("app.services.param_optimization_service._run_optimization_thread"):
                     # Submit optimization
                     task_id = submit_optimization("test_strategy", param_ranges)
 
                     # Check progress
                     _update_task(task_id, completed=5, total=10)
-                    progress = get_optimization_progress(task_id)
+                    progress = get_optimization_progress(task_id, use_db=False)
                     assert progress["progress"] == 50.0
 
                     # Get results (simulate some results)
@@ -918,11 +918,11 @@ class TestIntegration:
                             ],
                         },
                     )
-                    results = get_optimization_results(task_id)
+                    results = get_optimization_results(task_id, use_db=False)
                     assert results["best"]["period"] == 15
 
                     # Cancel test
-                    cancel_optimization(task_id)
+                    cancel_optimization(task_id, use_db=False)
                     task = _get_task(task_id)
                     assert task["status"] == "cancelled"
 

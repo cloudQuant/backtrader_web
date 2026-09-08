@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+import app.utils.sandbox as sandbox_module
 from app.utils.sandbox import DockerSandbox, StrategySandbox, bt, execute_strategy_safely
 
 VALID_STRATEGY = """
@@ -487,6 +488,283 @@ class TestStrategy(bt.Strategy):
 
 
 class TestStrategyPreflight:
+    def test_child_announces_ready_before_executing_strategy_code(self):
+        events: list[tuple[str, object]] = []
+
+        class RecordingSender:
+            def send(self, payload):
+                events.append(("send", payload))
+
+            def close(self):
+                events.append(("close", None))
+
+        strategy_class = type("ValidatedStrategy", (), {})
+
+        with (
+            patch.object(
+                sandbox_module,
+                "_apply_child_resource_limits",
+                side_effect=lambda timeout: events.append(("limits", timeout)),
+            ),
+            patch.object(
+                StrategySandbox,
+                "execute_strategy_code",
+                side_effect=lambda *args, **kwargs: (
+                    events.append(("execute", kwargs["timeout"])),
+                    strategy_class,
+                )[1],
+            ),
+            patch.object(
+                sandbox_module,
+                "_preflight_strategy_class",
+                side_effect=lambda candidate: events.append(("preflight", candidate)),
+            ),
+        ):
+            sandbox_module._validate_strategy_in_child(RecordingSender(), "code", {}, 3)
+
+        assert events == [
+            ("limits", 8),
+            ("send", ("ready", "validator-v1")),
+            ("execute", 3),
+            ("preflight", strategy_class),
+            ("send", ("ok", "ValidatedStrategy")),
+            ("close", None),
+        ]
+
+    def test_validation_runtime_budget_starts_after_child_ready(self):
+        state = {"ready_received": False, "finished": False, "poll_timeouts": []}
+
+        class FakeReceiver:
+            closed = False
+
+            def poll(self, timeout):
+                state["poll_timeouts"].append(timeout)
+                return True
+
+            def recv(self):
+                if not state["ready_received"]:
+                    state["ready_received"] = True
+                    return ("ready", "validator-v1")
+                state["finished"] = True
+                return ("ok", "MyStrategy")
+
+            def close(self):
+                self.closed = True
+
+        class FakeSender:
+            closed = False
+
+            def close(self):
+                self.closed = True
+
+        class FakeProcess:
+            started = False
+            terminated = False
+            closed = False
+
+            def start(self):
+                self.started = True
+
+            def join(self, timeout=None):
+                return None
+
+            def is_alive(self):
+                return not state["finished"]
+
+            def terminate(self):
+                self.terminated = True
+
+            def close(self):
+                self.closed = True
+
+        receiver = FakeReceiver()
+        sender = FakeSender()
+        process = FakeProcess()
+
+        class FakeContext:
+            def Pipe(self, *, duplex):
+                assert duplex is False
+                return receiver, sender
+
+            def Process(self, **kwargs):
+                assert kwargs["target"] is sandbox_module._validate_strategy_in_child
+                return process
+
+        with patch.object(sandbox_module.mp, "get_context", return_value=FakeContext()):
+            result = StrategySandbox.validate_strategy_code(VALID_STRATEGY, timeout=1)
+
+        assert result == "MyStrategy"
+        assert process.started is True
+        assert process.terminated is False
+        assert process.closed is True
+        assert receiver.closed is True
+        assert sender.closed is True
+        assert state["poll_timeouts"] == [15, 6]
+
+    def test_validation_rejects_unknown_terminal_protocol_phase(self):
+        messages = iter([("ready", "validator-v1"), ("unexpected", "payload")])
+
+        class FakeEndpoint:
+            def poll(self, timeout):
+                return True
+
+            def recv(self):
+                return next(messages)
+
+            def close(self):
+                return None
+
+        class FakeProcess:
+            def start(self):
+                return None
+
+            def join(self, timeout=None):
+                return None
+
+            def is_alive(self):
+                return False
+
+            def close(self):
+                return None
+
+        class FakeContext:
+            def Pipe(self, *, duplex):
+                return FakeEndpoint(), FakeEndpoint()
+
+            def Process(self, **kwargs):
+                return FakeProcess()
+
+        with (
+            patch.object(sandbox_module.mp, "get_context", return_value=FakeContext()),
+            pytest.raises(RuntimeError, match="invalid terminal protocol message"),
+        ):
+            StrategySandbox.validate_strategy_code(VALID_STRATEGY, timeout=1)
+
+    def test_validation_fails_closed_when_child_cannot_be_stopped(self):
+        messages = iter([("ready", "validator-v1"), ("ok", "MyStrategy")])
+
+        class FakeEndpoint:
+            def poll(self, timeout):
+                return True
+
+            def recv(self):
+                return next(messages)
+
+            def close(self):
+                return None
+
+        class StubbornProcess:
+            terminate_calls = 0
+            kill_calls = 0
+
+            def start(self):
+                return None
+
+            def join(self, timeout=None):
+                return None
+
+            def is_alive(self):
+                return True
+
+            def terminate(self):
+                self.terminate_calls += 1
+                raise OSError("terminate failed")
+
+            def kill(self):
+                self.kill_calls += 1
+
+            def close(self):
+                return None
+
+        process = StubbornProcess()
+
+        class FakeContext:
+            def Pipe(self, *, duplex):
+                return FakeEndpoint(), FakeEndpoint()
+
+            def Process(self, **kwargs):
+                return process
+
+        with (
+            patch.object(sandbox_module.mp, "get_context", return_value=FakeContext()),
+            pytest.raises(RuntimeError, match="could not be stopped"),
+        ):
+            StrategySandbox.validate_strategy_code(VALID_STRATEGY, timeout=1)
+
+        assert process.terminate_calls == 1
+        assert process.kill_calls == 1
+
+    def test_validation_preserves_timeout_and_reports_cleanup_failure(self):
+        class TimeoutReceiver:
+            def poll(self, timeout):
+                return False
+
+            def close(self):
+                return None
+
+        class FakeSender:
+            def close(self):
+                return None
+
+        class StubbornProcess:
+            def start(self):
+                return None
+
+            def join(self, timeout=None):
+                return None
+
+            def is_alive(self):
+                return True
+
+            def terminate(self):
+                return None
+
+            def kill(self):
+                return None
+
+        class FakeContext:
+            def Pipe(self, *, duplex):
+                return TimeoutReceiver(), FakeSender()
+
+            def Process(self, **kwargs):
+                return StubbornProcess()
+
+        with (
+            patch.object(sandbox_module.mp, "get_context", return_value=FakeContext()),
+            pytest.raises(RuntimeError, match="bootstrap timed out") as exc_info,
+        ):
+            StrategySandbox.validate_strategy_code(VALID_STRATEGY, timeout=1)
+
+        assert any(
+            "could not be stopped" in note for note in getattr(exc_info.value, "__notes__", [])
+        )
+
+    def test_validation_closes_pipe_when_process_construction_fails(self):
+        class FakeEndpoint:
+            closed = False
+
+            def close(self):
+                self.closed = True
+
+        receiver = FakeEndpoint()
+        sender = FakeEndpoint()
+
+        class FakeContext:
+            def Pipe(self, *, duplex):
+                return receiver, sender
+
+            def Process(self, **kwargs):
+                raise RuntimeError("process construction failed")
+
+        with (
+            patch.object(sandbox_module.mp, "get_context", return_value=FakeContext()),
+            pytest.raises(RuntimeError, match="process construction failed"),
+        ):
+            StrategySandbox.validate_strategy_code(VALID_STRATEGY, timeout=1)
+
+        assert receiver.closed is True
+        assert sender.closed is True
+
     def test_preflight_allows_bounded_startup_grace_before_cpu_limit(self):
         result = StrategySandbox.validate_strategy_code(VALID_STRATEGY, timeout=1)
 

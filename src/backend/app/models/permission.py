@@ -27,6 +27,11 @@ class Permission(str, enum.Enum):
     DELETE_BACKTEST = "backtest:delete"
     EXPORT_BACKTEST = "backtest:export"
 
+    # Trusted-research approval is intentionally not assigned to any default
+    # role.  It is granted through a run-scoped ResearchApprovalGrant.
+    APPROVE_RESEARCH = "research:approve"
+    MANAGE_APPROVAL_GRANTS = "research:manage-approval-grants"
+
     # Data permissions
     UPLOAD_DATA = "data:upload"
     READ_DATA = "data:read"
@@ -44,6 +49,7 @@ class Role(str, enum.Enum):
     USER = "user"
     PREMIUM = "premium"
     ADMIN = "admin"
+    RESEARCH_APPROVAL_ADMIN = "approval_admin"
 
 
 # Permission mapping
@@ -91,6 +97,7 @@ ROLE_PERMISSIONS = {
         Permission.MANAGE_USERS,
         Permission.MANAGE_ROLES,
     ],
+    Role.RESEARCH_APPROVAL_ADMIN: [Permission.MANAGE_APPROVAL_GRANTS],
 }
 
 

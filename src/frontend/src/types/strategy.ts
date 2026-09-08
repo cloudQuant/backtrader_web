@@ -412,6 +412,7 @@ export interface AIStrategyResearchRunRecord {
   prompt: string
   workflow_mode?: 'auto' | 'prompt'
   workflow_steps?: NonNullable<AIStrategyResearchRunRequest['workflow_steps']>
+  workflow_steps_semantics?: 'prompt_display_only'
   symbol: string
   symbol_name: string
   timeframe: string
@@ -806,6 +807,7 @@ export interface AIStrategyPipelineSummary {
   live_unit_locked?: boolean
   workflow_mode?: AIStrategyResearchRunRequest['workflow_mode']
   workflow_steps?: AIStrategyResearchRunRequest['workflow_steps']
+  workflow_steps_semantics?: 'prompt_display_only'
   steps: AIStrategyPipelineStep[]
 }
 

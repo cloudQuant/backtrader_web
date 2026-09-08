@@ -95,6 +95,7 @@
         :label="t('strategy.aiResearch')"
         name="aiResearch"
       >
+        <TrustedResearchWorkbench />
         <div class="ai-research-grid">
           <section class="ai-research-panel ai-research-control-panel">
             <div class="ai-research-panel-head">
@@ -384,18 +385,24 @@
                 label-position="top"
                 :model="aiResearchForm"
               >
-                <el-form-item label="投研方式">
+                <el-form-item :label="t('strategy.aiResearchObjectiveMode')">
                   <el-radio-group
                     v-model="aiResearchForm.workflow_mode"
                     data-test="ai-research-workflow-mode"
                   >
                     <el-radio-button value="auto">
-                      自动规划
+                      {{ t('strategy.aiResearchWorkflowAuto') }}
                     </el-radio-button>
                     <el-radio-button value="prompt">
-                      按提示执行
+                      {{ t('strategy.aiResearchWorkflowPrompt') }}
                     </el-radio-button>
                   </el-radio-group>
+                  <p
+                    class="ai-research-workflow-semantics"
+                    data-test="ai-research-workflow-semantics"
+                  >
+                    {{ t('strategy.aiResearchWorkflowSemantics') }}
+                  </p>
                 </el-form-item>
 
                 <el-form-item :label="t('strategy.aiResearchPrompt')">
@@ -2866,6 +2873,7 @@
 import { Delete, EditPen, Link, MagicStick, Plus, RefreshRight, Upload, VideoPlay } from '@element-plus/icons-vue'
 import { getCategoryType, getCategoryLabel, stripStrategyMeta } from '@/constants/strategy'
 import MonacoEditor from '@/components/common/MonacoEditor.vue'
+import TrustedResearchWorkbench from '@/components/aiResearch/TrustedResearchWorkbench.vue'
 import StrategyEditDialog from './strategy-components/StrategyEditDialog.vue'
 import StrategyDetailDialog from './strategy-components/StrategyDetailDialog.vue'
 import StrategyTemplateCard from './strategy-components/StrategyTemplateCard.vue'

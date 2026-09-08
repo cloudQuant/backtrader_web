@@ -41,6 +41,11 @@ os.environ["AI_CHAT_MODEL"] = ""
 os.environ["RAG_VECTOR_ENABLED"] = "false"
 _TEST_LOG_DIR = Path(tempfile.mkdtemp(prefix="backtrader_web_pytest_logs_"))
 os.environ["LOG_DIR"] = str(_TEST_LOG_DIR)
+# ``bt_api_py`` initializes an spdlog file sink at import time.  Each xdist
+# worker imports this conftest independently, so binding its optional log
+# directory to the worker-local temporary directory avoids cross-process file
+# locks in the shared site-packages location.
+os.environ["BT_API_LOG_DIR"] = str(_TEST_LOG_DIR)
 
 for noisy_logger in ("aiosqlite", "aiosqlite.core"):
     logging.getLogger(noisy_logger).setLevel(logging.WARNING)
@@ -89,6 +94,24 @@ def pytest_sessionfinish(session, exitstatus):
     for noisy_logger in ("aiosqlite", "aiosqlite.core"):
         logging.getLogger(noisy_logger).disabled = True
     asyncio.run(_test_engine.dispose())
+
+
+@pytest.fixture(autouse=True)
+def isolate_fastapi_dependency_overrides():
+    """Restore the exact app dependency map inherited by each test.
+
+    Some research helpers are imported and reused outside the test module that
+    defines their local cleanup fixture.  Snapshotting the shared FastAPI map
+    here keeps such helpers from changing how a later test resolves a service,
+    while preserving any override deliberately installed by an outer scope.
+    """
+
+    inherited_overrides = dict(app.dependency_overrides)
+    try:
+        yield
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(inherited_overrides)
 
 
 @pytest.fixture(autouse=True)

@@ -30,7 +30,10 @@ class SandboxPreflightError(RuntimeError):
     """Raised when isolated strategy execution fails the Backtrader smoke run."""
 
 
-_VALIDATION_STARTUP_GRACE_SECONDS = 5
+_VALIDATION_BOOTSTRAP_TIMEOUT_SECONDS = 15
+_VALIDATION_RUNTIME_GRACE_SECONDS = 5
+_VALIDATION_PROCESS_EXIT_GRACE_SECONDS = 1
+_VALIDATION_PROTOCOL_VERSION = "validator-v1"
 
 
 def _apply_child_resource_limits(timeout: int) -> None:
@@ -83,21 +86,104 @@ def _validate_strategy_in_child(
     timeout: int,
 ) -> None:
     """Execute and preflight untrusted code without sharing parent memory."""
-    # A spawned worker imports pandas and Backtrader before its smoke run. Reserve
-    # a short finite CPU allowance for that bootstrap while execute_strategy_code
-    # still enforces the caller-provided timeout for untrusted top-level code.
-    _apply_child_resource_limits(timeout + _VALIDATION_STARTUP_GRACE_SECONDS)
     try:
-        strategy_class = StrategySandbox.execute_strategy_code(code, params, timeout=timeout)
-    except BaseException as exc:
-        result_sender.send(("execution", f"{type(exc).__name__}: {exc}"))
-        return
+        # Importing this module belongs to process bootstrap and happens before
+        # this target runs. Announce readiness only after resource limits are in
+        # place, so the parent starts the untrusted-code budget at this boundary.
+        _apply_child_resource_limits(timeout + _VALIDATION_RUNTIME_GRACE_SECONDS)
+        result_sender.send(("ready", _VALIDATION_PROTOCOL_VERSION))
+        try:
+            strategy_class = StrategySandbox.execute_strategy_code(code, params, timeout=timeout)
+        except BaseException as exc:
+            result_sender.send(("execution", f"{type(exc).__name__}: {exc}"))
+            return
+        try:
+            _preflight_strategy_class(strategy_class)
+        except BaseException as exc:
+            result_sender.send(("preflight", f"{type(exc).__name__}: {exc}"))
+            return
+        result_sender.send(("ok", strategy_class.__name__))
+    finally:
+        result_sender.close()
+
+
+def _receive_validation_message(
+    result_receiver: Any,
+    timeout: int,
+    timeout_message: str,
+) -> tuple[str, Any]:
+    """Receive one bounded, shape-checked validator protocol message."""
     try:
-        _preflight_strategy_class(strategy_class)
-    except BaseException as exc:
-        result_sender.send(("preflight", f"{type(exc).__name__}: {exc}"))
-        return
-    result_sender.send(("ok", strategy_class.__name__))
+        if not result_receiver.poll(timeout):
+            raise RuntimeError(timeout_message)
+        payload = result_receiver.recv()
+    except RuntimeError:
+        raise
+    except (EOFError, OSError) as exc:
+        raise RuntimeError("Isolated strategy validation exited without a result") from exc
+    if not isinstance(payload, tuple) or len(payload) != 2:
+        raise RuntimeError("Isolated strategy validator sent an invalid protocol message")
+    phase, message = payload
+    if not isinstance(phase, str):
+        raise RuntimeError("Isolated strategy validator sent an invalid protocol message")
+    return phase, message
+
+
+def _close_validation_endpoint(endpoint: Any) -> None:
+    """Close one validation IPC endpoint without masking the primary outcome."""
+    try:
+        endpoint.close()
+    except (AttributeError, OSError, ValueError):
+        pass
+
+
+def _close_validation_process(process: Any, *, started: bool) -> bool:
+    """Bound cleanup time and report whether the validator is confirmed stopped."""
+    if not started:
+        try:
+            process.close()
+        except (AttributeError, OSError, ValueError):
+            pass
+        return True
+
+    def _is_alive() -> bool:
+        try:
+            return bool(process.is_alive())
+        except (AssertionError, AttributeError, OSError, ValueError):
+            return True
+
+    try:
+        process.join(_VALIDATION_PROCESS_EXIT_GRACE_SECONDS)
+    except (AssertionError, OSError, ValueError):
+        pass
+    if _is_alive():
+        try:
+            process.terminate()
+        except (AttributeError, OSError, ValueError):
+            pass
+        try:
+            process.join(_VALIDATION_PROCESS_EXIT_GRACE_SECONDS)
+        except (AssertionError, OSError, ValueError):
+            pass
+    if _is_alive():
+        try:
+            kill = getattr(process, "kill", None)
+            if kill is not None:
+                kill()
+        except (AttributeError, OSError, ValueError):
+            pass
+        try:
+            process.join(_VALIDATION_PROCESS_EXIT_GRACE_SECONDS)
+        except (AssertionError, OSError, ValueError):
+            pass
+
+    stopped = not _is_alive()
+    if stopped:
+        try:
+            process.close()
+        except (AttributeError, OSError, ValueError):
+            pass
+    return stopped
 
 
 class StrategySandbox:
@@ -333,28 +419,62 @@ class StrategySandbox:
 
         context = mp.get_context("spawn")
         result_receiver, result_sender = context.Pipe(duplex=False)
-        process = context.Process(
-            target=_validate_strategy_in_child,
-            args=(result_sender, code, params or {}, execution_timeout),
-            daemon=True,
-        )
-        process.start()
-        result_sender.close()
-        validation_timeout = execution_timeout + _VALIDATION_STARTUP_GRACE_SECONDS
-        process.join(validation_timeout)
-        if process.is_alive():
-            process.terminate()
-            process.join()
-            result_receiver.close()
-            raise RuntimeError(f"Strategy validation timed out after {validation_timeout} seconds")
         try:
-            if not result_receiver.poll(1):
-                raise RuntimeError("isolated validator did not send a result")
-            phase, message = result_receiver.recv()
-        except Exception as exc:
-            raise RuntimeError("Isolated strategy validation exited without a result") from exc
+            process = context.Process(
+                target=_validate_strategy_in_child,
+                args=(result_sender, code, params or {}, execution_timeout),
+                daemon=True,
+            )
+        except BaseException:
+            _close_validation_endpoint(result_sender)
+            _close_validation_endpoint(result_receiver)
+            raise
+        process_start_attempted = False
+        process_stopped = False
+        validation_error: BaseException | None = None
+        try:
+            process_start_attempted = True
+            process.start()
+            result_sender.close()
+            phase, message = _receive_validation_message(
+                result_receiver,
+                _VALIDATION_BOOTSTRAP_TIMEOUT_SECONDS,
+                "Strategy validator bootstrap timed out after "
+                f"{_VALIDATION_BOOTSTRAP_TIMEOUT_SECONDS} seconds",
+            )
+            if phase != "ready" or message != _VALIDATION_PROTOCOL_VERSION:
+                raise RuntimeError("Isolated strategy validator sent an invalid ready handshake")
+
+            validation_timeout = execution_timeout + _VALIDATION_RUNTIME_GRACE_SECONDS
+            phase, message = _receive_validation_message(
+                result_receiver,
+                validation_timeout,
+                f"Strategy validation timed out after {validation_timeout} seconds after startup",
+            )
+            if phase not in {"ok", "execution", "preflight"} or not isinstance(message, str):
+                raise RuntimeError(
+                    "Isolated strategy validator sent an invalid terminal protocol message"
+                )
+        except BaseException as exc:
+            validation_error = exc
         finally:
-            result_receiver.close()
+            _close_validation_endpoint(result_sender)
+            _close_validation_endpoint(result_receiver)
+            process_stopped = _close_validation_process(
+                process,
+                started=process_start_attempted,
+            )
+        if validation_error is not None:
+            if not process_stopped:
+                cleanup_message = "Isolated strategy validator process could not be stopped"
+                add_note = getattr(validation_error, "add_note", None)
+                if callable(add_note):
+                    add_note(cleanup_message)
+                else:  # pragma: no cover - BaseException.add_note requires Python 3.11+
+                    raise RuntimeError(f"{validation_error}; {cleanup_message}") from validation_error
+            raise validation_error
+        if not process_stopped:
+            raise RuntimeError("Isolated strategy validator process could not be stopped")
         if phase == "preflight":
             raise SandboxPreflightError(message)
         if phase != "ok":

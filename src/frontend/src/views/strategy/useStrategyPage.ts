@@ -1329,13 +1329,14 @@ export function useStrategyPage() {
   function buildGeneratedAIResearchPrompt() {
     const signalFamilies = '趋势跟随、均值回归、波动率过滤、突破确认和风险预算'
     const workflowModeLine = aiResearchForm.workflow_mode === 'prompt'
-      ? '模式：按用户提示执行指定投研流水线。'
-      : '模式：自动规划并执行完整投研流水线。'
+      ? '研究目标生成：使用用户提供的提示。'
+      : '研究目标生成：根据当前控制项自动生成。'
     return [
       `请为 ${aiResearchSymbolLabel()} 生成一套 ${aiResearchForm.timeframe} 级别的可执行 Backtrader 策略，并自动迭代回测直到达到质量门槛。`,
       '',
       '专业流水线：',
       workflowModeLine,
+      '说明：以下步骤仅用于组织研究提示与展示；实际服务端执行阶段和状态以运行记录为准。',
       '1. 策略构思：比较候选信号家族，明确入场、出场、仓位和风控假设。',
       '2. 策略生成：生成完整可运行的 Backtrader Strategy 脚本，next 方法必须包含真实 self.buy/self.sell/self.close 或 order_target_* 调用，不能留 pass、TODO 或伪代码。',
       '3. 策略回测：自动提交回测并记录 Sharpe、收益、回撤、交易次数和质量门槛差距。',

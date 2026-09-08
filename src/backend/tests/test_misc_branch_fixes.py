@@ -5,7 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from httpx import AsyncClient
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
 
 @pytest.mark.asyncio
@@ -18,6 +19,15 @@ async def test_auth_me_user_not_found_returns_404(client: AsyncClient, auth_head
 @pytest.mark.asyncio
 async def test_health_check_exception_branch(client: AsyncClient, monkeypatch):
     import app.db.database as db_module
+    import app.main as main_module
+    from app.main_routes import register_runtime_routes
+
+    # A fresh production route closure keeps this branch test independent of
+    # the shared application's ten-second cache and other worker test order.
+    health_app = FastAPI()
+    register_runtime_routes(health_app, main_module.settings, main_module.logger, {})
+    monkeypatch.setattr(main_module, "_health_cache", None, raising=False)
+    monkeypatch.setattr(main_module, "_health_cache_ts", 0.0, raising=False)
 
     class BadSessionCtx:
         async def __aenter__(self):
@@ -26,10 +36,21 @@ async def test_health_check_exception_branch(client: AsyncClient, monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-    monkeypatch.setattr(db_module, "async_session_maker", lambda: BadSessionCtx(), raising=True)
-    resp = await client.get("/health")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "degraded"
+    async with AsyncClient(
+        transport=ASGITransport(app=health_app), base_url="http://health-test"
+    ) as health_client:
+        warm = await health_client.get("/health")
+        assert warm.json()["database"] == "connected"
+        monkeypatch.setattr(db_module, "async_session_maker", lambda: BadSessionCtx(), raising=True)
+        # The exception branch must perform a fresh DB probe, not return the
+        # explicitly warmed healthy result. Global values restore at teardown;
+        # the local route closure is discarded, never poisoning the shared app.
+        main_module._health_cache = None
+        main_module._health_cache_ts = 0.0
+        resp = await health_client.get("/health")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "degraded"
+        assert resp.json()["database"] == "disconnected"
 
 
 def test_deps_get_current_user_delegates():

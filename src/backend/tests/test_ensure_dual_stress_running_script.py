@@ -1,6 +1,8 @@
 import os
+import shlex
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -8,9 +10,48 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = PROJECT_ROOT / "scripts" / "ops" / "ensure_dual_stress_running.sh"
 TRUE_BIN = shutil.which("true")
 FALSE_BIN = shutil.which("false")
+PS_BIN = shutil.which("ps")
 
-if TRUE_BIN is None or FALSE_BIN is None:  # pragma: no cover - required POSIX fixture
-    raise RuntimeError("POSIX true/false commands are required for stress-script tests")
+if TRUE_BIN is None or FALSE_BIN is None or PS_BIN is None:  # pragma: no cover
+    raise RuntimeError("POSIX true/false/ps commands are required for stress-script tests")
+
+
+def _script_env(tmp_path: Path, *processes: subprocess.Popen) -> dict[str, str]:
+    """Isolate PID files and Darwin enumeration, retaining real per-PID checks.
+
+    The production Darwin fallback forks ps once per host PID on every scan.
+    These are script contract tests, not whole-host discovery benchmarks: only
+    the enumeration input is bounded here. Liveness and command-line matching
+    still use real ps, including an unrelated live PID that must be rejected.
+    Linux uses /proc directly and needs no ps enumeration shim.
+    """
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "DUAL_STRESS_PID_FILE": str(tmp_path / "primary.pid"),
+            "DUAL_STRESS_MONITOR_PID_FILE": str(tmp_path / "monitor.pid"),
+            "DUAL_STRESS_LOG_FILE": str(tmp_path / "primary.log"),
+            "DUAL_STRESS_MONITOR_LOG_FILE": str(tmp_path / "monitor.log"),
+            # Nonempty and absent: do not discover/read the checkout's live PID files.
+            "DUAL_STRESS_SUPERVISOR_PID_FILES": str(tmp_path / "no-split-supervisor.pid"),
+        }
+    )
+    if sys.platform == "darwin":
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        enumerated_pids = [os.getpid(), *(process.pid for process in processes)]
+        wrapper = bin_dir / "ps"
+        wrapper.write_text(
+            '#!/bin/sh\nif [ "$#" -eq 2 ] && [ "$1" = "-axo" ] && [ "$2" = "pid=" ]; then\n'
+            f"  printf '%s\\n' {' '.join(map(str, enumerated_pids))}\n"
+            "  exit 0\nfi\n"
+            f'exec {shlex.quote(PS_BIN)} "$@"\n',
+            encoding="utf-8",
+        )
+        wrapper.chmod(0o700)
+        env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+    return env
 
 
 def _fake_dual_stress_process(*, targets: str, monitor: bool) -> subprocess.Popen:
@@ -51,7 +92,7 @@ def test_restart_fails_when_existing_supervisor_does_not_exit(tmp_path: Path) ->
         log_file = tmp_path / "dual_stress.log"
         pid_file.write_text(str(stuck_process.pid), encoding="utf-8")
 
-        env = os.environ.copy()
+        env = _script_env(tmp_path, stuck_process)
         env.update(
             {
                 "DUAL_STRESS_PID_FILE": str(pid_file),
@@ -90,7 +131,7 @@ def test_status_discovers_running_monitor_without_pid_file(tmp_path: Path) -> No
         time.sleep(0.1)
         pid_file = tmp_path / "dual_stress.pid"
         monitor_pid_file = tmp_path / "dual_stress_monitor.pid"
-        env = os.environ.copy()
+        env = _script_env(tmp_path, monitor_process)
         env.update(
             {
                 "DUAL_STRESS_PID_FILE": str(pid_file),
@@ -128,7 +169,7 @@ def test_status_reports_split_supervisor_pid_files(tmp_path: Path) -> None:
         pid_file = tmp_path / "dual_stress.pid"
         split_pid_file = tmp_path / "ctp_remaining_rolling_supervisor.pid"
         split_pid_file.write_text(str(supervisor_process.pid), encoding="utf-8")
-        env = os.environ.copy()
+        env = _script_env(tmp_path, supervisor_process)
         env.update(
             {
                 "DUAL_STRESS_PID_FILE": str(pid_file),
@@ -162,7 +203,7 @@ def test_status_removes_stale_split_supervisor_pid_file(tmp_path: Path) -> None:
     pid_file = tmp_path / "dual_stress.pid"
     split_pid_file = tmp_path / "ctp_remaining_rolling_supervisor.pid"
     split_pid_file.write_text("99999999", encoding="utf-8")
-    env = os.environ.copy()
+    env = _script_env(tmp_path)
     env.update(
         {
             "DUAL_STRESS_PID_FILE": str(pid_file),
@@ -198,7 +239,7 @@ def test_status_ignores_reused_pid_for_unrelated_split_supervisor_pid_file(
         pid_file = tmp_path / "dual_stress.pid"
         split_pid_file = tmp_path / "ctp_remaining_rolling_supervisor.pid"
         split_pid_file.write_text(str(unrelated_process.pid), encoding="utf-8")
-        env = os.environ.copy()
+        env = _script_env(tmp_path, unrelated_process)
         env.update(
             {
                 "DUAL_STRESS_PID_FILE": str(pid_file),
@@ -237,7 +278,7 @@ def test_start_reuses_running_split_supervisor(tmp_path: Path) -> None:
         log_file = tmp_path / "dual_stress.log"
         split_pid_file = tmp_path / "ctp_remaining_rolling_supervisor.pid"
         split_pid_file.write_text(str(supervisor_process.pid), encoding="utf-8")
-        env = os.environ.copy()
+        env = _script_env(tmp_path, supervisor_process)
         env.update(
             {
                 "DUAL_STRESS_PID_FILE": str(pid_file),
@@ -286,7 +327,7 @@ def test_start_reports_all_running_split_supervisors(tmp_path: Path) -> None:
         second_pid_file = tmp_path / "mt5_remaining_rolling_supervisor.pid"
         first_pid_file.write_text(str(first_supervisor.pid), encoding="utf-8")
         second_pid_file.write_text(str(second_supervisor.pid), encoding="utf-8")
-        env = os.environ.copy()
+        env = _script_env(tmp_path, first_supervisor, second_supervisor)
         env.update(
             {
                 "DUAL_STRESS_PID_FILE": str(pid_file),
@@ -334,7 +375,7 @@ def test_monitor_reuses_discovered_running_monitor(tmp_path: Path) -> None:
     try:
         time.sleep(0.1)
         monitor_pid_file = tmp_path / "dual_stress_monitor.pid"
-        env = os.environ.copy()
+        env = _script_env(tmp_path, monitor_process)
         env.update(
             {
                 "DUAL_STRESS_MONITOR_PID_FILE": str(monitor_pid_file),

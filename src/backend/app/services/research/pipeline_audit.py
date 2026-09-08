@@ -210,6 +210,7 @@ def _pipeline_summary(
         "live_readiness_expires_at": live_readiness_expires_at,
         "workflow_mode": workflow_mode,
         "workflow_steps": workflow_step_keys,
+        "workflow_steps_semantics": AI_STRATEGY_RESEARCH_WORKFLOW_STEPS_SEMANTICS,
         "steps": steps,
     }
 

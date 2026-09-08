@@ -34,6 +34,7 @@ from app.services.asset_research.orchestrator import (
     AssetResearchOrchestrationError,
     AssetResearchOrchestrator,
 )
+from app.services.asset_research.schedule_policy import latest_schedule_fire
 from app.services.asset_research.scheduler import (
     AssetResearchScheduleRunner,
     ClaimedSchedule,
@@ -104,7 +105,6 @@ _FIRE_AT = datetime.now(timezone.utc).replace(
     hour=11, minute=10, second=0, microsecond=0
 ) - timedelta(days=1)
 _CLAIM_AT = _FIRE_AT + timedelta(days=4, minutes=50)  # 12:00 on day 4
-_AS_OF_AT = _FIRE_AT + timedelta(days=4)  # claim date + fire time (11:10)
 
 
 async def _seed_due_schedule(
@@ -664,7 +664,10 @@ async def test_run_once_misfire_uses_the_latest_completed_fire_only() -> None:
 
     assert len(runs) == 1
     assert runs[0].status == "SUCCEEDED"
-    assert _as_utc(runs[0].as_of_at) == _AS_OF_AT
+    assert _as_utc(runs[0].as_of_at) == latest_schedule_fire(
+        cutoff_policy="futures-complete-session-v1",
+        at=claim_time,
+    )
 
 
 @pytest.mark.asyncio

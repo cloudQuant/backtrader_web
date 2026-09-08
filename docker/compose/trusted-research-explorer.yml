@@ -1,0 +1,59 @@
+###############################################################################
+# Optional protocol-v2 Explorer worker overlay
+#
+# Usage:
+#   docker compose \
+#     -f docker/docker-compose.yml \
+#     -f docker/compose/prod.yml \
+#     -f docker/compose/trusted-research-explorer.yml \
+#     --profile trusted-research-explorer up -d
+#
+# This launches only the durable Explorer process. It is not an Independent
+# Evaluator or Sandbox Runner topology and must never be registered as evidence
+# of sealed-evaluation or sandbox capability. The reviewed deployment factory
+# must supply actual CLARIFY and GENERATE executors before this service claims a
+# task; otherwise it exits with status 2 before recover/claim.
+###############################################################################
+
+services:
+  trusted-research-explorer:
+    profiles: ["trusted-research-explorer"]
+    build:
+      context: .
+      dockerfile: src/backend/Dockerfile
+    restart: "no"
+    init: true
+    command: ["python", "-m", "scripts.run_ai_research_v2_worker"]
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    environment:
+      APP_NAME: ai-for-investor-trusted-research-explorer
+      DEBUG: "false"
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      DATABASE_TYPE: mysql
+      DATABASE_URL: mysql+aiomysql://${DB_USER:-backtrader}:${DB_PASSWORD:?DB_PASSWORD is required}@${DB_HOST:-mysql}:${DB_PORT:-3306}/${DB_NAME:-ai_for_investor}
+      REDIS_URL: redis://redis:6379/0
+      AI_RESEARCH_PROTOCOL_V2_ENABLED: ${AI_RESEARCH_PROTOCOL_V2_ENABLED:-false}
+      AI_RESEARCH_PROTOCOL_V2_WORKER_ENABLED: ${AI_RESEARCH_PROTOCOL_V2_WORKER_ENABLED:-false}
+      # Keep the container's disabled state consistent with the CLI.  Once both
+      # flags are true, worker_process.py rejects an empty factory before any
+      # recover/claim call.
+      AI_RESEARCH_PROTOCOL_V2_WORKER_FACTORY: ${AI_RESEARCH_PROTOCOL_V2_WORKER_FACTORY:-}
+      AI_RESEARCH_PROTOCOL_V2_WORKER_POLL_SECONDS: ${AI_RESEARCH_PROTOCOL_V2_WORKER_POLL_SECONDS:-10}
+      LOG_DIR: /tmp/logs
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backtrader

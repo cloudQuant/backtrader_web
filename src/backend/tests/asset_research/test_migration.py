@@ -16,7 +16,7 @@ from alembic import command
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PARENT = "20260801_stock_signal_predictions"
-_HEAD = "20260811_asset_research_task_leases"
+_HEAD = "20260908_ai_research_approval_authority"
 _LEGACY_HEAD = "20260805_asset_research_outcome_reliability"
 _TABLES = {
     "asset_instruments",
@@ -110,6 +110,9 @@ def _downgrade(config: Config, database_url: str, revision: str) -> None:
 def test_asset_research_revision_is_the_only_linear_head() -> None:
     script = ScriptDirectory.from_config(_config("sqlite://"))
     assert script.get_heads() == [_HEAD]
+    revisions = list(script.walk_revisions(base="base", head="heads"))
+    assert not any(revision.is_branch_point for revision in revisions)
+    assert not any(revision.is_merge_point for revision in revisions)
 
 
 def test_option_context_migration_renders_mysql_preflight_and_constraints() -> None:

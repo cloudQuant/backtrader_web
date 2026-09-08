@@ -4,7 +4,7 @@ User ORM model.
 
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, String
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Float, ForeignKey, String
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
@@ -25,12 +25,24 @@ class User(Base):
     """
 
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "principal_kind IN ('HUMAN', 'SERVICE', 'UNKNOWN')",
+            name="ck_users_principal_kind",
+        ),
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     username = Column(String(50), unique=True, nullable=False, index=True)
     email = Column(String(100), unique=True, nullable=False, index=True)
     hashed_password = Column(String(128), nullable=False)
     is_active = Column(Boolean, default=True)
+    principal_kind = Column(
+        String(16),
+        nullable=False,
+        default="HUMAN",
+        server_default="UNKNOWN",
+    )
     ai_budget_daily_usd = Column(Float, nullable=True)
     ai_budget_mode = Column(String(20), nullable=True)
     ai_preferred_provider = Column(String(50), nullable=True)

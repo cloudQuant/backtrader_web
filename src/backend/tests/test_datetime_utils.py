@@ -10,6 +10,12 @@ from freezegun import freeze_time
 from app.models.ai_call_log import AICallLog
 from app.models.backtest import BacktestResultModel, BacktestTask
 from app.models.knowledge_base import ChatConversation, ChatMessage, KBDocument, KnowledgeBase
+from app.models.market_data_trust import (
+    AssetSpecModel,
+    MarketDataCoverageModel,
+    MarketDataQualityReportModel,
+    RobustnessTestResultModel,
+)
 from app.models.strategy import Strategy
 from app.models.user import RefreshToken, User
 from app.utils.datetime_utils import utc_now_naive
@@ -48,6 +54,11 @@ def test_utc_now_naive_returns_current_utc_without_timezone() -> None:
         (ChatConversation, "updated_at"),
         (ChatMessage, "created_at"),
         (AICallLog, "created_at"),
+        (AssetSpecModel, "created_at"),
+        (AssetSpecModel, "updated_at"),
+        (MarketDataCoverageModel, "updated_at"),
+        (MarketDataQualityReportModel, "created_at"),
+        (RobustnessTestResultModel, "created_at"),
     ],
 )
 def test_postgres_timestamp_defaults_are_timezone_naive(
