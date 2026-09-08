@@ -102,8 +102,8 @@ def test_registry_declares_all_twenty_one_current_market_page_families() -> None
     )
 
 
-def test_ready_entries_are_only_reviewed_bars_compatibility_contracts() -> None:
-    """No quote, report, reference, chain, or surface may look executable in F1."""
+def test_ready_entries_are_only_explicitly_reviewed_product_contracts() -> None:
+    """Only the three reviewed B1 additions may join the established realtime products."""
     entries = [
         family
         for asset_type in _ASSET_TYPES
@@ -116,26 +116,75 @@ def test_ready_entries_are_only_reviewed_bars_compatibility_contracts() -> None:
 
     assert {entry.family_id for entry in ready} == {
         "stock.realtime",
+        "stock.liquidity",
         "futures.realtime",
         "bond.realtime",
         "fund.realtime",
+        "fund.liquidity",
         "option.realtime",
         "fx.realtime",
+        "fx.range",
     }
-    assert all(entry.dataset_code == "market.bars" for entry in ready)
-    assert all(entry.data_kind == "bars" for entry in ready)
     assert all(entry.frequency_semantics == "calendar_grid" for entry in ready)
     assert all(entry.coverage_model == "calendar_grid" for entry in ready)
-    assert all(entry.required_fields == ("close",) for entry in ready)
     assert all(entry.source_policy_id == "market-default-v1" for entry in ready)
     assert all(entry.family_contract_version == "market-data-family-v1" for entry in entries)
     assert all(entry.reason_code is None for entry in ready)
     assert all(entry.source_policy_id is None for entry in not_ready)
     assert all(entry.reason_code is not None for entry in not_ready)
 
+    by_id = {entry.family_id: entry for entry in entries}
+    for family_id in {
+        "stock.realtime",
+        "futures.realtime",
+        "bond.realtime",
+        "fund.realtime",
+        "option.realtime",
+        "fx.realtime",
+    }:
+        assert by_id[family_id].dataset_code == "market.bars"
+        assert by_id[family_id].data_kind == "bars"
+        assert by_id[family_id].required_fields == ("close",)
+    assert (
+        by_id["stock.liquidity"].dataset_code,
+        by_id["stock.liquidity"].data_kind,
+        by_id["stock.liquidity"].frequencies,
+        by_id["stock.liquidity"].required_fields,
+    ) == (
+        "market.liquidity",
+        "reference_series",
+        ("1d",),
+        ("volume", "turnover", "turnover_rate"),
+    )
+    assert (
+        by_id["fund.liquidity"].dataset_code,
+        by_id["fund.liquidity"].data_kind,
+        by_id["fund.liquidity"].frequencies,
+        by_id["fund.liquidity"].required_fields,
+    ) == (
+        "market.liquidity",
+        "reference_series",
+        ("1d",),
+        ("volume", "turnover"),
+    )
+    assert (
+        by_id["fx.range"].dataset_code,
+        by_id["fx.range"].data_kind,
+        by_id["fx.range"].frequencies,
+        by_id["fx.range"].required_fields,
+    ) == (
+        "market.bars",
+        "bars",
+        ("1d",),
+        ("open", "high", "low", "close"),
+    )
+    assert {
+        entry.family_id for entry in not_ready
+    } == _FAMILY_IDS - {entry.family_id for entry in ready}
 
-def test_registry_accepts_only_the_whitelisted_b1_reference_series_ready_shape() -> None:
-    """A future B1 promotion needs its exact family shape, not a generic non-bar escape hatch."""
+
+def test_registry_accepts_only_the_whitelisted_stock_liquidity_ready_shape() -> None:
+    """A policy revision cannot turn stock liquidity into a generic non-bar escape hatch."""
     contracts = tuple(
         replace(
             contract,
@@ -160,22 +209,9 @@ def test_registry_accepts_only_the_whitelisted_b1_reference_series_ready_shape()
     assert family.source_policy_id == "market-stock-liquidity-v1"
 
 
-def test_registry_allows_a_future_fx_range_promotion_without_a_whitelist_change() -> None:
-    """The reviewed FX OHLC shape can advance once its separate route gates pass."""
-    contracts = tuple(
-        replace(
-            contract,
-            status="ready",
-            source_policy_id="market-fx-range-v1",
-            reason_code=None,
-        )
-        if contract.family_id == "fx.range"
-        else contract
-        for contract in dataset_contracts_module._CONTRACTS
-    )
-
-    registry = DatasetContractRegistry(contracts)
-    family = registry.bundle_for(
+def test_registry_keeps_the_reviewed_fx_range_shape_bound_to_its_family() -> None:
+    """FX OHLC cannot collapse to the smaller realtime bars field profile."""
+    family = DEFAULT_DATASET_CONTRACT_REGISTRY.bundle_for(
         MarketDataQueryBundleRequest(asset_type="fx", family_id="fx.range")
     ).families[0]
 
@@ -370,27 +406,64 @@ def test_family_bound_query_requires_a_complete_exact_product_binding() -> None:
             MarketDataQueryRequest.model_validate(_query_payload(**changes))
 
 
-def test_registry_rejects_any_drift_from_a_bound_ready_family() -> None:
-    """Family execution must preserve the server-declared dataset and field profile."""
-    binding = {
-        "family_id": "stock.realtime",
-        "family_contract_version": "market-data-family-v1",
-        "asset_type": "stock",
-        "dataset_code": "market.bars",
-        "data_kind": "bars",
-        "frequency": "1d",
-        "required_fields": ("close",),
-        "source_policy_id": "market-default-v1",
-    }
+@pytest.mark.parametrize(
+    "binding",
+    [
+        {
+            "family_id": "stock.realtime",
+            "family_contract_version": "market-data-family-v1",
+            "asset_type": "stock",
+            "dataset_code": "market.bars",
+            "data_kind": "bars",
+            "frequency": "1d",
+            "required_fields": ("close",),
+            "source_policy_id": "market-default-v1",
+        },
+        {
+            "family_id": "stock.liquidity",
+            "family_contract_version": "market-data-family-v1",
+            "asset_type": "stock",
+            "dataset_code": "market.liquidity",
+            "data_kind": "reference_series",
+            "frequency": "1d",
+            "required_fields": ("turnover", "turnover_rate", "volume"),
+            "source_policy_id": "market-default-v1",
+        },
+        {
+            "family_id": "fund.liquidity",
+            "family_contract_version": "market-data-family-v1",
+            "asset_type": "fund",
+            "dataset_code": "market.liquidity",
+            "data_kind": "reference_series",
+            "frequency": "1d",
+            "required_fields": ("turnover", "volume"),
+            "source_policy_id": "market-default-v1",
+        },
+        {
+            "family_id": "fx.range",
+            "family_contract_version": "market-data-family-v1",
+            "asset_type": "fx",
+            "dataset_code": "market.bars",
+            "data_kind": "bars",
+            "frequency": "1d",
+            "required_fields": ("close", "high", "low", "open"),
+            "source_policy_id": "market-default-v1",
+        },
+    ],
+)
+def test_registry_rejects_any_drift_from_a_bound_ready_family(
+    binding: dict[str, object],
+) -> None:
+    """Family execution must preserve each server-declared dataset and field profile."""
     DEFAULT_DATASET_CONTRACT_REGISTRY.assert_query_binding(**binding)
 
     for changes in (
         {"dataset_code": "market.stock_daily"},
-        {"data_kind": "reference_series"},
+        {"data_kind": "quote_snapshot"},
         {"frequency": "5min"},
-        {"required_fields": ("close", "volume")},
+        {"required_fields": ("not_the_reviewed_field",)},
         {"source_policy_id": "market-premium-v2"},
-        {"asset_type": "futures"},
+        {"asset_type": "crypto"},
         {"family_contract_version": "market-data-family-v0"},
     ):
         with pytest.raises(DatasetContractRegistryError):
@@ -456,10 +529,27 @@ async def test_query_bundle_endpoint_returns_static_contracts_without_a_query_se
     assert [(entry["family_id"], entry["status"]) for entry in body["families"]] == [
         ("stock.realtime", "ready"),
         ("stock.valuation", "unconfigured"),
-        ("stock.liquidity", "unconfigured"),
+        ("stock.liquidity", "ready"),
     ]
     assert body["families"][0]["required_fields"] == ["close"]
     assert body["families"][1]["source_policy_id"] is None
+    assert body["families"][2] == {
+        "family_id": "stock.liquidity",
+        "family_contract_version": "market-data-family-v1",
+        "asset_type": "stock",
+        "status": "ready",
+        "dataset_code": "market.liquidity",
+        "data_kind": "reference_series",
+        "frequency_semantics": "calendar_grid",
+        "frequencies": ["1d"],
+        "field_profile_id": "stock-liquidity-v1",
+        "required_fields": ["volume", "turnover", "turnover_rate"],
+        "optional_fields": [],
+        "dimension_fields": [],
+        "coverage_model": "calendar_grid",
+        "source_policy_id": "market-default-v1",
+        "reason_code": None,
+    }
 
 
 @pytest.mark.asyncio

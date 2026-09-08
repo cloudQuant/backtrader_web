@@ -120,6 +120,24 @@ def _default_source_policy_registry(
             units=_SHARE_OR_UNDECLARED,
             adapter=_shared_akshare_provider(),
         ),
+        # Stock liquidity is a separate product from bars and valuation. The
+        # bound family contract emits these exact semantics, which select the
+        # adapter's separately reviewed liquidity route rather than a broad
+        # reference-series fallback.
+        MarketDataProviderRoute(
+            route_id="akshare-stock-liquidity-primary-v1",
+            request_provider="akshare",
+            expected_result_provider_ids=frozenset({"akshare"}),
+            asset_types=frozenset({"stock"}),
+            data_kinds=frozenset({"reference_series"}),
+            frequencies=_DAILY_ONLY_FREQUENCIES,
+            markets=frozenset({"CN-SSE", "CN-SZSE"}),
+            adjustments=frozenset({"unadjusted"}),
+            price_bases=frozenset({"close"}),
+            currencies=frozenset({"CNY"}),
+            units=frozenset({"share"}),
+            adapter=_shared_akshare_provider(),
+        ),
         MarketDataProviderRoute(
             route_id="akshare-fund-primary-v1",
             request_provider="akshare",
@@ -132,6 +150,23 @@ def _default_source_policy_registry(
             price_bases=_CLOSE_OR_UNDECLARED,
             currencies=_CNY_OR_UNDECLARED,
             units=_SHARE_OR_UNDECLARED,
+            adapter=_shared_akshare_provider(),
+        ),
+        # ETF liquidity has the same narrow contract as stock liquidity, but
+        # it retains a distinct policy route and provider route ID so a future
+        # NAV/reference product cannot select this endpoint by resemblance.
+        MarketDataProviderRoute(
+            route_id="akshare-fund-liquidity-primary-v1",
+            request_provider="akshare",
+            expected_result_provider_ids=frozenset({"akshare"}),
+            asset_types=frozenset({"fund"}),
+            data_kinds=frozenset({"reference_series"}),
+            frequencies=_DAILY_ONLY_FREQUENCIES,
+            markets=frozenset({"CN-SSE", "CN-SZSE"}),
+            adjustments=frozenset({"unadjusted"}),
+            price_bases=frozenset({"close"}),
+            currencies=frozenset({"CNY"}),
+            units=frozenset({"share"}),
             adapter=_shared_akshare_provider(),
         ),
         MarketDataProviderRoute(
@@ -404,10 +439,10 @@ async def get_market_data_query_bundle(
 ) -> MarketDataQueryBundleResponse:
     """Return static product contracts without resolving data or invoking providers.
 
-    A ``ready`` entry remains only a bars compatibility declaration.  The
-    caller must still obtain the existing exact identity ``query-contract``
-    and execute the v2 data endpoint; the bundle itself cannot trigger online
-    fetches or create a fallback data path.
+    A ``ready`` entry remains only a server-owned product declaration. The
+    caller must still obtain the exact-identity ``query-contract`` and execute
+    the v2 data endpoint; the bundle itself cannot trigger online fetches or
+    create a fallback data path.
     """
     if not get_settings().MARKET_DATA_QUERY_V2_ENABLED:
         raise HTTPException(

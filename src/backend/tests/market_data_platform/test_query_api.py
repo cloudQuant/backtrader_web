@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.api.data.queries import (
+    _default_source_policy_registry,
     execute_market_data_query_with_singleflight,
     get_market_data_access_authorizer,
     get_market_data_query_service,
@@ -854,3 +855,67 @@ def test_legacy_data_routes_remain_registered_alongside_v2_query_route() -> None
     assert "/api/v1/data/kline" in paths
     assert "/api/v1/data/market-instruments/lookup" in paths
     assert "/api/v1/data/market-instruments/options" in paths
+
+
+@pytest.mark.parametrize(
+    ("asset_type", "venue", "expected_route_id"),
+    [
+        ("stock", "CN-SSE", "akshare-stock-liquidity-primary-v1"),
+        ("fund", "CN-SZSE", "akshare-fund-liquidity-primary-v1"),
+    ],
+)
+def test_default_policy_selects_only_exact_unadjusted_liquidity_routes(
+    asset_type: str,
+    venue: str,
+    expected_route_id: str,
+) -> None:
+    """B1 liquidity cannot reuse adjusted realtime-bars or another asset's provider route."""
+    _default_source_policy_registry.cache_clear()
+    try:
+        policy = _default_source_policy_registry("yfinance", ()).resolve("market-default-v1")
+        context = SimpleNamespace(
+            identity=SimpleNamespace(asset_type=asset_type, venue=venue),
+            query=SimpleNamespace(
+                data_kind="reference_series",
+                frequency="1d",
+                adjustment="unadjusted",
+                price_basis="close",
+                currency="CNY",
+                unit="share",
+            ),
+        )
+
+        routes = policy.routes_for(context)
+
+        assert [route.route_id for route in routes] == [expected_route_id]
+        assert policy.routes_for(
+            SimpleNamespace(
+                identity=context.identity,
+                query=SimpleNamespace(
+                    data_kind="reference_series",
+                    frequency="1d",
+                    adjustment="qfq",
+                    price_basis="close",
+                    currency="CNY",
+                    unit="share",
+                ),
+            )
+        ) == ()
+        other_routes = policy.routes_for(
+            SimpleNamespace(
+                identity=SimpleNamespace(
+                    asset_type="fund" if asset_type == "stock" else "stock",
+                    venue=venue,
+                ),
+                query=context.query,
+            )
+        )
+        assert [route.route_id for route in other_routes] == [
+            (
+                "akshare-fund-liquidity-primary-v1"
+                if asset_type == "stock"
+                else "akshare-stock-liquidity-primary-v1"
+            )
+        ]
+    finally:
+        _default_source_policy_registry.cache_clear()

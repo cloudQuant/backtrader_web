@@ -98,8 +98,59 @@ def _identity(*, canonical_id: str, symbol: str, venue: str) -> dict[str, object
     }
 
 
+def _fund_identity(*, canonical_id: str, symbol: str, venue: str) -> dict[str, object]:
+    """Return one exact CN-listed ETF identity for the liquidity bridge."""
+    return {
+        "asset_type": "fund",
+        "identity_level": "PRODUCT",
+        "canonical_id": canonical_id,
+        "display_symbol": symbol,
+        "name": "测试 ETF",
+        "venue": venue,
+        "currency": "CNY",
+        "timezone": "Asia/Shanghai",
+        "identifier_type": "EXCHANGE_SYMBOL",
+        "identifier_value": symbol,
+        "product_type": "ETF",
+        "metadata_version": "market-v1",
+        "details": {
+            "kind": "FUND",
+            "fund_identity_kind": "LISTING",
+            "fund_id": "fund:example-etf",
+            "share_class_id": "share-class:example-etf",
+        },
+    }
+
+
+def _fx_identity(*, canonical_id: str, symbol: str, venue: str) -> dict[str, object]:
+    """Return one exact OTC spot-FX identity for the range bridge."""
+    return {
+        "asset_type": "fx",
+        "identity_level": "PRODUCT",
+        "canonical_id": canonical_id,
+        "display_symbol": symbol,
+        "name": "美元离岸人民币",
+        "venue": venue,
+        "currency": "CNY",
+        "timezone": "Asia/Shanghai",
+        "identifier_type": "CURRENCY_PAIR",
+        "identifier_value": symbol,
+        "product_type": "FX_SPOT",
+        "metadata_version": "market-v1",
+        "details": {
+            "kind": "FX",
+            "base_currency": "USD",
+            "quote_currency": "CNY",
+            "settlement_type": "SPOT",
+            "settlement_currency": "CNY",
+            "calendar_id": "CN-FX",
+            "price_convention": "USD/CNY",
+        },
+    }
+
+
 async def _add_catalog(session: AsyncSession) -> None:
-    dataset = DgDataset(
+    bars_dataset = DgDataset(
         id="dataset-market-bars",
         dataset_code="market.bars",
         display_name="统一市场 K 线",
@@ -107,6 +158,15 @@ async def _add_catalog(session: AsyncSession) -> None:
         canonical_schema={
             "asset_types": ["stock", "futures", "bond", "fund", "option", "fx", "crypto"]
         },
+        primary_key=["canonical_id", "event_at"],
+        is_active=True,
+    )
+    liquidity_dataset = DgDataset(
+        id="dataset-market-liquidity",
+        dataset_code="market.liquidity",
+        display_name="统一市场流动性",
+        domain="market",
+        canonical_schema={"asset_types": ["stock", "fund"]},
         primary_key=["canonical_id", "event_at"],
         is_active=True,
     )
@@ -121,11 +181,20 @@ async def _add_catalog(session: AsyncSession) -> None:
     )
     session.add_all(
         [
-            dataset,
+            bars_dataset,
+            liquidity_dataset,
             target,
             DgDatasetStorage(
                 id="binding-market-bars",
-                dataset_id=dataset.id,
+                dataset_id=bars_dataset.id,
+                storage_target_id=target.id,
+                physical_table="md_observation_revisions",
+                write_mode="canonical_append_only",
+                is_primary=True,
+            ),
+            DgDatasetStorage(
+                id="binding-market-liquidity",
+                dataset_id=liquidity_dataset.id,
                 storage_target_id=target.id,
                 physical_table="md_observation_revisions",
                 write_mode="canonical_append_only",
@@ -142,18 +211,25 @@ async def _add_identity(
     canonical_id: str,
     symbol: str,
     market: str,
+    identity_payload: dict[str, object] | None = None,
 ) -> None:
     now = datetime(2026, 9, 8, tzinfo=UTC)
+    identity = InstrumentIdentity.model_validate(
+        identity_payload or _identity(canonical_id=canonical_id, symbol=symbol, venue=market)
+    )
+    assert identity.canonical_id == canonical_id
+    assert identity.display_symbol == symbol
+    assert identity.venue == market
     instrument = AssetInstrument(
-        id=f"instrument-{canonical_id.rsplit(':', 1)[-1]}-{market}",
-        canonical_id=canonical_id,
-        asset_type="stock",
-        identity_level="ASSET",
-        venue=market,
-        currency="CNY",
-        product_type="EQUITY",
-        identity_json=_identity(canonical_id=canonical_id, symbol=symbol, venue=market),
-        metadata_version="market-v1",
+        id=f"instrument-{identity.asset_type}-{canonical_id.rsplit(':', 1)[-1]}-{market}",
+        canonical_id=identity.canonical_id,
+        asset_type=identity.asset_type,
+        identity_level=identity.identity_level,
+        venue=identity.venue,
+        currency=identity.currency,
+        product_type=identity.product_type,
+        identity_json=identity.model_dump(mode="json"),
+        metadata_version=identity.metadata_version,
         lifecycle_status="ACTIVE",
         valid_from=now,
         created_at=now,
@@ -162,12 +238,12 @@ async def _add_identity(
     await session.flush()
     session.add(
         MdInstrumentLookupKey(
-            asset_type="stock",
+            asset_type=identity.asset_type,
             market=market,
             symbol=symbol,
             instrument_id=instrument.id,
-            canonical_id=canonical_id,
-            metadata_version="market-v1",
+            canonical_id=identity.canonical_id,
+            metadata_version=identity.metadata_version,
             is_active=True,
             valid_from=now,
         )
@@ -256,16 +332,137 @@ async def test_legacy_bridge_binds_a_selected_ready_family_to_the_exact_contract
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    (
+        "asset_type",
+        "symbol",
+        "market",
+        "canonical_id",
+        "identity_factory",
+        "family_id",
+        "expected_axes",
+    ),
+    [
+        (
+            "stock",
+            "600000",
+            "CN-SSE",
+            "instrument:stock:CN-SSE:600000",
+            _identity,
+            "stock.liquidity",
+            {
+                "dataset_code": "market.liquidity",
+                "data_kind": "reference_series",
+                "frequency": "1d",
+                "required_fields": ["volume", "turnover", "turnover_rate"],
+                "adjustment": "unadjusted",
+                "price_basis": "close",
+                "currency": "CNY",
+                "unit": "share",
+            },
+        ),
+        (
+            "fund",
+            "159915",
+            "CN-SZSE",
+            "instrument:fund:CN-SZSE:159915",
+            _fund_identity,
+            "fund.liquidity",
+            {
+                "dataset_code": "market.liquidity",
+                "data_kind": "reference_series",
+                "frequency": "1d",
+                "required_fields": ["volume", "turnover"],
+                "adjustment": "unadjusted",
+                "price_basis": "close",
+                "currency": "CNY",
+                "unit": "share",
+            },
+        ),
+        (
+            "fx",
+            "USDCNH",
+            "CN-OTC",
+            "instrument:fx:CN-OTC:USDCNH",
+            _fx_identity,
+            "fx.range",
+            {
+                "dataset_code": "market.bars",
+                "data_kind": "bars",
+                "frequency": "1d",
+                "required_fields": ["open", "high", "low", "close"],
+                "adjustment": "unadjusted",
+                "price_basis": "close",
+                "currency": None,
+                "unit": None,
+            },
+        ),
+    ],
+)
+async def test_legacy_bridge_issues_an_exact_b1_product_contract(
+    db_session: AsyncSession,
+    asset_type: str,
+    symbol: str,
+    market: str,
+    canonical_id: str,
+    identity_factory: object,
+    family_id: str,
+    expected_axes: dict[str, object],
+) -> None:
+    """Each B1 page card receives its own immutable local-first request shape."""
+    await _add_catalog(db_session)
+    assert callable(identity_factory)
+    identity_payload = identity_factory(
+        canonical_id=canonical_id,
+        symbol=symbol,
+        venue=market,
+    )
+    await _add_identity(
+        db_session,
+        canonical_id=canonical_id,
+        symbol=symbol,
+        market=market,
+        identity_payload=identity_payload,
+    )
+
+    contract = await LegacyMarketDataQueryContractResolver(db_session).resolve(
+        asset_type=asset_type,
+        symbol=symbol,
+        period="daily",
+        family_id=family_id,
+    )
+
+    assert contract == {
+        "version": "market-data-v2",
+        "request": {
+            "identity": {"canonical_id": canonical_id},
+            **expected_axes,
+            "source_policy_id": "market-default-v1",
+            "mode": "local_first",
+            "family_id": family_id,
+            "family_contract_version": "market-data-family-v1",
+        },
+    }
+
+
+@pytest.mark.asyncio
 async def test_legacy_bridge_rejects_an_unconfigured_or_cross_asset_selected_family(
     db_session: AsyncSession,
 ) -> None:
     """A UI card that has no executable product cannot reach the legacy bridge."""
     resolver = LegacyMarketDataQueryContractResolver(db_session)
 
-    for family_id in ("", "stock.valuation", "futures.realtime", "stock.unknown"):
+    for asset_type, family_id in (
+        ("stock", ""),
+        ("stock", "stock.valuation"),
+        ("fund", "fund.nav"),
+        ("fx", "fx.macro_fx"),
+        ("stock", "futures.realtime"),
+        ("stock", "stock.unknown"),
+    ):
         with pytest.raises(DatasetContractRegistryError):
             await resolver.resolve(
-                asset_type="stock",
+                asset_type=asset_type,
                 symbol="600000",
                 period="daily",
                 family_id=family_id,
@@ -286,10 +483,15 @@ async def test_legacy_bridge_does_not_issue_an_openbb_crypto_contract_without_a_
     # the server-owned product registry, before it can become a generic bars
     # contract or depend on a catalog/identity record.
     assert resolver._has_reviewed_route(
+        family_id="crypto.realtime",
         asset_type="crypto",
         venue="US-NYSE",
         frequency="1d",
-        semantics=_semantics_for("crypto", "US-NYSE"),
+        semantics=_semantics_for(
+            family_id="crypto.realtime",
+            asset_type="crypto",
+            venue="US-NYSE",
+        ),
     )
     with pytest.raises(DatasetContractRegistryError) as exc_info:
         await resolver.resolve(
@@ -523,41 +725,130 @@ async def test_legacy_bridge_never_publishes_a_contract_without_a_catalog_bindin
 async def test_legacy_bridge_only_publishes_periods_with_a_reviewed_default_route(
     db_session: AsyncSession,
 ) -> None:
-    """An unsupported cadence must retain the old page API instead of stalling in v2."""
+    """Cadence, family, venue, and semantic drift retain the old page API."""
     resolver = LegacyMarketDataQueryContractResolver(
         db_session,
         openbb_allowed_markets=frozenset({"US-NYSE"}),
     )
 
     assert resolver._has_reviewed_route(
+        family_id="stock.realtime",
         asset_type="stock",
         venue="CN-SSE",
         frequency="1w",
-        semantics=_semantics_for("stock", "CN-SSE"),
+        semantics=_semantics_for(
+            family_id="stock.realtime",
+            asset_type="stock",
+            venue="CN-SSE",
+        ),
     )
+    stock_liquidity_semantics = _semantics_for(
+        family_id="stock.liquidity",
+        asset_type="stock",
+        venue="CN-SSE",
+    )
+    assert stock_liquidity_semantics is not None
+    assert stock_liquidity_semantics.adjustment == "unadjusted"
+    assert resolver._has_reviewed_route(
+        family_id="stock.liquidity",
+        asset_type="stock",
+        venue="CN-SSE",
+        frequency="1d",
+        semantics=stock_liquidity_semantics,
+    )
+    # A realtime semantic cannot be repurposed to select the liquidity route.
     assert not resolver._has_reviewed_route(
-        asset_type="futures",
-        venue="CFFEX",
-        frequency="1w",
-        semantics=_semantics_for("futures", "CFFEX"),
+        family_id="stock.liquidity",
+        asset_type="stock",
+        venue="CN-SSE",
+        frequency="1d",
+        semantics=_semantics_for(
+            family_id="stock.realtime",
+            asset_type="stock",
+            venue="CN-SSE",
+        ),
     )
     assert resolver._has_reviewed_route(
+        family_id="fund.liquidity",
+        asset_type="fund",
+        venue="CN-SZSE",
+        frequency="1d",
+        semantics=_semantics_for(
+            family_id="fund.liquidity",
+            asset_type="fund",
+            venue="CN-SZSE",
+        ),
+    )
+    assert resolver._has_reviewed_route(
+        family_id="fx.range",
         asset_type="fx",
         venue="CN-OTC",
         frequency="1d",
-        semantics=_semantics_for("fx", "CN-OTC"),
+        semantics=_semantics_for(
+            family_id="fx.range",
+            asset_type="fx",
+            venue="CN-OTC",
+        ),
+    )
+    assert not resolver._has_reviewed_route(
+        family_id="fx.range",
+        asset_type="fx",
+        venue="CN-OTC",
+        frequency="1w",
+        semantics=_semantics_for(
+            family_id="fx.range",
+            asset_type="fx",
+            venue="CN-OTC",
+        ),
+    )
+    assert _semantics_for(
+        family_id="stock.valuation",
+        asset_type="stock",
+        venue="CN-SSE",
+    ) is None
+    assert not resolver._has_reviewed_route(
+        family_id="futures.realtime",
+        asset_type="futures",
+        venue="CFFEX",
+        frequency="1w",
+        semantics=_semantics_for(
+            family_id="futures.realtime",
+            asset_type="futures",
+            venue="CFFEX",
+        ),
     )
     assert resolver._has_reviewed_route(
+        family_id="fx.realtime",
+        asset_type="fx",
+        venue="CN-OTC",
+        frequency="1d",
+        semantics=_semantics_for(
+            family_id="fx.realtime",
+            asset_type="fx",
+            venue="CN-OTC",
+        ),
+    )
+    assert resolver._has_reviewed_route(
+        family_id="crypto.realtime",
         asset_type="crypto",
         venue="US-NYSE",
         frequency="1d",
-        semantics=_semantics_for("crypto", "US-NYSE"),
+        semantics=_semantics_for(
+            family_id="crypto.realtime",
+            asset_type="crypto",
+            venue="US-NYSE",
+        ),
     )
     assert not resolver._has_reviewed_route(
+        family_id="option.realtime",
         asset_type="option",
         venue="CN-SSE",
         frequency="1d",
-        semantics=_semantics_for("option", "CN-SSE"),
+        semantics=_semantics_for(
+            family_id="option.realtime",
+            asset_type="option",
+            venue="CN-SSE",
+        ),
     )
 
 

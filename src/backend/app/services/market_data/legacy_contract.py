@@ -72,6 +72,12 @@ _CN_STOCK_FUND_DEFAULTS = _SemanticDefaults(
     currency="CNY",
     unit="share",
 )
+_CN_STOCK_FUND_LIQUIDITY_DEFAULTS = _SemanticDefaults(
+    adjustment="unadjusted",
+    price_basis="close",
+    currency="CNY",
+    unit="share",
+)
 _CN_FUTURES_DEFAULTS = _SemanticDefaults(
     adjustment="unadjusted",
     price_basis="close",
@@ -185,8 +191,13 @@ class LegacyMarketDataQueryContractResolver:
         if identity.identity.display_symbol != normalized_symbol:
             return None
 
-        semantics = _semantics_for(identity.asset_type, identity.venue)
-        if not self._has_reviewed_route(
+        semantics = _semantics_for(
+            family_id=family_contract.family_id,
+            asset_type=identity.asset_type,
+            venue=identity.venue,
+        )
+        if semantics is None or not self._has_reviewed_route(
+            family_id=family_contract.family_id,
             asset_type=identity.asset_type,
             venue=identity.venue,
             frequency=frequency,
@@ -273,28 +284,57 @@ class LegacyMarketDataQueryContractResolver:
     def _has_reviewed_route(
         self,
         *,
+        family_id: str,
         asset_type: str,
         venue: str | None,
         frequency: str,
-        semantics: _SemanticDefaults,
+        semantics: _SemanticDefaults | None,
     ) -> bool:
-        """Match only default-policy capabilities safe for a legacy page contract.
+        """Match one exact family to its default-policy route and semantics.
 
         This intentionally mirrors the declared routes in ``queries.py``
         without importing API composition or constructing a provider. A new
         route must update this compatibility precondition and its regression
         coverage before a page may enter the local-first path.
         """
+        if semantics is None:
+            return False
+        if family_id == "stock.liquidity":
+            return (
+                asset_type == "stock"
+                and venue in {"CN-SSE", "CN-SZSE"}
+                and frequency in _DAILY_BAR_FREQUENCIES
+                and semantics == _CN_STOCK_FUND_LIQUIDITY_DEFAULTS
+            )
+        if family_id == "fund.liquidity":
+            return (
+                asset_type == "fund"
+                and venue in {"CN-SSE", "CN-SZSE"}
+                and frequency in _DAILY_BAR_FREQUENCIES
+                and semantics == _CN_STOCK_FUND_LIQUIDITY_DEFAULTS
+            )
+        if family_id == "fx.range":
+            return (
+                asset_type == "fx"
+                and venue in {"OTC", "CN-OTC"}
+                and frequency in _DAILY_BAR_FREQUENCIES
+                and semantics == _CN_FX_DEFAULTS
+            )
+        if family_id != f"{asset_type}.realtime":
+            return False
         if asset_type in {"stock", "fund"} and venue in {"CN-SSE", "CN-SZSE"}:
-            return frequency in _DATE_ALIGNED_BAR_FREQUENCIES
+            return (
+                frequency in _DATE_ALIGNED_BAR_FREQUENCIES
+                and semantics == _CN_STOCK_FUND_DEFAULTS
+            )
         if asset_type == "futures" and venue == "CFFEX":
-            return frequency in _DAILY_BAR_FREQUENCIES
+            return frequency in _DAILY_BAR_FREQUENCIES and semantics == _CN_FUTURES_DEFAULTS
         if asset_type == "bond" and venue in {"SSE", "SZSE", "CN-SSE", "CN-SZSE"}:
-            return frequency in _DAILY_BAR_FREQUENCIES
+            return frequency in _DAILY_BAR_FREQUENCIES and semantics == _CN_BOND_DEFAULTS
         if asset_type == "option" and venue == "CFFEX":
-            return frequency in _DAILY_BAR_FREQUENCIES
+            return frequency in _DAILY_BAR_FREQUENCIES and semantics == _CN_OPTION_DEFAULTS
         if asset_type == "fx" and venue in {"OTC", "CN-OTC"}:
-            return frequency in _DAILY_BAR_FREQUENCIES
+            return frequency in _DAILY_BAR_FREQUENCIES and semantics == _CN_FX_DEFAULTS
         return (
             venue in self._openbb_allowed_markets
             and asset_type in _OPENBB_LEGACY_ASSET_TYPES
@@ -303,8 +343,32 @@ class LegacyMarketDataQueryContractResolver:
         )
 
 
-def _semantics_for(asset_type: str, venue: str | None) -> _SemanticDefaults:
-    """Use declared domestic semantics only for a reviewed domestic venue."""
+def _semantics_for(
+    *,
+    family_id: str,
+    asset_type: str,
+    venue: str | None,
+) -> _SemanticDefaults | None:
+    """Return defaults only for one exact ready-family/venue combination.
+
+    Returning ``None`` is intentional: a family that is not reviewed for the
+    selected asset and venue cannot fall back to another product's semantics
+    merely because it uses a similar data kind or a shared source provider.
+    """
+    if family_id == "stock.liquidity":
+        if asset_type == "stock" and venue in {"CN-SSE", "CN-SZSE"}:
+            return _CN_STOCK_FUND_LIQUIDITY_DEFAULTS
+        return None
+    if family_id == "fund.liquidity":
+        if asset_type == "fund" and venue in {"CN-SSE", "CN-SZSE"}:
+            return _CN_STOCK_FUND_LIQUIDITY_DEFAULTS
+        return None
+    if family_id == "fx.range":
+        if asset_type == "fx" and venue in {"OTC", "CN-OTC"}:
+            return _CN_FX_DEFAULTS
+        return None
+    if family_id != f"{asset_type}.realtime":
+        return None
     if asset_type in {"stock", "fund"} and venue in {"CN-SSE", "CN-SZSE"}:
         return _CN_STOCK_FUND_DEFAULTS
     if asset_type == "futures" and venue == "CFFEX":

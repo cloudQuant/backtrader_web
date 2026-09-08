@@ -170,9 +170,10 @@ class _ReadyFamilyShape:
 # The schema DTO permits only safe *classes* of single-record products.  This
 # registry-owned map is the second, narrower boundary: it names each exact
 # reviewed page family and prevents a future product from becoming executable
-# merely by looking like a reference series or quote snapshot.  Presence here
-# does not promote the family; the default contracts below retain ``ready``
-# only for end-to-end-reviewed bars until the provider/page gates are complete.
+# merely by looking like a reference series or quote snapshot. Presence here
+# does not promote the family; the default declarations below mark ``ready``
+# only after its complete product-specific provider, bridge, and page gates
+# have been reviewed.
 _READY_FAMILY_SHAPES: dict[str, _ReadyFamilyShape] = {
     "stock.realtime": _ReadyFamilyShape(
         "market.bars",
@@ -446,10 +447,10 @@ def _profile(
     )
 
 
-# ``ready`` is intentionally limited to the existing bars bridge.  The bridge
-# currently guarantees ``close`` as its cross-asset minimum.  Extra normalized
-# bar fields are recorded as optional rather than being promised as a quote,
-# valuation, chain, report, or other distinct product.
+# ``ready`` is intentionally limited to the exact reviewed product families.
+# Realtime bars retain ``close`` as their cross-asset minimum. Liquidity and
+# range products advance only when their own dataset, provider route, semantic
+# defaults, and legacy-page bridge are all bound to the same family ID.
 _CONTRACTS: tuple[DatasetContract, ...] = (
     DatasetContract(
         "stock.realtime",
@@ -493,14 +494,14 @@ _CONTRACTS: tuple[DatasetContract, ...] = (
     DatasetContract(
         "stock.liquidity",
         "stock",
-        "unconfigured",
+        "ready",
         "market.liquidity",
         "reference_series",
         "calendar_grid",
         ("1d",),
         _profile("stock-liquidity-v1", ("volume", "turnover", "turnover_rate")),
         "calendar_grid",
-        reason_code="DATASET_CONTRACT_UNCONFIGURED",
+        source_policy_id="market-default-v1",
     ),
     DatasetContract(
         "futures.realtime",
@@ -608,14 +609,14 @@ _CONTRACTS: tuple[DatasetContract, ...] = (
     DatasetContract(
         "fund.liquidity",
         "fund",
-        "unconfigured",
+        "ready",
         "market.liquidity",
         "reference_series",
         "calendar_grid",
         ("1d",),
         _profile("fund-liquidity-v1", ("volume", "turnover")),
         "calendar_grid",
-        reason_code="DATASET_CONTRACT_UNCONFIGURED",
+        source_policy_id="market-default-v1",
     ),
     DatasetContract(
         "fund.nav",
@@ -714,14 +715,14 @@ _CONTRACTS: tuple[DatasetContract, ...] = (
     DatasetContract(
         "fx.range",
         "fx",
-        "unconfigured",
+        "ready",
         "market.bars",
         "bars",
         "calendar_grid",
         ("1d",),
         _profile("fx-range-v1", ("open", "high", "low", "close")),
         "calendar_grid",
-        reason_code="FIELD_PROFILE_UNCONFIGURED",
+        source_policy_id="market-default-v1",
     ),
     DatasetContract(
         "crypto.realtime",
