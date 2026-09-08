@@ -133,7 +133,7 @@ npm run lint
 
 ### 5.1.1 当前本地执行记录（不改变正式候选状态）
 
-以下结果来自独立迭代 197 候选提交 `8a2be6b7`（2026-09-09），仅作为可复核的本地开发证据；它们不替代第 4 节的正式候选、真实环境或 196 整合回归，也不改变上表的 `NOT_RUN` / `BLOCKED` 状态。
+以下结果来自独立迭代 197 候选提交（均为 2026-09-09），仅作为可复核的本地开发证据；它们不替代第 4 节的正式候选、真实环境或 196 整合回归，也不改变上表的 `NOT_RUN` / `BLOCKED` 状态。
 
 | 记录 ID | 时间快照与命令范围 | 本地结果 | 对正式验收的含义 |
 | --- | --- | --- | --- |
@@ -143,6 +143,7 @@ npm run lint
 | L-197-04 | 2026-09-09，当前独立 197 候选工作树执行 `/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/market_data_platform tests/test_config.py`。 | `PASS`：445 passed、62 warnings，95.41s；包括 durable fetch lease、family binding、legacy exact-echo、SQLite exact-identity migration，以及 authority、projection 和 lookup 三层 `RB0`/`rb0` 的 fail-closed 回归。 | 这是离线开发回归，不是 MySQL/PostgreSQL 排序规则或真实多 worker、第三方 provider、196 集成的通过证据；E-197-01、E-197-07、E-197-08 保持原状态。 |
 | L-197-05 | 2026-09-09，`alembic -c alembic.ini heads` 与临时 SQLite `alembic upgrade head`。 | `PASS`：独立 197 链只有 `20260909_market_data_exact_identity_collation` 一个 head；临时库升级至该 revision，`asset_instruments`、`md_fetch_leases`、lookup 和 frozen identity 表存在。 | 只证明独立链和 SQLite 默认 `BINARY` 路径；196 合并单 head 与 MySQL/PostgreSQL DDL/排序规则仍未运行。 |
 | L-197-06 | 2026-09-09，`npm run test -- --run src/__tests__/api/marketData.test.ts src/__tests__/views/DataPage.test.ts src/__tests__/views/StrategyPage.test.ts`、`npm run typecheck`、`npm run build`、`npm run lint`。 | `PASS`：154 tests、typecheck/build 退出码 0、lint 0 errors/1,208 warnings。 | 仅支持页面适配与默认关闭的策略 sidecar 开关；Vitest 的组件 stub、Browserslist/构建 chunk 警告和既有 lint warnings 不构成真实浏览器或部署验收。 |
+| L-197-07 | 2026-09-09，候选提交 `1b1c74f3`：`/Users/yunjinqi/opt/anaconda3/bin/conda run --no-capture-output -n base python -m pytest -q tests/market_data_platform tests/test_config.py`、目标 Ruff、`alembic heads`、三份 v2 前端测试、`npm run typecheck`、`npm run build`、`npm run lint`。 | `PASS`：后端 453 passed/62 warnings（98.23s），目标 Ruff 通过，独立链 head 为 `20260909_market_data_exact_identity_collation`，前端 157 tests/typecheck/build 通过，lint 为 0 errors/1,225 warnings。 | 覆盖 B1-0 逻辑目录与精确 family shape、`research_cache_fill` 授权/开关、AkShare provenance hash 修复以及页面控制面展示；仍只是提交前后同一代码快照的本地开发回归，不能把 E-197-01 至 E-197-10 或 AC-197-023 标为正式通过。 |
 
 `L-197-01` 包含 identity projection、observation PIT、pending publication 恢复、来源回执、同一 provider 的一次性 request ID 唯一性和 calendar 同源授权、SQLite 来源治理升级/降级保护、MySQL `DATETIME(6)` DDL/fsp=0 拒绝、相邻 calendar segment/import lock，以及 OpenBB 预规范化原始封套和进程组回收的离线断言。本地可观察语义如下；T0/T1/T2 仅描述 SQLite fixture 内的逻辑可见性，不表示真实多连接数据库已验收：
 
@@ -258,7 +259,7 @@ npm run lint
 4. 验证超时、并发槽耗尽、超大响应和不支持的资产/数据类型产生稳定码，不绕过限制调用另一函数或返回样例。
 5. 成功案例必须保留匿名化的请求语义、`provider_id`、source revision、source snapshot ID、行数、字段哈希和后续 `local_only` 复读证据；不得记录账户凭据或完整未授权原始载荷。
 
-当前状态：`NOT_RUN`。离线 AkShare 假函数测试只能证明代码契约，不能证明实时服务或许可。
+当前状态：`NOT_RUN`。离线 AkShare 假函数测试只能证明代码契约，不能证明实时服务或许可。2026-09-09 对公开 `forex_hist_em("USDCNH")` 的受限探测返回零行，因此没有形成字段、来源回执、持久化或本地复读证据，不能用来启用 `fx.range`。
 
 ### 8.2 OpenBB 隔离运行器验证
 
