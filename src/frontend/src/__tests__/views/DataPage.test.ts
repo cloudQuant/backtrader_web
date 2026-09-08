@@ -330,6 +330,131 @@ function createV2ResponseFixture(
   }
 }
 
+function stockLiquidityFamilyBinding(): FamilyBindingFixture {
+  return {
+    family_id: 'stock.liquidity',
+    family_contract_version: 'market-data-family-v1',
+  }
+}
+
+function createStockLiquidityContractFixture() {
+  return {
+    version: 'market-data-v2' as const,
+    request: {
+      identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+      dataset_code: 'market.liquidity',
+      data_kind: 'reference_series' as const,
+      frequency: '1d' as const,
+      required_fields: ['volume', 'turnover', 'turnover_rate'],
+      adjustment: 'none',
+      price_basis: null,
+      currency: 'CNY',
+      unit: 'share',
+      source_policy_id: 'market-default-v1',
+      ...stockLiquidityFamilyBinding(),
+      mode: 'local_first' as const,
+    },
+  }
+}
+
+function createStockLiquidityResponseFixture(): MarketDataQueryResponse {
+  return {
+    ...createV2ResponseFixture(stockLiquidityFamilyBinding()),
+    dataset_code: 'market.liquidity',
+    data_kind: 'reference_series',
+    observations: [
+      {
+        revision_id: 'liquidity-revision-1',
+        source_snapshot_id: 'liquidity-snapshot-1',
+        event_at: '2026-06-18T00:00:00Z',
+        available_at: '2026-06-18T15:00:00Z',
+        committed_at: '2026-06-18T15:00:01Z',
+        revision_number: 1,
+        quality: 'pass',
+        fields: {
+          volume: 1000,
+          turnover: 8800000,
+          turnover_rate: 1.1,
+          close: 9999,
+        },
+      },
+      {
+        revision_id: 'liquidity-revision-failed',
+        source_snapshot_id: 'liquidity-snapshot-failed',
+        event_at: '2026-06-19T00:00:00Z',
+        available_at: '2026-06-19T15:00:00Z',
+        committed_at: '2026-06-19T15:00:01Z',
+        revision_number: 1,
+        quality: 'failed',
+        fields: {
+          volume: 9999,
+          turnover: 9999999,
+          turnover_rate: 9.9,
+          close: 9999,
+        },
+      },
+      {
+        revision_id: 'liquidity-revision-2',
+        source_snapshot_id: 'liquidity-snapshot-2',
+        event_at: '2026-06-20T00:00:00Z',
+        available_at: '2026-06-20T15:00:00Z',
+        committed_at: '2026-06-20T15:00:01Z',
+        revision_number: 1,
+        quality: 'pass',
+        fields: {
+          volume: 1200,
+          turnover: 9600000,
+          turnover_rate: 1.3,
+          close: 10000,
+        },
+      },
+    ],
+  }
+}
+
+function configureReadyReferenceSeriesFamily(
+  bundle: MarketDataQueryBundle,
+  familyId: string,
+  datasetCode: string,
+  requiredFields: string[],
+) {
+  const family = bundle.families.find((candidate) => candidate.family_id === familyId)
+  if (!family) throw new Error(`missing fixture family: ${familyId}`)
+  family.status = 'ready'
+  family.dataset_code = datasetCode
+  family.data_kind = 'reference_series'
+  family.frequency_semantics = 'calendar_grid'
+  family.frequencies = ['1d']
+  family.required_fields = requiredFields
+  family.optional_fields = []
+  family.dimension_fields = []
+  family.coverage_model = 'calendar_grid'
+  family.source_policy_id = 'market-default-v1'
+  family.reason_code = null
+}
+
+function createStockLiquidityBundleFixture(): MarketDataQueryBundle {
+  const bundle = createQueryBundleFixture('stock', {
+    'stock.realtime': 'ready',
+    'stock.liquidity': 'ready',
+  })
+  configureReadyReferenceSeriesFamily(
+    bundle,
+    'stock.liquidity',
+    'market.liquidity',
+    ['volume', 'turnover', 'turnover_rate'],
+  )
+  return bundle
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
 const dataFamilyIdsByAsset: Record<MarketAssetType, string[]> = {
   stock: ['stock.realtime', 'stock.valuation', 'stock.liquidity'],
   futures: ['futures.realtime', 'futures.settlement', 'futures.inventory'],
@@ -515,12 +640,14 @@ describe('DataPage', () => {
     expect(provenance.exists()).toBe(true)
     expect(provenance.text()).toContain('规范标识：instrument:stock:CN-SZSE:000001')
     expect(provenance.text()).toContain('数据集：market.bars')
+    expect(provenance.text()).toContain('数据族：stock.realtime')
     expect(provenance.text()).toContain('来源策略：market-default-v1')
     expect(provenance.text()).toContain('元数据版本：stock-v1')
     expect(provenance.text()).not.toContain('internal-query-receipt')
     expect((wrapper.vm as any).marketDataPlatformProvenance).toEqual([
       { label: '规范标识', value: 'instrument:stock:CN-SZSE:000001' },
       { label: '数据集', value: 'market.bars' },
+      { label: '数据族', value: 'stock.realtime' },
       { label: '来源策略', value: 'market-default-v1' },
       { label: '元数据版本', value: 'stock-v1' },
     ])
@@ -545,6 +672,7 @@ describe('DataPage', () => {
         label: '规范标识',
         value: canonicalId,
       },
+      { label: '数据族', value: 'stock.realtime' },
       { label: '来源策略', value: 'market-default-v1' },
       { label: '元数据版本', value: 'stock-v1' },
     ])
@@ -825,7 +953,7 @@ describe('DataPage', () => {
     expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据平台查询失败')
   })
 
-  it('drops invalid or non-pass v2 bars before they can become chart points', async () => {
+  it('fails closed when a pass v2 bar omits a contract-required field', async () => {
     apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture())
     const response = createV2ResponseFixture()
     const validObservation = response.observations[0]
@@ -848,10 +976,9 @@ describe('DataPage', () => {
 
     const wrapper = await mountPage()
 
-    expect((wrapper.vm as any).result.history.rows).toEqual([
-      expect.objectContaining({ close: 12.34 }),
-    ])
-    expect((wrapper.vm as any).ohlcHistoryRows).toHaveLength(1)
+    expect((wrapper.vm as any).result).toBeNull()
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据平台查询失败')
     expect(() => (wrapper.vm as any).ohlcTuple({
       open: 12,
       high: 13,
@@ -947,6 +1074,363 @@ describe('DataPage', () => {
     expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据族未配置')
   })
 
+  it('uses an explicitly selected ready reference series contract and renders only its declared fields', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(createStockLiquidityBundleFixture())
+    apiMocks.getQueryContract.mockImplementation(({ family_id }: { family_id: string }) => (
+      Promise.resolve(
+        family_id === 'stock.liquidity'
+          ? createStockLiquidityContractFixture()
+          : createV2ContractFixture(stockRealtimeFamilyBinding()),
+      )
+    ))
+    apiMocks.queryLocalFirst.mockImplementation(({ family_id }: { family_id: string }) => (
+      Promise.resolve(
+        family_id === 'stock.liquidity'
+          ? createStockLiquidityResponseFixture()
+          : createV2ResponseFixture(stockRealtimeFamilyBinding()),
+      )
+    ))
+
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
+    apiMocks.lookupInstrument.mockClear()
+
+    expect(vm.selectedFamilyId).toBe('stock.realtime')
+    expect(vm.selectableDataFamilies).toEqual([
+      expect.objectContaining({ value: 'stock.realtime' }),
+      expect.objectContaining({ value: 'stock.liquidity' }),
+    ])
+
+    vm.selectDataFamily('stock.liquidity')
+    await flushPromises()
+    expect(vm.selectedFamilyId).toBe('stock.liquidity')
+    expect(vm.result).toBeNull()
+
+    await vm.lookupInstrument()
+    await flushPromises()
+
+    expect(apiMocks.getQueryContract).toHaveBeenCalledWith({
+      asset_type: 'stock',
+      symbol: '000001',
+      period: 'daily',
+      family_id: 'stock.liquidity',
+    })
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+      dataset_code: 'market.liquidity',
+      data_kind: 'reference_series',
+      family_id: 'stock.liquidity',
+      family_contract_version: 'market-data-family-v1',
+      required_fields: ['volume', 'turnover', 'turnover_rate'],
+    }), expect.objectContaining({ suppressErrorMessage: true }))
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(vm.marketDataPlatformStatus.familyId).toBe('stock.liquidity')
+    expect(wrapper.find('[data-test="market-data-platform-provenance"]').text())
+      .toContain('数据族：stock.liquidity')
+    expect(vm.referenceSeriesRows).toEqual([
+      { date: '2026-06-20', volume: 1200, turnover: 9600000, turnover_rate: 1.3 },
+      { date: '2026-06-18', volume: 1000, turnover: 8800000, turnover_rate: 1.1 },
+    ])
+    expect(vm.result.snapshot.price).toBeUndefined()
+    expect(vm.result.snapshot.close).toBeUndefined()
+    expect(vm.chartCanRender).toBe(false)
+    expect(wrapper.find('[data-test="market-reference-series-table"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="market-reference-series-family"]').text()).toContain('stock.liquidity')
+    expect(wrapper.find('.market-chart-card').exists()).toBe(false)
+
+    const families = vm.assetDataFamilies
+    const liquidity = families.find((family: { familyId: string }) => family.familyId === 'stock.liquidity')
+    const realtime = families.find((family: { familyId: string }) => family.familyId === 'stock.realtime')
+    expect(liquidity).toEqual(expect.objectContaining({
+      readState: 'facts_loaded',
+      readStatusLabel: '已执行受约束事实读取',
+    }))
+    expect(liquidity.fields).toEqual([
+      expect.objectContaining({ name: 'volume', present: true }),
+      expect.objectContaining({ name: 'turnover', present: true }),
+      expect.objectContaining({ name: 'turnover_rate', present: true }),
+    ])
+    expect(realtime).toEqual(expect.objectContaining({ readState: 'bars_query_available' }))
+
+    vm.selectDataFamily('stock.realtime')
+    await flushPromises()
+    expect(vm.result).toBeNull()
+    expect(vm.referenceSeriesResult).toBeNull()
+    expect(vm.chartCanRender).toBe(false)
+
+    vm.applyAssetType('fund', false)
+    expect(vm.selectedFamilyId).toBe('fund.realtime')
+    expect(vm.referenceSeriesResult).toBeNull()
+  })
+
+  it('fails closed when the selected reference series contract does not match its bundle declaration', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(createStockLiquidityBundleFixture())
+    apiMocks.getQueryContract.mockImplementation(({ family_id }: { family_id: string }) => (
+      Promise.resolve(
+        family_id === 'stock.liquidity'
+          ? createV2ContractFixture(stockLiquidityFamilyBinding())
+          : createV2ContractFixture(stockRealtimeFamilyBinding()),
+      )
+    ))
+    apiMocks.queryLocalFirst.mockImplementation(({ family_id }: { family_id: string }) => (
+      Promise.resolve(
+        family_id === 'stock.liquidity'
+          ? createStockLiquidityResponseFixture()
+          : createV2ResponseFixture(stockRealtimeFamilyBinding()),
+      )
+    ))
+
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
+    apiMocks.lookupInstrument.mockClear()
+    vm.selectDataFamily('stock.liquidity')
+
+    await vm.lookupInstrument()
+    await flushPromises()
+
+    expect(apiMocks.getQueryContract).toHaveBeenCalledWith(expect.objectContaining({
+      family_id: 'stock.liquidity',
+    }))
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(vm.result).toBeNull()
+    expect(vm.referenceSeriesResult).toBeNull()
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据平台查询失败')
+  })
+
+  it('fails closed when a reference response omits a contract-required field', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(createStockLiquidityBundleFixture())
+    apiMocks.getQueryContract.mockImplementation(({ family_id }: { family_id: string }) => (
+      Promise.resolve(
+        family_id === 'stock.liquidity'
+          ? createStockLiquidityContractFixture()
+          : createV2ContractFixture(stockRealtimeFamilyBinding()),
+      )
+    ))
+    apiMocks.queryLocalFirst.mockImplementation(({ family_id }: { family_id: string }) => (
+      Promise.resolve(
+        family_id === 'stock.liquidity'
+          ? createStockLiquidityResponseFixture()
+          : createV2ResponseFixture(stockRealtimeFamilyBinding()),
+      )
+    ))
+
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    const malformedResponse = createStockLiquidityResponseFixture()
+    malformedResponse.observations[2] = {
+      ...malformedResponse.observations[2],
+      fields: { volume: 1200, turnover: 9600000 },
+    }
+    apiMocks.queryLocalFirst.mockImplementation(({ family_id }: { family_id: string }) => (
+      Promise.resolve(
+        family_id === 'stock.liquidity'
+          ? malformedResponse
+          : createV2ResponseFixture(stockRealtimeFamilyBinding()),
+      )
+    ))
+    apiMocks.lookupInstrument.mockClear()
+    vm.selectDataFamily('stock.liquidity')
+
+    await vm.lookupInstrument()
+    await flushPromises()
+
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(vm.result).toBeNull()
+    expect(vm.referenceSeriesResult).toBeNull()
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据平台查询失败')
+  })
+
+  it('invalidates an in-flight family response when the selected family changes', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(createStockLiquidityBundleFixture())
+    apiMocks.getQueryContract.mockImplementation(({ family_id }: { family_id: string }) => (
+      Promise.resolve(
+        family_id === 'stock.liquidity'
+          ? createStockLiquidityContractFixture()
+          : createV2ContractFixture(stockRealtimeFamilyBinding()),
+      )
+    ))
+    apiMocks.queryLocalFirst.mockResolvedValue(createV2ResponseFixture(stockRealtimeFamilyBinding()))
+
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    const pendingRealtimeResponse = createDeferred<MarketDataQueryResponse>()
+    apiMocks.queryLocalFirst.mockImplementation(({ family_id }: { family_id: string }) => (
+      family_id === 'stock.realtime'
+        ? pendingRealtimeResponse.promise
+        : Promise.resolve(createStockLiquidityResponseFixture())
+    ))
+    apiMocks.lookupInstrument.mockClear()
+
+    const staleLookup = vm.lookupInstrument()
+    await flushPromises()
+    vm.selectDataFamily('stock.liquidity')
+    pendingRealtimeResponse.resolve(createV2ResponseFixture(stockRealtimeFamilyBinding()))
+    await staleLookup
+    await flushPromises()
+
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(vm.selectedFamilyId).toBe('stock.liquidity')
+    expect(vm.result).toBeNull()
+    expect(vm.referenceSeriesResult).toBeNull()
+    expect(vm.chartCanRender).toBe(false)
+    expect(wrapper.find('[data-test="market-reference-series-table"]').exists()).toBe(true)
+  })
+
+  it('does not retarget a selected reference series to realtime or legacy when its bundle fails', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(createStockLiquidityBundleFixture())
+    apiMocks.getQueryContract.mockImplementation(({ family_id }: { family_id: string }) => (
+      Promise.resolve(
+        family_id === 'stock.liquidity'
+          ? createStockLiquidityContractFixture()
+          : createV2ContractFixture(stockRealtimeFamilyBinding()),
+      )
+    ))
+    apiMocks.queryLocalFirst.mockImplementation(({ family_id }: { family_id: string }) => (
+      Promise.resolve(
+        family_id === 'stock.liquidity'
+          ? createStockLiquidityResponseFixture()
+          : createV2ResponseFixture(stockRealtimeFamilyBinding()),
+      )
+    ))
+
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    vm.selectDataFamily('stock.liquidity')
+    apiMocks.getQueryBundle.mockRejectedValue({ response: { status: 404 } })
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
+    apiMocks.lookupInstrument.mockClear()
+
+    await vm.lookupInstrument()
+    await flushPromises()
+
+    expect(apiMocks.getQueryContract).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(vm.result).toBeNull()
+    expect(vm.referenceSeriesResult).toBeNull()
+    expect(wrapper.find('[data-test="market-data-platform-status"]').text()).toContain('数据平台查询失败')
+  })
+
+  it('keeps K-line rendering for an explicitly selected ready bars family', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    const stockBundle = createQueryBundleFixture('stock', { 'stock.realtime': 'ready' })
+    const fxBundle = createQueryBundleFixture('fx', {
+      'fx.realtime': 'ready',
+      'fx.range': 'ready',
+    })
+    const fxRange = fxBundle.families.find((family) => family.family_id === 'fx.range')
+    if (!fxRange) throw new Error('missing fx.range fixture')
+    fxRange.dataset_code = 'market.fx_range'
+    fxRange.data_kind = 'bars'
+    fxRange.frequency_semantics = 'calendar_grid'
+    fxRange.frequencies = ['1d']
+    fxRange.required_fields = ['open', 'high', 'low', 'close']
+    fxRange.optional_fields = ['volume']
+    fxRange.dimension_fields = []
+    fxRange.coverage_model = 'calendar_grid'
+    fxRange.source_policy_id = 'market-default-v1'
+    fxRange.reason_code = null
+
+    const fxContract = (familyId: 'fx.realtime' | 'fx.range') => {
+      const contract = createV2ContractFixture({
+        family_id: familyId,
+        family_contract_version: 'market-data-family-v1',
+      })
+      contract.request.identity.canonical_id = 'instrument:fx:FX:USDCNH'
+      contract.request.dataset_code = familyId === 'fx.range' ? 'market.fx_range' : 'market.bars'
+      contract.request.required_fields = familyId === 'fx.range'
+        ? ['open', 'high', 'low', 'close']
+        : ['close']
+      return contract
+    }
+    const fxResponse = (familyId: 'fx.realtime' | 'fx.range'): MarketDataQueryResponse => {
+      const response = createV2ResponseFixture({
+        family_id: familyId,
+        family_contract_version: 'market-data-family-v1',
+      })
+      response.canonical_id = 'instrument:fx:FX:USDCNH'
+      response.dataset_code = familyId === 'fx.range' ? 'market.fx_range' : 'market.bars'
+      response.asset_type = 'fx'
+      response.observations = [{
+        ...response.observations[0],
+        fields: { open: 7.2, high: 7.3, low: 7.1, close: 7.25, volume: 1200 },
+      }]
+      return response
+    }
+
+    apiMocks.getQueryBundle.mockImplementation(({ asset_type }: { asset_type: MarketAssetType }) => (
+      Promise.resolve(asset_type === 'fx' ? fxBundle : stockBundle)
+    ))
+    apiMocks.getQueryContract.mockImplementation(({
+      asset_type,
+      family_id,
+    }: { asset_type: MarketAssetType, family_id: string }) => (
+      Promise.resolve(
+        asset_type === 'fx'
+          ? fxContract(family_id as 'fx.realtime' | 'fx.range')
+          : createV2ContractFixture(stockRealtimeFamilyBinding()),
+      )
+    ))
+    apiMocks.queryLocalFirst.mockImplementation(({
+      family_id,
+      identity,
+    }: { family_id: string, identity: { canonical_id: string } }) => (
+      Promise.resolve(
+        identity.canonical_id === 'instrument:fx:FX:USDCNH'
+          ? fxResponse(family_id as 'fx.realtime' | 'fx.range')
+          : createV2ResponseFixture(stockRealtimeFamilyBinding()),
+      )
+    ))
+
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    vm.applyAssetType('fx', false)
+    await vm.lookupInstrument()
+    await flushPromises()
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
+    apiMocks.lookupInstrument.mockClear()
+
+    expect(vm.selectedFamilyId).toBe('fx.realtime')
+    expect(vm.selectableDataFamilies).toEqual([
+      expect.objectContaining({ value: 'fx.realtime' }),
+      expect.objectContaining({ value: 'fx.range' }),
+    ])
+    vm.selectDataFamily('fx.range')
+    await vm.lookupInstrument()
+    await flushPromises()
+
+    expect(apiMocks.getQueryContract).toHaveBeenCalledWith({
+      asset_type: 'fx',
+      symbol: 'USDCNH',
+      period: 'daily',
+      family_id: 'fx.range',
+    })
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+      family_id: 'fx.range',
+      data_kind: 'bars',
+      dataset_code: 'market.fx_range',
+      required_fields: ['open', 'high', 'low', 'close'],
+    }), expect.objectContaining({ suppressErrorMessage: true }))
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(vm.isReferenceSeriesSelected).toBe(false)
+    expect(vm.chartCanRender).toBe(true)
+    expect(vm.ohlcHistoryRows).toHaveLength(1)
+    expect(wrapper.find('.market-chart-card').exists()).toBe(true)
+    expect(vm.assetDataFamilies.find((family: { familyId: string }) => family.familyId === 'fx.range'))
+      .toEqual(expect.objectContaining({ readState: 'facts_loaded' }))
+  })
+
   it('renders declared snapshot, reference, and dimensioned families without issuing their facts', async () => {
     vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
     const bundle = createQueryBundleFixture('stock')
@@ -1031,6 +1515,7 @@ describe('DataPage', () => {
       .toContain('quote_snapshot · snapshot')
     expect(wrapper.find('[data-test="market-data-family-stock.inventory"]').text())
       .toContain('dimensioned_records')
+    expect((wrapper.vm as any).selectableDataFamilies).toEqual([])
     expect(apiMocks.getQueryContract).not.toHaveBeenCalled()
     expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
     expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()

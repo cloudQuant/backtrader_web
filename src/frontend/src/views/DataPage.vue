@@ -123,6 +123,20 @@
           </el-option>
         </el-select>
         <el-select
+          v-if="selectableDataFamilies.length"
+          v-model="selectedFamilyId"
+          data-test="market-data-family-select"
+          placeholder="数据族"
+          @change="selectDataFamily"
+        >
+          <el-option
+            v-for="family in selectableDataFamilies"
+            :key="family.value"
+            :label="family.label"
+            :value="family.value"
+          />
+        </el-select>
+        <el-select
           v-model="form.period"
           :placeholder="t('dataMgmt.periodPlaceholder')"
         >
@@ -380,7 +394,10 @@
       </el-collapse>
     </section>
 
-    <section class="market-workbench-grid">
+    <section
+      v-if="!isReferenceSeriesSelected"
+      class="market-workbench-grid"
+    >
       <el-card class="market-chart-card">
         <template #header>
           <div class="section-header market-chart-header">
@@ -622,7 +639,62 @@
       </el-card>
     </div>
 
-    <el-card class="history-table-card">
+    <el-card
+      v-if="isReferenceSeriesSelected"
+      class="history-table-card"
+      data-test="market-reference-series-table"
+    >
+      <template #header>
+        <div class="section-header">
+          <span>参考序列</span>
+          <el-tag
+            v-if="referenceSeriesResult"
+            size="small"
+            type="success"
+          >
+            {{ t('dataMgmt.historyRows', { count: referenceSeriesRows.length }) }}
+          </el-tag>
+          <el-tag
+            size="small"
+            type="info"
+            data-test="market-reference-series-family"
+          >
+            {{ selectedFamilyId }}
+          </el-tag>
+        </div>
+      </template>
+      <el-table
+        v-if="referenceSeriesRows.length"
+        v-loading="loading"
+        :data="referenceSeriesRows"
+        stripe
+        max-height="520"
+      >
+        <el-table-column
+          v-for="column in referenceSeriesTableColumns"
+          :key="column.key"
+          :prop="column.key"
+          :label="column.label"
+          :width="column.width"
+          :min-width="column.minWidth"
+          :align="column.align"
+          :fixed="column.fixed"
+        >
+          <template #default="{ row }">
+            {{ formatHistoryCell(row, column) }}
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty
+        v-else
+        :description="referenceSeriesEmptyText"
+      />
+    </el-card>
+
+    <el-card
+      v-else
+      class="history-table-card"
+    >
       <template #header>
         <div class="section-header">
           <span>{{ t('dataMgmt.cardHistory') }}</span>
@@ -705,6 +777,8 @@ const dataPage = useDataPage()
 const {
   t,
   assetTabs,
+  selectedFamilyId,
+  selectableDataFamilies,
   periods,
   form,
   dateRange,
@@ -730,6 +804,11 @@ const {
   marketDataPlatformProvenance,
   snapshot,
   displayHistoryRows,
+  isReferenceSeriesSelected,
+  referenceSeriesResult,
+  referenceSeriesRows,
+  referenceSeriesTableColumns,
+  referenceSeriesEmptyText,
   chartCanRender,
   activeAssetConfig,
   activeAssetIcon,
@@ -755,6 +834,7 @@ const {
   historyTableColumns,
   assetLabel,
   setAssetType,
+  selectDataFamily,
   lookupInstrument,
   loadCoverageMatrix,
   refreshCoverageMatrix,
