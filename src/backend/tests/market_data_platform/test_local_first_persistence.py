@@ -117,16 +117,44 @@ def _request(
     )
 
 
-def _policy(provider: _RecordingProvider) -> MarketDataSourcePolicyRegistry:
+def _liquidity_request() -> MarketDataQueryRequest:
+    """Build the public B1 stock-liquidity request bound to its daily grid."""
+    return MarketDataQueryRequest.model_validate(
+        {
+            "identity": {"canonical_id": CANONICAL_ID},
+            "family_id": "stock.liquidity",
+            "family_contract_version": "market-data-family-v1",
+            "dataset_code": "market.liquidity",
+            "data_kind": "reference_series",
+            "frequency": "1d",
+            "start": WINDOW_START.isoformat(),
+            "end": WINDOW_END.isoformat(),
+            "required_fields": ["volume", "turnover", "turnover_rate"],
+            "adjustment": "unadjusted",
+            "price_basis": "close",
+            "currency": "CNY",
+            "unit": "share",
+            "source_policy_id": "market-default-v1",
+            "mode": "local_first",
+        }
+    )
+
+
+def _policy(
+    provider: _RecordingProvider,
+    *,
+    data_kind: str = "bars",
+    adjustment: str = "qfq",
+) -> MarketDataSourcePolicyRegistry:
     route = MarketDataProviderRoute(
         route_id="fixture-akshare-stock-v1",
         request_provider="akshare",
         expected_result_provider_ids=frozenset({"akshare"}),
         asset_types=frozenset({"stock"}),
-        data_kinds=frozenset({"bars"}),
+        data_kinds=frozenset({data_kind}),
         frequencies=frozenset({"1d"}),
         markets=frozenset({"CN-SSE"}),
-        adjustments=frozenset({"qfq"}),
+        adjustments=frozenset({adjustment}),
         price_bases=frozenset({"close"}),
         currencies=frozenset({"CNY"}),
         units=frozenset({"share"}),
@@ -148,6 +176,7 @@ def _service(
     provider: _RecordingProvider,
     *,
     now: datetime = RECEIPT_AT,
+    source_policies: MarketDataSourcePolicyRegistry | None = None,
 ) -> MarketDataQueryService:
     return MarketDataQueryService(
         resolver=MarketDataQueryResolver(
@@ -159,14 +188,17 @@ def _service(
             allow_unbound_internal_requests=True,
         ),
         store=MarketDataStore(session, clock=lambda: now),
-        source_policies=_policy(provider),
+        source_policies=source_policies or _policy(provider),
         allow_online_fetch=True,
         clock=lambda: now,
         cursor_signing_key="test-market-data-cursor-hmac-key-material-0000000000000000000001",
     )
 
 
-async def _seed_authoritative_prerequisites() -> str:
+async def _seed_authoritative_prerequisites(
+    *,
+    calendar_data_kind: str = "bars",
+) -> str:
     """Create only operator-owned prerequisites before a public query begins."""
     identity = InstrumentIdentity.model_validate(
         {
@@ -200,21 +232,21 @@ async def _seed_authoritative_prerequisites() -> str:
             {
                 "trading_date": "2026-09-01",
                 "event_type": "session",
-                "session_code": "daily-close",
+                "session_code": f"{calendar_data_kind}-daily-close",
                 "is_trading_day": True,
                 "event_start": WINDOW_START.isoformat(),
                 "event_end": (WINDOW_START + timedelta(hours=6)).isoformat(),
-                "coverage": {"data_kind": "bars", "frequency": "1d"},
+                "coverage": {"data_kind": calendar_data_kind, "frequency": "1d"},
                 "event_payload": {"provider_observation_key": "daily-close"},
             },
             {
                 "trading_date": "2026-09-02",
                 "event_type": "session",
-                "session_code": "daily-close",
+                "session_code": f"{calendar_data_kind}-daily-close",
                 "is_trading_day": True,
                 "event_start": (WINDOW_START + timedelta(days=1)).isoformat(),
                 "event_end": (WINDOW_START + timedelta(days=1, hours=6)).isoformat(),
-                "coverage": {"data_kind": "bars", "frequency": "1d"},
+                "coverage": {"data_kind": calendar_data_kind, "frequency": "1d"},
                 "event_payload": {"provider_observation_key": "daily-close"},
             },
         ],
@@ -345,3 +377,57 @@ async def test_local_first_persists_once_then_reuses_complete_older_revision_wit
     assert all({"close", "volume"} <= set(row.fields) for row in reused.observations)
     assert source_snapshot_count == 2
     assert revision_count == 4
+
+
+@pytest.mark.asyncio
+async def test_imported_reference_series_grid_supports_local_first_reread_without_network() -> None:
+    """A published B1 liquidity grid lets a second public request reuse local facts."""
+    user_id = await _seed_authoritative_prerequisites(calendar_data_kind="reference_series")
+    provider = _RecordingProvider()
+    source_policies = _policy(
+        provider,
+        data_kind="reference_series",
+        adjustment="unadjusted",
+    )
+    request = _liquidity_request()
+
+    async with async_session_maker() as first_session:
+        first = await _service(
+            first_session,
+            provider,
+            now=RECEIPT_AT,
+            source_policies=source_policies,
+        ).execute(
+            request,
+            access=await _access_for_session(
+                first_session,
+                user_id=user_id,
+                now=RECEIPT_AT,
+            ),
+        )
+        await first_session.commit()
+
+    async with async_session_maker() as reread_session:
+        reread = await _service(
+            reread_session,
+            provider,
+            now=RECEIPT_AT + timedelta(microseconds=2),
+            source_policies=source_policies,
+        ).execute(
+            request,
+            access=await _access_for_session(
+                reread_session,
+                user_id=user_id,
+                now=RECEIPT_AT + timedelta(microseconds=2),
+            ),
+        )
+
+    assert first.coverage.status.value == "complete"
+    assert len(first.fetches) == 1
+    assert reread.coverage.status.value == "complete"
+    assert reread.fetches == ()
+    assert len(provider.calls) == 1
+    assert all(
+        {"volume", "turnover", "turnover_rate"} <= set(observation.fields)
+        for observation in reread.observations
+    )

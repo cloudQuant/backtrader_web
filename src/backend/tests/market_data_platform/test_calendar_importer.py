@@ -398,6 +398,54 @@ async def test_calendar_import_keeps_independent_explicit_grids_per_bar_frequenc
     assert missing_intraday.reason == "CALENDAR_GRID_UNAVAILABLE"
 
 
+@pytest.mark.asyncio
+async def test_calendar_import_reads_reference_series_daily_grid_for_local_first_coverage() -> None:
+    """A reviewed liquidity grid is independently readable from bar-session facts."""
+    payload = _manifest()
+    for event in payload["events"]:
+        event["session_code"] = "reference-series-daily"
+        event["coverage"] = {"data_kind": "reference_series", "frequency": "1d"}
+
+    async with async_session_maker() as session:
+        await MarketDataCalendarImporter(session).import_payload(payload=payload, dry_run=False)
+        calendar = await MarketDataStore(session).read_calendar(
+            calendar_code="CN-SSE",
+            window=TimeWindow(
+                start_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+                end_at=datetime(2026, 9, 3, tzinfo=timezone.utc),
+            ),
+            data_kind="reference_series",
+            frequency="1d",
+        )
+        bars = await MarketDataStore(session).read_calendar(
+            calendar_code="CN-SSE",
+            window=TimeWindow(
+                start_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+                end_at=datetime(2026, 9, 3, tzinfo=timezone.utc),
+            ),
+            data_kind="bars",
+            frequency="1d",
+        )
+
+    assert calendar.status is CalendarStatus.KNOWN
+    assert [event.event_at.day for event in calendar.event_keys] == [1, 2]
+    assert bars.status is CalendarStatus.UNKNOWN
+    assert bars.reason == "CALENDAR_GRID_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_calendar_import_rejects_unsupported_reference_series_frequency() -> None:
+    """The importer cannot advertise a reference-series grid the B1 query path lacks."""
+    payload = _manifest()
+    payload["events"][0]["coverage"] = {"data_kind": "reference_series", "frequency": "1w"}
+
+    async with async_session_maker() as session:
+        with pytest.raises(MarketDataCalendarImportError) as rejected:
+            await MarketDataCalendarImporter(session).import_payload(payload=payload)
+
+    assert rejected.value.code == "CALENDAR_MANIFEST_INVALID"
+
+
 def test_calendar_manifest_loader_is_bounded_and_returns_only_mapping_payload(tmp_path) -> None:
     """CLI file handling supplies stable errors without rendering manifest content."""
     manifest_path = tmp_path / "calendar.json"

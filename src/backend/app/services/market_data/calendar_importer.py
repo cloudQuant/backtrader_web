@@ -61,8 +61,15 @@ class _StrictModel(BaseModel):
 class MarketDataCalendarCoverageManifest(_StrictModel):
     """One exact expected-event grid carried by a trading-session record."""
 
-    data_kind: Literal["bars"]
+    data_kind: Literal["bars", "reference_series"]
     frequency: Literal["5min", "30min", "1h", "1d", "1w", "1mo"]
+
+    @model_validator(mode="after")
+    def validate_data_kind_frequency(self) -> MarketDataCalendarCoverageManifest:
+        """Keep the first reference-series calendar grid to its reviewed daily shape."""
+        if self.data_kind == "reference_series" and self.frequency != "1d":
+            raise ValueError("reference_series calendar coverage requires frequency 1d")
+        return self
 
 
 class MarketDataCalendarEventManifest(_StrictModel):
