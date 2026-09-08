@@ -1869,11 +1869,21 @@ export function useDataPage() {
     const requestId = ++lookupRequestId
     const queryAssetType = form.asset_type
     const queryMarket = queryAssetType === 'futures' ? formMarketText() : ''
+    const queryPeriod = form.period
+    const [queryStartDate, queryEndDate] = dateRange.value || []
     const requestedFamilyId = selectedFamilyId.value
     const requestedNonDefaultFamily = requestedFamilyId !== defaultFamilyId(queryAssetType)
+    // A response is evidence for the exact request, not merely its asset and
+    // family. If any visible selector changes while an async stage is pending,
+    // discard the result instead of relabelling it as the new request.
     const isCurrentFamilyLookup = () => (
       requestId === lookupRequestId
       && form.asset_type === queryAssetType
+      && formSymbolText() === symbol
+      && (queryAssetType !== 'futures' || formMarketText() === queryMarket)
+      && form.period === queryPeriod
+      && dateRange.value?.[0] === queryStartDate
+      && dateRange.value?.[1] === queryEndDate
       && selectedFamilyId.value === requestedFamilyId
     )
     const v2FeatureEnabled = isMarketDataQueryV2FeatureEnabled()

@@ -1318,6 +1318,45 @@ describe('DataPage', () => {
     expect(wrapper.find('[data-test="market-reference-series-table"]').exists()).toBe(true)
   })
 
+  it('drops an in-flight response when its symbol, period, or date window changes', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+    apiMocks.getQueryBundle.mockResolvedValue(createQueryBundleFixture('stock', {
+      'stock.realtime': 'ready',
+    }))
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture(stockRealtimeFamilyBinding()))
+    apiMocks.queryLocalFirst.mockResolvedValue(createV2ResponseFixture(stockRealtimeFamilyBinding()))
+
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    const originalDateRange = [...vm.dateRange]
+    const changes: Array<() => void> = [
+      () => { vm.form.symbol = '600000' },
+      () => { vm.form.period = 'weekly' },
+      () => { vm.dateRange = ['2026-06-01', '2026-06-20'] },
+    ]
+
+    for (const change of changes) {
+      vm.form.symbol = '000001'
+      vm.form.period = 'daily'
+      vm.dateRange = [...originalDateRange]
+      vm.result = null
+      vm.referenceSeriesResult = null
+      const pendingResponse = createDeferred<MarketDataQueryResponse>()
+      apiMocks.queryLocalFirst.mockImplementationOnce(() => pendingResponse.promise)
+
+      const staleLookup = vm.lookupInstrument()
+      await flushPromises()
+      change()
+      pendingResponse.resolve(createV2ResponseFixture(stockRealtimeFamilyBinding()))
+      await staleLookup
+      await flushPromises()
+
+      expect(vm.result).toBeNull()
+      expect(vm.referenceSeriesResult).toBeNull()
+      expect(vm.chartCanRender).toBe(false)
+    }
+  })
+
   it('does not retarget a selected reference series to realtime or legacy when its bundle fails', async () => {
     vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
     apiMocks.getQueryBundle.mockResolvedValue(createStockLiquidityBundleFixture())

@@ -331,6 +331,41 @@ describe('marketDataApi', () => {
     expect(api.post).toHaveBeenCalledWith('/data/queries', request)
   })
 
+  it('preserves explicit null semantic axes from an FX family contract over JSON', () => {
+    const contract: MarketDataQueryContract = {
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: 'instrument:fx:CN-OTC:USDCNH' },
+        dataset_code: 'market.bars',
+        data_kind: 'bars',
+        frequency: '1d',
+        required_fields: ['open', 'high', 'low', 'close'],
+        adjustment: 'unadjusted',
+        price_basis: 'close',
+        currency: null,
+        unit: null,
+        source_policy_id: 'market-default-v1',
+        family_id: 'fx.range',
+        family_contract_version: 'market-data-family-v1',
+        mode: 'local_first',
+      },
+    }
+
+    const request = createMarketDataQueryFromContract(contract, {
+      start: '2026-01-01T00:00:00.000Z',
+      end: '2026-01-02T00:00:00.000Z',
+    })
+
+    expect(request).toHaveProperty('currency', null)
+    expect(request).toHaveProperty('unit', null)
+    expect(JSON.parse(JSON.stringify(request))).toMatchObject({
+      adjustment: 'unadjusted',
+      price_basis: 'close',
+      currency: null,
+      unit: null,
+    })
+  })
+
   it('rejects a contract that omits or splits the required family binding axes', () => {
     const contract = {
       version: 'market-data-v2',

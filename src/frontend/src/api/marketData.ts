@@ -611,10 +611,14 @@ export function createMarketDataQueryFromContract(
     data_kind: request.data_kind,
     frequency: request.frequency,
     required_fields: [...request.required_fields],
-    adjustment: request.adjustment ?? undefined,
-    price_basis: request.price_basis ?? undefined,
-    currency: request.currency ?? undefined,
-    unit: request.unit ?? undefined,
+    // Preserve an explicit `null` from the server contract. For a reviewed
+    // undeclared axis (such as an FX pair's currency/unit), `undefined` would
+    // disappear during JSON serialization and turn an exact signed request
+    // into an omitted/generic semantic axis at the API boundary.
+    adjustment: request.adjustment,
+    price_basis: request.price_basis,
+    currency: request.currency,
+    unit: request.unit,
     source_policy_id: request.source_policy_id,
     mode: options.mode || request.mode,
     start: options.start,
