@@ -1,6 +1,6 @@
 # 迭代 197 设计文档：本地优先市场数据中台
 
-> 状态：设计冻结候选；本次不开发。
+> 状态：候选实现与本地验收已完成；未生产发布。
 > 本文描述目标架构，所有表名、接口名和组件名均为实施规格，不代表已上线或已通过真实数据验证。
 
 ## 1. 架构决策
@@ -374,6 +374,14 @@ strategy facade 必须先把 `symbol`、`timeframe`、`timeframe_n` 和日期范
 
 若页面或策略请求带有 strict anchor，facade 不得把 legacy `refresh_online` 或任何隐式缺口逻辑转为 provider 调用；它只能返回已 sealed 的本地数据或 `HISTORICAL_COVERAGE_UNAVAILABLE`/`unknown_calendar`。这条规则也适用于由已有研究工件触发的重新查询。
 
+### 7.2 当前候选的 family、质量和宽表边界
+
+候选把七类资产的 21 个页面数据族编入只读 `query-bundle`。每个可执行的 product contract 都有稳定的 `family_id` 和 `family_contract_version`；两项必须成对出现在 symbol-specific query contract、公共查询请求、query fingerprint 和分页响应中。服务端在 catalog 和精确身份解析后再次核对 family 的数据集、data kind、频率、字段集和 source policy，因而客户端不能把一个相似的 bars 数据集替换为另一张 family 卡片。
+
+当前 `ready` 只表示 `market.bars` 的日线/周线/月线 K 线兼容桥。页面必须显示其 bars/frequency 语义，不能把 close、event time 或 available time 标为实时 quote。其余 quote、option chain、风险面、报告和 reference family 均是已登记但 `NOT_CONFIGURED` 的产品。`VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED` 默认关闭；关闭时保留无 family binding 的旧通用 bars 兼容查询，正式 family-control-plane 验收只在开关开启后进行，且不得把兼容路径当成未配置 family 已经可执行的证明。
+
+宽表来源只允许经 schedule/shadow collector 捕获后交给纯导入器；导入器没有 HTTP fetch、没有 request-time route，也不从本地时钟制造 upstream time。snapshot 的显示新鲜度由 server-owned `source_policy_version` 解析，过期 observation 不进入产品响应。统一 `typed-field-quality-v2` 策略在新写入前规范化/拒绝无效数值、日期和时间字段；读取遗留 revision 时再次评估。不能满足当前必需字段或不是 `PASS` 的记录只能用于 coverage rejection diagnostics，不能返回给 API 或页面。
+
 ## 8. 与迭代 196 的并行实施和迁移
 
 ### 8.1 可并行阶段
@@ -403,6 +411,8 @@ strategy facade 必须先把 `symbol`、`timeframe`、`timeframe_n` 和日期范
 4. 采用 expand/migrate/contract：兼容窗口内旧版和新版应用都能运行；删除列、重命名或收紧影响旧版的约束必须等旧版应用排空后另行发布。
 5. 任何失败保持服务在明确的兼容状态，优先向前修复或从已验证备份恢复；不得用 downgrade 静默删除 source snapshot、revision、calendar 或 visibility receipt。
 6. 共享库演练须分别证明互斥、错误起始 revision fail-closed、跨版本兼容、失败恢复和最终单一 head，且在 196 冻结前始终为 `BLOCKED`。
+
+候选中的 shared-dataset-binding migration 还有一层执行围栏。离线 `alembic --sql` 必须明确拒绝，避免把反射状态当作可审计的 DDL 计划。MySQL 线上运行前，发布 runbook 必须先在外部停止 API、collector 和 bootstrap writer，确认 writer 已排空后才可由授权执行器设置 `MARKET_DATA_SHARED_BINDING_MAINTENANCE_FENCE=confirmed`。该环境变量只是已完成排空的人工/编排证明，代码本身不能证明 writer 已停止。随后 migration 取得具名 MySQL lock，并把 `lock_wait_timeout` 限为 5 秒；PostgreSQL 在事务内设定 `SET LOCAL lock_timeout = '5s'`。upgrade 和 downgrade 都受同一围栏约束。任何拒绝、锁竞争或起始 revision 漂移都必须在 DDL 前退出；真实数据库尚未执行这条候选 migration。
 
 ## 9. 运维、观测和数据生命周期
 

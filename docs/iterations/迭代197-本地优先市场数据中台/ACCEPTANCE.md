@@ -1,6 +1,6 @@
 # 迭代 197 验收文档：本地优先市场数据中台
 
-> 文档状态：设计冻结候选；本次未开发、未执行迁移、未调用真实 provider。
+> 文档状态：候选实现与本地验收已完成；未执行真实迁移、未调用真实 provider、未生产发布。
 > 当前总判定：**`NOT_ACCEPTED`**。本文件定义未来实现候选必须满足的验收，而不把文档、mock、历史日志或局部代码审查写成通过证据。
 
 ## 1. 判定语言和证据规则
@@ -50,6 +50,13 @@
 1. 每个使用的数据集有唯一活动 primary storage，且 route 精确绑定其 dataset code/ID。
 2. canonical identity、instrument version、lookup key、交易日历和 source policy descriptor 已导入并通过审核。
 3. provider 同时在治理目录和来源注册中有效；license、allowed use、有效期、辖区、保留/再分发策略，以及在线获取与本地读取所需的 principal entitlement 均已批准。
+
+### 3.3 shared binding migration 维护围栏
+
+1. `20260908_market_data_shared_dataset_bindings` 的真实 MySQL 执行前，外部 runbook 必须先停止 API、collector 与 bootstrap writer，并记录已排空的证据；代码内的围栏不能自行证明该事实。
+2. 仅在上述证据已具备后，授权 migration runner 才能设置 `MARKET_DATA_SHARED_BINDING_MAINTENANCE_FENCE=confirmed`。该值缺失时 migration 必须在任何 DDL 前 fail-closed。
+3. runner 必须取得具名 MySQL lock，且 session `lock_wait_timeout=5`；PostgreSQL 在同一事务执行 `SET LOCAL lock_timeout = '5s'`。锁不可得、revision 漂移、writer 未排空或 offline `--sql` 计划均为失败/阻断，不允许绕过。
+4. downgrade 使用相同围栏；它不得作为删除不可变事实的自动恢复手段。
 4. strict replay 所用主数据、lookup key、日历和 observations 都有完整 `(visible_at, visibility_sequence)` anchor；不允许只凭 `created_at`、provider 自报时间或仅时间戳 cutoff。
 5. retired policy descriptor 保留其历史用途授权和 descriptor hash；在线 route 显式关闭。
 
@@ -143,6 +150,10 @@ cd src/backend
 | AC-197-033 | 在受控灰度下对七类资产、legacy `daily`/`weekly`/`monthly`、期货 market、日期区间、默认 lookup、`refresh_online=true` 和携带 strict anchor 的相同请求逐一经过行情页 facade。 | legacy projection 兼容；未冻结 display 默认转换为 local-first，已批准 refresh 才可触网；strict anchor 下绝不触网；结果来自 sealed local reread 并含 coverage/provenance，未持久化在线 payload 不可返回。 | `BLOCKED` |
 | AC-197-034 | 对策略 UI 的 `symbol`、`timeframe`、`timeframe_n`、日期和已有/缺失/冲突的 `data_config` 测试全部七类资产，尤其是 option 与无法精确推断的输入。 | 只接受能形成完整 typed `MarketDataQuery` 和 sealed provenance 的请求；无完整 identity/provider/series/adjustment 时 fail closed，IG-196 未解除时策略读取/运行路径保持 `BLOCKED`。 | `BLOCKED` |
 | AC-197-035 | 交叉测试 market query UI、coverage UI、strategy UI 的各个频率值，以及每个已批准 provider route、日历和本地 store。 | `daily`/`weekly`/`monthly` 只映射 `1d`/`1w`/`1mo`；`1h`/`30m`/`5m` 仅在已登记 route 后启用；coverage/策略 UI 的声明不能越过实际 capability，裸 `1m` 在 v2 拒绝。 | `NOT_RUN` |
+| AC-197-037 | 在 bundle 开启后，对每个 21-family 卡片发放的 query contract 修改 family ID、版本、数据集、data kind、频率、字段或 source policy。 | server 在 identity/catalog 解析后拒绝全部轴漂移；query fingerprint 与所有分页响应保持相同 family binding。关闭 bundle 时的裸 bars compatibility path 单独标记，不得作为 family 覆盖证据。 | `NOT_RUN`：候选离线回归可作为实现证据，浏览器/API 联合灰度仍未执行。 |
+| AC-197-038 | 写入或读取 `close='--'`、`N/A`、非有限数值、无效日期/时间、legacy `quality='pass'` 占位 revision。 | 新写入拒绝或规范化为不可用；coverage 保留 rejection reason；产品 API、分页和页面均不返回/绘制该 revision，更不能以 0 补值。 | `NOT_RUN`：需要冻结候选 SHA 的完整离线输出和浏览器/API 联合证据。 |
+| AC-197-039 | 尝试以 offline `--sql`、未设置围栏的 MySQL、锁竞争、错误 revision、未停止 writer 和 downgrade 执行 shared binding migration。 | 每种未满足前置条件在 DDL 前 fail-closed；只有外部 writer-drain 证据、授权围栏和具名锁齐备时才可进入真实演练。 | `BLOCKED`：未授权真实数据库和维护窗口。 |
+| AC-197-040 | OpenBB runner 返回重复规范化字段键、records 与 raw payload 不一致、并发请求超过运行器容量。 | 重复键/证据投影不一致稳定拒绝；过载请求不产生子进程；正常请求仍保留 request ID、raw payload 和规范化 projection 的可复算关联。 | `NOT_RUN`：真实 OpenBB operator 环境尚未执行。 |
 | AC-197-036 | 首屏 strict query 冻结 anchor 后，追加一条 `visible_at` 与 anchor 时间相同、但 `visibility_sequence` 更高的 receipt（包含新事件或新 revision），再分页和严格重放。 | 新 receipt 绝不出现在首屏后页、cache 命中或原工件重放中；完整 `(knowledge_cutoff_at, max_visibility_sequence_at_or_before_cutoff)` 被 HMAC、provenance 和缓存 key 一致绑定。 | `NOT_RUN` |
 
 ## 6. 严格重放和工件验收
