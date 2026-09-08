@@ -12,6 +12,33 @@ from sqlalchemy.engine import make_url
 from scripts import verify_iteration197_postgres_acceptance as harness
 
 
+def _two_process_report(
+    *,
+    pid: int,
+    provider_call_count: int,
+    initial_coverage_status: str,
+    initial_fetch_count: int,
+    initial_warning_codes: list[str],
+    local_only_coverage_status: str = "complete",
+    local_only_fetch_count: int = 0,
+    local_only_observation_count: int = 2,
+) -> dict[str, object]:
+    return {
+        "kind": "result",
+        "status": "ok",
+        "pid": pid,
+        "provider_call_count": provider_call_count,
+        "initial_coverage_status": initial_coverage_status,
+        "initial_fetch_count": initial_fetch_count,
+        "initial_warning_codes": initial_warning_codes,
+        "initial_session_timezone": "UTC",
+        "local_only_coverage_status": local_only_coverage_status,
+        "local_only_fetch_count": local_only_fetch_count,
+        "local_only_observation_count": local_only_observation_count,
+        "local_only_session_timezone": "UTC",
+    }
+
+
 def test_admin_url_accepts_only_explicit_asyncpg_postgres_database() -> None:
     accepted = harness._parse_admin_url("postgresql+asyncpg:///postgres?host=/tmp")
 
@@ -112,3 +139,102 @@ def test_apply_cleanup_path_is_not_exercised_without_explicit_apply() -> None:
     assert output["mode"] == "dry_run"
     assert output["temporary_database_prefix"] == harness.TEMPORARY_DATABASE_PREFIX
     assert not asyncio.iscoroutine(output)
+
+
+def test_two_process_report_validator_requires_one_leader_and_one_follower_reread() -> None:
+    leader, follower = harness._validate_two_process_worker_reports(
+        (
+            _two_process_report(
+                pid=101,
+                provider_call_count=1,
+                initial_coverage_status="complete",
+                initial_fetch_count=1,
+                initial_warning_codes=[],
+            ),
+            _two_process_report(
+                pid=202,
+                provider_call_count=0,
+                initial_coverage_status="partial",
+                initial_fetch_count=0,
+                initial_warning_codes=["FETCH_LEASE_HELD"],
+            ),
+        )
+    )
+
+    assert leader["pid"] == 101
+    assert follower["pid"] == 202
+
+
+@pytest.mark.parametrize(
+    ("reports", "expected_code"),
+    [
+        (
+            (
+                _two_process_report(
+                    pid=101,
+                    provider_call_count=1,
+                    initial_coverage_status="complete",
+                    initial_fetch_count=1,
+                    initial_warning_codes=[],
+                ),
+                _two_process_report(
+                    pid=202,
+                    provider_call_count=1,
+                    initial_coverage_status="complete",
+                    initial_fetch_count=1,
+                    initial_warning_codes=[],
+                ),
+            ),
+            "POSTGRES_ACCEPTANCE_TWO_PROCESS_PROVIDER_COUNT_INVALID",
+        ),
+        (
+            (
+                _two_process_report(
+                    pid=101,
+                    provider_call_count=1,
+                    initial_coverage_status="complete",
+                    initial_fetch_count=1,
+                    initial_warning_codes=[],
+                ),
+                _two_process_report(
+                    pid=202,
+                    provider_call_count=0,
+                    initial_coverage_status="partial",
+                    initial_fetch_count=0,
+                    initial_warning_codes=["FETCH_LEASE_HELD"],
+                    local_only_coverage_status="partial",
+                ),
+            ),
+            "POSTGRES_ACCEPTANCE_TWO_PROCESS_FOLLOWER_REREAD_FAILED",
+        ),
+    ],
+)
+def test_two_process_report_validator_rejects_missing_provider_or_follower_reread(
+    reports: tuple[dict[str, object], dict[str, object]],
+    expected_code: str,
+) -> None:
+    with pytest.raises(harness.PostgresAcceptanceHarnessError) as rejected:
+        harness._validate_two_process_worker_reports(reports)
+
+    assert rejected.value.code == expected_code
+
+
+def test_two_process_evidence_describes_only_database_level_contention() -> None:
+    evidence = harness._TwoProcessExactGapEvidence(
+        process_count=2,
+        distinct_process_count=2,
+        provider_call_count=1,
+        follower_provider_call_count=0,
+        follower_initial_lease_held=True,
+        follower_local_only_fetch_count=0,
+        follower_local_only_complete=True,
+        follower_local_only_observation_count=2,
+        source_snapshot_count=1,
+        observation_revision_count=2,
+    )
+
+    assert evidence.as_dict()["follower_separate_session_local_only"] == {
+        "coverage_complete": True,
+        "fetch_count": 0,
+        "observation_count": 2,
+    }

@@ -30,6 +30,9 @@ import argparse
 import asyncio
 import hashlib
 import json
+import multiprocessing
+import os
+import queue
 import re
 import sys
 import uuid
@@ -131,6 +134,8 @@ CANONICAL_ID = "instrument:stock:CN-SSE:600000"
 WINDOW_START = datetime(2026, 9, 1, tzinfo=UTC)
 WINDOW_END = datetime(2026, 9, 3, tzinfo=UTC)
 RECEIPT_AT = datetime(2026, 9, 3, 7, tzinfo=UTC)
+_PROCESS_EVENT_TIMEOUT_SECONDS = 20.0
+_PROCESS_RESULT_TIMEOUT_SECONDS = 30.0
 
 
 class PostgresAcceptanceHarnessError(RuntimeError):
@@ -139,6 +144,38 @@ class PostgresAcceptanceHarnessError(RuntimeError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+@dataclass(frozen=True, slots=True)
+class _TwoProcessExactGapEvidence:
+    """Evidence from two separate OS processes against one empty exact gap."""
+
+    process_count: int
+    distinct_process_count: int
+    provider_call_count: int
+    follower_provider_call_count: int
+    follower_initial_lease_held: bool
+    follower_local_only_fetch_count: int
+    follower_local_only_complete: bool
+    follower_local_only_observation_count: int
+    source_snapshot_count: int
+    observation_revision_count: int
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "process_count": self.process_count,
+            "distinct_process_count": self.distinct_process_count,
+            "provider_call_count": self.provider_call_count,
+            "follower_provider_call_count": self.follower_provider_call_count,
+            "follower_initial_lease_held": self.follower_initial_lease_held,
+            "follower_separate_session_local_only": {
+                "coverage_complete": self.follower_local_only_complete,
+                "fetch_count": self.follower_local_only_fetch_count,
+                "observation_count": self.follower_local_only_observation_count,
+            },
+            "source_snapshot_count": self.source_snapshot_count,
+            "observation_revision_count": self.observation_revision_count,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +191,7 @@ class _HarnessResult:
     local_only_fetch_count: int
     lease_successful_contender_count: int
     lease_fence_token: int
+    two_process_exact_gap: _TwoProcessExactGapEvidence
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -167,17 +205,38 @@ class _HarnessResult:
                 "successful_contender_count": self.lease_successful_contender_count,
                 "winner_fence_token": self.lease_fence_token,
             },
+            "two_process_exact_gap": self.two_process_exact_gap.as_dict(),
         }
 
 
 class _DeterministicProvider:
     """A bounded adapter used only by this acceptance harness; it never does I/O."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        provider_started_event: Any | None = None,
+        provider_release_event: Any | None = None,
+        event_wait_timeout_seconds: float = _PROCESS_EVENT_TIMEOUT_SECONDS,
+    ) -> None:
         self.calls: list[MarketDataProviderRequest] = []
+        self._provider_started_event = provider_started_event
+        self._provider_release_event = provider_release_event
+        self._event_wait_timeout_seconds = event_wait_timeout_seconds
 
     async def fetch(self, request: MarketDataProviderRequest) -> ProviderFetchResult:
         self.calls.append(request)
+        if self._provider_started_event is not None:
+            self._provider_started_event.set()
+        if self._provider_release_event is not None:
+            released = await asyncio.to_thread(
+                self._provider_release_event.wait,
+                self._event_wait_timeout_seconds,
+            )
+            if not released:
+                raise PostgresAcceptanceHarnessError(
+                    "POSTGRES_ACCEPTANCE_TWO_PROCESS_PROVIDER_RELEASE_TIMEOUT"
+                )
         observations = tuple(
             ProviderMarketObservation(
                 event_at=event_at,
@@ -373,9 +432,7 @@ async def _assert_schema_and_timezone(
     expected_alembic_head: str,
 ) -> str:
     """Verify one fresh connection is UTC and all required 197 structures exist."""
-    timezone_name = str(await session.scalar(text("SHOW TIME ZONE")) or "")
-    if timezone_name.upper() not in {"UTC", "ETC/UTC"}:
-        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_SESSION_TIMEZONE_NOT_UTC")
+    timezone_name = await _assert_utc_session_timezone(session)
     connection = await session.connection()
     missing_tables = await connection.run_sync(_missing_tables)
     if missing_tables:
@@ -402,6 +459,14 @@ async def _assert_schema_and_timezone(
         for column_name in column_names:
             if observed_types.get((table_name, column_name)) != "timestamp with time zone":
                 raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TIMESTAMP_NOT_UTC")
+    return timezone_name
+
+
+async def _assert_utc_session_timezone(session: AsyncSession) -> str:
+    """Verify the UTC session invariant on one fresh PostgreSQL connection."""
+    timezone_name = str(await session.scalar(text("SHOW TIME ZONE")) or "")
+    if timezone_name.upper() not in {"UTC", "ETC/UTC"}:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_SESSION_TIMEZONE_NOT_UTC")
     return timezone_name
 
 
@@ -459,6 +524,7 @@ def _service(
     *,
     now: datetime,
     allow_online_fetch: bool,
+    fetch_leases: MarketDataFetchLeaseManager | None = None,
 ) -> MarketDataQueryService:
     """Construct the production service graph around a disposable session."""
     return MarketDataQueryService(
@@ -474,6 +540,7 @@ def _service(
         allow_online_fetch=allow_online_fetch,
         clock=lambda: now,
         cursor_signing_key="iteration197-postgres-acceptance-cursor-key-material-0000000000000001",
+        fetch_leases=fetch_leases,
     )
 
 
@@ -593,6 +660,410 @@ async def _access_for_session(
     return MarketDataQueryAccess(principal=principal, authorizer=authorizer)
 
 
+async def _wait_for_process_event(event: Any, *, code: str) -> None:
+    """Wait for one bounded cross-process checkpoint without blocking the loop."""
+    reached = await asyncio.to_thread(event.wait, _PROCESS_EVENT_TIMEOUT_SECONDS)
+    if not reached:
+        raise PostgresAcceptanceHarnessError(code)
+
+
+async def _receive_process_message(
+    channel: Any,
+    *,
+    timeout_seconds: float,
+    timeout_code: str,
+) -> dict[str, object]:
+    """Receive one small IPC report and reject malformed or delayed messages."""
+    try:
+        message = await asyncio.to_thread(channel.get, True, timeout_seconds)
+    except queue.Empty as exc:
+        raise PostgresAcceptanceHarnessError(timeout_code) from exc
+    if not isinstance(message, Mapping):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TWO_PROCESS_MESSAGE_INVALID")
+    return dict(message)
+
+
+def _process_report_int(report: Mapping[str, object], field_name: str) -> int:
+    """Read one intentionally small numeric IPC field without coercion."""
+    value = report.get(field_name)
+    if type(value) is not int:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TWO_PROCESS_MESSAGE_INVALID")
+    return value
+
+
+def _process_report_text(report: Mapping[str, object], field_name: str) -> str:
+    """Read one intentionally small textual IPC field without coercion."""
+    value = report.get(field_name)
+    if not isinstance(value, str):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TWO_PROCESS_MESSAGE_INVALID")
+    return value
+
+
+def _process_report_warning_codes(report: Mapping[str, object]) -> tuple[str, ...]:
+    """Validate provider-free follower diagnostics transported over IPC."""
+    raw_codes = report.get("initial_warning_codes")
+    if not isinstance(raw_codes, list) or not all(isinstance(code, str) for code in raw_codes):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TWO_PROCESS_MESSAGE_INVALID")
+    return tuple(raw_codes)
+
+
+def _validate_two_process_worker_reports(
+    reports: tuple[Mapping[str, object], ...],
+) -> tuple[Mapping[str, object], Mapping[str, object]]:
+    """Validate leader/follower facts before treating the IPC run as evidence."""
+    if len(reports) != 2:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TWO_PROCESS_REPORT_COUNT_INVALID")
+    if any(
+        _process_report_text(report, "kind") != "result"
+        or _process_report_text(report, "status") != "ok"
+        for report in reports
+    ):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TWO_PROCESS_WORKER_FAILED")
+
+    process_ids = tuple(_process_report_int(report, "pid") for report in reports)
+    if any(process_id <= 0 for process_id in process_ids) or len(set(process_ids)) != 2:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TWO_PROCESS_IDENTITY_INVALID")
+
+    provider_call_counts = tuple(
+        _process_report_int(report, "provider_call_count") for report in reports
+    )
+    if sorted(provider_call_counts) != [0, 1]:
+        raise PostgresAcceptanceHarnessError(
+            "POSTGRES_ACCEPTANCE_TWO_PROCESS_PROVIDER_COUNT_INVALID"
+        )
+    leader = next(
+        report for report in reports if _process_report_int(report, "provider_call_count") == 1
+    )
+    follower = next(
+        report for report in reports if _process_report_int(report, "provider_call_count") == 0
+    )
+
+    if (
+        _process_report_text(leader, "initial_coverage_status") != "complete"
+        or _process_report_int(leader, "initial_fetch_count") != 1
+    ):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TWO_PROCESS_LEADER_FETCH_FAILED")
+    if _process_report_int(
+        follower, "initial_fetch_count"
+    ) != 0 or "FETCH_LEASE_HELD" not in _process_report_warning_codes(follower):
+        raise PostgresAcceptanceHarnessError(
+            "POSTGRES_ACCEPTANCE_TWO_PROCESS_FOLLOWER_LEASE_NOT_OBSERVED"
+        )
+    for report in reports:
+        if _process_report_text(report, "initial_session_timezone").upper() not in {
+            "UTC",
+            "ETC/UTC",
+        } or _process_report_text(report, "local_only_session_timezone").upper() not in {
+            "UTC",
+            "ETC/UTC",
+        }:
+            raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_SESSION_TIMEZONE_NOT_UTC")
+    if (
+        _process_report_text(follower, "local_only_coverage_status") != "complete"
+        or _process_report_int(follower, "local_only_fetch_count") != 0
+        or _process_report_int(follower, "local_only_observation_count") != 2
+    ):
+        raise PostgresAcceptanceHarnessError(
+            "POSTGRES_ACCEPTANCE_TWO_PROCESS_FOLLOWER_REREAD_FAILED"
+        )
+    return leader, follower
+
+
+async def _run_two_process_worker(
+    target_url_text: str,
+    user_id: str,
+    query_now_text: str,
+    start_event: Any,
+    provider_started_event: Any,
+    provider_release_event: Any,
+    follower_initial_finished_event: Any,
+    leader_completed_event: Any,
+    ready_queue: Any,
+    result_queue: Any,
+) -> None:
+    """Run one real service worker; all coordination is through process-safe IPC."""
+    target_url = make_url(target_url_text)
+    _require_own_temporary_database(target_url.database)
+    query_now = datetime.fromisoformat(query_now_text)
+    if query_now.tzinfo is None:
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TWO_PROCESS_TIME_INVALID")
+    query_now = query_now.astimezone(UTC)
+    engine = _target_engine(target_url)
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        ready_queue.put({"kind": "ready", "pid": os.getpid()})
+        await _wait_for_process_event(
+            start_event,
+            code="POSTGRES_ACCEPTANCE_TWO_PROCESS_START_TIMEOUT",
+        )
+        provider = _DeterministicProvider(
+            provider_started_event=provider_started_event,
+            provider_release_event=provider_release_event,
+        )
+        async with session_factory() as initial_session:
+            initial_timezone = await _assert_utc_session_timezone(initial_session)
+            initial = await _service(
+                initial_session,
+                provider,
+                now=query_now,
+                allow_online_fetch=True,
+                fetch_leases=MarketDataFetchLeaseManager(
+                    initial_session,
+                    lease_ttl=timedelta(minutes=1),
+                ),
+            ).execute(
+                _request(mode="local_first"),
+                access=await _access_for_session(
+                    initial_session,
+                    user_id=user_id,
+                    now=query_now,
+                ),
+            )
+            await initial_session.commit()
+
+        provider_call_count = len(provider.calls)
+        if provider_call_count == 0:
+            follower_initial_finished_event.set()
+        elif provider_call_count == 1:
+            # Signal only after the persistence path has committed and the
+            # initial session is closed, so followers reread a durable source.
+            leader_completed_event.set()
+        else:
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_TWO_PROCESS_PROVIDER_COUNT_INVALID"
+            )
+        if provider_call_count == 0:
+            await _wait_for_process_event(
+                leader_completed_event,
+                code="POSTGRES_ACCEPTANCE_TWO_PROCESS_LEADER_COMPLETION_TIMEOUT",
+            )
+
+        async with session_factory() as local_only_session:
+            local_only_timezone = await _assert_utc_session_timezone(local_only_session)
+            local_only = await _service(
+                local_only_session,
+                provider,
+                now=query_now + timedelta(microseconds=2),
+                allow_online_fetch=False,
+            ).execute(
+                _request(mode="local_only"),
+                access=await _access_for_session(
+                    local_only_session,
+                    user_id=user_id,
+                    now=query_now + timedelta(microseconds=2),
+                ),
+            )
+
+        result_queue.put(
+            {
+                "kind": "result",
+                "status": "ok",
+                "pid": os.getpid(),
+                "provider_call_count": provider_call_count,
+                "initial_coverage_status": initial.coverage.status.value,
+                "initial_fetch_count": len(initial.fetches),
+                "initial_warning_codes": [warning.code for warning in initial.warnings],
+                "initial_session_timezone": initial_timezone,
+                "local_only_coverage_status": local_only.coverage.status.value,
+                "local_only_fetch_count": len(local_only.fetches),
+                "local_only_observation_count": len(local_only.observations),
+                "local_only_session_timezone": local_only_timezone,
+            }
+        )
+    finally:
+        await engine.dispose()
+
+
+def _two_process_worker(
+    target_url_text: str,
+    user_id: str,
+    query_now_text: str,
+    start_event: Any,
+    provider_started_event: Any,
+    provider_release_event: Any,
+    follower_initial_finished_event: Any,
+    leader_completed_event: Any,
+    ready_queue: Any,
+    result_queue: Any,
+) -> None:
+    """Report only a stable non-secret failure code from a spawned process."""
+    try:
+        asyncio.run(
+            _run_two_process_worker(
+                target_url_text,
+                user_id,
+                query_now_text,
+                start_event,
+                provider_started_event,
+                provider_release_event,
+                follower_initial_finished_event,
+                leader_completed_event,
+                ready_queue,
+                result_queue,
+            )
+        )
+    except Exception:
+        result_queue.put(
+            {
+                "kind": "result",
+                "status": "error",
+                "pid": os.getpid(),
+                "code": "POSTGRES_ACCEPTANCE_TWO_PROCESS_WORKER_FAILED",
+            }
+        )
+
+
+async def _join_two_process_workers(processes: tuple[Any, ...]) -> None:
+    """Require clean worker exits before the owner drops the temporary database."""
+    for process in processes:
+        if process.pid is not None:
+            await asyncio.to_thread(process.join, _PROCESS_RESULT_TIMEOUT_SECONDS)
+    if any(
+        process.pid is None or process.is_alive() or process.exitcode != 0 for process in processes
+    ):
+        raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TWO_PROCESS_EXIT_FAILED")
+
+
+async def _stop_two_process_workers(processes: tuple[Any, ...]) -> None:
+    """Terminate any remaining children before the temporary database cleanup path."""
+    for process in processes:
+        if process.is_alive():
+            process.terminate()
+    for process in processes:
+        if process.pid is not None:
+            await asyncio.to_thread(process.join, _PROCESS_EVENT_TIMEOUT_SECONDS)
+
+
+def _close_process_queue(channel: Any) -> None:
+    """Release parent queue threads after every completed or failed IPC run."""
+    try:
+        channel.close()
+        channel.join_thread()
+    except (AttributeError, OSError, ValueError):
+        return
+
+
+async def _verify_two_process_exact_gap(
+    target_url: URL,
+    *,
+    user_id: str,
+    query_now: datetime,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> _TwoProcessExactGapEvidence:
+    """Prove one exact local-first gap uses one durable source across two OS processes."""
+    context = multiprocessing.get_context("spawn")
+    start_event = context.Event()
+    provider_started_event = context.Event()
+    provider_release_event = context.Event()
+    follower_initial_finished_event = context.Event()
+    leader_completed_event = context.Event()
+    ready_queue = context.Queue()
+    result_queue = context.Queue()
+    worker_args = (
+        _url_text(target_url),
+        user_id,
+        query_now.isoformat(),
+        start_event,
+        provider_started_event,
+        provider_release_event,
+        follower_initial_finished_event,
+        leader_completed_event,
+        ready_queue,
+        result_queue,
+    )
+    processes = tuple(
+        context.Process(target=_two_process_worker, args=worker_args) for _ in range(2)
+    )
+    try:
+        for process in processes:
+            process.start()
+        ready_reports_list: list[Mapping[str, object]] = []
+        for _ in processes:
+            ready_reports_list.append(
+                await _receive_process_message(
+                    ready_queue,
+                    timeout_seconds=_PROCESS_EVENT_TIMEOUT_SECONDS,
+                    timeout_code="POSTGRES_ACCEPTANCE_TWO_PROCESS_READY_TIMEOUT",
+                )
+            )
+        ready_reports = tuple(ready_reports_list)
+        ready_process_ids = tuple(_process_report_int(report, "pid") for report in ready_reports)
+        if (
+            any(_process_report_text(report, "kind") != "ready" for report in ready_reports)
+            or len(set(ready_process_ids)) != 2
+        ):
+            raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_TWO_PROCESS_IDENTITY_INVALID")
+
+        start_event.set()
+        await _wait_for_process_event(
+            provider_started_event,
+            code="POSTGRES_ACCEPTANCE_TWO_PROCESS_PROVIDER_START_TIMEOUT",
+        )
+        await _wait_for_process_event(
+            follower_initial_finished_event,
+            code="POSTGRES_ACCEPTANCE_TWO_PROCESS_FOLLOWER_TIMEOUT",
+        )
+        # Keep the leader blocked until the other process has finished its
+        # initial local-first path. This makes the follower's zero-I/O result
+        # a real exact-gap contention observation rather than a warm-cache hit.
+        provider_release_event.set()
+
+        reports_list: list[Mapping[str, object]] = []
+        for _ in processes:
+            reports_list.append(
+                await _receive_process_message(
+                    result_queue,
+                    timeout_seconds=_PROCESS_RESULT_TIMEOUT_SECONDS,
+                    timeout_code="POSTGRES_ACCEPTANCE_TWO_PROCESS_RESULT_TIMEOUT",
+                )
+            )
+        reports = tuple(reports_list)
+        await _join_two_process_workers(processes)
+        _leader, follower = _validate_two_process_worker_reports(reports)
+
+        async with session_factory() as inspector_session:
+            source_snapshot_count = int(
+                await inspector_session.scalar(select(func.count()).select_from(MdSourceSnapshot))
+                or 0
+            )
+            observation_revision_count = int(
+                await inspector_session.scalar(
+                    select(func.count()).select_from(MdObservationRevision)
+                )
+                or 0
+            )
+        if source_snapshot_count != 1 or observation_revision_count != 2:
+            raise PostgresAcceptanceHarnessError(
+                "POSTGRES_ACCEPTANCE_TWO_PROCESS_PERSISTENCE_COUNT_INVALID"
+            )
+        return _TwoProcessExactGapEvidence(
+            process_count=len(reports),
+            distinct_process_count=len({_process_report_int(report, "pid") for report in reports}),
+            provider_call_count=sum(
+                _process_report_int(report, "provider_call_count") for report in reports
+            ),
+            follower_provider_call_count=_process_report_int(follower, "provider_call_count"),
+            follower_initial_lease_held=True,
+            follower_local_only_fetch_count=_process_report_int(follower, "local_only_fetch_count"),
+            follower_local_only_complete=True,
+            follower_local_only_observation_count=_process_report_int(
+                follower,
+                "local_only_observation_count",
+            ),
+            source_snapshot_count=source_snapshot_count,
+            observation_revision_count=observation_revision_count,
+        )
+    finally:
+        # Unblock an unhappy child first, then terminate it if it still has not
+        # exited. This happens before the caller can drop the generated DB.
+        start_event.set()
+        provider_release_event.set()
+        leader_completed_event.set()
+        await _stop_two_process_workers(processes)
+        _close_process_queue(ready_queue)
+        _close_process_queue(result_queue)
+
+
 async def _verify_independent_connection_lease(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> tuple[int, int]:
@@ -635,7 +1106,6 @@ async def _verify_temporary_database(target_url: URL, *, alembic_head: str) -> _
     """Exercise UTC/session, catalog, provider persistence, and local-only reread."""
     engine = _target_engine(target_url)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    provider = _DeterministicProvider()
     # Identity and calendar publication receipts deliberately use the real
     # database transaction time. Keep interactive query cutoffs just after
     # that point rather than pretending a historical receipt was visible
@@ -643,34 +1113,20 @@ async def _verify_temporary_database(target_url: URL, *, alembic_head: str) -> _
     query_now = datetime.now(UTC) + timedelta(minutes=1)
     try:
         async with session_factory() as seed_session:
-            await _assert_schema_and_timezone(
+            first_timezone = await _assert_schema_and_timezone(
                 seed_session,
                 expected_alembic_head=alembic_head,
             )
             user_id = await _seed_prerequisites(seed_session, target_url=target_url)
 
-        async with session_factory() as first_session:
-            first_timezone = await _assert_schema_and_timezone(
-                first_session,
-                expected_alembic_head=alembic_head,
-            )
-            first = await _service(
-                first_session,
-                provider,
-                now=query_now,
-                allow_online_fetch=True,
-            ).execute(
-                _request(mode="local_first"),
-                access=await _access_for_session(
-                    first_session,
-                    user_id=user_id,
-                    now=query_now,
-                ),
-            )
-            await first_session.commit()
-        if first.coverage.status.value != "complete" or len(first.fetches) != 1:
-            raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_FIRST_FETCH_INCOMPLETE")
+        two_process_exact_gap = await _verify_two_process_exact_gap(
+            target_url,
+            user_id=user_id,
+            query_now=query_now,
+            session_factory=session_factory,
+        )
 
+        reread_provider = _DeterministicProvider()
         async with session_factory() as reread_session:
             second_timezone = await _assert_schema_and_timezone(
                 reread_session,
@@ -678,7 +1134,7 @@ async def _verify_temporary_database(target_url: URL, *, alembic_head: str) -> _
             )
             reread = await _service(
                 reread_session,
-                provider,
+                reread_provider,
                 now=query_now + timedelta(microseconds=2),
                 allow_online_fetch=False,
             ).execute(
@@ -698,8 +1154,8 @@ async def _verify_temporary_database(target_url: URL, *, alembic_head: str) -> _
             )
         if reread.coverage.status.value != "complete" or reread.fetches:
             raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_LOCAL_ONLY_REREAD_FAILED")
-        if len(provider.calls) != 1:
-            raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_PROVIDER_CALL_COUNT_INVALID")
+        if reread_provider.calls:
+            raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_LOCAL_ONLY_PROVIDER_CALLED")
         if source_snapshot_count != 1 or observation_revision_count != 2:
             raise PostgresAcceptanceHarnessError("POSTGRES_ACCEPTANCE_PERSISTENCE_COUNT_INVALID")
         if len(reread.observations) != 2:
@@ -715,12 +1171,13 @@ async def _verify_temporary_database(target_url: URL, *, alembic_head: str) -> _
             alembic_head=alembic_head,
             first_session_timezone=first_timezone,
             second_session_timezone=second_timezone,
-            provider_calls=len(provider.calls),
+            provider_calls=two_process_exact_gap.provider_call_count,
             source_snapshot_count=source_snapshot_count,
             observation_revision_count=observation_revision_count,
             local_only_fetch_count=len(reread.fetches),
             lease_successful_contender_count=lease_successful_contender_count,
             lease_fence_token=lease_fence_token,
+            two_process_exact_gap=two_process_exact_gap,
         )
     except PostgresAcceptanceHarnessError:
         raise
@@ -776,8 +1233,11 @@ def _apply(admin_url: URL) -> tuple[int, dict[str, object]]:
         "cleanup": cleanup,
         "scope": {
             "provider": "deterministic_fixture_only",
-            "lease": "independent_database_connections_only",
-            "not_proven": ["real_akshare_or_openbb_io", "multi_process_http_workers"],
+            "lease": "two_os_process_exact_gap_with_postgresql_durable_lease",
+            "not_proven": [
+                "real_akshare_or_openbb_io",
+                "http_server_or_deployment_worker_topology",
+            ],
         },
     }
     if failure is not None:
