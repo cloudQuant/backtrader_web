@@ -61,7 +61,7 @@
 ## 行语义与边界
 
 - `declared_compatibility_periods` 是家族的已声明频率与现有页面 `daily/weekly/monthly` 的交集；它不表示该家族已配置来源。
-- `v2_query_periods` 仅为当前页面明确选择的 `asset.realtime`、`ready`、`bars`、`calendar_grid` 合同填写。其余行留空，不能被前端或 provider 猜测为可执行。
+- `v2_query_periods` 仅为当前市场页可明确选择的 `ready`、已配置来源、无维度、`calendar_grid` 且 `bars` 或 `reference_series` 合同填写。页面默认仍是 `asset.realtime`；其他非实时行必须由用户显式选择，不能由前端或 provider 猜测为可执行。
 - `declared_api_frequency_inputs` 是该合同所声明且被 public query schema 接受的频率；不是上游提供方能力承诺。
 - `contract_status=unconfigured` 仍会进入 21 行范围清单，以防需求、页面和服务端合同之间产生静默遗漏；它绝不是可取数状态。
 

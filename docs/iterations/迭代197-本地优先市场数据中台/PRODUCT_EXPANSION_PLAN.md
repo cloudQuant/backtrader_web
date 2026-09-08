@@ -21,7 +21,7 @@
 | --- | --- | --- | --- | --- |
 | stock | realtime | 单序列 bars | `READY` | 真实来源和数据库验收 |
 | stock | valuation | 单记录 | `UNCONFIGURED` | 单记录产品工作包 |
-| stock | liquidity | 单记录 | `UNCONFIGURED` | 单记录产品工作包 |
+| stock | liquidity | 单记录参考序列 | `READY`（候选代码） | 真实来源、数据库与页面灰度验收 |
 | futures | realtime | 单序列 bars | `READY` | 真实来源和数据库验收 |
 | futures | settlement | 单记录 | `UNCONFIGURED` | 单记录产品工作包 |
 | futures | inventory | 多记录报告 | `UNCONFIGURED` | 多记录事实模型工作包 |
@@ -29,19 +29,19 @@
 | bond | orderbook | 单快照 | `UNCONFIGURED` | 单记录产品工作包 |
 | bond | fixed_income | 单记录 | `UNCONFIGURED` | 单记录产品工作包 |
 | fund | realtime | 单序列 bars | `READY` | 真实来源和数据库验收 |
-| fund | liquidity | 单记录 | `UNCONFIGURED` | 单记录产品工作包 |
+| fund | liquidity | 单记录参考序列 | `READY`（候选代码） | 真实来源、数据库与页面灰度验收 |
 | fund | nav | 单记录 | `UNCONFIGURED` | 单记录产品工作包 |
 | option | realtime | 单序列 bars | `READY` | 真实来源和数据库验收 |
 | option | derivative | 多记录快照 | `UNCONFIGURED` | 多记录事实模型工作包 |
 | option | risk_surface | 多记录快照 | `UNCONFIGURED` | 多记录事实模型工作包 |
 | fx | realtime | 单序列 bars | `READY` | 真实来源和数据库验收 |
 | fx | macro_fx | 单记录 | `UNCONFIGURED` | 单记录产品工作包 |
-| fx | range | 单序列/参考序列 | `UNCONFIGURED` | 单记录产品工作包 |
+| fx | range | 单序列 OHLC bars | `READY`（候选代码） | 真实来源、数据库与页面灰度验收 |
 | crypto | realtime | 单快照 | `UNCONFIGURED` | 单记录产品工作包 |
 | crypto | cme_position | 多记录报告 | `UNCONFIGURED` | 多记录事实模型工作包 |
 | crypto | range | 单序列 bars | `UNCONFIGURED` | 单记录产品工作包 |
 
-`READY` 仅说明当前代码已具备受控的 bars 合同和本地优先链路；它仍不代表真实 AkShare/OpenBB、MySQL/PostgreSQL、多 worker 或页面灰度验收已经通过。
+`READY` 仅说明当前代码已具备受控的 family contract（`bars` 或 `reference_series`）和本地优先链路；它仍不代表真实 AkShare/OpenBB、MySQL/PostgreSQL、多 worker 或页面灰度验收已经通过。
 
 ## 3. 工作包和交付顺序
 
@@ -66,9 +66,9 @@
 
 候选已为 B1 建立六个惰性逻辑数据集：`market.valuation`、`market.liquidity`、`market.settlement`、`market.bond_reference`、`market.fund_nav` 和 `market.fx_reference`。它们与既有 `market.bars`、`market.quote_snapshot` 共用不可变 `md_observation_revisions` 的物理绑定，但各自保留独立 dataset code、字段 profile 和允许资产类型。
 
-family contract 的 `ready` 现在有两层防线：公共 DTO 仅接受受审核的单记录 `calendar_grid` 或 `snapshot_freshness` 形状；服务端 registry 再对 17 个现有/B1 单记录 family 的 dataset、data kind、频率、必需字段和 coverage model 做精确白名单绑定。默认 B1 contract 仍为 `unconfigured`，因此这一步没有添加 provider route、source policy、在线 fetch 或事实查询能力。`bond.orderbook`、`crypto.realtime` 等快照 profile 也没有被误绑定到当前不足以表达其字段的 quote-snapshot schema。
+family contract 的 `ready` 有两层防线：公共 DTO 仅接受受审核的单记录 `calendar_grid` 或 `snapshot_freshness` 形状；服务端 registry 再对 17 个现有/B1 单记录 family 的 dataset、data kind、频率、必需字段和 coverage model 做精确白名单绑定。`stock.liquidity`、`fund.liquidity` 和 `fx.range` 已完成候选代码 promotion：前两项各有独立的 `reference_series` AkShare route ID，且只接受 `unadjusted + close + CNY + share`；后者使用精确 FX OHLC 日线 route，并固定为 `unadjusted + close + null + null`。这四个语义轴均为精确合同值；包括 `null` 的值也必须由调用方显式传递，省略或变更均在 provider I/O 前失败关闭。server bundle 声明当前资产的受审核候选项；行情页选择器再只展示可显式执行的 `ready + calendar_grid + 无维度 + bars/reference_series` family，用户必须主动选择非默认 family。流动性以声明字段表呈现，FX range 才复用 K 线。`bond.orderbook`、`crypto.realtime` 等快照 profile 仍没有被误绑定到当前不足以表达其字段的 quote-snapshot schema。
 
-这项基础只消除了“新增 B1 产品时必须重新设计目录和合同护栏”的重复工作。任何单项 promotion 仍必须完成下面七项清单以及真实环境证据；例如一次公开 FX 历史小窗口探测返回零行，不能据此将 `fx.range` 标为 `ready`。
+这项 promotion 仍只消除了代码和离线契约缺口。其余八个 B1 contract 保持 `unconfigured`；三个已开通 family 也必须完成下面七项清单以及真实环境证据，才能称为完整覆盖。例如 AkShare 小窗口返回零行并不构成 `fx.range` 的真实来源通过证据。
 
 每个单记录产品的实施清单：
 

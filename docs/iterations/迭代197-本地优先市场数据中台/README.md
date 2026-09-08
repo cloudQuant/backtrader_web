@@ -10,7 +10,7 @@
 - [范围清单闸门](SCOPE_MANIFEST.md)：从 21 个家族合同和当前 UI/API 输入生成可复核清单；没有冻结的迭代 196 基线时失败关闭。
 - [数据产品扩展计划](PRODUCT_EXPANSION_PLAN.md)：21 个页面家族的实际能力台账，以及 11 个单记录和 4 个多记录产品的后续模型、来源与验收要求。
 
-当前实现已为 11 个 B1 单记录家族建立惰性的逻辑数据集目录、精确 family-shape 白名单和合同驱动的页面状态；这些目录项默认仍为 `unconfigured`，没有 provider route、来源策略或页面事实读取权限。它们是后续逐项开通的基础，不是“所有产品已可取数”的声明。
+当前实现已为 11 个 B1 单记录家族建立惰性的逻辑数据集目录、精确 family-shape 白名单和合同驱动的页面状态。其中 `stock.liquidity`、`fund.liquidity` 和 `fx.range` 已完成候选代码开通：它们具有各自的 `ready` family contract、精确来源策略和页面显式选择路径；其余八个 B1 家族仍为 `unconfigured`。这只表示代码合同与离线回归已具备，不能表示所有产品已经通过真实 provider、数据库或页面灰度验收。
 
 > 当前候选仍处于实现与离线验证阶段，不能视为发布验收通过。真实 OpenBB `yfinance` 小窗口曾受到上游 HTTP 429 限流，跨 MySQL/PostgreSQL 的 PIT 验证、OpenBB 的操作系统级隔离、以及与迭代 196 合并后的迁移演练均保留为 `NOT_RUN` 或 `BLOCKED`，具体证据边界见 [验收文档](ACCEPTANCE.md)。
 

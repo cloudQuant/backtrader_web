@@ -24,7 +24,7 @@
 | `fx` | 汇率行情 | `1d` / 快照 |
 | `crypto` | 交易对行情 | `1d` / 分钟 / 快照 |
 
-公开 DTO 识别 `bars`、`quote_snapshot`、`option_chain`、`position_report` 和 `reference_series`，但“被识别”不等于已经可以读取。当前只有六个 `*.realtime` 的 `market.bars` 家族（股票、期货、债券、基金、期权精确合约、外汇）为 `ready`；其余页面数据家族均为明确的 `unconfigured` 状态。尤其是期权链、风险曲面、持仓/库存报告、快照和非 `bars` 参考序列尚未具备同一 snapshot/report date 多行的安全事实身份、覆盖或分页模型，不能作为已支持能力启用。
+公开 DTO 识别 `bars`、`quote_snapshot`、`option_chain`、`position_report` 和 `reference_series`，但“被识别”不等于已经可以读取。当前候选有九个 `ready` 家族：六个 `*.realtime` 的 `market.bars` 家族（股票、期货、债券、基金、期权精确合约、外汇），以及 `stock.liquidity`、`fund.liquidity` 两个 `reference_series + 1d` 产品和 `fx.range` 的完整 OHLC 日线产品。后面三个只有在页面明确选择同一 family、服务端签发精确 contract 且来源策略匹配时才可执行；它们不改变默认 realtime 家族，也不扩展策略页的严格 bars/PIT 预检。其余页面数据家族保持明确的 `unconfigured` 状态。尤其是期权链、风险曲面、持仓/库存报告和快照尚未具备同一 snapshot/report date 多行的安全事实身份、覆盖或分页模型，不能作为已支持能力启用。
 
 在这些多记录产品具有稳定的维度/record key、修订唯一性与读取/分页/provenance 语义、slice/report 完整性规划器，以及同一时间点多行的端到端回归以前，它们只能返回明确机器码，不能通过变更标的、频率或来源来伪造结果。
 
@@ -46,7 +46,9 @@
 
 请求指定：逻辑数据集、数据种类、半开时间区间 `[start, end)`、字段集、频率、复权/价格口径、币种、单位、来源策略、一致性级别、用途、知识截止点和模式。频率只能是明确的 `5min`、`30min`、`1h`、`1d`、`1w`、`1mo`。
 
-所有公共 v2 请求都必须携带服务端签发、版本匹配且状态为 `ready` 的 `family_id` / `family_contract_version`，包括 `bars`。HTTP DTO 把这两个字段设为必填，因此缺失字段会在目录、主数据、日历、事实或 provider I/O 前以 HTTP 422 schema rejection 拒绝；任何从内部兼容/导入路径抵达 resolver 的未绑定规范化请求仍返回稳定码 `DATA_FAMILY_BINDING_REQUIRED`。`query-contract` 保留旧页面的无 family 输入形状，但服务端只能推导精确的 `<asset_type>.realtime` 并签发完整 binding；若该家族尚未配置，则返回 `DATA_FAMILY_UNCONFIGURED`，绝不签发通用 `bars` 模板。遗留 lookup 兼容桥只有在响应同时给出精确请求 `symbol`、同一 contract canonical ID 和一致 family binding 时才可发起 v2 查询；三者任何一项缺失或逐字符不等（含大小写）都必须失败关闭。页面即使关闭 bundle 子开关也要请求并校验此 binding。
+所有公共 v2 请求都必须携带服务端签发、版本匹配且状态为 `ready` 的 `family_id` / `family_contract_version`，包括 `bars`。公共 HTTP DTO 将二者设为必填，缺失字段会在目录、主数据、日历、事实或 provider I/O 前以 FastAPI/Pydantic 的 HTTP 422 拒绝；仅内部编排 DTO 可暂存未绑定请求，若它被送入默认 resolver，仍返回稳定码 `DATA_FAMILY_BINDING_REQUIRED`。调用方显式给出 family 时，`query-contract` 只为该精确 family 签发 binding；遗留页面的无 family 输入形状则只能推导精确的 `<asset_type>.realtime`，绝不签发通用 `bars` 模板。若所请求 family 尚未配置，返回 `DATA_FAMILY_UNCONFIGURED`。遗留 lookup 兼容桥只有在响应同时给出精确请求 `symbol`、同一 contract canonical ID 和一致 family binding 时才可发起 v2 查询；三者任何一项缺失或逐字符不等（含大小写）都必须失败关闭。页面即使关闭 bundle 子开关也要请求并校验此 binding。
+
+三个候选 B1 family 还将 `adjustment`、`price_basis`、`currency` 和 `unit` 纳入精确 binding。调用方必须显式传输四个轴；`null` 是经过签发的确定值而不是通配符，因此 `fx.range` 的 `currency=null`、`unit=null` 也不得在 JSON 序列化时丢失。省略或修改任一轴必须在 provider I/O 前返回 `DATA_FAMILY_QUERY_CONTRACT_MISMATCH`，不能由适配器默认值或相近产品合同代替。
 
 ### FR-02 本地优先读取
 
@@ -60,7 +62,7 @@
 
 覆盖完整的含义不是“表中有几行”：系统根据冻结的交易日历、精确事件键、必需字段、质量状态和知识截止点计算。日历缺失时只能报告 `unknown_calendar`，不能声称完整。
 
-对按事件判断完整性的 `bars` 请求，交易日历中的覆盖证据必须显式声明为 `(market, data_kind, frequency, event timestamp)` 网格。首批 `bars` 清单在每个交易 session 上登记 `coverage: {data_kind, frequency}`，并以 `data_kind:frequency@UTC-event_start` 生成事件键；`1d`、`1w`、`1mo` 和 `5min`、`30min`、`1h` 各自独立。系统不得从某个交易日、另一个频率的 session、周末规则、交易所营业时间或相邻记录推断缺失格点。缺少请求频率的明确网格时返回 `unknown_calendar` / `CALENDAR_GRID_UNAVAILABLE`，而不是把该窗口判为无交易或完整。
+对按事件判断完整性的 `bars` 或 `reference_series` 请求，交易日历中的覆盖证据必须显式声明为 `(market, data_kind, frequency, event timestamp)` 网格。首批 calendar-grid 清单在每条交易 session 事实上登记 `coverage: {data_kind, frequency}`，并以 `data_kind:frequency@UTC-event_start` 生成事件键；同一时点的不同数据种类/频率必须用不同 session 事实分别声明。`bars` 的 `1d`、`1w`、`1mo` 和 `5min`、`30min`、`1h` 各自独立；当前已审核的 `reference_series` 仅允许 `1d`，新增频率必须先扩展 importer、family contract 和回归证据。系统不得从某个交易日、另一个数据种类/频率的 session、周末规则、交易所营业时间或相邻记录推断缺失格点。缺少请求维度的明确网格时返回 `unknown_calendar` / `CALENDAR_GRID_UNAVAILABLE`，而不是把该窗口判为无交易或完整。
 
 ### FR-03 获取与持久化
 
