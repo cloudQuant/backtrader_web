@@ -24,7 +24,7 @@
 | `fx` | 汇率行情 | `1d` / 快照 |
 | `crypto` | 交易对行情 | `1d` / 分钟 / 快照 |
 
-公开 DTO 识别 `bars`、`quote_snapshot`、`option_chain`、`position_report` 和 `reference_series`，但“被识别”不等于已经可以读取。当前候选有九个 `ready` 家族：六个 `*.realtime` 的 `market.bars` 家族（股票、期货、债券、基金、期权精确合约、外汇），以及 `stock.liquidity`、`fund.liquidity` 两个 `reference_series + 1d` 产品和 `fx.range` 的完整 OHLC 日线产品。后面三个只有在页面明确选择同一 family、服务端签发精确 contract 且来源策略匹配时才可执行；它们不改变默认 realtime 家族，也不扩展策略页的严格 bars/PIT 预检。其余页面数据家族保持明确的 `unconfigured` 状态。尤其是期权链、风险曲面、持仓/库存报告和快照尚未具备同一 snapshot/report date 多行的安全事实身份、覆盖或分页模型，不能作为已支持能力启用。
+公开 DTO 识别 `bars`、`quote_snapshot`、`option_chain`、`position_report` 和 `reference_series`，但“被识别”不等于已经可以读取。当前候选有十个 `ready` 家族：六个 `*.realtime` 的 `market.bars` 家族（股票、期货、债券、基金、期权精确合约、外汇），以及四个候选 B1 产品：`stock.liquidity`、`fund.liquidity`、`fund.nav`（`market.fund_nav + reference_series + 1d`）和 `fx.range` 的完整 OHLC 日线产品。这四个产品只有在页面明确选择同一 family、服务端签发精确 contract 且来源策略匹配时才可执行；它们不改变默认 realtime 家族，也不扩展策略页的严格 bars/PIT 预检。`fund.nav` 还只接受冻结主数据同时为 `product_type=ETF` 和 `fund_identity_kind=LISTING` 的沪深挂牌基金。其余页面数据家族保持明确的 `unconfigured` 状态。尤其是期权链、风险曲面、持仓/库存报告和快照尚未具备同一 snapshot/report date 多行的安全事实身份、覆盖或分页模型，不能作为已支持能力启用。
 
 在这些多记录产品具有稳定的维度/record key、修订唯一性与读取/分页/provenance 语义、slice/report 完整性规划器，以及同一时间点多行的端到端回归以前，它们只能返回明确机器码，不能通过变更标的、频率或来源来伪造结果。
 
@@ -49,7 +49,7 @@
 
 所有公共 v2 请求都必须携带服务端签发、版本匹配且状态为 `ready` 的 `family_id` / `family_contract_version`，包括 `bars`。公共 HTTP DTO 将二者设为必填，缺失字段会在目录、主数据、日历、事实或 provider I/O 前以 FastAPI/Pydantic 的 HTTP 422 拒绝；仅内部编排 DTO 可暂存未绑定请求，若它被送入默认 resolver，仍返回稳定码 `DATA_FAMILY_BINDING_REQUIRED`。调用方显式给出 family 时，`query-contract` 只为该精确 family 签发 binding；遗留页面的无 family 输入形状则只能推导精确的 `<asset_type>.realtime`，绝不签发通用 `bars` 模板。若所请求 family 尚未配置，返回 `DATA_FAMILY_UNCONFIGURED`。遗留 lookup 兼容桥只有在响应同时给出精确请求 `symbol`、同一 contract canonical ID 和一致 family binding 时才可发起 v2 查询；三者任何一项缺失或逐字符不等（含大小写）都必须失败关闭。已获得服务端 v2 能力的页面必须探测并校验 bundle；只有服务器不存在该 endpoint 的已定义兼容错误才允许无 bundle contract 路径。
 
-三个候选 B1 family 还将 `adjustment`、`price_basis`、`currency` 和 `unit` 纳入精确 binding。调用方必须显式传输四个轴；`null` 是经过签发的确定值而不是通配符，因此 `fx.range` 的 `currency=null`、`unit=null` 也不得在 JSON 序列化时丢失。省略或修改任一轴必须在 provider I/O 前返回 `DATA_FAMILY_QUERY_CONTRACT_MISMATCH`，不能由适配器默认值或相近产品合同代替。
+四个候选 B1 family 还将 `adjustment`、`price_basis`、`currency` 和 `unit` 纳入精确 binding。调用方必须显式传输四个轴；`null` 是经过签发的确定值而不是通配符，因此 `fx.range` 的 `currency=null`、`unit=null` 也不得在 JSON 序列化时丢失。省略或修改任一轴必须在 provider I/O 前返回 `DATA_FAMILY_QUERY_CONTRACT_MISMATCH`，不能由适配器默认值或相近产品合同代替。`fund.nav` 额外把冻结主数据的 `product_type=ETF` 与 `fund_identity_kind=LISTING` 纳入精确匹配；来源策略、遗留兼容桥和 AkShare 适配器都必须在 provider I/O 前拒绝缺失身份、LOF、REIT、其他产品类型或非 `LISTING` 身份，且 AkShare 适配器以 `AKSHARE_PRODUCT_IDENTITY_UNSUPPORTED` 失败关闭。它们不得由代码前缀、名称或相近 ETF 产品推断或补全身份。
 
 ### FR-02 本地优先读取
 
@@ -133,7 +133,7 @@ run/task 续跑来源必须是服务端可验证的不可篡改记录。每条�
 1. 仅允许 `mode=local_first`、`consistency=display`、无 `knowledge_cutoff`、无分页 cursor；任一组合在服务执行、目录、主数据或 provider I/O 前拒绝。
 2. 它需要 `RESEARCH`、`RESEARCH_ONLY` 或 `DERIVED_RESEARCH` 的当前来源用途授权，不能借用 `DISPLAY` 许可；成功 receipt 的冻结 authorization provenance 必须明确记录 `purpose=research_cache_fill`。
 3. 只有有效服务端能力 `research_cache_fill_enabled=true` 时才允许通过默认 source policy；其有效条件为 `MARKET_DATA_QUERY_V2_ENABLED=true && MARKET_DATA_ONLINE_FETCH_ENABLED=true && MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=true`，与 `MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED` 无关。浏览器不能开启写路径。`data:read`、当前 registry、精确 route、lease、fence 与事务 A/B 仍照常生效。
-4. 成功补齐后响应只能报告本地重新读取的覆盖、warning、source snapshot 和 revision 证据。页面在显示该 receipt 或把结果记为补齐成功前，必须逐项校验响应的 canonical identity、dataset、asset type、主数据版本、data kind、frequency、source policy 与 family/version 均等于同一服务端签发 contract；任何不兼容响应都不得成为补齐成功或严格复读的输入。页面可在 bridge 关闭时继续执行 `local_only + research + strict` 的本地 v2 复读，但不得修改 `aiResearchPrecheckResult.passed`、启动研究 run，或成为迭代 196 的 PIT、holdout、回测和审批输入；后续正式研究仍必须由 196 服务端工件链以自己的 strict/PIT 请求重新绑定证据。
+4. 回应中存在 provider fetch 或来源回执本身不构成补齐成功。只有持久化后重新本地读取且 `coverage.status=complete` 的响应，才能报告本地重新读取的覆盖、warning、source snapshot 和 revision 证据，并把结果记为“已补齐并持久化”。页面在显示该 receipt 或成功状态前，必须逐项校验响应的 canonical identity、dataset、asset type、主数据版本、data kind、frequency、source policy 与 family/version 均等于同一服务端签发 contract；任何不兼容响应都不得成为补齐成功或严格复读的输入。若 `coverage.status` 不完整，即使已有一个或多个持久化来源回执，也只能显示覆盖不足警告，不能修改 `aiResearchPrecheckResult.passed`、启动研究 run，或成为迭代 196 的 PIT、holdout、回测和审批输入。页面可在 bridge 关闭时继续执行 `local_only + research + strict` 的本地 v2 复读；后续正式研究仍必须由 196 服务端工件链以自己的 strict/PIT 请求重新绑定证据。
 
 ### FR-05 数据源
 
@@ -177,7 +177,7 @@ calendar snapshot 也必须声明其 `source_registry_id`、被冻结的治理 p
 
 ### FR-06 页面与可用性
 
-行情页需要显示数据来自本地或刚写入的来源、数据集、canonical identity、覆盖状态、警告和更新时间。策略页在用户明确预检后可显示“本地优先”或“已补齐并持久化”的当前缓存状态；自动预检不触网。策略页仍需要在 196 合并后显示被冻结的数据版本/截止点，并拒绝把未验证或不完整的结果当作可回测输入。
+行情页需要显示数据来自本地或刚写入的来源、数据集、canonical identity、覆盖状态、警告和更新时间。当前 `/data/market` 在有来源回执但 `coverage.status` 不完整时必须使用 `provider_persisted_incomplete` 警告状态，显示“已记录 N 个来源回执；本地覆盖不足”和“已保存 N 个来源回执，但未形成完整本地可追溯缓存”，不得显示“已获取并入库”或其他成功样式。策略页在用户明确预检后只有在完整本地覆盖下可显示“本地优先”或“已补齐并持久化”的当前缓存状态；自动预检不触网。策略页仍需要在 196 合并后显示被冻结的数据版本/截止点，并拒绝把未验证或不完整的结果当作可回测输入。
 
 在数据目录、主数据索引、日历或来源策略尚未准备好时，已启用的页面 v2 合同探测必须返回稳定状态。为保持既有功能，页面可明确标记为 `legacy_fallback` 后调用原兼容接口，但不得把该结果标成 v2 本地覆盖、来源回执或严格研究证据；也不得以样例、附近代码或模糊标的替代精确请求。普通行情页“查询”采用 `local_first`；`refresh` 必须由明确标记的受控操作触发，不能把常规查询静默变成全窗口在线刷新。
 
