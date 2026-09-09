@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from app.api.data.queries import (
     _default_source_policy_registry,
@@ -15,6 +16,7 @@ from app.api.data.queries import (
     get_market_data_query_service,
 )
 from app.main import app
+from app.schemas import market_data_platform
 from app.schemas.market_data_platform import MarketDataQueryRequest
 from app.services.market_data.access import (
     MarketDataAccessAuthorizer,
@@ -210,6 +212,268 @@ def _principal(*, can_read_data: bool = True) -> MarketDataPrincipal:
     )
 
 
+def test_market_data_capabilities_dto_is_strict_and_stable() -> None:
+    """The public capability contract has no settings or secret escape hatch."""
+    payload = {
+        "version": "market-data-capabilities-v1",
+        "query_v2_enabled": False,
+        "online_fetch_enabled": False,
+        "research_cache_fill_enabled": False,
+        "research_backtest_bridge_enabled": False,
+    }
+
+    response = market_data_platform.MarketDataCapabilitiesResponse.model_validate(payload)
+
+    assert response.model_dump() == payload
+    with pytest.raises(ValidationError):
+        market_data_platform.MarketDataCapabilitiesResponse.model_validate(
+            {**payload, "market_data_cursor_signing_key": "must-not-leak"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_market_data_capabilities_require_authenticated_user(client) -> None:
+    """The capability document is not a public rollout-status probe."""
+    response = await client.get("/api/v1/data/market-data/capabilities")
+
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_market_data_capabilities_return_default_disabled_effective_state(
+    client,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    """Default settings remain fully disabled even when the endpoint is present."""
+    import app.api.data.queries as queries
+
+    authorizer = _AccessAuthorizer(_principal())
+    monkeypatch.setattr(
+        queries,
+        "get_settings",
+        lambda: SimpleNamespace(
+            MARKET_DATA_QUERY_V2_ENABLED=False,
+            MARKET_DATA_ONLINE_FETCH_ENABLED=False,
+            MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=False,
+            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=False,
+        ),
+    )
+    app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
+    try:
+        response = await client.get(
+            "/api/v1/data/market-data/capabilities",
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "version": "market-data-capabilities-v1",
+        "query_v2_enabled": False,
+        "online_fetch_enabled": False,
+        "research_cache_fill_enabled": False,
+        "research_backtest_bridge_enabled": False,
+    }
+    assert len(authorizer.users) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    (
+        "raw_settings",
+        "expected",
+    ),
+    [
+        (
+            {
+                "MARKET_DATA_QUERY_V2_ENABLED": False,
+                "MARKET_DATA_ONLINE_FETCH_ENABLED": True,
+                "MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED": True,
+                "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED": True,
+            },
+            {
+                "query_v2_enabled": False,
+                "online_fetch_enabled": False,
+                "research_cache_fill_enabled": False,
+                "research_backtest_bridge_enabled": False,
+            },
+        ),
+        (
+            {
+                "MARKET_DATA_QUERY_V2_ENABLED": True,
+                "MARKET_DATA_ONLINE_FETCH_ENABLED": False,
+                "MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED": True,
+                "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED": True,
+            },
+            {
+                "query_v2_enabled": True,
+                "online_fetch_enabled": False,
+                "research_cache_fill_enabled": False,
+                "research_backtest_bridge_enabled": True,
+            },
+        ),
+        (
+            {
+                "MARKET_DATA_QUERY_V2_ENABLED": True,
+                "MARKET_DATA_ONLINE_FETCH_ENABLED": True,
+                "MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED": True,
+                "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED": True,
+            },
+            {
+                "query_v2_enabled": True,
+                "online_fetch_enabled": True,
+                "research_cache_fill_enabled": True,
+                "research_backtest_bridge_enabled": True,
+            },
+        ),
+    ],
+)
+async def test_market_data_capabilities_derives_effective_state_from_server_settings(
+    client,
+    auth_headers,
+    monkeypatch,
+    raw_settings: dict[str, bool],
+    expected: dict[str, bool],
+) -> None:
+    """Dependent controls cannot report enabled merely because their raw flag is true."""
+    import app.api.data.queries as queries
+
+    authorizer = _AccessAuthorizer(_principal())
+    monkeypatch.setattr(queries, "get_settings", lambda: SimpleNamespace(**raw_settings))
+    app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
+    try:
+        response = await client.get(
+            "/api/v1/data/market-data/capabilities",
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "version": "market-data-capabilities-v1",
+        **expected,
+    }
+
+
+@pytest.mark.asyncio
+async def test_market_data_capabilities_require_market_data_read_entitlement(
+    client,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    """Authenticated users still need the current data-read grant."""
+    import app.api.data.queries as queries
+
+    authorizer = _AccessAuthorizer(_principal(can_read_data=False))
+    monkeypatch.setattr(
+        queries,
+        "get_settings",
+        lambda: SimpleNamespace(
+            MARKET_DATA_QUERY_V2_ENABLED=False,
+            MARKET_DATA_ONLINE_FETCH_ENABLED=False,
+            MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=False,
+            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=False,
+        ),
+    )
+    app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
+    try:
+        response = await client.get(
+            "/api/v1/data/market-data/capabilities",
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+
+    assert response.status_code == 403
+    assert response.json()["details"] == {"code": "MARKET_DATA_READ_ENTITLEMENT_DENIED"}
+
+
+@pytest.mark.asyncio
+async def test_v2_query_authorizes_before_resolving_rollout_controls(
+    client,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    """A caller without data:read cannot probe the v2 or cache-fill rollout state."""
+    import app.api.data.queries as queries
+
+    authorizer = _AccessAuthorizer(_principal(can_read_data=False))
+
+    def unexpected_settings() -> object:
+        raise AssertionError("rollout controls must not be read before data:read authorization")
+
+    monkeypatch.setattr(queries, "get_settings", unexpected_settings)
+    app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
+    try:
+        response = await client.post("/api/v1/data/queries", json=_payload(), headers=auth_headers)
+    finally:
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+
+    assert response.status_code == 403
+    assert response.json()["details"] == {"code": "MARKET_DATA_READ_ENTITLEMENT_DENIED"}
+
+
+@pytest.mark.asyncio
+async def test_v2_bundle_authorizes_before_resolving_rollout_controls(
+    client,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    """The static family bundle cannot disclose a disabled/enabled rollout to an unentitled user."""
+    import app.api.data.queries as queries
+
+    authorizer = _AccessAuthorizer(_principal(can_read_data=False))
+
+    def unexpected_settings() -> object:
+        raise AssertionError("rollout controls must not be read before data:read authorization")
+
+    monkeypatch.setattr(queries, "get_settings", unexpected_settings)
+    app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
+    try:
+        response = await client.get(
+            "/api/v1/data/market-instruments/query-bundle",
+            params={"asset_type": "stock"},
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+
+    assert response.status_code == 403
+    assert response.json()["details"] == {"code": "MARKET_DATA_READ_ENTITLEMENT_DENIED"}
+
+
+@pytest.mark.asyncio
+async def test_v2_query_contract_authorizes_before_resolving_rollout_controls(
+    client,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    """The legacy compatibility contract probe also hides rollout state before data:read."""
+    import app.api.data.base as data_base
+
+    authorizer = _AccessAuthorizer(_principal(can_read_data=False))
+
+    def unexpected_settings() -> object:
+        raise AssertionError("rollout controls must not be read before data:read authorization")
+
+    monkeypatch.setattr(data_base, "get_settings", unexpected_settings)
+    app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
+    try:
+        response = await client.get(
+            "/api/v1/data/market-instruments/query-contract",
+            params={"asset_type": "stock", "symbol": "600000", "period": "daily"},
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+
+    assert response.status_code == 403
+    assert response.json()["details"] == {"code": "MARKET_DATA_READ_ENTITLEMENT_DENIED"}
+
+
 @pytest.mark.asyncio
 async def test_v2_query_endpoint_is_disabled_by_default(client, auth_headers, monkeypatch) -> None:
     """An installed route remains unavailable until the rollout feature flag is set."""
@@ -284,6 +548,7 @@ async def test_v2_query_endpoint_allows_research_cache_fill_after_server_opt_in(
         "get_settings",
         lambda: SimpleNamespace(
             MARKET_DATA_QUERY_V2_ENABLED=True,
+            MARKET_DATA_ONLINE_FETCH_ENABLED=True,
             MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=True,
         ),
     )
@@ -298,6 +563,41 @@ async def test_v2_query_endpoint_allows_research_cache_fill_after_server_opt_in(
     assert response.status_code == 200
     assert len(service.requests) == 1
     assert service.requests[0].purpose == "research_cache_fill"
+
+
+@pytest.mark.asyncio
+async def test_v2_query_endpoint_rejects_cache_fill_when_online_fetch_is_effectively_disabled(
+    client,
+    auth_headers,
+    monkeypatch,
+) -> None:
+    """A raw cache-fill flag cannot contradict the advertised effective capability."""
+    import app.api.data.queries as queries
+
+    service = _Service(_execution())
+    authorizer = _AccessAuthorizer(_principal())
+    request = _payload()
+    request["purpose"] = "research_cache_fill"
+    monkeypatch.setattr(
+        queries,
+        "get_settings",
+        lambda: SimpleNamespace(
+            MARKET_DATA_QUERY_V2_ENABLED=True,
+            MARKET_DATA_ONLINE_FETCH_ENABLED=False,
+            MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=True,
+        ),
+    )
+    app.dependency_overrides[get_market_data_query_service] = lambda: service
+    app.dependency_overrides[get_market_data_access_authorizer] = lambda: authorizer
+    try:
+        response = await client.post("/api/v1/data/queries", json=request, headers=auth_headers)
+    finally:
+        app.dependency_overrides.pop(get_market_data_query_service, None)
+        app.dependency_overrides.pop(get_market_data_access_authorizer, None)
+
+    assert response.status_code == 503
+    assert response.json()["details"] == {"code": "MARKET_DATA_RESEARCH_CACHE_FILL_DISABLED"}
+    assert service.requests == []
 
 
 @pytest.mark.asyncio

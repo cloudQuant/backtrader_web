@@ -348,7 +348,14 @@ class _FakeAIResearchService:
         self.calls.append(("list_run_records", user_id, research_workspace_id))
         return {"total": 1, "items": [deepcopy(_run_record_payload())]}
 
-    async def get_run_record(self, user_id, run_id, *, research_workspace_id=None):
+    async def get_run_record(
+        self,
+        user_id,
+        run_id,
+        *,
+        research_workspace_id=None,
+        trusted_for_continuation=False,
+    ):
         self.calls.append(("get_run_record", user_id, run_id))
         return deepcopy(_run_record_payload()) if run_id == "run-1" else None
 
@@ -420,6 +427,35 @@ class _FakeAIResearchService:
         self.calls.append(("prepare_live_trading_from_run", user_id, data))
         return deepcopy(_prepare_payload())
 
+    async def activate_prepared_live_trading_from_run(
+        self, user_id, run_id, *, research_workspace_id=None
+    ):
+        self.calls.append(("activate_prepared_live_trading_from_run", user_id, research_workspace_id))
+        payload = deepcopy(_prepare_payload())
+        payload.update(
+            {
+                "activated": True,
+                "activation_status": "running",
+                "activation_instance_id": "live-instance-1",
+            }
+        )
+        return payload
+
+    async def deactivate_prepared_live_trading_from_run(
+        self, user_id, run_id, *, research_workspace_id=None
+    ):
+        self.calls.append(("deactivate_prepared_live_trading_from_run", user_id, research_workspace_id))
+        payload = deepcopy(_prepare_payload())
+        payload.update(
+            {
+                "prepared": False,
+                "activated": False,
+                "activation_status": "deactivated",
+                "activation_instance_id": None,
+            }
+        )
+        return payload
+
 
 class _FakeAIResearchTaskManager:
     def __init__(self):
@@ -436,7 +472,9 @@ class _FakeAIResearchTaskManager:
         )
         self.submissions = []
 
-    async def submit(self, user_id, request, *, service=None):
+    async def submit(self, user_id, request, *, service=None, request_preparer=None):
+        if request_preparer is not None:
+            request = await request_preparer("task-1", request)
         self.submissions.append({"user_id": user_id, "request": request, "service": service})
         self.task = self.task.model_copy(
             update={
@@ -465,7 +503,15 @@ class _FakeAIResearchTaskManager:
         )
         return self.task
 
-    async def continue_task(self, user_id, task_id, *, overrides=None, service=None):
+    async def continue_task(
+        self,
+        user_id,
+        task_id,
+        *,
+        overrides=None,
+        service=None,
+        request_preparer=None,
+    ):
         if task_id != self.task.task_id:
             return None
         self.submissions.append(
@@ -480,6 +526,10 @@ class _FakeAIResearchTaskManager:
             **dict(self.task.request_snapshot or {}),
             **dict(overrides or {}),
         }
+        if request_preparer is not None:
+            request = AIStrategyResearchRunRequest.model_validate(request_snapshot)
+            request = await request_preparer("task-continued", request)
+            request_snapshot = request.model_dump(mode="python")
         self.task = self.task.model_copy(
             update={
                 "task_id": "task-continued",
@@ -936,7 +986,7 @@ class TestStrategyAPI:
             )
             continue_response = await client.post(
                 "/api/v1/strategy/ai-research/tasks/task-1/continue",
-                json={"overrides": {"prompt": "继续上一轮任务", "max_iterations": 2}},
+                json={"overrides": {"prompt": "自动生成并改进策略", "max_iterations": 2}},
                 headers=auth_headers,
             )
             missing_response = await client.get(
@@ -963,7 +1013,7 @@ class TestStrategyAPI:
         assert continue_response.status_code == 202, continue_response.text
         continued = continue_response.json()
         assert continued["task_id"] == "task-continued"
-        assert continued["request_snapshot"]["prompt"] == "继续上一轮任务"
+        assert continued["request_snapshot"]["prompt"] == "自动生成并改进策略"
         assert task_manager.submissions[1]["continue_task_id"] == "task-1"
         assert task_manager.submissions[1]["overrides"]["max_iterations"] == 2
         assert task_manager.submissions[1]["service"] is service
@@ -1117,3 +1167,79 @@ class TestStrategyAPI:
         ]
         prepare_call = service.calls[-1]
         assert prepare_call[2].research_workspace_id == "research-ws"
+
+    @pytest.mark.asyncio
+    async def test_ai_research_live_handoff_activate_api_dispatches_and_maps_validation_error(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        """The activate route forwards workspace provenance and returns a stable 400 error."""
+        service = _FakeAIResearchService()
+        app.dependency_overrides[get_ai_strategy_research_service] = lambda: service
+        try:
+            response = await client.post(
+                "/api/v1/strategy/ai-research/runs/run-1/live-trading/activate"
+                "?research_workspace_id=research-ws",
+                headers=auth_headers,
+            )
+
+            class RejectingService(_FakeAIResearchService):
+                async def activate_prepared_live_trading_from_run(
+                    self, user_id, run_id, *, research_workspace_id=None
+                ):
+                    del user_id, run_id, research_workspace_id
+                    raise ValueError("AI_RESEARCH_LIVE_HANDOFF_SERVER_ACTIVATION_REQUIRED")
+
+            app.dependency_overrides[get_ai_strategy_research_service] = RejectingService
+            rejected = await client.post(
+                "/api/v1/strategy/ai-research/runs/run-1/live-trading/activate"
+                "?research_workspace_id=research-ws",
+                headers=auth_headers,
+            )
+        finally:
+            app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+
+        assert response.status_code == 200, response.text
+        assert response.json()["activated"] is True
+        assert response.json()["activation_status"] == "running"
+        assert service.calls[-1][0] == "activate_prepared_live_trading_from_run"
+        assert service.calls[-1][2] == "research-ws"
+        assert rejected.status_code == 400, rejected.text
+        assert rejected.json()["message"] == "AI_RESEARCH_LIVE_HANDOFF_SERVER_ACTIVATION_REQUIRED"
+
+    @pytest.mark.asyncio
+    async def test_ai_research_live_handoff_deactivate_api_dispatches_and_maps_validation_error(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        """The deactivate route keeps the server-only workspace boundary and stable errors."""
+        service = _FakeAIResearchService()
+        app.dependency_overrides[get_ai_strategy_research_service] = lambda: service
+        try:
+            response = await client.post(
+                "/api/v1/strategy/ai-research/runs/run-1/live-trading/deactivate"
+                "?research_workspace_id=research-ws",
+                headers=auth_headers,
+            )
+
+            class RejectingService(_FakeAIResearchService):
+                async def deactivate_prepared_live_trading_from_run(
+                    self, user_id, run_id, *, research_workspace_id=None
+                ):
+                    del user_id, run_id, research_workspace_id
+                    raise ValueError("AI_RESEARCH_LIVE_HANDOFF_STOP_FAILED")
+
+            app.dependency_overrides[get_ai_strategy_research_service] = RejectingService
+            rejected = await client.post(
+                "/api/v1/strategy/ai-research/runs/run-1/live-trading/deactivate"
+                "?research_workspace_id=research-ws",
+                headers=auth_headers,
+            )
+        finally:
+            app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+
+        assert response.status_code == 200, response.text
+        assert response.json()["prepared"] is False
+        assert response.json()["activation_status"] == "deactivated"
+        assert service.calls[-1][0] == "deactivate_prepared_live_trading_from_run"
+        assert service.calls[-1][2] == "research-ws"
+        assert rejected.status_code == 400, rejected.text
+        assert rejected.json()["message"] == "AI_RESEARCH_LIVE_HANDOFF_STOP_FAILED"

@@ -1838,6 +1838,71 @@ class TestStartInstance:
     """Tests for starting instances."""
 
     @pytest.mark.asyncio
+    async def test_pending_live_handoff_requires_opaque_server_activation_token(
+        self, monkeypatch
+    ):
+        """A visible pending handoff cannot be started by a public manager call."""
+        instances = {
+            "live-handoff-inst": {
+                "id": "live-handoff-inst",
+                "strategy_id": "sealed-live-strategy",
+                "user_id": "owner",
+                "status": "stopped",
+                "runtime_dir": "/tmp/workspaces/live-ws/units/live-unit",
+            }
+        }
+
+        def load_instances():
+            return json.loads(json.dumps(instances))
+
+        def save_instances(value):
+            instances.clear()
+            instances.update(json.loads(json.dumps(value)))
+
+        async def no_committed_live_unit(_instance_id, _user_id):
+            return None
+
+        monkeypatch.setattr(
+            "app.services.workspace.units.get_ai_research_live_handoff_unit_for_instance",
+            no_committed_live_unit,
+        )
+        with (
+            patch("app.services.live_trading_manager._load_instances", side_effect=load_instances),
+            patch("app.services.live_trading_manager._save_instances", side_effect=save_instances),
+            patch(
+                "app.services.live_trading_manager.live_execution_service.start_instance",
+                new_callable=AsyncMock,
+                return_value={"id": "live-handoff-inst", "status": "running"},
+            ) as start_execution,
+        ):
+            manager = LiveTradingManager()
+            activation_token = manager.new_live_handoff_runtime_activation_token()
+            manager._pending_attested_live_handoff_instances["live-handoff-inst"] = (
+                activation_token
+            )
+
+            with pytest.raises(
+                ValueError,
+                match="AI_RESEARCH_LIVE_HANDOFF_SERVER_ACTIVATION_REQUIRED",
+            ):
+                await manager.start_instance("live-handoff-inst", user_id="owner")
+            start_execution.assert_not_awaited()
+            assert (
+                manager._pending_attested_live_handoff_instances["live-handoff-inst"]
+                == activation_token
+            )
+
+            result = await manager.start_instance(
+                "live-handoff-inst",
+                user_id="owner",
+                server_attested_live_handoff_activation_token=activation_token,
+            )
+
+        assert result["status"] == "running"
+        start_execution.assert_awaited_once()
+        assert manager._pending_attested_live_handoff_instances == {}
+
+    @pytest.mark.asyncio
     async def test_start_instance_delegates_file_lock_to_execution_layer(self):
         with patch("app.services.live_trading_manager._load_instances", return_value={}):
             with patch("app.services.live_trading_manager._instance_store_lock") as mock_lock:
@@ -1855,7 +1920,10 @@ class TestStartInstance:
                     result = await manager.start_instance("inst1")
 
         assert result["status"] == "running"
-        mock_lock.assert_not_called()
+        # The manager atomically reads any pending server-only paper runtime
+        # capability before delegating.  The execution layer still owns its
+        # separate instance-store lock for the actual status transition.
+        assert mock_lock.call_count == 1
         instance_lock = mock_start.call_args.kwargs["instance_lock"]
         assert instance_lock.__class__.__name__ == "_AsyncInstanceStoreLock"
 

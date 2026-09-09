@@ -89,6 +89,16 @@ _SOURCE_AUTHORIZATION_ALLOWED_USES: Mapping[str, frozenset[str]] = {
     "research_cache_fill": frozenset({"RESEARCH", "RESEARCH_ONLY", "DERIVED_RESEARCH"}),
     "backtest": frozenset({"BACKTEST", "BACKTEST_ONLY"}),
 }
+# A cache-fill receipt records the narrowly scoped authorization that allowed
+# collection.  It may subsequently satisfy a strict research *read* only when
+# the caller has independently passed current research authorization.  It is
+# deliberately not reusable for display, backtest, or binding purposes.
+_SOURCE_AUTHORIZATION_RECEIPT_PURPOSES_BY_QUERY_PURPOSE: Mapping[str, frozenset[str]] = {
+    "display": frozenset({"display"}),
+    "research": frozenset({"research", "research_cache_fill"}),
+    "research_cache_fill": frozenset({"research_cache_fill"}),
+    "backtest": frozenset({"backtest"}),
+}
 _SOURCE_AUTHORIZATION_READABLE_REDISTRIBUTION_POLICIES = frozenset(
     {"ALLOWED", "INTERNAL_ONLY", "NO_REDISTRIBUTION"}
 )
@@ -1793,6 +1803,24 @@ def _assert_source_authorization_matches_registry(
         raise MarketDataStoreError("SOURCE_AUTHORIZATION_REGISTRY_DENIED")
 
 
+def _source_authorization_receipt_purpose_allows_read(
+    *,
+    receipt_purpose: str,
+    query_purpose: str,
+) -> bool:
+    """Return whether a frozen collection purpose may satisfy this local read.
+
+    Current principal and source authorization are evaluated separately before
+    this verifier runs.  This compatibility rule therefore only controls how
+    a sealed receipt is reused, and contains the sole audited exception from
+    exact purpose matching: ``research_cache_fill`` may serve ``research``.
+    """
+    return receipt_purpose in _SOURCE_AUTHORIZATION_RECEIPT_PURPOSES_BY_QUERY_PURPOSE.get(
+        query_purpose,
+        frozenset(),
+    )
+
+
 def _verified_source_authorization_registry_id(
     snapshot: MdSourceSnapshot,
     *,
@@ -1867,7 +1895,10 @@ def _verified_source_authorization_registry_id(
             venue is None
             or asset_type != context.identity.asset_type
             or market != venue
-            or purpose != context.query.purpose
+            or not _source_authorization_receipt_purpose_allows_read(
+                receipt_purpose=purpose,
+                query_purpose=context.query.purpose,
+            )
             or purpose not in _SOURCE_AUTHORIZATION_ALLOWED_USES
         ):
             raise MarketDataStoreError("SOURCE_AUTHORIZATION_RECEIPT_INTEGRITY")

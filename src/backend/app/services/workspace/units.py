@@ -11,6 +11,7 @@ they depend on ``self.trading_service`` for hydration and normalization.
 
 from __future__ import annotations
 
+import hmac
 import logging
 from datetime import date, datetime
 from decimal import Decimal
@@ -22,7 +23,8 @@ from sqlalchemy import func, select
 
 from app.db.database import async_session_maker
 from app.models.backtest import BacktestTask
-from app.models.workspace import StrategyUnit
+from app.models.strategy import Strategy
+from app.models.workspace import StrategyUnit, Workspace
 from app.schemas.workspace import (
     GroupRenameRequest,
     StrategyUnitCreate,
@@ -31,6 +33,13 @@ from app.schemas.workspace import (
     UnitRuntimeInfoResponse,
 )
 from app.services import workspace_unit_runtime
+from app.services.ai_research_provenance import (
+    AI_RESEARCH_LIVE_HANDOFF_UNIT_ANCHOR_FIELD,
+    AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD,
+    is_server_owned_ai_research_strategy_snapshot,
+    verify_ai_research_live_handoff_unit_anchor,
+    verify_ai_research_run_record,
+)
 from app.services.param_optimization_service import get_optimization_progress
 from app.services.workspace._helpers import compute_rename
 
@@ -60,6 +69,14 @@ _BOUND_UNIT_WINDOW_KEYS = frozenset(
     }
 )
 _BOUND_UNIT_IDENTITY_FIELDS = frozenset({"category", "symbol", "timeframe", "timeframe_n"})
+_AI_RESEARCH_SERVER_OWNED_PREFIX = "ai_research"
+_AI_RESEARCH_SERVER_OWNED_JSON_FIELDS = (
+    "data_config",
+    "unit_settings",
+    "params",
+    "optimization_config",
+    "gateway_config",
+)
 
 
 class MarketDataBindingUnitMutationError(ValueError):
@@ -68,6 +85,521 @@ class MarketDataBindingUnitMutationError(ValueError):
     def __init__(self, code: str = "MARKET_DATA_BINDING_UNIT_MUTATION_FORBIDDEN") -> None:
         self.code = code
         super().__init__(self.code)
+
+
+class AIStrategyResearchUnitMutationError(ValueError):
+    """Reject browser writes to server-owned AI-research paper state."""
+
+    def __init__(self, code: str = "AI_RESEARCH_UNIT_SERVER_OWNED_STATE_FORBIDDEN") -> None:
+        self.code = code
+        super().__init__(self.code)
+
+
+class AIStrategyResearchPaperRuntimeStartError(ValueError):
+    """Reject a direct runtime launch that lacks paper-research attestation."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(self.code)
+
+
+class AIStrategyResearchLiveHandoffRuntimeStartError(ValueError):
+    """Reject a live handoff whose signed source/configuration no longer matches."""
+
+    def __init__(self, code: str = "AI_RESEARCH_LIVE_HANDOFF_PROVENANCE_INVALID") -> None:
+        self.code = code
+        super().__init__(self.code)
+
+
+class AIStrategyResearchPaperRuntimeStopError(ValueError):
+    """Reject a public stop that would invalidate protected paper evidence."""
+
+    def __init__(self, code: str = "AI_RESEARCH_PAPER_RUNTIME_STOP_FORBIDDEN") -> None:
+        self.code = code
+        super().__init__(self.code)
+
+
+class AIStrategyResearchPaperRuntimeDeleteError(ValueError):
+    """Reject a public delete that would discard protected paper evidence."""
+
+    def __init__(self, code: str = "AI_RESEARCH_PAPER_RUNTIME_DELETE_FORBIDDEN") -> None:
+        self.code = code
+        super().__init__(self.code)
+
+
+def _server_owned_ai_research_path(value: Any, *, path: tuple[str, ...] = ()) -> str | None:
+    """Find a reserved research key in nested user-provided unit JSON."""
+    if isinstance(value, dict):
+        for raw_key, nested_value in value.items():
+            key = str(raw_key).strip()
+            normalized = key.casefold()
+            next_path = (*path, key)
+            if normalized == _AI_RESEARCH_SERVER_OWNED_PREFIX or normalized.startswith(
+                f"{_AI_RESEARCH_SERVER_OWNED_PREFIX}_"
+            ):
+                return ".".join(next_path)
+            nested = _server_owned_ai_research_path(nested_value, path=next_path)
+            if nested is not None:
+                return nested
+    elif isinstance(value, list):
+        for index, nested_value in enumerate(value):
+            nested = _server_owned_ai_research_path(nested_value, path=(*path, str(index)))
+            if nested is not None:
+                return nested
+    return None
+
+
+def is_server_owned_ai_research_paper_runtime(unit: StrategyUnit) -> bool:
+    """Return whether ``unit`` carries an anchored AI-research paper runtime.
+
+    A lineage marker is intentionally copied into a prepared live handoff for
+    audit.  It is not paper evidence, and must never route a live runtime
+    through the paper-anchor start guard.
+    """
+    if str(getattr(unit, "trading_mode", "") or "").strip().casefold() != "paper":
+        return False
+    settings = getattr(unit, "unit_settings", None)
+    return isinstance(settings, dict) and isinstance(
+        settings.get(AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD),
+        dict,
+    )
+
+
+def is_server_owned_ai_research_live_handoff_unit(unit: StrategyUnit) -> bool:
+    """Return whether a server-prepared live unit still carries its handoff.
+
+    Public create/update payloads reject every ``ai_research`` namespace, so
+    this marker can only originate from the trusted prepare writer.  Keep its
+    CRUD/configuration lock distinct from the paper-runtime predicate above:
+    a legitimate live start has no paper anchor to verify.
+    """
+    if str(getattr(unit, "trading_mode", "") or "").strip().casefold() != "live":
+        return False
+    settings = getattr(unit, "unit_settings", None)
+    handoff = settings.get("ai_research_live_handoff") if isinstance(settings, dict) else None
+    return isinstance(handoff, dict) and bool(str(handoff.get("run_id") or "").strip())
+
+
+def is_server_owned_ai_research_unit(unit: StrategyUnit) -> bool:
+    """Return whether public writes must preserve server-owned research state."""
+    return is_server_owned_ai_research_paper_runtime(
+        unit
+    ) or is_server_owned_ai_research_live_handoff_unit(unit)
+
+
+async def has_server_owned_ai_research_strategy_reference(
+    strategy_id: str,
+    user_id: str,
+) -> bool:
+    """Return whether a user's strategy backs a protected research-paper unit.
+
+    User strategy source files are shared templates.  Allowing their ordinary
+    CRUD path to rewrite a template after the AI paper unit is attested would
+    replace code/configuration at the next runtime sync without changing the
+    unit row.  This lookup is deliberately service-level so simulation config
+    and strategy CRUD use the same ownership and marker predicate.
+    """
+    normalized_strategy_id = str(strategy_id or "").strip()
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_strategy_id or not normalized_user_id:
+        return False
+    async with async_session_maker() as session:
+        strategy = await session.scalar(
+            select(Strategy).where(
+                Strategy.id == normalized_strategy_id,
+                Strategy.user_id == normalized_user_id,
+            )
+        )
+        if strategy is not None and is_server_owned_ai_research_strategy_snapshot(
+            strategy.description,
+            user_id=normalized_user_id,
+            strategy_id=normalized_strategy_id,
+        ):
+            # This reservation is written atomically with snapshot strategy
+            # creation, before any paper/live unit can reference it.  It
+            # closes the public template-update window between snapshot birth
+            # and the later unit anchor.
+            return True
+        result = await session.execute(
+            select(StrategyUnit)
+            .join(Workspace, StrategyUnit.workspace_id == Workspace.id)
+            .where(
+                Workspace.user_id == normalized_user_id,
+                StrategyUnit.strategy_id == normalized_strategy_id,
+            )
+        )
+        return any(is_server_owned_ai_research_unit(unit) for unit in result.scalars().all())
+
+
+async def assert_ai_research_paper_runtime_start_allowed(
+    instance_id: str,
+    user_id: str | None,
+) -> str | bool | None:
+    """Fail closed before the global instance manager launches an attested unit.
+
+    ``LiveTradingManager`` is reachable through both the live and simulation
+    APIs, including their ``start-all`` routes.  Resolve the persisted unit
+    here rather than relying on the workspace route so every instance start
+    preserves the same research-paper identity and lock constraints.
+    """
+    normalized_instance_id = str(instance_id or "").strip()
+    if not normalized_instance_id:
+        return None
+    async with async_session_maker() as session:
+        query = (
+            select(StrategyUnit, Workspace)
+            .join(Workspace, StrategyUnit.workspace_id == Workspace.id)
+            .where(StrategyUnit.trading_instance_id == normalized_instance_id)
+        )
+        normalized_user_id = str(user_id or "").strip()
+        if normalized_user_id:
+            query = query.where(Workspace.user_id == normalized_user_id)
+        row = (await session.execute(query)).first()
+    if row is None:
+        # ``None`` is intentionally distinct from ``False`` below.  The
+        # manager uses it to fail closed when an instance claims a managed
+        # workspace-unit runtime but its unit attachment has not committed
+        # yet (or was deleted), while normal mapped workspace units remain
+        # launchable through their existing routes.
+        return None
+
+    unit, workspace = row
+    if not is_server_owned_ai_research_paper_runtime(unit):
+        return False
+    if bool(getattr(unit, "lock_running", False)):
+        raise AIStrategyResearchPaperRuntimeStartError("AI_RESEARCH_PAPER_RUNTIME_LOCK_RUNNING")
+    if bool(getattr(unit, "lock_trading", False)):
+        raise AIStrategyResearchPaperRuntimeStartError("AI_RESEARCH_PAPER_RUNTIME_LOCK_TRADING")
+    if str(getattr(unit, "trading_mode", "") or "").strip().casefold() != "paper":
+        raise AIStrategyResearchPaperRuntimeStartError(
+            "AI_RESEARCH_PAPER_RUNTIME_MODE_INVALID"
+        )
+
+    from app.services.ai_research_provenance import (
+        AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD,
+        verify_ai_research_paper_runtime_anchor_for_unit,
+    )
+
+    settings = getattr(unit, "unit_settings", None)
+    anchor = settings.get(AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD) if isinstance(settings, dict) else None
+    if not verify_ai_research_paper_runtime_anchor_for_unit(
+        anchor,
+        user_id=str(workspace.user_id),
+        paper_workspace_id=str(unit.workspace_id),
+        paper_unit_id=str(unit.id),
+        unit=unit,
+        workspace_settings=(
+            workspace.settings if isinstance(getattr(workspace, "settings", None), dict) else {}
+        ),
+        require_runtime_snapshot=True,
+    ):
+        raise AIStrategyResearchPaperRuntimeStartError(
+            "AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID"
+        )
+    runtime_snapshot_digest = anchor.get("runtime_snapshot_digest") if isinstance(anchor, dict) else None
+    if not isinstance(runtime_snapshot_digest, str) or len(runtime_snapshot_digest) != 64:
+        raise AIStrategyResearchPaperRuntimeStartError(
+            "AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID"
+        )
+    return runtime_snapshot_digest
+
+
+async def assert_ai_research_live_handoff_runtime_start_allowed(
+    unit: StrategyUnit,
+    user_id: str,
+) -> bool:
+    """Verify a prepared live handoff against its signed source run.
+
+    ``ai_research_live_handoff`` reserves browser mutation from the instant
+    the unit is created.  Before a trusted server path unlocks and starts it,
+    this second gate verifies the source run's HMAC plus the exact live unit
+    identity/configuration seal.  A visible marker or risk-gate JSON never
+    grants authority by itself.
+    """
+    if not is_server_owned_ai_research_live_handoff_unit(unit):
+        return False
+    settings = getattr(unit, "unit_settings", None)
+    anchor = (
+        settings.get(AI_RESEARCH_LIVE_HANDOFF_UNIT_ANCHOR_FIELD)
+        if isinstance(settings, dict)
+        else None
+    )
+    if not isinstance(anchor, dict):
+        raise AIStrategyResearchLiveHandoffRuntimeStartError()
+    research_workspace_id = str(anchor.get("research_workspace_id") or "").strip()
+    run_id = str(anchor.get("run_id") or "").strip()
+    if not research_workspace_id or not run_id:
+        raise AIStrategyResearchLiveHandoffRuntimeStartError()
+    # Workspace settings are public storage, so the raw record must verify
+    # before it can supply approval/risk authority for this runtime.
+    async with async_session_maker() as session:
+        source_workspace = await session.scalar(
+            select(Workspace).where(
+                Workspace.id == research_workspace_id,
+                Workspace.user_id == user_id,
+            )
+        )
+    raw_settings = (
+        source_workspace.settings
+        if source_workspace is not None and isinstance(source_workspace.settings, dict)
+        else {}
+    )
+    raw_research = raw_settings.get("ai_research") if isinstance(raw_settings, dict) else None
+    if not isinstance(raw_research, dict):
+        raise AIStrategyResearchLiveHandoffRuntimeStartError()
+    # ``last_run`` is the server writer's canonical current revision.  Do
+    # not rank arbitrary history entries: a valid but older approved record
+    # with the same run id must not outvote a later signed revocation.
+    raw_last = raw_research.get("last_run")
+    if not isinstance(raw_last, dict):
+        raise AIStrategyResearchLiveHandoffRuntimeStartError()
+    from app.schemas.ai_strategy_research import AIStrategyResearchRunRecord
+
+    if str(raw_last.get("run_id") or "").strip() != run_id:
+        raise AIStrategyResearchLiveHandoffRuntimeStartError()
+    try:
+        matched = AIStrategyResearchRunRecord.model_validate(raw_last)
+    except (TypeError, ValueError) as exc:
+        raise AIStrategyResearchLiveHandoffRuntimeStartError() from exc
+    if not verify_ai_research_run_record(
+        matched,
+        user_id=user_id,
+        workspace_id=research_workspace_id,
+    ):
+        raise AIStrategyResearchLiveHandoffRuntimeStartError()
+    canonical_signature = str(matched.server_provenance_signature or "").strip()
+    if not canonical_signature:
+        raise AIStrategyResearchLiveHandoffRuntimeStartError()
+    if not verify_ai_research_live_handoff_unit_anchor(
+        anchor,
+        user_id=user_id,
+        research_workspace_id=research_workspace_id,
+        live_workspace_id=str(unit.workspace_id),
+        live_unit_id=str(unit.id),
+        run_id=run_id,
+        source_run_signature=canonical_signature,
+        unit=unit,
+    ):
+        raise AIStrategyResearchLiveHandoffRuntimeStartError()
+    raw_runs = raw_research.get("runs")
+    if isinstance(raw_runs, list):
+        for raw in raw_runs:
+            if not isinstance(raw, dict) or str(raw.get("run_id") or "").strip() != run_id:
+                continue
+            try:
+                historical = AIStrategyResearchRunRecord.model_validate(raw)
+            except (TypeError, ValueError):
+                continue
+            if not verify_ai_research_run_record(
+                historical,
+                user_id=user_id,
+                workspace_id=research_workspace_id,
+            ):
+                continue
+            if not hmac.compare_digest(
+                str(historical.server_provenance_signature or "").strip(),
+                canonical_signature,
+            ):
+                raise AIStrategyResearchLiveHandoffRuntimeStartError(
+                    "AI_RESEARCH_LIVE_HANDOFF_SOURCE_REVISION_AMBIGUOUS"
+                )
+
+    approval = matched.live_handoff_approval
+    package = matched.live_handoff
+    if (
+        not matched.live_trading_prepared
+        or str(matched.live_workspace_id or "") != str(unit.workspace_id)
+        or str(matched.live_unit_id or "") != str(unit.id)
+        or package is None
+        or not package.ready_for_live
+        or not approval
+        or not approval.approved
+    ):
+        raise AIStrategyResearchLiveHandoffRuntimeStartError()
+    live_risk_gate = settings.get("live_risk_gate") if isinstance(settings, dict) else None
+    if not isinstance(live_risk_gate, dict) or live_risk_gate.get("passed") is not True:
+        raise AIStrategyResearchLiveHandoffRuntimeStartError(
+            "AI_RESEARCH_LIVE_HANDOFF_RISK_GATE_INVALID"
+        )
+    package_handoff = package.handoff if isinstance(package.handoff, dict) else {}
+    prepared_handoff = package_handoff.get("live_trading_prepare")
+    source_risk_gate = (
+        prepared_handoff.get("live_risk_gate")
+        if isinstance(prepared_handoff, dict)
+        else None
+    )
+    if (
+        isinstance(source_risk_gate, dict)
+        and source_risk_gate.get("passed") is not True
+    ):
+        raise AIStrategyResearchLiveHandoffRuntimeStartError(
+            "AI_RESEARCH_LIVE_HANDOFF_RISK_GATE_INVALID"
+        )
+    return True
+
+
+async def get_ai_research_live_handoff_unit_for_instance(
+    instance_id: str,
+    user_id: str | None,
+) -> StrategyUnit | None:
+    """Resolve a reserved live-handoff unit for a manager instance.
+
+    This lookup deliberately returns the *structural* live reservation rather
+    than treating it as an execution authorization.  The instance manager
+    uses it to reject every public/direct start before a server-only activation
+    capability is supplied.  The capability path separately calls
+    :func:`assert_ai_research_live_handoff_runtime_start_allowed`, which
+    verifies the HMAC-bound source run and live-unit seal.
+    """
+    normalized_instance_id = str(instance_id or "").strip()
+    if not normalized_instance_id:
+        return None
+    async with async_session_maker() as session:
+        query = (
+            select(StrategyUnit, Workspace)
+            .join(Workspace, StrategyUnit.workspace_id == Workspace.id)
+            .where(StrategyUnit.trading_instance_id == normalized_instance_id)
+        )
+        normalized_user_id = str(user_id or "").strip()
+        if normalized_user_id:
+            query = query.where(Workspace.user_id == normalized_user_id)
+        row = (await session.execute(query)).first()
+    if row is None:
+        return None
+    unit, _workspace = row
+    return unit if is_server_owned_ai_research_live_handoff_unit(unit) else None
+
+
+async def assert_ai_research_paper_runtime_stop_allowed(
+    instance_id: str,
+    user_id: str | None,
+    *,
+    allow_server_owned_ai_research_stop: bool = False,
+    allow_server_owned_ai_research_live_handoff_stop: bool = False,
+) -> bool:
+    """Reject user-initiated stops of an attested AI paper runtime.
+
+    The instance manager is shared by simulation, live-trading, workspace and
+    scheduler routes.  Its JSON instance store alone cannot tell a public
+    stop from the review workflow's server-owned failure stop, so resolve the
+    authoritative unit link here before process state is changed.  A stopped
+    runtime must never leave a still-promotable paper review behind.
+    """
+    normalized_instance_id = str(instance_id or "").strip()
+    if not normalized_instance_id:
+        return False
+    async with async_session_maker() as session:
+        query = (
+            select(StrategyUnit, Workspace)
+            .join(Workspace, StrategyUnit.workspace_id == Workspace.id)
+            .where(StrategyUnit.trading_instance_id == normalized_instance_id)
+        )
+        normalized_user_id = str(user_id or "").strip()
+        if normalized_user_id:
+            query = query.where(Workspace.user_id == normalized_user_id)
+        row = (await session.execute(query)).first()
+    if row is None:
+        return False
+
+    unit, _workspace = row
+    if not is_server_owned_ai_research_unit(unit):
+        return False
+    # The only current server-owned stop is the paper-review failure path.
+    # A prepared live handoff has no corresponding public or scheduler stop
+    # capability: allowing the paper exception here would make an approved
+    # live unit restartable through a stale source record.
+    if is_server_owned_ai_research_live_handoff_unit(unit):
+        if not allow_server_owned_ai_research_live_handoff_stop or user_id is None:
+            raise AIStrategyResearchPaperRuntimeStopError(
+                "AI_RESEARCH_LIVE_HANDOFF_RUNTIME_STOP_FORBIDDEN"
+            )
+        settings = getattr(unit, "unit_settings", None)
+        anchor = (
+            settings.get(AI_RESEARCH_LIVE_HANDOFF_UNIT_ANCHOR_FIELD)
+            if isinstance(settings, dict)
+            else None
+        )
+        source_signature = (
+            str(anchor.get("source_run_signature") or "").strip()
+            if isinstance(anchor, dict)
+            else ""
+        )
+        if not (
+            isinstance(anchor, dict)
+            and source_signature
+            and verify_ai_research_live_handoff_unit_anchor(
+                anchor,
+                user_id=user_id,
+                research_workspace_id=str(anchor.get("research_workspace_id") or ""),
+                live_workspace_id=str(unit.workspace_id),
+                live_unit_id=str(unit.id),
+                run_id=str(anchor.get("run_id") or ""),
+                source_run_signature=source_signature,
+                unit=unit,
+            )
+        ):
+            raise AIStrategyResearchPaperRuntimeStopError(
+                "AI_RESEARCH_LIVE_HANDOFF_PROVENANCE_INVALID"
+            )
+        return True
+    if not allow_server_owned_ai_research_stop:
+        raise AIStrategyResearchPaperRuntimeStopError()
+    return True
+
+
+async def assert_ai_research_paper_runtime_delete_allowed(
+    instance_id: str,
+    user_id: str | None,
+) -> bool:
+    """Reject browser deletion of a runtime bound to a protected paper unit.
+
+    A direct simulation/live instance delete bypasses workspace-unit CRUD.  It
+    must therefore resolve the authoritative unit association before removing
+    the process and JSON record, otherwise a signed paper-review source can be
+    orphaned from the server-owned identity that protects it.
+    """
+    normalized_instance_id = str(instance_id or "").strip()
+    if not normalized_instance_id:
+        return False
+    async with async_session_maker() as session:
+        query = (
+            select(StrategyUnit, Workspace)
+            .join(Workspace, StrategyUnit.workspace_id == Workspace.id)
+            .where(StrategyUnit.trading_instance_id == normalized_instance_id)
+        )
+        normalized_user_id = str(user_id or "").strip()
+        if normalized_user_id:
+            query = query.where(Workspace.user_id == normalized_user_id)
+        row = (await session.execute(query)).first()
+    if row is None:
+        return False
+
+    unit, _workspace = row
+    if not is_server_owned_ai_research_unit(unit):
+        return False
+    raise AIStrategyResearchPaperRuntimeDeleteError()
+
+
+def _reject_untrusted_ai_research_unit_payload(
+    data: StrategyUnitCreate | StrategyUnitUpdate,
+    *,
+    allow_server_owned_ai_research_state: bool,
+) -> None:
+    """Reserve research evidence/lineage keys for the internal workflow only."""
+    if allow_server_owned_ai_research_state:
+        return
+    fields_set = getattr(data, "model_fields_set", set())
+    for field in _AI_RESEARCH_SERVER_OWNED_JSON_FIELDS:
+        if isinstance(data, StrategyUnitUpdate) and field not in fields_set:
+            continue
+        reserved_path = _server_owned_ai_research_path(getattr(data, field, None), path=(field,))
+        if reserved_path is not None:
+            raise AIStrategyResearchUnitMutationError()
+    if isinstance(data, StrategyUnitCreate):
+        if "trading_snapshot" in fields_set:
+            raise AIStrategyResearchUnitMutationError("AI_RESEARCH_UNIT_RUNTIME_STATE_FORBIDDEN")
+    elif "trading_snapshot" in fields_set or "trading_instance_id" in fields_set:
+        raise AIStrategyResearchUnitMutationError("AI_RESEARCH_UNIT_RUNTIME_STATE_FORBIDDEN")
 
 
 def _requires_market_data_binding(data_config: object) -> bool:
@@ -150,6 +682,7 @@ async def create_unit(
     trading_service: Any,
     *,
     allow_server_bound_research_data: bool = False,
+    allow_server_owned_ai_research_state: bool = False,
 ) -> dict[str, Any] | None:
     from app.services.workspace_service import WorkspaceService, _normalize_unit_data_config
 
@@ -157,6 +690,18 @@ async def create_unit(
         data.data_config,
         allow_server_bound_research_data=allow_server_bound_research_data,
     )
+    _reject_untrusted_ai_research_unit_payload(
+        data,
+        allow_server_owned_ai_research_state=allow_server_owned_ai_research_state,
+    )
+    if (
+        not allow_server_owned_ai_research_state
+        and str(data.strategy_id or "").strip()
+        and await has_server_owned_ai_research_strategy_reference(data.strategy_id, user_id)
+    ):
+        raise AIStrategyResearchUnitMutationError(
+            "AI_RESEARCH_STRATEGY_SNAPSHOT_UNIT_CREATE_FORBIDDEN"
+        )
     async with async_session_maker() as session:
         ws = await WorkspaceService._load_workspace(
             session, workspace_id, user_id, load_units=False
@@ -218,6 +763,7 @@ async def batch_create_units(
     trading_service: Any,
     *,
     allow_server_bound_research_data: bool = False,
+    allow_server_owned_ai_research_state: bool = False,
 ) -> list[dict[str, Any]] | None:
     from app.services.workspace_service import WorkspaceService, _normalize_unit_data_config
 
@@ -226,6 +772,18 @@ async def batch_create_units(
             data.data_config,
             allow_server_bound_research_data=allow_server_bound_research_data,
         )
+        _reject_untrusted_ai_research_unit_payload(
+            data,
+            allow_server_owned_ai_research_state=allow_server_owned_ai_research_state,
+        )
+        if (
+            not allow_server_owned_ai_research_state
+            and str(data.strategy_id or "").strip()
+            and await has_server_owned_ai_research_strategy_reference(data.strategy_id, user_id)
+        ):
+            raise AIStrategyResearchUnitMutationError(
+                "AI_RESEARCH_STRATEGY_SNAPSHOT_UNIT_CREATE_FORBIDDEN"
+            )
     async with async_session_maker() as session:
         ws = await WorkspaceService._load_workspace(
             session, workspace_id, user_id, load_units=False
@@ -538,6 +1096,9 @@ async def update_unit(
     user_id: str,
     data: StrategyUnitUpdate,
     trading_service: Any,
+    *,
+    allow_server_owned_ai_research_state: bool = False,
+    sync_runtime: bool = True,
 ) -> dict[str, Any] | None:
     from app.services.workspace_service import WorkspaceService, _normalize_unit_data_config
 
@@ -551,6 +1112,31 @@ async def update_unit(
         if unit is None:
             return None
         update_data = data.model_dump(exclude_unset=True)
+        _reject_untrusted_ai_research_unit_payload(
+            data,
+            allow_server_owned_ai_research_state=allow_server_owned_ai_research_state,
+        )
+        replacement_strategy_id = str(update_data.get("strategy_id") or "").strip()
+        if (
+            replacement_strategy_id
+            and not allow_server_owned_ai_research_state
+            and await has_server_owned_ai_research_strategy_reference(
+                replacement_strategy_id,
+                user_id,
+            )
+        ):
+            raise AIStrategyResearchUnitMutationError(
+                "AI_RESEARCH_STRATEGY_SNAPSHOT_UNIT_CREATE_FORBIDDEN"
+            )
+        if (
+            update_data
+            and is_server_owned_ai_research_unit(unit)
+            and not allow_server_owned_ai_research_state
+        ):
+            # A public replacement JSON payload could otherwise first erase the
+            # marker and then change its strategy/instance/runtime evidence on
+            # the next request.  Paper-review identity is server-owned.
+            raise AIStrategyResearchUnitMutationError()
         existing_data_config = cast(dict[str, Any] | None, unit.data_config)
         binding_required = _requires_market_data_binding(existing_data_config)
         if binding_required:
@@ -582,11 +1168,12 @@ async def update_unit(
             setattr(unit, key, value)
         await session.commit()
         await session.refresh(unit)
-        workspace_unit_runtime.sync_workspace_unit_runtime(
-            unit,
-            cast("dict[str, Any]", ws.settings) or {},
-            str(ws.workspace_type),
-        )
+        if sync_runtime:
+            workspace_unit_runtime.sync_workspace_unit_runtime(
+                unit,
+                cast("dict[str, Any]", ws.settings) or {},
+                str(ws.workspace_type),
+            )
         return WorkspaceService._unit_to_dict(unit)
 
 
@@ -603,6 +1190,10 @@ async def delete_unit(workspace_id: str, unit_id: str, user_id: str) -> bool:
         unit = await WorkspaceService._get_unit(session, workspace_id, unit_id)
         if unit is None:
             return False
+        if is_server_owned_ai_research_unit(unit):
+            raise AIStrategyResearchUnitMutationError(
+                "AI_RESEARCH_UNIT_SERVER_OWNED_DELETE_FORBIDDEN"
+            )
         await session.delete(unit)
         await session.commit()
         workspace_unit_runtime.remove_unit_dir(workspace_id, unit_id)
@@ -619,6 +1210,19 @@ async def bulk_delete_units(workspace_id: str, user_id: str, unit_ids: list[str]
         )
         if ws is None:
             return 0
+
+        candidates = (
+            await session.execute(
+                select(StrategyUnit).where(
+                    StrategyUnit.workspace_id == workspace_id,
+                    StrategyUnit.id.in_(unit_ids),
+                )
+            )
+        ).scalars().all()
+        if any(is_server_owned_ai_research_unit(unit) for unit in candidates):
+            raise AIStrategyResearchUnitMutationError(
+                "AI_RESEARCH_UNIT_SERVER_OWNED_DELETE_FORBIDDEN"
+            )
 
         result = await session.execute(
             sa_delete(StrategyUnit).where(

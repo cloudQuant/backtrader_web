@@ -36,6 +36,30 @@ export const MARKET_DATA_FAMILY_CONTRACT_VERSION = 'market-data-family-v1' as co
 export type MarketDataFamilyContractVersion = typeof MARKET_DATA_FAMILY_CONTRACT_VERSION
 
 /**
+ * Server-owned effective rollout state for the normalized data platform.
+ *
+ * These fields intentionally describe enabled capabilities only; they never
+ * expose source credentials, provider configuration, or raw deployment flags.
+ */
+export interface MarketDataCapabilitiesResponse {
+  version: 'market-data-capabilities-v1'
+  query_v2_enabled: boolean
+  online_fetch_enabled: boolean
+  research_cache_fill_enabled: boolean
+  research_backtest_bridge_enabled: boolean
+}
+
+export function hasMarketDataCapabilities(value: unknown): value is MarketDataCapabilitiesResponse {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<MarketDataCapabilitiesResponse>
+  return candidate.version === 'market-data-capabilities-v1'
+    && typeof candidate.query_v2_enabled === 'boolean'
+    && typeof candidate.online_fetch_enabled === 'boolean'
+    && typeof candidate.research_cache_fill_enabled === 'boolean'
+    && typeof candidate.research_backtest_bridge_enabled === 'boolean'
+}
+
+/**
  * Server-proven v2 request facts attached to a legacy lookup when, and only
  * when, the API can resolve an exact canonical instrument and active dataset.
  *
@@ -673,6 +697,13 @@ export function isMarketDataQueryV2FallbackError(error: unknown): boolean {
 }
 
 export const marketDataApi = {
+  getCapabilities() {
+    return request.get<unknown>('/data/market-data/capabilities', {
+      suppressErrorMessage: true,
+      skipRetry: true,
+      validateStatus: (status) => status >= 200 && status < 300,
+    })
+  },
   listInstrumentOptions(params: MarketInstrumentOptionsParams) {
     return request.get<MarketInstrumentOptionsResponse>('/data/market-instruments/options', {
       params,

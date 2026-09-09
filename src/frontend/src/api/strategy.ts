@@ -626,6 +626,32 @@ export const strategyApi = {
     )
   },
 
+  async activateAIResearchLiveTrading(
+    runId: string,
+    researchWorkspaceId?: string | null
+  ): Promise<AIStrategyLiveTradingPrepare> {
+    return api.post<AIStrategyLiveTradingPrepare, Record<string, never>>(
+      `/strategy/ai-research/runs/${runId}/live-trading/activate`,
+      {},
+      {
+        params: { research_workspace_id: researchWorkspaceId || undefined },
+      }
+    )
+  },
+
+  async deactivateAIResearchLiveTrading(
+    runId: string,
+    researchWorkspaceId?: string | null
+  ): Promise<AIStrategyLiveTradingPrepare> {
+    return api.post<AIStrategyLiveTradingPrepare, Record<string, never>>(
+      `/strategy/ai-research/runs/${runId}/live-trading/deactivate`,
+      {},
+      {
+        params: { research_workspace_id: researchWorkspaceId || undefined },
+      }
+    )
+  },
+
   async createScore(data: StrategyScoreRequest): Promise<StrategyScoreResponse> {
     return api.post<StrategyScoreResponse, StrategyScoreRequest>('/strategy/score', data)
   },

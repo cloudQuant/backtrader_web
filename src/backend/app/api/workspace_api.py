@@ -39,10 +39,110 @@ from app.schemas.workspace import (
     WorkspaceResponse,
     WorkspaceUpdate,
 )
-from app.services.workspace.units import MarketDataBindingUnitMutationError
+from app.services.workspace.units import (
+    AIStrategyResearchPaperRuntimeStopError,
+    AIStrategyResearchUnitMutationError,
+    MarketDataBindingUnitMutationError,
+)
 from app.services.workspace_service import WorkspaceService
 
 router = APIRouter()
+
+_SERVER_OWNED_AI_RESEARCH_SETTINGS_PREFIX = "ai_research"
+
+
+def _server_owned_ai_research_settings_path(
+    value: Any,
+    *,
+    path: tuple[str, ...] = (),
+) -> str | None:
+    """Return a reserved settings path supplied through a public workspace API.
+
+    Research task/run snapshots are server-owned provenance.  They are stored
+    under ``settings.ai_research`` for recovery, but an owner must not be able
+    to construct or amend them through the generic workspace settings API.
+    Scan nested maps and lists as well: a future settings deep-merge must not
+    turn a nested client value into trusted research state.
+    """
+    if isinstance(value, dict):
+        for raw_key, nested_value in value.items():
+            key = str(raw_key).strip()
+            normalized = key.casefold()
+            next_path = (*path, key)
+            if normalized == _SERVER_OWNED_AI_RESEARCH_SETTINGS_PREFIX or normalized.startswith(
+                f"{_SERVER_OWNED_AI_RESEARCH_SETTINGS_PREFIX}_"
+            ):
+                return ".".join(next_path)
+            nested_path = _server_owned_ai_research_settings_path(
+                nested_value,
+                path=next_path,
+            )
+            if nested_path is not None:
+                return nested_path
+    elif isinstance(value, list):
+        for index, nested_value in enumerate(value):
+            nested_path = _server_owned_ai_research_settings_path(
+                nested_value,
+                path=(*path, str(index)),
+            )
+            if nested_path is not None:
+                return nested_path
+    return None
+
+
+def _reject_server_owned_ai_research_settings(settings: dict[str, Any] | None) -> None:
+    """Reject client attempts to write server-owned AI-research provenance."""
+    reserved_path = _server_owned_ai_research_settings_path(settings or {})
+    if reserved_path is None:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "code": "WORKSPACE_SERVER_OWNED_SETTINGS_FORBIDDEN",
+            "path": reserved_path,
+        },
+    )
+
+
+def _reject_explicit_null_workspace_settings(data: WorkspaceUpdate) -> None:
+    """Keep an explicit public ``settings: null`` from erasing server state.
+
+    ``WorkspaceUpdate`` intentionally permits omitted settings for ordinary
+    metadata updates.  Pydantic represents both an omitted field and an
+    explicit JSON null as ``None``, so use ``model_fields_set`` to reject only
+    the latter before lifecycle's generic ``setattr`` branch could replace the
+    persisted settings document.
+    """
+    if "settings" not in data.model_fields_set or data.settings is not None:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={"code": "WORKSPACE_SETTINGS_NULL_FORBIDDEN"},
+    )
+
+
+async def _reject_public_execution_mutation_for_ai_research_paper_workspace(
+    workspace_id: str,
+    user_id: str,
+    data: WorkspaceUpdate,
+    service: WorkspaceService,
+) -> None:
+    """Keep public workspace config writes away from attested paper runtimes."""
+    execution_fields = {"settings", "trading_config", "workspace_type"}
+    if not (set(data.model_fields_set) & execution_fields):
+        return
+    units = await service.list_units(workspace_id, user_id)
+    if units is None:
+        return
+    for unit in units:
+        if not isinstance(unit, dict):
+            continue
+        for field in ("data_config", "unit_settings", "params", "gateway_config"):
+            if _server_owned_ai_research_settings_path(unit.get(field), path=(field,)) is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={"code": "AI_RESEARCH_PAPER_WORKSPACE_EXECUTION_MUTATION_FORBIDDEN"},
+                )
 
 
 @lru_cache
@@ -67,6 +167,7 @@ async def create_workspace(
     service: WorkspaceService = Depends(get_workspace_service),
 ) -> WorkspaceResponse:
     """Create a new workspace."""
+    _reject_server_owned_ai_research_settings(data.settings)
     return await service.create_workspace(current_user.sub, data)
 
 
@@ -109,6 +210,14 @@ async def update_workspace(
     service: WorkspaceService = Depends(get_workspace_service),
 ) -> WorkspaceResponse:
     """Update workspace by ID."""
+    _reject_explicit_null_workspace_settings(data)
+    _reject_server_owned_ai_research_settings(data.settings)
+    await _reject_public_execution_mutation_for_ai_research_paper_workspace(
+        workspace_id,
+        current_user.sub,
+        data,
+        service,
+    )
     ws = await service.update_workspace(workspace_id, current_user.sub, data)
     if ws is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
@@ -122,7 +231,13 @@ async def delete_workspace(
     service: WorkspaceService = Depends(get_workspace_service),
 ) -> dict[str, str]:
     """Delete workspace by ID (cascades to units)."""
-    success = await service.delete_workspace(workspace_id, current_user.sub)
+    try:
+        success = await service.delete_workspace(workspace_id, current_user.sub)
+    except AIStrategyResearchUnitMutationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": exc.code},
+        ) from exc
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
     return {"message": "Workspace deleted"}
@@ -161,6 +276,11 @@ async def create_unit(
     """Create a single strategy unit."""
     try:
         result = await service.create_unit(workspace_id, current_user.sub, data)
+    except AIStrategyResearchUnitMutationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": exc.code},
+        ) from exc
     except MarketDataBindingUnitMutationError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -186,6 +306,11 @@ async def batch_create_units(
     """Batch create strategy units."""
     try:
         result = await service.batch_create_units(workspace_id, current_user.sub, data.units)
+    except AIStrategyResearchUnitMutationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": exc.code},
+        ) from exc
     except MarketDataBindingUnitMutationError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -283,6 +408,11 @@ async def update_unit(
     """Update a strategy unit."""
     try:
         result = await service.update_unit(workspace_id, unit_id, current_user.sub, data)
+    except AIStrategyResearchUnitMutationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": exc.code},
+        ) from exc
     except MarketDataBindingUnitMutationError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -301,7 +431,13 @@ async def delete_unit(
     service: WorkspaceService = Depends(get_workspace_service),
 ) -> dict[str, str]:
     """Delete a strategy unit."""
-    success = await service.delete_unit(workspace_id, unit_id, current_user.sub)
+    try:
+        success = await service.delete_unit(workspace_id, unit_id, current_user.sub)
+    except AIStrategyResearchUnitMutationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": exc.code},
+        ) from exc
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unit not found")
     return {"message": "Unit deleted"}
@@ -320,7 +456,13 @@ async def bulk_delete_units(
     service: WorkspaceService = Depends(get_workspace_service),
 ) -> dict[str, int]:
     """Bulk delete strategy units."""
-    deleted = await service.bulk_delete_units(workspace_id, current_user.sub, data.ids)
+    try:
+        deleted = await service.bulk_delete_units(workspace_id, current_user.sub, data.ids)
+    except AIStrategyResearchUnitMutationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": exc.code},
+        ) from exc
     return {"deleted": deleted}
 
 
@@ -379,9 +521,18 @@ async def run_units(
     service: WorkspaceService = Depends(get_workspace_service),
 ) -> dict[str, Any]:
     """Run backtest for selected strategy units."""
-    results = await service.run_units(
-        workspace_id, current_user.sub, data.unit_ids, parallel=data.parallel
-    )
+    try:
+        results = await service.run_units(
+            workspace_id, current_user.sub, data.unit_ids, parallel=data.parallel
+        )
+    except ValueError as exc:
+        code = str(exc).strip()
+        if code.startswith("AI_RESEARCH_LIVE_HANDOFF_"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": code},
+            ) from exc
+        raise
     if not results:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Workspace or units not found"
@@ -397,7 +548,13 @@ async def stop_units(
     service: WorkspaceService = Depends(get_workspace_service),
 ) -> dict[str, Any]:
     """Stop running strategy units."""
-    results = await service.stop_units(workspace_id, current_user.sub, data.unit_ids)
+    try:
+        results = await service.stop_units(workspace_id, current_user.sub, data.unit_ids)
+    except AIStrategyResearchPaperRuntimeStopError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": exc.code},
+        ) from exc
     return {"results": results}
 
 

@@ -1,8 +1,8 @@
 # 迭代 197 候选实现与验收状态
 
-> 记录日期：2026-09-08<br>
+> 记录日期：2026-09-10<br>
 > 文档性质：隔离工作树中的候选实现审计，不是生产发布证明。<br>
-> 设计基线：迭代 196 尚未冻结；本文件不解除两迭代的联合集成闸门。
+> 设计基线：迭代 196 已冻结；本 completion candidate 待合并至 `dev`，本文件不解除真实数据、数据库、浏览器和部署验收闸门。
 
 ## 1. 阅读规则和状态含义
 
@@ -13,10 +13,10 @@
 | `DONE` | 候选工作树已有实现和对应离线/定向测试证据；仍可能有外部验收未运行。 |
 | `IN_PROGRESS` | 已有基础或局部接线，但尚缺一个可安全启用的完整闭环。 |
 | `NOT_CONFIGURED` | 有明确数据合同或需求，但没有经批准的 source policy/route；页面必须显示未配置，不得猜测回退。 |
-| `BLOCKED` | 必须等待迭代 196、共享 migration head、真实环境授权或外部状态。 |
+| `BLOCKED` | 必须等待真实环境授权、外部服务或尚未实现的数据模型；不把本地候选代码当作解除条件。 |
 | `NOT_RUN` | 本次没有在真实 AkShare/OpenBB、共享数据库、浏览器或生产环境中执行；不能从 fixture、静态审计或历史日志推断成功。 |
 
-提交后复核曾发现一项 PIT 回放测试不确定性：测试使用虚构的 13:00 cutoff，却让 publication 使用真实时钟，记录正确地在该 cutoff 后才可见。候选提交 `c474a57b` 仅为该测试注入固定的可信 publication clock，未改变生产语义。随后对 `tests/market_data_platform`、`tests/test_config.py`、`tests/test_market_instrument_api.py` 和 `tests/test_market_instrument_freshness.py` 的最终组合离线运行报告为 `357 passed, 32 warnings in 76.18s`；候选提交 `20e214dd` 已格式化本迭代引入的 9 个文件，Ruff 格式和规则检查通过，Alembic head 为 `20260908_market_data_shared_dataset_bindings`。前端相关验证按文件串行运行：`marketData.test.ts` 为 `12 passed`，`DataPage.test.ts` 为 `28 passed`，`StrategyPage.test.ts` 为 `100 passed`；`npm run typecheck` 与 `npm run build` 均通过。后端 warnings 来自已安装 Backtrader、Alembic 配置和 Starlette 的弃用提示；前端构建仍报告 Browserslist 数据陈旧及既有大 chunk 警告。它们都已记录，但不将本地结果升级为全量、真实数据或生产验收。
+历史候选提交后的复核曾发现一项 PIT 回放测试不确定性：测试使用虚构的 13:00 cutoff，却让 publication 使用真实时钟，记录正确地在该 cutoff 后才可见。历史候选提交 `c474a57b` 仅为该测试注入固定的可信 publication clock，未改变生产语义。随后对 `tests/market_data_platform`、`tests/test_config.py`、`tests/test_market_instrument_api.py` 和 `tests/test_market_instrument_freshness.py` 的最终组合离线运行报告为 `357 passed, 32 warnings in 76.18s`；历史候选提交 `20e214dd` 已格式化当时引入的 9 个文件，Ruff 格式和规则检查通过，Alembic head 为 `20260908_market_data_shared_dataset_bindings`。当时的前端相关验证按文件串行运行：`marketData.test.ts` 为 `12 passed`，`DataPage.test.ts` 为 `28 passed`，`StrategyPage.test.ts` 为 `100 passed`；`npm run typecheck` 与 `npm run build` 均通过。后端 warnings 来自已安装 Backtrader、Alembic 配置和 Starlette 的弃用提示；前端构建仍报告 Browserslist 数据陈旧及既有大 chunk 警告。以上 SHA、分支、计数和结论均是历史快照，**不覆盖本次未提交 completion candidate 的 capability、cache-fill 或策略 bridge 增量**；该增量必须在冻结候选上按 [验收文档](ACCEPTANCE.md#4-必须执行的自动化回归) 复跑后才能记入新的执行记录。它们都不将本地结果升级为全量、真实数据或生产验收。
 
 ## 2. 候选实现总览
 
@@ -25,12 +25,12 @@
 | 精确 identity、catalog、canonical series、revision、publication/read-back | `DONE` | 候选实现采用规范化 `md_*` 模型、不可变来源快照、发布回读与 PIT 可见性边界。 | `NOT_RUN`：未在共享 MySQL/PostgreSQL 实例执行迁移和恢复演练。 |
 | local-first 查询、singleflight、严格 PIT 和 cursor | `DONE` | 候选实现读取本地覆盖；已包含 follower 事务回滚后重读、refresh 不复用 local-first follower 的回归。 | `NOT_RUN`：未做真实并发、多进程、故障恢复压测。 |
 | bars 的 AkShare 显式 route registry | `DONE` | 仅允许经审核的精确标的/市场/频率路线；拒绝 sample、邻近标的和隐式 provider fallback。 | `NOT_RUN`：没有真实 AkShare 账户/网络/限流/字段漂移验收。 |
-| OpenBB 隔离 subprocess runner | `DONE` | JSON DTO、环境白名单、输出上限、超时进程组清理、raw payload 与规范化 records 的确定性投影均在候选中覆盖；重复字段、投影不一致与进程内过载稳定拒绝。当前仅准许 bars。 | `NOT_RUN`：未在 operator-owned OpenBB 环境、真实 extension、许可和凭据下执行；上限只覆盖单个 Python 进程。 |
+| OpenBB 隔离 subprocess runner | `DONE` | JSON DTO、环境白名单、输出上限、超时进程组清理、raw payload 与规范化 records 的确定性投影均在候选中覆盖；重复字段、投影不一致与进程内过载稳定拒绝。协议候选只建模 bars；当前 permit matrix 为空，**没有**启用的 OpenBB route。 | `NOT_RUN`：未在 operator-owned OpenBB 环境、真实 extension、许可和凭据下执行；上限只覆盖单个 Python 进程。 |
 | quote snapshot local-first 覆盖 | `DONE` | `SnapshotCoveragePlanner` 已避免把 quote 强行塞入交易日历；产品 SLA 以 `source_policy_version` 锚定，quote 响应会隐藏超过该 policy freshness 的记录。 | `NOT_RUN`：真实 snapshot feed、七资产 identity 映射和 freshness 行为尚未在真实来源验证。 |
-| F1 市场页控制面 | `DONE` | `query-bundle` v1 覆盖 7×3 family；开关默认关闭；有效 bundle 中 `unconfigured/not_applicable` 不走 legacy lookup。 | `NOT_RUN`：未在浏览器、真实后端、真实数据状态下 E2E。 |
-| F1 策略页严格本地预检 | `IN_PROGRESS` | 候选已通过 query-contract 接入严格本地预检，并区分 typed contract 未发放、404、V2 执行失败和 legacy fallback。 | `BLOCKED`：迭代 196 的研究/回测工件 schema、输入输出契约未冻结。 |
+| F1 市场页控制面 | `DONE`（L-197-15，本地候选） | 已认证 capability 文档是 v2/bundle 唯一前端开关；有效 bundle 中 `unconfigured/not_applicable` 不走 legacy lookup，旧服务明确兼容错误才走无 bundle v2。静止候选的 capability API、cache 矩阵、选择器竞态和页面 v2 回归已通过。 | `NOT_RUN`：未在浏览器、真实后端、真实数据状态下 E2E。 |
+| F1 策略页严格本地预检 | `DONE`（L-197-15，本地候选） | 普通预检只读 `local_only + research + strict`；只有显式缓存补齐受 `query_v2 + online_fetch + cache_fill` 有效 capability 控制，独立于 bridge，成功后允许 strict 本地 v2 复读但不产生工件。bridge marker 从同一次提交的 symbol 快照派生，bridge 禁用时在同步/异步持久化前失败关闭；同步/异步拒绝与研究链全量回归已通过。 | `NOT_RUN`：未在真实数据、浏览器和部署环境完成工件回放。 |
 | F2 quote/valuation/settlement/NAV/reference | `IN_PROGRESS` | 已有离线 schedule/shadow snapshot importer 候选，但它未连接任何 provider route 或网络；各数据族仍保持 fail-closed。 | `NOT_RUN`：没有真实采集、回填或页面启用。 |
-| 共享 binding migration、真实回填、页面灰度、生产开关 | `BLOCKED` | shared binding migration 仅存在于候选工作树；必须与 196 的 migration head、数据库 lease、工件版本共同治理，不能单独应用或合并。 | `NOT_RUN`。 |
+| 共享 binding migration 与 server capability 代码整合 | `DONE`（代码整合） | 196/197 migration chain 与 binding consumer 已进入集成基线；server capability 接线不改变默认关闭状态。真实回填、页面灰度和生产开关不属于这一行的完成声明。 | `NOT_RUN`：未在可恢复真实数据库、页面灰度或生产部署执行。 |
 
 ## 3. 当前 21 个页面数据族
 
@@ -107,7 +107,7 @@ collector 无法获得可信 provider row time 时，`event_at` 只能被明确�
 
 当前 v1 bundle 有意把六个 `*.realtime` family 标为 `market.bars` compatibility，并且 required field 只保证 `close`。这使页面在旧数据源未迁移时仍可获得有限历史行情，但它不是 quote snapshot。
 
-候选前端已做到：有效 bundle 中，只有 `ready + bars` 才能进入 v2 query；`unconfigured/not_applicable` 不会回落到 legacy lookup；V2 contract 已发放后的查询失败被标为 error，不会再次走 legacy。默认 feature flag 关闭也避免未经灰度的接线影响现网。对于已配置的 quote，候选响应按 `source_policy_version` 对应的 freshness SLA 过滤并隐藏 stale records；这项行为尚未经过真实 snapshot 来源验证。
+候选前端已做到：已授权服务端 capability 是 v2/bundle 唯一准入；有效 bundle 中，只有 `ready + bars` 才能进入 v2 query；`unconfigured/not_applicable` 不会回落到 legacy lookup；V2 contract 已发放后的查询失败被标为 error，不会再次走 legacy。能力接口失效时只保留遗留本地兼容读取，浏览器 feature flag 不能改变该行为。对于已配置的 quote，候选响应按 `source_policy_version` 对应的 freshness SLA 过滤并隐藏 stale records；这项行为尚未经过真实 snapshot 来源验证。
 
 仍存在一个产品语义风险：页面 family 名称使用“实时”，而 bars compatibility 可能展示日线/周线/月线 close。F2 未完成前，页面不得把该 close 的 `event_at` 或本地 `available_at` 展示为“实时价格/实时更新时间”。启用 quote 前至少要满足以下条件：
 
@@ -122,9 +122,10 @@ collector 无法获得可信 provider row time 时，`event_at` 只能被明确�
 
 | 验收项 | 状态 | 必需证据 |
 | --- | --- | --- |
-| 候选后端及市场接口兼容总回归 | `DONE`（`357 passed, 32 warnings`） | `market_data_platform`、配置、市场接口和 freshness 套件的提交后组合输出；不等价于生产验收。 |
-| 候选代码格式、规则和 migration head | `DONE`（Ruff format/check、`alembic heads`） | 48 个目标 Python 文件格式通过，规则检查通过，head 为 `20260908_market_data_shared_dataset_bindings`；未运行真实迁移。 |
-| 前端相关单元、类型和构建门禁 | `DONE`（`12 + 28 + 100` 单元测试、`vue-tsc --noEmit`、Vite build） | 按文件串行的本地验证；Browserslist 与 bundle-size 警告已记录，不等价于浏览器 E2E。 |
+| 历史候选后端及市场接口兼容总回归 | 历史记录（`357 passed, 32 warnings`） | `market_data_platform`、配置、市场接口和 freshness 套件的历史提交后组合输出；不覆盖本次未提交 completion candidate，也不等价于生产验收。 |
+| 历史候选代码格式、规则和 migration head | 历史记录（Ruff format/check、`alembic heads`） | 当时 48 个目标 Python 文件格式通过，规则检查通过，head 为 `20260908_market_data_shared_dataset_bindings`；不描述当前 head，且未运行真实迁移。 |
+| 历史候选前端相关单元、类型和构建门禁 | 历史记录（`12 + 28 + 100` 单元测试、`vue-tsc --noEmit`、Vite build） | 当时按文件串行的本地验证；不覆盖本次 capability/bridge 增量，Browserslist 与 bundle-size 警告已记录，不等价于浏览器 E2E。 |
+| 本次 capability/cache-fill/bridge guard 增量 | `PASS`（L-197-15，本地） | 静止候选已完成 capability API、cache 状态矩阵、同步/异步 bridge 拒绝、symbol 快照竞态和四份前端 v2 测试；不替代浏览器、真实数据或部署证据。 |
 | 真实 AkShare exact route | `NOT_RUN` | 每条 route 的实际请求/回执、字段和身份 mismatch 反例、限流与错误码证据。 |
 | F2 collector 宽表刷新 | `IN_PROGRESS` | 离线 schedule/shadow snapshot importer 候选已存在，但没有 route 或网络调用；真实 feed-level singleflight、raw snapshot、ambiguous-row quarantine、首次导入后第二次同请求零网络仍为 `NOT_RUN`。 |
 | OpenBB operator runner | `NOT_RUN` | 独立环境、provider allow-list、extension 版本、许可证/凭据、子进程隔离和真实 data receipt。 |
@@ -135,11 +136,10 @@ collector 无法获得可信 provider row time 时，`event_at` 只能被明确�
 
 ## 7. 与迭代 196 的交接条件
 
-在下列条件未满足前，197 候选只能存在于隔离工作树，不能合并共享 migration、启用页面或宣称策略消费已经切换：
+迭代 196 已冻结。196/197 的代码与迁移整合已在本 completion candidate 通过 L-197-15 本地回归，待本候选提交并合并至 `dev`。下列条件仍限制页面灰度和生产启用，而不是限制代码合并：
 
-1. 196 冻结研究/回测输入、输出、artifact schema 和版本兼容窗口。
-2. 196/197 确定唯一 Alembic head、迁移顺序、lease/fencing、备份与恢复路径；当前 shared binding migration 仅为候选，不能作为共享数据库迁移依据。
-3. 数据中台输出固定 provenance manifest hash、dataset/identity/policy version、source snapshot IDs、visibility anchor 和 artifact fingerprint。
-4. 真实数据库、AkShare/OpenBB、浏览器和策略链路全部按本文件第 6 节重跑，并保存新鲜证据。
+1. 在可恢复 MySQL/PostgreSQL 副本确认唯一 Alembic head、迁移顺序、lease/fencing、备份与恢复路径。
+2. 数据中台输出固定 provenance manifest hash、dataset/identity/policy version、source snapshot IDs、visibility anchor 和 artifact fingerprint，并用批准的真实数据重放。
+3. 对每条 AkShare/OpenBB route 以及浏览器/API/策略链路完成本文件第 6 节的新鲜证据；OpenBB 仍受空 permit matrix、隔离运行器和许可证审查阻断。
 
-在这些前置条件完成前，整体状态为 `BLOCKED`；候选代码和局部测试不改变这一结论。
+在这些外部前置条件完成前，生产验收状态为 `NOT_RUN` / `NO-GO`；本地候选代码和局部测试不改变这一结论。

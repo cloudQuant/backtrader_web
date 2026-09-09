@@ -2,13 +2,43 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
+
+# Private keys are persisted by the execution service, never accepted from
+# ``LiveInstanceCreate``.  They form the server-owned launch epoch used by
+# AI-research paper promotion; public display timestamps remain legacy-local.
+SERVER_RUNTIME_LAUNCH_ID_FIELD = "_server_runtime_launch_id"
+SERVER_RUNTIME_LAUNCH_STARTED_AT_FIELD = "_server_runtime_launch_started_at"
 
 
 def instance_timestamp() -> str:
     """Return the local timestamp format used by persisted live instances."""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def server_runtime_launch_timestamp() -> str:
+    """Return an unambiguous UTC timestamp for a newly spawned process."""
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def clear_server_runtime_launch_observation(instance: dict[str, Any]) -> bool:
+    """Invalidate a private paper-review epoch after lifecycle uncertainty.
+
+    A PID recovered by a later scan is not proof that it is the server-issued
+    process that supplied an earlier review. Terminal state and reattachment
+    paths clear this pair; only a successful local spawn may publish a new
+    UUID/timestamp pair.
+    """
+    changed = False
+    for field in (
+        SERVER_RUNTIME_LAUNCH_ID_FIELD,
+        SERVER_RUNTIME_LAUNCH_STARTED_AT_FIELD,
+    ):
+        if field in instance:
+            instance.pop(field, None)
+            changed = True
+    return changed
 
 
 def _clean_text(value: Any) -> str:

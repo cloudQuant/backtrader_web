@@ -25,6 +25,7 @@ from app.services.param_optimization_service import (
     get_optimization_results,
 )
 from app.services.workspace._helpers import build_optimization_artifact_metadata
+from app.services.workspace.units import is_server_owned_ai_research_unit
 
 logger = logging.getLogger(__name__)
 
@@ -354,11 +355,23 @@ async def apply_best_params(
         unit = await WorkspaceService._get_unit(session, workspace_id, req.unit_id)
         if unit is None:
             return None
+        if is_server_owned_ai_research_unit(unit):
+            return {"error": "AI_RESEARCH_UNIT_SERVER_OWNED_STATE_FORBIDDEN"}
+
+        # Optimization task rows carry the strategy and owner but no unit or
+        # workspace foreign key.  The unit's persisted task pointer is the
+        # binding authority; never apply another same-user task's parameters.
+        if str(unit.last_optimization_task_id or "").strip() != str(
+            req.optimization_task_id or ""
+        ).strip():
+            return {"error": "OPTIMIZATION_TASK_UNIT_MISMATCH"}
 
         mgr = get_optimization_execution_manager()
         db_task = await mgr.get_task(req.optimization_task_id, user_id=user_id)
         if not db_task or not db_task.results:
             return {"error": "Optimization results not found"}
+        if str(db_task.strategy_id or "").strip() != str(unit.strategy_id or "").strip():
+            return {"error": "OPTIMIZATION_TASK_UNIT_MISMATCH"}
 
         results = db_task.results
         if req.result_index >= len(results):
@@ -415,6 +428,8 @@ async def submit_unit_optimization(
         unit = await get_unit(session, workspace_id, req.unit_id)
         if unit is None:
             return None
+        if is_server_owned_ai_research_unit(unit):
+            return {"error": "AI_RESEARCH_UNIT_SERVER_OWNED_STATE_FORBIDDEN"}
 
         param_ranges: dict[str, dict[str, Any]] = {}
         for name, spec in req.param_ranges.items():

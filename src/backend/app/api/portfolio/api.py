@@ -50,6 +50,7 @@ from app.services.trading_asset_info_service import (
     split_bidirectional_position_row,
     symbol_aliases,
 )
+from app.services.workspace.units import is_server_owned_ai_research_unit
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -1450,6 +1451,11 @@ async def _persist_source_asset_specs(current_user: Any, source: _PortfolioSourc
         if row is None:
             return
         unit = row[0]
+        if is_server_owned_ai_research_unit(unit):
+            # This endpoint is user-triggered and can resolve remote/local
+            # specs.  Do not use it as a write channel into an attested paper
+            # unit's parameters; review reads server-signed handoff evidence.
+            return
         params = _safe_dict(unit.params)
         metadata = (
             dict(params.get("contract_metadata"))

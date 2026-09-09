@@ -11,6 +11,7 @@ import type {
 } from '@/api/marketData'
 
 const apiMocks = vi.hoisted(() => ({
+  getCapabilities: vi.fn(),
   lookupInstrument: vi.fn(),
   getQueryBundle: vi.fn(),
   getQueryContract: vi.fn(),
@@ -27,6 +28,17 @@ vi.mock('element-plus', () => ({
 }))
 
 vi.mock('@/api/marketData', () => ({
+  hasMarketDataCapabilities: (value: unknown) => (
+    Boolean(
+      value
+      && typeof value === 'object'
+      && (value as { version?: unknown }).version === 'market-data-capabilities-v1'
+      && typeof (value as { query_v2_enabled?: unknown }).query_v2_enabled === 'boolean'
+      && typeof (value as { online_fetch_enabled?: unknown }).online_fetch_enabled === 'boolean'
+      && typeof (value as { research_cache_fill_enabled?: unknown }).research_cache_fill_enabled === 'boolean'
+      && typeof (value as { research_backtest_bridge_enabled?: unknown }).research_backtest_bridge_enabled === 'boolean',
+    )
+  ),
   hasMarketDataQueryBundle: (value: unknown) => (
     Boolean(
       value
@@ -66,6 +78,7 @@ vi.mock('@/api/marketData', () => ({
     || error?.response?.data?.details?.code === 'MARKET_DATA_QUERY_BUNDLE_UNAVAILABLE'
   ),
   marketDataApi: {
+    getCapabilities: apiMocks.getCapabilities,
     listInstrumentOptions: apiMocks.listInstrumentOptions,
     lookupInstrument: apiMocks.lookupInstrument,
     getQueryBundle: apiMocks.getQueryBundle,
@@ -511,6 +524,13 @@ describe('DataPage', () => {
     vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'false')
     window.localStorage.removeItem(MARKET_ASSET_SELECTIONS_STORAGE_KEY)
     window.localStorage.removeItem(LEGACY_MARKET_SELECTION_STORAGE_KEY)
+    apiMocks.getCapabilities.mockResolvedValue({
+      version: 'market-data-capabilities-v1',
+      query_v2_enabled: true,
+      online_fetch_enabled: false,
+      research_cache_fill_enabled: false,
+      research_backtest_bridge_enabled: false,
+    })
     apiMocks.lookupInstrument.mockImplementation(({ asset_type }: { asset_type: MarketAssetType }) => (
       Promise.resolve(createLookupFixture(asset_type))
     ))
@@ -598,13 +618,24 @@ describe('DataPage', () => {
       },
     })
     await flushPromises()
+    // Capability resolution adds one asynchronous control-plane stage before
+    // an optional family-bundle request. Wait through that stage so each page
+    // assertion observes the settled request path rather than a mid-flight
+    // loading state.
+    await flushPromises()
     return wrapper
   }
 
-  it('keeps the complete v2 page path off until its browser gate is enabled', async () => {
-    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'false')
-    // The family-control plane cannot independently re-enable any v2 request.
-    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+  it('keeps the complete v2 page path off when the server capability is disabled', async () => {
+    // A browser build flag must never claim the receipt-backed path is live
+    // while the authenticated server capability says it is disabled.
+    apiMocks.getCapabilities.mockResolvedValue({
+      version: 'market-data-capabilities-v1',
+      query_v2_enabled: false,
+      online_fetch_enabled: false,
+      research_cache_fill_enabled: false,
+      research_backtest_bridge_enabled: false,
+    })
 
     const wrapper = await mountPage()
 
@@ -624,6 +655,19 @@ describe('DataPage', () => {
       instrumentMetadataVersion: null,
     })
     expect(wrapper.find('[data-test="market-data-platform-provenance"]').exists()).toBe(false)
+  })
+
+  it('uses the server capability even when the browser rollout variable is stale', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'false')
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture())
+    apiMocks.queryLocalFirst.mockResolvedValue(createV2ResponseFixture())
+
+    await mountPage()
+
+    expect(apiMocks.getCapabilities).toHaveBeenCalledTimes(1)
+    expect(apiMocks.getQueryContract).toHaveBeenCalledTimes(1)
+    expect(apiMocks.queryLocalFirst).toHaveBeenCalledTimes(1)
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
   })
 
   it('renders only public v2 response provenance identifiers in the market status', async () => {
@@ -906,7 +950,7 @@ describe('DataPage', () => {
 
     const wrapper = await mountPage()
 
-    expect(apiMocks.getQueryBundle).not.toHaveBeenCalled()
+    expect(apiMocks.getQueryBundle).toHaveBeenCalledWith({ asset_type: 'stock' })
     expect(apiMocks.getQueryContract).toHaveBeenCalledWith({
       asset_type: 'stock',
       symbol: '000001',
@@ -929,6 +973,7 @@ describe('DataPage', () => {
 
   it('fails closed when the unbundled crypto realtime family is unconfigured', async () => {
     const wrapper = await mountPage()
+    apiMocks.getQueryBundle.mockClear()
     apiMocks.getQueryContract.mockClear()
     apiMocks.queryLocalFirst.mockClear()
     apiMocks.lookupInstrument.mockClear()
@@ -940,7 +985,7 @@ describe('DataPage', () => {
     await cryptoTab?.trigger('click')
     await flushPromises()
 
-    expect(apiMocks.getQueryBundle).not.toHaveBeenCalled()
+    expect(apiMocks.getQueryBundle).toHaveBeenCalledWith({ asset_type: 'crypto' })
     expect(apiMocks.getQueryContract).toHaveBeenCalledWith({
       asset_type: 'crypto',
       symbol: 'BTCJPY',
@@ -987,8 +1032,10 @@ describe('DataPage', () => {
     })).toThrow('MARKET_DATA_OHLC_INVALID')
   })
 
-  it('uses a valid family bundle as the authoritative status for every stock data family', async () => {
-    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'true')
+  it('uses a server-advertised family bundle even when the browser bundle variable is stale', async () => {
+    // The server capability owns this control plane. A stale browser build
+    // must not suppress a bundle that the authenticated server supplies.
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_BUNDLE_ENABLED', 'false')
     apiMocks.getQueryBundle.mockResolvedValue(createQueryBundleFixture('stock', {
       'stock.realtime': 'ready',
       'stock.valuation': 'unconfigured',
@@ -1316,6 +1363,94 @@ describe('DataPage', () => {
     expect(vm.referenceSeriesResult).toBeNull()
     expect(vm.chartCanRender).toBe(false)
     expect(wrapper.find('[data-test="market-reference-series-table"]').exists()).toBe(true)
+  })
+
+  it('drops the initial lookup when every request selector changes during capability resolution', async () => {
+    const pendingCapabilities = createDeferred<{
+      version: string
+      query_v2_enabled: boolean
+      online_fetch_enabled: boolean
+      research_cache_fill_enabled: boolean
+      research_backtest_bridge_enabled: boolean
+    }>()
+    apiMocks.getCapabilities.mockReturnValueOnce(pendingCapabilities.promise)
+
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+
+    expect(apiMocks.getCapabilities).toHaveBeenCalledTimes(1)
+    vm.form.asset_type = 'futures'
+    vm.form.symbol = 'RB0'
+    vm.form.market = 'SHFE'
+    vm.form.period = 'weekly'
+    vm.dateRange = ['2026-06-01', '2026-06-20']
+    vm.selectedFamilyId = 'futures.settlement'
+
+    pendingCapabilities.resolve({
+      version: 'market-data-capabilities-v1',
+      query_v2_enabled: true,
+      online_fetch_enabled: false,
+      research_cache_fill_enabled: false,
+      research_backtest_bridge_enabled: false,
+    })
+    await flushPromises()
+    await flushPromises()
+
+    // The pre-capability snapshot was stock/000001.  It must be discarded,
+    // rather than issuing either a v2 or legacy provider request using the
+    // later futures form values.
+    expect(apiMocks.getQueryBundle).not.toHaveBeenCalled()
+    expect(apiMocks.getQueryContract).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(vm.result).toBeNull()
+  })
+
+  it('treats a cleared date range as an omitted legacy window', async () => {
+    apiMocks.getCapabilities.mockResolvedValue({
+      version: 'market-data-capabilities-v1',
+      query_v2_enabled: false,
+      online_fetch_enabled: false,
+      research_cache_fill_enabled: false,
+      research_backtest_bridge_enabled: false,
+    })
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    apiMocks.lookupInstrument.mockClear()
+
+    vm.dateRange = null
+    await vm.lookupInstrument()
+    await flushPromises()
+
+    expect(apiMocks.lookupInstrument).toHaveBeenCalledWith(expect.objectContaining({
+      asset_type: 'stock',
+      symbol: '000001',
+      start_date: undefined,
+      end_date: undefined,
+    }))
+    expect(vm.result?.symbol).toBe('000001')
+  })
+
+  it('rejects a cleared date range through the v2 window guard without falling back', async () => {
+    apiMocks.getQueryContract.mockResolvedValue(createV2ContractFixture())
+    apiMocks.queryLocalFirst.mockResolvedValue(createV2ResponseFixture())
+    const wrapper = await mountPage()
+    const vm = wrapper.vm as any
+    apiMocks.getQueryContract.mockClear()
+    apiMocks.queryLocalFirst.mockClear()
+    apiMocks.lookupInstrument.mockClear()
+
+    vm.dateRange = null
+    await vm.lookupInstrument()
+    await flushPromises()
+
+    // The previously issued server contract is still exact for this symbol;
+    // the frozen empty window is rejected before any local-first read.
+    expect(apiMocks.getQueryContract).not.toHaveBeenCalled()
+    expect(apiMocks.queryLocalFirst).not.toHaveBeenCalled()
+    expect(apiMocks.lookupInstrument).not.toHaveBeenCalled()
+    expect(vm.result).toBeNull()
+    expect((wrapper.vm as any).marketDataPlatformStatus.path).toBe('error')
   })
 
   it('drops an in-flight response when its symbol, period, or date window changes', async () => {

@@ -10,11 +10,17 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.data.deps import get_current_db_user, get_market_data_access_authorizer
+from app.api.data.deps import (
+    get_authorized_market_data_access,
+    require_authorized_market_data_read,
+)
+from app.api.data.deps import (
+    get_market_data_access_authorizer as _get_market_data_access_authorizer,
+)
 from app.config import Settings, get_settings
 from app.db.database import get_db
-from app.models.user import User
 from app.schemas.market_data_platform import (
+    MarketDataCapabilitiesResponse,
     MarketDataCoverageGapResponse,
     MarketDataCoverageResponse,
     MarketDataFetchResponse,
@@ -27,7 +33,6 @@ from app.schemas.market_data_platform import (
     PublicMarketDataQueryRequest,
 )
 from app.services.market_data.access import (
-    MarketDataAccessAuthorizer,
     MarketDataAuthorizationError,
     MarketDataQueryAccess,
 )
@@ -62,6 +67,11 @@ from app.services.market_data.source_policy import (
 from app.services.market_data.store import MarketDataStore, MarketDataStoreError
 
 router = APIRouter()
+
+# Preserve the dependency object imported by the existing API tests and
+# application overrides while route dependencies now authorize through the
+# auth-first wrapper above.
+get_market_data_access_authorizer = _get_market_data_access_authorizer
 
 _DAILY_BAR_FREQUENCIES = frozenset({"1d", "1w", "1mo"})
 _DAILY_ONLY_FREQUENCIES = frozenset({"1d"})
@@ -270,9 +280,11 @@ def _openbb_markets(settings: Settings) -> tuple[str, ...]:
 
 def get_market_data_query_service(
     db: AsyncSession = Depends(get_db),
+    _access: MarketDataQueryAccess = Depends(get_authorized_market_data_access),
 ) -> MarketDataQueryService:
-    """Compose the v2 query service from the request-scoped database session."""
+    """Compose the v2 query service only after data-read authorization succeeds."""
     settings = get_settings()
+    capabilities = _market_data_capabilities_from_settings(settings)
     return MarketDataQueryService(
         resolver=MarketDataQueryResolver(
             catalog=DataCatalogResolver(db),
@@ -282,14 +294,36 @@ def get_market_data_query_service(
         source_policies=_default_source_policy_registry(
             settings.MARKET_DATA_OPENBB_PROVIDER,
             _openbb_markets(settings),
-            bool(getattr(settings, "MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED", False)),
+            capabilities.research_cache_fill_enabled,
         ),
-        allow_online_fetch=settings.MARKET_DATA_ONLINE_FETCH_ENABLED,
+        allow_online_fetch=capabilities.online_fetch_enabled,
+    )
+
+
+def _market_data_capabilities_from_settings(settings: Settings) -> MarketDataCapabilitiesResponse:
+    """Return only effective server-owned rollout controls for authenticated clients.
+
+    Dependent controls deliberately compose their prerequisites here rather
+    than echoing raw environment flags.  The research backtest bridge reads
+    strict local-only artifacts, so it requires v2 but not online fetching.
+    """
+    query_v2_enabled = bool(getattr(settings, "MARKET_DATA_QUERY_V2_ENABLED", False))
+    online_fetch_enabled = query_v2_enabled and bool(
+        getattr(settings, "MARKET_DATA_ONLINE_FETCH_ENABLED", False)
+    )
+    return MarketDataCapabilitiesResponse(
+        query_v2_enabled=query_v2_enabled,
+        online_fetch_enabled=online_fetch_enabled,
+        research_cache_fill_enabled=online_fetch_enabled
+        and bool(getattr(settings, "MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED", False)),
+        research_backtest_bridge_enabled=query_v2_enabled
+        and bool(getattr(settings, "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED", False)),
     )
 
 
 def get_market_data_query_bundle_request(
     http_request: Request,
+    _read_authorized: None = Depends(require_authorized_market_data_read),
     asset_type: str = Query(..., min_length=1, max_length=32, description="Market-page asset type"),
     family_id: str | None = Query(
         default=None,
@@ -325,6 +359,18 @@ def get_market_data_query_bundle_request(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "DATA_FAMILY_REQUEST_INVALID"},
         ) from exc
+
+
+@router.get(
+    "/market-data/capabilities",
+    response_model=MarketDataCapabilitiesResponse,
+    summary="Read effective market-data rollout capabilities",
+)
+async def get_market_data_capabilities(
+    _read_authorized: None = Depends(require_authorized_market_data_read),
+) -> MarketDataCapabilitiesResponse:
+    """Return bounded server-derived feature state after current data-read authorization."""
+    return _market_data_capabilities_from_settings(get_settings())
 
 
 async def execute_market_data_query_with_singleflight(
@@ -432,8 +478,6 @@ async def execute_market_data_query_with_singleflight(
 )
 async def get_market_data_query_bundle(
     request: MarketDataQueryBundleRequest = Depends(get_market_data_query_bundle_request),
-    current_user: User = Depends(get_current_db_user),
-    access_authorizer: MarketDataAccessAuthorizer = Depends(get_market_data_access_authorizer),
 ) -> MarketDataQueryBundleResponse:
     """Return static product contracts without resolving data or invoking providers.
 
@@ -448,11 +492,7 @@ async def get_market_data_query_bundle(
             detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
         )
     try:
-        principal = await access_authorizer.principal_for_user(current_user)
-        access_authorizer.require_read_data(principal=principal)
         return DEFAULT_DATASET_CONTRACT_REGISTRY.bundle_for(request)
-    except MarketDataAuthorizationError as exc:
-        raise _market_data_http_error(exc.code) from exc
     except DatasetContractRegistryError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -468,41 +508,36 @@ async def get_market_data_query_bundle(
 async def query_market_data(
     request: PublicMarketDataQueryRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_db_user),
+    access: MarketDataQueryAccess = Depends(get_authorized_market_data_access),
     service: MarketDataQueryService = Depends(get_market_data_query_service),
-    access_authorizer: MarketDataAccessAuthorizer = Depends(get_market_data_access_authorizer),
 ) -> MarketDataQueryResponse:
     """Execute a typed v2 data query after the deployment gate is enabled."""
     settings = get_settings()
-    if not settings.MARKET_DATA_QUERY_V2_ENABLED:
+    capabilities = _market_data_capabilities_from_settings(settings)
+    if not capabilities.query_v2_enabled:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "MARKET_DATA_QUERY_V2_DISABLED"},
         )
     if (
         request.purpose == _RESEARCH_CACHE_FILL_PURPOSE
-        and not getattr(settings, "MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED", False)
+        and not capabilities.research_cache_fill_enabled
     ):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "MARKET_DATA_RESEARCH_CACHE_FILL_DISABLED"},
         )
     try:
-        principal = await access_authorizer.principal_for_user(current_user)
-        access_authorizer.require_read_data(principal=principal)
         execution = await execute_market_data_query_with_singleflight(
             service=service,
             db=db,
             request=request,
             cursor_binding=MarketDataCursorBinding(
-                principal_scope=principal.principal_scope,
-                tenant_scope=principal.tenant_scope,
-                entitlement_revision=principal.entitlement_revision,
+                principal_scope=access.principal.principal_scope,
+                tenant_scope=access.principal.tenant_scope,
+                entitlement_revision=access.principal.entitlement_revision,
             ),
-            access=MarketDataQueryAccess(
-                principal=principal,
-                authorizer=access_authorizer,
-            ),
+            access=access,
         )
     except (
         MarketDataAuthorizationError,

@@ -17,12 +17,36 @@ from app.schemas.ai_strategy_research import (
     AIStrategyResearchRunResponse,
     AIStrategyResearchTaskResponse,
 )
+from app.services.ai_research_provenance import (
+    sign_ai_research_task_snapshot,
+    verify_ai_research_task_snapshot,
+)
 from app.utils.logger import get_logger
 
 _CANCEL_CLEANUP_TIMEOUT_SECONDS = 1.0
 _DEFAULT_MAX_TERMINAL_TASKS_PER_USER = 50
 _TERMINAL_TASK_STATUSES = {"completed", "failed", "cancelled"}
 _MARKET_DATA_BINDING_KEY_PREFIX = "market_data_binding_"
+_MARKET_DATA_RUNTIME_BINDING_KEY = "market_data_binding"
+# A continuation is a rerun of a server-owned source, rather than a fresh
+# request body. Keep the override surface small: source identity, lineage,
+# research basis, and the internal improvement context are rebuilt below.
+# ``prompt`` remains here only so the mandate gate can distinguish a browser's
+# inherited prompt from an attempted new objective.
+_CONTINUATION_OPERATIONAL_OVERRIDE_FIELDS = frozenset(
+    {
+        "prompt",
+        "data_config",
+        "gateway_config",
+        "max_iterations",
+        "backtest_timeout_seconds",
+        "poll_interval_seconds",
+        "start_paper_trading",
+        "min_paper_trading_days",
+        "paper_workspace_name",
+        "trading_workspace_id",
+    }
+)
 _SENSITIVE_REQUEST_KEYS = (
     "api_key",
     "apikey",
@@ -83,7 +107,15 @@ class AIStrategyResearchWorkspaceTaskSnapshotStore:
 
         settings = dict(getattr(workspace, "settings", None) or {})
         ai_research = dict(settings.get("ai_research") or {})
-        task_payload = _task_snapshot_payload(response)
+        # Redaction is part of the persisted representation.  Sign exactly
+        # that final payload rather than the in-memory response, whose gateway
+        # secrets and other redacted values would otherwise make verification
+        # fail after a round-trip through workspace settings.
+        task_payload = _signed_task_snapshot_payload(
+            response,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
         raw_tasks = ai_research.get("tasks")
         existing_tasks = (
             [dict(item) for item in raw_tasks if isinstance(item, dict)]
@@ -134,9 +166,23 @@ class AIStrategyResearchWorkspaceTaskSnapshotStore:
         if not task_id:
             return None
         for workspace in await self._research_workspaces(user_id):
-            response = _find_task_snapshot_in_workspace(workspace, task_id)
+            response = _find_trusted_task_snapshot_in_workspace(
+                workspace,
+                user_id=user_id,
+                task_id=task_id,
+            )
             if response is not None:
-                return _recovered_task_response_for_read(response)
+                workspace_id = str(getattr(workspace, "id", "") or "").strip()
+                # The helper above verified the exact raw persisted mapping
+                # before Pydantic applied historical defaults. Re-verifying
+                # this normalized response would compare a different payload
+                # and reject legitimate snapshots merely because omitted
+                # defaults were materialized. Recovery below re-signs any
+                # server-derived state it returns.
+                if not workspace_id:
+                    return None
+                recovered = _recovered_task_response_for_read(response)
+                return _signed_task_response(recovered, user_id=user_id)
         return None
 
     async def list_tasks(
@@ -218,6 +264,7 @@ class AIStrategyResearchTaskManager:
         """
         task_id = str(uuid.uuid4())
         request = await _prepare_research_task_request(task_id, request, request_preparer)
+        request = _apply_market_data_research_task_binding_guard(request)
         runtime_updates = _research_request_runtime_task_updates(request)
         runtime_updates.update(
             await _service_continuation_task_updates(
@@ -233,12 +280,18 @@ class AIStrategyResearchTaskManager:
             mandate_id=request.mandate_id,
             request_snapshot=_research_request_snapshot(request),
             request_explicit_fields=_research_request_explicit_fields(request),
+            request_explicit_fields_persisted=True,
+            # The envelope binds the concrete container ID.  Keeping it only
+            # in request_snapshot would leave an otherwise recoverable task
+            # unsigned until the background run reaches its final update.
+            research_workspace_id=request.research_workspace_id,
             current_stage="queued",
             progress=0.0,
             max_iterations=request.max_iterations,
             message="AI research task submitted",
             **runtime_updates,
         )
+        response = _signed_task_response(response, user_id=user_id)
         async with self._lock:
             self._tasks[task_id] = _ResearchTaskState(user_id=user_id, response=response)
 
@@ -276,7 +329,11 @@ class AIStrategyResearchTaskManager:
                     state.response.model_copy(deep=True)
                 )
         if memory_response is not None:
-            return memory_response
+            # In-process state is server-owned, but retain the same signed
+            # source contract as recovered snapshots once it has a research
+            # workspace.  This also ensures continuation callers cannot
+            # accidentally depend on unsigned response defaults.
+            return _signed_task_response(memory_response, user_id=user_id)
         return await self._load_task_snapshot(user_id, task_id)
 
     async def list_tasks(
@@ -320,13 +377,16 @@ class AIStrategyResearchTaskManager:
                 return state.response.model_copy(deep=True)
             background_task = state.background_task
             child_task_id = state.response.current_backtest_task_id
-            state.response = state.response.model_copy(
-                update={
-                    "status": "cancelled",
-                    "completed_at": _utc_iso_now(),
-                    "current_stage": "cancelled",
-                    "message": "AI research task cancelled",
-                }
+            state.response = _signed_task_response(
+                state.response.model_copy(
+                    update={
+                        "status": "cancelled",
+                        "completed_at": _utc_iso_now(),
+                        "current_stage": "cancelled",
+                        "message": "AI research task cancelled",
+                    }
+                ),
+                user_id=state.user_id,
             )
             response = state.response.model_copy(deep=True)
         await self._save_task_snapshot(user_id, response)
@@ -356,6 +416,13 @@ class AIStrategyResearchTaskManager:
         source_task = await self.get_task(user_id, task_id)
         if source_task is None:
             return None
+        source_workspace_id = _task_response_research_workspace_id(source_task)
+        if not source_workspace_id or not verify_ai_research_task_snapshot(
+            source_task,
+            user_id=user_id,
+            workspace_id=source_workspace_id,
+        ):
+            raise ValueError("AI_RESEARCH_CONTINUATION_PROVENANCE_INVALID")
         request = _continuation_request_from_task(source_task, overrides or {})
         return await self.submit(
             user_id,
@@ -470,7 +537,10 @@ class AIStrategyResearchTaskManager:
                 and new_status != state.response.status
             ):
                 return
-            state.response = state.response.model_copy(update=updates)
+            state.response = _signed_task_response(
+                state.response.model_copy(update=updates),
+                user_id=state.user_id,
+            )
             self._prune_terminal_tasks_locked(state.user_id)
             snapshot_user_id = state.user_id
             snapshot_response = state.response.model_copy(deep=True)
@@ -636,6 +706,24 @@ async def _prepare_research_task_request(
     return prepared
 
 
+def _apply_market_data_research_task_binding_guard(
+    request: AIStrategyResearchRunRequest,
+) -> AIStrategyResearchRunRequest:
+    """Apply the synchronous research binding guard before task state exists.
+
+    The task endpoint has an additional request-preparation phase that can
+    attach a task-scoped binding.  Once that phase has completed, its exact
+    request must pass the same gate as a synchronous research call before the
+    manager creates observable task state, dispatches background work, or
+    persists a snapshot.
+    """
+    # Keep the rule in one place.  The lazy import also avoids constructing a
+    # research service or adding an import cycle while this module is loaded.
+    from app.services.ai_strategy_research_service import _apply_market_data_research_binding_guard
+
+    return _apply_market_data_research_binding_guard(request)
+
+
 def _continuation_request_from_task(
     task: AIStrategyResearchTaskResponse,
     overrides: dict[str, Any],
@@ -650,20 +738,26 @@ def _continuation_request_from_task(
     # cannot be safely reused. Fresh overrides may still provide a gateway_config.
     payload.pop("gateway_config", None)
     continuation_context = _task_continuation_context_for_submit(task)
-    existing_context = payload.get("continuation_context")
-    if isinstance(existing_context, dict):
-        continuation_context = {**existing_context, **continuation_context}
-
     run_id = _task_continuation_run_id(task)
-    if run_id and not payload.get("continue_from_run_id"):
-        payload["continue_from_run_id"] = run_id
-    if task.research_workspace_id and not payload.get("research_workspace_id"):
-        payload["research_workspace_id"] = task.research_workspace_id
-    if task.best_strategy_id and not payload.get("seed_strategy_id"):
-        payload["seed_strategy_id"] = task.best_strategy_id
+    source_continue_from_run_id = run_id or str(payload.get("continue_from_run_id") or "").strip()
+    source_research_workspace_id = str(
+        task.research_workspace_id or payload.get("research_workspace_id") or ""
+    ).strip()
+    source_seed_strategy_id = str(
+        task.best_strategy_id or payload.get("seed_strategy_id") or ""
+    ).strip()
     payload_data_config = payload.get("data_config")
     data_config = dict(payload_data_config) if isinstance(payload_data_config, dict) else {}
-    if task.asset_specs and "asset_specs" not in data_config and not had_market_data_binding:
+    market_data_continuation_intent: dict[str, Any] | None = None
+    if had_market_data_binding:
+        # A saved binding is scoped to the old task and has already been
+        # removed above. Preserve only the declarative asset intent so an old
+        # bound task cannot become a legacy CSV request through an override.
+        # The fresh task preparer will validate that intent and issue a new
+        # task-scoped binding when the bridge is enabled.
+        market_data_continuation_intent = _market_data_continuation_intent(data_config)
+        payload["data_config"] = market_data_continuation_intent
+    elif task.asset_specs and "asset_specs" not in data_config:
         data_config["asset_specs"] = dict(task.asset_specs)
         payload["data_config"] = data_config
     if task.backtest_environment:
@@ -674,9 +768,10 @@ def _continuation_request_from_task(
 
     if continuation_context:
         payload["continuation_context"] = continuation_context
-        source = str(continuation_context.get("source") or "").strip()
-        if source:
-            payload.setdefault("continuation_source", source)
+    else:
+        payload.pop("continuation_context", None)
+    # This is response metadata, never an input to the next research request.
+    payload.pop("continuation_source", None)
 
     if not str(payload.get("symbol") or "").strip():
         symbol = _task_iteration_symbol(task)
@@ -686,13 +781,40 @@ def _continuation_request_from_task(
         payload["prompt"] = _task_continuation_prompt(task)
 
     for key, value in (overrides or {}).items():
+        if key not in _CONTINUATION_OPERATIONAL_OVERRIDE_FIELDS:
+            continue
         if value is not None:
+            if (
+                key == "data_config"
+                and market_data_continuation_intent is not None
+                and not _is_market_data_continuation_intent(value)
+            ):
+                # Do not let an old bound snapshot silently fall back to a
+                # legacy path. An exact asset-intent replacement remains
+                # supported so the server can bind the new task to a new
+                # market-data artifact.
+                continue
             payload[key] = value
-    if isinstance(overrides.get("continuation_context"), dict):
-        payload["continuation_context"] = {
-            **continuation_context,
-            **dict(overrides["continuation_context"]),
-        }
+
+    # Client overrides must never redirect a continuation to another run,
+    # workspace, strategy, or LLM feedback payload. Reapply all four from
+    # server-persisted source state after the operational allowlist.
+    if source_continue_from_run_id:
+        payload["continue_from_run_id"] = source_continue_from_run_id
+    else:
+        payload.pop("continue_from_run_id", None)
+    if source_research_workspace_id:
+        payload["research_workspace_id"] = source_research_workspace_id
+    else:
+        payload.pop("research_workspace_id", None)
+    if source_seed_strategy_id:
+        payload["seed_strategy_id"] = source_seed_strategy_id
+    else:
+        payload.pop("seed_strategy_id", None)
+    if continuation_context:
+        payload["continuation_context"] = continuation_context
+    else:
+        payload.pop("continuation_context", None)
 
     request = AIStrategyResearchRunRequest.model_validate(payload)
     if not request.continue_from_run_id and not request.seed_strategy_id:
@@ -712,7 +834,7 @@ def _strip_market_data_binding_values(value: Any) -> Any:
         return {
             key: _strip_market_data_binding_values(item)
             for key, item in value.items()
-            if not str(key).casefold().startswith(_MARKET_DATA_BINDING_KEY_PREFIX)
+            if not _is_market_data_binding_key(key)
         }
     if isinstance(value, list):
         return [_strip_market_data_binding_values(item) for item in value]
@@ -725,7 +847,7 @@ def _contains_market_data_binding_values(value: Any) -> bool:
     """Return whether a recovered snapshot carries any task-scoped binding."""
     if isinstance(value, dict):
         return any(
-            str(key).casefold().startswith(_MARKET_DATA_BINDING_KEY_PREFIX)
+            _is_market_data_binding_key(key)
             or _contains_market_data_binding_values(item)
             for key, item in value.items()
         )
@@ -734,16 +856,39 @@ def _contains_market_data_binding_values(value: Any) -> bool:
     return False
 
 
+def _market_data_continuation_intent(data_config: dict[str, Any]) -> dict[str, Any]:
+    """Retain only fail-closed asset intent from a prior task binding."""
+    asset_type = data_config.get("market_data_asset_type")
+    if isinstance(asset_type, str):
+        return {"market_data_asset_type": asset_type}
+    # Malformed historical snapshots still need a bridge marker. With the
+    # bridge disabled it produces MARKET_DATA_BRIDGE_DISABLED; with it enabled
+    # the server-side binder rejects the blank intent instead of using legacy
+    # CSV configuration from the recovered task.
+    return {"market_data_asset_type": ""}
+
+
+def _is_market_data_continuation_intent(value: Any) -> bool:
+    """Allow only a complete replacement of the one safe continuation intent."""
+    return (
+        isinstance(value, dict)
+        and set(value) == {"market_data_asset_type"}
+        and isinstance(value.get("market_data_asset_type"), str)
+    )
+
+
+def _is_market_data_binding_key(key: Any) -> bool:
+    """Recognize every task-scoped binding field retained in a snapshot."""
+    normalized = str(key).casefold()
+    return normalized == _MARKET_DATA_RUNTIME_BINDING_KEY or normalized.startswith(
+        _MARKET_DATA_BINDING_KEY_PREFIX
+    )
+
+
 def _task_continuation_run_id(task: AIStrategyResearchTaskResponse) -> str:
     for value in (
         task.run_id,
         task.continued_from_run_id,
-        task.continuation_context.get("run_id")
-        if isinstance(task.continuation_context, dict)
-        else None,
-        task.request_snapshot.get("continue_from_run_id")
-        if isinstance(task.request_snapshot, dict)
-        else None,
     ):
         text = str(value or "").strip()
         if text:
@@ -754,21 +899,18 @@ def _task_continuation_run_id(task: AIStrategyResearchTaskResponse) -> str:
 def _task_continuation_context_for_submit(
     task: AIStrategyResearchTaskResponse,
 ) -> dict[str, Any]:
-    context = dict(task.continuation_context) if isinstance(task.continuation_context, dict) else {}
-    source = str(context.get("source") or task.continuation_source or "").strip()
-    if not source:
-        source = _task_continuation_source(task)
-    context.update(
-        {
-            "source": source,
-            "task_id": task.task_id,
-            "run_id": _task_continuation_run_id(task) or task.run_id,
-            "task_status": task.status,
-            "task_stage": task.current_stage,
-            "quality_gate_failures": _task_continuation_failures(task, context),
-            "metrics": _task_continuation_metrics(task),
-        }
-    )
+    # Never inherit the prior request's arbitrary context. It may have been
+    # supplied by a browser before this hard boundary existed. Every value
+    # below comes from task state written by the task manager or research run.
+    context: dict[str, Any] = {
+        "source": _task_continuation_source(task),
+        "task_id": task.task_id,
+        "run_id": _task_continuation_run_id(task) or task.run_id,
+        "task_status": task.status,
+        "task_stage": task.current_stage,
+        "quality_gate_failures": _task_continuation_failures(task),
+        "metrics": _task_continuation_metrics(task),
+    }
     if task.current_backtest_task_id:
         context["current_backtest_task_id"] = task.current_backtest_task_id
     if task.cancelled_backtest_task_id:
@@ -781,6 +923,8 @@ def _task_continuation_context_for_submit(
 def _task_continuation_source(task: AIStrategyResearchTaskResponse) -> str:
     stage = str(task.current_stage or "").strip()
     status = str(task.status or "").strip()
+    if task.paper_review_status and not task.paper_review_ready_for_live:
+        return "paper_review"
     if stage == "interrupted":
         return "research_interrupted"
     if status == "cancelled" or stage == "cancelled":
@@ -792,14 +936,13 @@ def _task_continuation_source(task: AIStrategyResearchTaskResponse) -> str:
 
 def _task_continuation_failures(
     task: AIStrategyResearchTaskResponse,
-    context: dict[str, Any],
 ) -> list[str]:
     failures: list[str] = []
     for source in (
-        context.get("quality_gate_failures"),
         _task_iteration_list(task.best_iteration_payload, "quality_gate_failures"),
         _task_iteration_list(task.latest_iteration, "quality_gate_failures"),
         [task.error, task.message],
+        task.paper_review_next_actions,
         task.next_actions,
     ):
         for item in source if isinstance(source, list) else [source]:
@@ -858,6 +1001,37 @@ def _task_snapshot_payload(response: AIStrategyResearchTaskResponse) -> dict[str
     payload = response.model_dump(mode="json")
     redacted = _redact_sensitive_values(payload)
     return dict(redacted) if isinstance(redacted, dict) else {}
+
+
+def _signed_task_snapshot_payload(
+    response: AIStrategyResearchTaskResponse,
+    *,
+    user_id: str,
+    workspace_id: str,
+) -> dict[str, Any]:
+    """Return the final redacted task payload with server provenance attached."""
+    redacted_payload = _task_snapshot_payload(response)
+    signed_payload = sign_ai_research_task_snapshot(
+        redacted_payload,
+        user_id=user_id,
+        workspace_id=workspace_id,
+    )
+    return dict(signed_payload) if isinstance(signed_payload, dict) else redacted_payload
+
+
+def _signed_task_response(
+    response: AIStrategyResearchTaskResponse,
+    *,
+    user_id: str,
+) -> AIStrategyResearchTaskResponse:
+    """Sign mutable server task state once its containing workspace is known."""
+    workspace_id = _task_response_research_workspace_id(response)
+    signed = sign_ai_research_task_snapshot(
+        response,
+        user_id=user_id,
+        workspace_id=workspace_id or "",
+    )
+    return signed if isinstance(signed, AIStrategyResearchTaskResponse) else response
 
 
 def _task_response_research_workspace_id(
@@ -925,6 +1099,48 @@ def _find_task_snapshot_in_workspace(
         ),
         None,
     )
+
+
+def _find_trusted_task_snapshot_in_workspace(
+    workspace: Any,
+    *,
+    user_id: str,
+    task_id: str,
+) -> AIStrategyResearchTaskResponse | None:
+    """Load one continuation source only after authenticating raw settings.
+
+    Pydantic defaults are useful for rendering old history, but must not turn
+    an unsigned or partially supplied JSON mapping into a trusted task.  Verify
+    the exact stored payload against the outer workspace before deserializing.
+    """
+    target = str(task_id or "").strip()
+    workspace_id = str(getattr(workspace, "id", "") or "").strip()
+    if not target or not workspace_id:
+        return None
+    settings = dict(getattr(workspace, "settings", None) or {})
+    ai_research = settings.get("ai_research")
+    if not isinstance(ai_research, dict):
+        return None
+    raw_tasks = ai_research.get("tasks")
+    candidates = [*raw_tasks, ai_research.get("last_task")] if isinstance(raw_tasks, list) else [
+        ai_research.get("last_task")
+    ]
+    trusted: list[AIStrategyResearchTaskResponse] = []
+    for raw in candidates:
+        if not isinstance(raw, dict) or str(raw.get("task_id") or "").strip() != target:
+            continue
+        if not verify_ai_research_task_snapshot(
+            raw,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        ):
+            continue
+        response = _coerce_task_snapshot(raw)
+        if response is not None:
+            trusted.append(response)
+    if not trusted:
+        return None
+    return max(trusted, key=_task_response_history_rank)
 
 
 def _coerce_task_snapshot(raw: Any) -> AIStrategyResearchTaskResponse | None:

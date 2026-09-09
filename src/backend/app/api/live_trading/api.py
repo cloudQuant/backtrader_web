@@ -43,6 +43,12 @@ from app.services.log_parser_service import (
     parse_value_log,
 )
 from app.services.strategy.core import get_strategy_dir
+from app.services.workspace.units import (
+    AIStrategyResearchPaperRuntimeDeleteError,
+    AIStrategyResearchPaperRuntimeStopError,
+    assert_ai_research_paper_runtime_delete_allowed,
+    has_server_owned_ai_research_strategy_reference,
+)
 from app.types.live_trading import (
     ConnectResult,
     GatewayCredentials,
@@ -262,6 +268,11 @@ async def add_instance(
     Raises:
         HTTPException: If the instance cannot be created.
     """
+    if await has_server_owned_ai_research_strategy_reference(req.strategy_id, current_user.sub):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "AI_RESEARCH_PAPER_STRATEGY_MUTATION_FORBIDDEN"},
+        )
     try:
         return mgr.add_instance(req.strategy_id, req.params, user_id=current_user.sub)
     except ValueError as e:
@@ -287,6 +298,13 @@ async def remove_instance(
     Raises:
         HTTPException: If the instance is not found.
     """
+    try:
+        await assert_ai_research_paper_runtime_delete_allowed(instance_id, current_user.sub)
+    except AIStrategyResearchPaperRuntimeDeleteError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": e.code},
+        ) from e
     if not mgr.remove_instance(instance_id, user_id=current_user.sub):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found")
     return {"message": "Deleted successfully"}
@@ -373,6 +391,11 @@ async def stop_instance(
     """
     try:
         return await mgr.stop_instance(instance_id, user_id=current_user.sub)
+    except AIStrategyResearchPaperRuntimeStopError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": e.code},
+        ) from e
     except live_instance_service.InstanceAccessError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found"
@@ -416,7 +439,13 @@ async def stop_all(
     Returns:
         A summary of the batch stop operation.
     """
-    return await mgr.stop_all(user_id=current_user.sub)
+    try:
+        return await mgr.stop_all(user_id=current_user.sub)
+    except AIStrategyResearchPaperRuntimeStopError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": e.code},
+        ) from e
 
 
 # ==================== Analytics Endpoints ====================

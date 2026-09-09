@@ -56,6 +56,10 @@ from app.schemas.strategy import (
     StrategyResponse,
     StrategyUpdate,
 )
+from app.services.ai_research_provenance import (
+    verify_ai_research_run_record,
+    verify_ai_research_task_snapshot,
+)
 from app.services.ai_strategy_research_config_profiles import (
     AIStrategyResearchConfigProfileService,
 )
@@ -79,7 +83,10 @@ from app.services.strategy_service import (
     get_strategy_readme,
     get_template_by_id,
 )
-from app.services.workspace.units import MarketDataBindingUnitMutationError
+from app.services.workspace.units import (
+    MarketDataBindingUnitMutationError,
+    has_server_owned_ai_research_strategy_reference,
+)
 from app.utils.response_cache import cache_response
 
 _logger = logging.getLogger(__name__)
@@ -87,6 +94,7 @@ _logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _MARKET_DATA_BINDING_ERROR_PREFIX = "MARKET_DATA_BINDING_"
+_MARKET_DATA_BRIDGE_DISABLED_CODE = "MARKET_DATA_BRIDGE_DISABLED"
 
 
 @lru_cache
@@ -159,7 +167,10 @@ def get_ai_strategy_research_market_data_binding_service() -> typing.Any | None:
     while the default-disabled bridge remains off.
     """
     settings = get_settings()
-    if not bool(getattr(settings, "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED", False)):
+    if not (
+        bool(getattr(settings, "MARKET_DATA_QUERY_V2_ENABLED", False))
+        and bool(getattr(settings, "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED", False))
+    ):
         return None
     return _MarketDataResearchBindingRequestFactory(
         artifact_root=Path(str(settings.MARKET_DATA_RESEARCH_ARTIFACT_ROOT)),
@@ -171,15 +182,36 @@ def _market_data_research_request_preparer(
     binding_service: typing.Any | None,
     *,
     user_id: str,
-) -> typing.Callable[[str, AIStrategyResearchRunRequest], typing.Any] | None:
-    """Return the task-scoped server-side binder only when the bridge is on."""
-    if binding_service is None:
-        return None
+    mandate_service: InvestmentMandateService,
+    trusted_auto_prompt: str | None = None,
+    trusted_auto_mandate_id: str | None = None,
+    allow_server_continuation: bool = False,
+) -> typing.Callable[[str, AIStrategyResearchRunRequest], typing.Any]:
+    """Return the fail-closed mandate validator and optional server-side binder.
+
+    The task manager invokes this hook before it creates observable task state
+    or writes a workspace snapshot.  Keeping mandate validation ahead of the
+    market-data binder also prevents a rejected request from materializing an
+    artifact or a ``MdResearchDataBinding`` record.
+    """
 
     async def prepare(
         intent_id: str,
         request: AIStrategyResearchRunRequest,
     ) -> AIStrategyResearchRunRequest:
+        if not allow_server_continuation:
+            _reject_client_continuation_fields(request)
+        if trusted_auto_prompt is not None or trusted_auto_mandate_id is not None:
+            request = await mandate_service.restore_auto_continuation_request(
+                user_id,
+                request,
+                trusted_auto_prompt=trusted_auto_prompt,
+                trusted_auto_mandate_id=trusted_auto_mandate_id,
+            )
+        mandate = await mandate_service.ensure_for_request(user_id, request)
+        request = request.model_copy(update={"mandate_id": mandate.id})
+        if binding_service is None:
+            return request
         return await binding_service.bind_request(
             user_id=user_id,
             request=request,
@@ -189,23 +221,155 @@ def _market_data_research_request_preparer(
     return prepare
 
 
+def _reject_client_continuation_fields(request: AIStrategyResearchRunRequest) -> None:
+    """Reject internal continuation state on a fresh public research request.
+
+    The dedicated task/run continuation routes rebuild this state from a
+    trusted source. Accepting it on ``/run`` or ``/tasks`` would let browser
+    text become LLM improvement feedback or redirect the strategy lineage.
+    """
+    if request.continuation_context:
+        raise ValueError("AI_RESEARCH_CONTINUATION_CONTEXT_CLIENT_FORBIDDEN")
+    if request.continue_from_run_id or request.seed_strategy_id:
+        raise ValueError("AI_RESEARCH_CONTINUATION_LINEAGE_CLIENT_FORBIDDEN")
+
+
+def _model_has_persisted_field(value: typing.Any, field: str) -> bool:
+    """Return whether a Pydantic record actually persisted a field.
+
+    Default values on legacy task snapshots and run records are not evidence
+    that a source request was blank-auto.  ``model_fields_set`` preserves that
+    distinction when an older persisted JSON object is parsed.
+    """
+    fields = getattr(value, "model_fields_set", None)
+    if fields is None:
+        fields = getattr(value, "__fields_set__", set())
+    return field in fields
+
+
+def _trusted_auto_continuation_source(
+    *,
+    prompt: typing.Any,
+    workflow_mode: typing.Any,
+    mandate_id: typing.Any,
+    request_explicit_fields: typing.Any,
+    explicit_fields_persisted: bool,
+) -> tuple[str | None, str | None]:
+    """Return a source prompt only when persisted metadata proves blank-auto.
+
+    The browser may send a complete request as continuation overrides.  Its
+    ``prompt`` is not trusted by itself: this helper only returns the prompt
+    stored with a server-created source whose request explicitly omitted that
+    field.  The mandate service still verifies the source mandate's auto-basis
+    digest before removing the inherited text.
+    """
+    if not explicit_fields_persisted or str(workflow_mode or "").strip() != "auto":
+        return None, None
+    explicit_fields = (
+        {str(item).strip() for item in request_explicit_fields if str(item).strip()}
+        if isinstance(request_explicit_fields, (list, tuple, set))
+        else set()
+    )
+    if "prompt" in explicit_fields:
+        return None, None
+    source_prompt = str(prompt or "").strip()
+    source_mandate_id = str(mandate_id or "").strip()
+    if not source_prompt or not source_mandate_id:
+        return None, None
+    return source_prompt, source_mandate_id
+
+
+def _request_explicit_fields_are_server_persisted(value: typing.Any) -> bool:
+    """Return whether a source carries the explicit-fields provenance marker.
+
+    Pydantic fills missing legacy fields with defaults during API serialization,
+    so the list alone cannot prove that an empty value was server persisted.
+    Both the boolean marker and its own persisted-field evidence are required.
+    """
+    return bool(getattr(value, "request_explicit_fields_persisted", False)) and (
+        _model_has_persisted_field(value, "request_explicit_fields_persisted")
+        and _model_has_persisted_field(value, "request_explicit_fields")
+    )
+
+
+def _trusted_auto_continuation_source_from_task(
+    task: AIStrategyResearchTaskResponse,
+    *,
+    user_id: str,
+) -> tuple[str | None, str | None]:
+    """Read a blank-auto source only from a task's persisted request snapshot."""
+    workspace_id = str(task.research_workspace_id or "").strip()
+    if not workspace_id or not verify_ai_research_task_snapshot(
+        task,
+        user_id=user_id,
+        workspace_id=workspace_id,
+    ):
+        return None, None
+    snapshot = task.request_snapshot if isinstance(task.request_snapshot, dict) else {}
+    snapshot_mandate_id = str(snapshot.get("mandate_id") or "").strip()
+    task_mandate_id = str(task.mandate_id or "").strip()
+    if snapshot_mandate_id and task_mandate_id and snapshot_mandate_id != task_mandate_id:
+        return None, None
+    return _trusted_auto_continuation_source(
+        prompt=snapshot.get("prompt"),
+        workflow_mode=snapshot.get("workflow_mode"),
+        mandate_id=snapshot_mandate_id or task_mandate_id,
+        request_explicit_fields=task.request_explicit_fields,
+        explicit_fields_persisted=_request_explicit_fields_are_server_persisted(task),
+    )
+
+
+def _trusted_auto_continuation_source_from_run_record(
+    record: typing.Any,
+    *,
+    user_id: str,
+) -> tuple[str | None, str | None]:
+    """Read a blank-auto source only from a run record's persisted metadata."""
+    if not isinstance(record, AIStrategyResearchRunRecord):
+        return None, None
+    workspace_id = str(record.research_workspace_id or "").strip()
+    if not workspace_id or not verify_ai_research_run_record(
+        record,
+        user_id=user_id,
+        workspace_id=workspace_id,
+    ):
+        return None, None
+    return _trusted_auto_continuation_source(
+        prompt=record.prompt,
+        workflow_mode=record.workflow_mode,
+        mandate_id=record.mandate_id,
+        request_explicit_fields=record.request_explicit_fields,
+        explicit_fields_persisted=_request_explicit_fields_are_server_persisted(record),
+    )
+
+
 async def _prepare_ai_research_run_request(
     binding_service: typing.Any | None,
     *,
     user_id: str,
     request: AIStrategyResearchRunRequest,
+    mandate_service: InvestmentMandateService,
 ) -> AIStrategyResearchRunRequest:
-    """Bind a synchronous AI-research run before it can create workspace work."""
-    preparer = _market_data_research_request_preparer(binding_service, user_id=user_id)
-    if preparer is None:
-        return request
+    """Validate a run mandate before it can bind data or create workspace work."""
+    preparer = _market_data_research_request_preparer(
+        binding_service,
+        user_id=user_id,
+        mandate_service=mandate_service,
+    )
     return await preparer(str(uuid.uuid4()), request)
 
 
 def _market_data_binding_http_exception(error: Exception) -> HTTPException | None:
     """Translate stable binding failures without exposing internal traces."""
     code = str(getattr(error, "code", "") or "").strip()
-    if not code.startswith(_MARKET_DATA_BINDING_ERROR_PREFIX):
+    if not code:
+        # The direct service guard intentionally uses ``ValueError`` so callers
+        # outside HTTP do not depend on an API exception type.  Its message is
+        # a stable code and is still safe to map at this boundary.
+        code = str(error).strip()
+    if code != _MARKET_DATA_BRIDGE_DISABLED_CODE and not code.startswith(
+        _MARKET_DATA_BINDING_ERROR_PREFIX
+    ):
         return None
 
     normalized = code.upper()
@@ -456,6 +620,7 @@ async def run_ai_strategy_research_loop(
     data: AIStrategyResearchRunRequest,
     current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+    mandate_service: InvestmentMandateService = Depends(get_investment_mandate_service),
     binding_service: typing.Any | None = Depends(
         get_ai_strategy_research_market_data_binding_service
     ),
@@ -466,6 +631,7 @@ async def run_ai_strategy_research_loop(
             binding_service,
             user_id=current_user.sub,
             request=data,
+            mandate_service=mandate_service,
         )
         return redact_ai_strategy_research_payload(await service.run(current_user.sub, request))
     except Exception as exc:
@@ -677,6 +843,7 @@ async def submit_ai_strategy_research_task(
     current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
+    mandate_service: InvestmentMandateService = Depends(get_investment_mandate_service),
     binding_service: typing.Any | None = Depends(
         get_ai_strategy_research_market_data_binding_service
     ),
@@ -686,10 +853,12 @@ async def submit_ai_strategy_research_task(
         request_preparer = _market_data_research_request_preparer(
             binding_service,
             user_id=current_user.sub,
+            mandate_service=mandate_service,
         )
-        submit_kwargs: dict[str, typing.Any] = {"service": service}
-        if request_preparer is not None:
-            submit_kwargs["request_preparer"] = request_preparer
+        submit_kwargs: dict[str, typing.Any] = {
+            "service": service,
+            "request_preparer": request_preparer,
+        }
         return await task_manager.submit(current_user.sub, data, **submit_kwargs)
     except Exception as exc:
         _raise_ai_research_request_error(exc)
@@ -764,19 +933,32 @@ async def continue_ai_strategy_research_task(
     current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
+    mandate_service: InvestmentMandateService = Depends(get_investment_mandate_service),
     binding_service: typing.Any | None = Depends(
         get_ai_strategy_research_market_data_binding_service
     ),
 ) -> typing.Any:
     """Submit a new research task rebuilt from a saved task snapshot."""
     try:
+        source_task = await task_manager.get_task(current_user.sub, task_id)
+        if source_task is None:
+            raise HTTPException(status_code=404, detail="AI research task not found")
+        trusted_auto_prompt, trusted_auto_mandate_id = _trusted_auto_continuation_source_from_task(
+            source_task,
+            user_id=current_user.sub,
+        )
         request_preparer = _market_data_research_request_preparer(
             binding_service,
             user_id=current_user.sub,
+            mandate_service=mandate_service,
+            trusted_auto_prompt=trusted_auto_prompt,
+            trusted_auto_mandate_id=trusted_auto_mandate_id,
+            allow_server_continuation=True,
         )
-        continue_kwargs: dict[str, typing.Any] = {"service": service}
-        if request_preparer is not None:
-            continue_kwargs["request_preparer"] = request_preparer
+        continue_kwargs: dict[str, typing.Any] = {
+            "service": service,
+            "request_preparer": request_preparer,
+        }
         task = await task_manager.continue_task(
             current_user.sub,
             task_id,
@@ -960,9 +1142,13 @@ async def continue_ai_strategy_research_run(
     current_user: typing.Any = Depends(get_current_user),
     service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
     task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
+    mandate_service: InvestmentMandateService = Depends(get_investment_mandate_service),
+    binding_service: typing.Any | None = Depends(
+        get_ai_strategy_research_market_data_binding_service
+    ),
     research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
 ) -> typing.Any:
-    """Submit a new AI research task derived from a saved run record."""
+    """Submit a newly bound AI research task derived from a saved run record."""
     try:
         request = await service.build_continuation_request_from_run_record(
             current_user.sub,
@@ -975,8 +1161,37 @@ async def continue_ai_strategy_research_run(
     if request is None:
         raise HTTPException(status_code=404, detail="AI research run not found")
     try:
-        return await task_manager.submit(current_user.sub, request, service=service)
-    except ValueError as exc:
+        source_record = await service.get_run_record(
+            current_user.sub,
+            run_id,
+            research_workspace_id=research_workspace_id,
+            trusted_for_continuation=True,
+        )
+        trusted_auto_prompt, trusted_auto_mandate_id = (
+            _trusted_auto_continuation_source_from_run_record(
+                source_record,
+                user_id=current_user.sub,
+            )
+            if source_record is not None
+            else (None, None)
+        )
+        request_preparer = _market_data_research_request_preparer(
+            binding_service,
+            user_id=current_user.sub,
+            mandate_service=mandate_service,
+            trusted_auto_prompt=trusted_auto_prompt,
+            trusted_auto_mandate_id=trusted_auto_mandate_id,
+            allow_server_continuation=True,
+        )
+        submit_kwargs: dict[str, typing.Any] = {
+            "service": service,
+            "request_preparer": request_preparer,
+        }
+        return await task_manager.submit(current_user.sub, request, **submit_kwargs)
+    except Exception as exc:
+        _raise_ai_research_request_error(exc)
+        if not isinstance(exc, ValueError):
+            raise
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
@@ -1098,6 +1313,59 @@ async def prepare_ai_strategy_research_live_trading(
 
 
 @router.post(
+    "/ai-research/runs/{run_id}/live-trading/activate",
+    response_model=AIStrategyLiveTradingPrepare,
+    summary="Activate one approved AI live handoff through the server-only gate",
+)
+async def activate_ai_strategy_research_live_trading(
+    run_id: str,
+    current_user: typing.Any = Depends(get_current_user),
+    service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+    research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
+) -> typing.Any:
+    """Launch a prepared live handoff after final paper-evidence revalidation.
+
+    Public workspace and instance start routes deliberately reject prepared
+    handoffs.  This boundary owns the short-lived manager capability and
+    restores the unit locks after the one server-authorized launch attempt.
+    """
+    try:
+        return redact_ai_strategy_research_payload(
+            await service.activate_prepared_live_trading_from_run(
+                current_user.sub,
+                run_id,
+                research_workspace_id=research_workspace_id,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/ai-research/runs/{run_id}/live-trading/deactivate",
+    response_model=AIStrategyLiveTradingPrepare,
+    summary="Stop and revoke one AI live handoff through the server-only gate",
+)
+async def deactivate_ai_strategy_research_live_trading(
+    run_id: str,
+    current_user: typing.Any = Depends(get_current_user),
+    service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+    research_workspace_id: str | None = Query(None, description="Optional research workspace ID"),
+) -> typing.Any:
+    """Stop protected execution and invalidate its prior approval atomically."""
+    try:
+        return redact_ai_strategy_research_payload(
+            await service.deactivate_prepared_live_trading_from_run(
+                current_user.sub,
+                run_id,
+                research_workspace_id=research_workspace_id,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
     "/copilot/workspaces/{workspace_id}/units",
     response_model=StrategyDraftWorkspaceAddResponse,
     status_code=status.HTTP_201_CREATED,
@@ -1196,7 +1464,23 @@ async def update_strategy(
     Raises:
         HTTPException: If strategy not found or no permission.
     """
-    result = await service.update_strategy(strategy_id, current_user.sub, strategy_update)
+    if await has_server_owned_ai_research_strategy_reference(strategy_id, current_user.sub):
+        # StrategyService synchronizes code and parameter defaults directly
+        # into the shared template consumed by paper unit runtime materialization.
+        # A signed paper identity therefore freezes public template mutations.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "AI_RESEARCH_PAPER_STRATEGY_MUTATION_FORBIDDEN"},
+        )
+    try:
+        result = await service.update_strategy(strategy_id, current_user.sub, strategy_update)
+    except ValueError as exc:
+        if str(exc) == "AI_RESEARCH_PAPER_STRATEGY_MUTATION_FORBIDDEN":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "AI_RESEARCH_PAPER_STRATEGY_MUTATION_FORBIDDEN"},
+            ) from exc
+        raise
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1224,7 +1508,20 @@ async def delete_strategy(
     Raises:
         HTTPException: If strategy not found or no permission.
     """
-    success = await service.delete_strategy(strategy_id, current_user.sub)
+    if await has_server_owned_ai_research_strategy_reference(strategy_id, current_user.sub):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "AI_RESEARCH_PAPER_STRATEGY_MUTATION_FORBIDDEN"},
+        )
+    try:
+        success = await service.delete_strategy(strategy_id, current_user.sub)
+    except ValueError as exc:
+        if str(exc) == "AI_RESEARCH_PAPER_STRATEGY_MUTATION_FORBIDDEN":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "AI_RESEARCH_PAPER_STRATEGY_MUTATION_FORBIDDEN"},
+            ) from exc
+        raise
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

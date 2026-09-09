@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import shutil
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -20,7 +21,15 @@ from app.models.workspace import StrategyUnit
 from app.schemas.trading import PositionManagerResponse, TradingDailySummaryResponse
 from app.schemas.workspace import UnitStatusResponse
 from app.services import workspace_unit_runtime
+from app.services.ai_research_provenance import (
+    AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD,
+    AI_RESEARCH_PAPER_RUNTIME_METRICS_OBSERVATION_FIELD,
+    issue_ai_research_paper_runtime_anchor,
+    issue_ai_research_paper_runtime_metrics_observation,
+    verify_ai_research_paper_runtime_anchor_for_unit,
+)
 from app.services.auto_trading_scheduler import get_auto_trading_scheduler
+from app.services.live_trading.metadata import SERVER_RUNTIME_LAUNCH_ID_FIELD
 from app.services.live_trading_manager import get_live_trading_manager
 from app.services.log_parser_service import (
     parse_current_position,
@@ -40,6 +49,12 @@ from app.services.trading_asset_info_service import (
     signed_gateway_size,
     split_bidirectional_position_row,
     symbol_aliases,
+)
+from app.services.workspace.units import (
+    assert_ai_research_live_handoff_runtime_start_allowed,
+    is_server_owned_ai_research_live_handoff_unit,
+    is_server_owned_ai_research_paper_runtime,
+    is_server_owned_ai_research_unit,
 )
 
 logger = logging.getLogger(__name__)
@@ -1097,6 +1112,11 @@ class TradingWorkspaceService:
         unit: StrategyUnit,
         instance: dict[str, Any] | None,
     ) -> bool:
+        if is_server_owned_ai_research_unit(unit):
+            # Paper-review provenance binds the initial research handoff.  A
+            # later read of the mutable instance store must not rewrite the
+            # unit configuration that the next runtime sync consumes.
+            return False
         instance_params = _safe_dict((instance or {}).get("params"))
         instance_metadata = instance_params.get("contract_metadata")
         if not isinstance(instance_metadata, dict) or not instance_metadata:
@@ -1131,6 +1151,11 @@ class TradingWorkspaceService:
         unit: StrategyUnit,
         asset_specs: dict[str, dict[str, Any]],
     ) -> bool:
+        if is_server_owned_ai_research_unit(unit):
+            # Gateway/local discovery remains available to runtime-local
+            # readers, but must not become an unsigned mutation of an
+            # attested paper unit's persisted execution parameters.
+            return False
         if not asset_specs:
             return False
 
@@ -1192,6 +1217,8 @@ class TradingWorkspaceService:
         unit: StrategyUnit,
         instance: dict[str, Any] | None,
     ) -> bool:
+        if is_server_owned_ai_research_unit(unit):
+            return False
         instance_id = str((instance or {}).get("id") or unit.trading_instance_id or "").strip()
         if not instance_id:
             return False
@@ -1229,6 +1256,8 @@ class TradingWorkspaceService:
         unit: StrategyUnit,
         instance: dict[str, Any] | None = None,
     ) -> bool:
+        if is_server_owned_ai_research_unit(unit):
+            return False
         symbols = cls._unit_asset_spec_symbols(unit, instance)
         if not symbols:
             return False
@@ -1491,7 +1520,7 @@ class TradingWorkspaceService:
 
         asset_specs: dict[str, dict[str, Any]] = {}
         query_specs = getattr(manager, "query_instance_asset_specs", None)
-        if callable(query_specs) and symbols:
+        if callable(query_specs) and symbols and not is_server_owned_ai_research_unit(unit):
             try:
                 raw_specs = query_specs(instance_id, symbols)
             except Exception:
@@ -1994,7 +2023,7 @@ class TradingWorkspaceService:
             is_paper = str(getattr(unit, "trading_mode", "") or "").strip().lower() == "paper"
             new_trade_keys = self._snapshot_trade_keys(snapshot) - previous_trade_keys
             if full_log and is_paper and instance_id and new_trade_keys:
-                await self._record_post_fill_runtime_state(
+                post_fill_recorded = await self._record_post_fill_runtime_state(
                     user_id=user_id,
                     instance_id=instance_id,
                     snapshot=snapshot,
@@ -2002,6 +2031,22 @@ class TradingWorkspaceService:
                     unit_settings=_safe_dict(getattr(unit, "unit_settings", None)),
                     trade_keys=new_trade_keys,
                 )
+                launch_id = str((instance or {}).get(SERVER_RUNTIME_LAUNCH_ID_FIELD) or "").strip()
+                if post_fill_recorded and is_server_owned_ai_research_paper_runtime(unit):
+                    observation = issue_ai_research_paper_runtime_metrics_observation(
+                        user_id=user_id,
+                        paper_workspace_id=str(unit.workspace_id),
+                        paper_unit_id=str(unit.id),
+                        instance_id=instance_id,
+                        launch_id=launch_id,
+                        metrics_snapshot=metrics_snapshot,
+                    )
+                    if observation is not None:
+                        settings = _safe_dict(getattr(unit, "unit_settings", None))
+                        if settings.get(AI_RESEARCH_PAPER_RUNTIME_METRICS_OBSERVATION_FIELD) != observation:
+                            settings[AI_RESEARCH_PAPER_RUNTIME_METRICS_OBSERVATION_FIELD] = observation
+                            unit.unit_settings = settings
+                            changed = True
 
         return changed
 
@@ -2032,7 +2077,7 @@ class TradingWorkspaceService:
         metrics_snapshot: dict[str, Any],
         unit_settings: dict[str, Any],
         trade_keys: set[str],
-    ) -> None:
+    ) -> bool:
         """Persist one post-fill equity point and evaluate post-fill risk limits."""
         from app.services.paper_runtime_service import PaperRuntimeService
 
@@ -2066,18 +2111,23 @@ class TradingWorkspaceService:
                 if daily_pnl < 0 and equity > 0
                 else 0.0,
             )
+            return True
         except Exception:
             logger.warning(
                 "Unable to persist post-fill runtime state for %s",
                 instance_id,
                 exc_info=True,
             )
+            return False
 
     async def start_units(
         self,
         units: list[StrategyUnit],
         user_id: str,
         workspace_settings: dict[str, Any] | None = None,
+        *,
+        allow_server_owned_ai_research_live_handoff_start: bool = False,
+        live_handoff_pre_start_validator: Callable[[], Awaitable[None]] | None = None,
     ) -> list[dict[str, Any]]:
         manager = get_live_trading_manager()
         risk_gate_service = RiskGateService()
@@ -2094,10 +2144,46 @@ class TradingWorkspaceService:
                     raise ValueError("该策略单元已锁定交易")
                 if not str(unit.strategy_id or "").strip():
                     raise ValueError("策略单元缺少策略模板")
+                server_attested_paper_runtime = is_server_owned_ai_research_paper_runtime(unit)
+                server_attested_live_handoff = is_server_owned_ai_research_live_handoff_unit(unit)
+                server_attested_paper_runtime_digest: str | None = None
+                live_handoff_activation_token: str | None = None
+                paper_runtime_anchor: dict[str, Any] | None = None
+                # This is a pure, local preflight.  Run it before consuming a
+                # server-only live-handoff capability or touching a manager so
+                # an objectively unsafe unit is stopped at the first boundary.
+                # Provenance/activation checks below still run before any
+                # materialization or runtime side effect.
                 risk_gate_service.assert_trading_unit_pre_run(
                     unit,
                     workspace_settings=normalized_workspace_settings,
                 )
+                if server_attested_paper_runtime:
+                    unit_settings = (
+                        dict(unit.unit_settings or {})
+                        if isinstance(unit.unit_settings, dict)
+                        else {}
+                    )
+                    paper_runtime_anchor = unit_settings.get(
+                        AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD
+                    )
+                    if not verify_ai_research_paper_runtime_anchor_for_unit(
+                        paper_runtime_anchor,
+                        user_id=user_id,
+                        paper_workspace_id=str(unit.workspace_id),
+                        paper_unit_id=str(unit.id),
+                        unit=unit,
+                        workspace_settings=normalized_workspace_settings,
+                        require_runtime_snapshot=False,
+                    ):
+                        raise ValueError("AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID")
+                if server_attested_live_handoff:
+                    if not allow_server_owned_ai_research_live_handoff_start:
+                        raise ValueError("AI_RESEARCH_LIVE_HANDOFF_SERVER_ACTIVATION_REQUIRED")
+                    await assert_ai_research_live_handoff_runtime_start_allowed(unit, user_id)
+                    live_handoff_activation_token = (
+                        manager.new_live_handoff_runtime_activation_token()
+                    )
 
                 instance = None
                 self._refresh_unit_asset_specs_from_local(unit, None)
@@ -2106,6 +2192,54 @@ class TradingWorkspaceService:
                     unit,
                     normalized_workspace_settings,
                 )
+                if server_attested_paper_runtime:
+                    # The pre-sync check authorizes only the original expected
+                    # template/config. A strategy or workspace mutation can
+                    # race the public preflight before this directory copy, so
+                    # re-check the old signed expected digest after sync and
+                    # compare it to the actual isolated files before granting
+                    # the one-start manager capability.
+                    if not verify_ai_research_paper_runtime_anchor_for_unit(
+                        paper_runtime_anchor,
+                        user_id=user_id,
+                        paper_workspace_id=str(unit.workspace_id),
+                        paper_unit_id=str(unit.id),
+                        unit=unit,
+                        workspace_settings=normalized_workspace_settings,
+                        require_runtime_snapshot=False,
+                    ):
+                        raise ValueError("AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID")
+                    assert isinstance(paper_runtime_anchor, dict)
+                    expected_runtime_digest = paper_runtime_anchor.get("runtime_digest")
+                    refreshed_anchor = issue_ai_research_paper_runtime_anchor(
+                        user_id=user_id,
+                        research_workspace_id=str(
+                            paper_runtime_anchor.get("research_workspace_id") or ""
+                        ),
+                        paper_workspace_id=str(unit.workspace_id),
+                        paper_unit_id=str(unit.id),
+                        run_id=str(paper_runtime_anchor.get("run_id") or ""),
+                        unit=unit,
+                        workspace_settings=normalized_workspace_settings,
+                        include_runtime_snapshot=True,
+                        runtime_digest_override=(
+                            expected_runtime_digest
+                            if isinstance(expected_runtime_digest, str)
+                            else None
+                        ),
+                    )
+                    if (
+                        refreshed_anchor is None
+                        or refreshed_anchor.get("runtime_snapshot_digest") != expected_runtime_digest
+                    ):
+                        raise ValueError("AI_RESEARCH_PAPER_RUNTIME_MATERIALIZATION_MISMATCH")
+                    unit.unit_settings = {
+                        **unit_settings,
+                        AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD: refreshed_anchor,
+                    }
+                    server_attested_paper_runtime_digest = str(
+                        refreshed_anchor["runtime_snapshot_digest"]
+                    )
                 if unit.trading_instance_id:
                     # Instance-store access may scan runtime directories and
                     # strategy templates.  During a batch launch that work is
@@ -2127,14 +2261,42 @@ class TradingWorkspaceService:
                             unit.trading_instance_id = None
                             instance = None
                 if instance is None:
+                    # Keep the long-standing ordinary manager contract intact.
+                    # The owner/capability kwargs are required only where the
+                    # AI-research provenance boundary actually consumes them.
+                    add_instance_kwargs: dict[str, Any] = {
+                        # ``add_instance`` has always been owner-scoped; keep
+                        # that existing contract for ordinary workspace starts.
+                        "user_id": user_id,
+                        "runtime_dir": str(runtime_dir),
+                    }
+                    if server_attested_paper_runtime and server_attested_paper_runtime_digest:
+                        add_instance_kwargs[
+                            "server_attested_paper_runtime_digest"
+                        ] = server_attested_paper_runtime_digest
+                    # Keep the new server-only live-handoff capability opt-in
+                    # for manager implementations.  Paper and ordinary
+                    # workspace starts must retain compatibility with the
+                    # existing manager contract; a real activation always
+                    # supplies a non-empty one-shot token below.
+                    if live_handoff_activation_token:
+                        add_instance_kwargs[
+                            "server_attested_live_handoff_activation_token"
+                        ] = live_handoff_activation_token
                     created = await asyncio.to_thread(
                         manager.add_instance,
                         str(unit.strategy_id),
                         self._build_instance_params(unit),
-                        user_id=user_id,
-                        runtime_dir=str(runtime_dir),
+                        **add_instance_kwargs,
                     )
                     unit.trading_instance_id = str(created.get("id") or "")
+                    attest_managed_runtime = getattr(
+                        manager,
+                        "attest_managed_workspace_runtime_start",
+                        None,
+                    )
+                    if callable(attest_managed_runtime) and not server_attested_live_handoff:
+                        attest_managed_runtime(unit.trading_instance_id)
                     instance = await asyncio.to_thread(
                         manager.get_instance,
                         unit.trading_instance_id,
@@ -2156,8 +2318,39 @@ class TradingWorkspaceService:
                             "同一网关配置已启动失败，跳过重复连接: " + known_gateway_failure
                         )
                     await asyncio.to_thread(_clear_runtime_logs_before_start, runtime_dir)
+                    if server_attested_paper_runtime:
+                        assert server_attested_paper_runtime_digest is not None
+                        manager.attest_paper_runtime_start(
+                            str(unit.trading_instance_id),
+                            server_attested_paper_runtime_digest,
+                        )
+                    if server_attested_live_handoff:
+                        assert live_handoff_activation_token is not None
+                        if live_handoff_pre_start_validator is None:
+                            raise ValueError("AI_RESEARCH_LIVE_HANDOFF_SERVER_ACTIVATION_REQUIRED")
+                        # Run this after isolated runtime materialization and
+                        # immediately before the manager launch boundary.  It
+                        # lets the research service re-observe the paper
+                        # runtime's signed launch/metrics receipt after all
+                        # slow file and gateway work, closing the final
+                        # approval-to-spawn interval.
+                        await live_handoff_pre_start_validator()
+                        manager.attest_live_handoff_runtime_start(
+                            str(unit.trading_instance_id),
+                            live_handoff_activation_token,
+                        )
                     try:
-                        started = await manager.start_instance(str(unit.trading_instance_id))
+                        start_instance_kwargs: dict[str, Any] = {}
+                        if server_attested_paper_runtime or server_attested_live_handoff:
+                            start_instance_kwargs["user_id"] = user_id
+                        if live_handoff_activation_token:
+                            start_instance_kwargs[
+                                "server_attested_live_handoff_activation_token"
+                            ] = live_handoff_activation_token
+                        started = await manager.start_instance(
+                            str(unit.trading_instance_id),
+                            **start_instance_kwargs,
+                        )
                     except ValueError as exc:
                         if str(exc) != "Strategy is already running":
                             raise
@@ -2214,9 +2407,30 @@ class TradingWorkspaceService:
 
         return results
 
-    async def stop_units(self, units: list[StrategyUnit], user_id: str) -> list[dict[str, Any]]:
+    async def stop_units(
+        self,
+        units: list[StrategyUnit],
+        user_id: str,
+        *,
+        allow_server_owned_ai_research_stop: bool = False,
+        allow_server_owned_ai_research_live_handoff_stop: bool = False,
+    ) -> list[dict[str, Any]]:
         manager = get_live_trading_manager()
         results: list[dict[str, Any]] = []
+
+        # Reject the complete public batch before any ordinary unit is
+        # stopped.  Otherwise a browser can use workspace stop to leave an
+        # attested paper runtime inactive while preserving its old review
+        # metrics.  The review-failure workflow has an explicit server-only
+        # capability and is the sole caller allowed to stop these units.
+        if not (
+            allow_server_owned_ai_research_stop
+            or allow_server_owned_ai_research_live_handoff_stop
+        ):
+            from app.services.workspace.units import AIStrategyResearchPaperRuntimeStopError
+
+            if any(is_server_owned_ai_research_unit(unit) for unit in units):
+                raise AIStrategyResearchPaperRuntimeStopError()
 
         for unit in units:
             cancelled = False
@@ -2224,12 +2438,25 @@ class TradingWorkspaceService:
             open_order_cancel: dict[str, Any] | None = None
             error_message: str | None = None
             try:
-                if unit.lock_running:
+                if unit.lock_running and not allow_server_owned_ai_research_live_handoff_stop:
                     raise ValueError("该策略单元已锁定运行")
-                if unit.lock_trading:
+                if unit.lock_trading and not allow_server_owned_ai_research_live_handoff_stop:
                     raise ValueError("该策略单元已锁定交易")
                 if unit.trading_instance_id:
-                    stop_result = await manager.stop_instance(str(unit.trading_instance_id))
+                    protected_runtime = is_server_owned_ai_research_unit(unit)
+                    stop_instance_kwargs: dict[str, Any] = {}
+                    if protected_runtime:
+                        stop_instance_kwargs["user_id"] = user_id
+                        if allow_server_owned_ai_research_stop:
+                            stop_instance_kwargs["allow_server_owned_ai_research_stop"] = True
+                        if allow_server_owned_ai_research_live_handoff_stop:
+                            stop_instance_kwargs[
+                                "allow_server_owned_ai_research_live_handoff_stop"
+                            ] = True
+                    stop_result = await manager.stop_instance(
+                        str(unit.trading_instance_id),
+                        **stop_instance_kwargs,
+                    )
                     if isinstance(stop_result, dict):
                         value = stop_result.get("open_order_cancel")
                         open_order_cancel = value if isinstance(value, dict) else None

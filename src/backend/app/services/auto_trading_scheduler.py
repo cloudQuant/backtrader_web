@@ -230,7 +230,11 @@ class AutoTradingScheduler:
                             session_name,
                         )
                         try:
-                            await mgr.start_all()
+                            # Scheduler starts are system-owned rather than
+                            # user-scoped, but they still must pass the same
+                            # paper-runtime provenance/lock check as every
+                            # direct UI start.
+                            await mgr.start_all(enforce_ai_research_paper_runtime=True)
                         except Exception:
                             logger.exception("Auto-trading start_all failed")
 
@@ -240,7 +244,9 @@ class AutoTradingScheduler:
                             session_name,
                         )
                         try:
-                            await mgr.stop_all()
+                            await mgr.stop_all(
+                                skip_server_owned_ai_research_paper_runtimes=True
+                            )
                         except Exception:
                             logger.exception("Auto-trading stop_all failed")
 

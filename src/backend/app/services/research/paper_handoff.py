@@ -2,6 +2,8 @@
 
 # Workflow helpers are injected after every stage is loaded; see research.__init__.
 # mypy: disable-error-code=name-defined
+from app.services.ai_research_provenance import verify_ai_research_paper_runtime_anchor
+
 # ruff: noqa: F403, F405
 from .shared import *
 
@@ -81,6 +83,8 @@ def _build_research_run_record(
         best_strategy_name=best_strategy.name if best_strategy else None,
         research_workspace_id=response.research_workspace.id,
         mandate_id=request.mandate_id,
+        request_explicit_fields=sorted(_request_explicit_fields(request)),
+        request_explicit_fields_persisted=True,
         seed_strategy_id=request.seed_strategy_id,
         continued_from_run_id=request.continue_from_run_id,
         continuation_source=_continuation_source_from_context(request.continuation_context),
@@ -106,16 +110,33 @@ def _apply_initial_paper_review_to_run_record(
     record: AIStrategyResearchRunRecord,
     *,
     paper_trading: AIStrategyPaperTradingStart | None,
+    user_id: str,
 ) -> AIStrategyResearchRunRecord:
     if paper_trading is None or not paper_trading.started:
         return record
 
-    monitoring_plan = _resolve_paper_monitoring_plan(record, paper_trading.unit)
+    runtime_anchor_trusted = _paper_runtime_evidence_is_trusted(
+        user_id=user_id,
+        record=record,
+        workspace=paper_trading.workspace,
+        unit=paper_trading.unit,
+    )
+    # The promotion call has created an identity anchor, but it has not yet
+    # made a fresh manager observation of a running subprocess.  Do not let
+    # an initial response turn immediately into a live candidate from static
+    # metrics or from wall-clock time alone.
+    runtime_evidence_trusted = False
+    monitoring_plan = _resolve_paper_monitoring_plan(
+        record,
+        paper_trading.unit if runtime_evidence_trusted else None,
+    )
     evaluations = _evaluate_paper_monitoring_plan(
         monitoring_plan,
         record=record,
         unit=paper_trading.unit,
         unit_status=None,
+        runtime_evidence_trusted=runtime_evidence_trusted,
+        runtime_started_at=None,
     )
     ready_for_live = bool(evaluations) and all(item.passed for item in evaluations)
     review_status = _paper_review_status(
@@ -124,6 +145,9 @@ def _apply_initial_paper_review_to_run_record(
         unit=paper_trading.unit,
         evaluations=evaluations,
         ready_for_live=ready_for_live,
+        runtime_anchor_trusted=runtime_anchor_trusted,
+        runtime_observation_active=False,
+        runtime_observation_reason="paper_runtime_observation_missing",
     )
     reviewed_at = _utc_iso_now()
     live_readiness_expires_at = (
@@ -870,12 +894,47 @@ def _unit_ai_research_handoff(unit: StrategyUnitResponse | None) -> dict[str, An
     return dict(handoff) if isinstance(handoff, dict) else {}
 
 
+def _paper_runtime_evidence_is_trusted(
+    *,
+    user_id: str,
+    record: AIStrategyResearchRunRecord,
+    workspace: WorkspaceResponse | None,
+    unit: StrategyUnitResponse | None,
+) -> bool:
+    """Require a server-signed unit identity before consuming runtime metrics.
+
+    A signed research run alone cannot attest that the mutable trading-unit
+    row still denotes its original paper strategy.  Historical rows without
+    an anchor and rows whose marker was deleted or identity changed therefore
+    remain visible but cannot become ready for review, approval, or live prep.
+    """
+    if workspace is None or unit is None:
+        return False
+    if str(workspace.id or "").strip() != str(record.paper_workspace_id or "").strip():
+        return False
+    if str(unit.id or "").strip() != str(record.paper_unit_id or "").strip():
+        return False
+    anchor = dict(unit.unit_settings or {}).get("ai_research_paper_runtime_anchor")
+    return verify_ai_research_paper_runtime_anchor(
+        anchor,
+        user_id=user_id,
+        research_workspace_id=record.research_workspace_id,
+        paper_workspace_id=workspace.id,
+        paper_unit_id=unit.id,
+        run_id=record.run_id,
+        unit=unit,
+        workspace_settings=workspace.settings,
+    )
+
+
 def _evaluate_paper_monitoring_plan(
     monitoring_plan: list[dict[str, Any]],
     *,
     record: AIStrategyResearchRunRecord | None = None,
     unit: StrategyUnitResponse | None,
     unit_status: UnitStatusResponse | None,
+    runtime_evidence_trusted: bool = False,
+    runtime_started_at: str | None = None,
 ) -> list[AIStrategyPaperTradingRuleEvaluation]:
     evaluations: list[AIStrategyPaperTradingRuleEvaluation] = []
     for raw_rule in monitoring_plan:
@@ -883,12 +942,16 @@ def _evaluate_paper_monitoring_plan(
         threshold = _optional_gate_number(raw_rule.get("threshold"))
         if not metric or threshold is None:
             continue
-        actual, source = _lookup_paper_metric(
-            metric,
-            record=record,
-            unit=unit,
-            unit_status=unit_status,
-        )
+        if runtime_evidence_trusted:
+            actual, source = _lookup_paper_metric(
+                metric,
+                record=record,
+                unit=unit,
+                unit_status=unit_status,
+                runtime_started_at=runtime_started_at,
+            )
+        else:
+            actual, source = None, None
         actual = _normalize_paper_metric_value(metric, actual, float(threshold))
         direction = str(raw_rule.get("direction") or "min").strip().lower()
         passed = _paper_rule_passed(actual, threshold, direction)
@@ -1003,6 +1066,7 @@ def _lookup_paper_metric(
     record: AIStrategyResearchRunRecord | None = None,
     unit: StrategyUnitResponse | None,
     unit_status: UnitStatusResponse | None,
+    runtime_started_at: str | None = None,
 ) -> tuple[float | None, str | None]:
     if metric == "valuation_confidence":
         return _lookup_paper_valuation_confidence(
@@ -1011,7 +1075,12 @@ def _lookup_paper_metric(
             unit_status=unit_status,
         )
     if metric == "paper_elapsed_days":
-        return _lookup_paper_elapsed_days(record=record, unit=unit, unit_status=unit_status)
+        return _lookup_paper_elapsed_days(
+            record=record,
+            unit=unit,
+            unit_status=unit_status,
+            runtime_started_at=runtime_started_at,
+        )
 
     aliases = _PAPER_METRIC_ALIASES.get(metric, (metric,))
     sources: list[tuple[str, dict[str, Any]]] = []
@@ -1122,7 +1191,26 @@ def _lookup_paper_elapsed_days(
     record: AIStrategyResearchRunRecord | None,
     unit: StrategyUnitResponse | None,
     unit_status: UnitStatusResponse | None,
+    runtime_started_at: str | None = None,
 ) -> tuple[float | None, str | None]:
+    # ``runtime_started_at`` comes from a manager process observation made in
+    # the same review request.  It is the only elapsed-time epoch accepted
+    # for a promotable paper review: a client-visible paper-start timestamp
+    # would otherwise count time while a runtime was paused or stopped.
+    if runtime_started_at is not None:
+        started_at = _parse_utc_datetime(runtime_started_at)
+        now = datetime.now(timezone.utc)
+        if started_at is None or started_at > now:
+            # A manager observation that cannot be interpreted as a current
+            # UTC launch epoch is not a reason to fall back to a mutable or
+            # wall-clock handoff timestamp.  Doing so would let a CST-naive
+            # timestamp or future restart accrue the previous observation
+            # window.  Promotion fails closed until a fresh valid observation
+            # is obtained.
+            return None, "server_runtime.started_at_invalid"
+        elapsed_days = max((now - started_at).total_seconds() / 86400.0, 0.0)
+        return round(elapsed_days, 6), "server_runtime.started_at"
+
     candidates: list[tuple[str, Any]] = []
     if record is not None:
         candidates.extend(
@@ -1224,11 +1312,6 @@ def _lookup_paper_valuation_confidence(
 
         if status in {"estimated", "stale_fallback", "unknown"}:
             return 0.0, source_name
-
-    if unit is not None:
-        source = _unit_contract_metadata_source(unit)
-        if source:
-            return 1.0, source
 
     if record is not None:
         source = _record_asset_specs_source(record)
@@ -1643,6 +1726,10 @@ def _paper_review_status(
     unit: StrategyUnitResponse | None,
     evaluations: list[AIStrategyPaperTradingRuleEvaluation],
     ready_for_live: bool,
+    runtime_anchor_trusted: bool = False,
+    runtime_observation_active: bool = False,
+    runtime_metrics_observation_trusted: bool = True,
+    runtime_observation_reason: str | None = None,
 ) -> str:
     if not record.paper_trading_started:
         return "paper_not_started"
@@ -1650,6 +1737,12 @@ def _paper_review_status(
         return "paper_workspace_missing"
     if unit is None:
         return "paper_unit_missing"
+    if not runtime_anchor_trusted:
+        return "paper_runtime_provenance_invalid"
+    if not runtime_observation_active:
+        return str(runtime_observation_reason or "paper_runtime_not_running")
+    if not runtime_metrics_observation_trusted:
+        return "paper_runtime_metrics_observation_missing"
     if not evaluations:
         return "monitoring_plan_missing"
     if ready_for_live:
@@ -1672,6 +1765,16 @@ def _paper_review_next_actions(
         return ["未找到模拟交易工作区，检查 handoff 记录或重新启动模拟交易。"]
     if status == "paper_unit_missing":
         return ["未找到模拟交易单元，检查是否被删除，必要时重新从投研结果启动模拟交易。"]
+    if status == "paper_runtime_provenance_invalid":
+        return ["模拟运行时的服务端签名或身份校验失败，不能使用现有指标进入实盘交接。"]
+    if status == "paper_runtime_locked":
+        return ["模拟交易单元已停止或锁定，重新启动并获得新的服务端运行观察后再复核。"]
+    if status in {
+        "paper_runtime_not_running",
+        "paper_runtime_observation_missing",
+        "paper_runtime_metrics_observation_missing",
+    }:
+        return ["模拟交易运行时未处于服务端确认的运行状态，不能将停止期间计入观察期。"]
     if status == "monitoring_plan_missing" or not monitoring_plan:
         return ["缺少模拟交易监控计划，重新保存投研 run record 或用当前最佳策略重启 paper。"]
     if status == "live_readiness_expired":

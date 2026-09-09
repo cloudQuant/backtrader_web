@@ -25,6 +25,7 @@ const runPrecheck = vi.hoisted(() => vi.fn())
 const lookupInstrument = vi.hoisted(() => vi.fn())
 const getQueryContract = vi.hoisted(() => vi.fn())
 const queryLocalFirst = vi.hoisted(() => vi.fn())
+const getCapabilities = vi.hoisted(() => vi.fn())
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({
@@ -400,7 +401,10 @@ vi.mock('@/api/strategy', () => ({
       const mandate = {
         id: 'test-mandate',
         raw_prompt: String(payload.raw_prompt || '生成一个趋势策略'),
-        structured_goal: { objective: payload.raw_prompt || '生成一个趋势策略' },
+        structured_goal: {
+          objective: payload.raw_prompt || '生成一个趋势策略',
+          prompt_origin: payload.prompt_origin || 'explicit',
+        },
         asset_scope: { symbol: payload.symbol || '000001.SZ' },
         timeframe: payload.timeframe || '1d',
         objective: payload.raw_prompt || '生成一个趋势策略',
@@ -853,6 +857,131 @@ vi.mock('@/api/strategy', () => ({
         '实盘单元 live-unit 当前默认锁定交易/运行，不会自动下单。',
       ],
     })),
+    activateAIResearchLiveTrading: vi.fn().mockImplementation((
+      runId: string,
+      researchWorkspaceId?: string | null,
+    ) => Promise.resolve({
+      workspace: {
+        id: 'live-ws-existing',
+        user_id: 'u1',
+        name: 'AI实盘-趋势',
+        description: null,
+        workspace_type: 'trading',
+        settings: {},
+        trading_config: {},
+        unit_count: 1,
+        completed_count: 0,
+        status: 'running',
+        created_at: '2026-06-27T00:05:00Z',
+        updated_at: '2026-06-27T00:06:00Z',
+      },
+      unit: {
+        id: 'live-unit',
+        workspace_id: 'live-ws-existing',
+        group_name: 'AI策略',
+        strategy_id: 's1',
+        strategy_name: 'AI策略',
+        symbol: '000001.SZ',
+        symbol_name: '平安银行',
+        timeframe: '1d',
+        timeframe_n: 1,
+        category: 'trend',
+        sort_order: 1,
+        data_config: { ai_research_run_id: runId },
+        unit_settings: {},
+        params: {},
+        optimization_config: {},
+        trading_mode: 'live',
+        gateway_config: {},
+        lock_trading: true,
+        lock_running: true,
+        trading_instance_id: 'live-instance-1',
+        trading_snapshot: {},
+        run_status: 'running',
+        run_count: 1,
+        last_run_time: '2026-06-27T00:06:00Z',
+        last_task_id: null,
+        last_optimization_task_id: null,
+        bar_count: null,
+        metrics_snapshot: {},
+        created_at: '2026-06-27T00:05:00Z',
+        updated_at: '2026-06-27T00:06:00Z',
+      },
+      prepared: true,
+      activated: true,
+      activation_status: 'running',
+      activation_instance_id: 'live-instance-1',
+      handoff: {
+        run_id: runId,
+        research_workspace_id: researchWorkspaceId || 'research-ws',
+        live_workspace_id: 'live-ws-existing',
+        live_unit_id: 'live-unit',
+      },
+      next_actions: ['实盘交接已由受控服务端启动。'],
+    })),
+    deactivateAIResearchLiveTrading: vi.fn().mockImplementation((
+      runId: string,
+      researchWorkspaceId?: string | null,
+    ) => Promise.resolve({
+      workspace: {
+        id: 'live-ws-existing',
+        user_id: 'u1',
+        name: 'AI实盘-趋势',
+        description: null,
+        workspace_type: 'trading',
+        settings: {},
+        trading_config: {},
+        unit_count: 1,
+        completed_count: 0,
+        status: 'idle',
+        created_at: '2026-06-27T00:05:00Z',
+        updated_at: '2026-06-27T00:07:00Z',
+      },
+      unit: {
+        id: 'live-unit',
+        workspace_id: 'live-ws-existing',
+        group_name: 'AI策略',
+        strategy_id: 's1',
+        strategy_name: 'AI策略',
+        symbol: '000001.SZ',
+        symbol_name: '平安银行',
+        timeframe: '1d',
+        timeframe_n: 1,
+        category: 'trend',
+        sort_order: 1,
+        data_config: { ai_research_run_id: runId },
+        unit_settings: {},
+        params: {},
+        optimization_config: {},
+        trading_mode: 'live',
+        gateway_config: {},
+        lock_trading: true,
+        lock_running: true,
+        trading_instance_id: 'live-instance-1',
+        trading_snapshot: {},
+        run_status: 'cancelled',
+        run_count: 1,
+        last_run_time: '2026-06-27T00:07:00Z',
+        last_task_id: null,
+        last_optimization_task_id: null,
+        bar_count: null,
+        metrics_snapshot: {},
+        created_at: '2026-06-27T00:05:00Z',
+        updated_at: '2026-06-27T00:07:00Z',
+      },
+      prepared: false,
+      activated: false,
+      activation_status: 'deactivated',
+      activation_instance_id: 'live-instance-1',
+      handoff: {
+        run_id: runId,
+        research_workspace_id: researchWorkspaceId || 'research-ws',
+        live_workspace_id: 'live-ws-existing',
+        live_unit_id: 'live-unit',
+        status: 'deactivated',
+      },
+      next_actions: ['已停止并撤销该实盘交接。'],
+    })),
   },
 }))
 
@@ -861,6 +990,17 @@ vi.mock('@/components/common/MonacoEditor.vue', () => ({
 }))
 
 vi.mock('@/api/marketData', () => ({
+  hasMarketDataCapabilities: (value: unknown) => (
+    Boolean(
+      value
+      && typeof value === 'object'
+      && (value as { version?: unknown }).version === 'market-data-capabilities-v1'
+      && typeof (value as { query_v2_enabled?: unknown }).query_v2_enabled === 'boolean'
+      && typeof (value as { online_fetch_enabled?: unknown }).online_fetch_enabled === 'boolean'
+      && typeof (value as { research_cache_fill_enabled?: unknown }).research_cache_fill_enabled === 'boolean'
+      && typeof (value as { research_backtest_bridge_enabled?: unknown }).research_backtest_bridge_enabled === 'boolean',
+    )
+  ),
   hasMarketDataQueryContract: (value: unknown) => (
     Boolean(
       value
@@ -877,10 +1017,28 @@ vi.mock('@/api/marketData', () => ({
     [404, 405, 501].includes(Number(error?.response?.status))
     || error?.response?.data?.details?.code === 'MARKET_DATA_QUERY_V2_DISABLED'
   ),
-  marketDataApi: { runPrecheck, lookupInstrument, getQueryContract, queryLocalFirst },
+  marketDataApi: {
+    runPrecheck,
+    lookupInstrument,
+    getCapabilities,
+    getQueryContract,
+    queryLocalFirst,
+  },
 }))
 
 describe('StrategyPage', () => {
+  const marketDataCapabilities = (overrides: Record<string, boolean> = {}) => ({
+    version: 'market-data-capabilities-v1' as const,
+    query_v2_enabled: true,
+    online_fetch_enabled: true,
+    research_cache_fill_enabled: true,
+    research_backtest_bridge_enabled: true,
+    ...overrides,
+  })
+  const enableMarketDataBridge = (overrides: Record<string, boolean> = {}) => {
+    getCapabilities.mockResolvedValue(marketDataCapabilities(overrides))
+  }
+
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
@@ -902,6 +1060,12 @@ describe('StrategyPage', () => {
       gate_evaluations: [],
     })
     lookupInstrument.mockResolvedValue({ query_contract: null })
+    getCapabilities.mockResolvedValue(marketDataCapabilities({
+      query_v2_enabled: false,
+      online_fetch_enabled: false,
+      research_cache_fill_enabled: false,
+      research_backtest_bridge_enabled: false,
+    }))
     getQueryContract.mockResolvedValue(null)
     queryLocalFirst.mockResolvedValue(undefined)
   })
@@ -915,9 +1079,11 @@ describe('StrategyPage', () => {
     overrides: Record<string, unknown> = {}
   ) => {
     const vm = wrapper.vm as any
+    const prompt = vm.aiResearchForm?.prompt || ''
     await vm.parseAIResearchMandate({
-      prompt: vm.aiResearchForm?.prompt || '',
+      prompt,
       symbol: vm.aiResearchForm?.symbol || '000001.SZ',
+      shouldUseServerGeneratedPrompt: !prompt && vm.aiResearchForm?.workflow_mode !== 'prompt',
     })
     if (Object.keys(overrides).length) {
       vm.aiResearchMandate = {
@@ -1710,6 +1876,140 @@ describe('StrategyPage', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('实盘交接包已生成')
     expect(ElMessage.success).toHaveBeenCalledWith('实盘交接已审批通过')
     expect(ElMessage.success).toHaveBeenCalledWith('实盘交易单元已准备，默认锁定等待人工上线')
+
+    expect(vm.canActivateLiveTradingFromRecord(vm.aiResearchResult.run_record)).toBe(true)
+    const currentLivePrepareStatus = wrapper.find('[data-test="ai-research-current-live-prepare-status"]')
+    const activateLiveButton = currentLivePrepareStatus.findAll('button').find(
+      button => button.text().includes('受控启动实盘')
+    )
+    expect(activateLiveButton).toBeTruthy()
+    await activateLiveButton!.trigger('click')
+    await flushPromises()
+    expect(strategyApi.activateAIResearchLiveTrading).toHaveBeenCalledWith('run-1', 'research-ws')
+    expect(vm.aiResearchResult.run_record.pipeline.live_handoff_activated).toBe(true)
+    expect(vm.aiResearchResult.run_record.pipeline.live_handoff_activation_status).toBe('running')
+    expect(wrapper.find('[data-test="ai-research-current-live-prepare-status"]').text()).toContain(
+      '已由受控服务启动'
+    )
+    const deactivateLiveButton = wrapper
+      .find('[data-test="ai-research-current-live-prepare-status"]')
+      .findAll('button')
+      .find(button => button.text().includes('停止并撤销'))
+    expect(deactivateLiveButton).toBeTruthy()
+    await deactivateLiveButton!.trigger('click')
+    await flushPromises()
+    expect(strategyApi.deactivateAIResearchLiveTrading).toHaveBeenCalledWith('run-1', 'research-ws')
+    expect(vm.aiResearchResult.run_record.live_trading_prepared).toBe(false)
+    expect(vm.aiResearchResult.run_record.live_handoff).toBeNull()
+    expect(vm.aiResearchResult.run_record.pipeline.live_handoff_activation_status).toBe('deactivated')
+    expect(wrapper.find('[data-test="ai-research-current-live-prepare-status"]').exists()).toBe(false)
+    expect(ElMessage.success).toHaveBeenCalledWith('实盘交易单元已由受控服务启动')
+    expect(ElMessage.success).toHaveBeenCalledWith('实盘交易单元已停止，原批准已撤销')
+  })
+
+  it('activates and deactivates a prepared live handoff from history through server routes', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    const approval = {
+      run_id: 'history-live-run',
+      research_workspace_id: 'research-ws',
+      decision: 'approved',
+      approved: true,
+      decided_at: '2026-06-27T00:04:00Z',
+      decided_by: 'risk-manager',
+      account_confirmed: true,
+      risk_limit_confirmed: true,
+      handoff_status_at_decision: 'ready_for_approval',
+      blockers: [],
+    }
+    vm.aiResearchRuns = [{
+      ...vm.aiResearchRuns[0],
+      run_id: 'history-live-run',
+      live_handoff: {
+        run_id: 'history-live-run',
+        research_workspace_id: 'research-ws',
+        generated_at: '2026-06-27T00:04:00Z',
+        ready_for_live: true,
+        status: 'approved_for_live',
+        approval_required: true,
+        symbol: '000001.SZ',
+        symbol_name: '平安银行',
+        timeframe: '1d',
+        timeframe_n: 1,
+        target_sharpe: 1,
+        best_sharpe: 1.2,
+        best_metrics: {},
+        asset_specs: {},
+        backtest_environment: {},
+        paper_review_evaluations: [],
+        paper_monitoring_plan: [],
+        live_readiness_checklist: [],
+        approvals_required: [],
+        deployment_blockers: [],
+        approval_status: 'approved',
+        approval,
+        handoff: {},
+        pipeline: {
+          current_stage: 'live_trading_prepare',
+          status: 'approved_for_live',
+          progress: 100,
+          ready_for_live: true,
+          steps: [],
+        },
+        next_actions: [],
+      },
+      live_handoff_approval: approval,
+      live_workspace_id: 'live-ws-existing',
+      live_workspace_name: 'AI实盘-趋势',
+      live_unit_id: 'live-unit',
+      live_trading_prepared: true,
+      pipeline: {
+        ...(vm.aiResearchRuns[0].pipeline ?? {}),
+        current_stage: 'live_trading_prepare',
+        status: 'approved_for_live',
+        progress: 100,
+        ready_for_live: true,
+        live_trading_prepared: true,
+        live_workspace_id: 'live-ws-existing',
+        live_unit_id: 'live-unit',
+        live_unit_locked: true,
+        steps: [],
+      },
+    }]
+    await wrapper.vm.$nextTick()
+
+    expect(vm.canActivateLiveTradingFromRecord(vm.aiResearchRuns[0])).toBe(true)
+    const historyLivePrepareStatus = wrapper.find('[data-test="ai-research-history-live-prepare-status"]')
+    const activateButton = historyLivePrepareStatus.findAll('button').find(
+      button => button.text().includes('受控启动实盘')
+    )
+    expect(activateButton).toBeTruthy()
+    await activateButton!.trigger('click')
+    await flushPromises()
+    expect(strategyApi.activateAIResearchLiveTrading).toHaveBeenCalledWith(
+      'history-live-run',
+      'research-ws'
+    )
+    expect(wrapper.find('[data-test="ai-research-history-live-prepare-status"]').text()).toContain(
+      '已由受控服务启动'
+    )
+
+    const deactivateButton = wrapper
+      .find('[data-test="ai-research-history-live-prepare-status"]')
+      .findAll('button')
+      .find(button => button.text().includes('停止并撤销'))
+    expect(deactivateButton).toBeTruthy()
+    await deactivateButton!.trigger('click')
+    await flushPromises()
+    expect(strategyApi.deactivateAIResearchLiveTrading).toHaveBeenCalledWith(
+      'history-live-run',
+      'research-ws'
+    )
+    expect(wrapper.find('[data-test="ai-research-history-live-prepare-status"]').exists()).toBe(false)
+    expect(vm.aiResearchRuns[0].live_handoff).toBeNull()
+    expect(vm.aiResearchRuns[0].pipeline.live_handoff_activation_status).toBe('deactivated')
   })
 
   it('renders automatic improvement from a failed first iteration to a passing second iteration', async () => {
@@ -7969,6 +8269,13 @@ describe('StrategyPage', () => {
     vi.useFakeTimers()
     let resolveFirst: ((value: any) => void) | undefined
     let resolveSecond: ((value: any) => void) | undefined
+    let resolveCapabilities: ((value: ReturnType<typeof marketDataCapabilities>) => void) | undefined
+    // The capability request is intentionally held open: the debounced
+    // Iteration 196 precheck must still be sent for RB0/SA0 before this
+    // optional Iteration 197 sidecar decision arrives.
+    getCapabilities.mockImplementation(
+      () => new Promise(resolve => { resolveCapabilities = resolve })
+    )
     runPrecheck
       .mockImplementation((request: { symbol?: string }) => {
         if (request.symbol === 'RB0') {
@@ -8035,42 +8342,664 @@ describe('StrategyPage', () => {
 
       expect(vm.aiResearchPrecheckResult?.symbol).toBe('SA0')
       expect(vm.aiResearchPrecheckResult?.passed).toBe(true)
+      resolveCapabilities?.(marketDataCapabilities({
+        query_v2_enabled: false,
+        online_fetch_enabled: false,
+        research_cache_fill_enabled: false,
+        research_backtest_bridge_enabled: false,
+      }))
+      await flushPromises()
     } finally {
       wrapper.unmount()
       vi.useRealTimers()
     }
   })
 
-  it('keeps the Iteration 197 sidecar off until both browser bridge gates are enabled', async () => {
-    for (const [v2Enabled, bridgeEnabled] of [
-      ['false', 'false'],
-      ['true', 'false'],
-      ['false', 'true'],
-    ]) {
-      vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', v2Enabled)
-      vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', bridgeEnabled)
-      const wrapper = doMount()
-      try {
-        const vm = wrapper.vm as any
-        await flushPromises()
-        runPrecheck.mockClear()
-        getQueryContract.mockClear()
-        queryLocalFirst.mockClear()
+  it('keeps the Iteration 197 sidecar legacy-only when server capability disables it despite stale browser flags', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    enableMarketDataBridge({ query_v2_enabled: false })
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      runPrecheck.mockClear()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
 
-        await vm.runAIResearchDataPrecheck({ interactive: false })
-        await flushPromises()
+      await vm.runAIResearchDataPrecheck({ interactive: false })
+      await flushPromises()
 
-        expect(runPrecheck).toHaveBeenCalledWith(expect.objectContaining({
-          asset_type: 'stock',
-          symbol: '000001.SZ',
-        }), expect.any(Object))
-        expect(getQueryContract).not.toHaveBeenCalled()
-        expect(queryLocalFirst).not.toHaveBeenCalled()
-        expect(vm.aiResearchMarketDataPlatformStatus.path).toBe('legacy')
-        expect(wrapper.find('[data-test="ai-research-data-platform-status"]').exists()).toBe(false)
-      } finally {
-        wrapper.unmount()
+      expect(getCapabilities).toHaveBeenCalledTimes(1)
+      expect(runPrecheck).toHaveBeenCalledWith(expect.objectContaining({
+        asset_type: 'stock',
+        symbol: '000001.SZ',
+      }), expect.any(Object))
+      expect(getQueryContract).not.toHaveBeenCalled()
+      expect(queryLocalFirst).not.toHaveBeenCalled()
+      expect(vm.aiResearchMarketDataPlatformStatus.path).toBe('legacy')
+      expect(wrapper.find('[data-test="ai-research-data-platform-status"]').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('uses enabled server capability despite stale browser flags and keeps cache filling separately authorized', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'false')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'false')
+    enableMarketDataBridge({ research_cache_fill_enabled: false })
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+
+      const request = vm.buildAIResearchRequest('桥接测试', '000001.SZ')
+
+      expect(getCapabilities).toHaveBeenCalledTimes(1)
+      expect(vm.aiResearchMarketDataPlatformBridgeEnabled).toBe(true)
+      expect(vm.aiResearchMarketDataCacheFillEnabled).toBe(false)
+      expect(request.data_config).toBeUndefined()
+      expect(wrapper.find('[data-test="ai-research-cache-fill"]').exists()).toBe(false)
+      await vm.warmAIResearchLocalCache()
+      expect(getQueryContract).not.toHaveBeenCalled()
+      expect(queryLocalFirst).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('allows explicitly authorized cache fill while the backtest bridge is disabled', async () => {
+    enableMarketDataBridge({ research_backtest_bridge_enabled: false })
+    getQueryContract.mockResolvedValue({
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        dataset_code: 'market.stock_daily',
+        data_kind: 'bars',
+        frequency: '1d',
+        required_fields: ['close', 'volume'],
+        adjustment: 'qfq',
+        price_basis: 'close',
+        currency: 'CNY',
+        unit: 'share',
+        source_policy_id: 'market-default-v1',
+        family_id: 'stock.realtime',
+        family_contract_version: 'market-data-family-v1',
+        mode: 'local_first',
+      },
+    })
+    queryLocalFirst.mockResolvedValue({
+      query_id: 'cache-fill-bridge-disabled',
+      canonical_id: 'instrument:stock:CN-SZSE:000001',
+      dataset_code: 'market.stock_daily',
+      asset_type: 'stock',
+      instrument_metadata_version: 'stock-v1',
+      data_kind: 'bars',
+      frequency: '1d',
+      source_policy_id: 'market-default-v1',
+      family_id: 'stock.realtime',
+      family_contract_version: 'market-data-family-v1',
+      knowledge_cutoff: null,
+      identity_knowledge_cutoff: null,
+      observations: [],
+      next_cursor: null,
+      coverage: {
+        status: 'complete',
+        expected_event_count: 1,
+        accepted_event_count: 1,
+        missing_event_count: 0,
+        coverage_ratio: 1,
+        gaps: [],
+        rejection_counts: {},
+        calendar_reason: null,
+      },
+      fetches: [{
+        route_id: 'akshare-stock-bars-v1',
+        provider_id: 'akshare',
+        source_snapshot_id: 'snapshot-1',
+        observation_revision_ids: ['revision-1'],
+        passing_observation_count: 1,
+        failed_observation_count: 0,
+      }],
+      warnings: [],
+      refresh_status: null,
+      historical_status: null,
+    })
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      await nextTick()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+
+      expect(vm.aiResearchMarketDataPlatformBridgeEnabled).toBe(false)
+      expect(vm.aiResearchMarketDataCacheFillEnabled).toBe(true)
+      expect(vm.buildAIResearchRequest('缓存补齐测试', '000001.SZ').data_config).toBeUndefined()
+      expect(wrapper.findAll('button').some(button => button.text().includes('补齐本地缓存'))).toBe(true)
+
+      await vm.warmAIResearchLocalCache()
+      await flushPromises()
+
+      expect(queryLocalFirst).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        mode: 'local_first',
+        purpose: 'research_cache_fill',
+        consistency: 'display',
+      }), expect.any(Object))
+      expect(queryLocalFirst).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        mode: 'local_only',
+        purpose: 'research',
+        consistency: 'strict',
+        knowledge_cutoff: expect.any(String),
+      }), expect.any(Object))
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'strict_local',
+        queryId: 'cache-fill-bridge-disabled',
+      })
+      expect(wrapper.find('[data-test="ai-research-data-platform-status"]').exists()).toBe(true)
+      expect(wrapper.find('[data-test="ai-research-cache-fill-boundary"]').exists()).toBe(true)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('keeps the full submitted request snapshot when capability resolution is delayed', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    let resolvePageCapabilities: ((value: ReturnType<typeof marketDataCapabilities>) => void) | undefined
+    let resolveSubmitCapabilities: ((value: ReturnType<typeof marketDataCapabilities>) => void) | undefined
+    getCapabilities.mockImplementationOnce(
+      () => new Promise(resolve => { resolvePageCapabilities = resolve })
+    ).mockImplementationOnce(
+      () => new Promise(resolve => { resolveSubmitCapabilities = resolve })
+    )
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.symbol = '000001.SZ'
+      vm.aiResearchForm.prompt = '延迟能力解析期间的提交快照'
+      vm.aiResearchForm.timeframe = '1d'
+      vm.aiResearchForm.start_date = '2024-01-01'
+      vm.aiResearchForm.end_date = '2024-12-31'
+      await setConfirmedAIResearchMandate(wrapper)
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+
+      const running = vm.runAIResearchLoop()
+      await flushPromises()
+      vm.aiResearchForm.symbol = 'UNSUPPORTED-SYMBOL'
+      vm.aiResearchForm.timeframe = '1h'
+      vm.aiResearchForm.start_date = '2025-01-01'
+      vm.aiResearchForm.end_date = '2025-01-31'
+      // The submit path must fetch a fresh capability even while the page
+      // load request remains unresolved. Its request snapshot stays frozen.
+      resolveSubmitCapabilities?.(marketDataCapabilities())
+      await running
+      resolvePageCapabilities?.(marketDataCapabilities({
+        query_v2_enabled: false,
+        online_fetch_enabled: false,
+        research_cache_fill_enabled: false,
+        research_backtest_bridge_enabled: false,
+      }))
+      await flushPromises()
+
+      expect(getCapabilities).toHaveBeenCalledTimes(2)
+      expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
+        symbol: '000001.SZ',
+        data_config: { market_data_asset_type: 'stock' },
+        timeframe: '1d',
+        start_date: '2024-01-01',
+        end_date: '2024-12-31',
+      }))
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('removes bridge intent when a fresh submit-time capability revokes it', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    getCapabilities.mockResolvedValueOnce(marketDataCapabilities())
+      .mockResolvedValueOnce(marketDataCapabilities({ research_backtest_bridge_enabled: false }))
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      vm.aiResearchForm.symbol = '000001.SZ'
+      vm.aiResearchForm.prompt = '提交前能力应重新授权'
+      vm.aiResearchForm.timeframe = '1d'
+      await setConfirmedAIResearchMandate(wrapper)
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+
+      await vm.runAIResearchLoop()
+
+      expect(getCapabilities).toHaveBeenCalledTimes(2)
+      const payload = vi.mocked(strategyApi.runAIResearchLoop).mock.calls.at(-1)?.[0]
+      expect(payload).toEqual(expect.objectContaining({ symbol: '000001.SZ' }))
+      expect(payload).not.toHaveProperty('data_config')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('binds each concurrent submission to its own fresh capability response', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    let resolveFirstSubmit: ((value: ReturnType<typeof marketDataCapabilities>) => void) | undefined
+    let resolveSecondSubmit: ((value: ReturnType<typeof marketDataCapabilities>) => void) | undefined
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      getCapabilities.mockImplementationOnce(
+        () => new Promise(resolve => { resolveFirstSubmit = resolve })
+      ).mockImplementationOnce(
+        () => new Promise(resolve => { resolveSecondSubmit = resolve })
+      )
+      vm.aiResearchForm.symbol = '000001.SZ'
+      vm.aiResearchForm.prompt = '第一条并发投研请求'
+      vm.aiResearchForm.timeframe = '1d'
+      await setConfirmedAIResearchMandate(wrapper)
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+
+      const firstRun = vm.runAIResearchLoop()
+      await flushPromises()
+
+      vm.aiResearchForm.symbol = 'RB0'
+      vm.aiResearchForm.prompt = '第二条并发投研请求'
+      vm.aiResearchForm.timeframe = '1h'
+      await setConfirmedAIResearchMandate(wrapper)
+      const secondRun = vm.runAIResearchLoop()
+      await flushPromises()
+
+      // The first response arrives after the second request has started. The
+      // first submit must still use its own true decision, while the second
+      // false decision must not inherit that marker through shared UI state.
+      resolveFirstSubmit?.(marketDataCapabilities())
+      await firstRun
+      resolveSecondSubmit?.(marketDataCapabilities({ research_backtest_bridge_enabled: false }))
+      await secondRun
+
+      expect(getCapabilities).toHaveBeenCalledTimes(3)
+      const [firstRequest, secondRequest] = vi.mocked(strategyApi.runAIResearchLoop).mock.calls
+        .map(call => call[0])
+      expect(firstRequest).toEqual(expect.objectContaining({
+        symbol: '000001.SZ',
+        data_config: { market_data_asset_type: 'stock' },
+      }))
+      expect(secondRequest).toEqual(expect.objectContaining({ symbol: 'RB0' }))
+      expect(secondRequest).not.toHaveProperty('data_config')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('captures the full request before mandate confirmation yields', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    enableMarketDataBridge()
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.symbol = '000001.SZ'
+      vm.aiResearchForm.prompt = '确认授权期间的提交快照'
+      vm.aiResearchForm.timeframe = '1d'
+      vm.aiResearchForm.start_date = '2024-01-01'
+      vm.aiResearchForm.end_date = '2024-12-31'
+      vm.aiResearchForm.target_sharpe = 1.25
+      vm.aiResearchForm.min_total_trades = 12
+      await setConfirmedAIResearchMandate(wrapper)
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+
+      // `ensureAIResearchMandateConfirmed` is async even when the existing
+      // mandate is already confirmed. Mutate the form before that await can
+      // resume to prove the final request still uses one captured snapshot.
+      const running = vm.runAIResearchLoop()
+      vm.aiResearchForm.symbol = 'UNSUPPORTED-SYMBOL'
+      vm.aiResearchForm.timeframe = '1h'
+      vm.aiResearchForm.start_date = '2025-01-01'
+      vm.aiResearchForm.end_date = '2025-01-31'
+      vm.aiResearchForm.target_sharpe = 9
+      vm.aiResearchForm.min_total_trades = 99
+      await running
+
+      expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
+        symbol: '000001.SZ',
+        data_config: { market_data_asset_type: 'stock' },
+        timeframe: '1d',
+        start_date: '2024-01-01',
+        end_date: '2024-12-31',
+        target_sharpe: 1.25,
+        min_total_trades: 12,
+        mandate_id: 'test-mandate',
+      }))
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('freezes a record continuation before a delayed mandate load can observe form edits', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const record = {
+      ...baseResult.run_record,
+      status: 'backtest_submission_failed',
+      achieved: false,
+      iteration_count: 1,
+      best_strategy_id: 's1',
+    }
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      vm.useAIResearchRecord(record)
+      await setConfirmedAIResearchMandate(wrapper)
+      const recordMandate = vm.aiResearchMandate
+      vm.clearAIResearchMandate()
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+
+      let resolveMandate: ((value: typeof recordMandate) => void) | undefined
+      vi.mocked(strategyApi.getAIResearchMandate).mockImplementationOnce(
+        () => new Promise(resolve => { resolveMandate = resolve })
+      )
+      // Force record hydration, then edit again while its mandate load waits.
+      vm.aiResearchForm.symbol = 'IF2409.CFE'
+      vm.aiResearchForm.timeframe = '1h'
+      const continuing = vm.continueResearchFromRecord(record)
+      await flushPromises()
+      vm.aiResearchForm.symbol = 'UNSUPPORTED-SYMBOL'
+      vm.aiResearchForm.timeframe = '1mo'
+      vm.aiResearchForm.start_date = '2025-01-01'
+      vm.aiResearchForm.end_date = '2025-01-31'
+      vm.aiResearchForm.target_sharpe = 9
+      vm.aiResearchForm.continue_from_run_id = 'attacker-run'
+      vm.aiResearchForm.continuation_source = 'attacker-source'
+      vm.aiResearchForm.start_paper_trading = false
+      vm.aiResearchForm.paper_workspace_name = 'attacker-paper-workspace'
+      vm.aiResearchForm.trading_workspace_id = 'attacker-trading-workspace'
+      resolveMandate?.(recordMandate)
+      await continuing
+
+      const payload = vi.mocked(strategyApi.runAIResearchLoop).mock.calls.at(-1)?.[0]
+      expect(payload).toEqual(expect.objectContaining({
+        symbol: '000001.SZ',
+        timeframe: '1d',
+        start_date: null,
+        end_date: null,
+        target_sharpe: 1,
+        research_workspace_id: 'research-ws',
+        seed_strategy_id: 's1',
+        continue_from_run_id: 'run-1',
+        start_paper_trading: true,
+      }))
+      expect(payload?.paper_workspace_name).not.toBe('attacker-paper-workspace')
+      expect(payload?.trading_workspace_id).not.toBe('attacker-trading-workspace')
+      expect(payload?.continuation_context).toEqual(expect.objectContaining({
+        source: 'research_failure',
+        run_id: 'run-1',
+      }))
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('requires a new mandate when a captured quality constraint changes', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.symbol = '000001.SZ'
+      vm.aiResearchForm.prompt = '质量门槛变更必须重新确认'
+      vm.aiResearchForm.timeframe = '1d'
+      vm.aiResearchForm.target_sharpe = 1.25
+      vm.aiResearchForm.min_total_trades = 12
+      vm.aiResearchForm.use_max_drawdown_limit = true
+      vm.aiResearchForm.max_drawdown_limit = 0.15
+      await setConfirmedAIResearchMandate(wrapper)
+      vi.mocked(strategyApi.createAIResearchMandate).mockClear()
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+
+      // Keep prompt/symbol/timeframe identical and change only a quality
+      // constraint. The former mandate ID must not authorize this request.
+      vm.aiResearchForm.target_sharpe = 2.5
+      await vm.runAIResearchLoop()
+
+      expect(strategyApi.createAIResearchMandate).toHaveBeenCalledWith(expect.objectContaining({
+        raw_prompt: '质量门槛变更必须重新确认',
+        symbol: '000001.SZ',
+        timeframe: '1d',
+        quality_gates: expect.objectContaining({
+          target_sharpe: 2.5,
+          min_total_trades: 12,
+          max_drawdown_limit: 0.15,
+        }),
+      }))
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect(vm.aiResearchMandateConfirmed).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('requires a new mandate when an explicit prompt switches to the auto workflow', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.symbol = '000001.SZ'
+      vm.aiResearchForm.prompt = '先确认一条显式投研目标'
+      vm.aiResearchForm.timeframe = '1d'
+      await setConfirmedAIResearchMandate(wrapper)
+      vi.mocked(strategyApi.createAIResearchMandate).mockClear()
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+
+      vm.aiResearchForm.prompt = ''
+      await vm.runAIResearchLoop()
+
+      expect(strategyApi.createAIResearchMandate).toHaveBeenCalledWith(expect.objectContaining({
+        prompt_origin: 'auto_generated',
+        symbol: '000001.SZ',
+      }))
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect(vm.aiResearchMandateConfirmed).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('does not case-fold a market identifier when matching a confirmed mandate', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.symbol = 'RB0'
+      vm.aiResearchForm.prompt = '螺纹钢主连精确标识符测试'
+      vm.aiResearchForm.timeframe = '1h'
+      await setConfirmedAIResearchMandate(wrapper)
+      vi.mocked(strategyApi.createAIResearchMandate).mockClear()
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+
+      vm.aiResearchForm.symbol = 'rb0'
+      await vm.runAIResearchLoop()
+
+      expect(strategyApi.createAIResearchMandate).toHaveBeenCalledWith(expect.objectContaining({
+        symbol: 'rb0',
+        raw_prompt: '螺纹钢主连精确标识符测试',
+      }))
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect(vm.aiResearchMandateConfirmed).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('keeps a confirmed auto mandate for a persisted blank-auto run continuation', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      const record = {
+        ...baseResult.run_record,
+        run_id: 'persisted-auto-run',
+        prompt: '服务器自动生成的历史投研目标',
+        workflow_mode: 'auto',
+        status: 'backtest_submission_failed',
+        achieved: false,
+        best_strategy_id: 's1',
+        request_explicit_fields: ['symbol', 'symbol_name', 'timeframe', 'target_sharpe'],
+        request_explicit_fields_persisted: true,
       }
+      vm.useAIResearchRecord(record)
+      vm.aiResearchForm.prompt = ''
+      await setConfirmedAIResearchMandate(wrapper)
+      record.mandate_id = vm.aiResearchMandate.id
+      vm.useAIResearchRecord(record)
+      vi.mocked(strategyApi.createAIResearchMandate).mockClear()
+      ;(strategyApi as any).continueAIResearchRun = vi.fn().mockResolvedValue({
+        task_id: 'persisted-auto-run-task',
+        status: 'completed',
+        submitted_at: '2026-06-27T00:02:00Z',
+        current_stage: 'completed',
+        progress: 100,
+        max_iterations: 3,
+        message: 'completed',
+        result: baseResult,
+      })
+
+      await vm.continueResearchFromRecord(record)
+      await flushPromises()
+
+      expect(strategyApi.createAIResearchMandate).not.toHaveBeenCalled()
+      expect((strategyApi as any).continueAIResearchRun).toHaveBeenCalledWith(
+        'persisted-auto-run',
+        {
+          overrides: expect.objectContaining({
+            prompt: '',
+            workflow_mode: 'auto',
+            mandate_id: 'test-mandate',
+          }),
+        },
+        'research-ws'
+      )
+    } finally {
+      delete (strategyApi as any).continueAIResearchRun
+      wrapper.unmount()
+    }
+  })
+
+  it('keeps a confirmed auto mandate for a persisted blank-auto task continuation', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      const sourceTask = {
+        task_id: 'persisted-auto-task',
+        status: 'failed',
+        submitted_at: '2026-06-27T00:00:00Z',
+        mandate_id: 'test-mandate',
+        request_snapshot: {
+          prompt: '服务器自动生成的任务投研目标',
+          workflow_mode: 'auto',
+          symbol: '000001.SZ',
+          symbol_name: '平安银行',
+          timeframe: '1d',
+          timeframe_n: 1,
+          target_sharpe: 1,
+          min_total_trades: 1,
+          max_iterations: 3,
+          mandate_id: 'test-mandate',
+        },
+        request_explicit_fields: ['workflow_mode', 'symbol', 'symbol_name', 'timeframe'],
+        request_explicit_fields_persisted: true,
+        current_stage: 'failed',
+        progress: 50,
+        iteration_count: 1,
+        max_iterations: 3,
+        message: 'failed',
+      }
+      vm.applyAIResearchTaskStatus(sourceTask)
+      vm.applyAIResearchTaskSnapshotToForm(sourceTask)
+      vm.aiResearchForm.prompt = ''
+      await setConfirmedAIResearchMandate(wrapper)
+      vm.applyAIResearchTaskSnapshotToForm(sourceTask)
+      vi.mocked(strategyApi.createAIResearchMandate).mockClear()
+      ;(strategyApi as any).continueAIResearchTask = vi.fn().mockResolvedValue({
+        task_id: 'persisted-auto-task-next',
+        status: 'completed',
+        submitted_at: '2026-06-27T00:02:00Z',
+        current_stage: 'completed',
+        progress: 100,
+        max_iterations: 3,
+        message: 'completed',
+        result: baseResult,
+      })
+
+      await vm.continueAIResearchFromTaskSnapshot()
+      await flushPromises()
+
+      expect(strategyApi.createAIResearchMandate).not.toHaveBeenCalled()
+      expect((strategyApi as any).continueAIResearchTask).toHaveBeenCalledWith(
+        'persisted-auto-task',
+        {
+          overrides: expect.objectContaining({
+            prompt: '',
+            workflow_mode: 'auto',
+            mandate_id: 'test-mandate',
+          }),
+        }
+      )
+    } finally {
+      delete (strategyApi as any).continueAIResearchTask
+      wrapper.unmount()
+    }
+  })
+
+  it('does not infer auto provenance from a legacy task without explicit-field metadata', async () => {
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      vm.applyAIResearchTaskStatus({
+        task_id: 'legacy-auto-task',
+        status: 'failed',
+        submitted_at: '2026-06-27T00:00:00Z',
+        mandate_id: 'test-mandate',
+        request_snapshot: {
+          prompt: '旧任务的可见提示',
+          workflow_mode: 'auto',
+          symbol: '000001.SZ',
+          mandate_id: 'test-mandate',
+        },
+        current_stage: 'failed',
+        progress: 50,
+        iteration_count: 1,
+        max_iterations: 3,
+        message: 'failed',
+      })
+
+      expect(vm.aiResearchTaskAutoContinuationSource).toBeNull()
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('uses the legacy precheck when the server capability request fails', async () => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    getCapabilities.mockRejectedValue(new Error('capability endpoint unavailable'))
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      runPrecheck.mockClear()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+
+      await vm.runAIResearchDataPrecheck({ interactive: false })
+      await flushPromises()
+
+      expect(getCapabilities).toHaveBeenCalledTimes(1)
+      expect(getQueryContract).not.toHaveBeenCalled()
+      expect(queryLocalFirst).not.toHaveBeenCalled()
+      expect(vm.aiResearchMarketDataPlatformStatus.path).toBe('legacy')
+      expect(vm.buildAIResearchRequest('桥接测试', '000001.SZ').data_config).toBeUndefined()
+    } finally {
+      wrapper.unmount()
     }
   })
 
@@ -8082,54 +9011,63 @@ describe('StrategyPage', () => {
     symbol,
     assetType,
   ) => {
-    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
-    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    enableMarketDataBridge()
     const wrapper = doMount()
     try {
       const vm = wrapper.vm as any
+      await flushPromises()
       vm.aiResearchForm.symbol = symbol
+      vm.aiResearchForm.prompt = '桥接测试'
+      await setConfirmedAIResearchMandate(wrapper)
+      const { strategyApi } = await import('@/api/strategy')
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
 
-      const request = vm.buildAIResearchRequest('桥接测试', symbol)
+      await vm.runAIResearchLoop()
+      const request = vi.mocked(strategyApi.runAIResearchLoop).mock.calls.at(-1)?.[0]
 
-      expect(request.data_config).toEqual({ market_data_asset_type: assetType })
-      expect(Object.keys(request.data_config)).toEqual(['market_data_asset_type'])
-      expect(request.data_config).not.toHaveProperty('provider')
-      expect(request.data_config).not.toHaveProperty('directory_path')
-      expect(request.data_config).not.toHaveProperty('canonical_id')
-      expect(request.data_config).not.toHaveProperty('query_id')
-      expect(request.data_config).not.toHaveProperty('receipt')
-      expect(request.data_config).not.toHaveProperty('artifact')
+      expect(request?.data_config).toEqual({ market_data_asset_type: assetType })
+      expect(Object.keys(request?.data_config || {})).toEqual(['market_data_asset_type'])
+      expect(request?.data_config).not.toHaveProperty('provider')
+      expect(request?.data_config).not.toHaveProperty('directory_path')
+      expect(request?.data_config).not.toHaveProperty('canonical_id')
+      expect(request?.data_config).not.toHaveProperty('query_id')
+      expect(request?.data_config).not.toHaveProperty('receipt')
+      expect(request?.data_config).not.toHaveProperty('artifact')
     } finally {
       wrapper.unmount()
     }
   })
 
   it.each([
-    ['the v2 gate is disabled', 'false', 'true', '000001.SZ'],
-    ['the strategy bridge gate is disabled', 'true', 'false', '000001.SZ'],
-    ['the symbol cannot be classified', 'true', 'true', 'UNKNOWN-SYMBOL'],
+    ['the server disables v2', { query_v2_enabled: false }, '000001.SZ'],
+    ['the server disables the strategy bridge', { research_backtest_bridge_enabled: false }, '000001.SZ'],
+    ['the symbol cannot be classified', {}, 'UNKNOWN-SYMBOL'],
   ])('omits Iteration 197 bridge intent when %s', async (
     _description,
-    v2Enabled,
-    bridgeEnabled,
+    overrides,
     symbol,
   ) => {
-    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', v2Enabled)
-    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', bridgeEnabled)
+    enableMarketDataBridge(overrides)
     const wrapper = doMount()
     try {
       const vm = wrapper.vm as any
+      await flushPromises()
       vm.aiResearchForm.symbol = symbol
+      vm.aiResearchForm.prompt = '桥接禁用测试'
+      await setConfirmedAIResearchMandate(wrapper)
+      const { strategyApi } = await import('@/api/strategy')
+      vi.mocked(strategyApi.runAIResearchLoop).mockClear()
 
-      expect(vm.buildAIResearchRequest('桥接测试', symbol).data_config).toBeUndefined()
+      await vm.runAIResearchLoop()
+      const request = vi.mocked(strategyApi.runAIResearchLoop).mock.calls.at(-1)?.[0]
+      expect(request).not.toHaveProperty('data_config')
     } finally {
       wrapper.unmount()
     }
   })
 
   it('adds strict local-only market-data evidence without replacing the Iteration 196 precheck', async () => {
-    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
-    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    enableMarketDataBridge()
     getQueryContract.mockResolvedValue({
         version: 'market-data-v2',
         request: {
@@ -8209,9 +9147,119 @@ describe('StrategyPage', () => {
     }
   })
 
-  it('warms and persists an exact local-first cache only after an explicit strategy precheck', async () => {
-    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
-    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+  it('keeps an interactive precheck strict-local and reserves cache filling for the explicit action', async () => {
+    enableMarketDataBridge()
+    getQueryContract.mockResolvedValue({
+      version: 'market-data-v2',
+      request: {
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        dataset_code: 'market.stock_daily',
+        data_kind: 'bars',
+        frequency: '1d',
+        required_fields: ['close', 'volume'],
+        adjustment: 'qfq',
+        price_basis: 'close',
+        currency: 'CNY',
+        unit: 'share',
+        source_policy_id: 'market-default-v1',
+        family_id: 'stock.realtime',
+        family_contract_version: 'market-data-family-v1',
+        mode: 'local_first',
+      },
+    })
+    const completeResponse = (queryId: string, fetches: Array<Record<string, unknown>> = []) => ({
+      query_id: queryId,
+      canonical_id: 'instrument:stock:CN-SZSE:000001',
+      dataset_code: 'market.stock_daily',
+      asset_type: 'stock',
+      instrument_metadata_version: 'stock-v1',
+      data_kind: 'bars',
+      frequency: '1d',
+      source_policy_id: 'market-default-v1',
+      family_id: 'stock.realtime',
+      family_contract_version: 'market-data-family-v1',
+      knowledge_cutoff: '2026-06-19T16:00:00Z',
+      identity_knowledge_cutoff: '2026-06-19T16:00:00Z',
+      observations: [],
+      next_cursor: null,
+      coverage: {
+        status: 'complete',
+        expected_event_count: 1,
+        accepted_event_count: 1,
+        missing_event_count: 0,
+        coverage_ratio: 1,
+        gaps: [],
+        rejection_counts: {},
+        calendar_reason: null,
+      },
+      fetches,
+      warnings: [],
+      refresh_status: null,
+      historical_status: null,
+    })
+    let strictQueryCount = 0
+    queryLocalFirst.mockImplementation((request: { mode?: string }) => {
+      if (request.mode === 'local_first') {
+        return Promise.resolve(completeResponse('cache-fill', [{
+          route_id: 'akshare-stock-bars-v1',
+          provider_id: 'akshare',
+          source_snapshot_id: 'snapshot-1',
+          observation_revision_ids: ['revision-1'],
+          passing_observation_count: 1,
+          failed_observation_count: 0,
+        }]))
+      }
+      strictQueryCount += 1
+      return Promise.resolve(completeResponse(
+        strictQueryCount === 1 ? 'strict-before-fill' : 'strict-after-fill',
+      ))
+    })
+
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      runPrecheck.mockClear()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+
+      await vm.runAIResearchDataPrecheck()
+      await flushPromises()
+
+      expect(queryLocalFirst).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        mode: 'local_only',
+        purpose: 'research',
+        consistency: 'strict',
+        knowledge_cutoff: expect.any(String),
+      }), expect.any(Object))
+      expect(wrapper.text()).toContain('补齐本地缓存')
+      expect(wrapper.text()).toContain('不会自动成为回测工件')
+
+      await vm.warmAIResearchLocalCache()
+      await flushPromises()
+
+      expect(queryLocalFirst).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        mode: 'local_first',
+        purpose: 'research_cache_fill',
+        consistency: 'display',
+      }), expect.any(Object))
+      expect(queryLocalFirst).toHaveBeenNthCalledWith(3, expect.objectContaining({
+        mode: 'local_only',
+        purpose: 'research',
+        consistency: 'strict',
+        knowledge_cutoff: expect.any(String),
+      }), expect.any(Object))
+      expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
+        path: 'strict_local',
+        queryId: 'strict-after-fill',
+      })
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('fills the exact local-first cache and strictly rereads it without rewriting the legacy precheck', async () => {
+    enableMarketDataBridge()
     getQueryContract.mockResolvedValue({
       version: 'market-data-v2',
       request: {
@@ -8274,15 +9322,18 @@ describe('StrategyPage', () => {
       runPrecheck.mockClear()
       getQueryContract.mockClear()
       queryLocalFirst.mockClear()
+      const existingLegacyPrecheck = { passed: false, status: 'blocked', reasons: ['保留的 196 结果'] }
+      vm.aiResearchPrecheckResult = existingLegacyPrecheck
+      // Keep the failure active for this test only. A one-shot rejection would
+      // survive vi.clearAllMocks() and leak into the next test because the
+      // correct cache-fill path never invokes the legacy precheck.
+      runPrecheck.mockRejectedValue(new Error('legacy precheck must not run during cache fill'))
 
-      await vm.runAIResearchDataPrecheck()
+      await vm.warmAIResearchLocalCache()
       await flushPromises()
 
-      expect(runPrecheck).toHaveBeenCalledWith(expect.objectContaining({
-        asset_type: 'stock',
-        symbol: '000001.SZ',
-      }), expect.any(Object))
-      expect(queryLocalFirst).toHaveBeenCalledWith(expect.objectContaining({
+      expect(runPrecheck).not.toHaveBeenCalled()
+      expect(queryLocalFirst).toHaveBeenNthCalledWith(1, expect.objectContaining({
         identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
         mode: 'local_first',
         purpose: 'research_cache_fill',
@@ -8290,10 +9341,16 @@ describe('StrategyPage', () => {
       }), expect.any(Object))
       const [warmRequest] = queryLocalFirst.mock.calls[0]
       expect(warmRequest).not.toHaveProperty('knowledge_cutoff')
-      expect(vm.aiResearchPrecheckResult?.passed).toBe(true)
+      expect(queryLocalFirst).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+        mode: 'local_only',
+        purpose: 'research',
+        consistency: 'strict',
+        knowledge_cutoff: expect.any(String),
+      }), expect.any(Object))
+      expect(vm.aiResearchPrecheckResult).toEqual(existingLegacyPrecheck)
       expect(vm.aiResearchMarketDataPlatformStatus).toMatchObject({
-        path: 'provider_persisted',
-        provider: 'akshare',
+        path: 'strict_local',
         queryId: 'research-warm-query-1',
       })
     } finally {
@@ -8301,9 +9358,60 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('aborts a cache-fill snapshot when the form changes while its contract is pending', async () => {
+    enableMarketDataBridge()
+    let resolveContract: ((value: Record<string, unknown>) => void) | undefined
+    getQueryContract.mockImplementationOnce(() => new Promise(resolve => {
+      resolveContract = resolve
+    }))
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      await flushPromises()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
+
+      const warming = vm.warmAIResearchLocalCache()
+      await flushPromises()
+      expect(getQueryContract).toHaveBeenCalledWith(expect.objectContaining({
+        asset_type: 'stock',
+        symbol: '000001.SZ',
+        period: 'daily',
+      }))
+
+      vm.aiResearchForm.symbol = 'IF2409.CFE'
+      vm.aiResearchForm.timeframe = '1h'
+      vm.aiResearchForm.start_date = '2025-01-01'
+      vm.aiResearchForm.end_date = '2025-06-30'
+      vm.scheduleAIResearchDataPrecheck()
+      resolveContract?.({
+        version: 'market-data-v2',
+        request: {
+          identity: { canonical_id: 'instrument:stock:CN-SZSE:000001' },
+          dataset_code: 'market.stock_daily',
+          data_kind: 'bars',
+          frequency: '1d',
+          required_fields: ['close', 'volume'],
+          adjustment: 'qfq',
+          price_basis: 'close',
+          currency: 'CNY',
+          unit: 'share',
+          source_policy_id: 'market-default-v1',
+          family_id: 'stock.realtime',
+          family_contract_version: 'market-data-family-v1',
+          mode: 'local_first',
+        },
+      })
+      await warming
+
+      expect(queryLocalFirst).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it('does not reuse a strict-local contract across case-distinct exact symbols', async () => {
-    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
-    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    enableMarketDataBridge()
     getQueryContract.mockImplementation(({ symbol }: { symbol: string }) => Promise.resolve({
       version: 'market-data-v2',
       request: {
@@ -8353,6 +9461,11 @@ describe('StrategyPage', () => {
     const wrapper = doMount()
     try {
       const vm = wrapper.vm as any
+      // Mount schedules the normal strict-local precheck for the default
+      // symbol. Isolate the two explicit case-sensitive requests below.
+      await flushPromises()
+      getQueryContract.mockClear()
+      queryLocalFirst.mockClear()
       vm.aiResearchForm.symbol = 'rb0'
       await nextTick()
       await vm.runAIResearchDataPrecheck({ interactive: false })
@@ -8392,8 +9505,7 @@ describe('StrategyPage', () => {
     _description,
     responseOverride,
   ) => {
-    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
-    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    enableMarketDataBridge()
     getQueryContract.mockResolvedValue({
       version: 'market-data-v2',
       request: {
@@ -8468,8 +9580,7 @@ describe('StrategyPage', () => {
     familyId,
     familyContractVersion,
   ) => {
-    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
-    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    enableMarketDataBridge()
     getQueryContract.mockResolvedValue({
       version: 'market-data-v2',
       request: {
@@ -8513,8 +9624,7 @@ describe('StrategyPage', () => {
   })
 
   it('does not mark incomplete strict local coverage as a successful precheck', async () => {
-    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
-    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    enableMarketDataBridge()
     getQueryContract.mockResolvedValue({
         version: 'market-data-v2',
         request: {
@@ -8577,8 +9687,7 @@ describe('StrategyPage', () => {
   })
 
   it('keeps a v2 execution failure after contract issuance out of the legacy fallback path', async () => {
-    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
-    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    enableMarketDataBridge()
     getQueryContract.mockResolvedValue({
       version: 'market-data-v2',
       request: {

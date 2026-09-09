@@ -306,6 +306,26 @@ describe('strategyApi', () => {
     )
   })
 
+  it('activateAIResearchLiveTrading uses the server-controlled activation route', async () => {
+    vi.mocked(api.post).mockResolvedValue({ activated: true, activation_status: 'running' })
+    await strategyApi.activateAIResearchLiveTrading('run-1', 'research-ws')
+    expect(api.post).toHaveBeenCalledWith(
+      '/strategy/ai-research/runs/run-1/live-trading/activate',
+      {},
+      { params: { research_workspace_id: 'research-ws' } }
+    )
+  })
+
+  it('deactivateAIResearchLiveTrading uses the server-controlled deactivation route', async () => {
+    vi.mocked(api.post).mockResolvedValue({ prepared: false, activation_status: 'deactivated' })
+    await strategyApi.deactivateAIResearchLiveTrading('run-1', 'research-ws')
+    expect(api.post).toHaveBeenCalledWith(
+      '/strategy/ai-research/runs/run-1/live-trading/deactivate',
+      {},
+      { params: { research_workspace_id: 'research-ws' } }
+    )
+  })
+
   it('createOverfittingTask', async () => {
     vi.mocked(api.post).mockResolvedValue({ task_id: 'ot-1' })
     await strategyApi.createOverfittingTask('t1', { methods: ['monte_carlo'] })

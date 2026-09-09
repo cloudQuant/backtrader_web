@@ -2,7 +2,14 @@
 
 # Workflow helpers are injected after every stage is loaded; see research.__init__.
 # mypy: disable-error-code=name-defined
+import hmac
 import sys
+
+from app.services.ai_research_provenance import (
+    sign_ai_research_run_record,
+    verify_ai_research_run_record,
+    verify_ai_research_task_snapshot,
+)
 
 # ruff: noqa: F403, F405
 from .shared import *
@@ -825,6 +832,8 @@ def _apply_backtest_environment_defaults(
 
 def _research_run_records_from_workspace(
     workspace: WorkspaceResponse,
+    *,
+    user_id: str | None = None,
 ) -> list[AIStrategyResearchRunRecord]:
     settings = dict(workspace.settings or {})
     ai_research = settings.get("ai_research")
@@ -833,20 +842,62 @@ def _research_run_records_from_workspace(
 
     raw_runs = ai_research.get("runs")
     runs = raw_runs if isinstance(raw_runs, list) else []
-    records_by_run_id: dict[str, AIStrategyResearchRunRecord] = {}
+    workspace_id = str(workspace.id or "").strip()
+    authenticated_owner = str(user_id or "").strip()
+    raw_last = ai_research.get("last_run")
+    canonical_by_run_id: dict[str, AIStrategyResearchRunRecord] = {}
+    if (
+        authenticated_owner
+        and workspace_id
+        and isinstance(raw_last, dict)
+        and verify_ai_research_run_record(
+            raw_last,
+            user_id=authenticated_owner,
+            workspace_id=workspace_id,
+        )
+    ):
+        canonical_last = _coerce_research_run_record_raw(raw_last)
+        if canonical_last is not None:
+            canonical_by_run_id[canonical_last.run_id] = canonical_last
+    records_by_run_id: dict[str, tuple[AIStrategyResearchRunRecord, bool]] = {}
     ordered_run_ids: list[str] = []
-    for raw in [*runs, ai_research.get("last_run")]:
+    for raw in [*runs, raw_last]:
         record = _coerce_research_run_record(raw)
         if record is None:
             continue
+        canonical = canonical_by_run_id.get(record.run_id)
+        if canonical is not None:
+            if record.run_id not in records_by_run_id:
+                ordered_run_ids.append(record.run_id)
+            records_by_run_id[record.run_id] = (canonical, True)
+            continue
+        trusted = bool(
+            authenticated_owner
+            and workspace_id
+            and isinstance(raw, dict)
+            and verify_ai_research_run_record(
+                raw,
+                user_id=authenticated_owner,
+                workspace_id=workspace_id,
+            )
+        )
         current = records_by_run_id.get(record.run_id)
         if current is None:
             ordered_run_ids.append(record.run_id)
-            records_by_run_id[record.run_id] = record
+            records_by_run_id[record.run_id] = (record, trusted)
             continue
-        if _research_run_record_history_rank(record) > _research_run_record_history_rank(current):
-            records_by_run_id[record.run_id] = record
-    records = [records_by_run_id[run_id] for run_id in ordered_run_ids]
+        current_record, current_trusted = current
+        # A browser-writable duplicate must never outrank a verified server
+        # source with the same run ID.  If no verified duplicate exists, the
+        # read-only history view keeps its legacy ranking behavior.
+        if trusted and not current_trusted:
+            records_by_run_id[record.run_id] = (record, trusted)
+        elif trusted == current_trusted and (
+            _research_run_record_history_rank(record)
+            > _research_run_record_history_rank(current_record)
+        ):
+            records_by_run_id[record.run_id] = (record, trusted)
+    records = [records_by_run_id[run_id][0] for run_id in ordered_run_ids]
     records.sort(key=lambda item: item.completed_at, reverse=True)
     return records
 
@@ -854,6 +905,8 @@ def _research_run_records_from_workspace(
 def _find_run_record_in_workspace(
     workspace: WorkspaceResponse,
     run_id: str,
+    *,
+    user_id: str | None = None,
 ) -> AIStrategyResearchRunRecord | None:
     target = str(run_id or "").strip()
     if not target:
@@ -861,7 +914,7 @@ def _find_run_record_in_workspace(
     record = next(
         (
             record
-            for record in _research_run_records_from_workspace(workspace)
+            for record in _research_run_records_from_workspace(workspace, user_id=user_id)
             if record.run_id == target
         ),
         None,
@@ -869,6 +922,119 @@ def _find_run_record_in_workspace(
     if record is not None:
         return record
     return _find_task_snapshot_run_record_in_workspace(workspace, target)
+
+
+def _find_trusted_run_record_in_workspace(
+    workspace: WorkspaceResponse,
+    *,
+    user_id: str,
+    run_id: str,
+) -> AIStrategyResearchRunRecord | None:
+    """Authenticate a stored run before it becomes a stateful source.
+
+    Keep this separate from the read-only history loader: callers that can
+    create a continuation, strategy, paper task or live handoff must validate
+    the exact raw settings mapping before Pydantic applies legacy defaults.
+    """
+    target = str(run_id or "").strip()
+    workspace_id = str(workspace.id or "").strip()
+    if not target or not workspace_id:
+        return None
+    settings = dict(workspace.settings or {})
+    ai_research = settings.get("ai_research")
+    if not isinstance(ai_research, dict):
+        return None
+    # The server writer always mirrors the canonical current revision in
+    # ``last_run``.  State-changing paths must not rank same-id history rows:
+    # an older approved HMAC record otherwise outranks a later, correctly
+    # signed revocation by its historical score.
+    raw_last = ai_research.get("last_run")
+    if isinstance(raw_last, dict) and str(raw_last.get("run_id") or "").strip() == target:
+        if not verify_ai_research_run_record(
+            raw_last,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        ):
+            return None
+        canonical = _coerce_research_run_record_raw(raw_last)
+        if canonical is None:
+            return None
+        canonical_signature = str(canonical.server_provenance_signature or "").strip()
+        if not canonical_signature:
+            return None
+        raw_runs = ai_research.get("runs")
+        if isinstance(raw_runs, list):
+            for raw in raw_runs:
+                if not isinstance(raw, dict) or str(raw.get("run_id") or "").strip() != target:
+                    continue
+                if not verify_ai_research_run_record(
+                    raw,
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                ):
+                    continue
+                candidate = _coerce_research_run_record_raw(raw)
+                if candidate is None:
+                    continue
+                candidate_signature = str(candidate.server_provenance_signature or "").strip()
+                if not candidate_signature or not hmac.compare_digest(
+                    candidate_signature,
+                    canonical_signature,
+                ):
+                    return None
+        return canonical
+
+    # A raw run record for this ID without a matching canonical ``last_run``
+    # is deliberately not a stateful source.  It may be a stale duplicate or
+    # an injected history entry.  Only an independently signed task snapshot
+    # below can recover an interrupted task that never produced a run record.
+    raw_runs = ai_research.get("runs")
+    if isinstance(raw_runs, list) and any(
+        isinstance(raw, dict) and str(raw.get("run_id") or "").strip() == target
+        for raw in raw_runs
+    ):
+        return None
+
+    # A signed task can be the durable source for an interrupted run whose
+    # standalone run record was not written before process loss.
+    return _find_task_snapshot_run_record_in_workspace(workspace, target)
+
+
+def _trusted_run_record_signatures_from_workspace(
+    workspace: WorkspaceResponse,
+    *,
+    user_id: str,
+) -> dict[str, set[str]]:
+    """Index exact raw records that may be replaced after a server refresh.
+
+    A run ID is only an application identifier and is writable through the
+    historical workspace settings store.  Freshness persistence must bind its
+    replacement to the original authenticated mapping, not merely to that ID:
+    otherwise an unsigned higher-ranked duplicate could be re-signed as a
+    side effect of a read-only history refresh.
+    """
+    settings = dict(workspace.settings or {})
+    ai_research = settings.get("ai_research")
+    if not isinstance(ai_research, dict):
+        return {}
+    raw_runs = ai_research.get("runs")
+    raw_candidates = [*raw_runs, ai_research.get("last_run")] if isinstance(raw_runs, list) else [
+        ai_research.get("last_run")
+    ]
+    workspace_id = str(workspace.id or "").strip()
+    trusted: dict[str, set[str]] = {}
+    for raw in raw_candidates:
+        if not isinstance(raw, dict) or not verify_ai_research_run_record(
+            raw,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        ):
+            continue
+        run_id = str(raw.get("run_id") or "").strip()
+        signature = str(raw.get("server_provenance_signature") or "").strip()
+        if run_id and signature:
+            trusted.setdefault(run_id, set()).add(signature)
+    return trusted
 
 
 def _find_task_snapshot_run_record_in_workspace(
@@ -897,6 +1063,12 @@ def _research_run_record_from_task_snapshot(
     run_id: str,
 ) -> AIStrategyResearchRunRecord | None:
     if not isinstance(raw, dict):
+        return None
+    if not verify_ai_research_task_snapshot(
+        raw,
+        user_id=str(workspace.user_id),
+        workspace_id=str(workspace.id),
+    ):
         return None
     try:
         task = AIStrategyResearchTaskResponse.model_validate(raw)
@@ -1062,6 +1234,8 @@ def _research_run_record_from_task_snapshot(
         best_strategy_name=task.best_strategy_name,
         research_workspace_id=str(workspace.id),
         mandate_id=_runtime_text(request.get("mandate_id"), None),
+        request_explicit_fields=list(task.request_explicit_fields or []),
+        request_explicit_fields_persisted=bool(task.request_explicit_fields_persisted),
         seed_strategy_id=_runtime_text(request.get("seed_strategy_id"), None),
         continued_from_run_id=_runtime_text(
             task.continued_from_run_id,
@@ -1076,8 +1250,13 @@ def _research_run_record_from_task_snapshot(
         completed_at=task.completed_at or task.started_at or task.submitted_at,
         iterations=iterations,
     )
-    return _research_run_record_with_promotion_audit(
+    record = _research_run_record_with_promotion_audit(
         _research_run_record_without_sensitive_handoff(record)
+    )
+    return sign_ai_research_run_record(
+        record,
+        user_id=str(workspace.user_id),
+        workspace_id=str(workspace.id),
     )
 
 
@@ -1318,6 +1497,18 @@ def _coerce_research_run_record(value: Any) -> AIStrategyResearchRunRecord | Non
         return None
 
 
+def _coerce_research_run_record_raw(value: Any) -> AIStrategyResearchRunRecord | None:
+    """Deserialize a record without applying time-dependent display freshness."""
+    if isinstance(value, AIStrategyResearchRunRecord):
+        return value
+    if not isinstance(value, dict):
+        return None
+    try:
+        return AIStrategyResearchRunRecord.model_validate(value)
+    except Exception:
+        return None
+
+
 def _research_run_record_with_pipeline(
     record: AIStrategyResearchRunRecord,
 ) -> AIStrategyResearchRunRecord:
@@ -1473,8 +1664,9 @@ def _run_record_should_auto_refresh_paper_review(record: AIStrategyResearchRunRe
         return False
     if not record.paper_workspace_id:
         return False
-    if record.live_handoff_approval is not None and record.live_handoff_approval.approved:
-        return False
+    # An approval is not immutable runtime evidence.  Revalidate the paper
+    # target on every trusted read so a removed/altered server anchor revokes
+    # readiness before a later live-handoff build or prepare operation.
     return True
 
 
@@ -1496,6 +1688,7 @@ def _paper_review_refresh_has_meaningful_change(
     ready_for_live: bool,
     evaluation_payload: list[dict[str, Any]],
     next_actions: list[str],
+    runtime_observation: dict[str, str] | None = None,
 ) -> bool:
     if [dict(item) for item in monitoring_plan] != [
         dict(item) for item in record.paper_monitoring_plan
@@ -1507,11 +1700,22 @@ def _paper_review_refresh_has_meaningful_change(
         return True
     if evaluation_payload != [dict(item) for item in record.paper_review_evaluations]:
         return True
+    handoff = dict(record.paper_handoff or {})
+    existing_observation = handoff.get("paper_runtime_observation")
+    if existing_observation != runtime_observation:
+        return True
     return next_actions != list(record.paper_review_next_actions or [])
 
 
 def _paper_review_status_requires_unit_lock(status: str | None) -> bool:
-    return str(status or "").strip() in {"needs_research_review", "live_readiness_expired"}
+    return str(status or "").strip() in {
+        "needs_research_review",
+        "live_readiness_expired",
+        # Missing or tampered runtime provenance is never a reason to keep a
+        # paper process running.  Its metrics remain unusable for readiness,
+        # while the fail-closed review path still stops and locks the target.
+        "paper_runtime_provenance_invalid",
+    }
 
 
 def _paper_unit_needs_review_lock(
