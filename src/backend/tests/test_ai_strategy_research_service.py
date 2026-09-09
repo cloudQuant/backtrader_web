@@ -13035,6 +13035,7 @@ async def test_task_manager_prepares_market_data_binding_before_snapshot_and_dis
         return request.model_copy(
             update={
                 "data_config": {
+                    "market_data_asset_type": "stock",
                     "market_data_binding_id": str(uuid.uuid4()),
                     "market_data_binding_hash": "a" * 64,
                     "market_data_binding_signature": "c2VydmVyLWlzc3VlZA." + "a" * 64,
@@ -13055,6 +13056,7 @@ async def test_task_manager_prepares_market_data_binding_before_snapshot_and_dis
     )
 
     assert prepared_task_ids == [submitted.task_id]
+    assert submitted.request_snapshot["data_config"]["market_data_asset_type"] == "stock"
     assert submitted.request_snapshot["data_config"]["market_data_binding_required"] is True
     assert submitted.request_snapshot["data_config"]["market_data_binding_hash"] == "a" * 64
 
@@ -13204,6 +13206,7 @@ async def test_ai_research_run_api_binds_server_request_and_rejects_client_data_
             return request.model_copy(
                 update={
                     "data_config": {
+                        "market_data_asset_type": "stock",
                         "market_data_binding_id": str(uuid.uuid4()),
                         "market_data_binding_hash": "d" * 64,
                         "market_data_binding_signature": "c2VydmVyLWlzc3VlZA." + "d" * 64,
@@ -13247,6 +13250,7 @@ async def test_ai_research_run_api_binds_server_request_and_rejects_client_data_
     assert response.status_code == 200, response.text
     assert len(binding_service.calls) == 2
     assert binding_service.calls[0][1]
+    assert research_service.requests[0].data_config["market_data_asset_type"] == "stock"
     assert research_service.requests[0].data_config["market_data_binding_required"] is True
     assert rejected.status_code == 400
     assert rejected.json()["details"] == {
