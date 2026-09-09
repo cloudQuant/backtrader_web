@@ -5,6 +5,9 @@ from __future__ import annotations
 # Backwards-compatible research service facade; workflow helpers come from ``research``.
 # mypy: disable-error-code=name-defined
 # ruff: noqa: F403, F405
+import re
+import uuid
+
 from app.config import get_settings, production_security_mode
 from app.schemas.market_data_trust import DataPrecheckRequest
 from app.services import research as _research_helpers
@@ -14,6 +17,75 @@ from app.utils.logger import get_logger
 from app.utils.tracing import business_span
 
 logger = get_logger(__name__)
+
+_MARKET_DATA_BINDING_KEY_PREFIX = "market_data_binding_"
+_MARKET_DATA_REQUIRED_BINDING_KEYS = frozenset(
+    {
+        "market_data_binding_id",
+        "market_data_binding_hash",
+        "market_data_binding_signature",
+        "market_data_binding_required",
+    }
+)
+_MARKET_DATA_BINDING_HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
+_MARKET_DATA_BINDING_SIGNATURE_BODY_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def _apply_market_data_research_binding_guard(
+    request: AIStrategyResearchRunRequest,
+) -> AIStrategyResearchRunRequest:
+    """Require a structurally valid server-issued v2 binding when enabled.
+
+    The API/task boundary obtains this binding from the strict local-only
+    market-data service before any workspace exists.  Direct service callers
+    still need a fail-closed guard, but this layer deliberately does not claim
+    to revalidate database facts, artifact bytes, or the signature; the
+    isolated runtime loader performs those checks immediately before it reads
+    the bound CSV.  Validation windows may narrow the server-bound interval
+    only through the runtime's signed binding semantics.
+    """
+    settings = get_settings()
+    if not bool(getattr(settings, "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED", False)):
+        return request
+
+    data_config = request.data_config
+    if not isinstance(data_config, dict):
+        raise ValueError("MARKET_DATA_BINDING_REQUIRED")
+
+    binding_keys = {
+        str(key)
+        for key in data_config
+        if str(key).casefold().startswith(_MARKET_DATA_BINDING_KEY_PREFIX)
+    }
+    if binding_keys - _MARKET_DATA_REQUIRED_BINDING_KEYS:
+        raise ValueError("MARKET_DATA_BINDING_INVALID")
+    if binding_keys != _MARKET_DATA_REQUIRED_BINDING_KEYS:
+        raise ValueError("MARKET_DATA_BINDING_REQUIRED")
+    if data_config.get("market_data_binding_required") is not True:
+        raise ValueError("MARKET_DATA_BINDING_INVALID")
+
+    binding_id = data_config.get("market_data_binding_id")
+    try:
+        uuid.UUID(str(binding_id))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("MARKET_DATA_BINDING_INVALID") from exc
+
+    binding_hash = str(data_config.get("market_data_binding_hash") or "")
+    if _MARKET_DATA_BINDING_HASH_PATTERN.fullmatch(binding_hash) is None:
+        raise ValueError("MARKET_DATA_BINDING_INVALID")
+
+    signature = data_config.get("market_data_binding_signature")
+    if not isinstance(signature, str) or not signature.strip() or len(signature) > 16384:
+        raise ValueError("MARKET_DATA_BINDING_INVALID")
+    signature_body, separator, signature_digest = signature.strip().partition(".")
+    if (
+        not separator
+        or "." in signature_digest
+        or _MARKET_DATA_BINDING_SIGNATURE_BODY_PATTERN.fullmatch(signature_body) is None
+        or _MARKET_DATA_BINDING_HASH_PATTERN.fullmatch(signature_digest) is None
+    ):
+        raise ValueError("MARKET_DATA_BINDING_INVALID")
+    return request
 
 
 def _apply_production_promotion_guards(
@@ -475,7 +547,8 @@ class AIStrategyResearchService:
         progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
     ) -> AIStrategyResearchRunResponse:
         """Run the research pipeline through a compact public orchestration facade."""
-        guarded_request = _apply_production_promotion_guards(request)
+        guarded_request = _apply_market_data_research_binding_guard(request)
+        guarded_request = _apply_production_promotion_guards(guarded_request)
         guarded_request = await _apply_production_data_precheck(guarded_request)
         return await self._run_pipeline(
             user_id,
