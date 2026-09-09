@@ -18,6 +18,11 @@ _DEFAULT_SECRETS = frozenset(
     {
         "your-secret-key-change-in-production",
         "your-jwt-secret-change-in-production",
+        # Public Docker/repository example values are equally predictable and
+        # must never satisfy a server-owned provenance or production-secret
+        # check merely because their wording happens to exceed 32 characters.
+        "replace-with-a-random-secret-key-at-least-32-chars",
+        "replace-with-a-random-jwt-secret-at-least-32-chars",
     }
 )
 

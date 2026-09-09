@@ -323,6 +323,16 @@ class MarketDataQueryBundleResponse(_StrictMarketDataModel):
         return self
 
 
+class MarketDataCapabilitiesResponse(_StrictMarketDataModel):
+    """Safe effective rollout capabilities for authenticated market-data clients."""
+
+    version: Literal["market-data-capabilities-v1"] = "market-data-capabilities-v1"
+    query_v2_enabled: bool
+    online_fetch_enabled: bool
+    research_cache_fill_enabled: bool
+    research_backtest_bridge_enabled: bool
+
+
 class MarketDataQueryRequest(_StrictMarketDataModel):
     """Versioned public request for one bounded local-first market-data query.
 

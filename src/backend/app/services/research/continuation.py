@@ -3,7 +3,28 @@
 # Workflow helpers are injected after every stage is loaded; see research.__init__.
 # mypy: disable-error-code=name-defined
 # ruff: noqa: F403, F405
+from app.services.ai_research_provenance import strip_server_owned_ai_research_keys
+
 from .shared import *
+
+# Continuations inherit their research basis from the persisted run. Only
+# operational settings may be refreshed by the caller. ``prompt`` is retained
+# solely for the mandate service to verify an inherited auto prompt or reject a
+# new explicit objective; it cannot change the source mandate or lineage.
+_CONTINUATION_OPERATIONAL_OVERRIDE_FIELDS = frozenset(
+    {
+        "prompt",
+        "data_config",
+        "gateway_config",
+        "max_iterations",
+        "backtest_timeout_seconds",
+        "poll_interval_seconds",
+        "start_paper_trading",
+        "min_paper_trading_days",
+        "paper_workspace_name",
+        "trading_workspace_id",
+    }
+)
 
 
 def _draft_from_strategy(
@@ -377,8 +398,12 @@ def _strategy_from_iteration_snapshot(
     snapshot_payload = dict(snapshot) if isinstance(snapshot, dict) else {}
     code = str(
         snapshot_payload.get("code") or payload.get("strategy_code") or payload.get("code") or ""
-    ).strip()
-    if not code:
+    )
+    # Use trimming only to decide whether a snapshot is empty.  Its original
+    # text is part of the signed run payload and must survive promotion byte
+    # for byte (including a final newline) rather than being normalized by a
+    # convenience parser.
+    if not code.strip():
         return None
 
     now = datetime.now(timezone.utc)
@@ -417,20 +442,46 @@ def _continuation_request_from_run_record(
     continuation_context = _continuation_context_from_record(record)
     if continuation_context:
         payload["continuation_context"] = continuation_context
+    else:
+        payload.pop("continuation_context", None)
+    source_seed_strategy_id = str(payload.get("seed_strategy_id") or "").strip()
+
+    inherited_data_config = dict(payload.get("data_config") or {})
+    inherited_market_data_binding = _contains_market_data_binding_values(inherited_data_config)
+    if inherited_market_data_binding:
+        # A research binding is scoped to a single task intent and can include
+        # a point-in-time artifact. Never let a record continuation reuse it.
+        # Retain only the minimal asset intent so an enabled bridge can issue a
+        # fresh task-scoped binding and a disabled bridge fails closed instead
+        # of silently selecting the legacy CSV path.
+        payload["data_config"] = _market_data_continuation_intent(inherited_data_config)
 
     for key, value in dict(overrides or {}).items():
+        if key not in _CONTINUATION_OPERATIONAL_OVERRIDE_FIELDS:
+            continue
+        if key == "data_config" and inherited_market_data_binding:
+            # A continuation of a bound run may choose a new minimal asset
+            # intent, but it cannot smuggle a prior binding or a legacy data
+            # path through an unrestricted override map.
+            if _is_market_data_continuation_intent(value):
+                payload[key] = dict(value)
+            continue
         if value is not None:
             payload[key] = value
-    if isinstance((overrides or {}).get("continuation_context"), dict):
-        payload["continuation_context"] = {
-            **continuation_context,
-            **dict(overrides["continuation_context"]),
-        }
 
+    # Rebuild lineage and improvement feedback from the source record after
+    # applying the operational allowlist. A continuation cannot be redirected
+    # to a caller-selected strategy/run/workspace or receive caller text as
+    # LLM improvement evidence.
     payload["continue_from_run_id"] = record.run_id
     payload["research_workspace_id"] = record.research_workspace_id
-    if not str(payload.get("seed_strategy_id") or "").strip():
+    if not source_seed_strategy_id:
         raise ValueError("AI research run record has no best strategy to continue")
+    payload["seed_strategy_id"] = source_seed_strategy_id
+    if continuation_context:
+        payload["continuation_context"] = continuation_context
+    else:
+        payload.pop("continuation_context", None)
 
     request = AIStrategyResearchRunRequest.model_validate(payload)
     context = dict(request.continuation_context or {})
@@ -444,6 +495,44 @@ def _continuation_request_from_run_record(
             }
         )
     return request
+
+
+_MARKET_DATA_BINDING_KEY_PREFIX = "market_data_binding_"
+_MARKET_DATA_RUNTIME_BINDING_KEY = "market_data_binding"
+
+
+def _contains_market_data_binding_values(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(
+            _is_market_data_binding_key(key)
+            or _contains_market_data_binding_values(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(_contains_market_data_binding_values(item) for item in value)
+    return False
+
+
+def _market_data_continuation_intent(data_config: dict[str, Any]) -> dict[str, Any]:
+    """Keep only a replacement-safe asset intent from an old sealed binding."""
+    asset_type = data_config.get("market_data_asset_type")
+    if isinstance(asset_type, str):
+        return {"market_data_asset_type": asset_type}
+    # Preserve a marker even for a malformed historical snapshot. That makes
+    # the disabled bridge fail closed; an enabled binder rejects the blank
+    # intent rather than treating the continuation as a legacy request.
+    return {"market_data_asset_type": ""}
+
+
+def _is_market_data_continuation_intent(value: Any) -> bool:
+    return isinstance(value, dict) and set(value) == {"market_data_asset_type"}
+
+
+def _is_market_data_binding_key(key: Any) -> bool:
+    normalized = str(key).casefold()
+    return normalized == _MARKET_DATA_RUNTIME_BINDING_KEY or normalized.startswith(
+        _MARKET_DATA_BINDING_KEY_PREFIX
+    )
 
 
 def _paper_start_request_from_record(
@@ -547,13 +636,13 @@ def _live_trading_unit_payload_from_record(
     asset_specs = _dict_payload(runtime_context.get("asset_specs"))
     backtest_environment = _dict_payload(runtime_context.get("backtest_environment"))
     data_config = {
-        **dict(source_unit.data_config or {}),
+        **_promotion_execution_config(source_unit.data_config),
         "ai_research_run_id": record.run_id,
         "ai_research_workspace_id": record.research_workspace_id,
         "ai_research_live_handoff_status": package.status,
     }
     unit_settings = {
-        **dict(source_unit.unit_settings or {}),
+        **_promotion_execution_config(source_unit.unit_settings),
         "ai_research_live_handoff": _redact_sensitive_handoff(
             {
                 "run_id": record.run_id,
@@ -586,7 +675,7 @@ def _live_trading_unit_payload_from_record(
         value = backtest_environment.get(key)
         if value not in (None, ""):
             unit_settings[key] = value
-    gateway_config = _dict_payload(source_unit.gateway_config)
+    gateway_config = _promotion_execution_config(source_unit.gateway_config)
     gateway_config.update(_dict_payload(runtime_context.get("gateway_config")))
     gateway_config.update(_dict_payload(request.gateway_config))
     gateway_config = _dict_payload(_omit_sensitive_handoff(gateway_config))
@@ -601,13 +690,26 @@ def _live_trading_unit_payload_from_record(
         category=strategy.category,
         data_config=data_config,
         unit_settings=unit_settings,
-        params=dict(source_unit.params or {}),
-        optimization_config=dict(source_unit.optimization_config or {}),
+        params=_promotion_execution_config(source_unit.params),
+        optimization_config=_promotion_execution_config(source_unit.optimization_config),
         trading_mode="live",
         gateway_config=gateway_config,
         lock_trading=True,
         lock_running=True,
     )
+
+
+def _promotion_execution_config(value: Any) -> dict[str, Any]:
+    """Copy only sealed execution settings, never paper provenance metadata.
+
+    An attested paper unit carries server-owned handoff, runtime-anchor and
+    observation fields beside its executable configuration.  These values are
+    not inputs to a new live unit.  Removing them recursively also prevents a
+    copied paper anchor from being mistaken for evidence about the different
+    live unit.
+    """
+    sanitized = strip_server_owned_ai_research_keys(value)
+    return dict(sanitized) if isinstance(sanitized, dict) else {}
 
 
 def _live_trading_prepare_handoff(
@@ -624,6 +726,9 @@ def _live_trading_prepare_handoff(
             "run_id": record.run_id,
             "research_workspace_id": record.research_workspace_id,
             "live_handoff_status": package.status,
+            "approval": package.approval.model_dump(mode="json")
+            if package.approval is not None
+            else None,
             "live_handoff_approved_at": package.approval.decided_at
             if package.approval is not None
             else None,
@@ -1203,16 +1308,36 @@ def _research_failure_context_from_record(
         source = "research_interrupted"
     else:
         source = "research_cancelled" if record.status == "cancelled" else "research_failure"
-    base_context = (
-        dict(record.continuation_context) if isinstance(record.continuation_context, dict) else {}
-    )
     payload = _best_iteration_payload(record)
+    # A task snapshot may be the only durable source for an interrupted run.
+    # Its record is derived only after the raw task HMAC has been verified, so
+    # preserve this narrow server-derived lineage when rebuilding continuation
+    # feedback.  Do not carry arbitrary context fields into a new prompt.
+    persisted_context = _dict_payload(record.continuation_context)
+    interrupted_lineage = (
+        {
+            key: persisted_context[key]
+            for key in ("task_id", "interrupted_stage", "interrupted_backtest_task_id")
+            if persisted_context.get(key) is not None
+        }
+        if source == "research_interrupted"
+        else {}
+    )
+    interrupted_failures = (
+        [
+            str(item).strip()
+            for item in persisted_context.get("quality_gate_failures", [])
+            if str(item or "").strip()
+        ]
+        if source == "research_interrupted"
+        and isinstance(persisted_context.get("quality_gate_failures"), list)
+        else []
+    )
     if not payload:
         diagnostics = dict(record.best_diagnostics or {})
         failures = [
             str(item).strip()
             for item in [
-                *_string_list(base_context.get("quality_gate_failures")),
                 *list(diagnostics.get("weaknesses") or []),
                 diagnostics.get("summary"),
                 *(record.next_actions or []),
@@ -1223,8 +1348,10 @@ def _research_failure_context_from_record(
             failures.append(
                 f"Previous research run finished without backtest iterations: {record.status}"
             )
+        for failure in interrupted_failures:
+            if failure not in failures:
+                failures.append(failure)
         return {
-            **base_context,
             "source": source,
             "run_id": record.run_id,
             "quality_gate_failures": failures,
@@ -1232,13 +1359,13 @@ def _research_failure_context_from_record(
             "diagnostics": diagnostics,
             "improvement_plan": list(diagnostics.get("improvement_plan") or []),
             "next_actions": list(record.next_actions or []),
+            **interrupted_lineage,
             **_record_runtime_context(record),
         }
 
     failures = [
         str(item).strip()
         for item in [
-            *_string_list(base_context.get("quality_gate_failures")),
             *list(payload.get("quality_gate_failures") or []),
             *list(payload.get("validation_failures") or []),
         ]
@@ -1249,6 +1376,9 @@ def _research_failure_context_from_record(
     for reason in (failure_reason, validation_failure_reason):
         if reason and reason not in failures:
             failures.append(reason)
+    for failure in interrupted_failures:
+        if failure not in failures:
+            failures.append(failure)
     if not failures:
         status = str(record.status or "not achieved").strip()
         failures.append(f"Previous research run finished without achieving target: {status}")
@@ -1260,7 +1390,6 @@ def _research_failure_context_from_record(
         metrics[f"validation_{key}"] = value
 
     return {
-        **base_context,
         "source": source,
         "run_id": record.run_id,
         "iteration": payload.get("iteration"),
@@ -1269,6 +1398,7 @@ def _research_failure_context_from_record(
         "diagnostics": dict(payload.get("diagnostics") or {}),
         "improvement_plan": list(payload.get("improvement_plan") or []),
         "next_actions": list(record.next_actions or []),
+        **interrupted_lineage,
         **_record_runtime_context(record),
     }
 

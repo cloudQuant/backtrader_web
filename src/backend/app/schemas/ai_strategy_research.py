@@ -157,6 +157,13 @@ class InvestmentMandateCreate(BaseModel):
     """Create and parse a structured investment demand for AI research."""
 
     raw_prompt: str = Field(..., min_length=1, description="Original user investment demand")
+    prompt_origin: Literal["explicit", "auto_generated"] = Field(
+        "explicit",
+        description=(
+            "Whether raw_prompt was explicitly supplied by the investor or generated from "
+            "the auto-workflow controls"
+        ),
+    )
     symbol: str | None = Field(None, max_length=50, description="Optional target symbol")
     symbol_name: str | None = Field(
         None, max_length=200, description="Optional symbol display name"
@@ -870,6 +877,9 @@ class AIStrategyLiveTradingPrepare(BaseModel):
     workspace: WorkspaceResponse
     unit: StrategyUnitResponse
     prepared: bool = False
+    activated: bool = False
+    activation_status: str | None = None
+    activation_instance_id: str | None = None
     handoff: dict[str, Any] | None = None
     next_actions: list[str] = Field(default_factory=list)
 
@@ -932,6 +942,34 @@ class AIStrategyResearchRunRecord(BaseModel):
     best_strategy_name: str | None = None
     research_workspace_id: str
     mandate_id: str | None = None
+    server_provenance_version: str | None = Field(
+        None,
+        description=(
+            "Server-issued version for the HMAC-attested continuation provenance. "
+            "Missing or unknown versions are not eligible for continuation."
+        ),
+    )
+    server_provenance_signature: str | None = Field(
+        None,
+        description=(
+            "Server-issued HMAC for the full persisted run-record provenance; clients "
+            "must not construct or reuse it."
+        ),
+    )
+    request_explicit_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Fields explicitly supplied by the original request; used to distinguish a "
+            "server-generated auto prompt from a caller-provided continuation override."
+        ),
+    )
+    request_explicit_fields_persisted: bool = Field(
+        False,
+        description=(
+            "Whether request_explicit_fields was persisted by the server. Legacy records "
+            "without this marker must not be trusted as blank-auto provenance."
+        ),
+    )
     seed_strategy_id: str | None = None
     continued_from_run_id: str | None = None
     continuation_source: str | None = None
@@ -1016,8 +1054,29 @@ class AIStrategyResearchTaskResponse(BaseModel):
     run_id: str | None = None
     research_workspace_id: str | None = None
     mandate_id: str | None = None
+    server_provenance_version: str | None = Field(
+        None,
+        description=(
+            "Server-issued version for the HMAC-attested continuation provenance. "
+            "Missing or unknown versions are not eligible for continuation."
+        ),
+    )
+    server_provenance_signature: str | None = Field(
+        None,
+        description=(
+            "Server-issued HMAC for the full persisted task provenance; clients must "
+            "not construct or reuse it."
+        ),
+    )
     request_snapshot: dict[str, Any] = Field(default_factory=dict)
     request_explicit_fields: list[str] = Field(default_factory=list)
+    request_explicit_fields_persisted: bool = Field(
+        False,
+        description=(
+            "Whether request_explicit_fields was persisted by the server. Legacy task "
+            "snapshots without this marker must not be trusted as blank-auto provenance."
+        ),
+    )
     continued_from_run_id: str | None = None
     continuation_source: str | None = None
     continuation_context: dict[str, Any] = Field(default_factory=dict)

@@ -30,9 +30,10 @@
 
 ### 2.2 页面与服务边界
 
-- `/data/market` 仅在 `VITE_MARKET_DATA_QUERY_V2_ENABLED=true` 的独立浏览器灰度中使用新查询接口展示历史、快照和来源状态；关闭时不得请求 v2 contract、family bundle 或事实接口。
-- `/investment/strategies` 最终把策略研究与回测请求绑定到已解析的 canonical identity、数据集、来源策略、数据版本和工件指纹。其 197 sidecar 还必须同时满足 `VITE_MARKET_DATA_QUERY_V2_ENABLED=true` 和 `VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED=true`，否则不得访问任何 v2 控制面或事实接口。
-- 在两个浏览器开关均开启的隔离候选中，用户明确触发“策略数据预检”时可额外请求 `purpose=research_cache_fill`；服务端还必须开启 `MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=true`，否则以稳定禁用码拒绝。输入去抖和非交互预检始终使用 `local_only + research + strict`，不得自动联网或写入。
+- 两页先读取经过 `data:read` 授权的 `GET /api/v1/data/market-data/capabilities`。它只返回服务端推导的有效能力，不返回 provider、密钥或原始部署变量。浏览器 build 环境变量不得启用、关闭或遮蔽 v2。
+- `/data/market` 仅在 `query_v2_enabled=true` 时进入 contract/family bundle/事实查询；它会探测服务端 family bundle，旧服务不存在该控制面时才按受限兼容错误回到无 bundle 的 v2 contract。每次 lookup 必须在首个异步 capability/bundle/contract 调用前冻结 asset、symbol、market、period、时间窗、family 和请求序号；异步返回后若当前选择或序号已变化，必须直接丢弃，不得以新表单值触发 v2、legacy 或在线写回。能力接口不可用、格式无效或显式关闭时，只保留旧的本地兼容读取，不能发起 v2 或在线刷新。
+- `/investment/strategies` 最终把策略研究与回测请求绑定到已解析的 canonical identity、数据集、来源策略、数据版本和工件指纹。其 197 strict sidecar 只有 `query_v2_enabled=true` 与 `research_backtest_bridge_enabled=true` 时才发送最小的 `market_data_asset_type` 客户端意图并进行 v2 严格本地预检；在任何 mandate 确认或 capability 请求开始前，前端必须捕获完整 request、mandate payload/match basis 和 `symbol`，后续异步步骤只能从该快照派生 `market_data_asset_type` 与最终 payload，不能读取期间可变的时间窗、质量门槛或表单状态。该意图不是 canonical identity 或 binding 证据；服务端必须验证并重建其余绑定。否则保持迭代 196 的兼容预检，不能伪造 197 provenance。
+- 用户单独触发“补齐本地缓存”才可请求 `purpose=research_cache_fill`，并且有效能力必须同时满足 `query_v2_enabled && online_fetch_enabled && research_cache_fill_enabled`；它**不**依赖 `research_backtest_bridge_enabled`。输入去抖、普通按钮预检和补齐成功后针对同一冻结预检快照的严格本地 v2 复读都使用 `local_only + research + strict`，不得自动联网或写入；即使 bridge 关闭，该复读也只报告本地覆盖，缓存填充本身不成为回测工件。
 - 旧 `/api/v1/data/market-instruments/*` 和 `/api/v1/data/kline` 保持兼容，直到新页面完成灰度和可观测性验收。
 - 迭代 196 已冻结，但策略页桥接仍默认关闭，直到独立的真实数据、浏览器和部署验收完成。`research_cache_fill` 的中台 receipt 不得写入、替代或批准不稳定的 `data_config`、CSV 回退、研究 run、holdout、回测或审批工件。
 
@@ -46,7 +47,7 @@
 
 请求指定：逻辑数据集、数据种类、半开时间区间 `[start, end)`、字段集、频率、复权/价格口径、币种、单位、来源策略、一致性级别、用途、知识截止点和模式。公共 DTO 频率只能是明确的 `5min`、`30min`、`1h`、`1d`、`1w`、`1mo`。这只描述通用合同可表达的频率，不构成 OpenBB 授权：当前 OpenBB yfinance 构件候选只允许 `1d`，并要求整个 `[start,end)` 按 UTC 日边界对齐且不超过 3650 天；`1w`、`1mo`、分钟或任何非日对齐窗口都不得借该候选进入 runner。
 
-所有公共 v2 请求都必须携带服务端签发、版本匹配且状态为 `ready` 的 `family_id` / `family_contract_version`，包括 `bars`。公共 HTTP DTO 将二者设为必填，缺失字段会在目录、主数据、日历、事实或 provider I/O 前以 FastAPI/Pydantic 的 HTTP 422 拒绝；仅内部编排 DTO 可暂存未绑定请求，若它被送入默认 resolver，仍返回稳定码 `DATA_FAMILY_BINDING_REQUIRED`。调用方显式给出 family 时，`query-contract` 只为该精确 family 签发 binding；遗留页面的无 family 输入形状则只能推导精确的 `<asset_type>.realtime`，绝不签发通用 `bars` 模板。若所请求 family 尚未配置，返回 `DATA_FAMILY_UNCONFIGURED`。遗留 lookup 兼容桥只有在响应同时给出精确请求 `symbol`、同一 contract canonical ID 和一致 family binding 时才可发起 v2 查询；三者任何一项缺失或逐字符不等（含大小写）都必须失败关闭。页面即使关闭 bundle 子开关也要请求并校验此 binding。
+所有公共 v2 请求都必须携带服务端签发、版本匹配且状态为 `ready` 的 `family_id` / `family_contract_version`，包括 `bars`。公共 HTTP DTO 将二者设为必填，缺失字段会在目录、主数据、日历、事实或 provider I/O 前以 FastAPI/Pydantic 的 HTTP 422 拒绝；仅内部编排 DTO 可暂存未绑定请求，若它被送入默认 resolver，仍返回稳定码 `DATA_FAMILY_BINDING_REQUIRED`。调用方显式给出 family 时，`query-contract` 只为该精确 family 签发 binding；遗留页面的无 family 输入形状则只能推导精确的 `<asset_type>.realtime`，绝不签发通用 `bars` 模板。若所请求 family 尚未配置，返回 `DATA_FAMILY_UNCONFIGURED`。遗留 lookup 兼容桥只有在响应同时给出精确请求 `symbol`、同一 contract canonical ID 和一致 family binding 时才可发起 v2 查询；三者任何一项缺失或逐字符不等（含大小写）都必须失败关闭。已获得服务端 v2 能力的页面必须探测并校验 bundle；只有服务器不存在该 endpoint 的已定义兼容错误才允许无 bundle contract 路径。
 
 三个候选 B1 family 还将 `adjustment`、`price_basis`、`currency` 和 `unit` 纳入精确 binding。调用方必须显式传输四个轴；`null` 是经过签发的确定值而不是通配符，因此 `fx.range` 的 `currency=null`、`unit=null` 也不得在 JSON 序列化时丢失。省略或修改任一轴必须在 provider I/O 前返回 `DATA_FAMILY_QUERY_CONTRACT_MISMATCH`，不能由适配器默认值或相近产品合同代替。
 
@@ -95,9 +96,19 @@
 
 ### FR-04B 严格研究数据绑定
 
-AI 研究链路只能把服务端签发的 `market_data_asset_type` 当作客户端意图。服务端必须以当前用户权限重建精确 `local_only + backtest + strict + knowledge_cutoff` 查询；它只能使用完整、已发布的本地 OHLC 证据，不能因研究或回测未命中而触发 AkShare、OpenBB、样例 CSV、相近标的或其他网络回退。
+AI 研究链路只能把客户端提交的最小 `market_data_asset_type` 当作意图；前端必须在任何异步 mandate/capability 步骤前，从完整提交快照中同时固定 request、mandate 匹配输入和 `symbol`，再由该快照推导 marker。它不能在等待期间读取后来变更的时间窗、质量门槛、标的或表单值。服务端必须按当前用户权限验证该意图并重建精确 `local_only + backtest + strict + knowledge_cutoff` 查询；它只能使用完整、已发布的本地 OHLC 证据，不能因研究或回测未命中而触发 AkShare、OpenBB、样例 CSV、相近标的或其他网络回退。
+
+每个实际 submit/continue 必须直接绑定本次请求获得的服务端 capability 返回值；页面缓存只可用于展示或早期提示，不能授权最终 payload。mandate 必须在 binder、binding artifact、workspace、task、snapshot 或 runner 的任何可观察写入之前校验。标的身份只允许去除首尾空白，不得将 `RB0` 与 `rb0` 这类协议标识做大小写折叠。自动模式的 mandate 只接受服务端规范化的 raw prompt、objective、auto-basis version/digest；客户端的预览文本或 objective 不能成为授权依据，显式 prompt/workflow 的续跑必须新建 explicit mandate。
 
 每个可回测的研究请求必须产生不可变 binding receipt，并保存 canonical identity、主数据/数据集/family/source-policy 版本、PIT/visibility anchor、逐观测 revision 与 source-snapshot 证据、规范化 CSV 字节哈希和 manifest 哈希。binding 首次附着到 research workspace 时写入不可变 scope receipt；仅服务端 AI 编排在创建 unit 后可写入精确 `(binding,user,intent,workspace,unit)` consumer receipt。浏览器、通用 workspace create/batch/update API 和续跑请求都不得创建、复制、替换或降级这三类 receipt。
+
+当有效 bridge 关闭时，任何 `market_data_asset_type`、精确 `market_data_binding` 或 `market_data_binding_*` 字段都必须在同步 workspace 创建之前、以及异步 task state、request snapshot 与 background runner 创建之前以 `MARKET_DATA_BRIDGE_DISABLED` 拒绝。该拒绝不得回落到旧 CSV 或遗留数据链路。
+
+对源 run 或 task snapshot 的续跑，系统必须先递归剥离过期的 `market_data_binding` / `market_data_binding_*`，绝不复用旧 task 的 PIT 或 CSV 工件；若源快照曾带 binding，只能保留唯一 `{market_data_asset_type: string}` 意图并在新 task intent 上重新绑定。`data_config` override 仅可精确替换该单一意图，不能添加 CSV 路径、旧 binding、provider、目录或任意其他字段；历史快照即使缺少有效资产意图也要保留空 marker，以便 bridge 关闭时稳定 503、bridge 开启时由 binder 拒绝，而不能降级为 legacy。该 guard 必须在任何新 task、snapshot、workspace 或 runner 落库前运行。
+
+run/task 续跑来源必须是服务端可验证的不可篡改记录。每条记录使用以服务端密钥域分离的 HMAC 覆盖 schema/kind、owner、实际容器 workspace、task/run ID 和完整可信 payload（包括 prompt/workflow/mandate、显式字段证据、lineage、context、diagnostics/next actions 与 binding 相关数据）；恢复时重新比较容器 workspace 与记录字段。签名缺失、未知版本、密钥轮换、任一字段篡改或从 workspace A 复制到 B 的记录均不得作为 continuation source。公开 workspace create/update 及其嵌套/深合并输入不得写入 `ai_research` 或 `ai_research_*` 保留命名空间；历史 client-writable 记录同样失败关闭。task/run 的每次服务端状态更新必须重新签名。
+
+可信续跑只从该签名来源重建 prompt、mandate、seed strategy、run/workspace lineage 与 LLM continuation context；浏览器 full override 只能改变明确定义的操作参数，不能注入 `continuation_context`、`continue_from_run_id`、`research_workspace_id` 或 `seed_strategy_id`。普通 `/ai-research/run` 和 `/ai-research/tasks` 入口收到这些 continuation 字段时，必须在 mandate、binder、artifact、task、snapshot 或 workspace 写入前拒绝。`request_explicit_fields_persisted=true` 仅在已验签来源中与实际 persisted field 共同构成 blank-auto 证据；legacy 默认空列表不是证据。
 
 每一次实际任务提交、每一次“并发任务已满”后的重试，以及任务进程启动前，系统都必须重读当前 unit，并重放 sealed strict 查询：校验当前 `data:read`、source policy、registry、许可证、purpose、scope、consumer 和撤销 receipt，再逐条比较封存的 revision/source-snapshot evidence。最终短授权事务还必须锁定每个 sealed source snapshot 及其当前 registry，并以当前 principal、资产、市场、用途和许可证重新裁决；任何权限、来源、许可、事实、身份、时间窗、HMAC 或工件变化均失败关闭，并使旧 runtime 失去可执行资格；清理由精确 lease/task owner 在确认自身已退出后进行，不能由并发失败路径删除或覆写新 owner 的目录。公共回测 API 不得接受客户端 `runtime_dir`；只有服务端 workspace-unit 调用可通过私有 trusted-runtime preflight 取得确定性的受控目录。
 
@@ -105,14 +116,24 @@ AI 研究链路只能把服务端签发的 `market_data_asset_type` 当作客户
 
 绑定 CSV 的运行时读取必须从受控根的预期相对路径按完整 `O_NOFOLLOW` 路径链打开单一文件描述符，在该 descriptor 上验证大小和 SHA-256，并把相同 descriptor 交给 CSV 读取器。验证后重新按路径打开文件、符号链接、路径替换、`directory_path`、环境变量或 provider 参数均不得改变实际读取的 inode。
 
+### FR-04C 纸面运行与实盘交接的服务端证据链
+
+市场数据 strict binding 进入 AI 研究、纸面交易和实盘交接后，研究记录、策略代码、纸面运行时和实盘单元必须形成一条服务端可验证的闭环。普通 workspace、strategy、gateway、simulation、live-trading 和 scheduler API 不能把一个带有 AI 研究保留标记的对象改造成可执行实盘单元，也不能代替研究服务直接启动、停止、删除或重建它。
+
+1. 每个可晋升的策略在生成时冻结服务端签名的策略快照；后续纸面/实盘只读取该快照，而不读取可被修改的研究 workspace unit 或策略模板。快照策略 ID 是受保护的服务端资源：通用 strategy create/update/delete、workspace create/batch/update、优化、simulation 和 live-trading 路由都必须拒绝伪造或复用该 ID。
+2. 可供纸面复核的 unit 必须带 HMAC 纸面运行时锚点，锚点精确绑定 owner、research workspace、paper workspace、unit、run、规范化后的运行时配置和物化快照摘要。服务器生成的日期窗口必须在锚点和物化配置两侧使用同一稳定规范化规则；未实际变更配置的二次 freshen/restart 不得使锚点漂移，显式日期仍必须被保留并参与摘要。
+3. 纸面指标不是浏览器可写的 `metrics_snapshot`。每次服务端确认的 manager launch 都生成私有 launch ID；用于复核的指标回执以 HMAC 绑定 paper workspace/unit、instance、launch ID 和指标摘要。重启、实例替换、度量变更或回执缺失必须撤销 live-ready 状态，重新收集并重新审批。旧记录可以只读展示，但缺签名、过期、冲突或没有当前纸面回执的记录不得续跑、启动纸面或进入实盘。
+4. 实盘交接 unit 另有 HMAC 锚点，绑定源 run 的签名、研究/实盘 workspace、unit 和规范化配置。只有 AI 研究服务的受控 `activate` 可以在最终再次核对当前纸面证据后，为 manager 签发一次性、进程内且不可由 HTTP 伪造的启动能力；通用 run/start/start-all 不能接受此能力。`deactivate` 先持久化停止待确认状态，再以私有能力停止；只有确认进程和订单清理均已结束，才撤销批准并标记为 deactivated。失败或仍在运行时必须保持 pending/failed，不能伪造已撤销。
+5. refresh/review 对同一 `run_id` 的替换身份是 `(run_id, 原始已验签 signature)`，而不是刷新后生成的新 signature。这个规则允许合法过期记录被重新签名并持久化，同时拒绝同 run ID 的未签名或冲突签名高优先级伪造记录。历史 live handoff 的停止解析只用于安全停止，必须按其原锚点写回，不能覆盖稍后 run 的 canonical `last_run`，也绝不能恢复旧记录的启动资格。
+
 ### FR-04A 策略页当前缓存补齐
 
 `research_cache_fill` 是一个受限的、当前时点缓存用途，供用户明确触发的策略数据预检使用。它必须满足以下契约：
 
 1. 仅允许 `mode=local_first`、`consistency=display`、无 `knowledge_cutoff`、无分页 cursor；任一组合在服务执行、目录、主数据或 provider I/O 前拒绝。
 2. 它需要 `RESEARCH`、`RESEARCH_ONLY` 或 `DERIVED_RESEARCH` 的当前来源用途授权，不能借用 `DISPLAY` 许可；成功 receipt 的冻结 authorization provenance 必须明确记录 `purpose=research_cache_fill`。
-3. 只有后端 `MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=true` 时才允许通过默认 source policy；浏览器开关仅控制体验，不能开启服务端写路径。`MARKET_DATA_ONLINE_FETCH_ENABLED`、`data:read`、当前 registry、精确 route、lease、fence 与事务 A/B 仍照常生效。
-4. 成功补齐后响应只能报告本地重新读取的覆盖、warning、source snapshot 和 revision 证据。它不得修改 `aiResearchPrecheckResult.passed`、启动研究 run，或成为迭代 196 的 PIT、holdout、回测和审批输入；后续正式研究仍必须由 196 服务端工件链以自己的 strict/PIT 请求重新绑定证据。
+3. 只有有效服务端能力 `research_cache_fill_enabled=true` 时才允许通过默认 source policy；其有效条件为 `MARKET_DATA_QUERY_V2_ENABLED=true && MARKET_DATA_ONLINE_FETCH_ENABLED=true && MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=true`，与 `MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED` 无关。浏览器不能开启写路径。`data:read`、当前 registry、精确 route、lease、fence 与事务 A/B 仍照常生效。
+4. 成功补齐后响应只能报告本地重新读取的覆盖、warning、source snapshot 和 revision 证据。页面在显示该 receipt 或把结果记为补齐成功前，必须逐项校验响应的 canonical identity、dataset、asset type、主数据版本、data kind、frequency、source policy 与 family/version 均等于同一服务端签发 contract；任何不兼容响应都不得成为补齐成功或严格复读的输入。页面可在 bridge 关闭时继续执行 `local_only + research + strict` 的本地 v2 复读，但不得修改 `aiResearchPrecheckResult.passed`、启动研究 run，或成为迭代 196 的 PIT、holdout、回测和审批输入；后续正式研究仍必须由 196 服务端工件链以自己的 strict/PIT 请求重新绑定证据。
 
 ### FR-05 数据源
 
@@ -150,7 +171,7 @@ calendar snapshot 也必须声明其 `source_registry_id`、被冻结的治理 p
 
 一次成功 provider 获取必须把 `MarketDataSourceAuthorization` 冻结在来源回执中，至少包括 registry ID/更新时间、许可和用途、辖区/有效窗口、保留与再分发决策、principal/tenant scope 的不可逆摘要、entitlement revision、允许决定及其 descriptor hash。该记录证明采集时的授权条件，不取代下一次读取时的实时授权检查。
 
-`research_cache_fill` 使用与 `research` 相同的研究用途许可证集合，但它不是 strict/PIT 读取。该用途的默认 source-policy grant 由单独的后端开关控制，关闭时即使浏览器伪造请求也返回 `MARKET_DATA_RESEARCH_CACHE_FILL_DISABLED`；store 对回执 provenance 再次核验用途、授权集合和当前 registry，不能以 display receipt 伪装为研究缓存。
+`research_cache_fill` 使用与 `research` 相同的研究用途许可证集合，但它不是 strict/PIT 读取。该用途的默认 source-policy grant 只在有效条件 `query_v2 && online_fetch && cache_fill` 同时成立时登记：若 `query_v2=false`，v2 HTTP 边界首先返回 `MARKET_DATA_QUERY_V2_DISABLED`；若 `query_v2=true` 但 online fetch 或 effective cache-fill 关闭，即使浏览器伪造请求也返回 `MARKET_DATA_RESEARCH_CACHE_FILL_DISABLED`。store 对回执 provenance 再次核验用途、授权集合和当前 registry，不能以 display receipt 伪装为研究缓存。
 
 在线获取的授权线性化点分为两段：网络请求前的 route preflight 决定是否可以发送请求；提供方返回后、写入 receipt 前必须以当前用户角色和来源 registry 做短事务的 current/locking recheck。角色、许可或 registry descriptor 在两者之间变化时，获取结果不得持久化。singleflight follower 在 leader 提交后先结束旧读事务，再重建 principal/access 后本地复读。任何没有 `MarketDataQueryAccess` 的服务调用只能做 local read；它不得触发 provider 获取或把未授权结果写入 v2 事实表。
 

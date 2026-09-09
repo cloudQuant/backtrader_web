@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import api from '@/api/index'
 import {
   createMarketDataQueryFromContract,
+  hasMarketDataCapabilities,
   hasMarketDataQueryBundle,
   hasMarketDataQueryContract,
   isMarketDataQueryV2FallbackError,
@@ -10,6 +11,7 @@ import {
   marketDataApi,
   type MarketDataQueryContract,
   type MarketDataQueryBundle,
+  type MarketDataCapabilitiesResponse,
 } from '@/api/marketData'
 
 vi.mock('@/api/index', () => ({
@@ -22,6 +24,53 @@ vi.mock('@/api/index', () => ({
 describe('marketDataApi', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('reads only the authenticated server-owned market-data capability document', async () => {
+    const capability: MarketDataCapabilitiesResponse = {
+      version: 'market-data-capabilities-v1',
+      query_v2_enabled: true,
+      online_fetch_enabled: false,
+      research_cache_fill_enabled: false,
+      research_backtest_bridge_enabled: true,
+    }
+    vi.mocked(api.get).mockResolvedValue(capability)
+
+    await marketDataApi.getCapabilities()
+
+    expect(api.get).toHaveBeenCalledWith('/data/market-data/capabilities', {
+      suppressErrorMessage: true,
+      skipRetry: true,
+      validateStatus: expect.any(Function),
+    })
+    const config = vi.mocked(api.get).mock.calls[0]?.[1]
+    expect(config?.validateStatus?.(200)).toBe(true)
+    expect(config?.validateStatus?.(403)).toBe(false)
+    expect(config?.validateStatus?.(503)).toBe(false)
+  })
+
+  it('accepts only a complete market-data capability document', () => {
+    const capability: MarketDataCapabilitiesResponse = {
+      version: 'market-data-capabilities-v1',
+      query_v2_enabled: true,
+      online_fetch_enabled: true,
+      research_cache_fill_enabled: true,
+      research_backtest_bridge_enabled: true,
+    }
+
+    expect(hasMarketDataCapabilities(capability)).toBe(true)
+    expect(hasMarketDataCapabilities({
+      ...capability,
+      research_cache_fill_enabled: 'true',
+    })).toBe(false)
+    expect(hasMarketDataCapabilities({
+      ...capability,
+      version: 'market-data-capabilities-v2',
+    })).toBe(false)
+    expect(hasMarketDataCapabilities({
+      version: 'market-data-capabilities-v1',
+      query_v2_enabled: true,
+    })).toBe(false)
   })
 
   it('listInstrumentOptions calls the selectable instrument endpoint', async () => {

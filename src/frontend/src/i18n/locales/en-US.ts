@@ -413,6 +413,8 @@ export default {
     aiResearchLiveHandoffApproved: 'Live handoff approved',
     aiResearchLiveHandoffRejected: 'Live handoff rejected',
     aiResearchLiveUnitPrepared: 'Live trading unit prepared and locked by default pending manual launch',
+    aiResearchLiveUnitActivated: 'Live trading unit started by the controlled server boundary',
+    aiResearchLiveUnitDeactivated: 'Live trading unit stopped and its prior approval revoked',
     aiResearchLiveHandoff: 'Live handoff',
     aiResearchLivePreparation: 'Live preparation',
     aiResearchTaskCancelled: 'AI research task cancelled',

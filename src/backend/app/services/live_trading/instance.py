@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services.live_trading.metadata import (
+    clear_server_runtime_launch_observation,
     instance_timestamp,
     normalize_instance_metadata,
 )
@@ -218,6 +219,7 @@ def sync_status_on_boot(load_instances: _Cb, save_instances: _Cb, is_pid_alive: 
             if not pid or not is_pid_alive(pid):
                 inst["status"] = "stopped"
                 inst["pid"] = None
+                clear_server_runtime_launch_observation(inst)
                 normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
                 changed = True
             elif _refresh_started_at_from_pid(inst, pid):
@@ -256,6 +258,7 @@ def list_instances(
             if not mapped_pid or not is_pid_alive(mapped_pid):
                 inst["status"] = "stopped"
                 inst["pid"] = None
+                clear_server_runtime_launch_observation(inst)
                 normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
                 changed = True
             elif pid != mapped_pid:
@@ -263,6 +266,7 @@ def list_instances(
                 inst["status"] = "running"
                 inst["started_at"] = now
                 inst["error"] = None
+                clear_server_runtime_launch_observation(inst)
                 normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
                 changed = True
             elif _refresh_started_at_from_pid(inst, pid):
@@ -280,6 +284,7 @@ def list_instances(
                     inst["pid"] = mapped_pid
                     inst["started_at"] = now
                     inst["error"] = None
+                    clear_server_runtime_launch_observation(inst)
                     normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
                     changed = True
             except ValueError as e:
@@ -459,6 +464,7 @@ def get_instance(
         if not mapped_pid or not is_pid_alive(mapped_pid):
             inst["status"] = "stopped"
             inst["pid"] = None
+            clear_server_runtime_launch_observation(inst)
             normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
             changed = True
         elif pid != mapped_pid:
@@ -466,6 +472,7 @@ def get_instance(
             inst["pid"] = mapped_pid
             inst["started_at"] = now
             inst["error"] = None
+            clear_server_runtime_launch_observation(inst)
             normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
             changed = True
         elif _refresh_started_at_from_pid(inst, pid):
@@ -483,6 +490,7 @@ def get_instance(
                 inst["pid"] = mapped_pid
                 inst["started_at"] = now
                 inst["error"] = None
+                clear_server_runtime_launch_observation(inst)
                 normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
                 changed = True
         inst["log_dir"] = find_latest_log_dir(strategy_dir)
@@ -536,6 +544,7 @@ def get_active_instances(
             instance["pid"] = mapped_pid
             if status != "running" or not instance.get("started_at"):
                 instance["started_at"] = now
+                clear_server_runtime_launch_observation(instance)
             result.append(instance)
             continue
 
@@ -544,6 +553,7 @@ def get_active_instances(
         # exclude it without mutating instance storage from a read request.
         instance["status"] = "stopped"
         instance["pid"] = None
+        clear_server_runtime_launch_observation(instance)
         result.append(instance)
 
     return result

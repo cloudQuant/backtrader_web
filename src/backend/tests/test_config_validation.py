@@ -3,6 +3,7 @@ Tests for environment variable validation.
 """
 
 import os
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -86,6 +87,19 @@ class TestSettingsValidation:
         # Cleanup
         del os.environ["DEBUG"]
         del os.environ["JWT_SECRET_KEY"]
+
+    def test_repository_env_example_public_secrets_are_rejected_in_production(self, monkeypatch):
+        """The committed Docker example cannot be mistaken for a real signing key."""
+        monkeypatch.delenv("DEBUG", raising=False)
+        monkeypatch.delenv("SECRET_KEY", raising=False)
+        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+        monkeypatch.setenv("ADMIN_PASSWORD", "TestAdmin@12345")
+        example = Path(__file__).resolve().parents[1] / ".env.example"
+
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(_env_file=example)
+
+        assert "Default secret key detected" in str(exc_info.value)
 
     def test_custom_secret_key_passes_in_production(self):
         """Test that custom secret keys pass validation in production."""
@@ -287,6 +301,11 @@ class TestSettingsSecurityDefaults:
     def test_debug_mode_explicit_true_overrides_env(self, monkeypatch):
         """Test that explicit DEBUG=True wins over a production-like env default."""
         monkeypatch.setenv("DEBUG", "false")
+        # ``tests.conftest`` deliberately supplies a private provenance key
+        # for integration tests. This test is about Settings' declared default
+        # only, so keep that fixture value out of this isolated constructor.
+        monkeypatch.delenv("SECRET_KEY", raising=False)
+        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
         settings = Settings(DEBUG=True, ADMIN_PASSWORD="SecurePass@123!", _env_file=None)
         assert settings.DEBUG is True
         assert settings.SECRET_KEY == "your-secret-key-change-in-production"

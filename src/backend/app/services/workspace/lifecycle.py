@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.db.database import async_session_maker
-from app.models.workspace import Workspace
+from app.models.workspace import StrategyUnit, Workspace
 from app.schemas.workspace import (
     WorkspaceCreate,
     WorkspaceResponse,
@@ -173,6 +173,10 @@ async def update_workspace(
 
 async def delete_workspace(workspace_id: str, user_id: str) -> bool:
     """Delete a workspace and its runtime directory."""
+    from app.services.workspace.units import (
+        AIStrategyResearchUnitMutationError,
+        is_server_owned_ai_research_unit,
+    )
     from app.services.workspace_service import WorkspaceService
 
     async with async_session_maker() as session:
@@ -181,6 +185,15 @@ async def delete_workspace(workspace_id: str, user_id: str) -> bool:
         )
         if ws is None:
             return False
+        units = (
+            await session.execute(
+                select(StrategyUnit).where(StrategyUnit.workspace_id == workspace_id)
+            )
+        ).scalars().all()
+        if any(is_server_owned_ai_research_unit(unit) for unit in units):
+            raise AIStrategyResearchUnitMutationError(
+                "AI_RESEARCH_UNIT_SERVER_OWNED_DELETE_FORBIDDEN"
+            )
         await session.delete(ws)
         await session.commit()
         workspace_unit_runtime.remove_workspace_dir(workspace_id)

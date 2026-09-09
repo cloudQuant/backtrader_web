@@ -10,6 +10,7 @@ import asyncio
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -21,11 +22,21 @@ from app.models.workspace import StrategyUnit, Workspace
 from app.schemas.backtest import BacktestRequest, TaskStatus
 from app.schemas.workspace import UnitStatusResponse
 from app.services import workspace_unit_runtime
+from app.services.ai_research_provenance import (
+    AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD,
+    verify_ai_research_paper_runtime_anchor_for_unit,
+)
 from app.services.fincore_metrics_helper import calculate_extended_metrics
 from app.services.live_trading_manager import get_live_trading_manager
 from app.services.workspace.config import (
     _normalize_workspace_type,
     _workspace_settings_dict,
+)
+from app.services.workspace.units import (
+    AIStrategyResearchPaperRuntimeStopError,
+    is_server_owned_ai_research_live_handoff_unit,
+    is_server_owned_ai_research_paper_runtime,
+    is_server_owned_ai_research_unit,
 )
 
 if TYPE_CHECKING:
@@ -37,6 +48,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MARKET_DATA_BINDING_TRADING_UNSUPPORTED = "MARKET_DATA_BINDING_TRADING_UNSUPPORTED"
+_AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID = "AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID"
 _UNIT_RUN_LEASE_PREFIX = "lease-"
 _UNIT_RUN_STATUS_MATERIALIZING = "materializing"
 _UNIT_RUN_STATUS_CANCELLING = "cancelling"
@@ -74,6 +86,34 @@ def _requires_research_market_data_binding(unit: StrategyUnit) -> bool:
     data_config = getattr(unit, "data_config", None)
     return workspace_unit_runtime._market_data_binding_required(
         data_config if isinstance(data_config, dict) else None
+    )
+
+
+def _has_valid_ai_research_paper_runtime_anchor(
+    unit: StrategyUnit,
+    *,
+    user_id: str,
+    workspace_id: str,
+    workspace_settings: dict[str, Any] | None = None,
+) -> bool:
+    """Allow an AI paper runtime only when its identity remains server-attested."""
+    if str(getattr(unit, "trading_mode", "") or "").strip().casefold() != "paper":
+        return True
+    if not is_server_owned_ai_research_paper_runtime(unit):
+        return True
+    settings = getattr(unit, "unit_settings", None)
+    anchor = settings.get(AI_RESEARCH_PAPER_RUNTIME_ANCHOR_FIELD) if isinstance(settings, dict) else None
+    return verify_ai_research_paper_runtime_anchor_for_unit(
+        anchor,
+        user_id=user_id,
+        paper_workspace_id=workspace_id,
+        paper_unit_id=str(unit.id),
+        unit=unit,
+        workspace_settings=workspace_settings,
+        # A workspace launch replaces the isolated directory before the
+        # manager starts it. The post-sync path compares the new files to the
+        # signed expected digest and then installs a snapshot digest.
+        require_runtime_snapshot=False,
     )
 
 
@@ -584,6 +624,20 @@ class WorkspaceRunOpsMixin:
 
             launchable_units: list[StrategyUnit] = []
             for unit in units:
+                if not _has_valid_ai_research_paper_runtime_anchor(
+                    unit,
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    workspace_settings=_workspace_settings_dict(ws),
+                ):
+                    unit.run_status = "failed"
+                    unit.trading_snapshot = self.trading_service.default_snapshot(
+                        unit=unit,
+                        instance_status="error",
+                        error=_AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID,
+                    )
+                    await session.commit()
+                    continue
                 if _requires_research_market_data_binding(unit):
                     # A sealed historical research artifact is never a
                     # paper/live market-data authorization.  This guard also
@@ -637,7 +691,14 @@ class WorkspaceRunOpsMixin:
         _schedule_paper_runtime_snapshots(user_id, units)
 
     async def run_units(
-        self, workspace_id: str, user_id: str, unit_ids: list[str], parallel: bool = False
+        self,
+        workspace_id: str,
+        user_id: str,
+        unit_ids: list[str],
+        parallel: bool = False,
+        *,
+        allow_server_owned_ai_research_live_handoff_start: bool = False,
+        live_handoff_pre_start_validator: Callable[[], Awaitable[None]] | None = None,
     ) -> list[dict[str, Any]]:
         """Run backtest for selected strategy units.
 
@@ -663,7 +724,49 @@ class WorkspaceRunOpsMixin:
             if not units:
                 return []
 
+            if (
+                not allow_server_owned_ai_research_live_handoff_start
+                and any(is_server_owned_ai_research_live_handoff_unit(unit) for unit in units)
+            ):
+                # A prepared live handoff is intentionally not an ordinary
+                # workspace run target.  The research service owns its
+                # one-shot activation capability and revalidates paper
+                # evidence before it delegates here.
+                raise ValueError("AI_RESEARCH_LIVE_HANDOFF_SERVER_ACTIVATION_REQUIRED")
+
             if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
+                untrusted_paper_units = [
+                    unit
+                    for unit in units
+                    if not _has_valid_ai_research_paper_runtime_anchor(
+                        unit,
+                        user_id=user_id,
+                        workspace_id=workspace_id,
+                        workspace_settings=_workspace_settings_dict(ws),
+                    )
+                ]
+                if untrusted_paper_units:
+                    untrusted_unit_ids = {id(unit) for unit in untrusted_paper_units}
+                    for unit in untrusted_paper_units:
+                        unit.run_status = "failed"
+                        unit.trading_snapshot = self.trading_service.default_snapshot(
+                            unit=unit,
+                            instance_status="error",
+                            error=_AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID,
+                        )
+                        results.append(
+                            {
+                                "unit_id": unit.id,
+                                "task_id": None,
+                                "status": "failed",
+                                "error": _AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID,
+                            }
+                        )
+                    await session.commit()
+                    if len(untrusted_paper_units) == len(units):
+                        return results
+                    units = [unit for unit in units if id(unit) not in untrusted_unit_ids]
+
                 bound_units = [unit for unit in units if _requires_research_market_data_binding(unit)]
                 if bound_units:
                     bound_unit_ids = {id(unit) for unit in bound_units}
@@ -739,6 +842,10 @@ class WorkspaceRunOpsMixin:
                     units,
                     user_id,
                     _workspace_settings_dict(ws),
+                    allow_server_owned_ai_research_live_handoff_start=(
+                        allow_server_owned_ai_research_live_handoff_start
+                    ),
+                    live_handoff_pre_start_validator=live_handoff_pre_start_validator,
                 )
                 await session.commit()
                 _schedule_paper_runtime_snapshots(user_id, units)
@@ -1058,7 +1165,13 @@ class WorkspaceRunOpsMixin:
         return results
 
     async def stop_units(
-        self, workspace_id: str, user_id: str, unit_ids: list[str]
+        self,
+        workspace_id: str,
+        user_id: str,
+        unit_ids: list[str],
+        *,
+        allow_server_owned_ai_research_stop: bool = False,
+        allow_server_owned_ai_research_live_handoff_stop: bool = False,
     ) -> list[dict[str, Any]]:
         """Stop running units by cancelling their associated backtest tasks."""
         results: list[dict[str, Any]] = []
@@ -1075,7 +1188,24 @@ class WorkspaceRunOpsMixin:
                 )
                 db_result = await session.execute(q)
                 units = list(db_result.scalars().all())
-                results = await self.trading_service.stop_units(units, user_id)
+                if (
+                    not (
+                        allow_server_owned_ai_research_stop
+                        or allow_server_owned_ai_research_live_handoff_stop
+                    )
+                    and any(is_server_owned_ai_research_unit(unit) for unit in units)
+                ):
+                    raise AIStrategyResearchPaperRuntimeStopError()
+                results = await self.trading_service.stop_units(
+                    units,
+                    user_id,
+                    allow_server_owned_ai_research_stop=(
+                        allow_server_owned_ai_research_stop
+                    ),
+                    allow_server_owned_ai_research_live_handoff_stop=(
+                        allow_server_owned_ai_research_live_handoff_stop
+                    ),
+                )
                 await session.commit()
                 from app.services.paper_runtime_scheduler import (
                     get_paper_runtime_snapshot_scheduler,

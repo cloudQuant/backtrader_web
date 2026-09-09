@@ -7,10 +7,12 @@ import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '@/stores/strategy'
 import {
   createMarketDataQueryFromContract,
+  hasMarketDataCapabilities,
   hasMarketDataQueryContract,
   isMarketDataQueryV2FallbackError,
   marketDataApi,
   type MarketAssetType,
+  type MarketDataCapabilitiesResponse,
   type MarketDataQueryContract,
   type MarketDataQueryResponse,
 } from '@/api/marketData'
@@ -49,14 +51,23 @@ import type { DataPrecheckResponse } from '@/types/trust'
 import type { Workspace, StrategyUnit, TradingSnapshot, UnitStatusResponse } from '@/types/workspace'
 
 /**
- * The Iteration 197 sidecar stays isolated from the Iteration 196 research
- * contract until both rollout gates have been explicitly approved.
+ * The authenticated data service owns effective rollout state. Browser build
+ * flags are intentionally not an authority: a stale bundle must never enable
+ * a bridge that the serving backend has disabled, nor suppress an approved
+ * strict-local bridge after the backend has enabled it.
  */
-function isAIResearchMarketDataPlatformBridgeEnabled(): boolean {
-  return (
-    import.meta.env.VITE_MARKET_DATA_QUERY_V2_ENABLED === 'true'
-    && import.meta.env.VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED === 'true'
-  )
+function isAIResearchMarketDataPlatformBridgeEnabled(
+  capabilities: MarketDataCapabilitiesResponse | null,
+): boolean {
+  return capabilities?.query_v2_enabled === true
+    && capabilities.research_backtest_bridge_enabled === true
+}
+
+function isAIResearchMarketDataCacheFillEnabled(
+  capabilities: MarketDataCapabilitiesResponse | null,
+): boolean {
+  return capabilities?.query_v2_enabled === true
+    && capabilities.research_cache_fill_enabled === true
 }
 
 export function useStrategyPage() {
@@ -64,7 +75,16 @@ export function useStrategyPage() {
   const route = useRoute()
   const router = useRouter()
   const strategyStore = useStrategyStore()
-  const aiResearchMarketDataPlatformBridgeEnabled = isAIResearchMarketDataPlatformBridgeEnabled()
+  const aiResearchMarketDataCapabilities = ref<MarketDataCapabilitiesResponse | null>(null)
+  const aiResearchMarketDataPlatformBridgeEnabled = computed(() => (
+    isAIResearchMarketDataPlatformBridgeEnabled(aiResearchMarketDataCapabilities.value)
+  ))
+  const aiResearchMarketDataCacheFillEnabled = computed(() => (
+    isAIResearchMarketDataCacheFillEnabled(aiResearchMarketDataCapabilities.value)
+  ))
+  let aiResearchMarketDataCapabilitiesResolved = false
+  let aiResearchMarketDataCapabilitiesRequest: Promise<MarketDataCapabilitiesResponse | null> | null = null
+  let aiResearchMarketDataCapabilitiesRequestGeneration = 0
 
   // ---- State ----
   const isInvestmentStrategyResearchRoute = computed(() =>
@@ -111,6 +131,7 @@ export function useStrategyPage() {
   const aiResearchTaskLivePrepared = ref(false)
   const aiResearchTaskPipeline = ref<AIStrategyPipelineSummary | null>(null)
   const aiResearchTaskRequestSnapshot = ref<Record<string, unknown> | null>(null)
+  const aiResearchTaskAutoContinuationSource = ref<AIResearchAutoContinuationSource | null>(null)
   const aiResearchTaskContinuedFromRunId = ref('')
   const aiResearchTaskContinuationSource = ref('')
   const aiResearchTaskContinuationContext = ref<Record<string, unknown>>({})
@@ -131,6 +152,8 @@ export function useStrategyPage() {
   const aiResearchLiveHandoffs = reactive<Record<string, AIStrategyLiveHandoffPackage>>({})
   const aiResearchLiveHandoffApprovingRunId = ref('')
   const aiResearchLiveTradingPreparingRunId = ref('')
+  const aiResearchLiveTradingActivatingRunId = ref('')
+  const aiResearchLiveTradingDeactivatingRunId = ref('')
   const aiResearchConfigDialogVisible = ref(false)
   const aiResearchConfigProfiles = ref<AIStrategyResearchConfigProfile[]>([])
   const aiResearchConfigProfilesLoading = ref(false)
@@ -189,6 +212,7 @@ export function useStrategyPage() {
     return rows
   })
   const aiResearchPrecheckLoading = ref(false)
+  const aiResearchCacheFillLoading = ref(false)
   const aiResearchPrecheckResult = ref<DataPrecheckResponse | null>(null)
   const aiResearchPrecheckError = ref('')
   const aiResearchMarketDataPlatformStatus = ref<AIResearchMarketDataPlatformStatus>({
@@ -204,6 +228,7 @@ export function useStrategyPage() {
   let aiResearchPrecheckTimer: ReturnType<typeof setTimeout> | null = null
   let aiResearchPrecheckController: AbortController | null = null
   let aiResearchPrecheckSequence = 0
+  let aiResearchCacheFillSequence = 0
 
   const AI_RESEARCH_STAGE_LABELS: Record<string, string> = {
     queued: '排队中',
@@ -1226,16 +1251,20 @@ export function useStrategyPage() {
     return ''
   }
 
-  function aiResearchPrecheckAssetType(): MarketAssetType | undefined {
-    const symbol = aiResearchForm.symbol.trim().toUpperCase()
-    if (isAIResearchFuturesSymbol(symbol)) return 'futures'
-    if (/(USDT|USDC|PERP|SWAP|BTC|ETH)/.test(symbol)) return 'crypto'
-    if (/\.(SZ|SH|BJ)$/.test(symbol) || /^\d{6}$/.test(symbol)) return 'stock'
+  function aiResearchAssetTypeForSymbol(symbol: string): MarketAssetType | undefined {
+    const normalized = symbol.trim().toUpperCase()
+    if (isAIResearchFuturesSymbol(normalized)) return 'futures'
+    if (/(USDT|USDC|PERP|SWAP|BTC|ETH)/.test(normalized)) return 'crypto'
+    if (/\.(SZ|SH|BJ)$/.test(normalized) || /^\d{6}$/.test(normalized)) return 'stock'
     return undefined
   }
 
-  function aiResearchMarketDataBridgeAssetType(): MarketAssetType | undefined {
-    const assetType = aiResearchPrecheckAssetType()
+  function aiResearchPrecheckAssetType(): MarketAssetType | undefined {
+    return aiResearchAssetTypeForSymbol(aiResearchForm.symbol)
+  }
+
+  function aiResearchMarketDataBridgeAssetType(symbol: string): MarketAssetType | undefined {
+    const assetType = aiResearchAssetTypeForSymbol(symbol)
     if (assetType === 'stock' || assetType === 'futures' || assetType === 'crypto') {
       return assetType
     }
@@ -1255,6 +1284,30 @@ export function useStrategyPage() {
     if (!start || !endInclusive || start > endInclusive) return null
     endInclusive.setUTCDate(endInclusive.getUTCDate() + 1)
     return { start: start.toISOString(), end: endInclusive.toISOString() }
+  }
+
+  interface AIResearchMarketDataPrecheckSnapshot {
+    symbol: string
+    assetType: MarketAssetType | undefined
+    timeframe: string
+    startDate: string | null
+    endDate: string | null
+    period: 'daily' | 'weekly' | 'monthly' | null
+    window: { start: string; end: string } | null
+  }
+
+  function captureAIResearchMarketDataPrecheckSnapshot(): AIResearchMarketDataPrecheckSnapshot | null {
+    const symbol = aiResearchForm.symbol.trim()
+    if (!symbol) return null
+    return {
+      symbol,
+      assetType: aiResearchAssetTypeForSymbol(symbol),
+      timeframe: aiResearchForm.timeframe,
+      startDate: aiResearchForm.start_date || null,
+      endDate: aiResearchForm.end_date || null,
+      period: aiResearchLegacyPeriod(),
+      window: aiResearchQueryWindow(),
+    }
   }
 
   function aiResearchQueryContractKey(
@@ -1278,6 +1331,47 @@ export function useStrategyPage() {
       queryId: null,
       detail: null,
       ...status,
+    }
+  }
+
+  /**
+   * Read authenticated, server-owned rollout state. Page load and passive
+   * prechecks may use the most recently resolved value, while any action that
+   * submits or continues research forces a fresh authorization decision.
+   *
+   * An absent, malformed, or failed response deliberately remains null, which
+   * keeps the Iteration 196 path active instead of trusting browser flags.
+   */
+  async function resolveAIResearchMarketDataCapabilities(
+    { forceRefresh = false }: { forceRefresh?: boolean } = {},
+  ): Promise<MarketDataCapabilitiesResponse | null> {
+    if (!forceRefresh && aiResearchMarketDataCapabilitiesResolved) {
+      return aiResearchMarketDataCapabilities.value
+    }
+    if (!forceRefresh && aiResearchMarketDataCapabilitiesRequest) {
+      return aiResearchMarketDataCapabilitiesRequest
+    }
+
+    const requestGeneration = ++aiResearchMarketDataCapabilitiesRequestGeneration
+    const request = marketDataApi.getCapabilities()
+      .then((value: unknown) => (hasMarketDataCapabilities(value) ? value : null))
+      .catch(() => null)
+      .then(capabilities => {
+        // A forced submit-time read can supersede a still-pending page-load
+        // request. Do not let that older response restore stale authority.
+        if (requestGeneration === aiResearchMarketDataCapabilitiesRequestGeneration) {
+          aiResearchMarketDataCapabilities.value = capabilities
+          aiResearchMarketDataCapabilitiesResolved = true
+        }
+        return capabilities
+      })
+    aiResearchMarketDataCapabilitiesRequest = request
+    try {
+      return await request
+    } finally {
+      if (aiResearchMarketDataCapabilitiesRequest === request) {
+        aiResearchMarketDataCapabilitiesRequest = null
+      }
     }
   }
 
@@ -1348,13 +1442,26 @@ export function useStrategyPage() {
   }
 
   async function runAIResearchMarketDataPlatformPrecheck(
-    assetType: MarketAssetType | undefined,
-    symbol: string,
+    snapshot: AIResearchMarketDataPrecheckSnapshot,
     controller: AbortController,
-    { warmCache = false }: { warmCache?: boolean } = {},
+    {
+      fillLocalCache = false,
+      forceStrictLocalReread = false,
+    }: {
+      fillLocalCache?: boolean
+      forceStrictLocalReread?: boolean
+    } = {},
   ): Promise<void> {
-    const period = aiResearchLegacyPeriod()
-    const window = aiResearchQueryWindow()
+    const capabilities = await resolveAIResearchMarketDataCapabilities()
+    if (controller.signal.aborted) return
+    if (
+      fillLocalCache
+        ? !isAIResearchMarketDataCacheFillEnabled(capabilities)
+        : !forceStrictLocalReread
+          && !isAIResearchMarketDataPlatformBridgeEnabled(capabilities)
+    ) return
+
+    const { assetType, symbol, period, window } = snapshot
     if (!assetType || !period || !window) {
       setAIResearchMarketDataPlatformStatus({ path: 'unsupported', detail: 'TYPED_QUERY_CONTRACT_UNAVAILABLE' })
       return
@@ -1368,15 +1475,13 @@ export function useStrategyPage() {
         return
       }
       contractIssued = true
-      // Scheduled input validation is deliberately strict-local so typing in
-      // the form never starts an external provider request. A user-triggered
-      // precheck may warm the reviewed local-first cache under the separately
-      // authorized ``research_cache_fill`` purpose. It only persists
-      // independently validated market facts and is not an Iteration 196
-      // research/backtest artifact or approval input. Iteration 196 research
-      // keeps its separate strict/PIT authorization and cannot inherit this
-      // current collection permission.
-      const executionOptions = warmCache
+      // Both scheduled and interactive prechecks are deliberately strict-local
+      // so inspecting a research form never starts an external provider
+      // request. Only the separate, explicit cache-fill action may use the
+      // reviewed local-first collection purpose. It persists independently
+      // validated market facts only; it never creates an Iteration 196
+      // research/backtest artifact or approval input.
+      const executionOptions = fillLocalCache
         ? {
             mode: 'local_first' as const,
             purpose: 'research_cache_fill' as const,
@@ -1418,7 +1523,7 @@ export function useStrategyPage() {
       }
       const lastFetch = response.fetches[response.fetches.length - 1]
       setAIResearchMarketDataPlatformStatus({
-        path: warmCache
+        path: fillLocalCache
           ? response.fetches.length > 0
             ? 'provider_persisted'
             : 'local_first'
@@ -1438,9 +1543,17 @@ export function useStrategyPage() {
     }
   }
 
-  async function runAIResearchDataPrecheck({ interactive = true }: { interactive?: boolean } = {}) {
-    const symbol = aiResearchForm.symbol.trim()
-    if (!symbol) {
+  async function runAIResearchDataPrecheck(
+    {
+      interactive = true,
+      forceStrictLocalReread = false,
+    }: {
+      interactive?: boolean
+      forceStrictLocalReread?: boolean
+    } = {},
+  ) {
+    const snapshot = captureAIResearchMarketDataPrecheckSnapshot()
+    if (!snapshot) {
       if (interactive) ElMessage.warning(t('strategy.aiResearchSymbolRequired'))
       return
     }
@@ -1451,23 +1564,32 @@ export function useStrategyPage() {
     aiResearchPrecheckLoading.value = true
     aiResearchPrecheckError.value = ''
     try {
-      const assetType = aiResearchPrecheckAssetType()
+      // Capability is only needed for the optional Iteration 197 sidecar.
+      // Start the established Iteration 196 precheck immediately so a delayed
+      // rollout-state read cannot turn a debounced input edit into a silent
+      // no-op. The snapshot/sequence fence below still governs both results.
+      const capabilitiesRequest = resolveAIResearchMarketDataCapabilities()
       const result = await marketDataApi.runPrecheck({
-        asset_type: assetType,
-        symbol,
-        timeframe: aiResearchForm.timeframe,
-        start_date: aiResearchForm.start_date || null,
-        end_date: aiResearchForm.end_date || null,
+        asset_type: snapshot.assetType,
+        symbol: snapshot.symbol,
+        timeframe: snapshot.timeframe,
+        start_date: snapshot.startDate,
+        end_date: snapshot.endDate,
       }, { signal: controller.signal })
       if (requestSequence !== aiResearchPrecheckSequence) return
       aiResearchPrecheckResult.value = result
+      const capabilities = await capabilitiesRequest
+      if (requestSequence !== aiResearchPrecheckSequence || controller.signal.aborted) return
       // The Iteration 196 precheck remains authoritative. The Iteration 197
-      // sidecar cannot issue any v2 control-plane or fact request until its
-      // explicit frontend bridge gate is enabled after the 196 contract is
-      // frozen.
-      if (aiResearchMarketDataPlatformBridgeEnabled) {
-        void runAIResearchMarketDataPlatformPrecheck(assetType, symbol, controller, {
-          warmCache: interactive,
+      // sidecar can issue a strict-local v2 control-plane or fact request only
+      // when the authenticated backend has enabled that bridge.
+      if (
+        forceStrictLocalReread
+        || isAIResearchMarketDataPlatformBridgeEnabled(capabilities)
+      ) {
+        await runAIResearchMarketDataPlatformPrecheck(snapshot, controller, {
+          fillLocalCache: false,
+          forceStrictLocalReread,
         })
       } else {
         setAIResearchMarketDataPlatformStatus({ path: 'legacy' })
@@ -1491,6 +1613,50 @@ export function useStrategyPage() {
     }
   }
 
+  async function warmAIResearchLocalCache() {
+    const snapshot = captureAIResearchMarketDataPrecheckSnapshot()
+    if (!snapshot) {
+      ElMessage.warning(t('strategy.aiResearchSymbolRequired'))
+      return
+    }
+
+    const requestSequence = ++aiResearchPrecheckSequence
+    const cacheFillSequence = ++aiResearchCacheFillSequence
+    aiResearchPrecheckController?.abort()
+    const controller = new AbortController()
+    aiResearchPrecheckController = controller
+    aiResearchCacheFillLoading.value = true
+    aiResearchPrecheckError.value = ''
+    try {
+      const capabilities = await resolveAIResearchMarketDataCapabilities({ forceRefresh: true })
+      if (requestSequence !== aiResearchPrecheckSequence || controller.signal.aborted) return
+      if (!isAIResearchMarketDataCacheFillEnabled(capabilities)) return
+
+      await runAIResearchMarketDataPlatformPrecheck(
+        snapshot,
+        controller,
+        { fillLocalCache: true },
+      )
+      if (requestSequence !== aiResearchPrecheckSequence || controller.signal.aborted) return
+
+      const cacheFillPath = aiResearchMarketDataPlatformStatus.value.path
+      if (cacheFillPath !== 'provider_persisted' && cacheFillPath !== 'local_first') return
+
+      // A successful collection receipt only proves that market facts were
+      // persisted. Re-read the exact frozen v2 query strictly locally. This
+      // must not call or rewrite the Iteration 196 precheck: cache filling is
+      // independent of the backtest bridge and is never a research artifact.
+      await runAIResearchMarketDataPlatformPrecheck(snapshot, controller, {
+        fillLocalCache: false,
+        forceStrictLocalReread: true,
+      })
+    } finally {
+      if (cacheFillSequence === aiResearchCacheFillSequence) {
+        aiResearchCacheFillLoading.value = false
+      }
+    }
+  }
+
   function scheduleAIResearchDataPrecheck() {
     if (aiResearchPrecheckTimer !== null) clearTimeout(aiResearchPrecheckTimer)
     // Invalidate the in-flight result as soon as an input changes, rather
@@ -1498,9 +1664,11 @@ export function useStrategyPage() {
     // symbol's successful response from briefly replacing the precheck while
     // the user is already editing a different asset.
     aiResearchPrecheckSequence += 1
+    aiResearchCacheFillSequence += 1
     aiResearchPrecheckController?.abort()
     aiResearchPrecheckController = null
     aiResearchPrecheckLoading.value = false
+    aiResearchCacheFillLoading.value = false
     setAIResearchMarketDataPlatformStatus({ path: 'legacy' })
     if (!aiResearchForm.symbol.trim()) return
     aiResearchPrecheckTimer = setTimeout(() => {
@@ -1746,6 +1914,42 @@ export function useStrategyPage() {
     }
   }
 
+  interface AIResearchMandateSnapshot {
+    rawPrompt: string
+    promptOrigin: 'explicit' | 'auto_generated'
+    symbol: string | null
+    symbolName: string | null
+    timeframe: string | null
+    riskConstraints: Record<string, unknown>
+    tradingConstraints: Record<string, unknown>
+    qualityGates: Record<string, unknown>
+  }
+
+  interface AIResearchSubmissionSnapshot {
+    request: AIStrategyResearchRunRequest
+    mandate: AIResearchMandateSnapshot
+  }
+
+  interface AIResearchMandateInput {
+    prompt: string
+    symbol: string
+    shouldUseServerGeneratedPrompt?: boolean
+  }
+
+  interface AIResearchRunnableInput extends AIResearchMandateInput {
+    shouldUseServerGeneratedPrompt: boolean
+  }
+
+  interface AIResearchAutoContinuationSource {
+    prompt: string
+    mandateId: string
+  }
+
+  interface AIResearchPreparedSubmission {
+    input: AIResearchRunnableInput
+    submission: AIResearchSubmissionSnapshot
+  }
+
   function aiResearchMandateQualityGatesFromForm(): Record<string, unknown> {
     return {
       target_sharpe: aiResearchForm.target_sharpe,
@@ -1780,41 +1984,208 @@ export function useStrategyPage() {
     }
   }
 
-  function aiResearchMandateInputPrompt(input?: { prompt: string; symbol: string } | null) {
+  function aiResearchMandateInputPrompt(input?: AIResearchMandateInput | null) {
     return input?.prompt || aiResearchForm.prompt.trim() || buildGeneratedAIResearchPrompt()
   }
 
-  function aiResearchMandatePayload(input?: { prompt: string; symbol: string } | null) {
+  function aiResearchAutoContinuationSource(
+    source: Pick<
+      AIStrategyResearchRunRecord,
+      | 'prompt'
+      | 'workflow_mode'
+      | 'mandate_id'
+      | 'request_explicit_fields'
+      | 'request_explicit_fields_persisted'
+    >
+  ): AIResearchAutoContinuationSource | null {
+    // A historical visible prompt is not evidence that it was generated. Only
+    // a server response that actually persisted the original explicit-field
+    // set can prove a blank auto request. The API repeats this verification at
+    // the continuation route; this client-side branch only keeps the already
+    // accepted mandate from being turned into a new explicit mandate.
+    if (
+      source.request_explicit_fields_persisted !== true
+      || source.workflow_mode !== 'auto'
+      || !Array.isArray(source.request_explicit_fields)
+      || source.request_explicit_fields.some(field => String(field).trim() === 'prompt')
+    ) {
+      return null
+    }
+    const prompt = source.prompt.trim()
+    const mandateId = stringFromUnknown(source.mandate_id)
+    return prompt && mandateId ? { prompt, mandateId } : null
+  }
+
+  function aiResearchTaskAutoContinuationSourceFromTask(
+    task: AIStrategyResearchTaskResponse
+  ): AIResearchAutoContinuationSource | null {
+    const snapshot = isRecord(task.request_snapshot) ? task.request_snapshot : null
+    if (!snapshot || !Object.prototype.hasOwnProperty.call(task, 'request_explicit_fields')) {
+      return null
+    }
+    const snapshotMandateId = stringFromUnknown(snapshot.mandate_id)
+    const taskMandateId = stringFromUnknown(task.mandate_id)
+    if (snapshotMandateId && taskMandateId && snapshotMandateId !== taskMandateId) return null
+    return aiResearchAutoContinuationSource({
+      prompt: stringFromUnknown(snapshot.prompt),
+      workflow_mode: snapshot.workflow_mode === 'prompt' ? 'prompt' : 'auto',
+      mandate_id: snapshotMandateId || taskMandateId,
+      request_explicit_fields: task.request_explicit_fields,
+      request_explicit_fields_persisted: task.request_explicit_fields_persisted,
+    })
+  }
+
+  function aiResearchContinuationRunnableInput(
+    source: AIResearchAutoContinuationSource | null
+  ): AIResearchRunnableInput | null {
+    const displayedPrompt = aiResearchForm.prompt.trim()
+    if (
+      source
+      && aiResearchForm.workflow_mode === 'auto'
+      && displayedPrompt === source.prompt
+    ) {
+      const symbol = aiResearchForm.symbol.trim()
+      if (!symbol) {
+        ElMessage.warning(t('strategy.aiResearchSymbolRequired'))
+        return null
+      }
+      const outOfSampleError = requiredOutOfSampleValidationError()
+      if (outOfSampleError) {
+        ElMessage.warning(outOfSampleError)
+        return null
+      }
+      return { prompt: '', symbol, shouldUseServerGeneratedPrompt: true }
+    }
+    return aiResearchRunnableInput()
+  }
+
+  function aiResearchMandateSnapshot(
+    input?: AIResearchMandateInput | null
+  ): AIResearchMandateSnapshot {
     const prompt = aiResearchMandateInputPrompt(input)
     return {
-      raw_prompt: prompt,
+      rawPrompt: prompt,
+      promptOrigin: input?.shouldUseServerGeneratedPrompt ? 'auto_generated' : 'explicit',
       symbol: input?.symbol || aiResearchForm.symbol.trim() || null,
-      symbol_name: aiResearchForm.symbol_name.trim() || null,
+      symbolName: aiResearchForm.symbol_name.trim() || null,
       timeframe: aiResearchForm.timeframe || null,
-      risk_constraints: {
+      riskConstraints: {
         max_drawdown_limit: aiResearchForm.use_max_drawdown_limit
           ? aiResearchForm.max_drawdown_limit
           : null,
         min_win_rate: aiResearchForm.use_min_win_rate ? aiResearchForm.min_win_rate : null,
         out_of_sample_validation: aiResearchForm.out_of_sample_validation,
       },
-      trading_constraints: {
+      tradingConstraints: {
         initial_cash: aiResearchForm.initial_cash,
         annual_days: aiResearchForm.annual_days,
         calc_method: aiResearchForm.calc_method,
         weight_mode: aiResearchForm.weight_mode,
         start_paper_trading: aiResearchForm.start_paper_trading,
       },
-      quality_gates: aiResearchMandateQualityGatesFromForm(),
+      qualityGates: aiResearchMandateQualityGatesFromForm(),
     }
   }
 
-  async function parseAIResearchMandate(input?: { prompt: string; symbol: string } | null) {
+  function aiResearchMandatePayloadFromSnapshot(snapshot: AIResearchMandateSnapshot) {
+    return {
+      raw_prompt: snapshot.rawPrompt,
+      prompt_origin: snapshot.promptOrigin,
+      symbol: snapshot.symbol,
+      symbol_name: snapshot.symbolName,
+      timeframe: snapshot.timeframe,
+      risk_constraints: snapshot.riskConstraints,
+      trading_constraints: snapshot.tradingConstraints,
+      quality_gates: snapshot.qualityGates,
+    }
+  }
+
+  function aiResearchMandatePayload(input?: AIResearchMandateInput | null) {
+    return aiResearchMandatePayloadFromSnapshot(aiResearchMandateSnapshot(input))
+  }
+
+  function applyAIResearchMandateSnapshotToForm(snapshot: AIResearchMandateSnapshot) {
+    aiResearchForm.prompt = snapshot.rawPrompt
+    if (snapshot.symbol) aiResearchForm.symbol = snapshot.symbol
+    aiResearchForm.symbol_name = snapshot.symbolName || ''
+    if (snapshot.timeframe) aiResearchForm.timeframe = snapshot.timeframe
+
+    const risk = snapshot.riskConstraints
+    aiResearchForm.use_max_drawdown_limit = typeof risk.max_drawdown_limit === 'number'
+    aiResearchForm.max_drawdown_limit = Number(risk.max_drawdown_limit ?? 20)
+    aiResearchForm.use_min_win_rate = typeof risk.min_win_rate === 'number'
+    aiResearchForm.min_win_rate = Number(risk.min_win_rate ?? 50)
+    if (typeof risk.out_of_sample_validation === 'boolean') {
+      aiResearchForm.out_of_sample_validation = risk.out_of_sample_validation
+    }
+
+    const trading = snapshot.tradingConstraints
+    if (typeof trading.initial_cash === 'number') {
+      aiResearchForm.initial_cash = trading.initial_cash
+    }
+    if (typeof trading.annual_days === 'number') {
+      aiResearchForm.annual_days = trading.annual_days
+    }
+    if (typeof trading.calc_method === 'string') {
+      aiResearchForm.calc_method = trading.calc_method
+    }
+    if (typeof trading.weight_mode === 'string') {
+      aiResearchForm.weight_mode = trading.weight_mode
+    }
+
+    const gates = snapshot.qualityGates
+    if (typeof gates.target_sharpe === 'number') {
+      aiResearchForm.target_sharpe = gates.target_sharpe
+    }
+    if (typeof gates.min_total_trades === 'number') {
+      aiResearchForm.min_total_trades = gates.min_total_trades
+    }
+    aiResearchForm.use_max_drawdown_limit = typeof gates.max_drawdown_limit === 'number'
+    aiResearchForm.max_drawdown_limit = Number(gates.max_drawdown_limit ?? 20)
+    aiResearchForm.use_min_total_return = typeof gates.min_total_return === 'number'
+    aiResearchForm.min_total_return = Number(gates.min_total_return ?? 0)
+    aiResearchForm.use_min_annual_return = typeof gates.min_annual_return === 'number'
+    aiResearchForm.min_annual_return = Number(gates.min_annual_return ?? 0)
+    aiResearchForm.use_min_win_rate = typeof gates.min_win_rate === 'number'
+    aiResearchForm.min_win_rate = Number(gates.min_win_rate ?? 50)
+    if (typeof gates.out_of_sample_validation === 'boolean') {
+      aiResearchForm.out_of_sample_validation = gates.out_of_sample_validation
+    }
+    if (typeof gates.require_out_of_sample_validation === 'boolean') {
+      aiResearchForm.require_out_of_sample_validation = gates.require_out_of_sample_validation
+    }
+    if (typeof gates.out_of_sample_ratio === 'number') {
+      aiResearchForm.out_of_sample_ratio_pct = outOfSampleRatioPct(gates.out_of_sample_ratio)
+    }
+    aiResearchForm.use_min_out_of_sample_sharpe =
+      typeof gates.min_out_of_sample_sharpe === 'number'
+    aiResearchForm.min_out_of_sample_sharpe = Number(gates.min_out_of_sample_sharpe ?? 0.6)
+    aiResearchForm.use_min_out_of_sample_trades =
+      typeof gates.min_out_of_sample_trades === 'number'
+    aiResearchForm.min_out_of_sample_trades = Number(gates.min_out_of_sample_trades ?? 1)
+    if (typeof gates.robustness_validation === 'boolean') {
+      aiResearchForm.robustness_validation = gates.robustness_validation
+    }
+    if (typeof gates.require_robustness_validation === 'boolean') {
+      aiResearchForm.require_robustness_validation = gates.require_robustness_validation
+    }
+    const methods = stringArrayFromUnknown(gates.robustness_methods)
+    if (methods.length) aiResearchForm.robustness_methods = methods
+    if (typeof gates.min_robustness_score === 'number') {
+      aiResearchForm.min_robustness_score = gates.min_robustness_score
+    }
+    if (typeof gates.robustness_monte_carlo_iterations === 'number') {
+      aiResearchForm.robustness_monte_carlo_iterations = gates.robustness_monte_carlo_iterations
+    }
+    aiResearchForm.robustness_random_seed = optionalNumber(gates.robustness_random_seed)
+  }
+
+  async function createAIResearchMandateFromPayload(
+    payload: ReturnType<typeof aiResearchMandatePayload>
+  ) {
     aiResearchMandateLoading.value = true
     try {
-      aiResearchMandate.value = await strategyApi.createAIResearchMandate(
-        aiResearchMandatePayload(input)
-      )
+      aiResearchMandate.value = await strategyApi.createAIResearchMandate(payload)
       aiResearchMandateConfirmed.value = false
       ElMessage.success(t('strategy.aiResearchMandateStructured'))
       return aiResearchMandate.value
@@ -1824,6 +2195,10 @@ export function useStrategyPage() {
     } finally {
       aiResearchMandateLoading.value = false
     }
+  }
+
+  async function parseAIResearchMandate(input?: AIResearchMandateInput | null) {
+    return createAIResearchMandateFromPayload(aiResearchMandatePayload(input))
   }
 
   function confirmAIResearchMandate() {
@@ -1852,32 +2227,86 @@ export function useStrategyPage() {
     }
   }
 
-  async function ensureAIResearchMandateConfirmed(input: { prompt: string; symbol: string }) {
+  async function ensureAIResearchMandateConfirmed(snapshot: AIResearchMandateSnapshot) {
     if (
       aiResearchMandate.value
       && aiResearchMandateConfirmed.value
-      && aiResearchMandateMatchesInput(aiResearchMandate.value, input)
+      && aiResearchMandateMatchesSnapshot(aiResearchMandate.value, snapshot)
     ) {
       return aiResearchMandate.value
     }
-    await parseAIResearchMandate(input)
+    await createAIResearchMandateFromPayload(aiResearchMandatePayloadFromSnapshot(snapshot))
     ElMessage.warning(t('strategy.aiResearchMandateConfirmationRequired'))
     return null
   }
 
+  function aiResearchMandateMatchesSnapshot(
+    mandate: InvestmentMandateResponse,
+    snapshot: AIResearchMandateSnapshot
+  ) {
+    const prompt = snapshot.rawPrompt.trim()
+    const symbol = (snapshot.symbol || '').trim()
+    const symbolName = (snapshot.symbolName || '').trim()
+    const timeframe = snapshot.timeframe || ''
+    const mandateSymbol = stringFromUnknown(mandate.asset_scope.symbol).trim()
+    const mandateSymbolName = stringFromUnknown(mandate.asset_scope.symbol_name).trim()
+    const mandateTimeframe = stringFromUnknown(mandate.timeframe || mandate.structured_goal.timeframe)
+    const mandatePromptOrigin = stringFromUnknown(mandate.structured_goal.prompt_origin)
+    return (
+      mandatePromptOrigin === snapshot.promptOrigin
+      && (snapshot.promptOrigin === 'auto_generated' || mandate.raw_prompt.trim() === prompt)
+      && (!mandateSymbol || mandateSymbol === symbol)
+      && (!mandateSymbolName || mandateSymbolName === symbolName)
+      && (!mandateTimeframe || mandateTimeframe === timeframe)
+      && aiResearchMandateRecordMatches(mandate.risk_constraints, snapshot.riskConstraints)
+      && aiResearchMandateRecordMatches(
+        mandate.trading_constraints,
+        aiResearchMandateControlledTradingConstraints(snapshot.tradingConstraints)
+      )
+      && aiResearchMandateRecordMatches(mandate.quality_gates, snapshot.qualityGates)
+    )
+  }
+
+  function aiResearchMandateControlledTradingConstraints(
+    constraints: Record<string, unknown>
+  ): Record<string, unknown> {
+    // Paper-trading promotion is an operational continuation action, not a
+    // newly accepted investment mandate. A continuation may set it after the
+    // mandate was confirmed without invalidating the user-owned mandate.
+    const { start_paper_trading: _startPaperTrading, ...controlled } = constraints
+    return controlled
+  }
+
+  function aiResearchMandateRecordMatches(
+    actual: Record<string, unknown> | null | undefined,
+    expected: Record<string, unknown>
+  ): boolean {
+    if (!actual) return false
+    return Object.entries(expected).every(([key, value]) => (
+      aiResearchMandateValueMatches(actual[key], value)
+    ))
+  }
+
+  function aiResearchMandateValueMatches(actual: unknown, expected: unknown): boolean {
+    if (Array.isArray(expected)) {
+      return Array.isArray(actual)
+        && actual.length === expected.length
+        && actual.every((value, index) => aiResearchMandateValueMatches(value, expected[index]))
+    }
+    if (isRecord(expected)) {
+      return isRecord(actual) && aiResearchMandateRecordMatches(actual, expected)
+    }
+    // Optional values can be omitted by JSON/Pydantic serialization. Treat
+    // null and undefined as the same absence, but compare every declared
+    // numeric, boolean, and string constraint exactly.
+    return actual === expected || (actual == null && expected == null)
+  }
+
   function aiResearchMandateMatchesInput(
     mandate: InvestmentMandateResponse,
-    input: { prompt: string; symbol: string }
+    input: AIResearchMandateInput
   ) {
-    const prompt = aiResearchMandateInputPrompt(input).trim()
-    const symbol = input.symbol.trim().toUpperCase()
-    const mandateSymbol = stringFromUnknown(mandate.asset_scope.symbol).trim().toUpperCase()
-    const mandateTimeframe = stringFromUnknown(mandate.timeframe || mandate.structured_goal.timeframe)
-    return (
-      mandate.raw_prompt.trim() === prompt
-      && (!mandateSymbol || mandateSymbol === symbol)
-      && (!mandateTimeframe || mandateTimeframe === aiResearchForm.timeframe)
-    )
+    return aiResearchMandateMatchesSnapshot(mandate, aiResearchMandateSnapshot(input))
   }
 
   function mandateQualityGateSummary(gates: Record<string, unknown>) {
@@ -2125,7 +2554,7 @@ export function useStrategyPage() {
   ): AIStrategyResearchConfigProfile | null {
     return profiles.find(profile => profile.name.trim() === '螺纹钢')
       ?? profiles.find(profile => (
-        stringFromUnknown(profile.config?.symbol).trim().toUpperCase() === 'RB0'
+        stringFromUnknown(profile.config?.symbol).trim() === 'RB0'
         && stringFromUnknown(profile.config?.timeframe).trim().toLowerCase() === '1h'
       ))
       ?? profiles[0]
@@ -2173,14 +2602,14 @@ export function useStrategyPage() {
   ) {
     const config = profile.config || {}
     const researchWorkspaceId = stringFromUnknown(config.research_workspace_id).trim()
-    const symbol = stringFromUnknown(config.symbol).trim().toUpperCase()
+    const symbol = stringFromUnknown(config.symbol).trim()
     const timeframe = stringFromUnknown(config.timeframe).trim().toLowerCase()
     const timeframeN = optionalNumber(config.timeframe_n)
     if (researchWorkspaceId && record.research_workspace_id.trim() !== researchWorkspaceId) {
       return false
     }
     if (!symbol && !timeframe && timeframeN === null) return false
-    if (symbol && record.symbol.trim().toUpperCase() !== symbol) return false
+    if (symbol && record.symbol.trim() !== symbol) return false
     if (timeframe && record.timeframe.trim().toLowerCase() !== timeframe) return false
     if (timeframeN !== null && Number(record.timeframe_n || 1) !== timeframeN) return false
     if (researchWorkspaceId) return true
@@ -3224,6 +3653,12 @@ export function useStrategyPage() {
       research_workspace_id: record.research_workspace_id,
       mandate_id: record.mandate_id,
       request_snapshot: aiResearchRequestSnapshotFromRunRecord(record),
+      ...(Object.prototype.hasOwnProperty.call(record, 'request_explicit_fields')
+        ? { request_explicit_fields: record.request_explicit_fields }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(record, 'request_explicit_fields_persisted')
+        ? { request_explicit_fields_persisted: record.request_explicit_fields_persisted }
+        : {}),
       continued_from_run_id: record.continued_from_run_id,
       continuation_source: record.continuation_source,
       continuation_context: record.continuation_context ?? {},
@@ -3542,6 +3977,29 @@ export function useStrategyPage() {
     )
   }
 
+  function isLiveTradingActivatedForRecord(
+    record: AIStrategyResearchRunRecord | null | undefined
+  ) {
+    return Boolean(
+      record?.pipeline?.live_handoff_activated
+      || String(record?.pipeline?.live_handoff_activation_status || '').trim() === 'running'
+    )
+  }
+
+  function canActivateLiveTradingFromRecord(record: AIStrategyResearchRunRecord) {
+    const handoff = liveHandoffForRecord(record)
+    const approval = handoff?.approval ?? record.live_handoff_approval
+    return Boolean(
+      isLiveTradingPreparedForRecord(record)
+      && !isLiveTradingActivatedForRecord(record)
+      && approval?.approved
+    )
+  }
+
+  function canDeactivateLiveTradingFromRecord(record: AIStrategyResearchRunRecord) {
+    return Boolean(isLiveTradingPreparedForRecord(record))
+  }
+
   function liveHandoffApprovalLabel(handoff: AIStrategyLiveHandoffPackage | null | undefined) {
     const approval = handoff?.approval
     if (!approval) return ''
@@ -3556,6 +4014,10 @@ export function useStrategyPage() {
     const preparedAt = record.live_trading_prepared_at
       || record.pipeline?.live_trading_prepared_at
       || liveTradingPreparedAtFromPipeline(record.pipeline)
+    if (isLiveTradingActivatedForRecord(record)) {
+      const instanceId = record.pipeline?.live_handoff_activation_instance_id
+      return `${unitId} 已由受控服务启动${instanceId ? `，实例 ${instanceId}` : ''}`
+    }
     const lockText = record.pipeline?.live_unit_locked === false ? '待确认锁定' : '默认锁定'
     return `${unitId} 已准备，${lockText}${preparedAt ? `，${formatDateTime(preparedAt)}` : ''}`
   }
@@ -3685,8 +4147,18 @@ export function useStrategyPage() {
     if (!runId || !source) return undefined
 
     const record = aiResearchContinuationRecord(runId)
+    if (!record) return { source, run_id: runId }
+    return aiResearchContinuationContextForRecord(record, source)
+  }
+
+  function aiResearchContinuationContextForRecord(
+    record: AIStrategyResearchRunRecord,
+    source = continuationSourceForRecord(record)
+  ): Record<string, unknown> | undefined {
+    const runId = record.run_id.trim()
+    if (!runId || !source) return undefined
+
     const context: Record<string, unknown> = { source, run_id: runId }
-    if (!record) return context
 
     const failures = continuationQualityGateFailures(record, source)
     if (failures.length) context.quality_gate_failures = failures
@@ -5292,6 +5764,18 @@ export function useStrategyPage() {
     await prepareLiveTradingFromResearchRecord(record)
   }
 
+  async function activateLiveTradingFromCurrentResult() {
+    const record = aiResearchResult.value?.run_record
+    if (!record) return
+    await activateLiveTradingFromResearchRecord(record)
+  }
+
+  async function deactivateLiveTradingFromCurrentResult() {
+    const record = aiResearchResult.value?.run_record
+    if (!record) return
+    await deactivateLiveTradingFromResearchRecord(record)
+  }
+
   async function buildLiveHandoffFromResearchRecord(record: AIStrategyResearchRunRecord) {
     aiResearchLiveHandoffLoadingRunId.value = record.run_id
     try {
@@ -5381,6 +5865,51 @@ export function useStrategyPage() {
       ElMessage.error(t('strategy.aiResearchRunFailed'))
     } finally {
       aiResearchLiveTradingPreparingRunId.value = ''
+    }
+  }
+
+  async function activateLiveTradingFromResearchRecord(record: AIStrategyResearchRunRecord) {
+    if (!canActivateLiveTradingFromRecord(record)) return
+    aiResearchLiveTradingActivatingRunId.value = record.run_id
+    try {
+      const activated = await strategyApi.activateAIResearchLiveTrading(
+        record.run_id,
+        record.research_workspace_id
+      )
+      if (activated.activated !== true || activated.activation_status !== 'running') {
+        throw new Error('AI research live activation was not confirmed by the server')
+      }
+      const updatedRecord = liveTradingActivatedRunRecord(record, activated)
+      upsertAIResearchRunRecord(updatedRecord)
+      applyResearchRunRecordToCurrentResult(updatedRecord)
+      ElMessage.success(t('strategy.aiResearchLiveUnitActivated'))
+    } catch {
+      ElMessage.error(t('strategy.aiResearchRunFailed'))
+    } finally {
+      aiResearchLiveTradingActivatingRunId.value = ''
+    }
+  }
+
+  async function deactivateLiveTradingFromResearchRecord(record: AIStrategyResearchRunRecord) {
+    if (!canDeactivateLiveTradingFromRecord(record)) return
+    aiResearchLiveTradingDeactivatingRunId.value = record.run_id
+    try {
+      const deactivated = await strategyApi.deactivateAIResearchLiveTrading(
+        record.run_id,
+        record.research_workspace_id
+      )
+      if (deactivated.prepared !== false || deactivated.activation_status !== 'deactivated') {
+        throw new Error('AI research live deactivation was not confirmed by the server')
+      }
+      delete aiResearchLiveHandoffs[record.run_id]
+      const updatedRecord = liveTradingDeactivatedRunRecord(record, deactivated)
+      upsertAIResearchRunRecord(updatedRecord)
+      applyResearchRunRecordToCurrentResult(updatedRecord)
+      ElMessage.success(t('strategy.aiResearchLiveUnitDeactivated'))
+    } catch {
+      ElMessage.error(t('strategy.aiResearchRunFailed'))
+    } finally {
+      aiResearchLiveTradingDeactivatingRunId.value = ''
     }
   }
 
@@ -5487,6 +6016,73 @@ export function useStrategyPage() {
     }
   }
 
+  function liveTradingActivatedRunRecord(
+    record: AIStrategyResearchRunRecord,
+    activated: AIStrategyLiveTradingPrepare
+  ): AIStrategyResearchRunRecord {
+    const preparedRecord = liveTradingPreparedRunRecord(record, activated)
+    const steps = upsertPipelineStep(preparedRecord.pipeline?.steps ?? [], {
+      key: 'live_trading_activation',
+      label: '实盘启动',
+      status: 'completed',
+    })
+    return {
+      ...preparedRecord,
+      pipeline: {
+        ...(preparedRecord.pipeline ?? {}),
+        current_stage: 'live_trading_active',
+        status: preparedRecord.pipeline?.status ?? preparedRecord.status,
+        progress: preparedRecord.pipeline?.progress ?? 100,
+        ready_for_live: preparedRecord.pipeline?.ready_for_live ?? true,
+        live_handoff_activated: true,
+        live_handoff_activation_status: 'running',
+        live_handoff_activation_instance_id: activated.activation_instance_id ?? null,
+        steps,
+      },
+      next_actions: activated.next_actions?.length ? activated.next_actions : preparedRecord.next_actions,
+    }
+  }
+
+  function liveTradingDeactivatedRunRecord(
+    record: AIStrategyResearchRunRecord,
+    deactivated: AIStrategyLiveTradingPrepare
+  ): AIStrategyResearchRunRecord {
+    const deactivatedAt = new Date().toISOString()
+    const steps = upsertPipelineStep(record.pipeline?.steps ?? [], {
+      key: 'live_trading_deactivation',
+      label: '实盘停机',
+      status: 'completed',
+    })
+    return {
+      ...record,
+      live_handoff: null,
+      live_handoff_approval: null,
+      live_workspace_id: null,
+      live_workspace_name: null,
+      live_unit_id: null,
+      live_trading_prepared: false,
+      live_trading_prepared_at: null,
+      pipeline: {
+        ...(record.pipeline ?? {}),
+        current_stage: 'live_handoff_deactivated',
+        status: record.pipeline?.status ?? record.status,
+        progress: record.pipeline?.progress ?? 100,
+        ready_for_live: false,
+        live_handoff_activated: false,
+        live_handoff_activation_status: 'deactivated',
+        live_handoff_activation_instance_id: deactivated.activation_instance_id ?? null,
+        live_handoff_deactivated_at: deactivatedAt,
+        live_trading_prepared: false,
+        live_trading_prepared_at: null,
+        live_workspace_id: null,
+        live_unit_id: null,
+        live_unit_locked: true,
+        steps,
+      },
+      next_actions: deactivated.next_actions?.length ? deactivated.next_actions : record.next_actions,
+    }
+  }
+
   function upsertPipelineStep(
     steps: AIStrategyPipelineStep[],
     nextStep: AIStrategyPipelineStep
@@ -5515,26 +6111,103 @@ export function useStrategyPage() {
   }
 
   async function continueResearchFromRecord(record: AIStrategyResearchRunRecord) {
+    const currentSymbol = aiResearchForm.symbol.trim()
+    const recordSymbol = record.symbol.trim()
+    const recordTimeframe = record.timeframe || aiResearchForm.timeframe
+    let prepared: AIResearchPreparedSubmission | undefined
+    const autoContinuationSource = aiResearchAutoContinuationSource(record)
+    if (currentSymbol === recordSymbol && aiResearchForm.timeframe === recordTimeframe) {
+      const input = aiResearchContinuationRunnableInput(autoContinuationSource)
+      if (!input) return
+      try {
+        prepared = {
+          input,
+          submission: captureAIResearchSubmission(input),
+        }
+      } catch (error) {
+        handleAIResearchRunError(error)
+        return
+      }
+    }
+
     useAIResearchRecord(record)
-    if (record.mandate_id) {
+    if (prepared) {
+      // Run records are execution evidence, not a complete mandate snapshot.
+      // Preserve the user-approved pre-click basis so omitted historical gate
+      // fields cannot overwrite changed risk, trading, or quality constraints.
+      applyAIResearchMandateSnapshotToForm(prepared.submission.mandate)
+    }
+    // The operational continuation promotion is deterministic from the
+    // historical record. Apply it and freeze the complete request before any
+    // mandate/capability await can observe a later form edit.
+    prepareContinuationPromotion(record)
+    if (!prepared) {
+      // Freeze the record-derived continuation after the synchronous form
+      // hydration and before loading a historical mandate. A user edit during
+      // that await must never pair a record's run ID with a newer form.
+      const input = aiResearchContinuationRunnableInput(autoContinuationSource)
+      if (!input) return
+      try {
+        prepared = {
+          input,
+          submission: captureAIResearchSubmission(input),
+        }
+      } catch (error) {
+        handleAIResearchRunError(error)
+        return
+      }
+    }
+    if (!prepared) return
+    prepared = {
+      ...prepared,
+      submission: {
+        ...prepared.submission,
+        request: aiResearchContinuationRequest(prepared.submission.request, record),
+      },
+    }
+    if (
+      autoContinuationSource
+      && aiResearchMandate.value?.id !== autoContinuationSource.mandateId
+    ) {
+      await loadAIResearchMandate(autoContinuationSource.mandateId)
+    } else if (!aiResearchMandate.value?.id && record.mandate_id) {
       await loadAIResearchMandate(record.mandate_id)
     }
-    prepareContinuationPromotion(record)
     const continueRun = (strategyApi as typeof strategyApi & {
       continueAIResearchRun?: typeof strategyApi.continueAIResearchRun
       getAIResearchTask?: typeof strategyApi.getAIResearchTask
     }).continueAIResearchRun
     if (typeof continueRun !== 'function') {
-      await runAIResearchLoop()
+      await runAIResearchPreparedLoop(prepared)
       return
     }
-    await continueAIResearchFromRunRecord(record, continueRun)
+    await continueAIResearchFromRunRecord(record, continueRun, prepared)
   }
 
   function prepareContinuationPromotion(record: AIStrategyResearchRunRecord) {
     const source = continuationSourceForRecord(record)
     if (source) {
       aiResearchForm.start_paper_trading = true
+    }
+  }
+
+  function aiResearchContinuationRequest(
+    request: AIStrategyResearchRunRequest,
+    record: AIStrategyResearchRunRecord
+  ): AIStrategyResearchRunRequest {
+    const bestStrategyId = bestStrategyIdForRecord(record)
+    const source = continuationSourceForRecord(record)
+    const startPaperTrading = source ? true : request.start_paper_trading
+    return {
+      ...request,
+      research_workspace_id: record.research_workspace_id || request.research_workspace_id,
+      seed_strategy_id: bestStrategyId || request.seed_strategy_id,
+      continue_from_run_id: bestStrategyId ? record.run_id : request.continue_from_run_id,
+      continuation_context: aiResearchContinuationContextForRecord(record, source)
+        || request.continuation_context,
+      start_paper_trading: startPaperTrading,
+      paper_workspace_name: startPaperTrading ? request.paper_workspace_name : null,
+      trading_workspace_id: request.trading_workspace_id,
     }
   }
 
@@ -5629,13 +6302,63 @@ export function useStrategyPage() {
     if (gatewayConfig) {
       request.gateway_config = gatewayConfig
     }
-    if (aiResearchMarketDataPlatformBridgeEnabled) {
-      const assetType = aiResearchMarketDataBridgeAssetType()
-      if (assetType) {
-        request.data_config = { market_data_asset_type: assetType }
-      }
-    }
+    // The bridge marker is intentionally deferred until a submit/continue
+    // operation has obtained a fresh authenticated capability. A request
+    // snapshot must never inherit page-load capability state.
     return request
+  }
+
+  function captureAIResearchSubmission(
+    input: AIResearchMandateInput
+  ): AIResearchSubmissionSnapshot {
+    // This is deliberately synchronous. The caller must construct both the
+    // mandate input and the eventual request before awaiting either mandate
+    // confirmation or the server-owned market-data capability. Otherwise a
+    // form edit could pair an older confirmed mandate with a newer window,
+    // quality gate, or market-data asset intent.
+    const mandate = aiResearchMandateSnapshot(input)
+    const request = buildAIResearchRequest(input.prompt, input.symbol)
+    return {
+      request,
+      mandate,
+    }
+  }
+
+  function withoutAIResearchMarketDataBridgeIntent(
+    request: AIStrategyResearchRunRequest,
+  ): AIStrategyResearchRunRequest {
+    const dataConfig = request.data_config
+    if (!dataConfig || !Object.prototype.hasOwnProperty.call(dataConfig, 'market_data_asset_type')) {
+      return request
+    }
+    const { market_data_asset_type: _marketDataAssetType, ...remainingDataConfig } = dataConfig
+    if (Object.keys(remainingDataConfig).length > 0) {
+      return { ...request, data_config: remainingDataConfig }
+    }
+    const { data_config: _dataConfig, ...requestWithoutDataConfig } = request
+    return requestWithoutDataConfig
+  }
+
+  function applyAIResearchMarketDataBridgeIntent(
+    request: AIStrategyResearchRunRequest,
+    capabilities: MarketDataCapabilitiesResponse | null,
+  ): AIStrategyResearchRunRequest {
+    // Rebuild a marker only from this invocation's fresh, authenticated
+    // capability decision. Do not read mutable page state here: concurrent
+    // submissions may resolve capability requests in a different order.
+    const requestWithoutBridgeIntent = withoutAIResearchMarketDataBridgeIntent(request)
+    if (
+      requestWithoutBridgeIntent.data_config
+      || !isAIResearchMarketDataPlatformBridgeEnabled(capabilities)
+    ) {
+      return requestWithoutBridgeIntent
+    }
+    const assetType = aiResearchMarketDataBridgeAssetType(requestWithoutBridgeIntent.symbol)
+    if (!assetType) return requestWithoutBridgeIntent
+    return {
+      ...requestWithoutBridgeIntent,
+      data_config: { market_data_asset_type: assetType },
+    }
   }
 
   function aiResearchPaperWorkspaceName() {
@@ -5841,6 +6564,9 @@ export function useStrategyPage() {
       aiResearchTaskRequestSnapshot.value = task.request_snapshot
     } else if (hasTaskKey('request_snapshot') || !sameTask) {
       aiResearchTaskRequestSnapshot.value = {}
+    }
+    if (hasTaskKey('request_explicit_fields') || !sameTask) {
+      aiResearchTaskAutoContinuationSource.value = aiResearchTaskAutoContinuationSourceFromTask(task)
     }
     if (hasTaskKey('asset_specs') || !sameTask) {
       aiResearchTaskAssetSpecs.value = isRecord(task.asset_specs)
@@ -6061,6 +6787,7 @@ export function useStrategyPage() {
     aiResearchTaskLivePrepared.value = false
     aiResearchTaskPipeline.value = null
     aiResearchTaskRequestSnapshot.value = null
+    aiResearchTaskAutoContinuationSource.value = null
     aiResearchTaskContinuedFromRunId.value = ''
     aiResearchTaskContinuationSource.value = ''
     aiResearchTaskContinuationContext.value = {}
@@ -6081,7 +6808,7 @@ export function useStrategyPage() {
       : null
   }
 
-  function aiResearchRunnableInput() {
+  function aiResearchRunnableInput(): AIResearchRunnableInput | null {
     let prompt = aiResearchForm.prompt.trim()
     const promptRequired = aiResearchForm.workflow_mode === 'prompt'
     const shouldUseServerGeneratedPrompt = !prompt && !promptRequired
@@ -6197,19 +6924,34 @@ export function useStrategyPage() {
 
   async function continueAIResearchFromRunRecord(
     record: AIStrategyResearchRunRecord,
-    continueRun: NonNullable<typeof strategyApi.continueAIResearchRun>
+    continueRun: NonNullable<typeof strategyApi.continueAIResearchRun>,
+    prepared?: AIResearchPreparedSubmission
   ) {
-    const input = aiResearchRunnableInput()
+    const input = prepared?.input ?? aiResearchRunnableInput()
     if (!input) return
-    const mandate = await ensureAIResearchMandateConfirmed(input)
+    let submission = prepared?.submission
+    if (!submission) {
+      try {
+        submission = captureAIResearchSubmission(input)
+      } catch (error) {
+        handleAIResearchRunError(error)
+        return
+      }
+    }
+    const mandate = await ensureAIResearchMandateConfirmed(submission.mandate)
     if (!mandate) return
+    let request: AIStrategyResearchRunRequest = {
+      ...submission.request,
+      mandate_id: mandate.id,
+    }
+    const capabilities = await resolveAIResearchMarketDataCapabilities({ forceRefresh: true })
+    request = applyAIResearchMarketDataBridgeIntent(request, capabilities)
 
     prepareAIResearchOutputForRun()
     aiResearchRunning.value = true
     resetAIResearchTaskState()
     aiResearchCancelRequested.value = false
     try {
-      const request = buildAIResearchRequest(input.prompt, input.symbol)
       const overrides: Partial<AIStrategyResearchRunRequest> & Record<string, unknown> = {
         ...request,
       }
@@ -6361,38 +7103,43 @@ export function useStrategyPage() {
       ) => Promise<AIStrategyResearchTaskResponse>
     }).continueAIResearchTask
     if (!taskId || typeof continueTask !== 'function' || aiResearchRunning.value) return
-    let prompt = aiResearchForm.prompt.trim()
-    const shouldUseServerGeneratedPrompt = !prompt
-    const symbol = aiResearchForm.symbol.trim()
-    if (!symbol) {
-      ElMessage.warning(t('strategy.aiResearchSymbolRequired'))
+    const autoContinuationSource = aiResearchTaskAutoContinuationSource.value
+    const input = aiResearchContinuationRunnableInput(autoContinuationSource)
+    if (!input) return
+    let submission: AIResearchSubmissionSnapshot
+    try {
+      submission = captureAIResearchSubmission(input)
+    } catch (error) {
+      handleAIResearchRunError(error)
       return
     }
-    if (shouldUseServerGeneratedPrompt) {
-      aiResearchForm.prompt = buildGeneratedAIResearchPrompt()
-      prompt = ''
+    if (
+      autoContinuationSource
+      && aiResearchMandate.value?.id !== autoContinuationSource.mandateId
+    ) {
+      await loadAIResearchMandate(autoContinuationSource.mandateId)
     }
-    const outOfSampleError = requiredOutOfSampleValidationError()
-    if (outOfSampleError) {
-      ElMessage.warning(outOfSampleError)
-      return
-    }
-    const mandate = await ensureAIResearchMandateConfirmed({ prompt, symbol })
+    const mandate = await ensureAIResearchMandateConfirmed(submission.mandate)
     if (!mandate) return
+    let request: AIStrategyResearchRunRequest = {
+      ...submission.request,
+      mandate_id: mandate.id,
+    }
+    const capabilities = await resolveAIResearchMarketDataCapabilities({ forceRefresh: true })
+    request = applyAIResearchMarketDataBridgeIntent(request, capabilities)
 
     prepareAIResearchOutputForRun()
     aiResearchRunning.value = true
     aiResearchCancelRequested.value = false
     aiResearchTaskError.value = ''
     try {
-      const request = buildAIResearchRequest(prompt, symbol)
       const overrides: Partial<AIStrategyResearchRunRequest> & Record<string, unknown> = { ...request }
       const task = await continueTask(taskId, { overrides })
       aiResearchResult.value = await pollAIResearchTask(
         task,
         aiResearchTaskPollTimeoutMs(request, task)
       )
-      if (shouldUseServerGeneratedPrompt) {
+      if (input.shouldUseServerGeneratedPrompt) {
         const canonicalPrompt = stringFromUnknown(aiResearchResult.value.run_record?.prompt)
         if (canonicalPrompt) aiResearchForm.prompt = canonicalPrompt
       }
@@ -6431,19 +7178,36 @@ export function useStrategyPage() {
   }
 
   async function runAIResearchLoop() {
-    const input = aiResearchRunnableInput()
+    await runAIResearchPreparedLoop()
+  }
+
+  async function runAIResearchPreparedLoop(prepared?: AIResearchPreparedSubmission) {
+    const input = prepared?.input ?? aiResearchRunnableInput()
     if (!input) return
-    const mandate = await ensureAIResearchMandateConfirmed(input)
+    let submission = prepared?.submission
+    if (!submission) {
+      try {
+        submission = captureAIResearchSubmission(input)
+      } catch (error) {
+        handleAIResearchRunError(error)
+        return
+      }
+    }
+    const mandate = await ensureAIResearchMandateConfirmed(submission.mandate)
     if (!mandate) return
+    let request: AIStrategyResearchRunRequest = {
+      ...submission.request,
+      mandate_id: mandate.id,
+    }
+    const capabilities = await resolveAIResearchMarketDataCapabilities({ forceRefresh: true })
+    request = applyAIResearchMarketDataBridgeIntent(request, capabilities)
 
     prepareAIResearchOutputForRun()
     aiResearchRunning.value = true
     resetAIResearchTaskState()
     aiResearchCancelRequested.value = false
     try {
-      const result = await runAIResearchRequest(
-        buildAIResearchRequest(input.prompt, input.symbol)
-      )
+      const result = await runAIResearchRequest(request)
       applyCanonicalAIResearchPrompt(result, input.shouldUseServerGeneratedPrompt)
       await applyCompletedAIResearchResult(result)
     } catch (error) {
@@ -6557,6 +7321,7 @@ export function useStrategyPage() {
       if (showAIResearchTab.value) {
         initialLoads.push(loadAIResearchRuns())
         initialLoads.push(loadAIResearchConfigProfiles())
+        initialLoads.push(resolveAIResearchMarketDataCapabilities())
       }
       await Promise.all(initialLoads)
       if (showAIResearchTab.value) {
@@ -6666,6 +7431,7 @@ export function useStrategyPage() {
     aiResearchTaskLivePrepared,
     aiResearchTaskPipeline,
     aiResearchTaskRequestSnapshot,
+    aiResearchTaskAutoContinuationSource,
     aiResearchTaskContinuedFromRunId,
     aiResearchTaskContinuationSource,
     aiResearchTaskContinuationContext,
@@ -6686,6 +7452,8 @@ export function useStrategyPage() {
     aiResearchLiveHandoffs,
     aiResearchLiveHandoffApprovingRunId,
     aiResearchLiveTradingPreparingRunId,
+    aiResearchLiveTradingActivatingRunId,
+    aiResearchLiveTradingDeactivatingRunId,
     aiResearchConfigDialogVisible,
     aiResearchConfigProfiles,
     aiResearchConfigProfilesLoading,
@@ -6712,10 +7480,12 @@ export function useStrategyPage() {
     aiResearchSelectedVersionIds,
     aiResearchVersionComparisonRows,
     aiResearchPrecheckLoading,
+    aiResearchCacheFillLoading,
     aiResearchPrecheckResult,
     aiResearchPrecheckError,
     aiResearchMarketDataPlatformStatus,
     aiResearchMarketDataPlatformBridgeEnabled,
+    aiResearchMarketDataCacheFillEnabled,
     AI_RESEARCH_STAGE_LABELS,
     AI_RESEARCH_RUN_STATUS_LABELS,
     AI_RESEARCH_PAPER_REVIEW_STATUS_LABELS,
@@ -6819,9 +7589,11 @@ export function useStrategyPage() {
     aiResearchQueryWindow,
     aiResearchQueryContractKey,
     setAIResearchMarketDataPlatformStatus,
+    resolveAIResearchMarketDataCapabilities,
     resolveAIResearchMarketDataContract,
     runAIResearchMarketDataPlatformPrecheck,
     runAIResearchDataPrecheck,
+    warmAIResearchLocalCache,
     scheduleAIResearchDataPrecheck,
     aiResearchSymbolLabel,
     AI_RESEARCH_FUTURES_PREFIXES,
@@ -6945,9 +7717,12 @@ export function useStrategyPage() {
     liveHandoffLocksPaperActions,
     canApproveLiveHandoff,
     canPrepareLiveTradingFromRecord,
+    canActivateLiveTradingFromRecord,
+    canDeactivateLiveTradingFromRecord,
     liveHandoffApprovalLabel,
     liveTradingPrepareSummary,
     isLiveTradingPreparedForRecord,
+    isLiveTradingActivatedForRecord,
     liveTradingPreparedAtFromPipeline,
     isPaperTradingTargetMissing,
     paperStartButtonLabel,
@@ -7044,11 +7819,17 @@ export function useStrategyPage() {
     buildLiveHandoffFromCurrentResult,
     approveCurrentLiveHandoff,
     prepareLiveTradingFromCurrentResult,
+    activateLiveTradingFromCurrentResult,
+    deactivateLiveTradingFromCurrentResult,
     buildLiveHandoffFromResearchRecord,
     approveLiveHandoffFromResearchRecord,
     prepareLiveTradingFromResearchRecord,
+    activateLiveTradingFromResearchRecord,
+    deactivateLiveTradingFromResearchRecord,
     liveHandoffRunRecord,
     liveTradingPreparedRunRecord,
+    liveTradingActivatedRunRecord,
+    liveTradingDeactivatedRunRecord,
     upsertPipelineStep,
     continueResearchFromCurrentPaperReview,
     continueResearchFromCurrentRunRecord,

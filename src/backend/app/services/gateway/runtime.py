@@ -21,6 +21,8 @@ _LIVE_SUBPROCESS_THREAD_DEFAULTS = {
     "BLIS_NUM_THREADS": "1",
     "VECLIB_MAXIMUM_THREADS": "1",
 }
+_SERVER_ATTESTED_PAPER_RUNTIME_FIELD = "_server_ai_research_paper_runtime_attested"
+_SERVER_ATTESTED_PAPER_RUNTIME_DIGEST_FIELD = "_server_ai_research_paper_runtime_digest"
 _GATEWAY_STDIO_REDIRECT_LOCK = threading.RLock()
 _GATEWAY_STDOUT_LOG = "gateway.stdout.log"
 _GATEWAY_STDERR_LOG = "gateway.stderr.log"
@@ -518,6 +520,7 @@ def build_subprocess_env(
     bt_api_py_dir: Path | None,
     backtrader_dir: Path | None = None,
 ) -> dict[str, str]:
+    _assert_attested_paper_runtime_snapshot(instance, strategy_dir)
     env = dict(os_environ)
     # Strategy runners execute from generated workspace directories, where the
     # relative ``.env`` resolution can differ from the API process.  Propagate
@@ -549,11 +552,55 @@ def build_subprocess_env(
     return env
 
 
+def _has_attested_paper_runtime_snapshot(instance: dict[str, Any], strategy_dir: Path) -> bool:
+    """Return whether the manager supplied a valid one-start runtime snapshot."""
+    if instance.get(_SERVER_ATTESTED_PAPER_RUNTIME_FIELD) is not True:
+        return False
+    expected_digest = instance.get(_SERVER_ATTESTED_PAPER_RUNTIME_DIGEST_FIELD)
+    if (
+        not isinstance(expected_digest, str)
+        or len(expected_digest) != 64
+        or any(character not in "0123456789abcdef" for character in expected_digest)
+    ):
+        return False
+    try:
+        from app.services.ai_research_provenance import (
+            ai_research_paper_materialized_runtime_digest,
+        )
+
+        return ai_research_paper_materialized_runtime_digest(strategy_dir) == expected_digest
+    except Exception:
+        return False
+
+
+def _assert_attested_paper_runtime_snapshot(instance: dict[str, Any], strategy_dir: Path) -> None:
+    """Fail closed before any gateway mutation or subprocess launch.
+
+    The two private top-level fields are written only by
+    ``LiveTradingManager`` for the duration of a validated launch. A public
+    ``params`` marker is irrelevant. If either private field is present but
+    the isolated runtime has changed, execution must not proceed.
+    """
+    if instance.get(_SERVER_ATTESTED_PAPER_RUNTIME_FIELD) is not True:
+        return
+    if not _has_attested_paper_runtime_snapshot(instance, strategy_dir):
+        raise RuntimeError("AI_RESEARCH_PAPER_RUNTIME_EXECUTION_DIGEST_MISMATCH")
+
+
 def _refresh_runtime_asset_specs(
     instance: dict[str, Any],
     strategy_dir: Path,
     gateway: dict[str, Any] | None,
 ) -> None:
+    if _has_attested_paper_runtime_snapshot(instance, strategy_dir):
+        # This instance executes from a workspace-unit runtime directory.
+        # The paper handoff already wrote its asset specifications before the
+        # anchor was issued.  Gateway refresh normally mutates config.yaml;
+        # doing that after attestation would make the next start execute an
+        # unsigned configuration. The manager sets this ephemeral top-level
+        # flag only after a database/HMAC check; public ``params`` are never
+        # accepted as a substitute. Keep runtime discovery read-only here.
+        return
     try:
         from app.services.trading_asset_info_service import (
             refresh_instance_asset_specs,

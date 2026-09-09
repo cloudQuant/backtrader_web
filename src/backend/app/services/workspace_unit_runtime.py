@@ -1187,6 +1187,30 @@ def unit_dir(workspace_id: str, unit_id: str) -> Path:
     return workspace_dir(workspace_id) / str(unit_id or "")
 
 
+def is_workspace_unit_runtime_dir(runtime_dir: str | Path | None) -> bool:
+    """Return whether a path names a managed workspace-unit runtime.
+
+    This deliberately checks canonical path structure instead of filesystem
+    existence.  A worker can observe a newly published live instance before
+    the transaction that attaches it to its ``StrategyUnit`` commits, and an
+    orphaned instance can remain after a failed/deleted workflow.  In both
+    cases the missing directory or database row must not turn the managed path
+    into an ordinary, launchable strategy runtime.
+    """
+    text = str(runtime_dir or "").strip()
+    if not text:
+        return False
+    try:
+        candidate = Path(text).expanduser().resolve(strict=False)
+        root = _WORKSPACE_UNITS_ROOT.expanduser().resolve(strict=False)
+        relative = candidate.relative_to(root)
+    except (OSError, ValueError):
+        return False
+    # ``workspace_units/<workspace_id>/<unit_id>`` is the only managed
+    # runtime shape.  A root or workspace-level directory is not executable.
+    return len(relative.parts) == 2 and all(part not in {"", ".", ".."} for part in relative.parts)
+
+
 def ensure_workspace_dir(workspace_id: str) -> Path:
     path = workspace_dir(workspace_id)
     path.mkdir(parents=True, exist_ok=True)

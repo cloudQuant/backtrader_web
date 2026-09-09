@@ -5315,6 +5315,9 @@ async def test_start_units_blocks_ai_live_unit_when_risk_gate_fails(monkeypatch)
     )
 
     class FakeManager:
+        def new_live_handoff_runtime_activation_token(self):
+            raise AssertionError("risk gate should run before activation capability creation")
+
         def add_instance(self, *_args, **_kwargs):
             raise AssertionError("risk gate should run before live instance creation")
 
@@ -5324,6 +5327,9 @@ async def test_start_units_blocks_ai_live_unit_when_risk_gate_fails(monkeypatch)
         lambda: FakeManager(),
     )
 
+    # A pure risk failure must happen before consuming a server activation
+    # capability.  The live-handoff provenance guard remains mandatory for
+    # every candidate that passes this preflight.
     results = await TradingWorkspaceService().start_units([unit], user_id="user-1")
 
     assert results[0]["unit_id"] == "unit-live-risk-block"

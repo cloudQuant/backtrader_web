@@ -25,6 +25,11 @@ from sqlalchemy.pool import StaticPool
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite://")
 os.environ.setdefault("SQL_ECHO", "false")
 os.environ.setdefault("ADMIN_PASSWORD", "TestAdmin@12345")
+# Persisted AI-research continuation sources require a private server signing
+# basis.  Do not exercise the public production placeholder in ordinary test
+# flows; security-specific tests override this explicitly when checking the
+# fail-closed behavior.
+os.environ["SECRET_KEY"] = "test-ai-research-provenance-secret-key-0123456789"
 # Keep rate-limit assertions independent of a developer's permissive local
 # `.env` values.  These are the documented security defaults exercised by the
 # auth and header integration tests.

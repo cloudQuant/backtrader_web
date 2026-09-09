@@ -371,6 +371,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         data: StrategyUnitCreate,
         *,
         allow_server_bound_research_data: bool = False,
+        allow_server_owned_ai_research_state: bool = False,
     ) -> dict[str, Any] | None:
         from app.services.workspace.units import create_unit as _impl
 
@@ -380,6 +381,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
             data,
             self.trading_service,
             allow_server_bound_research_data=allow_server_bound_research_data,
+            allow_server_owned_ai_research_state=allow_server_owned_ai_research_state,
         )
 
     async def batch_create_units(
@@ -389,6 +391,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         units_data: list[StrategyUnitCreate],
         *,
         allow_server_bound_research_data: bool = False,
+        allow_server_owned_ai_research_state: bool = False,
     ) -> list[dict[str, Any]] | None:
         from app.services.workspace.units import batch_create_units as _impl
 
@@ -398,6 +401,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
             units_data,
             self.trading_service,
             allow_server_bound_research_data=allow_server_bound_research_data,
+            allow_server_owned_ai_research_state=allow_server_owned_ai_research_state,
         )
 
     async def list_units(self, workspace_id: str, user_id: str) -> list[dict[str, Any]] | None:
@@ -445,11 +449,26 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         return await _impl(workspace_id, unit_id, user_id)
 
     async def update_unit(
-        self, workspace_id: str, unit_id: str, user_id: str, data: StrategyUnitUpdate
+        self,
+        workspace_id: str,
+        unit_id: str,
+        user_id: str,
+        data: StrategyUnitUpdate,
+        *,
+        allow_server_owned_ai_research_state: bool = False,
+        sync_runtime: bool = True,
     ) -> dict[str, Any] | None:
         from app.services.workspace.units import update_unit as _impl
 
-        return await _impl(workspace_id, unit_id, user_id, data, self.trading_service)
+        return await _impl(
+            workspace_id,
+            unit_id,
+            user_id,
+            data,
+            self.trading_service,
+            allow_server_owned_ai_research_state=allow_server_owned_ai_research_state,
+            sync_runtime=sync_runtime,
+        )
 
     async def delete_unit(self, workspace_id: str, unit_id: str, user_id: str) -> bool:
         """Delegate to :func:`app.services.workspace.units.delete_unit`."""

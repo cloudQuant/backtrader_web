@@ -9,6 +9,7 @@ class. Public names are re-exported here so that legacy
 from __future__ import annotations
 
 import logging
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -32,6 +33,10 @@ from app.schemas.strategy import (
     StrategyTemplate,
     StrategyType,
     StrategyUpdate,
+)
+from app.services.ai_research_provenance import (
+    issue_server_owned_ai_research_strategy_snapshot_marker,
+    strip_server_owned_ai_research_strategy_snapshot_marker,
 )
 from app.services.strategy import ai_draft as _ai_draft
 from app.services.strategy import inference as _inference
@@ -174,7 +179,11 @@ class StrategyService:
         self.strategy_repo = SQLRepository(Strategy)
 
     async def create_strategy(
-        self, user_id: str, strategy_create: StrategyCreate
+        self,
+        user_id: str,
+        strategy_create: StrategyCreate,
+        *,
+        server_owned_ai_research_snapshot_run_id: str | None = None,
     ) -> StrategyResponse:
         """Create a new user strategy.
 
@@ -189,10 +198,25 @@ class StrategyService:
         # ``submit`` here is the user-initiated act of registering a strategy
         # (the term aligns with design §5 phase set ``{submit, version_create}``).
         with business_span("backtrader.strategy.submit", user_id=user_id):
+            snapshot_run_id = str(server_owned_ai_research_snapshot_run_id or "").strip()
+            strategy_id = str(uuid.uuid4()) if snapshot_run_id else None
+            description = strategy_create.description
+            if snapshot_run_id:
+                assert strategy_id is not None
+                marker = issue_server_owned_ai_research_strategy_snapshot_marker(
+                    user_id=user_id,
+                    strategy_id=strategy_id,
+                    run_id=snapshot_run_id,
+                )
+                if marker is None:
+                    raise ValueError("AI research strategy snapshot signing is unavailable")
+                description = f"{description or ''}{marker}"
+
             strategy = Strategy(
+                id=strategy_id,
                 user_id=user_id,
                 name=strategy_create.name,
-                description=strategy_create.description,
+                description=description,
                 code=strategy_create.code,
                 params={k: v.model_dump() for k, v in strategy_create.params.items()},
                 category=strategy_create.category,
@@ -472,6 +496,10 @@ class StrategyService:
             Updated StrategyResponse if successful, None if not found
             or unauthorized.
         """
+        from app.services.workspace.units import has_server_owned_ai_research_strategy_reference
+
+        if await has_server_owned_ai_research_strategy_reference(strategy_id, user_id):
+            raise ValueError("AI_RESEARCH_PAPER_STRATEGY_MUTATION_FORBIDDEN")
         strategy = await self._get_owned_strategy(strategy_id, user_id)
         if strategy is None:
             return None
@@ -508,6 +536,10 @@ class StrategyService:
         Returns:
             True if deletion succeeded, False if not found or unauthorized.
         """
+        from app.services.workspace.units import has_server_owned_ai_research_strategy_reference
+
+        if await has_server_owned_ai_research_strategy_reference(strategy_id, user_id):
+            raise ValueError("AI_RESEARCH_PAPER_STRATEGY_MUTATION_FORBIDDEN")
         strategy = await self._get_owned_strategy(strategy_id, user_id)
         if strategy is None:
             return False
@@ -600,7 +632,9 @@ class StrategyService:
             id=strategy.id,
             user_id=strategy.user_id,
             name=strategy.name,
-            description=strategy.description,
+            description=strip_server_owned_ai_research_strategy_snapshot_marker(
+                strategy.description
+            ),
             code=strategy.code,
             params=params,
             category=strategy.category,

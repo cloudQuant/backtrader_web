@@ -11,6 +11,21 @@ import uuid
 from app.config import get_settings, production_security_mode
 from app.schemas.market_data_trust import DataPrecheckRequest
 from app.services import research as _research_helpers
+from app.services.ai_research_provenance import (
+    AI_RESEARCH_LIVE_HANDOFF_UNIT_ANCHOR_FIELD,
+    AI_RESEARCH_PAPER_RUNTIME_METRICS_OBSERVATION_FIELD,
+    issue_ai_research_live_handoff_unit_anchor,
+    issue_ai_research_paper_runtime_anchor,
+    sign_ai_research_run_record,
+    verify_ai_research_live_handoff_unit_anchor,
+    verify_ai_research_paper_runtime_metrics_observation,
+    verify_ai_research_run_record,
+)
+from app.services.live_trading.metadata import (
+    SERVER_RUNTIME_LAUNCH_ID_FIELD,
+    SERVER_RUNTIME_LAUNCH_STARTED_AT_FIELD,
+)
+from app.services.live_trading_manager import get_live_trading_manager
 from app.services.market_data_precheck_service import get_market_data_precheck_service
 from app.services.research.shared import *
 from app.utils.logger import get_logger
@@ -19,6 +34,7 @@ from app.utils.tracing import business_span
 logger = get_logger(__name__)
 
 _MARKET_DATA_BINDING_KEY_PREFIX = "market_data_binding_"
+_MARKET_DATA_RUNTIME_BINDING_KEY = "market_data_binding"
 _MARKET_DATA_REQUIRED_BINDING_KEYS = frozenset(
     {
         "market_data_binding_id",
@@ -31,6 +47,166 @@ _MARKET_DATA_REQUIRED_BINDING_KEYS = frozenset(
 _MARKET_DATA_BINDING_HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
 _MARKET_DATA_BINDING_SIGNATURE_BODY_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 _MARKET_DATA_BINDING_INTENT_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
+
+
+def _trusted_historic_run_record_for_stop(
+    workspace: WorkspaceResponse,
+    *,
+    user_id: str,
+    run_id: str,
+    source_signature: str,
+) -> AIStrategyResearchRunRecord | None:
+    """Return one verified historical revision for a stop-only recovery.
+
+    This is intentionally not the normal trusted-record lookup.  Normal
+    state-changing flows require the matching canonical ``last_run`` so a
+    stale approved history row can never be selected for activation.  A
+    protected process that was already launched still needs a way to be
+    stopped after a later run displaces that pointer.  The live-unit anchor
+    proves which run is being stopped; this helper merely finds an HMAC-valid
+    row to carry the durable stop-pending/revoked transition.
+    """
+    normalized_run_id = str(run_id or "").strip()
+    workspace_id = str(workspace.id or "").strip()
+    expected_signature = str(source_signature or "").strip()
+    if not normalized_run_id or not workspace_id or not expected_signature:
+        return None
+    settings = dict(workspace.settings or {})
+    ai_research = settings.get("ai_research")
+    if not isinstance(ai_research, dict):
+        return None
+
+    raw_candidates: list[Any] = []
+    raw_last = ai_research.get("last_run")
+    if isinstance(raw_last, dict):
+        raw_candidates.append(raw_last)
+    raw_runs = ai_research.get("runs")
+    if isinstance(raw_runs, list):
+        raw_candidates.extend(item for item in raw_runs if isinstance(item, dict))
+
+    verified: dict[str, AIStrategyResearchRunRecord] = {}
+    for raw in raw_candidates:
+        if (
+            str(raw.get("run_id") or "").strip() != normalized_run_id
+            or not verify_ai_research_run_record(
+                raw,
+                user_id=user_id,
+                workspace_id=workspace_id,
+            )
+        ):
+            continue
+        record = _coerce_research_run_record_raw(raw)
+        if record is None or str(record.research_workspace_id or "").strip() != workspace_id:
+            continue
+        signature = str(record.server_provenance_signature or "").strip()
+        if signature:
+            verified.setdefault(signature, record)
+
+    # The original launch revision is ideal.  Paper-target invalidation can
+    # legitimately re-sign this same run without its now-stale live ids; if
+    # the durable history has exactly one valid current revision, it remains
+    # safe to use it *only* for revocation.  Any unresolved multi-revision
+    # conflict fails closed instead of selecting an old approval by rank.
+    if expected_signature in verified:
+        return verified[expected_signature]
+    return next(iter(verified.values())) if len(verified) == 1 else None
+
+
+def _paper_runtime_observation_payload(
+    instance_id: str | None,
+    started_at: str | None,
+    launch_id: str | None,
+) -> dict[str, str] | None:
+    """Return the signed, non-reusable manager epoch used for paper readiness.
+
+    ``started_at`` is only second precision in the persisted instance store, so
+    it cannot distinguish a stop/restart that occurs in one second.  The
+    execution service emits a fresh server-only UUID at every successful
+    spawn; binding it to the review record prevents a restarted process from
+    inheriting an earlier ready or approved observation window.
+    """
+    normalized_instance_id = str(instance_id or "").strip()
+    normalized_started_at = str(started_at or "").strip()
+    normalized_launch_id = str(launch_id or "").strip()
+    try:
+        canonical_launch_id = uuid.UUID(normalized_launch_id).hex
+    except (AttributeError, TypeError, ValueError):
+        return None
+    parsed_started_at = _parse_utc_datetime(normalized_started_at)
+    if (
+        not normalized_instance_id
+        or parsed_started_at is None
+        or parsed_started_at > datetime.now(timezone.utc)
+    ):
+        return None
+    return {
+        "source": "server_live_trading_manager",
+        "instance_id": normalized_instance_id,
+        "started_at": normalized_started_at,
+        "launch_id": canonical_launch_id,
+    }
+
+
+def _paper_runtime_observation_from_handoff(
+    handoff: dict[str, Any] | None,
+) -> dict[str, str] | None:
+    raw = _dict_payload((handoff or {}).get("paper_runtime_observation"))
+    return _paper_runtime_observation_payload(
+        str(raw.get("instance_id") or ""),
+        str(raw.get("started_at") or ""),
+        str(raw.get("launch_id") or ""),
+    )
+
+
+def _paper_handoff_with_runtime_observation(
+    handoff: dict[str, Any] | None,
+    observation: dict[str, str] | None,
+) -> dict[str, Any]:
+    """Persist only a current server manager epoch in the signed run record."""
+    payload = dict(handoff or {})
+    if observation is None:
+        payload.pop("paper_runtime_observation", None)
+    else:
+        payload["paper_runtime_observation"] = dict(observation)
+    return payload
+
+
+def _paper_runtime_metrics_observation_is_trusted(
+    *,
+    user_id: str,
+    unit: StrategyUnitResponse | None,
+    unit_status: UnitStatusResponse | None,
+    instance_id: str | None,
+    launch_id: str | None,
+) -> bool:
+    """Require metrics produced after this exact server-issued launch.
+
+    A manager epoch says the process is alive, not that its current metrics
+    were produced by that process.  The post-fill writer signs a receipt over
+    the metrics payload and launch UUID; old log metrics therefore cannot be
+    promoted after a stop/restart, including when the observation window is
+    configured as zero days.
+    """
+    if unit is None:
+        return False
+    settings = unit.unit_settings if isinstance(unit.unit_settings, dict) else {}
+    receipt = settings.get(AI_RESEARCH_PAPER_RUNTIME_METRICS_OBSERVATION_FIELD)
+    metrics = (
+        _dict_payload(unit_status.metrics_snapshot)
+        if unit_status is not None and isinstance(unit_status.metrics_snapshot, dict)
+        else _dict_payload(unit.metrics_snapshot)
+    )
+    if not metrics:
+        return False
+    return verify_ai_research_paper_runtime_metrics_observation(
+        receipt,
+        user_id=user_id,
+        paper_workspace_id=str(unit.workspace_id),
+        paper_unit_id=str(unit.id),
+        instance_id=str(instance_id or unit.trading_instance_id or ""),
+        launch_id=str(launch_id or ""),
+        metrics_snapshot=metrics,
+    )
 
 
 def _apply_market_data_research_binding_guard(
@@ -46,11 +222,22 @@ def _apply_market_data_research_binding_guard(
     the bound CSV.  Validation windows may narrow the server-bound interval
     only through the runtime's signed binding semantics.
     """
+    data_config = request.data_config
+    has_market_data_bridge_markers = isinstance(data_config, dict) and any(
+        str(key).casefold() == "market_data_asset_type"
+        or str(key).casefold() == _MARKET_DATA_RUNTIME_BINDING_KEY
+        or str(key).casefold().startswith(_MARKET_DATA_BINDING_KEY_PREFIX)
+        for key in data_config
+    )
     settings = get_settings()
-    if not bool(getattr(settings, "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED", False)):
+    bridge_enabled = bool(getattr(settings, "MARKET_DATA_QUERY_V2_ENABLED", False)) and bool(
+        getattr(settings, "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED", False)
+    )
+    if not bridge_enabled:
+        if has_market_data_bridge_markers:
+            raise ValueError("MARKET_DATA_BRIDGE_DISABLED")
         return request
 
-    data_config = request.data_config
     if not isinstance(data_config, dict):
         raise ValueError("MARKET_DATA_BINDING_REQUIRED")
 
@@ -710,6 +897,11 @@ class AIStrategyResearchService:
                 response=response,
                 started_at=started_at,
                 completed_at=completed_at,
+            )
+            run_record = sign_ai_research_run_record(
+                run_record,
+                user_id=user_id,
+                workspace_id=str(research_workspace.id),
             )
             response = response.model_copy(update={"promotion_audit": run_record.promotion_audit})
             research_workspace = await self._persist_research_run_record(
@@ -1896,8 +2088,14 @@ class AIStrategyResearchService:
         run_record = _apply_initial_paper_review_to_run_record(
             run_record,
             paper_trading=paper_trading,
+            user_id=user_id,
         )
         run_record = _apply_initial_live_handoff_to_run_record(run_record)
+        run_record = sign_ai_research_run_record(
+            run_record,
+            user_id=user_id,
+            workspace_id=str(research_workspace.id),
+        )
         response_updates: dict[str, Any] = {}
         if run_record.pipeline != response.pipeline:
             response_updates["pipeline"] = run_record.pipeline
@@ -1943,16 +2141,11 @@ class AIStrategyResearchService:
             workspace = await self.workspace_service.get_workspace(research_workspace_id, user_id)
             if workspace is None:
                 raise ValueError("Research workspace not found")
-            workspace_records = _research_run_records_from_workspace(workspace)
-            workspace_records, changed_run_ids = await self._freshen_run_records_with_paper_state(
-                user_id,
-                workspace_records,
-            )
-            await self._persist_freshened_run_records(
+            workspace_records = _research_run_records_from_workspace(workspace, user_id=user_id)
+            workspace_records = await self._freshen_trusted_history_run_records(
                 user_id,
                 workspace,
                 workspace_records,
-                changed_run_ids=changed_run_ids,
             )
             return AIStrategyResearchRunListResponse(
                 total=len(workspace_records),
@@ -1967,16 +2160,11 @@ class AIStrategyResearchService:
         )
         all_records: list[AIStrategyResearchRunRecord] = []
         for workspace in workspaces:
-            workspace_records = _research_run_records_from_workspace(workspace)
-            workspace_records, changed_run_ids = await self._freshen_run_records_with_paper_state(
-                user_id,
-                workspace_records,
-            )
-            await self._persist_freshened_run_records(
+            workspace_records = _research_run_records_from_workspace(workspace, user_id=user_id)
+            workspace_records = await self._freshen_trusted_history_run_records(
                 user_id,
                 workspace,
                 workspace_records,
-                changed_run_ids=changed_run_ids,
             )
             all_records.extend(workspace_records)
         all_records.sort(key=lambda item: item.completed_at, reverse=True)
@@ -1991,13 +2179,90 @@ class AIStrategyResearchService:
         run_id: str,
         *,
         research_workspace_id: str | None = None,
+        trusted_for_continuation: bool = False,
     ) -> AIStrategyResearchRunRecord | None:
+        """Read a run record, requiring a server attestation when requested.
+
+        Historical unsigned records remain inspectable through read-only
+        history endpoints.  They are never freshened or used to cause a
+        continuation, promotion, paper, or live-state mutation.
+        """
         found = await self._find_research_run_record_with_workspace(
             user_id,
             run_id,
             research_workspace_id=research_workspace_id,
+            require_trusted=trusted_for_continuation,
         )
         return found[1] if found is not None else None
+
+    async def _freshen_trusted_history_run_records(
+        self,
+        user_id: str,
+        workspace: WorkspaceResponse,
+        records: list[AIStrategyResearchRunRecord],
+    ) -> list[AIStrategyResearchRunRecord]:
+        """Refresh only raw records authenticated in this workspace snapshot.
+
+        Workspace settings are publicly editable history storage. Listing that
+        history may still display unsigned legacy records, but it must never
+        use one to inspect a paper runtime, stop a unit, add a review lock, or
+        write a newly signed replacement. Keep the exact raw signature as the
+        source identity through the refresh so duplicate run IDs cannot cross
+        that boundary either.
+        """
+        trusted_signatures = _trusted_run_record_signatures_from_workspace(
+            workspace,
+            user_id=user_id,
+        )
+        trusted_records = [
+            record
+            for record in records
+            if str(record.server_provenance_signature or "").strip()
+            in trusted_signatures.get(str(record.run_id or "").strip(), set())
+        ]
+        if not trusted_records:
+            return records
+
+        # Apply signed-record-only presentation freshness first.  In
+        # particular, an expired live-readiness receipt must be revoked and
+        # persisted when it is encountered through the list endpoint too;
+        # previously that transition happened only in the single-record
+        # reader.  Unsigned display history never reaches this branch.
+        pipeline_freshened_records = [
+            _research_run_record_with_pipeline(record) for record in trusted_records
+        ]
+        freshened_records, changed_run_ids = await self._freshen_run_records_with_paper_state(
+            user_id,
+            pipeline_freshened_records,
+        )
+        changed_run_ids.update(
+            updated.run_id
+            for source, updated in zip(trusted_records, freshened_records, strict=True)
+            if updated != source
+        )
+        await self._persist_freshened_run_records(
+            user_id,
+            workspace,
+            freshened_records,
+            changed_run_ids=changed_run_ids,
+        )
+        freshened_by_source = {
+            (
+                str(record.run_id or "").strip(),
+                str(record.server_provenance_signature or "").strip(),
+            ): record
+            for record in freshened_records
+        }
+        return [
+            freshened_by_source.get(
+                (
+                    str(record.run_id or "").strip(),
+                    str(record.server_provenance_signature or "").strip(),
+                ),
+                record,
+            )
+            for record in records
+        ]
 
     async def build_continuation_request_from_run_record(
         self,
@@ -2011,6 +2276,7 @@ class AIStrategyResearchService:
             user_id,
             run_id,
             research_workspace_id=research_workspace_id,
+            require_trusted=True,
         )
         if record is None:
             return None
@@ -2030,6 +2296,7 @@ class AIStrategyResearchService:
             user_id,
             continued_from,
             research_workspace_id=request.research_workspace_id,
+            require_trusted=True,
         )
         if record is None:
             return {}
@@ -2254,20 +2521,67 @@ class AIStrategyResearchService:
         statuses = await self.workspace_service.get_units_status(workspace.id, user_id)
         unit_status = _find_unit_status(statuses or [], record.paper_unit_id)
 
-        monitoring_plan = _resolve_paper_monitoring_plan(record, unit)
+        runtime_anchor_trusted = _paper_runtime_evidence_is_trusted(
+            user_id=user_id,
+            record=record,
+            workspace=workspace,
+            unit=unit,
+        )
+        (
+            runtime_observation_active,
+            runtime_started_at,
+            runtime_launch_id,
+            runtime_observation_reason,
+        ) = await self._observe_active_paper_runtime(
+            user_id,
+            unit=unit,
+            unit_status=unit_status,
+        )
+        runtime_metrics_observation_trusted = (
+            runtime_observation_active
+            and _paper_runtime_metrics_observation_is_trusted(
+                user_id=user_id,
+                unit=unit,
+                unit_status=unit_status,
+                instance_id=unit.trading_instance_id if unit is not None else None,
+                launch_id=runtime_launch_id,
+            )
+        )
+        runtime_evidence_trusted = (
+            runtime_anchor_trusted
+            and runtime_observation_active
+            and runtime_metrics_observation_trusted
+        )
+        monitoring_plan = _resolve_paper_monitoring_plan(
+            record,
+            unit if runtime_evidence_trusted else None,
+        )
         evaluations = _evaluate_paper_monitoring_plan(
             monitoring_plan,
             record=record,
             unit=unit,
             unit_status=unit_status,
+            runtime_evidence_trusted=runtime_evidence_trusted,
+            runtime_started_at=runtime_started_at,
         )
-        ready_for_live = bool(evaluations) and all(item.passed for item in evaluations)
+        ready_for_live = (
+            runtime_evidence_trusted and bool(evaluations) and all(item.passed for item in evaluations)
+        )
         review_status = _paper_review_status(
             record,
             workspace=workspace,
             unit=unit,
             evaluations=evaluations,
             ready_for_live=ready_for_live,
+            runtime_anchor_trusted=runtime_anchor_trusted,
+            runtime_observation_active=runtime_observation_active,
+            runtime_metrics_observation_trusted=runtime_metrics_observation_trusted,
+            runtime_observation_reason=runtime_observation_reason,
+        )
+        runtime_observation = _paper_runtime_observation_payload(
+            unit.trading_instance_id if runtime_observation_active else None,
+            runtime_started_at if runtime_observation_active else None,
+            runtime_launch_id if runtime_observation_active else None,
         )
         evaluation_payload = [item.model_dump(mode="json") for item in evaluations]
         next_actions = _paper_review_next_actions(
@@ -2285,6 +2599,7 @@ class AIStrategyResearchService:
                 ready_for_live=ready_for_live,
                 evaluation_payload=evaluation_payload,
                 next_actions=next_actions,
+                runtime_observation=runtime_observation,
             )
             and not unit_needs_review_lock
         ):
@@ -2328,11 +2643,18 @@ class AIStrategyResearchService:
             live_readiness_checklist=live_readiness_checklist,
             live_readiness_expires_at=live_readiness_expires_at,
         )
+        if runtime_observation is not None:
+            pipeline["paper_runtime_observation"] = dict(runtime_observation)
+        else:
+            pipeline.pop("paper_runtime_observation", None)
         pipeline = _pipeline_with_paper_review_lock(pipeline, review_lock)
         paper_handoff = _research_record_handoff_payload(
             _paper_handoff_with_review_lock(
                 _paper_handoff_with_live_readiness(
-                    record.paper_handoff,
+                    _paper_handoff_with_runtime_observation(
+                        record.paper_handoff,
+                        runtime_observation,
+                    ),
                     live_readiness_checklist,
                     expires_at=live_readiness_expires_at,
                 ),
@@ -2353,6 +2675,23 @@ class AIStrategyResearchService:
                     "paper_handoff": paper_handoff,
                     "pipeline": pipeline,
                     "next_actions": next_actions,
+                    # A changed or absent server observation revokes a human
+                    # approval.  A later runtime restart must be observed and
+                    # reviewed again rather than inheriting an old approval.
+                    "live_handoff": (
+                        record.live_handoff
+                        if ready_for_live
+                        and _paper_runtime_observation_from_handoff(record.paper_handoff)
+                        == runtime_observation
+                        else None
+                    ),
+                    "live_handoff_approval": (
+                        record.live_handoff_approval
+                        if ready_for_live
+                        and _paper_runtime_observation_from_handoff(record.paper_handoff)
+                        == runtime_observation
+                        else None
+                    ),
                 }
             )
         )
@@ -2363,6 +2702,137 @@ class AIStrategyResearchService:
             package = _build_live_handoff_package(updated_record)
             return _run_record_with_live_handoff(updated_record, package)
         return updated_record
+
+    async def _observe_active_paper_runtime(
+        self,
+        user_id: str,
+        *,
+        unit: StrategyUnitResponse | None,
+        unit_status: UnitStatusResponse | None,
+    ) -> tuple[bool, str | None, str | None, str]:
+        """Read a current server-owned process observation for paper review.
+
+        Unit snapshots and paper-equity timestamps are intentionally excluded:
+        public APIs can submit or retain those payloads, and a stopped process
+        must not accrue a review window from their wall-clock values.  The
+        manager re-checks the process while loading its persisted instance;
+        its running state and start epoch are therefore the authoritative
+        observation for this request.
+        """
+        if unit is None:
+            return False, None, None, "paper_runtime_observation_missing"
+        if bool(unit.lock_running) or bool(unit.lock_trading):
+            return False, None, None, "paper_runtime_locked"
+        if str(unit.trading_mode or "").strip().casefold() != "paper":
+            return False, None, None, "paper_runtime_not_running"
+        if str(unit.run_status or "").strip().casefold() != "running":
+            return False, None, None, "paper_runtime_not_running"
+        if unit_status is not None:
+            if bool(unit_status.lock_running) or bool(unit_status.lock_trading):
+                return False, None, None, "paper_runtime_locked"
+            if str(unit_status.run_status or "").strip().casefold() != "running":
+                return False, None, None, "paper_runtime_not_running"
+
+        instance_id = str(unit.trading_instance_id or "").strip()
+        if not instance_id:
+            return False, None, None, "paper_runtime_observation_missing"
+        if unit_status is not None:
+            status_instance_id = str(unit_status.trading_instance_id or "").strip()
+            if status_instance_id and status_instance_id != instance_id:
+                return False, None, None, "paper_runtime_observation_missing"
+
+        try:
+            instance = await asyncio.to_thread(
+                get_live_trading_manager().get_instance,
+                instance_id,
+                user_id=user_id,
+            )
+        except Exception:
+            logger.warning(
+                "Unable to observe paper runtime %s during live-handoff review",
+                instance_id,
+                exc_info=True,
+            )
+            return False, None, None, "paper_runtime_observation_missing"
+        if not isinstance(instance, dict) or str(instance.get("status") or "").strip().casefold() != "running":
+            return False, None, None, "paper_runtime_not_running"
+        if not instance.get("pid"):
+            return False, None, None, "paper_runtime_observation_missing"
+        # Do not consume the legacy user-visible ``started_at`` value: it is
+        # local-time, second precision and can be reconstructed by recovery
+        # code.  Only the private spawn-time UTC epoch is admissible.
+        started_at = str(instance.get(SERVER_RUNTIME_LAUNCH_STARTED_AT_FIELD) or "").strip()
+        launch_id = str(instance.get(SERVER_RUNTIME_LAUNCH_ID_FIELD) or "").strip()
+        if _paper_runtime_observation_payload(instance_id, started_at, launch_id) is None:
+            return False, None, None, "paper_runtime_observation_missing"
+        return True, started_at, launch_id, "server_manager"
+
+    async def _assert_active_paper_runtime_for_live_handoff(
+        self,
+        user_id: str,
+        record: AIStrategyResearchRunRecord,
+    ) -> None:
+        """Recheck current paper execution at approval and live-prepare time."""
+        if not record.paper_workspace_id or not record.paper_unit_id:
+            raise ValueError("AI_RESEARCH_PAPER_RUNTIME_OBSERVATION_REQUIRED")
+        workspace = await self.workspace_service.get_workspace(record.paper_workspace_id, user_id)
+        if workspace is None:
+            raise ValueError("AI_RESEARCH_PAPER_RUNTIME_OBSERVATION_REQUIRED")
+        unit = _coerce_strategy_unit_response(
+            await self.workspace_service.get_unit(workspace.id, record.paper_unit_id, user_id)
+        )
+        if unit is None or not _paper_runtime_evidence_is_trusted(
+            user_id=user_id,
+            record=record,
+            workspace=workspace,
+            unit=unit,
+        ):
+            raise ValueError("AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID")
+        statuses = await self.workspace_service.get_units_status(workspace.id, user_id)
+        unit_status = _find_unit_status(statuses or [], unit.id)
+        active, started_at, launch_id, reason = await self._observe_active_paper_runtime(
+            user_id,
+            unit=unit,
+            unit_status=unit_status,
+        )
+        if not active:
+            raise ValueError(f"AI_RESEARCH_PAPER_RUNTIME_{reason.upper()}")
+        current_observation = _paper_runtime_observation_payload(
+            unit.trading_instance_id,
+            started_at,
+            launch_id,
+        )
+        if current_observation is None or (
+            _paper_runtime_observation_from_handoff(record.paper_handoff)
+            != current_observation
+        ):
+            raise ValueError("AI_RESEARCH_PAPER_RUNTIME_OBSERVATION_STALE")
+
+    async def _revalidate_paper_runtime_for_live_handoff(
+        self,
+        user_id: str,
+        record: AIStrategyResearchRunRecord,
+    ) -> AIStrategyResearchRunRecord:
+        """Refresh paper evidence immediately before an approval or promotion.
+
+        Human approval is evidence about a particular server-observed paper
+        runtime, not a permanent waiver of its monitoring gates. Recompute
+        the plan from the current anchored unit/status before the final
+        launch-epoch assertion. If the runtime has deteriorated, the normal freshening
+        path clears the prior handoff/approval and persists that revocation
+        before callers can create a live unit.
+        """
+        refreshed = await self._freshen_run_record_with_paper_state(user_id, record)
+        if refreshed == record:
+            return record
+
+        workspace = await self.workspace_service.get_workspace(
+            record.research_workspace_id,
+            user_id,
+        )
+        if workspace is not None:
+            await self._persist_research_run_record(user_id, workspace, refreshed)
+        return refreshed
 
     async def start_paper_trading_from_run(
         self,
@@ -2392,62 +2862,8 @@ class AIStrategyResearchService:
             if reusable_workspace is not None and not request.trading_workspace_id:
                 request = request.model_copy(update={"trading_workspace_id": reusable_workspace.id})
 
+        record, strategy, unit = await self._resolve_run_record_strategy_unit(user_id, record)
         iteration_payload = _best_iteration_payload(record)
-        if (
-            not record.best_strategy_id
-            and not _strategy_id_from_iteration_payload(iteration_payload or {})
-            and not _iteration_payload_has_strategy_snapshot(iteration_payload or {})
-        ):
-            raise ValueError("AI research run record has no best strategy to promote")
-
-        strategy = None
-        if record.best_strategy_id:
-            strategy = await self.strategy_service.get_strategy(record.best_strategy_id, user_id)
-        if strategy is None and iteration_payload is not None:
-            strategy = _strategy_from_iteration_snapshot(
-                record,
-                iteration_payload,
-                user_id=user_id,
-            )
-            if strategy is not None:
-                strategy = await self._persist_strategy_snapshot_for_promotion(
-                    user_id,
-                    record,
-                    strategy,
-                )
-                record = record.model_copy(
-                    update={
-                        "best_strategy_id": strategy.id,
-                        "best_strategy_name": strategy.name,
-                    }
-                )
-        if strategy is None:
-            raise ValueError("Best strategy not found and run record has no strategy snapshot")
-
-        unit = None
-        if iteration_payload is not None:
-            unit_snapshot = (
-                dict(iteration_payload.get("unit_snapshot"))
-                if isinstance(iteration_payload.get("unit_snapshot"), dict)
-                else {}
-            )
-            unit_id = str(iteration_payload.get("unit_id") or unit_snapshot.get("id") or "").strip()
-            if unit_id:
-                unit = _coerce_strategy_unit_response(
-                    await self.workspace_service.get_unit(
-                        record.research_workspace_id,
-                        unit_id,
-                        user_id,
-                    )
-                )
-            if unit is None:
-                unit = _unit_from_iteration_snapshot(
-                    record,
-                    strategy=strategy,
-                    payload=iteration_payload,
-                )
-        if unit is None:
-            unit = _unit_from_run_record(record, strategy=strategy)
 
         run_request = _paper_start_request_from_record(record, request)
         iteration = _iteration_from_record_payload(
@@ -2490,6 +2906,11 @@ class AIStrategyResearchService:
             user_id,
             run_id,
             research_workspace_id=research_workspace_id,
+            # This endpoint is the authoritative review pass.  A preceding
+            # history freshen can itself lock a failing paper unit, making the
+            # subsequent explicit review observe only that induced lock and
+            # lose the metric evidence it must report.
+            freshen=False,
         )
         if record is None:
             raise ValueError("AI research run record not found")
@@ -2512,20 +2933,67 @@ class AIStrategyResearchService:
             statuses = await self.workspace_service.get_units_status(workspace.id, user_id)
             unit_status = _find_unit_status(statuses or [], record.paper_unit_id)
 
-        monitoring_plan = _resolve_paper_monitoring_plan(record, unit)
+        runtime_anchor_trusted = _paper_runtime_evidence_is_trusted(
+            user_id=user_id,
+            record=record,
+            workspace=workspace,
+            unit=unit,
+        )
+        (
+            runtime_observation_active,
+            runtime_started_at,
+            runtime_launch_id,
+            runtime_observation_reason,
+        ) = await self._observe_active_paper_runtime(
+            user_id,
+            unit=unit,
+            unit_status=unit_status,
+        )
+        runtime_metrics_observation_trusted = (
+            runtime_observation_active
+            and _paper_runtime_metrics_observation_is_trusted(
+                user_id=user_id,
+                unit=unit,
+                unit_status=unit_status,
+                instance_id=unit.trading_instance_id if unit is not None else None,
+                launch_id=runtime_launch_id,
+            )
+        )
+        runtime_evidence_trusted = (
+            runtime_anchor_trusted
+            and runtime_observation_active
+            and runtime_metrics_observation_trusted
+        )
+        monitoring_plan = _resolve_paper_monitoring_plan(
+            record,
+            unit if runtime_evidence_trusted else None,
+        )
         evaluations = _evaluate_paper_monitoring_plan(
             monitoring_plan,
             record=record,
             unit=unit,
             unit_status=unit_status,
+            runtime_evidence_trusted=runtime_evidence_trusted,
+            runtime_started_at=runtime_started_at,
         )
-        ready_for_live = bool(evaluations) and all(item.passed for item in evaluations)
+        ready_for_live = (
+            runtime_evidence_trusted and bool(evaluations) and all(item.passed for item in evaluations)
+        )
         review_status = _paper_review_status(
             record,
             workspace=workspace,
             unit=unit,
             evaluations=evaluations,
             ready_for_live=ready_for_live,
+            runtime_anchor_trusted=runtime_anchor_trusted,
+            runtime_observation_active=runtime_observation_active,
+            runtime_metrics_observation_trusted=runtime_metrics_observation_trusted,
+            runtime_observation_reason=runtime_observation_reason,
+        )
+        runtime_observation = _paper_runtime_observation_payload(
+            unit.trading_instance_id if runtime_observation_active and unit is not None else None,
+            runtime_started_at if runtime_observation_active else None,
+            runtime_launch_id if runtime_observation_active else None,
         )
         reviewed_at = _utc_iso_now()
         live_readiness_expires_at = (
@@ -2565,6 +3033,10 @@ class AIStrategyResearchService:
             live_readiness_checklist=live_readiness_checklist,
             live_readiness_expires_at=live_readiness_expires_at,
         )
+        if runtime_observation is not None:
+            pipeline["paper_runtime_observation"] = dict(runtime_observation)
+        else:
+            pipeline.pop("paper_runtime_observation", None)
         pipeline = _pipeline_with_paper_review_lock(pipeline, review_lock)
         review = AIStrategyPaperTradingReview(
             run_id=record.run_id,
@@ -2642,6 +3114,7 @@ class AIStrategyResearchService:
                         lock_trading=True,
                         lock_running=True,
                     ),
+                    allow_server_owned_ai_research_state=True,
                 )
             except Exception:
                 updated = None
@@ -2689,6 +3162,7 @@ class AIStrategyResearchService:
                     lock_trading=True,
                     lock_running=True,
                 ),
+                allow_server_owned_ai_research_state=True,
             )
         except Exception as exc:
             return (
@@ -2735,7 +3209,12 @@ class AIStrategyResearchService:
                 "模拟复核未通过，但当前工作区服务不支持自动停止模拟单元。",
             )
         try:
-            raw_results = await stop_units(workspace.id, user_id, [unit.id])
+            raw_results = await stop_units(
+                workspace.id,
+                user_id,
+                [unit.id],
+                allow_server_owned_ai_research_stop=True,
+            )
         except Exception as exc:
             return [], _append_unique_text(
                 next_actions,
@@ -2785,9 +3264,11 @@ class AIStrategyResearchService:
             user_id,
             run_id,
             research_workspace_id=research_workspace_id,
+            freshen=False,
         )
         if record is None:
             raise ValueError("AI research run record not found")
+        record = await self._revalidate_paper_runtime_for_live_handoff(user_id, record)
         record = _research_run_record_with_pipeline(record)
         package = _build_live_handoff_package(record)
         approval = _build_live_handoff_approval_record(
@@ -2814,9 +3295,11 @@ class AIStrategyResearchService:
             user_id,
             run_id,
             research_workspace_id=request.research_workspace_id,
+            freshen=False,
         )
         if record is None:
             raise ValueError("AI research run record not found")
+        record = await self._revalidate_paper_runtime_for_live_handoff(user_id, record)
         record = _research_run_record_with_pipeline(record)
         package = _build_live_handoff_package(record)
         if not (
@@ -2845,6 +3328,7 @@ class AIStrategyResearchService:
         record, strategy, source_unit = await self._resolve_run_record_strategy_unit(
             user_id,
             record,
+            prefer_attested_paper_unit=True,
         )
         package = _build_live_handoff_package(record)
         risk_gate = self.risk_gate_service.evaluate_live_preparation(
@@ -2878,6 +3362,42 @@ class AIStrategyResearchService:
                 ),
             )
 
+        # Workspace/strategy resolution above can take long enough for a
+        # running paper process to publish a materially different status. Do
+        # the signed runtime refresh immediately before the irreversible live
+        # unit write, and consume only this final observation/evaluation.
+        record = await self._revalidate_paper_runtime_for_live_handoff(user_id, record)
+        record = _research_run_record_with_pipeline(record)
+        # Resolve the source again after the final runtime observation.  The
+        # live payload must be derived from the sealed paper unit that was
+        # actually revalidated, never from an earlier in-memory source or a
+        # mutable research iteration row.
+        record, strategy, source_unit = await self._resolve_run_record_strategy_unit(
+            user_id,
+            record,
+            prefer_attested_paper_unit=True,
+        )
+        package = _build_live_handoff_package(record)
+        if not (
+            package.ready_for_live
+            and package.status == "approved_for_live"
+            and package.approval is not None
+            and package.approval.approved
+        ):
+            raise ValueError("AI research live handoff has not been approved for live trading")
+        risk_gate = self.risk_gate_service.evaluate_live_preparation(
+            record=record,
+            package=package,
+            request=request,
+            source_unit=source_unit,
+        )
+        if not risk_gate.get("passed"):
+            blockers = [
+                str(item).strip() for item in risk_gate.get("blockers", []) if str(item).strip()
+            ]
+            detail = "；".join(blockers[:3]) if blockers else "存在未通过的风控项"
+            raise ValueError(f"风控检查未通过: {detail}")
+
         unit_payload = _live_trading_unit_payload_from_record(
             record,
             package=package,
@@ -2890,6 +3410,7 @@ class AIStrategyResearchService:
             workspace.id,
             user_id,
             unit_payload,
+            allow_server_owned_ai_research_state=True,
         )
         if created_unit is None:
             raise ValueError("Failed to create live trading unit")
@@ -2902,18 +3423,20 @@ class AIStrategyResearchService:
             unit,
             risk_gate=risk_gate,
         )
+        sealed_data_config = {
+            **dict(unit.data_config or {}),
+            "ai_research_run_id": record.run_id,
+            "ai_research_workspace_id": record.research_workspace_id,
+            "ai_research_live_handoff_status": package.status,
+        }
+        sealed_unit_settings = {
+            **dict(unit.unit_settings or {}),
+            "ai_research_live_handoff": handoff,
+        }
         unit = unit.model_copy(
             update={
-                "data_config": {
-                    **dict(unit.data_config or {}),
-                    "ai_research_run_id": record.run_id,
-                    "ai_research_workspace_id": record.research_workspace_id,
-                    "ai_research_live_handoff_status": package.status,
-                },
-                "unit_settings": {
-                    **dict(unit.unit_settings or {}),
-                    "ai_research_live_handoff": handoff,
-                },
+                "data_config": sealed_data_config,
+                "unit_settings": sealed_unit_settings,
             }
         )
         persisted_unit = await self.workspace_service.update_unit(
@@ -2924,6 +3447,7 @@ class AIStrategyResearchService:
                 data_config=unit.data_config,
                 unit_settings=unit.unit_settings,
             ),
+            allow_server_owned_ai_research_state=True,
         )
         if persisted_unit is not None:
             unit = StrategyUnitResponse.model_validate(persisted_unit)
@@ -2936,6 +3460,49 @@ class AIStrategyResearchService:
             unit=unit,
             handoff=handoff,
         )
+        # The source signature is only final after the prepared handoff has
+        # been persisted.  Bind the live-unit seal to that canonical revision
+        # rather than to an earlier approved record, so a later signed
+        # revocation or conflicting same-run history cannot authorize launch.
+        prepared_record = await self._find_research_run_record(
+            user_id,
+            record.run_id,
+            research_workspace_id=record.research_workspace_id,
+            freshen=False,
+        )
+        source_signature = (
+            str(prepared_record.server_provenance_signature or "").strip()
+            if prepared_record is not None
+            else ""
+        )
+        if not source_signature:
+            raise ValueError("AI_RESEARCH_LIVE_HANDOFF_PROVENANCE_INVALID")
+        live_unit_anchor = issue_ai_research_live_handoff_unit_anchor(
+            user_id=user_id,
+            research_workspace_id=record.research_workspace_id,
+            live_workspace_id=workspace.id,
+            live_unit_id=unit.id,
+            run_id=record.run_id,
+            source_run_signature=source_signature,
+            unit=unit,
+        )
+        if live_unit_anchor is None:
+            raise ValueError("AI_RESEARCH_LIVE_HANDOFF_PROVENANCE_INVALID")
+        sealed_unit_settings = {
+            **dict(unit.unit_settings or {}),
+            AI_RESEARCH_LIVE_HANDOFF_UNIT_ANCHOR_FIELD: live_unit_anchor,
+        }
+        persisted_unit = await self.workspace_service.update_unit(
+            workspace.id,
+            unit.id,
+            user_id,
+            StrategyUnitUpdate(unit_settings=sealed_unit_settings),
+            allow_server_owned_ai_research_state=True,
+            sync_runtime=False,
+        )
+        if persisted_unit is None:
+            raise ValueError("AI_RESEARCH_LIVE_HANDOFF_PROVENANCE_INVALID")
+        unit = StrategyUnitResponse.model_validate(persisted_unit)
         return AIStrategyLiveTradingPrepare(
             workspace=workspace,
             unit=unit,
@@ -2944,11 +3511,469 @@ class AIStrategyResearchService:
             next_actions=_live_trading_prepare_next_actions(unit),
         )
 
+    async def activate_prepared_live_trading_from_run(
+        self,
+        user_id: str,
+        run_id: str,
+        *,
+        research_workspace_id: str | None = None,
+    ) -> AIStrategyLiveTradingPrepare:
+        """Start one prepared live handoff through the server-only boundary.
+
+        Prepared units remain locked so generic workspace routes cannot turn a
+        historical approval into execution.  This is the only activation path:
+        it refreshes the current paper evidence twice, temporarily clears the
+        locks for the manager preflight, and restores them regardless of the
+        start result.  The manager then independently verifies the sealed live
+        unit against the HMAC-attested source run.
+        """
+        record = await self._find_research_run_record(
+            user_id,
+            run_id,
+            research_workspace_id=research_workspace_id,
+            freshen=False,
+        )
+        if record is None:
+            raise ValueError("AI research run record not found")
+        record = await self._revalidate_paper_runtime_for_live_handoff(user_id, record)
+        record = _research_run_record_with_pipeline(record)
+        package = _build_live_handoff_package(record)
+        if not (
+            package.ready_for_live
+            and package.status == "approved_for_live"
+            and package.approval is not None
+            and package.approval.approved
+        ):
+            raise ValueError("AI research live handoff has not been approved for live trading")
+        target = await self._prepared_live_trading_target(user_id, record)
+        if target is None:
+            raise ValueError("AI research live handoff has not been prepared")
+        workspace, unit = target
+
+        # The final review must happen after every lookup/allocation above and
+        # immediately before changing the live unit's execution locks.
+        record = await self._revalidate_paper_runtime_for_live_handoff(user_id, record)
+        record = _research_run_record_with_pipeline(record)
+        package = _build_live_handoff_package(record)
+        if not (
+            package.ready_for_live
+            and package.status == "approved_for_live"
+            and package.approval is not None
+            and package.approval.approved
+        ):
+            raise ValueError("AI research live handoff has not been approved for live trading")
+
+        unlocked = await self.workspace_service.update_unit(
+            workspace.id,
+            unit.id,
+            user_id,
+            StrategyUnitUpdate(lock_trading=False, lock_running=False),
+            allow_server_owned_ai_research_state=True,
+            sync_runtime=False,
+        )
+        if unlocked is None:
+            raise ValueError("AI research live handoff unit was not found")
+        unlocked_unit = StrategyUnitResponse.model_validate(unlocked)
+
+        async def validate_immediately_before_live_spawn() -> None:
+            """Re-observe the exact paper source after runtime materialization."""
+            current = await self._revalidate_paper_runtime_for_live_handoff(user_id, record)
+            current = _research_run_record_with_pipeline(current)
+            current_package = _build_live_handoff_package(current)
+            if not (
+                current_package.ready_for_live
+                and current_package.status == "approved_for_live"
+                and current_package.approval is not None
+                and current_package.approval.approved
+            ):
+                raise ValueError("AI research live handoff has not been approved for live trading")
+
+        try:
+            # A second revalidation closes the unlock-to-manager boundary: if
+            # the paper source changes here, relock before any live process is
+            # launched.  ``run_units`` separately checks the live-unit seal.
+            record = await self._revalidate_paper_runtime_for_live_handoff(user_id, record)
+            record = _research_run_record_with_pipeline(record)
+            package = _build_live_handoff_package(record)
+            if not (
+                package.ready_for_live
+                and package.status == "approved_for_live"
+                and package.approval is not None
+                and package.approval.approved
+            ):
+                raise ValueError("AI research live handoff has not been approved for live trading")
+            results = await self.workspace_service.run_units(
+                workspace.id,
+                user_id,
+                [unlocked_unit.id],
+                allow_server_owned_ai_research_live_handoff_start=True,
+                live_handoff_pre_start_validator=validate_immediately_before_live_spawn,
+            )
+            started = next((item for item in results if item.get("unit_id") == unlocked_unit.id), None)
+            if not isinstance(started, dict) or str(started.get("status") or "") != "running":
+                raise ValueError(str((started or {}).get("error") or "Failed to start live handoff"))
+        finally:
+            # Preserve the post-approval execution fence even after a valid
+            # start. The manager owns the running process; browser routes may
+            # not use this temporary unlock to mutate/restart it.
+            relocked = await self.workspace_service.update_unit(
+                workspace.id,
+                unit.id,
+                user_id,
+                StrategyUnitUpdate(lock_trading=True, lock_running=True),
+                allow_server_owned_ai_research_state=True,
+                sync_runtime=False,
+            )
+        if relocked is None:
+            raise ValueError("AI research live handoff relock failed")
+        live_unit = StrategyUnitResponse.model_validate(relocked)
+        handoff = _live_trading_prepare_handoff(record, package, workspace, live_unit)
+        return AIStrategyLiveTradingPrepare(
+            workspace=workspace,
+            unit=live_unit,
+            prepared=True,
+            activated=True,
+            activation_status="running",
+            activation_instance_id=str(live_unit.trading_instance_id or "") or None,
+            handoff=handoff,
+            next_actions=_live_trading_prepare_next_actions(live_unit),
+        )
+
+    async def deactivate_prepared_live_trading_from_run(
+        self,
+        user_id: str,
+        run_id: str,
+        *,
+        research_workspace_id: str | None = None,
+    ) -> AIStrategyLiveTradingPrepare:
+        """Stop and revoke one prepared live handoff through a server boundary.
+
+        Generic workspace, simulation, and live-manager stop routes must not
+        be able to alter protected handoffs.  This operation is the sole
+        deactivation path: it validates the sealed unit identity, stops the
+        process with an internal capability, then persists a newly signed
+        revocation so the former human approval cannot be reused to restart.
+        """
+        found = await self._find_research_run_record_with_workspace(
+            user_id,
+            run_id,
+            research_workspace_id=research_workspace_id,
+            freshen=False,
+        )
+        research_workspace: WorkspaceResponse | None = None
+        target: tuple[WorkspaceResponse, StrategyUnitResponse] | None = None
+        historic_stop_recovery = found is None
+        if found is not None:
+            research_workspace, record = found
+            target = await self._prepared_live_trading_target(user_id, record)
+        else:
+            # ``last_run`` is intentionally the only canonical source for a
+            # state-changing launch.  A later, unrelated run can therefore
+            # displace an active handoff from it.  Emergency stop has a
+            # narrower recovery rule: locate a sealed live target first and
+            # then load one raw HMAC-valid historical revision for the exact
+            # workspace/run so revocation can be made durable.  This path is
+            # never used by activation or any strategy/paper promotion.
+            recovered = await self._historic_live_handoff_stop_source(
+                user_id,
+                run_id,
+                research_workspace_id=research_workspace_id,
+            )
+            if recovered is None:
+                raise ValueError("AI research run record not found")
+            research_workspace, record, target = recovered
+        if target is None:
+            # Paper-target invalidation intentionally clears the mutable
+            # live-target fields from the run record.  That must not strand a
+            # still-running, sealed live unit behind public stop guards.  The
+            # fallback scans only the owner's live workspaces and accepts a
+            # target solely when its HMAC live-unit anchor binds this exact
+            # research workspace/run.  It is stop-only: activation still
+            # requires the canonical approved source record.
+            target = await self._sealed_live_handoff_target_for_stop(
+                user_id,
+                research_workspace_id=record.research_workspace_id,
+                run_id=record.run_id,
+            )
+        if target is None:
+            raise ValueError("AI research live handoff has not been prepared")
+        workspace, unit = target
+        if not (
+            record.live_trading_prepared
+            and record.live_workspace_id == workspace.id
+            and record.live_unit_id == unit.id
+        ):
+            # Retain the verified fallback identity in the pending/failed
+            # server state so a failed emergency stop remains retryable.
+            record = record.model_copy(
+                update={
+                    "live_workspace_id": workspace.id,
+                    "live_workspace_name": workspace.name,
+                    "live_unit_id": unit.id,
+                    "live_trading_prepared": True,
+                }
+            )
+        settings = dict(unit.unit_settings or {})
+        anchor = settings.get(AI_RESEARCH_LIVE_HANDOFF_UNIT_ANCHOR_FIELD)
+        source_signature = (
+            str(anchor.get("source_run_signature") or "").strip()
+            if isinstance(anchor, dict)
+            else ""
+        )
+        if not (
+            isinstance(anchor, dict)
+            and source_signature
+            and verify_ai_research_live_handoff_unit_anchor(
+                anchor,
+                user_id=user_id,
+                research_workspace_id=record.research_workspace_id,
+                live_workspace_id=workspace.id,
+                live_unit_id=unit.id,
+                run_id=record.run_id,
+                source_run_signature=source_signature,
+                unit=unit,
+            )
+        ):
+            raise ValueError("AI_RESEARCH_LIVE_HANDOFF_PROVENANCE_INVALID")
+
+        if research_workspace is None or str(research_workspace.id) != str(
+            record.research_workspace_id
+        ):
+            research_workspace = await self.workspace_service.get_workspace(
+                record.research_workspace_id,
+                user_id,
+            )
+        if research_workspace is None:
+            raise ValueError("Research workspace not found")
+
+        # A normal record is the canonical ``last_run`` and may use the
+        # regular writer.  Historic emergency recovery must preserve a later
+        # unrelated canonical run: mutate only the exact authenticated A
+        # history entry used to stop A, never overwrite B's ``last_run``.
+        historic_source_signature = str(record.server_provenance_signature or "").strip()
+
+        async def persist_stop_state(
+            updated_record: AIStrategyResearchRunRecord,
+        ) -> AIStrategyResearchRunRecord:
+            nonlocal research_workspace, historic_source_signature
+            if not historic_stop_recovery:
+                research_workspace = await self._persist_research_run_record(
+                    user_id,
+                    research_workspace,
+                    updated_record,
+                )
+                return updated_record
+            research_workspace, signed_record = await self._persist_historic_live_handoff_stop_record(
+                user_id,
+                research_workspace,
+                updated_record,
+                source_signature=historic_source_signature,
+            )
+            historic_source_signature = str(signed_record.server_provenance_signature or "").strip()
+            return signed_record
+
+        # Revocation has to reach durable server-owned state *before* asking
+        # the runtime to stop.  A successful stop followed by a persistence
+        # failure must not leave the old approved source record available for
+        # a public restart.  Keep the target ids so this same endpoint can
+        # retry a failed emergency stop, but remove every approval/package
+        # that could authorize a new launch.
+        pending_pipeline = dict(record.pipeline or {})
+        pending_pipeline.update(
+            {
+                "current_stage": "live_handoff_stop_pending",
+                "live_handoff_status": "stop_pending",
+                "live_handoff_approved": False,
+                "live_handoff_stop_pending": True,
+                "live_handoff_stop_failed": False,
+                "live_unit_locked": True,
+                "live_trading_prepared": True,
+            }
+        )
+        pending_record = record.model_copy(
+            update={
+                "paper_review_status": "live_handoff_stop_pending",
+                "paper_review_ready_for_live": False,
+                "live_handoff": None,
+                "live_handoff_approval": None,
+                # Preserve these fields solely to let this server-owned stop
+                # boundary find/retry the already-sealed live target.
+                "live_trading_prepared": True,
+                "pipeline": pending_pipeline,
+                "next_actions": [
+                    "实盘交接正在由受控服务端入口停止，当前批准已失效。",
+                    "停止确认前不得重新启动该实盘单元。",
+                ],
+            }
+        )
+        try:
+            pending_record = await persist_stop_state(pending_record)
+        except Exception as exc:
+            raise ValueError(
+                "AI_RESEARCH_LIVE_HANDOFF_DEACTIVATION_STATE_PERSIST_FAILED"
+            ) from exc
+
+        async def record_stop_failure(reason: str) -> None:
+            """Persist a non-authorizing retry state without reviving approval."""
+            failed_pipeline = dict(pending_record.pipeline or {})
+            failed_pipeline.update(
+                {
+                    "current_stage": "live_handoff_stop_failed",
+                    "live_handoff_status": "stop_failed",
+                    "live_handoff_stop_pending": False,
+                    "live_handoff_stop_failed": True,
+                    "live_handoff_stop_error": str(reason or "stop verification failed"),
+                    "live_handoff_approved": False,
+                    "live_unit_locked": True,
+                }
+            )
+            failed_record = pending_record.model_copy(
+                update={
+                    "paper_review_status": "live_handoff_stop_failed",
+                    "paper_review_ready_for_live": False,
+                    "live_handoff": None,
+                    "live_handoff_approval": None,
+                    "live_trading_prepared": True,
+                    "pipeline": failed_pipeline,
+                    "next_actions": [
+                        "实盘交接停止未被服务端确认，批准保持撤销。",
+                        "请通过受控停机入口重试；在确认停止前不得重新上线。",
+                    ],
+                }
+            )
+            try:
+                await persist_stop_state(failed_record)
+            except Exception:
+                # The prior ``stop_pending`` record is already durable and
+                # non-authorizing.  Never turn a secondary audit write error
+                # into a path that proceeds with revocation success.
+                logger.warning(
+                    "Unable to persist AI live-handoff stop failure for run {}",
+                    record.run_id,
+                    exc_info=True,
+                )
+
+        try:
+            stop_results = await self.workspace_service.stop_units(
+                workspace.id,
+                user_id,
+                [unit.id],
+                allow_server_owned_ai_research_live_handoff_stop=True,
+            )
+        except Exception as exc:
+            await record_stop_failure(str(exc))
+            raise ValueError("AI_RESEARCH_LIVE_HANDOFF_DEACTIVATION_STOP_FAILED") from exc
+
+        confirmed_stop = next(
+            (
+                item
+                for item in (stop_results or [])
+                if isinstance(item, dict) and str(item.get("unit_id") or "") == str(unit.id)
+            ),
+            None,
+        )
+        if not isinstance(confirmed_stop, dict) or confirmed_stop.get("cancelled") is not True:
+            await record_stop_failure(
+                str((confirmed_stop or {}).get("error") or "runtime stop was not confirmed")
+            )
+            raise ValueError("AI_RESEARCH_LIVE_HANDOFF_DEACTIVATION_STOP_FAILED")
+
+        instance_id = str(unit.trading_instance_id or "").strip()
+        if instance_id:
+            try:
+                instance = await asyncio.to_thread(
+                    get_live_trading_manager().get_instance,
+                    instance_id,
+                    user_id=user_id,
+                )
+            except Exception as exc:
+                await record_stop_failure("runtime state could not be verified")
+                raise ValueError("AI_RESEARCH_LIVE_HANDOFF_DEACTIVATION_STOP_FAILED") from exc
+            runtime_status = (
+                str(instance.get("status") or "").strip().casefold()
+                if isinstance(instance, dict)
+                else ""
+            )
+            if runtime_status not in {"stopped", "idle", "error", "failed", "cancelled"}:
+                await record_stop_failure("runtime remains active after stop request")
+                raise ValueError("AI_RESEARCH_LIVE_HANDOFF_DEACTIVATION_STOP_FAILED")
+
+        stopped_payload = await self.workspace_service.get_unit(workspace.id, unit.id, user_id)
+        stopped_unit = (
+            StrategyUnitResponse.model_validate(stopped_payload)
+            if stopped_payload is not None
+            else unit
+        )
+        pipeline = dict(record.pipeline or {})
+        pipeline.update(
+            {
+                "current_stage": "live_handoff_deactivated",
+                "live_handoff_status": "deactivated",
+                "live_handoff_approved": False,
+                "live_unit_locked": True,
+                "live_trading_prepared": False,
+            }
+        )
+        revocation_event = {
+            "stage": "live_handoff_deactivated",
+            "status": "completed",
+            "at": _utc_iso_now(),
+            "live_workspace_id": workspace.id,
+            "live_unit_id": unit.id,
+            "reason": "server_controlled_deactivation",
+        }
+        revoked = pending_record.model_copy(
+            update={
+                "paper_review_status": "live_handoff_deactivated",
+                "paper_review_ready_for_live": False,
+                "live_handoff": None,
+                "live_handoff_approval": None,
+                "live_trading_prepared": False,
+                "live_trading_prepared_at": None,
+                "pipeline": pipeline,
+                "promotion_audit": [*list(record.promotion_audit or []), revocation_event],
+                "next_actions": [
+                    "实盘交接已由受控服务端入口停止并撤销。",
+                    "若需再次上线，必须重新复核模拟盘并获得新的人工审批。",
+                ],
+            }
+        )
+        await persist_stop_state(revoked)
+        return AIStrategyLiveTradingPrepare(
+            workspace=workspace,
+            unit=stopped_unit,
+            prepared=False,
+            activated=False,
+            activation_status="deactivated",
+            activation_instance_id=str(stopped_unit.trading_instance_id or "") or None,
+            handoff={
+                "run_id": record.run_id,
+                "live_workspace_id": workspace.id,
+                "live_unit_id": unit.id,
+                "status": "deactivated",
+            },
+            next_actions=[
+                "已停止并撤销该实盘交接。",
+                "重新上线前需要新的模拟盘复核和人工审批。",
+            ],
+        )
+
     async def _resolve_run_record_strategy_unit(
         self,
         user_id: str,
         record: AIStrategyResearchRunRecord,
+        *,
+        prefer_attested_paper_unit: bool = False,
     ) -> tuple[AIStrategyResearchRunRecord, StrategyResponse, StrategyUnitResponse]:
+        """Resolve a promotion source without reading a mutable research unit.
+
+        A run record is HMAC-attested, but a workspace unit row is intentionally
+        editable during research.  Promotion must therefore use either the
+        signed iteration snapshots or, for an already running paper handoff,
+        the separately anchored paper unit.  Fetching ``iteration.unit_id``
+        from the research workspace here would let a later public update alter
+        the configuration copied into paper or live execution.
+        """
         iteration_payload = _best_iteration_payload(record)
         if (
             not record.best_strategy_id
@@ -2957,10 +3982,53 @@ class AIStrategyResearchService:
         ):
             raise ValueError("AI research run record has no best strategy to promote")
 
+        if prefer_attested_paper_unit:
+            paper_unit = await self._attested_paper_promotion_unit(user_id, record)
+            if paper_unit is not None:
+                # Prefer the signed source code even after paper promotion.
+                # The paper anchor verifies the current template digest as a
+                # fallback for old records, but a new live target should not
+                # obtain executable code from that mutable strategy row.
+                strategy = (
+                    _strategy_from_iteration_snapshot(
+                        record,
+                        iteration_payload,
+                        user_id=user_id,
+                    )
+                    if iteration_payload is not None
+                    else None
+                )
+                if strategy is not None:
+                    strategy = await self._persist_strategy_snapshot_for_promotion(
+                        user_id,
+                        record,
+                        strategy,
+                    )
+                    record = record.model_copy(
+                        update={
+                            "best_strategy_id": strategy.id,
+                            "best_strategy_name": strategy.name,
+                        }
+                    )
+                else:
+                    # Legacy records without an executable signed snapshot
+                    # remain promotable only while the verified paper anchor
+                    # proves the current shared template is byte-for-byte the
+                    # one that paper execution sealed.
+                    strategy = await self.strategy_service.get_strategy(
+                        paper_unit.strategy_id,
+                        user_id,
+                    )
+                if strategy is None:
+                    raise ValueError("Attested paper strategy is no longer available")
+                return record, strategy, paper_unit
+
+        # Before the first paper handoff there is no protected strategy
+        # template yet.  Materialize a new strategy from the signed snapshot
+        # instead of re-reading ``best_strategy_id``: that shared source can
+        # otherwise be changed between research completion and paper start.
         strategy = None
-        if record.best_strategy_id:
-            strategy = await self.strategy_service.get_strategy(record.best_strategy_id, user_id)
-        if strategy is None and iteration_payload is not None:
+        if iteration_payload is not None:
             strategy = _strategy_from_iteration_snapshot(
                 record,
                 iteration_payload,
@@ -2978,34 +4046,54 @@ class AIStrategyResearchService:
                         "best_strategy_name": strategy.name,
                     }
                 )
+        if strategy is None and iteration_payload is not None:
+            raise ValueError("AI research run record has no signed strategy snapshot to promote")
+        if strategy is None and record.best_strategy_id:
+            # A record without an iteration payload cannot provide a sealed
+            # unit snapshot either. Keep this branch only for the precise
+            # validation error below rather than trusting a mutable strategy.
+            raise ValueError("AI research run record has no signed strategy snapshot to promote")
         if strategy is None:
             raise ValueError("Best strategy not found and run record has no strategy snapshot")
 
-        unit = None
-        if iteration_payload is not None:
-            unit_snapshot = (
-                dict(iteration_payload.get("unit_snapshot"))
-                if isinstance(iteration_payload.get("unit_snapshot"), dict)
-                else {}
+        unit = (
+            _unit_from_iteration_snapshot(
+                record,
+                strategy=strategy,
+                payload=iteration_payload,
             )
-            unit_id = str(iteration_payload.get("unit_id") or unit_snapshot.get("id") or "").strip()
-            if unit_id:
-                unit = _coerce_strategy_unit_response(
-                    await self.workspace_service.get_unit(
-                        record.research_workspace_id,
-                        unit_id,
-                        user_id,
-                    )
-                )
-            if unit is None:
-                unit = _unit_from_iteration_snapshot(
-                    record,
-                    strategy=strategy,
-                    payload=iteration_payload,
-                )
+            if iteration_payload is not None
+            else None
+        )
         if unit is None:
-            unit = _unit_from_run_record(record, strategy=strategy)
+            raise ValueError("AI research run record has no signed unit snapshot to promote")
         return record, strategy, unit
+
+    async def _attested_paper_promotion_unit(
+        self,
+        user_id: str,
+        record: AIStrategyResearchRunRecord,
+    ) -> StrategyUnitResponse | None:
+        """Return the current paper source only when its anchor still verifies."""
+        has_paper_target = bool(record.paper_workspace_id or record.paper_unit_id)
+        if not has_paper_target:
+            return None
+        if not record.paper_workspace_id or not record.paper_unit_id:
+            raise ValueError("AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID")
+        workspace = await self.workspace_service.get_workspace(record.paper_workspace_id, user_id)
+        if workspace is None:
+            raise ValueError("AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID")
+        unit = _coerce_strategy_unit_response(
+            await self.workspace_service.get_unit(workspace.id, record.paper_unit_id, user_id)
+        )
+        if unit is None or not _paper_runtime_evidence_is_trusted(
+            user_id=user_id,
+            record=record,
+            workspace=workspace,
+            unit=unit,
+        ):
+            raise ValueError("AI_RESEARCH_PAPER_RUNTIME_PROVENANCE_INVALID")
+        return unit
 
     async def _prepared_live_trading_target(
         self,
@@ -3023,6 +4111,149 @@ class AIStrategyResearchService:
         if unit is None:
             return None
         return workspace, unit
+
+    async def _sealed_live_handoff_target_for_stop(
+        self,
+        user_id: str,
+        *,
+        research_workspace_id: str,
+        run_id: str,
+    ) -> tuple[WorkspaceResponse, StrategyUnitResponse] | None:
+        """Find one HMAC-sealed live target only for emergency stop recovery.
+
+        A paper-target-missing refresh deliberately removes the cached live
+        ids from the signed run.  The protected process remains public-stop
+        forbidden, so the controlled deactivation boundary needs a separate
+        recovery lookup.  It must never become an activation resolver: caller
+        code still has to pass the regular approved-record checks before it
+        can launch anything.
+        """
+        normalized_research_workspace_id = str(research_workspace_id or "").strip()
+        normalized_run_id = str(run_id or "").strip()
+        if not normalized_research_workspace_id or not normalized_run_id:
+            return None
+        _, workspaces = await self.workspace_service.list_workspaces(
+            user_id,
+            skip=0,
+            limit=1000,
+            workspace_type="trading",
+        )
+        for workspace in workspaces:
+            units = await self.workspace_service.list_units(workspace.id, user_id)
+            for raw_unit in units or []:
+                unit = _coerce_strategy_unit_response(raw_unit)
+                if unit is None or str(unit.trading_mode or "").strip().casefold() != "live":
+                    continue
+                settings = dict(unit.unit_settings or {})
+                anchor = settings.get(AI_RESEARCH_LIVE_HANDOFF_UNIT_ANCHOR_FIELD)
+                source_signature = (
+                    str(anchor.get("source_run_signature") or "").strip()
+                    if isinstance(anchor, dict)
+                    else ""
+                )
+                if not (
+                    isinstance(anchor, dict)
+                    and source_signature
+                    and str(anchor.get("research_workspace_id") or "").strip()
+                    == normalized_research_workspace_id
+                    and str(anchor.get("run_id") or "").strip() == normalized_run_id
+                    and verify_ai_research_live_handoff_unit_anchor(
+                        anchor,
+                        user_id=user_id,
+                        research_workspace_id=normalized_research_workspace_id,
+                        live_workspace_id=workspace.id,
+                        live_unit_id=unit.id,
+                        run_id=normalized_run_id,
+                        source_run_signature=source_signature,
+                        unit=unit,
+                    )
+                ):
+                    continue
+                return workspace, unit
+        return None
+
+    async def _historic_live_handoff_stop_source(
+        self,
+        user_id: str,
+        run_id: str,
+        *,
+        research_workspace_id: str | None,
+    ) -> tuple[
+        WorkspaceResponse,
+        AIStrategyResearchRunRecord,
+        tuple[WorkspaceResponse, StrategyUnitResponse],
+    ] | None:
+        """Recover a historic signed source solely to stop a sealed live unit.
+
+        ``last_run`` intentionally has stronger rules than history: it is the
+        one canonical revision allowed to launch a continuation or a live
+        handoff.  A later normal research run can replace that pointer while
+        an earlier sealed live process remains active.  This recovery helper
+        is deliberately more limited.  It first proves the target's live-unit
+        anchor, then accepts only an HMAC-valid raw historical record from
+        the same research workspace so the stop-pending revocation can be
+        persisted.  No caller may use this result to activate, prepare, or
+        otherwise revive execution.
+        """
+        normalized_run_id = str(run_id or "").strip()
+        normalized_workspace_id = str(research_workspace_id or "").strip()
+        if not normalized_run_id:
+            return None
+
+        if normalized_workspace_id:
+            workspace = await self.workspace_service.get_workspace(
+                normalized_workspace_id,
+                user_id,
+            )
+            if workspace is None:
+                raise ValueError("Research workspace not found")
+            research_workspaces = [workspace]
+        else:
+            _, research_workspaces = await self.workspace_service.list_workspaces(
+                user_id,
+                skip=0,
+                limit=1000,
+                workspace_type="research",
+            )
+
+        recovered: list[
+            tuple[
+                WorkspaceResponse,
+                AIStrategyResearchRunRecord,
+                tuple[WorkspaceResponse, StrategyUnitResponse],
+            ]
+        ] = []
+        for workspace in research_workspaces:
+            sealed_target = await self._sealed_live_handoff_target_for_stop(
+                user_id,
+                research_workspace_id=workspace.id,
+                run_id=normalized_run_id,
+            )
+            if sealed_target is None:
+                continue
+            _, unit = sealed_target
+            anchor = (
+                dict(unit.unit_settings or {}).get(AI_RESEARCH_LIVE_HANDOFF_UNIT_ANCHOR_FIELD)
+            )
+            source_signature = (
+                str(anchor.get("source_run_signature") or "").strip()
+                if isinstance(anchor, dict)
+                else ""
+            )
+            record = _trusted_historic_run_record_for_stop(
+                workspace,
+                user_id=user_id,
+                run_id=normalized_run_id,
+                source_signature=source_signature,
+            )
+            if record is not None:
+                recovered.append((workspace, record, sealed_target))
+
+        # The stop boundary must not guess across two separately sealed
+        # targets with the same caller-supplied run id.  A human can retry
+        # with the exact research workspace id, while all generic public
+        # stop/start paths remain denied.
+        return recovered[0] if len(recovered) == 1 else None
 
     async def _persist_live_trading_handoff(
         self,
@@ -3199,11 +4430,15 @@ class AIStrategyResearchService:
         run_id: str,
         *,
         research_workspace_id: str | None = None,
+        require_trusted: bool = True,
+        freshen: bool = True,
     ) -> AIStrategyResearchRunRecord | None:
         found = await self._find_research_run_record_with_workspace(
             user_id,
             run_id,
             research_workspace_id=research_workspace_id,
+            require_trusted=require_trusted,
+            freshen=freshen,
         )
         return found[1] if found is not None else None
 
@@ -3213,6 +4448,8 @@ class AIStrategyResearchService:
         run_id: str,
         *,
         research_workspace_id: str | None = None,
+        require_trusted: bool = True,
+        freshen: bool = True,
     ) -> tuple[WorkspaceResponse, AIStrategyResearchRunRecord] | None:
         run_id = str(run_id or "").strip()
         if not run_id:
@@ -3222,10 +4459,34 @@ class AIStrategyResearchService:
             workspace = await self.workspace_service.get_workspace(research_workspace_id, user_id)
             if workspace is None:
                 raise ValueError("Research workspace not found")
-            record = _find_run_record_in_workspace(workspace, run_id)
+            record = (
+                _find_trusted_run_record_in_workspace(
+                    workspace,
+                    user_id=user_id,
+                    run_id=run_id,
+                )
+                if require_trusted
+                else _find_run_record_in_workspace(workspace, run_id, user_id=user_id)
+            )
             if record is None:
                 return None
-            return await self._freshen_found_run_record(user_id, workspace, record)
+            if not freshen:
+                return workspace, record
+            if require_trusted:
+                return await self._freshen_found_run_record(user_id, workspace, record)
+            # The ordinary history/detail reader may display unsigned legacy
+            # rows, but it must not let them trigger a paper inspection or
+            # persistence side effect.  If this ID also has an authenticated
+            # raw source, freshen that exact source; otherwise return the
+            # display record unchanged.
+            trusted_record = _find_trusted_run_record_in_workspace(
+                workspace,
+                user_id=user_id,
+                run_id=run_id,
+            )
+            if trusted_record is None:
+                return workspace, record
+            return await self._freshen_found_run_record(user_id, workspace, trusted_record)
 
         _, workspaces = await self.workspace_service.list_workspaces(
             user_id,
@@ -3234,10 +4495,29 @@ class AIStrategyResearchService:
             workspace_type="research",
         )
         for workspace in workspaces:
-            record = _find_run_record_in_workspace(workspace, run_id)
+            record = (
+                _find_trusted_run_record_in_workspace(
+                    workspace,
+                    user_id=user_id,
+                    run_id=run_id,
+                )
+                if require_trusted
+                else _find_run_record_in_workspace(workspace, run_id, user_id=user_id)
+            )
             if record is None:
                 continue
-            return await self._freshen_found_run_record(user_id, workspace, record)
+            if not freshen:
+                return workspace, record
+            if require_trusted:
+                return await self._freshen_found_run_record(user_id, workspace, record)
+            trusted_record = _find_trusted_run_record_in_workspace(
+                workspace,
+                user_id=user_id,
+                run_id=run_id,
+            )
+            if trusted_record is None:
+                return workspace, record
+            return await self._freshen_found_run_record(user_id, workspace, trusted_record)
         return None
 
     async def _freshen_found_run_record(
@@ -3246,16 +4526,35 @@ class AIStrategyResearchService:
         workspace: WorkspaceResponse,
         record: AIStrategyResearchRunRecord,
     ) -> tuple[WorkspaceResponse, AIStrategyResearchRunRecord]:
+        # ``record`` was authenticated as its raw stored payload.  Only after
+        # that check may time-dependent freshness add an expiry transition or
+        # normalize old pipeline presentation fields; the persistence boundary
+        # below signs the changed server state again.
+        original_record = record
+        record = _research_run_record_with_pipeline(record)
         updated = await self._freshen_run_record_with_paper_state(user_id, record)
-        if updated == record:
-            return workspace, record
+        if updated == original_record:
+            return workspace, original_record
+        # Keep the authenticated raw signature on ``updated`` while the
+        # persistence helper selects the exact stored mapping to replace.
+        # Signing first would replace that source identity with the new
+        # signature, making a legitimate expiry refresh look like an
+        # untrusted same-run duplicate and leaving the old record on disk.
         refreshed_workspace = await self._persist_freshened_run_records(
             user_id,
             workspace,
             [updated],
             changed_run_ids={updated.run_id},
         )
-        return refreshed_workspace or workspace, updated
+        # ``_persist_freshened_run_records`` signs the replacement before it
+        # writes it. Reproduce that deterministic server signature for the
+        # caller so the returned record has the same provenance as storage.
+        refreshed = sign_ai_research_run_record(
+            updated,
+            user_id=user_id,
+            workspace_id=str(workspace.id),
+        )
+        return refreshed_workspace or workspace, refreshed
 
     async def _paper_trading_target_missing(
         self,
@@ -3502,6 +4801,7 @@ class AIStrategyResearchService:
                     params=strategy.params,
                     category=strategy.category,
                 ),
+                server_owned_ai_research_snapshot_run_id=record.run_id,
             )
         except Exception as exc:
             raise ValueError("Failed to persist strategy snapshot for promotion") from exc
@@ -3604,6 +4904,11 @@ class AIStrategyResearchService:
                 started_at=started_at,
                 completed_at=completed_at,
             )
+            run_record = sign_ai_research_run_record(
+                run_record,
+                user_id=user_id,
+                workspace_id=str(research_workspace.id),
+            )
             await self._persist_research_run_record(user_id, research_workspace, run_record)
             return run_record
 
@@ -3674,6 +4979,11 @@ class AIStrategyResearchService:
             response=response,
             started_at=started_at,
             completed_at=completed_at,
+        )
+        run_record = sign_ai_research_run_record(
+            run_record,
+            user_id=user_id,
+            workspace_id=str(research_workspace.id),
         )
         await self._persist_research_run_record(user_id, research_workspace, run_record)
         return run_record
@@ -3889,10 +5199,75 @@ class AIStrategyResearchService:
             lock_trading=False,
             lock_running=False,
         )
-        created_unit = await self.workspace_service.create_unit(workspace.id, user_id, unit_payload)
+        created_unit = await self.workspace_service.create_unit(
+            workspace.id,
+            user_id,
+            unit_payload,
+            allow_server_owned_ai_research_state=True,
+        )
         if created_unit is None:
             raise ValueError("Failed to create paper trading unit")
         unit = StrategyUnitResponse.model_validate(created_unit)
+
+        # Seal the paper target before starting its runtime.  The public unit
+        # API cannot later strip this marker and substitute another strategy,
+        # gateway, instance ID, or fabricated snapshot for paper review.
+        handoff = {
+            **handoff,
+            "paper_workspace_id": workspace.id,
+            "paper_workspace_name": workspace.name,
+            "paper_unit_id": unit.id,
+            "paper_task_id": None,
+            "paper_run_status": None,
+            "paper_started_at": None,
+        }
+        runtime_anchor = issue_ai_research_paper_runtime_anchor(
+            user_id=user_id,
+            research_workspace_id=research_workspace_id,
+            paper_workspace_id=workspace.id,
+            paper_unit_id=unit.id,
+            run_id=run_id,
+            unit=unit,
+            workspace_settings=workspace.settings,
+            # The isolated unit directory is created by the following start
+            # flow. It receives a materialized-file digest only after the
+            # server verifies the completed runtime copy.
+            include_runtime_snapshot=False,
+        )
+        if runtime_anchor is None:
+            raise ValueError("AI research paper runtime provenance signing is unavailable")
+        unit = unit.model_copy(
+            update={
+                "data_config": {
+                    **unit.data_config,
+                    "ai_research_run_id": run_id,
+                    "ai_research_workspace_id": research_workspace_id,
+                },
+                "unit_settings": {
+                    **unit.unit_settings,
+                    "ai_research_handoff": handoff,
+                    "ai_research_paper_runtime_anchor": runtime_anchor,
+                },
+                "params": {
+                    **dict(unit.params or {}),
+                    "ai_research_run_id": run_id,
+                    "ai_research_workspace_id": research_workspace_id,
+                },
+            }
+        )
+        persisted_unit = await self.workspace_service.update_unit(
+            workspace.id,
+            unit.id,
+            user_id,
+            StrategyUnitUpdate(
+                data_config=unit.data_config,
+                unit_settings=unit.unit_settings,
+                params=unit.params,
+            ),
+            allow_server_owned_ai_research_state=True,
+        )
+        if persisted_unit is not None:
+            unit = StrategyUnitResponse.model_validate(persisted_unit)
 
         run_result = None
         run_results = await self.workspace_service.run_units(
@@ -3900,6 +5275,16 @@ class AIStrategyResearchService:
         )
         if run_results:
             run_result = StrategyCopilotRunResult.model_validate(run_results[0])
+
+        # ``run_units`` materializes the isolated paper runtime in a separate
+        # service session and replaces the initial expected-only anchor with a
+        # signed snapshot digest. Reload before persisting the handoff task
+        # metadata below; writing the stale response object here would erase
+        # that digest and turn an otherwise valid paper runtime into an
+        # untrusted legacy source on its next review or direct start.
+        started_unit = await self.workspace_service.get_unit(workspace.id, unit.id, user_id)
+        if started_unit is not None:
+            unit = StrategyUnitResponse.model_validate(started_unit)
 
         handoff = {
             **handoff,
@@ -3939,6 +5324,11 @@ class AIStrategyResearchService:
                 unit_settings=unit.unit_settings,
                 params=unit.params,
             ),
+            allow_server_owned_ai_research_state=True,
+            # This write records server-only handoff/task bookkeeping after
+            # the process has begun. It must not rematerialize the isolated
+            # runtime directory between the signed snapshot and later review.
+            sync_runtime=False,
         )
         if persisted_unit is not None:
             unit = StrategyUnitResponse.model_validate(persisted_unit)
@@ -3994,6 +5384,11 @@ class AIStrategyResearchService:
         run_record: AIStrategyResearchRunRecord,
     ) -> WorkspaceResponse:
         run_record = _research_run_record_with_pipeline(run_record)
+        run_record = sign_ai_research_run_record(
+            run_record,
+            user_id=user_id,
+            workspace_id=str(research_workspace.id),
+        )
         settings = dict(research_workspace.settings or {})
         ai_research = dict(settings.get("ai_research") or {})
         record_payload = run_record.model_dump(mode="json")
@@ -4020,6 +5415,84 @@ class AIStrategyResearchService:
         settings["ai_research"] = ai_research
         return research_workspace.model_copy(update={"settings": settings})
 
+    async def _persist_historic_live_handoff_stop_record(
+        self,
+        user_id: str,
+        research_workspace: WorkspaceResponse,
+        run_record: AIStrategyResearchRunRecord,
+        *,
+        source_signature: str,
+    ) -> tuple[WorkspaceResponse, AIStrategyResearchRunRecord]:
+        """Replace one verified history row without changing another ``last_run``.
+
+        This writer is intentionally private to controlled emergency stop.
+        It is the only case where a signed historical record may transition
+        state after a later run became canonical.  Replacement binds the raw
+        source signature and re-verifies that raw mapping before writing, so
+        a caller cannot turn a same-id forged history entry into a signed
+        record.  ``last_run`` is left byte-for-byte intact for the later run.
+        """
+        expected_signature = str(source_signature or "").strip()
+        workspace_id = str(research_workspace.id or "").strip()
+        if not expected_signature or not workspace_id:
+            raise ValueError("AI_RESEARCH_LIVE_HANDOFF_PROVENANCE_INVALID")
+        signed_record = sign_ai_research_run_record(
+            _research_run_record_with_pipeline(run_record),
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+        replacement_signature = str(signed_record.server_provenance_signature or "").strip()
+        if not replacement_signature or not verify_ai_research_run_record(
+            signed_record,
+            user_id=user_id,
+            workspace_id=workspace_id,
+        ):
+            raise ValueError("AI_RESEARCH_LIVE_HANDOFF_PROVENANCE_INVALID")
+
+        settings = dict(research_workspace.settings or {})
+        ai_research = dict(settings.get("ai_research") or {})
+        raw_runs = ai_research.get("runs")
+        if not isinstance(raw_runs, list):
+            raise ValueError("AI_RESEARCH_LIVE_HANDOFF_PROVENANCE_INVALID")
+        replacement = signed_record.model_dump(mode="json")
+        replaced = False
+        next_runs: list[Any] = []
+        for raw in raw_runs:
+            if not isinstance(raw, dict):
+                next_runs.append(raw)
+                continue
+            raw_signature = str(raw.get("server_provenance_signature") or "").strip()
+            same_source = (
+                str(raw.get("run_id") or "").strip() == str(run_record.run_id or "").strip()
+                and raw_signature == expected_signature
+                and verify_ai_research_run_record(
+                    raw,
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                )
+            )
+            if same_source:
+                next_runs.append(replacement)
+                replaced = True
+            else:
+                next_runs.append(raw)
+        if not replaced:
+            raise ValueError("AI_RESEARCH_LIVE_HANDOFF_PROVENANCE_INVALID")
+
+        ai_research["runs"] = next_runs[:20]
+        # Do not touch ``last_run``. It belongs to the newer B revision that
+        # displaced this historic A handoff and remains its own canonical
+        # continuation/approval source.
+        settings["ai_research"] = ai_research
+        updated_workspace = await self.workspace_service.update_workspace(
+            research_workspace.id,
+            user_id,
+            WorkspaceUpdate(settings={"ai_research": ai_research}),
+        )
+        if updated_workspace is not None:
+            return updated_workspace, signed_record
+        return research_workspace.model_copy(update={"settings": settings}), signed_record
+
     async def _persist_freshened_run_records(
         self,
         user_id: str,
@@ -4029,11 +5502,27 @@ class AIStrategyResearchService:
         changed_run_ids: set[str] | None = None,
     ) -> WorkspaceResponse | None:
         changed_run_ids = set(changed_run_ids or set())
-        replacements = {
-            record.run_id: record.model_dump(mode="json")
-            for record in records
-            if record.run_id in changed_run_ids or _freshened_run_record_needs_persist(record)
-        }
+        trusted_run_signatures = _trusted_run_record_signatures_from_workspace(
+            workspace,
+            user_id=user_id,
+        )
+        replacements: dict[tuple[str, str], dict[str, Any]] = {}
+        for record in records:
+            run_id = str(record.run_id or "").strip()
+            source_signature = str(record.server_provenance_signature or "").strip()
+            if (
+                not run_id
+                or source_signature not in trusted_run_signatures.get(run_id, set())
+                or not (
+                    run_id in changed_run_ids or _freshened_run_record_needs_persist(record)
+                )
+            ):
+                continue
+            replacements[(run_id, source_signature)] = sign_ai_research_run_record(
+                record,
+                user_id=user_id,
+                workspace_id=str(workspace.id),
+            ).model_dump(mode="json")
         if not replacements:
             return None
 
@@ -4047,10 +5536,19 @@ class AIStrategyResearchService:
             for item in raw_runs:
                 if isinstance(item, dict):
                     run_id = str(item.get("run_id") or "")
-                    replacement = replacements.get(run_id)
-                    if replacement is not None and _raw_run_record_needs_freshness_persist(
+                    source_signature = str(item.get("server_provenance_signature") or "").strip()
+                    replacement = replacements.get((run_id, source_signature))
+                    if (
+                        replacement is not None
+                        and verify_ai_research_run_record(
+                            item,
+                            user_id=user_id,
+                            workspace_id=str(workspace.id),
+                        )
+                        and _raw_run_record_needs_freshness_persist(
                         item,
                         force=run_id in changed_run_ids,
+                        )
                     ):
                         next_runs.append(dict(replacement))
                         changed = True
@@ -4062,10 +5560,19 @@ class AIStrategyResearchService:
         last_run = ai_research.get("last_run")
         if isinstance(last_run, dict):
             run_id = str(last_run.get("run_id") or "")
-            replacement = replacements.get(run_id)
-            if replacement is not None and _raw_run_record_needs_freshness_persist(
-                last_run,
-                force=run_id in changed_run_ids,
+            source_signature = str(last_run.get("server_provenance_signature") or "").strip()
+            replacement = replacements.get((run_id, source_signature))
+            if (
+                replacement is not None
+                and verify_ai_research_run_record(
+                    last_run,
+                    user_id=user_id,
+                    workspace_id=str(workspace.id),
+                )
+                and _raw_run_record_needs_freshness_persist(
+                    last_run,
+                    force=run_id in changed_run_ids,
+                )
             ):
                 ai_research["last_run"] = dict(replacement)
                 changed = True
@@ -4121,6 +5628,7 @@ class AIStrategyResearchService:
         updated_record = _apply_initial_paper_review_to_run_record(
             updated_record,
             paper_trading=paper_trading,
+            user_id=user_id,
         )
         updated_record = _apply_initial_live_handoff_to_run_record(updated_record)
         await self._persist_research_run_record(user_id, workspace, updated_record)
@@ -4209,10 +5717,23 @@ class AIStrategyResearchService:
         )
         if workspace is None:
             return None
+        review_pipeline = dict(review.pipeline or {})
+        review_observation = _dict_payload(review_pipeline.get("paper_runtime_observation"))
+        runtime_observation = _paper_runtime_observation_payload(
+            str(review_observation.get("instance_id") or ""),
+            str(review_observation.get("started_at") or ""),
+            str(review_observation.get("launch_id") or ""),
+        )
+        observation_unchanged = (
+            _paper_runtime_observation_from_handoff(record.paper_handoff) == runtime_observation
+        )
         paper_handoff = _research_record_handoff_payload(
             _paper_handoff_with_review_lock(
                 _paper_handoff_with_live_readiness(
-                    record.paper_handoff,
+                    _paper_handoff_with_runtime_observation(
+                        record.paper_handoff,
+                        runtime_observation,
+                    ),
                     review.live_readiness_checklist,
                     expires_at=review.live_readiness_expires_at,
                 ),
@@ -4234,6 +5755,16 @@ class AIStrategyResearchService:
                     "paper_handoff": paper_handoff,
                     "pipeline": review.pipeline,
                     "next_actions": review.next_actions,
+                    "live_handoff": (
+                        record.live_handoff
+                        if review.ready_for_live and observation_unchanged
+                        else None
+                    ),
+                    "live_handoff_approval": (
+                        record.live_handoff_approval
+                        if review.ready_for_live and observation_unchanged
+                        else None
+                    ),
                 }
             )
         )

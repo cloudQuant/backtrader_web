@@ -12,7 +12,11 @@ from app.config import get_settings
 from app.db.database import get_db
 from app.models.permission import Role, user_roles
 from app.models.user import User
-from app.services.market_data.access import MarketDataAccessAuthorizer
+from app.services.market_data.access import (
+    MarketDataAccessAuthorizer,
+    MarketDataAuthorizationError,
+    MarketDataQueryAccess,
+)
 from app.utils.security import decode_access_token
 
 settings = get_settings()
@@ -63,6 +67,39 @@ def get_market_data_access_authorizer(
 ) -> MarketDataAccessAuthorizer:
     """Build the request-scoped v2 market-data authorization boundary."""
     return MarketDataAccessAuthorizer(db)
+
+
+async def _authorize_market_data_read(
+    current_user: User = Depends(get_current_db_user),
+    access_authorizer: MarketDataAccessAuthorizer = Depends(get_market_data_access_authorizer),
+) -> tuple[object, MarketDataAccessAuthorizer]:
+    """Authorize v2 data reads before resolving controls or services."""
+    try:
+        principal = await access_authorizer.principal_for_user(current_user)
+        access_authorizer.require_read_data(principal=principal)
+    except MarketDataAuthorizationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": exc.code},
+        ) from exc
+    return principal, access_authorizer
+
+
+async def require_authorized_market_data_read(
+    current_user: User = Depends(get_current_db_user),
+    access_authorizer: MarketDataAccessAuthorizer = Depends(get_market_data_access_authorizer),
+) -> None:
+    """Require read entitlement for static v2 control-plane endpoints."""
+    await _authorize_market_data_read(current_user, access_authorizer)
+
+
+async def get_authorized_market_data_access(
+    current_user: User = Depends(get_current_db_user),
+    access_authorizer: MarketDataAccessAuthorizer = Depends(get_market_data_access_authorizer),
+) -> MarketDataQueryAccess:
+    """Build a typed v2 execution context after authorization succeeds."""
+    principal, authorizer = await _authorize_market_data_read(current_user, access_authorizer)
+    return MarketDataQueryAccess(principal=principal, authorizer=authorizer)
 
 
 async def user_has_admin_access(db: AsyncSession, user: User) -> bool:

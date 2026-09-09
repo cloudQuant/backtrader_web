@@ -920,6 +920,19 @@ class PaperRuntimeService:
         if runtime is None:
             return None
         workspace, unit = runtime
+        # A pause is a stop-equivalent for review evidence: it halts the
+        # server-observed runtime while a signed unit and old metrics remain
+        # readable.  Browser callers must not be able to freeze a promoted
+        # paper runtime and later count wall-clock time toward live readiness.
+        from app.services.workspace.units import (
+            AIStrategyResearchPaperRuntimeStopError,
+            is_server_owned_ai_research_paper_runtime,
+        )
+
+        if is_server_owned_ai_research_paper_runtime(unit):
+            raise AIStrategyResearchPaperRuntimeStopError(
+                "AI_RESEARCH_PAPER_RUNTIME_PAUSE_FORBIDDEN"
+            )
         async with async_session_maker() as session:
             result = await session.execute(
                 select(StrategyUnit).where(

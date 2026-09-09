@@ -413,6 +413,8 @@ export default {
     aiResearchLiveHandoffApproved: '实盘交接已审批通过',
     aiResearchLiveHandoffRejected: '实盘交接已驳回',
     aiResearchLiveUnitPrepared: '实盘交易单元已准备，默认锁定等待人工上线',
+    aiResearchLiveUnitActivated: '实盘交易单元已由受控服务启动',
+    aiResearchLiveUnitDeactivated: '实盘交易单元已停止，原批准已撤销',
     aiResearchLiveHandoff: '实盘交接',
     aiResearchLivePreparation: '实盘准备',
     aiResearchTaskCancelled: 'AI投研任务已取消',

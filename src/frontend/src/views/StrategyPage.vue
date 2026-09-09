@@ -791,6 +791,16 @@
                         </el-icon>
                         运行预检
                       </el-button>
+                      <el-button
+                        v-if="aiResearchMarketDataCacheFillEnabled"
+                        size="small"
+                        :loading="aiResearchCacheFillLoading"
+                        :disabled="aiResearchPrecheckLoading"
+                        data-test="ai-research-cache-fill"
+                        @click="() => warmAIResearchLocalCache()"
+                      >
+                        补齐本地缓存
+                      </el-button>
                       <el-tag
                         v-if="aiResearchPrecheckResult || aiResearchPrecheckError"
                         size="small"
@@ -799,7 +809,7 @@
                         {{ aiResearchPrecheckSummary }}
                       </el-tag>
                       <el-tag
-                        v-if="aiResearchMarketDataPlatformBridgeEnabled && (aiResearchPrecheckResult || aiResearchPrecheckError || aiResearchMarketDataPlatformStatus.path !== 'legacy')"
+                        v-if="(aiResearchMarketDataPlatformBridgeEnabled || aiResearchMarketDataCacheFillEnabled) && (aiResearchPrecheckResult || aiResearchPrecheckError || aiResearchMarketDataPlatformStatus.path !== 'legacy')"
                         size="small"
                         data-test="ai-research-data-platform-status"
                         :type="aiResearchMarketDataPlatformTagType"
@@ -807,6 +817,13 @@
                         {{ aiResearchMarketDataPlatformSummary }}
                       </el-tag>
                     </div>
+                    <p
+                      v-if="aiResearchMarketDataPlatformBridgeEnabled || aiResearchMarketDataCacheFillEnabled"
+                      class="text-gray-500"
+                      data-test="ai-research-cache-fill-boundary"
+                    >
+                      补齐仅保存可审计的本地市场数据，不会自动成为回测工件；严格/PIT 回测绑定须由服务端另行启用。
+                    </p>
                     <div
                       v-if="aiResearchPrecheckResult?.gate_evaluations?.length"
                       class="ai-research-precheck-issues"
@@ -1488,6 +1505,28 @@
                     @click="openLiveWorkspaceFromCurrentResult"
                   >
                     打开实盘工作区
+                  </el-button>
+                  <el-button
+                    v-if="aiResearchResult.run_record && canActivateLiveTradingFromRecord(aiResearchResult.run_record)"
+                    size="small"
+                    type="success"
+                    plain
+                    :loading="aiResearchLiveTradingActivatingRunId === aiResearchResult.run_id"
+                    data-test="ai-research-current-live-activate"
+                    @click="activateLiveTradingFromCurrentResult"
+                  >
+                    受控启动实盘
+                  </el-button>
+                  <el-button
+                    v-if="aiResearchResult.run_record && canDeactivateLiveTradingFromRecord(aiResearchResult.run_record)"
+                    size="small"
+                    type="danger"
+                    plain
+                    :loading="aiResearchLiveTradingDeactivatingRunId === aiResearchResult.run_id"
+                    data-test="ai-research-current-live-deactivate"
+                    @click="deactivateLiveTradingFromCurrentResult"
+                  >
+                    停止并撤销
                   </el-button>
                 </div>
                 <div
@@ -2555,6 +2594,28 @@
                       >
                         打开实盘工作区
                       </el-button>
+                      <el-button
+                        v-if="canActivateLiveTradingFromRecord(record)"
+                        size="small"
+                        type="success"
+                        plain
+                        :loading="aiResearchLiveTradingActivatingRunId === record.run_id"
+                        data-test="ai-research-history-live-activate"
+                        @click="activateLiveTradingFromResearchRecord(record)"
+                      >
+                        受控启动实盘
+                      </el-button>
+                      <el-button
+                        v-if="canDeactivateLiveTradingFromRecord(record)"
+                        size="small"
+                        type="danger"
+                        plain
+                        :loading="aiResearchLiveTradingDeactivatingRunId === record.run_id"
+                        data-test="ai-research-history-live-deactivate"
+                        @click="deactivateLiveTradingFromResearchRecord(record)"
+                      >
+                        停止并撤销
+                      </el-button>
                     </div>
                     <div
                       v-else-if="canPrepareLiveTradingFromRecord(record)"
@@ -2931,6 +2992,8 @@ const {
   aiResearchStrategyViewingRunId,
   aiResearchLiveHandoffApprovingRunId,
   aiResearchLiveTradingPreparingRunId,
+  aiResearchLiveTradingActivatingRunId,
+  aiResearchLiveTradingDeactivatingRunId,
   aiResearchConfigDialogVisible,
   aiResearchConfigProfiles,
   aiResearchConfigProfilesLoading,
@@ -2957,10 +3020,12 @@ const {
   aiResearchSelectedVersionIds,
   aiResearchVersionComparisonRows,
   aiResearchPrecheckLoading,
+  aiResearchCacheFillLoading,
   aiResearchPrecheckResult,
   aiResearchPrecheckError,
   aiResearchMarketDataPlatformStatus,
   aiResearchMarketDataPlatformBridgeEnabled,
+  aiResearchMarketDataCacheFillEnabled,
   PAPER_GATEWAY_CONFIG_PLACEHOLDER,
   LIVE_GATEWAY_CONFIG_PLACEHOLDER,
   form,
@@ -3034,6 +3099,7 @@ const {
   taskLatestIterationProgress,
   formatDateTime,
   runAIResearchDataPrecheck,
+  warmAIResearchLocalCache,
   openAIResearchPromptGenerationDialog,
   closeAIResearchPromptGenerationDialog,
   confirmAIResearchPromptGeneration,
@@ -3079,6 +3145,8 @@ const {
   liveHandoffForRecord,
   canApproveLiveHandoff,
   canPrepareLiveTradingFromRecord,
+  canActivateLiveTradingFromRecord,
+  canDeactivateLiveTradingFromRecord,
   liveHandoffApprovalLabel,
   liveTradingPrepareSummary,
   isLiveTradingPreparedForRecord,
@@ -3116,9 +3184,13 @@ const {
   buildLiveHandoffFromCurrentResult,
   approveCurrentLiveHandoff,
   prepareLiveTradingFromCurrentResult,
+  activateLiveTradingFromCurrentResult,
+  deactivateLiveTradingFromCurrentResult,
   buildLiveHandoffFromResearchRecord,
   approveLiveHandoffFromResearchRecord,
   prepareLiveTradingFromResearchRecord,
+  activateLiveTradingFromResearchRecord,
+  deactivateLiveTradingFromResearchRecord,
   continueResearchFromCurrentPaperReview,
   continueResearchFromCurrentRunRecord,
   continueResearchFromPaperReview,

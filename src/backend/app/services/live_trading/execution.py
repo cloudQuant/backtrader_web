@@ -3,14 +3,19 @@ import contextlib
 import os
 import subprocess
 import sys
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from app.services.live_trading import instance as live_instance_service
 from app.services.live_trading.metadata import (
+    SERVER_RUNTIME_LAUNCH_ID_FIELD,
+    SERVER_RUNTIME_LAUNCH_STARTED_AT_FIELD,
+    clear_server_runtime_launch_observation,
     instance_timestamp,
     normalize_instance_metadata,
+    server_runtime_launch_timestamp,
 )
 
 # Callback dependencies injected by ``LiveTradingManager``; typed loosely
@@ -121,6 +126,38 @@ async def start_instance(
     if not run_py.is_file():
         raise ValueError(f"run.py does not exist: {run_py}")
 
+    # Seal the old launch epoch before any gateway work or subprocess spawn.
+    # ``get_instance`` is synchronous and may run in another ASGI/Gunicorn
+    # worker, so it can observe the newly spawned PID before this coroutine
+    # reaches its post-spawn persistence block.  A ``starting`` record with
+    # no server launch UUID is intentionally unusable for paper review,
+    # approval, and live preparation during that interval.
+    pending_now = instance_timestamp()
+    async with _optional_lock(instance_lock):
+        latest = load_instances()
+        latest_inst = latest.get(instance_id)
+        if not isinstance(latest_inst, dict):
+            raise live_instance_service.InstanceAccessError("Instance not found")
+        if user_id is not None and latest_inst.get("user_id") != user_id:
+            raise live_instance_service.InstanceAccessError("Instance not found")
+        if str(latest_inst.get("status") or "").strip().casefold() == "starting":
+            raise ValueError("Strategy start is already in progress")
+        if (
+            str(latest_inst.get("status") or "").strip().casefold() == "running"
+            and latest_inst.get("pid")
+            and is_pid_alive(latest_inst["pid"])
+        ):
+            raise ValueError("Strategy is already running")
+        latest_inst["status"] = "starting"
+        latest_inst["pid"] = None
+        latest_inst["error"] = None
+        latest_inst["started_at"] = None
+        clear_server_runtime_launch_observation(latest_inst)
+        normalize_instance_metadata(latest_inst, instance_id=instance_id, now=pending_now, touch=True)
+        latest[instance_id] = latest_inst
+        save_instances(latest)
+        inst = latest_inst
+
     try:
         # Gateway preparation may wait for an external broker to authenticate.
         # Keep that synchronous adapter work off the ASGI event loop so a bad
@@ -137,6 +174,7 @@ async def start_instance(
             inst["pid"] = None
             inst["error"] = str(exc)
             inst["stopped_at"] = now
+            clear_server_runtime_launch_observation(inst)
             normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
             latest[instance_id] = inst
             save_instances(latest)
@@ -168,7 +206,7 @@ async def start_instance(
         proc._bt_stdout_handle = stdout_handle
         proc._bt_stderr_handle = stderr_handle
         proc._bt_stderr_path = str(stderr_path)
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as exc:
         for handle in (stdout_handle, stderr_handle):
             if handle is not None:
                 try:
@@ -176,6 +214,19 @@ async def start_instance(
                 except OSError:
                     pass
         release_gateway_for_instance(instance_id)
+        failed_now = instance_timestamp()
+        async with _optional_lock(instance_lock):
+            latest = load_instances()
+            failed = latest.get(instance_id, inst)
+            if isinstance(failed, dict):
+                failed["status"] = "error"
+                failed["pid"] = None
+                failed["error"] = str(exc)
+                failed["stopped_at"] = failed_now
+                clear_server_runtime_launch_observation(failed)
+                normalize_instance_metadata(failed, instance_id=instance_id, now=failed_now, touch=True)
+                latest[instance_id] = failed
+                save_instances(latest)
         raise
     stopping_instances.discard(instance_id)
     processes[instance_id] = proc
@@ -194,6 +245,13 @@ async def start_instance(
         inst["pid"] = proc.pid
         inst["error"] = None
         inst["started_at"] = now
+        # These private values are persisted only after a process has actually
+        # spawned.  ``started_at`` is a legacy local, second-precision display
+        # field; paper promotion instead consumes the UTC microsecond timestamp
+        # and fresh UUID below, so CST hosts and same-second restarts cannot
+        # inherit an earlier observation window.
+        inst[SERVER_RUNTIME_LAUNCH_ID_FIELD] = uuid.uuid4().hex
+        inst[SERVER_RUNTIME_LAUNCH_STARTED_AT_FIELD] = server_runtime_launch_timestamp()
         inst["stopped_at"] = None
         normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
         latest[instance_id] = inst
@@ -242,6 +300,7 @@ async def stop_instance(
         inst["status"] = "stopped"
         inst["pid"] = None
         inst["stopped_at"] = now
+        clear_server_runtime_launch_observation(inst)
         normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
         latest[instance_id] = inst
         save_instances(latest)
@@ -381,6 +440,7 @@ async def wait_process(
                         inst["pid"] = None
                         now = instance_timestamp()
                         inst["stopped_at"] = now
+                        clear_server_runtime_launch_observation(inst)
                         normalize_instance_metadata(
                             inst, instance_id=instance_id, now=now, touch=True
                         )

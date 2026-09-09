@@ -192,6 +192,7 @@ export interface AIStrategyResearchObjectiveOptimizeResponse {
 
 export interface InvestmentMandateCreateRequest {
   raw_prompt: string
+  prompt_origin?: 'explicit' | 'auto_generated'
   symbol?: string | null
   symbol_name?: string | null
   timeframe?: string | null
@@ -449,6 +450,13 @@ export interface AIStrategyResearchRunRecord {
   best_strategy_name?: string | null
   research_workspace_id: string
   mandate_id?: string | null
+  /**
+   * Presence distinguishes a persisted blank-auto source (`[]`) from a
+   * legacy record that did not preserve the caller's original field set.
+   */
+  request_explicit_fields?: string[]
+  /** Server-provided provenance bit; legacy default values are not evidence. */
+  request_explicit_fields_persisted?: boolean
   seed_strategy_id?: string | null
   continued_from_run_id?: string | null
   continuation_source?: string | null
@@ -523,6 +531,7 @@ export interface AIStrategyResearchTaskResponse {
   mandate_id?: string | null
   request_snapshot?: AIStrategyResearchRunRequest & Record<string, unknown>
   request_explicit_fields?: string[]
+  request_explicit_fields_persisted?: boolean
   continued_from_run_id?: string | null
   continuation_source?: string | null
   continuation_context?: Record<string, unknown>
@@ -759,6 +768,10 @@ export interface AIStrategyLiveTradingPrepare {
   workspace: Workspace
   unit: StrategyUnit
   prepared: boolean
+  /** True only after the server-controlled activation boundary starts it. */
+  activated?: boolean
+  activation_status?: string | null
+  activation_instance_id?: string | null
   handoff?: Record<string, unknown> | null
   next_actions: string[]
 }
@@ -805,6 +818,10 @@ export interface AIStrategyPipelineSummary {
   live_workspace_id?: string | null
   live_unit_id?: string | null
   live_unit_locked?: boolean
+  live_handoff_activated?: boolean
+  live_handoff_activation_status?: string | null
+  live_handoff_activation_instance_id?: string | null
+  live_handoff_deactivated_at?: string | null
   workflow_mode?: AIStrategyResearchRunRequest['workflow_mode']
   workflow_steps?: AIStrategyResearchRunRequest['workflow_steps']
   workflow_steps_semantics?: 'prompt_display_only'

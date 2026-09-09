@@ -24,6 +24,7 @@ from app.schemas.paper_runtime import (
     RiskRuleUpdate,
 )
 from app.services.paper_runtime_service import PaperRuntimeService
+from app.services.workspace.units import AIStrategyResearchPaperRuntimeStopError
 
 router = APIRouter()
 
@@ -302,7 +303,13 @@ async def pause_paper_runtime(
     service: PaperRuntimeService = Depends(get_paper_runtime_service),
 ) -> dict[str, bool]:
     """Persist a runner-visible pause lock for an owned runtime."""
-    runtime = await service.pause_runtime(current_user.sub, instance_id)
+    try:
+        runtime = await service.pause_runtime(current_user.sub, instance_id)
+    except AIStrategyResearchPaperRuntimeStopError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": exc.code},
+        ) from exc
     if runtime is None:
         raise _not_found()
     from app.services.paper_runtime_scheduler import get_paper_runtime_snapshot_scheduler

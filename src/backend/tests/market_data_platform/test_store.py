@@ -98,6 +98,8 @@ def _context(
     end: datetime | None = None,
     required_fields: tuple[str, ...] = ("close",),
     purpose: str = "display",
+    consistency: str = "display",
+    knowledge_cutoff: datetime | None = None,
 ) -> ResolvedMarketDataQueryContext:
     start_at = start or _at(9)
     end_at = end or _at(16)
@@ -116,6 +118,10 @@ def _context(
             "unit": "share",
             "source_policy_id": "market-default-v1",
             "purpose": purpose,
+            "consistency": consistency,
+            "knowledge_cutoff": (
+                knowledge_cutoff.isoformat() if knowledge_cutoff is not None else None
+            ),
         }
     )
     query = ResolvedMarketDataQuery.from_request(
@@ -538,6 +544,62 @@ async def test_store_persists_research_cache_fill_with_research_source_authoriza
     assert snapshot is not None
     assert snapshot.provenance_json["source_authorization"]["purpose"] == "research_cache_fill"
     assert snapshot.provenance_json["source_authorization"]["allowed_uses"] == ["RESEARCH_ONLY"]
+
+
+@pytest.mark.asyncio
+async def test_store_allows_a_cache_fill_receipt_for_strict_research_only() -> None:
+    """A persisted cache fill satisfies research reread but never a backtest read."""
+    cache_fill_context = _context(purpose="research_cache_fill")
+    strict_research_context = _context(
+        purpose="research",
+        consistency="strict",
+        knowledge_cutoff=_at(13),
+    )
+    strict_backtest_context = _context(
+        purpose="backtest",
+        consistency="strict",
+        knowledge_cutoff=_at(13),
+    )
+    result = _result(
+        retrieved_at=_at(12),
+        observations=(
+            _observation(
+                event_at=_at(10),
+                available_at=_at(11),
+                fields={"close": "10.00"},
+            ),
+        ),
+        context=cache_fill_context,
+    )
+    authorization = _source_authorization(
+        purpose="research_cache_fill",
+        allowed_uses=("RESEARCH_ONLY",),
+    )
+
+    async with async_session_maker() as db:
+        await _seed_dataset_and_provider(db)
+        await _seed_source_registry(db, allowed_uses=("RESEARCH_ONLY",))
+        store = MarketDataStore(db, clock=lambda: _at(12))
+        await store.persist_provider_result(
+            cache_fill_context,
+            result,
+            received_at=_at(12),
+            source_authorization=authorization,
+        )
+        strict_research_rows = await store.read_observation_revisions(
+            strict_research_context,
+            knowledge_cutoff=_at(13),
+            allowed_source_registry_ids=frozenset({PROVIDER_ID}),
+        )
+        strict_backtest_rows = await store.read_observation_revisions(
+            strict_backtest_context,
+            knowledge_cutoff=_at(13),
+            allowed_source_registry_ids=frozenset({PROVIDER_ID}),
+        )
+
+    assert len(strict_research_rows) == 1
+    assert strict_research_rows[0].fields == {"close": "10.00"}
+    assert strict_backtest_rows == ()
 
 
 @pytest.mark.asyncio
