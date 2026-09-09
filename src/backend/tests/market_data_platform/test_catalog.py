@@ -15,6 +15,12 @@ from app.db.database import Base, async_session_maker
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 ITERATION_196_HEAD = "20260908_ai_research_approval_authority"
+RESEARCH_BINDING_RECEIPT_TABLES = {
+    "md_research_data_bindings",
+    "md_research_data_binding_scopes",
+    "md_research_data_binding_consumers",
+    "md_research_data_binding_revocations",
+}
 
 
 def test_alembic_has_a_single_head_before_catalog_is_integrated() -> None:
@@ -311,11 +317,14 @@ def test_catalog_migration_accepts_startup_created_schema_at_iteration_196_basel
 
         inspector = inspect(engine)
         assert "dg_dataset_storages" in inspector.get_table_names()
+        assert RESEARCH_BINDING_RECEIPT_TABLES <= set(inspector.get_table_names())
 
         command.downgrade(config, ITERATION_196_HEAD)
         command.upgrade(config, "head")
 
-        assert "dg_dataset_storages" in inspect(engine).get_table_names()
+        tables_after_round_trip = set(inspect(engine).get_table_names())
+        assert "dg_dataset_storages" in tables_after_round_trip
+        assert RESEARCH_BINDING_RECEIPT_TABLES <= tables_after_round_trip
     finally:
         engine.dispose()
 
