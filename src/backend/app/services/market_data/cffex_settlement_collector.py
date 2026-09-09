@@ -50,7 +50,7 @@ from app.services.market_data.store import (
 
 UTC = timezone.utc
 CFFEX_SETTLEMENT_COLLECTOR_VERSION = "cffex-settlement-collector-v1"
-CFFEX_SETTLEMENT_PROVIDER_ENDPOINT = "cffex-settlement-scheduled-batch-v1"
+CFFEX_SETTLEMENT_PROVIDER_ENDPOINT = "futures_hist_daily_cffex"
 CFFEX_SETTLEMENT_REQUIRED_FIELDS = frozenset({"settle", "previous_settle", "open_interest"})
 CFFEX_SETTLEMENT_DATASET_CODE = "market.settlement"
 CFFEX_SETTLEMENT_FAMILY_ID = "futures.settlement"
@@ -69,14 +69,31 @@ class CffexSettlementCollectorError(ValueError):
         super().__init__(code)
 
 
+class CffexSettlementCollectorPartialPublishError(CffexSettlementCollectorError):
+    """Report a sequential-store failure after an earlier target was published.
+
+    ``MarketDataStore.persist_provider_result`` owns one immutable receipt and
+    one publication transition per canonical series. The collector validates
+    the complete source batch before starting those writes, but it must not
+    present those independent publications as an atomic multi-series commit.
+    This error exposes the durable prefix so an operator can reconcile or
+    retry the exact date without guessing which contracts became visible.
+    """
+
+    def __init__(self, persisted_fetches: Sequence[PersistedProviderFetch]) -> None:
+        super().__init__("CFFEX_SETTLEMENT_BATCH_PARTIALLY_PUBLISHED")
+        self.persisted_fetches = tuple(persisted_fetches)
+
+
 @dataclass(frozen=True, slots=True)
 class CffexSettlementSourceBatch:
     """One source-owned, market-wide response for a single CFFEX trading date.
 
     ``raw_payload`` is an immutable evidence envelope.  It must carry the
-    explicit source request and all returned rows under ``response_rows``;
-    callers never supply a separate normalized row list that could diverge from
-    the durable source receipt.
+    explicit CFFEX collector request, the exact CFFEX-specific source route,
+    and all returned rows under ``response_rows``; callers never supply a
+    separate normalized row list that could diverge from the durable source
+    receipt.
     """
 
     provider_id: str
@@ -113,7 +130,7 @@ class CffexSettlementSource(Protocol):
 
 
 class AkShareCffexSettlementSource:
-    """Explicit opt-in AkShare source for ``get_futures_daily`` CFFEX batches.
+    """Explicit opt-in source for AkShare's CFFEX-specific daily endpoint.
 
     The SDK is imported only when a caller explicitly invokes
     :meth:`fetch_batch`.  This class has no database dependency and no retry or
@@ -122,7 +139,7 @@ class AkShareCffexSettlementSource:
     """
 
     provider_id = "akshare"
-    source_revision = "akshare.get_futures_daily:v1"
+    source_revision = "akshare.futures_hist_daily_cffex:v1"
 
     async def fetch_batch(self, *, trading_date: date) -> CffexSettlementSourceBatch:
         target_date = _require_trading_date(trading_date)
@@ -131,9 +148,7 @@ class AkShareCffexSettlementSource:
             source_callable = await asyncio.to_thread(_resolve_akshare_callable)
             response = await asyncio.to_thread(
                 source_callable,
-                start_date=date_token,
-                end_date=date_token,
-                market=CFFEX_SETTLEMENT_MARKET,
+                date=date_token,
             )
             rows = await asyncio.to_thread(_coerce_response_rows, response)
         except CffexSettlementCollectorError:
@@ -151,11 +166,9 @@ class AkShareCffexSettlementSource:
                     "trading_date": target_date.isoformat(),
                 },
                 "source_route": {
-                    "endpoint": "get_futures_daily",
+                    "endpoint": CFFEX_SETTLEMENT_PROVIDER_ENDPOINT,
                     "call_kwargs": {
-                        "start_date": date_token,
-                        "end_date": date_token,
-                        "market": CFFEX_SETTLEMENT_MARKET,
+                        "date": date_token,
                     },
                 },
                 "response_rows": rows,
@@ -179,7 +192,13 @@ class CffexSettlementCollectionTarget:
 
 @dataclass(frozen=True, slots=True)
 class CffexSettlementCollectionReport:
-    """Safe aggregate proof of one source call and its canonical publications."""
+    """Safe aggregate proof that every target in one source batch published.
+
+    This type is returned only after all target receipts have published. A
+    later sequential write failure instead raises
+    :class:`CffexSettlementCollectorPartialPublishError` with its published
+    prefix, so callers cannot mistake an incomplete batch for a success.
+    """
 
     trading_date: date
     provider_id: str
@@ -259,11 +278,18 @@ class CffexSettlementCollector:
         """Fetch one all-market source batch and publish every validated target row.
 
         Validation of the full source response completes before any target is
-        persisted.  Thus a duplicate known symbol, a missing required metric,
-        or a date/market mismatch cannot leave a partial batch published.
-        Unknown but structurally valid CFFEX contracts remain in the immutable
-        raw envelope and the report's quarantine list; they never become a
+        persisted. Thus a duplicate symbol, a missing required metric, or a
+        date/market mismatch cannot leave a partial batch published. Unknown
+        but structurally valid CFFEX contracts remain in the immutable raw
+        envelope and the report's quarantine list; they never become a
         canonical observation.
+
+        Existing store primitives publish each canonical-series receipt in
+        sequence. A database failure after an earlier publication is therefore
+        surfaced as :class:`CffexSettlementCollectorPartialPublishError`, not
+        as a successful batch report. The exception exposes exactly the
+        durable prefix for reconciliation; this candidate makes no atomic
+        multi-contract publication claim.
         """
         plan = _prepare_collection(trading_date=trading_date, targets=targets)
 
@@ -300,24 +326,29 @@ class CffexSettlementCollector:
                 raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_RETRIEVED_AT_FUTURE")
 
             persisted_fetches: list[PersistedProviderFetch] = []
-            for symbol in sorted(plan.targets_by_symbol):
-                target = plan.targets_by_symbol[symbol]
-                normalized_row = normalized.rows_by_symbol[symbol]
-                result = _provider_result_for_target(
-                    batch=normalized,
-                    plan=plan,
-                    target=target,
-                    row=normalized_row,
-                )
-                persisted_fetches.append(
-                    await self._store.persist_provider_result(
-                        target.context,
-                        result,
-                        received_at=local_received_at,
-                        source_authorization=target.source_authorization,
-                        fetch_lease=lease,
+            try:
+                for symbol in sorted(plan.targets_by_symbol):
+                    target = plan.targets_by_symbol[symbol]
+                    normalized_row = normalized.rows_by_symbol[symbol]
+                    result = _provider_result_for_target(
+                        batch=normalized,
+                        plan=plan,
+                        target=target,
+                        row=normalized_row,
                     )
-                )
+                    persisted_fetches.append(
+                        await self._store.persist_provider_result(
+                            target.context,
+                            result,
+                            received_at=local_received_at,
+                            source_authorization=target.source_authorization,
+                            fetch_lease=lease,
+                        )
+                    )
+            except Exception as exc:
+                if persisted_fetches:
+                    raise CffexSettlementCollectorPartialPublishError(persisted_fetches) from exc
+                raise
 
             return CffexSettlementCollectionReport(
                 trading_date=plan.trading_date,
@@ -430,7 +461,10 @@ def _prepare_collection(
             expected_end=expected_end,
         )
         source_authorization = target.source_authorization
-        _assert_target_authorization(source_authorization)
+        _assert_target_authorization(
+            context=context,
+            source_authorization=source_authorization,
+        )
         source_ids.add(source_authorization.source_registry_id)
         authorization_hashes.add(
             _require_sha256(
@@ -488,13 +522,17 @@ def _assert_target_context(
         or frozenset(query.required_fields) != CFFEX_SETTLEMENT_REQUIRED_FIELDS
         or query.start != expected_start
         or query.end != expected_end
-        or query.family_id not in {None, CFFEX_SETTLEMENT_FAMILY_ID}
+        or query.family_id != CFFEX_SETTLEMENT_FAMILY_ID
     ):
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_TARGET_CONTRACT_INVALID")
     _require_cffex_symbol(identity.identity.display_symbol)
 
 
-def _assert_target_authorization(source_authorization: MarketDataSourceAuthorization) -> None:
+def _assert_target_authorization(
+    *,
+    context: ResolvedMarketDataQueryContext,
+    source_authorization: MarketDataSourceAuthorization,
+) -> None:
     """Keep a scheduled batch tied to one exact verified source decision."""
     if not isinstance(source_authorization, MarketDataSourceAuthorization):
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_TARGET_AUTHORIZATION_INVALID")
@@ -504,6 +542,10 @@ def _assert_target_authorization(source_authorization: MarketDataSourceAuthoriza
         or source_authorization.decision != "ALLOW"
     ):
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_TARGET_AUTHORIZATION_INVALID")
+    if source_authorization.purpose != context.query.purpose:
+        raise CffexSettlementCollectorError(
+            "CFFEX_SETTLEMENT_TARGET_AUTHORIZATION_CONTEXT_MISMATCH"
+        )
     _require_text(
         source_authorization.source_registry_id,
         field_name="source_registry_id",
@@ -575,7 +617,7 @@ def _normalize_batch(
 
 
 def _assert_source_request(*, payload: Mapping[str, object], trading_date: date) -> None:
-    """Bind raw evidence to one exact CFFEX date before consuming any row."""
+    """Bind raw evidence to one exact CFFEX route and date before any row."""
     request = payload.get("collector_request")
     if not isinstance(request, Mapping):
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_REQUEST_INVALID")
@@ -585,18 +627,35 @@ def _assert_source_request(*, payload: Mapping[str, object], trading_date: date)
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_REQUEST_INVALID")
     if request.get("trading_date") != trading_date.isoformat():
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_REQUEST_INVALID")
+    source_route = payload.get("source_route")
+    if not isinstance(source_route, Mapping):
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_REQUEST_INVALID")
+    if set(source_route) != {"endpoint", "call_kwargs"}:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_REQUEST_INVALID")
+    if source_route.get("endpoint") != CFFEX_SETTLEMENT_PROVIDER_ENDPOINT:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_REQUEST_INVALID")
+    expected_date_token = trading_date.strftime("%Y%m%d")
+    if source_route.get("call_kwargs") != {"date": expected_date_token}:
+        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_REQUEST_INVALID")
 
 
 def _assert_row_market_and_date(*, row: Mapping[str, object], trading_date: date) -> None:
-    market = _one_text_field(
-        row,
-        aliases=("MARKET", "market", "市场"),
-        missing_code="CFFEX_SETTLEMENT_ROW_MARKET_MISSING",
-        invalid_code="CFFEX_SETTLEMENT_ROW_MARKET_INVALID",
-        ambiguous_code="CFFEX_SETTLEMENT_ROW_MARKET_AMBIGUOUS",
-    )
-    if market != CFFEX_SETTLEMENT_MARKET:
-        raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_ROW_MARKET_INVALID")
+    # ``futures_hist_daily_cffex`` is itself CFFEX-scoped and its real rows
+    # expose ``symbol,date,settle,pre_settle,open_interest`` without a market
+    # column. The immutable route/request above is therefore the authority
+    # when this field is absent. If a source does supply a market value, it
+    # must agree exactly rather than silently widening the batch venue.
+    market_aliases = ("MARKET", "market", "市场")
+    if any(alias in row for alias in market_aliases):
+        market = _one_text_field(
+            row,
+            aliases=market_aliases,
+            missing_code="CFFEX_SETTLEMENT_ROW_MARKET_MISSING",
+            invalid_code="CFFEX_SETTLEMENT_ROW_MARKET_INVALID",
+            ambiguous_code="CFFEX_SETTLEMENT_ROW_MARKET_AMBIGUOUS",
+        )
+        if market != CFFEX_SETTLEMENT_MARKET:
+            raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_ROW_MARKET_INVALID")
     row_date = _one_trade_date_field(row)
     if row_date != trading_date:
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_ROW_DATE_MISMATCH")
@@ -885,7 +944,7 @@ def _resolve_akshare_callable() -> Callable[..., Any]:
         akshare = importlib.import_module("akshare")
     except ImportError as exc:
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_UNAVAILABLE") from exc
-    source_callable = getattr(akshare, "get_futures_daily", None)
+    source_callable = getattr(akshare, "futures_hist_daily_cffex", None)
     if not callable(source_callable):
         raise CffexSettlementCollectorError("CFFEX_SETTLEMENT_SOURCE_UNAVAILABLE")
     return source_callable
@@ -933,6 +992,7 @@ __all__ = [
     "CffexSettlementCollectionTarget",
     "CffexSettlementCollector",
     "CffexSettlementCollectorError",
+    "CffexSettlementCollectorPartialPublishError",
     "CffexSettlementSource",
     "CffexSettlementSourceBatch",
     "cffex_settlement_feed_lease_key",
