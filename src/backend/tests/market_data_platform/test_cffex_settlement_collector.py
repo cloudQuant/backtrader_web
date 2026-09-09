@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from io import StringIO
@@ -12,6 +13,7 @@ from io import StringIO
 import pytest
 from sqlalchemy import func, select
 
+import app.services.market_data.cffex_settlement_collector as collector_module
 from app.db.database import async_session_maker
 from app.models.asset_research import AssetDataSourceRegistry
 from app.models.data_governance import DgDataset, DgProvider
@@ -21,9 +23,11 @@ from app.schemas.market_data_platform import MarketDataQueryRequest, ResolvedMar
 from app.services.market_data.access import MarketDataSourceAuthorization
 from app.services.market_data.catalog import DatasetStorageResolution
 from app.services.market_data.cffex_settlement_collector import (
+    AkShareCffexSettlementSource,
     CffexSettlementCollectionTarget,
     CffexSettlementCollector,
     CffexSettlementCollectorError,
+    CffexSettlementCollectorPartialPublishError,
     CffexSettlementSourceBatch,
 )
 from app.services.market_data.coverage import QueryIdentity
@@ -60,6 +64,10 @@ class _FakeCffexSource:
                 "collector_request": {
                     "market": "CFFEX",
                     "trading_date": trading_date.isoformat(),
+                },
+                "source_route": {
+                    "endpoint": "futures_hist_daily_cffex",
+                    "call_kwargs": {"date": trading_date.strftime("%Y%m%d")},
                 },
                 "response_rows": self._rows,
             },
@@ -168,13 +176,13 @@ def _context(*, symbol: str, canonical_id: str) -> ResolvedMarketDataQueryContex
     )
 
 
-def _source_authorization() -> MarketDataSourceAuthorization:
+def _source_authorization(*, purpose: str = "display") -> MarketDataSourceAuthorization:
     values: dict[str, object] = {
         "source_registry_id": PROVIDER_ID,
         "registry_updated_at": LOCAL_RECEIVED_AT.isoformat(),
         "asset_type": "futures",
         "market": "CFFEX",
-        "purpose": "display",
+        "purpose": purpose,
         "license_status": "APPROVED",
         "allowed_uses": ("DISPLAY",),
         "jurisdictions": ("CFFEX",),
@@ -267,6 +275,18 @@ def _row(
     }
 
 
+def _actual_akshare_row(symbol: str) -> dict[str, object]:
+    """Represent the reviewed ``futures_hist_daily_cffex`` record shape."""
+    return {
+        "symbol": symbol,
+        "date": TRADING_DATE.isoformat(),
+        "settle": "3500.5",
+        "pre_settle": "3490.0",
+        "open_interest": "10000",
+        "volume": "12000",
+    }
+
+
 async def _counts(db) -> tuple[int, int, int]:
     return (
         int(await db.scalar(select(func.count()).select_from(MdSourceSnapshot)) or 0),
@@ -288,6 +308,34 @@ def test_operator_command_is_network_inert_without_live_switch() -> None:
         "network_called": False,
         "database_written": False,
     }
+
+
+@pytest.mark.asyncio
+async def test_akshare_source_uses_the_cffex_specific_endpoint_offline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The adapter's only source call is the reviewed CFFEX-specific route."""
+    source_call_dates: list[str] = []
+
+    class _Response:
+        def to_dict(self, *, orient: str) -> list[dict[str, object]]:
+            assert orient == "records"
+            return [_actual_akshare_row("IF2609")]
+
+    def fake_cffex_endpoint(*, date: str) -> _Response:
+        source_call_dates.append(date)
+        return _Response()
+
+    monkeypatch.setattr(collector_module, "_resolve_akshare_callable", lambda: fake_cffex_endpoint)
+
+    batch = await AkShareCffexSettlementSource().fetch_batch(trading_date=TRADING_DATE)
+
+    assert source_call_dates == ["20260908"]
+    assert batch.raw_payload["source_route"] == {
+        "endpoint": "futures_hist_daily_cffex",
+        "call_kwargs": {"date": "20260908"},
+    }
+    assert batch.raw_payload["response_rows"] == [_actual_akshare_row("IF2609")]
 
 
 @pytest.mark.asyncio
@@ -333,6 +381,35 @@ async def test_maps_one_cffex_batch_once_publishes_then_reads_locally() -> None:
 
 
 @pytest.mark.asyncio
+async def test_actual_akshare_rows_without_market_map_pre_settle() -> None:
+    """The reviewed lower-case CFFEX response needs no duplicated market column."""
+    source = _FakeCffexSource([_actual_akshare_row("IF2609")])
+    target = _target("IF2609")
+
+    async with async_session_maker() as db:
+        await _seed_control_plane(db)
+        store = MarketDataStore(db, clock=lambda: LOCAL_RECEIVED_AT)
+        await CffexSettlementCollector(
+            store=store,
+            source=source,
+            clock=lambda: LOCAL_RECEIVED_AT,
+        ).collect(trading_date=TRADING_DATE, targets=(target,))
+        rows = await store.read_observation_revisions(
+            target.context,
+            knowledge_cutoff=LOCAL_RECEIVED_AT + timedelta(seconds=1),
+            allowed_source_registry_ids=frozenset({PROVIDER_ID}),
+        )
+
+    assert source.calls == [TRADING_DATE]
+    assert len(rows) == 1
+    assert dict(rows[0].fields) == {
+        "settle": "3500.5",
+        "previous_settle": "3490.0",
+        "open_interest": "10000",
+    }
+
+
+@pytest.mark.asyncio
 async def test_one_snapshot_maps_multiple_frozen_contracts_and_quarantines_unknown() -> None:
     """A broad response has one source call and cannot publish an unmapped contract."""
     source = _FakeCffexSource([_row("IF2609"), _row("IH2609"), _row("IM2609")])
@@ -360,6 +437,50 @@ async def test_one_snapshot_maps_multiple_frozen_contracts_and_quarantines_unkno
     assert {snapshot.provenance_json["provider_retrieved_at"] for snapshot in snapshots} == {
         SOURCE_RETRIEVED_AT.isoformat()
     }
+
+
+@pytest.mark.asyncio
+async def test_later_target_write_reports_the_exact_published_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sequential Store publications never masquerade as an atomic batch result."""
+    source = _FakeCffexSource([_actual_akshare_row("IF2609"), _actual_akshare_row("IH2609")])
+    targets = (_target("IF2609"), _target("IH2609"))
+
+    async with async_session_maker() as db:
+        await _seed_control_plane(db)
+        store = MarketDataStore(db, clock=lambda: LOCAL_RECEIVED_AT)
+        original_persist = store.persist_provider_result
+        persist_attempts = 0
+
+        async def interrupt_second_target(*args: object, **kwargs: object):
+            nonlocal persist_attempts
+            persist_attempts += 1
+            if persist_attempts == 2:
+                raise MarketDataStoreError("OBSERVATION_WRITE_FAILED")
+            return await original_persist(*args, **kwargs)
+
+        monkeypatch.setattr(store, "persist_provider_result", interrupt_second_target)
+        with pytest.raises(CffexSettlementCollectorPartialPublishError) as partial:
+            await CffexSettlementCollector(
+                store=store,
+                source=source,
+                clock=lambda: LOCAL_RECEIVED_AT,
+            ).collect(trading_date=TRADING_DATE, targets=targets)
+
+        prefix_rows = await store.read_observation_revisions(
+            targets[0].context,
+            knowledge_cutoff=LOCAL_RECEIVED_AT + timedelta(seconds=1),
+            allowed_source_registry_ids=frozenset({PROVIDER_ID}),
+        )
+        counts = await _counts(db)
+
+    assert source.calls == [TRADING_DATE]
+    assert persist_attempts == 2
+    assert partial.value.code == "CFFEX_SETTLEMENT_BATCH_PARTIALLY_PUBLISHED"
+    assert len(partial.value.persisted_fetches) == 1
+    assert len(prefix_rows) == 1
+    assert counts == (1, 1, 1)
 
 
 @pytest.mark.asyncio
@@ -398,6 +519,83 @@ async def test_duplicate_or_missing_metric_rejects_whole_batch_before_source_rec
     assert missing_source.calls == [TRADING_DATE]
     assert duplicate_counts == (0, 0, 0)
     assert missing_counts == (0, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_supplied_non_cffex_market_rejects_before_any_source_receipt() -> None:
+    """An optional row market cannot silently widen the CFFEX-scoped source route."""
+    non_cffex_row = _actual_akshare_row("IF2609")
+    non_cffex_row["market"] = "SHFE"
+    source = _FakeCffexSource([non_cffex_row])
+    target = _target("IF2609")
+
+    async with async_session_maker() as db:
+        await _seed_control_plane(db)
+        collector = CffexSettlementCollector(
+            store=MarketDataStore(db, clock=lambda: LOCAL_RECEIVED_AT),
+            source=source,
+            clock=lambda: LOCAL_RECEIVED_AT,
+        )
+        with pytest.raises(
+            CffexSettlementCollectorError, match="CFFEX_SETTLEMENT_ROW_MARKET_INVALID"
+        ):
+            await collector.collect(trading_date=TRADING_DATE, targets=(target,))
+        counts = await _counts(db)
+
+    assert source.calls == [TRADING_DATE]
+    assert counts == (0, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_unbound_family_never_reaches_the_cffex_source() -> None:
+    """The scheduled candidate keeps the same explicit family identity as its receipt."""
+    target = _target("IF2609")
+    unbound_query = target.context.query.model_copy(
+        update={"family_id": None, "family_contract_version": None}
+    )
+    unbound_target = CffexSettlementCollectionTarget(
+        context=replace(target.context, query=unbound_query),
+        source_authorization=target.source_authorization,
+    )
+    source = _FakeCffexSource([_actual_akshare_row("IF2609")])
+
+    async with async_session_maker() as db:
+        collector = CffexSettlementCollector(
+            store=MarketDataStore(db, clock=lambda: LOCAL_RECEIVED_AT),
+            source=source,
+            clock=lambda: LOCAL_RECEIVED_AT,
+        )
+        with pytest.raises(
+            CffexSettlementCollectorError, match="CFFEX_SETTLEMENT_TARGET_CONTRACT_INVALID"
+        ):
+            await collector.collect(trading_date=TRADING_DATE, targets=(unbound_target,))
+
+    assert source.calls == []
+
+
+@pytest.mark.asyncio
+async def test_source_authorization_purpose_must_match_before_provider_io() -> None:
+    """A research grant cannot fetch into a frozen display query's receipt."""
+    target = _target("IF2609")
+    mismatched_target = CffexSettlementCollectionTarget(
+        context=target.context,
+        source_authorization=_source_authorization(purpose="research"),
+    )
+    source = _FakeCffexSource([_actual_akshare_row("IF2609")])
+
+    async with async_session_maker() as db:
+        collector = CffexSettlementCollector(
+            store=MarketDataStore(db, clock=lambda: LOCAL_RECEIVED_AT),
+            source=source,
+            clock=lambda: LOCAL_RECEIVED_AT,
+        )
+        with pytest.raises(
+            CffexSettlementCollectorError,
+            match="CFFEX_SETTLEMENT_TARGET_AUTHORIZATION_CONTEXT_MISMATCH",
+        ):
+            await collector.collect(trading_date=TRADING_DATE, targets=(mismatched_target,))
+
+    assert source.calls == []
 
 
 @pytest.mark.asyncio
