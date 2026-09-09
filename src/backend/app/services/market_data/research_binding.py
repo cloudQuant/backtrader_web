@@ -112,6 +112,17 @@ class MarketDataResearchRuntimeBinding:
     signature_payload: Mapping[str, object]
 
 
+@dataclass(frozen=True, slots=True)
+class _RuntimeAccessReplay:
+    """Fresh strict-replay evidence needed by the final current-read fence."""
+
+    principal: MarketDataPrincipal
+    asset_type: str
+    market: str
+    purpose: str
+    source_snapshot_ids: tuple[str, ...]
+
+
 class MarketDataResearchBindingService:
     """Bind a research request to a strict local-only durable data artifact."""
 
@@ -384,7 +395,7 @@ class MarketDataResearchBindingService:
             signature=signature,
             intent_id=normalized_intent_id,
         )
-        replay_principal = await self._revalidate_current_runtime_access(
+        replay_access = await self._revalidate_current_runtime_access(
             binding=binding,
             manifest=manifest,
         )
@@ -418,12 +429,24 @@ class MarketDataResearchBindingService:
             lock_current=True,
         )
         try:
-            await self._access_authorizer.revalidate_principal_for_write(
-                principal=replay_principal,
+            final_principal = await self._access_authorizer.revalidate_principal_for_write(
+                principal=replay_access.principal,
             )
         except MarketDataAuthorizationError as exc:
             raise MarketDataResearchBindingError(
                 "MARKET_DATA_BINDING_RUNTIME_READ_ACCESS_DENIED"
+            ) from exc
+        try:
+            await self._access_authorizer.reauthorize_sealed_source_registries(
+                principal=final_principal,
+                source_snapshot_ids=replay_access.source_snapshot_ids,
+                asset_type=replay_access.asset_type,
+                market=replay_access.market,
+                purpose=replay_access.purpose,
+            )
+        except MarketDataAuthorizationError as exc:
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_RUNTIME_SOURCE_POLICY_ACCESS_DENIED"
             ) from exc
         runtime = await self._runtime_from_model(
             binding,
@@ -728,7 +751,7 @@ class MarketDataResearchBindingService:
         *,
         binding: MdResearchDataBinding,
         manifest: Mapping[str, object],
-    ) -> MarketDataPrincipal:
+    ) -> _RuntimeAccessReplay:
         """Replay the sealed strict query under current entitlement and policy.
 
         The replay is strictly local-only and uses the original PIT window. It
@@ -810,12 +833,26 @@ class MarketDataResearchBindingService:
             raise MarketDataResearchBindingError(
                 "MARKET_DATA_BINDING_RUNTIME_SOURCE_EVIDENCE_MISMATCH"
             )
+        venue = execution.context.identity.venue
+        if not isinstance(venue, str) or not venue.strip():
+            raise MarketDataResearchBindingError(
+                "MARKET_DATA_BINDING_RUNTIME_SOURCE_POLICY_ACCESS_DENIED"
+            )
         try:
-            return await self._access_authorizer.revalidate_principal(principal=principal)
+            current_principal = await self._access_authorizer.revalidate_principal(
+                principal=principal
+            )
         except MarketDataAuthorizationError as exc:
             raise MarketDataResearchBindingError(
                 "MARKET_DATA_BINDING_RUNTIME_READ_ACCESS_DENIED"
             ) from exc
+        return _RuntimeAccessReplay(
+            principal=current_principal,
+            asset_type=str(execution.context.identity.asset_type),
+            market=venue,
+            purpose=str(execution.context.query.purpose),
+            source_snapshot_ids=_sealed_source_snapshot_ids(replay_evidence),
+        )
 
     async def _load_runtime_binding(
         self,
@@ -1376,6 +1413,22 @@ def _materialize_csv(execution: MarketDataQueryExecution) -> tuple[bytes, list[d
             }
         )
     return output.getvalue().encode("utf-8"), evidence
+
+
+def _sealed_source_snapshot_ids(evidence: object) -> tuple[str, ...]:
+    """Return every immutable source snapshot that contributed sealed bytes."""
+    if not isinstance(evidence, list):
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_MANIFEST_INVALID")
+    source_snapshot_ids: set[str] = set()
+    for item in evidence:
+        if not isinstance(item, Mapping):
+            raise MarketDataResearchBindingError("MARKET_DATA_BINDING_MANIFEST_INVALID")
+        source_snapshot_ids.add(
+            _required_text(item.get("source_snapshot_id"), "source_snapshot_id", 36)
+        )
+    if not source_snapshot_ids:
+        raise MarketDataResearchBindingError("MARKET_DATA_BINDING_NO_OBSERVATIONS")
+    return tuple(sorted(source_snapshot_ids))
 
 
 def _query_semantics(

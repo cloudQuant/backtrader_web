@@ -14,12 +14,16 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects import mysql, postgresql, sqlite
 
 from app.db.database import async_session_maker
+from app.models.asset_research import AssetDataSourceRegistry
+from app.models.data_governance import DgProvider
 from app.models.market_data_platform import (
+    SOURCE_AUTHORIZATION_STATE_VERIFIED,
     ImmutableMarketDataRecordError,
     MdResearchDataBinding,
     MdResearchDataBindingConsumer,
     MdResearchDataBindingRevocation,
     MdResearchDataBindingScope,
+    MdSourceSnapshot,
 )
 from app.models.permission import Role, user_roles
 from app.models.user import User
@@ -56,6 +60,15 @@ START = datetime(2026, 1, 5, tzinfo=UTC)
 END = datetime(2026, 1, 7, tzinfo=UTC)
 CANONICAL_ID = "instrument:stock:CN-SSE:600000"
 SIGNING_KEY = "research-binding-test-key-material-at-least-thirty-two-bytes"
+_SEALED_SOURCE_ID = "akshare"
+_SEALED_PROVIDER_ID = "20000000-0000-0000-0000-000000000000"
+_SEALED_SOURCE_SNAPSHOT_IDS = (
+    "10000000-0000-0000-0000-000000000001",
+    "10000000-0000-0000-0000-000000000002",
+)
+_SHA256_A = "a" * 64
+_SHA256_B = "b" * 64
+_SHA256_C = "c" * 64
 
 
 class _ContractResolver:
@@ -136,6 +149,7 @@ class _LocalOnlyQueryService:
 
 async def _user(*, username: str) -> User:
     async with async_session_maker() as db:
+        await _seed_sealed_source_evidence(db)
         user = User(
             username=username,
             email=f"{username}@example.test",
@@ -147,6 +161,71 @@ async def _user(*, username: str) -> User:
         await db.execute(user_roles.insert().values(user_id=user.id, role=Role.USER.value))
         await db.commit()
         return user
+
+
+async def _seed_sealed_source_evidence(db: Any) -> None:
+    """Persist the source-snapshot/registry chain used by the local fake."""
+    provider = await db.get(DgProvider, _SEALED_PROVIDER_ID)
+    if provider is None:
+        db.add(
+            DgProvider(
+                id=_SEALED_PROVIDER_ID,
+                provider_id=_SEALED_SOURCE_ID,
+                name="Sealed test source",
+                category="market",
+                is_active=True,
+            )
+        )
+    registry = await db.get(AssetDataSourceRegistry, _SEALED_SOURCE_ID)
+    if registry is None:
+        db.add(
+            AssetDataSourceRegistry(
+                source_id=_SEALED_SOURCE_ID,
+                asset_types=["stock"],
+                jurisdictions=["CN"],
+                license_status="APPROVED",
+                allowed_uses=["BACKTEST"],
+                redistribution_policy="NO_REDISTRIBUTION",
+                derived_data_policy="ALLOWED",
+                retention_policy="market-data-v1",
+                effective_from=datetime(2020, 1, 1, tzinfo=UTC),
+                effective_to=None,
+                retention_expires_at=None,
+                enabled=True,
+                updated_at=NOW,
+            )
+        )
+    await db.flush()
+    existing_snapshot_ids = set(
+        (
+            await db.scalars(
+                select(MdSourceSnapshot.id).where(
+                    MdSourceSnapshot.id.in_(_SEALED_SOURCE_SNAPSHOT_IDS)
+                )
+            )
+        ).all()
+    )
+    for source_snapshot_id in _SEALED_SOURCE_SNAPSHOT_IDS:
+        if source_snapshot_id in existing_snapshot_ids:
+            continue
+        db.add(
+            MdSourceSnapshot(
+                id=source_snapshot_id,
+                provider_id=_SEALED_PROVIDER_ID,
+                platform="akshare",
+                source_id=_SEALED_SOURCE_ID,
+                adapter_id="akshare-test",
+                endpoint_version="test-v1",
+                request_fingerprint_sha256=_SHA256_A,
+                payload_sha256=_SHA256_B,
+                request_json={},
+                payload_manifest_json={},
+                provenance_json={},
+                source_authorization_state=SOURCE_AUTHORIZATION_STATE_VERIFIED,
+                source_authorization_descriptor_sha256=_SHA256_C,
+                retrieved_at=NOW,
+            )
+        )
 
 
 async def _attach_research_unit(
@@ -863,6 +942,80 @@ async def test_runtime_binding_reloads_after_revocation_commits_during_replay(
     # The refreshed consumer check rejects before a second strict replay can
     # expose the artifact. The first new request is the long replay hook.
     assert len(query_service.requests) == request_count_before_resolve + 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_binding_final_fence_rechecks_sealed_source_registries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A registry disabled after fresh replay cannot authorize its sealed bytes."""
+    owner = await _user(username="binding-final-source-fence-owner")
+    query_service = _LocalOnlyQueryService()
+    async with async_session_maker() as db:
+        service = MarketDataResearchBindingService(
+            db,
+            query_service,
+            _ContractResolver(),
+            MarketDataAccessAuthorizer(db, clock=lambda: NOW),
+            tmp_path,
+            binding_signing_key=SIGNING_KEY,
+            clock=lambda: NOW,
+        )
+        bound = await service.bind_request(
+            user_id=owner.id,
+            request=_request(),
+            intent_id="ai-research-task-final-source-fence-001",
+        )
+        workspace_id, unit_id = await _attach_research_unit(
+            db=db,
+            service=service,
+            user=owner,
+            bound=bound,
+        )
+        resolve_kwargs = {
+            "user_id": owner.id,
+            "binding_id": str(bound.data_config["market_data_binding_id"]),
+            "binding_hash": str(bound.data_config["market_data_binding_hash"]),
+            "signature": str(bound.data_config["market_data_binding_signature"]),
+            "workspace_id": workspace_id,
+            "unit_id": unit_id,
+            "intent_id": str(bound.data_config["market_data_binding_intent_id"]),
+        }
+        request_count_before_resolve = len(query_service.requests)
+        original_end_snapshot = service._end_runtime_read_snapshot
+        snapshot_restarts = 0
+        registry_disabled = False
+
+        async def end_fresh_replay_then_disable_registry() -> None:
+            nonlocal registry_disabled, snapshot_restarts
+            await original_end_snapshot()
+            snapshot_restarts += 1
+            if snapshot_restarts != 2:
+                return
+            async with async_session_maker() as registry_db:
+                registry = await registry_db.get(AssetDataSourceRegistry, _SEALED_SOURCE_ID)
+                assert registry is not None
+                registry.enabled = False
+                await registry_db.commit()
+            registry_disabled = True
+
+        monkeypatch.setattr(
+            service,
+            "_end_runtime_read_snapshot",
+            end_fresh_replay_then_disable_registry,
+        )
+        runtime = None
+        with pytest.raises(MarketDataResearchBindingError) as denied:
+            runtime = await service.resolve_runtime_binding(**resolve_kwargs)
+
+    assert snapshot_restarts == 2
+    assert registry_disabled
+    assert runtime is None
+    assert denied.value.code == "MARKET_DATA_BINDING_RUNTIME_SOURCE_POLICY_ACCESS_DENIED"
+    # The fresh replay completed; the final locking registry fence, rather
+    # than stale source-policy evidence, denied the artifact materialization.
+    assert len(query_service.requests) == request_count_before_resolve + 2
 
 
 @pytest.mark.asyncio
