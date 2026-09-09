@@ -34,7 +34,7 @@
 - `/investment/strategies` 最终把策略研究与回测请求绑定到已解析的 canonical identity、数据集、来源策略、数据版本和工件指纹。其 197 sidecar 还必须同时满足 `VITE_MARKET_DATA_QUERY_V2_ENABLED=true` 和 `VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED=true`，否则不得访问任何 v2 控制面或事实接口。
 - 在两个浏览器开关均开启的隔离候选中，用户明确触发“策略数据预检”时可额外请求 `purpose=research_cache_fill`；服务端还必须开启 `MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED=true`，否则以稳定禁用码拒绝。输入去抖和非交互预检始终使用 `local_only + research + strict`，不得自动联网或写入。
 - 旧 `/api/v1/data/market-instruments/*` 和 `/api/v1/data/kline` 保持兼容，直到新页面完成灰度和可观测性验收。
-- 迭代 196 的 AI 研究/信任契约完成前，策略页只保留桥接设计和默认关闭的开关。`research_cache_fill` 的中台 receipt 不得写入、替代或批准不稳定的 `data_config`、CSV 回退、研究 run、holdout、回测或审批工件。
+- 迭代 196 已冻结，但策略页桥接仍默认关闭，直到独立的真实数据、浏览器和部署验收完成。`research_cache_fill` 的中台 receipt 不得写入、替代或批准不稳定的 `data_config`、CSV 回退、研究 run、holdout、回测或审批工件。
 
 ## 3. 用户故事与功能需求
 
@@ -93,6 +93,18 @@
 
 主数据版本的有效期为半开区间。新版本写入时关闭旧版本的有效期并停用旧的当前索引；旧索引仍保留，支持历史时间点解析。同一市场代码在不同、不重叠的历史合约中复用必须可解析。
 
+### FR-04B 严格研究数据绑定
+
+AI 研究链路只能把服务端签发的 `market_data_asset_type` 当作客户端意图。服务端必须以当前用户权限重建精确 `local_only + backtest + strict + knowledge_cutoff` 查询；它只能使用完整、已发布的本地 OHLC 证据，不能因研究或回测未命中而触发 AkShare、OpenBB、样例 CSV、相近标的或其他网络回退。
+
+每个可回测的研究请求必须产生不可变 binding receipt，并保存 canonical identity、主数据/数据集/family/source-policy 版本、PIT/visibility anchor、逐观测 revision 与 source-snapshot 证据、规范化 CSV 字节哈希和 manifest 哈希。binding 首次附着到 research workspace 时写入不可变 scope receipt；仅服务端 AI 编排在创建 unit 后可写入精确 `(binding,user,intent,workspace,unit)` consumer receipt。浏览器、通用 workspace create/batch/update API 和续跑请求都不得创建、复制、替换或降级这三类 receipt。
+
+每一次实际任务提交、每一次“并发任务已满”后的重试，以及任务进程启动前，系统都必须重读当前 unit，并重放 sealed strict 查询：校验当前 `data:read`、source policy、registry、许可证、purpose、scope、consumer 和撤销 receipt，再逐条比较封存的 revision/source-snapshot evidence。最终短授权事务还必须锁定每个 sealed source snapshot 及其当前 registry，并以当前 principal、资产、市场、用途和许可证重新裁决；任何权限、来源、许可、事实、身份、时间窗、HMAC 或工件变化均失败关闭，并使旧 runtime 失去可执行资格；清理由精确 lease/task owner 在确认自身已退出后进行，不能由并发失败路径删除或覆写新 owner 的目录。公共回测 API 不得接受客户端 `runtime_dir`；只有服务端 workspace-unit 调用可通过私有 trusted-runtime preflight 取得确定性的受控目录。
+
+严格绑定 unit 在任何 preflight 或 runtime 写入前必须以数据库条件更新取得唯一、持久的运行租约。同一 unit 的第二个请求只能返回当前 `queued`/`running` 状态，不能读取绑定、生成目录、创建或调度第二个 task。租约只可在 task 已持久化而尚未调度的私有边界原子提升为该 task ID；取消、preflight 失败、后台轮询和终态写入必须以同一租约或 task ID compare-and-swap，观察超时、未知 task 状态或取消失败不得释放仍可能运行的单元。旧租约失效后不得删除、覆写或回写新租约的 runtime、状态或指标。
+
+绑定 CSV 的运行时读取必须从受控根的预期相对路径按完整 `O_NOFOLLOW` 路径链打开单一文件描述符，在该 descriptor 上验证大小和 SHA-256，并把相同 descriptor 交给 CSV 读取器。验证后重新按路径打开文件、符号链接、路径替换、`directory_path`、环境变量或 provider 参数均不得改变实际读取的 inode。
+
 ### FR-04A 策略页当前缓存补齐
 
 `research_cache_fill` 是一个受限的、当前时点缓存用途，供用户明确触发的策略数据预检使用。它必须满足以下契约：
@@ -149,6 +161,6 @@ calendar snapshot 也必须声明其 `source_registry_id`、被冻结的治理 p
 - 不自动从模糊用户输入创建 canonical identity。
 - 不把 OpenBB 或其扩展安装进 FastAPI 运行环境。
 - 不把同进程 singleflight 或候选数据库 lease 回归误写成生产级分布式去重；后者仍需要真实多 worker、多方言、时钟与故障接管验收。
-- 不在迭代 196 未冻结前改写策略研究、回测的生产数据契约。
+- 不因迭代 196 已冻结而自动开启策略研究、回测的生产数据契约；研究绑定和页面灰度仍须通过独立的本地、迁移、提供方和浏览器验收。
 - 不将实时经纪商 tick 流与历史规范化观测表混为同一种数据源。
 - 不把 `unconfigured` 的期权链、风险曲面、报告或快照家族描述成已具备本地命中、在线补齐或历史重放能力。
