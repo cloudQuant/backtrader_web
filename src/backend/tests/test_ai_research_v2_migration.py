@@ -28,6 +28,7 @@ _PRE_HOLDOUT_FINALIZE_HEAD = "20260907_ai_research_holdout_claim"
 _PRE_EVIDENCE_COMMAND_HEAD = "20260907_ai_research_holdout_finalize"
 _HEAD = "20260908_ai_research_evidence_command"
 _LATEST_HEAD = "20260908_ai_research_approval_authority"
+_INTEGRATED_HEAD = "20260909_ai_research_market_data_merge"
 _GATE_UNIQUE_NAME = "uq_ai_research_gate_decision_evaluation_input_gate"
 _EVIDENCE_COMMAND_COLUMNS = {
     "command_id": "ai_research_holdout_evaluation_commands",
@@ -1682,7 +1683,7 @@ def test_protocol_v2_migration_is_a_linear_expand_only_revision(tmp_path, monkey
     config = _config(database_url)
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == [_LATEST_HEAD]
+    assert script.get_heads() == [_INTEGRATED_HEAD]
     _upgrade(config, database_url, _PARENT)
     before = set(inspect(create_engine(database_url)).get_table_names())
     _upgrade(config, database_url, _LATEST_HEAD)

@@ -17,6 +17,8 @@ from alembic import command
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PARENT = "20260801_stock_signal_predictions"
 _HEAD = "20260908_ai_research_approval_authority"
+_MARKET_DATA_HEAD = "20260909_market_data_constraint_name_portability"
+_INTEGRATED_HEAD = "20260909_ai_research_market_data_merge"
 _LEGACY_HEAD = "20260805_asset_research_outcome_reliability"
 _TABLES = {
     "asset_instruments",
@@ -107,12 +109,13 @@ def _downgrade(config: Config, database_url: str, revision: str) -> None:
         engine.dispose()
 
 
-def test_asset_research_revision_is_the_only_linear_head() -> None:
+def test_asset_research_graph_has_one_integrated_head() -> None:
     script = ScriptDirectory.from_config(_config("sqlite://"))
-    assert script.get_heads() == [_HEAD]
-    revisions = list(script.walk_revisions(base="base", head="heads"))
-    assert not any(revision.is_branch_point for revision in revisions)
-    assert not any(revision.is_merge_point for revision in revisions)
+    merge_revision = script.get_revision(_INTEGRATED_HEAD)
+
+    assert merge_revision is not None
+    assert merge_revision.down_revision == (_HEAD, _MARKET_DATA_HEAD)
+    assert script.get_heads() == [_INTEGRATED_HEAD]
 
 
 def test_option_context_migration_renders_mysql_preflight_and_constraints() -> None:

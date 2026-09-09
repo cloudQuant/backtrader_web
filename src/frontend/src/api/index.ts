@@ -199,6 +199,8 @@ api.interceptors.response.use(
       __retryCount?: number
       __isRetrying?: boolean
       suppressErrorToast?: boolean
+      suppressErrorMessage?: boolean
+      skipRetry?: boolean
     }
 
     // --- Retry Logic ---

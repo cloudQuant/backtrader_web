@@ -21,6 +21,7 @@ from alembic import command
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _PREVIOUS = "20260908_ai_research_holdout_executions"
 _HEAD = "20260908_ai_research_approval_authority"
+_INTEGRATED_HEAD = "20260909_ai_research_market_data_merge"
 _GRANT_TABLE = "ai_research_approval_grants"
 _GRANT_AUDIT_TABLE = "ai_research_approval_grant_audits"
 _PROFILE_TABLE = "ai_research_capability_profiles"
@@ -254,13 +255,13 @@ def _run_online(database_url: str, revision: str) -> None:
         engine.dispose()
 
 
-def test_approval_authority_revision_is_the_linear_head() -> None:
+def test_approval_authority_revision_has_an_integrated_successor() -> None:
     script = ScriptDirectory.from_config(_config("sqlite://"))
     migration = script.get_revision(_HEAD)
 
     assert migration is not None
     assert migration.down_revision == _PREVIOUS
-    assert script.get_heads() == [_HEAD]
+    assert script.get_heads() == [_INTEGRATED_HEAD]
 
 
 @pytest.mark.parametrize(

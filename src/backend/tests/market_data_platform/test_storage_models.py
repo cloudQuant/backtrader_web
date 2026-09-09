@@ -33,6 +33,8 @@ SOURCE_GOVERNANCE_REVISION = "20260908_market_data_source_governance"
 FETCH_LEASE_REVISION = "20260909_market_data_fetch_leases"
 EXACT_IDENTITY_COLLATION_REVISION = "20260909_market_data_exact_identity_collation"
 CONSTRAINT_NAME_PORTABILITY_REVISION = "20260909_market_data_constraint_name_portability"
+AI_RESEARCH_APPROVAL_REVISION = "20260908_ai_research_approval_authority"
+INTEGRATED_HEAD_REVISION = "20260909_ai_research_market_data_merge"
 STORAGE_TABLES = {
     "md_instrument_lookup_keys",
     "md_data_series",
@@ -1218,8 +1220,8 @@ def test_observation_revision_is_linear_child_of_catalog_revision() -> None:
     assert len(script.get_heads()) == 1
 
 
-def test_constraint_name_portability_revision_extends_the_normalized_storage_chain() -> None:
-    """Receipt, leasing, and portable constraint names remain on one storage chain."""
+def test_constraint_name_portability_revision_extends_the_integrated_storage_graph() -> None:
+    """The storage chain and 196 approval chain end at one no-DDL merge revision."""
     script = ScriptDirectory.from_config(_config("sqlite://"))
 
     shared_revision = script.get_revision(SHARED_DATASET_BINDINGS_REVISION)
@@ -1229,6 +1231,7 @@ def test_constraint_name_portability_revision_extends_the_normalized_storage_cha
     fetch_lease_revision = script.get_revision(FETCH_LEASE_REVISION)
     exact_identity_collation_revision = script.get_revision(EXACT_IDENTITY_COLLATION_REVISION)
     constraint_name_portability_revision = script.get_revision(CONSTRAINT_NAME_PORTABILITY_REVISION)
+    integrated_head_revision = script.get_revision(INTEGRATED_HEAD_REVISION)
     assert shared_revision is not None
     assert shared_revision.down_revision == OBSERVATIONS_REVISION
     assert visibility_revision is not None
@@ -1243,7 +1246,12 @@ def test_constraint_name_portability_revision_extends_the_normalized_storage_cha
     assert exact_identity_collation_revision.down_revision == FETCH_LEASE_REVISION
     assert constraint_name_portability_revision is not None
     assert constraint_name_portability_revision.down_revision == EXACT_IDENTITY_COLLATION_REVISION
-    assert script.get_heads() == [CONSTRAINT_NAME_PORTABILITY_REVISION]
+    assert integrated_head_revision is not None
+    assert integrated_head_revision.down_revision == (
+        AI_RESEARCH_APPROVAL_REVISION,
+        CONSTRAINT_NAME_PORTABILITY_REVISION,
+    )
+    assert script.get_heads() == [INTEGRATED_HEAD_REVISION]
 
 
 def test_exact_identity_collation_migration_accepts_sqlite_binary_defaults_and_blocks_evidence_rollback(
