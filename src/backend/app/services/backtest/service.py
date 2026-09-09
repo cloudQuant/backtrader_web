@@ -11,6 +11,8 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
@@ -80,6 +82,28 @@ from app.utils.response_cache import invalidate_cache
 from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
+
+_RUNTIME_DIR_CLIENT_FORBIDDEN = "BACKTEST_RUNTIME_DIR_CLIENT_FORBIDDEN"
+_WORKSPACE_RUNTIME_PATH_INVALID = "BACKTEST_WORKSPACE_RUNTIME_PATH_INVALID"
+_WORKSPACE_RUNTIME_PATH_MISMATCH = "BACKTEST_WORKSPACE_RUNTIME_PATH_MISMATCH"
+_WORKSPACE_RUNTIME_UNAVAILABLE = "BACKTEST_WORKSPACE_RUNTIME_UNAVAILABLE"
+
+WorkspaceRuntimePreflight = Callable[[], Awaitable[Path]]
+
+
+@dataclass(frozen=True)
+class _WorkspaceRuntimeExecution:
+    """Server-only runtime capability retained by the scheduled coroutine.
+
+    It is intentionally not part of :class:`BacktestRequest`, so it is never
+    supplied by a client or persisted as request data.  WorkspaceService owns
+    the callback and replays its authorization checks before execution.
+    """
+
+    workspace_id: str
+    unit_id: str
+    expected_runtime_dir: Path
+    preflight: WorkspaceRuntimePreflight
 
 
 class BacktestService:
@@ -269,19 +293,130 @@ class BacktestService:
             error_message=cast("str | None", task.error_message),
         )
 
+    @staticmethod
+    def _reject_client_runtime_dir(request: Any) -> None:
+        """Reject the deprecated public runtime path on every generic entrypoint."""
+        if getattr(request, "runtime_dir", None) is not None:
+            raise ValueError(
+                f"{_RUNTIME_DIR_CLIENT_FORBIDDEN}: "
+                "runtime_dir is available only through WorkspaceService"
+            )
+
+    @staticmethod
+    def _expected_workspace_runtime_dir(workspace_id: str, unit_id: str) -> Path:
+        """Return a deterministic, non-escaping workspace runtime directory."""
+        from app.services import workspace_unit_runtime
+
+        workspace_id = str(workspace_id or "").strip()
+        unit_id = str(unit_id or "").strip()
+        if not workspace_id or not unit_id:
+            raise ValueError(f"{_WORKSPACE_RUNTIME_PATH_INVALID}: workspace and unit are required")
+        if any(
+            value in {".", ".."} or "/" in value or "\\" in value
+            for value in (workspace_id, unit_id)
+        ):
+            raise ValueError(
+                f"{_WORKSPACE_RUNTIME_PATH_INVALID}: workspace and unit must be path components"
+            )
+
+        root = workspace_unit_runtime.workspace_dir("").resolve()
+        expected = workspace_unit_runtime.unit_dir(workspace_id, unit_id)
+        try:
+            expected.resolve().relative_to(root)
+        except ValueError as exc:
+            raise ValueError(
+                f"{_WORKSPACE_RUNTIME_PATH_INVALID}: runtime path escapes workspace root"
+            ) from exc
+        return expected
+
+    @staticmethod
+    async def _run_workspace_runtime_preflight(
+        runtime: _WorkspaceRuntimeExecution,
+    ) -> Path:
+        """Replay WorkspaceService authorization and require its exact runtime path."""
+        runtime_dir = Path(await runtime.preflight()).expanduser()
+        if runtime_dir.resolve() != runtime.expected_runtime_dir.resolve():
+            raise ValueError(
+                f"{_WORKSPACE_RUNTIME_PATH_MISMATCH}: "
+                "workspace preflight returned an unexpected runtime directory"
+            )
+        if not runtime_dir.is_dir():
+            raise ValueError(
+                f"{_WORKSPACE_RUNTIME_UNAVAILABLE}: "
+                "workspace preflight did not create the runtime directory"
+            )
+        return runtime.expected_runtime_dir
+
+    @staticmethod
+    def _discard_workspace_runtime_after_failed_preflight(
+        runtime: _WorkspaceRuntimeExecution,
+    ) -> None:
+        """Remove a stale generated runtime after authorization no longer passes."""
+        runtime_dir = runtime.expected_runtime_dir
+        try:
+            if runtime_dir.is_symlink() or runtime_dir.is_file():
+                runtime_dir.unlink(missing_ok=True)
+            else:
+                shutil.rmtree(runtime_dir, ignore_errors=True)
+        except OSError:
+            logger.warning(
+                "Unable to discard rejected workspace runtime for unit %s",
+                runtime.unit_id,
+                exc_info=True,
+            )
+
     async def run_backtest(self, user_id: str, request: BacktestRequest) -> BacktestResponse:
-        """Run a backtest asynchronously.
+        """Run a generic backtest without a client-controlled runtime directory."""
+        self._reject_client_runtime_dir(request)
+        return await self._submit_backtest(user_id, request)
 
-        Args:
-            user_id: The ID of the user requesting the backtest.
-            request: The backtest request containing strategy and parameters.
+    async def run_workspace_unit_backtest(
+        self,
+        user_id: str,
+        request: BacktestRequest,
+        *,
+        workspace_id: str,
+        unit_id: str,
+        runtime_preflight: WorkspaceRuntimePreflight,
+    ) -> BacktestResponse:
+        """Submit a WorkspaceService-authorized unit backtest.
 
-        Returns:
-            BacktestResponse: Response containing the task_id and initial status.
-
-        Raises:
-            ValueError: If global or user concurrent task limits are exceeded.
+        ``runtime_preflight`` is an in-process capability created by
+        WorkspaceService.  It must reload the unit, replay any strict market
+        data binding checks, write the runtime, and return its deterministic
+        workspace/unit directory.  The callback is replayed again immediately
+        before the subprocess starts so a revoked grant cannot survive a queue
+        wait.
         """
+        self._reject_client_runtime_dir(request)
+        if not callable(runtime_preflight):
+            raise ValueError(
+                f"{_WORKSPACE_RUNTIME_PATH_INVALID}: runtime_preflight must be callable"
+            )
+
+        runtime = _WorkspaceRuntimeExecution(
+            workspace_id=str(workspace_id or "").strip(),
+            unit_id=str(unit_id or "").strip(),
+            expected_runtime_dir=self._expected_workspace_runtime_dir(workspace_id, unit_id),
+            preflight=runtime_preflight,
+        )
+        # Reject revoked/invalid bindings before a persistent task is created.
+        try:
+            await self._run_workspace_runtime_preflight(runtime)
+        except Exception:
+            self._discard_workspace_runtime_after_failed_preflight(runtime)
+            raise
+        return await self._submit_backtest(user_id, request, workspace_runtime=runtime)
+
+    async def _submit_backtest(
+        self,
+        user_id: str,
+        request: BacktestRequest,
+        *,
+        workspace_runtime: _WorkspaceRuntimeExecution | None = None,
+    ) -> BacktestResponse:
+        """Create and schedule a validated generic or workspace backtest task."""
+        self._reject_client_runtime_dir(request)
         precheck = await get_market_data_precheck_service().precheck(
             DataPrecheckRequest(
                 asset_type=getattr(request, "asset_type", None),
@@ -307,7 +442,13 @@ class BacktestService:
         # Execution is still owned by the current API process. The database stores
         # task state, while the runner keeps process-local cancellation handles.
         self.task_runner.schedule(
-            str(task.id), self._execute_backtest(str(task.id), user_id, request)
+            str(task.id),
+            self._execute_backtest(
+                str(task.id),
+                user_id,
+                request,
+                workspace_runtime=workspace_runtime,
+            ),
         )
 
         await invalidate_cache("backtests")
@@ -318,7 +459,14 @@ class BacktestService:
             message="Backtest task created",
         )
 
-    async def _execute_backtest(self, task_id: str, user_id: str, request: BacktestRequest) -> None:
+    async def _execute_backtest(
+        self,
+        task_id: str,
+        user_id: str,
+        request: BacktestRequest,
+        *,
+        workspace_runtime: _WorkspaceRuntimeExecution | None = None,
+    ) -> None:
         """Execute a backtest task by calling the strategy directory's run.py.
 
         Args:
@@ -327,17 +475,24 @@ class BacktestService:
             request: The backtest request parameters.
         """
         tmp_base = None
+        workspace_preflight_failed = False
         try:
+            # This also protects callers that try to invoke the execution
+            # coroutine directly instead of going through run_backtest().
+            self._reject_client_runtime_dir(request)
             await self.task_manager.update_task_status(task_id, TaskStatus.RUNNING)
             await self._notify_progress(task_id, 10, "Task started")
 
             from app.services.strategy.core import get_strategy_dir
 
             strategy_dir = get_strategy_dir(request.strategy_id)
-            runtime_dir = Path(request.runtime_dir).expanduser() if request.runtime_dir else None
-            use_runtime_dir = bool(runtime_dir and runtime_dir.is_dir())
-            if use_runtime_dir and runtime_dir is not None:
-                task_work_dir = runtime_dir
+            use_runtime_dir = workspace_runtime is not None
+            if workspace_runtime is not None:
+                try:
+                    task_work_dir = await self._run_workspace_runtime_preflight(workspace_runtime)
+                except Exception:
+                    workspace_preflight_failed = True
+                    raise
                 if not (task_work_dir / "run.py").is_file():
                     raise ValueError(f"Unit runtime run.py not found: {task_work_dir}")
                 await self._notify_progress(task_id, 20, "Preparing unit runtime configuration...")
@@ -358,6 +513,17 @@ class BacktestService:
                     self._write_temp_config(config_path, request, original_text)
 
             await self._notify_progress(task_id, 30, "Running backtest...")
+            if workspace_runtime is not None:
+                # Queue time can be arbitrarily long.  Replay the trusted
+                # WorkspaceService preflight at the last safe point, before a
+                # process observes the generated runtime files.
+                try:
+                    task_work_dir = await self._run_workspace_runtime_preflight(workspace_runtime)
+                except Exception:
+                    workspace_preflight_failed = True
+                    raise
+                if not (task_work_dir / "run.py").is_file():
+                    raise ValueError(f"Unit runtime run.py not found: {task_work_dir}")
             await self._run_strategy_subprocess(task_work_dir, str(strategy_dir), task_id)
 
             await self._notify_progress(task_id, 80, "Parsing logs...")
@@ -382,6 +548,8 @@ class BacktestService:
             )
         except Exception as e:
             logger.error(f"Backtest failed: {task_id}, {e}")
+            if workspace_runtime is not None and workspace_preflight_failed:
+                self._discard_workspace_runtime_after_failed_preflight(workspace_runtime)
             await self.task_manager.update_task_status(
                 task_id,
                 TaskStatus.FAILED,

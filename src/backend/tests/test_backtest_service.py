@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from app.models.backtest import BacktestResultModel, BacktestTask
 from app.schemas.backtest import BacktestRequest, BacktestResponse, BacktestResult, TaskStatus
@@ -45,6 +46,10 @@ class TestBacktestServiceHelpers:
         assert svc._has_custom_params(make_request(initial_cash=200000)) is True
         assert svc._has_custom_params(make_request(commission=0.002)) is True
         assert svc._has_custom_params(make_request(params={"period": 20})) is True
+
+    def test_request_rejects_client_runtime_dir(self):
+        with pytest.raises(ValidationError, match="BACKTEST_RUNTIME_DIR_CLIENT_FORBIDDEN"):
+            make_request(runtime_dir="/tmp/client-selected-runtime")
 
     def test_strip_asserts(self, tmp_path: Path):
         run_py = tmp_path / "run.py"
@@ -202,6 +207,152 @@ class TestRunBacktest:
 
         with pytest.raises(ValueError, match="limit reached"):
             await svc.run_backtest("user1", make_request())
+
+    async def test_run_backtest_rejects_runtime_dir_even_when_validation_is_bypassed(self):
+        task_manager = MagicMock(spec=BacktestExecutionManager)
+        task_manager.create_task = AsyncMock()
+        svc = BacktestService(
+            task_manager=task_manager, task_runner=MagicMock(spec=BacktestExecutionRunner)
+        )
+        request = BacktestRequest.model_construct(runtime_dir="/tmp/client-selected-runtime")
+
+        with pytest.raises(ValueError, match="BACKTEST_RUNTIME_DIR_CLIENT_FORBIDDEN"):
+            await svc.run_backtest("user1", request)
+
+        task_manager.create_task.assert_not_awaited()
+
+    async def test_workspace_submission_uses_server_preflight_and_does_not_serialize_runtime_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        from app.services import workspace_unit_runtime
+
+        monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "units")
+        runtime_dir = workspace_unit_runtime.unit_dir("ws-1", "unit-1")
+        runtime_dir.mkdir(parents=True)
+        (runtime_dir / "run.py").write_text("print('workspace')", encoding="utf-8")
+        preflight_calls: list[str] = []
+
+        async def runtime_preflight() -> Path:
+            preflight_calls.append("called")
+            return runtime_dir
+
+        task_manager = MagicMock(spec=BacktestExecutionManager)
+        task_manager.create_task = AsyncMock(
+            return_value=BacktestTask(
+                id="task123",
+                user_id="user1",
+                strategy_id="test_strategy",
+                symbol="000001.SZ",
+                status=TaskStatus.PENDING,
+            )
+        )
+        task_runner = MagicMock(spec=BacktestExecutionRunner)
+        svc = BacktestService(task_manager=task_manager, task_runner=task_runner)
+
+        response = await svc.run_workspace_unit_backtest(
+            "user1",
+            make_request(),
+            workspace_id="ws-1",
+            unit_id="unit-1",
+            runtime_preflight=runtime_preflight,
+        )
+
+        assert response.task_id == "task123"
+        assert preflight_calls == ["called"]
+        submitted_request = task_manager.create_task.await_args.args[1]
+        assert submitted_request.runtime_dir is None
+        scheduled_execution = task_runner.schedule.call_args.args[1]
+        scheduled_execution.close()
+
+    async def test_workspace_submission_discards_stale_runtime_when_preflight_is_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        from app.services import workspace_unit_runtime
+
+        monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "units")
+        runtime_dir = workspace_unit_runtime.unit_dir("ws-1", "unit-1")
+        runtime_dir.mkdir(parents=True)
+        (runtime_dir / "run.py").write_text("print('stale')", encoding="utf-8")
+
+        async def runtime_preflight() -> Path:
+            raise ValueError("MARKET_DATA_BINDING_RUNTIME_REVOKED")
+
+        task_manager = MagicMock(spec=BacktestExecutionManager)
+        task_manager.create_task = AsyncMock()
+        svc = BacktestService(
+            task_manager=task_manager, task_runner=MagicMock(spec=BacktestExecutionRunner)
+        )
+
+        with pytest.raises(ValueError, match="MARKET_DATA_BINDING_RUNTIME_REVOKED"):
+            await svc.run_workspace_unit_backtest(
+                "user1",
+                make_request(),
+                workspace_id="ws-1",
+                unit_id="unit-1",
+                runtime_preflight=runtime_preflight,
+            )
+
+        assert not runtime_dir.exists()
+        task_manager.create_task.assert_not_awaited()
+
+    async def test_workspace_execution_rechecks_preflight_before_subprocess(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        from app.services import workspace_unit_runtime
+
+        monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "units")
+        runtime_dir = workspace_unit_runtime.unit_dir("ws-1", "unit-1")
+        runtime_dir.mkdir(parents=True)
+        (runtime_dir / "run.py").write_text("print('workspace')", encoding="utf-8")
+        preflight_attempts = 0
+
+        async def runtime_preflight() -> Path:
+            nonlocal preflight_attempts
+            preflight_attempts += 1
+            if preflight_attempts == 3:
+                raise ValueError("MARKET_DATA_BINDING_RUNTIME_REVOKED")
+            return runtime_dir
+
+        task_manager = MagicMock(spec=BacktestExecutionManager)
+        task_manager.create_task = AsyncMock(
+            return_value=BacktestTask(
+                id="task123",
+                user_id="user1",
+                strategy_id="test_strategy",
+                symbol="000001.SZ",
+                status=TaskStatus.PENDING,
+            )
+        )
+        task_manager.update_task_status = AsyncMock()
+        task_runner = MagicMock(spec=BacktestExecutionRunner)
+        svc = BacktestService(task_manager=task_manager, task_runner=task_runner)
+        svc._notify_progress = AsyncMock()
+        svc._run_strategy_subprocess = AsyncMock()
+
+        await svc.run_workspace_unit_backtest(
+            "user1",
+            make_request(),
+            workspace_id="ws-1",
+            unit_id="unit-1",
+            runtime_preflight=runtime_preflight,
+        )
+
+        scheduled_execution = task_runner.schedule.call_args.args[1]
+        strategy_dir = tmp_path / "strategy"
+        with patch("app.services.strategy.core.get_strategy_dir", return_value=strategy_dir):
+            await scheduled_execution
+
+        assert preflight_attempts == 3
+        svc._run_strategy_subprocess.assert_not_awaited()
+        assert not runtime_dir.exists()
+        assert task_manager.update_task_status.await_args_list[-1].args == (
+            "task123",
+            TaskStatus.FAILED,
+        )
+        assert (
+            task_manager.update_task_status.await_args_list[-1].kwargs["error_message"]
+            == "MARKET_DATA_BINDING_RUNTIME_REVOKED"
+        )
 
 
 @pytest.mark.asyncio
