@@ -9,10 +9,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import case, func, or_, select, update
 
 from app.db.database import async_session_maker
 from app.models.backtest import BacktestTask
@@ -36,6 +37,36 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MARKET_DATA_BINDING_TRADING_UNSUPPORTED = "MARKET_DATA_BINDING_TRADING_UNSUPPORTED"
+_UNIT_RUN_LEASE_PREFIX = "lease-"
+_UNIT_RUN_STATUS_MATERIALIZING = "materializing"
+_UNIT_RUN_STATUS_CANCELLING = "cancelling"
+_UNIT_RUN_ACTIVE_STATUSES = (
+    "queued",
+    _UNIT_RUN_STATUS_MATERIALIZING,
+    "running",
+    _UNIT_RUN_STATUS_CANCELLING,
+)
+
+
+def _is_unit_run_lease_token(task_id: object) -> bool:
+    """Return whether ``last_task_id`` currently holds a pending-run lease."""
+    return isinstance(task_id, str) and task_id.startswith(_UNIT_RUN_LEASE_PREFIX)
+
+
+def _new_unit_run_lease_token() -> str:
+    """Create a persisted token that fits the legacy 36-character task-id column."""
+    # ``last_task_id`` is nullable and has no FK.  While a unit is queued it
+    # also carries this opaque lease, which gives all later state transitions a
+    # durable compare-and-swap value without a schema migration.
+    return f"{_UNIT_RUN_LEASE_PREFIX}{uuid.uuid4().hex[:30]}"
+
+
+def _public_unit_run_status(run_status: object, task_id: object) -> str:
+    """Map internal runtime-fence states to the established public status values."""
+    status = str(run_status or "idle").strip().lower()
+    if status in {_UNIT_RUN_STATUS_MATERIALIZING, _UNIT_RUN_STATUS_CANCELLING}:
+        return "queued" if _is_unit_run_lease_token(task_id) else "running"
+    return status or "idle"
 
 
 def _requires_research_market_data_binding(unit: StrategyUnit) -> bool:
@@ -166,6 +197,367 @@ class WorkspaceRunOpsMixin:
         def _optimization_progress_response_to_opt_info(
             progress: dict[str, Any] | None,
         ) -> dict[str, Any] | None: ...
+
+    async def _claim_research_unit_run(
+        self,
+        workspace_id: str,
+        unit_id: str,
+    ) -> tuple[str | None, dict[str, Any] | None]:
+        """Atomically reserve one research unit before creating its runtime.
+
+        The lease lives in ``last_task_id`` only while the row is ``queued``.
+        It is never returned as a task id and every later transition compares
+        it, so a delayed request cannot update a newer run for the same unit.
+        ``UPDATE ... WHERE`` provides the compare-and-swap semantics on
+        SQLite, PostgreSQL, and MySQL without relying on an ORM identity map.
+        """
+        lease_token = _new_unit_run_lease_token()
+        async with async_session_maker() as claim_session:
+            claim_result = await claim_session.execute(
+                update(StrategyUnit)
+                .where(
+                    StrategyUnit.id == unit_id,
+                    StrategyUnit.workspace_id == workspace_id,
+                    or_(
+                        StrategyUnit.run_status.is_(None),
+                        StrategyUnit.run_status.notin_(_UNIT_RUN_ACTIVE_STATUSES),
+                    ),
+                )
+                .values(
+                    run_status="queued",
+                    last_task_id=lease_token,
+                )
+            )
+            if int(getattr(claim_result, "rowcount", 0) or 0) == 1:
+                await claim_session.commit()
+                return lease_token, None
+
+            # A competing request owns the queued/running row.  Fetch a
+            # fresh row solely for a stable response; it must not materialize
+            # a runtime or invoke the backtest service.
+            current_unit = await self._get_unit(claim_session, workspace_id, unit_id)
+            if current_unit is None:
+                return None, {
+                    "unit_id": unit_id,
+                    "task_id": None,
+                    "status": "failed",
+                    "error": "WORKSPACE_UNIT_NOT_FOUND",
+                }
+
+            current_status = _public_unit_run_status(
+                getattr(current_unit, "run_status", ""),
+                getattr(current_unit, "last_task_id", None),
+            )
+            current_task_id = getattr(current_unit, "last_task_id", None)
+            return None, {
+                "unit_id": unit_id,
+                "task_id": None if _is_unit_run_lease_token(current_task_id) else current_task_id,
+                "status": current_status if current_status in {"queued", "running"} else "queued",
+                "already_running": True,
+            }
+
+    async def _unit_run_lease_is_active(
+        self,
+        session: AsyncSession,
+        workspace_id: str,
+        unit_id: str,
+        lease_token: str,
+        task_id: str | None = None,
+    ) -> bool:
+        """Check this request's queued lease or its CAS-promoted task identity."""
+        ownership_conditions = [
+            (StrategyUnit.run_status == "queued") & (StrategyUnit.last_task_id == lease_token)
+        ]
+        if task_id:
+            ownership_conditions.append(
+                StrategyUnit.run_status.in_(("running", _UNIT_RUN_STATUS_MATERIALIZING))
+                & (StrategyUnit.last_task_id == task_id)
+            )
+        result = await session.execute(
+            select(StrategyUnit.id).where(
+                StrategyUnit.id == unit_id,
+                StrategyUnit.workspace_id == workspace_id,
+                or_(*ownership_conditions),
+            )
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def _begin_research_runtime_materialization(
+        self,
+        workspace_id: str,
+        unit_id: str,
+        lease_token: str,
+        task_id: str | None,
+    ) -> bool:
+        """Fence one deterministic runtime write behind the current claim.
+
+        A stop cannot release a unit after this compare-and-swap while a
+        writer is in ``sync_unit_runtime``.  It instead changes the row to
+        ``cancelling`` and the writer releases it only after the synchronous
+        write has returned.  This prevents a replacement lease from writing
+        the same directory concurrently with the old request.
+        """
+        expected_status = "running" if task_id else "queued"
+        expected_identity = task_id or lease_token
+        async with async_session_maker() as session:
+            result = await session.execute(
+                update(StrategyUnit)
+                .where(
+                    StrategyUnit.id == unit_id,
+                    StrategyUnit.workspace_id == workspace_id,
+                    StrategyUnit.run_status == expected_status,
+                    StrategyUnit.last_task_id == expected_identity,
+                )
+                .values(run_status=_UNIT_RUN_STATUS_MATERIALIZING)
+            )
+            await session.commit()
+        return int(getattr(result, "rowcount", 0) or 0) == 1
+
+    async def _complete_research_runtime_materialization(
+        self,
+        workspace_id: str,
+        unit_id: str,
+        lease_token: str,
+        task_id: str | None,
+    ) -> bool:
+        """Release a write fence back to its active queued/running state."""
+        active_status = "running" if task_id else "queued"
+        identity = task_id or lease_token
+        async with async_session_maker() as session:
+            result = await session.execute(
+                update(StrategyUnit)
+                .where(
+                    StrategyUnit.id == unit_id,
+                    StrategyUnit.workspace_id == workspace_id,
+                    StrategyUnit.run_status == _UNIT_RUN_STATUS_MATERIALIZING,
+                    StrategyUnit.last_task_id == identity,
+                )
+                .values(run_status=active_status)
+            )
+            await session.commit()
+        return int(getattr(result, "rowcount", 0) or 0) == 1
+
+    async def _promote_research_unit_run_lease(
+        self,
+        workspace_id: str,
+        unit_id: str,
+        lease_token: str,
+        task_id: str,
+    ) -> bool:
+        """Replace a pending lease with its task id if this request still owns it."""
+        async with async_session_maker() as session:
+            result = await session.execute(
+                update(StrategyUnit)
+                .where(
+                    StrategyUnit.id == unit_id,
+                    StrategyUnit.workspace_id == workspace_id,
+                    StrategyUnit.run_status == "queued",
+                    StrategyUnit.last_task_id == lease_token,
+                )
+                .values(run_status="running", last_task_id=task_id)
+            )
+            await session.commit()
+        return int(getattr(result, "rowcount", 0) or 0) == 1
+
+    async def _finish_research_unit_run_lease(
+        self,
+        workspace_id: str,
+        unit_id: str,
+        lease_token: str,
+        *,
+        status: str,
+        increment_run_count: bool = False,
+    ) -> bool:
+        """Finish a no-task lease after its last runtime writer has exited."""
+        values: dict[Any, Any] = {
+            # A stop that raced a materialization owns the cancelled outcome.
+            # Do not turn it into a generic submission failure while releasing
+            # the same fenced token.
+            "run_status": case(
+                (StrategyUnit.run_status == _UNIT_RUN_STATUS_CANCELLING, "cancelled"),
+                else_=status,
+            ),
+            "last_task_id": None,
+        }
+        if increment_run_count:
+            values["run_count"] = func.coalesce(StrategyUnit.run_count, 0) + 1
+        async with async_session_maker() as session:
+            result = await session.execute(
+                update(StrategyUnit)
+                .where(
+                    StrategyUnit.id == unit_id,
+                    StrategyUnit.workspace_id == workspace_id,
+                    StrategyUnit.run_status.in_(
+                        ("queued", _UNIT_RUN_STATUS_MATERIALIZING, _UNIT_RUN_STATUS_CANCELLING)
+                    ),
+                    StrategyUnit.last_task_id == lease_token,
+                )
+                .values(values)
+            )
+            await session.commit()
+        return int(getattr(result, "rowcount", 0) or 0) == 1
+
+    async def _finish_research_unit_run_task(
+        self,
+        workspace_id: str,
+        unit_id: str,
+        task_id: str,
+        *,
+        status: str,
+        increment_run_count: bool = False,
+    ) -> bool:
+        """Finish only the real task atomically promoted from this run's lease."""
+        values: dict[Any, Any] = {
+            "run_status": case(
+                (StrategyUnit.run_status == _UNIT_RUN_STATUS_CANCELLING, "cancelled"),
+                else_=status,
+            )
+        }
+        if increment_run_count:
+            values["run_count"] = func.coalesce(StrategyUnit.run_count, 0) + 1
+        async with async_session_maker() as session:
+            result = await session.execute(
+                update(StrategyUnit)
+                .where(
+                    StrategyUnit.id == unit_id,
+                    StrategyUnit.workspace_id == workspace_id,
+                    StrategyUnit.run_status.in_(
+                        ("running", _UNIT_RUN_STATUS_MATERIALIZING, _UNIT_RUN_STATUS_CANCELLING)
+                    ),
+                    StrategyUnit.last_task_id == task_id,
+                )
+                .values(values)
+            )
+            await session.commit()
+        return int(getattr(result, "rowcount", 0) or 0) == 1
+
+    async def _finalize_research_runtime_execution(
+        self,
+        workspace_id: str,
+        unit_id: str,
+        task_id: str,
+        status: TaskStatus,
+    ) -> None:
+        """Release a promoted bound unit only after its execution coroutine exits."""
+        await self._finish_research_unit_run_task(
+            workspace_id,
+            unit_id,
+            task_id,
+            status=str(status.value),
+            increment_run_count=True,
+        )
+
+    async def _stop_bound_research_unit_run(
+        self,
+        backtest_service: BacktestService,
+        workspace_id: str,
+        user_id: str,
+        unit_id: str,
+    ) -> tuple[bool, bool]:
+        """Stop one bound unit from a fresh DB snapshot without stale ORM writes.
+
+        Returns ``(handled_as_bound_unit, cancelled)``.  A queued lease can be
+        made terminal directly because a writer must first atomically change it
+        to ``materializing``.  A materializing lease stays fenced as
+        ``cancelling`` until its writer returns.  A real task is cancelled
+        before its unit state is fenced, so an unavailable remote runner never
+        releases a live subprocess.
+        """
+        async with async_session_maker() as session:
+            unit = await self._get_unit(session, workspace_id, unit_id)
+            if unit is None or not _requires_research_market_data_binding(unit):
+                return False, False
+            run_status = str(getattr(unit, "run_status", "") or "").strip().lower()
+            task_or_lease = str(getattr(unit, "last_task_id", "") or "").strip()
+
+        if not task_or_lease:
+            return True, False
+
+        if _is_unit_run_lease_token(task_or_lease):
+            if run_status == "queued":
+                # No writer can pass its queued->materializing CAS after this
+                # transition, so it is safe to release this no-task lease.
+                async with async_session_maker() as session:
+                    result = await session.execute(
+                        update(StrategyUnit)
+                        .where(
+                            StrategyUnit.id == unit_id,
+                            StrategyUnit.workspace_id == workspace_id,
+                            StrategyUnit.run_status == "queued",
+                            StrategyUnit.last_task_id == task_or_lease,
+                        )
+                        .values(run_status="cancelled", last_task_id=None)
+                    )
+                    await session.commit()
+                if int(getattr(result, "rowcount", 0) or 0) == 1:
+                    return True, True
+                # Promotion/materialization may have won after the fresh read.
+                # Re-read recursively and act on the exact current identity.
+                return await self._stop_bound_research_unit_run(
+                    backtest_service, workspace_id, user_id, unit_id
+                )
+
+            if run_status == _UNIT_RUN_STATUS_MATERIALIZING:
+                async with async_session_maker() as session:
+                    result = await session.execute(
+                        update(StrategyUnit)
+                        .where(
+                            StrategyUnit.id == unit_id,
+                            StrategyUnit.workspace_id == workspace_id,
+                            StrategyUnit.run_status == _UNIT_RUN_STATUS_MATERIALIZING,
+                            StrategyUnit.last_task_id == task_or_lease,
+                        )
+                        .values(run_status=_UNIT_RUN_STATUS_CANCELLING)
+                    )
+                    await session.commit()
+                if int(getattr(result, "rowcount", 0) or 0) == 1:
+                    return True, True
+                return await self._stop_bound_research_unit_run(
+                    backtest_service, workspace_id, user_id, unit_id
+                )
+
+            if run_status == _UNIT_RUN_STATUS_CANCELLING:
+                # The exact writer owns the final release after sync returns.
+                return True, True
+            return True, False
+
+        if run_status not in {"queued", "running", _UNIT_RUN_STATUS_MATERIALIZING}:
+            return True, run_status == _UNIT_RUN_STATUS_CANCELLING
+
+        try:
+            cancelled = await backtest_service.cancel_task(task_or_lease, user_id)
+        except Exception:
+            logger.warning(
+                "Unable to cancel bound backtest %s for unit %s",
+                task_or_lease,
+                unit_id,
+                exc_info=True,
+            )
+            return True, False
+        if not cancelled:
+            # A different API process may still own a running subprocess.  The
+            # unit remains active and therefore non-claimable.
+            return True, False
+
+        async with async_session_maker() as session:
+            result = await session.execute(
+                update(StrategyUnit)
+                .where(
+                    StrategyUnit.id == unit_id,
+                    StrategyUnit.workspace_id == workspace_id,
+                    StrategyUnit.last_task_id == task_or_lease,
+                    StrategyUnit.run_status.in_(
+                        ("queued", "running", _UNIT_RUN_STATUS_MATERIALIZING)
+                    ),
+                )
+                .values(run_status=_UNIT_RUN_STATUS_CANCELLING)
+            )
+            await session.commit()
+        # A local task may have completed and finalized between cancellation
+        # and this fence update.  It is still safe to report the cancellation;
+        # the exact terminal row remains unclaimable until this transaction.
+        del result
+        return True, True
 
     async def _start_trading_units_in_background(
         self,
@@ -352,18 +744,41 @@ class WorkspaceRunOpsMixin:
                 _schedule_paper_runtime_snapshots(user_id, units)
                 return results
 
-            # Mark all as queued
-            for unit in units:
-                unit.run_status = "queued"
-            await session.commit()
-
             from app.services.backtest.service import BacktestService
 
             backtest_service = BacktestService()
 
-            # Submit backtest for each unit, write back task_id immediately
+            # The lease protocol protects sealed research data only.  Keep
+            # ordinary legacy units on their established queued/running path
+            # while refusing to let an unleased stale snapshot become bound
+            # halfway through a submission.
+            legacy_units = [
+                unit for unit in units if not _requires_research_market_data_binding(unit)
+            ]
+            if legacy_units:
+                for legacy_unit in legacy_units:
+                    legacy_unit.run_status = "queued"
+                await session.commit()
+
+            # Sealed units receive an independent DB compare-and-swap claim.
+            # The outer ``units`` objects are display snapshots, not a
+            # concurrency boundary: a second HTTP request may have loaded the
+            # same unit before this request enters its preflight.
             async def _submit_single(unit: StrategyUnit) -> dict[str, Any]:
                 binding_required = _requires_research_market_data_binding(unit)
+                lease_token: str | None = None
+                if binding_required:
+                    lease_token, already_running = await self._claim_research_unit_run(
+                        workspace_id,
+                        str(unit.id),
+                    )
+                    if lease_token is None:
+                        # The loser deliberately does no binding read, runtime
+                        # write, or task submission.  It only reports the
+                        # fresh state observed by the failed conditional update.
+                        return cast(dict[str, Any], already_running)
+
+                task_id: str | None = None
                 try:
                     workspace_settings = _workspace_settings_dict(ws)
 
@@ -383,43 +798,132 @@ class WorkspaceRunOpsMixin:
                         # same snapshot for both strict-binding resolution and
                         # runtime materialization.  The outer ``unit`` may
                         # otherwise retain an older, yet valid OOS window.
-                        async with async_session_maker() as binding_session:
-                            current_unit = await self._get_unit(
-                                binding_session,
-                                workspace_id,
-                                str(unit.id),
-                            )
-                            if current_unit is None:
-                                raise workspace_unit_runtime.MarketDataBindingRuntimeError(
-                                    "MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED"
-                                )
-
-                            current_binding_required = _requires_research_market_data_binding(
-                                current_unit
-                            )
-                            if binding_required and not current_binding_required:
-                                raise workspace_unit_runtime.MarketDataBindingRuntimeError(
-                                    "MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED"
-                                )
-
-                            market_data_binding = None
-                            if current_binding_required:
-                                market_data_binding = (
-                                    await workspace_unit_runtime.resolve_required_market_data_binding(
-                                        current_unit,
-                                        user_id,
-                                        db=binding_session,
+                        materialization_started = False
+                        try:
+                            if binding_required:
+                                assert lease_token is not None
+                                materialization_started = (
+                                    await self._begin_research_runtime_materialization(
+                                        workspace_id,
+                                        str(unit.id),
+                                        lease_token,
+                                        task_id,
                                     )
                                 )
-                                if market_data_binding is None:
+                                if not materialization_started:
                                     raise workspace_unit_runtime.MarketDataBindingRuntimeError(
-                                        "MARKET_DATA_BINDING_RUNTIME_REVALIDATION_FAILED"
+                                        "WORKSPACE_UNIT_RUN_CLAIM_LOST"
                                     )
-                            return workspace_unit_runtime.sync_unit_runtime(
-                                current_unit,
-                                workspace_settings,
-                                market_data_binding=market_data_binding,
-                            )
+
+                            async with async_session_maker() as binding_session:
+                                current_unit = await self._get_unit(
+                                    binding_session,
+                                    workspace_id,
+                                    str(unit.id),
+                                )
+                                if current_unit is None:
+                                    raise workspace_unit_runtime.MarketDataBindingRuntimeError(
+                                        "MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED"
+                                    )
+
+                                current_binding_required = _requires_research_market_data_binding(
+                                    current_unit
+                                )
+                                if binding_required != current_binding_required:
+                                    # A legacy caller cannot quietly acquire a
+                                    # sealed historical transport after the unit
+                                    # was loaded.  It must restart through the
+                                    # bound lease path.
+                                    raise workspace_unit_runtime.MarketDataBindingRuntimeError(
+                                        "MARKET_DATA_BINDING_RUNTIME_INTENT_DENIED"
+                                    )
+
+                                market_data_binding = None
+                                if current_binding_required:
+                                    market_data_binding = (
+                                        await workspace_unit_runtime.resolve_required_market_data_binding(
+                                            current_unit,
+                                            user_id,
+                                            db=binding_session,
+                                        )
+                                    )
+                                    if market_data_binding is None:
+                                        raise workspace_unit_runtime.MarketDataBindingRuntimeError(
+                                            "MARKET_DATA_BINDING_RUNTIME_REVALIDATION_FAILED"
+                                        )
+                                runtime_dir = workspace_unit_runtime.sync_unit_runtime(
+                                    current_unit,
+                                    workspace_settings,
+                                    market_data_binding=market_data_binding,
+                                )
+
+                            if binding_required:
+                                assert lease_token is not None
+                                if not await self._complete_research_runtime_materialization(
+                                    workspace_id,
+                                    str(unit.id),
+                                    lease_token,
+                                    task_id,
+                                ):
+                                    # A stop won while ``sync_unit_runtime``
+                                    # was writing.  The cancelling state stays
+                                    # non-claimable until this writer returns;
+                                    # no later request can cross-write the
+                                    # deterministic directory.
+                                    raise workspace_unit_runtime.MarketDataBindingRuntimeError(
+                                        "WORKSPACE_UNIT_RUN_CLAIM_LOST"
+                                    )
+                            return runtime_dir
+                        except BaseException:
+                            if binding_required and materialization_started:
+                                assert lease_token is not None
+                                if task_id is None:
+                                    # No child task exists for this callback.
+                                    # Release only after the synchronous writer
+                                    # has returned; preserving ``cancelling``
+                                    # as cancelled avoids a stale failure
+                                    # reopening the row incorrectly.
+                                    restored = await self._complete_research_runtime_materialization(
+                                        workspace_id,
+                                        str(unit.id),
+                                        lease_token,
+                                        None,
+                                    )
+                                    if not restored:
+                                        await self._finish_research_unit_run_lease(
+                                            workspace_id,
+                                            str(unit.id),
+                                            lease_token,
+                                            status="failed",
+                                        )
+                            raise
+
+                    async def claim_promoter(created_task_id: str) -> bool:
+                        """Promote the queued lease before service scheduling starts."""
+                        nonlocal task_id
+                        if not binding_required:
+                            return True
+                        assert lease_token is not None
+                        promoted = await self._promote_research_unit_run_lease(
+                            workspace_id,
+                            str(unit.id),
+                            lease_token,
+                            created_task_id,
+                        )
+                        if promoted:
+                            task_id = created_task_id
+                        return promoted
+
+                    async def claim_finalizer(final_status: TaskStatus) -> None:
+                        """Release the bound unit after its local execution has exited."""
+                        if not binding_required or task_id is None:
+                            return
+                        await self._finalize_research_runtime_execution(
+                            workspace_id,
+                            str(unit.id),
+                            task_id,
+                            final_status,
+                        )
 
                     bt_request = self._build_backtest_request(unit)
                     response = None
@@ -432,57 +936,105 @@ class WorkspaceRunOpsMixin:
                                 workspace_id=workspace_id,
                                 unit_id=str(unit.id),
                                 runtime_preflight=runtime_preflight,
+                                claim_promoter=claim_promoter if binding_required else None,
+                                claim_finalizer=claim_finalizer if binding_required else None,
                             )
                         except ValueError as exc:
                             if "concurrent task limit" not in str(exc).lower():
                                 raise
                             if binding_required:
-                                # The failed attempt did not create a task, so
-                                # its generated configuration is stale while we
-                                # wait.  Remove it before the next preflight.
-                                workspace_unit_runtime.remove_unit_dir(
-                                    unit.workspace_id,
-                                    unit.id,
-                                )
+                                # The next trusted preflight rematerializes
+                                # the deterministic directory under the same
+                                # fenced lease.  Do not delete it here: an
+                                # unsynchronised delete can erase a newer
+                                # claimant's runtime after this retry loses its
+                                # ownership.
+                                assert lease_token is not None
                             if time.monotonic() >= deadline:
                                 raise TimeoutError(
                                     "Timed out waiting for an available backtest execution slot"
                                 ) from exc
                             await asyncio.sleep(2)
-                    task_id = response.task_id
-
-                    # Immediately write task_id and set running (Bug-2 fix)
-                    async with async_session_maker() as s2:
-                        u = await self._get_unit(s2, workspace_id, str(unit.id))
-                        if u:
-                            u_row: Any = u
-                            u_row.last_task_id = task_id
-                            u_row.run_status = "running"
-                            await s2.commit()
+                    response_task_id = str(response.task_id)
+                    if binding_required:
+                        # BacktestService invokes the promoter after task
+                        # persistence and before scheduling.  A response that
+                        # lacks this exact promotion is a server contract
+                        # failure, never a reason to fall back to an outer
+                        # stale update.
+                        if task_id != response_task_id:
+                            raise RuntimeError("WORKSPACE_UNIT_RUN_CLAIM_LOST")
+                        # Keep the original token in the callback closure:
+                        # BacktestService replays that callback after this
+                        # method returns, where it accepts the exact
+                        # CAS-promoted task id alongside the original lease.
+                    else:
+                        task_id = response_task_id
+                        # Preserve the legacy unbound write-back behaviour.
+                        async with async_session_maker() as s2:
+                            u = await self._get_unit(s2, workspace_id, str(unit.id))
+                            if u:
+                                u_row: Any = u
+                                u_row.last_task_id = task_id
+                                u_row.run_status = "running"
+                                await s2.commit()
 
                     return {"unit_id": unit.id, "task_id": task_id, "status": "running"}
 
-                except Exception as e:
-                    logger.error("Unit %s submit failed: %s", unit.id, e)
-                    if binding_required:
-                        # Do not leave a runnable, previously authorized
-                        # research runtime behind when the current preflight
-                        # fails or the unit exhausts its queue wait.
+                except asyncio.CancelledError:
+                    if binding_required and task_id is not None:
+                        cancelled = False
                         try:
-                            workspace_unit_runtime.remove_unit_dir(unit.workspace_id, unit.id)
+                            cancelled = await backtest_service.cancel_task(task_id, user_id)
                         except Exception:
                             logger.warning(
-                                "Unable to remove rejected bound runtime for unit %s",
+                                "Unable to cancel bound backtest %s for unit %s",
+                                task_id,
                                 unit.id,
                                 exc_info=True,
                             )
-                    async with async_session_maker() as s_err:
-                        u_err = await self._get_unit(s_err, workspace_id, str(unit.id))
-                        if u_err:
-                            u_err_row: Any = u_err
-                            u_err_row.run_status = "failed"
-                            u_err_row.run_count = (u_err.run_count or 0) + 1
-                            await s_err.commit()
+                        if cancelled:
+                            await self._finish_research_unit_run_task(
+                                workspace_id,
+                                str(unit.id),
+                                task_id,
+                                status="cancelled",
+                            )
+                    elif binding_required and lease_token is not None:
+                        await self._finish_research_unit_run_lease(
+                            workspace_id,
+                            str(unit.id),
+                            lease_token,
+                            status="cancelled",
+                        )
+                    raise
+
+                except Exception as e:
+                    logger.error("Unit %s submit failed: %s", unit.id, e)
+                    if binding_required and task_id is not None:
+                        await self._finish_research_unit_run_task(
+                            workspace_id,
+                            str(unit.id),
+                            task_id,
+                            status="failed",
+                            increment_run_count=True,
+                        )
+                    elif binding_required and lease_token is not None:
+                        await self._finish_research_unit_run_lease(
+                            workspace_id,
+                            str(unit.id),
+                            lease_token,
+                            status="failed",
+                            increment_run_count=True,
+                        )
+                    elif not binding_required:
+                        async with async_session_maker() as s_err:
+                            u_err = await self._get_unit(s_err, workspace_id, str(unit.id))
+                            if u_err:
+                                u_err_row: Any = u_err
+                                u_err_row.run_status = "failed"
+                                u_err_row.run_count = (u_err.run_count or 0) + 1
+                                await s_err.commit()
                     return {
                         "unit_id": unit.id,
                         "task_id": None,
@@ -540,22 +1092,59 @@ class WorkspaceRunOpsMixin:
 
             backtest_service = BacktestService()
 
-            q = select(StrategyUnit).where(
-                StrategyUnit.workspace_id == workspace_id,
-                StrategyUnit.id.in_(unit_ids),
-                StrategyUnit.run_status.in_(["running", "queued"]),
-            )
-            db_result = await session.execute(q)
-            units = list(db_result.scalars().all())
+            # Bound units use independent fresh sessions for every transition.
+            # Never write an ORM object loaded before a concurrent promoter:
+            # doing so can overwrite a promoted task id without cancelling it.
+            legacy_unit_ids: list[str] = []
+            for unit_id in unit_ids:
+                handled, cancelled = await self._stop_bound_research_unit_run(
+                    backtest_service,
+                    workspace_id,
+                    user_id,
+                    str(unit_id),
+                )
+                if handled:
+                    results.append({"unit_id": unit_id, "cancelled": cancelled})
+                else:
+                    legacy_unit_ids.append(str(unit_id))
 
-            for unit in units:
-                cancelled = False
-                if unit.last_task_id:
-                    cancelled = await backtest_service.cancel_task(unit.last_task_id, user_id)
-                unit.run_status = "cancelled" if cancelled else "idle"
-                results.append({"unit_id": unit.id, "cancelled": cancelled})
+            if legacy_unit_ids:
+                q = select(StrategyUnit).where(
+                    StrategyUnit.workspace_id == workspace_id,
+                    StrategyUnit.id.in_(legacy_unit_ids),
+                    StrategyUnit.run_status.in_(["running", "queued"]),
+                )
+                db_result = await session.execute(q)
+                units = list(db_result.scalars().all())
 
-            await session.commit()
+                for unit in units:
+                    # A unit may have become bound after the fresh helper's
+                    # first read.  Delegate once more instead of applying the
+                    # legacy ORM write to a sealed data run.
+                    if _requires_research_market_data_binding(unit):
+                        handled, cancelled = await self._stop_bound_research_unit_run(
+                            backtest_service,
+                            workspace_id,
+                            user_id,
+                            str(unit.id),
+                        )
+                        if handled:
+                            results.append({"unit_id": unit.id, "cancelled": cancelled})
+                        continue
+
+                    cancelled = False
+                    if unit.last_task_id:
+                        cancelled = await backtest_service.cancel_task(unit.last_task_id, user_id)
+                        if cancelled:
+                            unit.run_status = "cancelled"
+                    elif str(unit.run_status or "").strip().lower() == "queued":
+                        # Preserve the legacy no-task queued behavior outside
+                        # the sealed-runtime protocol.
+                        cancelled = True
+                        unit.run_status = "cancelled"
+                    results.append({"unit_id": unit.id, "cancelled": cancelled})
+
+                await session.commit()
 
         return results
 
@@ -611,7 +1200,10 @@ class WorkspaceRunOpsMixin:
             backtest_service = BacktestService()
 
             task_ids = [
-                str(cast(Any, unit).last_task_id) for unit in units if cast(Any, unit).last_task_id
+                str(cast(Any, unit).last_task_id)
+                for unit in units
+                if cast(Any, unit).last_task_id
+                and not _is_unit_run_lease_token(cast(Any, unit).last_task_id)
             ]
             task_by_id: dict[str, BacktestTask] = {}
             if task_ids:
@@ -624,22 +1216,45 @@ class WorkspaceRunOpsMixin:
             for unit in units:
                 unit_obj = cast(Any, unit)
                 metrics_snapshot = cast(dict[str, Any], unit_obj.metrics_snapshot or {})
-                last_task_id = str(unit_obj.last_task_id or "").strip()
-                run_status = str(unit_obj.run_status or "")
+                raw_last_task_id = str(unit_obj.last_task_id or "").strip()
+                pending_lease = _is_unit_run_lease_token(raw_last_task_id)
+                last_task_id = "" if pending_lease else raw_last_task_id
+                internal_run_status = str(unit_obj.run_status or "").strip().lower()
+                is_bound_unit = _requires_research_market_data_binding(unit_obj)
+                run_status = _public_unit_run_status(internal_run_status, raw_last_task_id)
                 bar_count = int(unit_obj.bar_count or 0)
                 task = task_by_id.get(last_task_id) if last_task_id else None
-                if task is not None:
+                if task is not None and not is_bound_unit:
                     elapsed_seconds = self._task_elapsed_seconds(task)
                     if elapsed_seconds is not None and unit_obj.last_run_time != elapsed_seconds:
                         unit_obj.last_run_time = elapsed_seconds
-                if run_status in {"queued", "running"}:
-                    if not last_task_id:
+                if internal_run_status in _UNIT_RUN_ACTIVE_STATUSES:
+                    if pending_lease:
+                        # A queued lease is an in-progress submission, not a
+                        # missing task.  It remains authoritative until the
+                        # owner either promotes its exact token or releases
+                        # it with a terminal compare-and-swap update.
+                        pass
+                    elif not last_task_id:
                         unit_obj.run_status = "idle"
                         run_status = "idle"
                         changed = True
                     else:
                         task_status = await backtest_service.get_task_status(last_task_id, user_id)
-                        if task_status == TaskStatus.COMPLETED:
+                        if is_bound_unit:
+                            # Bound runtime execution owns its terminal CAS in
+                            # the same process that exits the child task.  A
+                            # status observer is not allowed to commit an ORM
+                            # snapshot after a newer lease has replaced this
+                            # task id.  Terminal task state is only recovery
+                            # evidence while the fenced owner finalizes.
+                            if task_status is None:
+                                logger.warning(
+                                    "Backtest status is unavailable for unit %s task %s",
+                                    unit_obj.id,
+                                    last_task_id,
+                                )
+                        elif task_status == TaskStatus.COMPLETED:
                             unit_obj.run_status = "completed"
                             run_status = "completed"
                             changed = True
@@ -647,11 +1262,19 @@ class WorkspaceRunOpsMixin:
                             unit_obj.run_status = "cancelled"
                             run_status = "cancelled"
                             changed = True
-                        elif task_status == TaskStatus.FAILED or task_status is None:
+                        elif task_status == TaskStatus.FAILED:
+                            unit_obj.run_status = "failed"
+                            run_status = "failed"
+                            changed = True
+                        elif task_status is None:
+                            # Preserve the historical legacy-unit behaviour
+                            # outside the sealed-data protocol.
                             unit_obj.run_status = "failed"
                             run_status = "failed"
                             changed = True
                 if (
+                    not is_bound_unit
+                    and
                     run_status == "completed"
                     and last_task_id
                     and (bar_count == 0 or not metrics_snapshot.get("total_trades"))
@@ -725,23 +1348,29 @@ class WorkspaceRunOpsMixin:
                     else None
                 )
                 opt_info = opt_progress_map.get(opt_tid, {}) if opt_tid else {}
+                raw_last_task_id = str(u_obj.last_task_id or "").strip()
+                pending_lease = _is_unit_run_lease_token(raw_last_task_id)
                 status_task = (
-                    task_by_id.get(str(u_obj.last_task_id)) if u_obj.last_task_id else None
+                    task_by_id.get(raw_last_task_id) if raw_last_task_id and not pending_lease else None
                 )
                 error_message = (
                     str(status_task.error_message)
                     if status_task and status_task.error_message
                     else None
                 )
+                public_run_status = _public_unit_run_status(
+                    getattr(u_obj, "run_status", "idle"),
+                    raw_last_task_id,
+                )
                 run_progress, run_message = _unit_run_progress(
                     status_task,
-                    str(u_obj.run_status or "idle"),
+                    public_run_status,
                 )
                 responses.append(
                     UnitStatusResponse(
                         id=str(u_obj.id),
-                        run_status=str(u_obj.run_status or "idle"),
-                        last_task_id=str(u_obj.last_task_id) if u_obj.last_task_id else None,
+                        run_status=public_run_status,
+                        last_task_id=raw_last_task_id if raw_last_task_id and not pending_lease else None,
                         error_message=error_message,
                         metrics_snapshot=cast(dict[str, Any], u_obj.metrics_snapshot or {}),
                         run_progress=run_progress,
@@ -802,69 +1431,89 @@ class WorkspaceRunOpsMixin:
         start_ts = time.monotonic()
         try:
             final_status = await self._poll_task_completion(backtest_service, task_id, user_id)
+            if final_status is None:
+                # A local observer timeout says nothing about the persistent
+                # task or subprocess.  Keep the exact task/lease active for a
+                # later status poll instead of reopening the unit for a
+                # concurrent replacement run.
+                logger.warning("Backtest observer timed out for unit %s task %s", unit_id, task_id)
+                return
             task = await backtest_service.task_manager.get_task(task_id, user_id=user_id)
             elapsed = self._task_elapsed_seconds(task)
             if elapsed is None:
                 elapsed = round(time.monotonic() - start_ts, 2)
 
+            final_run_status = "failed"
+            result_values: dict[str, Any] = {
+                "run_count": func.coalesce(StrategyUnit.run_count, 0) + 1,
+                "last_run_time": elapsed,
+            }
+            if final_status == TaskStatus.COMPLETED:
+                final_run_status = "completed"
+                bt_result = await backtest_service.get_result(task_id, user_id)
+                if bt_result:
+                    log_data = {
+                        "equity_curve": bt_result.equity_curve or [],
+                        "equity_dates": bt_result.equity_dates or [],
+                        "trades": [
+                            t.model_dump() if hasattr(t, "model_dump") else t
+                            for t in (bt_result.trades or [])
+                        ],
+                    }
+                    try:
+                        result_values["metrics_snapshot"] = calculate_extended_metrics(log_data)
+                    except Exception as metric_error:
+                        logger.warning(
+                            "Extended metrics failed for unit %s: %s", unit_id, metric_error
+                        )
+                        result_values["metrics_snapshot"] = {
+                            "total_return": bt_result.total_return,
+                            "annual_return": bt_result.annual_return,
+                            "sharpe_ratio": bt_result.sharpe_ratio,
+                            "max_drawdown": bt_result.max_drawdown,
+                            "win_rate": bt_result.win_rate,
+                            "total_trades": bt_result.total_trades,
+                        }
+                    result_values["bar_count"] = await self._resolve_unit_bar_count(
+                        backtest_service,
+                        task_id,
+                        user_id,
+                        bt_result,
+                    )
+            elif final_status == TaskStatus.CANCELLED:
+                final_run_status = "cancelled"
+
             async with async_session_maker() as s:
-                u = await self._get_unit(s, workspace_id, unit_id)
-                if u:
-                    unit_obj = cast(Any, u)
-                    unit_obj.run_count = (unit_obj.run_count or 0) + 1
-                    unit_obj.last_run_time = elapsed
-                    if final_status == TaskStatus.COMPLETED:
-                        unit_obj.run_status = "completed"
-                        bt_result = await backtest_service.get_result(task_id, user_id)
-                        if bt_result:
-                            log_data = {
-                                "equity_curve": bt_result.equity_curve or [],
-                                "equity_dates": bt_result.equity_dates or [],
-                                "trades": [
-                                    t.model_dump() if hasattr(t, "model_dump") else t
-                                    for t in (bt_result.trades or [])
-                                ],
-                            }
-                            try:
-                                metrics = calculate_extended_metrics(log_data)
-                                unit_obj.metrics_snapshot = metrics
-                            except Exception as me:
-                                logger.warning(
-                                    "Extended metrics failed for unit %s: %s", unit_id, me
-                                )
-                                unit_obj.metrics_snapshot = {
-                                    "total_return": bt_result.total_return,
-                                    "annual_return": bt_result.annual_return,
-                                    "sharpe_ratio": bt_result.sharpe_ratio,
-                                    "max_drawdown": bt_result.max_drawdown,
-                                    "win_rate": bt_result.win_rate,
-                                    "total_trades": bt_result.total_trades,
-                                }
-                            unit_obj.bar_count = await self._resolve_unit_bar_count(
-                                backtest_service,
-                                task_id,
-                                user_id,
-                                bt_result,
-                            )
-                    elif final_status == TaskStatus.CANCELLED:
-                        unit_obj.run_status = "cancelled"
-                    else:
-                        unit_obj.run_status = "failed"
-                    await s.commit()
+                current_unit = await self._get_unit(s, workspace_id, unit_id)
+                if current_unit is not None and _requires_research_market_data_binding(current_unit):
+                    # The scheduled service finalizer owns the exact
+                    # task-id/state transition after its coroutine (and any
+                    # subprocess) has actually exited.  A polling observer
+                    # only sees persistent task status and must not reopen a
+                    # bound runtime directory while local cleanup is pending.
+                    return
+                # A background observer may finish after a stop/retry has
+                # replaced the task with a new queued lease.  Update only the
+                # exact active task it observed; a stale timeout must not
+                # overwrite the new task's status or metrics.
+                await s.execute(
+                    update(StrategyUnit)
+                    .where(
+                        StrategyUnit.id == unit_id,
+                        StrategyUnit.workspace_id == workspace_id,
+                        StrategyUnit.last_task_id == task_id,
+                        StrategyUnit.run_status.in_(("queued", "running")),
+                    )
+                    .values(run_status=final_run_status, **result_values)
+                )
+                await s.commit()
 
         except Exception as e:
             logger.error("Background poll failed for unit %s: %s", unit_id, e)
-            try:
-                async with async_session_maker() as s_err:
-                    u_err = await self._get_unit(s_err, workspace_id, unit_id)
-                    if u_err:
-                        u_err_row: Any = u_err
-                        u_err_row.run_status = "failed"
-                        u_err_row.run_count = (u_err.run_count or 0) + 1
-                        u_err_row.last_run_time = round(time.monotonic() - start_ts, 2)
-                        await s_err.commit()
-            except Exception:
-                logger.exception("Failed to update unit %s status after error", unit_id)
+            # Observation failures are not task-manager terminal evidence.
+            # Leaving the exact running task authoritative is fail-closed: a
+            # later poll can reconcile it, while a transient DB/network error
+            # cannot release the unit for another runtime writer.
 
     @staticmethod
     async def _poll_task_completion(
@@ -873,7 +1522,7 @@ class WorkspaceRunOpsMixin:
         user_id: str,
         timeout: float = 600,
         interval: float = 2.0,
-    ) -> TaskStatus:
+    ) -> TaskStatus | None:
         """Poll backtest task status until terminal state or timeout."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -881,4 +1530,4 @@ class WorkspaceRunOpsMixin:
             if status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
                 return status
             await asyncio.sleep(interval)
-        return TaskStatus.FAILED
+        return None

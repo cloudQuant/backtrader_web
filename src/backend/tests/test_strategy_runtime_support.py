@@ -1,10 +1,12 @@
 """Tests for strategy_runtime_support module."""
 
+import asyncio
 import hashlib
 import os
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import pytest
 import yaml
@@ -19,6 +21,148 @@ from app.services.strategy.runtime_support import (
     load_strategy_env,
     resolve_strategy_dir,
 )
+
+
+def _install_fake_research_run_lease(
+    monkeypatch: pytest.MonkeyPatch,
+    workspace_service_cls: type[Any],
+    units_by_id: dict[str, Any],
+) -> None:
+    """Stub the DB CAS helpers for legacy in-memory run-ops test doubles."""
+    active_leases: set[tuple[str, str, str]] = set()
+
+    async def fake_claim(
+        _self: Any,
+        workspace_id: str,
+        unit_id: str,
+    ) -> tuple[str | None, dict[str, Any] | None]:
+        lease_token = f"lease-{unit_id}"
+        active_leases.add((workspace_id, unit_id, lease_token))
+        unit = units_by_id[unit_id]
+        unit.run_status = "queued"
+        unit.last_task_id = lease_token
+        return lease_token, None
+
+    async def fake_active(
+        _self: Any,
+        _session: Any,
+        workspace_id: str,
+        unit_id: str,
+        lease_token: str,
+        task_id: str | None = None,
+    ) -> bool:
+        if (workspace_id, unit_id, lease_token) in active_leases:
+            return True
+        unit = units_by_id[unit_id]
+        return bool(
+            task_id
+            and unit.last_task_id == task_id
+            and unit.run_status in {"running", "materializing"}
+        )
+
+    async def fake_begin_materialization(
+        _self: Any,
+        workspace_id: str,
+        unit_id: str,
+        lease_token: str,
+        task_id: str | None,
+    ) -> bool:
+        unit = units_by_id[unit_id]
+        expected_identity = task_id or lease_token
+        expected_status = "running" if task_id else "queued"
+        if unit.last_task_id != expected_identity or unit.run_status != expected_status:
+            return False
+        unit.run_status = "materializing"
+        return True
+
+    async def fake_complete_materialization(
+        _self: Any,
+        _workspace_id: str,
+        unit_id: str,
+        lease_token: str,
+        task_id: str | None,
+    ) -> bool:
+        unit = units_by_id[unit_id]
+        expected_identity = task_id or lease_token
+        if unit.last_task_id != expected_identity or unit.run_status != "materializing":
+            return False
+        unit.run_status = "running" if task_id else "queued"
+        return True
+
+    async def fake_promote(
+        _self: Any,
+        workspace_id: str,
+        unit_id: str,
+        lease_token: str,
+        task_id: str,
+    ) -> bool:
+        unit = units_by_id[unit_id]
+        if (workspace_id, unit_id, lease_token) not in active_leases:
+            return False
+        active_leases.remove((workspace_id, unit_id, lease_token))
+        unit.run_status = "running"
+        unit.last_task_id = task_id
+        return True
+
+    async def fake_finish(
+        _self: Any,
+        workspace_id: str,
+        unit_id: str,
+        lease_token: str,
+        *,
+        status: str,
+        increment_run_count: bool = False,
+    ) -> bool:
+        unit = units_by_id[unit_id]
+        if unit.last_task_id != lease_token or unit.run_status not in {
+            "queued",
+            "materializing",
+            "cancelling",
+        }:
+            return False
+        active_leases.remove((workspace_id, unit_id, lease_token))
+        unit.run_status = status
+        unit.last_task_id = None
+        if increment_run_count:
+            unit.run_count = (getattr(unit, "run_count", 0) or 0) + 1
+        return True
+
+    async def fake_finish_task(
+        _self: Any,
+        _workspace_id: str,
+        unit_id: str,
+        task_id: str,
+        *,
+        status: str,
+        increment_run_count: bool = False,
+    ) -> bool:
+        unit = units_by_id[unit_id]
+        if unit.last_task_id != task_id or unit.run_status not in {
+            "running",
+            "materializing",
+            "cancelling",
+        }:
+            return False
+        unit.run_status = "cancelled" if unit.run_status == "cancelling" else status
+        if increment_run_count:
+            unit.run_count = (getattr(unit, "run_count", 0) or 0) + 1
+        return True
+
+    monkeypatch.setattr(workspace_service_cls, "_claim_research_unit_run", fake_claim)
+    monkeypatch.setattr(workspace_service_cls, "_unit_run_lease_is_active", fake_active)
+    monkeypatch.setattr(
+        workspace_service_cls,
+        "_begin_research_runtime_materialization",
+        fake_begin_materialization,
+    )
+    monkeypatch.setattr(
+        workspace_service_cls,
+        "_complete_research_runtime_materialization",
+        fake_complete_materialization,
+    )
+    monkeypatch.setattr(workspace_service_cls, "_promote_research_unit_run_lease", fake_promote)
+    monkeypatch.setattr(workspace_service_cls, "_finish_research_unit_run_lease", fake_finish)
+    monkeypatch.setattr(workspace_service_cls, "_finish_research_unit_run_task", fake_finish_task)
 
 
 class TestFindLatestLogDir:
@@ -1065,6 +1209,11 @@ class TestWorkspaceUnitRuntime:
                 raise AssertionError("A failed binding must not submit a backtest")
 
         monkeypatch.setattr(workspace_run_ops, "async_session_maker", session_maker)
+        _install_fake_research_run_lease(
+            monkeypatch,
+            WorkspaceService,
+            {str(unit.id): unit for unit in units},
+        )
         monkeypatch.setattr(WorkspaceService, "_load_workspace", staticmethod(fake_load_workspace))
         monkeypatch.setattr(WorkspaceService, "_get_unit", staticmethod(fake_get_unit))
         monkeypatch.setattr(
@@ -1102,7 +1251,7 @@ class TestWorkspaceUnitRuntime:
         assert backtest_calls == []
 
     @pytest.mark.asyncio
-    async def test_bound_retry_revalidates_after_queue_wait_and_removes_stale_runtime(
+    async def test_bound_retry_revalidates_after_queue_wait_without_cross_request_delete(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A revoked binding cannot reuse a runtime written before a full queue retry."""
@@ -1147,7 +1296,6 @@ class TestWorkspaceUnitRuntime:
 
         resolve_calls: list[FakeSession] = []
         sync_calls: list[object] = []
-        cleanup_calls: list[tuple[str, str]] = []
         task_creation_calls: list[object] = []
 
         async def fake_load_workspace(*_args: object, **_kwargs: object) -> object:
@@ -1186,6 +1334,11 @@ class TestWorkspaceUnitRuntime:
 
         session_maker = FakeSessionMaker()
         monkeypatch.setattr(workspace_run_ops, "async_session_maker", session_maker)
+        _install_fake_research_run_lease(
+            monkeypatch,
+            WorkspaceService,
+            {str(unit.id): unit},
+        )
         monkeypatch.setattr(WorkspaceService, "_load_workspace", staticmethod(fake_load_workspace))
         monkeypatch.setattr(WorkspaceService, "_get_unit", staticmethod(fake_get_unit))
         monkeypatch.setattr(
@@ -1203,11 +1356,6 @@ class TestWorkspaceUnitRuntime:
             "sync_unit_runtime",
             lambda *_args, **_kwargs: sync_calls.append(object()),
         )
-        monkeypatch.setattr(
-            workspace_unit_runtime,
-            "remove_unit_dir",
-            lambda workspace_id, unit_id: cleanup_calls.append((workspace_id, unit_id)),
-        )
         monkeypatch.setattr(workspace_run_ops.asyncio, "sleep", no_wait)
         import app.services.backtest.service as backtest_service_module
 
@@ -1222,10 +1370,9 @@ class TestWorkspaceUnitRuntime:
         assert len(resolve_calls) == 2
         assert len(task_creation_calls) == 1
         assert len(sync_calls) == 1
-        assert cleanup_calls == [
-            ("workspace-1", "bound-unit"),
-            ("workspace-1", "bound-unit"),
-        ]
+        # A rejected preflight cannot be scheduled without a fresh private
+        # callback.  Preserve its deterministic files rather than deleting a
+        # path which a newer fenced claimant may already be rematerializing.
         assert results == [
             {
                 "unit_id": "bound-unit",
@@ -1350,13 +1497,21 @@ class TestWorkspaceUnitRuntime:
                 self,
                 *_args: object,
                 runtime_preflight: object,
-                **_kwargs: object,
+                **kwargs: object,
             ) -> object:
                 assert callable(runtime_preflight)
                 await runtime_preflight()
-                return SimpleNamespace(task_id="")
+                claim_promoter = kwargs["claim_promoter"]
+                assert callable(claim_promoter)
+                assert await claim_promoter("task-bound")
+                return SimpleNamespace(task_id="task-bound")
 
         monkeypatch.setattr(workspace_run_ops, "async_session_maker", FakeSessionMaker())
+        _install_fake_research_run_lease(
+            monkeypatch,
+            WorkspaceService,
+            {str(outer_unit.id): outer_unit},
+        )
         monkeypatch.setattr(WorkspaceService, "_load_workspace", staticmethod(fake_load_workspace))
         monkeypatch.setattr(WorkspaceService, "_get_unit", staticmethod(fake_get_unit))
         monkeypatch.setattr(
@@ -1384,7 +1539,7 @@ class TestWorkspaceUnitRuntime:
             [outer_unit.id],
         )
 
-        assert results == [{"unit_id": "bound-unit", "task_id": "", "status": "running"}]
+        assert results == [{"unit_id": "bound-unit", "task_id": "task-bound", "status": "running"}]
         assert resolve_units == [current_unit]
         assert current_read_sessions[0] is resolve_sessions[0]
         runtime_config = yaml.safe_load((runtime_dir / "config.yaml").read_text(encoding="utf-8"))
@@ -1392,6 +1547,630 @@ class TestWorkspaceUnitRuntime:
             "start_date": "2024-02-01",
             "end_date": "2024-02-15",
         }
+
+    @pytest.mark.asyncio
+    async def test_simultaneous_bound_claim_has_exactly_one_db_winner(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two requests that both reach an idle row receive exactly one lease."""
+        from app.db.database import async_session_maker
+        from app.models.user import User
+        from app.models.workspace import StrategyUnit, Workspace
+        from app.services.workspace import run_ops as workspace_run_ops
+        from app.services.workspace_service import WorkspaceService
+
+        user_id = "simultaneous-claim-user"
+        workspace_id = "simultaneous-claim-workspace"
+        unit_id = "simultaneous-claim-unit"
+        async with async_session_maker() as db:
+            db.add_all(
+                [
+                    User(
+                        id=user_id,
+                        username="simultaneous_claim_user",
+                        email="simultaneous_claim_user@example.com",
+                        hashed_password="hash",
+                    ),
+                    Workspace(
+                        id=workspace_id,
+                        user_id=user_id,
+                        name="Simultaneous claim research",
+                        workspace_type="research",
+                        settings={},
+                    ),
+                    StrategyUnit(
+                        id=unit_id,
+                        workspace_id=workspace_id,
+                        strategy_id="simultaneous-claim-strategy",
+                        data_config={"market_data_binding_required": True},
+                        run_status="idle",
+                    ),
+                ]
+            )
+            await db.commit()
+
+        monkeypatch.setattr(workspace_run_ops, "async_session_maker", async_session_maker)
+        barrier = asyncio.Barrier(2)
+
+        async def claim_after_barrier() -> tuple[str | None, dict[str, Any] | None]:
+            await asyncio.wait_for(barrier.wait(), timeout=2)
+            return await WorkspaceService()._claim_research_unit_run(workspace_id, unit_id)
+
+        first, second = await asyncio.gather(claim_after_barrier(), claim_after_barrier())
+        claims = [item for item in (first[0], second[0]) if item is not None]
+        duplicates = [item for item in (first[1], second[1]) if item is not None]
+        assert len(claims) == 1
+        assert len(duplicates) == 1
+        assert duplicates[0] == {
+            "unit_id": unit_id,
+            "task_id": None,
+            "status": "queued",
+            "already_running": True,
+        }
+
+        async with async_session_maker() as db:
+            current_unit = await WorkspaceService._get_unit(db, workspace_id, unit_id)
+            assert current_unit is not None
+            assert current_unit.run_status == "queued"
+            assert current_unit.last_task_id == claims[0]
+
+    @pytest.mark.asyncio
+    async def test_concurrent_bound_run_claim_uses_only_current_oos_window(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two simultaneous DB claimants yield one B-only runtime writer."""
+        from app.db.database import async_session_maker
+        from app.models.user import User
+        from app.models.workspace import StrategyUnit, Workspace
+        from app.services.workspace import run_ops as workspace_run_ops
+        from app.services.workspace_service import WorkspaceService
+
+        user_id = "lease-user"
+        workspace_id = "lease-workspace"
+        unit_id = "lease-unit"
+        window_a = {
+            "market_data_binding_required": True,
+            "range_type": "date",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-10",
+        }
+        window_b = {
+            "market_data_binding_required": True,
+            "range_type": "date",
+            "start_date": "2024-02-01",
+            "end_date": "2024-02-15",
+        }
+        async with async_session_maker() as db:
+            db.add_all(
+                [
+                    User(
+                        id=user_id,
+                        username="lease_user",
+                        email="lease_user@example.com",
+                        hashed_password="hash",
+                    ),
+                    Workspace(
+                        id=workspace_id,
+                        user_id=user_id,
+                        name="Lease research",
+                        workspace_type="research",
+                        settings={},
+                    ),
+                    StrategyUnit(
+                        id=unit_id,
+                        workspace_id=workspace_id,
+                        strategy_id="lease-strategy",
+                        symbol="000001.SZ",
+                        timeframe="1d",
+                        timeframe_n=1,
+                        data_config=dict(window_a),
+                        unit_settings={},
+                        params={},
+                        run_status="idle",
+                    ),
+                ]
+            )
+            await db.commit()
+
+        first_submitted = asyncio.Event()
+        allow_first_preflight = asyncio.Event()
+        runtime_writes: list[dict[str, str | bool]] = []
+        resolved_windows: list[dict[str, str | bool]] = []
+        preflight_callbacks: list[Any] = []
+        backtest_calls = 0
+
+        async def fake_resolve_binding(
+            unit: StrategyUnit,
+            _user_id: str,
+            *,
+            db: object,
+        ) -> object:
+            del db
+            resolved_windows.append(dict(unit.data_config))
+            return SimpleNamespace(binding_id="binding-b")
+
+        def fake_sync_unit_runtime(
+            unit: StrategyUnit,
+            _workspace_settings: dict[str, object],
+            *,
+            market_data_binding: object | None = None,
+        ) -> Path:
+            assert market_data_binding is not None
+            rendered = dict(unit.data_config)
+            runtime_writes.append(rendered)
+            runtime_dir = tmp_path / "runtime"
+            runtime_dir.mkdir(exist_ok=True)
+            (runtime_dir / "config.yaml").write_text(
+                yaml.safe_dump({"data": rendered}),
+                encoding="utf-8",
+            )
+            return runtime_dir
+
+        class FakeBacktestService:
+            async def run_workspace_unit_backtest(
+                self,
+                *_args: object,
+                runtime_preflight: object,
+                **kwargs: object,
+            ) -> object:
+                nonlocal backtest_calls
+                backtest_calls += 1
+                assert backtest_calls == 1
+                assert callable(runtime_preflight)
+                preflight_callbacks.append(runtime_preflight)
+                first_submitted.set()
+                await allow_first_preflight.wait()
+                await runtime_preflight()
+                claim_promoter = kwargs["claim_promoter"]
+                assert callable(claim_promoter)
+                assert await claim_promoter("task-first")
+                return SimpleNamespace(task_id="task-first")
+
+        async def no_background_poll(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        monkeypatch.setattr(workspace_run_ops, "async_session_maker", async_session_maker)
+        monkeypatch.setattr(
+            WorkspaceService,
+            "_build_backtest_request",
+            staticmethod(lambda _unit: SimpleNamespace()),
+        )
+        monkeypatch.setattr(
+            workspace_unit_runtime,
+            "resolve_required_market_data_binding",
+            fake_resolve_binding,
+        )
+        monkeypatch.setattr(
+            workspace_unit_runtime,
+            "sync_unit_runtime",
+            fake_sync_unit_runtime,
+        )
+        monkeypatch.setattr(WorkspaceService, "_background_poll_units", no_background_poll)
+        import app.services.backtest.service as backtest_service_module
+
+        monkeypatch.setattr(backtest_service_module, "BacktestService", FakeBacktestService)
+
+        first_run = asyncio.create_task(
+            WorkspaceService().run_units(workspace_id, user_id, [unit_id])
+        )
+        await asyncio.wait_for(first_submitted.wait(), timeout=2)
+
+        # The request loaded A before it claimed the row.  A legal current
+        # unit update to B occurs while that owner is queued for preflight.
+        from sqlalchemy import update
+
+        async with async_session_maker() as db:
+            await db.execute(
+                update(StrategyUnit)
+                .where(StrategyUnit.id == unit_id)
+                .values(data_config=dict(window_b))
+            )
+            await db.commit()
+
+        second_result = await WorkspaceService().run_units(workspace_id, user_id, [unit_id])
+        assert second_result == [
+            {
+                "unit_id": unit_id,
+                "task_id": None,
+                "status": "queued",
+                "already_running": True,
+            }
+        ]
+        assert backtest_calls == 1
+        assert runtime_writes == []
+
+        allow_first_preflight.set()
+        assert await first_run == [{"unit_id": unit_id, "task_id": "task-first", "status": "running"}]
+
+        # BacktestService replays the callback immediately before spawning
+        # the child.  Once the lease is atomically promoted, that replay must
+        # accept the exact task id rather than mistake its own running row for
+        # a competing request.
+        await preflight_callbacks[0]()
+
+        assert resolved_windows == [window_b, window_b]
+        assert runtime_writes == [window_b, window_b]
+        runtime_config = yaml.safe_load((tmp_path / "runtime" / "config.yaml").read_text())
+        assert runtime_config["data"] == window_b
+
+        # A third request after promotion must expose the real task identity
+        # and must not replay binding resolution or write the shared runtime.
+        third_result = await WorkspaceService().run_units(workspace_id, user_id, [unit_id])
+        assert third_result == [
+            {
+                "unit_id": unit_id,
+                "task_id": "task-first",
+                "status": "running",
+                "already_running": True,
+            }
+        ]
+        assert resolved_windows == [window_b, window_b]
+        assert runtime_writes == [window_b, window_b]
+
+        async with async_session_maker() as db:
+            current_unit = await WorkspaceService._get_unit(db, workspace_id, unit_id)
+            assert current_unit is not None
+            assert current_unit.run_status == "running"
+            assert current_unit.last_task_id == "task-first"
+
+    @pytest.mark.asyncio
+    async def test_pending_lease_survives_status_poll_and_stop_releases_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A queued lease is neither auto-idled nor permanently stuck after stop."""
+        from app.db.database import async_session_maker
+        from app.models.user import User
+        from app.models.workspace import StrategyUnit, Workspace
+        from app.services.workspace import run_ops as workspace_run_ops
+        from app.services.workspace_service import WorkspaceService
+
+        user_id = "lease-stop-user"
+        workspace_id = "lease-stop-workspace"
+        unit_id = "lease-stop-unit"
+        async with async_session_maker() as db:
+            db.add_all(
+                [
+                    User(
+                        id=user_id,
+                        username="lease_stop_user",
+                        email="lease_stop_user@example.com",
+                        hashed_password="hash",
+                    ),
+                    Workspace(
+                        id=workspace_id,
+                        user_id=user_id,
+                        name="Lease stop research",
+                        workspace_type="research",
+                        settings={},
+                    ),
+                    StrategyUnit(
+                        id=unit_id,
+                        workspace_id=workspace_id,
+                        strategy_id="lease-stop-strategy",
+                        data_config={"market_data_binding_required": True},
+                        run_status="idle",
+                    ),
+                ]
+            )
+            await db.commit()
+
+        unexpected_task_calls: list[str] = []
+
+        class FakeBacktestService:
+            async def cancel_task(self, task_id: str, _user_id: str) -> bool:
+                unexpected_task_calls.append(task_id)
+                return False
+
+            async def get_task_status(self, task_id: str, _user_id: str) -> object:
+                unexpected_task_calls.append(task_id)
+                return None
+
+        monkeypatch.setattr(workspace_run_ops, "async_session_maker", async_session_maker)
+        import app.services.backtest.service as backtest_service_module
+
+        monkeypatch.setattr(backtest_service_module, "BacktestService", FakeBacktestService)
+
+        service = WorkspaceService()
+        lease_token, duplicate = await service._claim_research_unit_run(workspace_id, unit_id)
+        assert lease_token is not None
+        assert duplicate is None
+
+        status = await service.get_units_status(workspace_id, user_id, [unit_id])
+        assert status is not None
+        assert status[0].run_status == "queued"
+        assert status[0].last_task_id is None
+        assert unexpected_task_calls == []
+
+        assert await service.stop_units(workspace_id, user_id, [unit_id]) == [
+            {"unit_id": unit_id, "cancelled": True}
+        ]
+        assert unexpected_task_calls == []
+        assert not await service._finish_research_unit_run_lease(
+            workspace_id,
+            unit_id,
+            lease_token,
+            status="failed",
+        )
+
+        async with async_session_maker() as db:
+            current_unit = await WorkspaceService._get_unit(db, workspace_id, unit_id)
+            assert current_unit is not None
+            assert current_unit.run_status == "cancelled"
+            assert current_unit.last_task_id is None
+
+        next_lease, duplicate = await service._claim_research_unit_run(workspace_id, unit_id)
+        assert next_lease is not None
+        assert duplicate is None
+        assert await service._finish_research_unit_run_lease(
+            workspace_id,
+            unit_id,
+            next_lease,
+            status="cancelled",
+        )
+
+        async with async_session_maker() as db:
+            current_unit = await WorkspaceService._get_unit(db, workspace_id, unit_id)
+            assert current_unit is not None
+            current_unit.run_status = "running"
+            current_unit.last_task_id = "task-status-unavailable"
+            await db.commit()
+
+        unavailable_status = await service.get_units_status(workspace_id, user_id, [unit_id])
+        assert unavailable_status is not None
+        assert unavailable_status[0].run_status == "running"
+        assert unavailable_status[0].last_task_id == "task-status-unavailable"
+        assert unexpected_task_calls == ["task-status-unavailable"]
+
+    @pytest.mark.asyncio
+    async def test_stop_of_materializing_lease_fences_next_claim_until_writer_exits(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stop cannot release a deterministic runtime while its writer is in sync."""
+        from app.db.database import async_session_maker
+        from app.models.user import User
+        from app.models.workspace import StrategyUnit, Workspace
+        from app.services.workspace import run_ops as workspace_run_ops
+        from app.services.workspace_service import WorkspaceService
+
+        user_id = "materializing-stop-user"
+        workspace_id = "materializing-stop-workspace"
+        unit_id = "materializing-stop-unit"
+        async with async_session_maker() as db:
+            db.add_all(
+                [
+                    User(
+                        id=user_id,
+                        username="materializing_stop_user",
+                        email="materializing_stop_user@example.com",
+                        hashed_password="hash",
+                    ),
+                    Workspace(
+                        id=workspace_id,
+                        user_id=user_id,
+                        name="Materializing stop research",
+                        workspace_type="research",
+                        settings={},
+                    ),
+                    StrategyUnit(
+                        id=unit_id,
+                        workspace_id=workspace_id,
+                        strategy_id="materializing-stop-strategy",
+                        data_config={"market_data_binding_required": True},
+                        run_status="idle",
+                    ),
+                ]
+            )
+            await db.commit()
+
+        class FakeBacktestService:
+            async def cancel_task(self, _task_id: str, _user_id: str) -> bool:
+                raise AssertionError("a queued lease has no task to cancel")
+
+        monkeypatch.setattr(workspace_run_ops, "async_session_maker", async_session_maker)
+        import app.services.backtest.service as backtest_service_module
+
+        monkeypatch.setattr(backtest_service_module, "BacktestService", FakeBacktestService)
+        service = WorkspaceService()
+        lease_token, duplicate = await service._claim_research_unit_run(workspace_id, unit_id)
+        assert lease_token is not None and duplicate is None
+        assert await service._begin_research_runtime_materialization(
+            workspace_id,
+            unit_id,
+            lease_token,
+            None,
+        )
+
+        assert await service.stop_units(workspace_id, user_id, [unit_id]) == [
+            {"unit_id": unit_id, "cancelled": True}
+        ]
+        blocked_lease, blocked_response = await service._claim_research_unit_run(
+            workspace_id,
+            unit_id,
+        )
+        assert blocked_lease is None
+        assert blocked_response == {
+            "unit_id": unit_id,
+            "task_id": None,
+            "status": "queued",
+            "already_running": True,
+        }
+
+        # The old synchronous writer returns after the fence was set.  Only it
+        # may make the row terminal; then and only then can L2 be granted.
+        assert not await service._complete_research_runtime_materialization(
+            workspace_id,
+            unit_id,
+            lease_token,
+            None,
+        )
+        assert await service._finish_research_unit_run_lease(
+            workspace_id,
+            unit_id,
+            lease_token,
+            status="failed",
+        )
+        next_lease, next_duplicate = await service._claim_research_unit_run(workspace_id, unit_id)
+        assert next_lease is not None and next_duplicate is None
+
+    @pytest.mark.asyncio
+    async def test_observer_timeout_or_error_cannot_release_new_bound_lease(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Late polling has no authority to fail a queued lease for a replacement run."""
+        from app.db.database import async_session_maker
+        from app.models.user import User
+        from app.models.workspace import StrategyUnit, Workspace
+        from app.services.workspace import run_ops as workspace_run_ops
+        from app.services.workspace_service import WorkspaceService
+
+        user_id = "observer-user"
+        workspace_id = "observer-workspace"
+        unit_id = "observer-unit"
+        active_lease = "lease-active-observer"
+        async with async_session_maker() as db:
+            db.add_all(
+                [
+                    User(
+                        id=user_id,
+                        username="observer_user",
+                        email="observer_user@example.com",
+                        hashed_password="hash",
+                    ),
+                    Workspace(
+                        id=workspace_id,
+                        user_id=user_id,
+                        name="Observer research",
+                        workspace_type="research",
+                        settings={},
+                    ),
+                    StrategyUnit(
+                        id=unit_id,
+                        workspace_id=workspace_id,
+                        strategy_id="observer-strategy",
+                        data_config={"market_data_binding_required": True},
+                        run_status="queued",
+                        last_task_id=active_lease,
+                    ),
+                ]
+            )
+            await db.commit()
+
+        monkeypatch.setattr(workspace_run_ops, "async_session_maker", async_session_maker)
+        service = WorkspaceService()
+        backtest_service = SimpleNamespace()
+
+        async def timed_out(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        monkeypatch.setattr(
+            WorkspaceService,
+            "_poll_task_completion",
+            staticmethod(timed_out),
+        )
+        await service._poll_single_unit(workspace_id, user_id, unit_id, "old-task", backtest_service)
+
+        async def observer_failed(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("temporary observer failure")
+
+        monkeypatch.setattr(
+            WorkspaceService,
+            "_poll_task_completion",
+            staticmethod(observer_failed),
+        )
+        await service._poll_single_unit(workspace_id, user_id, unit_id, "old-task", backtest_service)
+
+        async with async_session_maker() as db:
+            current_unit = await WorkspaceService._get_unit(db, workspace_id, unit_id)
+            assert current_unit is not None
+            assert current_unit.run_status == "queued"
+            assert current_unit.last_task_id == active_lease
+
+    @pytest.mark.asyncio
+    async def test_status_observer_cannot_overwrite_a_replacement_bound_lease(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A delayed terminal observation has no authority over a newer lease token."""
+        from app.db.database import async_session_maker
+        from app.models.backtest import BacktestTask
+        from app.models.user import User
+        from app.models.workspace import StrategyUnit, Workspace
+        from app.schemas.backtest import TaskStatus
+        from app.services.workspace import run_ops as workspace_run_ops
+        from app.services.workspace_service import WorkspaceService
+
+        user_id = "stale-observer-user"
+        workspace_id = "stale-observer-workspace"
+        unit_id = "stale-observer-unit"
+        old_task_id = "stale-observer-task"
+        replacement_lease = "lease-stale-observer-new"
+        async with async_session_maker() as db:
+            db.add_all(
+                [
+                    User(
+                        id=user_id,
+                        username="stale_observer_user",
+                        email="stale_observer_user@example.com",
+                        hashed_password="hash",
+                    ),
+                    Workspace(
+                        id=workspace_id,
+                        user_id=user_id,
+                        name="Stale observer research",
+                        workspace_type="research",
+                        settings={},
+                    ),
+                    StrategyUnit(
+                        id=unit_id,
+                        workspace_id=workspace_id,
+                        strategy_id="stale-observer-strategy",
+                        data_config={"market_data_binding_required": True},
+                        run_status="running",
+                        last_task_id=old_task_id,
+                    ),
+                    BacktestTask(
+                        id=old_task_id,
+                        user_id=user_id,
+                        strategy_id="stale-observer-strategy",
+                        symbol="000001.SZ",
+                        status=TaskStatus.COMPLETED,
+                    ),
+                ]
+            )
+            await db.commit()
+
+        status_requested = asyncio.Event()
+        allow_status = asyncio.Event()
+
+        class FakeBacktestService:
+            async def get_task_status(self, task_id: str, _user_id: str) -> TaskStatus:
+                assert task_id == old_task_id
+                status_requested.set()
+                await allow_status.wait()
+                return TaskStatus.COMPLETED
+
+        monkeypatch.setattr(workspace_run_ops, "async_session_maker", async_session_maker)
+        import app.services.backtest.service as backtest_service_module
+
+        monkeypatch.setattr(backtest_service_module, "BacktestService", FakeBacktestService)
+        service = WorkspaceService()
+        status_task = asyncio.create_task(service.get_units_status(workspace_id, user_id, [unit_id]))
+        await asyncio.wait_for(status_requested.wait(), timeout=2)
+
+        async with async_session_maker() as db:
+            current_unit = await WorkspaceService._get_unit(db, workspace_id, unit_id)
+            assert current_unit is not None
+            current_unit.run_status = "queued"
+            current_unit.last_task_id = replacement_lease
+            await db.commit()
+
+        allow_status.set()
+        assert await status_task is not None
+
+        async with async_session_maker() as db:
+            current_unit = await WorkspaceService._get_unit(db, workspace_id, unit_id)
+            assert current_unit is not None
+            assert current_unit.run_status == "queued"
+            assert current_unit.last_task_id == replacement_lease
 
     @pytest.mark.asyncio
     async def test_trading_bound_unit_fails_closed_without_starting_runtime(
