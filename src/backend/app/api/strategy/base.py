@@ -79,6 +79,7 @@ from app.services.strategy_service import (
     get_strategy_readme,
     get_template_by_id,
 )
+from app.services.workspace.units import MarketDataBindingUnitMutationError
 from app.utils.response_cache import cache_response
 
 _logger = logging.getLogger(__name__)
@@ -1109,7 +1110,13 @@ async def add_strategy_copilot_draft_to_workspace(
     service: StrategyService = Depends(get_strategy_service),
 ) -> typing.Any:
     """Persist a strategy draft and add it to a workspace unit."""
-    result = await service.add_copilot_draft_to_workspace(current_user.sub, workspace_id, data)
+    try:
+        result = await service.add_copilot_draft_to_workspace(current_user.sub, workspace_id, data)
+    except MarketDataBindingUnitMutationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code},
+        ) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="Workspace or strategy not found")
     return result
@@ -1128,7 +1135,13 @@ async def backtest_strategy_copilot_draft(
     service: StrategyService = Depends(get_strategy_service),
 ) -> typing.Any:
     """Persist a strategy draft, create a workspace unit, and trigger backtest."""
-    result = await service.backtest_copilot_draft(current_user.sub, workspace_id, data)
+    try:
+        result = await service.backtest_copilot_draft(current_user.sub, workspace_id, data)
+    except MarketDataBindingUnitMutationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code},
+        ) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="Workspace or strategy not found")
     return result

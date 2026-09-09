@@ -24,11 +24,13 @@ _MARKET_DATA_REQUIRED_BINDING_KEYS = frozenset(
         "market_data_binding_id",
         "market_data_binding_hash",
         "market_data_binding_signature",
+        "market_data_binding_intent_id",
         "market_data_binding_required",
     }
 )
 _MARKET_DATA_BINDING_HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
 _MARKET_DATA_BINDING_SIGNATURE_BODY_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
+_MARKET_DATA_BINDING_INTENT_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 
 
 def _apply_market_data_research_binding_guard(
@@ -83,6 +85,12 @@ def _apply_market_data_research_binding_guard(
         or "." in signature_digest
         or _MARKET_DATA_BINDING_SIGNATURE_BODY_PATTERN.fullmatch(signature_body) is None
         or _MARKET_DATA_BINDING_HASH_PATTERN.fullmatch(signature_digest) is None
+    ):
+        raise ValueError("MARKET_DATA_BINDING_INVALID")
+    intent_id = data_config.get("market_data_binding_intent_id")
+    if (
+        not isinstance(intent_id, str)
+        or _MARKET_DATA_BINDING_INTENT_PATTERN.fullmatch(intent_id.strip()) is None
     ):
         raise ValueError("MARKET_DATA_BINDING_INVALID")
     return request
@@ -943,6 +951,7 @@ class AIStrategyResearchService:
             backtest_request = self._build_backtest_request(
                 draft,
                 request,
+                user_id=user_id,
                 start_date=validation_window.train_start if validation_window else None,
                 end_date=validation_window.train_end if validation_window else None,
                 group_name_suffix=" 训练样本" if validation_window else "",
@@ -1231,6 +1240,7 @@ class AIStrategyResearchService:
                     validation_request = self._build_backtest_request(
                         draft,
                         request,
+                        user_id=user_id,
                         start_date=validation_window.validation_start,
                         end_date=validation_window.validation_end,
                         group_name_suffix=" 样本外验证",
@@ -3272,6 +3282,7 @@ class AIStrategyResearchService:
         draft: AIStrategyDraft,
         request: AIStrategyResearchRunRequest,
         *,
+        user_id: str,
         start_date: str | None = None,
         end_date: str | None = None,
         group_name_suffix: str = "",
@@ -3309,7 +3320,7 @@ class AIStrategyResearchService:
                 override_commission=not _request_has_explicit_commission(request),
             )
 
-        return StrategyCopilotBacktestRequest(
+        backtest_request = StrategyCopilotBacktestRequest(
             strategy_draft=draft,
             symbol=request.symbol,
             symbol_name=request.symbol_name or request.symbol,
@@ -3325,6 +3336,51 @@ class AIStrategyResearchService:
             parallel=False,
             report_config=None,
         )
+        binding_attacher = self._market_data_binding_attacher(user_id=user_id, request=request)
+        if binding_attacher is not None:
+            backtest_request._market_data_binding_attacher = binding_attacher
+        return backtest_request
+
+    @staticmethod
+    def _market_data_binding_attacher(
+        *,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+    ) -> Callable[[str, str], Awaitable[None]] | None:
+        """Return the private attachment capability for a sealed request.
+
+        The values originate from the API/task binder and are revalidated by
+        the market-data service.  They never become a public workspace API
+        parameter; the returned closure is stored only on the in-process
+        copilot backtest request.
+        """
+        config = dict(request.data_config or {})
+        if config.get("market_data_binding_required") is not True:
+            return None
+        binding_id = str(config.get("market_data_binding_id") or "")
+        binding_hash = str(config.get("market_data_binding_hash") or "")
+        signature = str(config.get("market_data_binding_signature") or "")
+        intent_id = str(config.get("market_data_binding_intent_id") or "")
+
+        async def attach(workspace_id: str, unit_id: str) -> None:
+            from app.db.database import async_session_maker
+            from app.services.market_data.research_binding import (
+                build_market_data_research_binding_service,
+            )
+
+            async with async_session_maker() as db:
+                service = build_market_data_research_binding_service(db)
+                await service.attach_runtime_binding_consumer(
+                    user_id=user_id,
+                    binding_id=binding_id,
+                    binding_hash=binding_hash,
+                    signature=signature,
+                    intent_id=intent_id,
+                    workspace_id=workspace_id,
+                    unit_id=unit_id,
+                )
+
+        return attach
 
     async def _wait_for_unit_status(
         self,

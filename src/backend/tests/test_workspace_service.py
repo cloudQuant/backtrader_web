@@ -8,6 +8,11 @@ import pytest
 
 from app.schemas.workspace import StrategyUnitCreate, StrategyUnitUpdate
 from app.services import workspace_unit_runtime
+from app.services.workspace.units import (
+    MarketDataBindingUnitMutationError,
+    _merged_bound_unit_data_config,
+    _validate_bound_unit_identity_update,
+)
 from app.services.workspace_service import WorkspaceService
 
 
@@ -103,6 +108,137 @@ async def test_strategy_unit_create_update_serializes_python_json_values(
     assert updated["data_config"]["start_date"] == "2024-03-01"
     assert updated["data_config"]["end_date"] == "2024-03-31"
     assert updated["unit_settings"]["reviewed_at"] == "2024-03-02T00:00:00+00:00"
+
+
+def test_bound_unit_update_preserves_server_binding_and_rejects_tampering() -> None:
+    """A browser update cannot turn a sealed research unit back into a CSV lookup."""
+    binding = {
+        "market_data_binding_required": True,
+        "market_data_binding_id": "0b5d65ce-b7e0-48dc-b075-3e3cbfe1faee",
+        "market_data_binding_hash": "a" * 64,
+        "market_data_binding_signature": "server-hmac",
+        "market_data_binding_intent_id": "research-task-bound-unit",
+        "market_data_asset_type": "stock",
+        "start_date": "2024-01-01",
+        "end_date": "2024-12-31",
+    }
+
+    narrowed = _merged_bound_unit_data_config(
+        binding,
+        {"start_date": "2024-02-01", "end_date": "2024-11-30"},
+    )
+
+    assert narrowed["market_data_binding_required"] is True
+    assert narrowed["market_data_binding_id"] == binding["market_data_binding_id"]
+    assert narrowed["market_data_binding_hash"] == binding["market_data_binding_hash"]
+    assert narrowed["market_data_binding_signature"] == binding["market_data_binding_signature"]
+    assert narrowed["market_data_binding_intent_id"] == binding["market_data_binding_intent_id"]
+    assert narrowed["start_date"] == "2024-02-01"
+    assert narrowed["end_date"] == "2024-11-30"
+
+    with pytest.raises(MarketDataBindingUnitMutationError):
+        _merged_bound_unit_data_config(
+            binding,
+            {"market_data_binding_required": False},
+        )
+    with pytest.raises(MarketDataBindingUnitMutationError):
+        _merged_bound_unit_data_config(
+            binding,
+            {"directory_path": "/tmp/attacker-controlled"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_workspace_service_rejects_client_created_market_data_binding_units(
+    client,
+    auth_headers: dict[str, str],
+) -> None:
+    """Only the private AI-research capability may create a bound consumer unit."""
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "Binding Guard", "workspace_type": "research"},
+    )
+    assert workspace_response.status_code == 201
+    workspace = workspace_response.json()
+    binding_data = {
+        "market_data_binding_required": True,
+        "market_data_binding_id": "0b5d65ce-b7e0-48dc-b075-3e3cbfe1faee",
+        "market_data_binding_hash": "a" * 64,
+        "market_data_binding_signature": "server-hmac",
+        "market_data_binding_intent_id": "research-task-client-copy",
+    }
+    unit_data = StrategyUnitCreate(
+        strategy_id="simulate/gateway_dual_ma",
+        strategy_name="Client copied binding",
+        symbol="000001.SZ",
+        timeframe="1d",
+        data_config=binding_data,
+    )
+    service = WorkspaceService()
+
+    with pytest.raises(MarketDataBindingUnitMutationError) as create_rejected:
+        await service.create_unit(workspace["id"], workspace["user_id"], unit_data)
+    assert create_rejected.value.code == "MARKET_DATA_BINDING_CONSUMER_CREATE_FORBIDDEN"
+
+    with pytest.raises(MarketDataBindingUnitMutationError) as batch_rejected:
+        await service.batch_create_units(workspace["id"], workspace["user_id"], [unit_data])
+    assert batch_rejected.value.code == "MARKET_DATA_BINDING_CONSUMER_CREATE_FORBIDDEN"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("batch", [False, True])
+async def test_workspace_unit_api_returns_conflict_for_client_binding_payload(
+    client,
+    auth_headers: dict[str, str],
+    batch: bool,
+) -> None:
+    """Public create endpoints return a stable conflict for copied binding data."""
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "Binding HTTP Guard", "workspace_type": "research"},
+    )
+    assert workspace_response.status_code == 201
+    workspace_id = workspace_response.json()["id"]
+    unit = {
+        "strategy_id": "simulate/gateway_dual_ma",
+        "strategy_name": "Client copied binding",
+        "symbol": "000001.SZ",
+        "timeframe": "1d",
+        "data_config": {
+            "market_data_binding_required": True,
+            "market_data_binding_id": "0b5d65ce-b7e0-48dc-b075-3e3cbfe1faee",
+            "market_data_binding_hash": "a" * 64,
+            "market_data_binding_signature": "server-hmac",
+            "market_data_binding_intent_id": "research-task-client-copy",
+        },
+    }
+    path = f"/api/v1/workspace/{workspace_id}/units"
+    payload = {"units": [unit]} if batch else unit
+    if batch:
+        path = f"{path}/batch"
+
+    response = await client.post(path, headers=auth_headers, json=payload)
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["error"] == "HTTP_409"
+    assert body["details"] == {"code": "MARKET_DATA_BINDING_CONSUMER_CREATE_FORBIDDEN"}
+
+
+def test_bound_unit_update_rejects_identity_changes() -> None:
+    """Bound data cannot be silently relabelled as another symbol or timeframe."""
+    unit = SimpleNamespace(category="stock", symbol="000001.SZ", timeframe="1d", timeframe_n=1)
+
+    _validate_bound_unit_identity_update(unit, {"timeframe": "1d"})
+
+    with pytest.raises(MarketDataBindingUnitMutationError):
+        _validate_bound_unit_identity_update(unit, {"symbol": "600000.SH"})
+    with pytest.raises(MarketDataBindingUnitMutationError):
+        _validate_bound_unit_identity_update(unit, {"timeframe_n": 5})
+    with pytest.raises(MarketDataBindingUnitMutationError):
+        _validate_bound_unit_identity_update(unit, {"category": "futures"})
 
 
 def test_task_elapsed_seconds_uses_persisted_task_timestamps():

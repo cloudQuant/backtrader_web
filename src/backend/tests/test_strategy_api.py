@@ -8,11 +8,13 @@ from httpx import AsyncClient
 from app.api.strategy.base import (
     get_ai_strategy_research_service,
     get_ai_strategy_research_tasks,
+    get_strategy_service,
 )
 from app.schemas.ai_strategy_research import (
     AIStrategyResearchRunRequest,
     AIStrategyResearchTaskResponse,
 )
+from app.services.workspace.units import MarketDataBindingUnitMutationError
 from tests.conftest import app, register_and_login
 
 SAMPLE_CODE = "import backtrader as bt\nclass TestStrategy(bt.Strategy): pass"
@@ -805,6 +807,58 @@ class TestStrategyAPI:
         assert data["unit_status"]["run_status"] == "running"
         assert data["report_ready"] is False
         assert data["report"] is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("endpoint", ["units", "backtest"])
+    async def test_copilot_workspace_routes_return_conflict_for_binding_payload(
+        self,
+        client: AsyncClient,
+        auth_headers: dict,
+        endpoint: str,
+    ):
+        """Generic copilot routes cannot turn a copied binding into a server capability."""
+
+        class BindingRejectingStrategyService:
+            async def add_copilot_draft_to_workspace(self, *args, **kwargs):
+                del args, kwargs
+                raise MarketDataBindingUnitMutationError(
+                    "MARKET_DATA_BINDING_CONSUMER_CREATE_FORBIDDEN"
+                )
+
+            async def backtest_copilot_draft(self, *args, **kwargs):
+                del args, kwargs
+                raise MarketDataBindingUnitMutationError(
+                    "MARKET_DATA_BINDING_CONSUMER_CREATE_FORBIDDEN"
+                )
+
+        app.dependency_overrides[get_strategy_service] = BindingRejectingStrategyService
+        payload = {
+            "strategy_draft": {
+                "name": "Copied binding draft",
+                "description": "The route must reject client-provided binding metadata.",
+                "code": SAMPLE_CODE,
+            },
+            "symbol": "000001.SZ",
+            "timeframe": "1d",
+            "data_config": {
+                "market_data_binding_required": True,
+                "market_data_binding_id": "0b5d65ce-b7e0-48dc-b075-3e3cbfe1faee",
+                "market_data_binding_hash": "a" * 64,
+                "market_data_binding_signature": "server-hmac",
+                "market_data_binding_intent_id": "research-task-client-copy",
+            },
+        }
+
+        response = await client.post(
+            f"/api/v1/strategy/copilot/workspaces/workspace-binding/{endpoint}",
+            json=payload,
+            headers=auth_headers,
+        )
+
+        assert response.status_code == 409
+        body = response.json()
+        assert body["error"] == "HTTP_409"
+        assert body["details"] == {"code": "MARKET_DATA_BINDING_CONSUMER_CREATE_FORBIDDEN"}
 
     @pytest.mark.asyncio
     async def test_ai_research_run_api_returns_full_loop_result_and_redacts_gateway_secrets(

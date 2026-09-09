@@ -13039,6 +13039,7 @@ async def test_task_manager_prepares_market_data_binding_before_snapshot_and_dis
                     "market_data_binding_id": str(uuid.uuid4()),
                     "market_data_binding_hash": "a" * 64,
                     "market_data_binding_signature": "c2VydmVyLWlzc3VlZA." + "a" * 64,
+                    "market_data_binding_intent_id": task_id,
                     "market_data_binding_required": True,
                 }
             }
@@ -13079,7 +13080,6 @@ async def test_task_manager_continuation_strips_old_binding_then_rebinds():
     old_binding_id = str(uuid.uuid4())
 
     async def initial_prepare(task_id: str, request: AIStrategyResearchRunRequest):
-        del task_id
         return request.model_copy(
             update={
                 "data_config": {
@@ -13087,6 +13087,7 @@ async def test_task_manager_continuation_strips_old_binding_then_rebinds():
                     "market_data_binding_id": old_binding_id,
                     "market_data_binding_hash": "b" * 64,
                     "market_data_binding_signature": "b2xkLXNlcnZlci1pc3N1ZWQ." + "b" * 64,
+                    "market_data_binding_intent_id": task_id,
                     "market_data_binding_required": True,
                 }
             }
@@ -13108,7 +13109,6 @@ async def test_task_manager_continuation_strips_old_binding_then_rebinds():
     new_binding_id = str(uuid.uuid4())
 
     async def continuation_prepare(task_id: str, request: AIStrategyResearchRunRequest):
-        del task_id
         prepared_continuations.append(request)
         assert request.data_config == {"market_data_asset_type": "stock"}
         assert not any(
@@ -13121,6 +13121,7 @@ async def test_task_manager_continuation_strips_old_binding_then_rebinds():
                     "market_data_binding_id": new_binding_id,
                     "market_data_binding_hash": "c" * 64,
                     "market_data_binding_signature": "bmV3LXNlcnZlci1pc3N1ZWQ." + "c" * 64,
+                    "market_data_binding_intent_id": task_id,
                     "market_data_binding_required": True,
                 }
             }
@@ -13173,10 +13174,11 @@ async def test_direct_research_service_fails_closed_without_structural_market_da
     malformed = request.model_copy(
         update={
             "data_config": {
-                "market_data_binding_id": str(uuid.uuid4()),
-                "market_data_binding_hash": "f" * 64,
-                "market_data_binding_signature": "not-a-server-token",
-                "market_data_binding_required": True,
+                    "market_data_binding_id": str(uuid.uuid4()),
+                    "market_data_binding_hash": "f" * 64,
+                    "market_data_binding_signature": "not-a-server-token",
+                    "market_data_binding_intent_id": "test-malformed-intent",
+                    "market_data_binding_required": True,
             }
         }
     )
@@ -13227,6 +13229,7 @@ async def test_ai_research_run_api_binds_server_request_and_rejects_client_data_
                         "market_data_binding_id": str(uuid.uuid4()),
                         "market_data_binding_hash": "d" * 64,
                         "market_data_binding_signature": "c2VydmVyLWlzc3VlZA." + "d" * 64,
+                        "market_data_binding_intent_id": intent_id,
                         "market_data_binding_required": True,
                     }
                 }
@@ -13296,6 +13299,7 @@ async def test_ai_research_task_api_binds_after_task_id_before_snapshot(
                         "market_data_binding_id": str(uuid.uuid4()),
                         "market_data_binding_hash": "e" * 64,
                         "market_data_binding_signature": "c2VydmVyLWlzc3VlZA." + "e" * 64,
+                        "market_data_binding_intent_id": intent_id,
                         "market_data_binding_required": True,
                     }
                 }

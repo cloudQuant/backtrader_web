@@ -39,6 +39,7 @@ from app.schemas.workspace import (
     WorkspaceResponse,
     WorkspaceUpdate,
 )
+from app.services.workspace.units import MarketDataBindingUnitMutationError
 from app.services.workspace_service import WorkspaceService
 
 router = APIRouter()
@@ -158,7 +159,13 @@ async def create_unit(
     service: WorkspaceService = Depends(get_workspace_service),
 ) -> dict[str, Any]:
     """Create a single strategy unit."""
-    result = await service.create_unit(workspace_id, current_user.sub, data)
+    try:
+        result = await service.create_unit(workspace_id, current_user.sub, data)
+    except MarketDataBindingUnitMutationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code},
+        ) from exc
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
     return result
@@ -177,7 +184,13 @@ async def batch_create_units(
     service: WorkspaceService = Depends(get_workspace_service),
 ) -> list[dict[str, Any]]:
     """Batch create strategy units."""
-    result = await service.batch_create_units(workspace_id, current_user.sub, data.units)
+    try:
+        result = await service.batch_create_units(workspace_id, current_user.sub, data.units)
+    except MarketDataBindingUnitMutationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code},
+        ) from exc
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
     return result
@@ -268,7 +281,13 @@ async def update_unit(
     service: WorkspaceService = Depends(get_workspace_service),
 ) -> dict[str, Any]:
     """Update a strategy unit."""
-    result = await service.update_unit(workspace_id, unit_id, current_user.sub, data)
+    try:
+        result = await service.update_unit(workspace_id, unit_id, current_user.sub, data)
+    except MarketDataBindingUnitMutationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code},
+        ) from exc
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unit not found")
     return result
