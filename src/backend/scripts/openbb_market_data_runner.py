@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from importlib import metadata
+from pathlib import Path
 from typing import Any
 
 PROTOCOL_VERSION = "openbb-market-data-v1"
@@ -28,13 +29,15 @@ _YFINANCE_INTERVAL_BY_FREQUENCY = {
     "1mo": "1M",
 }
 _MAX_RAW_PAYLOAD_BYTES = 4 * 1024 * 1024
-_EXACT_ALLOWED_PROVIDER_NAMES = ("yfinance",)
 _REQUIRED_DISTRIBUTIONS = ("openbb", "openbb-yfinance")
-_DANGEROUS_OPENBB_ENVIRONMENT_KEYS = (
-    "OPENBB_ALLOW_MUTABLE_EXTENSIONS",
-    "OPENBB_ALLOW_ON_COMMAND_OUTPUT",
+_PERMIT_MANIFEST_VERSION = "openbb-runtime-permit-manifest-v1"
+_PERMIT_MANIFEST_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "app"
+    / "services"
+    / "market_data"
+    / "openbb_runtime_permit_manifest.json"
 )
-_PERMIT_MATRIX_VERSION = "openbb-runtime-permit-matrix-v1"
 _OUTBOUND_END_BOUND_UNATTESTED = "OPENBB_YFINANCE_OUTBOUND_END_BOUND_UNATTESTED"
 
 
@@ -80,7 +83,94 @@ class _RunnerRuntimeRoutePermit:
         )
 
 
-_ACTIVE_RUNTIME_ROUTE_PERMITS: tuple[_RunnerRuntimeRoutePermit, ...] = ()
+def _manifest_text(value: object) -> str:
+    """Require one non-blank pure-data manifest string."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("invalid static permit manifest")
+    return value.strip()
+
+
+def _manifest_optional_text(value: object) -> str | None:
+    """Accept only a JSON null or a non-blank string semantic axis."""
+    if value is None:
+        return None
+    return _manifest_text(value)
+
+
+def _manifest_text_list(value: object) -> tuple[str, ...]:
+    """Reject empty, duplicate, or non-string static permit list values."""
+    if not isinstance(value, list):
+        raise ValueError("invalid static permit manifest")
+    parsed = tuple(_manifest_text(item) for item in value)
+    if not parsed or len(set(parsed)) != len(parsed):
+        raise ValueError("invalid static permit manifest")
+    return parsed
+
+
+def _manifest_route_permit(value: object) -> _RunnerRuntimeRoutePermit:
+    """Convert one canonical pure-data permit without importing the web app."""
+    if not isinstance(value, Mapping):
+        raise ValueError("invalid static permit manifest")
+    return _RunnerRuntimeRoutePermit(
+        route_id=_manifest_text(value.get("route_id")),
+        family_id=_manifest_text(value.get("family_id")),
+        provider=_manifest_text(value.get("provider")),
+        asset_type=_manifest_text(value.get("asset_type")),
+        market=_manifest_text(value.get("market")),
+        data_kind=_manifest_text(value.get("data_kind")),
+        frequency=_manifest_text(value.get("frequency")),
+        adjustment=_manifest_optional_text(value.get("adjustment")),
+        price_basis=_manifest_optional_text(value.get("price_basis")),
+        currency=_manifest_optional_text(value.get("currency")),
+        unit=_manifest_optional_text(value.get("unit")),
+        endpoint=_manifest_text(value.get("endpoint")),
+    )
+
+
+def _load_static_runtime_permit_manifest() -> tuple[
+    str | None,
+    tuple[str, ...],
+    tuple[str, ...],
+    tuple[_RunnerRuntimeRoutePermit, ...],
+    str | None,
+]:
+    """Load the web/runner shared JSON data without importing application code.
+
+    A malformed or missing manifest never supplies a fallback route.  The
+    runner remembers a stable failure state so a request remains fail-closed
+    and the self-check can report why it is blocked.
+    """
+    try:
+        raw = json.loads(_PERMIT_MANIFEST_PATH.read_text(encoding="utf-8"))
+        if not isinstance(raw, Mapping):
+            raise ValueError("manifest root must be an object")
+        if _manifest_text(raw.get("manifest_version")) != _PERMIT_MANIFEST_VERSION:
+            raise ValueError("manifest version is unsupported")
+        permit_matrix_version = _manifest_text(raw.get("permit_matrix_version"))
+        provider_names = _manifest_text_list(raw.get("supported_runner_providers"))
+        dangerous_environment_keys = _manifest_text_list(
+            raw.get("dangerous_extension_environment_keys")
+        )
+        raw_permits = raw.get("runtime_route_permits")
+        if not isinstance(raw_permits, list):
+            raise ValueError("route permits must be a list")
+        permits = tuple(_manifest_route_permit(value) for value in raw_permits)
+        if len({permit.route_id for permit in permits}) != len(permits) or any(
+            permit.provider not in provider_names for permit in permits
+        ):
+            raise ValueError("route permits are invalid")
+    except (OSError, json.JSONDecodeError, ValueError, TypeError):
+        return None, (), (), (), "OPENBB_PERMIT_MANIFEST_INVALID"
+    return permit_matrix_version, provider_names, dangerous_environment_keys, permits, None
+
+
+(
+    _PERMIT_MATRIX_VERSION,
+    _EXACT_ALLOWED_PROVIDER_NAMES,
+    _DANGEROUS_OPENBB_ENVIRONMENT_KEYS,
+    _ACTIVE_RUNTIME_ROUTE_PERMITS,
+    _PERMIT_MANIFEST_ERROR,
+) = _load_static_runtime_permit_manifest()
 
 
 def _emit(payload: Mapping[str, Any]) -> int:
@@ -205,7 +295,10 @@ def _self_check_payload() -> dict[str, object]:
             },
             "coverage": {
                 "permit_matrix_version": _PERMIT_MATRIX_VERSION,
-                "coverage_source": "static-empty-permit-matrix",
+                "coverage_source": "canonical-static-permit-manifest",
+                "permit_manifest_status": (
+                    "valid" if _PERMIT_MANIFEST_ERROR is None else "invalid"
+                ),
                 "active_route_ids": [
                     permit.route_id for permit in _ACTIVE_RUNTIME_ROUTE_PERMITS
                 ],
@@ -392,6 +485,25 @@ def main() -> int:
         return _error(request_id, "OPENBB_RUNNER_INVALID_REQUEST", "request body must be an object")
     if request.get("request_id") != request_id:
         return _error(request_id, "OPENBB_RUNNER_INVALID_REQUEST", "request ID must match envelope")
+    dangerous_environment_keys = [
+        key for key in _DANGEROUS_OPENBB_ENVIRONMENT_KEYS if os.getenv(key)
+    ]
+    if dangerous_environment_keys:
+        # This must happen before route checks and, especially, before the
+        # OpenBB import.  A wrapper or runner service that asks OpenBB to load
+        # mutable extensions or stream command output has a different trust
+        # boundary from this reviewed JSON-line protocol.
+        return _error(
+            request_id,
+            "OPENBB_RUNNER_DANGEROUS_ENVIRONMENT",
+            "runner refuses mutable OpenBB extension environment",
+        )
+    if _PERMIT_MANIFEST_ERROR is not None:
+        return _error(
+            request_id,
+            _PERMIT_MANIFEST_ERROR,
+            "canonical static permit manifest is unavailable or invalid",
+        )
 
     asset_type = request.get("asset_type")
     provider = request.get("provider")

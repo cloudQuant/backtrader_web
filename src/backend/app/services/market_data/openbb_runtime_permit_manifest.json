@@ -1,0 +1,12 @@
+{
+  "manifest_version": "openbb-runtime-permit-manifest-v1",
+  "permit_matrix_version": "openbb-runtime-permit-matrix-v1",
+  "supported_runner_providers": [
+    "yfinance"
+  ],
+  "dangerous_extension_environment_keys": [
+    "OPENBB_ALLOW_MUTABLE_EXTENSIONS",
+    "OPENBB_ALLOW_ON_COMMAND_OUTPUT"
+  ],
+  "runtime_route_permits": []
+}
