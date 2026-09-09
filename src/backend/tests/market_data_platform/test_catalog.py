@@ -14,6 +14,7 @@ from alembic import command
 from app.db.database import Base, async_session_maker
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
+ITERATION_196_HEAD = "20260908_ai_research_approval_authority"
 
 
 def test_alembic_has_a_single_head_before_catalog_is_integrated() -> None:
@@ -285,10 +286,16 @@ def test_catalog_migration_creates_metadata_without_legacy_market_table_rewrite(
         engine.dispose()
 
 
-def test_catalog_migration_accepts_startup_created_schema_at_legacy_revision(
+def test_catalog_migration_accepts_startup_created_schema_at_iteration_196_baseline(
     tmp_path: Path,
 ) -> None:
-    """Upgrade remains safe when startup schema creation predates Alembic stamping."""
+    """The integrated upgrade accepts an ORM-created schema baselined at Iteration 196.
+
+    A deployment that created its Iteration 196 ORM schema before introducing
+    Alembic must explicitly baseline that reviewed 196 state.  The unified
+    head then has to run only the Iteration 197 branch and merge revision; it
+    must not replay the already-materialized 196 branch into existing tables.
+    """
     database_path = tmp_path / "startup-created.sqlite3"
     sync_database_url = f"sqlite:///{database_path}"
     database_url = f"sqlite+aiosqlite:///{database_path}"
@@ -298,14 +305,14 @@ def test_catalog_migration_accepts_startup_created_schema_at_legacy_revision(
     engine = create_engine(sync_database_url)
     try:
         Base.metadata.create_all(engine)
-        command.stamp(config, "20260811_asset_research_task_leases")
+        command.stamp(config, ITERATION_196_HEAD)
 
         command.upgrade(config, "head")
 
         inspector = inspect(engine)
         assert "dg_dataset_storages" in inspector.get_table_names()
 
-        command.downgrade(config, "20260811_asset_research_task_leases")
+        command.downgrade(config, ITERATION_196_HEAD)
         command.upgrade(config, "head")
 
         assert "dg_dataset_storages" in inspect(engine).get_table_names()
