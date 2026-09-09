@@ -24,6 +24,8 @@ class TestConfig:
         monkeypatch.delenv("AI_RESEARCH_PROTOCOL_V2_WORKER_FACTORY", raising=False)
         monkeypatch.delenv("AI_RESEARCH_PROTOCOL_V2_WORKER_POLL_SECONDS", raising=False)
         monkeypatch.delenv("MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED", raising=False)
+        monkeypatch.delenv("MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED", raising=False)
+        monkeypatch.delenv("MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY", raising=False)
         settings = Settings(_env_file=None, DEBUG=True)
         assert settings.APP_NAME == "ai-for-investor"
         assert settings.JWT_ALGORITHM == "HS256"
@@ -37,6 +39,7 @@ class TestConfig:
         assert settings.AI_RESEARCH_PROTOCOL_V2_WORKER_FACTORY == ""
         assert settings.AI_RESEARCH_PROTOCOL_V2_WORKER_POLL_SECONDS == 10.0
         assert settings.MARKET_DATA_RESEARCH_CACHE_FILL_ENABLED is False
+        assert settings.MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED is False
         assert "openai" in settings.AI_PROVIDERS
         assert "ollama" in settings.AI_PROVIDERS
         assert "volcengine_ark" in settings.AI_PROVIDERS
@@ -77,6 +80,47 @@ class TestConfig:
         )
 
         assert settings.MARKET_DATA_CURSOR_SIGNING_KEY == "x" * 32
+
+    def test_market_data_research_backtest_bridge_requires_its_own_hmac_key_and_root(self):
+        """The strict local-only bridge cannot be enabled by a browser flag alone."""
+        with pytest.raises(ValidationError, match="MARKET_DATA_QUERY_V2_ENABLED"):
+            Settings(
+                _env_file=None,
+                DEBUG=True,
+                MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=True,
+            )
+
+        with pytest.raises(ValidationError, match="MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY"):
+            Settings(
+                _env_file=None,
+                DEBUG=True,
+                MARKET_DATA_QUERY_V2_ENABLED=True,
+                MARKET_DATA_CURSOR_SIGNING_KEY="x" * 32,
+                MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=True,
+            )
+
+        with pytest.raises(ValidationError, match="MARKET_DATA_RESEARCH_ARTIFACT_ROOT"):
+            Settings(
+                _env_file=None,
+                DEBUG=True,
+                MARKET_DATA_QUERY_V2_ENABLED=True,
+                MARKET_DATA_CURSOR_SIGNING_KEY="x" * 32,
+                MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=True,
+                MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY="y" * 32,
+                MARKET_DATA_RESEARCH_ARTIFACT_ROOT="relative-artifacts",
+            )
+
+        settings = Settings(
+            _env_file=None,
+            DEBUG=True,
+            MARKET_DATA_QUERY_V2_ENABLED=True,
+            MARKET_DATA_CURSOR_SIGNING_KEY="x" * 32,
+            MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=True,
+            MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY="y" * 32,
+            MARKET_DATA_RESEARCH_ARTIFACT_ROOT="/tmp/market-data-research-artifacts",
+        )
+
+        assert settings.MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED is True
 
     def test_market_data_openbb_provider_uses_one_canonical_token_across_runtime_paths(self):
         """Mixed-case operator input cannot create a route/receipt provider-ID split."""

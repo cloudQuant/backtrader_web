@@ -122,6 +122,25 @@ class Settings(BaseSettings):
             "Allow an explicitly requested strategy-data cache fill with research source authorization"
         ),
     )
+    MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED: bool = Field(
+        default=False,
+        description=(
+            "Bind AI strategy research backtests to strict local-only Iteration 197 data artifacts"
+        ),
+    )
+    MARKET_DATA_RESEARCH_ARTIFACT_ROOT: str = Field(
+        default=str((_REPO_ROOT / "data" / "market_data_research").resolve()),
+        description=(
+            "Server-owned root for immutable market-data research/backtest artifacts"
+        ),
+    )
+    MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY: str = Field(
+        default="",
+        repr=False,
+        description=(
+            "Operator-managed HMAC key used to verify server-issued research data bindings"
+        ),
+    )
     MARKET_DATA_CURSOR_SIGNING_KEY: str = Field(
         default="",
         repr=False,
@@ -1046,6 +1065,23 @@ class Settings(BaseSettings):
                 "MARKET_DATA_CURSOR_SIGNING_KEY is required when "
                 "MARKET_DATA_QUERY_V2_ENABLED=true"
             )
+        if self.MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED:
+            if not self.MARKET_DATA_QUERY_V2_ENABLED:
+                raise ValueError(
+                    "MARKET_DATA_QUERY_V2_ENABLED is required when "
+                    "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=true"
+                )
+            if len(self.MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY.encode("utf-8")) < 32:
+                raise ValueError(
+                    "MARKET_DATA_RESEARCH_ARTIFACT_SIGNING_KEY must be at least 32 bytes when "
+                    "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=true"
+                )
+            artifact_root = Path(self.MARKET_DATA_RESEARCH_ARTIFACT_ROOT).expanduser()
+            if not artifact_root.is_absolute():
+                raise ValueError(
+                    "MARKET_DATA_RESEARCH_ARTIFACT_ROOT must be an absolute path when "
+                    "MARKET_DATA_RESEARCH_BACKTEST_BRIDGE_ENABLED=true"
+                )
         if production_security_mode(self):
             cors_origins = {
                 origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()
