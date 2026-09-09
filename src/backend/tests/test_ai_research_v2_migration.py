@@ -28,7 +28,7 @@ _PRE_HOLDOUT_FINALIZE_HEAD = "20260907_ai_research_holdout_claim"
 _PRE_EVIDENCE_COMMAND_HEAD = "20260907_ai_research_holdout_finalize"
 _HEAD = "20260908_ai_research_evidence_command"
 _LATEST_HEAD = "20260908_ai_research_approval_authority"
-_INTEGRATED_HEAD = "20260909_ai_research_market_data_merge"
+_INTEGRATED_HEAD = "20260909_market_data_research_binding_consumers"
 _GATE_UNIQUE_NAME = "uq_ai_research_gate_decision_evaluation_input_gate"
 _EVIDENCE_COMMAND_COLUMNS = {
     "command_id": "ai_research_holdout_evaluation_commands",

@@ -21,7 +21,7 @@ from alembic import command
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _PREVIOUS = "20260908_ai_research_holdout_executions"
 _HEAD = "20260908_ai_research_approval_authority"
-_INTEGRATED_HEAD = "20260909_ai_research_market_data_merge"
+_INTEGRATED_HEAD = "20260909_market_data_research_binding_consumers"
 _GRANT_TABLE = "ai_research_approval_grants"
 _GRANT_AUDIT_TABLE = "ai_research_approval_grant_audits"
 _PROFILE_TABLE = "ai_research_capability_profiles"
