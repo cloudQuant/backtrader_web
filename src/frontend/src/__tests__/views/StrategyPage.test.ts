@@ -8074,6 +8074,59 @@ describe('StrategyPage', () => {
     }
   })
 
+  it.each([
+    ['000001.SZ', 'stock'],
+    ['RB0', 'futures'],
+    ['BTCUSDT', 'crypto'],
+  ])('sends only the exact classified asset type as Iteration 197 bridge intent for %s', async (
+    symbol,
+    assetType,
+  ) => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.symbol = symbol
+
+      const request = vm.buildAIResearchRequest('桥接测试', symbol)
+
+      expect(request.data_config).toEqual({ market_data_asset_type: assetType })
+      expect(Object.keys(request.data_config)).toEqual(['market_data_asset_type'])
+      expect(request.data_config).not.toHaveProperty('provider')
+      expect(request.data_config).not.toHaveProperty('directory_path')
+      expect(request.data_config).not.toHaveProperty('canonical_id')
+      expect(request.data_config).not.toHaveProperty('query_id')
+      expect(request.data_config).not.toHaveProperty('receipt')
+      expect(request.data_config).not.toHaveProperty('artifact')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it.each([
+    ['the v2 gate is disabled', 'false', 'true', '000001.SZ'],
+    ['the strategy bridge gate is disabled', 'true', 'false', '000001.SZ'],
+    ['the symbol cannot be classified', 'true', 'true', 'UNKNOWN-SYMBOL'],
+  ])('omits Iteration 197 bridge intent when %s', async (
+    _description,
+    v2Enabled,
+    bridgeEnabled,
+    symbol,
+  ) => {
+    vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', v2Enabled)
+    vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', bridgeEnabled)
+    const wrapper = doMount()
+    try {
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.symbol = symbol
+
+      expect(vm.buildAIResearchRequest('桥接测试', symbol).data_config).toBeUndefined()
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it('adds strict local-only market-data evidence without replacing the Iteration 196 precheck', async () => {
     vi.stubEnv('VITE_MARKET_DATA_QUERY_V2_ENABLED', 'true')
     vi.stubEnv('VITE_MARKET_DATA_STRATEGY_BRIDGE_ENABLED', 'true')
